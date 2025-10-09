@@ -341,16 +341,6 @@ function validateField(field) {
         }
     }
 
-    // Walidacja PESEL
-    if (field.id === 'pesel' && fieldValue) {
-        if (!/^\d{11}$/.test(fieldValue)) {
-            errorSpan.textContent = 'PESEL musi zawierać 11 cyfr';
-            errorSpan.style.display = 'block';
-            field.classList.add('error');
-            return false;
-        }
-    }
-
     // Walidacja kodu pocztowego (osobisty)
     if (field.id === 'postal_code' && fieldValue) {
         if (!/^\d{2}-\d{3}$/.test(fieldValue)) {

@@ -384,7 +384,7 @@
                         <div class="form-two-columns">
                             <!-- LEFT COLUMN - Dane osobowe -->
                             <div class="form-column-left">
-                                <h4 style="margin-bottom: 16px; color: var(--primary-color); font-size: 18px; font-weight: 600; ">Dane osobowe:</h4>
+                                <h4 style="margin-bottom: 12px; color: var(--primary-color); font-size: 18px; font-weight: 600; ">Dane osobowe:</h4>
                                 <div class="form-row">
                                     <div class="form-group">
                                         <label for="first_name">Imię *</label>
@@ -413,6 +413,7 @@
                                     </div>
                                 </div>
 
+                                <h4 style="margin: 24px 0 12px 0; color: var(--primary-color); font-size: 18px; font-weight: 600; ">Adres zamieszkania:</h4>
                                 <div class="form-row">
                                     <div class="form-group">
                                         <label for="address">Adres (ulica i numer) *</label>
@@ -433,12 +434,6 @@
                                         <input type="text" id="city" name="city" required placeholder="np. Warszawa">
                                         <span class="error-message" id="error_city"></span>
                                     </div>
-
-                                    <div class="form-group">
-                                        <label for="pesel">PESEL *</label>
-                                        <input type="text" id="pesel" name="pesel" required maxlength="11" placeholder="11 cyfr">
-                                        <span class="error-message" id="error_pesel"></span>
-                                    </div>
                                 </div>
 
                                 <div class="form-group">
@@ -448,7 +443,7 @@
 
                                 <!-- B2B FIELDS -->
                                 <div class="b2b-fields" id="b2bFields" style="display: none;">
-                                    <h4 style="margin-bottom: 16px; color: var(--primary-color); font-size: 18px; font-weight: 600; ">Dane firmy:</h4>
+                                    <h4 style="margin-bottom: 12px; color: var(--primary-color); font-size: 18px; font-weight: 600; ">Dane firmy:</h4>
 
                                     <div class="form-group">
                                         <label for="company_name">Nazwa firmy *</label>
@@ -523,7 +518,7 @@
                                     </label>
                                 </div>
                                 <div style="display: block">
-                                    <h4 style="margin-bottom: 16px; color: var(--primary-color); font-size: 18px; font-weight: 600; ">Region sprzedaży:</h4>
+                                    <h4 style="margin-bottom: 12px; color: var(--primary-color); font-size: 18px; font-weight: 600; ">Region sprzedaży:</h4>
                                         <!-- WOJEWÓDZTWO I MIEJSCOWOŚĆ DZIAŁALNOŚCI -->
                                     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px">
                                         <div class="form-group">
@@ -568,7 +563,7 @@
 
                                 <!-- NDA SECTION -->
                                 <div class="form-group">
-                                    <h4 style="margin-bottom: 16px; color: var(--primary-color); font-size: 18px; font-weight: 600;">Umowa NDA *</h4>
+                                    <h4 style="margin-bottom: 12px; color: var(--primary-color); font-size: 18px; font-weight: 600;">Umowa NDA *</h4>
                                     <button type="button" class="btn-generate-nda" onclick="generateNDA()">
                                         📄 Wygeneruj umowę NDA
                                     </button>

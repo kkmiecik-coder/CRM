@@ -42,7 +42,6 @@ class PartnerApplication(db.Model):
     city = db.Column(db.String(100), nullable=False, comment='Miasto')
     address = db.Column(db.String(255), nullable=False, comment='Adres (ulica i numer)')  # POPRAWIONO: adress -> address
     postal_code = db.Column(db.String(6), nullable=False, comment='Kod pocztowy kandydata (format: 00-000)')
-    pesel = db.Column(db.String(11), nullable=False, comment='PESEL kandydata')
     voivodeship = db.Column(db.String(50), nullable=False, comment='Województwo działalności')
     business_location = db.Column(db.String(100), nullable=False, comment='Miejscowość działalności')
     
@@ -129,7 +128,6 @@ class PartnerApplication(db.Model):
             'city': self.city,
             'address': self.address,  # POPRAWIONO: locality -> address
             'postal_code': self.postal_code,
-            'pesel': self.pesel,
             'voivodeship': self.voivodeship,
             'business_location': self.business_location,
             'about_text': self.about_text,
@@ -156,39 +154,3 @@ class PartnerApplication(db.Model):
     
     def __repr__(self):
         return f'<PartnerApplication {self.email} - {self.status}>'
-
-
-class PartnerLearningSession(db.Model):
-    """
-    Model dla sesji e-learningowych partnerów
-    
-    Przechowuje progress użytkownika na platformie szkoleniowej,
-    wyniki quizów, czasy spędzone na poszczególnych krokach.
-    """
-    __tablename__ = 'partner_learning_sessions'
-    
-    # PRIMARY KEY
-    id = db.Column(db.Integer, primary_key=True)
-    
-    # DANE SESJI
-    session_id = db.Column(db.String(64), nullable=False, unique=True, index=True, comment='Unikalny identyfikator sesji')
-    current_step = db.Column(db.String(10), default='1.1', comment='Aktualny krok (np. 1.1, M1, 3.1)')
-    
-    # PROGRESS TRACKING
-    completed_steps = db.Column(JSON, default=list, comment='Lista ukończonych kroków')
-    locked_steps = db.Column(JSON, default=list, comment='Lista zablokowanych kroków')
-    
-    # QUIZ RESULTS
-    quiz_results = db.Column(JSON, default=dict, comment='Wyniki quizów: {M1: {attempts: 2, passed: true}}')
-    
-    # TIME TRACKING
-    total_time_spent = db.Column(db.Integer, default=0, comment='Całkowity czas spędzony w sekundach')
-    step_times = db.Column(JSON, default=dict, comment='Czasy spędzone na krokach: {1.1: 300, 1.2: 450}')
-    last_activity_at = db.Column(db.DateTime, comment='Ostatnia aktywność')
-    
-    # METADATA
-    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False, comment='Data utworzenia sesji')
-    completed_at = db.Column(db.DateTime, comment='Data ukończenia szkolenia')
-    
-    def __repr__(self):
-        return f'<PartnerLearningSession {self.session_id} - Step {self.current_step}>'

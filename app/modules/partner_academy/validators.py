@@ -97,18 +97,6 @@ def validate_application_data(form_data):
         postal_code = form_data['postal_code']
         if not re.match(r'^\d{2}-\d{3}$', postal_code):
             errors['postal_code'] = 'Kod pocztowy musi być w formacie 00-000'
-    
-    # PESEL
-    if not form_data.get('pesel'):
-        errors['pesel'] = 'PESEL jest wymagany'
-    else:
-        pesel = form_data['pesel']
-        if not re.match(r'^\d{11}$', pesel):
-            errors['pesel'] = 'PESEL musi składać się z 11 cyfr'
-        else:
-            # Walidacja sumy kontrolnej PESEL
-            if not _validate_pesel_checksum(pesel):
-                errors['pesel'] = 'Nieprawidłowy numer PESEL (błędna suma kontrolna)'
 
     # WOJEWÓDZTWO - NOWE
     if not form_data.get('voivodeship'):
@@ -212,30 +200,6 @@ def validate_application_data(form_data):
     return is_valid, errors
 
 
-def _validate_pesel_checksum(pesel):
-    """
-    Walidacja sumy kontrolnej PESEL
-    
-    Args:
-        pesel (str): Numer PESEL (11 cyfr)
-        
-    Returns:
-        bool: True jeśli suma kontrolna jest prawidłowa
-    """
-    if len(pesel) != 11 or not pesel.isdigit():
-        return False
-    
-    weights = [1, 3, 7, 9, 1, 3, 7, 9, 1, 3]
-    checksum = 0
-    
-    for i in range(10):
-        checksum += int(pesel[i]) * weights[i]
-    
-    checksum = (10 - (checksum % 10)) % 10
-    
-    return checksum == int(pesel[10])
-
-
 def _validate_nip_checksum(nip):
     """
     Walidacja sumy kontrolnej NIP
@@ -301,57 +265,3 @@ def validate_file(file):
         return False, f'Plik jest za duży ({size_mb:.1f}MB). Maksymalny rozmiar to 5MB'
     
     return True, None
-
-
-def validate_quiz_answers(step_id, answers):
-    """
-    Walidacja odpowiedzi w quizie
-    
-    Args:
-        step_id (str): ID kroku (np. 'M1', 'M2')
-        answers (dict): Słownik odpowiedzi {question_id: answer}
-        
-    Returns:
-        dict: {
-            'all_correct': bool,
-            'results': {question_id: bool}
-        }
-    """
-    from modules.partner_academy.utils import get_quiz_answers
-    
-    correct_answers = get_quiz_answers()
-    
-    if step_id not in correct_answers:
-        return {
-            'all_correct': False,
-            'results': {}
-        }
-    
-    quiz_correct_answers = correct_answers[step_id]
-    results = {}
-    all_correct = True
-    
-    for question_id, correct_answer in quiz_correct_answers.items():
-        user_answer = answers.get(question_id)
-        
-        # Porównaj odpowiedzi
-        if isinstance(correct_answer, list):
-            # Multiple choice - porównaj tablice
-            is_correct = (
-                isinstance(user_answer, list) and
-                len(correct_answer) == len(user_answer) and
-                all(ans in user_answer for ans in correct_answer)
-            )
-        else:
-            # Single choice
-            is_correct = user_answer == correct_answer
-        
-        results[question_id] = is_correct
-        
-        if not is_correct:
-            all_correct = False
-    
-    return {
-        'all_correct': all_correct,
-        'results': results
-    }

@@ -77,59 +77,6 @@ def rate_limit(max_requests=5, window=60):
         return decorated_function
     return decorator
 
-
-# ============================================================================
-# QUIZ ANSWERS
-# ============================================================================
-
-def get_quiz_answers(step=None):
-    """
-    Pobierz prawidłowe odpowiedzi dla danego quizu lub wszystkich quizów
-    
-    Args:
-        step (str, optional): Identyfikator kroku (np. 'M1', 'M2'). 
-                             Jeśli None, zwraca wszystkie odpowiedzi.
-        
-    Returns:
-        dict: Słownik z prawidłowymi odpowiedziami
-              Jeśli step podany: {question_id: correct_answer}
-              Jeśli step None: {step_id: {question_id: correct_answer}}
-    
-    Example:
-        >>> get_quiz_answers('M1')
-        {'q1': 'b', 'q2': 'a', 'q3': 'c'}
-        
-        >>> get_quiz_answers()
-        {'M1': {'q1': 'b', 'q2': 'a'}, 'M2': {'q1': 'a', 'q2': 'c'}}
-    """
-    
-    # Wszystkie odpowiedzi do quizów
-    # UWAGA: To są przykładowe odpowiedzi - zastąp je rzeczywistymi
-    quiz_answers = {
-        'M1': {
-            'q1': 'b',  # Przykładowa odpowiedź
-            'q2': 'a',
-            'q3': 'c',
-            'q4': 'b',
-            'q5': 'a'
-        },
-        'M2': {
-            'q1': 'a',
-            'q2': 'c',
-            'q3': 'b',
-            'q4': 'a',
-            'q5': 'c'
-        },
-        # Dodaj więcej quizów według potrzeb:
-        # 'M3': {...},
-        # 'FINAL': {...}
-    }
-    
-    if step:
-        return quiz_answers.get(step, {})
-    return quiz_answers
-
-
 # ============================================================================
 # NDA PDF GENERATION
 # ============================================================================
@@ -239,6 +186,3 @@ def generate_nda_pdf(data):
         import traceback
         current_app.logger.error(traceback.format_exc())
         raise
-
-
-# Koniec pliku utils.py

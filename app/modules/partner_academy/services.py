@@ -19,7 +19,7 @@ from werkzeug.utils import secure_filename
 from flask import current_app, render_template
 from flask_mail import Message
 from extensions import db, mail
-from modules.partner_academy.models import PartnerApplication, PartnerLearningSession
+from modules.partner_academy.models import PartnerApplication
 from datetime import datetime
 import magic
 import uuid
@@ -83,7 +83,6 @@ class ApplicationService:
             'city': form_data['city'],
             'address': form_data['address'],
             'postal_code': form_data['postal_code'],
-            'pesel': form_data['pesel'],
             'voivodeship': form_data['voivodeship'],
             'business_location': form_data['business_location'],
             'about_text': form_data.get('about_text', ''),
@@ -385,143 +384,3 @@ class EmailService:
                 f"Błąd wysyłki emaila o statusie: {str(e)}"
             )
             raise
-
-
-class LearningService:
-    """Serwis zarządzania postępem szkoleniowym"""
-    
-    @staticmethod
-    def find_or_create_session_by_ip(ip_address):
-        """
-        Znajdź istniejącą sesję po IP lub utwórz nową
-        
-        Args:
-            ip_address (str): Adres IP użytkownika
-            
-        Returns:
-            str: session_id
-        """
-        # Szukaj aktywnej sesji z tego IP (ostatnie 24h)
-        from datetime import timedelta
-        yesterday = datetime.utcnow() - timedelta(days=1)
-        
-        existing_session = PartnerLearningSession.query.filter(
-            PartnerLearningSession.ip_address == ip_address,
-            PartnerLearningSession.last_accessed_at >= yesterday
-        ).first()
-        
-        if existing_session:
-            return existing_session.session_id
-        
-        # Utwórz nową sesję
-        session_id = str(uuid.uuid4())
-        new_session = PartnerLearningSession(
-            session_id=session_id,
-            ip_address=ip_address,
-            current_step='1.1'
-        )
-        
-        db.session.add(new_session)
-        db.session.commit()
-        
-        current_app.logger.info(f"Utworzono nową sesję: {session_id}")
-        
-        return session_id
-    
-    @staticmethod
-    def get_session(session_id):
-        """Pobierz sesję po ID"""
-        return PartnerLearningSession.query.filter_by(session_id=session_id).first()
-    
-    @staticmethod
-    def load_progress(session_id):
-        """
-        Załaduj progress użytkownika
-        
-        Args:
-            session_id (str): ID sesji
-            
-        Returns:
-            dict: Progress data
-        """
-        session = LearningService.get_session(session_id)
-        
-        if not session:
-            return {
-                'current_step': '1.1',
-                'completed_steps': [],
-                'quiz_results': {},
-                'total_time_spent': 0
-            }
-        
-        return {
-            'current_step': session.current_step,
-            'completed_steps': session.completed_steps or [],
-            'quiz_results': session.quiz_results or {},
-            'total_time_spent': session.total_time_spent
-        }
-    
-    @staticmethod
-    def update_progress(session_id, current_step, completed_steps, quiz_results=None):
-        """
-        Aktualizuj progress użytkownika
-        
-        Args:
-            session_id (str): ID sesji
-            current_step (str): Aktualny krok
-            completed_steps (list): Lista ukończonych kroków
-            quiz_results (dict, optional): Wyniki quizów
-        """
-        session = LearningService.get_session(session_id)
-        
-        if not session:
-            raise ValueError(f"Sesja {session_id} nie istnieje")
-        
-        session.current_step = current_step
-        session.completed_steps = completed_steps
-        
-        if quiz_results:
-            current_results = session.quiz_results or {}
-            current_results.update(quiz_results)
-            session.quiz_results = current_results
-        
-        session.last_accessed_at = datetime.utcnow()
-        
-        # Sprawdź czy szkolenie zostało ukończone
-        if current_step == '3.1' and not session.is_completed:
-            session.is_completed = True
-            session.completed_at = datetime.utcnow()
-        
-        db.session.commit()
-        
-        current_app.logger.info(
-            f"Zaktualizowano progress sesji {session_id}: krok {current_step}"
-        )
-    
-    @staticmethod
-    def sync_time(session_id, time_spent, step_time_tracking=None):
-        """
-        Synchronizuj czas spędzony w sesji
-        
-        Args:
-            session_id (str): ID sesji
-            time_spent (int): Czas w sekundach
-            step_time_tracking (dict, optional): Czas na poszczególnych krokach
-        """
-        session = LearningService.get_session(session_id)
-        
-        if not session:
-            raise ValueError(f"Sesja {session_id} nie istnieje")
-        
-        session.total_time_spent = time_spent
-        
-        if step_time_tracking:
-            session.step_time_tracking = step_time_tracking
-        
-        session.last_accessed_at = datetime.utcnow()
-        
-        db.session.commit()
-        
-        current_app.logger.info(
-            f"Zsynchronizowano czas sesji {session_id}: {time_spent}s"
-        )
