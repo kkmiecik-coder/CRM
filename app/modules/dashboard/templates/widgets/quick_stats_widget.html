@@ -1,0 +1,37 @@
+<!-- Widget Quick Stats -->
+<div class="widget-card stats-widget widget">
+    <div class="widget-title">📊 Podsumowanie</div>
+    <div class="stats-grid">
+
+        <div class="stat-item">
+            <div class="stat-number">{{ stats.quotes.month_count or 0 }}</div>
+            <div class="stat-label">Wyceny w tym miesiącu</div>
+        </div>
+
+        <div class="stat-item">
+            <div class="stat-number">{{ stats.quotes.week_count or 0 }}</div>
+            <div class="stat-label">Wyceny w tym tygodniu</div>
+        </div>
+
+        <div class="stat-item">
+            <div class="stat-number">{{ "{:,.0f}".format(stats.quotes.month_value or 0) }} zł</div>
+            <div class="stat-label">Wartość ofert (miesiąc)</div>
+        </div>
+
+        <div class="stat-item">
+            <div class="stat-number">{{ stats.quotes.accepted_count or 0 }}</div>
+            <div class="stat-label">Zaakceptowane oferty</div>
+        </div>
+
+        <div class="stat-item">
+            <div class="stat-number">{{ stats.quotes.acceptance_rate or 0 }}%</div>
+            <div class="stat-label">Wskaźnik akceptacji</div>
+        </div>
+
+        <div class="stat-item">
+            <div class="stat-number">{{ stats.clients.total_count or 0 }}</div>
+            <div class="stat-label">Wszyscy klienci</div>
+        </div>
+
+    </div>
+</div>

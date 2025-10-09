@@ -1,0 +1,21 @@
+[2025-07-29 00:03:59] [INFO] [reports.routers] [admin@woodpower.pl] [reports.api_save_selected_orders] Rozpoczęcie zapisywania wybranych zamówień user_email=admin@woodpower.pl order_ids_count=1 order_ids=[16250684] date_from=2025-06-29 date_to=2025-07-28
+[2025-07-29 00:03:59] [INFO] [reports.routers] [admin@woodpower.pl] [reports.api_save_selected_orders] Analiza zamówień do zapisania total_requested=1 existing_in_db=0 new_to_save=1 existing_order_ids=[] new_order_ids=[16250684]
+[2025-07-29 00:03:59] [INFO] [reports.routers] [admin@woodpower.pl] [reports.api_save_selected_orders] Wywołanie synchronizacji dla wybranych zamówień new_order_ids=[16250684]
+[2025-07-29 00:03:59] [INFO] [reports.routers] [admin@woodpower.pl] [reports.api_save_selected_orders] Rozpoczęcie synchronizacji wybranych zamówień order_ids_count=1 order_ids=[16250684]
+[2025-07-29 00:03:59] [INFO] [reports.service] [admin@woodpower.pl] [reports.api_save_selected_orders] Pobieranie pojedynczego zamówienia order_id=16250684
+[2025-07-29 00:03:59] [DEBUG] [urllib3.connectionpool] [admin@woodpower.pl] [reports.api_save_selected_orders] Starting new HTTPS connection (1): api.baselinker.com:443
+[2025-07-29 00:03:59] [DEBUG] [urllib3.connectionpool] [admin@woodpower.pl] [reports.api_save_selected_orders] https://api.baselinker.com:443 "POST /connector.php HTTP/1.1" 200 None
+[2025-07-29 00:03:59] [INFO] [reports.service] [admin@woodpower.pl] [reports.api_save_selected_orders] Pomyślnie pobrano zamówienia orders_count=1 has_date_filter=False single_order=True
+[2025-07-29 00:03:59] [DEBUG] [reports.routers] [admin@woodpower.pl] [reports.api_save_selected_orders] Pobrano szczegóły zamówienia order_id=16250684 products_count=1
+[2025-07-29 00:03:59] [INFO] [reports.routers] [admin@woodpower.pl] [reports.api_save_selected_orders] Rozpoczęcie pełnej synchronizacji zamówień orders_to_sync=1 failed_orders_count=0
+[2025-07-29 00:03:59] [INFO] [reports.service] [admin@woodpower.pl] [reports.api_save_selected_orders] Rozpoczęcie synchronizacji sync_type=selected date_from=None orders_list_provided=True orders_list_count=1
+[2025-07-29 00:03:59] [INFO] [reports.service] [admin@woodpower.pl] [reports.api_save_selected_orders] Używam podanej listy zamówień orders_count=1
+[2025-07-29 00:03:59] [INFO] [reports.service] [admin@woodpower.pl] [reports.api_save_selected_orders] Analiza istniejących zamówień total_orders=1 existing_orders=0 new_orders=1
+[2025-07-29 00:03:59] [INFO] [reports.service] [admin@woodpower.pl] [reports.api_save_selected_orders] Dodawanie nowych zamówień count=1
+[2025-07-29 00:03:59] [DEBUG] [reports.service] [admin@woodpower.pl] [reports.api_save_selected_orders] Nie można obliczyć objętości - brak wymiarów order_id=16250684 product_name=Komplet schodów bukowych surowych zgodnie z załącznikiem (grubość 3 cm) - fronty delikatnie zaoblone  parsed_dimensions={"length_cm": null, "width_cm": null, "thickness_mm": null}
+[2025-07-29 00:03:59] [INFO] [reports.service] [admin@woodpower.pl] [reports.api_save_selected_orders] Obliczono łączną objętość zamówienia order_id=16250684 total_m3=0.0 products_count=1
+[2025-07-29 00:03:59] [DEBUG] [reports.service] [admin@woodpower.pl] [reports.api_save_selected_orders] Dodano zamówienie do bazy order_id=16250684 products_count=1
+[2025-07-29 00:03:59] [INFO] [reports.service] [admin@woodpower.pl] [reports.api_save_selected_orders] Dodano rekordy do bazy added_count=1
+[2025-07-29 00:03:59] [INFO] [reports.service] [admin@woodpower.pl] [reports.api_save_selected_orders] Synchronizacja zakończona pomyślnie orders_processed=1 orders_added=1 orders_updated=0 duration_seconds=0
+[2025-07-29 00:03:59] [INFO] [reports.routers] [admin@woodpower.pl] [reports.api_save_selected_orders] Synchronizacja wybranych zamówień zakończona pomyślnie orders_processed=1 orders_added=1 orders_updated=0
+[2025-07-29 00:03:59] [INFO] [reports.routers] [admin@woodpower.pl] [reports.api_save_selected_orders] Zapisywanie wybranych zamówień zakończone pomyślnie user_email=admin@woodpower.pl orders_requested=1 orders_saved=1 orders_updated=0 orders_processed=1

@@ -1,0 +1,74 @@
+<!-- app/modules/preview3d_ar/templates/3d_modal.html -->
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Wood Power - Podgląd 3D</title>
+
+    <!-- CSS -->
+    <link rel="stylesheet" href="{{ url_for('preview3d_ar.static', filename='css/modal_style.css') }}">
+</head>
+<body>
+    <div class="modal-viewer-container">
+        <!-- Header z informacjami o produkcie -->
+        <header class="viewer-header">
+            <div class="product-info">
+                <div class="product-title" id="product-title">
+                    Ładowanie produktu...
+                </div>
+                <div class="product-dimensions" id="product-dimensions">
+                    --- × --- × --- cm
+                </div>
+            </div>
+
+            <div class="viewer-controls">
+                <button class="btn btn-success" id="btn-ar" title="Włącz AR" style="display: none;">
+                    📱 AR
+                </button>
+                <button class="btn btn-secondary" id="btn-reset" title="Resetuj widok">
+                    🔄 Reset
+                </button>
+                <button class="btn btn-close" onclick="window.close()" title="Zamknij">
+                    ✕ Zamknij
+                </button>
+            </div>
+        </header>
+
+        <!-- Główny obszar canvas -->
+        <div class="canvas-container">
+            <canvas id="wood-canvas"></canvas>
+
+            <!-- Loading screen -->
+            <div class="loading" id="loading">
+                <div class="loading-spinner"></div>
+                <div>Ładowanie modelu 3D...</div>
+            </div>
+
+            <!-- Error message -->
+            <div class="error-message" id="error-message">
+                <h3>Błąd ładowania</h3>
+                <p id="error-text"></p>
+            </div>
+        </div>
+
+        <!-- Pomoc dla użytkownika -->
+        <div class="help-overlay">
+            <div class="help-item"><strong>🖱️ Mysz:</strong> Obracaj widok</div>
+            <div class="help-item"><strong>🔍 Scroll:</strong> Przybliż/oddal</div>
+            <div class="help-item"><strong>📱 Środkowy przycisk:</strong> Przesuń</div>
+            <div class="help-item"><strong>🔄 Reset:</strong> Przywróć domyślny widok</div>
+        </div>
+    </div>
+
+    <!-- Three.js -->
+    <script src="https://cdn.jsdelivr.net/npm/three@0.140.0/build/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.140.0/examples/js/controls/OrbitControls.js"></script>
+
+    <!-- Wood Viewer -->
+    <script src="{{ url_for('preview3d_ar.static', filename='js/wood-viewer.js') }}"></script>
+
+    <!-- Modal 3D Handler -->
+    <script src="{{ url_for('preview3d_ar.static', filename='js/modal-3d.js') }}"></script>
+</body>
+</html>

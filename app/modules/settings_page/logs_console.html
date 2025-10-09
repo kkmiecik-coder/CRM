@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <title>Konsola logów - Wood Power CRM</title>
+    <link rel="icon" href="{{ url_for('static', filename='images/favicon.png') }}" type="image/png">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <style>
+        .log-console {
+            background: #000;
+            color: #0f0;
+            padding: 10px;
+            height: 80vh;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            font-family: monospace;
+        }
+
+        .logs-controls {
+            margin-bottom: 10px;
+        }
+
+            .logs-controls select, .logs-controls button {
+                margin-right: 10px;
+            }
+    </style>
+</head>
+<body>
+    <div class="app-container">
+        {% include 'sidebar/sidebar.html' %}
+        <main class="main-content">
+            <h1 class="title-with-underline">Konsola logów</h1>
+            <div class="logs-controls">
+                <select id="logFileSelect"></select>
+                <button id="refreshBtn" class="modify-button">Odśwież</button>
+                <button id="clearBtn" class="delete-button">Wyczyść</button>
+            </div>
+            <div id="logContainer" class="log-console"></div>
+        </main>
+    </div>
+    <script src="{{ url_for('static', filename='js/sidebar.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+    <script>
+const logContainer = document.getElementById('logContainer');
+const refreshBtn = document.getElementById('refreshBtn');
+const clearBtn = document.getElementById('clearBtn');
+const selectEl = document.getElementById('logFileSelect');
+
+async function loadFiles(){
+    try{
+        const res = await fetch('/logging/api/logs/files');
+        const data = await res.json();
+        if(data.success){
+            selectEl.innerHTML = '';
+            const curOpt = document.createElement('option');
+            curOpt.value = 'current';
+            curOpt.textContent = 'Bieżący';
+            selectEl.appendChild(curOpt);
+            data.files.forEach(f=>{
+                const op=document.createElement('option');
+                op.value=f.filename;
+                op.textContent = f.formatted_date + ' (' + f.size_mb + ' MB)';
+                selectEl.appendChild(op);
+            });
+        }
+    }catch(e){console.error(e);}
+}
+
+async function fetchLogs(){
+    let url = '/logging/api/logs/current';
+    const val = selectEl.value;
+    if(val && val !== 'current'){
+        url = '/logging/api/logs/read/' + encodeURIComponent(val);
+    }
+    try{
+        const res = await fetch(url);
+        const data = await res.json();
+        if(data.success){
+            logContainer.textContent = data.content;
+            logContainer.scrollTop = logContainer.scrollHeight;
+        }
+    }catch(e){console.error(e);}
+}
+
+refreshBtn.addEventListener('click', fetchLogs);
+clearBtn.addEventListener('click', ()=>{logContainer.textContent='';});
+
+loadFiles().then(fetchLogs);
+setInterval(fetchLogs, 1000);
+    </script>
+</body>
+</html>

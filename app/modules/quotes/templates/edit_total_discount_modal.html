@@ -1,0 +1,130 @@
+<!-- modules/quotes/templates/edit_total_discount_modal.html -->
+<div id="edit-total-discount-modal" class="edit-modal-overlay" style="display: none;">
+    <div class="edit-modal-box">
+        <div class="edit-modal-header">
+            <h2 class="edit-modal-title">Rabat całkowity</h2>
+            <button class="edit-modal-close" id="close-edit-total-discount-modal">&times;</button>
+        </div>
+
+        <div class="edit-modal-content">
+            <!-- Informacje o wycenie -->
+            <div class="edit-variant-info">
+                <h3>Rabat na całą wycenę</h3>
+                <div class="variant-details">
+                    <p><strong>Wycena:</strong> <span id="total-quote-number">-</span></p>
+                    <p><strong>Liczba produktów:</strong> <span id="total-products-count">-</span></p>
+                    <p><strong>Wartość przed rabatem:</strong> <span id="total-original-value">-</span></p>
+                </div>
+            </div>
+
+            <!-- Formularz edycji -->
+            <div class="edit-form-section">
+                <div class="form-group">
+                    <label for="total-discount-percentage">Rabat (%) na wszystkie produkty</label>
+                    <div class="input-with-hint">
+                        <input type="number"
+                               id="total-discount-percentage"
+                               class="edit-input"
+                               min="-100"
+                               max="100"
+                               step="1"
+                               value="0"
+                               placeholder="0">
+                        <small class="input-hint">Rabat zostanie zastosowany do wszystkich wybranych produktów w wycenie.</small>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="total-discount-reason">Powód zmiany ceny</label>
+                    <select id="total-discount-reason" class="edit-select">
+                        <option value="">Wybierz powód...</option>
+                        <!-- Opcje będą dodane przez JavaScript -->
+                    </select>
+                </div>
+
+                <!-- NOWY CHECKBOX dla wykończenia -->
+                <div class="form-group">
+                    <label class="checkbox-label">
+                        <input type="checkbox" id="include-finishing-discount">
+                        <span class="checkmark"></span>
+                        Zastosuj rabat również do wykończenia
+                    </label>
+                </div>
+            </div>
+
+            <!-- Podgląd cen -->
+            <div class="price-preview-section">
+                <h3>Podgląd całkowitej wartości</h3>
+
+                <div class="price-comparison">
+                    <div class="price-original">
+                        <h4>Wartość oryginalna</h4>
+                        <div class="price-values">
+                            <div class="price-item">
+                                <span class="price-label">Produkty netto:</span>
+                                <span class="price-value" id="total-original-products-netto">0.00 PLN</span>
+                            </div>
+                            <div class="price-item">
+                                <span class="price-label">Produkty brutto:</span>
+                                <span class="price-value" id="total-original-products-brutto">0.00 PLN</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="price-arrow">→</div>
+
+                    <div class="price-final">
+                        <h4>Wartość po rabacie</h4>
+                        <div class="price-values">
+                            <div class="price-item">
+                                <span class="price-label">Produkty netto:</span>
+                                <span class="price-value" id="total-final-products-netto">0.00 PLN</span>
+                            </div>
+                            <div class="price-item">
+                                <span class="price-label">Produkty brutto:</span>
+                                <span class="price-value" id="total-final-products-brutto">0.00 PLN</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="total-summary">
+                    <div class="summary-row">
+                        <span>Wykończenie:</span>
+                        <span id="total-finishing-cost">0.00 PLN</span>
+                    </div>
+                    <div class="summary-row">
+                        <span>Wysyłka:</span>
+                        <span id="total-shipping-cost">0.00 PLN</span>
+                    </div>
+                    <hr>
+                    <div class="summary-row total-row">
+                        <span><strong>ŁĄCZNIE:</strong></span>
+                        <span><strong id="total-final-value">0.00 PLN</strong></span>
+                    </div>
+                </div>
+
+                <div class="discount-amount" id="total-discount-amount" style="display: none;">
+                    <p><strong>Oszczędności:</strong> <span id="total-discount-value">0.00 PLN</span></p>
+                </div>
+            </div>
+
+            <!-- Ostrzeżenie -->
+            <div class="warning-section">
+                <div class="warning-box">
+                    <strong>⚠️ Uwaga:</strong> Rabat zostanie zastosowany do wszystkich wybranych produktów w wycenie.
+                    Obecne rabaty zostaną nadpisane. <strong>Wysyłka nie podlega rabatowaniu.</strong>
+                </div>
+            </div>
+        </div>
+
+        <!-- Przyciski akcji -->
+        <div class="edit-modal-actions">
+            <button id="save-total-discount" class="edit-btn edit-btn-primary">
+                <span class="btn-text">Zastosuj rabat</span>
+                <span class="btn-loading" style="display: none;">Zapisywanie...</span>
+            </button>
+            <button id="cancel-total-discount" class="edit-btn edit-btn-secondary">Anuluj</button>
+        </div>
+    </div>
+</div>

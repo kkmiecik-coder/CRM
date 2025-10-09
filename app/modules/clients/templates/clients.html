@@ -1,0 +1,63 @@
+<!-- modules/clients/templates/clients.html -->
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <title>Klienci - Wood Power CRM</title>
+    <link rel="icon" href="{{ url_for('static', filename='images/favicon.png') }}" type="image/png">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="stylesheet" href="{{ url_for('clients.static', filename='css/clients.css') }}">
+</head>
+<body>
+    <div class="app-container clients-app">
+        {% include 'sidebar/sidebar.html' %}
+        <main class="main-content clients-main">
+            <h1 class="title-with-underline">Klienci</h1>
+            <div class="clients-controls">
+                <div class="clients-controls-row">
+                    <button id="addClientBtn" class="clients-btn-add">+ Dodaj klienta</button>
+                </div>
+                <div class="clients-controls-row">
+                    <input type="text" id="search-input" placeholder="Szukaj klienta...">
+                    <label>
+                        Pokaż:
+                        <select id="rows-per-page">
+                            <option value="20" selected>20</option>
+                            <option value="50">50</option>
+                            <option value="100">100</option>
+                            <option value="150">150</option>
+                            <option value="200">200</option>
+                            <option value="500">500</option>
+                        </select>
+                    </label>
+                </div>
+            </div>
+
+            <div class="clients-table-wrapper">
+                <table class="clients-table">
+                    <thead>
+                        <tr>
+                            <th data-sort="client_name">Nazwa klienta</th>
+                            <th data-sort="client_delivery_name">Imię i nazwisko</th>
+                            <th data-sort="email">Email</th>
+                            <th data-sort="phone">Telefon</th>
+                            <th>Akcje</th>
+                        </tr>
+                    </thead>
+                    <tbody id="clients-table-body"></tbody>
+                </table>
+            </div>
+
+            <div class="clients-pagination" id="pagination-controls"></div>
+        </main>
+    </div>
+
+    {% include 'clients/templates/edit_modal.html' %}
+    {% include 'clients/templates/details_modal.html' %}
+    {% include 'clients/templates/add_client_modal.html' %}
+
+    <div id="toast" class="toast" style="display: none;"></div>
+    <script src="{{ url_for('clients.static', filename='js/clients.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/sidebar.js') }}"></script>
+</body>
+</html>

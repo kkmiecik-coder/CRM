@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <title>Załóż konto – Wood Power CRM</title>
+    <link rel="icon" href="{{ url_for('static', filename='favicon.png') }}" type="image/png">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/accept_invitation.css') }}">
+</head>
+<body>
+    <div class="background-cover">
+        <div class="invitation-modal">
+            <h1 class="title-with-underline">Załóż konto w Wood Power CRM</h1>
+            <p>Uzupełnij dane, ustaw hasło i wybierz lub wgraj swojego avatara, aby zakończyć rejestrację.</p>
+            <form action="{{ url_for('accept_invitation', token=token) }}" method="post" enctype="multipart/form-data" id="invitationForm">
+                <div class="inputs">
+                <!-- Imię -->
+                    <div class="input-group">
+                        <label for="first_name">Imię:</label>
+                        <input type="text" name="first_name" id="first_name" class="plain-input" required>
+                    </div>
+                    <!-- Nazwisko -->
+                    <div class="input-group">
+                        <label for="last_name">Nazwisko:</label>
+                        <input type="text" name="last_name" id="last_name" class="plain-input" required>
+                    </div>
+                    <!-- Hasło -->
+                    <div class="input-group">
+                        <label for="password">Hasło:</label>
+                        <input type="password" name="password" id="password" class="plain-input" required>
+                    </div>
+                    <!-- Powtórz hasło -->
+                    <div class="input-group">
+                        <label for="password2">Powtórz hasło:</label>
+                        <input type="password" name="password2" id="password2" class="plain-input" required>
+                        <div id="passwordError" class="error-message">Hasła muszą być identyczne.</div>
+                    </div>
+                </div>
+                <!-- Avatary -->
+                <h2 class="section-title">Wybierz avatar</h2>
+                <div class="default-avatars-preview">
+                    <!-- Domyślnie zaznaczony avatar1 -->
+                    <img src="{{ url_for('static', filename='images/avatars/default_avatars/avatar1.svg') }}"
+                            alt="avatar1"
+                            class="avatar-default selected"
+                            data-avatar-value="default_avatars/avatar1.svg">
+                    <img src="{{ url_for('static', filename='images/avatars/default_avatars/avatar2.svg') }}"
+                            alt="avatar2"
+                            class="avatar-default"
+                            data-avatar-value="default_avatars/avatar2.svg">
+                    <img src="{{ url_for('static', filename='images/avatars/default_avatars/avatar3.svg') }}"
+                            alt="avatar3"
+                            class="avatar-default"
+                            data-avatar-value="default_avatars/avatar3.svg">
+                </div>
+                <!-- Ukryte pole do zapisu wybranego domyślnego avatara -->
+                <input type="hidden" name="default_avatar" id="defaultAvatarField" value="default_avatars/avatar1.svg">
+                <!-- Własny avatar -->
+                <div class="own-avatar">
+                    <label for="avatar_file">lub wgraj własny avatar:</label>
+                    <input type="file" name="avatar_file" id="avatar_file" accept="image/*" class="plain-input">
+                    <!-- Podgląd wgranego avatara (domyślnie ukryty) -->
+                    <div class="own-preview" id="ownPreview" style="display: none;">
+                        <img src="" alt="Podgląd avatara" id="ownPreviewImg">
+                    </div>
+                </div>
+                <!-- Kontener przycisku, aby go wyśrodkować -->
+                <div class="button-container">
+                    <button type="submit" class="submit-button">Zarejestruj się</button>
+                </div>
+            </form>
+        </div>
+    </div>
+    <script src="{{ url_for('static', filename='js/accept_invitation.js') }}"></script>
+</body>
+</html>

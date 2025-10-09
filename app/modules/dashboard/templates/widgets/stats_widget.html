@@ -1,0 +1,25 @@
+<!-- Stats Overview Widget -->
+<div class="widget stats-overview">
+    <h2 class="widget-title">
+        <span class="widget-icon">📊</span>
+        Podsumowanie
+    </h2>
+    <div class="stats-grid">
+        <div class="stat-card">
+            <div class="stat-number">{{ stats.quotes.month_count or 0 }}</div>
+            <div class="stat-label">Wyceny w miesiącu</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-number">{{ stats.quotes.acceptance_rate or 0 }}%</div>
+            <div class="stat-label">Wskaźnik konwersji</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-number">{{ "{:,.0f}".format(stats.quotes.month_value or 0).replace(",", " ") }} zł</div>
+            <div class="stat-label">Wartość miesięczna</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-number">{{ stats.clients.total_count or 0 }}</div>
+            <div class="stat-label">Wszyscy klienci</div>
+        </div>
+    </div>
+</div>

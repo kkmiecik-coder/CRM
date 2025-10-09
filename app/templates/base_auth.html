@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <title>{% block title %}Wood Power CRM{% endblock %}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="icon" href="{{ url_for('static', filename='favicon.png') }}" type="image/png">
+</head>
+<body>
+    <div class="desktop-1">
+        <!-- Lewa strona – stały element -->
+        <div class="left-side">
+            <img src="{{ url_for('static', filename='images/crm-logo.svg') }}"
+                 alt="Wood Power CRM"
+                 class="crm-logo" />
+        </div>
+        <!-- Prawa strona – zawartość zmienna -->
+        <div class="frame-login">
+            {% block content %}
+            <!-- Domyślna zawartość, którą nadpiszemy w szablonach potomnych -->
+            {% endblock %}
+        </div>
+    </div>
+
+    <!-- Nakładka ładowania, jeśli jest potrzebna -->
+    <div class="overlay" id="loadingOverlay" style="display: none;">
+        <div class="overlay-content">
+            <div class="spinner"></div>
+            <p class="loading-text">Trwa ładowanie...</p>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/form_validation.js') }}"></script>
+</body>
+</html>

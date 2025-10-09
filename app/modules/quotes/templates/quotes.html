@@ -1,0 +1,431 @@
+<!-- modules/quotes/templates/quotes.html -->
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <title>Wyceny - Wood Power CRM</title>
+    <link rel="icon" href="{{ url_for('static', filename='images/favicon.png') }}" type="image/png">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="stylesheet" href="{{ url_for('quotes.static', filename='css/quotes.css') }}">
+    <link rel="stylesheet" href="{{ url_for('baselinker.static', filename='css/baselinker.css') }}">
+    <script id="prices-data" type="application/json">{{ prices_json|safe }}</script>
+    <script id="multipliers-data" type="application/json">{{ multipliers_json|safe }}</script>
+</head>
+<body data-role="{{ user_role }}" data-multiplier="{{ user_multiplier }}">
+    <div class="app-container">
+        {% include 'sidebar/sidebar.html' %}
+        <main class="main-content">
+            <div class="quotes-layout">
+                <!-- Lewy panel filtrów statusów -->
+                <aside class="quotes-status-panel" id="quotes-status-panel">
+                    <h3 class="title-with-underline-h4">Filtry</h3>
+                    <h4>Status</h4>
+                    <div id="status-filters-container"></div>
+                    <hr style="margin: 16px 0;">
+                    <div class="filters-section">
+                        <div class="floating-label-input">
+                            <input type="text" id="quote-number-filter" placeholder=" " />
+                            <label for="quote-number-filter">Numer wyceny</label>
+                        </div>
+
+                        <div class="floating-label-input">
+                            <input type="text" id="client-number-filter" placeholder=" " />
+                            <label for="client-number-filter">Nazwa klienta</label>
+                        </div>
+
+                        <div class="floating-label-input">
+                            <input type="text" id="client-name-filter" placeholder=" " />
+                            <label for="client-name-filter">Imię / nazwisko</label>
+                        </div>
+
+                        <!-- Data od-do -->
+                        <div class="floating-label-input double-date">
+                            <input type="date" id="date-from-filter" placeholder=" " />
+                            <input type="date" id="date-to-filter" placeholder=" " />
+                            <label for="date-from-filter" class="double-label">Data (od - do)</label>
+                        </div>
+
+                        <!-- Pracownik -->
+                        <div class="floating-label-input">
+                            <select id="employee-filter" class="styled-select" required>
+                                <option value="">Wszyscy</option>
+                                <!-- Opcje wstrzykujemy z JS -->
+                            </select>
+                            <label for="user-filter" class="select-label static">Pracownik</label>
+                        </div>
+
+                        <!-- Źródło -->
+                        <div class="floating-label-input">
+                            <select id="source-filter" class="styled-select" required>
+                                <option value="">Wszystkie</option>
+                                <optgroup label="Allegro">
+                                    <option value="woodpower">woodpower</option>
+                                </optgroup>
+                                <optgroup label="Sklep internetowy">
+                                    <option value="PrestaShop">PrestaShop</option>
+                                </optgroup>
+                                <optgroup label="Pozostałe">
+                                    <option value="Osobiście">Osobiście</option>
+                                    <option value="Telefon">Telefon</option>
+                                    <option value="E-mail">E-mail</option>
+                                </optgroup>
+                                <optgroup label="Ceneo">
+                                    <option value="Ceneo">Ceneo</option>
+                                </optgroup>
+                                <optgroup label="OLX">
+                                    <option value="OLX">OLX</option>
+                                </optgroup>
+                            </select>
+                            <label for="source-filter" class="select-label static">Źródło zapytania</label>
+                        </div>
+                    </div>
+                    <hr style="margin: 12px 0;">
+                    <div class="filter-actions">
+                        <button id="clear-filters" class="clear-filters-button hidden">Wyczyść filtry</button>
+                    </div>
+                </aside>
+
+                <!-- Prawa strona z nagłówkiem, filtrami i tabelą -->
+                <div class="quotes-main">
+                    <!-- Tabela -->
+                    <div class="quote-header-row">
+                        <div>Numer wyceny</div>
+                        <div>Data</div>
+                        <div>Nazwa klienta</div>
+                        <div>Imię i nazwisko</div>
+                        <div>Źródło</div>
+                        <div>Status</div>
+                        <div>Akcje</div>
+                    </div>
+                    <div id="quotes-table-body"></div>
+                    <!-- Paginacja -->
+                </div>
+            </div>
+        </main>
+    </div>
+    {% include 'quotes/templates/download_quote_modal.html' %}
+    {% include "quotes/templates/quote_details_modal.html" %}
+    {% include 'quotes/templates/edit_variant_modal.html' %}
+    {% include 'quotes/templates/edit_total_discount_modal.html' %}
+    {% include 'baselinker/templates/order_modal.html' %}
+
+    <!-- Modal edytora wyceny -->
+    <!-- Import modułu Quote Editor -->
+    <script src="{{ url_for('quotes.static', filename='js/quote_editor.js') }}"></script>
+
+    <!-- HTML Modalu Edytora -->
+    <div id="quote-editor-modal" class="quote-editor-modal-overlay" style="display: none;">
+        <div class="quote-editor-modal-box">
+            <!-- Header modalu -->
+            <div class="quote-editor-modal-header">
+                <div class="quote-editor-modal-main">
+                    <h2 class="quote-editor-modal-title">Edycja wyceny</h2>
+                    <div class="quote-editor-modal-info">
+                        <span id="edit-quote-number">Wycena: -</span>
+                        <span id="edit-client-name">Klient: -</span>
+                    </div>
+                </div>
+                <button class="quote-editor-modal-close" id="close-quote-editor" type="button">&times;</button>
+            </div>
+
+            <!-- Główna zawartość - kopia z calculator -->
+            <div class="quote-editor-content">
+                <!-- Sekcja produktu (kopia z calculator.html) -->
+                <div class="edit-quote-container">
+                    <div class="edit-quote-forms">
+                        <div class="edit-quote-form">
+                            <!-- Dane produktu -->
+                            <section class="edit-product-data">
+                                <h2 class="title-with-underline-h2">Produkt</h2>
+                                <div class="product-inputs">
+                                    <!-- Grupa cenowa -->
+                                    <div class="client-type">
+                                        <label for="edit-clientType" class="input-txt">Grupa cenowa:</label>
+                                        <select data-field="clientType" id="edit-clientType" class="input-window">
+                                            <option value="" disabled selected>Wybierz grupę</option>
+                                            <option value="Partner">Partner</option>
+                                            <option value="Florek">Hurt</option>
+                                            <option value="Warszawa/Hurt">Warszawa/Hurt</option>
+                                            <option value="Detal">Detal</option>
+                                            <option value="Detal+">Detal+</option>
+                                        </select>
+                                    </div>
+                                    <!-- Długość -->
+                                    <div class="lenght">
+                                        <label for="edit-length" class="input-txt">Długość (cm):</label>
+                                        <input type="number" step="0.1" min="4" max="450" data-field="length" id="edit-length" class="input-window">
+                                    </div>
+                                    <!-- Szerokość -->
+                                    <div class="width">
+                                        <label for="edit-width" class="input-txt">Szerokość (cm):</label>
+                                        <input type="number" step="0.1" min="4" max="120" data-field="width" id="edit-width" class="input-window">
+                                    </div>
+                                    <!-- Grubość -->
+                                    <div class="thickness">
+                                        <label for="edit-thickness" class="input-txt">Grubość (cm):</label>
+                                        <input type="number" step="0.1" min="0.5" data-field="thickness" id="edit-thickness" class="input-window">
+                                    </div>
+                                    <!-- Ilość -->
+                                    <div class="quantity">
+                                        <label for="edit-quantity" class="input-txt">Ilość:</label>
+                                        <input type="number" step="1" data-field="quantity" id="edit-quantity" class="input-window">
+                                    </div>
+                                </div>
+                            </section>
+
+                            <!-- Kalkulacja - warianty -->
+                            <section class="edit-calculations-main">
+                                <div class="calculations">
+                                    <h2 class="title-with-underline-h2">Kalkulacja</h2>
+                                    <p class="input-txt" style="margin-bottom: 6px;">Wybierz wariant wybrany przez klienta:</p>
+
+                                    <!-- Lista wariantów (8 sztuk) z placeholderami brutto/netto -->
+                                    <!-- Zaktualizowana sekcja wariantów identyczna jak w calculator.html -->
+                                    <div class="variants">
+                                        <div class="variants-header">
+                                            <span class="header-availability">Dostępny</span>
+                                            <span class="header-title">Wariant</span>
+                                            <span class="header-unit-brutto">Cena brutto</span>
+                                            <span class="header-unit-netto">Cena netto</span>
+                                            <span class="header-total-brutto">Wartość brutto</span>
+                                            <span class="header-total-netto">Wartość netto</span>
+                                        </div>
+
+                                        <div class="dab-lity-ab-option variant-option">
+                                            <input type="checkbox" class="variant-availability-checkbox"
+                                                   data-variant="dab-lity-ab" checked>
+                                            <input type="radio" name="edit-variantOption" id="edit-dab-lity-ab" value="dab-lity-ab">
+                                            <label for="edit-dab-lity-ab" class="option-title">Dąb lity A/B</label>
+                                            <span class="unit-brutto">---.-- PLN</span>
+                                            <span class="unit-netto">---.-- PLN</span>
+                                            <span class="total-brutto">---.-- PLN</span>
+                                            <span class="total-netto">---.-- PLN</span>
+                                        </div>
+
+                                        <div class="dab-lity-bb-option variant-option">
+                                            <input type="checkbox" class="variant-availability-checkbox"
+                                                   data-variant="dab-lity-bb" checked>
+                                            <input type="radio" name="edit-variantOption" id="edit-dab-lity-bb" value="dab-lity-bb">
+                                            <label for="edit-dab-lity-bb" class="option-title">Dąb lity B/B</label>
+                                            <span class="unit-brutto">---.-- PLN</span>
+                                            <span class="unit-netto">---.-- PLN</span>
+                                            <span class="total-brutto">---.-- PLN</span>
+                                            <span class="total-netto">---.-- PLN</span>
+                                        </div>
+
+                                        <div class="dab-micro-ab-option variant-option">
+                                            <input type="checkbox" class="variant-availability-checkbox"
+                                                   data-variant="dab-micro-ab" checked>
+                                            <input type="radio" name="edit-variantOption" id="edit-dab-micro-ab" value="dab-micro-ab">
+                                            <label for="edit-dab-micro-ab" class="option-title">Dąb mikrowczep A/B</label>
+                                            <span class="unit-brutto">---.-- PLN</span>
+                                            <span class="unit-netto">---.-- PLN</span>
+                                            <span class="total-brutto">---.-- PLN</span>
+                                            <span class="total-netto">---.-- PLN</span>
+                                        </div>
+
+                                        <div class="dab-micro-bb-option variant-option">
+                                            <input type="checkbox" class="variant-availability-checkbox"
+                                                   data-variant="dab-micro-bb" checked>
+                                            <input type="radio" name="edit-variantOption" id="edit-dab-micro-bb" value="dab-micro-bb">
+                                            <label for="edit-dab-micro-bb" class="option-title">Dąb mikrowczep B/B</label>
+                                            <span class="unit-brutto">---.-- PLN</span>
+                                            <span class="unit-netto">---.-- PLN</span>
+                                            <span class="total-brutto">---.-- PLN</span>
+                                            <span class="total-netto">---.-- PLN</span>
+                                        </div>
+
+                                        <div class="jes-lity-ab-option variant-option">
+                                            <input type="checkbox" class="variant-availability-checkbox"
+                                                   data-variant="jes-lity-ab" checked>
+                                            <input type="radio" name="edit-variantOption" id="edit-jes-lity-ab" value="jes-lity-ab">
+                                            <label for="edit-jes-lity-ab" class="option-title">Jesion lity A/B</label>
+                                            <span class="unit-brutto">---.-- PLN</span>
+                                            <span class="unit-netto">---.-- PLN</span>
+                                            <span class="total-brutto">---.-- PLN</span>
+                                            <span class="total-netto">---.-- PLN</span>
+                                        </div>
+
+                                        <div class="jes-micro-ab-option variant-option">
+                                            <input type="checkbox" class="variant-availability-checkbox"
+                                                   data-variant="jes-micro-ab" checked>
+                                            <input type="radio" name="edit-variantOption" id="edit-jes-micro-ab" value="jes-micro-ab">
+                                            <label for="edit-jes-micro-ab" class="option-title">Jesion mikrowczep A/B</label>
+                                            <span class="unit-brutto">---.-- PLN</span>
+                                            <span class="unit-netto">---.-- PLN</span>
+                                            <span class="total-brutto">---.-- PLN</span>
+                                            <span class="total-netto">---.-- PLN</span>
+                                        </div>
+
+                                        <div class="buk-lity-ab-option variant-option">
+                                            <input type="checkbox" class="variant-availability-checkbox"
+                                                   data-variant="buk-lity-ab" checked>
+                                            <input type="radio" name="edit-variantOption" id="edit-buk-lity-ab" value="buk-lity-ab">
+                                            <label for="edit-buk-lity-ab" class="option-title">Buk lity A/B</label>
+                                            <span class="unit-brutto">---.-- PLN</span>
+                                            <span class="unit-netto">---.-- PLN</span>
+                                            <span class="total-brutto">---.-- PLN</span>
+                                            <span class="total-netto">---.-- PLN</span>
+                                        </div>
+
+                                        <div class="buk-micro-ab-option variant-option">
+                                            <input type="checkbox" class="variant-availability-checkbox"
+                                                   data-variant="buk-micro-ab" checked>
+                                            <input type="radio" name="edit-variantOption" id="edit-buk-micro-ab" value="buk-micro-ab">
+                                            <label for="edit-buk-micro-ab" class="option-title">Buk mikrowczep A/B</label>
+                                            <span class="unit-brutto">---.-- PLN</span>
+                                            <span class="unit-netto">---.-- PLN</span>
+                                            <span class="total-brutto">---.-- PLN</span>
+                                            <span class="total-netto">---.-- PLN</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </section>
+
+                            <!-- Sekcja Wykończenie - uproszczona struktura zgodna z wymaganiami -->
+                            <section class="finishing-section">
+                                <h2 class="title-with-underline-h2">Wykończenie</h2>
+
+                                <!-- Blok wyboru rodzaju wykończenia - tylko 3 główne opcje -->
+                                <div class="finishing-block">
+                                    <p class="input-txt">Rodzaj wykończenia:</p>
+                                    <div class="button-group" id="edit-finishing-type-group">
+                                        <button type="button" class="finishing-btn active" data-finishing-type="Surowe">Surowe</button>
+                                        <button type="button" class="finishing-btn" data-finishing-type="Lakierowanie">Lakierowanie</button>
+                                        <button type="button" class="finishing-btn" data-finishing-type="Olejowanie">Olejowanie</button>
+                                    </div>
+                                </div>
+
+                                <!-- Pokazuje się tylko po kliknięciu w Lakierowane -->
+                                <div class="finishing-block" id="edit-finishing-variant-wrapper" style="display: none;">
+                                    <p class="input-txt">Stopień połysku:</p>
+                                    <div class="button-group">
+                                        <button type="button" class="finishing-btn" data-finishing-variant="Bezbarwne">Bezbarwne</button>
+                                        <button type="button" class="finishing-btn" data-finishing-variant="Barwne">Barwne</button>
+                                    </div>
+                                </div>
+
+                                <!-- Blok wyboru koloru - pokazuje się tylko po wybraniu "Barwne" -->
+                                <div class="finishing-block" id="edit-finishing-color-wrapper" style="display: none;">
+                                    <p class="input-txt">Kolor:</p>
+                                    <div class="color-group">
+                                        <button class="color-btn" data-finishing-color="POPIEL 20-07">
+                                            <img src="{{ url_for('calculator.static', filename='images/finishing_colors/popiel-20-07.jpg') }}" alt="POPIEL 20-07">
+                                            <span>POPIEL 20-07</span>
+                                        </button>
+                                        <button class="color-btn" data-finishing-color="BEŻ BN-125/09">
+                                            <img src="{{ url_for('calculator.static', filename='images/finishing_colors/bez-bn-125-09.jpg') }}" alt="BEŻ BN-125/09">
+                                            <span>BEŻ BN-125/09</span>
+                                        </button>
+                                        <button class="color-btn" data-finishing-color="BRUNAT 22-10">
+                                            <img src="{{ url_for('calculator.static', filename='images/finishing_colors/brunat-22-10.jpg') }}" alt="BRUNAT 22-10">
+                                            <span>BRUNAT 22-10</span>
+                                        </button>
+                                        <button class="color-btn" data-finishing-color="BRUNAT 22-05">
+                                            <img src="{{ url_for('calculator.static', filename='images/finishing_colors/brunat-22-05.jpg') }}" alt="BRUNAT 22-05">
+                                            <span>BRUNAT 22-05</span>
+                                        </button>
+                                        <button class="color-btn" data-finishing-color="BRUNAT 22-15">
+                                            <img src="{{ url_for('calculator.static', filename='images/finishing_colors/brunat-22-15.jpg') }}" alt="BRUNAT 22-15">
+                                            <span>BRUNAT 22-15</span>
+                                        </button>
+                                        <button class="color-btn" data-finishing-color="BRUNAT 22-23">
+                                            <img src="{{ url_for('calculator.static', filename='images/finishing_colors/brunat-22-23.jpg') }}" alt="BRUNAT 22-23">
+                                            <span>BRUNAT 22-23</span>
+                                        </button>
+                                        <button class="color-btn" data-finishing-color="ORZECH 22-74">
+                                            <img src="{{ url_for('calculator.static', filename='images/finishing_colors/orzech-22-74.jpg') }}" alt="ORZECH 22-74">
+                                            <span>ORZECH 22-74</span>
+                                        </button>
+                                        <button class="color-btn" data-finishing-color="BRĄZ 22-50">
+                                            <img src="{{ url_for('calculator.static', filename='images/finishing_colors/braz-22-50.jpg') }}" alt="BRĄZ 22-50">
+                                            <span>BRĄZ 22-50</span>
+                                        </button>
+                                        <button class="color-btn" data-finishing-color="ORZECH 22-66">
+                                            <img src="{{ url_for('calculator.static', filename='images/finishing_colors/orzech-22-66.jpg') }}" alt="ORZECH 22-66">
+                                            <span>ORZECH 22-66</span>
+                                        </button>
+                                    </div>
+                                </div>
+                            </section>
+
+                        </div>
+                    </div>
+
+                    <!-- Sekcja podsumowania -->
+                    <div class="edit-summary-section-container">
+                        <!-- Produkty w wycenie -->
+                        <section class="edit-products-summary-main">
+                            <div class="products-summary-header">
+                                <h2 class="title-with-underline-h2">Produkty w wycenie</h2>
+                                <button type="button" class="add-product-btn" id="edit-add-product-btn">
+                                    <span class="add-product-icon">+</span>
+                                    <span class="add-product-text">Dodaj produkt</span>
+                                </button>
+                            </div>
+                            <div class="products-summary-container" id="edit-products-summary-container">
+                                <!-- Dynamicznie generowane karty produktów -->
+                            </div>
+                        </section>
+
+                        <!-- Podsumowanie kosztów -->
+                        <!-- Podsumowanie kosztów - POPRAWIONA STRUKTURA -->
+                        <div class="edit-quote-summary">
+                            <div class="cost-row">
+                                <span class="input-txt-bold">Koszt surowego:</span>
+                                <div class="cost-values">
+                                    <span class="edit-order-brutto">0.00 PLN</span>
+                                    <span class="edit-order-netto">0.00 PLN netto</span>
+                                </div>
+                            </div>
+
+                            <div class="cost-row" style="border-bottom: 1px solid #ED6B24">
+                                <span class="input-txt-bold">Koszty wykończenia:</span>
+                                <div class="cost-values">
+                                    <span class="edit-finishing-brutto">0.00 PLN</span>
+                                    <span class="edit-finishing-netto">0.00 PLN netto</span>
+                                </div>
+                            </div>
+
+                            <div class="cost-row" style="margin-bottom: 30px;">
+                                <span class="input-txt-bold">Koszt produktu:</span>
+                                <div class="cost-values">
+                                    <span class="edit-product-total-brutto">0.00 PLN</span>
+                                    <span class="edit-product-total-netto">0.00 PLN netto</span>
+                                </div>
+                            </div>
+
+                            <div class="cost-row">
+                                <span class="input-txt-bold">Koszt wysyłki:</span>
+                                <div class="cost-values">
+                                    <span class="edit-courier" id="edit-courier-name">-</span>
+                                    <span class="edit-delivery-brutto">0.00 PLN</span>
+                                    <span class="edit-delivery-netto">0.00 PLN netto</span>
+                                </div>
+                            </div>
+
+                            <div class="cost-row cost-total">
+                                <span class="input-txt-bold">Suma zamówienia:</span>
+                                <div class="cost-values">
+                                    <span class="edit-final-brutto">0.00 PLN</span>
+                                    <span class="edit-final-netto">0.00 PLN netto</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Footer z przyciskami akcji -->
+            <div class="quote-editor-modal-footer">
+                <button type="button" class="btn btn-secondary" id="cancel-quote-edit">Anuluj</button>
+                <button type="button" class="btn btn-primary" id="save-quote-changes">Zapisz zmiany</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/sidebar.js') }}"></script>
+    <script src="{{ url_for('quotes.static', filename='js/quotes.js') }}"></script>
+    <script src="{{ url_for('baselinker.static', filename='js/baselinker.js') }}"></script>
+</body>
+</html>

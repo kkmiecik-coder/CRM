@@ -1,0 +1,124 @@
+<!-- app/modules/dashboard/templates/widgets/active_users_widget.html -->
+<!-- Widget aktywnych użytkowników - TYLKO DLA ADMINÓW -->
+{% if user and user.role == 'admin' %}
+<div class="widget active-users-widget" id="active-users-widget">
+    <div class="widget-header">
+        <h2 class="widget-title">
+            <span class="widget-icon">👥</span>
+            <span id="widget-title-text">Aktywni użytkownicy</span>
+            <span class="active-count" id="active-count">(0)</span>
+        </h2>
+        <div class="widget-controls">
+            <button class="refresh-btn" id="refresh-active-users" title="Odśwież">
+                <span class="refresh-icon">🔄</span>
+            </button>
+            <div class="auto-refresh-indicator" id="auto-refresh-indicator" title="Auto-odświeżanie co 30s">
+                <div class="refresh-dot"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Loading state -->
+    <div class="widget-loading" id="active-users-loading">
+        <div class="loading-spinner"></div>
+        <span>Ładowanie użytkowników...</span>
+    </div>
+
+    <!-- Active users list -->
+    <div class="active-users-list" id="active-users-list" style="display: none;">
+        <!-- Users będą ładowani dynamicznie przez JavaScript -->
+    </div>
+
+    <!-- Empty state -->
+    <div class="empty-state" id="active-users-empty" style="display: none;">
+        <div class="empty-icon">😴</div>
+        <div class="empty-title">Brak aktywnych użytkowników</div>
+        <div class="empty-subtitle">Wszyscy użytkownicy są obecnie offline</div>
+    </div>
+
+    <!-- Error state -->
+    <div class="error-state" id="active-users-error" style="display: none;">
+        <div class="error-icon">⚠️</div>
+        <div class="error-title">Błąd ładowania</div>
+        <div class="error-subtitle">Nie udało się pobrać listy użytkowników</div>
+        <button class="retry-btn" id="retry-active-users">Spróbuj ponownie</button>
+    </div>
+
+    <!-- Expanded view toggle -->
+    <div class="widget-footer" id="widget-footer" style="display: none;">
+        <button class="expand-toggle" id="expand-toggle">
+            <span class="expand-text">Pokaż wszystkich</span>
+            <span class="expand-count" id="expand-count">(0 offline)</span>
+        </button>
+    </div>
+</div>
+
+<!-- Modal szczegółów użytkownika -->
+<div class="user-details-modal" id="user-details-modal" style="display: none;">
+    <div class="modal-overlay" id="modal-overlay"></div>
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3 class="modal-title">Szczegóły użytkownika</h3>
+            <button class="modal-close" id="modal-close">&times;</button>
+        </div>
+        <div class="modal-body" id="modal-body">
+            <!-- Zawartość będzie ładowana dynamicznie -->
+        </div>
+        <div class="modal-footer">
+            <button class="btn-secondary" id="btn-close-modal">Zamknij</button>
+            <button class="btn-danger" id="btn-force-logout" style="display: none;">
+                Wyloguj użytkownika
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- Template pojedynczego użytkownika -->
+<template id="user-item-template">
+    <div class="user-item" data-user-id="">
+        <div class="user-info">
+            <div class="user-avatar-container">
+                <img class="user-avatar" src="" alt="Avatar">
+                <div class="status-indicator"></div>
+            </div>
+            <div class="user-details">
+                <div class="user-name"></div>
+                <div class="user-meta">
+                    <span class="user-role"></span>
+                    <span class="user-separator">•</span>
+                    <span class="user-page"></span>
+                </div>
+                <div class="user-activity">
+                    <span class="activity-time"></span>
+                </div>
+            </div>
+        </div>
+        <div class="user-actions">
+            <button class="action-btn view-details" title="Szczegóły">
+                <span class="action-icon">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+                        <path class="st0" d="M12,22.7c-5.9,0-10.8-4.8-10.8-10.7S6.1,1.3,12,1.3s10.8,4.8,10.8,10.8-4.8,10.7-10.8,10.7ZM12,2.8C6.9,2.8,2.8,6.9,2.8,12s4.1,9.2,9.2,9.2,9.2-4.1,9.2-9.2S17.1,2.8,12,2.8ZM12.8,16v-5c0-.4-.3-.8-.8-.8s-.8.3-.8.8v5c0,.4.3.8.8.8s.8-.3.8-.8ZM13,8c0-.6-.4-1-1-1h0c-.6,0-1,.4-1,1s.5,1,1,1,1-.4,1-1Z" />
+                    </svg>
+                </span>
+            </button>
+            <button class="action-btn force-logout" title="Wyloguj">
+                <span class="action-icon">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M16,17V14H9V10H16V7L21,12L16,17M14,2A2,2 0 0,1 16,4V6H14V4H5V20H14V18H16V20A2,2 0 0,1 14,22H5A2,2 0 0,1 3,20V4A2,2 0 0,1 5,2H14Z" />
+                    </svg>
+                </span>
+            </button>
+        </div>
+    </div>
+</template>
+
+<!-- JavaScript będzie w osobnym pliku -->
+<script>
+    // Podstawowa inicjalizacja - pełny kod w active_users.js
+    document.addEventListener('DOMContentLoaded', function () {
+        if (window.ActiveUsersWidget) {
+            window.ActiveUsersWidget.init();
+        }
+    });
+</script>
+{% endif %}

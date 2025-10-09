@@ -1,0 +1,104 @@
+# .htaccess - Optymalizacja dla CYBER_FOLKS shared hosting
+
+# Podstawowa konfiguracja Passenger
+PassengerEnabled On
+PassengerAppRoot /home/woodpower/domains/crm.woodpower.pl/public_html/app
+PassengerPython /home/woodpower/virtualenv/domains/crm.woodpower.pl/public_html/app/3.9/bin/python
+
+# ===== CYBER_FOLKS COMPATIBLE OPTIMIZATIONS =====
+
+# Wiêcej procesów na starcie (w ramach limitów hostingu)
+PassengerMinInstances 3
+
+# Ograniczenie procesów (¿eby nie przekroczyæ limitów)
+PassengerMaxPoolSize 5
+
+# D³u¿szy czas ¿ycia procesów (30 minut)
+PassengerPoolIdleTime 1800
+
+# Wiêcej requestów na proces (mniej restartów)
+PassengerMaxRequests 800
+
+# Szybszy start
+PassengerStartTimeout 60
+PassengerFriendlyErrorPages off
+
+# ===== SHARED HOSTING OPTIMIZATIONS =====
+
+# Smart spawning (efektywniejsze dla shared hosting)
+PassengerSpawnMethod smart
+PassengerMaxPreloaderIdleTime 1800
+
+# Preload przy starcie (jeœli Cyber_folks pozwala)
+PassengerPreStart https://crm.woodpower.pl/
+
+# ===== ENVIRONMENT OPTIMIZATIONS =====
+
+PassengerAppEnv production
+PassengerEnvVar PYTHONIOENCODING utf-8
+PassengerEnvVar LC_ALL C.UTF-8
+PassengerEnvVar LANG C.UTF-8
+
+# Python optimizations (kompatybilne z shared hosting)
+PassengerEnvVar PYTHONDONTWRITEBYTECODE 1
+PassengerEnvVar PYTHONUNBUFFERED 1
+
+# ===== CONSERVATIVE MONITORING =====
+
+# Minimalne logowanie (shared hosting ma limity)
+PassengerLogLevel 1
+
+# ===== STANDARD OPTIMIZATIONS =====
+
+PassengerBufferResponse on
+PassengerAppGroupName crm_woodpower
+
+# Przekierowania i zabezpieczenia
+RewriteEngine On
+
+# Wymuszenie HTTPS
+RewriteCond %{HTTPS} off
+RewriteRule ^(.*)$ https://%{HTTP_HOST}/$1 [R=301,L]
+
+# Blokowanie dostêpu do plików konfiguracyjnych
+<FilesMatch "\.(json|log|db|sqlite|env)$">
+    Order deny,allow
+    Deny from all
+</FilesMatch>
+
+# Blokowanie dostêpu do katalogów systemowych
+<DirectoryMatch "/(config|logs|migrations|__pycache__|\.git)/">
+    Order deny,allow
+    Deny from all
+</DirectoryMatch>
+
+# Nag³ówki bezpieczeñstwa
+<IfModule mod_headers.c>
+    Header set X-Content-Type-Options "nosniff"
+    Header set X-Frame-Options "SAMEORIGIN"
+    Header set X-XSS-Protection "1; mode=block"
+    Header set Referrer-Policy "strict-origin-when-cross-origin"
+</IfModule>
+
+# Kompresja (shared hosting friendly)
+<IfModule mod_deflate.c>
+    AddOutputFilterByType DEFLATE text/html text/plain text/xml text/css text/javascript application/javascript application/json
+</IfModule>
+
+# Cache dla statycznych plików (shared hosting friendly)
+<IfModule mod_expires.c>
+    ExpiresActive On
+    ExpiresByType image/jpeg "access plus 1 month"
+    ExpiresByType image/png "access plus 1 month"
+    ExpiresByType image/gif "access plus 1 month"
+    ExpiresByType image/svg+xml "access plus 1 month"
+    ExpiresByType text/css "access plus 1 week"
+    ExpiresByType application/javascript "access plus 1 week"
+    ExpiresByType application/font-woff2 "access plus 1 month"
+</IfModule>
+
+# Charset
+AddDefaultCharset UTF-8
+
+# ===== CYBER_FOLKS SPECIFIC =====
+# Jeœli hosting ma limity CPU/pamiêci, te ustawienia powinny je uszanowaæ

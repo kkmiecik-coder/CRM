@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg id="Warstwa_1" xmlns="http://www.w3.org/2000/svg" version="1.1" viewBox="0 0 20 22">
+  <!-- Generator: Adobe Illustrator 29.5.1, SVG Export Plug-In . SVG Version: 2.1.0 Build 141)  -->
+  <defs>
+    <style>
+      .st0 {
+        fill: #fff;
+      }
+    </style>
+  </defs>
+  <path class="st0" d="M10,11.8c3.2,0,5.8-2.6,5.8-5.8S13.2.3,10,.3s-5.8,2.6-5.8,5.8,2.6,5.8,5.8,5.8ZM10,1.8c2.3,0,4.2,1.9,4.2,4.2s-1.9,4.2-4.2,4.2-4.2-1.9-4.2-4.2S7.7,1.8,10,1.8Z"/>
+  <path class="st0" d="M10,13.3c-5.2,0-9.3,3.5-9.3,7.8s.3.8.8.8.8-.3.8-.8c0-3.4,3.5-6.2,7.8-6.2s7.8,2.8,7.8,6.2.3.8.8.8.8-.3.8-.8c0-4.3-4.2-7.8-9.3-7.8Z"/>
+</svg>

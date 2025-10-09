@@ -1,0 +1,184 @@
+/* ============================================================================
+   STATION CUTTING CSS - Kolory dynamiczne na podstawie danych
+   ============================================================================ */
+
+/* ============================================================================
+   GATUNKI DREWNA - Kolory dynamiczne
+   ============================================================================ */
+
+/* BUK - domyślny brązowy */
+[data-species*="buk"] .badge-species,
+[data-species*="BUK"] .badge-species {
+    background: #4a3000;
+    border-color: #806000;
+    color: #ffd966;
+}
+
+body.light-mode [data-species*="buk"] .badge-species,
+body.light-mode [data-species*="BUK"] .badge-species {
+    background: #fff3cd;
+    border-color: #ffc107;
+    color: #856404;
+}
+
+/* DĄB - ciemny brązowy */
+[data-species*="dąb"] .badge-species,
+[data-species*="DĄB"] .badge-species,
+[data-species*="dab"] .badge-species,
+[data-species*="DAB"] .badge-species {
+    background: #2d1f00;
+    border-color: #5c3d00;
+    color: #ffcc80;
+}
+
+body.light-mode [data-species*="dąb"] .badge-species,
+body.light-mode [data-species*="DĄB"] .badge-species,
+body.light-mode [data-species*="dab"] .badge-species {
+    background: #ffe5b4;
+    border-color: #d4a574;
+    color: #6b4423;
+}
+
+/* JESION - żółty */
+[data-species*="jesion"] .badge-species,
+[data-species*="JESION"] .badge-species {
+    background: #3a3000;
+    border-color: #666000;
+    color: #ffff66;
+}
+
+body.light-mode [data-species*="jesion"] .badge-species,
+body.light-mode [data-species*="JESION"] .badge-species {
+    background: #fffacd;
+    border-color: #e6db00;
+    color: #7a7700;
+}
+
+/* ============================================================================
+   TECHNOLOGIE - Kolory dynamiczne
+   ============================================================================ */
+
+/* LITY - zielony (domyślny) */
+[data-technology*="lity"] .badge-technology,
+[data-technology*="LITY"] .badge-technology {
+    background: #1a3a1f;
+    border-color: #2d5f31;
+    color: #66bb6a;
+}
+
+body.light-mode [data-technology*="lity"] .badge-technology,
+body.light-mode [data-technology*="LITY"] .badge-technology {
+    background: #d4edda;
+    border-color: #28a745;
+    color: #155724;
+}
+
+/* MIKROWCZEP - niebieski */
+[data-technology*="mikrowczep"] .badge-technology,
+[data-technology*="MIKROWCZEP"] .badge-technology {
+    background: #001f3f;
+    border-color: #003d7a;
+    color: #64b5f6;
+}
+
+body.light-mode [data-technology*="mikrowczep"] .badge-technology,
+body.light-mode [data-technology*="MIKROWCZEP"] .badge-technology {
+    background: #cce5ff;
+    border-color: #0066cc;
+    color: #004085;
+}
+
+/* KLEJONY - pomarańczowy */
+[data-technology*="klejony"] .badge-technology,
+[data-technology*="KLEJONY"] .badge-technology {
+    background: #3d1f00;
+    border-color: #6b3500;
+    color: #ffab40;
+}
+
+body.light-mode [data-technology*="klejony"] .badge-technology,
+body.light-mode [data-technology*="KLEJONY"] .badge-technology {
+    background: #ffe0b2;
+    border-color: #ff9800;
+    color: #e65100;
+}
+
+/* ============================================================================
+   KLASY DREWNA - Kolory dynamiczne
+   ============================================================================ */
+
+/* A/A - ciemnozielony */
+[data-wood-class*="A/A"] .badge-class,
+[data-wood-class*="AA"] .badge-class {
+    background: #1b5e20;
+    border-color: #2e7d32;
+    color: #81c784;
+}
+
+body.light-mode [data-wood-class*="A/A"] .badge-class,
+body.light-mode [data-wood-class*="AA"] .badge-class {
+    background: #c8e6c9;
+    border-color: #4caf50;
+    color: #1b5e20;
+}
+
+/* A/B - żółty (domyślny) */
+[data-wood-class*="A/B"] .badge-class,
+[data-wood-class*="AB"] .badge-class {
+    background: #4a4a00;
+    border-color: #7d7d00;
+    color: #fff176;
+}
+
+body.light-mode [data-wood-class*="A/B"] .badge-class,
+body.light-mode [data-wood-class*="AB"] .badge-class {
+    background: #fff59d;
+    border-color: #fdd835;
+    color: #6b6b00;
+}
+
+/* B/B - czerwony */
+[data-wood-class*="B/B"] .badge-class,
+[data-wood-class*="BB"] .badge-class {
+    background: #4a1f1f;
+    border-color: #7d3535;
+    color: #ff8a65;
+}
+
+body.light-mode [data-wood-class*="B/B"] .badge-class,
+body.light-mode [data-wood-class*="BB"] .badge-class {
+    background: #ffccbc;
+    border-color: #ff5722;
+    color: #bf360c;
+}
+
+/* ============================================================================
+   RESPONSIVE
+   ============================================================================ */
+@media (max-width: 767px) {
+    .card-badges {
+        grid-template-columns: 1fr;
+        gap: 8px;
+    }
+
+    .badge {
+        font-size: 14px;
+    }
+
+    .dimensions-box {
+        font-size: 22px;
+        padding: 16px 20px;
+    }
+}
+
+@media (min-width: 768px) and (max-width: 1199px) {
+    .products-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}
+
+@media (min-width: 1200px) {
+    .products-grid {
+        grid-template-columns: repeat(3, 1fr);
+    }
+}

@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <title>{% block title %}Dashboard - Wood Power CRM{% endblock %}</title>
+    <link rel="icon" href="{{ url_for('static', filename='favicon.png') }}" type="image/png">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <div class="app-container" style="display: flex;">
+        <!-- Sidebar – zawsze widoczny -->
+        {% include 'sidebar/sidebar.html' %}
+        <!-- Główna zawartość, która będzie podmieniana -->
+        <main class="main-content" style="flex: 1; padding: 20px;">
+            {% block content %}
+            <h1>Dashboard</h1>
+            <p>Witamy w dashboardzie Wood Power CRM! Tutaj możesz zobaczyć podsumowanie najważniejszych informacji.</p>
+            {% endblock %}
+        </main>
+    </div>
+    <!-- Skrypt obsługujący dynamiczne ładowanie modułów -->
+    <script src="{{ url_for('static', filename='modules/sidebar/sidebar.js') }}"></script>
+    <script src="{{ url_for('calculator.static', filename='js/calculator.js') }}"></script>
+</body>
+</html>

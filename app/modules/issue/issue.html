@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <title>Zgłoś błąd - Wood Power CRM</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="icon" href="{{ url_for('static', filename='images/favicon.png') }}" type="image/png">
+    <style>
+        /* Dodatkowe style dla nowej funkcjonalności plików */
+        .file-upload {
+            margin-bottom: 20px;
+        }
+        
+        .file-list {
+            list-style: none;
+            padding: 0;
+            margin: 10px 0;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+        
+        .file-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 8px 12px;
+            border-bottom: 1px solid #eee;
+        }
+        
+        .file-item:last-child {
+            border-bottom: none;
+        }
+        
+        .file-info {
+            flex: 1;
+            display: flex;
+            align-items: center;
+        }
+        
+        .file-name {
+            font-weight: 500;
+            color: #333;
+        }
+        
+        .file-size {
+            color: #666;
+            font-size: 0.9em;
+        }
+        
+        .file-error {
+            color: #E00000;
+            font-size: 0.85em;
+            font-weight: 500;
+        }
+        
+        .remove-file-btn {
+            background: #ff4757;
+            color: white;
+            border: none;
+            border-radius: 50%;
+            width: 24px;
+            height: 24px;
+            cursor: pointer;
+            font-size: 14px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: background-color 0.2s;
+        }
+        
+        .remove-file-btn:hover {
+            background: #ff3838;
+        }
+        
+        .file-size-info {
+            margin: 8px 0;
+            padding: 8px;
+            background: #f8f9fa;
+            border-radius: 4px;
+            font-size: 0.9em;
+            color: #333;
+        }
+        
+        .file-upload-info {
+            margin: 8px 0;
+            padding: 8px;
+            background: #e3f2fd;
+            border-radius: 4px;
+            font-size: 0.85em;
+            color: #1565c0;
+        }
+        
+        .validation-error {
+            margin: 8px 0;
+            padding: 8px;
+            background: #ffebee;
+            border-radius: 4px;
+            color: #c62828;
+            font-size: 0.9em;
+            display: none;
+        }
+        
+        /* Ukryj standardowe alerty - będą pokazane jako toast */
+        .alert {
+            display: none !important;
+        }
+    </style>
+</head>
+<body>
+    <div class="app-container">
+        {% include 'sidebar/sidebar.html' %}
+        <main class="main-content">
+            <h1 class="title-with-underline">Zgłoś błąd</h1>
+            <p class="issues-p">
+                Jeśli zauważyłeś błąd w systemie, użyj poniższego formularza do jego zgłoszenia.
+            </p>
+
+            <!-- Komunikaty flash -->
+            {% with messages = get_flashed_messages(with_categories=true) %}
+                {% if messages %}
+                    {% for category, message in messages %}
+                        <div class="alert alert-{{ category }}">{{ message }}</div>
+                    {% endfor %}
+                {% endif %}
+            {% endwith %}
+
+            <form action="{{ url_for('issue') }}" method="post" enctype="multipart/form-data" class="issue-form">
+                <div class="form-section">
+                    <label for="problem-location" class="form-label">Miejsce problemu</label>
+                    <select id="problem-location" name="problem_location" class="select-input" required>
+                        <option value="" disabled selected></option>
+                        <option value="CRM">CRM</option>
+                        <option value="Baselinker">Baselinker</option>
+                        <option value="Responso">Responso</option>
+                        <option value="strona_www">Strona WWW</option>
+                        <option value="inne">Inne</option>
+                    </select>
+                </div>
+
+                <div class="form-section">
+                    <label for="priority" class="form-label">Priorytet</label>
+                    <select id="priority" name="priority" class="select-input" required>
+                        <option value="" disabled selected></option>
+                        <option value="niski">Niski</option>
+                        <option value="sredni">Średni</option>
+                        <option value="wysoki">Wysoki</option>
+                    </select>
+                </div>
+
+                <div class="form-section">
+                    <label for="problem-description" class="form-label">Opis problemu</label>
+                    <textarea id="problem-description" name="problem_description" class="issue-textarea-input" placeholder="Opisz najbardziej szczegółowo problem" required></textarea>
+                </div>
+
+                <div class="file-upload">
+                    <label for="attachment" class="file-upload-label">Załącz pliki</label>
+                    
+                    <div class="file-upload-info">
+                        📎 Możesz załączyć pliki o dowolnym rozszerzeniu<br>
+                        📏 Maksymalny rozmiar pojedynczego pliku: 2MB<br>
+                        📦 Maksymalny łączny rozmiar wszystkich plików: 15MB
+                    </div>
+                    
+                    <input type="file" id="attachment" name="attachments" class="file-upload-input" multiple>
+                    
+                    <div id="file-size-info" class="file-size-info">
+                        Łączny rozmiar: 0 Bytes / 15MB
+                    </div>
+                    
+                    <ul class="file-list" id="file-list">
+                        <li class="file-name">Nie dodano jeszcze żadnych plików.</li>
+                    </ul>
+                    
+                    <div id="validation-error" class="validation-error"></div>
+                </div>
+
+                <button type="submit" class="login-button">Zgłoś problem</button>
+            </form>
+            
+            <div id="loadingOverlay" class="overlay" style="display: none;">
+                <div class="overlay-content">
+                    <div class="spinner"></div>
+                    <p class="loading-text" id="overlayMessage">Wysyłanie zgłoszenia...</p>
+                </div>
+            </div>
+        </main>
+    </div>
+    
+    <script src="{{ url_for('static', filename='js/sidebar.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/issue.js') }}"></script>
+</body>
+</html>

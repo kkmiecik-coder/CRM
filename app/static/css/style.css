@@ -1,0 +1,2293 @@
+/* ============================================
+   Reset i Globalne Style
+   ============================================ */
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+.sidebar a {
+    text-decoration: none;
+}
+
+html, body {
+    width: 100%;
+    height: 100%;
+    font-family: "Poppins", sans-serif;
+    background: #FFF;
+}
+
+/* ============================================
+   Kontener g��wny (Desktop-1)
+   Lewa strona (obraz) i prawa strona (formularz)
+   ============================================ */
+.desktop-1 {
+    display: flex;
+    width: 100%;
+    height: 100%;
+}
+
+/* Lewa strona (50%): obraz w tle + logo CRM */
+.left-side {
+    width: 50%;
+    height: 100%;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    background: linear-gradient( 0deg, rgba(0, 0, 0, 0.70) 0%, rgba(0, 0, 0, 0.70) 100% ), url("../images/left-side.png") center center no-repeat;
+    background-size: cover;
+}
+
+/* Logo CRM wycentrowane w lewym kontenerze */
+.crm-logo {
+    width: 480px;
+    height: auto;
+}
+
+/* Prawa strona (50%): ramka logowania */
+.frame-login {
+    width: 50%;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    justify-content: center; /* wycentrowanie pionowe */
+    align-items: flex-start; /* wycentrowanie poziome */
+    padding-left: 70px;
+    gap: 28px;
+    flex-shrink: 0;
+}
+
+/* Nag��wek (np. "Witaj ponownie!") */
+.txt-login {
+    color: #000;
+    font-size: 24px;
+    font-weight: 600;
+    line-height: normal;
+}
+
+/* Blok formularza o sta�ej szeroko�ci (np. 400px) */
+.login-block {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 40px;
+    width: 400px; /* szeroko�� ca�ego formularza */
+}
+
+/* Formularz (inputs) */
+.inputs {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 18px;
+    width: 100%; /* wype�nia .login-block */
+}
+
+/* Pojedyncze pole (label + input) */
+.input {
+    display: flex;
+    flex-direction: column;
+    position: relative;
+    width: 100%;
+}
+
+/* --- POZYCJONOWANIE I ANIMACJA LABELI (FLOATING LABEL) --- */
+.label-txt {
+    position: absolute;
+    left: 21px;
+    top: 50%;
+    transform: translateY(-50%);
+    font-size: 12px;
+    color: #000;
+    pointer-events: none; /* klikni�cia przechodz� do inputa */
+    transition: all 0.2s ease;
+    background-color: #fff; /* bia�e t�o */
+    padding: 0 4px; /* aby etykieta mia�a �ramk� z bia�ym t�em */
+    z-index: 1; /* label ponad obramowaniem */
+}
+
+
+.input-frame {
+    position: relative;
+    display: flex;
+    align-items: center;
+    width: 100%;
+    height: 40px;
+    padding: 0 21px;
+    border-radius: 24px;
+    border: 3px solid #E3E3E3; /* static = szary */
+    transition: border-color 0.2s;
+}
+
+/* Sam input */
+.input-frame input {
+    width: 100%;
+    border: none;
+    outline: none;
+    background: transparent;
+    font-size: 12px;
+    color: #000;
+    padding: 10px 0; /* zostaw troch� miejsca na label */
+}
+
+/* Stany obramowania */
+.input-frame.active {
+    border-color: #ED6B24; /* pomara�czowy */
+}
+.input-frame.correct-waiting {
+    border-color: #07B90D; /* zielony */
+}
+.input-frame.error {
+    border-color: #E00000; /* czerwony */
+}
+
+/* Komunikat b��du */
+.error-message {
+    margin-top: 3px;
+    color: #E00000;
+    font-size: 10px;
+    font-weight: 400;
+    line-height: normal;
+    max-width: 250px;
+    white-space: normal;
+    word-wrap: break-word;
+}
+
+/* Dolna cz�� formularza (przycisk + link) */
+.bottom-login {
+    display: flex;
+    flex-direction: row;
+    justify-content: left;
+    align-items: center;
+    gap: 20px;
+    width: 100%;
+}
+
+/* Przycisk logowania */
+.login-button {
+    display: flex;
+    padding: 12px 44px;
+    justify-content: center;
+    align-items: center;
+    gap: 10px;
+    border-radius: 24px;
+    background: #ED6B24;
+    border: none;
+    cursor: pointer;
+    color: #FFF;
+    font-size: 16px;
+    font-weight: 600;
+    transition: background 0.2s, color 0.2s;
+}
+
+    .login-button.disabled {
+        background: #E3E3E3;
+        color: #FFFFFF;
+        cursor: not-allowed;
+    }
+
+    .login-button:hover:not(.disabled) {
+        background: #f0521b;
+    }
+
+    .login-button:active:not(.disabled) {
+        background: #ED6B24;
+    }
+
+/* Link "Nie pami�tam has�a" */
+.password-reset-txt {
+    color: #1F2020;
+    font-size: 12px;
+    font-weight: 400;
+    text-decoration: none;
+    transition: color 0.2s;
+}
+
+    .password-reset-txt:hover {
+        color: #ED6B24;
+    }
+
+/* Nak�adka (overlay) */
+.overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.7);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 9999;
+}
+
+.overlay-content {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 20px;
+}
+
+.spinner {
+    width: 60px;
+    height: 60px;
+    border: 8px solid #f3f3f3;
+    border-top: 8px solid #ED6B24;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+}
+
+.loading-text {
+    font-size: 16px;
+    font-weight: 600;
+    color: #ED6B24;
+}
+
+@keyframes spin {
+    0% {
+        transform: rotate(0deg);
+    }
+
+    100% {
+        transform: rotate(360deg);
+    }
+}
+
+.input-frame.active .label-txt,
+.input-frame.correct-waiting .label-txt,
+.input-frame.error .label-txt,
+.input-frame.has-content .label-txt {
+    top: -8px;
+    transform: none;
+    font-size: 10px;
+}
+
+.title-with-underline {
+    position: relative;
+    display: inline-block;
+    margin-bottom: 20px;
+}
+
+    .title-with-underline::after {
+        content: "";
+        position: absolute;
+        left: 0;
+        bottom: -8px;
+        width: 70px;
+        height: 4px;
+        background-color: #ED6B24;
+        border-radius: 2px;
+    }
+
+.title-with-underline-h2 {
+    position: relative;
+    display: inline-block;
+    margin-bottom: 20px;
+}
+
+    .title-with-underline-h2::after {
+        content: "";
+        position: absolute;
+        left: 0;
+        bottom: -5px;
+        width: 50px;
+        height: 3px;
+        background-color: #ED6B24;
+        border-radius: 2px;
+    }
+
+.title-with-underline-h4 {
+    position: relative;
+    display: inline-block;
+    margin-bottom: 20px;
+}
+
+    .title-with-underline-h4::after {
+        content: "";
+        position: absolute;
+        left: 0;
+        bottom: -5px;
+        width: 30px;
+        height: 3px;
+        background-color: #ED6B24;
+        border-radius: 2px;
+    }
+
+p {
+    text-align: left;
+}
+
+/* Extra-modules � kontener opcji extra (np. "Zg�o� b��d", "Pomoc") */
+.extra-modules {
+    display: flex;
+    padding: 30px;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 3px;
+    align-self: stretch;
+    border-top: 1px solid #E3E3E3; /* dodane obramowanie */
+}
+
+/* [sidebar] � g��wny kontener sidebaru */
+.sidebar {
+    position: fixed;
+    left: 0;
+    top: 0;
+    width: 308px; /* lub inna sta�a szeroko�� */
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between; /* rozdziela panel i stopk� */
+    background: #FFF;
+    box-shadow: -2px 4px 23px -4px rgba(0, 0, 0, 0.25);
+    z-index: 1000;
+    transition: width 0.3s ease;
+}
+
+    /* Klasa dodawana przy zw�onym sidebarze */
+    .sidebar.collapsed {
+        width: 56px;
+    }
+
+/* [panel] � kontener wewn�trzny */
+.panel {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    align-self: stretch;
+}
+
+/* [logo-section] */
+.logo-section {
+    display: flex;
+    padding: 24px 32px;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    gap: 10px;
+    align-self: stretch;
+}
+
+/* [logo] */
+.logo {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+}
+
+.beta-tag {
+    display: inline-block;
+    padding: 5px 12px;
+    border-radius: 16px;
+    background: #ED6B24;
+    color: #FFF;
+    font-size: 12px;
+    font-family: 'Poppins', sans-serif;
+    font-weight: 600;
+    line-height: 1;
+    vertical-align: middle;
+}
+
+.panel {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    align-self: stretch;
+}
+
+/* [close-slidebar] � przycisk zamykania sidebaru */
+.close-slidebar {
+    display: flex;
+    padding: 7px;
+    align-items: center;
+    gap: 10px;
+    position: absolute;
+    right: -16px;
+    top: 24px;
+    border-radius: 41px;
+    background: #FFF;
+    cursor: pointer;
+}
+
+/* [main-modules] � kontener g��wnego menu */
+.main-modules {
+    display: flex;
+    padding: 0px 30px 30px 30px;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+    align-self: stretch;
+}
+
+/* [menu-options] � pojedyncza opcja menu (normalny stan) */
+.menu-options {
+    display: flex;
+    width: 248px;
+    padding: 9px 16px;
+    align-items: center;
+    gap: 12px;
+    border-radius: 26px;
+    cursor: pointer;
+    transition: background 0.2s ease;
+}
+
+.menu-options a {
+    display: flex;          /* Link staje si� kontenerem flex */
+    align-items: center;    /* Wyr�wnanie pionowe w �rodku */
+    gap: 8px;               /* Odst�p mi�dzy ikon� a tekstem */
+    text-decoration: none;  /* Usuwa podkre�lenie */
+    color: inherit;         /* Dziedziczy kolor z rodzica */
+    width: 100%;            /* Ca�y link wype�nia obszar listy */
+    height: 100%;           /* Opcjonalnie, aby obj�� ca�y element */
+}
+
+
+/* Tekst w opcji menu */
+.option-txt {
+    color: #7E7E7E;
+    font-family: Poppins, sans-serif;
+    font-size: 12px;
+    font-style: normal;
+    font-weight: 600;
+    line-height: normal;
+}
+
+/* Hover (rozszerzony sidebar) � menu-options */
+.menu-options:hover {
+    background: #F2F2F2;
+}
+
+/* Active (rozszerzony sidebar) � menu-options */
+.menu-options.active {
+    background: #FFE6D9;
+}
+
+    .menu-options.active .option-txt {
+        color: #ED6B24;
+    }
+
+/* Wersja collapsed (sidebar zw�ony) */
+.sidebar.collapsed .menu-options {
+    display: inline-flex;
+    padding: 9px 16px;
+}
+
+    .sidebar.collapsed .menu-options .option-txt {
+        display: none;
+    }
+
+    .sidebar.collapsed .menu-options:hover {
+        background: #F2F2F2;
+    }
+
+    .sidebar.collapsed .menu-options.active {
+        background: #FFE6D9;
+    }
+
+/* Shorts � kontener skr�t�w */
+.shorts {
+    display: flex;
+    padding: 30px 30px 0px 30px;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+    align-self: stretch;
+    border-top: 1px solid #E3E3E3;
+}
+
+/* Nag��wek skr�t�w */
+.shorts-title {
+    align-self: stretch;
+    color: #7E7E7E;
+    text-align: center;
+    font-family: Poppins, sans-serif;
+    font-size: 12px;
+    font-weight: 500;
+    line-height: normal;
+    margin-bottom: 8px;
+}
+
+/* Link skr�tu � ca�a linia klikalna */
+.shorts-link {
+    display: flex;
+    align-items: center;
+    width: 100%;
+    text-decoration: none;
+    color: inherit;
+    padding: 3px 16px; /* opcjonalnie, by dopasowa� odst�py */
+    border-radius: 26px;
+    transition: background 0.2s ease;
+}
+
+    .shorts-link:hover {
+        background: #F2F2F2;
+    }
+
+.short-main {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.shorts-link .short-txt {
+    margin-left: 4px;
+}
+
+.link-icon {
+    margin-left: auto;
+    width: 24px;
+    height: 24px;
+    flex-shrink: 0;
+}
+
+.shorts-link {
+    margin-left: auto;
+}
+
+/* [shorts-options] � opcje skr�t�w */
+/* Normalny stan � sidebar rozwini�ty */
+.shorts-options {
+    display: flex;
+    width: 248px;
+    padding: 3px 0px;
+    justify-content: space-between;
+    align-items: center;
+    border-radius: 26px;
+    cursor: pointer;
+    transition: background 0.2s ease;
+}
+
+    .shorts-options:hover {
+        background: #F2F2F2;
+    }
+
+/* Wersja collapsed � sidebar zw�ony */
+.sidebar.collapsed .shorts-options {
+    width: 56px;
+    padding: 3px 16px;
+}
+
+/* Ikona skr�tu (serwisu) */
+.short-icon {
+    width: 24px;
+    height: 24px;
+    flex-shrink: 0;
+}
+
+/* Tekst skr�tu */
+.short-txt {
+    color: #7E7E7E;
+    font-family: Poppins, sans-serif;
+    font-size: 12px;
+    font-weight: 400;
+    line-height: normal;
+    margin-left: 4px;
+}
+
+/* Wersja collapsed � opcje skr�t�w, tekst ukryty */
+.sidebar.collapsed .short-txt {
+    display: none;
+}
+
+/* [footer] � stopka sidebaru */
+.footer {
+    width: 100%; /* stopka zajmuje pełną szerokość sidebara */
+    flex-shrink: 0; /* nie kurczy się */
+    display: flex;
+    align-items: center;
+    padding: 16px 10px;
+    border-top: 1px solid #E3E3E3;
+}
+
+.footer-menu {
+    display: flex;
+    flex-direction: row;
+    width: 100%;
+}
+
+.footer-menu-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 9px 16px;
+    border-radius: 26px;
+    text-decoration: none;
+    color: #7E7E7E;
+    transition: background 0.2s ease, color 0.2s ease;
+    cursor: pointer;
+}
+
+    .footer-menu-item:hover {
+        background: #F2F2F2;
+        color: #ED6B24;
+    }
+
+    .footer-menu-item:active {
+        background: #FFE6D9;
+    }
+
+.footer-icon {
+    display: inline-block;
+    width: 24px;
+    height: 24px;
+    flex-shrink: 0;
+    color: inherit;
+}
+
+    .footer-icon svg {
+        width: 100%;
+        height: 100%;
+        fill: currentColor;
+    }
+
+/* [footer-menu-text] – tekst w stopce */
+.footer-menu-text {
+    color: inherit;
+    font-family: Poppins, sans-serif;
+    font-size: 12px;
+    font-weight: 600;
+    line-height: normal;
+}
+
+
+/* Styl kontenera g��wnego dla modu�u zg�oszenia b��du */
+.app-container {
+    display: flex;
+    height: 100vh;
+    overflow-x: hidden;
+}
+
+/* G��wna zawarto�� modu�u */
+.main-content {
+    margin-left: 308px; /* szeroko�� sidebaru */
+    flex: 1;
+    min-height: 100vh; /* sekcja g��wna przynajmniej na wysoko�� ekranu */
+    overflow-y: auto; /* pionowe przewijanie, je�li zawarto�� jest wi�ksza */
+    padding: 32px 40px;
+}
+
+/* Styl grupy formularzowej */
+.form-group {
+    margin-bottom: 20px;
+    max-width: 400px
+}
+
+/* Styl dla p�l select � ujednolicone z input-frame */
+.select-input {
+    width: 100%;
+    padding: 8px;
+    border-radius: 24px;
+    border: 3px solid #E3E3E3; /* sp�jne z reszt� UI */
+    transition: border-color 0.2s;
+}
+
+/* Styl dla pola textarea */
+.issue-textarea-input {
+    width: 100%;
+    padding: 8px;
+    border-radius: 20px 20px 4px 20px;
+    border: 3px solid #E3E3E3;
+    resize: both;
+    transition: border-color 0.2s;
+    min-height: 300px;
+    max-height: 600px;
+}
+
+/* Styl dla input�w typu file */
+.file-input {
+    display: block;
+    width: 100%;
+    padding: 8px;
+    transition: border-color 0.2s;
+    max-width: 230px;
+}
+
+.attachments-issues {
+    gap: 8px;
+    margin-bottom: 20px;
+}
+
+.issues-p {
+    margin-bottom: 40px;
+}
+
+.select-input,
+.issue-textarea-input,
+.file-input {
+    font-family: "Poppins", sans-serif;
+}
+
+
+.select-input option {
+    font-family: "Poppins", sans-serif;
+    color: #000;
+}
+
+.select-input option[value=""] {
+    color: #999;
+}
+
+.tabs {
+    display: flex;
+    align-items: center;
+    background-color: #F8F8F8;
+    border-radius: 4px 4px 0 0;
+    margin: 20px 0;
+}
+
+.tab {
+    padding: 12px 20px;
+    cursor: pointer;
+    color: #000;
+    background-color: #F8F8F8;
+    border: none;
+    border-bottom: 3px solid transparent;
+    transition: background-color 0.2s, color 0.2s, border-bottom-color 0.2s;
+}
+
+    .tab:hover {
+        background-color: #ECECEC;
+    }
+
+    .tab.active {
+        background-color: #FFF;
+        color: #ED6B24;
+        border-bottom-color: #ED6B24;
+    }
+
+.tab-content {
+    background-color: #FFF;
+    padding: 20px;
+    border-radius: 0 4px 4px 4px;
+}
+
+    .tab-content.active {
+        display: block;
+    }
+
+/* [add-new-user] */
+.add-new-user {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 20px 0;
+}
+
+/* H2 w sekcji "Dodaj nowego u�ytkownika" i "Lista u�ytkownik�w" */
+.title-txt {
+    color: #1F2020;
+    font-family: Poppins, sans-serif;
+    font-size: 16px;
+    font-weight: 600;
+    line-height: normal;
+    margin-bottom: 10px; /* ewentualnie, by doda� odst�p */
+}
+
+/* .add-new-user-box */
+.add-new-user-box {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+}
+
+/* .inputs-new-user => kontener formularza (rola + email + submit) */
+.inputs-new-user {
+    display: flex;
+    align-items: flex-end;
+    gap: 20px;
+}
+
+/* .role-input, .email-input => kolumny z label + input/select */
+.role-input,
+.email-input {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+/* Tekst labela */
+.input-txt {
+    color: #1F2020;
+    font-family: Poppins, sans-serif;
+    font-size: 14px;
+    font-weight: 400;
+}
+
+/* .input-new-user => styl samego <input> lub <select> */
+.input-new-user {
+    display: flex;
+    width: 200px;
+    padding: 5px 16px;
+    border-radius: 16px;
+    border: 1px solid #7E7E7E;
+    background: #FFF;
+    align-items: center; 
+}
+
+/* Styl strza�ki w <select> */
+.select-role {
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    padding-right: 25px;
+    background: url("../icons/list-hevron.svg") no-repeat right 8px center/10px 10px;
+    cursor: pointer;
+}
+
+/* Przycisk "Wy�lij zaproszenie" */
+.orange-button {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 5px 16px;
+    border-radius: 16px;
+    background: #ED6B24;
+    border: none;
+    color: #FFF;
+    font-family: Poppins, sans-serif;
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+}
+
+/* [user-list] */
+.user-list {
+    display: flex;
+    flex-direction: column;
+    gap: 30px;
+    padding: 20px 0;
+}
+
+/* .headers => wiersz tytu��w kolumn */
+.headers {
+    display: flex;
+    align-items: flex-start;
+    gap: 30px;
+}
+
+/* .header-txt => styl tytu��w kolumn */
+.header-txt {
+    color: #1F2020;
+    font-family: Poppins, sans-serif;
+    font-size: 14px;
+    font-weight: 600;
+}
+
+/* .list => kontener wszystkich user-row */
+.list {
+    display: flex;
+    flex-direction: column;
+}
+
+/* .user-row => pojedynczy wiersz (avatar, imi�, email, rola, akcje) */
+.user-row {
+    display: flex;
+    align-items: center;
+    gap: 30px;
+    padding: 6px 0;
+    border-bottom: 1px solid #F3F3F3;
+}
+
+/* .avatar-box => zawiera obrazek */
+.avatar-box {
+    display: flex;
+    width: 50px;
+    align-items: center;
+}
+
+/* .data-txt => zwyk�y tekst w kolumnie */
+.data-txt {
+    font-family: Poppins, sans-serif;
+    font-size: 14px;
+    font-weight: 400;
+    color: #1F2020;
+}
+
+/* .actions => kontener na przyciski (Edytuj, Dezaktywuj/Aktywuj) */
+.actions {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+/* .edit-button => pomara�czowy */
+.edit-button {
+    display: flex;
+    padding: 5px 16px;
+    justify-content: center;
+    align-items: center;
+    gap: 10px;
+    border-radius: 16px;
+    background: #ED6B24;
+    border: none;
+    color: #FFF;
+    font-family: Poppins, sans-serif;
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+}
+
+/* .modify-button => mo�e mie� r�ne warianty koloru */
+.modify-button {
+    display: flex;
+    padding: 5px 16px;
+    justify-content: center;
+    align-items: center;
+    gap: 10px;
+    border-radius: 16px;
+    border: none;
+    font-family: Poppins, sans-serif;
+    font-size: 12px;
+    font-weight: 500;
+    color: #FFF;
+    cursor: pointer;
+}
+
+/* .modify-button--black => t�o czarne (dezaktywuj) */
+.modify-button--black {
+    background: #000;
+}
+
+/* .modify-button--green => t�o #29CE60 (aktywuj) */
+.modify-button--green {
+    background: #29CE60;
+}
+
+/* Samo <select> i <input> wewn�trz .input-new-user:
+   - usuwamy obramowanie, t�o i wewn. margines, by nie dublowa� ramki */
+.select-role,
+.plain-input {
+    border: none;
+    background: transparent;
+    outline: none;
+    font-family: Poppins, sans-serif;
+    font-size: 14px;
+    font-weight: 400;
+    color: #1F2020;
+    width: 100%;
+    height: 100%;
+}
+
+/* Nak�adka (t�o przyciemnione) */
+.modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    background-color: rgba(0,0,0,0.5);
+    z-index: 9998;
+}
+
+/* Modal box (800�500) */
+.modal-box {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    width: 300px;
+    background: #FFF;
+    transform: translate(-50%, -50%);
+    border-radius: 8px;
+    z-index: 9999;
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+}
+
+/* Przycisk zamykania (X) w prawym g�rnym rogu */
+.close-modal {
+    position: absolute;
+    top: 20px;
+    right: 20px;
+    background: none;
+    border: none;
+    font-size: 16px;
+    font-weight: 600;
+    cursor: pointer;
+    font-family: Poppins;
+}
+
+/* Wiersz w formularzu modala */
+.modal-input-row {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    margin: 10px 0;
+}
+
+/* Kontener przycisk�w w modalu */
+.modal-actions {
+    display: flex;
+    gap: 12px;
+    margin-top: auto; /* by przyciski by�y na dole */
+}
+
+.modal-input-row input,
+.modal-input-row select {
+    background-color: #f0f0f0; /* jasnoszare t�o */
+    border-radius: 16px;
+    color: #333; /* ciemnoszary kolor tekstu */
+    border: 1px solid #ccc; /* opcjonalnie: cienka szara ramka */
+    padding: 3px 12px;
+}
+
+.profile-settings {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+}
+
+/* [data] */
+.data {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    padding: 20px 0px;
+    gap: 30px;
+}
+
+.datas {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.avatar-preview {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+/* h3 w sekcji "avatar" */
+.avatar h3 {
+    color: #1F2020;
+    font-family: Poppins, sans-serif;
+    font-size: 14px;
+    font-weight: 600;
+    margin: 0; /* ewentualnie */
+}
+
+/* [user-name] */
+.user-name {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+}
+
+/* .name i .data-txt */
+.name {
+    color: #1F2020;
+    font-family: Poppins, sans-serif;
+    font-size: 14px;
+    font-weight: 600;
+}
+
+/* .data-txt � jak poprzednio, do tre�ci dynamicznej */
+.data-txt {
+    color: #1F2020;
+    font-family: Poppins, sans-serif;
+    font-size: 14px;
+    font-weight: 400;
+}
+
+/* [user-mail] */
+.user-mail {
+    color: #1F2020;
+    font-family: Poppins, sans-serif;
+    font-size: 14px;
+    font-weight: 400;
+    /* ewentualnie usun��, by u�y� .data-txt */
+}
+
+/* .mail-adress */
+.mail-adress {
+    color: #1F2020;
+    font-family: Poppins, sans-serif;
+    font-size: 14px;
+    font-weight: 600;
+}
+
+/* [updates] */
+.updates {
+    display: flex;
+    align-items: flex-start;
+    gap: 30px;
+}
+
+/* [avatar-update] */
+.avatar-update {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    padding: 20px 0px;
+}
+
+/* [avatars] */
+.avatars {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 20px;
+}
+
+/* [defaults-avatars] */
+.defaults-avatars {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+}
+
+/* [default-avatars-preview] � kontener na 3 ikony avatar�w */
+.default-avatars-preview {
+    display: flex;
+    align-items: center;
+    gap: 30px;
+}
+
+/* Po klikni�ciu w dany avatar � border pomara�czowy 4px. 
+   Mo�esz to robi� JS-em: */
+.avatar-default.selected {
+    border: 4px solid #ED6B24;
+}
+
+/* [own-avatar] */
+.own-avatar {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+}
+
+/* Podgl�d wgrywanego pliku */
+.own-preview {
+    display: none; /* pocz�tkowo ukryte */
+}
+
+.submit-txt {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 5px 16px;
+    border-radius: 16px;
+    background: #ED6B24;
+    border: none;
+    color: #FFF;
+    font-family: Poppins, sans-serif;
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+}
+
+/* Przycisk "Zapisz zmiany" */
+.submit-button {
+    display: inline-flex;
+    padding: 8px 16px;
+    border-radius: 16px;
+    background: #ED6B24;
+    border: none;
+    color: #FFF;
+    font-family: Poppins, sans-serif;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+}
+
+.update_password {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    padding: 20px 0px;
+}
+
+.update_password_form {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+}
+
+.old_password,
+.new_password,
+.confirm_password {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+}
+
+.input-txt {
+    color: #1F2020;
+    font-family: Poppins, sans-serif;
+    font-size: 14px;
+    font-weight: 400;
+}
+
+.update_password_form input {
+    padding: 8px;
+    border: 1px solid #CCC;
+    border-radius: 16px;
+    font-size: 14px;
+    width: 200px;
+}
+
+.update_password_form .submit-button {
+    margin-top: 10px;
+}
+
+.upload-avatar {
+    margin-bottom: 10px;
+}
+
+.flash-messages {
+    margin-bottom: 20px;
+}
+
+.flash {
+    padding: 10px;
+    border-radius: 4px;
+    margin-bottom: 10px;
+}
+
+.flash-error {
+    background-color: #f8d7da;
+    color: #721c24;
+    border: 1px solid #f5c6cb;
+}
+
+.flash-success {
+    background-color: #d4edda;
+    color: #155724;
+    border: 1px solid #c3e6cb;
+}
+
+.delete-button {
+    display: inline-flex;
+    padding: 5px 16px;
+    border: 2px solid red;
+    background: #FFF;
+    color: #000;
+    border-radius: 16px;
+    font-family: Poppins, sans-serif;
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+    .delete-button:hover {
+        border: 2px solid red;
+        background: red;
+        color: #fff;
+        transition: all 0.2s ease;
+    }
+
+.sidebar-icon {
+    display: inline-block;
+    color: #7E7E7E;
+    width: 24px;
+    height: 24px;
+    transition: color 0.2s ease;
+}
+
+.menu-options.active .sidebar-icon {
+    color: #ED6B24;
+}
+
+/* Stylizacja tabeli w ustawieniach cennika */
+.styled-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 20px 0;
+    font-family: "Poppins", sans-serif;
+    font-size: 14px;
+    text-align: left;
+}
+
+.styled-table thead tr {
+    background-color: #ED6B24;  /* wiodący kolor */
+    color: #FFF;
+    font-weight: 600;
+}
+
+.styled-table th,
+.styled-table td {
+    padding: 8px 15px;
+}
+
+.styled-table tbody tr:nth-child(even) {
+    background-color: #F8F8F8;
+}
+
+.styled-table tbody tr:hover {
+    background-color: #FFE6D9;
+}
+
+/* Opcjonalnie: jeśli chcesz, by inputy w tabeli były spójne stylistycznie */
+.styled-table input[type="text"] {
+    width: 100%;
+    padding: 6px 8px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    font-family: "Poppins", sans-serif;
+    font-size: 14px;
+}
+
+/* issue.css – stylizacja formularza zgłoszeń */
+
+.issue-form {
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+    max-width: 600px;
+}
+
+.form-section {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.select-input {
+    width: 100%;
+    padding: 10px 14px;
+    border-radius: 24px;
+    border: 2px solid #E3E3E3;
+    font-size: 14px;
+    font-family: "Poppins", sans-serif;
+    transition: border-color 0.2s;
+}
+
+    .select-input:focus {
+        border-color: #ED6B24;
+        outline: none;
+    }
+
+.issue-textarea-input {
+    width: 100%;
+    min-height: 160px;
+    padding: 14px;
+    border-radius: 24px 24px 4px;
+    border: 2px solid #E3E3E3;
+    font-size: 14px;
+    font-family: "Poppins", sans-serif;
+    resize: vertical;
+    transition: border-color 0.2s;
+}
+
+    .issue-textarea-input:focus {
+        border-color: #ED6B24;
+        outline: none;
+    }
+
+.label-txt {
+    font-size: 12px;
+    color: #000;
+    padding-left: 4px;
+}
+
+.login-button {
+    background-color: #ED6B24;
+    color: #FFF;
+    border: none;
+    padding: 12px 36px;
+    font-size: 14px;
+    font-weight: 600;
+    border-radius: 24px;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+
+    .login-button:hover {
+        background-color: #f0521b;
+    }
+
+select.select-input {
+    padding-right: 40px; /* odsuwamy tekst od prawej krawędzi */
+    background-position: right 14px center; /* przesunięcie strzałki */
+    background-repeat: no-repeat;
+    background-image: url("data:image/svg+xml,%3Csvg fill='black' height='16' viewBox='0 0 24 24' width='16' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M7 10l5 5 5-5z'/%3E%3C/svg%3E");
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    appearance: none;
+}
+
+.file-upload {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    flex-wrap: wrap;
+    align-items: flex-start;
+}
+
+.file-upload-label {
+    border: 2px solid #ED6B24;
+    color: #000;
+    padding: 4px 18px;
+    border-radius: 24px;
+    font-size: 14px;
+    font-weight: 400;
+    cursor: pointer;
+    transition: background 0.3s;
+}
+
+    .file-upload-label:hover {
+        color: #fff;
+        background-color: #f0521b;
+    }
+
+.file-upload-input {
+    display: none;
+}
+
+.file-name {
+    font-size: 14px;
+    color: #1F2020;
+}
+
+.file-list {
+    list-style: none;
+    padding-left: 0;
+    margin: 0;
+    font-size: 14px;
+    color: #1F2020;
+    margin-top: 6px;
+}
+
+select.select-input {
+    padding-right: 40px; /* więcej miejsca na strzałkę */
+    background-position: calc(100% - 14px) center;
+    background-repeat: no-repeat;
+    background-size: 16px;
+}
+
+/* Overlay już zdefiniowany w style.css – nie trzeba duplikować */
+
+.widget-card {
+    background: #FFF;
+    border-radius: 16px;
+    box-shadow: 0px 61px 17px 0px rgba(0, 0, 0, 0.00), 0px 39px 16px 0px rgba(0, 0, 0, 0.01), 0px 22px 13px 0px rgba(0, 0, 0, 0.05), 0px 10px 10px 0px rgba(0, 0, 0, 0.09), 0px 2px 5px 0px rgba(0, 0, 0, 0.10);
+    padding: 20px;
+    font-family: "Poppins", sans-serif;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    box-sizing: border-box;
+    min-width: 350px;
+    max-width: 400px;
+    width: 100%;
+}
+
+.widget-title {
+    font-size: 18px;
+    font-weight: 600;
+    color: #1F2020;
+    position: relative;
+    display: inline-block;
+    margin-bottom: 16px;
+}
+
+.calendar-placeholder {
+    font-size: 12px;
+    font-style: italic;
+    color: #999;
+}
+
+.weather-icon {
+    width: 90px;
+    height: 90px;
+    padding: 0;
+    background: none;
+    border-radius: 0;
+    flex-shrink: 0;
+    filter: drop-shadow(-11px 10px 4px rgba(0, 0, 0, 0.00)) drop-shadow(-7px 6px 4px rgba(0, 0, 0, 0.02)) drop-shadow(-4px 3px 3px rgba(0, 0, 0, 0.08)) drop-shadow(-2px 2px 2px rgba(0, 0, 0, 0.13)) drop-shadow(0px 0px 1px rgba(0, 0, 0, 0.15));
+}
+
+.weather-text {
+    text-align: left;
+}
+
+.weather-main-info {
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 16px;
+    margin-bottom: 12px;
+}
+
+.weather-text .desc {
+    font-size: 12px;
+    font-style: italic;
+    color: #777;
+}
+
+.weather-text .temp {
+    font-size: 36px;
+    font-weight: 700;
+    color: #ED6B24;
+}
+
+.dashboard-widgets {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
+    gap: 20px;
+    margin-top: 30px;
+    max-width: 100%;
+    justify-content: center;
+    align-items: start; /* TO JEST KLUCZOWE */
+}
+
+.changelog-widget {
+    justify-content: flex-start;
+    border: 4px solid #ED6B24;
+}
+
+.changelog-body {
+    font-size: 13px;
+    color: #333;
+    line-height: 1.6;
+    padding-top: 8px;
+}
+
+.changelog-entry {
+    margin-bottom: 12px;
+    padding-bottom: 2px;
+    border-bottom: 1px solid #eee;
+}
+
+.changelog-date {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.changelog-chevron {
+    width: 14px;
+    height: 14px;
+    transform: rotate(90deg);
+    transition: transform 0.7s ease;
+}
+
+.changelog-list {
+    margin-top: 8px;
+}
+
+.hidden {
+    display: none;
+}
+
+.changelog-entry.open .changelog-list {
+    display: block;
+}
+
+.changelog-entry.open .changelog-chevron {
+    transform: rotate(270deg);
+}
+
+.changelog-section {
+    margin-top: 8px;
+}
+
+    .changelog-section strong {
+        display: block;
+        margin-bottom: 4px;
+        color: #1f2020;
+    }
+
+    .changelog-section ul {
+        padding-left: 16px;
+        list-style-type: disc;
+    }
+
+    .changelog-section li + li {
+        margin-top: 4px;
+    }
+
+.animated-toggle {
+    max-height: 0;
+    overflow: hidden;
+    transition: max-height 0.5s ease;
+}
+
+.changelog-entry.open .animated-toggle {
+    max-height: 800px; /* dopasuj do swojej zawartości */
+}
+
+/* === Analytics Boxes === */
+.analytics-box {
+    background-color: white;
+    border-radius: 12px;
+    box-shadow: 0 0 8px rgba(0,0,0,0.08);
+    padding: 24px;
+    margin-bottom: 30px;
+}
+
+.analytics-box-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 16px;
+}
+
+    .analytics-box-header h2 {
+        margin: 0;
+        font-size: 20px;
+        font-weight: 600;
+    }
+
+/* === Stat Cards === */
+.analytics-stat-card-group {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+}
+
+.analytics-stat-card {
+    background-color: #f9f9f9;
+    border-radius: 10px;
+    padding: 16px;
+    flex: 1;
+    min-width: 220px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+}
+
+    .analytics-stat-card h3 {
+        font-size: 16px;
+        margin-bottom: 8px;
+    }
+
+    .analytics-stat-card p {
+        font-size: 24px;
+        font-weight: bold;
+        color: #444;
+    }
+
+/* === Sub Tabs === */
+.analytics-sub-tabs {
+    display: flex;
+    gap: 12px;
+}
+
+.analytics-sub-tab {
+    background-color: #eaeaea;
+    border: none;
+    border-radius: 20px;
+    padding: 8px 16px;
+    cursor: pointer;
+    font-weight: 500;
+    transition: background-color 0.3s ease;
+}
+
+    .analytics-sub-tab.active {
+        background-color: #0073e6;
+        color: white;
+    }
+
+    .analytics-sub-tab:hover {
+        background-color: #d4d4d4;
+    }
+
+/* === Charts visibility === */
+.analytics-sub-chart {
+    display: none;
+    max-width: 600px;
+    height: auto;
+    margin: 0 auto;
+}
+
+    .analytics-sub-chart.visible {
+        display: block;
+    }
+
+#dimensionChart,
+#colorChart {
+    max-width: 600px;
+    height: auto;
+    margin: 0 auto;
+}
+
+.clients-section {
+    margin-bottom: 24px;
+    padding: 16px;
+    background: #f9f9f9;
+    border-radius: 8px;
+}
+
+.clients-section-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 12px;
+}
+
+.clients-section-header h3 {
+    margin: 0;
+    font-size: 16px;
+    color: #222;
+}
+
+.clients-edit-icon {
+    width: 18px;
+    height: 18px;
+    opacity: 0.5;
+}
+
+.clients-section-body {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.grid-2-cols {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px 24px;
+}
+
+.input-group {
+    display: flex;
+    flex-direction: column;
+}
+
+.input-group label {
+    font-size: 13px;
+    color: #555;
+    margin-bottom: 4px;
+}
+
+.clients-input {
+    padding: 8px 10px;
+    font-size: 14px;
+    border: 1px solid #ccc;
+    border-radius: 6px;
+    background: #fff;
+    transition: border 0.2s;
+}
+
+.clients-input:focus {
+    border-color: #888;
+    outline: none;
+}
+
+.full-width {
+    grid-column: span 2;
+}
+
+.clients-modal-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 12px;
+    margin-top: 24px;
+}
+
+.checkbox-row label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 14px;
+    color: #333;
+    cursor: pointer;
+}
+
+.checkbox-row input[type="checkbox"] {
+    margin: 0;
+    transform: scale(1.1);
+    cursor: pointer;
+}
+/* === SIDEBAR COLLAPSIBLE STYLES === */
+
+/* Główna zawartość - dostosowuje się do szerokości sidebara */
+.main-content {
+    margin-left: 308px;
+    transition: margin-left 0.3s ease;
+}
+
+    .main-content.sidebar-collapsed {
+        margin-left: 110px;
+    }
+
+/* === SIDEBAR === */
+.sidebar {
+    position: fixed;
+    left: 0;
+    top: 0;
+    width: 308px;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    background: #FFF;
+    box-shadow: -2px 4px 23px -4px rgba(0, 0, 0, 0.25);
+    z-index: 1000;
+    transition: width 0.3s ease;
+}
+
+    .sidebar.collapsed {
+        width: 110px;
+    }
+
+/* Panel główny */
+.panel {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    align-self: stretch;
+}
+
+/* === LOGO SECTION === */
+.logo-section {
+    display: flex;
+    padding: 24px 32px;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    gap: 10px;
+    align-self: stretch;
+    position: relative;
+}
+
+.sidebar.collapsed .logo-section {
+    padding: 24px 16px;
+}
+
+.logo {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+}
+
+    .logo img {
+        transition: opacity 0.3s ease;
+        max-width: 100%;
+        height: auto;
+        width: 200px;
+    }
+
+.logo-main {
+    display: block;
+}
+
+.logo-sygnet {
+    display: none;
+}
+
+.sidebar.collapsed .logo-main {
+    display: none;
+}
+
+.sidebar.collapsed .logo-sygnet {
+    display: block;
+    width: 42px;
+}
+
+.beta-tag {
+    display: inline-block;
+    padding: 5px 12px;
+    border-radius: 16px;
+    background: #ED6B24;
+    color: #FFF;
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 1;
+    transition: opacity 0.3s ease;
+}
+
+.sidebar.collapsed .beta-tag {
+    pointer-events: none;
+    padding: 5px 8px;
+    font-size: 11px;
+}
+
+/* Przycisk toggle - pozycjonowanie na granicy sidebara */
+.sidebar-toggle {
+    position: absolute;
+    top: 24px;
+    right: -16px; /* Połowa szerokości przycisku (32px / 2) = -16px */
+    width: 32px;
+    height: 32px;
+    background: #ED6B24;
+    border: none;
+    border-radius: 50%;
+    color: white;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: transform 0.3s ease, background 0.2s ease;
+    font-size: 24px;
+    font-weight: 400;
+    z-index: 10;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+    .sidebar-toggle:hover {
+        background: #f0521b;
+    }
+
+.sidebar.collapsed .sidebar-toggle {
+    transform: rotate(180deg);
+}
+
+/* === MAIN MODULES === */
+.main-modules {
+    display: flex;
+    padding: 0px 30px 30px 30px;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+    align-self: stretch;
+    overflow: hidden;
+}
+
+.sidebar.collapsed .main-modules {
+    padding: 0px 16px 30px 16px;
+}
+
+.menu-options-list {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    list-style: none;
+    width: 100%;
+    margin: 0;
+    padding: 0;
+}
+
+.menu-options {
+    display: flex;
+    width: 248px;
+    padding: 9px 16px;
+    align-items: center;
+    gap: 12px;
+    border-radius: 26px;
+    cursor: pointer;
+    transition: background 0.2s ease;
+    position: relative;
+}
+
+.sidebar.collapsed .menu-options {
+    width: 68px;
+    padding: 9px 16px;
+    justify-content: center;
+}
+
+.menu-options a {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    text-decoration: none;
+    color: inherit;
+    width: 100%;
+}
+
+.sidebar.collapsed .menu-options a {
+    justify-content: center;
+}
+
+.sidebar-icon {
+    display: inline-block;
+    color: #7E7E7E;
+    width: 24px;
+    height: 24px;
+    transition: color 0.2s ease;
+    flex-shrink: 0;
+}
+
+.option-txt {
+    color: #7E7E7E;
+    font-size: 12px;
+    font-weight: 600;
+    transition: opacity 0.3s ease;
+    white-space: nowrap;
+}
+
+.sidebar.collapsed .option-txt {
+    opacity: 0;
+    pointer-events: none;
+    position: absolute;
+    left: -9999px;
+}
+
+/* Hover states */
+.menu-options:hover {
+    background: #F2F2F2;
+}
+
+.menu-options.active {
+    background: #FFE6D9;
+}
+
+    .menu-options.active .option-txt,
+    .menu-options.active .sidebar-icon {
+        color: #ED6B24;
+    }
+
+/* === EXTRA MODULES === */
+.extra-modules {
+    display: flex;
+    padding: 30px;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 3px;
+    align-self: stretch;
+    border-top: 1px solid #E3E3E3;
+    overflow: hidden;
+}
+
+.sidebar.collapsed .extra-modules {
+    padding: 30px 16px;
+}
+
+/* === SHORTS SECTION === */
+.shorts {
+    display: flex;
+    padding: 30px 30px 0px 30px;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+    align-self: stretch;
+    border-top: 1px solid #E3E3E3;
+    overflow: hidden;
+}
+
+.sidebar.collapsed .shorts {
+    padding: 30px 16px 0px 16px;
+}
+
+.shorts-title {
+    align-self: stretch;
+    color: #7E7E7E;
+    text-align: center;
+    font-size: 12px;
+    font-weight: 500;
+    margin-bottom: 8px;
+    transition: opacity 0.3s ease;
+}
+
+.sidebar.collapsed .shorts-title {
+    opacity: 0;
+    pointer-events: none;
+}
+
+.shorts-options-list {
+    list-style: none;
+    width: 100%;
+    margin: 0;
+    padding: 0;
+}
+
+.shorts-options {
+    display: flex;
+    width: 248px;
+    padding: 3px 0px;
+    justify-content: space-between;
+    align-items: center;
+    border-radius: 26px;
+    cursor: pointer;
+    transition: background 0.2s ease;
+}
+
+.sidebar.collapsed .shorts-options {
+    width: 68px;
+    padding: 3px 16px;
+    justify-content: center;
+}
+
+.shorts-link {
+    display: flex;
+    align-items: center;
+    width: 100%;
+    text-decoration: none;
+    color: inherit;
+    padding: 3px 16px;
+    border-radius: 26px;
+    transition: background 0.2s ease;
+}
+
+.sidebar.collapsed .shorts-link {
+    justify-content: center;
+    padding: 3px 0;
+}
+
+.shorts-link:hover {
+    background: #F2F2F2;
+}
+
+.short-main {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.short-icon {
+    width: 24px;
+    height: 24px;
+    flex-shrink: 0;
+}
+
+.short-txt {
+    color: #7E7E7E;
+    font-size: 12px;
+    font-weight: 400;
+    transition: opacity 0.3s ease;
+    white-space: nowrap;
+}
+
+.sidebar.collapsed .short-txt {
+    opacity: 0;
+    pointer-events: none;
+    position: absolute;
+    left: -9999px;
+}
+
+.link-icon {
+    margin-left: auto;
+    width: 24px;
+    height: 24px;
+    flex-shrink: 0;
+    transition: opacity 0.3s ease;
+}
+
+.sidebar.collapsed .link-icon {
+    opacity: 0;
+    pointer-events: none;
+    position: absolute;
+    left: -9999px;
+}
+
+/* === FOOTER === */
+.footer {
+    width: 100%;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    padding: 16px 10px;
+    border-top: 1px solid #E3E3E3;
+    overflow: hidden;
+}
+
+.footer-menu {
+    display: flex;
+    flex-direction: row;
+    width: 100%;
+    gap: 8px;
+}
+
+.sidebar.collapsed .footer-menu {
+    flex-direction: column;
+    gap: 12px;
+}
+
+.footer-menu-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 9px 16px;
+    border-radius: 26px;
+    text-decoration: none;
+    color: #7E7E7E;
+    transition: background 0.2s ease, color 0.2s ease;
+    cursor: pointer;
+}
+
+.sidebar.collapsed .footer-menu-item {
+    justify-content: center;
+    padding: 9px;
+}
+
+.footer-menu-item:hover {
+    background: #F2F2F2;
+    color: #ED6B24;
+}
+
+.footer-menu-item:active {
+    background: #FFE6D9;
+}
+
+.footer-icon {
+    display: inline-block;
+    width: 24px;
+    height: 24px;
+    flex-shrink: 0;
+    color: inherit;
+}
+
+    .footer-icon svg {
+        width: 100%;
+        height: 100%;
+        fill: currentColor;
+    }
+
+.footer-menu-text {
+    color: inherit;
+    font-size: 12px;
+    font-weight: 600;
+    transition: opacity 0.3s ease;
+    white-space: nowrap;
+}
+
+.sidebar.collapsed .footer-menu-text {
+    opacity: 0;
+    pointer-events: none;
+    position: absolute;
+    left: -9999px;
+}
+
+/* === TOOLTIPS === */
+.sidebar-tooltip {
+    position: fixed;
+    background: rgba(31, 32, 32, 0.9);
+    color: white;
+    padding: 10px 14px;
+    border-radius: 8px;
+    font-size: 12px;
+    font-weight: 500;
+    z-index: 10000;
+    pointer-events: auto; /* Zmienione z none na auto */
+    opacity: 0;
+    transform: translateX(-10px);
+    transition: opacity 0.3s ease, transform 0.3s ease;
+    white-space: nowrap;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    cursor: default; /* Dodany cursor */
+}
+
+    .sidebar-tooltip.visible {
+        opacity: 1;
+        transform: translateX(0);
+    }
+
+    .sidebar-tooltip::before {
+        content: '';
+        position: absolute;
+        left: -6px;
+        top: 50%;
+        transform: translateY(-50%);
+        border: 6px solid transparent;
+        border-right-color: rgba(31, 32, 32, 0.9);
+    }
+
+/* === RESPONSYWNOŚĆ === */
+@media (max-width: 1024px) {
+    .sidebar {
+        width: 280px;
+    }
+
+        .sidebar.collapsed {
+            width: 80px;
+        }
+
+    .main-content {
+        margin-left: 280px;
+    }
+
+        .main-content.sidebar-collapsed {
+            margin-left: 80px;
+        }
+}

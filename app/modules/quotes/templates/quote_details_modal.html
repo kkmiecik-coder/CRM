@@ -1,0 +1,159 @@
+<!-- modules/quotes/templates/quote_details_modal.html -->
+<div id="quote-details-modal" class="quotes-details-modal-overlay">
+    <div class="quotes-details-modal-box">
+        <div class="quotes-details-modal-header sticky-header">
+            <h2 class="quotes-details-modal-title title-with-underline-h2">Szczegóły wyceny</h2>
+            <div class="quotes-details-modal-header-actions">
+
+                <button class="quotes-btn quotes-btn-download" data-token="" id="download-details-btn">Pobierz</button>
+                <button id="quote-order-btn" class="quotes-btn quotes-btn-order">Zamów</button>
+                <div class="quotes-client-sfere">
+                    <button id="quote-client-page-btn" class="quotes-btn quotes-btn-client-page" data-quote-number="" data-token="">
+                        Strona klienta
+                    </button>
+                    <button id="quote-link-copy-btn" class="quotes-btn-client-page-copy" data-quote-number="" data-token="" title="Skopiuj link do strony klienta">
+                        <img src="{{ url_for('static', filename='icons/copy_link.svg') }}"
+                             alt="Kopiuj link"
+                             class="quote-icon-copy" />
+                    </button>
+                    <button id="quote-user-accept-btn"
+                            class="quotes-btn quotes-btn-accept"
+                            data-quote-id=""
+                            title="Zaakceptuj wycenę jako opiekun oferty"
+                            style="display: none;">
+                        Akceptuj
+                    </button>
+                </div>
+                <button id="quote-preview3d-btn" class="quotes-btn quotes-btn-preview3d" title="Podgląd wybranego wariantu w 3D/AR">
+                    <span>3D</span>
+                </button>
+                <button class="quotes-btn quotes-btn-full-screen" id="toggle-fullscreen-modal">Pełny ekran</button>
+                <button class="modal-action-btn edit-quote-btn"
+                        onclick="openQuoteEditor(currentQuoteData)"
+                        type="button">
+                    <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                        <path d="M11.013 1.427a1.75 1.75 0 012.474 0l1.086 1.086a1.75 1.75 0 010 2.474l-8.61 8.61c-.21.21-.47.364-.756.445l-3.251.93a.75.75 0 01-.927-.928l.929-3.25a1.75 1.75 0 01.445-.758l8.61-8.61zm1.414 1.06a.25.25 0 00-.354 0L10.811 3.75l1.439 1.44 1.263-1.263a.25.25 0 000-.354l-1.086-1.086zM11.189 6.25L9.75 4.81l-6.286 6.287a.25.25 0 00-.064.108l-.558 1.953 1.953-.558a.25.25 0 00.108-.064l6.286-6.286z" />
+                    </svg>
+                    Edytuj wycenę (w trakcie budowy)
+                </button>
+                <button class="quotes-details-modal-close" id="close-details-modal">&times;</button>
+            </div>
+        </div>
+
+        <!-- Podsumowanie wybranych wariantów -->
+        <div class="quotes-details-summary" id="quotes-details-selected-summary">
+            <!-- dynamicznie uzupełniane -->
+        </div>
+
+        <!-- Sekcja: dane klienta i wyceny w jednej siatce -->
+        <div class="quotes-details-modal-section quotes-details-modal-grid">
+            <div class="modal-block">
+                <h3 class="quotes-details-modal-subtitle">Dane klienta</h3>
+                <!-- POPRAWIONE POLA KLIENTA -->
+                <p><strong>Nazwa klienta:</strong> <span id="quotes-details-modal-client-name"></span></p>
+                <p><strong>Imię i nazwisko:</strong> <span id="quotes-details-modal-client-fullname"></span></p>
+                <p><strong>Firma:</strong> <span id="quotes-details-modal-client-company"></span></p>
+                <p><strong>E-mail:</strong> <span id="quotes-details-modal-client-email"></span></p>
+                <p><strong>Telefon:</strong> <span id="quotes-details-modal-client-phone"></span></p>
+            </div>
+
+            <div class="modal-block">
+                <h3 class="quotes-details-modal-subtitle">Dane wyceny</h3>
+                <p><strong>Numer wyceny:</strong> <span id="quotes-details-modal-quote-number"></span></p>
+                <p><strong>Data złożenia:</strong> <span id="quotes-details-modal-quote-date"></span></p>
+                <p><strong>Źródło:</strong> <span id="quotes-details-modal-quote-source"></span></p>
+                <!-- DODANE POLE PRACOWNIKA -->
+                <p><strong>Opiekun oferty: </strong><span id="quotes-details-modal-employee-name"></span></p>
+                <div class="quotes-details-modal-status-wrapper">
+                    <strong>Status:</strong>
+                    <div id="quotes-details-modal-status-dropdown" class="custom-status-dropdown">
+                        <div class="dropdown-toggle" id="custom-status-selected">Wybierz status</div>
+                        <div class="dropdown-options" id="custom-status-options"></div>
+                    </div>
+                </div>
+                <div id="baselinker-section" style="display: none;">
+                    <p><strong>Numer zamówienia:</strong> 
+                            <a id="baselinker-order-link" href="#" target="_blank" style="color: #4284F3; text-decoration: none;">
+                                <span id="baselinker-order-number">-</span>
+                            </a>
+                    </p>
+                    <p><strong>Status BL:</strong> <span id="baselinker-order-status">Pobieranie...</span></p>
+                </div>
+            </div>
+
+            <div class="modal-block">
+                <h3 class="quotes-details-modal-subtitle">Koszty</h3>
+
+                <!-- Koszt surowych -->
+                <p>
+                    <strong>Koszt surowych:</strong>
+                    <span id="quotes-details-modal-cost-products-brutto"></span>
+                    <span id="quotes-details-modal-cost-products-netto" class="cost-netto"></span>
+                </p>
+
+                <!-- Koszt wykończenia -->
+                <p style="margin-bottom: 4px; padding-bottom: 4px; border-bottom: 1px dotted #808080">
+                    <strong>Koszt wykończenia:</strong>
+                    <span id="quotes-details-modal-cost-finishing-brutto"></span>
+                    <span id="quotes-details-modal-cost-finishing-netto" class="cost-netto"></span>
+                </p>
+
+                <!-- NOWE: Suma produktów bez dostawy -->
+                <p style="margin-bottom: 4px;padding-bottom: 4px; border-bottom: 1px solid #b1b1b1">
+                    <strong>Koszt produktów:</strong>
+                    <span id="quotes-details-modal-cost-products-total-brutto"></span>
+                    <span id="quotes-details-modal-cost-products-total-netto" class="cost-netto"></span>
+                </p>
+
+                <!-- Kurier -->
+                <p><strong>Kurier:</strong> <span id="quotes-details-modal-courier-name"></span></p>
+
+                <!-- Koszt wysyłki -->
+                <p style="margin-bottom: 4px;padding-bottom: 4px; border-bottom: 2px solid #000">
+                    <strong>Koszt wysyłki:</strong>
+                    <span id="quotes-details-modal-cost-shipping-brutto"></span>
+                    <span id="quotes-details-modal-cost-shipping-netto" class="cost-netto"></span>
+                </p>
+
+                <!-- Całkowity koszt -->
+                <p>
+                    <strong>Suma:</strong>
+                    <span id="quotes-details-modal-cost-total-brutto"></span>
+                    <span id="quotes-details-modal-cost-total-netto" class="cost-netto"></span>
+                </p>
+            </div>
+        </div>
+
+        <!-- Sekcja: taby i zawartość produktów -->
+        <div class="quotes-details-modal-section">
+            <h3 class="quotes-details-modal-subtitle">Produkty</h3>
+
+            <!-- Container dla tabs i przycisku masowej zmiany -->
+            <div class="products-controls-container">
+                <div id="quotes-details-tabs" class="quotes-details-tabs"></div>
+
+                <!-- Przycisk masowej zmiany wariantów -->
+                <div class="bulk-variant-change-container">
+                    <button id="bulk-variant-change-btn" class="bulk-variant-change-btn" type="button">
+                        <span>Zmień wszystkie warianty</span>
+                        <svg class="bulk-variant-chevron" width="16" height="16" viewBox="0 0 16 16" fill="none">
+                            <path d="M4 6L8 10L12 6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+                        </svg>
+                    </button>
+
+                    <!-- Dropdown z opcjami wariantów -->
+                    <div id="bulk-variant-dropdown" class="bulk-variant-dropdown" style="display: none;">
+                        <div class="bulk-variant-dropdown-header">
+                            <span>Wybierz wariant dla wszystkich produktów:</span>
+                        </div>
+                        <div id="bulk-variant-options" class="bulk-variant-options">
+                            <!-- Opcje wariantów będą wstawiane dynamicznie przez JavaScript -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div id="quotes-details-modal-items-body" class="quotes-details-tab-content"></div>
+        </div>
+    </div>
+</div>

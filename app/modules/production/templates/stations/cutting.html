@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="mobile-web-app-capable" content="yes">
+    <title>{{ page_title }} - WoodPower CRM</title>
+
+    <!-- CSS -->
+    <link rel="stylesheet" href="{{ url_for('production.static', filename='css/stations/station-shared.css') }}">
+    <link rel="stylesheet" href="{{ url_for('production.static', filename='css/stations/station-cutting.css') }}">
+
+    <!-- Favicon -->
+    <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='images/favicon.png') }}">
+</head>
+<body class="dark-mode">
+    <!-- HEADER -->
+    <header class="station-header">
+        <div class="header-content">
+            <img src="{{ url_for('static', filename='images/logo-light.svg') }}"
+                    class="station-logo logo-dark"
+                    alt="WoodPower">
+            <img src="{{ url_for('static', filename='images/logo.svg') }}"
+                    class="station-logo logo-light"
+                    alt="WoodPower">
+            <h1 class="station-title">Stanowisko wycinania</h1>
+            <div class="header-buttons">
+                <button class="theme-toggle-btn" id="theme-toggle">
+                    <svg class="theme-icon sun-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="12" cy="12" r="5"></circle>
+                        <line x1="12" y1="1" x2="12" y2="3"></line>
+                        <line x1="12" y1="21" x2="12" y2="23"></line>
+                        <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+                        <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+                        <line x1="1" y1="12" x2="3" y2="12"></line>
+                        <line x1="21" y1="12" x2="23" y2="12"></line>
+                        <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+                        <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+                    </svg>
+                    <svg class="theme-icon moon-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display: none;">
+                        <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
+                    </svg>
+                    <span class="theme-text">Tryb jasny</span>
+                </button>
+                <!-- CONNECTION STATUS BADGE -->
+                <div id="connection-status" class="connection-status online">
+                    🟢 ONLINE
+                </div>
+            </div>
+            {% if config.debug_frontend %}
+            <button class="debug-btn" id="debug-toggle">Debug</button>
+            {% endif %}
+        </div>
+
+        <!-- STATS BAR -->
+        <div class="stats-bar">
+            <div class="stat-item">
+                <svg class="stat-icon" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <circle cx="12" cy="12" r="10"></circle>
+                    <polyline points="12 6 12 12 16 14"></polyline>
+                </svg>
+                <div class="stat-content">
+                    <div class="stat-label">{{ now.strftime('%A') }}</div>
+                    <div class="stat-value" id="current-datetime">{{ now.strftime('%d.%m.%Y • %H:%M:%S') }}</div>
+                </div>
+            </div>
+
+            <div class="stat-item">
+                <svg class="stat-icon" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect x="3" y="3" width="18" height="18" rx="2"></rect>
+                    <path d="M3 9h18"></path>
+                    <path d="M9 21V9"></path>
+                </svg>
+                <div class="stat-content">
+                    <div class="stat-label">Produkty</div>
+                    <div class="stat-value">
+                        <span id="total-products">{{ station_stats.total_products }}</span> /
+                        <span id="total-volume">{{ "%.4f"|format(products|map(attribute='volume_m3')|sum) }}</span> m³
+                    </div>
+                </div>
+            </div>
+
+            <div class="stat-item">
+                <svg class="stat-icon" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <polyline points="20 6 9 17 4 12"></polyline>
+                </svg>
+                <div class="stat-content">
+                    <div class="stat-label">Wykonano dziś</div>
+                    <div class="stat-value">
+                        <span id="today-m3">Ładowanie...</span> m³
+                    </div>
+                </div>
+            </div>
+
+            <div class="stat-item">
+                <svg class="stat-icon refresh-icon" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <polyline points="23 4 23 10 17 10"></polyline>
+                    <polyline points="1 20 1 14 7 14"></polyline>
+                    <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+                </svg>
+                <div class="stat-content">
+                    <div class="stat-label">Odświeżenie za</div>
+                    <div class="stat-value" id="refresh-countdown">Ładowanie...</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- OFFLINE WARNING BANNER (hidden by default) -->
+        <div id="offline-banner" class="offline-banner" style="display: none;">
+            <div class="offline-banner-content">
+                <span class="offline-icon">⚠️</span>
+                <div class="offline-text">
+                    <strong>BRAK POŁĄCZENIA Z SERWEREM</strong>
+                    <p>Zakończenie produktów jest niemożliwe. Poczekaj na przywrócenie połączenia.</p>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- MAIN CONTENT -->
+    <main class="station-content">
+        <!-- PRODUCTS GRID -->
+        <div class="products-grid" id="products-grid">
+            {% if products|length == 0 %}
+            <!-- EMPTY STATE -->
+            <div class="empty-state">
+                <div class="empty-state-icon">✅</div>
+                <h2>Brak produktów do wycięcia</h2>
+                <p>Świetna robota! Wszystkie produkty zostały przetworzone.</p>
+            </div>
+            {% else %}
+            <!-- PRODUCT CARDS -->
+            {% for product in products %}
+            <div class="product-card"
+                 data-product-id="{{ product['id'] }}"
+                 data-in-progress="false"
+                 data-priority-rank="{{ product['priority_rank'] }}"
+                 data-species="{{ product['wood_species'] or '' }}"
+                 data-technology="{{ product['technology'] or '' }}"
+                 data-wood-class="{{ product['wood_class'] or '' }}">
+                <!-- CARD HEADER -->
+                <div class="card-header">
+                    <div class="header-ids">
+                        <span class="id-short">{{ product['id'] }}</span>
+                        <span class="id-baselinker">BL-{{ product['baselinker_order_id'] }}</span>
+                    </div>
+                    <div class="header-volume">{{ "%.4f"|format(product['volume_m3']) }} m³</div>
+                </div>
+                <!-- CARD BADGES -->
+                <div class="card-badges">
+                    {% if product['wood_species'] %}
+                    <div class="badge badge-species">{{ product['wood_species'] }}</div>
+                    {% endif %}
+                    {% if product['technology'] %}
+                    <div class="badge badge-technology">{{ product['technology'] }}</div>
+                    {% endif %}
+                    {% if product['wood_class'] %}
+                    <div class="badge badge-class">{{ product['wood_class'] }}</div>
+                    {% endif %}
+                </div>
+                <!-- CARD DIMENSIONS -->
+                <div class="card-dimensions">
+                    <div class="dimensions-box">
+                        {{ product['dimensions'] }}
+                    </div>
+                </div>
+                <!-- CARD ACTION -->
+                <div class="card-action">
+                    <button class="btn-complete" data-action="complete">ZAKOŃCZ</button>
+                </div>
+            </div>
+            {% endfor %}
+            {% endif %}
+        </div>
+        <!-- LOADING SKELETON (hidden by default) -->
+        <div class="loading-skeleton" id="loading-skeleton" style="display: none;">
+            {% for i in range(12) %}
+            <div class="skeleton-card">
+                <div class="skeleton-header"></div>
+                <div class="skeleton-badges"></div>
+                <div class="skeleton-dimensions"></div>
+                <div class="skeleton-button"></div>
+            </div>
+            {% endfor %}
+        </div>
+    </main>
+
+    <!-- SCRIPTS -->
+    <script>
+        window.STATION_CONFIG = {
+            stationCode: 'cutting',
+            stationName: 'Wycinanie',
+            refreshInterval: {{ config['refresh_interval'] }},  // POPRAWIONE
+            debugMode: {{ 'true' if config['debug_frontend'] else 'false' }}
+        };
+    </script>
+    <script src="{{ url_for('production.static', filename='js/stations/station-common.js') }}"></script>
+    <script src="{{ url_for('production.static', filename='js/stations/station-cutting.js') }}"></script>
+</body>
+</html>

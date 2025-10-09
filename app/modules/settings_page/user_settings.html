@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <title>Ustawienia - Wood Power CRM</title>
+    <link rel="icon" href="{{ url_for('static', filename='images/favicon.png') }}" type="image/png">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <div class="app-container">
+        {% include 'sidebar/sidebar.html' %}
+        <main class="main-content">
+            <h1 class="title-with-underline">Ustawienia - Admin</h1>
+
+            <!-- Blok wyświetlania flash messages -->
+            {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+            <div class="flash-messages">
+                {% for category, message in messages %}
+                <div class="flash flash-{{ category }}">{{ message }}</div>
+                {% endfor %}
+            </div>
+            {% endif %}
+            {% endwith %}
+
+            <div id="profile-settings" class="tab-content active">
+                <!-- Sekcja profilowa (profile-settings) -->
+                <div class="profile-settings">
+                    <!-- [data] – sekcja z aktualnymi danymi użytkownika -->
+                    <div class="data">
+                        <h2 class="title-with-underline-h2">Twoje dane</h2>
+
+                        <div class="datas">
+                            <!-- [avatar] -->
+                            <div class="user-avatar">
+                                <div class="avatar-preview">
+                                    <!-- Podgląd obecnego avatara -->
+                                    <img src="{{ user_avatar or url_for('static', filename='images/avatars/default_avatars/avatar1.svg') }}"
+                                         alt="Twój avatar"
+                                         style="width: 80px; height: 80px; border-radius: 50%; object-fit: cover; max-width: 100%; height: auto;">
+                                </div>
+                            </div>
+
+                            <!-- [user-name] -->
+                            <div class="user-name">
+                                <span class="name">Imię i nazwisko:</span>
+                                <span class="data-txt">{{ user_name }}</span>
+                            </div>
+
+                            <!-- [user-mail] -->
+                            <div class="user-mail">
+                                <span class="mail-adress">E-mail:</span>
+                                <span class="data-txt">{{ user_email }}</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- [updates] – zawiera 2 sekcje: avatar-update i update_password -->
+                    <div class="updates">
+                        <!-- [avatar-update] -->
+                        <div class="avatar-update">
+                            <h2 class="title-with-underline-h2">Zmień avatar</h2>
+
+                            <!-- Formularz zmiany avatara (lub użyj 2 formularzy – w zależności od logiki) -->
+                            <form action="{{ url_for('update_avatar') }}" method="post" enctype="multipart/form-data">
+                                <div class="avatars">
+                                    <!-- [defaults-avatars] -->
+                                    <div class="defaults-avatars">
+                                        <span class="data-txt">Wybierz jeden z domyślnych lub wgraj własny:</span>
+                                        <div class="default-avatars-preview">
+                                            <!-- Przykładowe trzy avatary domyślne -->
+                                            <img src="{{ url_for('static', filename='images/avatars/default_avatars/avatar1.svg') }}"
+                                                 alt="avatar1"
+                                                 class="avatar-default"
+                                                 data-avatar-value="default_avatars/avatar1.svg"
+                                                 style="width:64px; height:64px; border-radius:50%;">
+                                            <img src="{{ url_for('static', filename='images/avatars/default_avatars/avatar2.svg') }}"
+                                                 alt="avatar2"
+                                                 class="avatar-default"
+                                                 data-avatar-value="default_avatars/avatar2.svg"
+                                                 style="width:64px; height:64px; border-radius:50%;">
+                                            <img src="{{ url_for('static', filename='images/avatars/default_avatars/avatar3.svg') }}"
+                                                 alt="avatar3"
+                                                 class="avatar-default"
+                                                 data-avatar-value="default_avatars/avatar3.svg"
+                                                 style="width:64px; height:64px; border-radius:50%;">
+                                        </div>
+                                    </div>
+
+                                    <!-- [own-avatar] -->
+                                    <div class="own-avatar">
+                                        <!-- Podgląd wgrywanego pliku -->
+                                        <div class="own-preview" style="display: none;">
+                                            <img src="" alt="Podgląd wgranego avatara" id="ownPreviewImg" style="width: 64px; height: 64px; border-radius: 50%; border: 2px solid #ECECEC;">
+                                        </div>
+                                        <input type="file" name="avatar_file" class="upload-avatar" accept="image/*">
+                                        <!-- Gdybyś chciał osobny przycisk "Wgraj plik" – możesz dodać:
+                                        <button type="button" class="submit-txt">Wgraj plik</button> --->
+                                    </div>
+                                </div>
+                                <!-- Ukryte pole do zapisu wybranego domyślnego avatara -->
+                                <input type="hidden" name="default_avatar" id="defaultAvatarField" value="">
+
+                                <!-- Przycisk zapisywania zmian w avatarze -->
+                                <button type="submit" class="orange-button">Zmień avatar</button>
+                            </form>
+                        </div>
+
+                        <!-- [update_password] -->
+                        <div class="update_password">
+                            <h2 class="title-with-underline-h2">Zmień hasło</h2>
+                            <form class="update_password_form" action="{{ url_for('update_password') }}" method="post">
+                                <!-- [old_password] -->
+                                <div class="old_password">
+                                    <label class="input-txt" for="old_password">Obecne hasło:</label>
+                                    <input type="password" name="old_password" id="old_password" required>
+                                </div>
+                                <!-- [new_password] -->
+                                <div class="new_password">
+                                    <label class="input-txt" for="new_password">Nowe hasło:</label>
+                                    <input type="password" name="new_password" id="new_password" required>
+                                </div>
+                                <!-- [confirm_password] -->
+                                <div class="confirm_password">
+                                    <label class="input-txt" for="confirm_password">Powtórz nowe hasło:</label>
+                                    <input type="password" name="confirm_password" id="confirm_password" required>
+                                    <!-- Komunikat walidacji dla potwierdzenia nowych haseł (na żywo) -->
+                                    <div id="confirmPasswordError" class="error-message" style="display: none; color: red; font-size: 12px;"></div>
+                                </div>
+                                <!-- Przycisk wysyłania formularza zmiany hasła -->
+                                <button type="submit" class="orange-button">Zmień hasło</button>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+    <script src="{{ url_for('static', filename='js/sidebar.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+
+</body>
+</html>

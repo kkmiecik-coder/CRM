@@ -1,0 +1,204 @@
+# POPRAWIONY .htaccess w katalogu app/modules/preview3d_ar/static/ar-models/
+# Obsługa formatów Reality, USDZ i GLB
+
+# KRYTYCZNE: MIME types dla wszystkich formatów AR
+AddType model/vnd.reality .reality
+AddType model/vnd.usdz+zip .usdz
+AddType model/gltf-binary .glb
+AddType model/gltf+json .gltf
+
+# NOWE: Specjalne nagłówki dla plików Reality (iOS AR - najnowszy format)
+<Files "*.reality">
+    # Reality format - najwyższy priorytet
+    Header set Content-Type "model/vnd.reality"
+    Header set Content-Disposition "inline"
+    Header set Cache-Control "public, max-age=7200"
+    Header set X-Content-Type-Options "nosniff"
+    Header set Access-Control-Allow-Origin "*"
+    Header set Access-Control-Allow-Headers "Range, Content-Range"
+    Header set Access-Control-Expose-Headers "Content-Range, Content-Length, Accept-Ranges"
+    Header set Accept-Ranges "bytes"
+    
+    # Metadane specyficzne dla Reality
+    Header set X-AR-Model "true"
+    Header set X-AR-Format "Reality"
+    Header set X-iOS-QuickLook "true"
+    Header set X-Reality-Version "1.0"
+    Header set X-Reality-Engine "RealityKit"
+    Header set X-Supported-Devices "iPhone, iPad"
+    Header set X-Min-iOS-Version "12.0"
+</Files>
+
+# POPRAWIONE: Nagłówki dla plików USDZ (fallback/compatibility)
+<Files "*.usdz">
+    # POPRAWIONY Content-Type
+    Header set Content-Type "model/vnd.usdz+zip"
+    Header set Content-Disposition "inline"
+    Header set Cache-Control "public, max-age=3600"
+    Header set X-Content-Type-Options "nosniff"
+    Header set Access-Control-Allow-Origin "*"
+    Header set Access-Control-Allow-Headers "Range, Content-Range"
+    Header set Access-Control-Expose-Headers "Content-Range, Content-Length, Accept-Ranges"
+    Header set Accept-Ranges "bytes"
+    
+    # Metadane AR dla USDZ
+    Header set X-AR-Model "true"
+    Header set X-AR-Format "USDZ"
+    Header set X-iOS-QuickLook "true"
+    Header set X-Fallback-Format "true"
+</Files>
+
+# Nagłówki dla plików GLB (Android AR - przyszłość)
+<Files "*.glb">
+    Header set Content-Type "model/gltf-binary"
+    Header set Content-Disposition "inline"
+    Header set Cache-Control "public, max-age=3600"
+    Header set Access-Control-Allow-Origin "*"
+    Header set X-AR-Model "true"
+    Header set X-AR-Format "GLB"
+    Header set X-WebXR-Compatible "true"
+</Files>
+
+# Zabezpieczenia - blokuj dostęp do plików tymczasowych i źródłowych
+<FilesMatch "\.(usd|obj|mtl|tmp|log|json|py|pyc)$">
+    Order allow,deny
+    Deny from all
+</FilesMatch>
+
+# Tylko metody GET i HEAD dla plików 3D
+<Files "*.reality">
+    <RequireAll>
+        Require method GET HEAD
+    </RequireAll>
+</Files>
+
+<Files "*.usdz">
+    <RequireAll>
+        Require method GET HEAD
+    </RequireAll>
+</Files>
+
+<Files "*.glb">
+    <RequireAll>
+        Require method GET HEAD
+    </RequireAll>
+</Files>
+
+# KRYTYCZNE: Kompresja - NIE kompresuj plików binarnych AR!
+<IfModule mod_deflate.c>
+    # WYŁĄCZ kompresję dla wszystkich formatów AR
+    SetEnvIfNoCase Request_URI \.(reality|usdz|glb)$ no-gzip dont-vary
+    
+    # Kompresuj tylko tekstowe formaty
+    AddOutputFilterByType DEFLATE application/json
+    AddOutputFilterByType DEFLATE model/gltf+json
+    AddOutputFilterByType DEFLATE text/plain
+</IfModule>
+
+# Bezpieczeństwo
+Options -Indexes
+Options -MultiViews
+Options -ExecCGI
+
+# NOWE: Wymuszenie poprawnych MIME types na poziomie serwera
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    
+    # Wymuszenie poprawnego Content-Type dla Reality
+    RewriteCond %{REQUEST_URI} \.reality$ [NC]
+    RewriteRule ^(.*)$ - [E=force_content_type:model/vnd.reality]
+    
+    # Wymuszenie poprawnego Content-Type dla USDZ
+    RewriteCond %{REQUEST_URI} \.usdz$ [NC]
+    RewriteRule ^(.*)$ - [E=force_content_type:model/vnd.usdz+zip]
+    
+    # Wymuszenie poprawnego Content-Type dla GLB
+    RewriteCond %{REQUEST_URI} \.glb$ [NC]
+    RewriteRule ^(.*)$ - [E=force_content_type:model/gltf-binary]
+    
+    # Aplikuj wymuszone Content-Type
+    Header set Content-Type "%{force_content_type}e" env=force_content_type
+</IfModule>
+
+# NOWE: Obsługa Range Requests dla dużych plików AR
+<IfModule mod_rewrite.c>
+    # Włącz partial content dla plików AR
+    RewriteCond %{REQUEST_URI} \.(reality|usdz|glb)$ [NC]
+    RewriteCond %{HTTP:Range} !^$
+    RewriteRule ^(.*)$ - [E=range_request:1]
+    
+    # Dodaj nagłówki dla Range Requests
+    Header set Accept-Ranges "bytes" env=range_request
+    Header set Content-Range "bytes" env=range_request
+</IfModule>
+
+# NOWE: Przekierowania i aliasy dla kompatybilności
+<IfModule mod_alias.c>
+    # Alias dla starych linków USDZ -> Reality
+    # RedirectMatch 301 "^/ar-models/(.+)\.usdz$" "/ar-models/$1.reality"
+    # UWAGA: Odkomentuj powyższą linię gdy chcesz przekierować wszystkie USDZ na Reality
+</IfModule>
+
+# Logowanie dla debugowania (opcjonalnie - usuń w production)
+<IfModule mod_log_config.c>
+    LogFormat "%h %l %u %t \"%r\" %>s %O \"%{Referer}i\" \"%{User-Agent}i\" \"%{Content-Type}o\" \"%{X-AR-Format}o\"" ar_debug_log
+    
+    # Log tylko requestów AR
+    SetEnvIf Request_URI "\.(reality|usdz|glb)$" ar_request
+    CustomLog /tmp/ar_access.log ar_debug_log env=ar_request
+    
+    # Error log dla problemów AR
+    ErrorLog /tmp/ar_error.log
+</IfModule>
+
+# NOWE: Ekspiry headers dla różnych formatów
+<IfModule mod_expires.c>
+    ExpiresActive On
+    
+    # Reality files - cache dłużej (najnowszy format)
+    ExpiresByType model/vnd.reality "access plus 7 days"
+    
+    # USDZ files - cache krócej (legacy)
+    ExpiresByType model/vnd.usdz+zip "access plus 3 days"
+    
+    # GLB files - cache standardowo
+    ExpiresByType model/gltf-binary "access plus 5 days"
+</IfModule>
+
+# NOWE: Warunki dla różnych user agents
+<IfModule mod_rewrite.c>
+    # Wykryj iOS dla preferencji Reality
+    RewriteCond %{HTTP_USER_AGENT} "iPhone|iPad|iPod" [NC]
+    RewriteCond %{REQUEST_URI} \.(reality|usdz)$ [NC]
+    RewriteRule ^(.*)$ - [E=ios_device:1]
+    
+    # Dodaj nagłówek informujący o preferowanym formacie
+    Header set X-Preferred-Format "Reality" env=ios_device
+    Header set X-Fallback-Format "USDZ" env=ios_device
+    
+    # Wykryj Android dla przyszłych GLB
+    RewriteCond %{HTTP_USER_AGENT} "Android" [NC]
+    RewriteCond %{REQUEST_URI} \.glb$ [NC]
+    RewriteRule ^(.*)$ - [E=android_device:1]
+    
+    Header set X-Preferred-Format "GLB" env=android_device
+</IfModule>
+
+# NOWE: Nagłówki informacyjne o formatach
+<IfModule mod_headers.c>
+    # Informacje o dostępnych formatach w headerach
+    Header always set X-Supported-AR-Formats "Reality, USDZ, GLB"
+    Header always set X-Primary-Format "Reality"
+    Header always set X-AR-Engine-iOS "RealityKit"
+    Header always set X-AR-Engine-Android "WebXR (planned)"
+    
+    # Wersja API
+    Header always set X-AR-API-Version "5.0"
+    Header always set X-Generator "Wood Power CRM Reality Generator"
+</IfModule>
+
+# BEZPIECZEŃSTWO: Blokuj bezpośredni dostęp do folderów systemowych
+<IfMatch "^/(temp|cache|logs)/">
+    Order allow,deny
+    Deny from all
+</IfMatch>

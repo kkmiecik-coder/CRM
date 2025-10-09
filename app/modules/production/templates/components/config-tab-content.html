@@ -1,0 +1,952 @@
+<!-- config-tab-content.html -->
+<!-- Komponent zawartości taba Konfiguracja (tylko admin) -->
+
+<div class="config-container">
+    <!-- Main Header -->
+    <div class="config-main-header">
+        <h2><i class="fas fa-cog me-2"></i>Konfiguracja systemu produkcji</h2>
+        <p>Zarządzanie ustawieniami systemu, priorytetami i zabezpieczeniami dla modułu production.</p>
+        
+        <div class="config-stats-row">
+            <div class="config-stat-item">
+                <div class="config-stat-icon">
+                    <i class="fas fa-database"></i>
+                </div>
+                <div class="config-stat-info">
+                    <h6>Cache Hit Ratio</h6>
+                    <div class="stat-value">{{ cache_stats.hit_ratio|default(94) }}%</div>
+                </div>
+            </div>
+            
+            <div class="config-stat-item">
+                <div class="config-stat-icon">
+                    <i class="fas fa-key"></i>
+                </div>
+                <div class="config-stat-info">
+                    <h6>Kluczy w pamięci</h6>
+                    <div class="stat-value">{{ cache_stats.total_keys|default(23) }}</div>
+                </div>
+            </div>
+            
+            <div class="config-stat-item">
+                <div class="config-stat-icon">
+                    <i class="fas fa-server"></i>
+                </div>
+                <div class="config-stat-info">
+                    <h6>Status systemu</h6>
+                    <div class="stat-value">Aktywny</div>
+                </div>
+            </div>
+            
+            <button class="btn btn-light btn-sm ms-auto" onclick="clearCache()">
+                <i class="fas fa-trash me-1"></i>Wyczyść Cache
+            </button>
+        </div>
+    </div>
+
+    <!-- Cards Container -->
+    <div class="config-cards-container">
+        
+        <!-- Synchronizacja i Baselinker -->
+        <div class="config-card">
+            <div class="config-card-header">
+                <div class="config-card-title">
+                    <div class="config-card-icon">
+                        <i class="fas fa-sync-alt"></i>
+                    </div>
+                    <div>
+                        <h4>Synchronizacja i Baselinker</h4>
+                        <p class="config-card-subtitle">Ustawienia integracji z systemem Baselinker</p>
+                    </div>
+                </div>
+            </div>
+            <div class="config-card-body">
+                
+                <!-- SYNC_ENABLED -->
+                <div class="config-item">
+                    <div class="config-item-row">
+                        <div class="config-item-main">
+                            <div class="config-item-header">
+                                <div class="config-item-icon">
+                                    <i class="fas fa-power-off"></i>
+                                </div>
+                                <div class="config-item-info">
+                                    <h5 class="config-item-title">SYNC_ENABLED <span class="default-badge">domyślnie: true</span></h5>
+                                    <p class="config-item-description">Włączenie/wyłączenie synchronizacji z Baselinker</p>
+                                </div>
+                            </div>
+                            <div class="config-item-meta">
+                                <div class="config-item-meta-item">
+                                    <i class="fas fa-user"></i>
+                                    <span>Ostatnio: {{ config_groups.sync.SYNC_ENABLED.updated_by|default('System') }}</span>
+                                </div>
+                                <div class="config-item-meta-item">
+                                    <i class="fas fa-clock"></i>
+                                    <span>{{ config_groups.sync.SYNC_ENABLED.updated_at|default('2025-09-26 14:05:32') }}</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="config-item-controls">
+                            <div class="config-control-wrapper">
+                                <div class="config-control">
+                                    <div class="form-check form-switch">
+                                        <input class="form-check-input" type="checkbox" id="sync_enabled" 
+                                               {% if config_groups.sync.SYNC_ENABLED.value %}checked{% endif %}
+                                               onchange="configChanged('SYNC_ENABLED', this.checked)">
+                                        <label class="form-check-label" for="sync_enabled">
+                                            <span class="{% if config_groups.sync.SYNC_ENABLED.value %}text-success fw-bold{% else %}text-muted{% endif %}">
+                                                {% if config_groups.sync.SYNC_ENABLED.value %}Włączone{% else %}Wyłączone{% endif %}
+                                            </span>
+                                        </label>
+                                    </div>
+                                </div>
+                                <button class="config-reset-btn" onclick="resetToDefault('SYNC_ENABLED')" title="Przywróć domyślne">
+                                    <i class="fas fa-undo"></i>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- MAX_SYNC_ITEMS_PER_BATCH -->
+                <div class="config-item">
+                    <div class="config-item-row">
+                        <div class="config-item-main">
+                            <div class="config-item-header">
+                                <div class="config-item-icon">
+                                    <i class="fas fa-layer-group"></i>
+                                </div>
+                                <div class="config-item-info">
+                                    <h5 class="config-item-title">MAX_SYNC_ITEMS_PER_BATCH <span class="default-badge">domyślnie: 1000</span></h5>
+                                    <p class="config-item-description">Maksymalna liczba produktów w jednym batchu synchronizacji</p>
+                                </div>
+                            </div>
+                            <div class="config-item-meta">
+                                <div class="config-item-meta-item">
+                                    <i class="fas fa-user"></i>
+                                    <span>Ostatnio: {{ config_groups.sync.MAX_SYNC_ITEMS_PER_BATCH.updated_by|default('System') }}</span>
+                                </div>
+                                <div class="config-item-meta-item">
+                                    <i class="fas fa-clock"></i>
+                                    <span>{{ config_groups.sync.MAX_SYNC_ITEMS_PER_BATCH.updated_at|default('2025-09-26 14:05:32') }}</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="config-item-controls">
+                            <div class="config-control-wrapper">
+                                <div class="config-control">
+                                    <input type="number" class="form-control" id="max_sync_items" 
+                                           value="{{ config_groups.sync.MAX_SYNC_ITEMS_PER_BATCH.value|default(1000) }}" 
+                                           min="1" max="5000" 
+                                           oninput="configChanged('MAX_SYNC_ITEMS_PER_BATCH', this.value)">
+                                </div>
+                                <button class="config-reset-btn" onclick="resetToDefault('MAX_SYNC_ITEMS_PER_BATCH')" title="Przywróć domyślne">
+                                    <i class="fas fa-undo"></i>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- BASELINKER_TARGET_STATUS_COMPLETED -->
+                <div class="config-item">
+                    <div class="config-item-row">
+                        <div class="config-item-main">
+                            <div class="config-item-header">
+                                <div class="config-item-icon">
+                                    <i class="fas fa-check-circle"></i>
+                                </div>
+                                <div class="config-item-info">
+                                    <h5 class="config-item-title">BASELINKER_TARGET_STATUS_COMPLETED <span class="default-badge">domyślnie: 138623</span></h5>
+                                    <p class="config-item-description">ID statusu docelowego dla ukończonych zamówień w Baselinker</p>
+                                </div>
+                            </div>
+                            <div class="config-item-meta">
+                                <div class="config-item-meta-item">
+                                    <i class="fas fa-user"></i>
+                                    <span>Ostatnio: {{ config_groups.sync.BASELINKER_TARGET_STATUS_COMPLETED.updated_by|default('System') }}</span>
+                                </div>
+                                <div class="config-item-meta-item">
+                                    <i class="fas fa-clock"></i>
+                                    <span>{{ config_groups.sync.BASELINKER_TARGET_STATUS_COMPLETED.updated_at|default('2025-09-26 14:05:32') }}</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="config-item-controls">
+                            <div class="config-control-wrapper">
+                                <div class="config-control">
+                                    <input type="number" class="form-control" id="baselinker_completed" 
+                                           value="{{ config_groups.sync.BASELINKER_TARGET_STATUS_COMPLETED.value|default(138623) }}" 
+                                           min="1" 
+                                           oninput="configChanged('BASELINKER_TARGET_STATUS_COMPLETED', this.value)">
+                                </div>
+                                <button class="config-reset-btn" onclick="resetToDefault('BASELINKER_TARGET_STATUS_COMPLETED')" title="Przywróć domyślne">
+                                    <i class="fas fa-undo"></i>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- SYNC_RETRY_COUNT -->
+                <div class="config-item">
+                    <div class="config-item-row">
+                        <div class="config-item-main">
+                            <div class="config-item-header">
+                                <div class="config-item-icon">
+                                    <i class="fas fa-redo"></i>
+                                </div>
+                                <div class="config-item-info">
+                                    <h5 class="config-item-title">SYNC_RETRY_COUNT <span class="default-badge">domyślnie: 3</span></h5>
+                                    <p class="config-item-description">Liczba powtórzeń przy nieudanej synchronizacji</p>
+                                </div>
+                            </div>
+                            <div class="config-item-meta">
+                                <div class="config-item-meta-item">
+                                    <i class="fas fa-user"></i>
+                                    <span>Ostatnio: System</span>
+                                </div>
+                                <div class="config-item-meta-item">
+                                    <i class="fas fa-clock"></i>
+                                    <span>2025-09-26 14:05:32</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="config-item-controls">
+                            <div class="config-control-wrapper">
+                                <div class="config-control">
+                                    <input type="number" class="form-control" id="sync_retry" value="3" min="0" max="10" 
+                                           oninput="configChanged('SYNC_RETRY_COUNT', this.value)">
+                                </div>
+                                <button class="config-reset-btn" onclick="resetToDefault('SYNC_RETRY_COUNT')" title="Przywróć domyślne">
+                                    <i class="fas fa-undo"></i>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Stanowiska produkcyjne -->
+        <div class="config-card">
+            <div class="config-card-header">
+                <div class="config-card-title">
+                    <div class="config-card-icon">
+                        <i class="fas fa-industry"></i>
+                    </div>
+                    <div>
+                        <h4>Stanowiska produkcyjne</h4>
+                        <p class="config-card-subtitle">Konfiguracja interfejsów stanowisk i dozwolonych IP</p>
+                    </div>
+                </div>
+            </div>
+            <div class="config-card-body">
+                
+                <!-- STATION_ALLOWED_IPS -->
+                <div class="config-item">
+                    <div class="config-item-row">
+                        <div class="config-item-main">
+                            <div class="config-item-header">
+                                <div class="config-item-icon">
+                                    <i class="fas fa-network-wired"></i>
+                                </div>
+                                <div class="config-item-info">
+                                    <h5 class="config-item-title">STATION_ALLOWED_IPS <span class="default-badge">domyślnie: 192.168.1.100,101,102</span></h5>
+                                    <p class="config-item-description">Lista dozwolonych adresów IP dla stanowisk produkcyjnych</p>
+                                </div>
+                            </div>
+                            <div class="config-item-meta">
+                                <div class="config-item-meta-item">
+                                    <i class="fas fa-user"></i>
+                                    <span>Ostatnio: {{ config_groups.stations.STATION_ALLOWED_IPS.updated_by|default('System') }}</span>
+                                </div>
+                                <div class="config-item-meta-item">
+                                    <i class="fas fa-clock"></i>
+                                    <span>{{ config_groups.stations.STATION_ALLOWED_IPS.updated_at|default('2025-09-26 14:05:32') }}</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="config-item-controls">
+                            <div class="config-control-wrapper">
+                                <div class="config-control">
+                                    <div class="ip-manager">
+                                        <div class="ip-manager-header">
+                                            <i class="fas fa-shield-alt me-2"></i>Dozwolone adresy IP
+                                        </div>
+                                        <div class="ip-list" id="ip-list-items">
+                                            {% if config_groups.stations.STATION_ALLOWED_IPS %}
+                                                {% set ip_value = config_groups.stations.STATION_ALLOWED_IPS.value %}
+                                                {% if ip_value is string %}
+                                                    {% set ip_list = ip_value.split(',') %}
+                                                {% else %}
+                                                    {% set ip_list = ip_value %}
+                                                {% endif %}
+                                                {% for ip in ip_list %}
+                                                    {% set clean_ip = ip.strip() if ip is string else ip %}
+                                                    {% if clean_ip %}
+                                            <div class="ip-item">
+                                                <span class="ip-address">{{ clean_ip }}</span>
+                                                <button class="btn btn-outline-danger btn-sm" onclick="removeIP('{{ clean_ip }}')" title="Usuń IP">
+                                                    <i class="fas fa-trash"></i>
+                                                </button>
+                                            </div>
+                                                    {% endif %}
+                                                {% endfor %}
+                                            {% else %}
+                                            <div class="ip-item">
+                                                <span class="ip-address">192.168.1.100</span>
+                                                <button class="btn btn-outline-danger btn-sm" onclick="removeIP('192.168.1.100')" title="Usuń IP">
+                                                    <i class="fas fa-trash"></i>
+                                                </button>
+                                            </div>
+                                            <div class="ip-item">
+                                                <span class="ip-address">192.168.1.101</span>
+                                                <button class="btn btn-outline-danger btn-sm" onclick="removeIP('192.168.1.101')" title="Usuń IP">
+                                                    <i class="fas fa-trash"></i>
+                                                </button>
+                                            </div>
+                                            <div class="ip-item">
+                                                <span class="ip-address">192.168.1.102</span>
+                                                <button class="btn btn-outline-danger btn-sm" onclick="removeIP('192.168.1.102')" title="Usuń IP">
+                                                    <i class="fas fa-trash"></i>
+                                                </button>
+                                            </div>
+                                            {% endif %}
+                                        </div>
+                                        <div class="ip-add-section">
+                                            <input type="text" class="form-control ip-add-input" id="new-ip-input" 
+                                                   placeholder="192.168.1.xxx" pattern="^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$">
+                                            <button class="btn btn-success" onclick="addIP()" title="Dodaj IP">
+                                                <i class="fas fa-plus"></i>
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                                <button class="config-reset-btn" onclick="resetToDefault('STATION_ALLOWED_IPS')" title="Przywróć domyślne">
+                                    <i class="fas fa-undo"></i>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- REFRESH_INTERVAL_SECONDS -->
+                <div class="config-item">
+                    <div class="config-item-row">
+                        <div class="config-item-main">
+                            <div class="config-item-header">
+                                <div class="config-item-icon">
+                                    <i class="fas fa-clock"></i>
+                                </div>
+                                <div class="config-item-info">
+                                    <h5 class="config-item-title">REFRESH_INTERVAL_SECONDS <span class="default-badge">domyślnie: 30</span></h5>
+                                    <p class="config-item-description">Częstotliwość odświeżania interfejsów stanowisk (w sekundach)</p>
+                                </div>
+                            </div>
+                            <div class="config-item-meta">
+                                <div class="config-item-meta-item">
+                                    <i class="fas fa-user"></i>
+                                    <span>Ostatnio: {{ config_groups.stations.REFRESH_INTERVAL_SECONDS.updated_by|default('System') }}</span>
+                                </div>
+                                <div class="config-item-meta-item">
+                                    <i class="fas fa-clock"></i>
+                                    <span>{{ config_groups.stations.REFRESH_INTERVAL_SECONDS.updated_at|default('2025-09-26 14:05:32') }}</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="config-item-controls">
+                            <div class="config-control-wrapper">
+                                <div class="config-control">
+                                    <input type="number" class="form-control" id="refresh_interval" 
+                                           value="{{ config_groups.stations.REFRESH_INTERVAL_SECONDS.value|default(30) }}" 
+                                           min="5" max="300" 
+                                           oninput="configChanged('REFRESH_INTERVAL_SECONDS', this.value)">
+                                </div>
+                                <button class="config-reset-btn" onclick="resetToDefault('REFRESH_INTERVAL_SECONDS')" title="Przywróć domyślne">
+                                    <i class="fas fa-undo"></i>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- STATION_AUTO_REFRESH_ENABLED -->
+                <div class="config-item">
+                    <div class="config-item-row">
+                        <div class="config-item-main">
+                            <div class="config-item-header">
+                                <div class="config-item-icon">
+                                    <i class="fas fa-sync"></i>
+                                </div>
+                                <div class="config-item-info">
+                                    <h5 class="config-item-title">STATION_AUTO_REFRESH_ENABLED <span class="default-badge">domyślnie: true</span></h5>
+                                    <p class="config-item-description">Automatyczne odświeżanie interfejsów stanowisk</p>
+                                </div>
+                            </div>
+                            <div class="config-item-meta">
+                                <div class="config-item-meta-item">
+                                    <i class="fas fa-user"></i>
+                                    <span>Ostatnio: {{ config_groups.stations.STATION_AUTO_REFRESH_ENABLED.updated_by|default('System') }}</span>
+                                </div>
+                                <div class="config-item-meta-item">
+                                    <i class="fas fa-clock"></i>
+                                    <span>{{ config_groups.stations.STATION_AUTO_REFRESH_ENABLED.updated_at|default('2025-09-26 14:05:32') }}</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="config-item-controls">
+                            <div class="config-control-wrapper">
+                                <div class="config-control">
+                                    <div class="form-check form-switch">
+                                        <input class="form-check-input" type="checkbox" id="station_auto_refresh" 
+                                               {% if config_groups.stations.STATION_AUTO_REFRESH_ENABLED.value %}checked{% endif %}
+                                               onchange="configChanged('STATION_AUTO_REFRESH_ENABLED', this.checked)">
+                                        <label class="form-check-label" for="station_auto_refresh">
+                                            <span class="{% if config_groups.stations.STATION_AUTO_REFRESH_ENABLED.value %}text-success fw-bold{% else %}text-muted{% endif %}">
+                                                {% if config_groups.stations.STATION_AUTO_REFRESH_ENABLED.value %}Włączone{% else %}Wyłączone{% endif %}
+                                            </span>
+                                        </label>
+                                    </div>
+                                </div>
+                                <button class="config-reset-btn" onclick="resetToDefault('STATION_AUTO_REFRESH_ENABLED')" title="Przywróć domyślne">
+                                    <i class="fas fa-undo"></i>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- STATION_MAX_PRODUCTS_DISPLAY -->
+                <div class="config-item">
+                    <div class="config-item-row">
+                        <div class="config-item-main">
+                            <div class="config-item-header">
+                                <div class="config-item-icon">
+                                    <i class="fas fa-list-ol"></i>
+                                </div>
+                                <div class="config-item-info">
+                                    <h5 class="config-item-title">STATION_MAX_PRODUCTS_DISPLAY <span class="default-badge">domyślnie: 50</span></h5>
+                                    <p class="config-item-description">Maksymalna liczba produktów wyświetlanych na stanowiskach</p>
+                                </div>
+                            </div>
+                            <div class="config-item-meta">
+                                <div class="config-item-meta-item">
+                                    <i class="fas fa-user"></i>
+                                    <span>Ostatnio: {{ config_groups.stations.STATION_MAX_PRODUCTS_DISPLAY.updated_by|default('System') }}</span>
+                                </div>
+                                <div class="config-item-meta-item">
+                                    <i class="fas fa-clock"></i>
+                                    <span>{{ config_groups.stations.STATION_MAX_PRODUCTS_DISPLAY.updated_at|default('2025-09-26 14:05:32') }}</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="config-item-controls">
+                            <div class="config-control-wrapper">
+                                <div class="config-control">
+                                    <input type="number" class="form-control" id="station_max_products" 
+                                           value="{{ config_groups.stations.STATION_MAX_PRODUCTS_DISPLAY.value|default(50) }}" 
+                                           min="5" max="500" 
+                                           oninput="configChanged('STATION_MAX_PRODUCTS_DISPLAY', this.value)">
+                                </div>
+                                <button class="config-reset-btn" onclick="resetToDefault('STATION_MAX_PRODUCTS_DISPLAY')" title="Przywróć domyślne">
+                                    <i class="fas fa-undo"></i>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Priorytety i Deadlines -->
+        <div class="config-card">
+            <div class="config-card-header">
+                <div class="config-card-title">
+                    <div class="config-card-icon">
+                        <i class="fas fa-sort-amount-up"></i>
+                    </div>
+                    <div>
+                        <h4>Priorytety i Deadlines</h4>
+                        <p class="config-card-subtitle">Algorytm priorytetów i zarządzanie terminami</p>
+                    </div>
+                </div>
+            </div>
+            <div class="config-card-body">
+                
+                <!-- DEADLINE_DEFAULT_DAYS -->
+                <div class="config-item">
+                    <div class="config-item-row">
+                        <div class="config-item-main">
+                            <div class="config-item-header">
+                                <div class="config-item-icon">
+                                    <i class="fas fa-calendar-alt"></i>
+                                </div>
+                                <div class="config-item-info">
+                                    <h5 class="config-item-title">DEADLINE_DEFAULT_DAYS <span class="default-badge">domyślnie: 14</span></h5>
+                                    <p class="config-item-description">Domyślna liczba dni do dodania do daty opłacenia jako deadline produkcji</p>
+                                </div>
+                            </div>
+                            <div class="config-item-meta">
+                                <div class="config-item-meta-item">
+                                    <i class="fas fa-user"></i>
+                                    <span>Ostatnio: {{ config_groups.priorities.DEADLINE_DEFAULT_DAYS.updated_by|default('System') }}</span>
+                                </div>
+                                <div class="config-item-meta-item">
+                                    <i class="fas fa-clock"></i>
+                                    <span>{{ config_groups.priorities.DEADLINE_DEFAULT_DAYS.updated_at|default('2025-09-24 11:45:46') }}</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="config-item-controls">
+                            <div class="config-control-wrapper">
+                                <div class="config-control">
+                                    <input type="number" class="form-control" id="deadline_days" 
+                                           value="{{ config_groups.priorities.DEADLINE_DEFAULT_DAYS.value|default(14) }}" 
+                                           min="1" max="90" 
+                                           oninput="configChanged('DEADLINE_DEFAULT_DAYS', this.value)">
+                                </div>
+                                <button class="config-reset-btn" onclick="resetToDefault('DEADLINE_DEFAULT_DAYS')" title="Przywróć domyślne">
+                                    <i class="fas fa-undo"></i>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- PRIORITY_RECALC_INTERVAL_HOURS -->
+                <div class="config-item">
+                    <div class="config-item-row">
+                        <div class="config-item-main">
+                            <div class="config-item-header">
+                                <div class="config-item-icon">
+                                    <i class="fas fa-calculator"></i>
+                                </div>
+                                <div class="config-item-info">
+                                    <h5 class="config-item-title">PRIORITY_RECALC_INTERVAL_HOURS <span class="default-badge">domyślnie: 24</span></h5>
+                                    <p class="config-item-description">Częstotliwość automatycznego przeliczania priorytetów</p>
+                                </div>
+                            </div>
+                            <div class="config-item-meta">
+                                <div class="config-item-meta-item">
+                                    <i class="fas fa-user"></i>
+                                    <span>Ostatnio: {{ config_groups.priorities.PRIORITY_RECALC_INTERVAL_HOURS.updated_by|default('System') }}</span>
+                                </div>
+                                <div class="config-item-meta-item">
+                                    <i class="fas fa-clock"></i>
+                                    <span>{{ config_groups.priorities.PRIORITY_RECALC_INTERVAL_HOURS.updated_at|default('2025-09-26 14:05:32') }}</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="config-item-controls">
+                            <div class="config-control-wrapper">
+                                <div class="config-control">
+                                    <input type="number" class="form-control" id="priority_recalc" 
+                                           value="{{ config_groups.priorities.PRIORITY_RECALC_INTERVAL_HOURS.value|default(24) }}" 
+                                           min="1" max="168" 
+                                           oninput="configChanged('PRIORITY_RECALC_INTERVAL_HOURS', this.value)">
+                                </div>
+                                <button class="config-reset-btn" onclick="resetToDefault('PRIORITY_RECALC_INTERVAL_HOURS')" title="Przywróć domyślne">
+                                    <i class="fas fa-undo"></i>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- PRIORITY_ALGORITHM_VERSION -->
+                <div class="config-item">
+                    <div class="config-item-row">
+                        <div class="config-item-main">
+                            <div class="config-item-header">
+                                <div class="config-item-icon">
+                                    <i class="fas fa-code-branch"></i>
+                                </div>
+                                <div class="config-item-info">
+                                    <h5 class="config-item-title">PRIORITY_ALGORITHM_VERSION <span class="default-badge">domyślnie: 2.0</span></h5>
+                                    <p class="config-item-description">Wersja algorytmu priorytetów (tylko priority_rank)</p>
+                                </div>
+                            </div>
+                            <div class="config-item-meta">
+                                <div class="config-item-meta-item">
+                                    <i class="fas fa-user"></i>
+                                    <span>Ostatnio: {{ config_groups.priorities.PRIORITY_ALGORITHM_VERSION.updated_by|default('System') }}</span>
+                                </div>
+                                <div class="config-item-meta-item">
+                                    <i class="fas fa-clock"></i>
+                                    <span>{{ config_groups.priorities.PRIORITY_ALGORITHM_VERSION.updated_at|default('2025-09-26 14:05:32') }}</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="config-item-controls">
+                            <div class="config-control-wrapper">
+                                <div class="config-control">
+                                    <input type="text" class="form-control" id="priority_version" 
+                                           value="{{ config_groups.priorities.PRIORITY_ALGORITHM_VERSION.value|default('2.0') }}" 
+                                           readonly>
+                                </div>
+                                <button class="config-reset-btn" onclick="resetToDefault('PRIORITY_ALGORITHM_VERSION')" title="Przywróć domyślne">
+                                    <i class="fas fa-undo"></i>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- System i Debug -->
+        <div class="config-card">
+            <div class="config-card-header">
+                <div class="config-card-title">
+                    <div class="config-card-icon">
+                        <i class="fas fa-tools"></i>
+                    </div>
+                    <div>
+                        <h4>System i Debug</h4>
+                        <p class="config-card-subtitle">Ustawienia systemowe, cache i tryb debugowania</p>
+                    </div>
+                </div>
+            </div>
+            <div class="config-card-body">
+                
+                <!-- DEBUG_PRODUCTION_BACKEND -->
+                <div class="config-item">
+                    <div class="config-item-row">
+                        <div class="config-item-main">
+                            <div class="config-item-header">
+                                <div class="config-item-icon">
+                                    <i class="fas fa-bug"></i>
+                                </div>
+                                <div class="config-item-info">
+                                    <h5 class="config-item-title">DEBUG_PRODUCTION_BACKEND <span class="default-badge">domyślnie: false</span></h5>
+                                    <p class="config-item-description">Włączenie trybu debug dla backendu produkcyjnego</p>
+                                </div>
+                            </div>
+                            <div class="config-item-meta">
+                                <div class="config-item-meta-item">
+                                    <i class="fas fa-user"></i>
+                                    <span>Ostatnio: {{ config_groups.system.DEBUG_PRODUCTION_BACKEND.updated_by|default('System') }}</span>
+                                </div>
+                                <div class="config-item-meta-item">
+                                    <i class="fas fa-clock"></i>
+                                    <span>{{ config_groups.system.DEBUG_PRODUCTION_BACKEND.updated_at|default('2025-09-26 14:05:32') }}</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="config-item-controls">
+                            <div class="config-control-wrapper">
+                                <div class="config-control">
+                                    <div class="form-check form-switch">
+                                        <input class="form-check-input" type="checkbox" id="debug_backend" 
+                                               {% if config_groups.system.DEBUG_PRODUCTION_BACKEND.value %}checked{% endif %}
+                                               onchange="configChanged('DEBUG_PRODUCTION_BACKEND', this.checked)">
+                                        <label class="form-check-label" for="debug_backend">
+                                            <span class="{% if config_groups.system.DEBUG_PRODUCTION_BACKEND.value %}text-success fw-bold{% else %}text-muted{% endif %}">
+                                                {% if config_groups.system.DEBUG_PRODUCTION_BACKEND.value %}Włączone{% else %}Wyłączone{% endif %}
+                                            </span>
+                                        </label>
+                                    </div>
+                                </div>
+                                <button class="config-reset-btn" onclick="resetToDefault('DEBUG_PRODUCTION_BACKEND')" title="Przywróć domyślne">
+                                    <i class="fas fa-undo"></i>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- DEBUG_PRODUCTION_FRONTEND -->
+                <div class="config-item">
+                    <div class="config-item-row">
+                        <div class="config-item-main">
+                            <div class="config-item-header">
+                                <div class="config-item-icon">
+                                    <i class="fas fa-code"></i>
+                                </div>
+                                <div class="config-item-info">
+                                    <h5 class="config-item-title">DEBUG_PRODUCTION_FRONTEND <span class="default-badge">domyślnie: false</span></h5>
+                                    <p class="config-item-description">Włączenie trybu debug dla frontendu produkcyjnego</p>
+                                </div>
+                            </div>
+                            <div class="config-item-meta">
+                                <div class="config-item-meta-item">
+                                    <i class="fas fa-user"></i>
+                                    <span>Ostatnio: {{ config_groups.system.DEBUG_PRODUCTION_FRONTEND.updated_by|default('System') }}</span>
+                                </div>
+                                <div class="config-item-meta-item">
+                                    <i class="fas fa-clock"></i>
+                                    <span>{{ config_groups.system.DEBUG_PRODUCTION_FRONTEND.updated_at|default('2025-09-26 14:05:32') }}</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="config-item-controls">
+                            <div class="config-control-wrapper">
+                                <div class="config-control">
+                                    <div class="form-check form-switch">
+                                        <input class="form-check-input" type="checkbox" id="debug_frontend" 
+                                               {% if config_groups.system.DEBUG_PRODUCTION_FRONTEND.value %}checked{% endif %}
+                                               onchange="configChanged('DEBUG_PRODUCTION_FRONTEND', this.checked)">
+                                        <label class="form-check-label" for="debug_frontend">
+                                            <span class="{% if config_groups.system.DEBUG_PRODUCTION_FRONTEND.value %}text-success fw-bold{% else %}text-muted{% endif %}">
+                                                {% if config_groups.system.DEBUG_PRODUCTION_FRONTEND.value %}Włączone{% else %}Wyłączone{% endif %}
+                                            </span>
+                                        </label>
+                                    </div>
+                                </div>
+                                <button class="config-reset-btn" onclick="resetToDefault('DEBUG_PRODUCTION_FRONTEND')" title="Przywróć domyślne">
+                                    <i class="fas fa-undo"></i>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- CACHE_DURATION_SECONDS -->
+                <div class="config-item">
+                    <div class="config-item-row">
+                        <div class="config-item-main">
+                            <div class="config-item-header">
+                                <div class="config-item-icon">
+                                    <i class="fas fa-database"></i>
+                                </div>
+                                <div class="config-item-info">
+                                    <h5 class="config-item-title">CACHE_DURATION_SECONDS <span class="default-badge">domyślnie: 3600</span></h5>
+                                    <p class="config-item-description">Czas przechowywania cache (w sekundach)</p>
+                                </div>
+                            </div>
+                            <div class="config-item-meta">
+                                <div class="config-item-meta-item">
+                                    <i class="fas fa-user"></i>
+                                    <span>Ostatnio: {{ config_groups.system.CACHE_DURATION_SECONDS.updated_by|default('System') }}</span>
+                                </div>
+                                <div class="config-item-meta-item">
+                                    <i class="fas fa-clock"></i>
+                                    <span>{{ config_groups.system.CACHE_DURATION_SECONDS.updated_at|default('2025-09-26 14:05:32') }}</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="config-item-controls">
+                            <div class="config-control-wrapper">
+                                <div class="config-control">
+                                    <input type="number" class="form-control" id="cache_duration" 
+                                           value="{{ config_groups.system.CACHE_DURATION_SECONDS.value|default(3600) }}" 
+                                           min="60" max="86400" 
+                                           oninput="configChanged('CACHE_DURATION_SECONDS', this.value)">
+                                </div>
+                                <button class="config-reset-btn" onclick="resetToDefault('CACHE_DURATION_SECONDS')" title="Przywróć domyślne">
+                                    <i class="fas fa-undo"></i>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ADMIN_EMAIL_NOTIFICATIONS -->
+                <div class="config-item">
+                    <div class="config-item-row">
+                        <div class="config-item-main">
+                            <div class="config-item-header">
+                                <div class="config-item-icon">
+                                    <i class="fas fa-envelope"></i>
+                                </div>
+                                <div class="config-item-info">
+                                    <h5 class="config-item-title">ADMIN_EMAIL_NOTIFICATIONS <span class="default-badge">domyślnie: admin@woodpower.pl</span></h5>
+                                    <p class="config-item-description">Adres email dla powiadomień administratora</p>
+                                </div>
+                            </div>
+                            <div class="config-item-meta">
+                                <div class="config-item-meta-item">
+                                    <i class="fas fa-user"></i>
+                                    <span>Ostatnio: {{ config_groups.system.ADMIN_EMAIL_NOTIFICATIONS.updated_by|default('System') }}</span>
+                                </div>
+                                <div class="config-item-meta-item">
+                                    <i class="fas fa-clock"></i>
+                                    <span>{{ config_groups.system.ADMIN_EMAIL_NOTIFICATIONS.updated_at|default('2025-09-26 14:05:32') }}</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="config-item-controls">
+                            <div class="config-control-wrapper">
+                                <div class="config-control">
+                                    <input type="email" class="form-control" id="admin_email" 
+                                           value="{{ config_groups.system.ADMIN_EMAIL_NOTIFICATIONS.value|default('admin@woodpower.pl') }}" 
+                                           oninput="configChanged('ADMIN_EMAIL_NOTIFICATIONS', this.value)">
+                                </div>
+                                <button class="config-reset-btn" onclick="resetToDefault('ADMIN_EMAIL_NOTIFICATIONS')" title="Przywróć domyślne">
+                                    <i class="fas fa-undo"></i>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ERROR_NOTIFICATION_THRESHOLD -->
+                <div class="config-item">
+                    <div class="config-item-row">
+                        <div class="config-item-main">
+                            <div class="config-item-header">
+                                <div class="config-item-icon">
+                                    <i class="fas fa-exclamation-triangle"></i>
+                                </div>
+                                <div class="config-item-info">
+                                    <h5 class="config-item-title">ERROR_NOTIFICATION_THRESHOLD <span class="default-badge">domyślnie: 10</span></h5>
+                                    <p class="config-item-description">Próg błędów po przekroczeniu którego wysłane są powiadomienia</p>
+                                </div>
+                            </div>
+                            <div class="config-item-meta">
+                                <div class="config-item-meta-item">
+                                    <i class="fas fa-user"></i>
+                                    <span>Ostatnio: {{ config_groups.system.ERROR_NOTIFICATION_THRESHOLD.updated_by|default('System') }}</span>
+                                </div>
+                                <div class="config-item-meta-item">
+                                    <i class="fas fa-clock"></i>
+                                    <span>{{ config_groups.system.ERROR_NOTIFICATION_THRESHOLD.updated_at|default('2025-09-26 14:05:32') }}</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="config-item-controls">
+                            <div class="config-control-wrapper">
+                                <div class="config-control">
+                                    <input type="number" class="form-control" id="error_threshold" 
+                                           value="{{ config_groups.system.ERROR_NOTIFICATION_THRESHOLD.value|default(10) }}" 
+                                           min="1" max="100" 
+                                           oninput="configChanged('ERROR_NOTIFICATION_THRESHOLD', this.value)">
+                                </div>
+                                <button class="config-reset-btn" onclick="resetToDefault('ERROR_NOTIFICATION_THRESHOLD')" title="Przywróć domyślne">
+                                    <i class="fas fa-undo"></i>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Cache i Inne -->
+        <div class="config-card">
+            <div class="config-card-header">
+                <div class="config-card-title">
+                    <div class="config-card-icon">
+                        <i class="fas fa-database"></i>
+                    </div>
+                    <div>
+                        <h4>Cache i Inne</h4>
+                        <p class="config-card-subtitle">Dodatkowe konfiguracje systemowe</p>
+                    </div>
+                </div>
+            </div>
+            <div class="config-card-body">
+                
+                <!-- BASELINKER_STATUSES_CACHE -->
+                <div class="config-item">
+                    <div class="config-item-row">
+                        <div class="config-item-main">
+                            <div class="config-item-header">
+                                <div class="config-item-icon">
+                                    <i class="fas fa-code"></i>
+                                </div>
+                                <div class="config-item-info">
+                                    <h5 class="config-item-title">BASELINKER_STATUSES_CACHE <span class="default-badge">domyślnie: JSON obiekt</span></h5>
+                                    <p class="config-item-description">Cache statusów Baselinker (7 dni TTL)</p>
+                                </div>
+                            </div>
+                            <div class="config-item-meta">
+                                <div class="config-item-meta-item">
+                                    <i class="fas fa-user"></i>
+                                    <span>Ostatnio: {{ config_groups.other.BASELINKER_STATUSES_CACHE.updated_by|default('System') }}</span>
+                                </div>
+                                <div class="config-item-meta-item">
+                                    <i class="fas fa-clock"></i>
+                                    <span>{{ config_groups.other.BASELINKER_STATUSES_CACHE.updated_at|default('2025-09-26 14:17:08') }}</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="config-item-controls">
+                            <div class="config-control-wrapper">
+                                <div class="config-control">
+                                    <div class="json-editor-wrapper">
+                                        <div class="json-editor-header">
+                                            <i class="fas fa-code"></i>
+                                            JSON Editor
+                                        </div>
+                                        <textarea class="form-control json-editor" id="baselinker_cache" rows="6"
+                                                  oninput="configChanged('BASELINKER_STATUSES_CACHE', this.value); validateJSON(this);">
+                                                  {{ config_groups.other.BASELINKER_STATUSES_CACHE.value|default('{"id": 105112, "name": "Nowe - opłacone", "color": "ffffff"}')|e }}</textarea>
+                                    </div>
+                                </div>
+                                <button class="config-reset-btn" onclick="resetToDefault('BASELINKER_STATUSES_CACHE')" title="Przywróć domyślne">
+                                    <i class="fas fa-undo"></i>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- MAX_PRODUCTS_PER_ORDER -->
+                <div class="config-item">
+                    <div class="config-item-row">
+                        <div class="config-item-main">
+                            <div class="config-item-header">
+                                <div class="config-item-icon">
+                                    <i class="fas fa-boxes"></i>
+                                </div>
+                                <div class="config-item-info">
+                                    <h5 class="config-item-title">MAX_PRODUCTS_PER_ORDER <span class="default-badge">domyślnie: 999</span></h5>
+                                    <p class="config-item-description">Maksymalna liczba produktów w jednym zamówieniu</p>
+                                </div>
+                            </div>
+                            <div class="config-item-meta">
+                                <div class="config-item-meta-item">
+                                    <i class="fas fa-user"></i>
+                                    <span>Ostatnio: {{ config_groups.other.MAX_PRODUCTS_PER_ORDER.updated_by|default('System') }}</span>
+                                </div>
+                                <div class="config-item-meta-item">
+                                    <i class="fas fa-clock"></i>
+                                    <span>{{ config_groups.other.MAX_PRODUCTS_PER_ORDER.updated_at|default('2025-09-26 14:05:32') }}</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="config-item-controls">
+                            <div class="config-control-wrapper">
+                                <div class="config-control">
+                                    <input type="number" class="form-control" id="max_products_order" 
+                                           value="{{ config_groups.other.MAX_PRODUCTS_PER_ORDER.value|default(999) }}" 
+                                           min="1" max="9999" 
+                                           oninput="configChanged('MAX_PRODUCTS_PER_ORDER', this.value)">
+                                </div>
+                                <button class="config-reset-btn" onclick="resetToDefault('MAX_PRODUCTS_PER_ORDER')" title="Przywróć domyślne">
+                                    <i class="fas fa-undo"></i>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Save Bar -->
+<div class="config-save-bar" id="config-save-bar">
+    <div class="save-bar-content">
+        <div class="changes-indicator">
+            <div class="changes-icon">
+                <i class="fas fa-exclamation-triangle"></i>
+            </div>
+            <div class="changes-text">
+                <strong>Masz niezapisane zmiany</strong>
+                <small>Zmiany zostaną utracone po opuszczeniu strony</small>
+            </div>
+            <span class="changes-count" id="changes-count">0</span>
+        </div>
+        <div class="save-actions">
+            <button class="btn btn-discard" onclick="discardChanges()">
+                <i class="fas fa-times me-1"></i>Anuluj
+            </button>
+            <button class="btn btn-save-changes" id="btn-save" onclick="saveAllChanges()">
+                <i class="fas fa-save me-1"></i>Zapisz zmiany
+            </button>
+        </div>
+    </div>
+</div>

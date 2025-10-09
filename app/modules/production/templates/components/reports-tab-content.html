@@ -1,0 +1,285 @@
+<!-- reports-tab-content.html -->
+<!-- Komponent zawartości taba Raporty -->
+
+<!-- Podsumowanie tygodniowe -->
+<div class="reports-summary">
+    <div class="row g-3 mb-4">
+        <div class="col-md-4">
+            <div class="summary-card">
+                <div class="summary-icon">📈</div>
+                <div class="summary-data">
+                    <div class="summary-value">{{ reports_data.summary.week_completed }}</div>
+                    <div class="summary-label">Ukończone w tygodniu</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="summary-card">
+                <div class="summary-icon">📊</div>
+                <div class="summary-data">
+                    <div class="summary-value">{{ "%.2f"|format(reports_data.summary.week_volume) }}</div>
+                    <div class="summary-label">m³ w tygodniu</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="summary-card">
+                <div class="summary-icon">🏭</div>
+                <div class="summary-data">
+                    <div class="summary-value">{{ reports_data.summary.total_in_system }}</div>
+                    <div class="summary-label">Produktów w systemie</div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Wykres wydajności dziennej -->
+<div class="widget performance-widget">
+    <div class="widget-header">
+        <h4>Wydajność dzienna (ostatnie 7 dni)</h4>
+        <div class="chart-controls">
+            <div class="btn-group btn-group-sm">
+                <button class="btn btn-outline-primary active" onclick="changeReportPeriod(7)">7 dni</button>
+                <button class="btn btn-outline-primary" onclick="changeReportPeriod(14)">14 dni</button>
+                <button class="btn btn-outline-primary" onclick="changeReportPeriod(30)">30 dni</button>
+            </div>
+        </div>
+    </div>
+    <div class="widget-content">
+        <canvas id="daily-performance-chart" width="400" height="200"></canvas>
+    </div>
+</div>
+
+<!-- Breakdown statusów -->
+<div class="widget status-breakdown-widget mt-4">
+    <div class="widget-header">
+        <h4>Rozkład produktów według statusów</h4>
+    </div>
+    <div class="widget-content">
+        <div class="row">
+            <div class="col-md-8">
+                <div class="table-responsive">
+                    <table class="table table-sm">
+                        <thead>
+                            <tr>
+                                <th>Status</th>
+                                <th>Ilość</th>
+                                <th>Objętość (m³)</th>
+                                <th>% całości</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for item in reports_data.status_breakdown %}
+                            <tr>
+                                <td>
+                                    <span class="status-badge status-{{ item.status.replace('czeka_na_', '').replace('_', '-') }}">
+                                        {{ item.status.replace('czeka_na_', '').replace('_', ' ').title() }}
+                                    </span>
+                                </td>
+                                <td><strong>{{ item.count }}</strong></td>
+                                <td>{{ "%.3f"|format(item.volume) }}</td>
+                                <td>
+                                    {% set percentage = (item.count / reports_data.summary.total_in_system * 100) if reports_data.summary.total_in_system > 0 else 0 %}
+                                    {{ "%.1f"|format(percentage) }}%
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <canvas id="status-breakdown-chart" width="300" height="300"></canvas>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Historia synchronizacji -->
+<div class="widget sync-history-widget mt-4">
+    <div class="widget-header">
+        <h4>Historia synchronizacji (ostatnie 20)</h4>
+        <button class="btn btn-outline-primary btn-sm" onclick="refreshSyncHistory()">
+            <i class="fas fa-sync-alt me-1"></i>Odśwież
+        </button>
+    </div>
+    <div class="widget-content">
+        <div class="table-responsive">
+            <table class="table table-sm table-striped">
+                <thead>
+                    <tr>
+                        <th>Data synchronizacji</th>
+                        <th>Status</th>
+                        <th>Przetworzono</th>
+                        <th>Czas trwania</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for sync in reports_data.sync_history %}
+                    <tr>
+                        <td>
+                            {% set sync_date = sync.date[:19] %}
+                            {{ sync_date.replace('T', ' ') }}
+                        </td>
+                        <td>
+                            <span class="badge {% if sync.status == 'completed' %}bg-success{% elif sync.status == 'error' %}bg-danger{% else %}bg-warning{% endif %}">
+                                {{ sync.status.title() }}
+                            </span>
+                        </td>
+                        <td>{{ sync.items_processed }} elementów</td>
+                        <td>{{ sync.duration_seconds }}s</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- Eksport danych -->
+<div class="reports-actions mt-4">
+    <div class="card">
+        <div class="card-header">
+            <h5>Eksport raportów</h5>
+        </div>
+        <div class="card-body">
+            <div class="row g-3">
+                <div class="col-md-6">
+                    <button class="btn btn-outline-success w-100" onclick="exportToExcel()">
+                        <i class="fas fa-file-excel me-2"></i>
+                        Eksportuj do Excel
+                    </button>
+                </div>
+                <div class="col-md-6">
+                    <button class="btn btn-outline-danger w-100" onclick="exportToPDF()">
+                        <i class="fas fa-file-pdf me-2"></i>
+                        Eksportuj do PDF
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+// JavaScript dla taba raportów
+let dailyChart = null;
+let statusChart = null;
+
+function initReportsTab() {
+    console.log('[Reports Tab] Inicjalizacja');
+    
+    // Inicjalizuj wykresy
+    initializeDailyChart();
+    initializeStatusChart();
+}
+
+function initializeDailyChart() {
+    const ctx = document.getElementById('daily-performance-chart').getContext('2d');
+    
+    const dailyData = {{ reports_data.daily_performance|tojson }};
+    
+    dailyChart = new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: dailyData.map(item => {
+                const date = new Date(item.date);
+                return date.toLocaleDateString('pl-PL', { month: 'short', day: 'numeric' });
+            }),
+            datasets: [{
+                label: 'Ukończone zamówienia',
+                data: dailyData.map(item => item.completed_orders),
+                backgroundColor: 'rgba(54, 162, 235, 0.8)',
+                borderColor: 'rgba(54, 162, 235, 1)',
+                borderWidth: 1
+            }, {
+                label: 'Objętość (m³)',
+                data: dailyData.map(item => item.total_volume),
+                type: 'line',
+                backgroundColor: 'rgba(255, 99, 132, 0.2)',
+                borderColor: 'rgba(255, 99, 132, 1)',
+                yAxisID: 'y1'
+            }]
+        },
+        options: {
+            responsive: true,
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    position: 'left'
+                },
+                y1: {
+                    type: 'linear',
+                    display: true,
+                    position: 'right',
+                    beginAtZero: true,
+                    grid: {
+                        drawOnChartArea: false,
+                    }
+                }
+            }
+        }
+    });
+}
+
+function initializeStatusChart() {
+    const ctx = document.getElementById('status-breakdown-chart').getContext('2d');
+    
+    const statusData = {{ reports_data.status_breakdown|tojson }};
+    
+    statusChart = new Chart(ctx, {
+        type: 'doughnut',
+        data: {
+            labels: statusData.map(item => item.status.replace('czeka_na_', '').replace('_', ' ').charAt(0).toUpperCase() + item.status.replace('czeka_na_', '').replace('_', ' ').slice(1)),
+            datasets: [{
+                data: statusData.map(item => item.count),
+                backgroundColor: [
+                    '#FF6384',
+                    '#36A2EB',
+                    '#FFCE56',
+                    '#4BC0C0',
+                    '#9966FF'
+                ]
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false
+        }
+    });
+}
+
+function changeReportPeriod(days) {
+    console.log('[Reports Tab] Zmiana okresu na:', days, 'dni');
+    
+    // Aktualizuj aktywny przycisk
+    document.querySelectorAll('.chart-controls .btn').forEach(btn => btn.classList.remove('active'));
+    event.target.classList.add('active');
+    
+    // TODO: Przeładuj dane dla nowego okresu
+}
+
+function refreshSyncHistory() {
+    console.log('[Reports Tab] Odświeżanie historii synchronizacji');
+    // Przeładuj tab raportów
+    window.loadTabContent('reports-tab');
+}
+
+function exportToExcel() {
+    console.log('[Reports Tab] TODO: Eksport do Excel');
+    alert('Funkcja eksportu do Excel będzie wkrótce dostępna!');
+}
+
+function exportToPDF() {
+    console.log('[Reports Tab] TODO: Eksport do PDF');
+    alert('Funkcja eksportu do PDF będzie wkrótce dostępna!');
+}
+
+// Auto-inicjalizacja
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initReportsTab);
+} else {
+    initReportsTab();
+}
+</script>

@@ -1,0 +1,127 @@
+<div id="clients-edit-modal" class="clients-modal-overlay" style="display: none;">
+    <div class="clients-modal">
+        <h2 class="title-with-underline-h2">Edytuj dane klienta</h2>
+
+        <!-- Dane główne -->
+        <section class="clients-section">
+            <div class="clients-section-header">
+                <h3>Dane klienta</h3>
+                <img src="{{ url_for('clients.static', filename='img/pencil.svg') }}" alt="Edytuj" class="clients-edit-icon">
+            </div>
+            <div class="clients-section-body">
+                <div class="input-group">
+                    <label for="editClientName">Nazwa klienta</label>
+                    <input id="editClientName" class="clients-input" type="text">
+                </div>
+                <div class="input-group">
+                    <label for="editClientDeliveryName">Imię i nazwisko</label>
+                    <input id="editClientDeliveryName" class="clients-input" type="text">
+                </div>
+                <div class="input-group">
+                    <label for="editClientEmail">Email</label>
+                    <input id="editClientEmail" class="clients-input" type="email">
+                </div>
+                <div class="input-group">
+                    <label for="editClientPhone">Telefon</label>
+                    <input id="editClientPhone" class="clients-input" type="text">
+                </div>
+            </div>
+        </section>
+
+        <!-- Adres dostawy -->
+        <section class="clients-section">
+            <div class="clients-section-header">
+                <h3>Adres dostawy</h3>
+                <img src="{{ url_for('clients.static', filename='img/pencil.svg') }}" alt="Edytuj" class="clients-edit-icon">
+            </div>
+            <div class="clients-section-body grid-2-cols">
+                <div class="input-group"><label for="editDeliveryName">Imię i nazwisko</label><input id="editDeliveryName" class="clients-input" type="text"></div>
+                <div class="input-group"><label for="editDeliveryCompany">Firma</label><input id="editDeliveryCompany" class="clients-input" type="text"></div>
+                <div class="input-group"><label for="editDeliveryAddress">Adres</label><input id="editDeliveryAddress" class="clients-input" type="text"></div>
+                <div class="input-group"><label for="editDeliveryZip">Kod pocztowy</label><input id="editDeliveryZip" class="clients-input" type="text"></div>
+                <div class="input-group"><label for="editDeliveryCity">Miasto</label><input id="editDeliveryCity" class="clients-input" type="text"></div>
+                <div class="input-group"><label for="editDeliveryRegion">Województwo</label><input id="editDeliveryRegion" class="clients-input" type="text"></div>
+                <div class="input-group full-width">
+                    <label for="editDeliveryCountry">Kraj</label>
+                    <select id="editDeliveryCountry" class="clients-input">
+                        <option value="Albania">Albania</option>
+                        <option value="Andora">Andora</option>
+                        <option value="Austria">Austria</option>
+                        <option value="Belgia">Belgia</option>
+                        <option value="Białoruś">Białoruś</option>
+                        <option value="Bośnia i Hercegowina">Bośnia i Hercegowina</option>
+                        <option value="Bułgaria">Bułgaria</option>
+                        <option value="Chorwacja">Chorwacja</option>
+                        <option value="Cypr">Cypr</option>
+                        <option value="Czarnogóra">Czarnogóra</option>
+                        <option value="Czechy">Czechy</option>
+                        <option value="Dania">Dania</option>
+                        <option value="Estonia">Estonia</option>
+                        <option value="Finlandia">Finlandia</option>
+                        <option value="Francja">Francja</option>
+                        <option value="Grecja">Grecja</option>
+                        <option value="Hiszpania">Hiszpania</option>
+                        <option value="Holandia">Holandia</option>
+                        <option value="Irlandia">Irlandia</option>
+                        <option value="Islandia">Islandia</option>
+                        <option value="Kosowo">Kosowo</option>
+                        <option value="Liechtenstein">Liechtenstein</option>
+                        <option value="Litwa">Litwa</option>
+                        <option value="Luksemburg">Luksemburg</option>
+                        <option value="Łotwa">Łotwa</option>
+                        <option value="Macedonia Północna">Macedonia Północna</option>
+                        <option value="Malta">Malta</option>
+                        <option value="Mołdawia">Mołdawia</option>
+                        <option value="Monako">Monako</option>
+                        <option value="Niemcy">Niemcy</option>
+                        <option value="Norwegia">Norwegia</option>
+                        <option value="Polska">Polska</option>
+                        <option value="Portugalia">Portugalia</option>
+                        <option value="Rosja">Rosja</option>
+                        <option value="Rumunia">Rumunia</option>
+                        <option value="San Marino">San Marino</option>
+                        <option value="Serbia">Serbia</option>
+                        <option value="Słowacja">Słowacja</option>
+                        <option value="Słowenia">Słowenia</option>
+                        <option value="Szwajcaria">Szwajcaria</option>
+                        <option value="Szwecja">Szwecja</option>
+                        <option value="Turcja">Turcja</option>
+                        <option value="Ukraina">Ukraina</option>
+                        <option value="Watykan">Watykan</option>
+                        <option value="Węgry">Węgry</option>
+                        <option value="Wielka Brytania">Wielka Brytania</option>
+                        <option value="Włochy">Włochy</option>
+
+                    </select>
+                </div>
+            </div>
+        </section>
+
+        <!-- Dane do faktury -->
+        <section class="clients-section">
+            <div class="clients-section-header">
+                <h3>Dane do faktury</h3>
+                <img src="{{ url_for('clients.static', filename='img/pencil.svg') }}" alt="Edytuj" class="clients-edit-icon">
+            </div>
+            <div class="clients-section-body grid-2-cols">
+                <div class="input-group full-width checkbox-row">
+                    <label for="editClientWantsInvoice">
+                        <input type="checkbox" id="editClientWantsInvoice">
+                        Klient chce fakturę
+                    </label>
+                </div>
+                <div class="input-group"><label for="editInvoiceName">Imię i nazwisko</label><input id="editInvoiceName" class="clients-input" type="text"></div>
+                <div class="input-group"><label for="editInvoiceCompany">Firma</label><input id="editInvoiceCompany" class="clients-input" type="text"></div>
+                <div class="input-group"><label for="editInvoiceAddress">Adres</label><input id="editInvoiceAddress" class="clients-input" type="text"></div>
+                <div class="input-group"><label for="editInvoiceZip">Kod pocztowy</label><input id="editInvoiceZip" class="clients-input" type="text"></div>
+                <div class="input-group"><label for="editInvoiceCity">Miasto</label><input id="editInvoiceCity" class="clients-input" type="text"></div>
+                <div class="input-group"><label for="editInvoiceNIP">NIP</label><input id="editInvoiceNIP" class="clients-input" type="text"></div>
+            </div>
+        </section>
+
+        <div class="clients-modal-actions">
+            <button id="clientsSaveBtn" class="clients-btn clients-btn-primary">Zapisz</button>
+            <button id="clientsCancelBtn" class="clients-btn clients-btn-secondary">Anuluj</button>
+        </div>
+    </div>
+</div>

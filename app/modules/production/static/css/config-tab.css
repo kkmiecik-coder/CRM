@@ -1,0 +1,692 @@
+/* =================================== */
+/* CONFIG TAB STYLES - ORANGE THEME   */
+/* static/css/config-tab.css           */
+/* =================================== */
+
+:root {
+    --woodpower-orange: #ED6B24;
+    --woodpower-orange-light: #f08142;
+    --woodpower-orange-dark: #d55c1e;
+    --woodpower-orange-subtle: rgba(237, 107, 36, 0.1);
+    --woodpower-orange-glass: rgba(237, 107, 36, 0.15);
+}
+
+.config-container {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 1.5rem;
+    padding-bottom: 100px;
+}
+
+/* =================================== */
+/* HEADER                              */
+/* =================================== */
+.config-main-header {
+    background: linear-gradient(135deg, var(--woodpower-orange) 0%, var(--woodpower-orange-dark) 100%);
+    color: white;
+    border-radius: 16px;
+    padding: 2rem;
+    margin-bottom: 2rem;
+    position: relative;
+    overflow: hidden;
+}
+
+.config-main-header::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    right: 0;
+    width: 200px;
+    height: 200px;
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 50%;
+    transform: translate(50%, -50%);
+}
+
+.config-main-header h2 {
+    font-size: 1.8rem;
+    font-weight: 700;
+    margin-bottom: 0.5rem;
+    position: relative;
+    z-index: 1;
+}
+
+.config-main-header p {
+    opacity: 0.9;
+    margin-bottom: 1.5rem;
+    position: relative;
+    z-index: 1;
+}
+
+.config-stats-row {
+    display: flex;
+    gap: 2rem;
+    align-items: center;
+    position: relative;
+    z-index: 1;
+}
+
+.config-stat-item {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    background: var(--woodpower-orange-glass);
+    padding: 0.75rem 1.25rem;
+    border-radius: 12px;
+    backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.config-stat-icon {
+    font-size: 1.5rem;
+    opacity: 0.8;
+}
+
+.config-stat-info h6 {
+    margin: 0;
+    font-size: 0.85rem;
+    opacity: 0.8;
+    color: white;
+}
+
+.config-stat-info .stat-value {
+    font-size: 1.1rem;
+    font-weight: 600;
+    color: white;
+}
+
+/* =================================== */
+/* CARDS LAYOUT                        */
+/* =================================== */
+.config-cards-container {
+    display: grid;
+    gap: 1.5rem;
+}
+
+.config-card {
+    background: white;
+    border-radius: 16px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+    border: 1px solid #f1f3f5;
+    overflow: hidden;
+    transition: all 0.3s ease;
+}
+
+.config-card-header {
+    background: linear-gradient(135deg, var(--woodpower-orange) 0%, var(--woodpower-orange-dark) 100%);
+    padding: 1.5rem;
+    border-bottom: 1px solid #f1f3f5;
+    position: relative;
+}
+
+.config-card-title {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    color: white;
+    margin: 0;
+}
+
+.config-card-icon {
+    font-size: 1.5rem;
+    opacity: 0.9;
+}
+
+.config-card-title h4 {
+    margin: 0;
+    font-weight: 600;
+    font-size: 1.2rem;
+}
+
+.config-card-subtitle {
+    color: rgba(255, 255, 255, 0.8);
+    font-size: 0.9rem;
+    margin-top: 0.5rem;
+    margin-bottom: 0;
+}
+
+.config-card-body {
+    padding: 0;
+}
+
+/* =================================== */
+/* CONFIG ITEMS                        */
+/* =================================== */
+.config-item {
+    padding: 1.5rem;
+    border-bottom: 1px solid #f8f9fa;
+    transition: background-color 0.2s ease;
+}
+
+.config-item:last-child {
+    border-bottom: none;
+}
+
+.config-item:hover {
+    background-color: #fbfcfd;
+}
+
+.config-item-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 1.5rem;
+}
+
+.config-item-main {
+    flex: 1;
+    min-width: 0;
+}
+
+.config-item-controls {
+    flex-shrink: 0;
+    min-width: 280px;
+}
+
+.config-item-header {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin-bottom: 0.75rem;
+}
+
+.config-item-icon {
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.9rem;
+    color: white;
+    flex-shrink: 0;
+    background: linear-gradient(135deg, var(--woodpower-orange), var(--woodpower-orange-light));
+}
+
+.config-item-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.config-item-title {
+    font-weight: 600;
+    color: #495057;
+    margin: 0;
+    font-size: 1rem;
+}
+
+.config-item-description {
+    color: #6c757d;
+    font-size: 0.9rem;
+    margin: 0.25rem 0 0.75rem 0;
+    line-height: 1.4;
+}
+
+.config-item-meta {
+    display: flex;
+    gap: 1.5rem;
+    font-size: 0.8rem;
+    color: #adb5bd;
+}
+
+.config-item-meta-item {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+}
+
+.config-control-wrapper {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+}
+
+.config-control {
+    flex: 1;
+}
+
+.config-reset-btn {
+    width: 36px;
+    height: 36px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid #dee2e6;
+    background: white;
+    color: #6c757d;
+    transition: all 0.2s ease;
+}
+
+.config-reset-btn:hover {
+    background: var(--woodpower-orange-subtle);
+    border-color: var(--woodpower-orange);
+    color: var(--woodpower-orange);
+}
+
+/* =================================== */
+/* FORM CONTROLS                       */
+/* =================================== */
+.form-control, .form-select {
+    border-radius: 10px;
+    border: 1px solid #e9ecef;
+    padding: 0.75rem;
+    transition: all 0.2s ease;
+    font-size: 0.9rem;
+}
+
+.form-control:focus, .form-select:focus {
+    border-color: var(--woodpower-orange);
+    box-shadow: 0 0 0 0.25rem var(--woodpower-orange-subtle);
+}
+
+.form-switch .form-check-input {
+    width: 3.5rem !important;
+    height: 1.75rem !important;
+    border-radius: 2rem !important;
+    border: 2px solid #e9ecef !important;
+    background-color: #f8f9fa;
+}
+
+.form-switch .form-check-input:checked {
+    background-color: var(--woodpower-orange);
+    border-color: var(--woodpower-orange);
+}
+
+.form-switch .form-check-input:focus {
+    box-shadow: 0 0 0 0.25rem var(--woodpower-orange-subtle);
+}
+
+.form-switch .form-check-label {
+    font-weight: 500;
+    margin-left: 0.75rem;
+}
+
+/* =================================== */
+/* IP MANAGER                          */
+/* =================================== */
+.ip-manager {
+    border: 1px solid #e9ecef;
+    border-radius: 12px;
+    overflow: hidden;
+    background: #f8f9fa;
+}
+
+.ip-manager-header {
+    background: linear-gradient(135deg, var(--woodpower-orange), var(--woodpower-orange-dark));
+    color: white;
+    padding: 1rem;
+    font-weight: 600;
+    font-size: 0.9rem;
+}
+
+.ip-list {
+    max-height: 200px;
+    overflow-y: auto;
+    padding: 0.75rem;
+    background: white;
+}
+
+.ip-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background: #f8f9fa;
+    border: 1px solid #e9ecef;
+    border-radius: 8px;
+    padding: 0.75rem;
+    margin-bottom: 0.5rem;
+    transition: all 0.2s ease;
+}
+
+.ip-item:hover {
+    border-color: var(--woodpower-orange);
+    transform: translateX(4px);
+    background: var(--woodpower-orange-subtle);
+}
+
+.ip-item:last-child {
+    margin-bottom: 0;
+}
+
+.ip-address {
+    font-family: 'JetBrains Mono', 'Fira Code', 'Courier New', monospace;
+    font-weight: 500;
+    color: #495057;
+    background: white;
+    padding: 0.25rem 0.5rem;
+    border-radius: 6px;
+    border: 1px solid #e9ecef;
+}
+
+.ip-add-section {
+    padding: 0.75rem;
+    background: white;
+    border-top: 1px solid #e9ecef;
+    display: flex;
+    gap: 0.75rem;
+}
+
+.ip-add-input {
+    flex: 1;
+    font-family: 'JetBrains Mono', 'Fira Code', 'Courier New', monospace;
+}
+
+.ip-add-input.is-invalid {
+    border-color: #dc3545;
+    box-shadow: 0 0 0 0.25rem rgba(220, 53, 69, 0.15);
+}
+
+/* =================================== */
+/* JSON EDITOR                         */
+/* =================================== */
+.json-editor-wrapper {
+    border: 1px solid #e9ecef;
+    border-radius: 12px;
+    overflow: hidden;
+}
+
+.json-editor-header {
+    background: linear-gradient(135deg, var(--woodpower-orange), var(--woodpower-orange-dark));
+    color: white;
+    padding: 0.75rem 1rem;
+    font-weight: 600;
+    font-size: 0.85rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.json-editor {
+    font-family: 'JetBrains Mono', 'Fira Code', 'Courier New', monospace;
+    font-size: 0.85rem;
+    min-height: 120px;
+    background: #f8f9fa;
+    border: none;
+    border-radius: 0;
+    resize: vertical;
+}
+
+.json-editor.json-valid {
+    background: #f8fff8;
+    border-left: 4px solid #198754;
+}
+
+.json-editor.json-invalid {
+    background: #fff8f8;
+    border-left: 4px solid #dc3545;
+}
+
+/* =================================== */
+/* SAVE BAR - POPRAWIONA WERSJA      */
+/* =================================== */
+.config-save-bar {
+    position: fixed;
+    bottom: -200px;
+    left: 15%;
+    right: 10%;
+    border-radius: 16px;
+    background: white;
+    border: 4px solid #c5c5c5;
+    padding: 1rem 0;
+    z-index: 997;
+    box-shadow: 0 5px 10px rgba(0, 0, 0, 0.1);
+    transition: bottom 0.3s ease;
+}
+
+    .config-save-bar.has-changes {
+        bottom: 1%;
+    }
+
+.config-item-changed {
+    border-left: 4px solid var(--woodpower-orange) !important;
+    transition: all 0.3s ease;
+}
+
+    .config-item-changed .config-item-icon {
+        color: var(--woodpower-orange);
+    }
+
+.save-bar-content {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 0 1.5rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.changes-indicator {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    color: var(--woodpower-orange-dark);
+}
+
+.changes-icon {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, var(--woodpower-orange-subtle), var(--woodpower-orange-glass));
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--woodpower-orange);
+    border: 2px solid var(--woodpower-orange-glass);
+}
+
+.changes-text {
+    display: flex;
+    flex-direction: column;
+}
+
+.changes-count {
+    background: linear-gradient(135deg, var(--woodpower-orange), var(--woodpower-orange-light));
+    color: white;
+    border-radius: 20px;
+    padding: 0.25rem 1rem;
+    font-size: 0.85rem;
+    font-weight: 600;
+    margin-left: 1rem;
+}
+
+.save-actions {
+    display: flex;
+    gap: 1rem;
+}
+
+.btn-save-changes {
+    background: linear-gradient(135deg, var(--woodpower-orange), var(--woodpower-orange-dark));
+    border: none;
+    color: white;
+    padding: 0.75rem 2rem;
+    border-radius: 12px;
+    font-weight: 600;
+    transition: all 0.2s ease;
+}
+
+    .btn-save-changes:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 8px 20px rgba(237, 107, 36, 0.3);
+        color: white;
+        background: linear-gradient(135deg, var(--woodpower-orange-light), var(--woodpower-orange));
+    }
+
+    .btn-save-changes:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+        transform: none;
+        box-shadow: none;
+    }
+
+.btn-discard {
+    background: white;
+    border: 2px solid #e9ecef;
+    color: #6c757d;
+    padding: 0.75rem 1.5rem;
+    border-radius: 12px;
+    font-weight: 600;
+    transition: all 0.2s ease;
+}
+
+    .btn-discard:hover {
+        border-color: #dc3545;
+        color: #dc3545;
+    }
+
+/* Responsive */
+@media (max-width: 768px) {
+    .config-save-bar {
+        left: 5%;
+        right: 5%;
+        bottom: -200px; /* Ukryty */
+    }
+
+        .config-save-bar.has-changes {
+            bottom: 5%; /* Pokazany */
+        }
+
+    .save-bar-content {
+        flex-direction: column;
+        gap: 1rem;
+        padding: 0 1rem;
+    }
+
+    .save-actions {
+        width: 100%;
+        justify-content: center;
+    }
+}
+
+/* =================================== */
+/* BUTTONS AND ACTIONS                 */
+/* =================================== */
+.btn-success {
+    background: var(--woodpower-orange);
+    border-color: var(--woodpower-orange);
+}
+
+.btn-success:hover {
+    background: var(--woodpower-orange-dark);
+    border-color: var(--woodpower-orange-dark);
+}
+
+.btn-light:hover {
+    background: var(--woodpower-orange-subtle);
+    border-color: var(--woodpower-orange);
+    color: var(--woodpower-orange);
+}
+
+/* =================================== */
+/* UTILITIES                           */
+/* =================================== */
+.default-badge {
+    background: #e9ecef;
+    color: #6c757d;
+    padding: 0.25rem 0.5rem;
+    border-radius: 6px;
+    font-size: 0.75rem;
+    font-weight: 500;
+    margin-left: 16px;
+}
+
+.text-primary {
+    color: var(--woodpower-orange) !important;
+}
+
+/* Loading spinner animation */
+.btn .fa-spinner {
+    animation: fa-spin 1s infinite linear;
+}
+
+/* =================================== */
+/* RESPONSIVE                          */
+/* =================================== */
+@media (max-width: 768px) {
+    .config-container {
+        padding: 1rem;
+    }
+    
+    .config-main-header {
+        padding: 1.5rem;
+    }
+    
+    .config-stats-row {
+        flex-direction: column;
+        gap: 1rem;
+        align-items: stretch;
+    }
+    
+    .config-item-row {
+        flex-direction: column;
+        gap: 1rem;
+    }
+    
+    .config-item-controls {
+        min-width: auto;
+    }
+    
+    .save-bar-content {
+        flex-direction: column;
+        gap: 1rem;
+        padding: 0 1rem;
+    }
+    
+    .save-actions {
+        width: 100%;
+        justify-content: center;
+    }
+    
+    .config-stat-item {
+        flex: 1;
+    }
+}
+
+/* =================================== */
+/* SMOOTH TRANSITIONS                  */
+/* =================================== */
+.config-card,
+.config-item,
+.btn,
+.form-control,
+.form-check-input,
+.ip-item,
+.config-reset-btn {
+    transition: all 0.2s ease-in-out;
+}
+
+/* =================================== */
+/* ACCESSIBILITY                       */
+/* =================================== */
+.config-item:focus-within {
+    background-color: #fbfcfd;
+    outline: 2px solid var(--woodpower-orange-subtle);
+    outline-offset: -2px;
+}
+
+.btn:focus,
+.form-control:focus,
+.form-check-input:focus {
+    outline: none;
+    box-shadow: 0 0 0 0.25rem var(--woodpower-orange-subtle);
+}
+
+/* =================================== */
+/* CUSTOM SCROLLBAR                    */
+/* =================================== */
+.ip-list::-webkit-scrollbar {
+    width: 6px;
+}
+
+.ip-list::-webkit-scrollbar-track {
+    background: #f1f1f1;
+    border-radius: 3px;
+}
+
+.ip-list::-webkit-scrollbar-thumb {
+    background: var(--woodpower-orange);
+    border-radius: 3px;
+}
+
+.ip-list::-webkit-scrollbar-thumb:hover {
+    background: var(--woodpower-orange-dark);
+}

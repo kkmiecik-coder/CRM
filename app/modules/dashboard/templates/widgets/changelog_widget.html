@@ -1,0 +1,103 @@
+<!-- Changelog Widget z przyciskiem + dla adminów -->
+<div class="widget changelog-widget">
+    <div class="changelog-header">
+        <h2 class="widget-title">
+            <span class="widget-icon">📢</span>
+            Nowości w aplikacji
+        </h2>
+        {% if user and user.role == 'admin' %}
+        <button class="changelog-add-btn" id="changelog-add-btn" title="Dodaj wpis">
+            <span class="add-icon">+</span>
+        </button>
+        {% endif %}
+    </div>
+    
+    <div class="changelog-entries" id="changelog-entries">
+        <!-- Wpisy będą ładowane dynamicznie -->
+        <div class="changelog-loading">Ładowanie nowości...</div>
+    </div>
+</div>
+
+<!-- Modal dodawania/edycji wpisu -->
+<div class="changelog-modal-overlay" id="changelog-modal-overlay" style="display: none;">
+    <div class="changelog-modal">
+        <div class="modal-header">
+            <h3 class="modal-title" id="modal-title">Dodaj wpis do nowości</h3>
+            <button class="modal-close" id="modal-close">&times;</button>
+        </div>
+        
+        <form class="modal-form" id="changelog-form">
+            <div class="form-group">
+                <label for="version-input">Wersja aplikacji:</label>
+                <input type="text" id="version-input" name="version" required 
+                       placeholder="1.0.0" pattern="^\d+\.\d+(\.\d+)?$">
+                <small class="version-hint" id="version-hint">Sugerowana: <span id="suggested-version"></span></small>
+            </div>
+            
+            <!-- Sekcja: Nowe -->
+            <div class="form-section">
+                <h4 class="section-title">
+                    <span class="section-icon">✨</span>
+                    Nowe
+                </h4>
+                <div class="items-container" id="added-items">
+                    <!-- Dynamicznie dodawane pozycje -->
+                </div>
+                <button type="button" class="add-item-btn" data-section="added">
+                    + Dodaj pozycję
+                </button>
+            </div>
+            
+            <!-- Sekcja: Ulepszenia -->
+            <div class="form-section">
+                <h4 class="section-title">
+                    <span class="section-icon">🔧</span>
+                    Ulepszenia
+                </h4>
+                <div class="items-container" id="improved-items">
+                    <!-- Dynamicznie dodawane pozycje -->
+                </div>
+                <button type="button" class="add-item-btn" data-section="improved">
+                    + Dodaj pozycję
+                </button>
+            </div>
+            
+            <!-- Sekcja: Poprawki błędów -->
+            <div class="form-section">
+                <h4 class="section-title">
+                    <span class="section-icon">🐛</span>
+                    Poprawki błędów
+                </h4>
+                <div class="items-container" id="fixed-items">
+                    <!-- Dynamicznie dodawane pozycje -->
+                </div>
+                <button type="button" class="add-item-btn" data-section="fixed">
+                    + Dodaj pozycję
+                </button>
+            </div>
+            
+            <!-- Sekcja: Własna -->
+            <div class="form-section">
+                <h4 class="section-title">
+                    <span class="section-icon">📝</span>
+                    Własna sekcja
+                </h4>
+                <div class="form-group">
+                    <input type="text" id="custom-section-name" name="custom_section_name" 
+                           placeholder="Nazwa sekcji (np. Zmiany bazy danych)">
+                </div>
+                <div class="items-container" id="custom-items">
+                    <!-- Dynamicznie dodawane pozycje -->
+                </div>
+                <button type="button" class="add-item-btn" data-section="custom">
+                    + Dodaj pozycję
+                </button>
+            </div>
+            
+            <div class="modal-footer">
+                <button type="button" class="btn-cancel" id="btn-cancel">Anuluj</button>
+                <button type="submit" class="btn-save">Zapisz wpis</button>
+            </div>
+        </form>
+    </div>
+</div>

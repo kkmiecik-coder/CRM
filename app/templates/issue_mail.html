@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Zgłoszenie błędu</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px;
+            border-radius: 8px 8px 0 0;
+            text-align: center;
+        }
+        .content {
+            background: #f9f9f9;
+            padding: 30px;
+            border-radius: 0 0 8px 8px;
+            border: 1px solid #ddd;
+        }
+        .field {
+            margin-bottom: 20px;
+            padding: 15px;
+            background: white;
+            border-radius: 5px;
+            border-left: 4px solid #667eea;
+        }
+        .field-label {
+            font-weight: bold;
+            color: #555;
+            margin-bottom: 5px;
+            text-transform: uppercase;
+            font-size: 12px;
+            letter-spacing: 1px;
+        }
+        .field-value {
+            color: #333;
+            font-size: 14px;
+        }
+        .priority {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 15px;
+            font-size: 12px;
+            font-weight: bold;
+            text-transform: uppercase;
+        }
+        .priority-niski {
+            background: #d4edda;
+            color: #155724;
+        }
+        .priority-sredni {
+            background: #fff3cd;
+            color: #856404;
+        }
+        .priority-wysoki {
+            background: #f8d7da;
+            color: #721c24;
+        }
+        .description {
+            background: white;
+            padding: 20px;
+            border-radius: 5px;
+            border: 1px solid #e0e0e0;
+            white-space: pre-wrap;
+            font-family: Georgia, serif;
+            line-height: 1.8;
+        }
+        .footer {
+            margin-top: 30px;
+            padding: 20px;
+            background: #667eea;
+            color: white;
+            text-align: center;
+            border-radius: 5px;
+            font-size: 12px;
+        }
+        .attachments-info {
+            background: #e3f2fd;
+            border: 1px solid #2196f3;
+            border-radius: 5px;
+            padding: 15px;
+            margin: 20px 0;
+        }
+        .attachments-info .icon {
+            font-size: 18px;
+            margin-right: 8px;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🐛 Nowe zgłoszenie błędu</h1>
+        <p>Otrzymano nowe zgłoszenie w systemie CRM</p>
+    </div>
+    
+    <div class="content">
+        <div class="field">
+            <div class="field-label">👤 Zgłaszający</div>
+            <div class="field-value">{{ user_email }}</div>
+        </div>
+        
+        <div class="field">
+            <div class="field-label">📍 Miejsce problemu</div>
+            <div class="field-value">{{ problem_location }}</div>
+        </div>
+        
+        <div class="field">
+            <div class="field-label">⚡ Priorytet</div>
+            <div class="field-value">
+                <span class="priority priority-{{ priority }}">{{ priority }}</span>
+            </div>
+        </div>
+
+        {% if attachments_count and attachments_count > 0 %}
+        <div class="attachments-info">
+            <span class="icon">📎</span>
+            <strong>Załączniki:</strong> {{ attachments_count }} 
+            {% if attachments_count == 1 %}plik{% elif attachments_count < 5 %}pliki{% else %}plików{% endif %} załączonych do wiadomości
+        </div>
+        {% endif %}
+        
+        <div class="field">
+            <div class="field-label">📝 Opis problemu</div>
+            <div class="description">{{ problem_description }}</div>
+        </div>
+    </div>
+    
+    <div class="footer">
+        <p>🕐 Zgłoszenie zostało automatycznie wygenerowane {{ moment().format('DD.MM.YYYY o HH:mm') if moment else 'przez system CRM' }}</p>
+        <p>Odpowiedz na tę wiadomość, aby skontaktować się bezpośrednio z użytkownikiem</p>
+    </div>
+</body>
+</html>

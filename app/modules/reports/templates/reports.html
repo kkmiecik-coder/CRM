@@ -1,0 +1,1396 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <title>Raport sprzedażowy - Wood Power CRM</title>
+    <link rel="icon" href="{{ url_for('static', filename='images/favicon.png') }}" type="image/png">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="stylesheet" href="{{ url_for('reports.static', filename='css/reports.css') }}">
+
+    <!-- Font Awesome dla ikon -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Google Fonts - Poppins -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="app-container">
+        {% include 'sidebar/sidebar.html' %}
+
+        <main class="main-content">
+
+            <!-- Loading overlay -->
+            <div id="loadingOverlay" class="loading-overlay">
+                <div class="loadingbox-banner">
+                    <div class="spinner"></div>
+                    <div class="loading-text">Pobieranie danych...</div>
+                </div>
+            </div>
+
+            <!-- Nagłówek -->
+            <div class="reports-header">
+                <h1 class="title-with-underline">Raport sprzedażowy</h1>
+
+                <!-- Kontrolki -->
+                <div class="reports-controls">
+
+                    <!-- Przycisk synchronizacji -->
+                    <div class="sync-section">
+                        <button id="syncBtn" class="btn btn-primary">
+                            <i class="fas fa-download"></i>
+                            Pobierz zamówienia
+                        </button>
+                    </div>
+
+                    <!-- Synchronizacja statusów -->
+                    <button id="syncStatusesBtn" class="btn btn-warning"
+                            title="Synchronizuje wszystkie informacje z zamówień (statusy, kwoty zapłacone, dane produktów) dla wszystkich zamówień z Baselinker - wykluczając tylko anulowane i nieopłacone">
+                        <i class="fas fa-refresh"></i>
+                        Synchronizuj zamówienia
+                    </button>
+
+                    <!-- Przycisk dodania ręcznego wiersza -->
+                    <button id="addManualRowBtn" class="btn btn-success">
+                        <i class="fas fa-plus"></i>
+                        Dodaj wiersz
+                    </button>
+
+                    <button class="btn btn-primary" onclick="openVoivodeshipsModal()" title="Analiza produkcji według województw">
+                        <span class="voivodeships-btn-icon">🗺️</span>
+                        <span class="voivodeships-btn-text">Analiza województw</span>
+                    </button>
+
+                    <!-- Przycisk eksportu -->
+                    <div class="dropdown export-dropdown">
+                        <button id="exportBtn" class="btn btn-info dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false">
+                            <i class="fas fa-download"></i>
+                            Export
+                        </button>
+                        <ul class="dropdown-menu">
+                            <li>
+                                <a class="dropdown-item" href="#" id="exportExcelOption">
+                                    <i class="fas fa-file-excel"></i>
+                                    Excel
+                                </a>
+                            </li>
+                            <li>
+                                <a class="dropdown-item" href="#" id="exportRoutimoOption">
+                                    <i class="fas fa-route"></i>
+                                    Routimo
+                                </a>
+                            </li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+
+            <div id="mainStatsContainer" class="stats-sections-container">
+                <!-- Sekcja: Podstawowe -->
+                <div class="stats-section-card basic">
+                    <div class="section-title-card">
+                        <span class="section-icon">📊</span>
+                        <span class="section-name">Podstawowe</span>
+                    </div>
+                    <div class="stats-list-card">
+                        <div class="stat-item-card">
+                            <span class="stat-label-card">Zamówienia</span>
+                            <span class="stat-value-card" id="statUniqueOrders">0</span>
+                        </div>
+                        <div class="stat-item-card">
+                            <span class="stat-label-card">Sprzedaż netto</span>
+                            <span class="stat-value-card" id="statValueNet">0 PLN</span>
+                        </div>
+                        <div class="stat-item-card">
+                            <span class="stat-label-card">Średnia cena m³ netto</span>
+                            <span class="stat-value-card" id="statPricePerM3">0 PLN</span>
+                        </div>
+                        <div class="stat-item-card">
+                            <span class="stat-label-card">Zapłacono TTL netto</span>
+                            <span class="stat-value-card" id="statPaidAmountNet">0 PLN</span>
+                        </div>
+                        <div class="stat-item-card">
+                            <span class="stat-label-card">Do zapłaty netto</span>
+                            <span class="stat-value-card" id="statBalanceDue">0 PLN</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Sekcja: Produkty -->
+                <div class="stats-section-card products">
+                    <div class="section-title-card">
+                        <span class="section-icon">🏭</span>
+                        <span class="section-name">Produkty</span>
+                    </div>
+                    <div class="stats-list-card">
+                        <div class="stat-item-card">
+                            <span class="stat-label-card">Sprzedaż klejonki netto</span>
+                            <span class="stat-value-card" id="statKlejonkaValueNet">0 PLN</span>
+                        </div>
+                        <div class="stat-item-card">
+                            <span class="stat-label-card">TTL m³ klejonki</span>
+                            <span class="stat-value-card" id="statTotalM3">0 m³</span>
+                        </div>
+                        <div class="stat-item-card">
+                            <span class="stat-label-card">Sprzedaż deski netto</span>
+                            <span class="stat-value-card" id="statDeskaValueNet">0 PLN</span>
+                        </div>
+                        <div class="stat-item-card">
+                            <span class="stat-label-card">TTL m³ deski</span>
+                            <span class="stat-value-card" id="statDeskaTotalM3">0 m³</span>
+                        </div>
+                        <div class="stat-item-card">
+                            <span class="stat-label-card">TTL m³ suszenia</span>
+                            <span class="stat-value-card" id="statDryingTotalM3">0 m³</span>
+                        </div>
+                        <div class="stat-item-card">
+                            <span class="stat-label-card">Sprzedaż usług netto</span>
+                            <span class="stat-value-card" id="statServicesValueNet">0 PLN</span>
+                        </div>
+                        <div class="stat-item-card indented">
+                            <span class="stat-label-card">↳ Suszenie</span>
+                            <span class="stat-value-card" id="statSuszenieValueNet">0 PLN</span>
+                        </div>
+                        <div class="stat-item-card indented">
+                            <span class="stat-label-card">↳ Klejenie</span>
+                            <span class="stat-value-card" id="statKlejenieValueNet">0 PLN</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Sekcja: Produkcja -->
+                <div class="stats-section-card production">
+                    <div class="section-title-card">
+                        <span class="section-icon">⚙️</span>
+                        <span class="section-name">Produkcja</span>
+                    </div>
+                    <div class="stats-list-card">
+                        <div class="stat-item-card">
+                            <span class="stat-label-card">Ilość m³ w produkcji</span>
+                            <span class="stat-value-card" id="statProductionVolume">0 m³</span>
+                        </div>
+                        <div class="stat-item-card">
+                            <span class="stat-label-card">Wartość netto w produkcji</span>
+                            <span class="stat-value-card" id="statProductionValueNet">0 PLN</span>
+                        </div>
+                        <div class="stat-item-card">
+                            <span class="stat-label-card">Wyprodukowane m³</span>
+                            <span class="stat-value-card" id="statReadyPickupVolume">0 m³</span>
+                        </div>
+                        <div class="stat-item-card">
+                            <span class="stat-label-card">Wyprodukowana wartość netto</span>
+                            <span class="stat-value-card" id="statReadyPickupValueNet">0 PLN</span>
+                        </div>
+                        <div class="stat-item-card">
+                            <span class="stat-label-card">Gotowe do odbioru m³</span>
+                            <span class="stat-value-card" id="statPickupReady">0 m³</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Sekcja: Wykończenie -->
+                <div class="stats-section-card finishing">
+                    <div class="section-title-card">
+                        <span class="section-icon">🎨</span>
+                        <span class="section-name">Wykończenie</span>
+                    </div>
+                    <div class="stats-list-card">
+                        <div class="stat-item-card">
+                            <span class="stat-label-card">Olejowanie m²</span>
+                            <span class="stat-value-card" id="statOlejowanieSurface">0 m²</span>
+                        </div>
+                        <div class="stat-item-card">
+                            <span class="stat-label-card">Lakierowanie m²</span>
+                            <span class="stat-value-card" id="statLakierowanieSurface">0 m²</span>
+                        </div>
+                        <!-- Inne statystyki wykończenia można dodać tutaj jeśli będą potrzebne -->
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tabela raportów -->
+            <div class="reports-table-container">
+                <!-- Filtry kolumn -->
+                <div class="column-filters">
+                    <div class="filter-row">
+                        <!-- Filtry dat (bez zmian) -->
+                        <div class="filter-item">
+                            <label>Zakres dat:</label>
+                            <div class="date-range-container">
+                                <input type="date" id="filterDateFrom" class="date-input" placeholder="Od">
+                                <input type="date" id="filterDateTo" class="date-input" placeholder="Do">
+                            </div>
+                        </div>
+
+                        <!-- NOWY FILTR KLIENTÓW - DROPDOWN -->
+                        <div class="filter-item">
+                            <label>Klienci:</label>
+                            <div class="filter-dropdown" id="filterCustomerNameDropdown">
+                                <div class="filter-dropdown-toggle" id="filterCustomerNameToggle">
+                                    <span class="filter-dropdown-label">Wszyscy klienci</span>
+                                    <i class="fas fa-chevron-down"></i>
+                                </div>
+                                <div class="filter-dropdown-menu" id="filterCustomerNameMenu">
+                                    <div class="filter-search">
+                                        <input type="text" id="searchCustomerName" placeholder="Szukaj klienta..." class="filter-search-input">
+                                    </div>
+                                    <div class="filter-options" id="filterCustomerNameOptions">
+                                        <!-- Opcje ładowane dynamicznie -->
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- NOWY FILTR WOJEWÓDZTW - DROPDOWN -->
+                        <div class="filter-item">
+                            <label>Województwa:</label>
+                            <div class="filter-dropdown" id="filterDeliveryStateDropdown">
+                                <div class="filter-dropdown-toggle" id="filterDeliveryStateToggle">
+                                    <span class="filter-dropdown-label">Wszystkie województwa</span>
+                                    <i class="fas fa-chevron-down"></i>
+                                </div>
+                                <div class="filter-dropdown-menu" id="filterDeliveryStateMenu">
+                                    <div class="filter-search">
+                                        <input type="text" id="searchDeliveryState" placeholder="Szukaj województwo..." class="filter-search-input">
+                                    </div>
+                                    <div class="filter-options" id="filterDeliveryStateOptions">
+                                        <!-- Opcje ładowane dynamicznie -->
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- NOWY FILTR GATUNKÓW - DROPDOWN -->
+                        <div class="filter-item">
+                            <label>Gatunki:</label>
+                            <div class="filter-dropdown" id="filterWoodSpeciesDropdown">
+                                <div class="filter-dropdown-toggle" id="filterWoodSpeciesToggle">
+                                    <span class="filter-dropdown-label">Wszystkie gatunki</span>
+                                    <i class="fas fa-chevron-down"></i>
+                                </div>
+                                <div class="filter-dropdown-menu" id="filterWoodSpeciesMenu">
+                                    <div class="filter-search">
+                                        <input type="text" id="searchWoodSpecies" placeholder="Szukaj gatunek..." class="filter-search-input">
+                                    </div>
+                                    <div class="filter-options" id="filterWoodSpeciesOptions">
+                                        <!-- Opcje ładowane dynamicznie -->
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- NOWY FILTR STATUSÓW - DROPDOWN -->
+                        <div class="filter-item">
+                            <label>Statusy:</label>
+                            <div class="filter-dropdown" id="filterCurrentStatusDropdown">
+                                <div class="filter-dropdown-toggle" id="filterCurrentStatusToggle">
+                                    <span class="filter-dropdown-label">Wszystkie statusy</span>
+                                    <i class="fas fa-chevron-down"></i>
+                                </div>
+                                <div class="filter-dropdown-menu" id="filterCurrentStatusMenu">
+                                    <div class="filter-search">
+                                        <input type="text" id="searchCurrentStatus" placeholder="Szukaj status..." class="filter-search-input">
+                                    </div>
+                                    <div class="filter-options" id="filterCurrentStatusOptions">
+                                        <!-- Opcje ładowane dynamicznie -->
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="filter-actions">
+                        <button id="clearFiltersBtn" class="btn btn-secondary btn-sm">
+                            <i class="fas fa-times"></i>
+                            Wyczyść filtry
+                        </button>
+
+                        <!-- Przycisk pełnego ekranu (ukryty w fullscreen) -->
+                        <button id="fullscreenToggle" class="btn btn-outline-secondary btn-sm">
+                            <i class="fas fa-expand"></i>
+                            <span class="fullscreen-text">Pełny ekran</span>
+                        </button>
+
+                        <!-- Przycisk eksportu dla fullscreen (widoczny tylko w fullscreen) -->
+                        <div class="dropdown export-dropdown fullscreen-export-btn">
+                            <button id="fullscreenExportBtn" class="btn btn-info btn-sm dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false">
+                                <i class="fas fa-download"></i>
+                                Export
+                            </button>
+                            <ul class="dropdown-menu">
+                                <li>
+                                    <a class="dropdown-item" href="#" id="fullscreenExportExcelOption">
+                                        <i class="fas fa-file-excel"></i>
+                                        Excel
+                                    </a>
+                                </li>
+                                <li>
+                                    <a class="dropdown-item" href="#" id="fullscreenExportRoutimoOption">
+                                        <i class="fas fa-route"></i>
+                                        Routimo
+                                    </a>
+                                </li>
+                            </ul>
+                        </div>
+                    </div>
+
+                    <!-- Aktywne filtry -->
+                    <div class="active-filters" id="activeFilters" style="display: none;">
+                        <div class="active-filters-label">Aktywne filtry:</div>
+                        <div class="active-filters-list" id="activeFiltersList">
+                            <!-- Aktywne filtry wyświetlane dynamicznie -->
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Główna tabela -->
+                <div class="table-wrapper">
+                    <table id="reportsTable" class="reports-table">
+                        <thead>
+                            <tr>
+                                <th data-column="date_created">Data</th>
+                                <th data-column="total_m3">TTL m³</th>
+                                <th data-column="order_amount_net">Kwota netto</th>
+                                <th data-column="baselinker_order_id">Nr Baselinker</th>
+                                <th data-column="internal_order_number">Nr wew.</th>
+                                <th data-column="customer_name">Imię i nazwisko</th>
+                                <th data-column="delivery_address">Ulica</th>
+                                <th data-column="delivery_city">Miejscowość</th>
+                                <th data-column="delivery_postcode">Kod pocztowy</th>
+                                <th data-column="delivery_state">Województwo</th>
+                                <th data-column="phone">Telefon</th>
+                                <th data-column="caretaker">Opiekun</th>
+                                <th data-column="delivery_method">Dostawa</th>
+                                <th data-column="order_source">Źródło</th>
+                                <th data-column="group_type">Grupa</th>
+                                <th data-column="product_type">Rodzaj</th>
+                                <th data-column="finish_state">Wykończenie</th>
+                                <th data-column="wood_species">Gatunek</th>
+                                <th data-column="technology">Technologia</th>
+                                <th data-column="wood_class">Klasa</th>
+                                <th data-column="length_cm">Długość</th>
+                                <th data-column="width_cm">Szerokość</th>
+                                <th data-column="thickness_cm">Grubość</th>
+                                <th data-column="quantity">Ilość</th>
+                                <th data-column="price_gross">Cena brutto</th>
+                                <th data-column="price_net">Cena netto</th>
+                                <th data-column="value_gross">Wartość brutto</th>
+                                <th data-column="value_net">Wartość netto</th>
+                                <th data-column="volume_per_piece">Objętość 1 szt.</th>
+                                <th data-column="total_volume">Objętość TTL</th>
+                                <th data-column="price_per_m3">Cena netto za m³</th>
+                                <th data-column="avg_order_price_per_m3">Średnia cena za m³</th>
+                                <th data-column="realization_date">Data realizacji</th>
+                                <th data-column="current_status">Status</th>
+                                <th data-column="delivery_cost">Koszt kuriera brutto</th>
+                                <th data-column="delivery_cost_net">Koszt kuriera netto</th>
+                                <th data-column="payment_method">Sposób płatności</th>
+                                <th data-column="paid_amount_net">Zapłacono netto</th>
+                                <th data-column="balance_due">Do zapłaty</th>
+                                <th data-column="production_volume">Ilość w produkcji</th>
+                                <th data-column="production_value_net">Wartość w produkcji</th>
+                                <th data-column="ready_pickup_volume">Wyprodukowane m³</th>
+                                <th data-column="ready_pickup_value_net">Wyprodukowana netto</th>
+                                <th data-column="pickup_ready">Do odebrania</th>
+                                <th>Akcje</th>
+                            </tr>
+                        </thead>
+                        <tbody id="reportsTableBody">
+                            <!-- Dane ładowane dynamicznie -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Modal synchronizacji -->
+    <!-- KROK 1: Modal wyboru ilości dni -->
+    <div id="syncDaysModal" class="sync-modal" style="display: none;">
+        <div class="sync-modal-content">
+            <div class="sync-modal-header">
+                <h3>Pobierz zamówienia z Baselinker</h3>
+                <button class="sync-modal-close" id="syncDaysModalClose">&times;</button>
+            </div>
+
+            <div class="sync-modal-body">
+                <div class="days-selection-container">
+                    <p class="days-selection-description">
+                        Wybierz zakres dat dla pobierania zamówień z Baselinker:
+                    </p>
+
+                    <div class="days-dropdown-container">
+                        <label for="daysSelect" class="days-dropdown-label">Zakres dni synchronizacji:</label>
+                        <select id="daysSelect" class="days-dropdown">
+                            <option value="">-- Wybierz zakres --</option>
+                            <option value="1">Dzisiaj</option>
+                            <option value="2">Wczoraj</option>
+                            <option value="3">Przedwczoraj</option>
+                            <option value="4">3 dni temu</option>
+                            <option value="5">4 dni temu</option>
+                            <option value="6">5 dni temu</option>
+                            <option value="7">6 dni temu</option>
+                            <option value="13">14 dni temu</option>
+                            <option value="20">21 dni temu</option>
+                        </select>
+                    </div>
+
+                    <div class="date-preview" id="datePreview" style="display: none;">
+                        <p class="date-preview-text">
+                            Zostaną pobrane zamówienia od <strong id="dateFromPreview"></strong>
+                            do <strong id="dateToPreview"></strong>
+                        </p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="sync-modal-footer">
+                <button id="syncDaysCancel" class="btn btn-secondary">Anuluj</button>
+                <button id="syncDaysConfirm" class="btn btn-primary" disabled>Pobierz zamówienia</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- POPRAWIONA STRUKTURA MODALA -->
+    <div id="syncOrdersModal" class="modal-bl-sync-wrapper" style="display: none;">
+        <div class="modal-bl-sync-overlay"></div>
+        <div class="modal-bl-sync-container">
+
+            <!-- PROGRESSIVE LOADING OVERLAY - PRZENIESIONY TUTAJ WEWNĄTRZ KONTENERA -->
+            <div class="modal-bl-sync-progressive-loading" id="modalBlSyncProgressiveLoading" style="display: none;">
+
+                <!-- Centralny spinner z progress -->
+                <div class="modal-bl-sync-loading-center">
+                    <div class="modal-bl-sync-spinner"></div>
+                    <div class="modal-bl-sync-loading-text" id="modalBlSyncLoadingText">Łączenie z Baselinker...</div>
+                    <div class="modal-bl-sync-progress-dots" id="modalBlSyncProgressDots">
+                        <div class="modal-bl-sync-progress-dot active" data-step="1"></div>
+                        <div class="modal-bl-sync-progress-dot" data-step="2"></div>
+                        <div class="modal-bl-sync-progress-dot" data-step="3"></div>
+                        <div class="modal-bl-sync-progress-dot" data-step="4"></div>
+                    </div>
+                    <div class="modal-bl-sync-step-label" id="modalBlSyncStepLabel">Krok 1 z 4</div>
+                </div>
+            </div>
+
+            <!-- RESZTA MODALA (Header, Content, Footer) -->
+            <div class="modal-bl-sync-header">
+                <div class="modal-bl-sync-title-section">
+                    <h2 class="modal-bl-sync-title">Pobierz zamówienia z Base.</h2>
+                    <span class="modal-bl-sync-date-range" id="modalBlSyncDateRange">01.08.2028 - 06.08.2025</span>
+                </div>
+                <button class="modal-bl-sync-close" id="syncOrdersModalClose">
+                    <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                        <path d="M1 1L11 11M11 1L1 11" stroke="#314254" stroke-width="1.5" stroke-linecap="round" />
+                    </svg>
+                </button>
+            </div>
+
+            <div class="modal-bl-sync-content">
+                <!-- Loading state -->
+                <div id="ordersLoadingState" class="modal-bl-sync-loading" style="display: none;">
+                    <div class="spinner"></div>
+                    <p>Pobieranie zamówień z Baselinker...</p>
+                </div>
+
+                <!-- Controls -->
+                <div class="modal-bl-sync-controls" id="ordersListContainer" style="display: none;">
+                    <div class="modal-bl-sync-found-info">
+                        <span class="modal-bl-sync-found-text" id="ordersCount">Znaleziono 2 zamówienia</span>
+                    </div>
+                    <div class="modal-bl-sync-buttons-group">
+                        <button class="modal-bl-sync-btn-select-all" id="selectAllOrders">Zaznacz wszystkie</button>
+                        <button class="modal-bl-sync-btn-deselect-all" id="deselectAllOrders">Odznacz wszystkie</button>
+                    </div>
+                </div>
+
+                <!-- Orders Grid -->
+                <div class="modal-bl-sync-orders-grid" id="ordersList">
+                    <!-- Zamówienia będą wstawiane tutaj dynamicznie -->
+                </div>
+            </div>
+
+            <div class="modal-bl-sync-footer">
+                <div class="modal-bl-sync-footer-left">
+                    <button class="modal-bl-sync-btn-back" id="ordersBack">Wstecz</button>
+                    <button class="modal-bl-sync-btn-cancel" id="ordersCancel">Anuluj</button>
+                </div>
+                <button class="modal-bl-sync-btn-save" id="ordersSave" disabled>Zapisz rekordy (0)</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- NOWY MODAL Z PREFIKSEM modal-bl-sync- -->
+    <div id="syncOrdersModal" class="modal-bl-sync-wrapper" style="display: none;">
+        <div class="modal-bl-sync-overlay"></div>
+        <div class="modal-bl-sync-container">
+
+
+            <!-- SEKCJA 1: Header -->
+            <div class="modal-bl-sync-header">
+                <div class="modal-bl-sync-title-section">
+                    <h2 class="modal-bl-sync-title">Pobierz zamówienia z Base.</h2>
+                    <span class="modal-bl-sync-date-range" id="modalBlSyncDateRange">01.08.2028 - 06.08.2025</span>
+                </div>
+                <button class="modal-bl-sync-close" id="syncOrdersModalClose">
+                    <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                        <path d="M1 1L11 11M11 1L1 11" stroke="#314254" stroke-width="1.5" stroke-linecap="round" />
+                    </svg>
+                </button>
+            </div>
+
+            <!-- SEKCJA 2: Content -->
+            <div class="modal-bl-sync-content">
+
+                <!-- Loading state -->
+                <div id="ordersLoadingState" class="modal-bl-sync-loading" style="display: none;">
+                    <div class="spinner"></div>
+                    <p>Pobieranie zamówień z Baselinker...</p>
+                </div>
+
+                <!-- Controls -->
+                <div class="modal-bl-sync-controls" id="ordersListContainer" style="display: none;">
+                    <div class="modal-bl-sync-found-info">
+                        <span class="modal-bl-sync-found-text" id="ordersCount">Znaleziono 2 zamówienia</span>
+                    </div>
+                    <div class="modal-bl-sync-buttons-group">
+                        <button class="modal-bl-sync-btn-select-all" id="selectAllOrders">Zaznacz wszystkie</button>
+                        <button class="modal-bl-sync-btn-deselect-all" id="deselectAllOrders">Odznacz wszystkie</button>
+                    </div>
+                </div>
+
+                <!-- Orders Grid -->
+                <div class="modal-bl-sync-orders-grid" id="ordersList">
+                    <!-- Zamówienia będą wstawiane tutaj dynamicznie -->
+                </div>
+
+                <!-- Empty state -->
+                <div id="ordersEmptyState" class="modal-bl-sync-empty" style="display: none;">
+                    <div class="empty-icon">📋</div>
+                    <h4>Brak nowych zamówień</h4>
+                    <p>Nie znaleziono nowych zamówień w wybranym zakresie dat.</p>
+                </div>
+
+                <!-- Error state -->
+                <div id="ordersErrorState" class="modal-bl-sync-error" style="display: none;">
+                    <div class="error-icon">⚠️</div>
+                    <h4>Błąd pobierania zamówień</h4>
+                    <p id="errorMessage">Wystąpił błąd podczas pobierania zamówień z Baselinker.</p>
+                </div>
+            </div>
+
+            <!-- SEKCJA 3: Footer -->
+            <div class="modal-bl-sync-footer">
+                <div class="modal-bl-sync-footer-left">
+                    <button class="modal-bl-sync-btn-back" id="ordersBack">Wstecz</button>
+                    <button class="modal-bl-sync-btn-cancel" id="ordersCancel">Anuluj</button>
+                </div>
+                <button class="modal-bl-sync-btn-save" id="ordersSave" disabled>Zapisz rekordy (0)</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- TEMPLATE NOWEGO KAFELKA ZAMÓWIENIA -->
+    <template id="modalBlSyncOrderTemplate">
+        <div class="modal-bl-sync-order-card" data-order-id="">
+
+            <!-- Górna część: checkbox, numer, status, base button -->
+            <div class="modal-bl-sync-order-header">
+                <div class="modal-bl-sync-checkbox-wrapper">
+                    <input type="checkbox" class="modal-bl-sync-checkbox order-select" data-order-id="">
+                    <svg class="modal-bl-sync-checkbox-icon" width="16" height="16" viewBox="0 0 16 16" fill="none">
+                        <rect width="16" height="16" rx="4" fill="#4285F4" />
+                        <path d="M3 7.98476L6.17305 11L13 5" stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+                    </svg>
+                </div>
+
+                <span class="modal-bl-sync-order-number">Zamówienie #<span class="order-number"></span></span>
+
+                <div class="modal-bl-sync-status-badge">
+                    <span class="order-status-badge"></span>
+                </div>
+
+                <div class="price-type-badge">
+                    <span class="price-type-text"></span>
+                </div>
+
+                <button class="modal-bl-sync-base-btn baselinker-link">
+                    <svg width="31" height="10" viewBox="0 0 31 10" fill="none">
+                        <path d="M6.76183 6.10615C6.76183 7.97935 5.55906 9.47783 3.68825 9.47783C2.92651 9.47783 2.2717 9.11654 1.76388 8.60809V9.33066H0V0.5H1.76388V3.52382C2.24498 3.05565 2.88646 2.73447 3.68825 2.73447C5.65267 2.73447 6.76183 4.32659 6.76183 6.10615ZM5.11811 6.1731C5.11811 5.22318 4.35637 4.44707 3.44765 4.44707C2.53903 4.44707 1.76388 5.22318 1.76388 6.1731C1.76388 7.12304 2.53903 7.91238 3.44765 7.91238C4.35637 7.91238 5.11811 7.12304 5.11811 6.1731Z" fill="white" />
+                        <path d="M12.3871 2.91725H14.0975L14.0441 9.3396H12.3871V8.63046C11.8792 9.13891 11.2244 9.50019 10.4627 9.50019C8.59185 9.50019 7.38916 8.00171 7.38916 6.12851C7.38916 4.34896 8.49824 2.75684 10.4627 2.75684C11.2644 2.75684 11.9059 3.07784 12.3871 3.54619V2.91725ZM12.3871 6.18205C12.3871 5.23211 11.5986 4.46945 10.6765 4.46945C9.75448 4.46945 8.99274 5.23211 8.99274 6.19529C8.99274 7.17208 9.7678 7.93474 10.6765 7.93474C11.5852 7.93474 12.3871 7.13197 12.3871 6.18205Z" fill="white" />
+                        <path d="M16.5958 7.17703C16.6092 7.77911 17.0101 8.07343 17.9054 8.07343C18.4534 8.07343 18.8408 7.84606 18.8408 7.4581C18.8408 6.45464 14.912 7.0834 14.912 4.68851C14.912 3.27024 16.2484 2.72168 17.6648 2.72168C19.6293 2.72168 20.4846 3.97937 20.4846 4.84892H18.7206C18.6671 4.50106 18.3731 4.07301 17.6648 4.07301C17.2506 4.07301 16.7428 4.18007 16.7428 4.59469C16.7428 5.57149 20.6716 4.91587 20.6716 7.41782C20.6716 8.58188 19.9768 9.47845 17.9456 9.47845C16.0479 9.47845 14.9254 8.74246 14.8052 7.17703H16.5958Z" fill="white" />
+                        <path d="M22.9697 6.77607C23.1566 7.59227 23.718 8.06043 24.6935 8.06043C25.3615 8.06043 25.8561 7.83306 26.1501 7.41825L27.914 7.37815C27.5131 8.72946 26.4173 9.47871 24.7335 9.47871C22.582 9.47871 21.3794 8.2613 21.3794 6.10703C21.3794 4.32765 22.7691 2.73535 24.7335 2.73535C26.8048 2.73535 28.0877 4.23383 28.0877 6.10703C28.0877 6.33458 28.0744 6.5487 28.0477 6.74939L26.7781 6.77607H22.9697ZM23.0364 5.35778H26.3639C26.1367 4.66207 25.5755 4.16706 24.6935 4.16706C23.8783 4.16706 23.2903 4.68875 23.0364 5.35778Z" fill="white" />
+                        <path d="M28.5142 8.23742C28.5142 7.55514 29.0754 6.99316 29.7569 6.99316C30.4384 6.99316 30.9998 7.55514 30.9998 8.23742C30.9998 8.91989 30.4384 9.48186 29.7569 9.48186C29.0754 9.48186 28.5142 8.91989 28.5142 8.23742Z" fill="white" />
+                    </svg>
+                </button>
+            </div>
+
+            <!-- Klient i Dostawa -->
+            <div class="modal-bl-sync-client-delivery">
+                <div class="modal-bl-sync-client-section">
+                    <div class="modal-bl-sync-section-header">Klient:</div>
+                    <div class="modal-bl-sync-section-content customer-name"></div>
+                </div>
+                <div class="modal-bl-sync-delivery-section">
+                    <div class="modal-bl-sync-section-header">Dostawa:</div>
+                    <div class="modal-bl-sync-section-content delivery-info"></div>
+                </div>
+            </div>
+
+            <!-- Produkty -->
+            <div class="modal-bl-sync-products-section">
+                <div class="modal-bl-sync-products-header">Produkty:</div>
+                <div class="modal-bl-sync-products-list">
+                    <!-- Produkty będą dodane dynamicznie -->
+                </div>
+            </div>
+
+            <div class="modal-bl-sync-order-footer">
+                <!-- NOWA SEKCJA DAT - DODANA -->
+                <div class="modal-bl-sync-dates-section">
+                    <div class="modal-bl-sync-date-item">
+                        <span class="modal-bl-sync-date-label">Złożone:</span>
+                        <span class="modal-bl-sync-date-value date-add"></span>
+                    </div>
+                    <div class="modal-bl-sync-date-item">
+                        <span class="modal-bl-sync-date-label">Potwierdzone:</span>
+                        <span class="modal-bl-sync-date-value date-confirmed"></span>
+                    </div>
+                    <div class="modal-bl-sync-date-item">
+                        <span class="modal-bl-sync-date-label">Status:</span>
+                        <span class="modal-bl-sync-date-value date-status"></span>
+                    </div>
+                </div>
+
+                <div class="modal-bl-sync-payment-section">
+                    <div class="modal-bl-sync-payment-item">
+                        <span class="modal-bl-sync-payment-label">Zapłacono:</span>
+                        <span class="modal-bl-sync-payment-amount paid-amount"></span>
+                    </div>
+                    <div class="modal-bl-sync-payment-item">
+                        <span class="modal-bl-sync-payment-label">Do zapłaty:</span>
+                        <span class="modal-bl-sync-payment-amount remaining-amount"></span>
+                    </div>
+                </div>
+
+                <div class="modal-bl-sync-summary-section">
+                    <div class="modal-bl-sync-summary-breakdown">
+                        <div class="modal-bl-sync-summary-item">
+                            <span class="modal-bl-sync-summary-label">Produkty:</span>
+                            <span class="modal-bl-sync-summary-amount products-amount"></span>
+                        </div>
+                        <div class="modal-bl-sync-summary-item">
+                            <span class="modal-bl-sync-summary-label">Dostawa:</span>
+                            <span class="modal-bl-sync-summary-amount delivery-amount"></span>
+                        </div>
+                    </div>
+                    <div class="modal-bl-sync-summary-total">
+                        <span class="modal-bl-sync-summary-label">Suma:</span>
+                        <span class="modal-bl-sync-summary-amount total-amount"></span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </template>
+
+    <!-- KROK 3: Modal uzupełniania objętości i atrybutów -->
+    <!-- Modal uzupełniania objętości - ENHANCED VERSION -->
+    <div id="volumeModal" class="sync-modal-overlay" style="display: none;">
+        <div class="sync-modal-content sync-modal-extra-large">
+            <div class="sync-modal-header">
+                <h3>Uzupełnij objętości produktów</h3>
+                <button class="sync-modal-close" id="volumeModalClose">&times;</button>
+            </div>
+
+            <div class="sync-modal-body">
+                <!-- Zawartość będzie dynamicznie generowana przez JavaScript -->
+            </div>
+
+            <div class="sync-modal-footer">
+                <!-- Przyciski będą dynamicznie generowane w zależności od trybu -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Templates dla różnych trybów -->
+    <!-- Template dla pojedynczego zamówienia (batch mode) -->
+    <template id="volumeOrderTemplate">
+        <div class="volume-order-item">
+            <div class="volume-order-header">
+                <h4>Zamówienie #<span class="order-number"></span></h4>
+                <div class="order-info">
+                    <span class="customer-name"></span> • <span class="order-date"></span>
+                </div>
+            </div>
+
+            <div class="volume-products-container">
+                <!-- Produkty będą dodane tutaj -->
+            </div>
+        </div>
+    </template>
+
+    <!-- Template dla pojedynczego produktu (używany w obu trybach) -->
+    <template id="volumeProductTemplate">
+        <div class="volume-product-item" data-product-key="">
+            <div class="volume-product-header">
+                <div class="product-name"></div>
+                <div class="product-quantity">Ilość: <span class="quantity-value"></span> szt.</div>
+            </div>
+
+            <div class="volume-inputs-grid">
+                <!-- Objętość - pole wymagane -->
+                <div class="volume-input-group required">
+                    <label>Objętość na 1 szt. (m³) *</label>
+                    <input type="text"
+                           class="volume-input volume-required"
+                           data-field="volume"
+                           step="0.0001"
+                           min="0"
+                           placeholder="np. 0.1234">
+                    <div class="validation-message"></div>
+                </div>
+
+                <!-- Gatunek drewna -->
+                <div class="volume-input-group">
+                    <label>Gatunek drewna</label>
+                    <select class="volume-select" data-field="wood_species">
+                        <option value="">Wybierz gatunek...</option>
+                        <option value="dąb">Dąb</option>
+                        <option value="buk">Buk</option>
+                        <option value="jesion">Jesion</option>
+                        <option value="inny">Inny</option>
+                    </select>
+                </div>
+
+                <!-- Technologia -->
+                <div class="volume-input-group">
+                    <label>Technologia</label>
+                    <select class="volume-select" data-field="technology">
+                        <option value="">Wybierz technologię...</option>
+                        <option value="lity">Lity</option>
+                        <option value="mikrowczep">Mikrowczep</option>
+                    </select>
+                </div>
+
+                <!-- Klasa drewna -->
+                <div class="volume-input-group">
+                    <label>Klasa drewna</label>
+                    <select class="volume-select" data-field="wood_class">
+                        <option value="">Wybierz klasę...</option>
+                        <option value="A/A">A/A</option>
+                        <option value="A/B">A/B</option>
+                        <option value="B/B">B/B</option>
+                        <option value="Rustic">Rustic</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="volume-summary">
+                <strong>Objętość całkowita: <span class="total-volume">0.000 m³</span></strong>
+            </div>
+        </div>
+    </template>
+
+    <!-- Global loading overlay -->
+    <div id="syncLoadingOverlay" class="sync-loading-overlay" style="display: none;">
+        <div class="sync-loading-content">
+            <div class="spinner-large"></div>
+            <div class="sync-loading-title" id="syncLoadingTitle">Pobieranie danych...</div>
+            <div class="sync-loading-text" id="syncLoadingText">Proszę czekać...</div>
+        </div>
+    </div>
+
+    <!-- Template dla pojedynczego zamówienia z problemami wymiarów -->
+    <template id="dimensionOrderTemplate">
+        <div class="dimension-order-item">
+            <div class="dimension-order-header">
+                <h4>Zamówienie #<span class="order-number"></span></h4>
+                <div class="order-info">
+                    <span class="customer-name"></span> • <span class="order-date"></span>
+                </div>
+            </div>
+
+            <div class="dimension-products-list">
+                <!-- Produkty będą dodane tutaj -->
+            </div>
+        </div>
+    </template>
+
+    <!-- Template dla pojedynczego produktu z brakującymi wymiarami -->
+    <template id="dimensionProductTemplate">
+        <div class="dimension-product-item">
+            <div class="dimension-product-header">
+                <div class="product-name"></div>
+                <div class="product-quantity">Ilość: <span></span></div>
+            </div>
+
+            <div class="dimension-inputs-grid">
+                <div class="dimension-input-group">
+                    <label>Długość (cm)</label>
+                    <input type="number"
+                           class="dimension-input"
+                           data-dimension="length_cm"
+                           step="0.1"
+                           min="0"
+                           placeholder="np. 120">
+                </div>
+
+                <div class="dimension-input-group">
+                    <label>Szerokość (cm)</label>
+                    <input type="number"
+                           class="dimension-input"
+                           data-dimension="width_cm"
+                           step="0.1"
+                           min="0"
+                           placeholder="np. 60">
+                </div>
+
+                <div class="dimension-input-group">
+                    <label>Grubość (mm)</label>
+                    <input type="number"
+                           class="dimension-input"
+                           data-dimension="thickness_mm"
+                           step="0.1"
+                           min="0"
+                           placeholder="np. 18">
+                </div>
+
+                <div class="dimension-calculated">
+                    <label for="volumeInput">Objętość m³</label>
+                    <input type="number"
+                           class="calculated-volume"
+                           data-dimension="volume_m3"
+                           step="0.0001"
+                           min="0"
+                           placeholder="np. 0.1234">
+                </div>
+            </div>
+
+            <div class="missing-dimensions-info">
+                Brakuje: <span class="missing-list"></span>
+            </div>
+        </div>
+    </template>
+
+    <!-- Loading overlay dla całego procesu -->
+    <div id="syncGlobalLoading" class="sync-global-loading" style="display: none;">
+        <div class="sync-loading-content">
+            <div class="loading-spinner-large"></div>
+            <h4 id="syncGlobalLoadingTitle">Zapisywanie zamówień...</h4>
+            <p id="syncGlobalLoadingText">Proszę czekać, trwa zapisywanie zamówień do bazy danych.</p>
+        </div>
+    </div>
+
+    <!-- Template dla pojedynczego zamówienia -->
+    <template id="orderItemTemplate">
+        <div class="order-item" data-order-id="">
+            <div class="order-checkbox">
+                <input type="checkbox" class="order-select" data-order-id="">
+            </div>
+
+            <div class="order-content">
+                <div class="order-header">
+                    <div class="order-id">
+                        <strong>Zamówienie #<span class="order-number"></span></strong>
+                        <span class="order-status-badge"></span>
+                    </div>
+                    <div class="order-actions">
+                        <button class="baselinker-btn" type="button" title="Otwórz w Baselinker">
+                            <i class="fas fa-external-link-alt"></i>
+                        </button>
+                        <span class="order-date-text"></span>
+                    </div>
+                </div>
+
+                <div class="order-details">
+                    <div class="order-customer">
+                        <span class="customer-icon">👤</span>
+                        <span class="customer-name"></span>
+                    </div>
+
+                    <div class="order-products">
+                        <span class="products-icon">📦</span>
+                        <div class="products-list"></div>
+                    </div>
+
+                    <div class="order-amounts">
+                        <div class="amount-item">
+                            <span class="amount-label">Produkty:</span>
+                            <span class="amount-value products-amount"></span>
+                        </div>
+                        <div class="amount-item">
+                            <span class="amount-label">Dostawa:</span>
+                            <span class="amount-value delivery-amount"></span>
+                        </div>
+                        <div class="amount-item total">
+                            <span class="amount-label">Razem:</span>
+                            <span class="amount-value total-amount"></span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="order-status">
+                <div class="exists-badge" style="display: none;">
+                    <span class="exists-icon">✓</span>
+                    <span class="exists-text">Już w bazie</span>
+                </div>
+            </div>
+        </div>
+    </template>
+
+
+
+    <!-- Modal dodawania/edycji ręcznego wiersza -->
+    <div id="manualRowModal" class="modal">
+        <div class="modal-content modal-large">
+            <div class="modal-header">
+                <h3 id="manualRowModalTitle">Dodaj wiersz</h3>
+                <span class="close">&times;</span>
+            </div>
+            <div class="modal-body">
+                <!-- Zakładki -->
+                <div class="modal-tabs">
+                    <div class="tab-buttons">
+                        <button type="button" class="tab-button active" data-tab="client">
+                            <i class="fas fa-user"></i>
+                            Klient
+                        </button>
+                        <button type="button" class="tab-button" data-tab="products">
+                            <i class="fas fa-box"></i>
+                            Produkty
+                            <span class="product-count" id="productCountBadge">1</span>
+                        </button>
+                        <button type="button" class="tab-button" data-tab="order">
+                            <i class="fas fa-shopping-cart"></i>
+                            Zamówienie
+                        </button>
+                    </div>
+                </div>
+
+                <form id="manualRowForm">
+                    <input type="hidden" id="recordId" name="record_id">
+
+                    <!-- Tab Klient -->
+                    <div class="tab-content active" id="clientTab">
+                        <div class="form-section">
+                            <h4>Dane klienta</h4>
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label for="customerName">Imię i nazwisko: <span class="required">*</span></label>
+                                    <input type="text" id="customerName" name="customer_name" required>
+                                </div>
+                                <div class="form-group">
+                                    <label for="phone">Telefon:</label>
+                                    <input type="tel" id="phone" name="phone">
+                                </div>
+                            </div>
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label for="caretaker">Opiekun (kto złożył zamówienie):</label>
+                                    <select id="caretaker" name="caretaker">
+                                        <option value="">-- Wybierz opiekuna --</option>
+                                        <option value="Sylwester Rębiś">Sylwester Rębiś</option>
+                                        <option value="Barbara Kowal">Barbara Kowal</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="form-section">
+                            <h4>Adres dostawy</h4>
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label for="deliveryAddress">Ulica i numer:</label>
+                                    <input type="text" id="deliveryAddress" name="delivery_address">
+                                </div>
+                                <div class="form-group">
+                                    <label for="deliveryPostcode">Kod pocztowy:</label>
+                                    <input type="text" id="deliveryPostcode" name="delivery_postcode" pattern="[0-9]{2}-[0-9]{3}" placeholder="00-000">
+                                </div>
+                            </div>
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label for="deliveryCity">Miejscowość:</label>
+                                    <input type="text" id="deliveryCity" name="delivery_city">
+                                </div>
+                                <div class="form-group">
+                                    <label for="deliveryState">Województwo:</label>
+                                    <select id="deliveryState" name="delivery_state">
+                                        <option value="">-- Wybierz województwo --</option>
+                                        <option value="dolnośląskie">Dolnośląskie</option>
+                                        <option value="kujawsko-pomorskie">Kujawsko-pomorskie</option>
+                                        <option value="lubelskie">Lubelskie</option>
+                                        <option value="lubuskie">Lubuskie</option>
+                                        <option value="łódzkie">Łódzkie</option>
+                                        <option value="małopolskie">Małopolskie</option>
+                                        <option value="mazowieckie">Mazowieckie</option>
+                                        <option value="opolskie">Opolskie</option>
+                                        <option value="podkarpackie">Podkarpackie</option>
+                                        <option value="podlaskie">Podlaskie</option>
+                                        <option value="pomorskie">Pomorskie</option>
+                                        <option value="śląskie">Śląskie</option>
+                                        <option value="świętokrzyskie">Świętokrzyskie</option>
+                                        <option value="warmińsko-mazurskie">Warmińsko-mazurskie</option>
+                                        <option value="wielkopolskie">Wielkopolskie</option>
+                                        <option value="zachodniopomorskie">Zachodniopomorskie</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Tab Produkty -->
+                    <div class="tab-content" id="productsTab">
+                        <div class="form-section">
+                            <div class="products-header">
+                                <h4>Lista produktów</h4>
+                                <button type="button" class="btn btn-success btn-sm" id="addProductBtn">
+                                    <i class="fas fa-plus"></i>
+                                    Dodaj produkt
+                                </button>
+                            </div>
+
+                            <!-- Przyciski przełączania między produktami -->
+                            <div class="products-tabs" id="productsTabs">
+                                <!-- Zakładki produktów będą dodawane dynamicznie -->
+                            </div>
+
+                            <div id="productsList">
+                                <!-- Produkty będą dodawane dynamicznie -->
+                            </div>
+
+                            <!-- Podsumowanie produktów -->
+                            <div class="products-summary">
+                                <div class="summary-row">
+                                    <span>Łączna objętość:</span>
+                                    <strong id="totalVolume">0.00 m³</strong>
+                                </div>
+                                <div class="summary-row">
+                                    <span>Łączna wartość netto:</span>
+                                    <strong id="totalValueNet">0.00 zł</strong>
+                                </div>
+                                <div class="summary-row">
+                                    <span>Łączna wartość brutto:</span>
+                                    <strong id="totalValueGross">0.00 zł</strong>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Tab Zamówienie -->
+                    <div class="tab-content" id="orderTab">
+                        <div class="form-section">
+                            <h4>Informacje o zamówieniu</h4>
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label for="dateCreated">Data zamówienia: <span class="required">*</span></label>
+                                    <input type="date" id="dateCreated" name="date_created" required>
+                                </div>
+                                <div class="form-group">
+                                    <label for="baselinkerOrderId">Numer zamówienia Baselinker:</label>
+                                    <input type="number" id="baselinkerOrderId" name="baselinker_order_id" min="1">
+                                </div>
+                            </div>
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label for="internalOrderNumber">Numer wewnętrzny:</label>
+                                    <input type="text" id="internalOrderNumber" name="internal_order_number">
+                                </div>
+                                <div class="form-group">
+                                    <label for="orderSource">Źródło zamówienia:</label>
+                                    <select id="orderSource" name="order_source">
+                                        <option value="">-- Wybierz źródło --</option>
+                                        <option value="sklep">Sklep</option>
+                                        <option value="allegro">Allegro</option>
+                                        <option value="olx">OLX</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="form-section">
+                            <h4>Dostawa i płatność</h4>
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label for="deliveryMethod">Metoda dostawy:</label>
+                                    <select id="deliveryMethod" name="delivery_method">
+                                        <option value="">-- Wybierz metodę dostawy --</option>
+                                        <option value="Przesyłka kurierska">Przesyłka kurierska</option>
+                                        <option value="Odbiór osobisty">Odbiór osobisty</option>
+                                        <option value="Transport Woodpower">Transport Woodpower</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label for="deliveryCost">Koszt dostawy:</label>
+                                    <input type="number" step="0.01" id="deliveryCost" name="delivery_cost" value="0">
+                                </div>
+                            </div>
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label for="paymentMethod">Sposób płatności:</label>
+                                    <input type="text" id="paymentMethod" name="payment_method" placeholder="np. gotówka, przelew">
+                                </div>
+                                <div class="form-group">
+                                    <label for="paidAmountNet">Zapłacono netto:</label>
+                                    <input type="number" step="0.01" id="paidAmountNet" name="paid_amount_net" value="0">
+                                </div>
+                            </div>
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label for="currentStatus">Status zamówienia:</label>
+                                    <select id="currentStatus" name="current_status">
+                                        <option value="Nowe - nieopłacone">Nowe - nieopłacone</option>
+                                        <option value="Nowe - opłacone" selected>Nowe - opłacone</option>
+                                        <option value="W produkcji - surowe">W produkcji - surowe</option>
+                                        <option value="W produkcji - olejowanie">W produkcji - olejowanie</option>
+                                        <option value="W produkcji - bejtowanie">W produkcji - bejtowanie</option>
+                                        <option value="W produkcji - lakierowanie">W produkcji - lakierowanie</option>
+                                        <option value="Produkcja zakończona">Produkcja zakończona</option>
+                                        <option value="Zamówienie spakowane">Zamówienie spakowane</option>
+                                        <option value="Paczka zgłoszona do wysyłki">Paczka zgłoszona do wysyłki</option>
+                                        <option value="Wysłane - kurier">Wysłane - kurier</option>
+                                        <option value="Wysłane - transport WoodPower">Wysłane - transport WoodPower</option>
+                                        <option value="Czeka na odbiór osobisty">Czeka na odbiór osobisty</option>
+                                        <option value="Dostarczona - kurier">Dostarczona - kurier</option>
+                                        <option value="Dostarczona - trans. WoodPower">Dostarczona - trans. WoodPower</option>
+                                        <option value="Odebrane">Odebrane</option>
+                                        <option value="Zamówienie anulowane">Zamówienie anulowane</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button id="manualRowCancel" class="btn btn-secondary">Anuluj</button>
+                <button id="manualRowSave" class="btn btn-primary">
+                    <i class="fas fa-save"></i>
+                    Zapisz
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Template dla pojedynczego produktu -->
+    <template id="productItemTemplate">
+        <div class="product-item" data-product-index="">
+            <div class="product-header">
+                <h5>Produkt <span class="product-number"></span></h5>
+            </div>
+
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Grupa: <span class="required">*</span></label>
+                    <select class="product-field" name="group_type" required>
+                        <option value="">-- Wybierz grupę --</option>
+                        <option value="towar">Towar</option>
+                        <option value="usługa">Usługa</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Rodzaj: <span class="required">*</span></label>
+                    <select class="product-field" name="product_type" required>
+                        <option value="">-- Wybierz rodzaj --</option>
+                        <!-- TOWARY -->
+                        <option value="klejonka">Klejonka</option>
+                        <option value="deska">Deska</option>
+                        <option value="worek opałowy">Worek opałowy</option>
+                        <option value="tarcica">Tarcica</option>
+                        <!-- USŁUGI -->
+                        <option value="suszenie">Suszenie</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Gatunek drewna:</label>
+                    <select class="product-field" name="wood_species">
+                        <option value="">-- Wybierz gatunek --</option>
+                        <option value="Dąb">Dąb</option>
+                        <option value="Jesion">Jesion</option>
+                        <option value="Buk">Buk</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Technologia:</label>
+                    <select class="product-field" name="technology">
+                        <option value="">-- Wybierz technologię --</option>
+                        <option value="Lity">Lity</option>
+                        <option value="Mikrowczep">Mikrowczep</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Klasa:</label>
+                    <select class="product-field" name="wood_class">
+                        <option value="">-- Wybierz klasę --</option>
+                        <option value="A/B">A/B</option>
+                        <option value="B/B">B/B</option>
+                        <option value="Rustic">Rustic</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Stan wykończenia:</label>
+                    <select class="product-field" name="finish_state">
+                        <option value="surowy">Surowy</option>
+                        <option value="lakierowany">Lakierowany</option>
+                        <option value="olejowany">Olejowany</option>
+                        <option value="inne">Inne</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Długość (cm): <span class="required">*</span></label>
+                    <input type="number" step="0.1" class="product-field dimension-field" name="length_cm" required>
+                </div>
+                <div class="form-group">
+                    <label>Szerokość (cm): <span class="required">*</span></label>
+                    <input type="number" step="0.1" class="product-field dimension-field" name="width_cm" required>
+                </div>
+            </div>
+
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Grubość (cm): <span class="required">*</span></label>
+                    <input type="number" step="0.1" class="product-field dimension-field" name="thickness_cm" required>
+                </div>
+                <div class="form-group">
+                    <label>Ilość (szt): <span class="required">*</span></label>
+                    <input type="number" min="1" class="product-field quantity-field" name="quantity" value="1" required>
+                </div>
+            </div>
+
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Cena netto za sztukę:</label>
+                    <input type="number" step="0.01" class="product-field price-field" name="price_net">
+                </div>
+                <div class="form-group product-calculations">
+                    <div class="calc-row">
+                        <span>Objętość za szt:</span>
+                        <strong class="volume-per-piece">0.00 m³</strong>
+                    </div>
+                    <div class="calc-row">
+                        <span>Łączna objętość:</span>
+                        <strong class="total-volume">0.00 m³</strong>
+                    </div>
+                    <div class="calc-row">
+                        <span>Wartość netto:</span>
+                        <strong class="total-price-net">0.00 zł</strong>
+                    </div>
+                    <div class="calc-row">
+                        <span>Wartość brutto:</span>
+                        <strong class="total-price-gross">0.00 zł</strong>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </template>
+
+    <!-- modal wojewódźtw -->
+    {% include 'voivodeships_modal.html' %}
+
+    <!-- Overlay do ładowania -->
+    <div id="syncLoadingOverlay" class="sync-loading-overlay hidden">
+        <div class="sync-loading-content">
+            <div class="spinner-large"></div>
+            <div class="sync-loading-text" id="syncLoadingText">Pobieranie danych...</div>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="{{ url_for('static', filename='js/sidebar.js') }}"></script>
+    <script src="{{ url_for('reports.static', filename='js/reports.js') }}"></script>
+    <script src="{{ url_for('reports.static', filename='js/table_manager.js') }}"></script>
+    <script src="{{ url_for('reports.static', filename='js/volume_manager.js') }}"></script>
+    <script src="{{ url_for('reports.static', filename='js/sync_manager.js') }}"></script>
+    <script src="{{ url_for('reports.static', filename='js/postcode_auto_fill.js') }}"></script>
+    <script src="{{ url_for('reports.static', filename='js/export_manager.js') }}"></script>
+    <script src="{{ url_for('reports.static', filename='js/fullscreen_manager.js') }}"></script>
+    <script src="{{ url_for('reports.static', filename='js/table_sorting.js') }}"></script>
+
+    <script>
+    // Globalne zmienne - poprawiona wersja
+    window.reportsConfig = {
+        userEmail: "{{ user_email | e if user_email else '' }}",
+        hasNewOrders: {{ 'true' if has_new_orders else 'false' }},
+        newOrdersCount: {{ new_orders_count | int if new_orders_count else 0 }},
+        totalRecords: {{ total_records | int if total_records else 0 }},
+        // POPRAWKA: Przekazuj stats i comparison tylko jeśli mają sensowne wartości
+        stats: {% if stats and (stats.total_m3 > 0 or stats.order_amount_net > 0) %}{{ stats | tojson }}{% else %}{}{% endif %},
+        comparison: {% if comparison and comparison %}{{ comparison | tojson }}{% else %}{}{% endif %},
+        default_date_from: "{{ default_date_from if default_date_from else '' }}",
+        default_date_to: "{{ default_date_to if default_date_to else '' }}",
+        lastSync: {% if last_sync %}"{{ last_sync.sync_date.isoformat() }}"{% else %}null{% endif %}
+    };
+
+    // Inicjalizacja po załadowaniu strony
+    document.addEventListener('DOMContentLoaded', function() {
+        console.log('[Reports] Inicjalizacja modułu...');
+        console.log('[Reports] Config:', window.reportsConfig);
+
+        // Inicjalizuj managery
+        if (typeof ReportsManager !== 'undefined') {
+            window.reportsManager = new ReportsManager();
+            window.reportsManager.init();
+        }
+
+        if (typeof TableManager !== 'undefined') {
+            window.tableManager = new TableManager();
+            window.tableManager.init();
+        }
+
+        if (typeof ExportManager !== 'undefined') {
+            window.exportManager = new ExportManager();
+            window.exportManager.init();
+        }
+
+        // NOWY: Inicjalizuj FullscreenManager
+        if (typeof FullscreenManager !== 'undefined') {
+            window.fullscreenManager = new FullscreenManager();
+            window.fullscreenManager.init();
+        }
+
+        // Jeśli brak danych w bazie, pokaż komunikat
+        if (window.reportsConfig.totalRecords === 0) {
+            console.log('[Reports] Brak danych w bazie - pierwsza synchronizacja wymagana');
+        }
+
+        console.log('[Reports] Moduł zainicjalizowany');
+    });
+    </script>
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            // Dodaj tooltip informujący o auto-uzupełnianiu
+            const stateInput = document.getElementById('deliveryState');
+            if (stateInput) {
+                stateInput.setAttribute('title', 'Województwo zostanie automatycznie uzupełnione na podstawie kodu pocztowego');
+                stateInput.setAttribute('placeholder', 'Wpisz lub zostanie uzupełnione automatycznie');
+            }
+
+            // Dodaj event listener na kod pocztowy dla wizualnego feedbacku
+            const postcodeInput = document.getElementById('deliveryPostcode');
+            if (postcodeInput) {
+                postcodeInput.setAttribute('title', 'Wpisz kod pocztowy aby automatycznie uzupełnić województwo');
+                postcodeInput.setAttribute('placeholder', 'np. 00-001');
+
+                // Dodaj walidację formatu kodu pocztowego
+                postcodeInput.addEventListener('input', function (e) {
+                    let value = e.target.value.replace(/[^0-9]/g, '');
+                    if (value.length >= 2) {
+                        value = value.substring(0, 2) + '-' + value.substring(2, 5);
+                    }
+                    e.target.value = value;
+                });
+            }
+        });
+    </script>
+</body>
+</html>

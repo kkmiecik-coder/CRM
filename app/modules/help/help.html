@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <title>Dashboard - Wood Power CRM</title>
+    <link rel="icon" href="{{ url_for('static', filename='images/favicon.png') }}" type="image/png">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <div class="app-container" style="display: flex;">
+        <!-- Sidebar – jest wstawiany w każdej podstronie -->
+        {% include 'sidebar/sidebar.html' %}
+        <!-- Główna zawartość modułu -->
+        <main class="main-content" style="flex: 1; padding: 20px;">
+            <h1 class="title-with-underline">Pomoc</h1>
+            <p>Znajdziesz tutaj odpowiedzi na najczęściej zadawane pytania oraz instrukcje obsługi systemu.</p>
+            <!-- Przykładowa sekcja FAQ -->
+            <section>
+                <h2>FAQ</h2>
+                <ul>
+                    <li><strong>Pytanie:</strong> Jak zalogować się do systemu?<br><strong>Odpowiedź:</strong> Użyj swojego adresu e-mail oraz hasła.</li>
+                    <li><strong>Pytanie:</strong> Jak zresetować hasło?<br><strong>Odpowiedź:</strong> Kliknij link „Nie pamiętam hasła” na stronie logowania.</li>
+                </ul>
+            </section>
+        </main>
+    </div>
+    <!-- Skrypt obsługujący interakcje sidebaru -->
+    <script src="{{ url_for('static', filename='js/sidebar.js') }}"></script>
+</body>
+</html>

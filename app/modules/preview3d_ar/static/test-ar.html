@@ -1,0 +1,524 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test AR - Wood Power</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            padding: 20px;
+            background: #f5f5f5;
+            max-width: 800px;
+            margin: 0 auto;
+        }
+
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+
+        .test-section {
+            margin: 20px 0;
+            padding: 15px;
+            background: #f8f9fa;
+            border-radius: 8px;
+        }
+
+        .test-button {
+            background: #007AFF;
+            color: white;
+            padding: 12px 24px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            margin: 10px 5px;
+            font-weight: bold;
+        }
+
+            .test-button:hover {
+                background: #0056CC;
+            }
+
+            .test-button.success {
+                background: #34C759;
+            }
+
+            .test-button.error {
+                background: #FF3B30;
+            }
+
+        .debug-output {
+            background: #000;
+            color: #0f0;
+            padding: 15px;
+            border-radius: 8px;
+            font-family: monospace;
+            white-space: pre-wrap;
+            max-height: 300px;
+            overflow-y: auto;
+            margin-top: 10px;
+        }
+
+        .info-box {
+            background: #e8f4f8;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 15px 0;
+        }
+
+        .warning-box {
+            background: #fff3cd;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 15px 0;
+            border-left: 4px solid #ffc107;
+        }
+    </style>
+
+    <!-- AR Handler CSS -->
+    <style>
+        /* AR Modal styles */
+        .ar-modal-overlay, .ar-loading-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0,0,0,0.8);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 10000;
+            animation: fadeIn 0.3s ease;
+        }
+
+        .ar-modal-content, .ar-loading-content {
+            background: white;
+            border-radius: 16px;
+            max-width: 90vw;
+            max-height: 90vh;
+            overflow-y: auto;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.3);
+            animation: slideUp 0.3s ease;
+        }
+
+        .ar-modal-header {
+            display: flex;
+            align-items: center;
+            padding: 24px;
+            border-bottom: 1px solid #eee;
+            background: #f8f9fa;
+            border-radius: 16px 16px 0 0;
+        }
+
+        .ar-modal-icon {
+            font-size: 32px;
+            margin-right: 16px;
+        }
+
+        .ar-modal-title {
+            font-size: 20px;
+            font-weight: 600;
+            margin: 0;
+            color: #212529;
+        }
+
+        .ar-modal-body {
+            padding: 24px;
+        }
+
+        .ar-modal-message {
+            font-size: 16px;
+            line-height: 1.5;
+            color: #495057;
+            margin-bottom: 16px;
+            white-space: pre-line;
+        }
+
+        .ar-modal-details {
+            background: #f8f9fa;
+            border-radius: 8px;
+            padding: 16px;
+        }
+
+        .ar-detail-item {
+            padding: 4px 0;
+            font-size: 14px;
+            color: #6c757d;
+        }
+
+        .ar-modal-footer {
+            padding: 24px;
+            border-top: 1px solid #eee;
+            display: flex;
+            gap: 12px;
+            justify-content: flex-end;
+        }
+
+        .ar-modal-btn {
+            padding: 12px 24px;
+            border: 2px solid #dee2e6;
+            border-radius: 8px;
+            background: white;
+            color: #495057;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+            .ar-modal-btn:hover {
+                background: #f8f9fa;
+                transform: translateY(-1px);
+            }
+
+            .ar-modal-btn.primary {
+                background: #ED6B24;
+                color: white;
+                border-color: #ED6B24;
+            }
+
+                .ar-modal-btn.primary:hover {
+                    background: #d8571a;
+                    border-color: #d8571a;
+                }
+
+        .ar-loading-spinner {
+            width: 48px;
+            height: 48px;
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #ED6B24;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 16px;
+        }
+
+        .ar-loading-message {
+            text-align: center;
+            font-size: 16px;
+            color: #495057;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+            }
+
+            to {
+                opacity: 1;
+            }
+        }
+
+        @keyframes slideUp {
+            from {
+                transform: translateY(50px);
+                opacity: 0;
+            }
+
+            to {
+                transform: translateY(0);
+                opacity: 1;
+            }
+        }
+
+        @keyframes spin {
+            0% {
+                transform: rotate(0deg);
+            }
+
+            100% {
+                transform: rotate(360deg);
+            }
+        }
+
+        @media (max-width: 768px) {
+            .ar-modal-content {
+                margin: 20px;
+                max-width: none;
+            }
+
+            .ar-modal-footer {
+                flex-direction: column;
+            }
+
+            .ar-modal-btn {
+                width: 100%;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🚀 Test AR - Wood Power</h1>
+
+        <div class="info-box">
+            <strong>Instrukcja:</strong> Ta strona pozwala przetestować funkcjonalność AR bez konieczności przechodzenia przez cały interfejs aplikacji.
+        </div>
+
+        <div class="test-section">
+            <h3>1. Informacje o urządzeniu</h3>
+            <div id="device-info" class="debug-output"></div>
+        </div>
+
+        <div class="test-section">
+            <h3>2. Test popup AR</h3>
+            <button class="test-button" onclick="testARPopup()">Test popup potwierdzającego</button>
+            <button class="test-button" onclick="testDirectAR()">Test bezpośredniego AR</button>
+            <div id="ar-test-output" class="debug-output"></div>
+        </div>
+
+        <div class="test-section">
+            <h3>3. Test generowania plików</h3>
+            <button class="test-button" onclick="testUSDZGeneration()">Generuj USDZ</button>
+            <button class="test-button" onclick="testRealityGeneration()">Generuj Reality</button>
+            <button class="test-button" onclick="checkFileHeaders()">Sprawdź nagłówki</button>
+            <div id="file-test-output" class="debug-output"></div>
+        </div>
+
+        <div class="test-section">
+            <h3>4. Test z przykładowym plikiem Apple</h3>
+            <button class="test-button" onclick="testAppleExample()">Test Apple USDZ</button>
+            <div id="apple-test-output" class="debug-output"></div>
+        </div>
+
+        <div class="warning-box">
+            <strong>Uwaga:</strong> AR działa tylko w Safari na iOS 12+. Na innych przeglądarkach/systemach zostanie pokazany odpowiedni komunikat.
+        </div>
+    </div>
+
+    <script>
+        let currentARUrl = null;
+        let currentProduct = {
+            variant_code: 'dab-lity-ab',
+            dimensions: {
+                length: 150,
+                width: 80,
+                thickness: 3
+            }
+        };
+
+        function log(message, outputId = 'device-info') {
+            const output = document.getElementById(outputId);
+            const timestamp = new Date().toLocaleTimeString();
+            output.textContent += `[${timestamp}] ${message}\n`;
+            console.log(`[AR Test] ${message}`);
+        }
+
+        function clearLog(outputId) {
+            document.getElementById(outputId).textContent = '';
+        }
+
+        // Inicjalizacja - informacje o urządzeniu
+        function initDeviceInfo() {
+            clearLog('device-info');
+
+            const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+            const iosMatch = navigator.userAgent.match(/OS (\d+)_/);
+            const iosVersion = iosMatch ? parseInt(iosMatch[1]) : 0;
+            const isSafari = /Safari/.test(navigator.userAgent) && !/Chrome/.test(navigator.userAgent);
+
+            log(`Platform: ${isIOS ? 'iOS' : 'Other'}`, 'device-info');
+            log(`iOS Version: ${isIOS ? iosVersion : 'N/A'}`, 'device-info');
+            log(`Safari: ${isSafari ? 'Yes' : 'No'}`, 'device-info');
+            log(`User Agent: ${navigator.userAgent}`, 'device-info');
+            log(`AR Support: ${isIOS && iosVersion >= 12 && isSafari ? 'YES ✅' : 'NO ❌'}`, 'device-info');
+        }
+
+        // Test popup AR
+        async function testARPopup() {
+            clearLog('ar-test-output');
+            log('Test popup AR...', 'ar-test-output');
+
+            if (typeof window.ARHandler === 'undefined') {
+                log('❌ ARHandler nie jest załadowany!', 'ar-test-output');
+                return;
+            }
+
+            try {
+                log('✅ ARHandler dostępny', 'ar-test-output');
+                log('Wywołanie ARHandler.initiateAR()...', 'ar-test-output');
+
+                await window.ARHandler.initiateAR(currentProduct);
+                log('✅ Popup AR wywołany pomyślnie', 'ar-test-output');
+
+            } catch (error) {
+                log(`❌ Błąd popup AR: ${error.message}`, 'ar-test-output');
+            }
+        }
+
+        // Test bezpośredniego AR
+        async function testDirectAR() {
+            clearLog('ar-test-output');
+            log('Test bezpośredniego AR...', 'ar-test-output');
+
+            if (!currentARUrl) {
+                log('Najpierw wygeneruj plik AR!', 'ar-test-output');
+                return;
+            }
+
+            try {
+                log('Bezpośrednie otwarcie AR...', 'ar-test-output');
+                window.open(currentARUrl, '_blank');
+                log('✅ AR otwarty w nowej karcie', 'ar-test-output');
+
+            } catch (error) {
+                log(`❌ Błąd bezpośredniego AR: ${error.message}`, 'ar-test-output');
+            }
+        }
+
+        // Test generowania USDZ
+        async function testUSDZGeneration() {
+            clearLog('file-test-output');
+            log('Generowanie USDZ...', 'file-test-output');
+
+            try {
+                const response = await fetch('/preview3d-ar/api/generate-usdz', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(currentProduct)
+                });
+
+                log(`Response status: ${response.status}`, 'file-test-output');
+
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    log(`❌ Error: ${errorText}`, 'file-test-output');
+                    return;
+                }
+
+                const data = await response.json();
+                log(`✅ USDZ wygenerowany:`, 'file-test-output');
+                log(`URL: ${data.usdz_url}`, 'file-test-output');
+                log(`Rozmiar: ${data.model_info?.file_size_mb || 'N/A'} MB`, 'file-test-output');
+
+                currentARUrl = data.usdz_url;
+
+            } catch (error) {
+                log(`❌ Błąd generowania USDZ: ${error.message}`, 'file-test-output');
+            }
+        }
+
+        // Test generowania Reality
+        async function testRealityGeneration() {
+            clearLog('file-test-output');
+            log('Generowanie Reality...', 'file-test-output');
+
+            try {
+                const response = await fetch('/preview3d-ar/api/generate-reality', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(currentProduct)
+                });
+
+                log(`Response status: ${response.status}`, 'file-test-output');
+
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    log(`❌ Error: ${errorText}`, 'file-test-output');
+                    return;
+                }
+
+                const data = await response.json();
+                log(`✅ Reality wygenerowany:`, 'file-test-output');
+                log(`URL: ${data.reality_url}`, 'file-test-output');
+                log(`Rozmiar: ${data.model_info?.file_size_mb || 'N/A'} MB`, 'file-test-output');
+
+                currentARUrl = data.reality_url;
+
+            } catch (error) {
+                log(`❌ Błąd generowania Reality: ${error.message}`, 'file-test-output');
+            }
+        }
+
+        // Sprawdź nagłówki pliku
+        async function checkFileHeaders() {
+            if (!currentARUrl) {
+                log('Najpierw wygeneruj plik AR!', 'file-test-output');
+                return;
+            }
+
+            clearLog('file-test-output');
+            log('Sprawdzanie nagłówków pliku...', 'file-test-output');
+
+            try {
+                const response = await fetch(currentARUrl, { method: 'HEAD' });
+
+                log(`File HEAD response status: ${response.status}`, 'file-test-output');
+                log(`File headers:`, 'file-test-output');
+
+                for (let [key, value] of response.headers.entries()) {
+                    log(`  ${key}: ${value}`, 'file-test-output');
+                }
+
+                // Sprawdź Content-Type
+                const contentType = response.headers.get('content-type');
+                const isCorrectMime = contentType === 'model/vnd.usdz+zip' || contentType === 'model/vnd.reality';
+                log(`Content-Type correct: ${isCorrectMime ? 'YES ✅' : 'NO ❌'} (${contentType})`, 'file-test-output');
+
+            } catch (error) {
+                log(`❌ Błąd sprawdzania nagłówków: ${error.message}`, 'file-test-output');
+            }
+        }
+
+        // Test z przykładem Apple
+        function testAppleExample() {
+            clearLog('apple-test-output');
+            log('Test z oficjalnym przykładem Apple...', 'apple-test-output');
+
+            const appleUSDZ = 'https://developer.apple.com/augmented-reality/quick-look/models/cupandsaucer/Cup_and_Saucer.usdz';
+
+            try {
+                const link = document.createElement('a');
+                link.href = appleUSDZ;
+                link.rel = 'ar';
+                link.type = 'model/vnd.usdz+zip';
+                link.style.display = 'none';
+
+                document.body.appendChild(link);
+                link.click();
+
+                log('✅ Apple USDZ test wykonany', 'apple-test-output');
+                log('Jeśli AR się otworzył - problem jest z naszym plikiem', 'apple-test-output');
+                log('Jeśli nie - problem z konfiguracją Safari/iOS', 'apple-test-output');
+
+                setTimeout(() => {
+                    if (document.body.contains(link)) {
+                        document.body.removeChild(link);
+                    }
+                }, 1000);
+
+            } catch (error) {
+                log(`❌ Błąd testu Apple: ${error.message}`, 'apple-test-output');
+            }
+        }
+
+        // Inicjalizacja po załadowaniu strony
+        document.addEventListener('DOMContentLoaded', function () {
+            initDeviceInfo();
+        });
+    </script>
+
+    <!-- Załaduj ARHandler -->
+    <script src="/preview3d-ar/static/js/ar-handler.js"></script>
+
+    <script>
+        // Sprawdź czy ARHandler się załadował
+        document.addEventListener('DOMContentLoaded', function () {
+            setTimeout(() => {
+                if (typeof window.ARHandler !== 'undefined') {
+                    log('✅ ARHandler załadowany pomyślnie', 'ar-test-output');
+                    log(`Status: ${JSON.stringify(window.ARHandler.getStatus(), null, 2)}`, 'ar-test-output');
+                } else {
+                    log('❌ ARHandler nie załadowany!', 'ar-test-output');
+                }
+            }, 1000);
+        });
+    </script>
+</body>
+</html>

@@ -1,0 +1,537 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1.0" />
+    <title>Akceptacja wyceny {{ quote.quote_number }} - WoodPower CRM</title>
+    <style type="text/css">
+        /* Reset dla klientów poczty */
+        body, table, td, p {
+            margin: 0;
+            padding: 0;
+        }
+
+        img {
+            border: 0;
+            display: block;
+            line-height: 100%;
+        }
+
+        a {
+            text-decoration: none;
+        }
+    </style>
+</head>
+
+<body style="margin: 0; padding: 0; background-color: #F8F8F8;">
+    <!-- Główna tabela - biały kontener -->
+    <table width="100%"
+           border="0"
+           cellspacing="0"
+           cellpadding="0"
+           align="center"
+           style="border-collapse: collapse; background-color: #F8F8F8;">
+        <tr>
+            <td align="center" style="padding-top: 30px; padding-bottom: 30px;">
+                <!-- [body] -->
+                <table width="604"
+                       border="0"
+                       cellspacing="0"
+                       cellpadding="0"
+                       style="
+              border-collapse: collapse;
+              border-radius: 8px;
+              background: #ffffff;
+              box-shadow: 0px 50px 14px 0px rgba(237, 107, 36, 0.00),
+                          0px 32px 13px 0px rgba(237, 107, 36, 0.01),
+                          0px 18px 11px 0px rgba(0, 0, 0, 0.03),
+                          0px 8px 8px 0px rgba(0, 0, 0, 0.04),
+                          0px 2px 4px 0px rgba(0, 0, 0, 0.05);
+              overflow: hidden;
+            ">
+                    <!-- [header] -->
+                    <tr>
+                        <td style="
+                  background: #ED6B24;
+                  height: 80px;
+                  padding: 0 26px;
+                  vertical-align: middle;
+                ">
+                            <!-- Logo -->
+                            <a href="https://woodpower.pl" target="_blank" style="display: block;">
+                                <img src="https://serwer2100532.home.pl/woodpower/img/cms/mail/logowhite.png"
+                                     alt="WoodPower"
+                                     width="200"
+                                     height="36"
+                                     style="display: block;" />
+                            </a>
+                        </td>
+                    </tr>
+
+                    <!-- [content] -->
+                    <tr>
+                        <td style="border-collapse: collapse;">
+                            <!-- [main-content] -->
+                            <table width="100%"
+                                   border="0"
+                                   cellspacing="0"
+                                   cellpadding="0"
+                                   style="border-collapse: collapse;">
+                                <!-- heading-cover -->
+                                <tr>
+                                    <td style="padding: 50px 40px 0;">
+                                        <!-- heading -->
+                                        <p style="
+                          font-family: Poppins, Arial, sans-serif;
+                          font-size: 24px;
+                          font-weight: 600;
+                          color: #1F2020;
+                          margin: 0;
+                        ">
+                                            🎉 Wycena {{ quote.quote_number }} została zaakceptowana!
+                                        </p>
+                                        <!-- Krótkie podkreślenie (70px, 4px, zaokrąglone boki) -->
+                                        <div style="
+                          width: 70px;
+                          height: 4px;
+                          background-color: #ED6B24;
+                          border-radius: 2px;
+                          margin-top: 6px;
+                        "></div>
+                                    </td>
+                                </tr>
+
+                                <!-- powitanie -->
+                                <tr>
+                                    <td style="padding: 30px 40px 0px;">
+                                        <p style="
+                          font-family: Poppins, Arial, sans-serif;
+                          font-size: 16px;
+                          font-weight: 400;
+                          color: #1F2020;
+                          margin: 0;
+                          text-align: justify;
+                        ">
+                                            Witaj <strong>{{ quote.user.first_name }}</strong>! 👋
+                                        </p>
+                                        <p style="
+                          font-family: Poppins, Arial, sans-serif;
+                          font-size: 14px;
+                          font-weight: 400;
+                          color: #1F2020;
+                          margin: 10px 0 0;
+                          text-align: justify;
+                        ">
+                                            Mamy świetne wiadomości! Klient właśnie zaakceptował wycenę <strong>{{ quote.quote_number }}</strong> dnia <strong>{{ acceptance_date.strftime('%d.%m.%Y o %H:%M') }}</strong>.
+                                        </p>
+                                    </td>
+                                </tr>
+
+                                <!-- szczegóły klienta (kreska po lewej) -->
+                                <tr>
+                                    <td style="padding: 30px 0 0 0;">
+                                        <!-- Tabela, aby kreska była przy krawędzi -->
+                                        <table width="100%"
+                                               border="0"
+                                               cellspacing="0"
+                                               cellpadding="0"
+                                               style="border-collapse: collapse;">
+                                            <tr>
+                                                <!-- Komórka z border-left + odsunięcie tekstu -->
+                                                <td style="
+                              border-left: 6px solid #ED6B24;
+                              padding: 0 33px; /* odsunięcie tekstu od kreski */
+                            ">
+                                                    <!-- Tekst -->
+                                                    <table border="0"
+                                                           cellspacing="0"
+                                                           cellpadding="0"
+                                                           width="100%"
+                                                           style="border-collapse: collapse;">
+                                                        <tr>
+                                                            <td style="padding-top: 0;">
+                                                                <p style="
+                                      font-family: Poppins, Arial, sans-serif;
+                                      font-size: 16px;
+                                      font-weight: 600;
+                                      color: #ED6B24;
+                                      margin: 0 0 10px 0;
+                                    ">
+                                                                    📋 Szczegóły klienta
+                                                                </p>
+                                                                <p style="
+                                      font-family: Poppins, Arial, sans-serif;
+                                      font-size: 14px;
+                                      font-weight: 400;
+                                      color: #1F2020;
+                                      margin: 0;
+                                      line-height: 150%;
+                                    ">
+                                                                    <strong>Klient:</strong> {{ quote.client.client_name if quote.client else 'Brak danych' }}<br />
+                                                                    <strong>Email:</strong> {{ quote.client.email if quote.client and quote.client.email else 'Brak danych' }}<br />
+                                                                    <strong>Telefon:</strong> {{ quote.client.phone if quote.client and quote.client.phone else 'Brak danych' }}
+                                                                </p>
+                                                            </td>
+                                                        </tr>
+                                                    </table>
+                                                </td>
+                                            </tr>
+                                        </table>
+                                    </td>
+                                </tr>
+
+                                <!-- wartość zamówienia -->
+                                <tr>
+                                    <td style="padding: 30px 40px 0px;">
+                                        <p style="
+                          font-family: Poppins, Arial, sans-serif;
+                          font-size: 16px;
+                          font-weight: 600;
+                          color: #ED6B24;
+                          margin: 0 0 15px 0;
+                        ">
+                                            💰 Wartość zamówienia
+                                        </p>
+
+                                        <!-- Tabela z wartościami -->
+                                        <table width="100%" border="0" cellspacing="0" cellpadding="0" style="border-collapse: collapse; background: #F8F9FA; border-radius: 6px;">
+                                            <tr>
+                                                <td style="padding: 20px;">
+                                                    <!-- Główna kwota -->
+                                                    <p style="
+                                        font-family: Poppins, Arial, sans-serif;
+                                        font-size: 24px;
+                                        font-weight: 700;
+                                        color: #07B90D;
+                                        margin: 0 0 15px 0;
+                                        text-align: center;
+                                      ">
+                                                        {{ "%.2f"|format(costs.total.brutto) }} PLN brutto
+                                                    </p>
+
+                                                    <!-- Podział kosztów -->
+                                                    <table width="100%" border="0" cellspacing="0" cellpadding="0" style="border-collapse: collapse;">
+                                                        <tr>
+                                                            <td style="width: 33%; text-align: center; padding: 5px;">
+                                                                <p style="font-family: Poppins, Arial, sans-serif; font-size: 11px; color: #666; margin: 0;">Produkty</p>
+                                                                <p style="font-family: Poppins, Arial, sans-serif; font-size: 14px; font-weight: 600; color: #333; margin: 2px 0 0;">{{ "%.2f"|format(costs.products.brutto) }} PLN</p>
+                                                            </td>
+                                                            <td style="width: 33%; text-align: center; padding: 5px;">
+                                                                <p style="font-family: Poppins, Arial, sans-serif; font-size: 11px; color: #666; margin: 0;">Wykończenie</p>
+                                                                <p style="font-family: Poppins, Arial, sans-serif; font-size: 14px; font-weight: 600; color: #333; margin: 2px 0 0;">{{ "%.2f"|format(costs.finishing.brutto) }} PLN</p>
+                                                            </td>
+                                                            <td style="width: 33%; text-align: center; padding: 5px;">
+                                                                <p style="font-family: Poppins, Arial, sans-serif; font-size: 11px; color: #666; margin: 0;">Wysyłka</p>
+                                                                <p style="font-family: Poppins, Arial, sans-serif; font-size: 14px; font-weight: 600; color: #333; margin: 2px 0 0;">{{ "%.2f"|format(costs.shipping.brutto) }} PLN</p>
+                                                            </td>
+                                                        </tr>
+                                                    </table>
+                                                </td>
+                                            </tr>
+                                        </table>
+                                    </td>
+                                </tr>
+
+                                <!-- produkty -->
+                                <tr>
+                                    <td style="padding: 30px 40px 0px;">
+                                        <p style="
+                          font-family: Poppins, Arial, sans-serif;
+                          font-size: 16px;
+                          font-weight: 600;
+                          color: #ED6B24;
+                          margin: 0 0 15px 0;
+                        ">
+                                            🛠️ Wybrane produkty
+                                        </p>
+
+                                        {% for item in selected_items %}
+                                        <!-- Produkt {{ loop.index }} -->
+                                        <table width="100%" border="0" cellspacing="0" cellpadding="0" style="border-collapse: collapse; background: #FFFFFF; border: 1px solid #E0E0E0; border-radius: 6px; margin-bottom: 15px;">
+                                            <tr>
+                                                <td style="padding: 15px;">
+                                                    <p style="
+                                        font-family: Poppins, Arial, sans-serif;
+                                        font-size: 15px;
+                                        font-weight: 600;
+                                        color: #ED6B24;
+                                        margin: 0 0 8px 0;
+                                      ">
+                                                        Produkt {{ item.product_index }} - {{ item.variant_code or 'Nieznany wariant' }}
+                                                    </p>
+
+                                                    <table width="100%" border="0" cellspacing="0" cellpadding="0" style="border-collapse: collapse;">
+                                                        <tr>
+                                                            <td style="width: 50%; padding-right: 10px;">
+                                                                <p style="font-family: Poppins, Arial, sans-serif; font-size: 13px; color: #666; margin: 0 0 4px;">
+                                                                    <strong>Wymiary:</strong> {{ item.length_cm }}×{{ item.width_cm }}×{{ item.thickness_cm }} cm
+                                                                </p>
+                                                                <p style="font-family: Poppins, Arial, sans-serif; font-size: 13px; color: #666; margin: 0;">
+                                                                    <strong>Objętość:</strong> {{ "%.3f"|format(item.volume_m3) }} m³
+                                                                </p>
+                                                            </td>
+                                                            <td style="width: 50%; padding-left: 10px;">
+                                                                <p style="font-family: Poppins, Arial, sans-serif; font-size: 13px; color: #666; margin: 0 0 4px;">
+                                                                    <strong>Cena za m³:</strong> {{ "%.2f"|format(item.price_per_m3) }} PLN
+                                                                </p>
+                                                                <p style="font-family: Poppins, Arial, sans-serif; font-size: 13px; color: #666; margin: 0;">
+                                                                    <strong>Cena końcowa:</strong> {{ "%.2f"|format(item.final_price_brutto) }} PLN brutto
+                                                                </p>
+                                                            </td>
+                                                        </tr>
+                                                    </table>
+
+                                                    {% for finishing in finishing_details %}
+                                                    {% if finishing.product_index == item.product_index %}
+                                                    <!-- Wykończenie -->
+                                                    <table width="100%" border="0" cellspacing="0" cellpadding="0" style="border-collapse: collapse; background: #F0F8FF; border-radius: 4px; margin-top: 8px;">
+                                                        <tr>
+                                                            <td style="padding: 8px 12px;">
+                                                                <p style="font-family: Poppins, Arial, sans-serif; font-size: 13px; color: #333; margin: 0;">
+                                                                    <strong>Wykończenie:</strong>
+                                                                    {% set finishing_parts = [] %}
+                                                                    {% if finishing.finishing_variant %}{{ finishing_parts.append(finishing.finishing_variant) }}{% endif %}
+                                                                    {% if finishing.finishing_type %}{{ finishing_parts.append(finishing.finishing_type) }}{% endif %}
+                                                                    {% if finishing.finishing_color %}{{ finishing_parts.append(finishing.finishing_color) }}{% endif %}
+                                                                    {% if finishing.finishing_gloss_level %}{{ finishing_parts.append(finishing.finishing_gloss_level) }}{% endif %}
+                                                                    {{ finishing_parts|join(' - ') if finishing_parts else 'Brak wykończenia' }}
+                                                                    {% if finishing.finishing_price_brutto %}
+                                                                    <span style="float: right; font-weight: 600;">{{ "%.2f"|format(finishing.finishing_price_brutto) }} PLN</span>
+                                                                    {% endif %}
+                                                                </p>
+                                                            </td>
+                                                        </tr>
+                                                    </table>
+                                                    {% endif %}
+                                                    {% endfor %}
+                                                </td>
+                                            </tr>
+                                        </table>
+                                        {% endfor %}
+                                    </td>
+                                </tr>
+
+                                {% if quote.client_comments %}
+                                <!-- komentarze klienta -->
+                                <tr>
+                                    <td style="padding: 20px 40px 0px;">
+                                        <table width="100%" border="0" cellspacing="0" cellpadding="0" style="border-collapse: collapse; background: #FFF8E1; border-radius: 6px; border-left: 4px solid #FFC107;">
+                                            <tr>
+                                                <td style="padding: 15px;">
+                                                    <p style="
+                                        font-family: Poppins, Arial, sans-serif;
+                                        font-size: 14px;
+                                        font-weight: 600;
+                                        color: #E65100;
+                                        margin: 0 0 10px 0;
+                                      ">
+                                                        💬 Komentarze klienta
+                                                    </p>
+                                                    <p style="
+                                        font-family: Poppins, Arial, sans-serif;
+                                        font-size: 14px;
+                                        font-weight: 400;
+                                        color: #333;
+                                        margin: 0;
+                                        font-style: italic;
+                                        line-height: 150%;
+                                      ">
+                                                        {{ quote.client_comments }}
+                                                    </p>
+                                                </td>
+                                            </tr>
+                                        </table>
+                                    </td>
+                                </tr>
+                                {% endif %}
+
+                                <!-- przycisk do systemu -->
+                                <tr>
+                                    <td style="padding: 30px 40px 0px;">
+                                        <table border="0"
+                                               cellspacing="0"
+                                               cellpadding="0"
+                                               style="border-collapse: collapse; margin: 0 auto;">
+                                            <tr>
+                                                <td style="
+                          background: #ED6B24;
+                          border-radius: 4px;
+                          padding: 12px 24px;
+                        ">
+                                                    <a href="{{ base_url }}/quotes"
+                                                       style="
+                            font-family: Poppins, Arial, sans-serif;
+                            font-size: 14px;
+                            font-weight: 600;
+                            color: #ffffff;
+                            text-decoration: none;
+                            display: inline-block;
+                          ">
+                                                        📊 Zobacz wycenę w systemie
+                                                    </a>
+                                                </td>
+                                            </tr>
+                                        </table>
+                                    </td>
+                                </tr>
+
+                                <!-- info -->
+                                <tr>
+                                    <td style="padding: 30px 40px 0px;">
+                                        <p style="
+                          font-family: Poppins, Arial, sans-serif;
+                          font-size: 14px;
+                          font-weight: 400;
+                          color: #1F2020;
+                          margin: 0;
+                          text-align: justify;
+                          line-height: 200%;
+                        ">
+                                            Możesz przenieść wycenę do Baselinkera i już tam dalej prowadzić zamówienie!<br />
+                                            <span style="font-style: italic;">Powodzenia z realizacją zamówienia!</span>
+                                        </p>
+                                    </td>
+                                </tr>
+
+                                <!-- Cienka linia (1px) przez całą szerokość kontenera -->
+                                <tr>
+                                    <td style="padding: 30px 0 0 0;">
+                                        <div style="
+                          width: 100%;
+                          height: 1px;
+                          background-color: #ED6B24;
+                        "></div>
+                                    </td>
+                                </tr>
+
+                                <!-- [footer] -->
+                                <tr>
+                                    <td style="padding: 30px 40px;">
+                                        <!-- [auto-mail] -->
+                                        <p style="
+                          font-family: Poppins, Arial, sans-serif;
+                          font-size: 12px;
+                          font-weight: 400;
+                          color: #939393;
+                          margin: 0;
+                          text-align: left;
+                        ">
+                                            Wiadomość została wysłana automatycznie {{ acceptance_date.strftime('%d.%m.%Y o %H:%M') }}, prosimy na nią nie odpowiadać.
+                                        </p>
+
+                                        <!-- [contact] -->
+                                        <p style="
+                          font-family: Poppins, Arial, sans-serif;
+                          font-size: 12px;
+                          font-weight: 400;
+                          color: #939393;
+                          margin: 20px 0 0;
+                          text-align: justify;
+                        ">
+                                            Jeśli masz jakieś pytania, zapraszamy do kontaktu z administratorem pod numerem
+                                            <a href="tel:+48534495773"
+                                               style="
+                            color: #ED6B24;
+                            text-decoration: underline;
+                          ">
+                                                +48 534 495 773
+                                            </a> lub mailowo
+                                            <a href="mailto:admin@woodpower.pl"
+                                               style="
+                            color: #ED6B24;
+                            text-decoration: underline;
+                          ">admin@woodpower.pl</a>
+                                        </p>
+                                    </td>
+                                </tr>
+                            </table>
+                            <!-- Koniec main-content -->
+                        </td>
+                    </tr>
+                </table>
+                <!-- Koniec białego kontenera -->
+            </td>
+        </tr>
+        <tr>
+            <td align="center">
+                <!-- Kontener o szerokości 604px -->
+                <table width="604"
+                       border="0"
+                       cellspacing="0"
+                       cellpadding="0"
+                       style="border-collapse: collapse;">
+                    <!-- [icons] - WYŚRODKOWANE -->
+                    <tr>
+                        <td align="center"
+                            style="
+                  padding: 0 40px 20px;
+                ">
+                            <table border="0"
+                                   cellspacing="0"
+                                   cellpadding="0"
+                                   style="border-collapse: collapse;">
+                                <tr>
+                                    <!-- Facebook -->
+                                    <td style="vertical-align: middle;">
+                                        <a href="https://www.facebook.com/profile.php?id=100078058417309"
+                                           target="_blank"
+                                           style="display: inline-block;">
+                                            <img src="https://serwer2100532.home.pl/woodpower/img/cms/mail/facebook.png"
+                                                 alt="Facebook"
+                                                 width="28"
+                                                 height="28"
+                                                 style="display: block;" />
+                                        </a>
+                                    </td>
+                                    <!-- Odstęp 16px -->
+                                    <td style="width: 16px;"></td>
+                                    <!-- Instagram -->
+                                    <td style="vertical-align: middle;">
+                                        <a href="https://instagram.com/__wood_power__"
+                                           target="_blank"
+                                           style="display: inline-block;">
+                                            <img src="https://serwer2100532.home.pl/woodpower/img/cms/mail/instagram.png"
+                                                 alt="Instagram"
+                                                 width="28"
+                                                 height="28"
+                                                 style="display: block;" />
+                                        </a>
+                                    </td>
+                                </tr>
+                            </table>
+                        </td>
+                    </tr>
+
+                    <!-- [info-footer] -->
+                    <tr>
+                        <td align="left"
+                            style="
+                  padding: 0px 40px 40px;
+                ">
+                            <p style="
+                    font-family: Poppins, Arial, sans-serif;
+                    font-size: 10px;
+                    font-weight: 400;
+                    color: #939393;
+                    margin: 0;
+                    text-align: justify;
+                  ">
+                                Wood Power Spółka z ograniczoną odpowiedzialnością, Bachórz 14N,
+                                36-068 Bachórz, NIP: 8133787635, Firma zarejestrowana w rejestrze
+                                przedsiębiorców Krajowego Rejestru Sądowego pod numerem
+                                KRS 0000743306 przez Sąd Rejonowy w Rzeszowie, XII Wydział
+                                Gospodarczy Krajowego Rejestru Sądowego.
+                                <a href="https://woodpower.pl/content/8-regulamin-sklepu"
+                                   style="
+                      color: #939393;
+                      text-decoration: underline;
+                    ">Tutaj</a> znajdziesz informacje dotyczące przetwarzania Twoich danych osobowych.
+                            </p>
+                        </td>
+                    </tr>
+                </table>
+            </td>
+        </tr>
+    </table>
+</body>
+</html>

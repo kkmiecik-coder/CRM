@@ -1,0 +1,15 @@
+{% extends "base_auth.html" %}
+
+{% block title %}Hasło zresetowane – Wood Power CRM{% endblock %}
+
+{% block content %}
+<div class="login-block" style="max-width: 400px; text-align: center;">
+    <h2 class="txt-login title-with-underline">Wylogowano</h2>
+    <p>Poprawnie wylogowano Cię z systemu.</p>
+    <div class="bottom-login" style="margin-top: 20px;">
+        <a href="{{ url_for('login') }}" class="login-button" style="text-decoration: none; text-align: center;">
+            <span class="button-txt">Zaloguj ponownie</span>
+        </a>
+    </div>
+</div>
+{% endblock %}

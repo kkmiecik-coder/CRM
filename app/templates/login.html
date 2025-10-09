@@ -1,0 +1,50 @@
+
+{% extends "base_auth.html" %}
+{% block title %}Logowanie – Wood Power CRM{% endblock %}
+{% block content %}
+<div class="login-block">
+    <h2 class="txt-login title-with-underline">Witaj ponownie! 👋</h2>
+    <form method="POST" action="{{ url_for('login') }}" class="inputs">
+        <!-- Adres e-mail -->
+        <div class="input">
+            <div class="input-frame static" id="emailFrame">
+                <label class="label-txt" for="email" autocomplete="off">Adres e-mail</label>
+                <input type="email"
+                       id="email"
+                       name="email"
+                       value="{{ email_value|default('') }}" />
+            </div>
+            {% if email_error %}
+            <p class="error-message">{{ email_error }}</p>
+            {% else %}
+            <p class="error-message" style="display: none;"></p>
+            {% endif %}
+        </div>
+
+        <!-- Hasło -->
+        <div class="input">
+            <div class="input-frame static" id="passwordFrame">
+                <label class="label-txt" for="password" autocomplete="off">Hasło</label>
+                <input type="password"
+                       id="password"
+                       name="password" />
+            </div>
+            {% if password_error %}
+            <p class="error-message">{{ password_error }}</p>
+            {% else %}
+            <p class="error-message" style="display: none;"></p>
+            {% endif %}
+        </div>
+
+        <!-- Dolna część formularza -->
+        <div class="bottom-login">
+            <button type="submit" class="login-button disabled" disabled>
+                <span class="button-txt">Zaloguj się</span>
+            </button>
+            <a href="{{ url_for('reset_password_request', email_value=email_value) }}" class="password-reset-txt">
+                Nie pamiętam hasła
+            </a>
+        </div>
+    </form>
+</div>
+{% endblock %}

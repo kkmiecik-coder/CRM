@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <title>Edycja użytkownika - Wood Power CRM</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <h1>Edycja użytkownika</h1>
+    <form action="{{ url_for('edit_user', user_id=user.id) }}" method="post">
+        <label for="role">Rola:</label>
+        <select name="role" id="role">
+            <option value="user" {% if user.role == 'user' %}selected{% endif %}>Użytkownik</option>
+            <option value="admin" {% if user.role == 'admin' %}selected{% endif %}>Admin</option>
+        </select>
+        <br><br>
+        <button type="submit">Zapisz zmiany</button>
+    </form>
+    <p><a href="{{ url_for('settings') }}">Powrót do ustawień</a></p>
+</body>
+</html>

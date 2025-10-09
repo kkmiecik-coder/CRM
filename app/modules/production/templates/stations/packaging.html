@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="mobile-web-app-capable" content="yes">
+    <title>{{ page_title }} - WoodPower CRM</title>
+
+    <!-- CSS -->
+    <link rel="stylesheet" href="{{ url_for('production.static', filename='css/stations/station-shared.css') }}">
+    <link rel="stylesheet" href="{{ url_for('production.static', filename='css/stations/station-packaging.css') }}">
+
+    <!-- Favicon -->
+    <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='images/favicon.png') }}">
+</head>
+<body class="dark-mode">
+    <!-- HEADER -->
+    <header class="station-header">
+        <div class="header-content">
+            <img src="{{ url_for('static', filename='images/logo-light.svg') }}"
+                 class="station-logo logo-dark"
+                 alt="WoodPower">
+            <img src="{{ url_for('static', filename='images/logo.svg') }}"
+                 class="station-logo logo-light"
+                 alt="WoodPower">
+            <h1 class="station-title">Stanowisko pakowania</h1>
+            <div class="header-buttons">
+                <button class="theme-toggle-btn" id="theme-toggle">
+                    <svg class="theme-icon sun-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="12" cy="12" r="5"></circle>
+                        <line x1="12" y1="1" x2="12" y2="3"></line>
+                        <line x1="12" y1="21" x2="12" y2="23"></line>
+                        <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+                        <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+                        <line x1="1" y1="12" x2="3" y2="12"></line>
+                        <line x1="21" y1="12" x2="23" y2="12"></line>
+                        <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+                        <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+                    </svg>
+                    <svg class="theme-icon moon-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display: none;">
+                        <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
+                    </svg>
+                    <span class="theme-text">Tryb jasny</span>
+                </button>
+                <!-- CONNECTION STATUS BADGE -->
+                <div id="connection-status" class="connection-status online">
+                    🟢 ONLINE
+                </div>
+            </div>
+            {% if config.debug_frontend %}
+            <button class="debug-btn" id="debug-toggle">Debug</button>
+            {% endif %}
+        </div>
+
+        <!-- STATS BAR -->
+        <div class="stats-bar">
+            <div class="stat-item">
+                <svg class="stat-icon" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <circle cx="12" cy="12" r="10"></circle>
+                    <polyline points="12 6 12 12 16 14"></polyline>
+                </svg>
+                <div class="stat-content">
+                    <div class="stat-label">{{ now.strftime('%A') }}</div>
+                    <div class="stat-value" id="current-datetime">{{ now.strftime('%d.%m.%Y • %H:%M:%S') }}</div>
+                </div>
+            </div>
+
+            <div class="stat-item">
+                <svg class="stat-icon" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect x="3" y="3" width="18" height="18" rx="2"></rect>
+                    <path d="M3 9h18"></path>
+                    <path d="M9 21V9"></path>
+                </svg>
+                <div class="stat-content">
+                    <div class="stat-label">Zamówienia</div>
+                    <div class="stat-value">
+                        <span id="total-products">{{ station_stats.total_products }}</span> /
+                        <span id="total-volume">{{ "%.4f"|format(products|map(attribute='volume_m3')|sum) }}</span> m³
+                    </div>
+                </div>
+            </div>
+
+            <div class="stat-item">
+                <svg class="stat-icon" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <polyline points="20 6 9 17 4 12"></polyline>
+                </svg>
+                <div class="stat-content">
+                    <div class="stat-label">Wykonano dziś</div>
+                    <div class="stat-value">
+                        <span id="today-m3">Ładowanie...</span> m³
+                    </div>
+                </div>
+            </div>
+
+            <div class="stat-item">
+                <svg class="stat-icon refresh-icon" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <polyline points="23 4 23 10 17 10"></polyline>
+                    <polyline points="1 20 1 14 7 14"></polyline>
+                    <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+                </svg>
+                <div class="stat-content">
+                    <div class="stat-label">Odświeżenie za</div>
+                    <div class="stat-value" id="refresh-countdown">Ładowanie...</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- OFFLINE WARNING BANNER (hidden by default) -->
+        <div id="offline-banner" class="offline-banner" style="display: none;">
+            <div class="offline-banner-content">
+                <span class="offline-icon">⚠️</span>
+                <div class="offline-text">
+                    <strong>BRAK POŁĄCZENIA Z SERWEREM</strong>
+                    <p>Pakowanie produktów jest niemożliwe. Poczekaj na przywrócenie połączenia.</p>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- MAIN CONTENT -->
+    <main class="station-content">
+        <!-- ORDERS LIST -->
+        <div class="orders-list" id="orders-list">
+            {% if orders_grouped|length == 0 %}
+            <!-- EMPTY STATE -->
+            <div class="empty-state">
+                <div class="empty-state-icon">✅</div>
+                <h2>Brak zamówień do spakowania</h2>
+                <p>Świetna robota! Wszystkie zamówienia zostały spakowane.</p>
+            </div>
+            {% else %}
+            <!-- ORDER CARDS -->
+            {% for order in orders_grouped %}
+            <div class="order-card"
+                 data-order-number="{{ order.order_number }}"
+                 data-priority-rank="{{ order.best_priority_rank }}"
+                 data-total-products="{{ order.total_products }}"
+                 data-in-progress="false">
+
+                <!-- ORDER HEADER -->
+                <div class="order-header">
+                    <div class="order-title">
+                        <span class="order-number">{{ order.order_number }}</span>
+                        {% if order.baselinker_order_id %}
+                        <span class="order-baselinker">BL-{{ order.baselinker_order_id }}</span>
+                        {% endif %}
+                    </div>
+                    <div class="order-summary">
+                        <span class="deadline-info">📅 {{ order.display_deadline }}</span>
+                        <span class="summary-stats">
+                            <span class="products-checked" data-order="{{ order.order_number }}">0</span>/{{ order.total_products }} {% if order.total_products == 1 %}produkt{% elif order.total_products < 5 %}produkty{% else %}produktów{% endif %} • {{ "%.4f"|format(order.total_volume) }} m³
+                        </span>
+                    </div>
+                </div>
+
+                <!-- PRODUCTS LIST -->
+                <div class="products-list">
+                    {% for product in order.products %}
+                    <div class="product-row {% if product.current_status != 'czeka_na_pakowanie' %}product-not-ready{% endif %}"
+                         data-product-id="{{ product.id }}"
+                         data-status="{{ product.current_status }}"
+                         data-species="{{ product.wood_species or '' }}"
+                         data-technology="{{ product.technology or '' }}"
+                         data-wood-class="{{ product.wood_class or '' }}">
+
+                        <div class="product-checkbox">
+                            <input type="checkbox"
+                                   class="product-check"
+                                   id="check-{{ product.id }}"
+                                   data-product-id="{{ product.id }}"
+                                   {% if product.current_status !='czeka_na_pakowanie' %}disabled{% endif %}>
+                            <label for="check-{{ product.id }}"></label>
+                        </div>
+
+                        <span class="product-id">{{ product.id }}</span>
+
+                        <div class="product-details">
+                            <!-- BADGES nad nazwą -->
+                            <div class="product-badges">
+                                {% if product.wood_species %}
+                                <span class="badge badge-species">{{ product.wood_species }}</span>
+                                {% endif %}
+                                {% if product.technology %}
+                                <span class="badge badge-technology">{{ product.technology }}</span>
+                                {% endif %}
+                                {% if product.wood_class %}
+                                <span class="badge badge-class">{{ product.wood_class }}</span>
+                                {% endif %}
+                                {% if product.dimensions %}
+                                <span class="badge badge-dimensions">{{ product.dimensions }}</span>
+                                {% endif %}
+                            </div>
+
+                            <!-- Nazwa produktu pod badges -->
+                            <span class="product-name">{{ product.original_name }}</span>
+                        </div>
+
+                        <span class="product-volume">{{ "%.4f"|format(product.volume_m3) }} m³</span>
+                    </div>
+                    {% endfor %}
+                </div>
+
+                <!-- ORDER ACTION (przycisk na dole) -->
+                <div class="order-action">
+                    <button class="btn-complete" data-action="package" disabled>SPAKOWANE</button>
+                </div>
+            </div>
+            {% endfor %}
+            {% endif %}
+        </div>
+
+        <!-- LOADING SKELETON (hidden by default) -->
+        <div class="loading-skeleton" id="loading-skeleton" style="display: none;">
+            {% for i in range(8) %}
+            <div class="skeleton-card">
+                <div class="skeleton-header"></div>
+                <div class="skeleton-body"></div>
+            </div>
+            {% endfor %}
+        </div>
+    </main>
+
+    <!-- SCRIPTS -->
+    <script>
+        window.STATION_CONFIG = {
+            stationCode: 'packaging',
+            stationName: 'Pakowanie',
+            refreshInterval: {{ config['refresh_interval'] }},
+            debugMode: {{ 'true' if config['debug_frontend'] else 'false' }}
+        };
+    </script>
+    <script src="{{ url_for('production.static', filename='js/stations/station-common.js') }}"></script>
+    <script src="{{ url_for('production.static', filename='js/stations/station-packaging.js') }}"></script>
+</body>
+</html>

@@ -1,0 +1,601 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <title>Oferta {{ quote.quote_number }} - Wood Power</title>
+    <style>
+        @page {
+            size: A4;
+            margin: 0;
+        }
+
+        body {
+            font-family: Arial, sans-serif;
+            font-size: 12px;
+            line-height: 1.2;
+            margin: 0;
+            padding: 10mm 15mm 0 15mm; /* Usuń bottom padding */
+            color: #000;
+            min-height: 100vh;
+            position: relative;
+        }
+
+        .content-wrapper {
+            padding-bottom: 120px; /* Zwiększona przestrzeń na stopkę i uwagi */
+        }
+
+        .header {
+            display: flex;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+
+        .logo {
+            width: 80px;
+            height: auto;
+            margin-right: 20px;
+        }
+
+        .company-info {
+            flex-grow: 1;
+        }
+
+        .company-name {
+            font-size: 24px;
+            font-weight: bold;
+            color: #ED6B24;
+        }
+
+        .document-title {
+            font-size: 18px;
+            font-weight: bold;
+            margin: 20px 0;
+        }
+
+        .quote-number-section {
+            text-align: center;
+            margin: 10px 0;
+        }
+
+        .quote-number {
+            font-size: 18px;
+            font-weight: bold;
+        }
+
+        .info-section {
+            margin: 15px 0;
+        }
+
+        .info-table {
+            width: 100%;
+            font-size: 10px;
+        }
+
+            .info-table td {
+                padding: 3px;
+                vertical-align: top;
+            }
+
+        .underline {
+            border-bottom: 1px solid #CCC;
+            text-align: center;
+            padding-bottom: 2px;
+        }
+
+        .addresses {
+            width: 100%;
+            margin: 15px 0;
+        }
+
+            .addresses td {
+                width: 50%;
+                vertical-align: top;
+                padding: 10px;
+                font-size: 11px;
+            }
+
+        .items-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 10px 0;
+            font-size: 9px;
+        }
+
+            .items-table td,
+            .items-table th {
+                border: 1px solid #CCC;
+                padding: 4px;
+                text-align: center;
+            }
+
+            .items-table th {
+                background-color: #EEE;
+                font-weight: bold;
+            }
+
+            .items-table td.left {
+                text-align: left;
+            }
+
+            .items-table td.right {
+                text-align: right;
+            }
+
+        .summary-row {
+            background-color: #EEE;
+        }
+
+        .total-section {
+            margin: 10px 0;
+            font-size: 11px;
+        }
+
+        .signatures {
+            margin-top: 20px;
+            width: 100%;
+            font-size: 9px;
+        }
+
+            .signatures td {
+                width: 50%;
+                text-align: center;
+                vertical-align: top;
+                padding: 15px 10px;
+            }
+
+        .signature-line {
+            border-bottom: 1px dotted #CCC;
+            width: 80%;
+            margin: 15px auto 5px auto;
+            height: 1px;
+        }
+
+        .finishing-details {
+            font-size: 9px;
+            color: #666;
+            font-style: italic;
+        }
+
+        .page-break {
+            page-break-before: always;
+        }
+
+        /* SEKCJA UWAGI I DANE - NA DOLE PRZED STOPKĄ */
+        .bottom-content {
+            position: fixed;
+            bottom: 60px; /* Nad stopką */
+            left: 15mm;
+            right: 15mm;
+            font-size: 10px;
+        }
+
+        .bottom-flex-container {
+            display: flex;
+            gap: 20px; /* Odstęp między kolumnami */
+            align-items: flex-start;
+        }
+
+        .bottom-section-left {
+            flex: 1;
+            margin-right: 10px; /* Odstęp między kolumnami */
+        }
+
+        .bottom-section-right {
+            flex: 1;
+        }
+
+        .bottom-section-title {
+            font-weight: bold;
+            margin-bottom: 8px;
+            font-size: 11px;
+        }
+
+        .bottom-section ul {
+            margin: 2px 0;
+            padding-left: 15px;
+            font-size: 9px;
+        }
+
+        .payment-info {
+            background-color: #f9f9f9;
+            padding: 8px;
+            border: 1px solid #ddd;
+            font-size: 9px;
+            border-radius: 4px;
+        }
+
+            .payment-info div {
+                margin-bottom: 4px;
+            }
+
+                .payment-info div:last-child {
+                    margin-bottom: 0;
+                }
+
+        /* STOPKA - FIXED NA DOLE STRONY */
+        .footer {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background-color: #1F2020;
+            color: white;
+            padding: 8px 5mm; /* 5mm marginesy z boków */
+            font-size: 10px;
+            z-index: 1000;
+        }
+
+        .footer-table {
+            width: 100%;
+            border-collapse: collapse;
+            table-layout: fixed; /* Wymusza użycie procentowych szerokości */
+        }
+
+            .footer-table td {
+                vertical-align: middle;
+                padding: 5px 3px;
+                border: none;
+            }
+
+        .footer-icon-cell {
+            text-align: center;
+            width: 1%; /* Stała szerokość dla wszystkich ikon */
+        }
+
+        .footer-text-cell {
+            text-align: left;
+            padding-left: 0px;
+        }
+
+        .footer-icon {
+            width: 14px;
+            height: 14px;
+        }
+
+        .footer-text {
+            color: white;
+            font-size: 10px;
+            line-height: 1.2;
+            margin: 0;
+        }
+
+        /* Dla telefonu - dwa numery w pionie */
+        .footer-phone {
+            line-height: 1.1;
+        }
+    </style>
+</head>
+<body>
+    <div class="content-wrapper">
+        <!-- NAGŁÓWEK Z LOGO -->
+        <div class="header">
+            <div class="logo">
+                {% if icons.logo %}
+                <img src="{{ icons.logo }}"
+                     alt="Wood Power Logo"
+                     style="height: 40px; width: auto; display: block;">
+                {% else %}
+                <div style="height: 40px; background: #ED6B24; color: white; display: flex; align-items: center; justify-content: center; font-weight: bold; border-radius: 4px;">
+                    WOOD POWER
+                </div>
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- SEKCJA Z NUMEREM OFERTY -->
+        <div class="quote-number-section">
+            <div class="quote-number">Oferta nr {{ quote.quote_number }}</div>
+        </div>
+
+        <!-- SEKCJA Z INFORMACJAMI -->
+        <div class="info-section">
+            <table class="info-table">
+                <tr>
+                    <td style="width: 20%;">Data wystawienia:</td>
+                    <td style="width: 25%; border-bottom:1px solid #CCC; text-align: center;">
+                        {{ quote.created_at.strftime('%d.%m.%Y') if quote.created_at else '-' }}
+                    </td>
+                    <td style="width: 10%;"></td>
+                    <td style="width: 20%;">Miejsce wystawienia:</td>
+                    <td style="width: 25%; border-bottom:1px solid #CCC; text-align: center;">
+                        Bachórz
+                    </td>
+                </tr>
+                <tr>
+                    <td>Ważność oferty:</td>
+                    <td style="border-bottom:1px solid #CCC; text-align: center;">
+                        7 dni
+                    </td>
+                    <td></td>
+                    <td>Opiekun oferty:</td>
+                    <td style="border-bottom:1px solid #CCC; text-align: center;">
+                        {{ quote.user.first_name }} {{ quote.user.last_name if quote.user else '-' }}
+                    </td>
+                </tr>
+                <tr>
+                    <td>Źródło zapytania:</td>
+                    <td style="border-bottom:1px solid #CCC; text-align: center;">
+                        {{ quote.source or '-' }}
+                    </td>
+                    <td></td>
+                    <td>Sposób dostawy:</td>
+                    <td style="border-bottom:1px solid #CCC; text-align: center;">
+                        {{ quote.courier_name or 'Do uzgodnienia' }}
+                    </td>
+                </tr>
+            </table>
+        </div>
+
+        <!-- SEKCJA Z ADRESAMI -->
+        <table class="addresses">
+            <tr>
+                <td>
+                    <div class="underline"><strong>Sprzedający:</strong></div>
+                    <br><strong>Wood Power Sp. z o.o.</strong>
+                    <br>Bachórz 14N
+                    <br>36-068 Bachórz
+                    <br>NIP: PL8133787635
+                    <br>REGON: 384025331
+                </td>
+                <td>
+                    <div class="underline"><strong>Nabywca:</strong></div>
+                    <br><strong>{{ quote.client.client_name or quote.client.client_number or '-' }}</strong>
+                    {% if quote.client.invoice_company or quote.client.delivery_company %}
+                    <br>{{ quote.client.invoice_company or quote.client.delivery_company }}
+                    {% endif %}
+                    {% if quote.client.delivery_address %}
+                    <br>{{ quote.client.delivery_address }}
+                    {% endif %}
+                    {% if quote.client.delivery_zip and quote.client.delivery_city %}
+                    <br>{{ quote.client.delivery_zip }} {{ quote.client.delivery_city }}
+                    {% endif %}
+                    {% if quote.client.delivery_country and quote.client.delivery_country != 'Polska' %}
+                    <br>{{ quote.client.delivery_country }}
+                    {% endif %}
+                    {% if quote.client.invoice_nip %}
+                    <br>NIP: {{ quote.client.invoice_nip }}
+                    {% endif %}
+                    {% if quote.client.email %}
+                    <br>Email: {{ quote.client.email }}
+                    {% endif %}
+                    {% if quote.client.phone %}
+                    <br>Tel: {{ quote.client.phone }}
+                    {% endif %}
+                </td>
+            </tr>
+        </table>
+
+        <!-- TABELA Z PRODUKTAMI - DODANA KOLUMNA VAT -->
+        <table class="items-table">
+            <thead>
+                <tr>
+                    <th width="4%">Poz.</th>
+                    <th width="30%">Nazwa produktu</th>
+                    <th width="12%">Wymiary [cm]</th>
+                    <th width="4%">JM</th>
+                    <th width="10%">Cena netto</th>
+                    <th width="4%">Ilość</th>
+                    <th width="5%">VAT</th>
+                    <th width="10%">Wartość netto</th>
+                    <th width="10%">Kwota VAT</th>
+                    <th width="11%">Wartość brutto</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% set product_groups = {} %}
+                {% for item in quote.items %}
+                {% if item.is_selected %}
+                {% if item.product_index not in product_groups %}
+                {% set _ = product_groups.update({item.product_index: []}) %}
+                {% endif %}
+                {% set _ = product_groups[item.product_index].append(item) %}
+                {% endif %}
+                {% endfor %}
+
+                {% for product_index in product_groups.keys()|sort %}
+                {% set items = product_groups[product_index] %}
+                {% set item = items[0] %}
+
+                <!-- POPRAWKA: Użyj finishing_details zamiast quote.finishing -->
+                {% set finishing_detail = finishing_details|selectattr('product_index', 'equalto', product_index)|first %}
+
+                <!-- NOWE: Pobierz ilość z finishing_detail (QuoteItemDetails) -->
+                {% set quantity = finishing_detail.quantity if finishing_detail and finishing_detail.quantity else 1 %}
+
+                <!-- POPRAW: Oblicz ceny jednostkowe (bez wykończenia) - KONWERTUJ NA FLOAT -->
+                {% set unit_price_netto = (item.price_netto or 0)|float %}
+                {% set unit_price_brutto = (item.price_brutto or 0)|float %}
+
+                <!-- POPRAW: Oblicz cenę wykończenia JEDNOSTKOWĄ (jeśli istnieje) - KONWERTUJ NA FLOAT -->
+                {% set finishing_unit_netto = 0.0 %}
+                {% set finishing_unit_brutto = 0.0 %}
+                {% if finishing_detail and finishing_detail.finishing_price_netto and quantity > 0 %}
+                {% set finishing_unit_netto = (finishing_detail.finishing_price_netto|float) / quantity %}
+                {% set finishing_unit_brutto = (finishing_detail.finishing_price_brutto|float) / quantity %}
+                {% endif %}
+
+                <!-- OBLICZ: Finalne ceny jednostkowe (produkt + wykończenie jednostkowe) -->
+                {% set final_unit_price_netto = unit_price_netto + finishing_unit_netto %}
+                {% set final_unit_price_brutto = unit_price_brutto + finishing_unit_brutto %}
+
+                <!-- OBLICZ: Wartości całkowite (cena jednostkowa × ilość) -->
+                {% set total_item_netto = final_unit_price_netto * quantity %}
+                {% set total_item_brutto = final_unit_price_brutto * quantity %}
+
+                {% set vat_amount = total_item_brutto - total_item_netto %}
+
+                <tr>
+                    <td>{{ product_index }}</td>
+                    <td class="left">
+                        <strong>Klejonka drewniana</strong>
+                        <br>
+                        {% if item.variant_code == 'dab-lity-ab' %}Klejonka dębowa lita A/B
+                        {% elif item.variant_code == 'dab-lity-bb' %}Klejonka dębowa lita B/B
+                        {% elif item.variant_code == 'dab-micro-ab' %}Klejonka dębowa mikrowczep A/B
+                        {% elif item.variant_code == 'dab-micro-bb' %}Klejonka dębowa mikrowczep B/B
+                        {% elif item.variant_code == 'jes-lity-ab' %}Klejonka jesionowa lita A/B
+                        {% elif item.variant_code == 'jes-micro-ab' %}Klejonka jesionowa mikrowczep A/B
+                        {% elif item.variant_code == 'buk-lity-ab' %}Klejonka bukowa lita A/B
+                        {% elif item.variant_code == 'buk-micro-ab' %}Klejonka bukowa mikrowczep A/B
+                        {% else %}{{ item.variant_code }}
+                        {% endif %}
+
+                        <!-- POPRAWIONE: Wykończenie z finishing_detail - ZAWSZE wyświetlaj -->
+                        <br><span class="finishing-details">
+                            Wykończenie:
+                            {% if finishing_detail and finishing_detail.finishing_type and finishing_detail.finishing_type != 'Brak' %}
+                            {{ finishing_detail.finishing_type }}
+                            {%- if finishing_detail.finishing_color and finishing_detail.finishing_color != 'Brak' %} - {{ finishing_detail.finishing_color }}{% endif -%}
+                            {%- if finishing_detail.application_method and finishing_detail.application_method != 'Brak' %} ({{ finishing_detail.application_method }}){% endif -%}
+                            {% else %}
+                            brak
+                            {% endif %}
+                        </span>
+                    </td>
+                    <td>{{ "%.1f"|format(item.length_cm) }} × {{ "%.1f"|format(item.width_cm) }} × {{ "%.1f"|format(item.thickness_cm) }}</td>
+                    <td>szt.</td>
+                    <!-- KOLUMNA "Cena netto" - cena za 1 sztukę (z wykończeniem) -->
+                    <td class="right">{{ "%.2f"|format(final_unit_price_netto) }} PLN</td>
+                    <td>{{ quantity }}</td>
+                    <td>23%</td>
+                    <!-- KOLUMNA "Wartość netto" - cena jednostkowa × ilość -->
+                    <td class="right">{{ "%.2f"|format(total_item_netto) }} PLN</td>
+                    <td class="right">{{ "%.2f"|format(vat_amount) }} PLN</td>
+                    <td class="right">{{ "%.2f"|format(total_item_brutto) }} PLN</td>
+                </tr>
+                {% endfor %}
+
+                {% if quote.shipping_cost_brutto and quote.shipping_cost_brutto > 0 %}
+                {% set shipping_vat = quote.shipping_cost_brutto - quote.costs.shipping.netto %}
+                <tr>
+                    <td></td>
+                    <td class="left">
+                        <strong>Dostawa</strong>
+                        <br><span class="finishing-details"> Kurier: {{ quote.courier_name or 'Do uzgodnienia' }}</span>
+                    </td>
+                    <td>-</td>
+                    <td>usł.</td>
+                    <td class="right">{{ "%.2f"|format(quote.costs.shipping.netto) }} PLN</td>
+                    <td>1</td>
+                    <td>23%</td>
+                    <td class="right">{{ "%.2f"|format(quote.costs.shipping.netto) }} PLN</td>
+                    <td class="right">{{ "%.2f"|format(shipping_vat) }} PLN</td>
+                    <td class="right">{{ "%.2f"|format(quote.shipping_cost_brutto) }} PLN</td>
+                </tr>
+                {% endif %}
+
+                <!-- PODSUMOWANIE Z DODANĄ KWOTĄ VAT -->
+                <tr class="summary-row">
+                    <td colspan="7" style="border-left: 2px solid #FFF; border-bottom: 2px solid #FFF; background-color:#FFF;"></td>
+                    <td><strong>Netto</strong></td>
+                    <td><strong>VAT 23%</strong></td>
+                    <td><strong>Brutto</strong></td>
+                </tr>
+
+                <tr>
+                    <td colspan="7" style="border-left: 2px solid #FFF; border-bottom: 2px solid #FFF; background-color:#FFF;"></td>
+                    <td class="right"><strong>{{ "%.2f"|format(quote.costs.total.netto) }} PLN</strong></td>
+                    <td class="right"><strong>{{ "%.2f"|format(quote.costs.total.brutto - quote.costs.total.netto) }} PLN</strong></td>
+                    <td class="right"><strong>{{ "%.2f"|format(quote.costs.total.brutto) }} PLN</strong></td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <!-- UWAGI I DANE - SEKCJA NA DOLE PRZED STOPKĄ -->
+    <div class="bottom-content">
+        <div class="bottom-flex-container">
+            <!-- LEWA KOLUMNA - UWAGI I WARUNKI -->
+            <div class="bottom-section-left">
+                <div class="bottom-section-title">Uwagi i warunki:</div>
+                <ul>
+                    <li>Termin realizacji: do uzgodnienia po potwierdzeniu zamówienia</li>
+                    <li>Płatność: przelew bankowy, przelew online</li>
+                    {% if quote.shipping_cost_brutto and quote.shipping_cost_brutto > 0 %}
+                    <li>Koszt dostawy: {{ "%.2f"|format(quote.shipping_cost_brutto) }} PLN brutto ({{ quote.courier_name or 'kurier' }})</li>
+                    {% else %}
+                    <li>Koszt dostawy do uzgodnienia indywidualnie</li>
+                    {% endif %}
+                </ul>
+            </div>
+
+            <!-- PRAWA KOLUMNA - DANE DO PRZELEWU -->
+            <div class="bottom-section-right">
+                <div class="bottom-section-title">Dane do przelewu:</div>
+                <div class="payment-info">
+                    <div><strong>Santander Bank Polska S.A.</strong></div>
+                    <div><strong>Numer konta:</strong> 28 1090 2590 0000 0001 3689 2780</div>
+                    <div><strong>Tytuł przelewu:</strong> Oferta {{ quote.quote_number }}</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- STOPKA Z KONTAKTEM - TABELA Z OSOBNYMI KOMÓRKAMI -->
+    <div class="footer">
+        <table class="footer-table">
+            <tr>
+                <!-- TELEFON -->
+                <td class="footer-icon-cell">
+                    {% if icons.phone %}
+                    <img src="{{ icons.phone }}" alt="Phone" class="footer-icon">
+                    {% endif %}
+                </td>
+                <td class="footer-text-cell" style="width: 10%;">
+                    <div class="footer-text footer-phone">+48 690 002 109<br>+48 793 911 916</div>
+                </td>
+
+                <!-- EMAIL -->
+                <td class="footer-icon-cell">
+                    {% if icons.email %}
+                    <img src="{{ icons.email }}" alt="Email" class="footer-icon">
+                    {% endif %}
+                </td>
+                <td class="footer-text-cell" style="width: 12%;">
+                    <div class="footer-text">biuro@woodpower.pl</div>
+                </td>
+
+                <!-- LOKALIZACJA -->
+                <td class="footer-icon-cell">
+                    {% if icons.location %}
+                    <img src="{{ icons.location }}" alt="Location" class="footer-icon">
+                    {% endif %}
+                </td>
+                <td class="footer-text-cell" style="width: 9%;">
+                    <div class="footer-text">Bachórz 14N,<br>36-068 Bachórz</div>
+                </td>
+
+                <!-- STRONA WWW -->
+                <td class="footer-icon-cell">
+                    {% if icons.website %}
+                    <img src="{{ icons.website }}" alt="Website" class="footer-icon">
+                    {% endif %}
+                </td>
+                <td class="footer-text-cell" style="width: 12%;">
+                    <div class="footer-text">www.woodpower.pl</div>
+                </td>
+
+                <!-- INSTAGRAM -->
+                <td class="footer-icon-cell">
+                    {% if icons.instagram %}
+                    <img src="{{ icons.instagram }}" alt="Instagram" class="footer-icon">
+                    {% endif %}
+                </td>
+                <td class="footer-text-cell" style="width: 9%;">
+                    <div class="footer-text">__wood_power__</div>
+                </td>
+
+                <!-- FACEBOOK -->
+                <td class="footer-icon-cell">
+                    {% if icons.facebook %}
+                    <img src="{{ icons.facebook }}" alt="Facebook" class="footer-icon">
+                    {% endif %}
+                </td>
+                <td class="footer-text-cell" style="width: 10%;">
+                    <div class="footer-text">woodpower</div>
+                </td>
+            </tr>
+        </table>
+    </div>
+</body>
+</html>

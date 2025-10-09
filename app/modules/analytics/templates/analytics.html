@@ -1,0 +1,429 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <title>Statystyki - Wood Power CRM</title>
+    <link rel="icon" href="{{ url_for('static', filename='images/favicon.png') }}" type="image/png">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="stylesheet" href="{{ url_for('analytics.static', filename='css/analytics.css') }}">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+</head>
+<body>
+    <div class="app-container">
+        {% include 'sidebar/sidebar.html' %}
+        <main class="main-content">
+            <h1 class="title-with-underline">Statystyki</h1>
+
+            <!-- System tabów - SPRZEDAŻ PIERWSZA I AKTYWNA -->
+            <div class="tabs">
+                <div class="tab active" data-tab="sales-analytics">💰 Sprzedaż</div>
+                <div class="tab" data-tab="team-analytics">👥 Zespół</div>
+                <div class="tab" data-tab="clients-analytics">👤 Klienci</div>
+                <div class="tab" data-tab="baselinker-analytics">🔗 Baselinker</div>
+                <div class="tab" data-tab="public-calc">📊 Kalkulator publiczny</div>
+            </div>
+
+            <!-- ========================================= -->
+            <!-- ZAKŁADKA 1: SPRZEDAŻ - AKTYWNA -->
+            <!-- ========================================= -->
+            <div id="sales-analytics" class="tab-content active">
+                <div class="analytics-export-header">
+                    <h2>Analityka sprzedaży</h2>
+                    <div class="export-buttons">
+                        <button class="export-btn" data-type="sales" data-format="xlsx">
+                            📊 Export XLSX
+                        </button>
+                        <button class="export-btn" data-type="sales" data-format="csv">
+                            📋 Export CSV
+                        </button>
+                    </div>
+                </div>
+
+                <!-- KPI Cards -->
+                <div class="analytics-box">
+                    <div class="analytics-box-header">
+                        <h2>KPI Sprzedażowe</h2>
+                    </div>
+                    <div class="analytics-stat-card-group">
+                        <div class="analytics-stat-card sales-kpi">
+                            <h3>💰 Miesięczna wartość</h3>
+                            <p id="sales-monthly-value">{{ sales_kpi.monthly_value if sales_kpi else 0 }} PLN</p>
+                        </div>
+                        <div class="analytics-stat-card sales-kpi">
+                            <h3>📈 Konwersja Accepted</h3>
+                            <p id="sales-conversion-accepted">{{ sales_kpi.conversion_accepted if sales_kpi else 0 }}%</p>
+                        </div>
+                        <div class="analytics-stat-card sales-kpi">
+                            <h3>🔗 Konwersja Baselinker</h3>
+                            <p id="sales-conversion-baselinker">{{ sales_kpi.conversion_baselinker if sales_kpi else 0 }}%</p>
+                        </div>
+                        <div class="analytics-stat-card sales-kpi">
+                            <h3>💎 Średnia wartość oferty</h3>
+                            <p id="sales-avg-deal">{{ sales_kpi.avg_deal_value if sales_kpi else 0 }} PLN</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Trendy sprzedaży -->
+                <div class="analytics-box">
+                    <div class="analytics-box-header">
+                        <h2>Trendy sprzedaży (ostatnie 12 miesięcy)</h2>
+                        <div class="chart-controls">
+                            <select id="sales-months-select" class="chart-select">
+                                <option value="6">6 miesięcy</option>
+                                <option value="12" selected>12 miesięcy</option>
+                                <option value="24">24 miesiące</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="analytics-box-content">
+                        <canvas id="salesTrendChart" width="800" height="300"></canvas>
+                    </div>
+                </div>
+
+                <!-- Popularne produkty -->
+                <div class="analytics-box">
+                    <div class="analytics-box-header">
+                        <h2>Najpopularniejsze produkty</h2>
+                    </div>
+                    <div class="analytics-box-content">
+                        <div class="products-table-container">
+                            <table id="popular-products-table" class="analytics-table">
+                                <thead>
+                                    <tr>
+                                        <th>Kod wariantu</th>
+                                        <th>Liczba użyć</th>
+                                        <th>Śr. cena/m³</th>
+                                        <th>Łączna objętość</th>
+                                        <th>Śr. wymiary</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <!-- Dane załadowane przez JS -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ========================================= -->
+            <!-- ZAKŁADKA 2: ZESPÓŁ -->
+            <!-- ========================================= -->
+            <div id="team-analytics" class="tab-content">
+                <div class="analytics-export-header">
+                    <h2>Performance zespołu</h2>
+                    <div class="export-buttons">
+                        <button class="export-btn" data-type="team" data-format="xlsx">
+                            📊 Export XLSX
+                        </button>
+                        <button class="export-btn" data-type="team" data-format="csv">
+                            📋 Export CSV
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Tabela zespołu -->
+                <div class="analytics-box">
+                    <div class="analytics-box-header">
+                        <h2>Statystyki użytkowników</h2>
+                        <div class="team-summary">
+                            <span id="team-count">{{ team_count if team_count else 0 }} członków zespołu</span>
+                        </div>
+                    </div>
+                    <div class="analytics-box-content">
+                        <div class="team-table-container">
+                            <table id="team-performance-table" class="analytics-table">
+                                <thead>
+                                    <tr>
+                                        <th>Użytkownik</th>
+                                        <th>Liczba ofert</th>
+                                        <th>Wartość łączna</th>
+                                        <th>Średnia wartość</th>
+                                        <th>Conv. Accepted</th>
+                                        <th>Conv. Baselinker</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <!-- Dane załadowane przez JS -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Wykresy porównawcze zespołu -->
+                <div class="analytics-box">
+                    <div class="analytics-box-header">
+                        <h2>Porównanie performance</h2>
+                        <div class="analytics-sub-tabs">
+                            <button class="analytics-sub-tab active" data-target="teamQuotesChart">Liczba ofert</button>
+                            <button class="analytics-sub-tab" data-target="teamValueChart">Wartość</button>
+                            <button class="analytics-sub-tab" data-target="teamConversionChart">Konwersja</button>
+                        </div>
+                    </div>
+                    <div class="analytics-box-content">
+                        <canvas id="teamQuotesChart" class="analytics-sub-chart visible" width="600" height="250"></canvas>
+                        <canvas id="teamValueChart" class="analytics-sub-chart" width="600" height="250"></canvas>
+                        <canvas id="teamConversionChart" class="analytics-sub-chart" width="600" height="250"></canvas>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ========================================= -->
+            <!-- ZAKŁADKA 3: KLIENCI -->
+            <!-- ========================================= -->
+            <div id="clients-analytics" class="tab-content">
+                <div class="analytics-export-header">
+                    <h2>Analityka klientów</h2>
+                    <div class="export-buttons">
+                        <button class="export-btn" data-type="clients" data-format="xlsx">
+                            📊 Export XLSX
+                        </button>
+                        <button class="export-btn" data-type="clients" data-format="csv">
+                            📋 Export CSV
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Top klienci -->
+                <div class="analytics-box">
+                    <div class="analytics-box-header">
+                        <h2>Top klienci według wartości</h2>
+                        <div class="chart-controls">
+                            <select id="clients-limit-select" class="chart-select">
+                                <option value="10">Top 10</option>
+                                <option value="20" selected>Top 20</option>
+                                <option value="50">Top 50</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="analytics-box-content">
+                        <div class="clients-table-container">
+                            <table id="top-clients-table" class="analytics-table">
+                                <thead>
+                                    <tr>
+                                        <th>Klient</th>
+                                        <th>Miasto</th>
+                                        <th>Źródło</th>
+                                        <th>Liczba ofert</th>
+                                        <th>Wartość łączna</th>
+                                        <th>Conv. Accepted</th>
+                                        <th>Conv. Baselinker</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <!-- Dane załadowane przez JS -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Geografia -->
+                <div class="analytics-grid-2">
+                    <div class="analytics-box">
+                        <div class="analytics-box-header">
+                            <h2>Mapa klientów</h2>
+                        </div>
+                        <div class="analytics-box-content">
+                            <div id="poland-map" style="height: 400px; width: 100%;"></div>
+                        </div>
+                    </div>
+
+                    <div class="analytics-box">
+                        <div class="analytics-box-header">
+                            <h2>Top miasta</h2>
+                        </div>
+                        <div class="analytics-box-content">
+                            <canvas id="citiesChart" width="400" height="250"></canvas>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="analytics-grid-2">
+                    <div class="analytics-box">
+                        <div class="analytics-box-header">
+                            <h2>Źródła klientów</h2>
+                        </div>
+                        <div class="analytics-box-content">
+                            <canvas id="sourcesChart" width="400" height="250"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ========================================= -->
+            <!-- ZAKŁADKA 4: BASELINKER -->
+            <!-- ========================================= -->
+            <div id="baselinker-analytics" class="tab-content">
+                <div class="analytics-export-header">
+                    <h2>Analityka Baselinker</h2>
+                    <div class="export-buttons">
+                        <button class="export-btn" data-type="baselinker" data-format="xlsx">
+                            📊 Export XLSX
+                        </button>
+                        <button class="export-btn" data-type="baselinker" data-format="csv">
+                            📋 Export CSV
+                        </button>
+                    </div>
+                </div>
+
+                <!-- KPI Baselinker -->
+                <div class="analytics-box">
+                    <div class="analytics-box-header">
+                        <h2>KPI Baselinker</h2>
+                    </div>
+                    <div class="analytics-stat-card-group">
+                        <div class="analytics-stat-card baselinker-kpi">
+                            <h3>📦 Zamówienia łącznie</h3>
+                            <p id="baselinker-total-orders">-</p>
+                        </div>
+                        <div class="analytics-stat-card baselinker-kpi">
+                            <h3>📊 Wskaźnik konwersji</h3>
+                            <p id="baselinker-conversion-rate">{{ baselinker_conversion if baselinker_conversion else 0 }}%</p>
+                        </div>
+                        <div class="analytics-stat-card baselinker-kpi">
+                            <h3>✅ Wskaźnik sukcesu (30 dni)</h3>
+                            <p id="baselinker-success-rate">-</p>
+                        </div>
+                        <div class="analytics-stat-card baselinker-kpi">
+                            <h3>⚠️ Błędy (30 dni)</h3>
+                            <p id="baselinker-errors">-</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Konwersja według statusów -->
+                <div class="analytics-box">
+                    <div class="analytics-box-header">
+                        <h2>Konwersja według statusów ofert</h2>
+                    </div>
+                    <div class="analytics-box-content">
+                        <canvas id="statusConversionChart" width="600" height="300"></canvas>
+                    </div>
+                </div>
+
+                <!-- Ostatnie logi -->
+                <div class="analytics-box">
+                    <div class="analytics-box-header">
+                        <h2>Ostatnie akcje Baselinker</h2>
+                    </div>
+                    <div class="analytics-box-content">
+                        <div class="baselinker-logs-container">
+                            <table id="baselinker-logs-table" class="analytics-table">
+                                <thead>
+                                    <tr>
+                                        <th>Data</th>
+                                        <th>Oferta</th>
+                                        <th>Akcja</th>
+                                        <th>Status</th>
+                                        <th>Błąd</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <!-- Dane załadowane przez JS -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ========================================= -->
+            <!-- ZAKŁADKA 5: KALKULATOR PUBLICZNY - OSTATNIA -->
+            <!-- ========================================= -->
+            <div id="public-calc" class="tab-content">
+                <div class="analytics-export-header">
+                    <h2>Statystyki kalkulatora publicznego</h2>
+                    <div class="export-buttons">
+                        <button class="export-btn" data-type="public_calc" data-format="xlsx">
+                            📊 Export XLSX
+                        </button>
+                        <button class="export-btn" data-type="public_calc" data-format="csv">
+                            📋 Export CSV
+                        </button>
+                    </div>
+                </div>
+
+                <div class="analytics-box">
+                    <div class="analytics-box-header">
+                        <h2>Podsumowanie sesji</h2>
+                    </div>
+                    <div class="analytics-stat-card-group">
+                        <div class="analytics-stat-card">
+                            <h3>🔢 Liczba sesji</h3>
+                            <p>{{ total_sessions }}</p>
+                        </div>
+                        <div class="analytics-stat-card">
+                            <h3>⏱ Średni czas sesji</h3>
+                            <p>{{ avg_duration_sec }} sek.</p>
+                        </div>
+                        <div class="analytics-stat-card">
+                            <h3>🧠 Sesje z wyborem koloru</h3>
+                            <p>{{ color_sessions }}</p>
+                        </div>
+                        <div class="analytics-stat-card">
+                            <h3>🎯 Sesje z wariantem</h3>
+                            <p>{{ variant_sessions }}</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="analytics-box">
+                    <div class="analytics-box-header">
+                        <h2>Warianty i wykończenia</h2>
+                        <div class="analytics-sub-tabs">
+                            <button class="analytics-sub-tab active" data-target="variantChart">Warianty</button>
+                            <button class="analytics-sub-tab" data-target="finishingChart">Wykończenia</button>
+                        </div>
+                    </div>
+                    <div class="analytics-box-content">
+                        <canvas id="variantChart" class="analytics-sub-chart visible" width="300" height="150"></canvas>
+                        <canvas id="finishingChart" class="analytics-sub-chart" width="300" height="150"></canvas>
+                    </div>
+                </div>
+
+                <div class="analytics-box">
+                    <div class="analytics-box-header">
+                        <h2>Wymiary</h2>
+                    </div>
+                    <div class="analytics-box-content">
+                        <canvas id="dimensionChart" width="300" height="150"></canvas>
+                    </div>
+                </div>
+
+                <div class="analytics-box">
+                    <div class="analytics-box-header">
+                        <h2>Najczęściej wybierane kolory</h2>
+                    </div>
+                    <div class="analytics-box-content">
+                        <canvas id="colorChart" width="300" height="150"></canvas>
+                    </div>
+                </div>
+            </div>
+
+        </main>
+    </div>
+
+    <!-- Loading overlay -->
+    <div id="analytics-loading" class="analytics-loading hidden">
+        <div class="loading-spinner"></div>
+        <p>Ładowanie danych...</p>
+    </div>
+
+    <!-- Scripts -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="{{ url_for('analytics.static', filename='js/product_translator.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/sidebar.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+    <script src="{{ url_for('analytics.static', filename='js/public_analytics.js') }}"></script>
+    <script src="{{ url_for('analytics.static', filename='js/sales_analytics.js') }}"></script>
+    <script src="{{ url_for('analytics.static', filename='js/team_analytics.js') }}"></script>
+    <script src="{{ url_for('analytics.static', filename='js/clients_analytics.js') }}"></script>
+    <script src="{{ url_for('analytics.static', filename='js/baselinker_analytics.js') }}"></script>
+    <script src="{{ url_for('analytics.static', filename='js/export_utils.js') }}"></script>
+    <script src="{{ url_for('analytics.static', filename='js/analytics_main.js') }}"></script>
+</body>
+</html>

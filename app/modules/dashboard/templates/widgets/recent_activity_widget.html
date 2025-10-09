@@ -1,0 +1,84 @@
+<!-- Recent Activity Widget -->
+<div class="widget recent-activity">
+    <h2 class="widget-title">
+        <span class="widget-icon">⚡</span>
+        Ostatnie działania
+    </h2>
+    <div class="activity-tabs">
+        <div class="activity-tab active" data-tab="quotes">Wyceny</div>
+        <div class="activity-tab" data-tab="clients">Klienci</div>
+        <div class="activity-tab" data-tab="production">Produkcja</div>
+    </div>
+
+    <!-- Tab: Ostatnie Wyceny -->
+    <div class="activity-content" id="quotes-content">
+        {% if stats.recent.quotes %}
+        <div class="activity-list">
+            {% for quote in stats.recent.quotes %}
+            <div class="activity-item">
+                <div class="activity-title">
+                    <a href="/quotes/{{ quote.id }}">Wycena #{{ quote.quote_number }}</a>
+                </div>
+                <div class="activity-meta">
+                    {% if quote.client %}
+                    Klient: {{ quote.client.client_name or quote.client.email }}
+                    {% endif %}
+                    • {{ quote.created_at.strftime('%d.%m.%Y %H:%M') }}
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+        {% else %}
+        <div class="activity-list">
+            <div class="activity-item">
+                <div class="activity-title">Wycena #WP2025-0156</div>
+                <div class="activity-meta">Klient: Jan Kowalski • 2 godziny temu</div>
+            </div>
+            <div class="activity-item">
+                <div class="activity-title">Wycena #WP2025-0155</div>
+                <div class="activity-meta">Klient: Stolarpol Sp. z o.o. • 4 godziny temu</div>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+
+    <!-- Tab: Nowi Klienci -->
+    <div class="activity-content hidden" id="clients-content">
+        {% if stats.recent.clients %}
+        <div class="activity-list">
+            {% for client in stats.recent.clients %}
+            <div class="activity-item">
+                <div class="activity-title">
+                    <a href="/clients/{{ client.id }}">{{ client.client_name or client.email }}</a>
+                </div>
+                <div class="activity-meta">
+                    {% if client.source %}{{ client.source }}{% endif %}
+                    {% if client.client_number %}• ID: {{ client.client_number }}{% endif %}
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+        {% else %}
+        <div class="activity-list">
+            <div class="activity-item">
+                <div class="activity-title">Nowy klient: Anna Nowak</div>
+                <div class="activity-meta">Źródło: Website • wczoraj</div>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+
+    <!-- Tab: Produkcja -->
+    <div class="activity-content hidden" id="production-content">
+        <div class="activity-list">
+            <div class="activity-item">
+                <div class="activity-title">Zamówienie #BL-2025-0123</div>
+                <div class="activity-meta">Status: W produkcji • 1 dzień temu</div>
+            </div>
+            <div class="activity-item">
+                <div class="activity-title">Zamówienie #BL-2025-0122</div>
+                <div class="activity-meta">Status: Gotowe do odbioru • 2 dni temu</div>
+            </div>
+        </div>
+    </div>
+</div>

@@ -1,0 +1,350 @@
+<!-- modules/baselinker/templates/order_modal.html -->
+<div id="baselinker-modal" class="bl-style-modal-overlay" style="display: none;">
+    <div class="bl-style-modal-box">
+        <div class="bl-style-modal-header">
+            <h2 class="bl-style-modal-title">
+                <span class="bl-style-icon">📦</span>
+                Składanie zamówienia w Baselinker
+            </h2>
+            <div class="bl-style-modal-header-actions">
+                <button class="bl-style-btn bl-style-btn-sync" id="baselinker-sync-config" title="Synchronizuj konfigurację">
+                    <span>Sync</span>
+                </button>
+                <button class="bl-style-modal-close" id="baselinker-close-modal">&times;</button>
+            </div>
+        </div>
+
+        <!-- Progress Bar -->
+        <div class="bl-style-progress-section">
+            <div class="bl-style-progress-bar">
+                <div class="bl-style-progress-step active" data-step="1">
+                    <div class="bl-style-step-number">1</div>
+                    <div class="bl-style-step-label">Przegląd</div>
+                </div>
+                <div class="bl-style-progress-step" data-step="2">
+                    <div class="bl-style-step-number">2</div>
+                    <div class="bl-style-step-label">Konfiguracja</div>
+                </div>
+                <div class="bl-style-progress-step" data-step="3">
+                    <div class="bl-style-step-number">3</div>
+                    <div class="bl-style-step-label">Potwierdzenie</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Modal Content -->
+        <div class="bl-style-modal-content">
+            <!-- Krok 1: Przegląd zamówienia -->
+            <div class="bl-style-step-content active" data-step="1">
+                <div class="bl-style-section">
+                    <h3 class="bl-style-section-title">
+                        <span class="bl-style-icon">📋</span>
+                        Przegląd zamówienia
+                    </h3>
+
+                    <div class="bl-style-review-grid">
+                        <div class="bl-style-summary-box" id="baselinker-order-summary">
+                            <!-- Wypełniane dynamicznie -->
+                        </div>
+
+                        <div class="bl-style-financial-summary" id="baselinker-financial-summary">
+                            <!-- Przeniesione z dalszej części -->
+                        </div>
+                    </div>
+                </div>
+
+                <div class="bl-style-section">
+                    <h3 class="bl-style-section-title">
+                        <span class="bl-style-icon">📦</span>
+                        Produkty do zamówienia
+                    </h3>
+
+                    <div class="bl-style-products-container">
+                        <div class="bl-style-products-header">
+                            <div>Produkt</div>
+                            <div>Wymiary</div>
+                            <div>Ilość</div>
+                            <div style="text-align: right;">Cena</div>
+                        </div>
+                        <div class="bl-style-products-body" id="baselinker-products-list">
+                            <!-- Wypełniane dynamicznie -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Krok 2: Konfiguracja -->
+            <div class="bl-style-step-content" data-step="2">
+                <div class="bl-style-section">
+                    <h3 class="bl-style-section-title">
+                        <span class="bl-style-icon">⚙️</span>
+                        Konfiguracja zamówienia
+                    </h3>
+
+                    <div class="bl-style-form-grid">
+                        <div class="bl-style-form-group">
+                            <label class="bl-style-form-label">Źródło zamówienia *</label>
+                            <select id="order-source-select" class="bl-style-form-select" required>
+                                <option value="">Wybierz źródło...</option>
+                            </select>
+                        </div>
+
+                        <div class="bl-style-form-group">
+                            <label class="bl-style-form-label">Status zamówienia *</label>
+                            <select id="order-status-select" class="bl-style-form-select" required>
+                                <option value="">Wybierz status...</option>
+                            </select>
+                        </div>
+
+                        <div class="bl-style-form-group">
+                            <label class="bl-style-form-label">Metoda płatności *</label>
+                            <select id="payment-method-select" class="bl-style-form-select" required>
+                                <option value="">Wybierz metodę...</option>
+                            </select>
+                        </div>
+
+                        <div class="bl-style-form-group">
+                            <label class="bl-style-form-label">Metoda dostawy</label>
+                            <select id="delivery-method-select" class="bl-style-form-select">
+                                <option value="">Wybierz metodę...</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="bl-style-section">
+                    <h3 class="bl-style-section-title">
+                        <span class="bl-style-icon">📍</span>
+                        Dane klienta
+                    </h3>
+
+                    <h4 class="bl-style-section-subtitle">Adres dostawy</h4>
+                    <div class="bl-style-client-form-grid">
+                        <div class="bl-style-form-group">
+                            <label class="bl-style-form-label">Imię i nazwisko</label>
+                            <input type="text" id="delivery-fullname" class="bl-style-form-input">
+                        </div>
+                        <div class="bl-style-form-group">
+                            <label class="bl-style-form-label">Firma</label>
+                            <input type="text" id="delivery-company" class="bl-style-form-input">
+                        </div>
+                        <div class="bl-style-form-group">
+                            <label class="bl-style-form-label">Adres</label>
+                            <input type="text" id="delivery-address" class="bl-style-form-input">
+                        </div>
+                        <div class="bl-style-form-group">
+                            <label class="bl-style-form-label">Kod pocztowy</label>
+                            <input type="text" id="delivery-postcode" class="bl-style-form-input">
+                        </div>
+                        <div class="bl-style-form-group">
+                            <label class="bl-style-form-label">Miasto</label>
+                            <input type="text" id="delivery-city" class="bl-style-form-input">
+                        </div>
+                        <!-- 🆕 NOWE POLE - WOJEWÓDZTWO -->
+                        <div class="bl-style-form-group">
+                            <label class="bl-style-form-label">Województwo</label>
+                            <select id="delivery-region" class="bl-style-form-select">
+                                <option value="">Wybierz województwo...</option>
+                                <option value="dolnośląskie">Dolnośląskie</option>
+                                <option value="kujawsko-pomorskie">Kujawsko-pomorskie</option>
+                                <option value="lubelskie">Lubelskie</option>
+                                <option value="lubuskie">Lubuskie</option>
+                                <option value="łódzkie">Łódzkie</option>
+                                <option value="małopolskie">Małopolskie</option>
+                                <option value="mazowieckie">Mazowieckie</option>
+                                <option value="opolskie">Opolskie</option>
+                                <option value="podkarpackie">Podkarpackie</option>
+                                <option value="podlaskie">Podlaskie</option>
+                                <option value="pomorskie">Pomorskie</option>
+                                <option value="śląskie">Śląskie</option>
+                                <option value="świętokrzyskie">Świętokrzyskie</option>
+                                <option value="warmińsko-mazurskie">Warmińsko-mazurskie</option>
+                                <option value="wielkopolskie">Wielkopolskie</option>
+                                <option value="zachodniopomorskie">Zachodniopomorskie</option>
+                            </select>
+                        </div>
+                        <div class="bl-style-form-group">
+                            <label class="bl-style-form-label">E-mail</label>
+                            <input type="text" id="client-email" class="bl-style-form-input">
+                        </div>
+                        <div class="bl-style-form-group">
+                            <label class="bl-style-form-label">Telefon</label>
+                            <input type="text" id="client-phone" class="bl-style-form-input">
+                        </div>
+                    </div>
+
+                    <div class="bl-style-invoice-section">
+                        <div class="bl-style-form-group bl-style-checkbox-group">
+                            <label class="bl-style-checkbox-label">
+                                <input type="checkbox" id="want-invoice-checkbox" class="bl-style-checkbox">
+                                <span class="bl-style-checkbox-text">Klient chce fakturę</span>
+                            </label>
+                        </div>
+
+                        <div id="invoice-data-section" class="bl-style-invoice-data" style="display: none;">
+                            <h4 class="bl-style-section-subtitle">Dane do faktury</h4>
+                            <div class="bl-style-client-form-grid">
+                                <div class="bl-style-form-group">
+                                    <label class="bl-style-form-label">Imię i nazwisko</label>
+                                    <input type="text" id="invoice-fullname" class="bl-style-form-input">
+                                </div>
+                                <div class="bl-style-form-group">
+                                    <label class="bl-style-form-label">Firma</label>
+                                    <input type="text" id="invoice-company" class="bl-style-form-input">
+                                </div>
+                                <div class="bl-style-form-group">
+                                    <label class="bl-style-form-label">Adres</label>
+                                    <input type="text" id="invoice-address" class="bl-style-form-input">
+                                </div>
+                                <div class="bl-style-form-group">
+                                    <label class="bl-style-form-label">Kod pocztowy</label>
+                                    <input type="text" id="invoice-postcode" class="bl-style-form-input">
+                                </div>
+                                <div class="bl-style-form-group">
+                                    <label class="bl-style-form-label">Miasto</label>
+                                    <input type="text" id="invoice-city" class="bl-style-form-input">
+                                </div>
+                                <!-- 🆕 NOWE POLE - WOJEWÓDZTWO FAKTURY -->
+                                <div class="bl-style-form-group">
+                                    <label class="bl-style-form-label">Województwo</label>
+                                    <select id="invoice-region" class="bl-style-form-select">
+                                        <option value="">Wybierz województwo...</option>
+                                        <option value="dolnośląskie">Dolnośląskie</option>
+                                        <option value="kujawsko-pomorskie">Kujawsko-pomorskie</option>
+                                        <option value="lubelskie">Lubelskie</option>
+                                        <option value="lubuskie">Lubuskie</option>
+                                        <option value="łódzkie">Łódzkie</option>
+                                        <option value="małopolskie">Małopolskie</option>
+                                        <option value="mazowieckie">Mazowieckie</option>
+                                        <option value="opolskie">Opolskie</option>
+                                        <option value="podkarpackie">Podkarpackie</option>
+                                        <option value="podlaskie">Podlaskie</option>
+                                        <option value="pomorskie">Pomorskie</option>
+                                        <option value="śląskie">Śląskie</option>
+                                        <option value="świętokrzyskie">Świętokrzyskie</option>
+                                        <option value="warmińsko-mazurskie">Warmińsko-mazurskie</option>
+                                        <option value="wielkopolskie">Wielkopolskie</option>
+                                        <option value="zachodniopomorskie">Zachodniopomorskie</option>
+                                    </select>
+                                </div>
+                                <div class="bl-style-form-group">
+                                    <label class="bl-style-form-label">NIP</label>
+                                    <input type="text" id="invoice-nip" class="bl-style-form-input">
+                                </div>
+                            </div>
+                        </div>
+                        <div class="bl-style-info-box">
+                            <div class="bl-style-info-icon">ℹ️</div>
+                            <div class="bl-style-info-text">
+                                <strong>Informacja:</strong> Dane klienta zostaną automatycznie przeniesione z wyceny do zamówienia w Baselinker.
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Krok 3: Potwierdzenie -->
+            <div class="bl-style-step-content" data-step="3">
+                <div class="bl-style-section">
+                    <h3 class="bl-style-section-title">
+                        <span class="bl-style-icon">✅</span>
+                        Potwierdzenie składania zamówienia
+                    </h3>
+
+                    <div class="bl-style-warning-box">
+                        <div class="bl-style-warning-icon">⚠️</div>
+                        <div class="bl-style-warning-text">
+                            <strong>Uwaga!</strong> Po kliknięciu "Złóż zamówienie" dane zostaną wysłane do systemu Baselinker i utworzone zostanie nowe zamówienie. Tej operacji nie można cofnąć.
+                        </div>
+                    </div>
+
+                    <div class="bl-style-summary-box" id="baselinker-final-summary">
+                        <!-- Wypełniane dynamicznie -->
+                    </div>
+
+                    <div class="bl-style-section" id="baselinker-validation-results">
+                        <h4 class="bl-style-section-subtitle">Wybrana konfiguracja:</h4>
+                        <div class="bl-style-config-summary" id="baselinker-config-display">
+                            <!-- Wypełniane dynamicznie -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Modal Footer Actions - POPRAWIONA WERSJA -->
+        <div class="bl-style-modal-footer">
+            <div class="bl-style-modal-actions">
+                <button class="bl-style-btn bl-style-btn-secondary" id="baselinker-close-modal-footer">
+                    Anuluj
+                </button>
+                <button class="bl-style-btn bl-style-btn-secondary" id="baselinker-prev-step" style="display: none;">
+                    ← Poprzedni
+                </button>
+                <button class="bl-style-btn bl-style-btn-primary" id="baselinker-next-step">
+                    Następny →
+                </button>
+                <button class="bl-style-btn bl-style-btn-order" id="baselinker-submit-order" style="display: none;">
+                    <span class="bl-style-btn-text">Złóż zamówienie</span>
+                    <span class="bl-style-btn-loading" style="display: none;">
+                        <span class="bl-style-spinner"></span>
+                        Składanie...
+                    </span>
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+<!-- Modal potwierdzenia sukcesu -->
+<div id="baselinker-success-modal" class="bl-style-modal-overlay" style="display: none;">
+    <div class="bl-style-modal-box" style="max-width: 600px;">
+        <div class="bl-style-modal-header" style="background: linear-gradient(135deg, #07B90D 0%, #059c0a 100%);">
+            <h2 class="bl-style-modal-title">
+                <span class="bl-style-icon">✅</span>
+                Zamówienie zostało złożone pomyślnie!
+            </h2>
+            <button class="bl-style-modal-close" id="success-modal-close">&times;</button>
+        </div>
+
+        <div class="bl-style-modal-content" style="text-align: center; padding: 40px 24px;">
+            <div class="success-content">
+                <!-- Ikona sukcesu -->
+                <div class="success-icon" style="margin-bottom: 24px;">
+                    <div style="width: 80px; height: 80px; background: linear-gradient(135deg, #07B90D 0%, #059c0a 100%); border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto; box-shadow: 0 8px 32px rgba(7, 185, 13, 0.3);">
+                        <span style="color: white; font-size: 36px; font-weight: bold;">✓</span>
+                    </div>
+                </div>
+
+                <!-- Informacje o zamówieniu -->
+                <div class="order-info" style="margin-bottom: 32px;">
+                    <h3 style="color: #1F2020; margin-bottom: 8px; font-size: 18px;">Numer zamówienia w Baselinker:</h3>
+                    <div class="order-number" style="font-size: 32px; font-weight: bold; color: #07B90D; margin-bottom: 16px;" id="success-order-id">
+                        #123456
+                    </div>
+                    <p style="color: #666; font-size: 14px; line-height: 1.5;" id="success-quote-info">
+                        Zamówienie dla wyceny <strong id="success-quote-number">XX/XX/XX/W</strong> zostało pomyślnie utworzone w systemie Baselinker.
+                    </p>
+                </div>
+
+                <!-- Akcje -->
+                <div class="success-actions" style="display: flex; gap: 16px; justify-content: center; flex-wrap: wrap;">
+                    <button id="view-order-baselinker" class="bl-style-btn bl-style-btn-primary" style="min-width: 200px;">
+                        <span class="bl-style-icon">🔗</span>
+                        Przejdź do Baselinker
+                    </button>
+                    <button id="success-modal-close-btn" class="bl-style-btn bl-style-btn-secondary" style="min-width: 120px;">
+                        Zamknij
+                    </button>
+                </div>
+
+                <!-- Dodatkowe informacje -->
+                <div class="success-notes" style="margin-top: 32px; padding: 16px; background: #F0F8FF; border-radius: 8px; border-left: 4px solid #2196F3;">
+                    <p style="color: #1565c0; font-size: 13px; margin: 0; line-height: 1.4;">
+                        <strong>ℹ️ Informacja:</strong> Status wyceny został automatycznie zmieniony na "Złożone". 
+                        Możesz teraz zarządzać zamówieniem w panelu Baselinker.
+                    </p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>

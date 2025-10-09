@@ -1,0 +1,55 @@
+#usda 1.0
+(
+    customLayerData = {
+        string creator = "Wood Power CRM"
+        string[] providedExtensions = ["USDZ", "Reality"]
+    }
+    defaultPrim = "WoodPanel"
+    metersPerUnit = 1
+    upAxis = "Y"
+)
+
+def Xform "WoodPanel" (
+    assetInfo = {
+        asset identifier = @./WoodPanel.reality@
+        string name = "Wood Panel - dab-lity-ab"
+        string version = "1.0"
+    }
+    kind = "component"
+)
+{
+    # Metadane AR zoptymalizowane dla iOS 18+
+    custom bool preliminary_collidesWithEnvironment = 1
+    custom string preliminary_planeAnchoring = "horizontal"
+    custom float preliminary_worldScale = 1.0
+    custom bool preliminary_receivesShadows = 1
+    custom bool preliminary_castsShadows = 1
+    
+    def Mesh "Geometry"
+    {
+        prepend references = @./temp_model.obj@</Geometry>
+        rel material:binding = </WoodPanel/Materials/WoodMaterial>
+        uniform token subdivisionScheme = "none"
+        uniform bool doubleSided = 0
+    }
+    
+    def Scope "Materials"
+    {
+        def Material "WoodMaterial"
+        {
+            token outputs:surface.connect = </WoodPanel/Materials/WoodMaterial/PreviewSurface.outputs:surface>
+            
+            def Shader "PreviewSurface"
+            {
+                uniform token info:id = "UsdPreviewSurface"
+                color3f inputs:diffuseColor = (0.82, 0.71, 0.55)
+                float inputs:roughness = 0.85
+                float inputs:metallic = 0.0
+                float inputs:clearcoat = 0.0
+                float inputs:opacity = 1.0
+                float inputs:ior = 1.45
+                token outputs:surface
+            }
+        }
+    }
+}

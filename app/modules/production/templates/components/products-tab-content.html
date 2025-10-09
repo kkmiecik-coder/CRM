@@ -1,0 +1,832 @@
+<!-- products-tab-content.html -->
+<!-- ============================================================================
+     PRODUCTS TAB CONTENT - NOWA STRUKTURA - RESTRUKTURYZACJA 2025
+     ============================================================================
+
+     Zawiera:
+     - Mini statystyki nad filtrami
+     - Text search z fuzzy + 5 multi-select dropdownów
+     - System badges aktywnych filtrów
+     - Virtual scrolling container
+     - Template tags dla komponentów
+     - Loading states i error states
+     - Bulk actions bar
+     ============================================================================ -->
+<!-- CONTAINER GŁÓWNY -->
+<div id="products-module-container" class="products-module-container">
+
+    <!-- MINI STATYSTYKI NAD FILTRAMI -->
+    <div class="products-stats-bar" id="products-stats-bar">
+        <div class="row g-3">
+            <div class="col-md-3">
+                <div class="stat-card stat-card-sm">
+                    <div class="stat-value" id="stats-total-count">0</div>
+                    <div class="stat-label">Produktów</div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="stat-card stat-card-sm">
+                    <div class="stat-value text-info" id="stats-total-volume">0.000</div>
+                    <div class="stat-label">m³</div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="stat-card stat-card-sm">
+                    <div class="stat-value text-success" id="stats-total-value">0</div>
+                    <div class="stat-label">zł wartość</div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="stat-card stat-card-sm">
+                    <div class="stat-value text-warning" id="stats-urgent-count">0</div>
+                    <div class="stat-label">pilnych</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- SEKCJA FILTRÓW -->
+    <div class="products-filters-container" id="products-filters-container">
+        <div class="filtr-main-conteiner">
+            <!-- TEXT SEARCH z FUZZY -->
+            <div class="filtr-conteiner">
+                <label for="products-text-search" class="form-label">
+                    <i class="fas fa-search me-1"></i>Wyszukaj produkt
+                </label>
+                <div class="input-group">
+                    <input type="text"
+                           id="products-text-search"
+                           class="form-control"
+                           placeholder="Numer, nazwa produktu, klient..."
+                           autocomplete="off">
+                    <span class="input-group-text search-spinner d-none">
+                        <i class="fas fa-spinner fa-spin"></i>
+                    </span>
+                </div>
+            </div>
+
+            <!-- MULTI-SELECT 1: GATUNEK DREWNA -->
+            <div class="filtr-conteiner">
+                <label class="form-label">Gatunek drewna</label>
+                <div class="multi-select-wrapper">
+                    <div class="multi-select-display" id="filter-wood-species" tabindex="0">
+                        <span class="multi-select-placeholder">Wszystkie</span>
+                        <i class="fas fa-chevron-down multi-select-arrow"></i>
+                    </div>
+                    <div class="multi-select-dropdown" id="dropdown-wood-species">
+                        <div class="multi-select-search">
+                            <input type="text" placeholder="Szukaj gatunku..." class="form-control form-control-sm">
+                        </div>
+                        <div class="multi-select-options">
+                            <div class="multi-select-option multi-select-all">
+                                <input type="checkbox" id="wood-species-all">
+                                <label for="wood-species-all">Zaznacz wszystkie</label>
+                            </div>
+                            <!-- Opcje będą ładowane dynamicznie -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- MULTI-SELECT 2: TECHNOLOGIA -->
+            <div class="filtr-conteiner">
+                <label class="form-label">Technologia</label>
+                <div class="multi-select-wrapper">
+                    <div class="multi-select-display" id="filter-technology" tabindex="0">
+                        <span class="multi-select-placeholder">Wszystkie</span>
+                        <i class="fas fa-chevron-down multi-select-arrow"></i>
+                    </div>
+                    <div class="multi-select-dropdown" id="dropdown-technology">
+                        <div class="multi-select-search">
+                            <input type="text" placeholder="Szukaj technologii..." class="form-control form-control-sm">
+                        </div>
+                        <div class="multi-select-options">
+                            <div class="multi-select-option multi-select-all">
+                                <input type="checkbox" id="technology-all">
+                                <label for="technology-all">Zaznacz wszystkie</label>
+                            </div>
+                            <!-- Opcje będą ładowane dynamicznie -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- MULTI-SELECT 3: KLASA DREWNA -->
+            <div class="filtr-conteiner">
+                <label class="form-label">Klasa drewna</label>
+                <div class="multi-select-wrapper">
+                    <div class="multi-select-display" id="filter-wood-class" tabindex="0">
+                        <span class="multi-select-placeholder">Wszystkie</span>
+                        <i class="fas fa-chevron-down multi-select-arrow"></i>
+                    </div>
+                    <div class="multi-select-dropdown" id="dropdown-wood-class">
+                        <div class="multi-select-search">
+                            <input type="text" placeholder="Szukaj klasy..." class="form-control form-control-sm">
+                        </div>
+                        <div class="multi-select-options">
+                            <div class="multi-select-option multi-select-all">
+                                <input type="checkbox" id="wood-class-all">
+                                <label for="wood-class-all">Zaznacz wszystkie</label>
+                            </div>
+                            <!-- Opcje będą ładowane dynamicznie -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- MULTI-SELECT 4: GRUBOŚĆ -->
+            <div class="filtr-conteiner">
+                <label class="form-label">Grubość</label>
+                <div class="multi-select-wrapper">
+                    <div class="multi-select-display" id="filter-thickness" tabindex="0">
+                        <span class="multi-select-placeholder">Wszystkie</span>
+                        <i class="fas fa-chevron-down multi-select-arrow"></i>
+                    </div>
+                    <div class="multi-select-dropdown" id="dropdown-thickness">
+                        <div class="multi-select-search">
+                            <input type="text" placeholder="Szukaj grubości..." class="form-control form-control-sm">
+                        </div>
+                        <div class="multi-select-options">
+                            <div class="multi-select-option multi-select-all">
+                                <input type="checkbox" id="thickness-all">
+                                <label for="thickness-all">Zaznacz wszystkie</label>
+                            </div>
+                            <!-- Opcje będą ładowane dynamicznie -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- MULTI-SELECT 5: STATUS -->
+            <div class="filtr-conteiner">
+                <label class="form-label">Status</label>
+                <div class="multi-select-wrapper">
+                    <div class="multi-select-display" id="filter-status" tabindex="0">
+                        <span class="multi-select-placeholder">Wszystkie</span>
+                        <i class="fas fa-chevron-down multi-select-arrow"></i>
+                    </div>
+                    <div class="multi-select-dropdown" id="dropdown-status">
+                        <div class="multi-select-search">
+                            <input type="text" placeholder="Szukaj statusu..." class="form-control form-control-sm">
+                        </div>
+                        <div class="multi-select-options">
+                            <div class="multi-select-option multi-select-all">
+                                <input type="checkbox" id="status-all">
+                                <label for="status-all">Zaznacz wszystkie</label>
+                            </div>
+                            <!-- Opcje będą ładowane dynamicznie -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- AUTO-REFRESH TOGGLE -->
+            <div class="filtr-conteiner">
+                <label class="form-label">Auto-odświeżanie</label>
+                <div class="form-check form-switch">
+                    <input class="form-check-input" type="checkbox" id="auto-refresh-toggle">
+                    <label class="form-check-label" for="auto-refresh-toggle">
+                        <span id="auto-refresh-status">Wyłączone</span>
+                    </label>
+                </div>
+            </div>
+
+            <!-- KEYBOARD SHORTCUTS INFO -->
+            <div class="filtr-conteiner">
+                <label class="form-label">&nbsp;</label>
+                <div class="text-muted small">
+                    <i class="fas fa-keyboard me-1"></i>
+                    <kbd>Ctrl+A</kbd> zaznacz wszystkie |
+                    <kbd>Ctrl+E</kbd> export |
+                    <kbd>ESC</kbd> zamknij modal
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <!-- SYSTEM BADGES AKTYWNYCH FILTRÓW -->
+    <div class="active-filters-container" id="active-filters-container" style="display: none;">
+        <div>
+            <div class="active-filters-header">
+                <h6 class="active-filters-title">
+                    <i class="fas fa-filter me-1"></i>Aktywne filtry
+                </h6>
+            </div>
+            <div class="filter-badges" id="filter-badges">
+                <!-- Badges będą dodawane dynamicznie przez JavaScript -->
+            </div>
+        </div>
+
+        <button class="clear-all-filters" id="clear-all-filters">
+            <i class="fas fa-times me-1"></i>Wyczyść wszystkie
+        </button>
+    </div>
+
+    <!-- VIRTUAL SCROLLING CONTAINER -->
+    <div class="virtual-scroll-container" id="virtual-scroll-container">
+
+        <!-- NAGŁÓWEK LISTY PRODUKTÓW -->
+        <div class="prod_list-header">
+            <div class="prod_list-header-cell">
+                <input type="checkbox" id="select-all-products" class="form-check-input">
+                <span class="sr-only">Zaznacz wszystkie produkty</span>
+            </div>
+            <div class="prod_list-header-cell">
+                <i class="fas fa-arrows-alt text-muted" title="Przeciągnij aby zmienić priorytet"></i>
+                <span class="sr-only">Drag handle</span>
+            </div>
+            <div class="prod_list-header-cell prod_list-sortable-header sortable-header" data-sort="priority_rank" tabindex="0">
+                Priorytet <i class="fas fa-sort"></i>
+            </div>
+            <div class="prod_list-header-cell prod_list-sortable-header sortable-header" data-sort="original_product_name" tabindex="0">
+                Produkt <i class="fas fa-sort"></i>
+            </div>
+            <div class="prod_list-header-cell prod_list-sortable-header sortable-header" data-sort="parsed_wood_species" tabindex="0">
+                Tagi <i class="fas fa-sort"></i>
+            </div>
+            <div class="prod_list-header-cell prod_list-sortable-header sortable-header" data-sort="volume_m3" tabindex="0">
+                Objętość <i class="fas fa-sort"></i>
+            </div>
+            <div class="prod_list-header-cell prod_list-sortable-header sortable-header" data-sort="total_value_net" tabindex="0">
+                Wartość <i class="fas fa-sort"></i>
+            </div>
+            <div class="prod_list-header-cell prod_list-sortable-header sortable-header" data-sort="current_status" tabindex="0">
+                Status <i class="fas fa-sort"></i>
+            </div>
+            <div class="prod_list-header-cell prod_list-sortable-header sortable-header" data-sort="deadline_date" tabindex="0">
+                Deadline <i class="fas fa-sort"></i>
+            </div>
+            <div class="prod_list-header-cell">
+                Akcje
+            </div>
+        </div>
+
+        <!-- VIRTUAL SCROLL SPACER TOP -->
+        <div class="virtual-scroll-spacer-top" id="virtual-scroll-spacer-top"></div>
+
+        <!-- VIRTUAL SCROLL VIEWPORT -->
+        <div class="virtual-scroll-viewport" id="virtual-scroll-viewport">
+            <!-- Wiersze produktów będą renderowane tutaj przez JavaScript -->
+        </div>
+
+        <!-- VIRTUAL SCROLL SPACER BOTTOM -->
+        <div class="virtual-scroll-spacer-bottom" id="virtual-scroll-spacer-bottom"></div>
+
+        <!-- LOADING STATE -->
+        <div class="products-loading" id="products-loading" style="display: none;">
+            <div class="spinner"></div>
+            <h5>Ładowanie produktów...</h5>
+            <p>Pobieranie danych z serwera</p>
+        </div>
+
+        <!-- EMPTY STATE -->
+        <div class="products-empty-state" id="products-empty-state" style="display: none;">
+            <div class="empty-icon">
+                <i class="fas fa-search"></i>
+            </div>
+            <h4>Brak produktów</h4>
+            <p>Nie znaleziono produktów spełniających kryteria filtrowania.</p>
+            <button class="btn btn-outline-primary" id="clear-filters-empty">
+                <i class="fas fa-times me-1"></i>Wyczyść filtry
+            </button>
+        </div>
+
+        <!-- ERROR STATE -->
+        <div class="products-error-state" id="products-error-state" style="display: none;">
+            <div class="empty-icon text-danger">
+                <i class="fas fa-exclamation-triangle"></i>
+            </div>
+            <h4 class="text-danger">Błąd ładowania</h4>
+            <p id="error-message">Wystąpił błąd podczas pobierania danych produktów.</p>
+            <button class="btn btn-outline-primary" id="retry-load-products">
+                <i class="fas fa-redo me-1"></i>Spróbuj ponownie
+            </button>
+        </div>
+
+    </div>
+
+</div>
+
+<!-- BULK ACTIONS BAR - POJAWIA SIĘ PO ZAZNACZENIU PRODUKTÓW (POZA KONTENEREM GŁÓWNYM) -->
+<div class="bulk-actions-bar" id="bulk-actions-bar" style="display: none;">
+    <div class="bulk-selection-info">
+        <i class="fas fa-check-square me-2"></i>
+        <span id="bulk-selected-count">0</span> produktów zaznaczonych
+    </div>
+    <div class="bulk-actions">
+        <button class="btn btn-sm btn-outline-light me-2" id="bulk-change-status">
+            <i class="fas fa-exchange-alt me-1"></i>Zmień status
+        </button>
+        <button class="btn btn-sm btn-outline-light me-2" id="bulk-export-selected">
+            <i class="fas fa-download me-1"></i>Eksportuj
+        </button>
+        <button class="btn btn-sm btn-outline-light" id="bulk-delete">
+            <i class="fas fa-trash me-1"></i>Usuń
+        </button>
+    </div>
+</div>
+
+<!-- ============================================================================
+     TEMPLATE TAGS DLA KOMPONENTÓW (POZA GŁÓWNYM KONTENEREM)
+     ============================================================================ -->
+<!-- TEMPLATE: WIERSZ PRODUKTU -->
+<template id="product-row-template">
+    <div class="prod_list-product-row" data-product-id="" data-priority="" data-status="">
+        <div class="prod_list-checkbox-cell">
+            <input type="checkbox" class="form-check-input prod_list-product-checkbox" />
+        </div>
+        <div class="prod_list-drag-cell" draggable="true">
+            <i class="fas fa-grip-vertical"></i>
+        </div>
+        <div class="prod_list-priority-cell">
+            <div class="prod_list-priority-rank">0</div>
+        </div>
+        <div class="prod_list-product-info">
+            <div class="prod_list-product-name"></div>
+            <div class="prod_list-product-details">
+                <div class="prod_list-product-id"></div>
+                <div class="prod_list-baselinker-order"></div>
+            </div>
+        </div>
+        <div class="prod_list-tags-cell">
+            <!-- Tags będą dodawane przez JS -->
+        </div>
+        <div class="prod_list-volume-cell">
+            <div class="prod_list-volume-value"></div>
+        </div>
+        <div class="prod_list-value-cell">
+            <div class="prod_list-currency-value"></div>
+        </div>
+        <div class="prod_list-status-cell">
+            <span class="prod_list-status-badge"></span>
+        </div>
+        <div class="prod_list-deadline-cell">
+            <div class="prod_list-deadline-badge"></div>
+            <div class="prod_list-deadline-date"></div>
+        </div>
+        <div class="prod_list-actions-cell">
+            <button class="prod_list-action-btn prod_list-details-btn" title="Szczegóły produktu">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M12 9C10.3431 9 9 10.3431 9 12C9 13.6569 10.3431 15 12 15C13.6569 15 15 13.6569 15 12C15 10.3431 13.6569 9 12 9Z" stroke="currentColor" stroke-width="2"/>
+                    <path d="M21 12C21 12 18 18 12 18C6 18 3 12 3 12C3 12 6 6 12 6C18 6 21 12 21 12Z" stroke="currentColor" stroke-width="2"/>
+                </svg>
+            </button>
+            <button class="prod_list-action-btn prod_list-baselinker-btn" title="Otwórz w Baselinker">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M18 13V19C18 19.5304 17.7893 20.0391 17.4142 20.4142C17.0391 20.7893 16.5304 21 16 21H5C4.46957 21 3.96086 20.7893 3.58579 20.4142C3.21071 20.0391 3 19.5304 3 19V8C3 7.46957 3.21071 6.96086 3.58579 6.58579C3.96086 6.21071 4.46957 6 5 6H11" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                    <path d="M15 3H21V9" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                    <path d="M10 14L21 3" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+            </button>
+            <button class="prod_list-action-btn prod_list-delete-btn" title="Usuń produkt">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M3 6H5H21" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                    <path d="M8 6V4C8 3.46957 8.21071 2.96086 8.58579 2.58579C8.96086 2.21071 9.46957 2 10 2H14C14.5304 2 15.0391 2.21071 15.4142 2.58579C15.7893 2.96086 16 3.46957 16 4V6M19 6V20C19 20.5304 18.7893 21.0391 18.4142 21.4142C18.0391 21.7893 17.5304 22 17 22H7C6.46957 22 5.96086 21.7893 5.58579 21.4142C5.21071 21.0391 5 20.5304 5 20V6H19Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                    <path d="M10 11V17" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                    <path d="M14 11V17" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+            </button>
+        </div>
+    </div>
+</template>
+
+<!-- TEMPLATE: BADGE FILTRA -->
+<template id="filter-badge-template">
+    <span class="filter-badge" data-filter-type="" data-filter-value="">
+        <span class="filter-badge-label"></span>
+        <i class="fas fa-times remove-filter"></i>
+    </span>
+</template>
+
+<!-- TEMPLATE: MODAL AKCJI GRUPOWYCH -->
+<template id="bulk-actions-modal-template">
+    <div class="modal fade products-modal" id="bulk-actions-modal" tabindex="-1" aria-labelledby="bulk-actions-modal-title">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="bulk-actions-modal-title">
+                        <i class="fas fa-tasks me-2"></i>Akcje grupowe
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Zamknij"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="bulk-action-selection">
+                        <p class="text-muted">
+                            Wybierz akcję do wykonania na <strong id="bulk-modal-count">0</strong> zaznaczonych produktach:
+                        </p>
+
+                        <div class="d-grid gap-2">
+                            <button class="btn btn-outline-primary bulk-action-btn" data-action="change-status">
+                                <i class="fas fa-exchange-alt me-2"></i>
+                                <div>
+                                    <strong>Zmień status</strong>
+                                    <br><small>Ustaw nowy status dla produktów</small>
+                                </div>
+                            </button>
+
+                            <button class="btn btn-outline-warning bulk-action-btn" data-action="set-priority">
+                                <i class="fas fa-star me-2"></i>
+                                <div>
+                                    <strong>Ustaw priorytet</strong>
+                                    <br><small>Zmień priorytet produktów</small>
+                                </div>
+                            </button>
+
+                            <button class="btn btn-outline-success bulk-action-btn" data-action="export">
+                                <i class="fas fa-download me-2"></i>
+                                <div>
+                                    <strong>Eksportuj do Excel</strong>
+                                    <br><small>Pobierz dane zaznaczonych produktów</small>
+                                </div>
+                            </button>
+
+                            <button class="btn btn-outline-danger bulk-action-btn" data-action="delete">
+                                <i class="fas fa-trash me-2"></i>
+                                <div>
+                                    <strong>Usuń produkty</strong>
+                                    <br><small class="text-danger">Nieodwracalne usunięcie</small>
+                                </div>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Formularz zmiany statusu -->
+                    <div class="bulk-status-form" style="display: none;">
+                        <h6>Zmień status na:</h6>
+                        <select class="form-select" id="bulk-new-status">
+                            <option value="">Wybierz status...</option>
+                            <option value="czeka_na_wyciecie">Czeka na wycięcie</option>
+                            <option value="w_trakcie_ciecia">W trakcie cięcia</option>
+                            <option value="czeka_na_skladanie">Czeka na składanie</option>
+                            <option value="w_trakcie_skladania">W trakcie składania</option>
+                            <option value="czeka_na_pakowanie">Czeka na pakowanie</option>
+                            <option value="w_trakcie_pakowania">W trakcie pakowania</option>
+                            <option value="spakowane">Spakowane</option>
+                            <option value="wstrzymane">Wstrzymane</option>
+                            <option value="anulowane">Anulowane</option>
+                        </select>
+                        <div class="mt-2">
+                            <label for="bulk-status-note" class="form-label">Notatka (opcjonalna):</label>
+                            <textarea class="form-control" id="bulk-status-note" rows="2" placeholder="Uzasadnienie zmiany statusu..."></textarea>
+                        </div>
+                    </div>
+
+                    <!-- Formularz ustawiania priorytetu -->
+                    <div class="bulk-priority-form" style="display: none;">
+                        <h6>Ustaw priorytet:</h6>
+                        <div class="row">
+                            <div class="col-6">
+                                <input type="range" class="form-range" id="bulk-priority-slider" min="0" max="200" value="100">
+                            </div>
+                            <div class="col-6">
+                                <input type="number" class="form-control" id="bulk-priority-input" min="0" max="200" value="100">
+                            </div>
+                        </div>
+                        <div class="priority-preview mt-2">
+                            <span class="priority-score priority-medium">100</span>
+                        </div>
+                    </div>
+
+                    <!-- Progress bar dla długich operacji -->
+                    <div class="bulk-progress" style="display: none;">
+                        <h6>Przetwarzanie...</h6>
+                        <div class="progress">
+                            <div class="progress-bar" role="progressbar" style="width: 0%"></div>
+                        </div>
+                        <div class="text-muted small mt-2">
+                            <span id="bulk-progress-text">Przygotowywanie...</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Anuluj</button>
+                    <button type="button" class="btn btn-primary" id="execute-bulk-action" disabled>Wykonaj</button>
+                </div>
+            </div>
+        </div>
+    </div>
+</template>
+
+<!-- TEMPLATE: MODAL SZCZEGÓŁÓW PRODUKTU -->
+<!-- TEMPLATE: MODAL SZCZEGÓŁÓW PRODUKTU - REDESIGN -->
+<template id="product-details-modal-template">
+    <div class="modal fade products-modal product-modal" id="product-details-modal" tabindex="-1">
+        <div class="modal-dialog modal-xl">
+            <div class="modal-content">
+                
+                <!-- HEADER REDESIGN -->
+                <div class="modal-header-redesign">
+                    <div class="header-content">
+                        <div class="header-left">
+                            <div class="product-icon">
+                                <i class="fas fa-cube"></i>
+                            </div>
+                            <div class="header-info">
+                                <h3 class="product-id-display">#25_05248_1</h3>
+                                <div class="header-subtitle product-name-display">Deska podłogowa dąb A/A 120x15x1200</div>
+                            </div>
+                        </div>
+                        <div class="header-right">
+                            <div class="status-badge-large" data-field="current_status">
+                                <i class="fas fa-cut me-2"></i>
+                                <span class="status-text">Wycinanie</span>
+                                <span class="priority-indicator priority-high" data-field="priority_indicator"></span>
+                            </div>
+                            <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- PASEK PRODUKTÓW (pokazuj tylko gdy >1 produkt w zamówieniu) -->
+                <div class="products-navigation" id="productsNavigation" style="display: none;">
+                    <div class="products-nav-title">
+                        <i class="fas fa-layer-group me-2"></i>
+                        <span id="productsNavTitle">Produkty w zamówieniu (1)</span>
+                    </div>
+                    <div class="products-buttons" id="productsButtons">
+                        <!-- Buttons will be populated by JavaScript -->
+                    </div>
+                </div>
+
+                <!-- BODY REDESIGN -->
+                <div class="modal-body-redesign">
+                    
+                    <!-- LEWA SEKCJA - SZCZEGÓŁY -->
+                    <div class="details-section">
+                        
+                        <!-- Statystyki na górze -->
+                        <div class="stats-row">
+                            <div class="stat-card">
+                                <div class="stat-value" data-field="volume_m3" data-type="decimal" data-unit="m³">0.000 m³</div>
+                                <div class="stat-label">Objętość</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-value" data-field="total_value_net" data-type="currency">0.00 zł</div>
+                                <div class="stat-label">Wartość netto</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-value" data-field="days_until_deadline" data-type="deadline">-- dni</div>
+                                <div class="stat-label">Do deadline</div>
+                            </div>
+                        </div>
+
+                        <!-- Identyfikacja -->
+                        <div class="detail-card">
+                            <div class="card-header">
+                                <i class="fas fa-tag text-primary"></i>
+                                <h6 class="card-title">Identyfikacja</h6>
+                            </div>
+                            <div class="card-body">
+                                <div class="fields-grid">
+                                    <div class="field-group">
+                                        <div class="field-label">ID Produktu</div>
+                                        <div class="field-value highlight" data-field="short_product_id">#25_05248_1</div>
+                                    </div>
+                                    <div class="field-group">
+                                        <div class="field-label">Numer zamówienia</div>
+                                        <div class="field-value" data-field="internal_order_number">WP-25-05248</div>
+                                    </div>
+                                    <div class="field-group">
+                                        <div class="field-label">Baselinker ID</div>
+                                        <div class="field-value" data-field="baselinker_order_id">8765432</div>
+                                    </div>
+                                    <div class="field-group">
+                                        <div class="field-label">Pozycja w zamówieniu</div>
+                                        <div class="field-value" data-field="sequence_display">1/3</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Specyfikacja techniczna -->
+                        <div class="detail-card">
+                            <div class="card-header">
+                                <i class="fas fa-cogs text-success"></i>
+                                <h6 class="card-title">Specyfikacja techniczna</h6>
+                            </div>
+                            <div class="card-body">
+                                <div class="fields-grid">
+                                    <div class="field-group">
+                                        <div class="field-label">Gatunek drewna</div>
+                                        <div class="field-value" data-field="parsed_wood_species">Dąb</div>
+                                    </div>
+                                    <div class="field-group">
+                                        <div class="field-label">Technologia</div>
+                                        <div class="field-value" data-field="parsed_technology">Lita</div>
+                                    </div>
+                                    <div class="field-group">
+                                        <div class="field-label">Klasa drewna</div>
+                                        <div class="field-value" data-field="parsed_wood_class">A/A</div>
+                                    </div>
+                                    <div class="field-group">
+                                        <div class="field-label">Wykończenie</div>
+                                        <div class="field-value" data-field="parsed_finish_state">Surowa</div>
+                                    </div>
+                                    <div class="field-group">
+                                        <div class="field-label">Wymiary</div>
+                                        <div class="field-value" data-field="dimensions_display">120 × 15 × 1200 mm</div>
+                                    </div>
+                                    <div class="field-group">
+                                        <div class="field-label">Objętość</div>
+                                        <div class="field-value highlight" data-field="volume_m3" data-type="decimal" data-unit="m³">2.400 m³</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Informacje o kliencie -->
+                        <div class="detail-card">
+                            <div class="card-header">
+                                <i class="fas fa-user text-info"></i>
+                                <h6 class="card-title">Klient</h6>
+                            </div>
+                            <div class="card-body">
+                                <div class="fields-grid">
+                                    <div class="field-group">
+                                        <div class="field-label">Nazwa</div>
+                                        <div class="field-value" data-field="client_name">Kowalski Sp. z o.o.</div>
+                                    </div>
+                                    <div class="field-group">
+                                        <div class="field-label">Email</div>
+                                        <div class="field-value" data-field="client_email" data-type="email">kowalski@firma.pl</div>
+                                    </div>
+                                    <div class="field-group">
+                                        <div class="field-label">Telefon</div>
+                                        <div class="field-value" data-field="client_phone">+48 123 456 789</div>
+                                    </div>
+                                    <div class="field-group">
+                                        <div class="field-label">Deadline</div>
+                                        <div class="field-value deadline-field" data-field="deadline_date" data-type="deadline-full">
+                                            <i class="fas fa-clock me-1"></i>
+                                            <span class="deadline-text">25.09.2025 (5 dni)</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Finanse -->
+                        <div class="detail-card">
+                            <div class="card-header">
+                                <i class="fas fa-euro-sign text-warning"></i>
+                                <h6 class="card-title">Wartości finansowe</h6>
+                            </div>
+                            <div class="card-body">
+                                <div class="fields-grid">
+                                    <div class="field-group">
+                                        <div class="field-label">Cena jednostkowa netto</div>
+                                        <div class="field-value currency" data-field="unit_price_net" data-type="currency">1,437.50 zł</div>
+                                    </div>
+                                    <div class="field-group">
+                                        <div class="field-label">Wartość całkowita netto</div>
+                                        <div class="field-value currency highlight" data-field="total_value_net" data-type="currency">3,450.00 zł</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- PRAWA SEKCJA - TIMELINE I AKCJE -->
+                    <div class="sidebar-section">
+                        
+                        <!-- Timeline produkcji -->
+                        <div class="mb-4">
+                            <h6 class="mb-3">
+                                <i class="fas fa-route me-2"></i>
+                                Przepływ produkcji
+                            </h6>
+                            
+                            <div class="production-timeline" id="productionTimeline">
+                                <!-- Timeline will be populated by JavaScript -->
+                            </div>
+                        </div>
+
+                        <!-- Akcje -->
+                        <div class="mb-4">
+                            <h6 class="mb-3">
+                                <i class="fas fa-tools me-2"></i>
+                                Akcje
+                            </h6>
+                            <div class="action-buttons">
+                                <a href="#" class="btn-action btn-secondary-custom" id="openBaselinkerBtn">
+                                    <img src="/static/icons/baselinker.svg" style="width: 16px; height: 16px;" class="me-2">
+                                    Otwórz w Baselinker
+                                </a>
+                            </div>
+                        </div>
+
+                        <!-- Notatki produkcyjne -->
+                        <div class="detail-card">
+                            <div class="card-header">
+                                <i class="fas fa-sticky-note text-muted"></i>
+                                <h6 class="card-title">Notatki produkcyjne</h6>
+                                <button class="btn btn-sm btn-outline-secondary ms-auto" id="editNotesBtn">
+                                    <i class="fas fa-pen"></i>
+                                </button>
+                            </div>
+                            <div class="card-body">
+                                <div id="notesDisplay" class="notes-display">
+                                    <div class="field-value" data-field="production_notes">Brak notatek</div>
+                                </div>
+                                <div id="notesEdit" class="notes-edit" style="display: none;">
+                                    <textarea class="form-control mb-3" id="notesTextarea" rows="3" placeholder="Wprowadź notatki produkcyjne..."></textarea>
+                                    <div class="d-flex gap-2">
+                                        <button class="btn btn-sm btn-success" id="saveNotesBtn" disabled>
+                                            <i class="fas fa-save me-1"></i>Zapisz
+                                        </button>
+                                        <button class="btn btn-sm btn-secondary" id="cancelNotesBtn">
+                                            <i class="fas fa-times me-1"></i>Anuluj
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Dodatkowe informacje -->
+                        <div class="detail-card">
+                            <div class="card-header">
+                                <i class="fas fa-info-circle text-muted"></i>
+                                <h6 class="card-title">Informacje systemowe</h6>
+                            </div>
+                            <div class="card-body">
+                                <div class="field-group mb-3">
+                                    <div class="field-label">Utworzono</div>
+                                    <div class="field-value" data-field="created_at" data-type="datetime">19.09.2025 14:22</div>
+                                </div>
+                                <div class="field-group mb-3">
+                                    <div class="field-label">Ostatnia aktualizacja</div>
+                                    <div class="field-value" data-field="updated_at" data-type="datetime">20.09.2025 10:45</div>
+                                </div>
+                                <div class="field-group">
+                                    <div class="field-label">Źródło synchronizacji</div>
+                                    <div class="field-value" data-field="sync_source">Baselinker API</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</template>
+
+
+<!-- ============================================================================
+     INICJALIZACJA JAVASCRIPT - PLACEHOLDER
+     ============================================================================ -->
+<script>
+    document.addEventListener('DOMContentLoaded', function () {
+        console.log('[Products Tab HTML] DOM załadowany, czekam na ProductsModule...');
+
+        // Sprawdź czy ProductsModule jest dostępny
+        if (typeof window.ProductionApp !== 'undefined' &&
+            window.ProductionApp.state &&
+            window.ProductionApp.state.loadedModules.has('products')) {
+
+            console.log('[Products Tab HTML] ProductsModule wykryty - deleguje inicjalizację');
+            // ProductsModule przejmie kontrolę
+
+        } else {
+            console.log('[Products Tab HTML] ProductsModule nie wykryty - podstawowy fallback');
+            setupBasicFallback();
+        }
+    });
+
+    // Podstawowy fallback na wypadek problemów z ProductsModule
+    function setupBasicFallback() {
+        // Text search fallback
+        const textSearch = document.getElementById('products-text-search');
+        if (textSearch) {
+            textSearch.addEventListener('input', function () {
+                console.log('[Fallback] Text search:', this.value);
+            });
+        }
+
+        // Clear search fallback
+        const clearSearch = document.getElementById('clear-text-search');
+        if (clearSearch) {
+            clearSearch.addEventListener('click', function () {
+                if (textSearch) textSearch.value = '';
+            });
+        }
+
+        // Multi-select fallbacks
+        const multiSelects = document.querySelectorAll('.multi-select-display');
+        multiSelects.forEach(display => {
+            display.addEventListener('click', function () {
+                console.log('[Fallback] Multi-select clicked:', this.id);
+            });
+        });
+
+        // Export button fallback
+        const exportBtn = document.getElementById('export-products-btn');
+        if (exportBtn) {
+            exportBtn.addEventListener('click', function () {
+                console.log('[Fallback] Export clicked');
+            });
+        }
+
+        console.log('[Products Tab HTML] Basic fallback setup complete');
+    }
+</script>

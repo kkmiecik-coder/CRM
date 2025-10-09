@@ -1,0 +1,151 @@
+<!-- modules/clients/templates/details_modal.html -->
+<div id="clients-details-modal" class="clients-modal-overlay" style="display: none;">
+    <div class="clients-modal">
+        <div class="modal-header">
+            <h2 class="modal-title title-with-underline-h2" id="modalTitle">Szczegóły klienta</h2>
+            <button class="close-modal" id="clientsDetailsCloseBtn">&times;</button>
+        </div>
+
+        <!-- TRYB WYŚWIETLANIA -->
+        <div id="view-mode">
+            <!-- Sekcja danych klienta -->
+            <section class="clients-section">
+                <div class="clients-section-header">
+                    <h3 class="title-with-underline-h4">Dane klienta</h3>
+                    <button class="edit-section-btn" onclick="enableEditMode()" title="Edytuj dane">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                            <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/>
+                        </svg>
+                    </button>
+                </div>
+                <div class="clients-detail-row">
+                    <div class="label">Nazwa klienta:</div>
+                    <div class="value" id="detailClientName">...</div>
+                </div>
+                <div class="clients-detail-row">
+                    <div class="label">Imię i nazwisko:</div>
+                    <div class="value" id="detailClientDeliveryName">...</div>
+                </div>
+                <div class="clients-detail-row">
+                    <div class="label">Email:</div>
+                    <div class="value" id="detailClientEmail">...</div>
+                </div>
+                <div class="clients-detail-row">
+                    <div class="label">Telefon:</div>
+                    <div class="value" id="detailClientPhone">...</div>
+                </div>
+            </section>
+
+            <!-- Sekcja historii wycen -->
+            <section class="clients-section">
+                <h3 class="title-with-underline-h4">Historia wycen</h3>
+                <div class="clients-section-body" id="clients-quotes-list">
+                    <table class="clients-quotes-table">
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Data</th>
+                                <th>Status</th>
+                                <th>Akcja</th>
+                            </tr>
+                        </thead>
+                        <tbody id="clients-quotes-body">
+                            <!-- rows added dynamically by JS -->
+                        </tbody>
+                    </table>
+                    <p id="clients-no-quotes" class="clients-no-quotes">Brak wycen do wyświetlenia.</p>
+                </div>
+                <div class="clients-pagination" id="quotes-pagination-controls"></div>
+            </section>
+        </div>
+
+        <!-- TRYB EDYCJI -->
+        <div id="edit-mode" style="display: none;">
+            <!-- Dane główne -->
+            <section class="clients-section">
+                <div class="clients-section-header">
+                    <h3>Dane klienta</h3>
+                </div>
+                <div class="clients-section-body">
+                    <div class="input-group">
+                        <label for="editClientName">Nazwa klienta</label>
+                        <input id="editClientName" class="clients-input" type="text">
+                    </div>
+                    <div class="input-group">
+                        <label for="editClientDeliveryName">Imię i nazwisko</label>
+                        <input id="editClientDeliveryName" class="clients-input" type="text">
+                    </div>
+                    <div class="input-group">
+                        <label for="editClientEmail">Email</label>
+                        <input id="editClientEmail" class="clients-input" type="email">
+                    </div>
+                    <div class="input-group">
+                        <label for="editClientPhone">Telefon</label>
+                        <input id="editClientPhone" class="clients-input" type="text">
+                    </div>
+                </div>
+            </section>
+
+            <!-- Adres dostawy -->
+            <section class="clients-section">
+                <div class="clients-section-header">
+                    <h3>Adres dostawy</h3>
+                    <button type="button" class="copy-invoice-btn" onclick="copyInvoiceToDelivery()" title="Kopiuj dane z faktury">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                            <path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm-1 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h7v14z"/>
+                        </svg>
+                        Kopiuj z faktury
+                    </button>
+                </div>
+                <div class="clients-section-body grid-2-cols">
+                    <div class="input-group"><label for="editDeliveryName">Imię i nazwisko</label><input id="editDeliveryName" class="clients-input" type="text"></div>
+                    <div class="input-group"><label for="editDeliveryCompany">Firma</label><input id="editDeliveryCompany" class="clients-input" type="text"></div>
+                    <div class="input-group"><label for="editDeliveryAddress">Adres</label><input id="editDeliveryAddress" class="clients-input" type="text"></div>
+                    <div class="input-group"><label for="editDeliveryZip">Kod pocztowy</label><input id="editDeliveryZip" class="clients-input" type="text"></div>
+                    <div class="input-group"><label for="editDeliveryCity">Miasto</label><input id="editDeliveryCity" class="clients-input" type="text"></div>
+                    <div class="input-group"><label for="editDeliveryRegion">Województwo</label><input id="editDeliveryRegion" class="clients-input" type="text"></div>
+                    <div class="input-group full-width"><label for="editDeliveryCountry">Kraj</label><input id="editDeliveryCountry" class="clients-input" type="text"></div>
+                </div>
+            </section>
+
+            <!-- Dane do faktury -->
+            <section class="clients-section">
+                <div class="clients-section-header">
+                    <h3>Dane do faktury</h3>
+                    <button type="button" class="copy-delivery-btn" onclick="copyDeliveryToInvoice()" title="Kopiuj dane z adresu dostawy">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                            <path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/>
+                        </svg>
+                        Kopiuj z dostawy
+                    </button>
+                </div>
+                <div class="clients-section-body grid-2-cols">
+                    <div class="input-group"><label for="editInvoiceName">Imię i nazwisko</label><input id="editInvoiceName" class="clients-input" type="text"></div>
+                    <div class="input-group"><label for="editInvoiceCompany">Firma</label><input id="editInvoiceCompany" class="clients-input" type="text"></div>
+                    <div class="input-group"><label for="editInvoiceAddress">Adres</label><input id="editInvoiceAddress" class="clients-input" type="text"></div>
+                    <div class="input-group"><label for="editInvoiceZip">Kod pocztowy</label><input id="editInvoiceZip" class="clients-input" type="text"></div>
+                    <div class="input-group"><label for="editInvoiceCity">Miasto</label><input id="editInvoiceCity" class="clients-input" type="text"></div>
+                    <div class="input-group input-nip-group">
+                        <label for="editInvoiceNIP">NIP</label>
+                        <div class="nip-row">
+                            <input id="editInvoiceNIP" class="clients-input" type="text">
+                            <button id="editGusLookupBtn" type="button" class="gus-btn">Pobierz z GUS</button>
+                        </div>
+                        <p class="input-error" id="error-editInvoiceNIP"></p>
+                    </div>
+                </div>
+            </section>
+        </div>
+
+        <!-- Przyciski akcji -->
+        <div class="clients-modal-actions">
+            <div id="view-actions">
+                <button id="clientsDetailsCloseBtn2" class="clients-btn clients-btn-secondary">Zamknij</button>
+            </div>
+            <div id="edit-actions" style="display: none;">
+                <button id="saveEditBtn" class="clients-btn clients-btn-primary">Zapisz zmiany</button>
+                <button id="cancelEditBtn" class="clients-btn clients-btn-secondary">Anuluj</button>
+            </div>
+        </div>
+    </div>
+</div>

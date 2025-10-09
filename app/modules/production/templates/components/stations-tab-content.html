@@ -1,0 +1,298 @@
+<!-- stations-tab-content.html -->
+<!-- Komponent zawartości taba Stanowiska -->
+
+<!-- Przegląd stanowisk -->
+<div class="stations-overview">
+    <div class="row g-4 mb-4">
+        {% for station_key, station in stations_data.items() %}
+        <div class="col-lg-4">
+            <div class="station-overview-card station-{{ station_key }}">
+                <div class="station-header">
+                    <div class="station-icon-large">{{ station.icon }}</div>
+                    <div class="station-title">
+                        <h4>{{ station.name }}</h4>
+                        <div class="station-quick-stats">
+                            <span class="stat">{{ station.stats.total_pending }} oczekuje</span>
+                            <span class="stat">{{ station.stats.high_priority }} priorytet</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="station-stats-grid">
+                    <div class="stat-item">
+                        <div class="stat-value">{{ station.stats.today_completed }}</div>
+                        <div class="stat-label">Dzisiaj ukończono</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-value">{{ "%.2f"|format(station.stats.today_volume) }}</div>
+                        <div class="stat-label">m³ dzisiaj</div>
+                    </div>
+                </div>
+                
+                <div class="station-actions">
+                    <a href="{{ url_for('production.production_stations.' + station_key + '_station') }}" 
+                       class="btn btn-primary btn-sm">
+                        <i class="fas fa-external-link-alt me-1"></i>
+                        Przejdź do stanowiska
+                    </a>
+                    <button class="btn btn-outline-secondary btn-sm" 
+                            onclick="refreshStationData('{{ station_key }}')">
+                        <i class="fas fa-sync-alt"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+
+<!-- Szczegółowy widok stanowisk -->
+<div class="stations-details">
+    {% for station_key, station in stations_data.items() %}
+    <div class="widget station-detail-widget mb-4">
+        <div class="widget-header">
+            <h4>
+                {{ station.icon }} {{ station.name }} - Oczekujące produkty
+            </h4>
+            <div class="station-controls">
+                <span class="badge bg-primary me-2">
+                    {{ station.stats.total_pending }} produktów
+                </span>
+                <span class="badge bg-warning me-2">
+                    {{ station.stats.high_priority }} wysoki priorytet
+                </span>
+                <button class="btn btn-outline-primary btn-sm" 
+                        onclick="viewFullStationList('{{ station_key }}')">
+                    <i class="fas fa-list me-1"></i>Pełna lista
+                </button>
+            </div>
+        </div>
+        
+        <div class="widget-content">
+            {% if station.pending_products %}
+            <div class="table-responsive">
+                <table class="table table-sm table-hover">
+                    <thead>
+                        <tr>
+                            <th>Priorytet</th>
+                            <th>ID Produktu</th>
+                            <th>Nazwa produktu</th>
+                            <th>Deadline</th>
+                            <th>Objętość</th>
+                            <th>Akcje</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for product in station.pending_products[:10] %}
+                        <tr>
+                            <td>
+                                <span class="priority-badge priority-{{ 'high' if product.priority_score >= 150 else 'normal' if product.priority_score >= 100 else 'low' }}">
+                                    {{ product.priority_score }}
+                                </span>
+                            </td>
+                            <td>
+                                <strong>{{ product.short_id }}</strong>
+                                <br><small class="text-muted">{{ product.internal_order_number }}</small>
+                            </td>
+                            <td>
+                                <div class="product-name-cell">{{ product.product_name }}</div>
+                            </td>
+                            <td>
+                                {% if product.deadline_date %}
+                                    {% set days_remaining = product.days_remaining %}
+                                    <span class="deadline-badge {% if days_remaining < 0 %}overdue{% elif days_remaining <= 1 %}urgent{% elif days_remaining <= 3 %}warning{% else %}normal{% endif %}">
+                                        {% if days_remaining < 0 %}
+                                            {{ days_remaining|abs }} dni temu
+                                        {% elif days_remaining == 0 %}
+                                            Dziś
+                                        {% elif days_remaining == 1 %}
+                                            Jutro
+                                        {% else %}
+                                            Za {{ days_remaining }} dni
+                                        {% endif %}
+                                    </span>
+                                {% else %}
+                                    <span class="text-muted">Brak terminu</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {{ "%.3f"|format(product.volume_m3) }} m³
+                            </td>
+                            <td>
+                                <div class="btn-group btn-group-sm">
+                                    <button class="btn btn-outline-success btn-sm" 
+                                            onclick="startProcessing('{{ station_key }}', '{{ product.short_id }}')"
+                                            title="Rozpocznij przetwarzanie">
+                                        <i class="fas fa-play"></i>
+                                    </button>
+                                    <button class="btn btn-outline-primary btn-sm" 
+                                            onclick="viewProductDetails('{{ product.short_id }}')"
+                                            title="Szczegóły">
+                                        <i class="fas fa-eye"></i>
+                                    </button>
+                                </div>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            
+            {% if station.pending_products|length > 10 %}
+            <div class="text-center mt-3">
+                <button class="btn btn-outline-primary" onclick="showAllProducts('{{ station_key }}')">
+                    <i class="fas fa-plus me-1"></i>
+                    Pokaż wszystkie {{ station.stats.total_pending }} produktów
+                </button>
+            </div>
+            {% endif %}
+            
+            {% else %}
+            <div class="text-center py-4">
+                <i class="fas fa-check-circle fa-3x text-success mb-3"></i>
+                <h5>Brak oczekujących produktów</h5>
+                <p class="text-muted">Wszystkie produkty zostały przetworzone na tym stanowisku.</p>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+    {% endfor %}
+</div>
+
+<!-- Podsumowanie przepływu -->
+<div class="widget workflow-summary-widget">
+    <div class="widget-header">
+        <h4>Przepływ produkcyjny</h4>
+        <button class="btn btn-outline-primary btn-sm" onclick="refreshWorkflowSummary()">
+            <i class="fas fa-sync-alt me-1"></i>Odśwież
+        </button>
+    </div>
+    <div class="widget-content">
+        <div class="workflow-diagram">
+            <div class="workflow-step">
+                <div class="step-icon">🪚</div>
+                <div class="step-name">Wycinanie</div>
+                <div class="step-count">{{ stations_data.cutting.stats.total_pending }}</div>
+                <div class="step-arrow">→</div>
+            </div>
+            <div class="workflow-step">
+                <div class="step-icon">🔧</div>
+                <div class="step-name">Składanie</div>
+                <div class="step-count">{{ stations_data.assembly.stats.total_pending }}</div>
+                <div class="step-arrow">→</div>
+            </div>
+            <div class="workflow-step">
+                <div class="step-icon">📦</div>
+                <div class="step-name">Pakowanie</div>
+                <div class="step-count">{{ stations_data.packaging.stats.total_pending }}</div>
+                <div class="step-arrow">✅</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+// JavaScript dla taba stanowisk
+function initStationsTab() {
+    console.log('[Stations Tab] Inicjalizacja');
+    
+    // Inicjalizuj timery odświeżania dla każdego stanowiska
+    initStationRefreshTimers();
+}
+
+function initStationRefreshTimers() {
+    // Auto-odświeżanie co 2 minuty dla stanowisk
+    setInterval(() => {
+        console.log('[Stations Tab] Auto-refresh stanowisk');
+        // Przeładuj dane stanowisk bez pełnego przeładowania taba
+        refreshAllStationsData();
+    }, 120000); // 2 minuty
+}
+
+function refreshStationData(stationKey) {
+    console.log('[Stations Tab] Odświeżanie danych stanowiska:', stationKey);
+    
+    // Pokaż loading dla konkretnego stanowiska
+    const stationCard = document.querySelector(`.station-${stationKey}`);
+    if (stationCard) {
+        stationCard.classList.add('loading');
+    }
+    
+    // Przeładuj cały tab stanowisk
+    window.loadTabContent('stations-tab', true); // silent refresh
+}
+
+function refreshAllStationsData() {
+    console.log('[Stations Tab] Odświeżanie wszystkich stanowisk');
+    window.loadTabContent('stations-tab', true); // silent refresh
+}
+
+function viewFullStationList(stationKey) {
+    console.log('[Stations Tab] Wyświetl pełną listę dla stanowiska:', stationKey);
+    
+    // Przekierowanie do dedykowanego widoku stanowiska
+    const stationUrls = {
+        'cutting': '{{ url_for("production.production_stations.cutting_station") }}',
+        'assembly': '{{ url_for("production.production_stations.assembly_station") }}',
+        'packaging': '{{ url_for("production.production_stations.packaging_station") }}'
+    };
+    
+    if (stationUrls[stationKey]) {
+        window.open(stationUrls[stationKey], '_blank');
+    }
+}
+
+function showAllProducts(stationKey) {
+    console.log('[Stations Tab] Pokaż wszystkie produkty dla:', stationKey);
+    
+    // Przełącz się na tab produktów z filtrem statusu
+    const statusFilters = {
+        'cutting': 'czeka_na_wyciecie',
+        'assembly': 'czeka_na_skladanie',
+        'packaging': 'czeka_na_pakowanie'
+    };
+    
+    // Aktywuj tab produktów
+    const productsTab = document.getElementById('products-tab');
+    if (productsTab) {
+        productsTab.click();
+        
+        // Po załadowaniu taba produktów, ustaw filtr
+        setTimeout(() => {
+            const statusFilter = document.getElementById('status-filter');
+            if (statusFilter && statusFilters[stationKey]) {
+                statusFilter.value = statusFilters[stationKey];
+                statusFilter.dispatchEvent(new Event('change'));
+            }
+        }, 500);
+    }
+}
+
+function startProcessing(stationKey, productId) {
+    console.log('[Stations Tab] Rozpocznij przetwarzanie:', stationKey, productId);
+    
+    // Potwierdzenie akcji
+    if (confirm(`Czy na pewno chcesz rozpocząć przetwarzanie produktu ${productId} na stanowisku ${stationKey}?`)) {
+        // TODO: Wywołanie API do rozpoczęcia przetwarzania
+        alert('Funkcja rozpoczynania przetwarzania będzie wkrótce dostępna!');
+    }
+}
+
+function viewProductDetails(productId) {
+    console.log('[Stations Tab] Wyświetl szczegóły produktu:', productId);
+    // TODO: Modal ze szczegółami produktu
+    alert(`Szczegóły produktu ${productId} - funkcja w przygotowaniu!`);
+}
+
+function refreshWorkflowSummary() {
+    console.log('[Stations Tab] Odświeżanie podsumowania przepływu');
+    refreshAllStationsData();
+}
+
+// Auto-inicjalizacja
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initStationsTab);
+} else {
+    initStationsTab();
+}
+</script>

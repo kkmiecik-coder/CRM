@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Panel Admina - PartnerAcademy - Wood Power CRM</title>
+    <link rel="icon" href="{{ url_for('static', filename='images/favicon.png') }}" type="image/png">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="stylesheet" href="{{ url_for('partner_academy.static', filename='css/admin.css') }}">
+</head>
+<body>
+    <div class="app-container admin-app">
+        {% include 'sidebar/sidebar.html' %}
+
+        <main class="main-content admin-main">
+            <div class="header-with-actions">
+                <h1 class="title-with-underline">PartnerAcademy - Panel Administracyjny</h1>
+                <div class="header-buttons">
+                    <button class="btn-link-copy" onclick="handleLinkAction('/partner-academy/')">
+                        📋 Strona rekrutacji
+                    </button>
+                    <button class="btn-link-copy" onclick="handleLinkAction('/partner-academy/learning')">
+                        📚 Strona szkoleń
+                    </button>
+                </div>
+            </div>
+
+            <!-- ================================================================
+                 DASHBOARD - STATYSTYKI
+                 ================================================================ -->
+            <section class="dashboard-section">
+                <h2>Dashboard</h2>
+
+                <!-- Statystyki Aplikacji -->
+                <div class="stats-category">
+                    <h3 class="stats-category-title">📋 Rekrutacja</h3>
+                    <div class="stats-grid">
+                        <div class="stat-card stat-card-primary">
+                            <div class="stat-value" id="stat-total">-</div>
+                            <div class="stat-label">Wszystkie aplikacje</div>
+                        </div>
+                        <div class="stat-card stat-card-warning">
+                            <div class="stat-value" id="stat-pending">-</div>
+                            <div class="stat-label">Oczekujące</div>
+                        </div>
+                        <div class="stat-card stat-card-info">
+                            <div class="stat-value" id="stat-contacted">-</div>
+                            <div class="stat-label">Kontakt nawiązany</div>
+                        </div>
+                        <div class="stat-card stat-card-success">
+                            <div class="stat-value" id="stat-accepted">-</div>
+                            <div class="stat-label">Zaakceptowane</div>
+                        </div>
+                        <div class="stat-card stat-card-danger">
+                            <div class="stat-value" id="stat-rejected">-</div>
+                            <div class="stat-label">Odrzucone</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Statystyki Szkoleń -->
+                <div class="stats-category">
+                    <h3 class="stats-category-title">📚 Szkolenia</h3>
+                    <div class="stats-grid">
+                        <div class="stat-card stat-card-primary">
+                            <div class="stat-value" id="stat-total-sessions">-</div>
+                            <div class="stat-label">Wszystkie sesje</div>
+                        </div>
+                        <div class="stat-card stat-card-info">
+                            <div class="stat-value" id="stat-active-sessions">-</div>
+                            <div class="stat-label">Aktywne sesje</div>
+                        </div>
+                        <div class="stat-card stat-card-success">
+                            <div class="stat-value" id="stat-completed-sessions">-</div>
+                            <div class="stat-label">Ukończone</div>
+                        </div>
+                        <div class="stat-card stat-card-orange">
+                            <div class="stat-value" id="stat-avg-progress">-</div>
+                            <div class="stat-label">Średni postęp</div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ================================================================
+                 VIEW SWITCHER - Przełącznik widoku
+                 ================================================================ -->
+            <div class="view-switcher">
+                <button id="viewApplications" class="view-btn active" onclick="switchView('applications')">
+                    📋 Aplikacje rekrutacyjne
+                </button>
+                <button id="viewSessions" class="view-btn" onclick="switchView('sessions')">
+                    📚 Sesje szkoleniowe
+                </button>
+            </div>
+
+            <!-- ================================================================
+                 SEKCJA: APLIKACJE REKRUTACYJNE
+                 ================================================================ -->
+            <section class="applications-section" id="applicationsSection">
+                <div class="section-header">
+                    <h2>Lista Aplikacji</h2>
+                    <button class="btn-primary" onclick="exportApplications()">
+                        📊 Eksportuj do XLSX
+                    </button>
+                </div>
+
+                <!-- Filtry -->
+                <div class="filters-bar">
+                    <div class="filter-group">
+                        <label for="statusFilter">Status:</label>
+                        <select id="statusFilter" onchange="filterApplications()">
+                            <option value="">Wszystkie</option>
+                            <option value="pending">Oczekujące</option>
+                            <option value="contacted">Kontakt nawiązany</option>
+                            <option value="accepted">Zaakceptowane</option>
+                            <option value="rejected">Odrzucone</option>
+                        </select>
+                    </div>
+                    <div class="filter-group">
+                        <label for="searchInput">Szukaj:</label>
+                        <input type="text" id="searchInput" placeholder="Imię, nazwisko, email..." onkeyup="filterApplications()">
+                    </div>
+                </div>
+
+                <!-- Tabela aplikacji -->
+                <div class="table-container">
+                    <table class="applications-table">
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Data złożenia</th>
+                                <th>Imię i nazwisko</th>
+                                <th>Email</th>
+                                <th>Telefon</th>
+                                <th>Region</th>
+                                <th>Status</th>
+                                <th>Akcje</th>
+                            </tr>
+                        </thead>
+                        <tbody id="applicationsTableBody">
+                            <tr>
+                                <td colspan="7" class="loading-cell">Ładowanie danych...</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- Paginacja -->
+                <div class="pagination" id="pagination"></div>
+            </section>
+
+            <!-- ================================================================
+                 SEKCJA: SESJE SZKOLENIOWE
+                 ================================================================ -->
+            <section class="sessions-section" id="sessionsSection" style="display: none;">
+                <div class="section-header">
+                    <h2>Lista Sesji Szkoleniowych</h2>
+                    <button class="btn-primary" onclick="exportSessions()">
+                        📊 Eksportuj do XLSX
+                    </button>
+                </div>
+
+                <!-- Filtry -->
+                <div class="filters-bar">
+                    <div class="filter-group">
+                        <label for="sessionStatusFilter">Status:</label>
+                        <select id="sessionStatusFilter" onchange="filterSessions()">
+                            <option value="">Wszystkie sesje</option>
+                            <option value="active">Aktywne (ostatnie 7 dni)</option>
+                            <option value="completed">Ukończone</option>
+                            <option value="inactive">Nieaktywne (7+ dni)</option>
+                        </select>
+                    </div>
+                    <div class="filter-group">
+                        <label for="sessionSearchInput">Szukaj:</label>
+                        <input type="text" id="sessionSearchInput" placeholder="Email..." onkeyup="filterSessions()">
+                    </div>
+                </div>
+
+                <!-- Tabela sesji -->
+                <div class="table-container">
+                    <table class="sessions-table">
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Email</th>
+                                <th>Aktualny krok</th>
+                                <th>Postęp</th>
+                                <th>Czas spędzony</th>
+                                <th>Ostatnia aktywność</th>
+                                <th>Status</th>
+                                <th>Akcje</th>
+                            </tr>
+                        </thead>
+                        <tbody id="sessionsTableBody">
+                            <tr>
+                                <td colspan="8" class="loading-cell">Ładowanie danych...</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- Paginacja sesji -->
+                <div class="pagination" id="sessionsPagination"></div>
+            </section>
+
+        </main>
+    </div>
+
+    <!-- ================================================================
+         MODAL: SZCZEGÓŁY APLIKACJI
+         ================================================================ -->
+    <div id="applicationModal" class="modal-overlay" style="display: none;">
+        <div class="modal-container">
+            <button class="modal-close" onclick="closeApplicationModal()">×</button>
+            <div class="modal-content" id="applicationModalContent">
+                <!-- Treść ładowana dynamicznie -->
+            </div>
+        </div>
+    </div>
+
+    <!-- ================================================================
+         MODAL: SZCZEGÓŁY SESJI SZKOLENIOWEJ
+         ================================================================ -->
+    <div id="sessionModal" class="modal-overlay" style="display: none;">
+        <div class="modal-container modal-container-wide">
+            <button class="modal-close" onclick="closeSessionModal()">×</button>
+            <div class="modal-content" id="sessionModalContent">
+                <!-- Treść ładowana dynamicznie -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="{{ url_for('partner_academy.static', filename='js/admin.js') }}"></script>
+</body>
+</html>

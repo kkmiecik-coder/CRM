@@ -1,0 +1,104 @@
+<div id="edit-variant-modal" class="edit-modal-overlay" style="display: none;">
+    <div class="edit-modal-box">
+        <div class="edit-modal-header">
+            <h2 class="edit-modal-title">Edytuj wariant</h2>
+            <button class="edit-modal-close" id="close-edit-variant-modal">&times;</button>
+        </div>
+
+        <div class="edit-modal-content">
+            <!-- Informacje o wariancie -->
+            <div class="edit-variant-info">
+                <h3>Informacje o wariancie</h3>
+                <div class="variant-details">
+                    <p><strong>Wariant:</strong> <span id="edit-variant-name">-</span></p>
+                    <p><strong>Wymiary:</strong> <span id="edit-variant-dimensions">-</span></p>
+                    <p><strong>Objętość:</strong> <span id="edit-variant-volume">-</span></p>
+                </div>
+            </div>
+
+            <!-- Formularz edycji -->
+            <div class="edit-form-section">
+                <div class="form-group">
+                    <label for="discount-percentage">Rabat (%)</label>
+                    <div class="input-with-hint">
+                        <input type="number"
+                               id="discount-percentage"
+                               class="edit-input"
+                               min="-100"
+                               max="100"
+                               step="1"
+                               value="0"
+                               placeholder="0">
+                        <small class="input-hint">Od -100% do +100%. Wartości ujemne = podwyżka, dodatnie = rabat.</small>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="discount-reason">Powód zmiany ceny</label>
+                    <select id="discount-reason" class="edit-select">
+                        <option value="">Wybierz powód...</option>
+                        <!-- Opcje będą dodane przez JavaScript -->
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label class="checkbox-label">
+                        <input type="checkbox" id="show-on-client-page" checked>
+                        <span class="checkmark"></span>
+                        Wyświetlaj wariant na stronie klienta
+                    </label>
+                </div>
+            </div>
+
+            <!-- Podgląd cen -->
+            <div class="price-preview-section">
+                <h3>Podgląd cen</h3>
+
+                <div class="price-comparison">
+                    <div class="price-original">
+                        <h4>Cena oryginalna</h4>
+                        <div class="price-values">
+                            <div class="price-item">
+                                <span class="price-label">Netto:</span>
+                                <span class="price-value" id="original-price-netto">0.00 PLN</span>
+                            </div>
+                            <div class="price-item">
+                                <span class="price-label">Brutto:</span>
+                                <span class="price-value" id="original-price-brutto">0.00 PLN</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="price-arrow">→</div>
+
+                    <div class="price-final">
+                        <h4>Cena po rabacie</h4>
+                        <div class="price-values">
+                            <div class="price-item">
+                                <span class="price-label">Netto:</span>
+                                <span class="price-value" id="final-price-netto">0.00 PLN</span>
+                            </div>
+                            <div class="price-item">
+                                <span class="price-label">Brutto:</span>
+                                <span class="price-value" id="final-price-brutto">0.00 PLN</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="discount-amount" id="discount-amount" style="display: none;">
+                    <p><strong>Różnica:</strong> <span id="discount-value">0.00 PLN</span></p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Przyciski akcji -->
+        <div class="edit-modal-actions">
+            <button id="save-variant-changes" class="edit-btn edit-btn-primary">
+                <span class="btn-text">Zapisz zmiany</span>
+                <span class="btn-loading" style="display: none;">Zapisywanie...</span>
+            </button>
+            <button id="cancel-variant-changes" class="edit-btn edit-btn-secondary">Anuluj</button>
+        </div>
+    </div>
+</div>

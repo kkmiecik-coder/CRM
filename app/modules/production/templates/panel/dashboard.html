@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <title>Dashboard Produkcji - WoodPower CRM</title>
+    <link rel="icon" href="{{ url_for('static', filename='images/favicon.png') }}" type="image/png">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <!-- CSS dla tabów -->
+    <link rel="stylesheet" href="{{ url_for('production.static', filename='css/products-tab.css') }}">
+    <link rel="stylesheet" href="{{ url_for('production.static', filename='css/production-panel.css') }}">
+    <link rel="stylesheet" href="{{ url_for('production.static', filename='css/products-tab.css') }}">
+    <link rel="stylesheet" href="{{ url_for('production.static', filename='css/config-tab.css') }}"
+    <!-- CSS dla komponentów -->
+    <link rel="stylesheet" href="{{ url_for('production.static', filename='css/dashboard_bl_sync_modal.css') }}">
+    <!-- CSS uzupełniające -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Sidebar systemowy -->
+        {% include 'sidebar/sidebar.html' %}
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <!-- Header -->
+            <div class="dashboard-header">
+                <div class="header-top">
+                    <h1 class="page-title title-with-underline">Dashboard Produkcji</h1>
+
+                    <div class="user-greeting">
+                        <div class="production-status" id="production-status">
+                            <span class="status-indicator" id="status-indicator"></span>
+                            <span class="status-text" id="status-text">Ładowanie...</span>
+                        </div>
+                        <div class="system-status">
+                            <div class="system-refresh-section">
+                                <button class="refresh-system-btn" id="refresh-system-btn">
+                                    <span class="refresh-icon">🔄</span>
+                                    <span class="refresh-text">Odśwież system</span>
+                                    <span class="refresh-timer" id="refresh-timer">(auto za 60s)</span>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Production Dashboard Tabs -->
+            <div class="production-dashboard-tabs">
+                <!-- Tab Navigation -->
+                <nav class="nav nav-tabs dashboard-nav-tabs" id="productionDashboardTabs" role="tablist">
+                    <button class="nav-link active"
+                            id="dashboard-tab"
+                            data-bs-toggle="tab"
+                            data-bs-target="#dashboard-tab-content"
+                            type="button"
+                            role="tab"
+                            aria-controls="dashboard-tab-content"
+                            aria-selected="true">
+                        <i class="fas fa-tachometer-alt me-2"></i>
+                        Dashboard
+                    </button>
+
+                    <button class="nav-link"
+                            id="products-tab"
+                            data-bs-toggle="tab"
+                            data-bs-target="#products-tab-content"
+                            type="button"
+                            role="tab"
+                            aria-controls="products-tab-content"
+                            aria-selected="false">
+                        <i class="fas fa-list me-2"></i>
+                        Lista produktów
+                    </button>
+
+                    <button class="nav-link"
+                            id="reports-tab"
+                            data-bs-toggle="tab"
+                            data-bs-target="#reports-tab-content"
+                            type="button"
+                            role="tab"
+                            aria-controls="reports-tab-content"
+                            aria-selected="false">
+                        <i class="fas fa-chart-bar me-2"></i>
+                        Raporty
+                    </button>
+
+                    <button class="nav-link"
+                            id="stations-tab"
+                            data-bs-toggle="tab"
+                            data-bs-target="#stations-tab-content"
+                            type="button"
+                            role="tab"
+                            aria-controls="stations-tab-content"
+                            aria-selected="false">
+                        <i class="fas fa-industry me-2"></i>
+                        Stanowiska
+                    </button>
+
+                    {% if current_user.role in ['admin', 'administrator'] %}
+                    <button class="nav-link"
+                            id="config-tab"
+                            data-bs-toggle="tab"
+                            data-bs-target="#config-tab-content"
+                            type="button"
+                            role="tab"
+                            aria-controls="config-tab-content"
+                            aria-selected="false">
+                        <i class="fas fa-cog me-2"></i>
+                        Konfiguracja
+                    </button>
+                    {% endif %}
+                </nav>
+
+                <!-- Tab Content Container -->
+                <div class="tab-content production-tab-content" id="productionDashboardTabContent">
+
+                    <!-- Dashboard Tab -->
+                    <div class="tab-pane fade show active"
+                         id="dashboard-tab-content"
+                         role="tabpanel"
+                         aria-labelledby="dashboard-tab">
+
+                        <div class="tab-loading" id="dashboard-tab-loading">
+                            <div class="text-center py-5">
+                                <div class="spinner-border text-primary" role="status" style="width: 3rem; height: 3rem;"></div>
+                                <p class="mt-3 text-muted">Ładowanie dashboard...</p>
+                            </div>
+                        </div>
+
+                        <div class="tab-content-wrapper" id="dashboard-tab-wrapper" style="display:none;">
+                            <!-- Zawartość dashboard zostanie załadowana przez AJAX -->
+                        </div>
+
+                        <div class="tab-error" id="dashboard-tab-error" style="display:none;">
+                            <div class="alert alert-danger" role="alert">
+                                <i class="fas fa-exclamation-triangle me-2"></i>
+                                <strong>Błąd ładowania dashboard!</strong>
+                                <span id="dashboard-tab-error-message"></span>
+                                <button class="btn btn-outline-danger btn-sm ms-2" onclick="ProductionApp.forceRefresh()">
+                                    <i class="fas fa-redo me-1"></i>Spróbuj ponownie
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Products Tab -->
+                    <div class="tab-pane fade"
+                         id="products-tab-content"
+                         role="tabpanel"
+                         aria-labelledby="products-tab">
+
+                        <div class="tab-loading" id="products-tab-loading">
+                            <div class="text-center py-5">
+                                <div class="spinner-border text-primary" role="status" style="width: 3rem; height: 3rem;"></div>
+                                <p class="mt-3 text-muted">Ładowanie listy produktów...</p>
+                            </div>
+                        </div>
+
+                        <div class="tab-content-wrapper" id="products-tab-wrapper" style="display:none;">
+                            <!-- Zawartość produktów zostanie załadowana przez AJAX -->
+                        </div>
+
+                        <div class="tab-error" id="products-tab-error" style="display:none;">
+                            <div class="alert alert-danger" role="alert">
+                                <i class="fas fa-exclamation-triangle me-2"></i>
+                                <strong>Błąd ładowania produktów!</strong>
+                                <span id="products-tab-error-message"></span>
+                                <button class="btn btn-outline-danger btn-sm ms-2" onclick="ProductionApp.forceRefresh()">
+                                    <i class="fas fa-redo me-1"></i>Spróbuj ponownie
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Reports Tab -->
+                    <div class="tab-pane fade"
+                         id="reports-tab-content"
+                         role="tabpanel"
+                         aria-labelledby="reports-tab">
+
+                        <div class="tab-loading" id="reports-tab-loading">
+                            <div class="text-center py-5">
+                                <div class="spinner-border text-primary" role="status" style="width: 3rem; height: 3rem;"></div>
+                                <p class="mt-3 text-muted">Ładowanie raportów...</p>
+                            </div>
+                        </div>
+
+                        <div class="tab-content-wrapper" id="reports-tab-wrapper" style="display:none;">
+                            <!-- Zawartość raportów zostanie załadowana przez AJAX -->
+                        </div>
+
+                        <div class="tab-error" id="reports-tab-error" style="display:none;">
+                            <div class="alert alert-danger" role="alert">
+                                <i class="fas fa-exclamation-triangle me-2"></i>
+                                <strong>Błąd ładowania raportów!</strong>
+                                <span id="reports-tab-error-message"></span>
+                                <button class="btn btn-outline-danger btn-sm ms-2" onclick="ProductionApp.forceRefresh()">
+                                    <i class="fas fa-redo me-1"></i>Spróbuj ponownie
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Stations Tab -->
+                    <div class="tab-pane fade"
+                         id="stations-tab-content"
+                         role="tabpanel"
+                         aria-labelledby="stations-tab">
+
+                        <div class="tab-loading" id="stations-tab-loading">
+                            <div class="text-center py-5">
+                                <div class="spinner-border text-primary" role="status" style="width: 3rem; height: 3rem;"></div>
+                                <p class="mt-3 text-muted">Ładowanie stanowisk...</p>
+                            </div>
+                        </div>
+
+                        <div class="tab-content-wrapper" id="stations-tab-wrapper" style="display:none;">
+                            <!-- Zawartość stanowisk zostanie załadowana przez AJAX -->
+                        </div>
+
+                        <div class="tab-error" id="stations-tab-error" style="display:none;">
+                            <div class="alert alert-danger" role="alert">
+                                <i class="fas fa-exclamation-triangle me-2"></i>
+                                <strong>Błąd ładowania stanowisk!</strong>
+                                <span id="stations-tab-error-message"></span>
+                                <button class="btn btn-outline-danger btn-sm ms-2" onclick="ProductionApp.forceRefresh()">
+                                    <i class="fas fa-redo me-1"></i>Spróbuj ponownie
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Config Tab (tylko admin) -->
+                    <div class="tab-pane fade"
+                         id="config-tab-content"
+                         role="tabpanel"
+                         aria-labelledby="config-tab">
+
+                        <div class="tab-loading" id="config-tab-loading">
+                            <div class="text-center py-5">
+                                <div class="spinner-border text-primary" role="status" style="width: 3rem; height: 3rem;"></div>
+                                <p class="mt-3 text-muted">Ładowanie konfiguracji...</p>
+                            </div>
+                        </div>
+
+                        <div class="tab-content-wrapper" id="config-tab-wrapper" style="display:none;">
+                            <!-- Zawartość konfiguracji zostanie załadowana przez AJAX -->
+                        </div>
+
+                        <div class="tab-error" id="config-tab-error" style="display:none;">
+                            <div class="alert alert-danger" role="alert">
+                                <i class="fas fa-exclamation-triangle me-2"></i>
+                                <strong>Błąd ładowania konfiguracji!</strong>
+                                <span id="config-tab-error-message"></span>
+                                <button class="btn btn-outline-danger btn-sm ms-2" onclick="ProductionApp.forceRefresh()">
+                                    <i class="fas fa-redo me-1"></i>Spróbuj ponownie
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- ========================================= -->
+    <!-- NOWA STRUKTURA ŁADOWANIA SKRYPTÓW       -->
+    <!-- ========================================= -->
+    <!-- 1. Podstawowe biblioteki -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+
+    <!-- 2. Sidebar (niezmieniony) -->
+    <script src="{{ url_for('static', filename='js/sidebar.js') }}"></script>
+
+    <!-- 3. Chart.js tylko dla adminów -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+    <!-- 4. NOWE: Konfiguracja aplikacji -->
+    <script>
+    window.PRODUCTION_CONFIG = {
+        user: {
+            role: '{{ current_user.role if current_user.is_authenticated else "guest" }}',
+            id: {{ current_user.id if current_user.is_authenticated else 'null' }},
+            isAdmin: {{ 'true' if current_user.role in ['admin', 'administrator'] else 'false' }},
+            name: '{{ current_user.username if current_user.is_authenticated else "Gość" }}'
+        },
+        endpoints: {
+            dashboardTabContent: '{{ url_for("production.production_api.dashboard_tab_content") }}',
+            productsTabContent: '{{ url_for("production.production_api.products_tab_content") }}',
+            reportsTabContent: '{{ url_for("production.production_api.reports_tab_content") }}',
+            stationsTabContent: '{{ url_for("production.production_api.stations_tab_content") }}',
+            configTabContent: '{{ url_for("production.production_api.config_tab_content") }}',
+            chartData: '{{ url_for("production.production_api.chart_data") }}',
+            manualSync: '{{ url_for("production.production_api.manual_sync") }}',
+            dashboardStats: '{{ url_for("production.production_api.dashboard_stats") }}',
+            systemErrors: {% if current_user.role in ['admin', 'administrator'] %}'{{ url_for("production.production_admin.ajax_system_errors") }}'{% else %}null{% endif %},
+            clearSystemErrors: {% if current_user.role in ['admin', 'administrator'] %}'{{ url_for("production.production_admin.ajax_clear_system_errors") }}'{% else %}null{% endif %}
+        },
+        debug: {{ config.DEBUG|lower }},
+        version: '2.0.0',
+        environment: '{{ config.ENV or "production" }}'
+    };
+
+    console.log('[HTML] Production config loaded:', window.PRODUCTION_CONFIG);
+    </script>
+
+    <!-- Wspólne serwisy -->
+    <script src="{{ url_for('production.static', filename='js/shared-services.js') }}"></script>
+    <!-- Moduły funkcjonalne -->
+    <script src="{{ url_for('production.static', filename='js/modules/dashboard-module.js') }}"></script>
+    <script src="{{ url_for('production.static', filename='js/modules/products-dragdrop.js') }}"></script>
+    <script src="{{ url_for('production.static', filename='js/modules/products-module.js') }}"></script>
+    <script src="{{ url_for('production.static', filename='js/modules/config-module.js') }}"></script>
+    <!-- Główny kontroler aplikacji -->
+    <script src="{{ url_for('production.static', filename='js/production-app-loader.js') }}"></script>
+    <!-- Obsługa modala synchronizacji z Baselinkerem -->
+    <script src="{{ url_for('production.static', filename='js/modules/dashboard_bl_sync_modal.js') }}"></script>
+
+</body>
+</html>

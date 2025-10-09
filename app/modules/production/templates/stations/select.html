@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <title>Wybór Stanowiska - WoodPower</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='images/favicon.png') }}">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .container {
+            max-width: 1200px;
+            width: 100%;
+            text-align: center;
+            animation: fadeIn 0.5s ease-in;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(-20px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .header {
+            margin-bottom: 3rem;
+        }
+
+        .logo-container {
+            margin-bottom: 2rem;
+            animation: fadeIn 0.6s ease-in;
+        }
+
+        .logo {
+            height: 80px;
+            width: auto;
+            filter: drop-shadow(0 4px 8px rgba(0,0,0,0.2));
+            transition: transform 0.3s ease;
+        }
+
+        h1 {
+            color: white;
+            font-size: 2.8rem;
+            margin-bottom: 1rem;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+            font-weight: 700;
+        }
+
+        .subtitle {
+            color: rgba(255, 255, 255, 0.9);
+            font-size: 1.2rem;
+            font-weight: 300;
+        }
+
+        .stations {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 2rem;
+            margin-top: 2rem;
+            padding: 0 1rem;
+        }
+
+        .station-card {
+            background: white;
+            border-radius: 20px;
+            padding: 3rem 2rem;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+            transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            cursor: pointer;
+            border: 3px solid transparent;
+            text-decoration: none;
+            color: inherit;
+            position: relative;
+            overflow: hidden;
+        }
+
+            .station-card::before {
+                content: '';
+                position: absolute;
+                top: 0;
+                left: 0;
+                right: 0;
+                height: 6px;
+                transition: all 0.3s ease;
+            }
+
+            .station-card:hover {
+                transform: translateY(-10px) scale(1.02);
+                box-shadow: 0 20px 40px rgba(0,0,0,0.3);
+            }
+
+            .station-card:active {
+                transform: translateY(-5px) scale(0.98);
+            }
+
+            .station-card.cutting::before {
+                background: linear-gradient(90deg, #fd7e14 0%, #ff9800 100%);
+            }
+
+            .station-card.cutting:hover {
+                border-color: #fd7e14;
+                background: linear-gradient(to bottom, #fff 0%, #fff4e6 100%);
+            }
+
+            .station-card.assembly::before {
+                background: linear-gradient(90deg, #007bff 0%, #0056b3 100%);
+            }
+
+            .station-card.assembly:hover {
+                border-color: #007bff;
+                background: linear-gradient(to bottom, #fff 0%, #e6f2ff 100%);
+            }
+
+            .station-card.packaging::before {
+                background: linear-gradient(90deg, #28a745 0%, #20c997 100%);
+            }
+
+            .station-card.packaging:hover {
+                border-color: #28a745;
+                background: linear-gradient(to bottom, #fff 0%, #e6f7e6 100%);
+            }
+
+        .station-icon {
+            font-size: 5rem;
+            margin-bottom: 1.5rem;
+            filter: drop-shadow(0 4px 6px rgba(0,0,0,0.1));
+            animation: float 3s ease-in-out infinite;
+        }
+
+        @keyframes float {
+            0%, 100% {
+                transform: translateY(0px);
+            }
+
+            50% {
+                transform: translateY(-10px);
+            }
+        }
+
+        .station-card:hover .station-icon {
+            animation: bounce 0.6s ease;
+        }
+
+        @keyframes bounce {
+            0%, 100% {
+                transform: translateY(0) scale(1);
+            }
+
+            25% {
+                transform: translateY(-15px) scale(1.1);
+            }
+
+            50% {
+                transform: translateY(0) scale(1.05);
+            }
+
+            75% {
+                transform: translateY(-7px) scale(1.08);
+            }
+        }
+
+        .station-name {
+            font-size: 1.8rem;
+            font-weight: 700;
+            color: #2c3e50;
+            margin-bottom: 0.8rem;
+            letter-spacing: -0.5px;
+        }
+
+        .station-description {
+            color: #7f8c8d;
+            font-size: 1.1rem;
+            line-height: 1.6;
+            font-weight: 400;
+        }
+
+        .station-badge {
+            display: inline-block;
+            margin-top: 1rem;
+            padding: 0.5rem 1.2rem;
+            border-radius: 20px;
+            font-size: 0.85rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            opacity: 0;
+            transform: translateY(10px);
+            transition: all 0.3s ease;
+        }
+
+        .station-card:hover .station-badge {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        .cutting .station-badge {
+            background: #fff4e6;
+            color: #fd7e14;
+        }
+
+        .assembly .station-badge {
+            background: #e6f2ff;
+            color: #007bff;
+        }
+
+        .packaging .station-badge {
+            background: #e6f7e6;
+            color: #28a745;
+        }
+
+        .footer {
+            margin-top: 4rem;
+            color: rgba(255, 255, 255, 0.8);
+            font-size: 0.95rem;
+            font-weight: 300;
+        }
+
+        .footer-badge {
+            display: inline-block;
+            background: rgba(255, 255, 255, 0.15);
+            padding: 0.5rem 1.5rem;
+            border-radius: 25px;
+            font-weight: 500;
+            backdrop-filter: blur(10px);
+            margin-top: 1rem;
+        }
+
+        /* Tablet optimization */
+        @media (max-width: 768px) {
+            .logo {
+                height: 60px;
+            }
+
+            h1 {
+                font-size: 2.2rem;
+            }
+
+            .subtitle {
+                font-size: 1rem;
+            }
+
+            .stations {
+                grid-template-columns: 1fr;
+                gap: 1.5rem;
+            }
+
+            .station-card {
+                padding: 2.5rem 2rem;
+            }
+
+            .station-icon {
+                font-size: 4rem;
+            }
+
+            .station-name {
+                font-size: 1.6rem;
+            }
+        }
+
+        /* Touch-friendly improvements for tablets */
+        @media (hover: none) and (pointer: coarse) {
+            .station-card {
+                padding: 3.5rem 2rem;
+            }
+
+            .station-badge {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        /* Loading animation */
+        .loading {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid rgba(255,255,255,.3);
+            border-radius: 50%;
+            border-top-color: white;
+            animation: spin 1s ease-in-out infinite;
+        }
+
+        @keyframes spin {
+            to {
+                transform: rotate(360deg);
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div class="logo-container">
+                <img src="/static/images/crm-logo.svg" alt="WoodPower Logo" class="logo">
+            </div>
+            <h1>Wybór stanowiska produkcyjnego</h1>
+            <p class="subtitle">Wybierz stanowisko, aby rozpocząć pracę</p>
+        </div>
+
+        <div class="stations">
+            <!-- POPRAWIONE URL: dodano /stations/ -->
+            <a href="/production/stations/cutting" class="station-card cutting">
+                <div class="station-icon">🪚</div>
+                <div class="station-name">Wycinanie</div>
+                <div class="station-description">Cięcie i przygotowanie materiału</div>
+                <span class="station-badge">Przejdź do stanowiska</span>
+            </a>
+
+            <a href="/production/stations/assembly" class="station-card assembly">
+                <div class="station-icon">🔧</div>
+                <div class="station-name">Składanie</div>
+                <div class="station-description">Montaż i łączenie elementów</div>
+                <span class="station-badge">Przejdź do stanowiska</span>
+            </a>
+
+            <a href="/production/stations/packaging" class="station-card packaging">
+                <div class="station-icon">📦</div>
+                <div class="station-name">Pakowanie</div>
+                <div class="station-description">Pakowanie gotowych produktów</div>
+                <span class="station-badge">Przejdź do stanowiska</span>
+            </a>
+        </div>
+
+        <div class="footer">
+            <div class="footer-badge">
+                WoodPower CRM - System Produkcji
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Dodaj efekt kliknięcia i feedback dla touch devices
+        document.querySelectorAll('.station-card').forEach(card => {
+            card.addEventListener('click', function (e) {
+                // Dodaj efekt ripple przy kliknięciu
+                const ripple = document.createElement('div');
+                ripple.style.cssText = `
+                        position: absolute;
+                        border-radius: 50%;
+                        background: rgba(255,255,255,0.6);
+                        width: 100px;
+                        height: 100px;
+                        margin-left: -50px;
+                        margin-top: -50px;
+                        animation: ripple 0.6s;
+                        pointer-events: none;
+                    `;
+                ripple.style.left = e.clientX - this.getBoundingClientRect().left + 'px';
+                ripple.style.top = e.clientY - this.getBoundingClientRect().top + 'px';
+
+                this.appendChild(ripple);
+
+                setTimeout(() => ripple.remove(), 600);
+            });
+        });
+
+        // Dodaj animację ripple do CSS
+        const style = document.createElement('style');
+        style.textContent = `
+                @keyframes ripple {
+                    from {
+                        opacity: 1;
+                        transform: scale(0);
+                    }
+                    to {
+                        opacity: 0;
+                        transform: scale(4);
+                    }
+                }
+            `;
+        document.head.appendChild(style);
+
+        // Preload następnych stron dla szybszego ładowania
+        const links = document.querySelectorAll('.station-card');
+        links.forEach(link => {
+            const preload = document.createElement('link');
+            preload.rel = 'prefetch';
+            preload.href = link.href;
+            document.head.appendChild(preload);
+        });
+
+        // Debug info (opcjonalne - usuń w produkcji)
+        console.log('Station Select loaded successfully');
+        console.log('Available stations:', Array.from(links).map(l => l.href));
+    </script>
+</body>
+</html>

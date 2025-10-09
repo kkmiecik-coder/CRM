@@ -1,0 +1,34 @@
+<!-- Top Products Widget -->
+<div class="widget top-products">
+    <h2 class="widget-title">
+        <span class="widget-icon">🏆</span>
+        Top produkty
+    </h2>
+    <div class="product-list">
+        {% if top_products %}
+        {% for product in top_products %}
+        <div class="product-item">
+            <div class="product-name">{{ product.name }}</div>
+            <div class="product-stats">{{ product.quantity }} szt. • {{ product.percentage }}%</div>
+        </div>
+        {% endfor %}
+        {% else %}
+        <div class="product-item">
+            <div class="product-name">Dąb Klejonka A</div>
+            <div class="product-stats">156 szt. • 45,2%</div>
+        </div>
+        <div class="product-item">
+            <div class="product-name">Jesion Deska B</div>
+            <div class="product-stats">98 szt. • 28,7%</div>
+        </div>
+        <div class="product-item">
+            <div class="product-name">Buk Klejonka A</div>
+            <div class="product-stats">67 szt. • 19,6%</div>
+        </div>
+        <div class="product-item">
+            <div class="product-name">Sosna Deska C</div>
+            <div class="product-stats">34 szt. • 9,9%</div>
+        </div>
+        {% endif %}
+    </div>
+</div>

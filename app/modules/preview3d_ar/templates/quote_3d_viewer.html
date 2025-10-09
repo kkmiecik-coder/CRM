@@ -1,0 +1,492 @@
+<!-- app/modules/preview3d_ar/templates/quote_3d_viewer.html -->
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ quote.quote_number }} - Podgląd 3D/AR</title>
+
+    <!-- CSS -->
+    <link rel="stylesheet" href="{{ url_for('preview3d_ar.static', filename='css/modal_style.css') }}">
+    <link rel="stylesheet" href="{{ url_for('preview3d_ar.static', filename='css/ar-modal.css') }}">
+    <script src="//cdn.jsdelivr.net/npm/eruda"></script>
+    <script>eruda.init();</script>
+</head>
+<body>
+    <div class="viewer-container">
+        <!-- DESKTOP SIDEBAR - Lista produktów (ukryty na mobile) -->
+        <div class="product-sidebar">
+            <div class="sidebar-header">
+                <h1 class="sidebar-title">Warianty</h1>
+                <div class="quote-info">
+                    Wycena: <strong>{{ quote.quote_number }}</strong>
+                    {% if quote.client %}<br>{{ quote.client.client_name }}{% endif %}
+                </div>
+            </div>
+
+            <div class="products-list-container" id="products-list-container">
+                {% if error_message %}
+                <div class="error-message" style="display: block; position: relative; transform: none; top: auto; left: auto;">
+                    <h3>Błąd</h3>
+                    <p>{{ error_message }}</p>
+                </div>
+                {% else %}
+                {% for product in products %}
+                <div class="product-box" data-product-index="{{ product.product_index }}">
+                    <div class="product-header {% if loop.first %}expanded{% endif %}"
+                         onclick="toggleProduct({{ product.product_index }})">
+                        <div class="product-info">
+                            <h3 class="product-title">Produkt {{ product.product_index }}</h3>
+                            <div class="product-dimensions">
+                                {{ "%.0f"|format(product.dimensions.length) }}×{{ "%.0f"|format(product.dimensions.width) }}×{{ "%.1f"|format(product.dimensions.thickness) }} cm
+                            </div>
+                        </div>
+                        <div class="expand-icon">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                                <path d="M7,10L12,15L17,10H7Z" />
+                            </svg>
+                        </div>
+                    </div>
+
+                    <div class="variants-container {% if loop.first %}expanded{% endif %}" id="variants-{{ product.product_index }}">
+                        <div class="variants-grid">
+                            {% for variant in product.variants %}
+                            <button class="variant-btn {% if not variant.has_textures %}disabled{% endif %}"
+                                    data-product-index="{{ product.product_index }}"
+                                    data-variant-code="{{ variant.variant_code }}"
+                                    data-length="{{ product.dimensions.length }}"
+                                    data-width="{{ product.dimensions.width }}"
+                                    data-thickness="{{ product.dimensions.thickness }}"
+                                    data-quantity="{{ variant.quantity }}"
+                                    data-has-textures="{{ variant.has_textures|lower }}"
+                                    data-is-selected="{{ variant.is_selected|lower }}"
+                                    {% if not variant.has_textures %}disabled{% endif %}>
+
+                                <span class="variant-name" data-original="{{ variant.variant_code }}">{{ variant.variant_code|upper }}</span>
+                                {% if not variant.has_textures %}
+                                <span class="unavailable-badge">!</span>
+                                {% endif %}
+                            </button>
+                            {% endfor %}
+                        </div>
+                    </div>
+                </div>
+                {% endfor %}
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- MOBILE VARIANT SELECTOR (widoczny tylko na mobile) -->
+        <div class="mobile-variant-selector">
+            <div class="mobile-select-wrapper">
+                <label class="mobile-select-label" for="mobile-variant-select">
+                    Wybierz wariant:
+                </label>
+                <select class="mobile-select" id="mobile-variant-select">
+                    {% if error_message %}
+                    <option disabled selected>Brak dostępnych wariantów</option>
+                    {% else %}
+                    {% for product in products %}
+                    {% for variant in product.variants %}
+                    <option value="{{ variant.variant_code }}"
+                            data-product-index="{{ product.product_index }}"
+                            data-variant-code="{{ variant.variant_code }}"
+                            data-length="{{ product.dimensions.length }}"
+                            data-width="{{ product.dimensions.width }}"
+                            data-thickness="{{ product.dimensions.thickness }}"
+                            data-quantity="{{ variant.quantity }}"
+                            data-has-textures="{{ variant.has_textures|lower }}"
+                            data-is-selected="{{ variant.is_selected|lower }}"
+                            {% if not variant.has_textures %}disabled{% endif %}
+                            {% if default_product and variant.variant_code==default_product.variant_code %}selected{% endif %}>
+                        Produkt {{ product.product_index }}: {{ variant.variant_code|upper }}
+                        {% if not variant.has_textures %} (niedostępny){% endif %}
+                    </option>
+                    {% endfor %}
+                    {% endfor %}
+                    {% endif %}
+                </select>
+            </div>
+        </div>
+
+        <!-- MAIN VIEWER -->
+        <div class="viewer-main">
+            <!-- Header z informacjami o aktualnym produkcie -->
+            <header class="viewer-header">
+                <div class="product-info">
+                    <div class="product-main-title" id="current-product-title">
+                        {% if default_product %}
+                        {{ default_product.variant_code|upper }}
+                        {% else %}
+                        Wybierz wariant
+                        {% endif %}
+                    </div>
+                    <div class="product-main-dimensions" id="current-product-dimensions">
+                        {% if default_product %}
+                        {{ "%.0f"|format(default_product.dimensions.length) }}×{{ "%.0f"|format(default_product.dimensions.width) }}×{{ "%.1f"|format(default_product.dimensions.thickness) }} cm
+                        {% else %}
+                        --- × --- × --- cm
+                        {% endif %}
+                    </div>
+                </div>
+
+                <div class="viewer-controls">
+                    <button class="btn btn-ar" id="btn-ar" title="Rzeczywistość rozszerzona">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+                            <path d="M12,2A10,10 0 0,1 22,12A10,10 0 0,1 12,22A10,10 0 0,1 2,12A10,10 0 0,1 12,2M12,4A8,8 0 0,0 4,12A8,8 0 0,0 12,20A8,8 0 0,0 20,12A8,8 0 0,0 12,4M12,6A6,6 0 0,1 18,12A6,6 0 0,1 12,18A6,6 0 0,1 6,12A6,6 0 0,1 12,6M12,8A4,4 0 0,0 8,12A4,4 0 0,0 12,16A4,4 0 0,0 16,12A4,4 0 0,0 12,8Z" />
+                        </svg>
+                        AR
+                    </button>
+                    <button class="btn btn-reset" id="btn-reset" title="Resetuj widok">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+                            <path d="M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12H20A8,8 0 0,1 12,20A8,8 0 0,1 4,12A8,8 0 0,1 12,4V6L16,2L12,2Z" />
+                        </svg>
+                        Reset
+                    </button>
+                    <button class="btn btn-close" onclick="window.close()" title="Zamknij">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+                            <path d="M19,6.41L17.59,5L12,10.59L6.41,5L5,6.41L10.59,12L5,17.59L6.41,19L12,13.41L17.59,19L19,17.59L13.41,12L19,6.41Z" />
+                        </svg>
+                        Zamknij
+                    </button>
+                </div>
+            </header>
+
+            <!-- Główny obszar canvas -->
+            <div class="canvas-container">
+                <canvas id="wood-canvas"></canvas>
+
+                <!-- Loading screen -->
+                <div class="loading" id="loading">
+                    <div class="loading-spinner"></div>
+                    <div>Ładowanie modelu 3D...</div>
+                </div>
+
+                <!-- Error message -->
+                <div class="error-message" id="error-message">
+                    <h3>Błąd ładowania</h3>
+                    <p id="error-text"></p>
+                </div>
+
+                <!-- AR info -->
+                <div class="ar-info" id="ar-info">
+                    <div class="ar-info-content">
+                        <div class="ar-icon">
+                            <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
+                                <path d="M12,2A10,10 0 0,1 22,12A10,10 0 0,1 12,22A10,10 0 0,1 2,12A10,10 0 0,1 12,2M12,4A8,8 0 0,0 4,12A8,8 0 0,0 12,20A8,8 0 0,0 20,12A8,8 0 0,0 12,4M12,6A6,6 0 0,1 18,12A6,6 0 0,1 12,18A6,6 0 0,1 6,12A6,6 0 0,1 12,6M12,8A4,4 0 0,0 8,12A4,4 0 0,0 12,16A4,4 0 0,0 16,12A4,4 0 0,0 12,8Z" />
+                            </svg>
+                        </div>
+                        <p>
+                            <strong>Funkcja AR wkrótce dostępna!</strong><br>
+                            Obsługa iOS 12+ i Android z ARCore
+                        </p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Instrukcje obsługi -->
+            <div class="help-overlay" id="help-overlay">
+                <div class="help-close" onclick="document.getElementById('help-overlay').classList.add('hidden')">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M19,6.41L17.59,5L12,10.59L6.41,5L5,6.41L10.59,12L5,17.59L6.41,19L12,13.41L17.59,19L19,17.59L13.41,12L19,6.41Z" />
+                    </svg>
+                </div>
+
+                <div class="help-header">
+                    <strong>💡 Sterowanie</strong>
+                </div>
+                <div class="help-item">
+                    <strong>🖱️</strong> <span>Przeciągnij, aby obrócić</span>
+                </div>
+                <div class="help-item">
+                    <strong>🔍</strong> <span>Scroll, aby przybliżyć/oddalić</span>
+                </div>
+                <div class="help-item">
+                    <strong>🖱️</strong> <span>Prawy przycisk, aby przesunąć</span>
+                </div>
+                <div class="help-item">
+                    <strong>📱</strong> <span>AR - rzeczywistość rozszerzona</span>
+                </div>
+
+                <div class="help-disclaimer">
+                    <div class="disclaimer-icon">⚠️</div>
+                    <div class="disclaimer-text">
+                        <strong>Uwaga:</strong> Rzeczywisty kolor i tekstura produktu może różnić się od prezentowanego w modelu 3D, co wynika z naturalnych różnic w drewnie oraz ustawień ekranu. Każdy blat charakteryzuje się unikalnym usłojeniem i usękowieniem. Model jest poglądowy.
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Konfiguracja globalna -->
+    <script>
+        // Konfiguracja przekazana z backendu
+        window.Quote3DConfig = {
+            quoteId: {{ quote.id }},
+            quoteName: "{{ quote.quote_number }}",
+            defaultProduct: {% if default_product %}{{ default_product|tojson|safe }}{% else %}null{% endif %},
+            apiEndpoint: "{{ url_for('preview3d_ar.generate_product_3d') }}"
+        };
+
+        // Słownik tłumaczeń wariantów
+        window.VariantTranslations = {
+            // Gatunki drewna
+            'dab': 'Dąb',
+            'buk': 'Buk',
+            'jes': 'Jesion',
+
+            // Typy
+            'lity': 'lity',
+            'micro': 'mikrowczep',
+
+            // Klasy
+            'ab': 'A/B',
+            'bb': 'B/B'
+        };
+
+        // Funkcja do tłumaczenia kodu wariantu
+        function translateVariantCode(variantCode) {
+            if (!variantCode) return 'Nieznany wariant';
+
+            const code = variantCode.toLowerCase();
+            const translations = window.VariantTranslations;
+
+            // Podziel kod na części - obsługa zarówno myślników jak i podkreślników
+            const parts = code.split(/[-_]/);
+            const translatedParts = [];
+
+            for (const part of parts) {
+                if (translations[part]) {
+                    translatedParts.push(translations[part]);
+                } else {
+                    // Jeśli nie ma tłumaczenia, zostaw oryginał z wielką literą
+                    translatedParts.push(part.charAt(0).toUpperCase() + part.slice(1));
+                }
+            }
+
+            return translatedParts.join(' ');
+        }
+
+        // Funkcja do rozwijania/zwijania produktów (desktop)
+        function toggleProduct(productIndex) {
+            console.log('[Toggle] Przełączanie produktu:', productIndex);
+
+            // Znajdź wszystkie produkty
+            const allProducts = document.querySelectorAll('.product-box');
+            const currentProduct = document.querySelector(`[data-product-index="${productIndex}"]`);
+
+            if (!currentProduct) {
+                console.error('[Toggle] Nie znaleziono produktu:', productIndex);
+                return;
+            }
+
+            const currentHeader = currentProduct.querySelector('.product-header');
+            const currentVariants = currentProduct.querySelector('.variants-container');
+
+            // Sprawdź czy produkt jest już rozwinięty
+            const isExpanded = currentHeader.classList.contains('expanded');
+
+            if (isExpanded) {
+                // Jeśli kliknięto w rozwinięty produkt, nic nie rób (lub opcjonalnie zwiń)
+                console.log('[Toggle] Produkt już rozwinięty');
+                return;
+            }
+
+            // Zwiń wszystkie inne produkty
+            allProducts.forEach(product => {
+                const header = product.querySelector('.product-header');
+                const variants = product.querySelector('.variants-container');
+
+                if (header && variants) {
+                    header.classList.remove('expanded');
+                    variants.classList.remove('expanded');
+                }
+            });
+
+            // Rozwiń wybrany produkt
+            currentHeader.classList.add('expanded');
+            currentVariants.classList.add('expanded');
+
+            console.log('[Toggle] Rozwinięto produkt:', productIndex);
+        }
+
+        // Funkcja do obsługi mobile select
+        function handleMobileVariantChange(event) {
+            const select = event.target;
+            const selectedOption = select.options[select.selectedIndex];
+
+            if (!selectedOption || selectedOption.disabled) {
+                alert('Ten wariant nie ma dostępnych tekstur 3D.\n\nWybierz inny wariant z listy.');
+                return;
+            }
+
+            console.log('[Mobile] Wybrano wariant:', selectedOption.value);
+
+            // Stwórz obiekt podobny do przycisku dla kompatybilności
+            const mockButton = {
+                dataset: {
+                    productIndex: selectedOption.dataset.productIndex,
+                    variantCode: selectedOption.dataset.variantCode,
+                    length: selectedOption.dataset.length,
+                    width: selectedOption.dataset.width,
+                    thickness: selectedOption.dataset.thickness,
+                    quantity: selectedOption.dataset.quantity,
+                    hasTextures: selectedOption.dataset.hasTextures,
+                    isSelected: selectedOption.dataset.isSelected
+                },
+                classList: {
+                    contains: () => false,
+                    add: () => {},
+                    remove: () => {}
+                }
+            };
+
+            // Wywołaj handler wyboru wariantu
+            if (window.quote3DHandler) {
+                console.log('[Mobile] Wywołanie selectVariant przez handler');
+                window.quote3DHandler.selectVariant(mockButton);
+            } else {
+                console.log('[Mobile] Handler jeszcze nie gotowy, zapisz wybór');
+                window.pendingVariantSelection = mockButton;
+            }
+        }
+
+        // Inicjalizacja po załadowaniu DOM
+        document.addEventListener('DOMContentLoaded', function() {
+            console.log('[Init] DOM załadowany, inicjalizacja...');
+
+            // Przetłumacz wszystkie nazwy wariantów (desktop)
+            document.querySelectorAll('.variant-name').forEach(nameEl => {
+                const btn = nameEl.closest('.variant-btn');
+                if (btn && btn.dataset.variantCode) {
+                    const translatedName = translateVariantCode(btn.dataset.variantCode);
+                    nameEl.textContent = translatedName;
+                    console.log(`[Translation] ${btn.dataset.variantCode} -> ${translatedName}`);
+                }
+            });
+
+            // Przetłumacz opcje w mobile select
+            document.querySelectorAll('.mobile-select option').forEach(option => {
+                if (option.dataset.variantCode) {
+                    const translatedName = translateVariantCode(option.dataset.variantCode);
+                    const productIndex = option.dataset.productIndex;
+                    option.textContent = `Produkt ${productIndex}: ${translatedName}`;
+                    if (!option.dataset.hasTextures || option.dataset.hasTextures === 'false') {
+                        option.textContent += ' (niedostępny)';
+                    }
+                }
+            });
+
+            // Sprawdź czy pierwszy produkt jest domyślnie rozwinięty (desktop)
+            const firstProduct = document.querySelector('.product-box:first-child');
+            if (firstProduct) {
+                const header = firstProduct.querySelector('.product-header');
+                const variants = firstProduct.querySelector('.variants-container');
+
+                if (header && variants) {
+                    header.classList.add('expanded');
+                    variants.classList.add('expanded');
+                    console.log('[Init] Pierwszy produkt domyślnie rozwinięty');
+                }
+            }
+
+            // Event listenery dla przycisków wariantów (desktop)
+            console.log('[Init] Dodawanie event listenerów dla wariantów...');
+            document.querySelectorAll('.variant-btn').forEach(btn => {
+                btn.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    e.stopPropagation();
+
+                    console.log('[Desktop] Kliknięto wariant:', btn.dataset.variantCode);
+
+                    if (btn.classList.contains('disabled')) {
+                        alert('Ten wariant nie ma dostępnych tekstur 3D.\n\nWybierz inny wariant z listy.');
+                        return;
+                    }
+
+                    // Sprawdź czy jest zainicjalizowany handler Quote3D
+                    if (window.quote3DHandler) {
+                        console.log('[Desktop] Wywołanie selectVariant przez handler');
+                        window.quote3DHandler.selectVariant(btn);
+                    } else {
+                        console.log('[Desktop] Handler jeszcze nie gotowy, zapisz wybór');
+                        window.pendingVariantSelection = btn;
+                    }
+                });
+            });
+
+            // Event listener dla mobile select
+            const mobileSelect = document.getElementById('mobile-variant-select');
+            if (mobileSelect) {
+                mobileSelect.addEventListener('change', handleMobileVariantChange);
+                console.log('[Init] Mobile select event listener dodany');
+            }
+
+            console.log('[Init] Event listenery dodane do', document.querySelectorAll('.variant-btn').length, 'przycisków desktop');
+
+            // Oznacz TYLKO domyślny wybrany wariant z konfiguracji (desktop)
+            const defaultProduct = window.Quote3DConfig?.defaultProduct;
+            if (defaultProduct) {
+                const defaultVariantCode = defaultProduct.variant_code;
+                console.log('[Init] Szukanie domyślnego wariantu:', defaultVariantCode);
+
+                // Najpierw usuń wszystkie zaznaczenia (desktop)
+                document.querySelectorAll('.variant-btn').forEach(btn => {
+                    btn.classList.remove('selected');
+                });
+                document.querySelectorAll('.selected-badge').forEach(badge => {
+                    badge.remove();
+                });
+
+                // Znajdź pierwszy przycisk z odpowiednim kodem wariantu (desktop)
+                const defaultButton = document.querySelector(`.variant-btn[data-variant-code="${defaultVariantCode}"]`);
+                if (defaultButton) {
+                    defaultButton.classList.add('selected');
+
+                    // Dodaj badge
+                    const badge = document.createElement('span');
+                    badge.className = 'selected-badge';
+                    badge.textContent = '✓';
+                    defaultButton.appendChild(badge);
+
+                    console.log('[Init] Oznaczono domyślny wariant (desktop):', defaultVariantCode);
+                }
+
+                // Ustaw mobile select na domyślny wariant
+                if (mobileSelect) {
+                    const defaultOption = mobileSelect.querySelector(`option[data-variant-code="${defaultVariantCode}"]`);
+                    if (defaultOption) {
+                        mobileSelect.value = defaultOption.value;
+                        console.log('[Init] Ustawiono domyślny wariant (mobile):', defaultVariantCode);
+                    }
+                }
+            }
+
+            // Animacja chmurki pomocy po 3 sekundach
+            setTimeout(() => {
+                const helpOverlay = document.getElementById('help-overlay');
+                if (helpOverlay) {
+                    console.log('[Help] Showing help overlay with animation');
+                    // Chmurka jest już widoczna dzięki CSS animation
+                }
+            }, 3000);
+        });
+    </script>
+
+    <!-- Three.js -->
+    <script src="https://cdn.jsdelivr.net/npm/three@0.140.0/build/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.140.0/examples/js/controls/OrbitControls.js"></script>
+
+    <!-- Wood Viewer -->
+    <script src="{{ url_for('preview3d_ar.static', filename='js/wood-viewer.js') }}"></script>
+
+    <!-- AR Handler -->
+    <script src="{{ url_for('preview3d_ar.static', filename='js/ar-handler.js') }}"></script>
+
+    <!-- Quote 3D Handler -->
+    <script src="{{ url_for('preview3d_ar.static', filename='js/quote-3d.js') }}"></script>
+
+    <a id="ar-link" rel="ar" type="model/vnd.usd+zip" style="display:none;"></a>
+
+</body>
+</html>
