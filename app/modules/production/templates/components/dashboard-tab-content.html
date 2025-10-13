@@ -266,8 +266,8 @@
         </div>
     </div>
 
-    <!-- Wykres Wydajności (jeśli admin) -->
-    {% if current_user.role in ['admin', 'administrator'] %}
+
+    <!-- Wykres Wydajności -->
     <div class="col-lg-12">
         <div class="widget performance-chart">
             <div class="widget-header">
@@ -275,6 +275,20 @@
                     <i class="fas fa-chart-line me-2"></i>
                     Wydajność dzienna
                 </h5>
+                <!-- NOWE: Kontrolki wykresu z rozwijaną listą -->
+                <div class="chart-controls">
+                    <select id="chart-period-select" class="form-select form-select-sm">
+                        <option value="7" selected>7 dni</option>
+                        <option value="14">14 dni</option>
+                        <option value="30">30 dni</option>
+                        <option value="90">3 miesiące</option>
+                        <option value="180">6 miesięcy</option>
+                        <option value="365">12 miesięcy</option>
+                    </select>
+                    <button id="chart-refresh-btn" class="btn btn-outline-primary btn-sm" title="Odśwież wykres">
+                        <i class="fas fa-sync-alt"></i>
+                    </button>
+                </div>
             </div>
             <div class="widget-content">
                 <canvas id="performance-chart-canvas"></canvas>
@@ -285,7 +299,6 @@
             </div>
         </div>
     </div>
-    {% endif %}
 </div>
 
 <!-- Modal błędów systemu -->

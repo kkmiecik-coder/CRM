@@ -5,6 +5,7 @@ import sys
 import pkgutil
 import importlib
 import click
+import pytz
 from flask_sqlalchemy import SQLAlchemy
 from werkzeug.security import generate_password_hash, check_password_hash
 from itsdangerous import URLSafeTimedSerializer, SignatureExpired, BadSignature
@@ -14,7 +15,8 @@ from jinja2 import ChoiceLoader, FileSystemLoader
 from extensions import db, mail
 from sqlalchemy import desc
 from modules.calculator import calculator_bp
-from modules.calculator.models import User, Invitation, Price, Multiplier
+from modules.users.models import User, Invitation
+from modules.calculator.models import Price, Multiplier
 from modules.clients import clients_bp
 from modules.public_calculator import public_calculator_bp
 from modules.analytics.routers import analytics_bp
@@ -29,7 +31,9 @@ from modules.production import production_bp
 from modules.production.routers import register_production_routers
 from modules.dashboard.services.user_activity_service import UserActivityService
 from modules.partner_academy import partner_academy_bp
-from modules.partner_academy.models import PartnerApplication, PartnerLearningSession
+from modules.partner_academy.models import PartnerApplication
+from modules.users import users_bp
+from datetime import timedelta, datetime
 
 from flask_login import login_user, logout_user  # DODANE importy
 from sqlalchemy.exc import ResourceClosedError, OperationalError
@@ -113,6 +117,11 @@ def verify_reset_token(token, secret_key, salt='password-reset-salt', expiration
         return None
     return email
 
+def get_local_now():
+    """Zwraca aktualny czas w strefie czasowej Polski"""
+    poland_tz = pytz.timezone('Europe/Warsaw')
+    return datetime.now(poland_tz).replace(tzinfo=None)
+
 def create_app():
     app = Flask(__name__)
     app.secret_key = "65d769148feb6bc476c6d2120d4abb40069cdfd919c37f99"
@@ -181,6 +190,7 @@ def create_app():
     register_production_routers(production_bp)
     app.register_blueprint(production_bp, url_prefix='/production')
     app.register_blueprint(partner_academy_bp, url_prefix='/partner-academy')
+    app.register_blueprint(users_bp)
 
     @app.before_request
     def extend_session():
@@ -287,7 +297,6 @@ def create_app():
     # -------------------------
     #         ROUTES
     # -------------------------
-    from datetime import timedelta
     app.permanent_session_lifetime = timedelta(minutes=120)
 
     @app.route('/api/session/ping', methods=['POST'])
@@ -428,6 +437,11 @@ def create_app():
         # Oryginalne czyszczenie sesji
         session.clear()
         return render_template("logged_out.html")
+    
+    # W app.py możesz dodać testowy endpoint:
+    @app.route('/test-error')
+    def test_error():
+       return render_template('error.html', message="To jest testowy błąd")
 
     @app.route("/issue", methods=["GET", "POST"])
     @login_required
@@ -549,26 +563,6 @@ def create_app():
         
         return render_template("issue/issue.html", user_email=user_email)
 
-    @app.route("/settings")
-    @login_required
-    def settings():
-        user_email = session.get('user_email')
-        user = User.query.filter_by(email=user_email).first()
-        if not user:
-            return redirect(url_for('login'))
-
-        if user.role == "admin":
-            all_users = User.query.all()
-            all_prices = Price.query.order_by(Price.species, Price.wood_class).all()
-            multipliers = Multiplier.query.all()
-        
-            return render_template("settings_page/admin_settings.html",
-                                   users_list=all_users,
-                                   prices=all_prices,
-                                   multipliers=multipliers)
-        else:
-            return render_template("settings_page/user_settings.html")
-
     @app.route("/settings/prices", methods=["GET", "POST"])
     @login_required
     def admin_prices():
@@ -589,7 +583,7 @@ def create_app():
                                 user_email=current_email,
                                 user_role=current_user.role if current_user else 'brak_użytkownika')
             flash("Brak uprawnień. Tylko administrator może edytować cennik.", "error")
-            return redirect(url_for('settings'))
+            return redirect(url_for('users.settings'))
 
         # 2A. Obsługa zapisu (POST)
         if request.method == "POST":
@@ -807,7 +801,7 @@ def create_app():
         user = User.query.filter_by(email=user_email).first()
         if not user or user.role != 'admin':
             flash('Brak uprawnień. Tylko administrator ma dostęp do logów.', 'error')
-            return redirect(url_for('settings'))
+            return redirect(url_for('users.settings'))
         return render_template('settings_page/logs_console.html')
 
     @app.route('/api/latest-version')
@@ -829,52 +823,6 @@ def create_app():
             
         except Exception as e:
             return {'version': 'v1.2'}
-
-    @app.route("/invite_user", methods=["POST"])
-    @login_required
-    def invite_user():
-        # ... sprawdzanie, czy admin ...
-        invite_email = request.form.get('invite_email')
-        invite_role = request.form.get('invite_role')  # Nowe pole
-
-        # Sprawdzamy, czy takie zaproszenie już istnieje
-        existing_invitation = Invitation.query.filter_by(email=invite_email).first()
-        if existing_invitation:
-            flash("Ten e-mail jest już zaproszony.", "warning")
-            return redirect(url_for("settings"))
-
-        import secrets
-        token = secrets.token_urlsafe(32)
-
-        # Zapisujemy zaproszenie, uwzględniając rolę
-        invite_multiplier_id = request.form.get('invite_multiplier')
-
-        # Jeśli partner → ustaw multiplier_id, w pozostałych przypadkach None
-        multiplier_id = int(invite_multiplier_id) if invite_role == "partner" and invite_multiplier_id else None
-
-        new_invitation = Invitation(
-            email=invite_email,
-            token=token,
-            active=True,
-            role=invite_role,
-            multiplier_id=multiplier_id
-        )
-        db.session.add(new_invitation)
-        db.session.commit()
-
-        invitation_link = url_for('accept_invitation', token=token, _external=True)
-
-        subject = "Zaproszenie do CRM WoodPower"
-        msg = Message(subject,
-                      sender=current_app.config.get("MAIL_USERNAME"),
-                      recipients=[invite_email])
-
-        msg.html = render_template("new_account_register_mail.html",
-                                   invitation_link=invitation_link)
-        mail.send(msg)
-
-        flash("Zaproszenie wysłane do " + invite_email, "success")
-        return redirect(url_for("settings"))
 
     @app.route('/accept_invitation/<token>', methods=['GET', 'POST'])
     def accept_invitation(token):
@@ -933,7 +881,10 @@ def create_app():
                 # Jeśli imię i nazwisko są uzupełnione, łączymy je. W przeciwnym razie używamy emaila.
                 user_name = f"{user.first_name} {user.last_name}".strip() if user.first_name or user.last_name else user.email
                 # Jeśli brak avatara, ustawiamy domyślną ścieżkę.
-                user_avatar = user.avatar_path if user.avatar_path else url_for('static', filename='images/avatars/default_avatars/avatar1.svg')
+                if user.avatar_path:
+                    user_avatar = url_for('static', filename=user.avatar_path)
+                else:
+                    user_avatar = url_for('static', filename='images/avatars/default_avatars/avatar1.svg')
             
                 # DODAJ informacje o sesji
                 session_info = {}
@@ -1001,168 +952,6 @@ def create_app():
         
         except Exception as e:
             return jsonify({'error': str(e)}), 500
-
-    @app.route('/update_password', methods=['POST'])
-    @login_required
-    def update_password():
-        user_email = session.get('user_email')
-        user = User.query.filter_by(email=user_email).first()
-        if not user:
-            flash("Błąd: użytkownik nie znaleziony.", "error")
-            return redirect(url_for('settings'))
-
-        old_pass = request.form.get('old_password')
-        new_pass = request.form.get('new_password')
-        confirm_pass = request.form.get('confirm_password')
-
-        # Sprawdź stare hasło
-        if not check_password_hash(user.password, old_pass):
-            flash("Stare hasło jest niepoprawne.", "error")
-            return redirect(url_for('settings'))
-
-        # Sprawdź czy nowe hasła są identyczne
-        if new_pass != confirm_pass:
-            flash("Nowe hasła nie są identyczne.", "error")
-            return redirect(url_for('settings'))
-
-        # Zaktualizuj
-        user.password = generate_password_hash(new_pass)
-        db.session.commit()
-
-        flash("Hasło zostało zmienione.", "success")
-        return redirect(url_for('settings'))
-
-    @app.route('/update_avatar', methods=['POST'])
-    @login_required
-    def update_avatar():
-        user_email = session.get('user_email')
-        user = User.query.filter_by(email=user_email).first()
-        if not user:
-            flash("Błąd: użytkownik nie znaleziony.", "error")
-            return redirect(url_for('settings'))
-    
-        default_avatar = request.form.get('default_avatar')
-        avatar_file = request.files.get('avatar_file')
-    
-        # Obsługa wybrania predefiniowanego avatara
-        if default_avatar:
-            # Zakładamy, że predefiniowane avatary są w folderze /static/images/avatars/default_avatars
-            user.avatar_path = f"static/images/avatars/{default_avatar}"
-        elif avatar_file and avatar_file.filename != "":
-            # Zapisujemy wgrany plik do folderu /static/images/avatars/users_avatars
-            import os
-            filename = avatar_file.filename
-            save_path = os.path.join("static", "images", "avatars", "users_avatars", filename)
-            avatar_file.save(save_path)
-            user.avatar_path = f"/static/images/avatars/users_avatars/{filename}"
-        else:
-            flash("Nie wybrano żadnego avatara.", "error")
-            return redirect(url_for('settings'))
-    
-        db.session.commit()
-        flash("Avatar został zaktualizowany.", "success")
-        return redirect(url_for('settings'))
-
-    @app.route("/edit_user/<int:user_id>", methods=["GET", "POST"])
-    @login_required
-    def edit_user(user_id):
-        # 1. Sprawdź, czy zalogowany jest admin
-        current_email = session.get('user_email')
-        current_user = User.query.filter_by(email=current_email).first()
-        if current_user.role != 'admin':
-            flash("Brak uprawnień.", "error")
-            return redirect(url_for('dashboard'))
-    
-        # 2. Pobierz użytkownika do edycji
-        user_to_edit = User.query.get_or_404(user_id)
-    
-        if request.method == "GET":
-            # Wyświetl formularz edycji (np. roli)
-            return render_template("edit_user.html", user=user_to_edit)
-        else:
-            # POST – aktualizacja roli
-            new_role = request.form.get('role')
-            user_to_edit.role = new_role
-            db.session.commit()
-            flash("Zaktualizowano dane użytkownika.", "success")
-            return redirect(url_for('settings'))
-
-
-    @app.route("/deactivate_user/<int:user_id>", methods=["POST"])
-    @login_required
-    def deactivate_user(user_id):
-        current_email = session.get('user_email')
-        current_user = User.query.filter_by(email=current_email).first()
-        if current_user.role != 'admin':
-            flash("Brak uprawnień.", "error")
-            return redirect(url_for('dashboard'))
-
-        user_to_edit = User.query.get_or_404(user_id)
-        user_to_edit.active = False
-        db.session.commit()
-        flash("Użytkownik został dezaktywowany.", "info")
-        return redirect(url_for('settings'))
-
-
-    @app.route("/activate_user/<int:user_id>", methods=["POST"])
-    @login_required
-    def activate_user(user_id):
-        current_email = session.get('user_email')
-        current_user = User.query.filter_by(email=current_email).first()
-        if current_user.role != 'admin':
-            flash("Brak uprawnień.", "error")
-            return redirect(url_for('dashboard'))
-
-        user_to_edit = User.query.get_or_404(user_id)
-        user_to_edit.active = True
-        db.session.commit()
-        flash("Użytkownik został aktywowany.", "success")
-        return redirect(url_for('settings'))
-
-    @app.route("/edit_user_modal", methods=["POST"])
-    @login_required
-    def edit_user_modal():
-        current_email = session.get('user_email')
-        current_user = User.query.filter_by(email=current_email).first()
-        if current_user.role != 'admin':
-            flash("Brak uprawnień.", "error")
-            return redirect(url_for("dashboard"))
-
-        user_id = request.form.get('user_id')
-        first_name = request.form.get('first_name')
-        last_name = request.form.get('last_name')
-        role = request.form.get('role')
-        email = request.form.get('email')
-
-        user_to_edit = User.query.get_or_404(user_id)
-        user_to_edit.first_name = first_name
-        user_to_edit.last_name = last_name
-        user_to_edit.role = role
-        user_to_edit.email = email  # pamiętaj o obsłudze unikalności, jeśli konieczne
-        db.session.commit()
-
-        flash("Zaktualizowano dane użytkownika.", "success")
-        return redirect(url_for('settings'))
-
-    @app.route('/delete_user/<int:user_id>', methods=["POST"])
-    @login_required
-    def delete_user(user_id):
-        current_email = session.get('user_email')
-        current_user = User.query.filter_by(email=current_email).first()
-        if current_user.role != 'admin':
-            flash("Brak uprawnień.", "error")
-            return redirect(url_for('dashboard'))
-    
-        user_to_delete = User.query.get_or_404(user_id)
-    
-        # Usuwamy powiązane zaproszenia, jeśli istnieją
-        Invitation.query.filter_by(email=user_to_delete.email).delete()
-    
-        db.session.delete(user_to_delete)
-        db.session.commit()
-    
-        flash("Użytkownik został usunięty.", "success")
-        return redirect(url_for('settings'))
 
     # -------------------------
     # RESET HASŁA

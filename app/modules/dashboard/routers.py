@@ -603,7 +603,7 @@ def get_user_details(user_id):
             'user_name': f"{user.first_name} {user.last_name}".strip() or user.email,
             'user_email': user.email,
             'user_role': user.role,
-            'user_avatar': user.avatar_path,
+            'user_avatar': url_for('static', filename=user.avatar_path) if user.avatar_path else url_for('static', filename='images/avatars/default_avatars/avatar1.svg'),
             'is_active': user.active
         }
         

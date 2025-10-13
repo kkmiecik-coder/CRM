@@ -164,14 +164,25 @@ class UserActivityService:
             list: Lista słowników z danymi aktywnych użytkowników
         """
         try:
+            from flask import url_for
+            
             active_sessions = UserSession.get_active_sessions(minutes_threshold)
             
             users_data = []
             for session in active_sessions:
                 user_data = session.to_dict()
+                
+                # ✅ POPRAWKA - przetwórz avatar_path przez url_for
+                if 'user_avatar' in user_data and user_data['user_avatar']:
+                    # Jeśli avatar_path nie zaczyna się od /static/, dodaj prefix
+                    if not user_data['user_avatar'].startswith('/static/'):
+                        user_data['user_avatar'] = url_for('static', filename=user_data['user_avatar'])
+                elif 'user_avatar' in user_data:
+                    # Fallback do domyślnego avatara
+                    user_data['user_avatar'] = url_for('static', filename='images/avatars/default_avatars/avatar1.svg')
+                
                 users_data.append(user_data)
             
-            logger.debug(f"[UserActivity] Znaleziono {len(users_data)} aktywnych użytkowników")
             return users_data
             
         except Exception as e:

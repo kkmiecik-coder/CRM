@@ -697,9 +697,9 @@ class DashboardModule {
         this.updateSystemErrors(healthData.errors_24h);
     }
 
-    // ========================================================================
+    // ============================================================================
     // PERFORMANCE CHART - For Admins
-    // ========================================================================
+    // ============================================================================
 
     async initializePerformanceChart() {
         if (!this.config.user?.isAdmin || typeof Chart === 'undefined') {
@@ -716,51 +716,51 @@ class DashboardModule {
                 return;
             }
 
-            // DODAJ: Pokaż loader od razu na początku inicjalizacji
+            // Pokaż loader od razu na początku inicjalizacji
             this.toggleChartLoader(true);
 
-            // Initialize chart controls
+            // Initialize chart controls (już nie generujemy HTML, bo jest w template)
             this.initChartControls(chartContainer);
 
-            // Load chart data - loadChartData już ma swój własny toggleChartLoader
+            // Load chart data
             await this.loadChartData(7); // Default 7 days
 
         } catch (error) {
             console.error('[Dashboard Module] Chart initialization failed:', error);
-            // DODAJ: Ukryj loader w przypadku błędu
             this.toggleChartLoader(false);
             this.showChartError('Błąd inicjalizacji wykresu: ' + error.message);
         }
     }
 
     initChartControls(container) {
-        const controlsContainer = container.querySelector('.chart-controls');
-        if (!controlsContainer) return;
+        // Nie generujemy HTML - kontrolki są już w template
+        // Tylko podpinamy event listenery
 
-        controlsContainer.innerHTML = `
-            <select id="chart-period-select" class="form-select form-select-sm">
-                <option value="7">Ostatnie 7 dni</option>
-                <option value="14">Ostatnie 14 dni</option>
-                <option value="30">Ostatnie 30 dni</option>
-            </select>
-            <button id="chart-refresh-btn" class="btn btn-outline-primary btn-sm">
-                <i class="fas fa-sync-alt"></i>
-            </button>
-        `;
-
-        // Event listeners
         const periodSelect = document.getElementById('chart-period-select');
         const refreshBtn = document.getElementById('chart-refresh-btn');
 
         if (periodSelect) {
             periodSelect.addEventListener('change', (e) => {
-                this.loadChartData(parseInt(e.target.value));
+                const period = parseInt(e.target.value);
+                console.log('[Dashboard Module] Period changed to:', period);
+                this.loadChartData(period);
             });
         }
 
         if (refreshBtn) {
             refreshBtn.addEventListener('click', () => {
                 const period = parseInt(periodSelect?.value || 7);
+                console.log('[Dashboard Module] Manual chart refresh, period:', period);
+
+                // Animacja rotacji ikony refresh
+                const icon = refreshBtn.querySelector('i');
+                if (icon) {
+                    icon.style.animation = 'spin 1s linear';
+                    setTimeout(() => {
+                        icon.style.animation = '';
+                    }, 1000);
+                }
+
                 this.loadChartData(period);
             });
         }
@@ -775,7 +775,8 @@ class DashboardModule {
             });
 
             if (response.success) {
-                this.createOrUpdateChart(response.chart_data, response.summary);
+                // ZMIANA: przekazujemy period jako trzeci parametr
+                this.createOrUpdateChart(response.chart_data, response.summary, period);
                 this.state.chartData = response;
             } else {
                 throw new Error(response.error || 'Błąd ładowania danych wykresu');
@@ -789,14 +790,14 @@ class DashboardModule {
         }
     }
 
-    createOrUpdateChart(chartData, summary) {
+    createOrUpdateChart(chartData, summary, period) {
         const canvas = document.getElementById('performance-chart-canvas');
         if (!canvas) {
             console.warn('[Dashboard Module] Canvas element not found for chart');
             return;
         }
 
-        console.log('[Dashboard Module] Creating/updating chart...');
+        console.log('[Dashboard Module] Creating/updating chart for period:', period, 'days');
 
         // Bardziej agresywne niszczenie istniejącego wykresu
         if (this.chartInstance) {
@@ -825,6 +826,24 @@ class DashboardModule {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
 
         try {
+            // Określ tytuł i etykietę osi X na podstawie okresu
+            let chartTitle = 'Wydajność produkcji';
+            let xAxisLabel = 'Data';
+
+            if (period <= 30) {
+                chartTitle += ` (${period} dni)`;
+                xAxisLabel = 'Dzień';
+            } else if (period === 90) {
+                chartTitle += ' (3 miesiące - agregacja tygodniowa)';
+                xAxisLabel = 'Tydzień';
+            } else if (period === 180) {
+                chartTitle += ' (6 miesięcy - agregacja miesięczna)';
+                xAxisLabel = 'Miesiąc';
+            } else if (period === 365) {
+                chartTitle += ' (12 miesięcy - agregacja miesięczna)';
+                xAxisLabel = 'Miesiąc';
+            }
+
             // Create new chart
             this.chartInstance = new Chart(ctx, {
                 type: 'line',
@@ -832,30 +851,84 @@ class DashboardModule {
                 options: {
                     responsive: true,
                     maintainAspectRatio: false,
+                    interaction: {
+                        mode: 'index',
+                        intersect: false
+                    },
                     plugins: {
                         title: {
                             display: true,
-                            text: `Wydajność produkcji (${summary.period_days} dni)`,
-                            font: { size: 14, weight: 'bold' }
+                            text: chartTitle,
+                            font: { size: 14, weight: 'bold' },
+                            padding: { top: 10, bottom: 20 }
                         },
                         legend: {
                             display: true,
-                            position: 'top'
+                            position: 'top',
+                            labels: {
+                                usePointStyle: true,
+                                padding: 15,
+                                font: { size: 12 }
+                            }
+                        },
+                        tooltip: {
+                            backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                            padding: 12,
+                            titleFont: { size: 13, weight: 'bold' },
+                            bodyFont: { size: 12 },
+                            callbacks: {
+                                label: function (context) {
+                                    let label = context.dataset.label || '';
+                                    if (label) {
+                                        label += ': ';
+                                    }
+                                    label += context.parsed.y.toFixed(2) + ' m³';
+                                    return label;
+                                },
+                                footer: function (tooltipItems) {
+                                    let sum = 0;
+                                    tooltipItems.forEach(item => {
+                                        sum += item.parsed.y;
+                                    });
+                                    return 'Suma: ' + sum.toFixed(2) + ' m³';
+                                }
+                            }
                         }
                     },
                     scales: {
                         x: {
                             title: {
                                 display: true,
-                                text: 'Data'
+                                text: xAxisLabel,
+                                font: { size: 12, weight: 'bold' }
+                            },
+                            ticks: {
+                                maxRotation: 45,
+                                minRotation: 0,
+                                autoSkip: true,
+                                maxTicksLimit: period > 90 ? 12 : 15
+                            },
+                            grid: {
+                                display: true,
+                                drawBorder: true
                             }
                         },
                         y: {
                             title: {
                                 display: true,
-                                text: 'Objętość (m³)'
+                                text: 'Objętość (m³)',
+                                font: { size: 12, weight: 'bold' }
                             },
-                            beginAtZero: true
+                            beginAtZero: true,
+                            ticks: {
+                                callback: function (value) {
+                                    return value.toFixed(1) + ' m³';
+                                }
+                            },
+                            grid: {
+                                display: true,
+                                drawBorder: true
+                            }
                         }
                     }
                 }
@@ -873,10 +946,10 @@ class DashboardModule {
         const chartContainer = document.querySelector('.widget.performance-chart .widget-content');
         if (chartContainer) {
             chartContainer.innerHTML = `
-                <div class="alert alert-danger">
-                    <strong>Błąd wykresu:</strong> ${message}
-                </div>
-            `;
+            <div class="alert alert-danger">
+                <strong>Błąd wykresu:</strong> ${message}
+            </div>
+        `;
         }
     }
 
@@ -888,7 +961,6 @@ class DashboardModule {
 
         if (loader) {
             if (show) {
-                // POPRAWKA: Usuń !important z CSS przez nadpisanie inline style
                 loader.style.display = 'flex';
                 loader.classList.add('is-visible');
                 loader.setAttribute('aria-hidden', 'false');

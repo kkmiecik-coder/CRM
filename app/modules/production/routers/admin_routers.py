@@ -1171,7 +1171,7 @@ def bulk_resolve_errors():
 # ============================================================================
 
 @admin_bp.route('/stats')
-@admin_required
+@login_required
 def detailed_stats():
     """
     Szczegółowe statystyki i raporty produkcji

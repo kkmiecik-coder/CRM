@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Zarządzanie zespołem - Wood Power CRM</title>
+    <link rel="icon" href="{{ url_for('static', filename='images/favicon.png') }}" type="image/png">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="stylesheet" href="{{ url_for('users.static', filename='css/users-management.css') }}">
+</head>
+<body>
+    <div class="app-container">
+        {% include 'sidebar/sidebar.html' %}
+        
+        <main class="main-content">
+            <!-- Header -->
+            <div class="management-header">
+                <h1>👥 Zarządzanie zespołem</h1>
+                <p>Dodawaj nowych użytkowników i zarządzaj uprawnieniami zespołu</p>
+            </div>
+
+            <!-- Flash messages -->
+            {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+            <div class="flash-messages">
+                {% for category, message in messages %}
+                <div class="flash flash-{{ category }}">{{ message }}</div>
+                {% endfor %}
+            </div>
+            {% endif %}
+            {% endwith %}
+
+            <!-- Grid: Formularz zaproszenia + Statystyki -->
+            <div class="management-grid">
+                <!-- Sekcja: Zaproś użytkownika -->
+                <div class="management-section invite-section">
+                    <h3>
+                        <span class="section-icon">✉️</span>
+                        Zaproś nowego użytkownika
+                    </h3>
+                    <p class="section-description">Wyślij zaproszenie mailem do dołączenia do zespołu</p>
+                    
+                    <form action="{{ url_for('users.invite_user') }}" method="post" class="invite-form">
+                        <div class="form-group">
+                            <label for="invite_email">Email</label>
+                            <input type="email" 
+                                   id="invite_email" 
+                                   name="invite_email" 
+                                   class="form-input" 
+                                   placeholder="jan.kowalski@woodpower.pl"
+                                   required>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="invite_role">Rola</label>
+                            <select id="invite_role" name="invite_role" class="form-input">
+                                <option value="user" selected>👤 User - Użytkownik</option>
+                                <option value="admin">⚙️ Admin - Administrator</option>
+                                <option value="partner">🤝 Partner</option>
+                            </select>
+                        </div>
+
+                        <!-- Mnożnik partnera (pokazuje się tylko dla roli partner) -->
+                        <div class="form-group" id="multiplierGroup" style="display: none;">
+                            <label for="invite_multiplier">Mnożnik partnera</label>
+                            <select id="invite_multiplier" name="invite_multiplier" class="form-input">
+                                {% for m in multipliers %}
+                                <option value="{{ m.id }}">{{ m.client_type }} ({{ m.multiplier }})</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+
+                        <button type="submit" class="btn-primary">
+                            📨 Wyślij zaproszenie
+                        </button>
+                    </form>
+                </div>
+
+                <!-- Sekcja: Statystyki zespołu -->
+                <div class="management-section stats-section">
+                    <h3>
+                        <span class="section-icon">📊</span>
+                        Statystyki zespołu
+                    </h3>
+                    
+                    <div class="stats-grid">
+                        <div class="stat-card">
+                            <div class="stat-icon">👥</div>
+                            <div class="stat-value">{{ users_list|length }}</div>
+                            <div class="stat-label">Wszystkich użytkowników</div>
+                        </div>
+                        
+                        <div class="stat-card">
+                            <div class="stat-icon">✅</div>
+                            <div class="stat-value">{{ users_list|selectattr('active')|list|length }}</div>
+                            <div class="stat-label">Aktywnych</div>
+                        </div>
+                        
+                        <div class="stat-card">
+                            <div class="stat-icon">⚙️</div>
+                            <div class="stat-value">{{ users_list|selectattr('role', 'equalto', 'admin')|list|length }}</div>
+                            <div class="stat-label">Adminów</div>
+                        </div>
+                        
+                        <div class="stat-card">
+                            <div class="stat-icon">🤝</div>
+                            <div class="stat-value">{{ users_list|selectattr('role', 'equalto', 'partner')|list|length }}</div>
+                            <div class="stat-label">Partnerów</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Sekcja: Lista użytkowników -->
+            <div class="management-section full-width users-list-section">
+                <div class="section-header-with-search">
+                    <h3>
+                        <span class="section-icon">📋</span>
+                        Lista użytkowników
+                    </h3>
+                    <div class="search-box">
+                        <input type="text" 
+                               id="searchInput" 
+                               class="search-input" 
+                               placeholder="🔍 Szukaj użytkownika...">
+                    </div>
+                </div>
+
+                <div class="users-table">
+                    <!-- Header tabeli -->
+                    <div class="table-header">
+                        <div class="th th-avatar">Avatar</div>
+                        <div class="th th-name">Imię i nazwisko</div>
+                        <div class="th th-email">Email</div>
+                        <div class="th th-role">Rola</div>
+                        <div class="th th-status">Status</div>
+                        <div class="th th-actions">Akcje</div>
+                    </div>
+
+                    <!-- Body tabeli -->
+                    <div class="table-body" id="usersTableBody">
+                        {% for u in users_list %}
+                        <div class="table-row" data-user-search="{{ (u.first_name + ' ' + u.last_name + ' ' + u.email)|lower }}">
+                            <!-- Avatar -->
+                            <div class="td td-avatar">
+                                <img src="{{ url_for('static', filename=u.avatar_path) if u.avatar_path else url_for('static', filename='images/avatars/default_avatars/avatar1.svg') }}"
+                                     alt="Avatar {{ u.first_name }}"
+                                     class="user-avatar">
+                            </div>
+
+                            <!-- Imię i nazwisko -->
+                            <div class="td td-name">
+                                <strong>{{ u.first_name }} {{ u.last_name }}</strong>
+                            </div>
+
+                            <!-- Email -->
+                            <div class="td td-email">{{ u.email }}</div>
+
+                            <!-- Rola -->
+                            <div class="td td-role">
+                                <span class="role-badge role-{{ u.role }}">
+                                    {% if u.role == 'admin' %}⚙️{% elif u.role == 'partner' %}🤝{% else %}👤{% endif %}
+                                    {{ u.role|title }}
+                                </span>
+                            </div>
+
+                            <!-- Status -->
+                            <div class="td td-status">
+                                {% if u.active %}
+                                <span class="status-badge status-active">✓ Aktywny</span>
+                                {% else %}
+                                <span class="status-badge status-inactive">✕ Nieaktywny</span>
+                                {% endif %}
+                            </div>
+
+                            <!-- Akcje -->
+                            <div class="td td-actions">
+                                <button type="button"
+                                        class="action-btn btn-edit"
+                                        title="Edytuj"
+                                        data-user-id="{{ u.id }}"
+                                        data-first-name="{{ u.first_name }}"
+                                        data-last-name="{{ u.last_name }}"
+                                        data-role="{{ u.role }}"
+                                        data-email="{{ u.email }}">
+                                    <span class="btn-icon">✏️</span>
+                                </button>
+
+                                {% if u.active %}
+                                <form action="{{ url_for('users.deactivate_user', user_id=u.id) }}" 
+                                      method="post" 
+                                      style="display:inline;"
+                                      onsubmit="return confirm('Czy na pewno chcesz dezaktywować tego użytkownika?');">
+                                    <button type="submit" class="action-btn btn-deactivate" title="Dezaktywuj">
+                                        <span class="btn-icon">🚫</span>
+                                    </button>
+                                </form>
+                                {% else %}
+                                <form action="{{ url_for('users.activate_user', user_id=u.id) }}" 
+                                      method="post" 
+                                      style="display:inline;">
+                                    <button type="submit" class="action-btn btn-activate" title="Aktywuj">
+                                        <span class="btn-icon">✅</span>
+                                    </button>
+                                </form>
+                                {% endif %}
+
+                                <form action="{{ url_for('users.delete_user', user_id=u.id) }}" 
+                                      method="post" 
+                                      style="display:inline;"
+                                      onsubmit="return confirm('Czy na pewno chcesz usunąć tego użytkownika? Ta operacja jest nieodwracalna!');">
+                                    <button type="submit" class="action-btn btn-delete" title="Usuń">
+                                        <span class="btn-icon">🗑️</span>
+                                    </button>
+                                </form>
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+
+                <!-- Empty state -->
+                {% if not users_list %}
+                <div class="empty-state">
+                    <div class="empty-icon">😴</div>
+                    <div class="empty-title">Brak użytkowników</div>
+                    <div class="empty-subtitle">Zaproś pierwszego członka zespołu!</div>
+                </div>
+                {% endif %}
+            </div>
+        </main>
+    </div>
+
+    <!-- Modal edycji użytkownika -->
+    <div class="modal-overlay" id="modalOverlay"></div>
+    <div class="modal-container" id="editModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>✏️ Edycja użytkownika</h3>
+                <button class="modal-close" id="closeModal">&times;</button>
+            </div>
+            
+            <form action="{{ url_for('users.edit_user', user_id=0) }}" method="post" id="editUserForm">
+                <div class="modal-body">
+                    <input type="hidden" name="user_id" id="editUserId">
+
+                    <div class="form-group">
+                        <label for="editFirstName">Imię</label>
+                        <input type="text" 
+                               id="editFirstName" 
+                               name="first_name" 
+                               class="form-input" 
+                               required>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="editLastName">Nazwisko</label>
+                        <input type="text" 
+                               id="editLastName" 
+                               name="last_name" 
+                               class="form-input" 
+                               required>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="editEmail">Email</label>
+                        <input type="email" 
+                               id="editEmail" 
+                               name="email" 
+                               class="form-input" 
+                               required>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="editRole">Rola</label>
+                        <select id="editRole" name="role" class="form-input">
+                            <option value="user">👤 User</option>
+                            <option value="admin">⚙️ Admin</option>
+                            <option value="partner">🤝 Partner</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="modal-footer">
+                    <button type="button" class="btn-secondary" id="cancelModal">Anuluj</button>
+                    <button type="submit" class="btn-primary">💾 Zapisz zmiany</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/sidebar.js') }}"></script>
+    <script src="{{ url_for('users.static', filename='js/users-management.js') }}"></script>
+</body>
+</html>

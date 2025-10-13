@@ -346,25 +346,25 @@ def dashboard_stats():
     
           
 @api_bp.route('/chart-data')
-@admin_required
+@login_required
 def chart_data():
     """
     AJAX endpoint dla danych wykresów wydajności dziennej (tylko admin)
     
     Query params:
-        period: int - liczba dni do pobrania (7, 14, 30)
+        period: int - liczba dni do pobrania (7, 14, 30, 90, 180, 365)
         
     Returns:
-        JSON: Dane wydajności per stanowisko i dzień dla Chart.js
+        JSON: Dane wydajności per stanowisko i okres dla Chart.js
     """
     try:
         period = request.args.get('period', 7, type=int)
         
-        # Walidacja okresu
-        if period not in [7, 14, 30]:
+        # Walidacja okresu - ROZSZERZONA
+        if period not in [7, 14, 30, 90, 180, 365]:
             return jsonify({
                 'success': False,
-                'error': 'Nieprawidłowy okres. Dozwolone: 7, 14, 30 dni'
+                'error': 'Nieprawidłowy okres. Dozwolone: 7, 14, 30, 90, 180, 365 dni'
             }), 400
             
         logger.info(f"AJAX: Pobieranie danych wykresów dla {period} dni", extra={
@@ -395,40 +395,39 @@ def chart_data():
                     'data': [],
                     'borderColor': '#fd7e14',
                     'backgroundColor': 'rgba(253, 126, 20, 0.1)',
-                    'tension': 0.4
+                    'tension': 0.4,
+                    'fill': True
                 },
                 {
                     'label': 'Składanie', 
                     'data': [],
                     'borderColor': '#007bff',
                     'backgroundColor': 'rgba(0, 123, 255, 0.1)',
-                    'tension': 0.4
+                    'tension': 0.4,
+                    'fill': True
                 },
                 {
                     'label': 'Pakowanie',
                     'data': [],
                     'borderColor': '#28a745',
                     'backgroundColor': 'rgba(40, 167, 69, 0.1)',
-                    'tension': 0.4
+                    'tension': 0.4,
+                    'fill': True
                 }
             ]
         }
         
-        # Generuj etykiety dat
-        current_date = start_date
-        daily_data = {}
-        
-        while current_date <= end_date:
-            label = current_date.strftime('%d.%m')
-            chart_data['labels'].append(label)
-            daily_data[current_date] = {
-                'cutting': 0,
-                'assembly': 0,
-                'packaging': 0
-            }
-            current_date += timedelta(days=1)
+        # NOWE: Określ typ agregacji na podstawie okresu
+        if period <= 30:
+            aggregation_type = 'daily'
+        elif period == 90:
+            aggregation_type = 'weekly'
+        else:  # 180, 365
+            aggregation_type = 'monthly'
         
         # Pobierz dane wydajności dla każdego stanowiska
+        daily_data = {}
+        
         for station, completion_field in station_completion_mapping.items():
             completion_attr = getattr(ProductionItem, completion_field)
             
@@ -448,14 +447,79 @@ def chart_data():
             
             # Wypełnij dane dla stanowiska
             for completion_date, total_volume in daily_volumes:
-                if completion_date in daily_data:
-                    daily_data[completion_date][station] = float(total_volume or 0)
+                if completion_date not in daily_data:
+                    daily_data[completion_date] = {
+                        'cutting': 0.0,
+                        'assembly': 0.0,
+                        'packaging': 0.0
+                    }
+                daily_data[completion_date][station] = float(total_volume or 0)
         
-        # Wypełnij datasets danymi
-        for day_date in sorted(daily_data.keys()):
-            chart_data['datasets'][0]['data'].append(daily_data[day_date]['cutting'])
-            chart_data['datasets'][1]['data'].append(daily_data[day_date]['assembly'])
-            chart_data['datasets'][2]['data'].append(daily_data[day_date]['packaging'])
+        # NOWE: Agreguj dane według typu
+        if aggregation_type == 'daily':
+            # Agregacja dzienna (7, 14, 30 dni)
+            current_date = start_date
+            while current_date <= end_date:
+                label = current_date.strftime('%Y-%m-%d')
+                chart_data['labels'].append(label)
+                
+                if current_date not in daily_data:
+                    daily_data[current_date] = {'cutting': 0.0, 'assembly': 0.0, 'packaging': 0.0}
+                
+                chart_data['datasets'][0]['data'].append(daily_data[current_date]['cutting'])
+                chart_data['datasets'][1]['data'].append(daily_data[current_date]['assembly'])
+                chart_data['datasets'][2]['data'].append(daily_data[current_date]['packaging'])
+                current_date += timedelta(days=1)
+                
+        elif aggregation_type == 'weekly':
+            # Agregacja tygodniowa (90 dni)
+            from collections import defaultdict
+            weekly_data = defaultdict(lambda: {'cutting': 0.0, 'assembly': 0.0, 'packaging': 0.0})
+            
+            # Grupuj dane dzienne po tygodniach
+            for day_date, volumes in daily_data.items():
+                # Oblicz początek tygodnia (poniedziałek)
+                week_start = day_date - timedelta(days=day_date.weekday())
+                for station in ['cutting', 'assembly', 'packaging']:
+                    weekly_data[week_start][station] += volumes[station]
+            
+            # Generuj etykiety tygodniowe
+            current_date = start_date - timedelta(days=start_date.weekday())
+            while current_date <= end_date:
+                week_label = current_date.strftime('%Y-%m-%d')
+                chart_data['labels'].append(week_label)
+                chart_data['datasets'][0]['data'].append(weekly_data[current_date]['cutting'])
+                chart_data['datasets'][1]['data'].append(weekly_data[current_date]['assembly'])
+                chart_data['datasets'][2]['data'].append(weekly_data[current_date]['packaging'])
+                current_date += timedelta(weeks=1)
+                
+        elif aggregation_type == 'monthly':
+            # Agregacja miesięczna (180, 365 dni)
+            from collections import defaultdict
+            monthly_data = defaultdict(lambda: {'cutting': 0.0, 'assembly': 0.0, 'packaging': 0.0})
+            
+            # Grupuj dane dzienne po miesiącach
+            for day_date, volumes in daily_data.items():
+                month_start = date(day_date.year, day_date.month, 1)
+                for station in ['cutting', 'assembly', 'packaging']:
+                    monthly_data[month_start][station] += volumes[station]
+            
+            # Generuj etykiety miesięczne
+            current_month = date(start_date.year, start_date.month, 1)
+            end_month = date(end_date.year, end_date.month, 1)
+            
+            while current_month <= end_month:
+                month_label = current_month.strftime('%Y-%m-01')
+                chart_data['labels'].append(month_label)
+                chart_data['datasets'][0]['data'].append(monthly_data[current_month]['cutting'])
+                chart_data['datasets'][1]['data'].append(monthly_data[current_month]['assembly'])
+                chart_data['datasets'][2]['data'].append(monthly_data[current_month]['packaging'])
+                
+                # Przejdź do następnego miesiąca
+                if current_month.month == 12:
+                    current_month = date(current_month.year + 1, 1, 1)
+                else:
+                    current_month = date(current_month.year, current_month.month + 1, 1)
         
         # Oblicz statystyki podsumowujące
         total_volumes = {
@@ -464,30 +528,33 @@ def chart_data():
             'packaging': sum(chart_data['datasets'][2]['data'])
         }
         
-        avg_daily = {
-            'cutting': total_volumes['cutting'] / period,
-            'assembly': total_volumes['assembly'] / period,
-            'packaging': total_volumes['packaging'] / period
+        # ZMIENIONE: avg per okres (nie tylko dzienny)
+        num_periods = len(chart_data['labels']) if chart_data['labels'] else 1
+        avg_per_period = {
+            'cutting': total_volumes['cutting'] / num_periods,
+            'assembly': total_volumes['assembly'] / num_periods,
+            'packaging': total_volumes['packaging'] / num_periods
         }
         
-        # Znajdź najlepszy dzień
-        best_day_idx = 0
-        best_day_total = 0
+        # Znajdź najlepszy okres
+        best_period_idx = 0
+        best_period_total = 0
         for i in range(len(chart_data['labels'])):
-            day_total = (chart_data['datasets'][0]['data'][i] + 
-                        chart_data['datasets'][1]['data'][i] + 
-                        chart_data['datasets'][2]['data'][i])
-            if day_total > best_day_total:
-                best_day_total = day_total
-                best_day_idx = i
+            period_total = (chart_data['datasets'][0]['data'][i] + 
+                          chart_data['datasets'][1]['data'][i] + 
+                          chart_data['datasets'][2]['data'][i])
+            if period_total > best_period_total:
+                best_period_total = period_total
+                best_period_idx = i
         
         summary = {
             'period_days': period,
+            'aggregation_type': aggregation_type,  # NOWE
             'total_volumes': total_volumes,
-            'avg_daily': {k: round(v, 2) for k, v in avg_daily.items()},
-            'best_day': {
-                'date': chart_data['labels'][best_day_idx] if chart_data['labels'] else None,
-                'volume': round(best_day_total, 2)
+            'avg_per_period': {k: round(v, 2) for k, v in avg_per_period.items()},  # ZMIENIONE
+            'best_period': {  # ZMIENIONE: z best_day
+                'label': chart_data['labels'][best_period_idx] if chart_data['labels'] else None,
+                'volume': round(best_period_total, 2)
             },
             'total_period_volume': round(sum(total_volumes.values()), 2)
         }
@@ -507,6 +574,7 @@ def chart_data():
         logger.info("Pomyślnie wygenerowano dane wykresów", extra={
             'user_id': current_user.id,
             'period': period,
+            'aggregation': aggregation_type,  # NOWE
             'total_volume': summary['total_period_volume'],
             'data_points': len(chart_data['labels'])
         })
@@ -524,7 +592,6 @@ def chart_data():
             'success': False,
             'error': f'Błąd pobierania danych wykresów: {str(e)}'
         }), 500
-    
     
 # ============================================================================
 # API ROUTERS - PRD Section 6.2 (Stanowiska)
@@ -749,7 +816,7 @@ def cron_sync():
         }), 500
 
 @api_bp.route('/sync/baselinker', methods=['POST'])
-@admin_required
+@login_required
 def baselinker_manual_sync_modal():
     """Endpoint obsługujący manualną synchronizację z Baselinkerem z poziomu modalu."""
 
@@ -804,7 +871,7 @@ def baselinker_manual_sync_modal():
         }), 500
 
 @api_bp.route('/manual-sync', methods=['POST'])
-@admin_required
+@login_required
 def manual_sync():
     """
     POST /api/manual-sync - Enhanced ręczna synchronizacja (ROZSZERZONY)
@@ -4579,7 +4646,7 @@ logger.info("Zainicjalizowano API routers modułu production", extra={
 # ============================================================================
 
 @api_bp.route('/recalculate-all-priorities', methods=['POST'])
-@admin_required
+@login_required
 def reset_all_priorities():
     """
     POST /api/recalculate-all-priorities - Reset wszystkich priorytetów
@@ -4698,7 +4765,7 @@ def reset_all_priorities():
 
 
 @api_bp.route('/products/<int:product_id>/set-manual-priority', methods=['POST'])
-@admin_required
+@login_required
 def set_manual_product_priority(product_id):
     """
     POST /api/products/<id>/set-manual-priority - Ręczne ustawienie priorytetu

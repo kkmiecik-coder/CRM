@@ -1,0 +1,453 @@
+/* ============================================================================
+   SETTINGS.CSS - Style dla strony ustawień użytkownika
+   ============================================================================ */
+
+/* Header strony */
+.settings-header {
+    background: white;
+    padding: 40px;
+    border-radius: 12px;
+    box-shadow: 0 2px 20px rgba(0, 0, 0, 0.08);
+    margin-bottom: 24px;
+}
+
+.settings-header h1 {
+    font-size: 32px;
+    margin-bottom: 8px;
+    color: #212529;
+}
+
+.settings-header p {
+    color: #6c757d;
+    font-size: 14px;
+    margin: 0;
+}
+
+/* Karta profilu z avatarem */
+.profile-card {
+    background: linear-gradient(135deg, #ED6B24 0%, #f89d5c 100%);
+    border-radius: 12px;
+    padding: 40px;
+    display: flex;
+    align-items: center;
+    gap: 30px;
+    margin-bottom: 24px;
+    color: white;
+    box-shadow: 0 4px 20px rgba(237, 107, 36, 0.3);
+    position: relative;
+    overflow: hidden;
+    min-height: 180px;
+}
+
+/* Animowane tło */
+.profile-card::before {
+    content: '';
+    position: absolute;
+    top: -50%;
+    left: -50%;
+    width: 200%;
+    height: 200%;
+    background: radial-gradient(circle, rgba(255, 255, 255, 0.1) 0%, transparent 70%);
+    animation: rotate 20s linear infinite;
+    z-index: 0;
+}
+
+@keyframes rotate {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
+.profile-card > * {
+    position: relative;
+    z-index: 1;
+}
+
+/* Badge członkostwa - prawy górny róg */
+.member-since {
+    position: absolute;
+    top: 20px;
+    right: 20px;
+    background: white;
+    color: #ED6B24;
+    padding: 14px 24px;
+    border-radius: 12px;
+    font-size: 14px;
+    font-weight: 600;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
+    z-index: 10;
+    animation: slideInDown 0.6s ease-out;
+    border: 2px solid rgba(237, 107, 36, 0.2);
+}
+
+@keyframes slideInDown {
+    from {
+        opacity: 0;
+        transform: translateY(-20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.member-since strong {
+    font-weight: 700;
+    color: #d45a1a;
+}
+
+/* Avatar */
+.profile-avatar {
+    width: 120px;
+    height: 120px;
+    border-radius: 50%;
+    background: white;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
+    flex-shrink: 0;
+}
+
+.profile-avatar img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.avatar-placeholder {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #ED6B24;
+    font-size: 48px;
+    font-weight: 600;
+}
+
+/* Info profilu */
+.profile-info h2 {
+    font-size: 28px;
+    margin-bottom: 8px;
+}
+
+.profile-info p {
+    opacity: 0.9;
+    margin-bottom: 4px;
+    font-size: 14px;
+}
+
+.role-badge {
+    display: inline-block;
+    padding: 6px 14px;
+    background: rgba(255, 255, 255, 0.2);
+    backdrop-filter: blur(10px);
+    border-radius: 20px;
+    font-size: 13px;
+    font-weight: 600;
+    margin-top: 12px;
+}
+
+/* Grid z sekcjami */
+.settings-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 24px;
+    margin-bottom: 24px;
+}
+
+/* Sekcja */
+.settings-section {
+    background: white;
+    border-radius: 12px;
+    padding: 32px;
+    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
+}
+
+.settings-section h3 {
+    font-size: 20px;
+    margin-bottom: 24px;
+    color: #212529;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.section-icon {
+    font-size: 24px;
+}
+
+.section-description {
+    color: #6c757d;
+    margin-bottom: 20px;
+    font-size: 14px;
+}
+
+/* Pełna szerokość */
+.settings-section.full-width {
+    grid-column: 1 / -1;
+}
+
+/* Formularze */
+.settings-form {
+    display: flex;
+    flex-direction: column;
+}
+
+.form-group {
+    margin-bottom: 20px;
+}
+
+.form-group label {
+    display: block;
+    margin-bottom: 8px;
+    font-weight: 500;
+    color: #495057;
+    font-size: 14px;
+}
+
+.form-input {
+    width: 100%;
+    padding: 12px 16px;
+    border: 2px solid #e9ecef;
+    border-radius: 8px;
+    font-size: 14px;
+    transition: all 0.3s;
+    font-family: inherit;
+}
+
+.form-input:focus {
+    outline: none;
+    border-color: #ED6B24;
+    box-shadow: 0 0 0 3px rgba(237, 107, 36, 0.1);
+}
+
+.form-input:disabled {
+    background: #f8f9fa;
+    cursor: not-allowed;
+    color: #6c757d;
+}
+
+/* Przyciski */
+.btn-primary {
+    padding: 12px 28px;
+    background: #ED6B24;
+    color: white;
+    border: none;
+    border-radius: 8px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.3s;
+    font-size: 14px;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-family: inherit;
+}
+
+.btn-primary:hover {
+    background: #d45a1a;
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(237, 107, 36, 0.3);
+}
+
+.btn-secondary {
+    padding: 10px 20px;
+    background: #f8f9fa;
+    color: #495057;
+    border: 2px solid #e9ecef;
+    border-radius: 8px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.3s;
+    font-size: 14px;
+    font-family: inherit;
+}
+
+.btn-secondary:hover {
+    background: #e9ecef;
+}
+
+/* Grid avatarów */
+.avatar-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(80px, 1fr));
+    gap: 16px;
+    margin: 20px 0;
+}
+
+.avatar-option {
+    width: 80px;
+    height: 80px;
+    border-radius: 50%;
+    cursor: pointer;
+    transition: all 0.3s;
+    border: 3px solid transparent;
+    overflow: hidden;
+    position: relative;
+}
+
+.avatar-option img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.avatar-option:hover {
+    transform: scale(1.1);
+    border-color: #ED6B24;
+}
+
+.avatar-option.selected {
+    border-color: #ED6B24;
+    box-shadow: 0 4px 12px rgba(237, 107, 36, 0.3);
+}
+
+/* Upload area */
+.upload-area {
+    border: 2px dashed #e9ecef;
+    border-radius: 8px;
+    padding: 40px;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.3s;
+    margin-top: 20px;
+}
+
+.upload-area:hover {
+    border-color: #ED6B24;
+    background: #fff9f5;
+}
+
+.upload-area.drag-over {
+    border-color: #ED6B24;
+    background: #fff9f5;
+    transform: scale(1.02);
+}
+
+.upload-icon {
+    font-size: 48px;
+    margin-bottom: 12px;
+    opacity: 0.6;
+}
+
+.upload-text {
+    color: #6c757d;
+    margin-bottom: 8px;
+    font-size: 14px;
+}
+
+.upload-hint {
+    color: #adb5bd;
+    font-size: 12px;
+}
+
+/* Podgląd uploadu */
+#uploadPreview {
+    margin-top: 20px;
+    text-align: center;
+}
+
+#uploadPreview img {
+    width: 120px;
+    height: 120px;
+    border-radius: 50%;
+    object-fit: cover;
+    border: 3px solid #ED6B24;
+    margin-bottom: 12px;
+}
+
+/* Komunikaty błędów */
+.error-message {
+    color: #dc3545;
+    font-size: 12px;
+    margin-top: 6px;
+    font-weight: 500;
+}
+
+/* Flash messages */
+.flash-messages {
+    margin-bottom: 24px;
+}
+
+.flash {
+    padding: 12px 20px;
+    border-radius: 8px;
+    margin-bottom: 12px;
+    font-size: 14px;
+}
+
+.flash-success {
+    background: #d4edda;
+    color: #155724;
+    border: 1px solid #c3e6cb;
+}
+
+.flash-error {
+    background: #f8d7da;
+    color: #721c24;
+    border: 1px solid #f5c6cb;
+}
+
+.flash-info {
+    background: #d1ecf1;
+    color: #0c5460;
+    border: 1px solid #bee5eb;
+}
+
+.flash-warning {
+    background: #fff3cd;
+    color: #856404;
+    border: 1px solid #ffeaa7;
+}
+
+/* ============================================================================
+   RESPONSIVE - Mobile
+   ============================================================================ */
+
+@media (max-width: 768px) {
+    .settings-grid {
+        grid-template-columns: 1fr;
+    }
+    
+    .settings-header {
+        padding: 30px 20px;
+    }
+    
+    .settings-header h1 {
+        font-size: 24px;
+    }
+    
+    .profile-card {
+        flex-direction: column;
+        text-align: center;
+        padding: 60px 30px 40px;
+    }
+    
+    /* Badge na mobile - wycentrowany u góry */
+    .member-since {
+        top: -10px;
+        right: 50%;
+        transform: translateX(50%);
+        font-size: 13px;
+        padding: 12px 20px;
+    }
+    
+    .settings-section {
+        padding: 24px 20px;
+    }
+    
+    .avatar-grid {
+        grid-template-columns: repeat(auto-fill, minmax(70px, 1fr));
+    }
+    
+    .avatar-option {
+        width: 70px;
+        height: 70px;
+    }
+    
+    .upload-area {
+        padding: 30px 20px;
+    }
+}

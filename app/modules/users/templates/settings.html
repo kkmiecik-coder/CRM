@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Moje ustawienia - Wood Power CRM</title>
+    <link rel="icon" href="{{ url_for('static', filename='images/favicon.png') }}" type="image/png">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="stylesheet" href="{{ url_for('users.static', filename='css/settings.css') }}">
+</head>
+<body>
+    <div class="app-container">
+        {% include 'sidebar/sidebar.html' %}
+        
+        <main class="main-content">
+            <!-- Header -->
+            <div class="settings-header">
+                <h1>⚙️ Moje ustawienia</h1>
+                <p>Zarządzaj swoim profilem i preferencjami</p>
+            </div>
+
+            <!-- Flash messages -->
+            {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+            <div class="flash-messages">
+                {% for category, message in messages %}
+                <div class="flash flash-{{ category }}">{{ message }}</div>
+                {% endfor %}
+            </div>
+            {% endif %}
+            {% endwith %}
+
+            <!-- Karta profilu z avatarem -->
+            <div class="profile-card">
+                <!-- Badge członkostwa - prawy górny róg -->
+                <div class="member-since">
+                    🎉 Z nami już od <strong>{{ member_since }}</strong>!
+                </div>
+                
+                <div class="profile-avatar">
+                    {% if current_user.avatar_path and current_user.avatar_path != 'images/avatars/default_avatars/avatar1.svg' %}
+                        <img src="{{ url_for('static', filename=current_user.avatar_path) }}" alt="Avatar">
+                    {% else %}
+                        <div class="avatar-placeholder">{{ current_user.first_name[0] if current_user.first_name else current_user.email[0]|upper }}</div>
+                    {% endif %}
+                </div>
+                
+                <div class="profile-info">
+                    <h2>{{ user_name }}</h2>
+                    <p>📧 {{ user_email }}</p>
+                    <p>🕐 Ostatnie logowanie: 
+                        {% if current_user.last_login %}
+                            {{ current_user.last_login.strftime('%d.%m.%Y %H:%M') }}
+                        {% else %}
+                            Niedawno
+                        {% endif %}
+                    </p>
+                    <span class="role-badge">{{ current_user.role|title }}</span>
+                </div>
+            </div>
+
+            <!-- Grid z sekcjami -->
+            <div class="settings-grid">
+                <!-- Dane konta -->
+                <div class="settings-section">
+                    <h3>
+                        <span class="section-icon">👤</span>
+                        Dane konta
+                    </h3>
+                    <form action="{{ url_for('users.update_profile') }}" method="post" class="settings-form">
+                        <div class="form-group">
+                            <label for="first_name">Imię</label>
+                            <input type="text" 
+                                   id="first_name" 
+                                   name="first_name" 
+                                   class="form-input" 
+                                   value="{{ current_user.first_name or '' }}" 
+                                   placeholder="Wprowadź imię">
+                        </div>
+                        <div class="form-group">
+                            <label for="last_name">Nazwisko</label>
+                            <input type="text" 
+                                   id="last_name" 
+                                   name="last_name" 
+                                   class="form-input" 
+                                   value="{{ current_user.last_name or '' }}" 
+                                   placeholder="Wprowadź nazwisko">
+                        </div>
+                        <div class="form-group">
+                            <label for="email">Email</label>
+                            <input type="email" 
+                                   id="email" 
+                                   class="form-input" 
+                                   value="{{ user_email }}" 
+                                   disabled
+                                   title="Email nie może być zmieniony">
+                        </div>
+                        <button type="submit" class="btn-primary">
+                            💾 Zapisz zmiany
+                        </button>
+                    </form>
+                </div>
+
+                <!-- Zmiana hasła -->
+                <div class="settings-section">
+                    <h3>
+                        <span class="section-icon">🔒</span>
+                        Zmiana hasła
+                    </h3>
+                    <form action="{{ url_for('users.update_password') }}" method="post" class="settings-form" id="passwordForm">
+                        <div class="form-group">
+                            <label for="old_password">Obecne hasło</label>
+                            <input type="password" 
+                                   id="old_password" 
+                                   name="old_password" 
+                                   class="form-input" 
+                                   placeholder="••••••••"
+                                   required>
+                        </div>
+                        <div class="form-group">
+                            <label for="new_password">Nowe hasło</label>
+                            <input type="password" 
+                                   id="new_password" 
+                                   name="new_password" 
+                                   class="form-input" 
+                                   placeholder="••••••••"
+                                   required>
+                        </div>
+                        <div class="form-group">
+                            <label for="confirm_password">Powtórz nowe hasło</label>
+                            <input type="password" 
+                                   id="confirm_password" 
+                                   name="confirm_password" 
+                                   class="form-input" 
+                                   placeholder="••••••••"
+                                   required>
+                            <div id="passwordError" class="error-message" style="display: none;"></div>
+                        </div>
+                        <button type="submit" class="btn-primary">
+                            🔑 Zmień hasło
+                        </button>
+                    </form>
+                </div>
+
+                <!-- Zmiana avatara - pełna szerokość -->
+                <div class="settings-section full-width">
+                    <h3>
+                        <span class="section-icon">🖼️</span>
+                        Zmień avatar
+                    </h3>
+                    <p class="section-description">Wybierz jeden z domyślnych avatarów lub wgraj własny</p>
+                    
+                    <form action="{{ url_for('users.update_avatar') }}" method="post" enctype="multipart/form-data" id="avatarForm">
+                        <!-- Grid domyślnych avatarów -->
+                        <div class="avatar-grid">
+                            {% for i in range(1, 4) %}
+                            <div class="avatar-option" 
+                                 data-avatar-value="default_avatars/avatar{{ i }}.svg"
+                                 {% if current_user.avatar_path == 'images/avatars/default_avatars/avatar' + i|string + '.svg' %}
+                                 data-selected="true"
+                                 {% endif %}>
+                                <img src="{{ url_for('static', filename='images/avatars/default_avatars/avatar' + i|string + '.svg') }}" 
+                                     alt="Avatar {{ i }}">
+                            </div>
+                            {% endfor %}
+                        </div>
+                        
+                        <!-- Ukryte pole dla wybranego domyślnego avatara -->
+                        <input type="hidden" name="default_avatar" id="defaultAvatarField" value="">
+                        
+                        <!-- Upload własnego avatara -->
+                        <div class="upload-area" id="uploadArea">
+                            <div class="upload-icon">📤</div>
+                            <p class="upload-text">Przeciągnij plik lub kliknij aby wybrać</p>
+                            <p class="upload-hint">PNG, JPG do 2MB</p>
+                            <input type="file" 
+                                   name="avatar_file" 
+                                   id="avatarFileInput" 
+                                   accept="image/*" 
+                                   style="display: none;">
+                        </div>
+                        
+                        <!-- Podgląd wgranego pliku -->
+                        <div id="uploadPreview" style="display: none;">
+                            <img id="previewImage" src="" alt="Podgląd">
+                            <button type="button" class="btn-secondary" id="cancelUpload">✕ Anuluj</button>
+                        </div>
+                        
+                        <button type="submit" class="btn-primary" style="margin-top: 20px;">
+                            📸 Zapisz avatar
+                        </button>
+                    </form>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/sidebar.js') }}"></script>
+    <script src="{{ url_for('users.static', filename='js/settings.js') }}"></script>
+</body>
+</html>

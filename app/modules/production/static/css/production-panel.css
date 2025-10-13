@@ -826,54 +826,92 @@ body {
     transition: all 0.3s ease;
 }
 
-.widget.performance-chart:hover {
-    box-shadow: var(--shadow-lg);
-}
+    .widget.performance-chart:hover {
+        box-shadow: var(--shadow-lg);
+    }
 
-.widget.performance-chart .widget-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: var(--spacing-md);
-    background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
-    border-bottom: var(--border-width) solid var(--border-color);
-}
+    .widget.performance-chart .widget-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: var(--spacing-md);
+        background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+        border-bottom: var(--border-width) solid var(--border-color);
+    }
 
-.widget.performance-chart .widget-title {
-    margin: 0;
-    font-size: var(--font-size-lg);
-    font-weight: var(--font-weight-bold);
-    color: var(--production-dark);
-}
+    .widget.performance-chart .widget-title {
+        margin: 0;
+        font-size: var(--font-size-lg);
+        font-weight: var(--font-weight-bold);
+        color: var(--production-dark);
+    }
 
-.widget.performance-chart .widget-title i {
-    color: var(--production-secondary);
-}
+        .widget.performance-chart .widget-title i {
+            color: var(--production-secondary);
+        }
 
+/* ============================================================================
+   CHART CONTROLS - Rozszerzone style
+   ============================================================================ */
 .chart-controls {
     display: flex;
     align-items: center;
     gap: var(--spacing-sm);
 }
 
-.chart-controls select {
-    background: white;
-    border: var(--border-width) solid var(--border-color);
-    border-radius: var(--border-radius-sm);
-    padding: var(--spacing-xs) var(--spacing-sm);
-    font-size: var(--font-size-sm);
-    color: var(--production-dark);
-    cursor: pointer;
-    min-width: 140px;
-    transition: all 0.2s ease;
-}
+    .chart-controls select {
+        background: white;
+        border: var(--border-width) solid var(--border-color);
+        border-radius: var(--border-radius-sm);
+        padding: var(--spacing-xs) var(--spacing-sm);
+        font-size: var(--font-size-sm);
+        color: var(--production-dark);
+        cursor: pointer;
+        min-width: 140px;
+        transition: all 0.2s ease;
+        font-weight: 500;
+    }
 
-.chart-controls select:focus {
-    outline: none;
-    border-color: var(--production-secondary);
-    box-shadow: 0 0 0 2px rgba(76, 124, 89, 0.25);
-}
+        .chart-controls select:hover {
+            border-color: var(--production-secondary);
+            background: #f8f9fa;
+        }
 
+        .chart-controls select:focus {
+            outline: none;
+            border-color: var(--production-secondary);
+            box-shadow: 0 0 0 2px rgba(76, 124, 89, 0.25);
+            background: white;
+        }
+
+    /* Style dla przycisku refresh */
+    .chart-controls button {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: var(--spacing-xs) var(--spacing-sm);
+        min-width: 36px;
+        height: 36px;
+        border-radius: var(--border-radius-sm);
+        transition: all 0.2s ease;
+    }
+
+        .chart-controls button:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+
+        .chart-controls button:active {
+            transform: translateY(0);
+        }
+
+        .chart-controls button i {
+            font-size: 14px;
+        }
+
+/* ============================================================================
+   WIDGET CONTENT
+   ============================================================================ */
 .widget.performance-chart .widget-content {
     padding: var(--spacing-md);
     position: relative;
@@ -893,6 +931,9 @@ body {
     image-rendering: pixelated;
 }
 
+/* ============================================================================
+   CHART LOADER
+   ============================================================================ */
 .chart-loader {
     position: absolute;
     top: 50%;
@@ -910,24 +951,95 @@ body {
     border: var(--border-width) solid rgba(233, 236, 239, 0.5);
 }
 
-.chart-loader.is-visible {
-    display: flex !important;
+    .chart-loader.is-visible {
+        display: flex !important;
+    }
+
+    .chart-loader .spinner {
+        width: 32px;
+        height: 32px;
+        border: 3px solid #e9ecef;
+        border-top: 3px solid var(--production-secondary);
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+    }
+
+    .chart-loader span {
+        color: var(--production-dark);
+        font-size: var(--font-size-sm);
+        font-weight: var(--font-weight-medium);
+        text-align: center;
+    }
+
+/* ============================================================================
+   ANIMATIONS
+   ============================================================================ */
+@keyframes spin {
+    from {
+        transform: rotate(0deg);
+    }
+
+    to {
+        transform: rotate(360deg);
+    }
 }
 
-.chart-loader .spinner {
-    width: 32px;
-    height: 32px;
-    border: 3px solid #e9ecef;
-    border-top: 3px solid var(--production-secondary);
-    border-radius: 50%;
-    animation: spin 1s linear infinite;
+/* ============================================================================
+   RESPONSIVE - Mobile & Tablet
+   ============================================================================ */
+@media (max-width: 768px) {
+    .widget.performance-chart .widget-header {
+        flex-direction: column;
+        gap: var(--spacing-sm);
+        align-items: stretch;
+    }
+
+    .chart-controls {
+        justify-content: space-between;
+        width: 100%;
+    }
+
+        .chart-controls select {
+            flex: 1;
+            min-width: auto;
+        }
+
+    .widget.performance-chart .widget-content {
+        padding: var(--spacing-sm);
+        min-height: 280px;
+    }
+
+    #performance-chart-canvas {
+        max-height: 220px;
+    }
 }
 
-.chart-loader span {
-    color: var(--production-dark);
-    font-size: var(--font-size-sm);
-    font-weight: var(--font-weight-medium);
-    text-align: center;
+@media (max-width: 576px) {
+    .widget.performance-chart .widget-title {
+        font-size: var(--font-size-md);
+    }
+
+    .chart-controls select {
+        font-size: 12px;
+        padding: 0.25rem 0.5rem;
+    }
+
+    .chart-controls button {
+        min-width: 32px;
+        height: 32px;
+    }
+
+        .chart-controls button i {
+            font-size: 12px;
+        }
+
+    .widget.performance-chart .widget-content {
+        min-height: 250px;
+    }
+
+    #performance-chart-canvas {
+        max-height: 200px;
+    }
 }
 
 /* ============================================================================

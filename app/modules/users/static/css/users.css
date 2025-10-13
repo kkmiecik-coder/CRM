@@ -1,0 +1,369 @@
+/* app/modules/users/static/css/users.css */
+/* Dedykowane style dla modułu users */
+
+/* ============================================================================
+   GŁÓWNY LAYOUT
+   ============================================================================ */
+
+.app-container {
+    display: flex;
+    min-height: 100vh;
+}
+
+.main-content {
+    flex: 1;
+    padding: 2rem;
+    background: #f8f9fa;
+}
+
+/* ============================================================================
+   NAGŁÓWKI
+   ============================================================================ */
+
+.title-with-underline {
+    font-size: 2rem;
+    font-weight: 600;
+    margin-bottom: 2rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 3px solid #ff6b35;
+}
+
+.title-with-underline-h2 {
+    font-size: 1.5rem;
+    font-weight: 600;
+    margin-bottom: 1.5rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 2px solid #ff6b35;
+}
+
+.title-txt {
+    font-size: 1.25rem;
+    font-weight: 500;
+    margin-bottom: 1rem;
+}
+
+/* ============================================================================
+   FLASH MESSAGES
+   ============================================================================ */
+
+.flash-messages {
+    margin-bottom: 2rem;
+}
+
+.flash {
+    padding: 1rem 1.5rem;
+    margin-bottom: 1rem;
+    border-radius: 8px;
+    font-weight: 500;
+}
+
+.flash-success {
+    background: #d4edda;
+    color: #155724;
+    border: 1px solid #c3e6cb;
+}
+
+.flash-error {
+    background: #f8d7da;
+    color: #721c24;
+    border: 1px solid #f5c6cb;
+}
+
+.flash-warning {
+    background: #fff3cd;
+    color: #856404;
+    border: 1px solid #ffeaa7;
+}
+
+.flash-info {
+    background: #d1ecf1;
+    color: #0c5460;
+    border: 1px solid #bee5eb;
+}
+
+/* ============================================================================
+   SEKCJA: DODAWANIE UŻYTKOWNIKA
+   ============================================================================ */
+
+.add-new-user {
+    background: white;
+    padding: 2rem;
+    border-radius: 12px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    margin-bottom: 2rem;
+}
+
+.add-new-user-box {
+    margin-top: 1rem;
+}
+
+.inputs-new-user {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+}
+
+.role-input,
+.multiplier-select,
+.email-input {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.input-txt {
+    font-weight: 500;
+    font-size: 0.95rem;
+    color: #333;
+}
+
+.input-new-user {
+    display: flex;
+}
+
+.select-role,
+.plain-input {
+    width: 100%;
+    padding: 0.75rem;
+    border: 2px solid #e0e0e0;
+    border-radius: 8px;
+    font-size: 1rem;
+    transition: border-color 0.3s;
+}
+
+.select-role:focus,
+.plain-input:focus {
+    outline: none;
+    border-color: #ff6b35;
+}
+
+/* ============================================================================
+   SEKCJA: LISTA UŻYTKOWNIKÓW
+   ============================================================================ */
+
+.user-list {
+    background: white;
+    padding: 2rem;
+    border-radius: 12px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.headers {
+    display: flex;
+    gap: 1rem;
+    padding: 1rem;
+    background: #f8f9fa;
+    border-radius: 8px;
+    margin-bottom: 1rem;
+    font-weight: 600;
+    color: #555;
+}
+
+.header-txt {
+    flex-shrink: 0;
+}
+
+.list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.user-row {
+    display: flex;
+    gap: 1rem;
+    padding: 1rem;
+    background: #ffffff;
+    border: 1px solid #e0e0e0;
+    border-radius: 8px;
+    align-items: center;
+    transition: box-shadow 0.3s;
+}
+
+.user-row:hover {
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+}
+
+.avatar-box img {
+    border: 2px solid #e0e0e0;
+}
+
+.data-txt {
+    flex-shrink: 0;
+    color: #333;
+}
+
+.actions {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+/* ============================================================================
+   PRZYCISKI
+   ============================================================================ */
+
+.orange-button {
+    background: #ff6b35;
+    color: white;
+    border: none;
+    padding: 0.75rem 1.5rem;
+    border-radius: 8px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.3s;
+}
+
+.orange-button:hover {
+    background: #ff5722;
+}
+
+.edit-button {
+    background: #4CAF50;
+    color: white;
+    border: none;
+    padding: 0.5rem 1rem;
+    border-radius: 6px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background 0.3s;
+}
+
+.edit-button:hover {
+    background: #45a049;
+}
+
+.modify-button {
+    border: none;
+    padding: 0.5rem 1rem;
+    border-radius: 6px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.3s;
+}
+
+.modify-button--black {
+    background: #333;
+    color: white;
+}
+
+.modify-button--black:hover {
+    background: #555;
+}
+
+.modify-button--green {
+    background: #4CAF50;
+    color: white;
+}
+
+.modify-button--green:hover {
+    background: #45a049;
+}
+
+.delete-button {
+    background: #f44336;
+    color: white;
+    border: none;
+    padding: 0.5rem 1rem;
+    border-radius: 6px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background 0.3s;
+}
+
+.delete-button:hover {
+    background: #da190b;
+}
+
+/* ============================================================================
+   MODAL
+   ============================================================================ */
+
+.modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.5);
+    z-index: 999;
+}
+
+.modal-box {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background: white;
+    padding: 2rem;
+    border-radius: 12px;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+    z-index: 1000;
+    min-width: 400px;
+    max-width: 600px;
+}
+
+.close-modal {
+    position: absolute;
+    top: 1rem;
+    right: 1rem;
+    background: transparent;
+    border: none;
+    font-size: 1.5rem;
+    font-weight: bold;
+    cursor: pointer;
+    color: #999;
+    transition: color 0.3s;
+}
+
+.close-modal:hover {
+    color: #333;
+}
+
+.modal-input-row {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    margin-bottom: 1rem;
+}
+
+.modal-input-row label {
+    font-weight: 500;
+    color: #333;
+}
+
+.modal-actions {
+    display: flex;
+    gap: 1rem;
+    margin-top: 2rem;
+    justify-content: flex-end;
+}
+
+/* ============================================================================
+   RESPONSIVE
+   ============================================================================ */
+
+@media (max-width: 768px) {
+    .headers {
+        display: none;
+    }
+    
+    .user-row {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+    
+    .user-row > div {
+        width: 100% !important;
+    }
+    
+    .actions {
+        flex-direction: row;
+        flex-wrap: wrap;
+    }
+    
+    .modal-box {
+        min-width: 90%;
+        margin: 1rem;
+    }
+}

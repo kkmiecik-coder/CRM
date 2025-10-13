@@ -281,7 +281,15 @@ class UserSession(db.Model):
         Returns:
             dict: Słownik z danymi sesji
         """
+        from flask import url_for
+        
         status = self.get_status()
+        
+        # ✅ POPRAWKA - przetwórz avatar_path przez url_for
+        if self.user.avatar_path:
+            user_avatar = url_for('static', filename=self.user.avatar_path)
+        else:
+            user_avatar = url_for('static', filename='images/avatars/default_avatars/avatar1.svg')
         
         return {
             'id': self.id,
@@ -289,7 +297,7 @@ class UserSession(db.Model):
             'user_name': f"{self.user.first_name} {self.user.last_name}".strip() or self.user.email,
             'user_email': self.user.email,
             'user_role': self.user.role,
-            'user_avatar': self.user.avatar_path,
+            'user_avatar': user_avatar,  # ← POPRAWIONA LINIA
             'status': status['status'],
             'status_icon': status['icon'],
             'status_description': status['description'],
