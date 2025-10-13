@@ -171,7 +171,7 @@ def invite_user():
         
         if not invite_email:
             flash("Adres email jest wymagany.", "error")
-            return redirect(url_for('users.settings'))
+            return redirect(url_for('users.manage_users'))
         
         # Multiplier tylko dla partnerów
         multiplier_id = int(invite_multiplier) if invite_role == "partner" and invite_multiplier else None
@@ -195,7 +195,7 @@ def invite_user():
         current_app.logger.error(f"Błąd wysyłania zaproszenia: {str(e)}")
         flash("Wystąpił błąd podczas wysyłania zaproszenia.", "error")
     
-    return redirect(url_for('users.settings'))
+    return redirect(url_for('users.manage_users'))
 
 
 # ============================================================================
@@ -318,7 +318,7 @@ def edit_user(user_id):
         current_app.logger.error(f"Błąd edycji użytkownika: {str(e)}")
         flash("Wystąpił błąd podczas edycji użytkownika.", "error")
     
-    return redirect(url_for('users.settings'))
+    return redirect(url_for('users.manage_users'))
 
 
 @users_bp.route('/<int:user_id>/activate', methods=['POST'])
@@ -332,7 +332,7 @@ def activate_user(user_id):
         current_app.logger.error(f"Błąd aktywacji użytkownika: {str(e)}")
         flash("Wystąpił błąd podczas aktywacji użytkownika.", "error")
     
-    return redirect(url_for('users.settings'))
+    return redirect(url_for('users.manage_users'))
 
 
 @users_bp.route('/<int:user_id>/deactivate', methods=['POST'])
@@ -346,7 +346,7 @@ def deactivate_user(user_id):
         current_app.logger.error(f"Błąd dezaktywacji użytkownika: {str(e)}")
         flash("Wystąpił błąd podczas dezaktywacji użytkownika.", "error")
     
-    return redirect(url_for('users.settings'))
+    return redirect(url_for('users.manage_users'))
 
 
 @users_bp.route('/<int:user_id>/delete', methods=['POST'])
@@ -369,7 +369,7 @@ def delete_user(user_id):
         current_app.logger.error(f"Błąd usuwania użytkownika: {str(e)}")
         flash("Wystąpił błąd podczas usuwania użytkownika.", "error")
     
-    return redirect(url_for('users.settings'))
+    return redirect(url_for('users.manage_users'))
 
 @users_bp.route('/api/user-permissions/<int:user_id>', methods=['GET'])
 @require_module_access('users')

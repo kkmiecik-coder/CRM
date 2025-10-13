@@ -922,9 +922,9 @@ function renderAuditLog(logs) {
     logs.forEach(log => {
         const clone = template.content.cloneNode(true);
 
-        // Avatar
+        // Avatar - UŻYWAMY avatar_path zamiast email
         const avatar = clone.querySelector('.audit-user-avatar');
-        avatar.src = getAvatarUrl(log.changed_by_email);
+        avatar.src = getAvatarUrl(log.changed_by_avatar_path);
         avatar.alt = log.changed_by_name;
 
         // Nazwa użytkownika
@@ -956,6 +956,15 @@ function renderAuditLog(logs) {
         const badge = createAuditBadge(log.change_type);
         badgeWrapper.appendChild(badge);
 
+        // NOWE: Szczegóły zmiany (old_value -> new_value)
+        const detailsDiv = clone.querySelector('.audit-details');
+        const detailsHTML = renderAuditDetails(log);
+        if (detailsHTML) {
+            detailsDiv.innerHTML = detailsHTML;
+        } else {
+            detailsDiv.style.display = 'none';
+        }
+
         // Powód
         const reasonDiv = clone.querySelector('.audit-reason');
         const reasonText = clone.querySelector('.reason-text');
@@ -966,6 +975,95 @@ function renderAuditLog(logs) {
 
         listDiv.appendChild(clone);
     });
+}
+
+/**
+ * Renderuje szczegóły zmiany (old_value -> new_value)
+ */
+function renderAuditDetails(log) {
+    const { change_type, old_value, new_value } = log;
+
+    if (change_type === 'role_changed') {
+        // Zmiana roli: Admin → User
+        const oldRole = old_value?.role_name || 'Brak';
+        const newRole = new_value?.role_name || 'Brak';
+
+        return `
+            <div class="audit-details-row">
+                <span class="audit-details-label">🔄 Zmiana roli:</span>
+                <span class="audit-value-old">${getRoleDisplayName(oldRole)}</span>
+                <span class="audit-value-arrow">→</span>
+                <span class="audit-value-new">${getRoleDisplayName(newRole)}</span>
+            </div>
+        `;
+    }
+
+    if (change_type === 'module_granted') {
+        // Nadanie dostępu do modułu
+        const moduleKey = new_value?.module_key || 'Nieznany';
+        const moduleName = getModuleDisplayName(moduleKey);
+
+        return `
+            <div class="audit-details-row">
+                <span class="audit-details-label">✅ Nadano:</span>
+                <span class="audit-module-name">${moduleName}</span>
+            </div>
+        `;
+    }
+
+    if (change_type === 'module_revoked') {
+        // Odebranie dostępu do modułu
+        const moduleKey = old_value?.module_key || 'Nieznany';
+        const moduleName = getModuleDisplayName(moduleKey);
+
+        return `
+            <div class="audit-details-row">
+                <span class="audit-details-label">❌ Odebrano:</span>
+                <span class="audit-module-name">${moduleName}</span>
+            </div>
+        `;
+    }
+
+    return null; // Brak szczegółów do wyświetlenia
+}
+
+/**
+ * Mapowanie role_name na czytelną nazwę
+ */
+function getRoleDisplayName(roleName) {
+    const roleMap = {
+        'admin': '⚙️ Administrator',
+        'user': '👤 Użytkownik',
+        'partner': '🤝 Partner'
+    };
+    return roleMap[roleName] || roleName;
+}
+
+/**
+ * Mapowanie module_key na czytelną nazwę
+ */
+function getModuleDisplayName(moduleKey) {
+    // Pobierz z cache modułów (jeśli dostępny)
+    if (modulesCache && modulesCache.modules) {
+        const module = modulesCache.modules.find(m => m.module_key === moduleKey);
+        if (module) {
+            return `${module.icon || '📦'} ${module.display_name}`;
+        }
+    }
+
+    // Fallback - podstawowe mapowanie
+    const moduleMap = {
+        'dashboard': '🏠 Dashboard',
+        'quotes': '📊 Wyceny',
+        'production': '🏭 Produkcja',
+        'users': '👥 Zarządzanie zespołem',
+        'clients': '👔 Klienci',
+        'baselinker': '🔗 Baselinker',
+        'analytics': '📈 Analityka',
+        'reports': '📄 Raporty'
+    };
+
+    return moduleMap[moduleKey] || moduleKey;
 }
 
 function getActionText(changeType) {
@@ -1010,10 +1108,29 @@ function updatePagination() {
     pageInfo.textContent = `Strona ${auditState.currentPage} z ${totalPages}`;
 }
 
-function getAvatarUrl(email) {
-    // Jeśli masz dostęp do avatarów użytkowników, użyj ich
-    // Na razie default avatar
-    return '/static/images/avatars/default_avatars/avatar1.svg';
+/**
+ * Buduje pełny URL avatara na podstawie avatar_path
+ * 
+ * @param {string|null} avatarPath - Ścieżka avatara z bazy (np. "custom/user_1_123456_photo.jpg" lub "default_avatars/avatar1.svg")
+ * @returns {string} - Pełny URL avatara
+ */
+function getAvatarUrl(avatarPath) {
+    // Jeśli brak avatar_path, użyj domyślnego
+    if (!avatarPath || avatarPath === '') {
+        return '/static/images/avatars/default_avatars/avatar1.svg';
+    }
+
+    // Ścieżki avatarów custom są zapisane jako: "custom/filename"
+    // Ścieżki avatarów default są zapisane jako: "default_avatars/avatar1.svg"
+    // Ścieżki avatarów user są zapisane jako: "user_avatars/filename"
+
+    // Jeśli avatar_path już zawiera "avatars/", nie dodawaj ponownie
+    if (avatarPath.includes('/avatars/')) {
+        return `/static/${avatarPath}`;
+    }
+
+    // W przeciwnym razie dodaj pełną ścieżkę
+    return `/static/images/avatars/${avatarPath}`;
 }
 
 function formatDate(dateString) {

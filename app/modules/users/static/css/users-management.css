@@ -1294,3 +1294,61 @@
             width: 100%;
         }
 }
+
+/* Szczegóły zmiany (old_value -> new_value) */
+.audit-details {
+    margin-top: 12px;
+    padding: 12px;
+    background: #f8f9fa;
+    border-left: 3px solid #ED6B24;
+    border-radius: 6px;
+    font-size: 14px;
+}
+
+.audit-details-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 6px;
+}
+
+    .audit-details-row:last-child {
+        margin-bottom: 0;
+    }
+
+.audit-details-label {
+    font-weight: 600;
+    color: #495057;
+    min-width: 80px;
+}
+
+.audit-details-value {
+    color: #212529;
+}
+
+.audit-value-old {
+    text-decoration: line-through;
+    color: #dc3545;
+    font-weight: 500;
+}
+
+.audit-value-arrow {
+    color: #6c757d;
+    margin: 0 8px;
+}
+
+.audit-value-new {
+    color: #28a745;
+    font-weight: 600;
+}
+
+.audit-module-name {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 10px;
+    background: white;
+    border-radius: 6px;
+    border: 1px solid #dee2e6;
+    font-weight: 600;
+}
