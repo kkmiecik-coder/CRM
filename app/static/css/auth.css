@@ -1,0 +1,1362 @@
+/* ============================================================================
+   AUTH.CSS - Complete styles for all authentication pages with Dark Mode
+   Wood Power CRM
+   ============================================================================ */
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: 'Poppins', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    height: 100vh;
+    overflow: hidden;
+    transition: background-color 0.5s ease;
+}
+
+/* ============================================================================
+   MAIN CONTAINER - Full screen background (LIGHT MODE)
+   ============================================================================ */
+
+.auth-container {
+    width: 100%;
+    height: 100vh;
+    background-image: url('../images/left-side.png');
+    background-size: cover;
+    background-position: center;
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+}
+
+.auth-container::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: linear-gradient(135deg, rgba(31, 32, 32, 0.75) 0%, rgba(237, 107, 36, 0.65) 100%);
+    z-index: 1;
+    transition: background 0.5s ease;
+}
+
+/* ============================================================================
+   DARK MODE - Activated between 18:00 and 6:00
+   ============================================================================ */
+
+body.dark-mode .auth-container::before {
+    background: linear-gradient(135deg, rgba(10, 10, 15, 0.90) 0%, rgba(237, 107, 36, 0.50) 100%);
+}
+
+/* ============================================================================
+   CONTENT WRAPPER
+   ============================================================================ */
+
+.auth-content {
+    position: relative;
+    z-index: 2;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    width: 100%;
+    max-width: 480px;
+}
+
+/* ============================================================================
+   LOGO
+   ============================================================================ */
+
+.logo-container {
+    margin-bottom: 40px;
+    text-align: center;
+    animation: fadeInDown 0.6s ease-out;
+}
+
+.crm-logo {
+    width: 280px;
+    height: auto;
+    filter: drop-shadow(0 8px 16px rgba(0, 0, 0, 0.3));
+    transition: transform 0.3s ease, filter 0.5s ease;
+}
+
+body.dark-mode .crm-logo {
+    filter: drop-shadow(0 8px 20px rgba(0, 0, 0, 0.6));
+}
+
+.crm-logo:hover {
+    transform: scale(1.02);
+}
+
+/* ============================================================================
+   AUTH BOX (LIGHT MODE)
+   ============================================================================ */
+
+.auth-box {
+    background: rgba(255, 255, 255, 0.98);
+    backdrop-filter: blur(20px);
+    border-radius: 24px;
+    padding: 48px 40px;
+    box-shadow: 
+        0 20px 60px rgba(0, 0, 0, 0.3),
+        0 0 0 1px rgba(255, 255, 255, 0.1);
+    width: 100%;
+    animation: fadeInUp 0.6s ease-out;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    transition: all 0.5s ease;
+}
+
+/* AUTH BOX (DARK MODE) */
+body.dark-mode .auth-box {
+    background: rgba(30, 30, 35, 0.95);
+    backdrop-filter: blur(25px);
+    box-shadow: 
+        0 20px 60px rgba(0, 0, 0, 0.6),
+        0 0 0 1px rgba(237, 107, 36, 0.2);
+    border: 1px solid rgba(237, 107, 36, 0.3);
+}
+
+/* ============================================================================
+   ANIMATIONS
+   ============================================================================ */
+
+@keyframes fadeInDown {
+    from {
+        opacity: 0;
+        transform: translateY(-30px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@keyframes fadeInUp {
+    from {
+        opacity: 0;
+        transform: translateY(30px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@keyframes pulse {
+    0%, 100% {
+        transform: scale(1);
+    }
+    50% {
+        transform: scale(1.05);
+    }
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+/* ============================================================================
+   HEADERS
+   ============================================================================ */
+
+.auth-header {
+    text-align: center;
+    margin-bottom: 36px;
+}
+
+.auth-header h2 {
+    font-size: 28px;
+    font-weight: 700;
+    color: #1F2020;
+    margin-bottom: 8px;
+    transition: color 0.5s ease;
+}
+
+body.dark-mode .auth-header h2 {
+    color: #FFFFFF;
+}
+
+.auth-header p {
+    font-size: 14px;
+    color: #6c757d;
+    line-height: 1.5;
+    transition: color 0.5s ease;
+}
+
+body.dark-mode .auth-header p {
+    color: #b8b8b8;
+}
+
+/* ============================================================================
+   FORM
+   ============================================================================ */
+
+.auth-form {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+}
+
+.form-group {
+    position: relative;
+}
+
+.input-wrapper {
+    position: relative;
+}
+
+.input-icon {
+    position: absolute;
+    left: 18px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: #7E7E7E;
+    font-size: 20px;
+    pointer-events: none;
+    transition: color 0.3s ease;
+    z-index: 2;
+}
+
+body.dark-mode .input-icon {
+    color: #9a9a9a;
+}
+
+.form-input {
+    width: 100%;
+    height: 54px;
+    padding: 16px 20px 16px 52px;
+    border: 2px solid #E3E3E3;
+    border-radius: 16px;
+    font-size: 15px;
+    font-family: 'Poppins', sans-serif;
+    transition: all 0.3s ease;
+    background: #FAFAFA;
+    color: #1F2020;
+}
+
+/* ============================================================================
+   FIX: Autofill styles (Chrome, Safari, Edge, Firefox)
+   ============================================================================ */
+
+/* Light mode autofill */
+.form-input:-webkit-autofill,
+.form-input:-webkit-autofill:hover,
+.form-input:-webkit-autofill:focus,
+.form-input:-webkit-autofill:active {
+    -webkit-box-shadow: 0 0 0 50px #FAFAFA inset !important;
+    -webkit-text-fill-color: #1F2020 !important;
+    transition: background-color 5000s ease-in-out 0s;
+}
+
+/* Dark mode autofill */
+body.dark-mode .form-input:-webkit-autofill,
+body.dark-mode .form-input:-webkit-autofill:hover,
+body.dark-mode .form-input:-webkit-autofill:focus,
+body.dark-mode .form-input:-webkit-autofill:active {
+    -webkit-box-shadow: 0 0 0 50px rgba(42, 42, 47, 0.8) inset !important;
+    -webkit-text-fill-color: #FFFFFF !important;
+    transition: background-color 5000s ease-in-out 0s;
+}
+
+/* Firefox autofill fix */
+.form-input:-moz-autofill {
+    background-color: #FAFAFA !important;
+    color: #1F2020 !important;
+}
+
+body.dark-mode .form-input:-moz-autofill {
+    background-color: rgba(42, 42, 47, 0.8) !important;
+    color: #FFFFFF !important;
+}
+
+/* Additional autofill fix for all inputs */
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus,
+input:-webkit-autofill:active {
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: #1F2020 !important;
+    box-shadow: inset 0 0 0 50px #FAFAFA !important;
+}
+
+body.dark-mode input:-webkit-autofill,
+body.dark-mode input:-webkit-autofill:hover,
+body.dark-mode input:-webkit-autofill:focus,
+body.dark-mode input:-webkit-autofill:active {
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: #FFFFFF !important;
+    box-shadow: inset 0 0 0 50px rgba(42, 42, 47, 0.8) !important;
+}
+
+/* ============================================================================
+   FORM INPUT STATES
+   ============================================================================ */
+
+body.dark-mode .form-input {
+    background: rgba(42, 42, 47, 0.8);
+    border: 2px solid rgba(255, 255, 255, 0.15);
+    color: #FFFFFF;
+}
+
+.form-input:focus {
+    outline: none;
+    border-color: #ED6B24;
+    background: white;
+    box-shadow: 0 0 0 4px rgba(237, 107, 36, 0.1);
+}
+
+body.dark-mode .form-input:focus {
+    background: rgba(42, 42, 47, 0.95);
+    border-color: #ED6B24;
+    box-shadow: 0 0 0 4px rgba(237, 107, 36, 0.2);
+}
+
+.form-input:focus + .floating-label,
+.form-input:not(:placeholder-shown) + .floating-label {
+    top: 0;
+    font-size: 12px;
+    color: #ED6B24;
+    background: white;
+    padding: 0 8px;
+}
+
+body.dark-mode .form-input:focus + .floating-label,
+body.dark-mode .form-input:not(:placeholder-shown) + .floating-label {
+    background: rgba(30, 30, 35, 0.95);
+    color: #ED6B24;
+}
+
+.form-input:focus ~ .input-icon {
+    color: #ED6B24;
+}
+
+.floating-label {
+    position: absolute;
+    left: 48px;
+    top: 50%;
+    transform: translateY(-50%);
+    font-size: 15px;
+    color: #7E7E7E;
+    pointer-events: none;
+    transition: all 0.3s ease;
+    background: #FAFAFA;
+    padding: 0 4px;
+}
+
+body.dark-mode .floating-label {
+    background: rgba(42, 42, 47, 0.8);
+    color: #9a9a9a;
+}
+
+/* Password toggle */
+.password-toggle {
+    position: absolute;
+    right: 18px;
+    top: 50%;
+    transform: translateY(-50%);
+    background: none;
+    border: none;
+    color: #7E7E7E;
+    cursor: pointer;
+    font-size: 20px;
+    padding: 4px;
+    transition: color 0.3s ease;
+    z-index: 2;
+}
+
+body.dark-mode .password-toggle {
+    color: #9a9a9a;
+}
+
+.password-toggle:hover {
+    color: #ED6B24;
+}
+
+/* Error messages */
+.error-message {
+    color: #E00000;
+    font-size: 13px;
+    margin-top: 8px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+body.dark-mode .error-message {
+    color: #ff6b6b;
+}
+
+.error-message::before {
+    content: '⚠️';
+    font-size: 14px;
+}
+
+/* Form options */
+.form-options {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-top: 4px;
+}
+
+.remember-me {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    cursor: pointer;
+    user-select: none;
+}
+
+.remember-me input[type="checkbox"] {
+    width: 18px;
+    height: 18px;
+    cursor: pointer;
+    accent-color: #ED6B24;
+}
+
+.remember-me label {
+    font-size: 14px;
+    color: #495057;
+    cursor: pointer;
+    transition: color 0.5s ease;
+}
+
+body.dark-mode .remember-me label {
+    color: #d4d4d4;
+}
+
+.forgot-password {
+    font-size: 14px;
+    color: #ED6B24;
+    text-decoration: none;
+    font-weight: 500;
+    transition: color 0.3s ease;
+}
+
+.forgot-password:hover {
+    color: #d65a1d;
+    text-decoration: underline;
+}
+
+body.dark-mode .forgot-password {
+    color: #ff8850;
+}
+
+body.dark-mode .forgot-password:hover {
+    color: #ED6B24;
+}
+
+/* Submit button */
+.submit-button {
+    width: 100%;
+    height: 54px;
+    background: linear-gradient(135deg, #ED6B24 0%, #f57c3f 100%);
+    color: white;
+    border: none;
+    border-radius: 16px;
+    font-size: 16px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    box-shadow: 0 4px 16px rgba(237, 107, 36, 0.4);
+    margin-top: 12px;
+    font-family: 'Poppins', sans-serif;
+}
+
+.submit-button:hover:not(:disabled) {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 24px rgba(237, 107, 36, 0.5);
+}
+
+body.dark-mode .submit-button:hover:not(:disabled) {
+    box-shadow: 0 8px 28px rgba(237, 107, 36, 0.6);
+}
+
+.submit-button:active:not(:disabled) {
+    transform: translateY(0);
+}
+
+.submit-button:disabled {
+    background: linear-gradient(135deg, #ccc 0%, #ddd 100%);
+    cursor: not-allowed;
+    box-shadow: none;
+}
+
+body.dark-mode .submit-button:disabled {
+    background: linear-gradient(135deg, #555 0%, #666 100%);
+}
+
+/* Input states */
+.form-group.success .form-input {
+    border-color: #07B90D;
+    background: #f0fdf4;
+}
+
+body.dark-mode .form-group.success .form-input {
+    border-color: #07B90D;
+    background: rgba(7, 185, 13, 0.1);
+}
+
+.form-group.success .input-icon {
+    color: #07B90D;
+}
+
+.form-group.error .form-input {
+    border-color: #E00000;
+    background: #fef2f2;
+}
+
+body.dark-mode .form-group.error .form-input {
+    border-color: #ff6b6b;
+    background: rgba(255, 107, 107, 0.1);
+}
+
+.form-group.error .input-icon {
+    color: #E00000;
+}
+
+body.dark-mode .form-group.error .input-icon {
+    color: #ff6b6b;
+}
+
+/* ============================================================================
+   PASSWORD REQUIREMENTS (reset_password_form.html)
+   ============================================================================ */
+
+.password-requirements {
+    margin-top: 12px;
+    padding: 12px;
+    background: #f8f9fa;
+    border-radius: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    transition: background 0.5s ease;
+}
+
+body.dark-mode .password-requirements {
+    background: rgba(42, 42, 47, 0.6);
+}
+
+.requirement {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    color: #6c757d;
+    transition: color 0.3s ease;
+}
+
+body.dark-mode .requirement {
+    color: #b8b8b8;
+}
+
+.requirement.met {
+    color: #07B90D;
+}
+
+.req-icon {
+    font-size: 16px;
+    font-weight: bold;
+}
+
+.requirement.met .req-icon {
+    color: #07B90D;
+}
+
+.requirement.met .req-icon::before {
+    content: '✓';
+}
+
+/* ============================================================================
+   FOOTER LINKS
+   ============================================================================ */
+
+.auth-footer {
+    text-align: center;
+    margin-top: 24px;
+}
+
+.footer-link {
+    font-size: 14px;
+    color: #6c757d;
+    text-decoration: none;
+    transition: color 0.3s ease;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+body.dark-mode .footer-link {
+    color: #b8b8b8;
+}
+
+.footer-link:hover {
+    color: #ED6B24;
+}
+
+/* ============================================================================
+   INFO BOX (reset_password_request.html)
+   ============================================================================ */
+
+.info-box {
+    margin-top: 24px;
+    padding: 16px;
+    background: rgba(237, 107, 36, 0.1);
+    border: 1px solid rgba(237, 107, 36, 0.2);
+    border-radius: 12px;
+    display: flex;
+    gap: 12px;
+    transition: all 0.5s ease;
+}
+
+body.dark-mode .info-box {
+    background: rgba(237, 107, 36, 0.15);
+    border: 1px solid rgba(237, 107, 36, 0.3);
+}
+
+.info-box-icon {
+    font-size: 24px;
+    flex-shrink: 0;
+}
+
+.info-box-content {
+    flex: 1;
+}
+
+.info-box-content strong {
+    display: block;
+    color: #1F2020;
+    margin-bottom: 4px;
+    font-size: 14px;
+    transition: color 0.5s ease;
+}
+
+body.dark-mode .info-box-content strong {
+    color: #FFFFFF;
+}
+
+.info-box-content p {
+    color: #6c757d;
+    font-size: 13px;
+    line-height: 1.5;
+    margin: 0;
+    transition: color 0.5s ease;
+}
+
+body.dark-mode .info-box-content p {
+    color: #b8b8b8;
+}
+
+/* ============================================================================
+   ALL CONTENT PAGES (logout, success, expired, etc.)
+   ============================================================================ */
+
+.logout-content,
+.password-reset-content,
+.token-expired-content,
+.email-sent-content {
+    text-align: center;
+}
+
+.logout-content h2,
+.password-reset-content h2,
+.token-expired-content h2,
+.email-sent-content h2 {
+    font-size: 32px;
+    font-weight: 700;
+    color: #1F2020;
+    margin-bottom: 16px;
+    line-height: 1.2;
+    transition: color 0.5s ease;
+}
+
+body.dark-mode .logout-content h2,
+body.dark-mode .password-reset-content h2,
+body.dark-mode .token-expired-content h2,
+body.dark-mode .email-sent-content h2 {
+    color: #FFFFFF;
+}
+
+.logout-content p,
+.password-reset-content p,
+.token-expired-content p,
+.email-sent-content p {
+    font-size: 16px;
+    color: #6c757d;
+    margin-bottom: 36px;
+    line-height: 1.6;
+    max-width: 380px;
+    margin-left: auto;
+    margin-right: auto;
+    transition: color 0.5s ease;
+}
+
+body.dark-mode .logout-content p,
+body.dark-mode .password-reset-content p,
+body.dark-mode .token-expired-content p,
+body.dark-mode .email-sent-content p {
+    color: #d4d4d4;
+}
+
+.logout-content p strong,
+.password-reset-content p strong,
+.token-expired-content p strong,
+.email-sent-content p strong {
+    color: #495057;
+    font-weight: 600;
+    transition: color 0.5s ease;
+}
+
+body.dark-mode .logout-content p strong,
+body.dark-mode .password-reset-content p strong,
+body.dark-mode .token-expired-content p strong,
+body.dark-mode .email-sent-content p strong {
+    color: #ED6B24;
+}
+
+/* Icons */
+.logout-icon,
+.success-icon,
+.expired-icon,
+.email-icon {
+    width: 100px;
+    height: 100px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 50px;
+    margin: 0 auto 32px;
+    animation: pulse 2s ease-in-out infinite;
+}
+
+.logout-icon {
+    background: linear-gradient(135deg, #ED6B24 0%, #f57c3f 100%);
+    box-shadow: 
+        0 8px 32px rgba(237, 107, 36, 0.5),
+        0 0 0 8px rgba(237, 107, 36, 0.1);
+}
+
+.success-icon {
+    background: linear-gradient(135deg, #07B90D 0%, #28a745 100%);
+    box-shadow: 
+        0 8px 32px rgba(7, 185, 13, 0.4),
+        0 0 0 8px rgba(7, 185, 13, 0.1);
+}
+
+.expired-icon {
+    background: linear-gradient(135deg, #ff9800 0%, #ff5722 100%);
+    box-shadow: 
+        0 8px 32px rgba(255, 152, 0, 0.4),
+        0 0 0 8px rgba(255, 152, 0, 0.1);
+}
+
+.email-icon {
+    background: linear-gradient(135deg, #4CAF50 0%, #66BB6A 100%);
+    box-shadow: 
+        0 8px 32px rgba(76, 175, 80, 0.4),
+        0 0 0 8px rgba(76, 175, 80, 0.1);
+}
+
+body.dark-mode .logout-icon,
+body.dark-mode .success-icon,
+body.dark-mode .expired-icon,
+body.dark-mode .email-icon {
+    box-shadow: 
+        0 12px 40px rgba(0, 0, 0, 0.5),
+        0 0 0 8px rgba(237, 107, 36, 0.2);
+}
+
+/* Info sections */
+.logout-info,
+.reset-info,
+.expired-info {
+    margin-top: 32px;
+    padding-top: 32px;
+    border-top: 1px solid #E3E3E3;
+    transition: border-color 0.5s ease;
+}
+
+body.dark-mode .logout-info,
+body.dark-mode .reset-info,
+body.dark-mode .expired-info {
+    border-top: 1px solid rgba(255, 255, 255, 0.15);
+}
+
+.info-item {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    font-size: 14px;
+    color: #6c757d;
+    margin-bottom: 8px;
+    transition: color 0.5s ease;
+}
+
+body.dark-mode .info-item {
+    color: #b8b8b8;
+}
+
+.info-item:last-child {
+    margin-bottom: 0;
+}
+
+.info-icon {
+    font-size: 16px;
+}
+
+/* ============================================================================
+   BADGES
+   ============================================================================ */
+
+.success-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 16px;
+    background: rgba(7, 185, 13, 0.1);
+    border: 1px solid rgba(7, 185, 13, 0.3);
+    border-radius: 20px;
+    color: #07B90D;
+    font-size: 14px;
+    font-weight: 500;
+    margin-bottom: 24px;
+    transition: all 0.5s ease;
+}
+
+body.dark-mode .success-badge {
+    background: rgba(7, 185, 13, 0.2);
+    border: 1px solid rgba(7, 185, 13, 0.4);
+    color: #28a745;
+}
+
+.success-badge::before {
+    content: '✓';
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    background: #07B90D;
+    color: white;
+    border-radius: 50%;
+    font-size: 12px;
+    font-weight: bold;
+}
+
+.warning-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 16px;
+    background: rgba(255, 193, 7, 0.1);
+    border: 1px solid rgba(255, 193, 7, 0.3);
+    border-radius: 20px;
+    color: #ff9800;
+    font-size: 14px;
+    font-weight: 500;
+    margin-bottom: 24px;
+    transition: all 0.5s ease;
+}
+
+body.dark-mode .warning-badge {
+    background: rgba(255, 193, 7, 0.2);
+    border: 1px solid rgba(255, 193, 7, 0.4);
+    color: #ffc107;
+}
+
+.warning-badge::before {
+    content: '⚠';
+    font-size: 16px;
+}
+
+/* ============================================================================
+   BUTTONS
+   ============================================================================ */
+
+.back-to-login,
+.primary-action-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    padding: 16px 40px;
+    background: linear-gradient(135deg, #ED6B24 0%, #f57c3f 100%);
+    color: white;
+    text-decoration: none;
+    border-radius: 16px;
+    font-weight: 600;
+    font-size: 16px;
+    transition: all 0.3s ease;
+    box-shadow: 0 4px 16px rgba(237, 107, 36, 0.4);
+}
+
+.back-to-login:hover,
+.primary-action-button:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 24px rgba(237, 107, 36, 0.5);
+}
+
+body.dark-mode .back-to-login:hover,
+body.dark-mode .primary-action-button:hover {
+    box-shadow: 0 8px 28px rgba(237, 107, 36, 0.6);
+}
+
+.back-to-login:active,
+.primary-action-button:active {
+    transform: translateY(0);
+}
+
+.back-to-login-icon,
+.button-icon {
+    font-size: 20px;
+}
+
+.secondary-action-button,
+.resend-link {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 14px 32px;
+    background: transparent;
+    color: #6c757d;
+    text-decoration: none;
+    border-radius: 16px;
+    font-weight: 500;
+    font-size: 15px;
+    transition: all 0.3s ease;
+    border: 2px solid #E3E3E3;
+}
+
+body.dark-mode .secondary-action-button,
+body.dark-mode .resend-link {
+    color: #b8b8b8;
+    border: 2px solid rgba(255, 255, 255, 0.15);
+}
+
+.secondary-action-button:hover,
+.resend-link:hover {
+    border-color: #ED6B24;
+    color: #ED6B24;
+    background: rgba(237, 107, 36, 0.05);
+}
+
+body.dark-mode .secondary-action-button:hover,
+body.dark-mode .resend-link:hover {
+    background: rgba(237, 107, 36, 0.15);
+}
+
+.expired-actions,
+.email-sent-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin-bottom: 32px;
+}
+
+/* ============================================================================
+   EMAIL INFO BOX
+   ============================================================================ */
+
+.email-info-box {
+    background: #f8f9fa;
+    border-radius: 12px;
+    padding: 20px;
+    margin-bottom: 32px;
+    text-align: left;
+    transition: background 0.5s ease;
+}
+
+body.dark-mode .email-info-box {
+    background: rgba(42, 42, 47, 0.6);
+}
+
+.email-info-item {
+    display: flex;
+    gap: 12px;
+    margin-bottom: 16px;
+}
+
+.email-info-item:last-child {
+    margin-bottom: 0;
+}
+
+.email-info-item .info-icon {
+    font-size: 24px;
+    flex-shrink: 0;
+}
+
+.info-text {
+    flex: 1;
+}
+
+.info-text strong {
+    display: block;
+    color: #1F2020;
+    margin-bottom: 4px;
+    font-size: 14px;
+    transition: color 0.5s ease;
+}
+
+body.dark-mode .info-text strong {
+    color: #FFFFFF;
+}
+
+.info-text span {
+    color: #6c757d;
+    font-size: 13px;
+    line-height: 1.5;
+    transition: color 0.5s ease;
+}
+
+body.dark-mode .info-text span {
+    color: #b8b8b8;
+}
+
+/* ============================================================================
+   LOADING OVERLAY
+   ============================================================================ */
+
+.loading-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.8);
+    backdrop-filter: blur(5px);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    z-index: 9999;
+}
+
+.loading-overlay.active {
+    display: flex;
+}
+
+.loading-content {
+    text-align: center;
+}
+
+.spinner {
+    width: 50px;
+    height: 50px;
+    border: 4px solid rgba(255, 255, 255, 0.3);
+    border-top: 4px solid #ED6B24;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+    margin: 0 auto;
+}
+
+.loading-text {
+    margin-top: 20px;
+    font-size: 16px;
+    color: white;
+    font-weight: 500;
+}
+
+/* ============================================================================
+   RESPONSIVE
+   ============================================================================ */
+
+@media (max-width: 768px) {
+    .auth-content {
+        max-width: 100%;
+    }
+
+    .logo-container {
+        margin-bottom: 30px;
+    }
+
+    .crm-logo {
+        width: 220px;
+    }
+
+    .auth-box {
+        padding: 36px 28px;
+    }
+
+    .auth-header h2 {
+        font-size: 24px;
+    }
+
+    .auth-header p {
+        font-size: 13px;
+    }
+
+    .form-input {
+        height: 50px;
+        font-size: 14px;
+    }
+
+    .submit-button {
+        height: 50px;
+        font-size: 15px;
+    }
+
+    .form-options {
+        flex-direction: column;
+        gap: 12px;
+        align-items: flex-start;
+    }
+
+    .logout-icon,
+    .success-icon,
+    .expired-icon,
+    .email-icon {
+        width: 90px;
+        height: 90px;
+        font-size: 45px;
+        margin-bottom: 28px;
+    }
+
+    .logout-content h2,
+    .password-reset-content h2,
+    .token-expired-content h2,
+    .email-sent-content h2 {
+        font-size: 28px;
+    }
+
+    .logout-content p,
+    .password-reset-content p,
+    .token-expired-content p,
+    .email-sent-content p {
+        font-size: 15px;
+    }
+
+    .back-to-login,
+    .primary-action-button {
+        padding: 14px 32px;
+        font-size: 15px;
+    }
+
+    .expired-actions,
+    .email-sent-actions {
+        gap: 10px;
+    }
+}
+
+@media (max-width: 480px) {
+    .auth-container {
+        padding: 15px;
+    }
+
+    .logo-container {
+        margin-bottom: 24px;
+    }
+
+    .crm-logo {
+        width: 180px;
+    }
+
+    .auth-box {
+        padding: 28px 20px;
+        border-radius: 20px;
+    }
+
+    .auth-header {
+        margin-bottom: 28px;
+    }
+
+    .auth-header h2 {
+        font-size: 22px;
+    }
+
+    .form-input {
+        height: 48px;
+        padding-left: 48px;
+    }
+
+    .input-icon {
+        font-size: 18px;
+        left: 16px;
+    }
+
+    .floating-label {
+        left: 44px;
+    }
+
+    .submit-button {
+        height: 48px;
+    }
+
+    .logout-icon,
+    .success-icon,
+    .expired-icon,
+    .email-icon {
+        width: 80px;
+        height: 80px;
+        font-size: 40px;
+        margin-bottom: 24px;
+    }
+
+    .logout-content h2,
+    .password-reset-content h2,
+    .token-expired-content h2,
+    .email-sent-content h2 {
+        font-size: 24px;
+        margin-bottom: 12px;
+    }
+
+    .logout-content p,
+    .password-reset-content p,
+    .token-expired-content p,
+    .email-sent-content p {
+        font-size: 14px;
+        margin-bottom: 28px;
+    }
+
+    .success-badge,
+    .warning-badge {
+        font-size: 13px;
+        padding: 6px 14px;
+    }
+
+    .back-to-login,
+    .primary-action-button {
+        width: 100%;
+        padding: 14px 28px;
+    }
+
+    .secondary-action-button,
+    .resend-link {
+        width: 100%;
+        padding: 12px 24px;
+    }
+
+    .logout-info,
+    .reset-info,
+    .expired-info {
+        margin-top: 24px;
+        padding-top: 24px;
+    }
+
+    .info-item {
+        font-size: 13px;
+    }
+
+    .info-box {
+        padding: 12px;
+    }
+
+    .info-box-icon {
+        font-size: 20px;
+    }
+
+    .info-box-content strong {
+        font-size: 13px;
+    }
+
+    .info-box-content p {
+        font-size: 12px;
+    }
+
+    .email-info-box {
+        padding: 16px;
+    }
+
+    .email-info-item {
+        margin-bottom: 12px;
+    }
+
+    .email-info-item .info-icon {
+        font-size: 20px;
+    }
+
+    .info-text strong {
+        font-size: 13px;
+    }
+
+    .info-text span {
+        font-size: 12px;
+    }
+
+    .password-requirements {
+        padding: 10px;
+    }
+
+    .requirement {
+        font-size: 12px;
+    }
+}
+
+/* Landscape mode for mobile */
+@media (max-height: 600px) and (orientation: landscape) {
+    .auth-container {
+        padding: 15px;
+        overflow-y: auto;
+    }
+
+    .logo-container {
+        margin-bottom: 20px;
+    }
+
+    .crm-logo {
+        width: 160px;
+    }
+
+    .auth-box {
+        padding: 24px 28px;
+    }
+
+    .auth-header {
+        margin-bottom: 20px;
+    }
+
+    .auth-form {
+        gap: 16px;
+    }
+
+    .logout-icon,
+    .success-icon,
+    .expired-icon,
+    .email-icon {
+        width: 70px;
+        height: 70px;
+        font-size: 35px;
+        margin-bottom: 20px;
+    }
+
+    .logout-content h2,
+    .password-reset-content h2,
+    .token-expired-content h2,
+    .email-sent-content h2 {
+        font-size: 24px;
+        margin-bottom: 12px;
+    }
+
+    .logout-content p,
+    .password-reset-content p,
+    .token-expired-content p,
+    .email-sent-content p {
+        font-size: 14px;
+        margin-bottom: 24px;
+    }
+
+    .logout-info,
+    .reset-info,
+    .expired-info,
+    .email-info-box {
+        display: none;
+    }
+}
+
+.input-wrapper.has-autofill .floating-label {
+    top: -10px !important;
+    font-size: 12px !important;
+    color: #ED6B24 !important;
+    background: white !important;
+    padding: 0 8px !important;
+}
+
+body.dark-mode .input-wrapper.has-autofill .floating-label {
+    background: rgba(30, 30, 35, 0.95) !important;
+}

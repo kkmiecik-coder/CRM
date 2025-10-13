@@ -1,15 +1,42 @@
 {% extends "base_auth.html" %}
 
-{% block title %}Hasło zresetowane – Wood Power CRM{% endblock %}
+{% block title %}Wylogowano – Wood Power CRM{% endblock %}
 
 {% block content %}
-<div class="login-block" style="max-width: 400px; text-align: center;">
-    <h2 class="txt-login title-with-underline">Wylogowano</h2>
-    <p>Poprawnie wylogowano Cię z systemu.</p>
-    <div class="bottom-login" style="margin-top: 20px;">
-        <a href="{{ url_for('login') }}" class="login-button" style="text-decoration: none; text-align: center;">
-            <span class="button-txt">Zaloguj ponownie</span>
-        </a>
+<div class="logout-content">
+    <!-- Success icon -->
+    <div class="logout-icon">
+        👋
+    </div>
+
+    <!-- Success badge -->
+    <div class="success-badge">
+        Sesja zakończona pomyślnie
+    </div>
+
+    <!-- Title and message -->
+    <h2>Do zobaczenia!</h2>
+    <p>
+        Zostałeś pomyślnie wylogowany z systemu <strong>Wood Power CRM</strong>.<br>
+        Twoja sesja została bezpiecznie zakończona.
+    </p>
+
+    <!-- Back to login button -->
+    <a href="{{ url_for('login') }}" class="back-to-login">
+        <span class="back-to-login-icon">🔐</span>
+        Zaloguj się ponownie
+    </a>
+
+    <!-- Additional info -->
+    <div class="logout-info">
+        <div class="info-item">
+            <span class="info-icon">🕐</span>
+            <span>Czas wylogowania: <strong id="logoutTime"></strong></span>
+        </div>
+        <div class="info-item">
+            <span class="info-icon">🔒</span>
+            <span>Wszystkie dane zostały zabezpieczone</span>
+        </div>
     </div>
 </div>
 {% endblock %}

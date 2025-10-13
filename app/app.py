@@ -123,6 +123,24 @@ def get_local_now():
 def create_app():
     app = Flask(__name__)
     app.secret_key = "65d769148feb6bc476c6d2120d4abb40069cdfd919c37f99"
+
+    # ============================================================================
+    # KONFIGURACJA SESJI I FLASK-LOGIN
+    # ============================================================================
+    
+    # Flask session configuration
+    app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(days=30)  # 30 dni dla "Zapamiętaj mnie"
+    app.config['SESSION_COOKIE_SECURE'] = True # Wymaga HTTPS
+    app.config['SESSION_COOKIE_HTTPONLY'] = True  # Ochrona przed XSS
+    app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'  # Ochrona przed CSRF
+    
+    # Flask-Login configuration
+    app.config['REMEMBER_COOKIE_DURATION'] = timedelta(days=30)  # 30 dni
+    app.config['REMEMBER_COOKIE_SECURE'] = True # Wymaga HTTPS
+    app.config['REMEMBER_COOKIE_HTTPONLY'] = True # Ochrona przed XSS
+    
+    # ============================================================================
+
     app.jinja_loader = ChoiceLoader([
         app.jinja_loader,
         FileSystemLoader(os.path.join(app.root_path, 'modules'))
@@ -294,7 +312,6 @@ def create_app():
     # -------------------------
     #         ROUTES
     # -------------------------
-    app.permanent_session_lifetime = timedelta(minutes=120)
 
     @app.route('/api/session/ping', methods=['POST'])
     def session_ping():
@@ -336,6 +353,7 @@ def create_app():
         if request.method == 'POST':
             email = request.form.get('email')
             password = request.form.get('password')
+            remember_me = request.form.get('remember_me')
 
             # Pobieramy użytkownika z bazy
             user = User.query.filter_by(email=email).first()
@@ -354,23 +372,23 @@ def create_app():
                                     email_value=email,
                                     password_error='Błędne hasło lub e-mail.',
                                     email_error=None)
-
-            # ============================================================================
-            # SYSTEM AUTORYZACJI - STARY + NOWY
-            # ============================================================================
             
-            # STARY SYSTEM (session) - zachowujemy dla kompatybilności
             session['user_email'] = email
             session['user_id'] = user.id
-            session.permanent = True
             
-            # NOWY SYSTEM (Flask-Login) - DODANE
-            login_user(user, remember=True)
+            # NOWE: Ustawiamy sesję jako permanent tylko gdy checkbox zaznaczony
+            if remember_me:
+                session.permanent = True
+                current_app.logger.info(f"[Login] Sesja trwała (30 dni) dla {email}")
+            else:
+                session.permanent = False
+                current_app.logger.info(f"[Login] Sesja tymczasowa (do zamknięcia przeglądarki) dla {email}")
+            
+            login_user(user, remember=bool(remember_me))
             
             # Logowanie sukcesu
             current_app.logger.info(f"[Login] Pomyślne logowanie: {email} (Flask-Login + Session)")
         
-            # DODAJ: Utwórz sesję użytkownika dla tracking (pozostaje bez zmian)
             try:
                 ip_address = request.environ.get('HTTP_X_FORWARDED_FOR', request.remote_addr)
                 if ip_address and ',' in ip_address:
@@ -388,7 +406,6 @@ def create_app():
             
             except Exception as e:
                 current_app.logger.error(f"[Login] Błąd tworzenia sesji tracking: {e}")
-                # Nie przerywaj logowania jeśli tracking się nie powiedzie
         
             return redirect(url_for("dashboard.dashboard"))
 

@@ -1,50 +1,74 @@
-
 {% extends "base_auth.html" %}
+
 {% block title %}Logowanie – Wood Power CRM{% endblock %}
+
 {% block content %}
-<div class="login-block">
-    <h2 class="txt-login title-with-underline">Witaj ponownie! 👋</h2>
-    <form method="POST" action="{{ url_for('login') }}" class="inputs">
-        <!-- Adres e-mail -->
-        <div class="input">
-            <div class="input-frame static" id="emailFrame">
-                <label class="label-txt" for="email" autocomplete="off">Adres e-mail</label>
-                <input type="email"
-                       id="email"
-                       name="email"
-                       value="{{ email_value|default('') }}" />
-            </div>
-            {% if email_error %}
-            <p class="error-message">{{ email_error }}</p>
-            {% else %}
-            <p class="error-message" style="display: none;"></p>
-            {% endif %}
-        </div>
-
-        <!-- Hasło -->
-        <div class="input">
-            <div class="input-frame static" id="passwordFrame">
-                <label class="label-txt" for="password" autocomplete="off">Hasło</label>
-                <input type="password"
-                       id="password"
-                       name="password" />
-            </div>
-            {% if password_error %}
-            <p class="error-message">{{ password_error }}</p>
-            {% else %}
-            <p class="error-message" style="display: none;"></p>
-            {% endif %}
-        </div>
-
-        <!-- Dolna część formularza -->
-        <div class="bottom-login">
-            <button type="submit" class="login-button disabled" disabled>
-                <span class="button-txt">Zaloguj się</span>
-            </button>
-            <a href="{{ url_for('reset_password_request', email_value=email_value) }}" class="password-reset-txt">
-                Nie pamiętam hasła
-            </a>
-        </div>
-    </form>
+<div class="auth-header">
+    <h2>Witaj ponownie! 👋</h2>
+    <p>Zaloguj się do swojego konta</p>
 </div>
+
+<form method="POST" action="{{ url_for('login') }}" class="auth-form" id="loginForm">
+    <!-- Email -->
+    <div class="form-group" id="emailGroup">
+        <div class="input-wrapper">
+            <span class="input-icon">📧</span>
+            <input 
+                type="email" 
+                id="email" 
+                name="email" 
+                class="form-input" 
+                placeholder=" "
+                autocomplete="email"
+                value="{{ email_value|default('') }}"
+            >
+            <label class="floating-label" for="email">Adres e-mail</label>
+        </div>
+        {% if email_error %}
+        <div class="error-message">{{ email_error }}</div>
+        {% else %}
+        <div class="error-message" style="display: none;"></div>
+        {% endif %}
+    </div>
+
+    <!-- Password -->
+    <div class="form-group" id="passwordGroup">
+        <div class="input-wrapper">
+            <span class="input-icon">🔒</span>
+            <input 
+                type="password" 
+                id="password" 
+                name="password" 
+                class="form-input" 
+                placeholder=" "
+                autocomplete="current-password"
+            >
+            <label class="floating-label" for="password">Hasło</label>
+            <button type="button" class="password-toggle" id="togglePassword">
+                👁️
+            </button>
+        </div>
+        {% if password_error %}
+        <div class="error-message">{{ password_error }}</div>
+        {% else %}
+        <div class="error-message" style="display: none;"></div>
+        {% endif %}
+    </div>
+
+    <!-- Remember me & Forgot password -->
+    <div class="form-options">
+        <div class="remember-me">
+            <input type="checkbox" id="rememberMe" name="remember_me">
+            <label for="rememberMe">Zapamiętaj mnie</label>
+        </div>
+        <a href="{{ url_for('reset_password_request', email_value=email_value|default('')) }}" class="forgot-password">
+            Nie pamiętam hasła
+        </a>
+    </div>
+
+    <!-- Submit button -->
+    <button type="submit" class="submit-button" id="submitButton" disabled>
+        Zaloguj się
+    </button>
+</form>
 {% endblock %}
