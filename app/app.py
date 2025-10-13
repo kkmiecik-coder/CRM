@@ -19,7 +19,6 @@ from modules.users.models import User, Invitation
 from modules.calculator.models import Price, Multiplier
 from modules.clients import clients_bp
 from modules.public_calculator import public_calculator_bp
-from modules.analytics.routers import analytics_bp
 from modules.quotes.routers import quotes_bp
 from modules.baselinker import baselinker_bp
 from modules.preview3d_ar import preview3d_ar_bp
@@ -48,7 +47,6 @@ DEFAULT_MODULE_METADATA = {
     'quotes': {'label': 'Wyceny', 'icon': '📄'},
     'clients': {'label': 'Klienci', 'icon': '👥'},
     'production': {'label': 'Produkcja', 'icon': '🏭'},
-    'analytics': {'label': 'Analityka', 'icon': '📈'},
     'reports': {'label': 'Raporty', 'icon': '📊'},
     'settings': {'label': 'Ustawienia', 'icon': '⚙️'},
 }
@@ -180,7 +178,6 @@ def create_app():
     app.register_blueprint(calculator_bp, url_prefix='/calculator')
     app.register_blueprint(clients_bp, url_prefix='/clients')
     app.register_blueprint(public_calculator_bp)
-    app.register_blueprint(analytics_bp, url_prefix="/analytics")
     app.register_blueprint(quotes_bp, url_prefix="/quotes")
     app.register_blueprint(baselinker_bp, url_prefix='/baselinker')
     app.register_blueprint(logging_bp, url_prefix='/logging')
