@@ -11,7 +11,7 @@
 <body>
     <div class="app-container">
         {% include 'sidebar/sidebar.html' %}
-        
+
         <main class="main-content">
             <!-- Header -->
             <div class="management-header">
@@ -39,14 +39,14 @@
                         Zaproś nowego użytkownika
                     </h3>
                     <p class="section-description">Wyślij zaproszenie mailem do dołączenia do zespołu</p>
-                    
+
                     <form action="{{ url_for('users.invite_user') }}" method="post" class="invite-form">
                         <div class="form-group">
                             <label for="invite_email">Email</label>
-                            <input type="email" 
-                                   id="invite_email" 
-                                   name="invite_email" 
-                                   class="form-input" 
+                            <input type="email"
+                                   id="invite_email"
+                                   name="invite_email"
+                                   class="form-input"
                                    placeholder="jan.kowalski@woodpower.pl"
                                    required>
                         </div>
@@ -82,26 +82,26 @@
                         <span class="section-icon">📊</span>
                         Statystyki zespołu
                     </h3>
-                    
+
                     <div class="stats-grid">
                         <div class="stat-card">
                             <div class="stat-icon">👥</div>
                             <div class="stat-value">{{ users_list|length }}</div>
                             <div class="stat-label">Wszystkich użytkowników</div>
                         </div>
-                        
+
                         <div class="stat-card">
                             <div class="stat-icon">✅</div>
                             <div class="stat-value">{{ users_list|selectattr('active')|list|length }}</div>
                             <div class="stat-label">Aktywnych</div>
                         </div>
-                        
+
                         <div class="stat-card">
                             <div class="stat-icon">⚙️</div>
                             <div class="stat-value">{{ users_list|selectattr('role', 'equalto', 'admin')|list|length }}</div>
                             <div class="stat-label">Adminów</div>
                         </div>
-                        
+
                         <div class="stat-card">
                             <div class="stat-icon">🤝</div>
                             <div class="stat-value">{{ users_list|selectattr('role', 'equalto', 'partner')|list|length }}</div>
@@ -119,9 +119,9 @@
                         Lista użytkowników
                     </h3>
                     <div class="search-box">
-                        <input type="text" 
-                               id="searchInput" 
-                               class="search-input" 
+                        <input type="text"
+                               id="searchInput"
+                               class="search-input"
                                placeholder="🔍 Szukaj użytkownika...">
                     </div>
                 </div>
@@ -187,8 +187,8 @@
                                 </button>
 
                                 {% if u.active %}
-                                <form action="{{ url_for('users.deactivate_user', user_id=u.id) }}" 
-                                      method="post" 
+                                <form action="{{ url_for('users.deactivate_user', user_id=u.id) }}"
+                                      method="post"
                                       style="display:inline;"
                                       onsubmit="return confirm('Czy na pewno chcesz dezaktywować tego użytkownika?');">
                                     <button type="submit" class="action-btn btn-deactivate" title="Dezaktywuj">
@@ -196,8 +196,8 @@
                                     </button>
                                 </form>
                                 {% else %}
-                                <form action="{{ url_for('users.activate_user', user_id=u.id) }}" 
-                                      method="post" 
+                                <form action="{{ url_for('users.activate_user', user_id=u.id) }}"
+                                      method="post"
                                       style="display:inline;">
                                     <button type="submit" class="action-btn btn-activate" title="Aktywuj">
                                         <span class="btn-icon">✅</span>
@@ -205,8 +205,8 @@
                                 </form>
                                 {% endif %}
 
-                                <form action="{{ url_for('users.delete_user', user_id=u.id) }}" 
-                                      method="post" 
+                                <form action="{{ url_for('users.delete_user', user_id=u.id) }}"
+                                      method="post"
                                       style="display:inline;"
                                       onsubmit="return confirm('Czy na pewno chcesz usunąć tego użytkownika? Ta operacja jest nieodwracalna!');">
                                     <button type="submit" class="action-btn btn-delete" title="Usuń">
@@ -228,10 +228,108 @@
                 </div>
                 {% endif %}
             </div>
+
+            <!-- Sekcja: Historia zmian uprawnień (DODAJ PO SEKCJI users-list-section) -->
+            <div class="management-section full-width audit-log-section">
+                <div class="section-header-with-search">
+                    <h3>
+                        <span class="section-icon">📜</span>
+                        Historia zmian uprawnień
+                    </h3>
+
+                    <!-- Filtry -->
+                    <div class="audit-filters">
+                        <input type="text"
+                               id="auditSearchInput"
+                               class="search-input audit-search"
+                               placeholder="🔍 Szukaj użytkownika...">
+
+                        <select id="auditTypeFilter" class="form-input audit-filter-select">
+                            <option value="">Wszystkie zmiany</option>
+                            <option value="role_changed">Zmiana roli</option>
+                            <option value="module_granted">Nadanie dostępu</option>
+                            <option value="module_revoked">Odebranie dostępu</option>
+                        </select>
+
+                        <input type="date"
+                               id="auditDateFrom"
+                               class="form-input audit-date-input"
+                               placeholder="Od daty">
+                    </div>
+                </div>
+
+                <!-- Loading state -->
+                <div id="audit-loading" class="audit-loading" style="display: none;">
+                    <div class="spinner"></div>
+                    <p>Ładowanie historii zmian...</p>
+                </div>
+
+                <!-- Lista wpisów audit log -->
+                <div id="audit-log-list" class="audit-log-list">
+                    <!-- Wpisy będą generowane przez JS -->
+                </div>
+
+                <!-- Empty state -->
+                <div id="audit-empty" class="audit-empty-state" style="display: none;">
+                    <div class="empty-icon">📋</div>
+                    <div class="empty-title">Brak zmian w historii</div>
+                    <div class="empty-subtitle">Zmiany uprawnień będą się tutaj pojawiać</div>
+                </div>
+
+                <!-- Error state -->
+                <div id="audit-error" class="audit-error-state" style="display: none;">
+                    <div class="error-icon">⚠️</div>
+                    <p class="error-message">Nie udało się załadować historii zmian</p>
+                    <button type="button" class="btn-secondary btn-small" id="retry-audit-log">
+                        🔄 Spróbuj ponownie
+                    </button>
+                </div>
+
+                <!-- Paginacja -->
+                <div id="audit-pagination" class="audit-pagination" style="display: none;">
+                    <button class="btn-secondary" id="audit-prev-page" disabled>
+                        ← Poprzednia
+                    </button>
+                    <span id="audit-page-info" class="page-info">Strona 1 z 1</span>
+                    <button class="btn-secondary" id="audit-next-page" disabled>
+                        Następna →
+                    </button>
+                </div>
+            </div>
+
+            <!-- Template dla wpisu audit log (ukryty) -->
+            <template id="audit-item-template">
+                <div class="audit-item">
+                    <div class="audit-header">
+                        <div class="audit-avatar">
+                            <img src="" alt="Avatar" class="audit-user-avatar">
+                        </div>
+                        <div class="audit-main">
+                            <div class="audit-action">
+                                <strong class="audit-user-name"></strong>
+                                <span class="audit-action-text"></span>
+                                <strong class="audit-target-name"></strong>
+                            </div>
+                            <div class="audit-meta">
+                                <span class="audit-date"></span>
+                                <span class="audit-ip"></span>
+                            </div>
+                        </div>
+                        <div class="audit-badge-wrapper">
+                            <!-- Badge typu zmiany -->
+                        </div>
+                    </div>
+                    <div class="audit-reason" style="display: none;">
+                        <span class="reason-icon">📝</span>
+                        <span class="reason-text"></span>
+                    </div>
+                </div>
+            </template>
+
         </main>
     </div>
 
-    <!-- Modal edycji użytkownika -->
+    <!-- Modal edycji użytkownika Z TABAMI -->
     <div class="modal-overlay" id="modalOverlay"></div>
     <div class="modal-container" id="editModal">
         <div class="modal-content">
@@ -239,51 +337,148 @@
                 <h3>✏️ Edycja użytkownika</h3>
                 <button class="modal-close" id="closeModal">&times;</button>
             </div>
-            
+
+            <!-- TABS NAVIGATION -->
+            <div class="modal-tabs">
+                <button class="tab-button active" data-tab="tab-profile">
+                    👤 Dane podstawowe
+                </button>
+                <button class="tab-button" data-tab="tab-permissions">
+                    🔐 Uprawnienia
+                </button>
+            </div>
+
             <form action="{{ url_for('users.edit_user', user_id=0) }}" method="post" id="editUserForm">
                 <div class="modal-body">
                     <input type="hidden" name="user_id" id="editUserId">
 
-                    <div class="form-group">
-                        <label for="editFirstName">Imię</label>
-                        <input type="text" 
-                               id="editFirstName" 
-                               name="first_name" 
-                               class="form-input" 
-                               required>
+                    <!-- TAB 1: DANE PODSTAWOWE (BEZ ROLI) -->
+                    <div class="tab-content active" id="tab-profile">
+                        <div class="form-group">
+                            <label for="editFirstName">Imię</label>
+                            <input type="text"
+                                   id="editFirstName"
+                                   name="first_name"
+                                   class="form-input"
+                                   required>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="editLastName">Nazwisko</label>
+                            <input type="text"
+                                   id="editLastName"
+                                   name="last_name"
+                                   class="form-input"
+                                   required>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="editEmail">Email</label>
+                            <input type="email"
+                                   id="editEmail"
+                                   name="email"
+                                   class="form-input"
+                                   required>
+                        </div>
                     </div>
 
-                    <div class="form-group">
-                        <label for="editLastName">Nazwisko</label>
-                        <input type="text" 
-                               id="editLastName" 
-                               name="last_name" 
-                               class="form-input" 
-                               required>
-                    </div>
+                    <!-- TAB 2: UPRAWNIENIA (Z ROLĄ) -->
+                    <div class="tab-content" id="tab-permissions">
+                        <!-- Loading state -->
+                        <div id="permissions-loading" class="permissions-loading">
+                            <div class="spinner"></div>
+                            <p>Ładowanie uprawnień...</p>
+                        </div>
 
-                    <div class="form-group">
-                        <label for="editEmail">Email</label>
-                        <input type="email" 
-                               id="editEmail" 
-                               name="email" 
-                               class="form-input" 
-                               required>
-                    </div>
+                        <!-- Content state -->
+                        <div id="permissions-content" style="display: none;">
+                            <!-- Rola użytkownika -->
+                            <div class="permissions-section">
+                                <h4 class="section-title">
+                                    <span class="section-icon">👤</span>
+                                    Rola użytkownika
+                                </h4>
+                                <p class="section-description">
+                                    Rola definiuje domyślne uprawnienia. Możesz je nadpisać indywidualnie poniżej.
+                                </p>
+                                <div class="form-group">
+                                    <select id="editRolePermissions" name="role" class="form-input form-input-large">
+                                        <!-- Opcje będą ładowane przez JS -->
+                                    </select>
+                                </div>
+                            </div>
 
-                    <div class="form-group">
-                        <label for="editRole">Rola</label>
-                        <select id="editRole" name="role" class="form-input">
-                            <option value="user">👤 User</option>
-                            <option value="admin">⚙️ Admin</option>
-                            <option value="partner">🤝 Partner</option>
-                        </select>
+                            <!-- Uprawnienia do modułów -->
+                            <div class="permissions-section">
+                                <h4 class="section-title">
+                                    <span class="section-icon">🔐</span>
+                                    Uprawnienia do modułów
+                                </h4>
+                                <p class="section-description">
+                                    Zaznacz moduły do których użytkownik ma mieć dostęp.
+                                    Odznacz aby odebrać dostęp (nawet jeśli rola go nadaje).
+                                </p>
+
+                                <!-- Moduły będą generowane dynamicznie przez JS -->
+                                <div id="modules-list" class="modules-list">
+                                    <!-- Template modułu (ukryty) -->
+                                    <template id="module-item-template">
+                                        <div class="module-item">
+                                            <label class="module-checkbox">
+                                                <div class="checkbox-wrapper">
+                                                    <input type="checkbox"
+                                                           class="module-checkbox-input"
+                                                           data-module-id=""
+                                                           data-module-key="">
+                                                    <span class="checkbox-custom"></span>
+                                                </div>
+                                                <div class="module-info">
+                                                    <span class="module-icon"></span>
+                                                    <span class="module-name"></span>
+                                                </div>
+                                                <div class="module-badges">
+                                                    <!-- Dynamiczne badge'e -->
+                                                </div>
+                                            </label>
+                                        </div>
+                                    </template>
+                                </div>
+                            </div>
+
+                            <!-- Powód zmiany -->
+                            <div class="permissions-section">
+                                <h4 class="section-title">
+                                    <span class="section-icon">📝</span>
+                                    Powód zmiany (opcjonalnie)
+                                </h4>
+                                <div class="form-group">
+                                    <textarea id="permissionsReason"
+                                              class="form-input form-textarea"
+                                              rows="3"
+                                              placeholder="Np. Projekt specjalny X, Zmiana zakresu obowiązków..."></textarea>
+                                    <small class="form-hint">
+                                        Powód będzie zapisany w historii zmian
+                                    </small>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Error state -->
+                        <div id="permissions-error" class="permissions-error" style="display: none;">
+                            <div class="error-icon">⚠️</div>
+                            <p class="error-message">Nie udało się załadować uprawnień</p>
+                            <button type="button" class="btn-secondary btn-small" id="retry-permissions">
+                                🔄 Spróbuj ponownie
+                            </button>
+                        </div>
                     </div>
                 </div>
 
                 <div class="modal-footer">
                     <button type="button" class="btn-secondary" id="cancelModal">Anuluj</button>
-                    <button type="submit" class="btn-primary">💾 Zapisz zmiany</button>
+                    <button type="button" class="btn-primary" id="savePermissions">
+                        💾 Zapisz zmiany
+                    </button>
                 </div>
             </form>
         </div>

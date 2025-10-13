@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Brak dostępu - Woodpower CRM</title>
+    <link rel="icon" type="image/png" href="{{ url_for('static', filename='images/favicon.png') }}">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .access-denied-container {
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            max-width: 600px;
+            width: 100%;
+            padding: 60px 40px;
+            text-align: center;
+            animation: slideUp 0.5s ease-out;
+        }
+
+        @keyframes slideUp {
+            from {
+                opacity: 0;
+                transform: translateY(30px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .icon-container {
+            width: 120px;
+            height: 120px;
+            margin: 0 auto 30px;
+            background: linear-gradient(135deg, #ff6b6b 0%, #ee5a6f 100%);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            animation: pulse 2s ease-in-out infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% {
+                transform: scale(1);
+            }
+
+            50% {
+                transform: scale(1.05);
+            }
+        }
+
+        .icon-container svg {
+            width: 60px;
+            height: 60px;
+            fill: white;
+        }
+
+        h1 {
+            font-size: 32px;
+            color: #2d3748;
+            margin-bottom: 15px;
+            font-weight: 700;
+        }
+
+        .error-code {
+            font-size: 18px;
+            color: #718096;
+            margin-bottom: 25px;
+            font-weight: 500;
+        }
+
+        .message {
+            font-size: 16px;
+            color: #4a5568;
+            line-height: 1.6;
+            margin-bottom: 30px;
+        }
+
+        .details {
+            background: #f7fafc;
+            border-left: 4px solid #ff6b6b;
+            padding: 20px;
+            margin-bottom: 30px;
+            text-align: left;
+            border-radius: 8px;
+        }
+
+            .details p {
+                margin-bottom: 10px;
+                color: #4a5568;
+                font-size: 14px;
+            }
+
+                .details p:last-child {
+                    margin-bottom: 0;
+                }
+
+            .details strong {
+                color: #2d3748;
+                font-weight: 600;
+            }
+
+        .module-info {
+            display: inline-block;
+            background: #fff5f5;
+            color: #c53030;
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 14px;
+            font-weight: 600;
+            margin: 10px 0;
+        }
+
+        .buttons {
+            display: flex;
+            gap: 15px;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+
+        .btn {
+            padding: 14px 32px;
+            border-radius: 10px;
+            font-size: 16px;
+            font-weight: 600;
+            text-decoration: none;
+            transition: all 0.3s ease;
+            cursor: pointer;
+            border: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+            .btn-primary:hover {
+                transform: translateY(-2px);
+                box-shadow: 0 10px 25px rgba(102, 126, 234, 0.4);
+            }
+
+        .btn-secondary {
+            background: white;
+            color: #4a5568;
+            border: 2px solid #e2e8f0;
+        }
+
+            .btn-secondary:hover {
+                border-color: #cbd5e0;
+                background: #f7fafc;
+            }
+
+        .btn svg {
+            width: 20px;
+            height: 20px;
+        }
+
+        .support-link {
+            margin-top: 30px;
+            padding-top: 30px;
+            border-top: 1px solid #e2e8f0;
+        }
+
+            .support-link p {
+                color: #718096;
+                font-size: 14px;
+                margin-bottom: 10px;
+            }
+
+            .support-link a {
+                color: #667eea;
+                text-decoration: none;
+                font-weight: 600;
+            }
+
+                .support-link a:hover {
+                    text-decoration: underline;
+                }
+
+        @media (max-width: 640px) {
+            .access-denied-container {
+                padding: 40px 25px;
+            }
+
+            h1 {
+                font-size: 26px;
+            }
+
+            .icon-container {
+                width: 100px;
+                height: 100px;
+            }
+
+                .icon-container svg {
+                    width: 50px;
+                    height: 50px;
+                }
+
+            .buttons {
+                flex-direction: column;
+            }
+
+            .btn {
+                width: 100%;
+                justify-content: center;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="access-denied-container">
+        <div class="icon-container">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+                <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm-1-13h2v6h-2zm0 8h2v2h-2z" />
+            </svg>
+        </div>
+
+        <h1>Brak dostępu</h1>
+        <p class="error-code">Kod błędu: 403 - Dostęp zablokowany</p>
+
+        <p class="message">
+            Nie masz uprawnień do wyświetlenia tej strony.
+            Aby uzyskać dostęp, skontaktuj się z administratorem systemu.
+        </p>
+
+        {% if module_name %}
+        <div class="module-info">
+            🔒 Moduł: {{ module_name }}
+        </div>
+        {% endif %}
+
+        <div class="details">
+            <p><strong>Co się stało?</strong></p>
+            <p>Próbowałeś uzyskać dostęp do chronionej części systemu, do której nie masz przydzielonych uprawnień.</p>
+
+            <p style="margin-top: 15px;"><strong>Co możesz zrobić?</strong></p>
+            <p>• Wróć do strony głównej i korzystaj z dostępnych modułów</p>
+            <p>• Skontaktuj się z administratorem, jeśli uważasz, że potrzebujesz dostępu</p>
+        </div>
+
+        <div class="buttons">
+            <a href="{{ url_for('dashboard.dashboard') }}" class="btn btn-primary">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z" />
+                </svg>
+                Wróć do Dashboard
+            </a>
+
+            {% if user_email %}
+            <a href="{{ url_for('users.settings') }}" class="btn btn-secondary">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z" />
+                </svg>
+                Moje ustawienia
+            </a>
+            {% endif %}
+        </div>
+
+        <div class="support-link">
+            <p>Potrzebujesz pomocy?</p>
+            <a href="mailto:admin@woodpower.pl">Skontaktuj się z administratorem</a>
+        </div>
+    </div>
+</body>
+</html>

@@ -17,16 +17,22 @@ Endpointy:
 
 Autor: Konrad Kmiecik
 Data: 2025-01-10
+Aktualizacja: 2025-01-13 - Migracja do nowego systemu uprawnień
 """
 
-from flask import render_template, request, redirect, url_for, flash, session, current_app
-from . import users_bp
-from .models import User
-from .services.user_service import UserService
-from .services.invitation_service import InvitationService
-from .decorators import access_control
+from flask import render_template, request, redirect, url_for, flash, session, current_app, jsonify
 import os
 from werkzeug.utils import secure_filename
+
+from . import users_bp
+from .models import User, UserPermission, Module
+from .decorators import access_control, require_module_access
+from .services.user_service import UserService
+from .services.invitation_service import InvitationService
+from .services.permission_service import PermissionService
+from .services.role_service import RoleService
+from .services.audit_service import AuditService
+from extensions import db
 
 
 # ============================================================================
@@ -97,7 +103,7 @@ def settings():
         user_name=user_name,
         user_avatar=user_avatar,
         current_user=current_user,
-        member_since=member_since  # ← Nowa zmienna
+        member_since=member_since
     )
 
 # ============================================================================
@@ -133,10 +139,10 @@ def update_profile():
     return redirect(url_for('users.settings'))
 
 @users_bp.route('/manage', methods=['GET'])
-@access_control(roles=['admin', 'user'])
+@require_module_access('users')
 def manage_users():
     """
-    Zarządzanie zespołem - tylko dla adminów
+    Zarządzanie zespołem - tylko dla użytkowników z dostępem do modułu 'users'
     Lista użytkowników + zaproszenia
     """
     from modules.calculator.models import Multiplier
@@ -155,7 +161,7 @@ def manage_users():
 # ============================================================================
 
 @users_bp.route('/invite', methods=['POST'])
-@access_control(roles=['admin'])
+@require_module_access('users')
 def invite_user():
     """Wysyła zaproszenie dla nowego użytkownika"""
     try:
@@ -257,6 +263,7 @@ def update_avatar():
                 return redirect(url_for('users.settings'))
             
             # Zapisz plik
+            from datetime import datetime
             filename = secure_filename(avatar_file.filename)
             timestamp = int(datetime.now().timestamp())
             filename = f"user_{current_user.id}_{timestamp}_{filename}"
@@ -285,7 +292,7 @@ def update_avatar():
 # ============================================================================
 
 @users_bp.route('/<int:user_id>/edit', methods=['POST'])
-@access_control(roles=['admin'])
+@require_module_access('users')
 def edit_user(user_id):
     """Edycja danych użytkownika"""
     try:
@@ -315,7 +322,7 @@ def edit_user(user_id):
 
 
 @users_bp.route('/<int:user_id>/activate', methods=['POST'])
-@access_control(roles=['admin'])
+@require_module_access('users')
 def activate_user(user_id):
     """Aktywacja użytkownika"""
     try:
@@ -329,7 +336,7 @@ def activate_user(user_id):
 
 
 @users_bp.route('/<int:user_id>/deactivate', methods=['POST'])
-@access_control(roles=['admin'])
+@require_module_access('users')
 def deactivate_user(user_id):
     """Dezaktywacja użytkownika"""
     try:
@@ -343,7 +350,7 @@ def deactivate_user(user_id):
 
 
 @users_bp.route('/<int:user_id>/delete', methods=['POST'])
-@access_control(roles=['admin'])
+@require_module_access('users')
 def delete_user(user_id):
     """Usunięcie użytkownika"""
     try:
@@ -363,3 +370,458 @@ def delete_user(user_id):
         flash("Wystąpił błąd podczas usuwania użytkownika.", "error")
     
     return redirect(url_for('users.settings'))
+
+@users_bp.route('/api/user-permissions/<int:user_id>', methods=['GET'])
+@require_module_access('users')
+def get_user_permissions_api(user_id):
+    """
+    API: Pobiera uprawnienia użytkownika
+    
+    GET /users/api/user-permissions/5
+    
+    Response:
+    {
+        "success": true,
+        "user_id": 5,
+        "email": "jan.kowalski@example.com",
+        "role_id": 2,
+        "role_name": "user",
+        "modules": [
+            {
+                "module_id": 2,
+                "module_key": "quotes",
+                "display_name": "Wyceny",
+                "has_access": true,
+                "access_source": "role",
+                "individual_override": null
+            },
+            ...
+        ]
+    }
+    """
+    try:
+        result = PermissionService.get_user_permissions_details(user_id)
+        
+        if 'error' in result:
+            return jsonify({
+                'success': False,
+                'error': result['error']
+            }), 404
+        
+        return jsonify({
+            'success': True,
+            **result
+        })
+    
+    except Exception as e:
+        current_app.logger.exception(f"Błąd API get_user_permissions: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@users_bp.route('/api/update-user-permissions', methods=['POST'])
+@require_module_access('users')
+def update_user_permissions_api():
+    """
+    API: Aktualizuje uprawnienia użytkownika
+    
+    POST /users/api/update-user-permissions
+    
+    Request Body:
+    {
+        "user_id": 5,
+        "role_id": 2,
+        "modules": {
+            "2": "grant",      // quotes - nadaj
+            "3": "revoke",     // production - odbierz
+            "5": null          // clients - usuń nadpisanie (użyj roli)
+        },
+        "reason": "Projekt specjalny X"
+    }
+    
+    Response:
+    {
+        "success": true,
+        "message": "Uprawnienia zaktualizowane",
+        "audit_log_ids": [123, 124],
+        "changes": {
+            "role_changed": false,
+            "modules_granted": ["quotes"],
+            "modules_revoked": ["production"],
+            "modules_cleared": ["clients"]
+        }
+    }
+    """
+    try:
+        data = request.get_json()
+        
+        # Walidacja
+        if not data:
+            return jsonify({
+                'success': False,
+                'error': 'Brak danych w request'
+            }), 400
+        
+        user_id = data.get('user_id')
+        new_role_id = data.get('role_id')
+        modules = data.get('modules', {})
+        reason = data.get('reason')
+        
+        if not user_id:
+            return jsonify({
+                'success': False,
+                'error': 'Brak user_id'
+            }), 400
+        
+        # Pobierz użytkownika
+        target_user = User.query.get(user_id)
+        if not target_user:
+            return jsonify({
+                'success': False,
+                'error': f'Użytkownik o ID {user_id} nie istnieje'
+            }), 404
+        
+        # Pobierz ID zalogowanego admina
+        admin_email = session.get('user_email')
+        admin_user = User.query.filter_by(email=admin_email).first()
+        admin_user_id = admin_user.id if admin_user else None
+        
+        audit_log_ids = []
+        changes = {
+            'role_changed': False,
+            'modules_granted': [],
+            'modules_revoked': [],
+            'modules_cleared': []
+        }
+        
+        # 1. Zmiana roli (jeśli podano)
+        if new_role_id and new_role_id != target_user.role_id:
+            old_role_id = target_user.role_id
+            
+            # Zaktualizuj rolę
+            target_user.role_id = new_role_id
+            
+            # Zaktualizuj też stare pole role dla kompatybilności
+            new_role = RoleService.get_role_by_id(new_role_id)
+            if new_role:
+                target_user.role = new_role.role_name
+            
+            db.session.commit()
+            
+            # Loguj zmianę
+            log = AuditService.log_role_change(
+                user_id=user_id,
+                old_role_id=old_role_id,
+                new_role_id=new_role_id,
+                changed_by_user_id=admin_user_id,
+                reason=reason
+            )
+            audit_log_ids.append(log.id)
+            changes['role_changed'] = True
+        
+        # 2. Zmiany w modułach
+        for module_id_str, access_type in modules.items():
+            try:
+                module_id = int(module_id_str)
+                
+                # Sprawdź czy moduł istnieje
+                module = Module.query.get(module_id)
+                if not module:
+                    current_app.logger.warning(f"Moduł o ID {module_id} nie istnieje - pomijam")
+                    continue
+                
+                # Pobierz istniejące nadpisanie
+                existing = UserPermission.query.filter_by(
+                    user_id=user_id,
+                    module_id=module_id
+                ).first()
+                
+                # NULL = usuń nadpisanie (użyj roli)
+                if access_type is None or access_type == '':
+                    if existing:
+                        db.session.delete(existing)
+                        changes['modules_cleared'].append(module.module_key)
+                
+                # "grant" = nadaj dostęp
+                elif access_type == 'grant':
+                    if existing:
+                        # Aktualizuj istniejące
+                        if existing.access_type != 'grant':
+                            existing.access_type = 'grant'
+                            existing.reason = reason
+                            existing.created_by_user_id = admin_user_id
+                    else:
+                        # Utwórz nowe
+                        new_perm = UserPermission(
+                            user_id=user_id,
+                            module_id=module_id,
+                            access_type='grant',
+                            reason=reason,
+                            created_by_user_id=admin_user_id
+                        )
+                        db.session.add(new_perm)
+                    
+                    # Loguj
+                    log = AuditService.log_module_grant(
+                        user_id=user_id,
+                        module_id=module_id,
+                        changed_by_user_id=admin_user_id,
+                        reason=reason
+                    )
+                    audit_log_ids.append(log.id)
+                    changes['modules_granted'].append(module.module_key)
+                
+                # "revoke" = odbierz dostęp
+                elif access_type == 'revoke':
+                    if existing:
+                        # Aktualizuj istniejące
+                        if existing.access_type != 'revoke':
+                            existing.access_type = 'revoke'
+                            existing.reason = reason
+                            existing.created_by_user_id = admin_user_id
+                    else:
+                        # Utwórz nowe
+                        new_perm = UserPermission(
+                            user_id=user_id,
+                            module_id=module_id,
+                            access_type='revoke',
+                            reason=reason,
+                            created_by_user_id=admin_user_id
+                        )
+                        db.session.add(new_perm)
+                    
+                    # Loguj
+                    log = AuditService.log_module_revoke(
+                        user_id=user_id,
+                        module_id=module_id,
+                        changed_by_user_id=admin_user_id,
+                        reason=reason
+                    )
+                    audit_log_ids.append(log.id)
+                    changes['modules_revoked'].append(module.module_key)
+            
+            except (ValueError, TypeError) as e:
+                current_app.logger.warning(f"Błąd parsowania module_id '{module_id_str}': {e}")
+                continue
+        
+        db.session.commit()
+        
+        return jsonify({
+            'success': True,
+            'message': 'Uprawnienia zaktualizowane pomyślnie',
+            'audit_log_ids': audit_log_ids,
+            'changes': changes
+        })
+    
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.exception(f"Błąd API update_user_permissions: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@users_bp.route('/api/audit-log', methods=['GET'])
+@require_module_access('users')
+def get_audit_log_api():
+    """
+    API: Pobiera audit log z filtrami
+    
+    GET /users/api/audit-log?user_id=5&change_type=module_granted&limit=20&offset=0
+    
+    Query params:
+    - user_id (int): Filtruj po użytkowniku
+    - change_type (str): role_changed, module_granted, module_revoked
+    - date_from (str): ISO format (2025-01-01T00:00:00)
+    - date_to (str): ISO format
+    - limit (int): Domyślnie 50
+    - offset (int): Domyślnie 0
+    
+    Response:
+    {
+        "success": true,
+        "total": 150,
+        "logs": [...],
+        "has_more": true,
+        "limit": 50,
+        "offset": 0
+    }
+    """
+    try:
+        from datetime import datetime
+        
+        # Parsuj parametry
+        user_id = request.args.get('user_id', type=int)
+        change_type = request.args.get('change_type', type=str)
+        date_from_str = request.args.get('date_from', type=str)
+        date_to_str = request.args.get('date_to', type=str)
+        limit = request.args.get('limit', default=50, type=int)
+        offset = request.args.get('offset', default=0, type=int)
+        
+        # Parsuj daty
+        date_from = None
+        date_to = None
+        
+        if date_from_str:
+            try:
+                date_from = datetime.fromisoformat(date_from_str.replace('Z', '+00:00'))
+            except ValueError:
+                pass
+        
+        if date_to_str:
+            try:
+                date_to = datetime.fromisoformat(date_to_str.replace('Z', '+00:00'))
+            except ValueError:
+                pass
+        
+        # Pobierz logi
+        result = AuditService.get_audit_log(
+            user_id=user_id,
+            change_type=change_type,
+            date_from=date_from,
+            date_to=date_to,
+            limit=min(limit, 100),  # Max 100
+            offset=offset
+        )
+        
+        return jsonify({
+            'success': True,
+            **result
+        })
+    
+    except Exception as e:
+        current_app.logger.exception(f"Błąd API get_audit_log: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@users_bp.route('/api/roles', methods=['GET'])
+@require_module_access('users')
+def get_roles_api():
+    """
+    API: Pobiera wszystkie role
+    
+    GET /users/api/roles
+    
+    Response:
+    {
+        "success": true,
+        "roles": [
+            {
+                "role_id": 1,
+                "role_name": "admin",
+                "display_name": "Administrator",
+                "users_count": 3,
+                "modules_count": 10
+            },
+            ...
+        ]
+    }
+    """
+    try:
+        stats = RoleService.get_role_statistics()
+        
+        return jsonify({
+            'success': True,
+            'roles': stats.get('roles', []),
+            'total_roles': stats.get('total_roles', 0)
+        })
+    
+    except Exception as e:
+        current_app.logger.exception(f"Błąd API get_roles: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@users_bp.route('/api/modules', methods=['GET'])
+@require_module_access('users')
+def get_modules_api():
+    """
+    API: Pobiera wszystkie moduły
+    
+    GET /users/api/modules
+    
+    Response:
+    {
+        "success": true,
+        "modules": [
+            {
+                "id": 1,
+                "module_key": "dashboard",
+                "display_name": "Dashboard",
+                "icon": "🏠",
+                "access_type": "public"
+            },
+            ...
+        ]
+    }
+    """
+    try:
+        modules = Module.query.filter_by(is_active=True).order_by(Module.sort_order).all()
+        
+        modules_data = [m.to_dict() for m in modules]
+        
+        return jsonify({
+            'success': True,
+            'modules': modules_data
+        })
+    
+    except Exception as e:
+        current_app.logger.exception(f"Błąd API get_modules: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+@users_bp.route('/api/role-permissions/<int:role_id>', methods=['GET'])
+@require_module_access('users')
+def get_role_permissions_api(role_id):
+    """
+    API: Pobiera listę module_id dla danej roli
+    
+    GET /users/api/role-permissions/1
+    
+    Response:
+    {
+        "success": true,
+        "role_id": 1,
+        "role_name": "admin",
+        "module_ids": [2, 3, 4]
+    }
+    """
+    try:
+        role_data = RoleService.get_role_with_modules(role_id)
+        
+        if 'error' in role_data:
+            return jsonify({
+                'success': False,
+                'error': role_data['error']
+            }), 404
+        
+        # Wyciągnij ID modułów które mają has_access=True
+        module_ids = [
+            m['module_id'] 
+            for m in role_data['modules'] 
+            if m['has_access']
+        ]
+        
+        return jsonify({
+            'success': True,
+            'role_id': role_id,
+            'role_name': role_data['role_name'],
+            'module_ids': module_ids
+        })
+    
+    except Exception as e:
+        current_app.logger.exception(f"Błąd API get_role_permissions: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500

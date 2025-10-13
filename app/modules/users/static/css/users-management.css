@@ -601,3 +601,696 @@
         justify-content: center;
     }
 }
+
+/* ============================================================================
+   TABS - Nawigacja między zakładkami (DODANE 2025-01-13)
+   ============================================================================ */
+
+.modal-tabs {
+    display: flex;
+    background: #f8f9fa;
+    border-bottom: 2px solid #e9ecef;
+}
+
+.tab-button {
+    flex: 1;
+    padding: 16px 24px;
+    background: transparent;
+    border: none;
+    font-size: 14px;
+    font-weight: 600;
+    color: #6c757d;
+    cursor: pointer;
+    transition: all 0.3s;
+    position: relative;
+    font-family: inherit;
+}
+
+    .tab-button:hover {
+        background: rgba(237, 107, 36, 0.05);
+        color: #ED6B24;
+    }
+
+    .tab-button.active {
+        color: #ED6B24;
+        background: white;
+    }
+
+        .tab-button.active::after {
+            content: '';
+            position: absolute;
+            bottom: -2px;
+            left: 0;
+            right: 0;
+            height: 2px;
+            background: #ED6B24;
+        }
+
+/* Tab Content */
+.tab-content {
+    display: none;
+}
+
+    .tab-content.active {
+        display: block;
+        animation: fadeIn 0.3s ease-in;
+    }
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(-10px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* Modal rozszerzone dla tabów */
+.modal-container.active {
+    max-width: 700px; /* Większa szerokość dla uprawnień */
+}
+
+/* ============================================================================
+   PERMISSIONS TAB - Uprawnienia
+   ============================================================================ */
+
+.permissions-section {
+    margin-bottom: 32px;
+}
+
+    .permissions-section:last-child {
+        margin-bottom: 0;
+    }
+
+.section-title {
+    font-size: 16px;
+    font-weight: 700;
+    color: #212529;
+    margin-bottom: 8px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.section-description {
+    font-size: 13px;
+    color: #6c757d;
+    margin-bottom: 16px;
+    line-height: 1.5;
+}
+
+/* Loading State */
+.permissions-loading {
+    text-align: center;
+    padding: 60px 20px;
+}
+
+.spinner {
+    width: 40px;
+    height: 40px;
+    border: 4px solid #e9ecef;
+    border-top-color: #ED6B24;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+    margin: 0 auto 16px;
+}
+
+@keyframes spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+.permissions-loading p {
+    color: #6c757d;
+    font-size: 14px;
+}
+
+/* Error State */
+.permissions-error {
+    text-align: center;
+    padding: 40px 20px;
+}
+
+.error-icon {
+    font-size: 48px;
+    margin-bottom: 16px;
+}
+
+.error-message {
+    color: #dc3545;
+    font-size: 14px;
+    margin-bottom: 16px;
+}
+
+.btn-small {
+    padding: 8px 16px;
+    font-size: 13px;
+}
+
+/* Form input large (dla selecta roli) */
+.form-input-large {
+    padding: 14px 16px;
+    font-size: 15px;
+    font-weight: 600;
+}
+
+/* Form textarea */
+.form-textarea {
+    resize: vertical;
+    min-height: 80px;
+    font-family: inherit;
+}
+
+.form-hint {
+    display: block;
+    margin-top: 8px;
+    font-size: 12px;
+    color: #6c757d;
+}
+
+/* ============================================================================
+   MODULES LIST - Lista modułów z checkboxami
+   ============================================================================ */
+
+.modules-list {
+    display: grid;
+    gap: 12px;
+}
+
+.module-item {
+    background: #f8f9fa;
+    border: 2px solid #e9ecef;
+    border-radius: 10px;
+    transition: all 0.3s;
+    overflow: hidden;
+}
+
+    .module-item:hover {
+        border-color: #ED6B24;
+        background: #fff;
+        box-shadow: 0 4px 12px rgba(237, 107, 36, 0.1);
+    }
+
+.module-checkbox {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 16px 20px;
+    cursor: pointer;
+    margin: 0;
+}
+
+/* Checkbox wrapper */
+.checkbox-wrapper {
+    position: relative;
+    flex-shrink: 0;
+}
+
+.module-checkbox-input {
+    position: absolute;
+    opacity: 0;
+    cursor: pointer;
+}
+
+.checkbox-custom {
+    display: block;
+    width: 24px;
+    height: 24px;
+    border: 2px solid #dee2e6;
+    border-radius: 6px;
+    background: white;
+    transition: all 0.3s;
+    position: relative;
+}
+
+.module-checkbox-input:checked + .checkbox-custom {
+    background: #ED6B24;
+    border-color: #ED6B24;
+}
+
+    .module-checkbox-input:checked + .checkbox-custom::after {
+        content: '✓';
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        color: white;
+        font-size: 14px;
+        font-weight: bold;
+    }
+
+.module-checkbox-input:disabled + .checkbox-custom {
+    background: #e9ecef;
+    border-color: #dee2e6;
+    cursor: not-allowed;
+    opacity: 0.6;
+}
+
+/* Module info */
+.module-info {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.module-icon {
+    font-size: 24px;
+    flex-shrink: 0;
+}
+
+.module-name {
+    font-size: 15px;
+    font-weight: 600;
+    color: #212529;
+}
+
+/* Module badges */
+.module-badges {
+    display: flex;
+    gap: 8px;
+    flex-shrink: 0;
+}
+
+.module-badge {
+    padding: 4px 10px;
+    border-radius: 12px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.badge-from-role {
+    background: #dbeafe;
+    color: #1e40af;
+}
+
+.badge-individual {
+    background: #fef3c7;
+    color: #92400e;
+}
+
+.badge-granted {
+    background: #d1fae5;
+    color: #065f46;
+}
+
+.badge-revoked {
+    background: #fee2e2;
+    color: #991b1b;
+}
+
+.badge-public {
+    background: #e0e7ff;
+    color: #4338ca;
+}
+
+.badge-custom {
+    background: #ede9fe;
+    color: #6b21a8;
+}
+
+/* Module disabled (np. dashboard - zawsze dostępny) */
+.module-item.disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+    .module-item.disabled .module-checkbox {
+        cursor: not-allowed;
+    }
+
+    .module-item.disabled .module-name {
+        color: #6c757d;
+    }
+
+/* ============================================================================
+   RESPONSIVE - Tabs na mobile
+   ============================================================================ */
+
+@media (max-width: 768px) {
+    .modal-container {
+        width: 95%;
+        max-width: 95%;
+    }
+
+    .modal-tabs {
+        flex-direction: column;
+    }
+
+    .tab-button {
+        padding: 14px 20px;
+        text-align: left;
+    }
+
+        .tab-button.active::after {
+            bottom: 0;
+            left: 0;
+            right: auto;
+            width: 4px;
+            height: 100%;
+        }
+
+    .modal-header {
+        padding: 20px 24px;
+    }
+
+        .modal-header h3 {
+            font-size: 18px;
+        }
+
+    .modal-body {
+        padding: 24px 20px;
+    }
+
+    .modal-footer {
+        padding: 16px 20px;
+        flex-direction: column-reverse;
+    }
+
+        .modal-footer button {
+            width: 100%;
+        }
+
+    .modules-list {
+        gap: 10px;
+    }
+
+    .module-checkbox {
+        padding: 14px 16px;
+        gap: 12px;
+    }
+
+    .module-icon {
+        font-size: 20px;
+    }
+
+    .module-name {
+        font-size: 14px;
+    }
+
+    .module-badges {
+        flex-wrap: wrap;
+    }
+}
+
+/* ============================================================================
+   UTILITIES - Pomocnicze klasy
+   ============================================================================ */
+
+.text-muted {
+    color: #6c757d !important;
+}
+
+.text-danger {
+    color: #dc3545 !important;
+}
+
+.text-success {
+    color: #28a745 !important;
+}
+
+.mb-0 {
+    margin-bottom: 0 !important;
+}
+
+.mt-16 {
+    margin-top: 16px !important;
+}
+
+.hidden {
+    display: none !important;
+}
+
+/* ============================================================================
+   AUDIT LOG - Historia zmian uprawnień (DODANE 2025-01-13)
+   ============================================================================ */
+
+.audit-log-section {
+    margin-top: 24px;
+}
+
+/* Filtry */
+.audit-filters {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.audit-search {
+    flex: 1;
+    min-width: 200px;
+}
+
+.audit-filter-select {
+    min-width: 180px;
+}
+
+.audit-date-input {
+    min-width: 160px;
+}
+
+/* Loading state */
+.audit-loading {
+    text-align: center;
+    padding: 60px 20px;
+}
+
+/* Lista wpisów */
+.audit-log-list {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin-top: 20px;
+}
+
+/* Pojedynczy wpis audit */
+.audit-item {
+    background: #f8f9fa;
+    border: 2px solid #e9ecef;
+    border-radius: 12px;
+    padding: 20px;
+    transition: all 0.3s;
+    animation: fadeIn 0.3s ease-out;
+}
+
+    .audit-item:hover {
+        border-color: #ED6B24;
+        background: white;
+        box-shadow: 0 4px 12px rgba(237, 107, 36, 0.1);
+    }
+
+.audit-header {
+    display: flex;
+    align-items: flex-start;
+    gap: 16px;
+}
+
+.audit-avatar {
+    flex-shrink: 0;
+}
+
+.audit-user-avatar {
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    object-fit: cover;
+    border: 2px solid #e9ecef;
+}
+
+.audit-main {
+    flex: 1;
+}
+
+.audit-action {
+    font-size: 15px;
+    color: #212529;
+    margin-bottom: 6px;
+    line-height: 1.5;
+}
+
+    .audit-action strong {
+        font-weight: 700;
+        color: #ED6B24;
+    }
+
+.audit-action-text {
+    color: #6c757d;
+}
+
+.audit-target-name {
+    font-weight: 600;
+    color: #212529;
+}
+
+.audit-meta {
+    display: flex;
+    gap: 16px;
+    font-size: 13px;
+    color: #6c757d;
+}
+
+.audit-date {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+
+    .audit-date::before {
+        content: '🕐';
+    }
+
+.audit-ip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+
+    .audit-ip::before {
+        content: '🌐';
+    }
+
+.audit-badge-wrapper {
+    flex-shrink: 0;
+}
+
+.audit-change-badge {
+    padding: 6px 14px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.audit-badge-role-changed {
+    background: #dbeafe;
+    color: #1e40af;
+}
+
+.audit-badge-module-granted {
+    background: #d1fae5;
+    color: #065f46;
+}
+
+.audit-badge-module-revoked {
+    background: #fee2e2;
+    color: #991b1b;
+}
+
+/* Powód zmiany */
+.audit-reason {
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid #e9ecef;
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+}
+
+.reason-icon {
+    font-size: 16px;
+    flex-shrink: 0;
+}
+
+.reason-text {
+    font-size: 14px;
+    color: #495057;
+    font-style: italic;
+}
+
+/* Empty state */
+.audit-empty-state {
+    text-align: center;
+    padding: 60px 20px;
+    color: #6c757d;
+}
+
+/* Error state */
+.audit-error-state {
+    text-align: center;
+    padding: 40px 20px;
+}
+
+/* Paginacja */
+.audit-pagination {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 20px;
+    margin-top: 24px;
+    padding-top: 24px;
+    border-top: 2px solid #e9ecef;
+}
+
+.page-info {
+    font-size: 14px;
+    color: #495057;
+    font-weight: 600;
+}
+
+.audit-pagination .btn-secondary:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+/* ============================================================================
+   RESPONSIVE - Audit Log na mobile
+   ============================================================================ */
+
+@media (max-width: 768px) {
+    .audit-filters {
+        flex-direction: column;
+    }
+
+    .audit-search,
+    .audit-filter-select,
+    .audit-date-input {
+        width: 100%;
+        min-width: auto;
+    }
+
+    .audit-header {
+        flex-direction: column;
+        gap: 12px;
+    }
+
+    .audit-avatar {
+        align-self: flex-start;
+    }
+
+    .audit-user-avatar {
+        width: 40px;
+        height: 40px;
+    }
+
+    .audit-badge-wrapper {
+        align-self: flex-start;
+        width: 100%;
+    }
+
+    .audit-change-badge {
+        display: inline-block;
+        width: 100%;
+        text-align: center;
+    }
+
+    .audit-meta {
+        flex-direction: column;
+        gap: 8px;
+    }
+
+    .audit-pagination {
+        flex-direction: column;
+        gap: 12px;
+    }
+
+        .audit-pagination .btn-secondary {
+            width: 100%;
+        }
+}
