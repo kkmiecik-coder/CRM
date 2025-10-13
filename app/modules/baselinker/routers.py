@@ -7,27 +7,14 @@ from modules.calculator.models import Quote, User, QuoteItemDetails
 from modules.clients.models import Client
 from extensions import db
 import sys
-from functools import wraps
+from modules.users.decorators import require_module_access
 from modules.logging import get_structured_logger
 
 # Inicjalizacja loggera dla całego modułu
 baselinker_logger = get_structured_logger('baselinker.routers')
 
-def login_required(func):
-    @wraps(func)
-    def wrapper(*args, **kwargs):
-        user_email = session.get('user_email')
-        if not user_email:
-            baselinker_logger.warning("Próba dostępu bez autoryzacji",
-                                     endpoint=request.endpoint,
-                                     ip=request.remote_addr)
-            flash("Twoja sesja wygasła. Zaloguj się ponownie.", "info")
-            return redirect(url_for('login'))
-        return func(*args, **kwargs)
-    return wrapper
-
 @baselinker_bp.route('/api/quote/<int:quote_id>/create-order', methods=['POST'])
-@login_required
+@require_module_access('baselinker')
 def create_order(quote_id):
     """Tworzy zamówienie w Baselinker na podstawie wyceny"""
     baselinker_logger.info("Rozpoczęcie tworzenia zamówienia w Baselinker",
@@ -194,7 +181,7 @@ def create_order(quote_id):
         }), 500
 
 @baselinker_bp.route('/api/sync-config')
-@login_required  
+@require_module_access('baselinker') 
 def sync_config():
     """Synchronizuje konfigurację z Baselinker (źródła, statusy)"""
     baselinker_logger.info("Rozpoczęcie synchronizacji konfiguracji Baselinker",
@@ -234,7 +221,7 @@ def sync_config():
         return jsonify({'error': 'Błąd synchronizacji'}), 500
 
 @baselinker_bp.route('/api/quote/<int:quote_id>/order-logs')
-@login_required
+@require_module_access('baselinker')
 def get_order_logs(quote_id):
     """Pobiera logi operacji Baselinker dla wyceny"""
     baselinker_logger.info("Pobieranie logów operacji Baselinker",
@@ -265,7 +252,7 @@ def get_order_logs(quote_id):
         return jsonify({'error': 'Błąd pobierania logów'}), 500
     
 @baselinker_bp.route('/api/order/<int:order_id>/status')
-@login_required
+@require_module_access('baselinker')
 def get_order_status(order_id):
     """Pobiera status zamówienia z Baselinker"""
     baselinker_logger.info("Rozpoczęcie pobierania statusu zamówienia",
@@ -348,7 +335,7 @@ def get_order_status(order_id):
         return jsonify({'error': 'Błąd pobierania statusu zamówienia'}), 500
 
 @baselinker_bp.route('/api/config/sources')
-@login_required
+@require_module_access('baselinker')
 def get_order_sources():
     """Pobiera dostępne źródła zamówień z bazy"""
     baselinker_logger.info("Pobieranie źródeł zamówień z bazy",
@@ -383,7 +370,7 @@ def get_order_sources():
         return jsonify({'error': 'Błąd pobierania źródeł'}), 500
 
 @baselinker_bp.route('/api/config/statuses')
-@login_required
+@require_module_access('baselinker')
 def get_order_statuses():
     """Pobiera dostępne statusy zamówień z bazy"""
     baselinker_logger.info("Pobieranie statusów zamówień z bazy",
@@ -418,7 +405,7 @@ def get_order_statuses():
         return jsonify({'error': 'Błąd pobierania statusów'}), 500
 
 @baselinker_bp.route('/api/quote/<int:quote_id>/order-modal-data')
-@login_required
+@require_module_access('baselinker')
 def get_order_modal_data(quote_id):
     """Pobiera dane do wyświetlenia w modalu zamówienia"""
     baselinker_logger.info("Pobieranie danych dla modalu zamówienia",

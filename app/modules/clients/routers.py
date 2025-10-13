@@ -1,10 +1,12 @@
 # modules/clients/routers.py
-from flask import Blueprint, render_template, jsonify, request
+from flask import Blueprint, render_template, jsonify, request, session
 from .models import Client
 from modules.quotes.models import QuoteStatus
 from extensions import db
 from . import clients_bp
 from modules.calculator.models import Quote
+from modules.users.models import User
+from modules.users.decorators import require_module_access  # ✅ NOWY IMPORT
 import requests
 import os
 from datetime import date
@@ -14,14 +16,49 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+# ✅ NOWA FUNKCJA - Filtrowanie per rola
+def get_filtered_clients_query(base_query):
+    """
+    Filtruje klientów w zależności od roli użytkownika.
+    Partner widzi TYLKO swoich klientów.
+    
+    Args:
+        base_query: SQLAlchemy Query object (np. Client.query)
+    
+    Returns:
+        Query object - gotowy do .all(), .paginate(), itp.
+    """
+    user_id = session.get('user_id')
+    if not user_id:
+        return base_query.filter(Client.id == -1)
+    
+    user = User.query.get(user_id)
+    if not user:
+        return base_query.filter(Client.id == -1)
+    
+    # Partner widzi TYLKO swoich klientów
+    if user.role == 'partner':
+        return base_query.filter(Client.created_by_user_id == user_id)
+    
+    # Admin i User widzą wszystkich
+    return base_query
+
+
 @clients_bp.route('/')
+@require_module_access('clients')
 def clients_home():
     return render_template("clients.html")
 
+
 @clients_bp.route('/api/clients')
+@require_module_access('clients')
 def get_all_clients():
     print("[API] /clients/api/clients zostalo wywolane")
-    clients = Client.query.all()
+    
+    # ✅ NOWE: Filtrowanie per rola
+    base_query = Client.query
+    clients = get_filtered_clients_query(base_query).all()
+    
     return jsonify([
         {
             "id": c.id,
@@ -34,8 +71,19 @@ def get_all_clients():
 
 
 @clients_bp.route('/<int:client_id>/data', methods=['GET'])
+@require_module_access('clients')
 def get_client_data(client_id):
+    # ✅ NOWE: Sprawdź czy partner ma dostęp do tego klienta
+    user_id = session.get('user_id')
+    user = User.query.get(user_id)
+    
     client = Client.query.get_or_404(client_id)
+    
+    # Partner może widzieć TYLKO swoich klientów
+    if user and user.role == 'partner':
+        if client.created_by_user_id != user_id:
+            return jsonify({"error": "Brak dostępu do tego klienta"}), 403
+    
     return jsonify({
         "id": client.id,
         "client_number": client.client_number,
@@ -65,8 +113,19 @@ def get_client_data(client_id):
 
 
 @clients_bp.route('/<int:client_id>', methods=['PATCH'])
+@require_module_access('clients')
 def update_client(client_id):
+    # ✅ NOWE: Sprawdź czy partner ma dostęp
+    user_id = session.get('user_id')
+    user = User.query.get(user_id)
+    
     client = Client.query.get_or_404(client_id)
+    
+    # Partner może edytować TYLKO swoich klientów
+    if user and user.role == 'partner':
+        if client.created_by_user_id != user_id:
+            return jsonify({"error": "Brak dostępu do tego klienta"}), 403
+    
     data = request.json
 
     client.client_name = data.get("client_name")
@@ -94,11 +153,25 @@ def update_client(client_id):
     db.session.commit()
     return jsonify({"success": True})
 
+
 @clients_bp.route('/<int:client_id>/quotes')
+@require_module_access('clients')
 def get_client_quotes(client_id):
     from modules.quotes.models import QuoteStatus
     
+    # ✅ NOWE: Sprawdź czy partner ma dostęp
+    user_id = session.get('user_id')
+    user = User.query.get(user_id)
+    
+    client = Client.query.get_or_404(client_id)
+    
+    # Partner może widzieć wyceny TYLKO swoich klientów
+    if user and user.role == 'partner':
+        if client.created_by_user_id != user_id:
+            return jsonify({"error": "Brak dostępu do tego klienta"}), 403
+    
     quotes = Quote.query.filter_by(client_id=client_id).order_by(Quote.created_at.desc()).all()
+    
     return jsonify([
         {
             "id": q.id,
@@ -109,10 +182,12 @@ def get_client_quotes(client_id):
         } for q in quotes
     ])
 
+
 GUS_API_KEY = os.getenv("GUS_API_KEY")
 GUS_BASE_URL = "https://wl-api.mf.gov.pl/api/search/nip/"
 
 @clients_bp.route('/api/gus_lookup')
+@require_module_access('clients')
 def gus_lookup():
     nip = request.args.get('nip')
     if not nip or not nip.isdigit() or len(nip) != 10:

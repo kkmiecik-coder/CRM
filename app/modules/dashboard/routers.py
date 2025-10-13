@@ -1,6 +1,6 @@
 from flask import render_template, session, redirect, url_for, request, flash, jsonify
 from functools import wraps
-from . import dashboard_bp  # Import blueprint z __init__.py
+from . import dashboard_bp
 from .services.stats_service import get_dashboard_stats
 from .services.weather_service import get_weather_data
 from .services.chart_service import get_quotes_chart_data, get_top_products_data, get_production_overview
@@ -9,38 +9,13 @@ import logging
 from datetime import datetime
 from .services.user_activity_service import UserActivityService
 from .models import UserSession
+from modules.users.decorators import require_module_access
 
 logger = logging.getLogger(__name__)
 
-def login_required(func):
-    """Dekorator zabezpieczający strony – wymaga zalogowania"""
-    @wraps(func)
-    def wrapper(*args, **kwargs):
-        user_email = session.get('user_email')
-        if not user_email:
-            flash("Twoja sesja wygasła. Zaloguj się ponownie.", "info")
-            return redirect(url_for('login'))
-        return func(*args, **kwargs)
-    return wrapper
-
-def admin_required(func):
-    """Dekorator wymagający uprawnień administratora"""
-    @wraps(func)
-    def wrapper(*args, **kwargs):
-        user_email = session.get('user_email')
-        if not user_email:
-            return jsonify({'success': False, 'error': 'Nie zalogowano'}), 401
-            
-        user = User.query.filter_by(email=user_email).first()
-        if not user or user.role != 'admin':
-            return jsonify({'success': False, 'error': 'Brak uprawnień administratora'}), 403
-            
-        return func(*args, **kwargs)
-    return wrapper
-
 @dashboard_bp.route('/')
 @dashboard_bp.route('/dashboard')
-@login_required
+@require_module_access('dashboard')
 def dashboard():
     """Główna strona dashboard z nowymi widgetami"""
     user_email = session.get('user_email')
@@ -129,7 +104,7 @@ def dashboard():
 
 # Dodaj endpoint debugowania
 @dashboard_bp.route('/debug/database')
-@login_required
+@require_module_access('dashboard')
 def debug_database():
     """Debug endpoint - sprawdź stan bazy danych"""
     try:
@@ -188,7 +163,7 @@ def debug_database():
         return {'error': str(e), 'type': type(e).__name__}
 
 @dashboard_bp.route('/api/refresh-stats')
-@login_required  
+@require_module_access('dashboard')  
 def refresh_stats():
     """API endpoint do odświeżania statystyk dashboard"""
     try:
@@ -213,7 +188,7 @@ def refresh_stats():
         return {'success': False, 'error': str(e)}, 500
 
 @dashboard_bp.route('/api/weather')
-@login_required
+@require_module_access('dashboard')
 def refresh_weather():
     """API endpoint do odświeżania danych pogodowych"""
     try:
@@ -229,7 +204,7 @@ def refresh_weather():
         return {'success': False, 'error': str(e)}, 500
 
 @dashboard_bp.route('/api/chart-data/<chart_type>')
-@login_required
+@require_module_access('dashboard')
 def get_chart_data(chart_type):
     """API endpoint do pobierania danych wykresów"""
     try:
@@ -255,7 +230,7 @@ def get_chart_data(chart_type):
         return {'success': False, 'error': str(e)}, 500
     
 @dashboard_bp.route('/api/changelog-entries', methods=['POST'])
-@login_required
+@require_module_access('dashboard')
 def create_changelog_entry():
     try:
         from .models import ChangelogEntry, ChangelogItem
@@ -324,7 +299,7 @@ def create_changelog_entry():
         return {'success': False, 'error': str(e)}, 500
     
 @dashboard_bp.route('/api/changelog-entries', methods=['GET'])
-@login_required
+@require_module_access('dashboard')
 def get_changelog_entries():
     """Pobiera listę wpisów changelog"""
     try:
@@ -363,7 +338,7 @@ def get_changelog_entries():
         return {'success': False, 'error': str(e)}, 500
 
 @dashboard_bp.route('/api/changelog-next-version')
-@login_required
+@require_module_access('dashboard')
 def get_next_version():
     """Pobiera sugerowaną następną wersję"""
     try:
@@ -406,7 +381,7 @@ def get_next_version():
         }
 
 @dashboard_bp.route('/api/changelog-entries/<int:entry_id>', methods=['DELETE'])
-@login_required
+@require_module_access('dashboard')
 def delete_changelog_entry(entry_id):
     """Usuwa wpis changelog (tylko dla adminów)"""
     try:
@@ -442,7 +417,7 @@ def delete_changelog_entry(entry_id):
 
 
 @dashboard_bp.route('/api/changelog-entries/<int:entry_id>/toggle-visibility', methods=['POST'])
-@login_required
+@require_module_access('dashboard')
 def toggle_changelog_visibility(entry_id):
     """Przełącza widoczność wpisu changelog"""
     try:
@@ -479,8 +454,7 @@ def toggle_changelog_visibility(entry_id):
         return {'success': False, 'error': str(e)}, 500
 
 @dashboard_bp.route('/api/active-users')
-@login_required
-@admin_required
+@require_module_access('dashboard')
 def get_active_users():
     """
     API endpoint zwracający listę aktywnych użytkowników (tylko dla adminów)
@@ -514,8 +488,7 @@ def get_active_users():
         }), 500
 
 @dashboard_bp.route('/api/force-logout/<int:user_id>', methods=['POST'])
-@login_required
-@admin_required
+@require_module_access('dashboard')
 def force_logout_user(user_id):
     """
     API endpoint do wymuszania wylogowania użytkownika (tylko dla adminów)
@@ -565,8 +538,7 @@ def force_logout_user(user_id):
         }), 500
 
 @dashboard_bp.route('/api/user-details/<int:user_id>')
-@login_required
-@admin_required
+@require_module_access('dashboard')
 def get_user_details(user_id):
     """
     API endpoint zwracający szczegółowe informacje o użytkowniku (tylko dla adminów)
@@ -641,8 +613,7 @@ def get_user_details(user_id):
         }), 500
 
 @dashboard_bp.route('/api/user-activity-stats')
-@login_required
-@admin_required
+@require_module_access('dashboard')
 def get_user_activity_stats():
     """
     API endpoint zwracający statystyki aktywności użytkowników (tylko dla adminów)
@@ -669,8 +640,7 @@ def get_user_activity_stats():
         }), 500
 
 @dashboard_bp.route('/api/cleanup-sessions', methods=['POST'])
-@login_required
-@admin_required
+@require_module_access('dashboard')
 def cleanup_old_sessions():
     """
     API endpoint do ręcznego czyszczenia starych sesji (tylko dla adminów)
@@ -705,7 +675,7 @@ def cleanup_old_sessions():
         }), 500
 
 @dashboard_bp.route('/api/current-user-activity')
-@login_required
+@require_module_access('dashboard')
 def get_current_user_activity():
     """
     API endpoint zwracający aktywność bieżącego użytkownika

@@ -15,15 +15,15 @@ import logging
 import requests
 from modules.quotes.models import QuoteStatus
 from modules.calculator.models import QuoteItemDetails
+from modules.users.decorators import require_module_access
 
 calculator_bp = Blueprint('calculator', __name__, template_folder='templates', static_folder='static')
 
 @calculator_bp.route('/', methods=['GET', 'POST'])
+@require_module_access('calculator')
 def calculator_home():
     user_email = session.get('user_email')
     user_id = session.get('user_id')
-    if not user_email:
-        return redirect(url_for('login'))
 
     user = User.query.filter_by(email=user_email).first()
     user_role = user.role
@@ -52,6 +52,7 @@ def calculator_home():
     return render_template("calculator.html", user_email=user_email, user_id=user_id, prices_json=prices_json, multipliers_json=multipliers_json, user_role=user_role, user_multiplier=user_multiplier)
 
 @calculator_bp.route('/shipping_quote', methods=['POST'])
+@require_module_access('calculator')
 def shipping_quote():
     current_app.logger.info(">>> shipping_quote: endpoint wywołany")
     
@@ -177,6 +178,7 @@ def shipping_quote():
 logger = logging.getLogger(__name__)
 
 @calculator_bp.route('/api/finishing-prices', methods=['GET'])
+@require_module_access('calculator')
 def get_finishing_prices():
     """Pobieranie cen wykończeń z bazy danych"""
     try:
@@ -195,6 +197,7 @@ def get_finishing_prices():
         return jsonify({'error': 'Błąd pobierania cen wykończeń'}), 500
 
 @calculator_bp.route('/save_quote', methods=['POST'])
+@require_module_access('calculator')
 def save_quote():
     user_email = session.get('user_email')
     if not user_email:
@@ -228,11 +231,19 @@ def save_quote():
             if existing_client:
                 return jsonify({"error": "Klient o takim loginie już istnieje"}), 400
 
+            # ✅ NOWE: Pobierz user_id osoby tworzącej klienta
+            user = db.session.execute(
+                text("SELECT id FROM users WHERE email = :email"), 
+                {'email': user_email}
+            ).fetchone()
+            current_user_id = user.id if user else None
+
             client = Client(
                 client_number=login,
                 client_name=data.get("client_name"),
                 email=data.get("client_email"),
-                phone=data.get("client_phone")
+                phone=data.get("client_phone"),
+                created_by_user_id=current_user_id  # ✅ DODAJ TO
             )
             db.session.add(client)
             db.session.commit()
@@ -366,19 +377,32 @@ def save_quote():
 
 
 @calculator_bp.route('/search_clients', methods=['GET'])
+@require_module_access('calculator')
 def search_clients():
     term = request.args.get('q', '').strip()
     if len(term) < 3:
         return jsonify([])
 
     from modules.clients.models import Client
+    from modules.users.models import User
 
-    matches = Client.query.filter(
+    # ✅ NOWE: Najpierw bazowe query z wyszukiwaniem
+    base_query = Client.query.filter(
         (Client.client_number.ilike(f"%{term}%")) |
         (Client.client_name.ilike(f"%{term}%")) |
         (Client.email.ilike(f"%{term}%")) |
         (Client.phone.ilike(f"%{term}%"))
-    ).all()
+    )
+
+    # ✅ NOWE: Filtrowanie per rola
+    user_id = session.get('user_id')
+    if user_id:
+        user = User.query.get(user_id)
+        if user and user.role == 'partner':
+            # Partner widzi tylko swoich klientów
+            base_query = base_query.filter(Client.created_by_user_id == user_id)
+
+    matches = base_query.all()
 
     result = []
     for c in matches:
@@ -410,6 +434,7 @@ def search_clients():
     return jsonify(result)
 
 @calculator_bp.route('/latest_quotes')
+@require_module_access('calculator')
 def latest_quotes():
     user_id = session.get('user_id')
     if not user_id:

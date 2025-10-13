@@ -33,6 +33,7 @@ from modules.partner_academy import partner_academy_bp
 from modules.partner_academy.services import ApplicationService, EmailService
 from modules.partner_academy.validators import validate_application_data, validate_file
 from modules.partner_academy.utils import rate_limit, generate_nda_pdf
+from modules.users.decorators import require_module_access
 from extensions import db
 from modules.partner_academy.models import PartnerApplication
 import io
@@ -50,17 +51,6 @@ def json_response(data, status=200):
     response = make_response(jsonify(data), status)
     response.headers['Content-Type'] = 'application/json; charset=utf-8'
     return response
-
-def login_required(func):
-    """Dekorator wymagający zalogowania dla panelu admina"""
-    @wraps(func)
-    def wrapper(*args, **kwargs):
-        user_email = session.get('user_email')
-        if not user_email:
-            flash("Twoja sesja wygasła. Zaloguj się ponownie.", "info")
-            return redirect(url_for('login'))
-        return func(*args, **kwargs)
-    return wrapper
 
 
 # ============================================================================
@@ -362,7 +352,7 @@ def check_email_exists():
 # ============================================================================
 
 @partner_academy_bp.route('/admin/')
-@login_required
+@require_module_access('partner_academy')
 def admin_dashboard():
     """Strona główna panelu admina"""
     return render_template('admin.html')
@@ -373,7 +363,7 @@ def admin_dashboard():
 # ============================================================================
 
 @partner_academy_bp.route('/admin/api/stats')
-@login_required
+@require_module_access('partner_academy')
 def get_admin_stats():
     """Statystyki aplikacji dla dashboardu"""
     try:
@@ -403,7 +393,7 @@ def get_admin_stats():
 
 
 @partner_academy_bp.route('/admin/api/applications')
-@login_required
+@require_module_access('partner_academy')
 def get_admin_applications():
     """Lista aplikacji z filtrowaniem i paginacją"""
     try:
@@ -492,7 +482,7 @@ def get_admin_applications():
 
 
 @partner_academy_bp.route('/admin/api/application/<int:application_id>')
-@login_required
+@require_module_access('partner_academy')
 def get_admin_application_detail(application_id):
     """Szczegóły pojedynczej aplikacji"""
     try:
@@ -548,7 +538,7 @@ def get_admin_application_detail(application_id):
 
 
 @partner_academy_bp.route('/admin/api/application/<int:application_id>/status', methods=['POST'])
-@login_required
+@require_module_access('partner_academy')
 def update_application_status(application_id):
     """Zmiana statusu aplikacji"""
     try:
@@ -586,7 +576,7 @@ def update_application_status(application_id):
 
 
 @partner_academy_bp.route('/admin/api/application/<int:application_id>/note', methods=['POST'])
-@login_required
+@require_module_access('partner_academy')
 def add_application_note(application_id):
     """Dodanie notatki do aplikacji"""
     try:
@@ -619,7 +609,7 @@ def add_application_note(application_id):
 
 
 @partner_academy_bp.route('/admin/api/application/<int:application_id>/nda')
-@login_required
+@require_module_access('partner_academy')
 def download_nda(application_id):
     """Pobieranie pliku NDA"""
     try:
@@ -640,7 +630,7 @@ def download_nda(application_id):
 
 
 @partner_academy_bp.route('/admin/api/export')
-@login_required
+@require_module_access('partner_academy')
 def export_admin_applications():
     """Eksport aplikacji do XLSX z wszystkimi polami"""
     try:
@@ -754,7 +744,7 @@ def export_admin_applications():
 
 
 @partner_academy_bp.route('/admin/api/export-applications')
-@login_required
+@require_module_access('partner_academy')
 def export_applications_xlsx():
     """Eksport aplikacji do pliku XLSX (alias dla /admin/api/export)"""
     return export_admin_applications()

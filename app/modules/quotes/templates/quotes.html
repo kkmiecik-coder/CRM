@@ -45,7 +45,8 @@
                             <label for="date-from-filter" class="double-label">Data (od - do)</label>
                         </div>
 
-                        <!-- Pracownik -->
+                        <!-- Pracownik - ukryj dla partnera -->
+                        {% if user_role != 'partner' %}
                         <div class="floating-label-input">
                             <select id="employee-filter" class="styled-select" required>
                                 <option value="">Wszyscy</option>
@@ -53,6 +54,7 @@
                             </select>
                             <label for="user-filter" class="select-label static">Pracownik</label>
                         </div>
+                        {% endif %}
 
                         <!-- Źródło -->
                         <div class="floating-label-input">

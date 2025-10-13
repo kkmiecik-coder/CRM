@@ -21,24 +21,11 @@ from collections import defaultdict
 import openpyxl
 from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
 from typing import Dict, Optional, Tuple, List
+from modules.users.decorators import require_module_access
 
 # Inicjalizacja loggera
 reports_logger = get_structured_logger('reports.routers')
 reports_logger.info("✅ reports_logger zainicjowany poprawnie w routers.py")
-
-def login_required(func):
-    """Dekorator wymagający zalogowania"""
-    @wraps(func)
-    def wrapper(*args, **kwargs):
-        user_email = session.get('user_email')
-        if not user_email:
-            reports_logger.warning("Próba dostępu bez autoryzacji",
-                                 endpoint=request.endpoint,
-                                 ip=request.remote_addr)
-            flash("Twoja sesja wygasła. Zaloguj się ponownie.", "error")
-            return redirect(url_for('login'))
-        return func(*args, **kwargs)
-    return wrapper
 
 def generate_product_key_router(order_id, product, product_index=None):
     """
@@ -70,7 +57,7 @@ def generate_product_key_router(order_id, product, product_index=None):
         return f"{order_id}_unknown"
 
 @reports_bp.route('/')
-@login_required
+@require_module_access('reports')
 def reports_home():
     """
     Główna strona modułu Reports
@@ -273,7 +260,7 @@ def reports_home():
         return redirect(url_for('home'))
 
 @reports_bp.route('/api/data')
-@login_required
+@require_module_access('reports')
 def api_get_data():
     """
     API endpoint do pobierania danych tabeli z filtrami
@@ -391,7 +378,7 @@ def api_get_data():
 
 
 @reports_bp.route('/api/sync', methods=['POST'])
-@login_required
+@require_module_access('reports')
 def api_sync_with_baselinker():
     """
     API endpoint do synchronizacji z Baselinker
@@ -458,7 +445,7 @@ def api_sync_with_baselinker():
         }), 500
 
 @reports_bp.route('/api/add-manual-row', methods=['POST'])
-@login_required
+@require_module_access('reports')
 def api_add_manual_row():
     """
     ZAKTUALIZOWANY: API endpoint do dodawania ręcznego wiersza z obsługą produktów
@@ -638,7 +625,7 @@ def api_add_manual_row():
         }), 500
 
 @reports_bp.route('/api/update-manual-row', methods=['POST'])
-@login_required
+@require_module_access('reports')
 def api_update_manual_row():
     """
     ZAKTUALIZOWANY: API endpoint do edycji rekordów z obsługą wielu produktów
@@ -836,7 +823,7 @@ def _update_product_fields(record, product_data):
                 setattr(record, field, str(value) if value else None)
 
 @reports_bp.route('/api/export-excel')
-@login_required
+@require_module_access('reports')
 def api_export_excel():
     """
     API endpoint do eksportu danych do Excel z zaawansowanym formatowaniem
@@ -1616,7 +1603,7 @@ def api_export_excel():
         }), 500
 
 @reports_bp.route('/api/dropdown-values/<field_name>')
-@login_required
+@require_module_access('reports')
 def api_get_dropdown_values(field_name):
     """
     API endpoint do pobierania unikalnych wartości dla dropdown'ów
@@ -1747,7 +1734,7 @@ def _sync_selected_orders(service: BaselinkerReportsService, order_ids: List[int
 
 # Synchronizacja statusów
 @reports_bp.route('/api/sync-statuses', methods=['POST'])
-@login_required
+@require_module_access('reports')
 def api_sync_statuses():
     """
     API endpoint do synchronizacji statusów zamówień z Baselinker
@@ -1919,7 +1906,7 @@ def api_sync_statuses():
         }), 500
 
 @reports_bp.route('/api/delete-manual-row', methods=['POST'])
-@login_required
+@require_module_access('reports')
 def api_delete_manual_row():
     """
     API endpoint do usuwania rekordów z bazy danych
@@ -2018,7 +2005,7 @@ def api_delete_manual_row():
         }), 500
     
 @reports_bp.route('/api/fetch-orders-for-selection', methods=['POST'])
-@login_required
+@require_module_access('reports')
 def api_fetch_orders_for_selection():
     """
     POPRAWIONY ENDPOINT: Fetches orders from Baselinker for selected date range
@@ -2357,7 +2344,7 @@ def _sync_selected_orders_with_volumes(service, order_ids):
         }
 
 @reports_bp.route('/api/save-selected-orders-with-dimensions', methods=['POST'])
-@login_required
+@require_module_access('reports')
 def api_save_selected_orders_with_dimensions():
     """
     NOWY ENDPOINT: Zapisuje wybrane zamówienia z opcjonalnym uzupełnieniem wymiarów
@@ -2519,7 +2506,7 @@ def check_product_dimensions(product_name):
     return False
 
 @reports_bp.route('/api/save-selected-orders', methods=['POST'])
-@login_required
+@require_module_access('reports')
 def api_save_selected_orders():
     """
     NOWY ENDPOINT: Zapisuje wybrane zamówienia do bazy danych
@@ -2641,7 +2628,7 @@ def api_save_selected_orders():
         }), 500
 
 @reports_bp.route('/api/export-routimo', methods=['GET'])
-@login_required
+@require_module_access('reports')
 def export_routimo():
     """
     Eksport danych do formatu Routimo EXCEL
@@ -3541,7 +3528,7 @@ def should_show_volume_modal_for_orders(orders_data: list) -> Tuple[bool, list]:
     return should_show_modal, products_needing_volume
 
 @reports_bp.route('/api/save-orders-with-volumes', methods=['POST'])
-@login_required
+@require_module_access('reports')
 def api_save_orders_with_volumes():
     """
     NOWY ENDPOINT: Zapisuje zamówienia z uzupełnionymi objętościami i atrybutami
@@ -3857,7 +3844,7 @@ def _sync_selected_orders_with_volume_analysis(service, order_ids, orders_data):
 
 
 @reports_bp.route('/api/map-statistics', methods=['GET'])
-@login_required
+@require_module_access('reports')
 def api_map_statistics():
     """
     API endpoint dla danych mapy województw

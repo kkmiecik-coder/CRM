@@ -5,6 +5,7 @@ from modules.calculator.models import Quote, User, QuoteItemDetails, QuoteItem, 
 from modules.clients.models import Client
 from modules.baselinker.service import BaselinkerService
 from modules.baselinker.models import BaselinkerConfig
+from modules.users.decorators import require_module_access
 from extensions import db, mail
 from weasyprint import HTML
 from io import BytesIO
@@ -18,7 +19,6 @@ import re
 from datetime import datetime
 import base64
 import os
-from flask_login import login_required, current_user
 import json
 
 from modules.quotes.models import (
@@ -32,6 +32,32 @@ from modules.quotes.models import (
     User,
     DiscountReason
 )
+
+def get_filtered_quotes_query(base_query):
+    """
+    Filtruje wyceny w zależności od roli użytkownika.
+    Partner widzi TYLKO swoje wyceny (gdzie jest opiekunem).
+    
+    Args:
+        base_query: SQLAlchemy Query object
+    
+    Returns:
+        Query object
+    """
+    user_id = session.get('user_id')
+    if not user_id:
+        return base_query.filter(Quote.id == -1)
+    
+    user = User.query.get(user_id)
+    if not user:
+        return base_query.filter(Quote.id == -1)
+    
+    # Partner widzi TYLKO swoje wyceny
+    if user.role == 'partner':
+        return base_query.filter(Quote.user_id == user_id)
+    
+    # Admin i User widzą wszystkie wyceny
+    return base_query
 
 def render_client_error(error_type, error_code, error_message, error_details=None, quote_number=None):
     """Renderuje stronę błędu dla klienta"""
@@ -89,16 +115,6 @@ def calculate_costs_with_vat(products_netto, finishing_netto, shipping_brutto):
         }
     }
 
-def login_required(func):
-    @wraps(func)
-    def wrapper(*args, **kwargs):
-        user_email = session.get('user_email')
-        if not user_email:
-            flash("Twoja sesja wygasla. Zaloguj się ponownie.", "info")
-            return redirect(url_for('login'))
-        return func(*args, **kwargs)
-    return wrapper
-
 def validate_email_or_phone(email_or_phone, quote):
     """Waliduje czy podany email lub telefon pasuje do wyceny"""
     if not email_or_phone:
@@ -119,7 +135,7 @@ def validate_email_or_phone(email_or_phone, quote):
     return len(phone_digits) >= 7 and phone_digits in client_phone_digits
 
 @quotes_bp.route('/')
-@login_required
+@require_module_access('quotes')
 def quotes_home():
     """Główna strona modułu quotes - z dodanymi danymi dla calculator.js"""
     try:
@@ -189,7 +205,7 @@ def quotes_home():
                           user_multiplier=user_multiplier)
 
 @quotes_bp.route('/api/quotes')
-@login_required
+@require_module_access('quotes')
 def api_quotes():
 
     try:
@@ -199,7 +215,9 @@ def api_quotes():
             for s in QuoteStatus.query.all()
         }
 
-        quotes = Quote.query.order_by(Quote.created_at.desc()).all()
+        # ✅ NOWE: Filtrowanie per rola
+        base_query = Quote.query.order_by(Quote.created_at.desc())
+        quotes = get_filtered_quotes_query(base_query).all()
 
         results = []
         for q in quotes:
@@ -234,7 +252,7 @@ def api_quotes():
         return jsonify({"error": "Wystapil blad serwera"}), 500
 
 @quotes_bp.route('/api/quotes/<int:quote_id>/status', methods=['PATCH'])
-@login_required
+@require_module_access('quotes')
 def update_quote_status(quote_id):
     try:
         data = request.get_json()
@@ -357,7 +375,7 @@ def generate_quote_pdf(token, format):
         return {"error": "Render error"}, 500
 
 @quotes_bp.route("/api/quotes/<int:quote_id>/send_email", methods=["POST"])
-@login_required
+@require_module_access('quotes')
 def send_email(quote_id):
     print(f"[send_email] Wysylka maila dla wyceny ID {quote_id}", file=sys.stderr)
 
@@ -416,7 +434,7 @@ def send_email(quote_id):
         return jsonify({"error": "Błąd wysyłki emaila"}), 500
 
 @quotes_bp.route('/api/quotes/status-counts')
-@login_required
+@require_module_access('quotes')
 def api_quotes_status_counts():
     print("[api_quotes_status_counts] Endpoint wywolany", file=sys.stderr)
 
@@ -424,9 +442,19 @@ def api_quotes_status_counts():
         # Wyciągamy wszystkie statusy
         statuses = QuoteStatus.query.all()
 
-        # Wyciągamy county zgrupowane po status_id
-        counts_raw = db.session.query(Quote.status_id, func.count(Quote.id))\
-            .group_by(Quote.status_id).all()
+        # ✅ NOWE: Przygotuj bazowe query z filtrowaniem per rola
+        base_query = db.session.query(Quote.status_id, func.count(Quote.id))
+        
+        # ✅ NOWE: Zastosuj filtrowanie (dla partnera tylko jego wyceny)
+        user_id = session.get('user_id')
+        if user_id:
+            user = User.query.get(user_id)
+            if user and user.role == 'partner':
+                # Partner widzi TYLKO swoje wyceny w licznikach
+                base_query = base_query.filter(Quote.user_id == user_id)
+        
+        # Wykonaj query z grupowaniem
+        counts_raw = base_query.group_by(Quote.status_id).all()
         count_map = {status_id: count for status_id, count in counts_raw}
 
         # Składamy wynik
@@ -446,7 +474,7 @@ def api_quotes_status_counts():
         return jsonify({"error": "Wystapil blad serwera"}), 500
 
 @quotes_bp.route("/api/users")
-@login_required
+@require_module_access('quotes')
 def get_users():
     users = User.query.filter_by(active=True).order_by(User.first_name).all()
     return jsonify([
@@ -454,7 +482,7 @@ def get_users():
     ])
 
 @quotes_bp.route("/api/quotes/<int:quote_id>")
-@login_required
+@require_module_access('quotes')
 def get_quote_details(quote_id):
     
     try:
@@ -598,7 +626,7 @@ def get_quote_details(quote_id):
         return jsonify({"error": "Błąd serwera"}), 500
 
 @quotes_bp.route("/api/quote_items/<int:item_id>/select", methods=["PATCH"])
-@login_required
+@require_module_access('quotes')
 def select_quote_item(item_id):
     try:
         item = QuoteItem.query.get_or_404(item_id)
@@ -617,7 +645,7 @@ def select_quote_item(item_id):
         return jsonify({"error": "Błąd podczas wyboru wariantu"}), 500
 
 @quotes_bp.route("/api/discount-reasons")
-@login_required
+@require_module_access('quotes')
 def get_discount_reasons():
     """Zwraca listę aktywnych powodów rabatów"""
     try:
@@ -628,7 +656,7 @@ def get_discount_reasons():
         return jsonify({"error": "Błąd podczas pobierania powodów rabatów"}), 500
 
 @quotes_bp.route("/api/quotes/<int:quote_id>/variant/<int:item_id>/discount", methods=["PATCH"])
-@login_required
+@require_module_access('quotes')
 def update_variant_discount(quote_id, item_id):
     """Aktualizuje rabat dla pojedynczego wariantu"""
     try:
@@ -659,7 +687,7 @@ def update_variant_discount(quote_id, item_id):
         return jsonify({"error": "Błąd podczas aktualizacji rabatu"}), 500
 
 @quotes_bp.route("/api/quotes/<int:quote_id>/apply-total-discount", methods=["PATCH"])
-@login_required
+@require_module_access('quotes')
 def apply_total_discount(quote_id):
     """Zastosowuje rabat do wszystkich wariantów (nie tylko is_selected) w wycenie"""
     try:
@@ -1161,7 +1189,7 @@ def update_quote_quantity(quote_id):
     
 
 @quotes_bp.route('/api/quotes/<int:quote_id>/user-accept', methods=['POST'])
-@login_required
+@require_module_access('quotes')
 def user_accept_quote(quote_id):
     """Akceptacja wyceny przez użytkownika wewnętrznego (opiekuna oferty)"""
     try:
@@ -1655,7 +1683,7 @@ def debug_static_files():
     return f"<pre>{debug_info}</pre>"
 
 @quotes_bp.route('/api/check-quote-by-order/<order_id>')
-@login_required
+@require_module_access('quotes')
 def check_quote_by_order(order_id):
     """
     Sprawdza czy zamówienie z Baselinker ma powiązaną wycenę w systemie
@@ -1690,7 +1718,7 @@ def check_quote_by_order(order_id):
         }), 500
 
 @quotes_bp.route("/api/quotes/<int:quote_id>/update-variant", methods=['PATCH'])
-@login_required
+@require_module_access('quotes')
 def update_quote_variant(quote_id):
     """Aktualizuje wybrany wariant dla produktu w wycenie"""
     try:
@@ -1807,7 +1835,7 @@ def get_multipliers():
         return jsonify({'error': 'Błąd pobierania grup cenowych'}), 500
 
 @quotes_bp.route('/api/finishing-data', methods=['GET'])
-@login_required
+@require_module_access('quotes')
 def get_finishing_data():
     """Pobiera dane wykończenia - typy i kolory z bazy danych"""
     try:
