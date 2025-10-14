@@ -28,6 +28,7 @@ from functools import wraps
 from modules.logging import get_structured_logger
 from extensions import db
 import pytz
+from modules.users.decorators import require_module_access
 
 # Utworzenie Blueprint dla panelu admin
 admin_bp = Blueprint('production_admin', __name__)
@@ -44,37 +45,6 @@ def get_local_now():
     """
     poland_tz = pytz.timezone('Europe/Warsaw')
     return datetime.now(poland_tz).replace(tzinfo=None)  # Remove timezone info for MySQL compatibility
-
-def admin_required(f):
-    """
-    Dekorator sprawdzający czy użytkownik ma rolę admin
-    
-    Args:
-        f: Funkcja do zabezpieczenia
-        
-    Returns:
-        Zabezpieczona funkcja
-    """
-    @wraps(f)
-    @login_required
-    def decorated_function(*args, **kwargs):
-        if not current_user.is_authenticated:
-            flash('Wymagane logowanie', 'error')
-            return redirect(url_for('auth.login'))
-        
-        if not hasattr(current_user, 'role') or current_user.role.lower() not in ['admin', 'administrator']:
-            logger.warning("Próba dostępu do panelu admin bez uprawnień", extra={
-                'user_id': current_user.id,
-                'user_role': getattr(current_user, 'role', 'unknown'),
-                'endpoint': request.endpoint,
-                'ip': request.remote_addr
-            })
-            flash('Brak uprawnień administratora', 'error')
-            return redirect(url_for('main.dashboard'))
-        
-        return f(*args, **kwargs)
-    
-    return decorated_function
 
 def get_admin_dashboard_data():
     """
@@ -204,7 +174,7 @@ def get_admin_dashboard_data():
 
 @admin_bp.route('/')
 @admin_bp.route('/dashboard')
-@admin_required
+@require_module_access('production')
 def dashboard():
     """
     Dashboard administratora produkcji
@@ -274,7 +244,7 @@ def dashboard():
 # ============================================================================
 
 @admin_bp.route('/config')
-@admin_required
+@require_module_access('production')
 def config_management():
     """
     Panel zarządzania konfiguracją modułu production
@@ -334,7 +304,7 @@ def config_management():
         return redirect(url_for('production_admin.dashboard'))
 
 @admin_bp.route('/config/update', methods=['POST'])
-@admin_required
+@require_module_access('production')
 def update_config():
     """
     Aktualizuje konfigurację modułu production
@@ -393,7 +363,7 @@ def update_config():
         return redirect(url_for('production_admin.config_management'))
 
 @admin_bp.route('/config/cache/clear', methods=['POST'])
-@admin_required
+@require_module_access('production')
 def clear_config_cache():
     """
     Czyści cache konfiguracji
@@ -426,7 +396,7 @@ def clear_config_cache():
 # ============================================================================
 
 @admin_bp.route('/priorities')
-@admin_required
+@require_module_access('production')
 def priority_management():
     """
     Panel zarządzania priorytetami i regułami priorytetyzacji
@@ -509,7 +479,7 @@ def priority_management():
         return redirect(url_for('production_admin.dashboard'))
 
 @admin_bp.route('/priorities/update/<int:config_id>', methods=['POST'])
-@admin_required
+@require_module_access('production')
 def update_priority_config(config_id):
     """
     Aktualizuje konfigurację priorytetu
@@ -590,7 +560,7 @@ def update_priority_config(config_id):
     return redirect(url_for('production_admin.priority_management'))
 
 @admin_bp.route('/priorities/recalculate', methods=['POST'])
-@admin_required
+@require_module_access('production')
 def recalculate_all_priorities():
     """
     Przelicza priorytety wszystkich aktywnych produktów
@@ -675,7 +645,7 @@ def recalculate_all_priorities():
 # ============================================================================
 
 @admin_bp.route('/sync-logs')
-@admin_required
+@require_module_access('production')
 def sync_logs():
     """
     Przegląd logów synchronizacji z Baselinker
@@ -766,7 +736,7 @@ def sync_logs():
         return redirect(url_for('production_admin.dashboard'))
 
 @admin_bp.route('/sync-logs/<int:log_id>')
-@admin_required
+@require_module_access('production')
 def sync_log_detail(log_id):
     """
     Szczegóły konkretnego logu synchronizacji
@@ -814,7 +784,7 @@ def sync_log_detail(log_id):
         return redirect(url_for('production_admin.sync_logs'))
 
 @admin_bp.route('/sync/trigger', methods=['POST'])
-@admin_required
+@require_module_access('production')
 def trigger_manual_sync():
     """
     Uruchamia ręczną synchronizację z Baselinker
@@ -854,7 +824,7 @@ def trigger_manual_sync():
     return redirect(url_for('production_admin.sync_logs'))
 
 @admin_bp.route('/sync-logs/cleanup', methods=['POST'])
-@admin_required
+@require_module_access('production')
 def cleanup_sync_logs():
     """
     Czyści stare logi synchronizacji
@@ -897,7 +867,7 @@ def cleanup_sync_logs():
 # ============================================================================
 
 @admin_bp.route('/errors')
-@admin_required
+@require_module_access('production')
 def error_management():
     """
     Panel zarządzania błędami systemu
@@ -993,7 +963,7 @@ def error_management():
         return redirect(url_for('production_admin.dashboard'))
 
 @admin_bp.route('/errors/<int:error_id>')
-@admin_required
+@require_module_access('production')
 def error_detail(error_id):
     """
     Szczegóły konkretnego błędu
@@ -1043,7 +1013,7 @@ def error_detail(error_id):
         return redirect(url_for('production_admin.error_management'))
 
 @admin_bp.route('/errors/<int:error_id>/resolve', methods=['POST'])
-@admin_required
+@require_module_access('production')
 def resolve_error(error_id):
     """
     Oznacza błąd jako rozwiązany
@@ -1098,7 +1068,7 @@ def resolve_error(error_id):
         return redirect(url_for('production_admin.error_detail', error_id=error_id))
 
 @admin_bp.route('/errors/bulk-resolve', methods=['POST'])
-@admin_required
+@require_module_access('production')
 def bulk_resolve_errors():
     """
     Oznacza wiele błędów jako rozwiązanych
@@ -1381,7 +1351,7 @@ def detailed_stats():
 # ============================================================================
 
 @admin_bp.route('/users')
-@admin_required
+@require_module_access('production')
 def user_management():
     """
     Panel zarządzania użytkownikami stanowisk
@@ -1458,7 +1428,7 @@ def user_management():
 # ============================================================================
 
 @admin_bp.route('/export/config')
-@admin_required
+@require_module_access('production')
 def export_config():
     """
     Eksportuje konfigurację modułu do JSON
@@ -1497,7 +1467,7 @@ def export_config():
         return redirect(url_for('production_admin.config_management'))
 
 @admin_bp.route('/cache/clear-all', methods=['POST'])
-@admin_required
+@require_module_access('production')
 def clear_all_caches():
     """
     Czyści wszystkie cache serwisów production
@@ -1856,7 +1826,7 @@ def highlight_json_filter(json_data):
 # ============================================================================
 
 @admin_bp.route('/ajax/dashboard-stats')
-@admin_required
+@require_module_access('production')
 def ajax_dashboard_stats():
     """
     AJAX endpoint dla odświeżania statystyk dashboardu
@@ -1884,7 +1854,7 @@ def ajax_dashboard_stats():
         }), 500
 
 @admin_bp.route('/ajax/system-errors')
-@admin_required
+@require_module_access('production')
 def ajax_system_errors():
     """
     AJAX endpoint dla pobierania błędów systemu do wyświetlenia w modalboxie
@@ -1960,7 +1930,7 @@ def ajax_system_errors():
 
 
 @admin_bp.route('/ajax/clear-system-errors', methods=['POST'])
-@admin_required
+@require_module_access('production')
 def ajax_clear_system_errors():
     """
     AJAX endpoint dla czyszczenia błędów systemu
@@ -2016,7 +1986,7 @@ def ajax_clear_system_errors():
 
 # Modyfikacja istniejącego endpointu ajax_system_health - dodanie pola błędów
 @admin_bp.route('/ajax/system-health')
-@admin_required
+@require_module_access('production')
 def ajax_system_health():
     """
     AJAX endpoint dla sprawdzania zdrowia systemu
@@ -2098,7 +2068,7 @@ def ajax_system_health():
 # ============================================================================
 
 @admin_bp.route('/debug/module-info')
-@admin_required
+@require_module_access('production')
 def debug_module_info():
     """
     Debug endpoint z informacjami o module production
@@ -2145,7 +2115,7 @@ def debug_module_info():
         }), 500
 
 @admin_bp.route('/security-events')
-@admin_required
+@require_module_access('production')
 def security_events():
     """
     Panel przeglądania zdarzeń bezpieczeństwa

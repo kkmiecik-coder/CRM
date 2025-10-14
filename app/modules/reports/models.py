@@ -223,7 +223,7 @@ class BaselinkerReportOrder(db.Model):
         if not orders:
             return stats
 
-        # NAPRAWKA: Lepsze grupowanie zamówień z obsługą ręcznych wpisów
+        # Grupowanie zamówień z obsługą ręcznych wpisów
         orders_by_unique_id = {}
         for order in orders:
             # Dla zamówień z Baselinker używamy baselinker_order_id
@@ -241,7 +241,7 @@ class BaselinkerReportOrder(db.Model):
             orders_by_unique_id[unique_id]['products'].append(order)
 
         product_level_stats = {
-            'total_m3': 0.0,  # TTL m3 klejonki
+            'total_m3': 0.0,
             'value_net': 0.0,
             'value_gross': 0.0,
             'production_volume': 0.0,
@@ -279,7 +279,7 @@ class BaselinkerReportOrder(db.Model):
             if order.product_type == 'klejonka':
                 product_level_stats['klejonka_value_net'] += float(order.value_net or 0)
 
-            if order.product_type == 'deska':
+            if order.product_type in ['deska', 'tarcica']:
                 product_level_stats['deska_value_net'] += float(order.value_net or 0)
                 product_level_stats['deska_total_m3'] += float(order.total_volume or 0)
 

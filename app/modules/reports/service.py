@@ -975,7 +975,8 @@ class BaselinkerReportsService:
         if order_id:
             parameters = {
                 "order_id": order_id,
-                "include_custom_extra_fields": True
+                "include_custom_extra_fields": True,
+                "get_unconfirmed_orders": True
             }
             if not include_excluded_statuses:
                 parameters["filter_order_status_id"] = "!105112,!138625"
@@ -1910,14 +1911,10 @@ class BaselinkerReportsService:
                         record.baselinker_status_id = status_id
                         record.paid_amount_net = paid_amount_net
                         record.updated_at = datetime.utcnow()
-                        
-                        # Przelicz pola produkcji na podstawie nowego statusu
+        
                         record.update_production_fields()
-                        
-                        # Przelicz saldo (order_amount_net - paid_amount_net)
-                        if record.order_amount_net is not None:
-                            record.balance_due = float(record.order_amount_net) - paid_amount_net
-                        
+                        record.calculate_fields()
+        
                         updated_count += 1
 
                     if not record.price_type and price_type_from_api:
@@ -2053,176 +2050,116 @@ class BaselinkerReportsService:
 
     def fetch_orders_from_date_range(self, date_from: datetime, date_to: datetime, get_all_statuses: bool = False, limit_per_page: int = 100) -> Dict[str, any]:
         """
-        NOWA METODA: Pobiera zamówienia z Baselinker dla konkretnego zakresu dat.
-
+        Pobiera zamówienia z Baselinker dla zakresu dat używając chunków (po 3 dni).
+    
+        Logika:
+        - 1-3 dni = 1 chunk
+        - 4-7 dni = 2-3 chunki
+        - 8-14 dni = 3-5 chunków
+        - 30 dni = 10 chunków
+    
         Args:
-            date_from (datetime): Data początkowa zakresu.
-            date_to (datetime): Data końcowa zakresu.
-            get_all_statuses (bool): Czy pobierać również anulowane/nieopłacone.
-            limit_per_page (int): Limit zamówień zwracanych w pojedynczym zapytaniu API (1-200).
+            date_from (datetime): Data początkowa zakresu
+            date_to (datetime): Data końcowa zakresu
+            get_all_statuses (bool): Czy pobierać również anulowane/nieopłacone
+            limit_per_page (int): Limit zamówień na stronę API (100)
+        
+        Returns:
+            Dict: {
+                'success': bool,
+                'orders': List[Dict],
+                'error': str|None,
+                'chunks_processed': int,
+                'duration_seconds': float
+            }
         """
         try:
-            try:
-                limit_per_page_int = int(limit_per_page)
-            except (TypeError, ValueError):
-                limit_per_page_int = 100
-
-            # Baselinker API obsługuje limit 100 na zapytanie, ale pozwalamy na bezpieczny zakres
-            if limit_per_page_int < 1:
-                limit_per_page_int = 1
-            if limit_per_page_int > 200:
-                limit_per_page_int = 200
-
-            self.logger.info("Pobieranie zamówień dla zakresu dat",
+            import time
+            from datetime import timedelta
+        
+            start_time = time.time()
+        
+            # Oblicz ile dni
+            days_diff = (date_to - date_from).days + 1
+        
+            self.logger.info("Rozpoczęcie pobierania zamówień z chunkowaniem",
                             date_from=date_from.isoformat(),
                             date_to=date_to.isoformat(),
-                            get_all_statuses=get_all_statuses,
-                            limit_per_page=limit_per_page_int)
-
-            headers = {
-                'X-BLToken': self.api_key,
-                'Content-Type': 'application/x-www-form-urlencoded'
-            }
-
+                            days_total=days_diff,
+                            get_all_statuses=get_all_statuses)
+        
+            # Wielkość chunka: 3 dni
+            CHUNK_SIZE_DAYS = 3
+        
             all_orders = []
             seen_order_ids = set()
-            page = 0
-            max_pages = 10  # Bezpiecznik - maksymalnie 10 stron dla zakresu dat
+            chunks_processed = 0
         
-            # Konwertuj daty na timestampy
-            date_from_timestamp = int(date_from.timestamp())
-            date_to_timestamp = int(date_to.timestamp()) + 86399  # Dodaj 23:59:59 do daty końcowej
-
-            self.logger.info("Konwersja dat na timestampy",
-                            date_from_timestamp=date_from_timestamp,
-                            date_to_timestamp=date_to_timestamp)
-
-            while page < max_pages:
-                page += 1
+            current_date = date_from
+        
+            while current_date <= date_to:
+                chunks_processed += 1
             
-                # Parametry zapytania zgodne z API Baselinker
-                parameters = {
-                    "include_custom_extra_fields": True,
-                    "get_unconfirmed_orders": True,
-                    # Filtrowanie po dacie złożenia zamówienia (date_add)
-                    "date_from": date_from_timestamp,
-                    "date_to": date_to_timestamp,
-                    "limit": limit_per_page_int
-                }
-
-                # POPRAWKA: Domyślnie wykluczamy anulowane i nieopłacone (chyba że explicite żądamy wszystkich)
-                if not get_all_statuses:
-                    parameters["filter_order_status_id"] = "!105112,!138625"  # Wykluczamy nieopłacone i anulowane
-
-                self.logger.debug("Pobieranie partii zamówień dla zakresu dat",
-                                page=page,
-                                parameters=parameters,
-                                filtered_excluded_statuses=not get_all_statuses)
-
-                data = {
-                    'method': 'getOrders',
-                    'parameters': json.dumps(parameters)
-                }
-
-                try:
-                    response = requests.post(self.endpoint, headers=headers, data=data, timeout=30)
-                    response.raise_for_status()
-                    result = response.json()
-
-                    if result.get('status') == 'SUCCESS':
-                        batch_orders = result.get('orders', [])
-
-                        # Dodatkowe zabezpieczenie: odrzuć zamówienia spoza zakresu dat na podstawie date_add
-                        filtered_batch = []
-                        for order in batch_orders:
-                            order_date_add = order.get('date_add')
-                            if order_date_add is None:
-                                self.logger.debug("Pomijam zamówienie bez date_add",
-                                                  order_id=order.get('order_id'))
-                                continue
-                            try:
-                                order_date_add = int(order_date_add)
-                            except (TypeError, ValueError):
-                                self.logger.debug("Nieprawidłowe date_add",
-                                                  order_id=order.get('order_id'),
-                                                  date_add=order_date_add)
-                                continue
-
-                            if date_from_timestamp <= order_date_add <= date_to_timestamp:
-                                filtered_batch.append(order)
-                            else:
-                                self.logger.debug("Zamówienie poza zakresem date_add",
-                                                  order_id=order.get('order_id'),
-                                                  date_add=order_date_add)
-
-                        batch_orders = filtered_batch
-
-                        if not batch_orders:
-                            self.logger.info("Brak więcej zamówień - kończę pobieranie",
-                                        page=page, total_collected=len(all_orders))
-                            break
-
-                        # Filtruj duplikaty
-                        new_orders_in_batch = 0
-                        for order in batch_orders:
-                            order_id_val = order.get('order_id')
-                        
-                            if order_id_val not in seen_order_ids:
-                                all_orders.append(order)
-                                seen_order_ids.add(order_id_val)
-                                new_orders_in_batch += 1
-
-                        self.logger.debug("Przetworzona partia dla zakresu dat",
-                                        page=page,
-                                        batch_total=len(batch_orders),
-                                        new_orders=new_orders_in_batch,
-                                        duplicates=len(batch_orders) - new_orders_in_batch,
-                                        total_collected=len(all_orders))
-
-                        # Jeśli mamy mniej niż 100 zamówień w partii, prawdopodobnie to koniec
-                        if len(batch_orders) < 100:
-                            self.logger.info("Partia zawiera mniej niż 100 zamówień - kończę pobieranie zakresu",
-                                           page=page, batch_size=len(batch_orders))
-                            break
-
-                    else:
-                        error_msg = result.get('error_message', 'Nieznany błąd API')
-                        error_code = result.get('error_code', 'Brak kodu błędu')
-                        self.logger.error("Błąd API Baselinker podczas pobierania zakresu dat",
-                                         page=page, error_message=error_msg, error_code=error_code)
-                        return {
-                            'success': False,
-                            'orders': [],
-                            'error': f'Błąd API: {error_msg} (kod: {error_code})',
-                            'pages_processed': page
-                        }
-
-                except requests.exceptions.Timeout:
-                    self.logger.error("Timeout przy pobieraniu partii zakresu dat", page=page)
+                # Oblicz koniec chunka (maksymalnie 3 dni lub do końca zakresu)
+                chunk_end = min(
+                    current_date + timedelta(days=CHUNK_SIZE_DAYS - 1),
+                    date_to
+                )
+            
+                # Pobierz zamówienia dla tego chunka
+                result = self._fetch_single_chunk(
+                    date_from=current_date,
+                    date_to=chunk_end,
+                    get_all_statuses=get_all_statuses,
+                    limit_per_page=limit_per_page
+                )
+            
+                if not result['success']:
+                    self.logger.warning("Błąd podczas pobierania chunka",
+                                      chunk_number=chunks_processed,
+                                      chunk_start=current_date.date(),
+                                      chunk_end=chunk_end.date(),
+                                      error=result['error'])
+                    # Kontynuuj mimo błędu w jednym chunku
+                    current_date = chunk_end + timedelta(days=1)
                     continue
-                
-                except requests.exceptions.RequestException as e:
-                    self.logger.error("Błąd połączenia podczas pobierania zakresu dat", page=page, error=str(e))
-                    continue
-
-            self.logger.info("Zakończono pobieranie zamówień dla zakresu dat",
+            
+                # Dodaj zamówienia z tego chunka (deduplikacja)
+                chunk_orders = result['orders']
+                new_in_chunk = 0
+            
+                for order in chunk_orders:
+                    order_id = order.get('order_id')
+                    if order_id and order_id not in seen_order_ids:
+                        all_orders.append(order)
+                        seen_order_ids.add(order_id)
+                        new_in_chunk += 1
+            
+                # Przejdź do następnego chunka
+                current_date = chunk_end + timedelta(days=1)
+        
+            # Oblicz czas wykonania
+            total_duration = time.time() - start_time
+        
+            self.logger.info("Zakończono pobieranie zamówień z chunkowaniem",
                             total_orders=len(all_orders),
-                            pages_processed=page,
+                            unique_orders=len(seen_order_ids),
+                            chunks_processed=chunks_processed,
                             date_from=date_from.isoformat(),
                             date_to=date_to.isoformat(),
-                            unique_orders=len(seen_order_ids),
-                            get_all_statuses=get_all_statuses,
-                            filtered_excluded_statuses=not get_all_statuses)
-
+                            duration_seconds=round(total_duration, 2),
+                            get_all_statuses=get_all_statuses)
+        
             return {
                 'success': True,
                 'orders': all_orders,
                 'error': None,
-                'pages_processed': page
+                'chunks_processed': chunks_processed,
+                'duration_seconds': round(total_duration, 2)
             }
-
+        
         except Exception as e:
-            self.logger.error("Nieoczekiwany błąd podczas pobierania zamówień dla zakresu dat",
+            self.logger.error("Nieoczekiwany błąd podczas pobierania zamówień z chunkowaniem",
                              error=str(e),
                              error_type=type(e).__name__,
                              date_from=date_from.isoformat(),
@@ -2231,7 +2168,132 @@ class BaselinkerReportsService:
                 'success': False,
                 'orders': [],
                 'error': f'Błąd serwera: {str(e)}',
-                'pages_processed': 0
+                'chunks_processed': 0,
+                'duration_seconds': 0
+            }
+
+    def fetch_orders_from_date_range(self, date_from: datetime, date_to: datetime, get_all_statuses: bool = False, limit_per_page: int = 100) -> Dict[str, any]:
+        """
+        Pobiera zamówienia z Baselinker dla zakresu dat używając chunków (po 3 dni).
+    
+        Logika:
+        - 1-3 dni = 1 chunk
+        - 4-7 dni = 2-3 chunki
+        - 8-14 dni = 3-5 chunków
+        - 30 dni = 10 chunków
+    
+        Args:
+            date_from (datetime): Data początkowa zakresu
+            date_to (datetime): Data końcowa zakresu
+            get_all_statuses (bool): Czy pobierać również anulowane/nieopłacone
+            limit_per_page (int): Limit zamówień na stronę API (100)
+        
+        Returns:
+            Dict: {
+                'success': bool,
+                'orders': List[Dict],
+                'error': str|None,
+                'chunks_processed': int,
+                'duration_seconds': float
+            }
+        """
+        try:
+            import time
+            from datetime import timedelta
+        
+            start_time = time.time()
+        
+            # Oblicz ile dni
+            days_diff = (date_to - date_from).days + 1
+        
+            self.logger.info("Rozpoczęcie pobierania zamówień z chunkowaniem",
+                            date_from=date_from.isoformat(),
+                            date_to=date_to.isoformat(),
+                            days_total=days_diff,
+                            get_all_statuses=get_all_statuses)
+        
+            # Wielkość chunka: 3 dni
+            CHUNK_SIZE_DAYS = 3
+        
+            all_orders = []
+            seen_order_ids = set()
+            chunks_processed = 0
+        
+            current_date = date_from
+        
+            while current_date <= date_to:
+                chunks_processed += 1
+            
+                # Oblicz koniec chunka (maksymalnie 3 dni lub do końca zakresu)
+                chunk_end = min(
+                    current_date + timedelta(days=CHUNK_SIZE_DAYS - 1),
+                    date_to
+                )
+            
+                # Pobierz zamówienia dla tego chunka
+                result = self._fetch_single_chunk(
+                    date_from=current_date,
+                    date_to=chunk_end,
+                    get_all_statuses=get_all_statuses,
+                    limit_per_page=limit_per_page
+                )
+            
+                if not result['success']:
+                    self.logger.warning("Błąd podczas pobierania chunka",
+                                      chunk_number=chunks_processed,
+                                      chunk_start=current_date.date(),
+                                      chunk_end=chunk_end.date(),
+                                      error=result['error'])
+                    # Kontynuuj mimo błędu w jednym chunku
+                    current_date = chunk_end + timedelta(days=1)
+                    continue
+            
+                # Dodaj zamówienia z tego chunka (deduplikacja)
+                chunk_orders = result['orders']
+                new_in_chunk = 0
+            
+                for order in chunk_orders:
+                    order_id = order.get('order_id')
+                    if order_id and order_id not in seen_order_ids:
+                        all_orders.append(order)
+                        seen_order_ids.add(order_id)
+                        new_in_chunk += 1
+            
+                # Przejdź do następnego chunka
+                current_date = chunk_end + timedelta(days=1)
+        
+            # Oblicz czas wykonania
+            total_duration = time.time() - start_time
+        
+            self.logger.info("Zakończono pobieranie zamówień z chunkowaniem",
+                            total_orders=len(all_orders),
+                            unique_orders=len(seen_order_ids),
+                            chunks_processed=chunks_processed,
+                            date_from=date_from.isoformat(),
+                            date_to=date_to.isoformat(),
+                            duration_seconds=round(total_duration, 2),
+                            get_all_statuses=get_all_statuses)
+        
+            return {
+                'success': True,
+                'orders': all_orders,
+                'error': None,
+                'chunks_processed': chunks_processed,
+                'duration_seconds': round(total_duration, 2)
+            }
+        
+        except Exception as e:
+            self.logger.error("Nieoczekiwany błąd podczas pobierania zamówień z chunkowaniem",
+                             error=str(e),
+                             error_type=type(e).__name__,
+                             date_from=date_from.isoformat(),
+                             date_to=date_to.isoformat())
+            return {
+                'success': False,
+                'orders': [],
+                'error': f'Błąd serwera: {str(e)}',
+                'chunks_processed': 0,
+                'duration_seconds': 0
             }
 
     def set_dimension_fixes(self, fixes: Dict):

@@ -9,7 +9,8 @@ os.environ['OPENBLAS_NUM_THREADS'] = '1'
 import pandas as pd
 import io
 import sys
-from flask import render_template, jsonify, request, session, redirect, url_for, flash, Response, make_response
+import traceback
+from flask import render_template, jsonify, request, session, redirect, url_for, flash, Response, make_response, current_app
 from datetime import datetime, timedelta, date
 from functools import wraps
 from extensions import db
@@ -26,6 +27,28 @@ from modules.users.decorators import require_module_access
 # Inicjalizacja loggera
 reports_logger = get_structured_logger('reports.routers')
 reports_logger.info("✅ reports_logger zainicjowany poprawnie w routers.py")
+
+def cron_secret_required(f):
+    """
+    Dekorator dla endpointów CRON wymagających sekretu
+    Używany dla: cron-sync-statuses
+    """
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        cron_secret = request.headers.get('X-Cron-Secret')
+        
+        # Pobierz secret z konfiguracji
+        expected_secret = current_app.config.get('PRODUCTION_CRON_SECRET', 'prod_sync_secret_key_2025')
+        
+        if not cron_secret or cron_secret != expected_secret:
+            reports_logger.warning("CRON: Nieprawidłowy secret", 
+                                 provided_secret_length=len(cron_secret) if cron_secret else 0,
+                                 client_ip=request.remote_addr,
+                                 endpoint=request.endpoint)
+            return jsonify({'success': False, 'error': 'Nieprawidłowy CRON secret'}), 403
+        
+        return f(*args, **kwargs)
+    return decorated_function
 
 def generate_product_key_router(order_id, product, product_index=None):
     """
@@ -1832,6 +1855,7 @@ def api_sync_statuses():
                         record.delivery_cost = new_delivery_cost_gross
                         record.updated_at = datetime.utcnow()
                         record.update_production_fields()
+                        record.calculate_fields()
                         records_updated += 1
 
                     if records_updated > 0:
@@ -2070,6 +2094,12 @@ def api_fetch_orders_for_selection():
             date_to=end_date,
             get_all_statuses=get_all_statuses
         )
+
+        reports_logger.info("DEBUG: Wynik fetch_orders_from_date_range",
+                  success=result.get('success'),
+                  total_orders=len(result.get('orders', [])),
+                  pages_processed=result.get('pages_processed'),
+                  duration=result.get('duration_seconds'))
         
         if not result['success']:
             return jsonify({
@@ -4244,5 +4274,262 @@ def api_map_statistics():
         return jsonify({
             'status': 'error',
             'message': 'Błąd podczas pobierania danych mapy',
+            'error': str(e)
+        }), 500
+
+# === CRON ENDPOINT - Automatyczna synchronizacja statusów ===
+@reports_bp.route('/api/cron/sync-statuses', methods=['GET'])
+@cron_secret_required
+def api_cron_sync_statuses():
+    """
+    Endpoint CRON do automatycznej synchronizacji statusów zamówień
+    
+    Wymaga: 
+    - Header: X-Cron-Secret z wartością z config (PRODUCTION_CRON_SECRET)
+    
+    Wywołanie:
+    curl -H "X-Cron-Secret: YOUR_SECRET_KEY" "https://crm.woodpower.pl/reports/api/cron/sync-statuses"
+    
+    Harmonogram w cron:
+    0 2,8,14,20 * * * /usr/bin/curl --silent -H "X-Cron-Secret: 5GQDA22J38FGVRWE9NWUSL6EM22CG6HF" "https://crm.woodpower.pl/reports/api/cron/sync-statuses"
+    """
+    try:
+        reports_logger.info("CRON: Rozpoczęcie synchronizacji statusów",
+                          client_ip=request.remote_addr,
+                          timestamp=datetime.utcnow().isoformat())
+        
+        # Pobierz serwis
+        service = get_reports_service()
+        
+        # Pobierz zamówienia które mogą być synchronizowane (wykluczamy tylko 105112 i 138625)
+        excluded_status_ids = [105112, 138625]
+        excluded_status_names = [
+            'Nowe - nieopłacone',
+            'Zamówienie anulowane'
+        ]
+        
+        # Pobierz zamówienia z bazy które nie mają wykluczonych statusów
+        orders_to_sync = BaselinkerReportOrder.query.filter(
+            BaselinkerReportOrder.baselinker_order_id.isnot(None),
+            ~BaselinkerReportOrder.baselinker_status_id.in_(excluded_status_ids),
+            ~BaselinkerReportOrder.current_status.in_(excluded_status_names)
+        ).all()
+        
+        if not orders_to_sync:
+            reports_logger.info("CRON: Brak zamówień do synchronizacji",
+                              excluded_status_ids=excluded_status_ids)
+            return jsonify({
+                'success': True,
+                'trigger': 'cron',
+                'timestamp': datetime.utcnow().isoformat(),
+                'summary': 'Brak zamówień do synchronizacji',
+                'orders_processed': 0,
+                'orders_updated': 0,
+                'next_run': 'za 6 godzin'
+            }), 200
+        
+        # Grupuj zamówienia według baselinker_order_id
+        unique_order_ids = list(set(order.baselinker_order_id for order in orders_to_sync))
+        
+        reports_logger.info("CRON: Synchronizacja zamówień",
+                          unique_orders=len(unique_order_ids),
+                          total_records=len(orders_to_sync))
+        
+        # Synchronizuj statusy
+        updated_count = 0
+        processed_count = 0
+        payment_updated_count = 0
+        status_updated_count = 0
+        internal_number_updated_count = 0
+        delivery_updated_count = 0
+        errors_count = 0
+        archived_count = 0
+        sync_start = datetime.utcnow()
+        
+        orders_done = []  # Lista przetworzonych zamówień
+        error_details = {
+            'api_errors': [],
+            'archived_orders': []
+        }
+        
+        # ✅ DEBUG: Słownik do przechowania przykładowych danych API
+        debug_samples = []
+
+        for order_id in unique_order_ids:
+            try:
+                # ✅ POPRAWKA: Pobierz zamówienie BEZ filtrowania statusów
+                order_details = service.get_order_details(order_id, include_excluded_statuses=True)
+                
+                if order_details:
+                    # ✅ DEBUG: Zaloguj szczegóły dla pierwszych 3 zamówień + zamówienie 20126171
+                    if len(debug_samples) < 3 or order_id == 20126171:
+                        debug_info = {
+                            'order_id': order_id,
+                            'has_order_status_id': 'order_status_id' in order_details,
+                            'order_status_id_value': order_details.get('order_status_id'),
+                            'order_status_id_type': type(order_details.get('order_status_id')).__name__,
+                            'has_extra_fields': 'custom_extra_fields' in order_details,
+                            'has_products': 'products' in order_details,
+                            'main_keys': list(order_details.keys())[:15]
+                        }
+                        debug_samples.append(debug_info)
+                        
+                        reports_logger.info("CRON DEBUG: Szczegóły zamówienia z API",
+                                          **debug_info)
+                    
+                    # Pobierz nowy status
+                    new_status_id = order_details.get('order_status_id')
+                    
+                    # ✅ Konwertuj na int (API może zwracać string)
+                    try:
+                        new_status_id = int(new_status_id) if new_status_id else None
+                    except (ValueError, TypeError):
+                        reports_logger.warning("CRON: Nieprawidłowy format status_id",
+                                             order_id=order_id,
+                                             status_id_value=new_status_id,
+                                             status_id_type=type(new_status_id).__name__)
+                        archived_count += 1
+                        error_details['archived_orders'].append({
+                            'order_id': order_id,
+                            'reason': 'Nieprawidłowy format status_id w API',
+                            'status_id_received': str(new_status_id)
+                        })
+                        continue
+    
+                    # ⚠️ Sprawdź czy to wykluczony status - jeśli tak, pomiń
+                    if new_status_id in [105112, 138625]:
+                        reports_logger.info("CRON: Pominięto zamówienie z wykluczonym statusem",
+                                          order_id=order_id,
+                                          status_id=new_status_id,
+                                          status_name=service.status_map.get(new_status_id, f'Status {new_status_id}'))
+                        processed_count += 1
+                        continue
+    
+                    new_status = service.status_map.get(new_status_id, f'Status {new_status_id}')
+                    
+                    # Pobierz kwotę zapłaconą (brutto -> netto)
+                    payment_done = order_details.get('payment_done', 0)
+                    custom_fields = order_details.get('custom_extra_fields', {})
+                    price_type_from_api = custom_fields.get('106169', '').strip()
+                    
+                    new_paid_amount_net = service._calculate_paid_amount_net(payment_done, price_type_from_api)
+                    
+                    # Pobierz numer wewnętrzny z extra_field_1
+                    new_internal_number = order_details.get('extra_field_1', '').strip()
+                    
+                    # Pobierz dane dostawy
+                    new_delivery_method = order_details.get('delivery_method', '').strip()
+                    new_delivery_cost_gross = float(order_details.get('delivery_price', 0))
+                    
+                    records = BaselinkerReportOrder.query.filter_by(
+                        baselinker_order_id=order_id
+                    ).all()
+
+                    records_updated = 0
+                    for record in records:
+                        record.current_status = new_status
+                        record.baselinker_status_id = new_status_id
+                        record.paid_amount_net = new_paid_amount_net
+                        record.internal_order_number = new_internal_number
+                        record.delivery_method = new_delivery_method
+                        record.delivery_cost = new_delivery_cost_gross
+                        record.updated_at = datetime.utcnow()
+                        record.update_production_fields()
+                        record.calculate_fields()  # ✅ POPRAWKA #2 - przelicza balance_due
+                        records_updated += 1
+
+                    if records_updated > 0:
+                        updated_count += records_updated
+                        status_updated_count += 1
+                        orders_done.append(order_id)  # Dodaj do listy przetworzonych
+
+                        if new_paid_amount_net > 0:
+                            payment_updated_count += 1
+
+                        if new_internal_number:
+                            internal_number_updated_count += 1
+
+                        if new_delivery_method or new_delivery_cost_gross > 0:
+                            delivery_updated_count += 1
+                    
+                    processed_count += 1
+                else:
+                    # ✅ Zamówienie niedostępne (prawdopodobnie archiwum)
+                    reports_logger.warning("CRON: Zamówienie nie zwrócone przez API",
+                                         order_id=order_id,
+                                         reason="get_order_details returned None",
+                                         classification="ARCHIVED_OR_UNAVAILABLE")
+            
+                    archived_count += 1
+                    error_details['archived_orders'].append({
+                        'order_id': order_id,
+                        'reason': 'Zamówienie niedostępne przez API Baselinker (prawdopodobnie w archiwum lub usunięte)'
+                    })
+            
+            except Exception as e:
+                # ✅ PRAWDZIWY BŁĄD - wyjątek podczas synchronizacji
+                error_msg = str(e)
+                error_type = type(e).__name__
+        
+                reports_logger.error("CRON: Wyjątek podczas synchronizacji",
+                                   order_id=order_id,
+                                   error_type=error_type,
+                                   error_message=error_msg,
+                                   traceback=traceback.format_exc())
+        
+                errors_count += 1
+                error_details['api_errors'].append({
+                    'order_id': order_id,
+                    'error_type': error_type,
+                    'error_message': error_msg
+                })
+                continue
+        
+        # Zapisz zmiany
+        db.session.commit()
+        
+        duration = (datetime.utcnow() - sync_start).total_seconds()
+        
+        reports_logger.info("CRON: Synchronizacja zakończona",
+                          processed_orders=processed_count,
+                          updated_records=updated_count,
+                          status_updated_count=status_updated_count,
+                          payment_updated_count=payment_updated_count,
+                          api_errors_count=errors_count,
+                          archived_orders_count=archived_count,
+                          duration_seconds=duration)
+        
+        return jsonify({
+            'success': True,
+            'trigger': 'cron',
+            'timestamp': datetime.utcnow().isoformat(),
+            'summary': f'CRON synchronizacja zakończona pomyślnie',
+            'orders_done': orders_done,
+            'stats': {
+                'orders_processed': processed_count,
+                'orders_updated': status_updated_count,
+                'records_updated': updated_count,
+                'payment_updated': payment_updated_count,
+                'internal_number_updated': internal_number_updated_count,
+                'delivery_updated': delivery_updated_count,
+                'api_errors': errors_count,
+                'archived_orders': archived_count
+            },
+            'error_details': error_details,
+            'debug_samples': debug_samples,  # ✅ DEBUG: Przykładowe dane z API
+            'duration_seconds': duration,
+            'next_run': 'za 6 godzin'
+        }), 200
+        
+    except Exception as e:
+        db.session.rollback()
+        reports_logger.error("CRON: Nieoczekiwany błąd synchronizacji",
+                           error=str(e),
+                           error_type=type(e).__name__,
+                           client_ip=request.remote_addr)
+        return jsonify({
+            'success': False,
+            'trigger': 'cron',
+            'timestamp': datetime.utcnow().isoformat(),
             'error': str(e)
         }), 500
