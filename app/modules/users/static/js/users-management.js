@@ -10,6 +10,7 @@ let currentUserId = null;
 let currentUserData = null;
 let rolesCache = null;
 let modulesCache = null;
+let currentEditingRole = null;
 
 document.addEventListener('DOMContentLoaded', function () {
     console.log('🚀 Users Management JS v2.0 - Inicjalizacja...');
@@ -1183,3 +1184,200 @@ function debounce(func, wait) {
         timeout = setTimeout(later, wait);
     };
 }
+
+/* ============================================================================
+   SEKCJA: ZARZĄDZANIE UPRAWNIENIAMI RÓL
+   ============================================================================ */
+
+/**
+ * Inicjalizacja zarządzania uprawnieniami ról
+ */
+function initRolePermissionsManagement() {
+    const roleSelect = document.getElementById('rolePermissionsSelect');
+    const saveBtn = document.getElementById('saveRolePermissions');
+
+    if (!roleSelect || !saveBtn) {
+        console.warn('Elementy zarządzania uprawnieniami ról nie znalezione');
+        return;
+    }
+
+    // Załaduj role
+    loadRolesForPermissions();
+
+    // Event listener na zmianę roli
+    roleSelect.addEventListener('change', function () {
+        const roleId = parseInt(this.value);
+        if (roleId) {
+            loadRoleModules(roleId);
+        }
+    });
+
+    // Event listener na zapisanie
+    saveBtn.addEventListener('click', saveRolePermissions);
+}
+
+/**
+ * Ładuje listę ról do selecta
+ */
+async function loadRolesForPermissions() {
+    try {
+        const response = await fetch('/users/api/roles');
+        if (!response.ok) throw new Error('Błąd pobierania ról');
+
+        const data = await response.json();
+        rolesCache = data;
+
+        renderRolesSelect(data.roles);
+
+    } catch (error) {
+        console.error('Błąd ładowania ról:', error);
+        showToast('Błąd ładowania ról', 'error');
+    }
+}
+
+/**
+ * Renderuje select z rolami
+ */
+function renderRolesSelect(roles) {
+    const roleSelect = document.getElementById('rolePermissionsSelect');
+    if (!roleSelect) return;
+
+    roleSelect.innerHTML = '<option value="">-- Wybierz rolę --</option>';
+
+    roles.forEach(role => {
+        const option = document.createElement('option');
+        option.value = role.role_id;
+        option.textContent = `${getRoleIcon(role.role_name)} ${role.display_name} (${role.modules_count} modułów)`;
+        option.dataset.roleName = role.role_name;
+        option.dataset.isSystem = role.is_system;
+
+        roleSelect.appendChild(option);
+    });
+}
+
+/**
+ * Ładuje moduły dla wybranej roli
+ */
+async function loadRoleModules(roleId) {
+    try {
+        const response = await fetch(`/users/api/role-modules/${roleId}`);
+        if (!response.ok) throw new Error('Błąd pobierania modułów roli');
+
+        const data = await response.json();
+        currentEditingRole = data;
+
+        renderRoleModulesList(data.modules, data.role_name);
+
+    } catch (error) {
+        console.error('Błąd ładowania modułów roli:', error);
+        showToast('Błąd ładowania modułów', 'error');
+    }
+}
+
+/**
+ * Renderuje listę modułów z checkboxami
+ */
+function renderRoleModulesList(modules, roleName) {
+    const modulesList = document.getElementById('roleModulesList');
+    if (!modulesList) return;
+
+    modulesList.innerHTML = '';
+
+    // Header
+    const header = document.createElement('div');
+    header.className = 'role-modules-header';
+    header.innerHTML = `
+        <h4>Uprawnienia dla roli: <strong>${roleName}</strong></h4>
+        <p class="text-muted">Zaznacz moduły, do których rola ma mieć dostęp</p>
+    `;
+    modulesList.appendChild(header);
+
+    // Lista modułów
+    modules.forEach(module => {
+        const moduleItem = document.createElement('div');
+        moduleItem.className = 'role-module-item';
+
+        moduleItem.innerHTML = `
+            <label class="module-checkbox">
+                <input type="checkbox" 
+                       class="role-module-checkbox" 
+                       data-module-id="${module.module_id}"
+                       ${module.has_access ? 'checked' : ''}>
+                <span class="checkbox-custom"></span>
+                <span class="module-icon">${module.icon}</span>
+                <span class="module-name">${module.display_name}</span>
+            </label>
+        `;
+
+        modulesList.appendChild(moduleItem);
+    });
+
+    // ✅ DODAJ TO - Pokaż przycisk "Zapisz"
+    const saveBtn = document.getElementById('saveRolePermissions');
+    if (saveBtn) {
+        saveBtn.style.display = 'inline-flex';
+    }
+}
+
+/**
+ * Zapisuje uprawnienia roli
+ */
+async function saveRolePermissions() {
+    if (!currentEditingRole) {
+        showToast('Wybierz rolę do edycji', 'warning');
+        return;
+    }
+
+    try {
+        const checkboxes = document.querySelectorAll('.role-module-checkbox');
+        const moduleIds = Array.from(checkboxes)
+            .filter(cb => cb.checked)
+            .map(cb => parseInt(cb.dataset.moduleId));
+
+        const saveBtn = document.getElementById('saveRolePermissions');
+        saveBtn.disabled = true;
+        saveBtn.textContent = 'Zapisywanie...';
+
+        const response = await fetch('/users/api/update-role-modules', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                role_id: currentEditingRole.role_id,
+                module_ids: moduleIds
+            })
+        });
+
+        if (!response.ok) throw new Error('Błąd zapisu uprawnień');
+
+        const data = await response.json();
+
+        if (data.success) {
+            showToast(data.message, 'success');
+
+            // Odśwież listę ról (zaktualizuj liczniki)
+            await loadRolesForPermissions();
+
+            // Zaznacz z powrotem edytowaną rolę
+            document.getElementById('rolePermissionsSelect').value = currentEditingRole.role_id;
+
+        } else {
+            throw new Error(data.error || 'Nieznany błąd');
+        }
+
+    } catch (error) {
+        console.error('Błąd zapisywania uprawnień:', error);
+        showToast('Błąd zapisywania uprawnień: ' + error.message, 'error');
+
+    } finally {
+        const saveBtn = document.getElementById('saveRolePermissions');
+        saveBtn.disabled = false;
+        saveBtn.textContent = '💾 Zapisz uprawnienia';
+    }
+}
+
+// Inicjalizacja po załadowaniu DOM
+document.addEventListener('DOMContentLoaded', function () {
+    initRolePermissionsManagement();
+});

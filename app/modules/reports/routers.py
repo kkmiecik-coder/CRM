@@ -4291,7 +4291,7 @@ def api_cron_sync_statuses():
     curl -H "X-Cron-Secret: YOUR_SECRET_KEY" "https://crm.woodpower.pl/reports/api/cron/sync-statuses"
     
     Harmonogram w cron:
-    0 2,8,14,20 * * * /usr/bin/curl --silent -H "X-Cron-Secret: 5GQDA22J38FGVRWE9NWUSL6EM22CG6HF" "https://crm.woodpower.pl/reports/api/cron/sync-statuses"
+    0 2,8,14,20 * * * /usr/bin/curl --silent -H "X-Cron-Secret: SECRET "https://crm.woodpower.pl/reports/api/cron/sync-statuses"
     """
     try:
         reports_logger.info("CRON: Rozpoczęcie synchronizacji statusów",

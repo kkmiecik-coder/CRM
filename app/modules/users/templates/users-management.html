@@ -109,6 +109,37 @@
                         </div>
                     </div>
                 </div>
+
+                <!-- Karta 3: Zarządzanie uprawnieniami ról -->
+                <div class="dashboard-card permissions-card">
+                    <div class="card-header">
+                        <div class="header-left">
+                            <span class="card-icon">🔐</span>
+                            <h3 class="card-title">Uprawnienia ról</h3>
+                        </div>
+                    </div>
+
+                    <div class="card-content">
+                        <div class="permissions-section">
+                            <div class="form-group">
+                                <label for="rolePermissionsSelect">Wybierz rolę do edycji:</label>
+                                <select id="rolePermissionsSelect" class="form-select">
+                                    <option value="">-- Wybierz rolę --</option>
+                                </select>
+                            </div>
+
+                            <div id="roleModulesList" class="role-modules-list">
+                                <p class="text-muted text-center">Wybierz rolę, aby edytować uprawnienia</p>
+                            </div>
+
+                            <div class="permissions-actions">
+                                <button id="saveRolePermissions" class="btn btn-primary" style="display: none;">
+                                    💾 Zapisz uprawnienia
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
             </div>
 
             <!-- Sekcja: Lista użytkowników -->
@@ -315,14 +346,15 @@
                                 <span class="audit-ip"></span>
                             </div>
                         </div>
+
+                        <!-- NOWA SEKCJA: Szczegóły zmiany -->
+                        <div class="audit-details">
+                            <!-- Będzie wypełniane przez JS -->
+                        </div>
+
                         <div class="audit-badge-wrapper">
                             <!-- Badge typu zmiany -->
                         </div>
-                    </div>
-
-                    <!-- NOWA SEKCJA: Szczegóły zmiany -->
-                    <div class="audit-details">
-                        <!-- Będzie wypełniane przez JS -->
                     </div>
 
                     <div class="audit-reason" style="display: none;">

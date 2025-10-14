@@ -1214,7 +1214,6 @@ function renderQuotesTable(quotes) {
     const noResults = document.getElementById("no-results-message");
     wrapper.innerHTML = "";
     if (noResults) noResults.remove();
-
     if (quotes.length === 0) {
         const msg = document.createElement("div");
         msg.id = "no-results-message";
@@ -1223,22 +1222,20 @@ function renderQuotesTable(quotes) {
         wrapper.appendChild(msg);
         return;
     }
-
     quotes.forEach(quote => {
         const card = document.createElement("div");
         card.className = "quote-card";
-
         const statusPill = `
             <div class="quote-status-pill" style="background-color: ${quote.status_color}">
                 ${quote.status_name}
             </div>
         `;
-
         card.innerHTML = `
             <div class="quote-field">${quote.quote_number}</div>
             <div class="quote-field">${new Date(quote.created_at).toLocaleDateString()}</div>
             <div class="quote-field">${quote.client_name || "-"}</div>
             <div class="quote-field">${quote.client_number || "-"}</div>
+            <div class="quote-field">${quote.client_caretaker_name || "-"}</div>
             <div class="quote-field">${quote.source || "-"}</div>
             <div class="quote-field">${statusPill}</div>
             <div class="quote-field">
@@ -1252,11 +1249,9 @@ function renderQuotesTable(quotes) {
         `;
         wrapper.appendChild(card);
     });
-
     document.querySelectorAll(".quotes-btn-detail").forEach(btn => {
         btn.addEventListener("click", async e => {
             const id = e.target.closest("button").dataset.id;
-
             try {
                 const res = await fetch(`/quotes/api/quotes/${id}`);
                 if (!res.ok) throw new Error("Błąd pobierania szczegółów wyceny");
@@ -1268,7 +1263,6 @@ function renderQuotesTable(quotes) {
             }
         });
     });
-
     document.querySelectorAll(".quotes-btn-download").forEach(btn => {
         btn.addEventListener("click", e => {
             const token = e.target.closest("button").dataset.token;

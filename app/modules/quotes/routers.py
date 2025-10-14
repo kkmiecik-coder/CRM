@@ -207,30 +207,35 @@ def quotes_home():
 @quotes_bp.route('/api/quotes')
 @require_module_access('quotes')
 def api_quotes():
-
     try:
         # Mapa statusów
         statuses = {
             s.name: {"id": s.id, "name": s.name, "color": s.color_hex}
             for s in QuoteStatus.query.all()
         }
-
         # ✅ NOWE: Filtrowanie per rola
         base_query = Quote.query.order_by(Quote.created_at.desc())
         quotes = get_filtered_quotes_query(base_query).all()
-
         results = []
         for q in quotes:
             client = q.client
             user = q.user
             status_data = statuses.get(q.quote_status.name if q.quote_status else None, {})
-
+            
+            # NOWE: Pobranie opiekuna klienta (created_by_user_id)
+            client_caretaker_name = None
+            if client and client.created_by_user_id:
+                caretaker_user = User.query.get(client.created_by_user_id)
+                if caretaker_user:
+                    client_caretaker_name = f"{caretaker_user.first_name} {caretaker_user.last_name}".strip()
+            
             result = {
                 "id": q.id,
                 "quote_number": q.quote_number,
                 "created_at": q.created_at.isoformat() if q.created_at else None,
                 "client_number": client.client_number if client else None,
                 "client_name": client.client_name if client else None,
+                "client_caretaker_name": client_caretaker_name,  # NOWE POLE
                 "user_id": user.id if user else None,
                 "user_name": f"{user.first_name} {user.last_name}" if user else None,
                 "source": q.source,
@@ -244,9 +249,7 @@ def api_quotes():
                 "public_token": q.public_token
             }
             results.append(result)
-
         return jsonify(results)
-
     except Exception as e:
         print(f"[api_quotes] Błąd: {str(e)}", file=sys.stderr)
         return jsonify({"error": "Wystapil blad serwera"}), 500

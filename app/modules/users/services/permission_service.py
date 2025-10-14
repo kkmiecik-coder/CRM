@@ -65,10 +65,13 @@ class PermissionService:
             if module.access_type == 'public':
                 return True
             
-            # 3. Moduły 'custom' - zwraca True, moduł sam sprawdza dalej
-            # (np. production ma własną logikę IP whitelist)
+            # 3. Moduły 'custom' - specjalna obsługa
             if module.access_type == 'custom':
-                return True
+                if module_key == 'production':
+                    # Kontynuuj sprawdzanie uprawnień
+                    pass
+                else:
+                    return True
             
             # 4. Sprawdź indywidualne uprawnienia użytkownika
             individual_permission = UserPermission.query.filter_by(

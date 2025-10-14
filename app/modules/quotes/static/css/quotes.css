@@ -469,13 +469,15 @@
     border: none;
     background-color: #fff;
 }
+
 .quote-header-row,
 .quote-card {
     display: grid;
-    grid-template-columns: minmax(80px, 1fr) /* Numer */
+    grid-template-columns: minmax(80px, 1fr) /* Numer wyceny */
     minmax(70px, 1fr) /* Data */
-    minmax(140px, 1fr) /* Nr klienta */
-    minmax(160px, 2fr) /* Nazwa klienta */
+    minmax(140px, 1fr) /* Nazwa klienta */
+    minmax(160px, 2fr) /* Imię i nazwisko */
+    minmax(140px, 1.5fr) /* Opiekun - NOWA KOLUMNA */
     minmax(100px, 1fr) /* Źródło */
     minmax(120px, 1fr) /* Status */
     minmax(200px, 1fr); /* Akcje */
@@ -847,7 +849,7 @@
     background: white;
     border-radius: 24px;
     padding: 24px;
-    max-width: 170vh;
+    max-width: 100vh;
     margin: auto;
     box-shadow: 0 10px 40px rgba(0,0,0,0.2);
     position: relative;

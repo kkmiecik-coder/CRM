@@ -19,44 +19,20 @@ Data: 2025-09-10
 from datetime import datetime, date, timedelta
 from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify
 from flask_login import login_required, current_user
-from functools import wraps
 from modules.logging import get_structured_logger
 from extensions import db
+from modules.users.decorators import require_module_access
 
 # Utworzenie Blueprint dla głównych routów
 main_bp = Blueprint('production_main', __name__)
 logger = get_structured_logger('production.main')
 
 # ============================================================================
-# DECORATORS
-# ============================================================================
-
-def admin_required(f):
-    @wraps(f)
-    @login_required
-    def decorated_function(*args, **kwargs):
-        if not current_user.is_authenticated:
-            flash('Wymagane logowanie', 'error')
-            return redirect(url_for('auth.login'))
-        
-        if not hasattr(current_user, 'role') or current_user.role.lower() not in ['admin', 'administrator']:
-            logger.warning("Odmowa dostępu admin", extra={
-                'user_id': current_user.id,
-                'endpoint': request.endpoint
-            })
-            flash('Brak uprawnień administratora', 'error')
-            # POPRAWIONE - dodano prefix
-            return redirect(url_for('production.production_main.dashboard'))
-        
-        return f(*args, **kwargs)
-    return decorated_function
-
-# ============================================================================
 # ROUTERS - zgodnie z PRD Section 6.1
 # ============================================================================
 
 @main_bp.route('/')
-@login_required
+@require_module_access('production')
 def dashboard():
     """
     GET /production - Dashboard główny (PRD Section 6.1)
@@ -181,7 +157,7 @@ def dashboard():
 
 
 @main_bp.route('/config')
-@admin_required
+@require_module_access('production')
 def config_panel():
     """
     GET /production/config - Panel konfiguracji (PRD Section 6.1)
@@ -244,7 +220,7 @@ def config_panel():
 # ============================================================================
 
 @main_bp.route('/update-priority', methods=['POST'])
-@admin_required
+@require_module_access('production')
 def update_product_priority():
     """
     POST /production/update-priority

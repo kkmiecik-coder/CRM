@@ -25,7 +25,7 @@ import os
 from werkzeug.utils import secure_filename
 
 from . import users_bp
-from .models import User, UserPermission, Module
+from .models import User, UserPermission, Module, Role, RolePermission  # ← DODAJ Role, RolePermission
 from .decorators import access_control, require_module_access
 from .services.user_service import UserService
 from .services.invitation_service import InvitationService
@@ -658,7 +658,7 @@ def get_audit_log_api():
         change_type = request.args.get('change_type', type=str)
         date_from_str = request.args.get('date_from', type=str)
         date_to_str = request.args.get('date_to', type=str)
-        limit = request.args.get('limit', default=50, type=int)
+        limit = request.args.get('limit', default=20, type=int)
         offset = request.args.get('offset', default=0, type=int)
         
         # Parsuj daty
@@ -683,7 +683,7 @@ def get_audit_log_api():
             change_type=change_type,
             date_from=date_from,
             date_to=date_to,
-            limit=min(limit, 100),  # Max 100
+            limit=min(limit, 20),
             offset=offset
         )
         
@@ -694,46 +694,6 @@ def get_audit_log_api():
     
     except Exception as e:
         current_app.logger.exception(f"Błąd API get_audit_log: {e}")
-        return jsonify({
-            'success': False,
-            'error': str(e)
-        }), 500
-
-
-@users_bp.route('/api/roles', methods=['GET'])
-@require_module_access('users')
-def get_roles_api():
-    """
-    API: Pobiera wszystkie role
-    
-    GET /users/api/roles
-    
-    Response:
-    {
-        "success": true,
-        "roles": [
-            {
-                "role_id": 1,
-                "role_name": "admin",
-                "display_name": "Administrator",
-                "users_count": 3,
-                "modules_count": 10
-            },
-            ...
-        ]
-    }
-    """
-    try:
-        stats = RoleService.get_role_statistics()
-        
-        return jsonify({
-            'success': True,
-            'roles': stats.get('roles', []),
-            'total_roles': stats.get('total_roles', 0)
-        })
-    
-    except Exception as e:
-        current_app.logger.exception(f"Błąd API get_roles: {e}")
         return jsonify({
             'success': False,
             'error': str(e)
@@ -821,6 +781,220 @@ def get_role_permissions_api(role_id):
     
     except Exception as e:
         current_app.logger.exception(f"Błąd API get_role_permissions: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+# ============================================================================
+# API - ZARZĄDZANIE UPRAWNIENIAMI RÓL
+# ============================================================================
+
+@users_bp.route('/api/roles', methods=['GET'])
+@require_module_access('users')
+def get_roles_api():
+    """
+    API: Pobiera listę wszystkich ról z liczbą uprawnień
+    
+    GET /users/api/roles
+    
+    Response:
+    {
+        "success": true,
+        "roles": [
+            {
+                "role_id": 1,
+                "role_name": "admin",
+                "display_name": "Administrator",
+                "is_system": true,
+                "modules_count": 10,
+                "users_count": 5
+            },
+            ...
+        ]
+    }
+    """
+    try:
+        from sqlalchemy import func
+        
+        roles = Role.query.filter_by(is_active=True).all()
+        
+        roles_data = []
+        for role in roles:
+            # Policz uprawnienia (moduły)
+            modules_count = RolePermission.query.filter_by(role_id=role.id).count()
+            
+            # Policz użytkowników z tą rolą
+            users_count = User.query.filter_by(role_id=role.id, active=True).count()
+            
+            roles_data.append({
+                'role_id': role.id,
+                'role_name': role.role_name,
+                'display_name': role.display_name,
+                'description': role.description,
+                'is_system': role.is_system,
+                'modules_count': modules_count,
+                'users_count': users_count
+            })
+        
+        return jsonify({
+            'success': True,
+            'roles': roles_data
+        })
+    
+    except Exception as e:
+        current_app.logger.exception(f"Błąd API get_roles: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@users_bp.route('/api/role-modules/<int:role_id>', methods=['GET'])
+@require_module_access('users')
+def get_role_modules_api(role_id):
+    """
+    API: Pobiera listę modułów dla roli z informacją czy rola ma dostęp
+    
+    GET /users/api/role-modules/1
+    
+    Response:
+    {
+        "success": true,
+        "role_id": 1,
+        "role_name": "admin",
+        "modules": [
+            {
+                "module_id": 2,
+                "module_key": "quotes",
+                "display_name": "Wyceny",
+                "icon": "📊",
+                "access_type": "protected",
+                "has_access": true
+            },
+            ...
+        ]
+    }
+    """
+    try:
+        role = Role.query.get_or_404(role_id)
+        
+        # Pobierz wszystkie aktywne moduły (oprócz public i custom)
+        all_modules = Module.query.filter_by(is_active=True)\
+                                   .filter(Module.access_type.in_(['protected']))\
+                                   .order_by(Module.sort_order).all()
+        
+        # Pobierz uprawnienia roli
+        role_module_ids = [rp.module_id for rp in RolePermission.query.filter_by(role_id=role_id).all()]
+        
+        modules_data = []
+        for module in all_modules:
+            modules_data.append({
+                'module_id': module.id,
+                'module_key': module.module_key,
+                'display_name': module.display_name,
+                'icon': module.icon,
+                'access_type': module.access_type,
+                'has_access': module.id in role_module_ids
+            })
+        
+        return jsonify({
+            'success': True,
+            'role_id': role_id,
+            'role_name': role.role_name,
+            'display_name': role.display_name,
+            'modules': modules_data
+        })
+    
+    except Exception as e:
+        current_app.logger.exception(f"Błąd API get_role_modules: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@users_bp.route('/api/update-role-modules', methods=['POST'])
+@require_module_access('users')
+def update_role_modules_api():
+    """
+    API: Aktualizuje uprawnienia roli (które moduły ma)
+    
+    POST /users/api/update-role-modules
+    
+    Request Body:
+    {
+        "role_id": 3,
+        "module_ids": [2, 8, 11]  // Lista ID modułów które rola powinna mieć
+    }
+    
+    Response:
+    {
+        "success": true,
+        "message": "Uprawnienia roli zaktualizowane",
+        "role_id": 3,
+        "modules_count": 3
+    }
+    """
+    try:
+        data = request.get_json()
+        
+        if not data:
+            return jsonify({
+                'success': False,
+                'error': 'Brak danych w request'
+            }), 400
+        
+        role_id = data.get('role_id')
+        module_ids = data.get('module_ids', [])
+        
+        if not role_id:
+            return jsonify({
+                'success': False,
+                'error': 'Brak role_id'
+            }), 400
+        
+        # Pobierz rolę
+        role = Role.query.get(role_id)
+        if not role:
+            return jsonify({
+                'success': False,
+                'error': f'Rola o ID {role_id} nie istnieje'
+            }), 404
+        
+        # Pobierz ID zalogowanego admina
+        admin_email = session.get('user_email')
+        admin_user = User.query.filter_by(email=admin_email).first()
+        admin_user_id = admin_user.id if admin_user else None
+        
+        # Użyj RoleService do aktualizacji
+        success = RoleService.update_role_permissions(
+            role_id=role_id,
+            module_ids=module_ids,
+            changed_by_user_id=admin_user_id
+        )
+        
+        if success:
+            current_app.logger.info(f"Zaktualizowano uprawnienia roli {role.role_name}", extra={
+                'role_id': role_id,
+                'modules_count': len(module_ids),
+                'admin_user_id': admin_user_id
+            })
+            
+            return jsonify({
+                'success': True,
+                'message': f'Uprawnienia roli "{role.display_name}" zaktualizowane',
+                'role_id': role_id,
+                'modules_count': len(module_ids)
+            })
+        else:
+            return jsonify({
+                'success': False,
+                'error': 'Błąd aktualizacji uprawnień'
+            }), 500
+    
+    except Exception as e:
+        current_app.logger.exception(f"Błąd API update_role_modules: {e}")
         return jsonify({
             'success': False,
             'error': str(e)
