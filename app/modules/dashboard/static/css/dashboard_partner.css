@@ -1,0 +1,274 @@
+/* ============================================================================
+   DASHBOARD PARTNERA - DEDYKOWANY CSS
+   ============================================================================ */
+
+/* Główny kontener dashboardu partnera */
+.partner-dashboard {
+    background: linear-gradient(135deg, #f5f7fa 0%, #e8ecf1 100%);
+}
+
+/* Partner Grid - dostosowana siatka */
+.partner-grid {
+    display: grid;
+    grid-template-columns: repeat(12, 1fr);
+    gap: 1.5rem;
+    margin-bottom: 2rem;
+}
+
+/* ============================================================================
+   WIERSZ 1: PODSUMOWANIE + POGODA
+   ============================================================================ */
+
+/* Statystyki partnera - 8 kolumn */
+.partner-stats {
+    grid-column: span 8;
+    background: linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%);
+    border: 2px solid #e8ecf1;
+}
+
+    .partner-stats .stats-grid {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 1rem;
+    }
+
+    .partner-stats .stat-card {
+        text-align: center;
+        padding: 1.5rem 1rem;
+        background: linear-gradient(135deg, #fef8f3 0%, #fff5eb 100%);
+        border-radius: 12px;
+        border: 2px solid #fed7aa;
+        transition: all 0.3s;
+        position: relative;
+    }
+
+        .partner-stats .stat-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 8px 20px rgba(237, 107, 36, 0.15);
+            border-color: #ED6B24;
+        }
+
+    .partner-stats .stat-number {
+        font-size: 2.25rem;
+        font-weight: 700;
+        color: #ED6B24;
+        margin-bottom: 0.5rem;
+        line-height: 1;
+    }
+
+    .partner-stats .stat-label {
+        font-size: 0.8rem;
+        color: #64748b;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        margin-bottom: 0.5rem;
+    }
+
+    /* NOWE: Ratio (X / Y) */
+    .partner-stats .stat-ratio {
+        font-size: 0.875rem;
+        color: #475569;
+        font-weight: 500;
+        margin-top: 0.5rem;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0.25rem;
+    }
+
+    .partner-stats .stat-percentage {
+        color: #ED6B24;
+        font-weight: 600;
+    }
+
+    /* NOWE: Sublabel (dodatkowy opis) */
+    .partner-stats .stat-sublabel {
+        font-size: 0.7rem;
+        color: #94a3b8;
+        font-weight: 400;
+        margin-top: 0.25rem;
+        font-style: italic;
+    }
+
+    /* Highlight - 4-ta karta (wartość zamówień) */
+    .partner-stats .stat-card.highlight {
+        background: linear-gradient(135deg, #ED6B24 0%, #f97316 100%);
+        border-color: #ED6B24;
+        animation: partnerPulse 2s infinite;
+    }
+
+        .partner-stats .stat-card.highlight .stat-number,
+        .partner-stats .stat-card.highlight .stat-label,
+        .partner-stats .stat-card.highlight .stat-sublabel {
+            color: white;
+        }
+
+/* Pogoda partnera - 4 kolumny */
+.partner-grid .weather-widget {
+    grid-column: span 4;
+}
+
+/* ============================================================================
+   WIERSZ 2: NOWOŚCI + OSTATNIE DZIAŁANIA + TOP PRODUKTY
+   ============================================================================ */
+
+/* Nowości - 4 kolumny */
+.partner-grid .changelog-widget {
+    grid-column: span 4;
+}
+
+/* Ostatnie działania - 4 kolumny */
+.partner-grid .recent-activity {
+    grid-column: span 4;
+}
+
+/* Top produkty - 4 kolumny */
+.partner-grid .top-products {
+    grid-column: span 4;
+}
+
+/* ============================================================================
+   DOSTOSOWANIE WIDGETÓW DLA PARTNERA
+   ============================================================================ */
+
+/* Dostosowanie Quick Actions dla partnera */
+.partner-dashboard .quick-actions-bar {
+    background: linear-gradient(135deg, #ffffff 0%, #fef8f3 100%);
+    border: 2px solid #fed7aa;
+}
+
+.partner-dashboard .quick-action-btn {
+    background: #fef8f3;
+    border: 1px solid #fed7aa;
+    color: #ED6B24;
+    font-weight: 600;
+}
+
+    .partner-dashboard .quick-action-btn:hover {
+        background: #ED6B24;
+        color: white;
+        border-color: #ED6B24;
+    }
+
+/* Dostosowanie tytułu strony */
+.partner-dashboard .page-title {
+    color: #ED6B24;
+}
+
+/* Dostosowanie greetingu */
+.partner-dashboard .user-greeting {
+    background: linear-gradient(135deg, #ffffff 0%, #fef8f3 100%);
+    border: 2px solid #fed7aa;
+}
+
+    .partner-dashboard .user-greeting:hover {
+        box-shadow: 0 4px 15px rgba(237, 107, 36, 0.2);
+    }
+
+/* ============================================================================
+   DODATKOWE AKCENTY KOLORYSTYCZNE
+   ============================================================================ */
+
+/* Podświetlenie najważniejszych elementów */
+.partner-dashboard .widget {
+    border-left: 4px solid #ED6B24;
+}
+
+.partner-dashboard .widget-title {
+    color: #ED6B24;
+}
+
+.partner-dashboard .widget-icon {
+    color: #ED6B24;
+    font-size: 1.5rem;
+}
+
+/* ============================================================================
+   ANIMACJE
+   ============================================================================ */
+
+@keyframes partnerPulse {
+    0%, 100% {
+        box-shadow: 0 0 0 0 rgba(237, 107, 36, 0.4);
+    }
+
+    50% {
+        box-shadow: 0 0 0 10px rgba(237, 107, 36, 0);
+    }
+}
+
+/* ============================================================================
+   RESPONSYWNOŚĆ
+   ============================================================================ */
+
+@media (max-width: 1400px) {
+    /* Dostosowanie dla mniejszych ekranów */
+    .partner-stats {
+        grid-column: span 12;
+    }
+
+    .partner-grid .weather-widget {
+        grid-column: span 12;
+    }
+
+    .partner-grid .changelog-widget,
+    .partner-grid .recent-activity,
+    .partner-grid .top-products {
+        grid-column: span 6;
+    }
+}
+
+@media (max-width: 768px) {
+    /* Mobile */
+    .partner-grid > * {
+        grid-column: span 12 !important;
+    }
+
+    .partner-stats .stats-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+
+    .partner-stats .stat-number {
+        font-size: 1.75rem;
+    }
+
+    .partner-stats .stat-ratio {
+        font-size: 0.75rem;
+    }
+}
+
+@media (max-width: 480px) {
+    /* Extra small screens */
+    .partner-stats .stats-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .partner-stats .stat-card {
+        padding: 1rem 0.75rem;
+    }
+}
+
+/* ============================================================================
+   DODATKOWE STYLE DLA STAT-CARD
+   ============================================================================ */
+
+/* Separator między liczbą a ratio */
+.partner-stats .stat-card .stat-number + .stat-label + .stat-ratio::before {
+    content: '';
+    display: block;
+    width: 40px;
+    height: 2px;
+    background: #fed7aa;
+    margin: 0.5rem auto;
+}
+
+.partner-stats .stat-card.highlight .stat-number + .stat-label + .stat-ratio::before {
+    background: rgba(255, 255, 255, 0.3);
+}
+
+/* Hover effects dla ratio */
+.partner-stats .stat-card:hover .stat-percentage {
+    transform: scale(1.1);
+    display: inline-block;
+}

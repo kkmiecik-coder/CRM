@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <title>Panel Partnera - Wood Power CRM</title>
+    <link rel="icon" href="{{ url_for('static', filename='images/favicon.png') }}" type="image/png">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="stylesheet" href="{{ url_for('dashboard.static', filename='css/dashboard.css') }}">
+    <link rel="stylesheet" href="{{ url_for('dashboard.static', filename='css/dashboard_partner.css') }}">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Sidebar systemowy -->
+        {% include 'sidebar/sidebar.html' %}
+
+        <!-- Main Content -->
+        <main class="main-content partner-dashboard">
+
+            <!-- Header -->
+            <div class="dashboard-header">
+                <div class="header-top">
+                    <h1 class="page-title title-with-underline">🤝 Panel Partnera</h1>
+
+                    <!-- Quick Actions Bar -->
+                    <div class="quick-actions-bar">
+                        <div class="quick-actions-list">
+                            <a href="/calculator/" class="quick-action-btn">
+                                <span class="quick-action-icon">🧮</span>
+                                Nowa Wycena
+                            </a>
+                            <a href="/quotes" class="quick-action-btn">
+                                <span class="quick-action-icon">📄</span>
+                                Moje Wyceny
+                            </a>
+                        </div>
+                    </div>
+
+                    <div class="user-greeting" id="user-greeting">
+                        <div class="avatar-container">
+                            <div class="user-avatar" style="background-image: url('{{ user.avatar_path or url_for('static', filename='images/avatars/default_avatars/avatar1.svg') }}');"></div>
+                        </div>
+                        <div class="greeting-text">
+                            {% if user and (user.first_name or user.last_name) %}
+                            Witaj, {{ user.first_name }} {{ user.last_name }}! 👋
+                            {% else %}
+                            Witaj, {{ user.email }}! 👋
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Dashboard Grid -->
+            <div class="dashboard-grid partner-grid">
+
+                <!-- WIERSZ 1 -->
+                <!-- Statystyki partnera (8 kolumn) -->
+                <div class="widget stats-overview partner-stats">
+                    <h2 class="widget-title">
+                        <span class="widget-icon">📊</span>
+                        Twoje statystyki
+                    </h2>
+                    <div class="stats-grid">
+
+                        <!-- Karta 1: Wyceny w miesiącu -->
+                        <div class="stat-card">
+                            <div class="stat-number">{{ stats.quotes.month_count }}</div>
+                            <div class="stat-label">Wyceny w miesiącu</div>
+                        </div>
+
+                        <!-- Karta 2: Zaakceptowane (liczba + %) -->
+                        <div class="stat-card">
+                            <div class="stat-number">{{ stats.quotes.accepted_count }}</div>
+                            <div class="stat-label">Zaakceptowane</div>
+                            <div class="stat-ratio">
+                                {{ stats.quotes.accepted_count }} / {{ stats.quotes.month_count }}
+                                <span class="stat-percentage">({{ "%.1f"|format(stats.quotes.acceptance_rate) }}%)</span>
+                            </div>
+                        </div>
+
+                        <!-- Karta 3: Zamówione (liczba + %) -->
+                        <div class="stat-card">
+                            <div class="stat-number">{{ stats.quotes.ordered_count }}</div>
+                            <div class="stat-label">Zamówione</div>
+                            <div class="stat-ratio">
+                                {{ stats.quotes.ordered_count }} / {{ stats.quotes.month_count }}
+                                <span class="stat-percentage">({{ "%.1f"|format(stats.quotes.ordered_rate) }}%)</span>
+                            </div>
+                        </div>
+
+                        <!-- Karta 4: Wartość zamówień netto -->
+                        <div class="stat-card highlight">
+                            <div class="stat-number">{{ "%.2f"|format(stats.quotes.ordered_value_net) }}zł</div>
+                            <div class="stat-label">Wartość produktów netto</div>
+                        </div>
+
+                    </div>
+                </div>
+
+                <!-- Pogoda (4 kolumny) -->
+                {% include 'widgets/weather_widget.html' %}
+
+                <!-- WIERSZ 2 -->
+                <!-- Nowości w aplikacji (4 kolumny) -->
+                {% include 'widgets/changelog_widget.html' %}
+
+                <!-- Ostatnie działania (4 kolumny) -->
+                {% include 'widgets/recent_activity_widget.html' %}
+
+                <!-- Top produkty (4 kolumny) -->
+                {% include 'widgets/top_products_widget.html' %}
+
+            </div>
+        </main>
+    </div>
+
+    <!-- Skrypty -->
+    <script src="{{ url_for('static', filename='js/sidebar.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+
+    <script>
+        // Przekazujemy dane z backendu do JavaScript
+        window.dashboardStats = {{ stats|tojson }};
+        window.weatherData = {{ weather|tojson }};
+        window.topProducts = {{ top_products|tojson }};
+
+        console.log('[Partner Dashboard] Stats:', window.dashboardStats);
+        console.log('[Partner Dashboard] Weather:', window.weatherData);
+        console.log('[Partner Dashboard] Top Products:', window.topProducts);
+    </script>
+
+    <!-- Ten sam JS co dashboard normalny -->
+    <script src="{{ url_for('dashboard.static', filename='js/dashboard.js') }}"></script>
+</body>
+</html>

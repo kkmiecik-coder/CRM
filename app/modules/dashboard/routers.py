@@ -4,12 +4,14 @@ from . import dashboard_bp
 from .services.stats_service import get_dashboard_stats
 from .services.weather_service import get_weather_data
 from .services.chart_service import get_quotes_chart_data, get_top_products_data, get_production_overview
+from .services.partner_stats_service import get_partner_dashboard_stats, get_partner_top_products_data
 from ..calculator.models import User
 import logging
 from datetime import datetime
 from .services.user_activity_service import UserActivityService
 from .models import UserSession
 from modules.users.decorators import require_module_access
+import traceback
 
 logger = logging.getLogger(__name__)
 
@@ -17,66 +19,107 @@ logger = logging.getLogger(__name__)
 @dashboard_bp.route('/dashboard')
 @require_module_access('dashboard')
 def dashboard():
-    """Główna strona dashboard z nowymi widgetami"""
+    """Główna strona dashboard - renderuje odpowiedni widok w zależności od roli"""
     user_email = session.get('user_email')
     user = User.query.filter_by(email=user_email).first()
     
-    logger.info("[Dashboard] DEBUG: Starting dashboard route")
-    logger.info(f"[Dashboard] DEBUG: User email: {user_email}")
-    logger.info(f"[Dashboard] DEBUG: User object: {user}")
+    logger.info("[Dashboard] Starting dashboard route")
+    logger.info(f"[Dashboard] User: {user_email}, Role: {user.role if user else 'None'}")
     
-    # Pobieranie danych dla dashboard
+    # WARUNEK ROLI - renderuj odpowiedni dashboard
+    if user and user.is_partner():
+        logger.info("[Dashboard] Renderowanie dashboardu partnera")
+        return render_partner_dashboard(user)
+    else:
+        logger.info("[Dashboard] Renderowanie dashboardu admin/user")
+        return render_admin_dashboard(user)
+
+def render_partner_dashboard(user):
+    """Renderuje dashboard dla partnera"""
+    try:
+        # Statystyki TYLKO dla tego partnera
+        partner_stats = get_partner_dashboard_stats(user)
+        
+        # Dane pogodowe (ogólne)
+        weather_data = get_weather_data()
+        
+        # Top produkty partnera
+        top_products = get_partner_top_products_data(user.id, limit=5)
+        
+        logger.info(f"[Dashboard Partner] Statystyki partnera: {partner_stats['quotes']}")
+        
+        return render_template('dashboard_partner.html',
+                             user_email=user.email,
+                             user=user,
+                             stats=partner_stats,
+                             weather=weather_data,
+                             top_products=top_products)
+    
+    except Exception as e:
+        logger.exception("[Dashboard] Błąd dashboard partnera")
+        logger.error(f"[Dashboard] Exception type: {type(e).__name__}")
+        logger.error(f"[Dashboard] Exception message: {str(e)}")    
+        logger.error(f"[Dashboard] Full traceback:\n{traceback.format_exc()}")
+        
+        # Fallback values
+        fallback_stats = {
+            'quotes': {
+                'month_count': 0,
+                'accepted_count': 0,
+                'acceptance_rate': 0.0,
+                'ordered_count': 0,
+                'ordered_rate': 0.0,
+                'ordered_value_net': 0.0
+            },
+            'recent': {'quotes': []}
+        }
+        
+        return render_template('dashboard_partner.html',
+                             user=user,
+                             stats=fallback_stats,
+                             weather={'success': False},
+                             top_products=[])
+
+
+def render_admin_dashboard(user):
+    """Renderuje dashboard dla admin/user (OBECNA LOGIKA)"""
     try:
         # Podstawowe statystyki
-        logger.info("[Dashboard] DEBUG: Getting dashboard stats...")
+        logger.info("[Dashboard] Getting dashboard stats...")
         dashboard_stats = get_dashboard_stats(user)
         logger.info("[Dashboard] Retrieved stats: %s", dashboard_stats)
         
         # Dane pogodowe
-        logger.info("[Dashboard] DEBUG: Getting weather data...")
+        logger.info("[Dashboard] Getting weather data...")
         weather_data = get_weather_data()
         logger.info("[Dashboard] Retrieved weather: %s", weather_data.get('city', 'unknown'))
         
         # Dane dla wykresu wycen
-        logger.info("[Dashboard] DEBUG: Getting chart data...")
+        logger.info("[Dashboard] Getting chart data...")
         chart_data = get_quotes_chart_data(months=6)
         logger.info("[Dashboard] Retrieved chart data: %s months", len(chart_data.get('labels', [])))
         
-        # DEBUG - sprawdź szczegóły chart_data
-        logger.info(f"[Dashboard] DEBUG: Chart data type: {type(chart_data)}")
-        logger.info(f"[Dashboard] DEBUG: Chart data keys: {chart_data.keys() if isinstance(chart_data, dict) else 'Not a dict'}")
-        
-        if 'summary' in chart_data:
-            logger.info("[Dashboard] DEBUG: Chart summary - total: %s, accepted: %s, ordered: %s", 
-                       chart_data['summary'].get('total_quotes', 0),
-                       chart_data['summary'].get('accepted_quotes', 0), 
-                       chart_data['summary'].get('ordered_quotes', 0))
-        else:
-            logger.warning("[Dashboard] DEBUG: No 'summary' key in chart_data!")
-        
-        if 'labels' in chart_data:
-            logger.info(f"[Dashboard] DEBUG: Chart labels: {chart_data['labels']}")
-        else:
-            logger.warning("[Dashboard] DEBUG: No 'labels' key in chart_data!")
-        
-        if 'datasets' in chart_data:
-            logger.info(f"[Dashboard] DEBUG: Chart datasets: {chart_data['datasets']}")
-        else:
-            logger.warning("[Dashboard] DEBUG: No 'datasets' key in chart_data!")
-        
         # Top produkty
-        logger.info("[Dashboard] DEBUG: Getting top products...")
+        logger.info("[Dashboard] Getting top products...")
         top_products = get_top_products_data(limit=5)
         logger.info("[Dashboard] Retrieved top products: %s items", len(top_products))
         
-        # Dane produkcji (opcjonalne)
-        logger.info("[Dashboard] DEBUG: Getting production data...")
+        # Dane produkcji
+        logger.info("[Dashboard] Getting production data...")
         production_data = get_production_overview()
         logger.info("[Dashboard] Retrieved production data: %s total items", production_data.get('total_items', 0))
         
+        return render_template('dashboard.html',
+                             user_email=user.email,
+                             user=user,
+                             stats=dashboard_stats,
+                             weather=weather_data,
+                             chart_data=chart_data,
+                             top_products=top_products,
+                             production_data=production_data)
+        
     except Exception as e:
         logger.exception("[Dashboard] Błąd pobierania danych")
-        logger.error(f"[Dashboard] DEBUG: Exception in dashboard route: {type(e).__name__}: {e}")
         
         # Fallback values
         dashboard_stats = {
@@ -89,78 +132,19 @@ def dashboard():
         chart_data = {'summary': {'total_quotes': 0, 'accepted_quotes': 0, 'ordered_quotes': 0}}
         top_products = []
         production_data = {'total_items': 0, 'statuses': []}
-    
-    logger.info("[Dashboard] DEBUG: Rendering template with data...")
-    logger.info(f"[Dashboard] DEBUG: Final chart_data being passed to template: {chart_data}")
-    
-    return render_template('dashboard.html',
-                         user_email=user_email,
-                         user=user,
-                         stats=dashboard_stats,
-                         weather=weather_data,
-                         chart_data=chart_data,
-                         top_products=top_products,
-                         production_data=production_data)
+        
+        return render_template('dashboard.html',
+                             user_email=user.email,
+                             user=user,
+                             stats=dashboard_stats,
+                             weather=weather_data,
+                             chart_data=chart_data,
+                             top_products=top_products,
+                             production_data=production_data)
 
-# Dodaj endpoint debugowania
-@dashboard_bp.route('/debug/database')
-@require_module_access('dashboard')
-def debug_database():
-    """Debug endpoint - sprawdź stan bazy danych"""
-    try:
-        from ...quotes.models import Quote
-        from ...baselinker.models import BaselinkerReportsOrders
-        
-        logger.info("[Dashboard] DEBUG: Database debug endpoint called")
-        
-        # Sprawdź tabele
-        quotes_count = Quote.query.count()
-        orders_count = BaselinkerReportsOrders.query.count()
-        
-        logger.info(f"[Dashboard] DEBUG: Quotes count: {quotes_count}")
-        logger.info(f"[Dashboard] DEBUG: Orders count: {orders_count}")
-        
-        # Przykładowe rekordy
-        sample_quotes = Quote.query.limit(3).all()
-        sample_orders = BaselinkerReportsOrders.query.limit(3).all()
-        
-        debug_info = {
-            'quotes_table': {
-                'exists': True,
-                'count': quotes_count,
-                'sample_ids': [q.id for q in sample_quotes],
-                'sample_dates': [q.created_at.isoformat() if q.created_at else None for q in sample_quotes],
-                'sample_data': [
-                    {
-                        'id': q.id,
-                        'quote_number': q.quote_number,
-                        'created_at': q.created_at.isoformat() if q.created_at else None,
-                        'acceptance_date': q.acceptance_date.isoformat() if q.acceptance_date else None
-                    } for q in sample_quotes
-                ]
-            },
-            'orders_table': {
-                'exists': True, 
-                'count': orders_count,
-                'sample_ids': [o.id for o in sample_orders],
-                'sample_dates': [o.date_created.isoformat() if o.date_created else None for o in sample_orders],
-                'sample_data': [
-                    {
-                        'id': o.id,
-                        'baselinker_order_id': o.baselinker_order_id,
-                        'date_created': o.date_created.isoformat() if o.date_created else None,
-                        'customer_name': o.customer_name
-                    } for o in sample_orders
-                ]
-            }
-        }
-        
-        logger.info(f"[Dashboard] DEBUG: Database info: {debug_info}")
-        return debug_info
-        
-    except Exception as e:
-        logger.exception(f"[Dashboard] DEBUG: Error in database debug: {e}")
-        return {'error': str(e), 'type': type(e).__name__}
+
+
+
 
 @dashboard_bp.route('/api/refresh-stats')
 @require_module_access('dashboard')  
