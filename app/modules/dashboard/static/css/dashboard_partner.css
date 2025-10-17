@@ -166,23 +166,6 @@
         box-shadow: 0 4px 15px rgba(237, 107, 36, 0.2);
     }
 
-/* ============================================================================
-   DODATKOWE AKCENTY KOLORYSTYCZNE
-   ============================================================================ */
-
-/* Podświetlenie najważniejszych elementów */
-.partner-dashboard .widget {
-    border-left: 4px solid #ED6B24;
-}
-
-.partner-dashboard .widget-title {
-    color: #ED6B24;
-}
-
-.partner-dashboard .widget-icon {
-    color: #ED6B24;
-    font-size: 1.5rem;
-}
 
 /* ============================================================================
    ANIMACJE

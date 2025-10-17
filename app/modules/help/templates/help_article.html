@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ article.title }} - Pomoc - Wood Power CRM</title>
+    <link rel="icon" href="{{ url_for('static', filename='images/favicon.png') }}" type="image/png">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="stylesheet" href="{{ url_for('help.static', filename='css/help_interface.css') }}">
+    <link rel="stylesheet" href="{{ url_for('help.static', filename='css/help_article.css') }}">
+    <!-- Font Awesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Google Fonts - Poppins -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="app-container">
+        {% include 'sidebar/sidebar.html' %}
+        
+        <main class="main-content">
+            <div class="help-article-container">
+                <!-- Breadcrumbs -->
+                <nav class="help-article-breadcrumbs">
+                    <a href="{{ url_for('help.index') }}" class="help-breadcrumb-item">
+                        <i class="fas fa-home"></i>
+                        <span>Pomoc</span>
+                    </a>
+                    <i class="fas fa-chevron-right help-breadcrumb-separator"></i>
+                    <span class="help-breadcrumb-item help-breadcrumb-category">
+                        {{ article.category.icon }} {{ article.category.name }}
+                    </span>
+                    <i class="fas fa-chevron-right help-breadcrumb-separator"></i>
+                    <span class="help-breadcrumb-item help-breadcrumb-current">
+                        {{ article.title }}
+                    </span>
+                </nav>
+
+                <!-- Layout: Sidebar + Content -->
+                <div class="help-article-layout">
+                    <!-- Navigation Sidebar (Left) -->
+                    <aside class="help-article-sidebar" id="helpArticleSidebar">
+                        <div class="help-article-sidebar-inner">
+                            <!-- Toggle Button (Mobile) -->
+                            <button class="help-sidebar-toggle" id="helpSidebarToggle">
+                                <i class="fas fa-bars"></i>
+                            </button>
+
+                            <!-- Categories Navigation -->
+                            <div class="help-sidebar-nav">
+                                <h3 class="help-sidebar-nav-title">
+                                    <i class="fas fa-book"></i>
+                                    Kategorie
+                                </h3>
+                                
+                                {% for cat in categories %}
+                                <div class="help-sidebar-category {% if cat.id == article.category_id %}help-sidebar-category-active{% endif %}">
+                                    <button class="help-sidebar-category-header" data-category-id="{{ cat.id }}">
+                                        <span class="help-sidebar-category-icon">{{ cat.icon }}</span>
+                                        <span class="help-sidebar-category-name">{{ cat.name }}</span>
+                                        <i class="fas fa-chevron-down help-sidebar-category-arrow"></i>
+                                    </button>
+                                    
+                                    <ul class="help-sidebar-articles-list">
+                                        {% for art in cat.articles.filter_by(is_published=True).order_by('sort_order').all() %}
+                                        <li class="help-sidebar-article-item {% if art.id == article.id %}help-sidebar-article-active{% endif %}">
+                                            <a href="{{ url_for('help.article', slug=art.slug) }}" class="help-sidebar-article-link">
+                                                <i class="fas fa-file-alt"></i>
+                                                <span>{{ art.title }}</span>
+                                            </a>
+                                        </li>
+                                        {% endfor %}
+                                    </ul>
+                                </div>
+                                {% endfor %}
+                            </div>
+
+                            <!-- Table of Contents (Headings) -->
+                            {% if headings %}
+                            <div class="help-sidebar-toc">
+                                <h3 class="help-sidebar-toc-title">
+                                    <i class="fas fa-list"></i>
+                                    Na tej stronie
+                                </h3>
+                                <ul class="help-sidebar-toc-list">
+                                    {% for heading in headings %}
+                                    <li class="help-sidebar-toc-item help-sidebar-toc-level-{{ heading.level }}">
+                                        <a href="#{{ heading.id }}" class="help-sidebar-toc-link">
+                                            {{ heading.text }}
+                                        </a>
+                                    </li>
+                                    {% endfor %}
+                                </ul>
+                            </div>
+                            {% endif %}
+                        </div>
+                    </aside>
+
+                    <!-- Article Content (Center) -->
+                    <article class="help-article-content">
+                        <!-- Article Header -->
+                        <header class="help-article-header">
+                            <div class="help-article-meta">
+                                <span class="help-article-category-badge">
+                                    {{ article.category.icon }} {{ article.category.name }}
+                                </span>
+                                <span class="help-article-date">
+                                    <i class="far fa-clock"></i>
+                                    Zaktualizowano: {{ article.updated_at.strftime('%d.%m.%Y') }}
+                                </span>
+                            </div>
+                            
+                            <h1 class="help-article-title">{{ article.title }}</h1>
+                            
+                            <div class="help-article-info">
+                                <div class="help-article-author">
+                                    <i class="fas fa-user-circle"></i>
+                                    <span>Autor: {{ article.author.name }}</span>
+                                </div>
+                                <div class="help-article-views">
+                                    <i class="fas fa-eye"></i>
+                                    <span>{{ article.views_count }} wyświetleń</span>
+                                </div>
+                            </div>
+
+                            <!-- Admin Actions -->
+                            {% if current_user.is_authenticated and current_user.role == 'admin' %}
+                            <div class="help-article-admin-actions">
+                                <a href="{{ url_for('help.admin_article_edit', article_id=article.id) }}" class="help-article-admin-btn help-article-admin-btn-edit">
+                                    <i class="fas fa-edit"></i>
+                                    Edytuj artykuł
+                                </a>
+                                <a href="{{ url_for('help.admin_articles_list') }}" class="help-article-admin-btn help-article-admin-btn-list">
+                                    <i class="fas fa-list"></i>
+                                    Wszystkie artykuły
+                                </a>
+                            </div>
+                            {% endif %}
+                        </header>
+
+                        <!-- Article Body (HTML Content) -->
+                        <div class="help-article-body">
+                            {{ article.content | safe }}
+                        </div>
+
+                        <!-- Article Footer -->
+                        <footer class="help-article-footer">
+                            <div class="help-article-helpful">
+                                <p class="help-article-helpful-text">Czy ten artykuł był pomocny?</p>
+                                <div class="help-article-helpful-buttons">
+                                    <button class="help-article-helpful-btn help-article-helpful-yes">
+                                        <i class="fas fa-thumbs-up"></i>
+                                        Tak
+                                    </button>
+                                    <button class="help-article-helpful-btn help-article-helpful-no">
+                                        <i class="fas fa-thumbs-down"></i>
+                                        Nie
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div class="help-article-back">
+                                <a href="{{ url_for('help.index') }}" class="help-article-back-btn">
+                                    <i class="fas fa-arrow-left"></i>
+                                    Powrót do centrum pomocy
+                                </a>
+                            </div>
+                        </footer>
+                    </article>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script src="{{ url_for('help.static', filename='js/help_navigation.js') }}"></script>
+</body>
+</html>

@@ -1,4 +1,4 @@
-from flask import Flask, render_template, redirect, url_for, request, session, flash, current_app, Blueprint
+from flask import Flask, render_template, redirect, url_for, request, session, flash, current_app, Blueprint, jsonify
 import os
 import json
 import sys
@@ -14,6 +14,7 @@ from flask_mail import Mail, Message
 from jinja2 import ChoiceLoader, FileSystemLoader
 from extensions import db, mail
 from sqlalchemy import desc
+from datetime import timedelta, datetime
 from modules.calculator import calculator_bp
 from modules.users.models import User, Invitation
 from modules.calculator.models import Price, Multiplier
@@ -32,13 +33,25 @@ from modules.dashboard.services.user_activity_service import UserActivityService
 from modules.partner_academy import partner_academy_bp
 from modules.partner_academy.models import PartnerApplication
 from modules.users import users_bp
-from datetime import timedelta, datetime
+from modules.help import help_bp
 
 from flask_login import login_user, logout_user  # DODANE importy
 from sqlalchemy.exc import ResourceClosedError, OperationalError
 from flask.cli import with_appcontext
 
 os.environ['PYTHONIOENCODING'] = 'utf-8:replace'
+
+# ============================================================================
+# PRODUCTION OPTIMIZATIONS
+# ============================================================================
+if os.environ.get('FLASK_ENV') == 'production':
+    # Wyłącz debug pin w production
+    os.environ['WERKZEUG_DEBUG_PIN'] = 'off'
+    
+    # Zmniejsz verbosity SQLAlchemy
+    import logging
+    logging.getLogger('sqlalchemy.engine').setLevel(logging.WARNING)
+    logging.getLogger('sqlalchemy.pool').setLevel(logging.WARNING)
 
 # Domyślne metadane modułów (etykieta i ikona)
 DEFAULT_MODULE_METADATA = {
@@ -129,7 +142,6 @@ def create_app():
     # ============================================================================
     
     # Flask session configuration
-    app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(days=30)  # 30 dni dla "Zapamiętaj mnie"
     app.config['SESSION_COOKIE_SECURE'] = True # Wymaga HTTPS
     app.config['SESSION_COOKIE_HTTPONLY'] = True  # Ochrona przed XSS
     app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'  # Ochrona przed CSRF
@@ -166,13 +178,35 @@ def create_app():
 
     # Dodajemy ustawienia utrzymujące połączenie z bazą:
     app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
-        'pool_pre_ping': True,
-        'pool_recycle': 270,
-        'pool_size': 5,
-        'max_overflow': 10
+        'pool_pre_ping': True,              # Sprawdź połączenie przed użyciem
+        'pool_recycle': 280,                # Recycle połączeń przed MySQL timeout (300s)
+        'pool_size': 10,                    # ZWIĘKSZONE: więcej równoległych połączeń
+        'max_overflow': 20,                 # ZWIĘKSZONE: więcej overflow connections
+        'pool_timeout': 30,                 # Timeout oczekiwania na połączenie
+        'echo': False,                      # Wyłącz echo SQL (performance)
+        'echo_pool': False,                 # Wyłącz echo pool events
+        'connect_args': {
+            'connect_timeout': 10,          # MySQL connection timeout
+            'charset': 'utf8mb4',           # UTF-8 support
+            'use_unicode': True
+        }
     }
     app.config['SQLALCHEMY_DATABASE_URI'] = app.config["DATABASE_URI"]
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+
+    # ============================================================================
+    # JINJA2 TEMPLATE CACHING (szybsze renderowanie)
+    # ============================================================================
+    if not app.config.get('DEBUG'):
+        app.jinja_env.cache = {}              # Enable template caching
+        app.jinja_env.auto_reload = False     # Disable auto-reload w production
+    
+    # ============================================================================
+    # SESSION OPTIMIZATION (krótsze sesje w production)
+    # ============================================================================
+    if not app.config.get('DEBUG'):
+        # W production: sesje 12h zamiast 30 dni (lepsze bezpieczeństwo + performance)
+        app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(hours=12)
 
     # Inicjalizacja Flask-Mail oraz bazy danych itp.
     from extensions import init_extensions
@@ -192,20 +226,26 @@ def create_app():
         # Odkrywanie dostępnych modułów i ich metadanych
         app.config['MODULE_METADATA'] = discover_module_metadata(app)
 
-    # Rejestracja blueprintów oraz dalsze routy...
-    app.register_blueprint(calculator_bp, url_prefix='/calculator')
-    app.register_blueprint(clients_bp, url_prefix='/clients')
-    app.register_blueprint(public_calculator_bp)
-    app.register_blueprint(quotes_bp, url_prefix="/quotes")
-    app.register_blueprint(baselinker_bp, url_prefix='/baselinker')
-    app.register_blueprint(logging_bp, url_prefix='/logging')
-    app.register_blueprint(preview3d_ar_bp)
-    app.register_blueprint(reports_bp, url_prefix='/reports')
-    app.register_blueprint(dashboard_bp, url_prefix='/dashboard')
-    register_production_routers(production_bp)
-    app.register_blueprint(production_bp, url_prefix='/production')
-    app.register_blueprint(partner_academy_bp, url_prefix='/partner-academy')
-    app.register_blueprint(users_bp)
+    def register_blueprints_lazy(app):
+        """Rejestracja blueprintów - importy tylko gdy potrzebne"""
+        app.register_blueprint(calculator_bp, url_prefix='/calculator')
+        app.register_blueprint(clients_bp, url_prefix='/clients')
+        app.register_blueprint(public_calculator_bp)
+        app.register_blueprint(quotes_bp, url_prefix="/quotes")
+        app.register_blueprint(baselinker_bp, url_prefix='/baselinker')
+        app.register_blueprint(logging_bp, url_prefix='/logging')
+        app.register_blueprint(preview3d_ar_bp)
+        app.register_blueprint(reports_bp, url_prefix='/reports')
+        app.register_blueprint(dashboard_bp, url_prefix='/dashboard')
+        register_production_routers(production_bp)
+        app.register_blueprint(production_bp, url_prefix='/production')
+        app.register_blueprint(partner_academy_bp, url_prefix='/partner-academy')
+        app.register_blueprint(users_bp)
+        app.register_blueprint(help_bp)
+
+        print("✅ Wszystkie blueprinty zarejestrowane", file=sys.stderr)
+
+    register_blueprints_lazy(app)
 
     @app.before_request
     def extend_session():
@@ -423,12 +463,6 @@ def create_app():
     def clients():
         user_email = session.get('user_email')
         return render_template("clients.html", user_email=user_email)
-
-    @app.route("/help")
-    @login_required
-    def help():
-        user_email = session.get('user_email')
-        return render_template("help/help.html", user_email=user_email)
 
     @app.route("/logged_out")
     @app.route("/logged_out")

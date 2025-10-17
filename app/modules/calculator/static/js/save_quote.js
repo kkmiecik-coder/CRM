@@ -1,240 +1,70 @@
-// modules/calculator/static/js/save_quote.js
+// app/modules/calculator/static/js/save_quote.js
+
+/**
+ * ========================================
+ * MODAL ZAPISU WYCENY - GŁÓWNA LOGIKA
+ * ========================================
+ */
 
 document.addEventListener('DOMContentLoaded', function () {
+    // ===== CACHE ELEMENTÓW DOM =====
     const modal = document.getElementById('saveQuoteModal');
     const openBtn = document.querySelector('.save-quote');
     const closeBtn = document.getElementById('closeSaveQuoteModal');
-    const switchToAddClient = document.getElementById('switchToAddClient');
     const searchInput = document.getElementById('clientSearchInput');
+    const resultsBox = document.getElementById('clientSearchResults');
+    const feedbackBox = document.getElementById('quoteSaveFeedback');
+    const saveQuoteBtn = document.getElementById('confirmSaveQuote');
 
-    // POPRAWIONA FUNKCJA: Obsługa zmiany źródła zapytania
-    function handleSourceChange() {
-        const sourceSelect = document.querySelector('[name="quote_source"]');
-        const phoneField = document.querySelector('[name="client_phone"]');
-        const emailField = document.querySelector('[name="client_email"]');
-        const phoneLabel = phoneField?.parentElement.querySelector('span');
-        const emailLabel = emailField?.parentElement.querySelector('span');
-        
-        if (!sourceSelect) return;
-        
-        const selectedSource = sourceSelect.value.toLowerCase();
-        const isOlxSource = selectedSource.includes('olx');
-        
-        console.log(`[handleSourceChange] Wybrano źródło: ${selectedSource}, isOLX: ${isOlxSource}`);
-        
-        if (isOlxSource) {
-            // Dla OLX usuń wymagania i gwiazdki
-            if (phoneLabel) {
-                phoneLabel.innerHTML = phoneLabel.innerHTML.replace('<span style="color: #E2B007">*</span>', '');
-            }
-            if (emailLabel) {
-                emailLabel.innerHTML = emailLabel.innerHTML.replace('<span style="color: #E2B007">*</span>', '');
-            }
-            
-            // 🆕 KLUCZOWA POPRAWKA: Usuń atrybut required z pól
-            if (phoneField) {
-                phoneField.removeAttribute('required');
-                phoneField.setAttribute('data-olx-optional', 'true');
-            }
-            if (emailField) {
-                emailField.removeAttribute('required');
-                emailField.setAttribute('data-olx-optional', 'true');
-            }
-            
-            // Aktualizuj tekst informacyjny
-            const noteElement = document.querySelector('.input-note');
-            if (noteElement) {
-                noteElement.innerHTML = `
-                    <span style="color: red">*</span> - wymagane pola<br>
-                    <span style="color: #999">Dla OLX telefon i e-mail są opcjonalne</span>
-                `;
-            }
-            
-            console.log('[handleSourceChange] Usunięto wymagania dla OLX (włącznie z atrybutem required)');
-        } else {
-            // Dla innych źródeł przywróć wymagania
-            if (phoneLabel && !phoneLabel.innerHTML.includes('*')) {
-                phoneLabel.innerHTML = phoneLabel.innerHTML.replace('Telefon', 'Telefon <span style="color: #E2B007">*</span>');
-            }
-            if (emailLabel && !emailLabel.innerHTML.includes('*')) {
-                emailLabel.innerHTML = emailLabel.innerHTML.replace('E-mail', 'E-mail <span style="color: #E2B007">*</span>');
-            }
-            
-            // 🆕 KLUCZOWA POPRAWKA: Przywróć logikę "jedno z pól wymagane"
-            if (phoneField) {
-                phoneField.removeAttribute('data-olx-optional');
-                // Nie dodajemy required="required" tutaj, bo to jest logika "jedno z pól"
-            }
-            if (emailField) {
-                emailField.removeAttribute('data-olx-optional');
-                // Nie dodajemy required="required" tutaj, bo to jest logika "jedno z pól"
-            }
-            
-            // Przywróć standardowy tekst informacyjny
-            const noteElement = document.querySelector('.input-note');
-            if (noteElement) {
-                noteElement.innerHTML = `
-                    <span style="color: red">*</span> - wymagane pola<br>
-                    <span style="color: #E2B007">*</span> - jedno z pól jest wymagane
-                `;
-            }
-            
-            console.log('[handleSourceChange] Przywrócono standardowe wymagania');
-        }
+    // Kroki modala - ZMIENIONE KLASY z sq-
+    const stepSearch = document.querySelector('.sq-step-search');
+    const stepForm = document.querySelector('.sq-step-form');
+    const stepSuccess = document.querySelector('.sq-step-success');
+
+    // ===== DEBOUNCE HELPER =====
+    function debounce(func, delay) {
+        let timeout;
+        return function (...args) {
+            clearTimeout(timeout);
+            timeout = setTimeout(() => func.apply(this, args), delay);
+        };
     }
 
-    // 🆕 NOWA FUNKCJA: Niestandardowa walidacja uwzględniająca źródło OLX
-    function validateEmailPhoneFields() {
-        const sourceSelect = document.querySelector('[name="quote_source"]');
-        const phoneField = document.querySelector('[name="client_phone"]');
-        const emailField = document.querySelector('[name="client_email"]');
-        
-        if (!sourceSelect || !phoneField || !emailField) {
-            return true; // Jeśli brak pól, nie blokuj
-        }
-        
-        const selectedSource = sourceSelect.value.toLowerCase();
-        const isOlxSource = selectedSource.includes('olx');
-        
-        const phoneValue = phoneField.value.trim();
-        const emailValue = emailField.value.trim();
-        
-        if (isOlxSource) {
-            // Dla OLX pola są opcjonalne - zawsze przejdź
-            console.log('[validateEmailPhoneFields] OLX: pola opcjonalne, walidacja przeszła');
-            clearFieldValidationError(phoneField);
-            clearFieldValidationError(emailField);
-            return true;
-        } else {
-            // Dla innych źródeł: wymagany email LUB telefon
-            const hasEmailOrPhone = phoneValue || emailValue;
-            
-            if (!hasEmailOrPhone) {
-                // Pokaż błąd na obu polach
-                showFieldValidationError(phoneField, 'Wymagany jest telefon lub e-mail');
-                showFieldValidationError(emailField, 'Wymagany jest telefon lub e-mail');
-                console.log('[validateEmailPhoneFields] Standardowe źródło: brak telefonu i e-maila');
-                return false;
-            }
-            
-            // Wyczyść ewentualne błędy
-            clearFieldValidationError(phoneField);
-            clearFieldValidationError(emailField);
-            console.log('[validateEmailPhoneFields] Standardowe źródło: walidacja przeszła');
-            return true;
-        }
-    }
-
-    // 🆕 FUNKCJE POMOCNICZE: Obsługa błędów walidacji
-    function showFieldValidationError(field, message) {
-        // Usuń poprzednie błędy
-        clearFieldValidationError(field);
-        
-        // Dodaj klasę błędu
-        field.classList.add('error');
-        
-        // Utwórz element błędu
-        const errorElement = document.createElement('div');
-        errorElement.className = 'field-error';
-        errorElement.textContent = message;
-        errorElement.style.color = 'red';
-        errorElement.style.fontSize = '12px';
-        errorElement.style.marginTop = '4px';
-        
-        // Wstaw po polu
-        field.parentNode.insertBefore(errorElement, field.nextSibling);
-    }
-
-    function clearFieldValidationError(field) {
-        field.classList.remove('error');
-        
-        // Usuń element błędu jeśli istnieje
-        const errorElement = field.nextSibling;
-        if (errorElement && errorElement.classList && errorElement.classList.contains('field-error')) {
-            errorElement.remove();
-        }
-    }
-
-    // 🆕 ZMODYFIKOWANA FUNKCJA: Główna walidacja formularza przed zapisem
-    function validateSaveQuoteForm() {
-        console.log('[validateSaveQuoteForm] Rozpoczynam walidację...');
-        
-        // 🆕 POPRAWKA: Pola są bezpośrednio w modalu, nie w tagu <form>
-        const modal = document.querySelector('#saveQuoteModal');
-        if (!modal) {
-            console.log('[validateSaveQuoteForm] Brak modala!');
-            return false;
-        }
-        
-        const requiredFields = modal.querySelectorAll('[required]');
-        let isValid = true;
-        
-        console.log(`[validateSaveQuoteForm] Znaleziono ${requiredFields.length} pól required:`);
-        
-        // Sprawdź wszystkie standardowe wymagane pola
-        requiredFields.forEach((field, index) => {
-            const value = field.value.trim();
-            const fieldName = field.name || field.id || `pole-${index}`;
-            
-            if (!value) {
-                field.classList.add('error');
-                isValid = false;
-                console.log(`[validateSaveQuoteForm] ❌ Pole "${fieldName}" jest puste (required)`);
-            } else {
-                field.classList.remove('error');
-                console.log(`[validateSaveQuoteForm] ✅ Pole "${fieldName}" = "${value}"`);
-            }
+    // ===== WYŚWIETLANIE KROKÓW =====
+    function showStep(step) {
+        [stepSearch, stepForm, stepSuccess].forEach(s => {
+            s?.classList.remove('active');
+            if (s) s.style.display = 'none';
         });
-        
-        // 🆕 KLUCZOWA ZMIANA: Niestandardowa walidacja email/telefon
-        if (!validateEmailPhoneFields()) {
-            isValid = false;
-            console.log('[validateSaveQuoteForm] ❌ Walidacja email/telefon nie przeszła');
-        } else {
-            console.log('[validateSaveQuoteForm] ✅ Walidacja email/telefon przeszła');
-        }
 
-        // NOWA WALIDACJA: Sprawdź dostępność wariantów
-        if (window.variantAvailability && !window.variantAvailability.validate()) {
-            console.log('[validateSaveQuoteForm] Walidacja dostępności wariantów nie powiodła się');
-            return false;
-        }
-
-        // Sprawdź czy wszystkie produkty mają przynajmniej jeden dostępny wariant
-        const forms = Array.from(document.querySelectorAll('.quote-form'));
-        for (let i = 0; i < forms.length; i++) {
-            const form = forms[i];
-            const availableVariants = window.variantAvailability ?
-                window.variantAvailability.getAvailable(form) : [];
-
-            if (availableVariants.length === 0) {
-                alert(`Produkt ${i + 1} nie ma żadnych dostępnych wariantów.`);
-                return false;
-            }
-
-            // Sprawdź czy zaznaczony wariant jest dostępny
-            const selectedRadio = form.querySelector('input[type="radio"]:checked');
-            if (selectedRadio && !availableVariants.includes(selectedRadio.value)) {
-                alert(`Produkt ${i + 1} ma zaznaczony niedostępny wariant.`);
-                return false;
-            }
-        }
-
-        console.log(`[validateSaveQuoteForm] Wynik końcowy: ${isValid ? 'PRZESZŁA' : 'NIE PRZESZŁA'}`);
-        return isValid;
+        step?.classList.add('active');
+        if (step) step.style.display = 'block';
     }
 
-    searchInput?.addEventListener('input', async () => {
-        const query = searchInput.value.trim();
+    // ===== OTWIERANIE MODALA =====
+    openBtn?.addEventListener('click', () => {
+        modal.style.display = 'flex';
+        showStep(stepSearch);
+        searchInput.value = '';
+        resultsBox.innerHTML = '';
+        resultsBox.style.display = 'none';
+        clearAllErrors();
+        console.log("[save_quote.js] Otworzono modal zapisu wyceny");
+    });
+
+    // ===== ZAMYKANIE MODALA =====
+    closeBtn?.addEventListener('click', () => {
+        modal.style.display = 'none';
+        console.log("[save_quote.js] Zamknięto modal zapisu wyceny");
+    });
+
+    // ===== KROK 1: WYSZUKIWANIE KLIENTA =====
+    const handleSearch = debounce(async function (value) {
+        const query = value.trim();
         console.log("[search_clients] Wpisany tekst:", query);
 
-        if (!resultsBox) {
-            console.warn("[search_clients] Brak elementu #clientSearchResults!");
-            return;
-        }
-
         if (query.length < 3) {
-            console.log("[search_clients] Mniej niż 3 znaki – czyszczę wyniki");
+            resultsBox.style.display = 'none';
             resultsBox.innerHTML = '';
             return;
         }
@@ -242,129 +72,200 @@ document.addEventListener('DOMContentLoaded', function () {
         try {
             console.log("[search_clients] Wysyłam zapytanie do /calculator/search_clients");
             const res = await fetch(`/calculator/search_clients?q=${encodeURIComponent(query)}`);
-            const data = await res.json();
+            const clients = await res.json();
 
-            if (!data || data.length === 0) {
-                resultsBox.innerHTML = '<p class="no-results">Brak wyników.</p>';
-                return;
+            let html = '';
+
+            if (!clients || clients.length === 0) {
+                html = '<div class="sq-no-results">Brak wyników wyszukiwania</div>';
+            } else {
+                html = clients.map(client => {
+                    const hasEmail = client.email && client.email.trim() !== '';
+                    const hasPhone = client.phone && client.phone.trim() !== '';
+
+                    let contactInfo = '';
+                    if (hasEmail && hasPhone) {
+                        contactInfo = `${client.email} • ${client.phone}`;
+                    } else if (hasEmail) {
+                        contactInfo = client.email;
+                    } else if (hasPhone) {
+                        contactInfo = client.phone;
+                    }
+
+                    return `
+                        <div class="sq-search-result-item" 
+                             data-id="${client.id}"
+                             data-name="${client.name || ''}"
+                             data-email="${client.email || ''}"
+                             data-phone="${client.phone || ''}">
+                            <div class="sq-search-result-name">${client.name}</div>
+                            ${contactInfo ? `<div class="sq-search-result-contact">${contactInfo}</div>` : ''}
+                        </div>
+                    `;
+                }).join('');
             }
 
-            // POPRAWKA: Nowa struktura HTML z lepszą obsługą email/telefon
-            resultsBox.innerHTML = data.map(client => {
-                // Sprawdź czy mamy email i/lub telefon
-                const hasEmail = client.email && client.email.trim() !== '';
-                const hasPhone = client.phone && client.phone.trim() !== '';
-
-                let contactInfo = '';
-                if (hasEmail && hasPhone) {
-                    // Oba - email nad telefonem
-                    contactInfo = `${client.email}<br>${client.phone}`;
-                } else if (hasEmail) {
-                    // Tylko email
-                    contactInfo = client.email;
-                } else if (hasPhone) {
-                    // Tylko telefon
-                    contactInfo = client.phone;
-                }
-                // Jeśli ani email ani telefon - contactInfo pozostaje pusty
-
-                return `
-                <div class="search-client-result" 
-                     data-id="${client.id}"
-                     data-email="${client.email || ''}"
-                     data-phone="${client.phone || ''}">
-                    <strong>${client.name}</strong>
-                    ${contactInfo ? `<span class="client-contact">${contactInfo}</span>` : ''}
-                </div>
+            // Zawsze dodaj przycisk "Utwórz nowego klienta" na dole
+            html += `
+                <button class="sq-create-client-btn" id="createNewClientBtn">
+                    <span>+</span>
+                    <span>Utwórz nowego klienta</span>
+                </button>
             `;
-            }).join('');
 
+            resultsBox.innerHTML = html;
             resultsBox.style.display = 'block';
 
-            // POPRAWKA: Nowa obsługa kliknięcia - używamy data-attributes zamiast parsowania tekstu
-            document.querySelectorAll('.search-client-result').forEach(el => {
-                el.addEventListener('click', () => {
-                    const clientId = el.dataset.id;
-                    const clientName = el.querySelector('strong')?.textContent;
-                    const clientEmail = el.dataset.email || '';
-                    const clientPhone = el.dataset.phone || '';
-
-                    // Przeskocz do kroku 2
-                    stepSelect.style.display = 'none';
-                    stepAdd.style.display = 'block';
-                    stepSummary.style.display = 'block';
-                    stepSuccess.style.display = 'none';
-
-                    // Ustaw dane klienta
-                    document.querySelector('[name="client_id"]')?.remove(); // usunięcie poprzedniego
-                    const hiddenInput = document.createElement('input');
-                    hiddenInput.type = 'hidden';
-                    hiddenInput.name = 'client_id';
-                    hiddenInput.value = clientId;
-                    document.querySelector('.form-section')?.prepend(hiddenInput);
-
-                    document.querySelector('[name="client_login"]').value = clientName;
-                    document.querySelector('[name="client_name"]').value = clientName;
-                    document.querySelector('[name="client_email"]').value = clientEmail;
-                    document.querySelector('[name="client_phone"]').value = clientPhone;
-
-                    renderSummaryValues();
-
-                    console.log("[search_clients] Wybrano klienta ID:", clientId, clientName);
-                });
-            });
+            // Obsługa kliknięcia w wynik wyszukiwania
+            attachSearchResultListeners();
 
         } catch (err) {
             console.error("[search_clients] Błąd fetch:", err);
+            resultsBox.innerHTML = '<div class="sq-no-results">Błąd podczas wyszukiwania</div>';
+            resultsBox.style.display = 'block';
         }
-    });
+    }, 300);
 
-    const resultsBox = document.getElementById('clientSearchResults');
-    const feedbackBox = document.getElementById('quoteSaveFeedback');
-    const saveQuoteBtn = document.getElementById('confirmSaveQuote');
+    searchInput?.addEventListener('input', (e) => handleSearch(e.target.value));
 
-    const stepSelect = document.querySelector('.step-select-client');
-    const stepAdd = document.querySelector('.step-add-client');
-    const stepSummary = document.querySelector('.step-summary');
-    const stepSuccess = document.querySelector('.step-success');
+    // ===== OBSŁUGA KLIKNIĘĆ W WYNIKI WYSZUKIWANIA =====
+    function attachSearchResultListeners() {
+        // Kliknięcie w istniejącego klienta
+        document.querySelectorAll('.sq-search-result-item').forEach(el => {
+            el.addEventListener('click', () => {
+                const clientId = el.dataset.id;
+                const clientName = el.dataset.name;
+                const clientEmail = el.dataset.email;
+                const clientPhone = el.dataset.phone;
 
-    const loadingText = document.createElement('p');
-    loadingText.textContent = 'Zapisywanie wyceny...';
+                console.log("[search_clients] Wybrano klienta:", { clientId, clientName, clientEmail, clientPhone });
 
-    const renderFeedback = (html) => {
-        feedbackBox.innerHTML = '';
-        feedbackBox.appendChild(html);
-    };
+                // Przejdź do kroku 2 i wypełnij formularz
+                goToFormStep(clientId, clientName, clientName, clientEmail, clientPhone);
+            });
+        });
 
-    openBtn?.addEventListener('click', () => {
-        modal.style.display = 'flex';
-        stepSelect.style.display = 'block';
-        stepAdd.style.display = 'none';
-        stepSummary.style.display = 'none';
-        stepSuccess.style.display = 'none';
-        searchInput.value = '';
-        resultsBox.innerHTML = '';
-        console.log("[save_quote.js] Otworzono modal zapisu wyceny");
-    });
+        // Kliknięcie w "Utwórz nowego klienta"
+        document.getElementById('createNewClientBtn')?.addEventListener('click', () => {
+            const searchValue = searchInput.value.trim();
+            console.log("[create_client] Tworzenie nowego klienta z wartością:", searchValue);
 
-    closeBtn?.addEventListener('click', () => {
-        modal.style.display = 'none';
-        console.log("[save_quote.js] Zamknięto modal zapisu wyceny");
-    });
+            // Przejdź do kroku 2 bez client_id (nowy klient)
+            goToFormStep(null, searchValue, '', '', '');
+        });
+    }
 
-    switchToAddClient?.addEventListener('click', () => {
-        stepSelect.style.display = 'none';
-        stepAdd.style.display = 'block';
-        stepSummary.style.display = 'block';
-        stepSuccess.style.display = 'none';
+    // ===== PRZEJŚCIE DO KROKU 2 (FORMULARZ) =====
+    function goToFormStep(clientId, clientLogin, clientName, clientEmail, clientPhone) {
+        showStep(stepForm);
+
+        // Usuń poprzedni hidden input client_id jeśli istniał
+        document.querySelector('[name="client_id"]')?.remove();
+
+        // Jeśli mamy clientId (istniejący klient), dodaj hidden input
+        if (clientId) {
+            const hiddenInput = document.createElement('input');
+            hiddenInput.type = 'hidden';
+            hiddenInput.name = 'client_id';
+            hiddenInput.value = clientId;
+            document.querySelector('.sq-form-section')?.prepend(hiddenInput);
+        }
+
+        // Wypełnij pola formularza
+        const loginField = document.querySelector('[name="client_login"]');
+        const nameField = document.querySelector('[name="client_name"]');
+        const emailField = document.querySelector('[name="client_email"]');
+        const phoneField = document.querySelector('[name="client_phone"]');
+
+        if (loginField) {
+            loginField.value = clientLogin || '';
+            loginField.removeAttribute('readonly'); // Pozwól edytować dla nowego klienta
+        }
+        if (nameField) nameField.value = clientName || '';
+        if (emailField) emailField.value = clientEmail || '';
+        if (phoneField) phoneField.value = clientPhone || '';
+
+        // Renderuj podsumowanie produktów
         renderSummaryValues();
-        console.log("[save_quote.js] Przełączono do formularza dodawania klienta");
-    });
+        renderProductsTable();
 
+        // Wywołaj handleSourceChange jeśli źródło już wybrane
+        setTimeout(handleSourceChange, 100);
+
+        console.log("[goToFormStep] Przełączono do formularza");
+    }
+
+    // ===== RENDEROWANIE TABELI PRODUKTÓW =====
+    function renderProductsTable() {
+        const data = collectQuoteData();
+        if (!data || !data.products) {
+            console.error("[renderProductsTable] Brak danych produktów");
+            return;
+        }
+        const tableBody = document.getElementById('productsTableBody');
+        if (!tableBody) {
+            console.warn("[renderProductsTable] Brak elementu #productsTableBody");
+            return;
+        }
+        let html = '';
+        data.products.forEach((product, idx) => {
+            const selectedVariant = product.variants.find(v => v.is_selected);
+            if (!selectedVariant) return; // Pomijamy produkty bez wybranego wariantu
+
+            // Parsuj variant_code aby wyciągnąć informacje o wariancie
+            // Format: "dab-lity-ab" → Dąb Lity A/B
+            const variantCode = selectedVariant.variant_code || '';
+            let variantName = '';
+
+            if (variantCode) {
+                const parts = variantCode.split('-');
+
+                // Gatunek drewna (pierwszy element)
+                const species = {
+                    'dab': 'Dąb',
+                    'jes': 'Jesion',
+                    'buk': 'Buk'
+                }[parts[0]] || parts[0];
+
+                // Technologia (drugi element)
+                const technology = {
+                    'lity': 'Lity',
+                    'micro': 'Mikrowczep'
+                }[parts[1]] || parts[1];
+
+                // Klasa (trzeci element) - zamień "ab" na "A/B"
+                const woodClass = parts[2] ? parts[2].toUpperCase().split('').join('/') : '';
+
+                // Złóż nazwę wariantu
+                variantName = `${species} ${technology}${woodClass ? ' ' + woodClass : ''}`;
+            }
+
+            const productName = `Klejonka ${variantName} ${product.length}x${product.width}x${product.thickness}mm (x${product.quantity} szt.)`;
+            const rawPrice = selectedVariant.final_price_brutto.toFixed(2);
+            const finishingPrice = product.finishing_brutto.toFixed(2);
+            const totalPrice = (selectedVariant.final_price_brutto + product.finishing_brutto).toFixed(2);
+
+            html += `
+            <div class="sq-product-row">
+                <div class="sq-product-name">${productName}</div>
+                <div class="sq-product-value">${rawPrice} PLN</div>
+                <div class="sq-product-value">${finishingPrice} PLN</div>
+                <div class="sq-product-sum">${totalPrice} PLN</div>
+            </div>
+        `;
+        });
+        if (html === '') {
+            html = '<div class="sq-product-row"><div class="sq-product-name" style="grid-column: 1/-1; text-align: center; color: #999;">Brak produktów z wybranym wariantem</div></div>';
+        }
+        tableBody.innerHTML = html;
+        console.log("[renderProductsTable] Tabela produktów wyrenderowana");
+    }
+
+    // ===== RENDEROWANIE PODSUMOWANIA KWOT =====
     function renderSummaryValues() {
         const data = collectQuoteData();
         if (!data || !data.summary) {
-            console.error("[renderSummaryValues] Brak danych summary z collectQuoteData()");
+            console.error("[renderSummaryValues] Brak danych summary");
             return;
         }
 
@@ -375,111 +276,208 @@ document.addEventListener('DOMContentLoaded', function () {
             const el = document.getElementById(id);
             if (el) {
                 el.textContent = `${value.toFixed(2)} PLN`;
-            } else {
-                console.warn(`[renderSummaryValues] Element o id '${id}' nie istnieje`);
             }
         };
 
-        // Sprawdź czy są jakieś wybrane produkty
-        const hasSelectedProducts = data.products.some(p => p.variants.length > 0);
-
-        if (!hasSelectedProducts) {
-            setText("summary-products-brutto", 0);
-            const elNet = document.getElementById("summary-products-netto");
-            if (elNet) elNet.textContent = "0.00 PLN";
-        } else {
-            setText("summary-products-brutto", summary.products_brutto);
-            setText("summary-products-netto", summary.products_netto);
-        }
-
+        setText("summary-products-brutto", summary.products_brutto);
+        setText("summary-products-netto", summary.products_netto);
         setText("summary-finishing-brutto", summary.finishing_brutto);
         setText("summary-finishing-netto", summary.finishing_netto);
-
-        if (summary.shipping_netto > 0 && summary.shipping_brutto > 0) {
-            setText("summary-shipping-brutto", summary.shipping_brutto);
-            setText("summary-shipping-netto", summary.shipping_netto);
-        } else {
-            const elBrutto = document.getElementById("summary-shipping-brutto");
-            const elNetto = document.getElementById("summary-shipping-netto");
-            if (elBrutto) elBrutto.textContent = "0.00 PLN";
-            if (elNetto) elNetto.textContent = "0.00 PLN";
-        }
-
+        setText("summary-shipping-brutto", summary.shipping_brutto);
+        setText("summary-shipping-netto", summary.shipping_netto);
         setText("summary-total-brutto", summary.total_brutto);
         setText("summary-total-netto", summary.total_netto);
     }
 
-    // 🆕 ZMODYFIKOWANY EVENT LISTENER dla przycisku zapisz
-    saveQuoteBtn?.addEventListener('click', () => {
-        console.log("[save_quote.js] Kliknięto Zapisz wycenę");
+    // ===== WALIDACJA FORMULARZA =====
+    function validateForm() {
+        console.log("[validateForm] Rozpoczynam walidację");
+        clearAllErrors();
+        let isValid = true;
 
-        // 🆕 NAJPIERW: Walidacja uwzględniająca źródło OLX
-        if (!validateSaveQuoteForm()) {
-            console.log('[save_quote.js] Walidacja formularza nie przeszła');
-            const err = document.createElement('p');
-            err.textContent = 'Uzupełnij wszystkie wymagane pola.';
-            err.style.color = 'red';
-            renderFeedback(err);
-            return;
+        // 1. Źródło zapytania (required)
+        const sourceField = document.querySelector('[name="quote_source"]');
+        if (!sourceField || !sourceField.value.trim()) {
+            showFieldError(sourceField, 'Wybierz źródło zapytania');
+            isValid = false;
         }
 
-        // Sprawdź czy wszystkie formularze mają wybrane warianty
+        // 2. Nazwa klienta (required, min 3 znaki)
+        const loginField = document.querySelector('[name="client_login"]');
+        if (!loginField || loginField.value.trim().length < 3) {
+            showFieldError(loginField, 'Minimalna długość: 3 znaki');
+            isValid = false;
+        }
+
+        // 3. Imię i nazwisko (jeśli wypełnione, min 3 znaki)
+        const nameField = document.querySelector('[name="client_name"]');
+        if (nameField && nameField.value.trim() && nameField.value.trim().length < 3) {
+            showFieldError(nameField, 'Minimalna długość: 3 znaki');
+            isValid = false;
+        }
+
+        // 4. Telefon (jeśli wypełniony, min 9 cyfr)
+        const phoneField = document.querySelector('[name="client_phone"]');
+        const phoneValue = phoneField?.value.trim().replace(/\s/g, '');
+        if (phoneValue && !/^\d{9,}$/.test(phoneValue)) {
+            showFieldError(phoneField, 'Minimum 9 cyfr');
+            isValid = false;
+        }
+
+        // 5. Email (jeśli wypełniony, prawidłowy format)
+        const emailField = document.querySelector('[name="client_email"]');
+        const emailValue = emailField?.value.trim();
+        if (emailValue && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailValue)) {
+            showFieldError(emailField, 'Nieprawidłowy format email');
+            isValid = false;
+        }
+
+        // 6. Jedno z pól: telefon LUB email (chyba że OLX)
+        const isOlxSource = sourceField?.value.toLowerCase().includes('olx');
+        if (!isOlxSource && !phoneValue && !emailValue) {
+            showFieldError(phoneField, 'Wymagany telefon lub email');
+            showFieldError(emailField, 'Wymagany telefon lub email');
+            isValid = false;
+        }
+
+        // 7. Sprawdź czy wszystkie produkty mają wybrane warianty
         const forms = document.querySelectorAll('.quote-form');
-        let allVariantsSelected = true;
         let missingVariants = [];
 
         forms.forEach((form, index) => {
             const selectedRadio = form.querySelector('.variants input[type="radio"]:checked');
             if (!selectedRadio) {
-                allVariantsSelected = false;
                 missingVariants.push(index + 1);
             }
         });
 
-        if (!allVariantsSelected) {
-            const err = document.createElement('p');
-            err.textContent = `Wybierz wariant dla produktu: ${missingVariants.join(', ')}`;
-            err.style.color = 'red';
-            renderFeedback(err);
-            console.warn("[save_quote.js] Brak wybranych wariantów dla produktów:", missingVariants);
+        if (missingVariants.length > 0) {
+            showGlobalError(`Wybierz wariant dla produktu: ${missingVariants.join(', ')}`);
+            isValid = false;
+        }
+
+        // 8. Walidacja dostępności wariantów
+        if (window.variantAvailability && !window.variantAvailability.validate()) {
+            console.error("[validateForm] Walidacja dostępności wariantów nie powiodła się");
+            showGlobalError('Niektóre wybrane warianty są niedostępne');
+            isValid = false;
+        }
+
+        console.log(`[validateForm] Wynik: ${isValid ? 'PRZESZŁA' : 'NIE PRZESZŁA'}`);
+        return isValid;
+    }
+
+    // ===== WYŚWIETLANIE BŁĘDÓW =====
+    function showFieldError(field, message) {
+        if (!field) return;
+        field.classList.add('error');
+        const errorSpan = field.parentElement.querySelector('.sq-error-message');
+        if (errorSpan) {
+            errorSpan.textContent = message;
+        }
+    }
+
+    function clearFieldError(field) {
+        if (!field) return;
+        field.classList.remove('error');
+        const errorSpan = field.parentElement.querySelector('.sq-error-message');
+        if (errorSpan) {
+            errorSpan.textContent = '';
+        }
+    }
+
+    function clearAllErrors() {
+        document.querySelectorAll('.sq-form-input').forEach(field => {
+            clearFieldError(field);
+        });
+        feedbackBox.innerHTML = '';
+        feedbackBox.className = 'sq-feedback';
+    }
+
+    // ===== OBSŁUGA ZMIANY ŹRÓDŁA ZAPYTANIA =====
+    function handleSourceChange() {
+        const sourceField = document.querySelector('[name="quote_source"]');
+        const phoneLabel = document.querySelector('[name="client_phone"]')?.parentElement.querySelector('.sq-form-label');
+        const emailLabel = document.querySelector('[name="client_email"]')?.parentElement.querySelector('.sq-form-label');
+        const noteElement = document.querySelector('.sq-input-note');
+
+        if (!sourceField) return;
+
+        const isOlxSource = sourceField.value.toLowerCase().includes('olx');
+
+        if (isOlxSource) {
+            // OLX - usuń gwiazdki i zmień notatkę
+            if (phoneLabel) {
+                phoneLabel.innerHTML = 'Telefon <span class="sq-optional" style="color: #999;">(opcjonalne)</span>';
+            }
+            if (emailLabel) {
+                emailLabel.innerHTML = 'E-mail <span class="sq-optional" style="color: #999;">(opcjonalne)</span>';
+            }
+            if (noteElement) {
+                noteElement.innerHTML = `
+                <span class="sq-required">*</span> - wymagane pola<br>
+                <span style="color: #999;">Dla OLX telefon i e-mail są opcjonalne</span>
+            `;
+            }
+            console.log('[handleSourceChange] OLX: telefon i email opcjonalne');
+        } else {
+            // Inne źródła - przywróć gwiazdki
+            if (phoneLabel) {
+                phoneLabel.innerHTML = 'Telefon <span class="sq-optional">*</span>';
+            }
+            if (emailLabel) {
+                emailLabel.innerHTML = 'E-mail <span class="sq-optional">*</span>';
+            }
+            if (noteElement) {
+                noteElement.innerHTML = `
+                <span class="sq-required">*</span> - wymagane pola<br>
+                <span class="sq-optional">*</span> - jedno z pól jest wymagane
+            `;
+            }
+            console.log('[handleSourceChange] Standardowe źródło: telefon LUB email wymagany');
+        }
+    }
+
+    function showGlobalError(message) {
+        feedbackBox.className = 'sq-feedback error';
+        feedbackBox.textContent = message;
+    }
+
+    function showGlobalSuccess(message) {
+        feedbackBox.className = 'sq-feedback success';
+        feedbackBox.textContent = message;
+    }
+
+    // ===== ZAPISYWANIE WYCENY =====
+    saveQuoteBtn?.addEventListener('click', async () => {
+        console.log("[save_quote.js] Kliknięto Zapisz wycenę");
+
+        // Walidacja
+        if (!validateForm()) {
+            console.log('[save_quote.js] Walidacja nie przeszła');
             return;
         }
 
-        renderFeedback(loadingText);
+        // Pokaż loading
+        feedbackBox.className = 'sq-feedback';
+        feedbackBox.textContent = 'Zapisywanie wyceny...';
 
+        // Zbierz dane z formularza
         const clientIdInput = document.querySelector('[name="client_id"]');
-        const client_id = clientIdInput?.value?.trim();
-
+        const client_id = clientIdInput?.value?.trim() || null;
         const clientLogin = document.querySelector('[name="client_login"]')?.value?.trim();
         const clientName = document.querySelector('[name="client_name"]')?.value?.trim() || null;
         const clientPhone = document.querySelector('[name="client_phone"]')?.value?.trim() || null;
         const clientEmail = document.querySelector('[name="client_email"]')?.value?.trim() || null;
-        const quoteSource = document.querySelector('[name="quote_source"]')?.value?.trim() || null;
+        const quoteSource = document.querySelector('[name="quote_source"]')?.value?.trim();
 
-        if (!client_id && !clientLogin) {
-            const err = document.createElement('p');
-            err.textContent = 'Wpisz nazwę klienta przed zapisem';
-            err.style.color = 'red';
-            renderFeedback(err);
-            console.warn("[save_quote.js] Brak client_id i client_login – przerywamy zapis");
-            return;
-        }
-
-        // 🆕 ZMODYFIKOWANA WALIDACJA: Uwzględnij źródło OLX
-        const sourceSelect = document.querySelector('[name="quote_source"]');
-        const isOlxSource = sourceSelect && sourceSelect.value.toLowerCase().includes('olx');
-        
-        if (!isOlxSource && !clientPhone && !clientEmail) {
-            const err = document.createElement('p');
-            err.textContent = 'Podaj telefon lub e-mail klienta.';
-            err.style.color = 'red';
-            renderFeedback(err);
-            console.warn("[save_quote.js] Brak telefonu lub e-maila dla źródła innego niż OLX – przerywamy zapis");
-            return;
-        }
-
-        // Użyj collectQuoteData() dla wszystkich danych
+        // Zbierz dane produktów
         const quoteData = collectQuoteData();
+        if (!quoteData) {
+            showGlobalError('Błąd zbierania danych produktów');
+            return;
+        }
+
         const {
             products,
             summary,
@@ -490,17 +488,12 @@ document.addEventListener('DOMContentLoaded', function () {
             quote_multiplier
         } = quoteData;
 
-        const total_price = summary.total_brutto || 0.0;
-
         if (products.length === 0) {
-            const err = document.createElement('p');
-            err.textContent = 'Wycena nie może być pusta. Dodaj produkty.';
-            err.style.color = 'red';
-            renderFeedback(err);
-            console.warn("[save_quote.js] Brak produktów – przerywamy zapis");
+            showGlobalError('Wycena nie może być pusta. Dodaj produkty.');
             return;
         }
 
+        // Przygotuj payload
         const payload = {
             client_id,
             client_login: clientLogin,
@@ -509,127 +502,121 @@ document.addEventListener('DOMContentLoaded', function () {
             client_email: clientEmail,
             quote_source: quoteSource,
             products,
-            total_price,
-            // Dane kuriera
-            courier_name: courier_name,
-            shipping_cost_netto: shipping_cost_netto,
-            shipping_cost_brutto: shipping_cost_brutto,
-            // Dane grupy cenowej
-            quote_client_type: quote_client_type,
-            quote_multiplier: quote_multiplier
-        };
-
-        console.log("[save_quote.js] Wysyłany payload:", payload);
-        console.log("[save_quote.js] Dane kuriera:", {
+            total_price: summary.total_brutto,
             courier_name,
             shipping_cost_netto,
-            shipping_cost_brutto
-        });
-        console.log("[save_quote.js] Grupa cenowa:", {
+            shipping_cost_brutto,
             quote_client_type,
             quote_multiplier
-        });
-        
-        fetch('/calculator/save_quote', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload)
-        })
-            .then(async res => {
-                const text = await res.text();
-                try {
-                    const data = JSON.parse(text);
-                    if (data.error) {
-                        const err = document.createElement('p');
-                        err.textContent = 'Błąd: ' + data.error;
-                        err.style.color = 'red';
-                        renderFeedback(err);
-                        console.error("[save_quote.js] Błąd z backendu:", data.error);
-                    } else {
-                        stepSelect.style.display = 'none';
-                        stepAdd.style.display = 'none';
-                        stepSummary.style.display = 'none';
-                        stepSuccess.style.display = 'block';
+        };
 
-                        setTimeout(() => {
-                            const display = document.querySelector('.quote-number-display');
-                            if (display && data.quote_number) {
-                                display.textContent = data.quote_number;
-                            }
-                        }, 100);
+        console.log("[save_quote.js] Payload:", payload);
 
-                        // Przyciski modala sukcesu
-                        const newQuoteBtn = document.getElementById('newQuoteBtn');
-                        if (newQuoteBtn) {
-                            newQuoteBtn.onclick = () => {
-                                console.log('[save_quote.js] Kliknięto Nowa wycena');
-                                if (window.quoteDraftBackup && window.quoteDraftBackup.resetForNewQuote) {
-                                    window.quoteDraftBackup.resetForNewQuote();
-                                }
-                                window.location.reload();
-                            };
-                        }
-                        
-                        const closeBtn = document.getElementById('closeModalBtn2');
-                        if (closeBtn) {
-                            closeBtn.onclick = () => {
-                                console.log('[save_quote.js] Kliknięto Zamknij modal');
-                                if (window.quoteDraftBackup && window.quoteDraftBackup.resetForNewQuote) {
-                                    window.quoteDraftBackup.resetForNewQuote();
-                                }
-                                modal.style.display = 'none';
-                            };
-                        }
-                        
-                        const goToQuoteBtn = document.getElementById('goToQuoteBtn');
-                        if (goToQuoteBtn && data.quote_id) {
-                            goToQuoteBtn.onclick = () => {
-                                console.log(`[save_quote] Przekierowanie do wyceny ID: ${data.quote_id}`);
-                                window.location.href = `/quotes?open_quote=${data.quote_id}`;
-                            };
-                        }
-
-                        console.log("[save_quote.js] Wycena zapisana pomyślnie");
-                        if (window.quoteDraftBackup && window.quoteDraftBackup.markQuoteAsSaved) {
-                            window.quoteDraftBackup.markQuoteAsSaved();
-                        }
-                    }
-                } catch (err) {
-                    const errMsg = document.createElement('p');
-                    errMsg.textContent = 'Wystąpił błąd po stronie serwera. Odpowiedź nie była w formacie JSON.';
-                    errMsg.style.color = 'red';
-                    renderFeedback(errMsg);
-                    console.error("[save_quote.js] Niepoprawny JSON z serwera:", text);
-                }
-            })
-            .catch(err => {
-                const errMsg = document.createElement('p');
-                errMsg.textContent = 'Wystąpił błąd sieci lub serwera.';
-                errMsg.style.color = 'red';
-                renderFeedback(errMsg);
-                console.error("[save_quote.js] Błąd fetch:", err);
+        // Wyślij do backendu
+        try {
+            const response = await fetch('/calculator/save_quote', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
             });
+
+            const text = await response.text();
+            const data = JSON.parse(text);
+
+            if (data.error) {
+                showGlobalError('Błąd: ' + data.error);
+                console.error("[save_quote.js] Błąd z backendu:", data.error);
+            } else {
+                // Sukces - przejdź do kroku 3
+                showStep(stepSuccess);
+
+                // Wyświetl numer wyceny
+                const quoteNumberDisplay = document.getElementById('quoteNumberDisplay');
+                if (quoteNumberDisplay && data.quote_number) {
+                    quoteNumberDisplay.textContent = data.quote_number;
+                }
+
+                // Obsługa przycisków
+                setupSuccessButtons(data.quote_id);
+
+                console.log("[save_quote.js] Wycena zapisana pomyślnie");
+
+                // Oznacz draft jako zapisany
+                if (window.quoteDraftBackup && window.quoteDraftBackup.markQuoteAsSaved) {
+                    window.quoteDraftBackup.markQuoteAsSaved();
+                }
+            }
+
+        } catch (err) {
+            showGlobalError('Wystąpił błąd sieci lub serwera');
+            console.error("[save_quote.js] Błąd fetch:", err);
+        }
     });
 
-    // NOWY EVENT LISTENER: Obsługa zmiany źródła zapytania
-    document.addEventListener('change', function(e) {
+    // ===== OBSŁUGA PRZYCISKÓW W KROKU SUKCESU =====
+    function setupSuccessButtons(quoteId) {
+        // Przycisk "Przejdź do wyceny"
+        const goToQuoteBtn = document.getElementById('goToQuoteBtn');
+        if (goToQuoteBtn && quoteId) {
+            goToQuoteBtn.onclick = () => {
+                console.log(`[success] Przekierowanie do wyceny ID: ${quoteId}`);
+                window.location.href = `/quotes?open_quote=${quoteId}`;
+            };
+        }
+
+        // Przycisk "Nowa wycena"
+        const newQuoteBtn = document.getElementById('newQuoteBtn');
+        if (newQuoteBtn) {
+            newQuoteBtn.onclick = () => {
+                console.log('[success] Nowa wycena - przeładowanie strony');
+                if (window.quoteDraftBackup && window.quoteDraftBackup.resetForNewQuote) {
+                    window.quoteDraftBackup.resetForNewQuote();
+                }
+                window.location.reload();
+            };
+        }
+
+        // Przycisk "Zamknij"
+        const closeModalBtn = document.getElementById('closeModalBtn');
+        if (closeModalBtn) {
+            closeModalBtn.onclick = () => {
+                console.log('[success] Zamknij modal');
+                if (window.quoteDraftBackup && window.quoteDraftBackup.resetForNewQuote) {
+                    window.quoteDraftBackup.resetForNewQuote();
+                }
+                modal.style.display = 'none';
+            };
+        }
+    }
+
+    // ===== AKTUALIZACJA TABELI PRZY ZMIANACH W KALKULATORZE =====
+    // Nasłuchuj na custom event z calculator.js
+    document.addEventListener('calculatorDataChanged', () => {
+        if (stepForm && stepForm.classList.contains('active')) {
+            renderProductsTable();
+            renderSummaryValues();
+        }
+    });
+
+    // ===== OBSŁUGA ZMIANY ŹRÓDŁA ZAPYTANIA =====
+    document.addEventListener('change', function (e) {
         if (e.target.matches('[name="quote_source"]')) {
             handleSourceChange();
         }
     });
 
-    // NOWY EVENT LISTENER: Obsługa przy pierwszym otwarciu modala
-    document.addEventListener('click', function(e) {
-        if (e.target.matches('#switchToAddClient')) {
-            // Opóźnienie pozwala DOM się załadować
-            setTimeout(handleSourceChange, 100);
-        }
-    });
-});
+}); // END DOMContentLoaded
+
+
+/**
+ * ========================================
+ * FUNKCJA ZBIERANIA DANYCH WYCENY
+ * (Bez zmian - działa z głównym kalkulatorem)
+ * ========================================
+ */
 function collectQuoteData() {
     console.log("[collectQuoteData] Start zbierania danych z formularzy");
 
-    // NOWA WALIDACJA: Sprawdź dostępność wariantów
     if (window.variantAvailability && !window.variantAvailability.validate()) {
         console.error("[collectQuoteData] Walidacja dostępności wariantów nie powiodła się");
         return null;
@@ -649,13 +636,11 @@ function collectQuoteData() {
         const thickness = parseFloat(form.querySelector('[data-field="thickness"]')?.value || 0);
         const quantity = parseInt(form.querySelector('[data-field="quantity"]')?.value || 1);
 
-        // === DANE WYKOŃCZENIA - POBIERANE DLA KAŻDEGO PRODUKTU ===
         const finishingType = form.querySelector('[data-finishing-type].active')?.dataset.finishingType || null;
         const finishingVariant = form.querySelector('[data-finishing-variant].active')?.dataset.finishingVariant || null;
         const finishingColor = form.querySelector('[data-finishing-color].active')?.dataset.finishingColor || null;
         const finishingGloss = form.querySelector('[data-finishing-gloss].active')?.dataset.finishingGloss || null;
 
-        // ✅ POPRAWKA: Pobierz koszty wykończenia z datasetu formularza
         const finishingBrutto = parseFloat(form.dataset.finishingBrutto || 0);
         const finishingNetto = parseFloat(form.dataset.finishingNetto || 0);
 
@@ -664,20 +649,16 @@ function collectQuoteData() {
             finishingBrutto, finishingNetto, quantity
         });
 
-        // Sprawdź czy jest jakiś zaznaczony wariant dla tego produktu
         let hasSelectedVariant = false;
 
-        // ✅ POPRAWKA: Zbierz WSZYSTKIE warianty (nie filtruj po dostępności)
         const allVariants = Array.from(form.querySelectorAll('.variants input[type="radio"]')).map(radio => {
             const brutto = parseFloat(radio.dataset.totalBrutto || 0);
             const netto = parseFloat(radio.dataset.totalNetto || 0);
             const volume = (length / 100) * (width / 100) * (thickness / 100);
 
-            // Sprawdź dostępność tego wariantu
             const checkbox = form.querySelector(`[data-variant="${radio.value}"]`);
             const isAvailable = checkbox && checkbox.checked;
 
-            // Jeśli to wybrany wariant, dodaj do sumy
             if (radio.checked) {
                 sumProductBrutto += brutto;
                 sumProductNetto += netto;
@@ -687,14 +668,13 @@ function collectQuoteData() {
             return {
                 variant_code: radio.value,
                 is_selected: radio.checked,
-                is_available: isAvailable,  // ✅ NOWE: Informacja o dostępności
+                is_available: isAvailable,
                 price_per_m3: parseFloat(radio.dataset.pricePerM3 || 0),
                 volume_m3: volume,
                 multiplier: parseFloat(radio.dataset.multiplier || 1),
                 final_price: parseFloat(radio.dataset.finalPrice || 0),
                 final_price_netto: netto,
                 final_price_brutto: brutto,
-                // ✅ POPRAWKA: Dane wykończenia dla każdego wariantu
                 finishing_type: finishingType,
                 finishing_variant: finishingVariant,
                 finishing_color: finishingColor,
@@ -712,7 +692,6 @@ function collectQuoteData() {
             console.log(`[collectQuoteData] Dodano wykończenie dla produktu ${index + 1}: ${finishingBrutto} PLN brutto (już uwzględnia ${quantity} szt)`);
         }
 
-        // ✅ NOWE: Zapisz WSZYSTKIE warianty (zarówno dostępne jak i niedostępne)
         products.push({
             index,
             length,
@@ -725,7 +704,7 @@ function collectQuoteData() {
             finishing_gloss_level: finishingGloss,
             finishing_netto: finishingNetto,
             finishing_brutto: finishingBrutto,
-            variants: allVariants // ✅ WSZYSTKIE warianty z flagą is_available
+            variants: allVariants
         });
     });
 
@@ -737,17 +716,14 @@ function collectQuoteData() {
         console.log(`  Produkt ${index + 1}: ${totalCount} wariantów (${availableCount} dostępnych, ${selectedCount} zaznaczonych)`);
     });
 
-    // Pobierz dane wysyłki z DOM
     const shippingBrutto = parseFloat(document.getElementById('delivery-brutto')?.textContent.replace(" PLN", "")) || 0;
     const shippingNetto = parseFloat(document.getElementById('delivery-netto')?.textContent.replace(" PLN", "")) || 0;
     const courierName = document.getElementById('courier-name')?.textContent.trim() || null;
 
-    // Pobierz dane grupy cenowej z pierwszego formularza
     const firstForm = forms[0];
     const clientTypeSelect = firstForm?.querySelector('select[data-field="clientType"]');
     const selectedClientType = clientTypeSelect?.value || null;
 
-    // Pobierz multiplier z globalnej zmiennej multiplierMapping
     let selectedMultiplier = 1.0;
     if (selectedClientType && window.multiplierMapping && window.multiplierMapping[selectedClientType]) {
         selectedMultiplier = window.multiplierMapping[selectedClientType];
@@ -763,11 +739,9 @@ function collectQuoteData() {
 
     const result = {
         products,
-        // Dane kuriera
         courier_name: courierName,
         shipping_cost_brutto: shippingBrutto,
         shipping_cost_netto: shippingNetto,
-        // Dane grupy cenowej
         quote_client_type: selectedClientType,
         quote_multiplier: selectedMultiplier,
         summary: {
@@ -785,6 +759,13 @@ function collectQuoteData() {
     console.log("[collectQuoteData] Zwracam podsumowanie:", result);
     return result;
 }
+
+
+/**
+ * ========================================
+ * FUNKCJE DEBUGOWANIA
+ * ========================================
+ */
 function logVariantAvailability() {
     console.log("[logVariantAvailability] Stan dostępności wariantów:");
 
@@ -804,18 +785,21 @@ function logVariantAvailability() {
     });
 }
 
+window.logVariantAvailability = logVariantAvailability;
+
+
 /**
- * Rozszerza istniejący system QuoteDraftBackup o mechanizm zatrzymania po zapisie
+ * ========================================
+ * ROZSZERZENIE QUOTE DRAFT BACKUP
+ * ========================================
  */
 function enhanceQuoteDraftBackupWithSaveDetection() {
     if (window.quoteDraftBackup) {
         const backup = window.quoteDraftBackup;
         let isQuoteSaved = false;
 
-        // Zachowaj oryginalne metody
         const originalSaveCurrentState = backup.saveCurrentState.bind(backup);
 
-        // Nadpisz metodę zapisywania
         backup.saveCurrentState = function () {
             if (isQuoteSaved) {
                 console.log('[QuoteDraftBackup] Pomijam zapis - wycena już zapisana');
@@ -825,26 +809,22 @@ function enhanceQuoteDraftBackupWithSaveDetection() {
             originalSaveCurrentState();
         };
 
-        // Dodaj metodę oznaczania zapisu
         backup.markQuoteAsSaved = function () {
             console.log('[QuoteDraftBackup] Oznaczam wycenę jako zapisaną');
             isQuoteSaved = true;
             backup.stopAutoSave();
 
-            // Usuń cookies po krótkim opóźnieniu
             setTimeout(() => {
                 backup.clearDraft();
                 console.log('[QuoteDraftBackup] Draft cookies usunięte');
             }, 1000);
         };
 
-        // Dodaj metodę resetowania dla nowej wyceny
         backup.resetForNewQuote = function () {
             console.log('[QuoteDraftBackup] Reset dla nowej wyceny');
             isQuoteSaved = false;
             backup.clearDraft();
 
-            // Restart po opóźnieniu
             setTimeout(() => {
                 if (!isQuoteSaved) {
                     backup.startAutoSave();
@@ -859,7 +839,6 @@ function enhanceQuoteDraftBackupWithSaveDetection() {
 }
 
 document.addEventListener('DOMContentLoaded', function () {
-    // Poczekaj chwilę, aż quoteDraftBackup zostanie zainicjalizowany w calculator.js
     setTimeout(() => {
         const enhanced = enhanceQuoteDraftBackupWithSaveDetection();
         if (enhanced) {
@@ -869,6 +848,3 @@ document.addEventListener('DOMContentLoaded', function () {
         }
     }, 1500);
 });
-
-// Eksportuj funkcję do debugowania
-window.logVariantAvailability = logVariantAvailability;

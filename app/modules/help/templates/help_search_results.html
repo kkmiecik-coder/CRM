@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Wyniki wyszukiwania: "{{ query }}" - Pomoc - Wood Power CRM</title>
+    <link rel="icon" href="{{ url_for('static', filename='images/favicon.png') }}" type="image/png">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="stylesheet" href="{{ url_for('help.static', filename='css/help_interface.css') }}">
+    <link rel="stylesheet" href="{{ url_for('help.static', filename='css/help_article.css') }}">
+    <!-- Font Awesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Google Fonts - Poppins -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="app-container">
+        {% include 'sidebar/sidebar.html' %}
+        
+        <main class="main-content">
+            <div class="help-search-container">
+                <!-- Header z wyszukiwarką -->
+                <div class="help-search-header">
+                    <div class="help-search-back">
+                        <a href="{{ url_for('help.index') }}" class="help-search-back-link">
+                            <i class="fas fa-arrow-left"></i>
+                            <span>Powrót do centrum pomocy</span>
+                        </a>
+                    </div>
+
+                    <h1 class="help-search-title">
+                        <i class="fas fa-search"></i>
+                        Wyniki wyszukiwania
+                    </h1>
+
+                    <!-- Search Bar (ponowne wyszukiwanie) -->
+                    <form action="{{ url_for('help.search') }}" method="GET" class="help-search-form">
+                        <div class="help-search-input-wrapper">
+                            <i class="fas fa-search help-search-input-icon"></i>
+                            <input 
+                                type="text" 
+                                name="q" 
+                                value="{{ query }}"
+                                placeholder="Wpisz czego szukasz..." 
+                                class="help-search-input"
+                                required
+                                minlength="2"
+                                autofocus
+                            >
+                            <button type="submit" class="help-search-submit-btn">
+                                Szukaj ponownie
+                            </button>
+                        </div>
+                    </form>
+
+                    <!-- Results Info -->
+                    <div class="help-search-info">
+                        {% if results_count > 0 %}
+                            <p class="help-search-info-text">
+                                Znaleziono <strong class="help-search-count">{{ results_count }}</strong> 
+                                {% if results_count == 1 %}
+                                    wynik
+                                {% elif results_count < 5 %}
+                                    wyniki
+                                {% else %}
+                                    wyników
+                                {% endif %}
+                                dla frazy: <strong class="help-search-query">"{{ query }}"</strong>
+                            </p>
+                        {% else %}
+                            <p class="help-search-info-text help-search-no-results-text">
+                                Brak wyników dla frazy: <strong class="help-search-query">"{{ query }}"</strong>
+                            </p>
+                        {% endif %}
+                    </div>
+                </div>
+
+                <!-- Results List -->
+                {% if results_count > 0 %}
+                    <div class="help-search-results">
+                        {% for result in results %}
+                        <article class="help-search-result-card">
+                            <!-- Result Header -->
+                            <div class="help-search-result-header">
+                                <span class="help-search-result-category">
+                                    {{ result.article.category.icon }} {{ result.article.category.name }}
+                                </span>
+                                <span class="help-search-result-match-type help-search-match-{{ result.match_type }}">
+                                    {% if result.match_type == 'both' %}
+                                        <i class="fas fa-bullseye"></i> Pełne dopasowanie
+                                    {% elif result.match_type == 'title' %}
+                                        <i class="fas fa-heading"></i> W tytule
+                                    {% else %}
+                                        <i class="fas fa-file-alt"></i> W treści
+                                    {% endif %}
+                                </span>
+                            </div>
+
+                            <!-- Result Title -->
+                            <h2 class="help-search-result-title">
+                                <a href="{{ url_for('help.article', slug=result.article.slug) }}" class="help-search-result-link">
+                                    {{ result.article.title }}
+                                </a>
+                            </h2>
+
+                            <!-- Result Excerpt -->
+                            <div class="help-search-result-excerpt">
+                                {{ result.excerpt | safe }}
+                            </div>
+
+                            <!-- Result Footer -->
+                            <div class="help-search-result-footer">
+                                <div class="help-search-result-meta">
+                                    <span class="help-search-result-meta-item">
+                                        <i class="far fa-clock"></i>
+                                        {{ result.article.updated_at.strftime('%d.%m.%Y') }}
+                                    </span>
+                                    <span class="help-search-result-meta-item">
+                                        <i class="fas fa-eye"></i>
+                                        {{ result.article.views_count }} wyświetleń
+                                    </span>
+                                </div>
+                                <a href="{{ url_for('help.article', slug=result.article.slug) }}" class="help-search-result-read-more">
+                                    Czytaj więcej
+                                    <i class="fas fa-arrow-right"></i>
+                                </a>
+                            </div>
+                        </article>
+                        {% endfor %}
+                    </div>
+                {% else %}
+                    <!-- No Results State -->
+                    <div class="help-search-no-results">
+                        <div class="help-search-no-results-icon">
+                            <i class="fas fa-search-minus"></i>
+                        </div>
+                        <h3 class="help-search-no-results-title">Nie znaleziono wyników</h3>
+                        <p class="help-search-no-results-text">
+                            Nie znaleźliśmy żadnych artykułów pasujących do Twojego zapytania.
+                        </p>
+                        
+                        <!-- Suggestions -->
+                        <div class="help-search-suggestions">
+                            <h4 class="help-search-suggestions-title">Spróbuj:</h4>
+                            <ul class="help-search-suggestions-list">
+                                <li>Użyć innych słów kluczowych</li>
+                                <li>Sprawdzić pisownię</li>
+                                <li>Użyć bardziej ogólnych fraz</li>
+                                <li>Przejrzeć wszystkie kategorie poniżej</li>
+                            </ul>
+                        </div>
+
+                        <!-- Quick Links to Categories -->
+                        <div class="help-search-quick-links">
+                            <h4 class="help-search-quick-links-title">Przeglądaj kategorie:</h4>
+                            <div class="help-search-categories-grid">
+                                <a href="{{ url_for('help.index') }}#kalkulator" class="help-search-category-link">
+                                    <i class="fas fa-calculator"></i>
+                                    Kalkulator i wyceny
+                                </a>
+                                <a href="{{ url_for('help.index') }}#klienci" class="help-search-category-link">
+                                    <i class="fas fa-users"></i>
+                                    Klienci
+                                </a>
+                                <a href="{{ url_for('help.index') }}#produkcja" class="help-search-category-link">
+                                    <i class="fas fa-industry"></i>
+                                    Produkcja
+                                </a>
+                            </div>
+                        </div>
+
+                        <!-- Back Button -->
+                        <div class="help-search-no-results-action">
+                            <a href="{{ url_for('help.index') }}" class="help-search-back-to-home-btn">
+                                <i class="fas fa-home"></i>
+                                Wróć do strony głównej
+                            </a>
+                        </div>
+                    </div>
+                {% endif %}
+            </div>
+        </main>
+    </div>
+
+    <script src="{{ url_for('help.static', filename='js/help_search.js') }}"></script>
+</body>
+</html>

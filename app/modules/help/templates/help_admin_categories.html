@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Zarządzanie kategoriami - Pomoc - Wood Power CRM</title>
+    <link rel="icon" href="{{ url_for('static', filename='images/favicon.png') }}" type="image/png">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="stylesheet" href="{{ url_for('help.static', filename='css/help_interface.css') }}">
+    <link rel="stylesheet" href="{{ url_for('help.static', filename='css/help_article.css') }}">
+    <!-- Font Awesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Google Fonts - Poppins -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="app-container">
+        {% include 'sidebar/sidebar.html' %}
+        
+        <main class="main-content">
+            <div class="help-admin-container">
+                <!-- Header -->
+                <div class="help-admin-header">
+                    <div class="help-admin-header-content">
+                        <div class="help-admin-title-section">
+                            <h1 class="help-admin-title">
+                                <i class="fas fa-folder-open"></i>
+                                Zarządzanie kategoriami
+                            </h1>
+                            <p class="help-admin-subtitle">Organizuj artykuły pomocy w kategorie</p>
+                        </div>
+                        
+                        <div class="help-admin-header-actions">
+                            <button type="button" class="help-admin-btn help-admin-btn-primary" id="addCategoryBtn">
+                                <i class="fas fa-plus"></i>
+                                Nowa kategoria
+                            </button>
+                            <a href="{{ url_for('help.admin_articles_list') }}" class="help-admin-btn help-admin-btn-back">
+                                <i class="fas fa-arrow-left"></i>
+                                Powrót
+                            </a>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Categories List -->
+                {% if categories %}
+                <div class="help-categories-grid-admin">
+                    {% for category in categories %}
+                    <div class="help-category-admin-card" data-category-id="{{ category.id }}">
+                        <!-- Card Header -->
+                        <div class="help-category-admin-header">
+                            <div class="help-category-admin-icon-section">
+                                <span class="help-category-admin-icon">{{ category.icon }}</span>
+                                <div class="help-category-admin-info">
+                                    <h3 class="help-category-admin-name">{{ category.name }}</h3>
+                                    <span class="help-category-admin-count">
+                                        {{ category.articles.count() }} 
+                                        {% if category.articles.count() == 1 %}artykuł{% elif category.articles.count() < 5 %}artykuły{% else %}artykułów{% endif %}
+                                    </span>
+                                </div>
+                            </div>
+                            
+                            <div class="help-category-admin-status">
+                                {% if category.is_visible %}
+                                    <span class="help-category-status-badge help-category-status-visible">
+                                        <i class="fas fa-eye"></i> Widoczna
+                                    </span>
+                                {% else %}
+                                    <span class="help-category-status-badge help-category-status-hidden">
+                                        <i class="fas fa-eye-slash"></i> Ukryta
+                                    </span>
+                                {% endif %}
+                            </div>
+                        </div>
+
+                        <!-- Card Body -->
+                        <div class="help-category-admin-body">
+                            <div class="help-category-admin-meta">
+                                <span class="help-category-admin-meta-item">
+                                    <i class="fas fa-sort"></i>
+                                    Kolejność: <strong>{{ category.sort_order }}</strong>
+                                </span>
+                                <span class="help-category-admin-meta-item">
+                                    <i class="far fa-calendar"></i>
+                                    {{ category.created_at.strftime('%d.%m.%Y') }}
+                                </span>
+                            </div>
+                        </div>
+
+                        <!-- Card Actions -->
+                        <div class="help-category-admin-actions">
+                            <button type="button" 
+                                    class="help-category-admin-btn help-category-admin-btn-edit"
+                                    data-category-id="{{ category.id }}"
+                                    data-category-name="{{ category.name }}"
+                                    data-category-icon="{{ category.icon }}"
+                                    data-category-order="{{ category.sort_order }}"
+                                    data-category-visible="{{ category.is_visible|lower }}">
+                                <i class="fas fa-edit"></i>
+                                Edytuj
+                            </button>
+                            <button type="button" 
+                                    class="help-category-admin-btn help-category-admin-btn-delete"
+                                    data-category-id="{{ category.id }}"
+                                    data-category-name="{{ category.name }}"
+                                    data-articles-count="{{ category.articles.count() }}">
+                                <i class="fas fa-trash"></i>
+                                Usuń
+                            </button>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+                {% else %}
+                <!-- Empty State -->
+                <div class="help-admin-empty-state">
+                    <i class="fas fa-folder-open help-admin-empty-icon"></i>
+                    <h3 class="help-admin-empty-title">Brak kategorii</h3>
+                    <p class="help-admin-empty-text">Utwórz pierwszą kategorię, aby organizować artykuły pomocy.</p>
+                    <button type="button" class="help-admin-empty-btn" id="addFirstCategoryBtn">
+                        <i class="fas fa-plus"></i>
+                        Utwórz pierwszą kategorię
+                    </button>
+                </div>
+                {% endif %}
+            </div>
+        </main>
+    </div>
+
+    <!-- Add/Edit Category Modal -->
+    <div id="categoryModal" class="help-admin-modal" style="display: none;">
+        <div class="help-admin-modal-overlay"></div>
+        <div class="help-admin-modal-content">
+            <div class="help-admin-modal-header">
+                <h3 class="help-admin-modal-title" id="categoryModalTitle">
+                    <i class="fas fa-folder"></i>
+                    <span id="categoryModalTitleText">Nowa kategoria</span>
+                </h3>
+                <button type="button" class="help-admin-modal-close" id="closeCategoryModalBtn">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            
+            <form method="POST" id="categoryForm">
+                <div class="help-admin-modal-body">
+                    <!-- Name -->
+                    <div class="help-admin-form-group">
+                        <label for="categoryName" class="help-admin-form-label">
+                            <i class="fas fa-tag"></i>
+                            Nazwa kategorii *
+                        </label>
+                        <input 
+                            type="text" 
+                            name="name" 
+                            id="categoryName" 
+                            class="help-admin-form-input"
+                            placeholder="np. Kalkulator i wyceny"
+                            required
+                            minlength="2">
+                    </div>
+
+                    <!-- Icon -->
+                    <div class="help-admin-form-group">
+                        <label for="categoryIcon" class="help-admin-form-label">
+                            <i class="fas fa-smile"></i>
+                            Ikona (emoji)
+                        </label>
+                        <input 
+                            type="text" 
+                            name="icon" 
+                            id="categoryIcon" 
+                            class="help-admin-form-input"
+                            placeholder="np. 🧮"
+                            maxlength="10">
+                        <small class="help-admin-form-hint">Wklej emoji lub zostaw puste (domyślnie: 📄)</small>
+                    </div>
+
+                    <!-- Sort Order -->
+                    <div class="help-admin-form-group">
+                        <label for="categoryOrder" class="help-admin-form-label">
+                            <i class="fas fa-sort"></i>
+                            Kolejność
+                        </label>
+                        <input 
+                            type="number" 
+                            name="sort_order" 
+                            id="categoryOrder" 
+                            class="help-admin-form-input"
+                            value="0"
+                            min="0"
+                            step="1">
+                        <small class="help-admin-form-hint">Niższa wartość = wyżej na liście</small>
+                    </div>
+
+                    <!-- Visibility -->
+                    <div class="help-admin-form-group">
+                        <label class="help-admin-checkbox-wrapper">
+                            <input 
+                                type="checkbox" 
+                                name="is_visible" 
+                                id="categoryVisible" 
+                                class="help-admin-checkbox"
+                                checked>
+                            <span class="help-admin-checkbox-label">
+                                <i class="fas fa-eye"></i>
+                                Kategoria widoczna
+                            </span>
+                        </label>
+                    </div>
+                </div>
+
+                <div class="help-admin-modal-footer">
+                    <button type="button" class="help-admin-modal-btn help-admin-modal-btn-cancel" id="cancelCategoryBtn">
+                        Anuluj
+                    </button>
+                    <button type="submit" class="help-admin-modal-btn help-admin-modal-btn-primary">
+                        <i class="fas fa-check"></i>
+                        <span id="categorySubmitBtnText">Utwórz kategorię</span>
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Delete Category Modal -->
+    <div id="deleteCategoryModal" class="help-admin-modal" style="display: none;">
+        <div class="help-admin-modal-overlay"></div>
+        <div class="help-admin-modal-content">
+            <div class="help-admin-modal-header">
+                <h3 class="help-admin-modal-title">
+                    <i class="fas fa-exclamation-triangle"></i>
+                    Usuń kategorię
+                </h3>
+                <button type="button" class="help-admin-modal-close" id="closeDeleteCategoryModalBtn">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            
+            <div class="help-admin-modal-body">
+                <p>Czy na pewno chcesz usunąć kategorię:</p>
+                <p class="help-admin-modal-article-title" id="deleteCategoryName"></p>
+                
+                <div id="moveCategorySection" style="display: none;">
+                    <p class="help-admin-modal-warning">
+                        <i class="fas fa-info-circle"></i>
+                        Ta kategoria zawiera <strong id="articlesCount"></strong> artykułów. 
+                        Przenieś je do innej kategorii:
+                    </p>
+                    
+                    <div class="help-admin-form-group">
+                        <label for="moveToCategory" class="help-admin-form-label">
+                            Docelowa kategoria
+                        </label>
+                        <select id="moveToCategory" name="move_to" class="help-admin-form-select">
+                            <option value="">Wybierz kategorię...</option>
+                        </select>
+                    </div>
+                </div>
+
+                <p class="help-admin-modal-warning">
+                    <i class="fas fa-exclamation-triangle"></i>
+                    Tej operacji nie można cofnąć!
+                </p>
+            </div>
+
+            <form method="POST" id="deleteCategoryForm">
+                <input type="hidden" name="move_to" id="moveToInput">
+                <div class="help-admin-modal-footer">
+                    <button type="button" class="help-admin-modal-btn help-admin-modal-btn-cancel" id="cancelDeleteCategoryBtn">
+                        Anuluj
+                    </button>
+                    <button type="submit" class="help-admin-modal-btn help-admin-modal-btn-delete">
+                        <i class="fas fa-trash"></i>
+                        Usuń kategorię
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script src="{{ url_for('help.static', filename='js/help_editor.js') }}"></script>
+</body>
+</html>

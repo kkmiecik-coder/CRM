@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% if mode == 'new' %}Nowy artykuł{% else %}Edycja: {{ article.title }}{% endif %} - Pomoc - Wood Power CRM</title>
+    <link rel="icon" href="{{ url_for('static', filename='images/favicon.png') }}" type="image/png">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="stylesheet" href="{{ url_for('help.static', filename='css/help_interface.css') }}">
+    <link rel="stylesheet" href="{{ url_for('help.static', filename='css/help_article.css') }}">
+    <!-- Font Awesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Google Fonts - Poppins -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="app-container">
+        {% include 'sidebar/sidebar.html' %}
+        
+        <main class="main-content">
+            <div class="help-editor-container">
+                <!-- Header -->
+                <div class="help-editor-header">
+                    <div class="help-editor-header-content">
+                        <h1 class="help-editor-title">
+                            <i class="fas fa-edit"></i>
+                            {% if mode == 'new' %}Nowy artykuł{% else %}Edycja artykułu{% endif %}
+                        </h1>
+                        <div class="help-editor-header-actions">
+                            <button type="button" class="help-editor-btn help-editor-btn-preview" id="togglePreviewBtn">
+                                <i class="fas fa-eye"></i>
+                                <span id="previewBtnText">Podgląd</span>
+                            </button>
+                            <a href="{{ url_for('help.admin_articles_list') }}" class="help-editor-btn help-editor-btn-cancel" id="cancelBtn">
+                                <i class="fas fa-times"></i>
+                                Anuluj
+                            </a>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Editor Form -->
+                <form method="POST" class="help-editor-form" id="editorForm">
+                    <!-- Top Section: Meta Fields -->
+                    <div class="help-editor-meta">
+                        <div class="help-editor-meta-row">
+                            <!-- Category -->
+                            <div class="help-editor-field help-editor-field-category">
+                                <label for="category" class="help-editor-label">
+                                    <i class="fas fa-folder"></i>
+                                    Kategoria *
+                                </label>
+                                <select name="category_id" id="category" class="help-editor-select" required>
+                                    <option value="">Wybierz kategorię</option>
+                                    {% for cat in categories %}
+                                    <option value="{{ cat.id }}" 
+                                            {% if article and article.category_id == cat.id %}selected{% endif %}>
+                                        {{ cat.icon }} {{ cat.name }}
+                                    </option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+
+                            <!-- Title -->
+                            <div class="help-editor-field help-editor-field-title">
+                                <label for="title" class="help-editor-label">
+                                    <i class="fas fa-heading"></i>
+                                    Tytuł *
+                                </label>
+                                <input 
+                                    type="text" 
+                                    name="title" 
+                                    id="title" 
+                                    class="help-editor-input"
+                                    placeholder="Wpisz tytuł artykułu..."
+                                    value="{% if article %}{{ article.title }}{% endif %}"
+                                    required
+                                    minlength="3">
+                            </div>
+                        </div>
+
+                        <div class="help-editor-meta-row">
+                            <!-- Slug -->
+                            <div class="help-editor-field help-editor-field-slug">
+                                <label for="slug" class="help-editor-label">
+                                    <i class="fas fa-link"></i>
+                                    Slug (URL)
+                                </label>
+                                <div class="help-editor-slug-wrapper">
+                                    <span class="help-editor-slug-prefix">/help/</span>
+                                    <input 
+                                        type="text" 
+                                        name="slug" 
+                                        id="slug" 
+                                        class="help-editor-input help-editor-input-slug"
+                                        placeholder="automatycznie-generowany"
+                                        value="{% if article %}{{ article.slug }}{% endif %}"
+                                        pattern="[a-z0-9-]+"
+                                        title="Tylko małe litery, cyfry i myślniki">
+                                </div>
+                                <small class="help-editor-hint">Pozostaw puste, aby wygenerować automatycznie z tytułu</small>
+                            </div>
+
+                            <!-- Published -->
+                            <div class="help-editor-field help-editor-field-published">
+                                <label class="help-editor-checkbox-wrapper">
+                                    <input 
+                                        type="checkbox" 
+                                        name="is_published" 
+                                        id="is_published" 
+                                        class="help-editor-checkbox"
+                                        {% if not article or article.is_published %}checked{% endif %}>
+                                    <span class="help-editor-checkbox-label">
+                                        <i class="fas fa-eye"></i>
+                                        Opublikowany
+                                    </span>
+                                </label>
+                                <small class="help-editor-hint">Artykuł będzie widoczny dla użytkowników</small>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Toolbar -->
+                    <div class="help-editor-toolbar">
+                        <div class="help-editor-toolbar-group">
+                            <button type="button" class="help-editor-tool-btn" data-action="h1" title="Nagłówek 1">
+                                <i class="fas fa-heading"></i>1
+                            </button>
+                            <button type="button" class="help-editor-tool-btn" data-action="h2" title="Nagłówek 2">
+                                <i class="fas fa-heading"></i>2
+                            </button>
+                            <button type="button" class="help-editor-tool-btn" data-action="h3" title="Nagłówek 3">
+                                <i class="fas fa-heading"></i>3
+                            </button>
+                            <button type="button" class="help-editor-tool-btn" data-action="p" title="Paragraf">
+                                <i class="fas fa-paragraph"></i>
+                            </button>
+                        </div>
+
+                        <div class="help-editor-toolbar-separator"></div>
+
+                        <div class="help-editor-toolbar-group">
+                            <button type="button" class="help-editor-tool-btn" data-action="strong" title="Pogrubienie">
+                                <i class="fas fa-bold"></i>
+                            </button>
+                            <button type="button" class="help-editor-tool-btn" data-action="em" title="Kursywa">
+                                <i class="fas fa-italic"></i>
+                            </button>
+                            <button type="button" class="help-editor-tool-btn" data-action="u" title="Podkreślenie">
+                                <i class="fas fa-underline"></i>
+                            </button>
+                        </div>
+
+                        <div class="help-editor-toolbar-separator"></div>
+
+                        <div class="help-editor-toolbar-group">
+                            <button type="button" class="help-editor-tool-btn" data-action="ul" title="Lista punktowana">
+                                <i class="fas fa-list-ul"></i>
+                            </button>
+                            <button type="button" class="help-editor-tool-btn" data-action="ol" title="Lista numerowana">
+                                <i class="fas fa-list-ol"></i>
+                            </button>
+                        </div>
+
+                        <div class="help-editor-toolbar-separator"></div>
+
+                        <div class="help-editor-toolbar-group">
+                            <button type="button" class="help-editor-tool-btn" data-action="image" title="Wstaw obraz">
+                                <i class="fas fa-image"></i>
+                            </button>
+                            <button type="button" class="help-editor-tool-btn" data-action="video" title="Wstaw wideo">
+                                <i class="fas fa-video"></i>
+                            </button>
+                        </div>
+
+                        <div class="help-editor-toolbar-auto-save" id="autoSaveStatus" style="display: none;">
+                            <i class="fas fa-check-circle"></i>
+                            <span>Zapisano lokalnie</span>
+                        </div>
+                    </div>
+
+                    <!-- Split Screen: Code + Preview -->
+                    <div class="help-editor-split" id="editorSplit">
+                        <!-- Left: HTML Code -->
+                        <div class="help-editor-code-panel">
+                            <div class="help-editor-panel-header">
+                                <h3 class="help-editor-panel-title">
+                                    <i class="fas fa-code"></i>
+                                    Kod HTML
+                                </h3>
+                            </div>
+                            <textarea 
+                                name="content" 
+                                id="contentEditor" 
+                                class="help-editor-textarea"
+                                placeholder="<h1>Twój artykuł...</h1>
+<p>Napisz treść artykułu używając HTML lub skorzystaj z przycisków powyżej.</p>"
+                                required>{% if article %}{{ article.content }}{% endif %}</textarea>
+                        </div>
+
+                        <!-- Right: Live Preview -->
+                        <div class="help-editor-preview-panel">
+                            <div class="help-editor-panel-header">
+                                <h3 class="help-editor-panel-title">
+                                    <i class="fas fa-eye"></i>
+                                    Podgląd na żywo
+                                </h3>
+                            </div>
+                            <div id="livePreview" class="help-editor-preview-content help-article-body">
+                                {% if article %}{{ article.content | safe }}{% else %}<p class="help-editor-preview-placeholder">Podgląd pojawi się tutaj...</p>{% endif %}
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Bottom Actions -->
+                    <div class="help-editor-footer">
+                        <div class="help-editor-footer-left">
+                            <button type="button" class="help-editor-footer-btn help-editor-btn-secondary" id="cancelFooterBtn">
+                                <i class="fas fa-times"></i>
+                                Anuluj
+                            </button>
+                        </div>
+                        <div class="help-editor-footer-right">
+                            <button type="submit" class="help-editor-footer-btn help-editor-btn-primary">
+                                <i class="fas fa-check"></i>
+                                {% if mode == 'new' %}Utwórz artykuł{% else %}Zapisz zmiany{% endif %}
+                            </button>
+                        </div>
+                    </div>
+                </form>
+            </div>
+        </main>
+    </div>
+
+    <!-- Media Gallery Modal -->
+    <div id="mediaGalleryModal" class="help-admin-modal" style="display: none;">
+        <div class="help-admin-modal-overlay"></div>
+        <div class="help-admin-modal-content help-admin-modal-large">
+            <div class="help-admin-modal-header">
+                <h3 class="help-admin-modal-title">
+                    <i class="fas fa-images"></i>
+                    Galeria mediów
+                </h3>
+                <button type="button" class="help-admin-modal-close" id="closeMediaGalleryBtn">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="help-admin-modal-body" id="mediaGalleryContent">
+                <!-- Zawartość galerii będzie ładowana dynamicznie przez JS -->
+            </div>
+        </div>
+    </div>
+
+    <script src="{{ url_for('help.static', filename='js/help_editor.js') }}"></script>
+</body>
+</html>

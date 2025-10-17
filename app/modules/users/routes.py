@@ -33,7 +33,8 @@ from .services.permission_service import PermissionService
 from .services.role_service import RoleService
 from .services.audit_service import AuditService
 from extensions import db
-
+from datetime import datetime
+from flask_login import current_user
 
 # ============================================================================
 # SETTINGS - Ustawienia użytkownika i zarządzanie zespołem
@@ -296,25 +297,50 @@ def update_avatar():
 def edit_user(user_id):
     """Edycja danych użytkownika"""
     try:
-        first_name = request.form.get('first_name')
-        last_name = request.form.get('last_name')
-        role = request.form.get('role')
-        email = request.form.get('email')
+        user = UserService.get_user_by_id(user_id)
+        if not user:
+            flash("Użytkownik nie istnieje.", "error")
+            return redirect(url_for('users.manage_users'))
         
-        # Aktualizuj użytkownika
-        UserService.update_user(
-            user_id,
-            first_name=first_name,
-            last_name=last_name,
-            role=role,
-            email=email
+        # Pobierz dane z formularza
+        first_name = request.form.get('first_name', '').strip()
+        last_name = request.form.get('last_name', '').strip()
+        email = request.form.get('email', '').strip()
+        multiplier_id = request.form.get('multiplier_id', '').strip()
+        
+        # Walidacja
+        if not first_name or not last_name or not email:
+            flash("Imię, nazwisko i email są wymagane.", "error")
+            return redirect(url_for('users.manage_users'))
+        
+        # Aktualizuj dane
+        user.first_name = first_name
+        user.last_name = last_name
+        user.email = email
+        
+        # Aktualizuj mnożnik
+        if multiplier_id and multiplier_id.isdigit():
+            user.multiplier_id = int(multiplier_id)
+        else:
+            user.multiplier_id = None
+        
+        user.updated_at = datetime.utcnow()
+        
+        db.session.commit()
+        
+        current_app.logger.info(
+            f"Zaktualizowano użytkownika {user.email} (ID: {user_id}, mnożnik: {user.multiplier_id})",
+            extra={
+                'user_email': current_user.email if current_user.is_authenticated else 'Unknown',
+                'module': 'users',
+                'action': 'edit_user'
+            }
         )
         
-        flash("Zaktualizowano dane użytkownika.", "success")
+        flash("Dane użytkownika zostały zaktualizowane.", "success")
         
-    except ValueError as e:
-        flash(str(e), "error")
     except Exception as e:
+        db.session.rollback()
         current_app.logger.error(f"Błąd edycji użytkownika: {str(e)}")
         flash("Wystąpił błąd podczas edycji użytkownika.", "error")
     

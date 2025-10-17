@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Galeria mediów - Pomoc - Wood Power CRM</title>
+    <link rel="icon" href="{{ url_for('static', filename='images/favicon.png') }}" type="image/png">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="stylesheet" href="{{ url_for('help.static', filename='css/help_interface.css') }}">
+    <link rel="stylesheet" href="{{ url_for('help.static', filename='css/help_article.css') }}">
+    <!-- Font Awesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Google Fonts - Poppins -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="app-container">
+        {% include 'sidebar/sidebar.html' %}
+        
+        <main class="main-content">
+            <div class="help-admin-container">
+                <!-- Header -->
+                <div class="help-admin-header">
+                    <div class="help-admin-header-content">
+                        <div class="help-admin-title-section">
+                            <h1 class="help-admin-title">
+                                <i class="fas fa-images"></i>
+                                Galeria mediów
+                            </h1>
+                            <p class="help-admin-subtitle">
+                                Zarządzaj obrazami dla artykułów pomocy
+                                {% if media_files %}
+                                    <span class="help-media-total-size">
+                                        • Łącznie: <strong>{{ (media_files|sum(attribute='size') / 1024 / 1024)|round(2) }} MB</strong>
+                                    </span>
+                                {% endif %}
+                            </p>
+                        </div>
+                        
+                        <div class="help-admin-header-actions">
+                            <button type="button" class="help-admin-btn help-admin-btn-primary" id="uploadMediaBtn">
+                                <i class="fas fa-upload"></i>
+                                Upload plików
+                            </button>
+                            <a href="{{ url_for('help.admin_articles_list') }}" class="help-admin-btn help-admin-btn-back">
+                                <i class="fas fa-arrow-left"></i>
+                                Powrót
+                            </a>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Upload Area -->
+                <div class="help-media-upload-area" id="uploadArea">
+                    <div class="help-media-upload-content">
+                        <i class="fas fa-cloud-upload-alt help-media-upload-icon"></i>
+                        <h3 class="help-media-upload-title">Przeciągnij pliki tutaj</h3>
+                        <p class="help-media-upload-text">lub kliknij, aby wybrać pliki z dysku</p>
+                        <input 
+                            type="file" 
+                            id="fileInput" 
+                            class="help-media-file-input" 
+                            accept="image/jpeg,image/png,image/webp,image/svg+xml"
+                            multiple>
+                        <button type="button" class="help-media-upload-btn" id="selectFilesBtn">
+                            <i class="fas fa-folder-open"></i>
+                            Wybierz pliki
+                        </button>
+                        <small class="help-media-upload-hint">
+                            Dozwolone: JPG, PNG, WebP, SVG • Maksymalny rozmiar: 5 MB
+                        </small>
+                    </div>
+                </div>
+
+                <!-- Filters & Stats -->
+                {% if media_files %}
+                <div class="help-media-filters">
+                    <div class="help-media-stats">
+                        <span class="help-media-stat-item">
+                            <i class="fas fa-images"></i>
+                            <strong>{{ media_files|length }}</strong> plików
+                        </span>
+                        <span class="help-media-stat-item">
+                            <i class="fas fa-hdd"></i>
+                            <strong>{{ (media_files|sum(attribute='size') / 1024 / 1024)|round(2) }} MB</strong>
+                        </span>
+                    </div>
+
+                    <div class="help-media-sort">
+                        <label for="sortBy" class="help-media-sort-label">
+                            <i class="fas fa-sort"></i>
+                            Sortuj:
+                        </label>
+                        <select id="sortBy" class="help-media-sort-select">
+                            <option value="newest">Najnowsze</option>
+                            <option value="oldest">Najstarsze</option>
+                            <option value="largest">Największe</option>
+                            <option value="smallest">Najmniejsze</option>
+                            <option value="name">Nazwa A-Z</option>
+                        </select>
+                    </div>
+                </div>
+                {% endif %}
+
+                <!-- Media Grid -->
+                {% if media_files %}
+                <div class="help-media-grid" id="mediaGrid">
+                    {% for file in media_files %}
+                    <div class="help-media-item" data-filename="{{ file.filename }}" data-size="{{ file.size }}" data-date="{{ file.uploaded_at.timestamp() }}">
+                        <!-- Image Preview -->
+                        <div class="help-media-preview">
+                            {% if file.filename.lower().endswith('.svg') %}
+                                <img src="{{ file.url }}" alt="{{ file.filename }}" class="help-media-image">
+                            {% else %}
+                                <img src="{{ file.url }}" alt="{{ file.filename }}" class="help-media-image" loading="lazy">
+                            {% endif %}
+                            
+                            <div class="help-media-overlay">
+                                <button type="button" 
+                                        class="help-media-overlay-btn help-media-btn-view"
+                                        data-url="{{ file.url }}"
+                                        data-filename="{{ file.filename }}">
+                                    <i class="fas fa-eye"></i>
+                                </button>
+                                <button type="button" 
+                                        class="help-media-overlay-btn help-media-btn-copy"
+                                        data-url="{{ file.url }}">
+                                    <i class="fas fa-copy"></i>
+                                </button>
+                                <button type="button" 
+                                        class="help-media-overlay-btn help-media-btn-delete"
+                                        data-filename="{{ file.filename }}">
+                                    <i class="fas fa-trash"></i>
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- File Info -->
+                        <div class="help-media-info">
+                            <p class="help-media-filename" title="{{ file.filename }}">{{ file.filename }}</p>
+                            <div class="help-media-meta">
+                                {% if file.width and file.height %}
+                                <span class="help-media-meta-item">
+                                    <i class="fas fa-expand"></i>
+                                    {{ file.width }}×{{ file.height }}
+                                </span>
+                                {% endif %}
+                                <span class="help-media-meta-item">
+                                    <i class="fas fa-weight"></i>
+                                    {% if file.size < 1024 %}
+                                        {{ file.size }} B
+                                    {% elif file.size < 1048576 %}
+                                        {{ (file.size / 1024)|round(1) }} KB
+                                    {% else %}
+                                        {{ (file.size / 1048576)|round(2) }} MB
+                                    {% endif %}
+                                </span>
+                                <span class="help-media-meta-item">
+                                    <i class="far fa-calendar"></i>
+                                    {{ file.uploaded_at.strftime('%d.%m.%Y') }}
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+                {% else %}
+                <!-- Empty State -->
+                <div class="help-admin-empty-state">
+                    <i class="fas fa-images help-admin-empty-icon"></i>
+                    <h3 class="help-admin-empty-title">Brak plików</h3>
+                    <p class="help-admin-empty-text">
+                        Galeria jest pusta. Upload pierwsze obrazy, aby używać ich w artykułach.
+                    </p>
+                </div>
+                {% endif %}
+            </div>
+        </main>
+    </div>
+
+    <!-- Image Preview Modal -->
+    <div id="imagePreviewModal" class="help-admin-modal help-admin-modal-fullscreen" style="display: none;">
+        <div class="help-admin-modal-overlay"></div>
+        <div class="help-admin-modal-content help-admin-modal-image-preview">
+            <button type="button" class="help-admin-modal-close help-admin-modal-close-white" id="closePreviewBtn">
+                <i class="fas fa-times"></i>
+            </button>
+            
+            <div class="help-image-preview-wrapper">
+                <img id="previewImage" src="" alt="" class="help-image-preview-img">
+            </div>
+            
+            <div class="help-image-preview-info">
+                <h4 class="help-image-preview-filename" id="previewFilename"></h4>
+                <button type="button" class="help-image-preview-copy-btn" id="previewCopyBtn">
+                    <i class="fas fa-copy"></i>
+                    Kopiuj URL
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Delete Confirmation Modal -->
+    <div id="deleteMediaModal" class="help-admin-modal" style="display: none;">
+        <div class="help-admin-modal-overlay"></div>
+        <div class="help-admin-modal-content">
+            <div class="help-admin-modal-header">
+                <h3 class="help-admin-modal-title">
+                    <i class="fas fa-exclamation-triangle"></i>
+                    Usuń plik
+                </h3>
+                <button type="button" class="help-admin-modal-close" id="closeDeleteMediaBtn">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            
+            <div class="help-admin-modal-body">
+                <p>Czy na pewno chcesz usunąć plik:</p>
+                <p class="help-admin-modal-article-title" id="deleteMediaFilename"></p>
+                <p class="help-admin-modal-warning">
+                    <i class="fas fa-exclamation-triangle"></i>
+                    Tej operacji nie można cofnąć! Plik zostanie trwale usunięty.
+                </p>
+            </div>
+
+            <form method="POST" id="deleteMediaForm">
+                <div class="help-admin-modal-footer">
+                    <button type="button" class="help-admin-modal-btn help-admin-modal-btn-cancel" id="cancelDeleteMediaBtn">
+                        Anuluj
+                    </button>
+                    <button type="submit" class="help-admin-modal-btn help-admin-modal-btn-delete">
+                        <i class="fas fa-trash"></i>
+                        Usuń plik
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Upload Progress Toast -->
+    <div id="uploadToast" class="help-upload-toast" style="display: none;">
+        <div class="help-upload-toast-content">
+            <i class="fas fa-spinner fa-spin help-upload-toast-icon"></i>
+            <span class="help-upload-toast-text">Uploading...</span>
+        </div>
+    </div>
+
+    <script src="{{ url_for('help.static', filename='js/help_media_gallery.js') }}"></script>
+</body>
+</html>

@@ -977,25 +977,6 @@ input[type="radio"]:disabled + label {
         border: 2px solid #ed6b24;
     }
 
-#confirmSaveQuote {
-    display: flex;
-    padding: 4px 12px;
-    justify-content: center;
-    align-items: center;
-    border-radius: 24px;
-    color: #fff;
-    cursor: pointer;
-    font-family: Poppins, sans-serif;
-    position: relative;
-    transition: all 0.1s ease;
-    background-color: #ed6b24;
-    border: none;
-}
-
-    #confirmSaveQuote:hover {
-        background-color: #BD4D0F;
-    }
-
 /* Styl select z optgroup */
 select.select-small optgroup {
     font-weight: bold;
@@ -1256,7 +1237,7 @@ select.select-small option {
 
 #clientSearchResults {
     position: absolute;
-    top: 60%;
+    top: 88%;
     left: 0;
     right: 0;
     z-index: 10000;
@@ -1334,7 +1315,6 @@ select.select-small option {
     }
 
 #newQuoteBtn,
-#confirmSaveQuote,
 #closeModalBtn2 {
     flex: 1;
 }

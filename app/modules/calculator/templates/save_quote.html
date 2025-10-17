@@ -1,0 +1,208 @@
+<!-- app/modules/calculator/templates/save_quote_modal.html -->
+<div id="saveQuoteModal" class="sq-modal-overlay" style="display: none;">
+    <div class="sq-modal-box">
+        <!-- Header -->
+        <div class="sq-modal-header">
+            <h2 class="sq-modal-title">Zapisz wycenę</h2>
+            <button class="sq-close-btn" id="closeSaveQuoteModal">&times;</button>
+        </div>
+
+        <!-- KROK 1: Wyszukiwanie / Tworzenie klienta -->
+        <div class="sq-step sq-step-search active">
+            <div class="sq-search-section">
+                <h3 class="sq-search-title">Wyszukaj lub utwórz klienta</h3>
+                <p class="sq-search-desc">Wprowadź imię, nazwisko, telefon lub email klienta</p>
+
+                <div class="sq-search-input-wrapper">
+                    <input type="text"
+                           id="clientSearchInput"
+                           class="sq-search-input"
+                           placeholder="Wpisz przynajmniej 3 znaki..."
+                           autocomplete="off">
+                </div>
+
+                <div class="sq-search-hint">
+                    <span class="sq-hint-icon">ℹ️</span>
+                    <span>Wpisz minimum 3 znaki, aby rozpocząć wyszukiwanie</span>
+                </div>
+
+                <!-- Wyniki wyszukiwania -->
+                <div id="clientSearchResults" class="sq-search-results" style="display: none;">
+                    <!-- Dynamicznie generowane przez JS -->
+                </div>
+            </div>
+        </div>
+
+        <!-- KROK 2: Formularz + Podsumowanie -->
+        <div class="sq-step sq-step-form" style="display: none;">
+            <div class="sq-form-grid">
+                <!-- LEWA KOLUMNA: Formularz danych klienta -->
+                <div class="sq-form-section">
+                    <h3 class="sq-section-title">Dane klienta</h3>
+
+                    <!-- Źródło zapytania -->
+                    <div class="sq-form-group">
+                        <label class="sq-form-label">
+                            <span>Źródło zapytania <span class="sq-required">*</span></span>
+                        </label>
+                        <select name="quote_source" class="sq-form-input" required>
+                            <option value="" disabled selected>Wybierz źródło zapytania</option>
+                            <optgroup label="Pozostałe">
+                                <option value="Osobiście">Osobiście</option>
+                                <option value="Telefon">Telefon</option>
+                                <option value="E-mail">E-mail</option>
+                            </optgroup>
+                            <optgroup label="OLX">
+                                <option value="OLX">OLX</option>
+                            </optgroup>
+                        </select>
+                        <span class="sq-error-message"></span>
+                    </div>
+
+                    <!-- Nazwa klienta -->
+                    <div class="sq-form-group">
+                        <label class="sq-form-label">
+                            <span>Nazwa klienta <span class="sq-required">*</span></span>
+                        </label>
+                        <input type="text"
+                               name="client_login"
+                               class="sq-form-input"
+                               placeholder="Min. 3 znaki"
+                               minlength="3"
+                               required
+                               readonly>
+                        <span class="sq-error-message"></span>
+                    </div>
+
+                    <!-- Imię i nazwisko -->
+                    <div class="sq-form-group">
+                        <label class="sq-form-label">
+                            <span>Imię i nazwisko</span>
+                        </label>
+                        <input type="text"
+                               name="client_name"
+                               class="sq-form-input"
+                               placeholder="Podaj pełne imię i nazwisko"
+                               minlength="3">
+                        <span class="sq-error-message"></span>
+                    </div>
+
+                    <!-- Telefon -->
+                    <div class="sq-form-group">
+                        <label class="sq-form-label">
+                            Telefon <span class="sq-optional">*</span>
+                        </label>
+                        <input type="tel"
+                               name="client_phone"
+                               class="sq-form-input"
+                               placeholder="+48 123 456 789"
+                               pattern="[0-9]{9,}">
+                        <span class="sq-error-message"></span>
+                    </div>
+
+                    <!-- E-mail -->
+                    <div class="sq-form-group">
+                        <label class="sq-form-label">
+                            E-mail <span class="sq-optional">*</span>
+                        </label>
+                        <input type="email"
+                               name="client_email"
+                               class="sq-form-input"
+                               placeholder="email@example.com">
+                        <span class="sq-error-message"></span>
+                    </div>
+
+                    <p class="sq-input-note">
+                        <span class="sq-required">*</span> - wymagane pola<br>
+                        <span class="sq-optional">*</span> - jedno z pól jest wymagane
+                    </p>
+                </div>
+
+                <!-- PRAWA KOLUMNA: Podsumowanie produktów i kwot -->
+                <div class="sq-summary-section">
+                    <h3 class="sq-section-title">Podsumowanie wyceny</h3>
+
+                    <!-- Tabela produktów -->
+                    <div class="sq-products-table">
+                        <div class="sq-table-header">
+                            <div>Produkt</div>
+                            <div>Surowe</div>
+                            <div>Wykończenie</div>
+                            <div>Suma</div>
+                        </div>
+                        <div id="productsTableBody" class="sq-table-body">
+                            <!-- Dynamicznie generowane przez JS -->
+                        </div>
+                    </div>
+
+                    <!-- Podsumowanie całkowite -->
+                    <div class="sq-summary-totals">
+                        <div class="sq-summary-row">
+                            <span class="sq-summary-label">Koszt surowych:</span>
+                            <div class="sq-summary-values">
+                                <span id="summary-products-brutto" class="sq-summary-brutto">0.00 PLN</span>
+                                <span id="summary-products-netto" class="sq-summary-netto">0.00 PLN netto</span>
+                            </div>
+                        </div>
+
+                        <div class="sq-summary-row">
+                            <span class="sq-summary-label">Koszt wykończenia:</span>
+                            <div class="sq-summary-values">
+                                <span id="summary-finishing-brutto" class="sq-summary-brutto">0.00 PLN</span>
+                                <span id="summary-finishing-netto" class="sq-summary-netto">0.00 PLN netto</span>
+                            </div>
+                        </div>
+
+                        <div class="sq-summary-row">
+                            <span class="sq-summary-label">Koszt wysyłki:</span>
+                            <div class="sq-summary-values">
+                                <span id="summary-shipping-brutto" class="sq-summary-brutto">0.00 PLN</span>
+                                <span id="summary-shipping-netto" class="sq-summary-netto">0.00 PLN netto</span>
+                            </div>
+                        </div>
+
+                        <div class="sq-summary-row sq-summary-row-total">
+                            <span class="sq-summary-label">Suma zamówienia:</span>
+                            <div class="sq-summary-values">
+                                <span id="summary-total-brutto" class="sq-summary-brutto">0.00 PLN</span>
+                                <span id="summary-total-netto" class="sq-summary-netto">0.00 PLN netto</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Komunikaty błędów -->
+            <div id="quoteSaveFeedback" class="sq-feedback"></div>
+
+            <!-- Przycisk zapisu -->
+            <button type="button" id="confirmSaveQuote" class="sq-save-btn">
+                Zapisz wycenę
+            </button>
+        </div>
+
+        <!-- KROK 3: Potwierdzenie sukcesu -->
+        <div class="sq-step sq-step-success" style="display: none;">
+            <div class="sq-success-content">
+                <div class="sq-success-icon">✓</div>
+                <h3 class="sq-success-title">Wycena została zapisana</h3>
+                <div id="quoteNumberDisplay" class="sq-success-number">--</div>
+                <p class="sq-success-text">
+                    Wycena została pomyślnie zapisana w systemie i jest gotowa do dalszego przetwarzania.
+                </p>
+
+                <div class="sq-success-actions">
+                    <button id="goToQuoteBtn" class="sq-success-btn sq-btn-primary">
+                        Przejdź do wyceny
+                    </button>
+                    <button id="newQuoteBtn" class="sq-success-btn sq-btn-secondary">
+                        Nowa wycena
+                    </button>
+                    <button id="closeModalBtn" class="sq-success-btn">
+                        Zamknij
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>

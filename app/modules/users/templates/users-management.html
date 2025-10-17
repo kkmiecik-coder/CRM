@@ -157,97 +157,111 @@
                     </div>
                 </div>
 
-                <div class="users-table">
-                    <!-- Header tabeli -->
-                    <div class="table-header">
-                        <div class="th th-avatar">Avatar</div>
-                        <div class="th th-name">Imię i nazwisko</div>
-                        <div class="th th-email">Email</div>
-                        <div class="th th-role">Rola</div>
-                        <div class="th th-status">Status</div>
-                        <div class="th th-actions">Akcje</div>
-                    </div>
+                <!-- Fragment tabeli z dodaną kolumną mnożnika -->
+                <!-- HEADER TABELI -->
+                <div class="table-header">
+                    <div class="th th-avatar">Avatar</div>
+                    <div class="th th-name">Imię i nazwisko</div>
+                    <div class="th th-email">Email</div>
+                    <div class="th th-role">Rola</div>
+                    <div class="th th-multiplier">Mnożnik</div> <!-- NOWA KOLUMNA -->
+                    <div class="th th-status">Status</div>
+                    <div class="th th-actions">Akcje</div>
+                </div>
 
-                    <!-- Body tabeli -->
-                    <div class="table-body" id="usersTableBody">
-                        {% for u in users_list %}
-                        <div class="table-row" data-user-search="{{ (u.first_name + ' ' + u.last_name + ' ' + u.email)|lower }}">
-                            <!-- Avatar -->
-                            <div class="td td-avatar">
-                                <img src="{{ url_for('static', filename=u.avatar_path) if u.avatar_path else url_for('static', filename='images/avatars/default_avatars/avatar1.svg') }}"
-                                     alt="Avatar {{ u.first_name }}"
-                                     class="user-avatar">
-                            </div>
-
-                            <!-- Imię i nazwisko -->
-                            <div class="td td-name">
-                                <strong>{{ u.first_name }} {{ u.last_name }}</strong>
-                            </div>
-
-                            <!-- Email -->
-                            <div class="td td-email">{{ u.email }}</div>
-
-                            <!-- Rola -->
-                            <div class="td td-role">
-                                <span class="role-badge role-{{ u.role }}">
-                                    {% if u.role == 'admin' %}⚙️{% elif u.role == 'partner' %}🤝{% else %}👤{% endif %}
-                                    {{ u.role|title }}
-                                </span>
-                            </div>
-
-                            <!-- Status -->
-                            <div class="td td-status">
-                                {% if u.active %}
-                                <span class="status-badge status-active">✓ Aktywny</span>
-                                {% else %}
-                                <span class="status-badge status-inactive">✕ Nieaktywny</span>
-                                {% endif %}
-                            </div>
-
-                            <!-- Akcje -->
-                            <div class="td td-actions">
-                                <button type="button"
-                                        class="action-btn btn-edit"
-                                        title="Edytuj"
-                                        data-user-id="{{ u.id }}"
-                                        data-first-name="{{ u.first_name }}"
-                                        data-last-name="{{ u.last_name }}"
-                                        data-role="{{ u.role }}"
-                                        data-email="{{ u.email }}">
-                                    <span class="btn-icon">✏️</span>
-                                </button>
-
-                                {% if u.active %}
-                                <form action="{{ url_for('users.deactivate_user', user_id=u.id) }}"
-                                      method="post"
-                                      style="display:inline;"
-                                      onsubmit="return confirm('Czy na pewno chcesz dezaktywować tego użytkownika?');">
-                                    <button type="submit" class="action-btn btn-deactivate" title="Dezaktywuj">
-                                        <span class="btn-icon">🚫</span>
-                                    </button>
-                                </form>
-                                {% else %}
-                                <form action="{{ url_for('users.activate_user', user_id=u.id) }}"
-                                      method="post"
-                                      style="display:inline;">
-                                    <button type="submit" class="action-btn btn-activate" title="Aktywuj">
-                                        <span class="btn-icon">✅</span>
-                                    </button>
-                                </form>
-                                {% endif %}
-
-                                <form action="{{ url_for('users.delete_user', user_id=u.id) }}"
-                                      method="post"
-                                      style="display:inline;"
-                                      onsubmit="return confirm('Czy na pewno chcesz usunąć tego użytkownika? Ta operacja jest nieodwracalna!');">
-                                    <button type="submit" class="action-btn btn-delete" title="Usuń">
-                                        <span class="btn-icon">🗑️</span>
-                                    </button>
-                                </form>
-                            </div>
+                <!-- BODY TABELI -->
+                <div class="table-body" id="usersTableBody">
+                    {% for u in users_list %}
+                    <div class="table-row" data-user-search="{{ (u.first_name + ' ' + u.last_name + ' ' + u.email)|lower }}">
+                        <!-- Avatar -->
+                        <div class="td td-avatar">
+                            <img src="{{ url_for('static', filename=u.avatar_path) if u.avatar_path else url_for('static', filename='images/avatars/default_avatars/avatar1.svg') }}"
+                                 alt="Avatar {{ u.first_name }}"
+                                 class="user-avatar">
                         </div>
-                        {% endfor %}
+
+                        <!-- Imię i nazwisko -->
+                        <div class="td td-name">
+                            {{ u.first_name }} {{ u.last_name }}
+                        </div>
+
+                        <!-- Email -->
+                        <div class="td td-email">
+                            {{ u.email }}
+                        </div>
+
+                        <!-- Rola -->
+                        <div class="td td-role">
+                            <span class="role-badge role-{{ u.role }}">
+                                {% if u.role == 'admin' %}⚙️{% elif u.role == 'partner' %}🤝{% else %}👤{% endif %}
+                                {{ u.role|title }}
+                            </span>
+                        </div>
+
+                        <!-- Mnożnik - NOWA KOLUMNA -->
+                        <div class="td td-multiplier">
+                            {% if u.multiplier %}
+                            <span class="multiplier-badge">
+                                {{ u.multiplier.client_type }} ({{ u.multiplier.multiplier }})
+                            </span>
+                            {% else %}
+                            <span class="text-muted">-</span>
+                            {% endif %}
+                        </div>
+
+                        <!-- Status -->
+                        <div class="td td-status">
+                            {% if u.active %}
+                            <span class="status-badge status-active">✓ Aktywny</span>
+                            {% else %}
+                            <span class="status-badge status-inactive">✕ Nieaktywny</span>
+                            {% endif %}
+                        </div>
+
+                        <!-- Akcje -->
+                        <div class="td td-actions">
+                            <button type="button"
+                                    class="action-btn btn-edit"
+                                    title="Edytuj"
+                                    data-user-id="{{ u.id }}"
+                                    data-first-name="{{ u.first_name }}"
+                                    data-last-name="{{ u.last_name }}"
+                                    data-role="{{ u.role }}"
+                                    data-email="{{ u.email }}"
+                                    data-multiplier-id="{{ u.multiplier_id or '' }}">
+                                <span class="btn-icon">✏️</span>
+                            </button>
+
+                            {% if u.active %}
+                            <form action="{{ url_for('users.deactivate_user', user_id=u.id) }}"
+                                  method="post"
+                                  style="display:inline;"
+                                  onsubmit="return confirm('Czy na pewno chcesz dezaktywować tego użytkownika?');">
+                                <button type="submit" class="action-btn btn-deactivate" title="Dezaktywuj">
+                                    <span class="btn-icon">🚫</span>
+                                </button>
+                            </form>
+                            {% else %}
+                            <form action="{{ url_for('users.activate_user', user_id=u.id) }}"
+                                  method="post"
+                                  style="display:inline;">
+                                <button type="submit" class="action-btn btn-activate" title="Aktywuj">
+                                    <span class="btn-icon">✅</span>
+                                </button>
+                            </form>
+                            {% endif %}
+
+                            <form action="{{ url_for('users.delete_user', user_id=u.id) }}"
+                                  method="post"
+                                  style="display:inline;"
+                                  onsubmit="return confirm('Czy na pewno chcesz usunąć tego użytkownika? Ta operacja jest nieodwracalna!');">
+                                <button type="submit" class="action-btn btn-delete" title="Usuń">
+                                    <span class="btn-icon">🗑️</span>
+                                </button>
+                            </form>
+                        </div>
                     </div>
+                    {% endfor %}
                 </div>
 
                 <!-- Empty state -->
@@ -367,7 +381,7 @@
         </main>
     </div>
 
-    <!-- Modal edycji użytkownika Z TABAMI -->
+    <!-- Modal edycji użytkownika - JEDEN PRZYCISK -->
     <div class="modal-overlay" id="modalOverlay"></div>
     <div class="modal-container" id="editModal">
         <div class="modal-content">
@@ -386,11 +400,12 @@
                 </button>
             </div>
 
-            <form action="{{ url_for('users.edit_user', user_id=0) }}" method="post" id="editUserForm">
+            <!-- USUNIĘTY TAG <form> - teraz to zwykły DIV -->
+            <div id="editUserForm">
                 <div class="modal-body">
                     <input type="hidden" name="user_id" id="editUserId">
 
-                    <!-- TAB 1: DANE PODSTAWOWE (BEZ ROLI) -->
+                    <!-- TAB 1: DANE PODSTAWOWE (z mnożnikiem) -->
                     <div class="tab-content active" id="tab-profile">
                         <div class="form-group">
                             <label for="editFirstName">Imię</label>
@@ -418,9 +433,25 @@
                                    class="form-input"
                                    required>
                         </div>
+
+                        <!-- POLE: Mnożnik -->
+                        <div class="form-group">
+                            <label for="editMultiplier">
+                                🎯 Mnożnik cenowy
+                                <span style="font-size: 12px; color: #6c757d; font-weight: normal;">
+                                    (Opcjonalnie - dla partnerów)
+                                </span>
+                            </label>
+                            <select id="editMultiplier" name="multiplier_id" class="form-input">
+                                <option value="">Brak mnożnika</option>
+                                {% for m in multipliers %}
+                                <option value="{{ m.id }}">{{ m.client_type }} ({{ m.multiplier }})</option>
+                                {% endfor %}
+                            </select>
+                        </div>
                     </div>
 
-                    <!-- TAB 2: UPRAWNIENIA (Z ROLĄ) -->
+                    <!-- TAB 2: UPRAWNIENIA -->
                     <div class="tab-content" id="tab-permissions">
                         <!-- Loading state -->
                         <div id="permissions-loading" class="permissions-loading">
@@ -512,13 +543,14 @@
                     </div>
                 </div>
 
+                <!-- FOOTER Z JEDNYM PRZYCISKIEM -->
                 <div class="modal-footer">
                     <button type="button" class="btn-secondary" id="cancelModal">Anuluj</button>
-                    <button type="button" class="btn-primary" id="savePermissions">
+                    <button type="button" class="btn-primary" id="saveUserChanges">
                         💾 Zapisz zmiany
                     </button>
                 </div>
-            </form>
+            </div>
         </div>
     </div>
 

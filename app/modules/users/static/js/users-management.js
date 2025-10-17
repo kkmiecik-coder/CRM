@@ -45,16 +45,15 @@ function initMultiplierToggle() {
 }
 
 /* ============================================================================
-   OBSŁUGA MODALU EDYCJI (rozszerzona)
+   OBSŁUGA MODALU EDYCJI (z mnożnikiem)
    ============================================================================ */
 function initModalHandlers() {
     const modalOverlay = document.getElementById('modalOverlay');
     const editModal = document.getElementById('editModal');
     const closeModalBtn = document.getElementById('closeModal');
     const cancelModalBtn = document.getElementById('cancelModal');
-    const savePermissionsBtn = document.getElementById('savePermissions');
+    const saveUserChangesBtn = document.getElementById('saveUserChanges'); // ZMIENIONA NAZWA
     const editButtons = document.querySelectorAll('.btn-edit');
-    const editUserForm = document.getElementById('editUserForm');
 
     if (!modalOverlay || !editModal) {
         console.warn('⚠️ Modal elements nie znalezione');
@@ -65,16 +64,21 @@ function initModalHandlers() {
     editButtons.forEach(button => {
         button.addEventListener('click', async function () {
             const userId = parseInt(this.dataset.userId);
-            const firstName = this.dataset.firstName;
-            const lastName = this.dataset.lastName;
-            const role = this.dataset.role;
-            const email = this.dataset.email;
+            const firstName = this.dataset.firstName || '';
+            const lastName = this.dataset.lastName || '';
+            const role = this.dataset.role || '';
+            const email = this.dataset.email || '';
+            const multiplierId = this.dataset.multiplierId || '';
 
             console.log(`📝 Otwieranie modalu dla użytkownika ID: ${userId}`);
 
             // Zapisz current user ID
             currentUserId = userId;
-            currentUserData = { firstName, lastName, role, email };
+            console.log(`✅ currentUserId ustawiony na: ${currentUserId}`);
+
+            // Zapisz current user ID
+            currentUserId = userId;
+            currentUserData = { firstName, lastName, role, email, multiplierId };
 
             // Wypełnij TAB 1: Dane podstawowe
             document.getElementById('editUserId').value = userId;
@@ -82,36 +86,35 @@ function initModalHandlers() {
             document.getElementById('editLastName').value = lastName;
             document.getElementById('editEmail').value = email;
 
-            // Zaktualizuj action formularza
-            editUserForm.action = `/users/${userId}/edit`;
+            // Ustaw mnożnik
+            const multiplierSelect = document.getElementById('editMultiplier');
+            if (multiplierSelect) {
+                multiplierSelect.value = multiplierId || '';
+            }
 
             // Reset tabów do pierwszego
             resetToFirstTab();
 
             // Pokaż modal
             openModal();
-
-            // Pre-load uprawnień (załaduje się gdy user przełączy na tab 2)
-            // Nie ładujemy od razu żeby modal szybciej się otworzył
         });
     });
 
     // Zamknij modal
     closeModalBtn.addEventListener('click', closeModal);
     cancelModalBtn.addEventListener('click', closeModal);
-
-    // Zamknij modal po kliknięciu w overlay
     modalOverlay.addEventListener('click', closeModal);
 
-    // Zamknij modal po naciśnięciu ESC
     document.addEventListener('keydown', function (e) {
         if (e.key === 'Escape' && editModal.classList.contains('active')) {
             closeModal();
         }
     });
 
-    // Zapisz uprawnienia
-    savePermissionsBtn.addEventListener('click', handleSavePermissions);
+    // NOWY: Uniwersalny przycisk "Zapisz"
+    if (saveUserChangesBtn) {
+        saveUserChangesBtn.addEventListener('click', handleUniversalSave);
+    }
 
     function openModal() {
         modalOverlay.classList.add('active');
@@ -123,10 +126,76 @@ function initModalHandlers() {
         modalOverlay.classList.remove('active');
         editModal.classList.remove('active');
         document.body.style.overflow = '';
-
-        // Reset stanu
         currentUserId = null;
         currentUserData = null;
+    }
+}
+
+// Uniwersalny zapis
+async function handleUniversalSave() {
+    const activeTab = document.querySelector('.tab-content.active');
+    const activeTabId = activeTab ? activeTab.id : null;
+
+    console.log('💾 Zapisywanie z taba:', activeTabId);
+
+    if (activeTabId === 'tab-profile') {
+        // Zapisz dane podstawowe
+        await saveBasicProfile();
+    } else if (activeTabId === 'tab-permissions') {
+        // Zapisz uprawnienia
+        await handleSavePermissions();
+    }
+}
+
+// Zapis danych podstawowych
+async function saveBasicProfile() {
+    const saveBtn = document.getElementById('saveUserChanges');
+    const originalText = saveBtn.innerHTML;
+
+    try {
+        saveBtn.disabled = true;
+        saveBtn.innerHTML = '⏳ Zapisywanie...';
+
+        // Pobierz dane
+        const userId = document.getElementById('editUserId').value;
+        const firstName = document.getElementById('editFirstName').value.trim();
+        const lastName = document.getElementById('editLastName').value.trim();
+        const email = document.getElementById('editEmail').value.trim();
+        const multiplierId = document.getElementById('editMultiplier').value;
+
+        // Walidacja
+        if (!firstName || !lastName || !email) {
+            throw new Error('Imię, nazwisko i email są wymagane');
+        }
+
+        // Wyślij jako POST
+        const formData = new FormData();
+        formData.append('first_name', firstName);
+        formData.append('last_name', lastName);
+        formData.append('email', email);
+        formData.append('multiplier_id', multiplierId || '');
+
+        const response = await fetch(`/users/${userId}/edit`, {
+            method: 'POST',
+            body: formData
+        });
+
+        if (!response.ok) {
+            throw new Error('Błąd zapisu danych podstawowych');
+        }
+
+        showToast('Dane podstawowe zostały zaktualizowane!', 'success');
+
+        setTimeout(() => {
+            window.location.reload();
+        }, 1000);
+
+    } catch (error) {
+        console.error('❌ Błąd:', error);
+        showToast(`Błąd: ${error.message}`, 'error');
+
+        saveBtn.disabled = false;
+        saveBtn.innerHTML = originalText;
     }
 }
 
@@ -146,6 +215,8 @@ function initTabHandlers() {
         button.addEventListener('click', function () {
             const targetTab = this.dataset.tab;
 
+            console.log(`🔄 Przełączanie na tab: ${targetTab}`); // DODAJ TEN LOG
+
             // Zmień aktywny przycisk
             tabButtons.forEach(btn => btn.classList.remove('active'));
             this.classList.add('active');
@@ -157,9 +228,12 @@ function initTabHandlers() {
                 targetContent.classList.add('active');
             }
 
-            // Jeśli przełączono na tab uprawnień - załaduj dane
+            // ⚠️ KLUCZOWE: Jeśli przełączono na tab uprawnień - załaduj dane
             if (targetTab === 'tab-permissions' && currentUserId) {
+                console.log(`✅ Ładowanie uprawnień dla user: ${currentUserId}`); // DODAJ
                 loadPermissionsTab();
+            } else if (targetTab === 'tab-permissions' && !currentUserId) {
+                console.error('❌ Brak currentUserId!'); // DODAJ
             }
         });
     });
@@ -191,25 +265,32 @@ async function loadPermissionsTab() {
     const errorDiv = document.getElementById('permissions-error');
     const retryBtn = document.getElementById('retry-permissions');
 
-    // Pokaż loading
     loadingDiv.style.display = 'block';
     contentDiv.style.display = 'none';
-    errorDiv.style.display = 'none';
+    if (errorDiv) errorDiv.style.display = 'none';
 
     try {
-        // Pobierz dane równolegle
+        console.log('📡 Pobieranie danych...');
+
         const [rolesData, modulesData, userPermissionsData] = await Promise.all([
             fetchRoles(),
             fetchModules(),
             fetchUserPermissions(currentUserId)
         ]);
 
-        console.log('📦 Dane załadowane:', { rolesData, modulesData, userPermissionsData });
+        console.log('📦 Dane załadowane:', {
+            rolesData,
+            modulesData,
+            userPermissionsData
+        });
 
-        // Renderuj role
+        // RENDERUJ ROLE - DODAJ LOGI
+        console.log('🎨 Wywołuję renderRolesSelect...');
         renderRolesSelect(rolesData.roles, userPermissionsData.role_id);
+        console.log('🎨 renderRolesSelect zakończone');
 
         // Renderuj moduły
+        console.log('🎨 Wywołuję renderModulesList...');
         renderModulesList(modulesData.modules, userPermissionsData.modules);
 
         // Nasłuchuj zmiany roli
@@ -219,15 +300,13 @@ async function loadPermissionsTab() {
         loadingDiv.style.display = 'none';
         contentDiv.style.display = 'block';
 
+        console.log('✅ Uprawnienia załadowane pomyślnie');
+
     } catch (error) {
         console.error('❌ Błąd ładowania uprawnień:', error);
-
-        // Pokaż error
         loadingDiv.style.display = 'none';
-        errorDiv.style.display = 'block';
-
-        // Retry button
-        retryBtn.onclick = loadPermissionsTab;
+        if (errorDiv) errorDiv.style.display = 'block';
+        if (retryBtn) retryBtn.onclick = loadPermissionsTab;
     }
 }
 
@@ -269,9 +348,19 @@ async function fetchUserPermissions(userId) {
    ============================================================================ */
 function renderRolesSelect(roles, currentRoleId) {
     const roleSelect = document.getElementById('editRolePermissions');
-    if (!roleSelect) return;
+
+    console.log('📋 renderRolesSelect wywołana');
+    console.log('   - roleSelect element:', roleSelect);
+    console.log('   - roles:', roles);
+    console.log('   - currentRoleId:', currentRoleId);
+
+    if (!roleSelect) {
+        console.error('❌ Element editRolePermissions nie znaleziony!');
+        return;
+    }
 
     roleSelect.innerHTML = '';
+    console.log('🧹 Wyczyszczono zawartość selecta');
 
     roles.forEach(role => {
         const option = document.createElement('option');
@@ -281,10 +370,14 @@ function renderRolesSelect(roles, currentRoleId) {
 
         if (role.role_id === currentRoleId) {
             option.selected = true;
+            console.log(`✅ Zaznaczono rolę: ${role.display_name} (ID: ${role.role_id})`);
         }
 
         roleSelect.appendChild(option);
+        console.log(`➕ Dodano opcję: ${role.display_name}`);
     });
+
+    console.log(`✅ Renderowanie zakończone. Select ma ${roleSelect.children.length} opcji`);
 }
 
 function getRoleIcon(roleName) {
@@ -530,7 +623,7 @@ function updateModuleBadge(checkbox, hasAccessFromRole) {
 async function handleSavePermissions() {
     console.log('💾 Zapisywanie uprawnień...');
 
-    const saveBtn = document.getElementById('savePermissions');
+    const saveBtn = document.getElementById('saveUserChanges');
     const originalText = saveBtn.innerHTML;
 
     try {
@@ -1227,7 +1320,7 @@ async function loadRolesForPermissions() {
         const data = await response.json();
         rolesCache = data;
 
-        renderRolesSelect(data.roles);
+        renderRolesSelectForManagement(data.roles);  // ← ZMIENIONA NAZWA
 
     } catch (error) {
         console.error('Błąd ładowania ról:', error);
@@ -1236,21 +1329,18 @@ async function loadRolesForPermissions() {
 }
 
 /**
- * Renderuje select z rolami
+ * Renderuje select z rolami DLA ZARZĄDZANIA UPRAWNIENIAMI RÓL
  */
-function renderRolesSelect(roles) {
+function renderRolesSelectForManagement(roles) {
     const roleSelect = document.getElementById('rolePermissionsSelect');
     if (!roleSelect) return;
-
     roleSelect.innerHTML = '<option value="">-- Wybierz rolę --</option>';
-
     roles.forEach(role => {
         const option = document.createElement('option');
         option.value = role.role_id;
         option.textContent = `${getRoleIcon(role.role_name)} ${role.display_name} (${role.modules_count} modułów)`;
         option.dataset.roleName = role.role_name;
         option.dataset.isSystem = role.is_system;
-
         roleSelect.appendChild(option);
     });
 }

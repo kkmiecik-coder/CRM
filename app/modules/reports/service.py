@@ -98,12 +98,10 @@ class BaselinkerReportsService:
                 {product_key: {'volume': float, 'wood_species': str, ...}}
         """
         self.volume_fixes = volume_fixes_dict or {}
-        reports_logger.info(f"Ustawiono poprawki objętości dla {len(self.volume_fixes)} produktów")
         
     def clear_volume_fixes(self):
         """NOWA METODA: Czyści poprawki objętości."""
         self.volume_fixes = {}
-        reports_logger.info("Wyczyszczono poprawki objętości")
 
     def generate_product_key(self, order_id, product, product_index=None):
         """
@@ -603,13 +601,6 @@ class BaselinkerReportsService:
             volume_per_piece_input = record_data.get('volume_per_piece')
             total_volume_input = record_data.get('total_volume')
         
-            reports_logger.info(f"🔍 SAVE_ORDER_RECORD DEBUG - PRZED TWORZENIEM:")
-            reports_logger.info(f"   📦 Input volume_per_piece: {volume_per_piece_input}")
-            reports_logger.info(f"   📊 Input total_volume: {total_volume_input}")
-            reports_logger.info(f"   📏 Input length_cm: {record_data.get('length_cm')}")
-            reports_logger.info(f"   📏 Input width_cm: {record_data.get('width_cm')}")
-            reports_logger.info(f"   📏 Input thickness_cm: {record_data.get('thickness_cm')}")
-        
             # Utwórz nowy rekord
             record = BaselinkerReportOrder()
         
@@ -655,14 +646,6 @@ class BaselinkerReportsService:
             record.price_per_m3 = record_data.get('price_per_m3')
             record.avg_order_price_per_m3 = record_data.get('avg_order_price_per_m3', 0.0)
         
-            # ✅ DEBUG PO USTAWIENIU WARTOŚCI
-            reports_logger.info(f"🔍 SAVE_ORDER_RECORD DEBUG - PO USTAWIENIU ATRYBUTÓW:")
-            reports_logger.info(f"   📦 Record volume_per_piece: {record.volume_per_piece}")
-            reports_logger.info(f"   📊 Record total_volume: {record.total_volume}")
-            reports_logger.info(f"   📏 Record length_cm: {record.length_cm}")
-            reports_logger.info(f"   📏 Record width_cm: {record.width_cm}")
-            reports_logger.info(f"   📏 Record thickness_cm: {record.thickness_cm}")
-        
             # Pozostałe pola
             record.realization_date = record_data.get('realization_date')
             record.current_status = record_data.get('current_status')
@@ -688,12 +671,6 @@ class BaselinkerReportsService:
             # UWAGA: Ta metoda może nadpisać objętości!
             record.calculate_fields()
 
-            # ✅ DEBUG PO CALCULATE_FIELDS
-            reports_logger.info(f"🔍 SAVE_ORDER_RECORD DEBUG - PO CALCULATE_FIELDS:")
-            reports_logger.info(f"   📦 Record volume_per_piece: {record.volume_per_piece}")
-            reports_logger.info(f"   📊 Record total_volume: {record.total_volume}")
-            reports_logger.info(f"   💰 Record price_per_m3: {record.price_per_m3}")
-
             # ✅ NOWE: Ustaw avg_order_price_per_m3 (metoda calculate_fields może to ustawić już poprawnie)
             # Ale sprawdź czy jest potrzebne dodatkowe ustawienie
             if not hasattr(record, 'avg_order_price_per_m3') or record.avg_order_price_per_m3 is None:
@@ -702,14 +679,7 @@ class BaselinkerReportsService:
             # Zapisz do bazy
             db.session.add(record)
             db.session.commit()
-        
-            # ✅ DEBUG PO ZAPISIE DO BAZY
-            reports_logger.info(f"🔍 SAVE_ORDER_RECORD DEBUG - PO ZAPISIE DO BAZY:")
-            reports_logger.info(f"   📦 Final volume_per_piece: {record.volume_per_piece}")
-            reports_logger.info(f"   📊 Final total_volume: {record.total_volume}")
-            reports_logger.info(f"   🆔 Record ID: {record.id}")
-        
-            reports_logger.info(f"Zapisano rekord zamówienia {record.baselinker_order_id} z objętością {record.total_volume} m³")
+
             return record
         
         except Exception as e:
@@ -2048,128 +2018,135 @@ class BaselinkerReportsService:
                              hours_back=hours_back)
             return False, 0
 
-    def fetch_orders_from_date_range(self, date_from: datetime, date_to: datetime, get_all_statuses: bool = False, limit_per_page: int = 100) -> Dict[str, any]:
+    def _fetch_single_chunk(self, date_from: datetime, date_to: datetime, get_all_statuses: bool = False, limit_per_page: int = 100) -> Dict[str, any]:
         """
-        Pobiera zamówienia z Baselinker dla zakresu dat używając chunków (po 3 dni).
-    
-        Logika:
-        - 1-3 dni = 1 chunk
-        - 4-7 dni = 2-3 chunki
-        - 8-14 dni = 3-5 chunków
-        - 30 dni = 10 chunków
+        Pobiera zamówienia dla pojedynczego chunka czasowego (wewnętrzna metoda pomocnicza).
     
         Args:
-            date_from (datetime): Data początkowa zakresu
-            date_to (datetime): Data końcowa zakresu
-            get_all_statuses (bool): Czy pobierać również anulowane/nieopłacone
-            limit_per_page (int): Limit zamówień na stronę API (100)
+            date_from (datetime): Data początkowa chunka
+            date_to (datetime): Data końcowa chunka
+            get_all_statuses (bool): Czy pobierać wszystkie statusy
+            limit_per_page (int): Limit zamówień na stronę
         
         Returns:
             Dict: {
                 'success': bool,
                 'orders': List[Dict],
-                'error': str|None,
-                'chunks_processed': int,
-                'duration_seconds': float
+                'error': str|None
             }
         """
         try:
-            import time
-            from datetime import timedelta
-        
-            start_time = time.time()
-        
-            # Oblicz ile dni
-            days_diff = (date_to - date_from).days + 1
-        
-            self.logger.info("Rozpoczęcie pobierania zamówień z chunkowaniem",
-                            date_from=date_from.isoformat(),
-                            date_to=date_to.isoformat(),
-                            days_total=days_diff,
-                            get_all_statuses=get_all_statuses)
-        
-            # Wielkość chunka: 3 dni
-            CHUNK_SIZE_DAYS = 3
-        
-            all_orders = []
-            seen_order_ids = set()
-            chunks_processed = 0
-        
-            current_date = date_from
-        
-            while current_date <= date_to:
-                chunks_processed += 1
-            
-                # Oblicz koniec chunka (maksymalnie 3 dni lub do końca zakresu)
-                chunk_end = min(
-                    current_date + timedelta(days=CHUNK_SIZE_DAYS - 1),
-                    date_to
-                )
-            
-                # Pobierz zamówienia dla tego chunka
-                result = self._fetch_single_chunk(
-                    date_from=current_date,
-                    date_to=chunk_end,
-                    get_all_statuses=get_all_statuses,
-                    limit_per_page=limit_per_page
-                )
-            
-                if not result['success']:
-                    self.logger.warning("Błąd podczas pobierania chunka",
-                                      chunk_number=chunks_processed,
-                                      chunk_start=current_date.date(),
-                                      chunk_end=chunk_end.date(),
-                                      error=result['error'])
-                    # Kontynuuj mimo błędu w jednym chunku
-                    current_date = chunk_end + timedelta(days=1)
-                    continue
-            
-                # Dodaj zamówienia z tego chunka (deduplikacja)
-                chunk_orders = result['orders']
-                new_in_chunk = 0
-            
-                for order in chunk_orders:
-                    order_id = order.get('order_id')
-                    if order_id and order_id not in seen_order_ids:
-                        all_orders.append(order)
-                        seen_order_ids.add(order_id)
-                        new_in_chunk += 1
-            
-                # Przejdź do następnego chunka
-                current_date = chunk_end + timedelta(days=1)
-        
-            # Oblicz czas wykonania
-            total_duration = time.time() - start_time
-        
-            self.logger.info("Zakończono pobieranie zamówień z chunkowaniem",
-                            total_orders=len(all_orders),
-                            unique_orders=len(seen_order_ids),
-                            chunks_processed=chunks_processed,
-                            date_from=date_from.isoformat(),
-                            date_to=date_to.isoformat(),
-                            duration_seconds=round(total_duration, 2),
-                            get_all_statuses=get_all_statuses)
-        
-            return {
-                'success': True,
-                'orders': all_orders,
-                'error': None,
-                'chunks_processed': chunks_processed,
-                'duration_seconds': round(total_duration, 2)
+            if not self.api_key or not self.endpoint:
+                self.logger.error("Brak konfiguracji API Baselinker")
+                return {
+                    'success': False,
+                    'orders': [],
+                    'error': 'Brak konfiguracji API Baselinker'
+                }
+
+            headers = {
+                'X-BLToken': self.api_key,
+                'Content-Type': 'application/x-www-form-urlencoded'
             }
-        
-        except Exception as e:
-            self.logger.error("Nieoczekiwany błąd podczas pobierania zamówień z chunkowaniem",
-                             error=str(e),
-                             error_type=type(e).__name__,
-                             date_from=date_from.isoformat(),
-                             date_to=date_to.isoformat())
+
+            # Konwertuj daty na timestampy
+            date_from_ts = int(date_from.timestamp())
+            date_to_ts = int(date_to.timestamp())
+
+            # Przygotuj parametry
+            parameters = {
+                "date_confirmed_from": date_from_ts,
+                "date_confirmed_to": date_to_ts,
+                "include_custom_extra_fields": True,
+                "get_unconfirmed_orders": True,
+            }
+
+            # Filtrowanie statusów (jeśli nie pobieramy wszystkich)
+            if not get_all_statuses:
+                parameters["filter_order_status_id"] = "!105112,!138625"
+
+            data = {
+                'method': 'getOrders',
+                'parameters': json.dumps(parameters)
+            }
+
+            self.logger.debug("Pobieranie chunka zamówień",
+                             date_from=date_from.date(),
+                             date_to=date_to.date(),
+                             date_from_ts=date_from_ts,
+                             date_to_ts=date_to_ts,
+                             get_all_statuses=get_all_statuses)
+
+            # Wykonaj request do API
+            response = requests.post(
+                self.endpoint, 
+                headers=headers, 
+                data=data, 
+                timeout=30
+            )
+            response.raise_for_status()
+            result = response.json()
+
+            if result.get('status') == 'SUCCESS':
+                orders = result.get('orders', [])
+            
+                self.logger.debug("Chunk pobrany pomyślnie",
+                                orders_count=len(orders),
+                                date_from=date_from.date(),
+                                date_to=date_to.date())
+            
+                return {
+                    'success': True,
+                    'orders': orders,
+                    'error': None
+                }
+            else:
+                error_msg = result.get('error_message', 'Nieznany błąd API')
+                error_code = result.get('error_code', 'Brak kodu')
+            
+                self.logger.error("Błąd API przy pobieraniu chunka",
+                                error_message=error_msg,
+                                error_code=error_code,
+                                date_from=date_from.date(),
+                                date_to=date_to.date())
+            
+                return {
+                    'success': False,
+                    'orders': [],
+                    'error': f'{error_code}: {error_msg}'
+                }
+
+        except requests.exceptions.Timeout:
+            self.logger.error("Timeout przy pobieraniu chunka",
+                             date_from=date_from.date(),
+                             date_to=date_to.date())
             return {
                 'success': False,
                 'orders': [],
-                'error': f'Błąd serwera: {str(e)}',
-                'chunks_processed': 0,
-                'duration_seconds': 0
+                'error': 'Timeout połączenia z API Baselinker'
+            }
+
+        except requests.exceptions.RequestException as e:
+            self.logger.error("Błąd połączenia przy pobieraniu chunka",
+                             error=str(e),
+                             date_from=date_from.date(),
+                             date_to=date_to.date())
+            return {
+                'success': False,
+                'orders': [],
+                'error': f'Błąd połączenia: {str(e)}'
+            }
+
+        except Exception as e:
+            self.logger.error("Nieoczekiwany błąd przy pobieraniu chunka",
+                             error=str(e),
+                             error_type=type(e).__name__,
+                             date_from=date_from.date(),
+                             date_to=date_to.date())
+            return {
+                'success': False,
+                'orders': [],
+                'error': f'Błąd: {str(e)}'
             }
 
     def fetch_orders_from_date_range(self, date_from: datetime, date_to: datetime, get_all_statuses: bool = False, limit_per_page: int = 100) -> Dict[str, any]:
@@ -2447,9 +2424,6 @@ class BaselinkerReportsService:
                     'error': f'Zamówienie {order_id} nie zawiera produktów'
                 }
         
-            reports_logger.info(f"Zapisywanie zamówienia {order_id} z analizą objętości",
-                            products_count=len(products))
-        
             # Sprawdź czy zamówienie już istnieje
             if self.order_exists(order_id):
                 return {
@@ -2478,9 +2452,7 @@ class BaselinkerReportsService:
                         volume_info += f", gatunek: {record_data.get('wood_species')}"
                     if record_data.get('technology'):
                         volume_info += f", technologia: {record_data.get('technology')}"
-                
-                    reports_logger.debug(f"Zapisano produkt z analizą: {product.get('name', 'unknown')} - {volume_info}")
-                
+                                
                 except Exception as e:
                     error_msg = f"Błąd zapisywania produktu {product.get('name', 'unknown')}: {str(e)}"
                     processing_errors.append(error_msg)
@@ -2508,10 +2480,6 @@ class BaselinkerReportsService:
                 result['warnings'] = processing_errors
                 result['products_failed'] = len(processing_errors)
         
-            reports_logger.info(f"Zamówienie {order_id} zapisane pomyślnie z analizą objętości",
-                            products_saved=len(saved_records),
-                            products_failed=len(processing_errors))
-        
             return result
         
         except Exception as e:
@@ -2528,7 +2496,6 @@ class BaselinkerReportsService:
         NOWA METODA: Ustawia poprawki objętości dla produktów
         """
         self.volume_fixes = volume_fixes.copy()
-        reports_logger.info(f"Ustawiono poprawki objętości dla {len(volume_fixes)} produktów")
         
         # Debug log dla każdej poprawki
         for product_key, fixes in volume_fixes.items():
@@ -2542,7 +2509,6 @@ class BaselinkerReportsService:
                 attributes.append(f"klasa: {fixes['wood_class']}")
             
             attr_str = ", " + ", ".join(attributes) if attributes else ""
-            reports_logger.debug(f"Poprawka {product_key}: {volume}m³{attr_str}")
 
     def clear_volume_fixes(self):
         """
@@ -2550,7 +2516,6 @@ class BaselinkerReportsService:
         """
         fixes_count = len(self.volume_fixes) if hasattr(self, 'volume_fixes') else 0
         self.volume_fixes = {}
-        reports_logger.info(f"Wyczyszczono {fixes_count} poprawek objętości")
 
     def create_report_record(self, record_data):
         """
@@ -2560,16 +2525,6 @@ class BaselinkerReportsService:
             # ✅ DODAJ DEBUG PRZED TWORZENIEM REKORDU
             volume_per_piece_input = record_data.get('volume_per_piece')
             total_volume_input = record_data.get('total_volume')
-        
-            reports_logger.info(f"🔍 CREATE_REPORT_RECORD DEBUG - DANE WEJŚCIOWE:")
-            reports_logger.info(f"   📦 Input volume_per_piece: {volume_per_piece_input}")
-            reports_logger.info(f"   📊 Input total_volume: {total_volume_input}")
-            reports_logger.info(f"   📏 Input length_cm: {record_data.get('length_cm')}")
-            reports_logger.info(f"   📏 Input width_cm: {record_data.get('width_cm')}")
-            reports_logger.info(f"   📏 Input thickness_cm: {record_data.get('thickness_cm')}")
-            reports_logger.info(f"   🌳 Input wood_species: {record_data.get('wood_species')}")
-            reports_logger.info(f"   🔧 Input technology: {record_data.get('technology')}")
-            reports_logger.info(f"   📏 Input wood_class: {record_data.get('wood_class')}")
         
             # ✅ UTWÓRZ REKORD BEZPOŚREDNIO (zamiast przez konstruktor)
             record = BaselinkerReportOrder()
@@ -2617,14 +2572,6 @@ class BaselinkerReportsService:
             record.price_per_m3 = record_data.get('price_per_m3')
             record.avg_order_price_per_m3 = record_data.get('avg_order_price_per_m3', 0.0)
         
-            # ✅ DEBUG PO USTAWIENIU WARTOŚCI
-            reports_logger.info(f"🔍 CREATE_REPORT_RECORD DEBUG - PO USTAWIENIU ATRYBUTÓW:")
-            reports_logger.info(f"   📦 Record volume_per_piece: {record.volume_per_piece}")
-            reports_logger.info(f"   📊 Record total_volume: {record.total_volume}")
-            reports_logger.info(f"   📏 Record length_cm: {record.length_cm}")
-            reports_logger.info(f"   📏 Record width_cm: {record.width_cm}")
-            reports_logger.info(f"   📏 Record thickness_cm: {record.thickness_cm}")
-        
             # Pozostałe pola
             record.realization_date = record_data.get('realization_date')
             record.current_status = record_data.get('current_status')
@@ -2651,20 +2598,9 @@ class BaselinkerReportsService:
             # ✅ OBLICZ automatycznie wszystkie pola (w tym datę realizacji) 
             # UWAGA: Ta metoda może nadpisać objętości!
             record.calculate_fields()
-
-            # ✅ DEBUG PO CALCULATE_FIELDS
-            reports_logger.info(f"🔍 CREATE_REPORT_RECORD DEBUG - PO CALCULATE_FIELDS:")
-            reports_logger.info(f"   📦 Record volume_per_piece: {record.volume_per_piece}")
-            reports_logger.info(f"   📊 Record total_volume: {record.total_volume}")
-            reports_logger.info(f"   💰 Record price_per_m3: {record.price_per_m3}")
         
             # Dodaj do sesji (nie commituj tutaj)
             db.session.add(record)
-        
-            # ✅ DEBUG PO DODANIU DO SESJI
-            reports_logger.info(f"🔍 CREATE_REPORT_RECORD DEBUG - PO DODANIU DO SESJI:")
-            reports_logger.info(f"   📦 Final volume_per_piece: {record.volume_per_piece}")
-            reports_logger.info(f"   📊 Final total_volume: {record.total_volume}")
         
             return record
         

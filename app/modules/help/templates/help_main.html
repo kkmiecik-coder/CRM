@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pomoc - Wood Power CRM</title>
+    <link rel="icon" href="{{ url_for('static', filename='images/favicon.png') }}" type="image/png">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="stylesheet" href="{{ url_for('help.static', filename='css/help_interface.css') }}">
+    <link rel="stylesheet" href="{{ url_for('help.static', filename='css/help_article.css') }}">
+    <!-- Font Awesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Google Fonts - Poppins -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="app-container">
+        {% include 'sidebar/sidebar.html' %}
+        
+        <main class="main-content">
+            <div class="help-main-container">
+                <!-- Header Section -->
+                <div class="help-main-header">
+                    <div class="help-main-header-content">
+                        <div class="help-main-title-section">
+                            <h1 class="help-main-title">
+                                <i class="fas fa-book-open help-main-title-icon"></i>
+                                Centrum pomocy
+                            </h1>
+                            <p class="help-main-subtitle">Znajdź odpowiedzi na swoje pytania o systemie CRM</p>
+                        </div>
+                        
+                        <!-- Admin Panel Button (tylko dla adminów) -->
+                        {% if current_user.is_authenticated and current_user.role == 'admin' %}
+                        <div class="help-main-admin-btn-wrapper">
+                            <a href="{{ url_for('help.admin_articles_list') }}" class="help-main-admin-btn">
+                                <i class="fas fa-cog"></i>
+                                <span>Zarządzaj</span>
+                            </a>
+                        </div>
+                        {% endif %}
+                    </div>
+                    
+                    <!-- Search Bar -->
+                    <form action="{{ url_for('help.search') }}" method="GET" class="help-main-search-form">
+                        <div class="help-main-search-container">
+                            <i class="fas fa-search help-main-search-icon"></i>
+                            <input 
+                                type="text" 
+                                name="q" 
+                                placeholder="Wpisz czego szukasz... (np. 'wycena', 'klient', 'raport')" 
+                                class="help-main-search-input"
+                                required
+                                minlength="2"
+                            >
+                            <button type="submit" class="help-main-search-btn">
+                                Szukaj
+                            </button>
+                        </div>
+                    </form>
+                </div>
+
+                <!-- Categories Grid -->
+                <div class="help-main-categories-section">
+                    {% if categories %}
+                        <div class="help-main-categories-grid">
+                            {% for item in categories %}
+                            <div class="help-category-card">
+                                <!-- Category Header -->
+                                <div class="help-category-card-header">
+                                    <div class="help-category-card-icon-wrapper">
+                                        <span class="help-category-card-icon">{{ item.category.icon }}</span>
+                                    </div>
+                                    <div class="help-category-card-title-section">
+                                        <h2 class="help-category-card-title">{{ item.category.name }}</h2>
+                                        <span class="help-category-card-count">
+                                            {{ item.articles|length }} 
+                                            {% if item.articles|length == 1 %}artykuł{% elif item.articles|length < 5 %}artykuły{% else %}artykułów{% endif %}
+                                        </span>
+                                    </div>
+                                </div>
+                                
+                                <!-- Articles List -->
+                                <div class="help-category-card-body">
+                                    {% if item.articles %}
+                                        <ul class="help-category-articles-list">
+                                            {% for article in item.articles[:5] %}
+                                            <li class="help-category-article-item">
+                                                <a href="{{ url_for('help.article', slug=article.slug) }}" class="help-category-article-link">
+                                                    <i class="fas fa-file-alt help-category-article-icon"></i>
+                                                    <span class="help-category-article-title">{{ article.title }}</span>
+                                                    <i class="fas fa-chevron-right help-category-article-arrow"></i>
+                                                </a>
+                                            </li>
+                                            {% endfor %}
+                                            
+                                            {% if item.articles|length > 5 %}
+                                            <li class="help-category-article-item help-category-show-more">
+                                                <span class="help-category-more-text">
+                                                    <i class="fas fa-plus-circle"></i>
+                                                    Jeszcze {{ item.articles|length - 5 }} artykułów...
+                                                </span>
+                                            </li>
+                                            {% endif %}
+                                        </ul>
+                                    {% else %}
+                                        <div class="help-category-empty">
+                                            <i class="fas fa-inbox help-category-empty-icon"></i>
+                                            <p class="help-category-empty-text">Brak artykułów w tej kategorii</p>
+                                        </div>
+                                    {% endif %}
+                                </div>
+                            </div>
+                            {% endfor %}
+                        </div>
+                    {% else %}
+                        <!-- No Categories Message -->
+                        <div class="help-main-empty-state">
+                            <i class="fas fa-folder-open help-main-empty-icon"></i>
+                            <h3 class="help-main-empty-title">Brak kategorii</h3>
+                            <p class="help-main-empty-text">
+                                Centrum pomocy jest puste. 
+                                {% if current_user.is_authenticated and current_user.role == 'admin' %}
+                                <a href="{{ url_for('help.admin_categories') }}" class="help-main-empty-link">Utwórz pierwszą kategorię</a>
+                                {% endif %}
+                            </p>
+                        </div>
+                    {% endif %}
+                </div>
+
+                <!-- Quick Stats (optional) -->
+                {% if categories %}
+                <div class="help-main-stats">
+                    <div class="help-main-stat-item">
+                        <i class="fas fa-layer-group help-main-stat-icon"></i>
+                        <div class="help-main-stat-content">
+                            <span class="help-main-stat-value">{{ categories|length }}</span>
+                            <span class="help-main-stat-label">Kategorie</span>
+                        </div>
+                    </div>
+                    <div class="help-main-stat-item">
+                        <i class="fas fa-file-alt help-main-stat-icon"></i>
+                        <div class="help-main-stat-content">
+                            <span class="help-main-stat-value">
+                                {% set total_articles = namespace(count=0) %}
+                                {% for item in categories %}
+                                    {% set total_articles.count = total_articles.count + item.articles|length %}
+                                {% endfor %}
+                                {{ total_articles.count }}
+                            </span>
+                            <span class="help-main-stat-label">Artykuły</span>
+                        </div>
+                    </div>
+                </div>
+                {% endif %}
+            </div>
+        </main>
+    </div>
+
+    <script src="{{ url_for('help.static', filename='js/help_search.js') }}"></script>
+</body>
+</html>

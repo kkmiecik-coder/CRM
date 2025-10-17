@@ -188,10 +188,19 @@ class AppLogger:
         # Dodaj handler do root loggera
         root_logger.addHandler(handler)
         
-        # POPRAWKA: Console handler z bezpiecznym encoding
+        # POPRAWKA: Console handler z bezpiecznym encoding + fallback
         try:
-            # Spróbuj utworzyć console handler z UTF-8
-            console_handler = logging.StreamHandler(stream=sys.stdout)
+            # Sprawdź czy stderr/stdout są dostępne
+            if hasattr(sys.stderr, 'write') and not sys.stderr.closed:
+                console_stream = sys.stderr
+            elif hasattr(sys.stdout, 'write') and not sys.stdout.closed:
+                console_stream = sys.stdout
+            else:
+                # Brak dostępnego stream - pomiń console handler
+                raise OSError("No available console stream")
+            
+            # Spróbuj utworzyć console handler
+            console_handler = logging.StreamHandler(stream=console_stream)
             console_handler.setFormatter(formatter)
             console_handler.setLevel(logging.INFO)
             
@@ -207,17 +216,19 @@ class AppLogger:
                 formatted = formatter.format(test_record)
                 console_handler.stream.write(formatted + '\n')
                 console_handler.stream.flush()
+                
                 # Jeśli się udało, dodaj handler
                 root_logger.addHandler(console_handler)
                 print("[Logger] Console handler z UTF-8 działa poprawnie")
                 
-            except UnicodeEncodeError:
-                # Console nie obsługuje UTF-8, wyłącz console logging
-                print("[Logger] Console nie obsługuje UTF-8 - wyłączono console logging")
-                pass
+            except (UnicodeEncodeError, BrokenPipeError, OSError):
+                # Console nie obsługuje UTF-8 lub jest zamknięty
+                print("[Logger] Console nie obsługuje UTF-8 lub jest zamknięty - wyłączono console logging")
                 
-        except Exception as e:
+        except (OSError, BrokenPipeError, AttributeError) as e:
+            # Console stream niedostępny - logowanie tylko do pliku
             print(f"[Logger] Nie można utworzyć console handler: {e}")
+            print("[Logger] Logowanie tylko do pliku - sprawdź logi w logs/app_*.log")
         
         cls._configured = True
         

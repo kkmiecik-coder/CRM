@@ -271,12 +271,13 @@
 
 .table-header {
     display: grid;
-    grid-template-columns: 60px 1fr 1.5fr 120px 120px 180px;
+    grid-template-columns: 60px 250px 1fr 110px 140px 140px 180px; /* Dodana kolumna 140px dla mnożnika */
     background: linear-gradient(135deg, #ED6B24 0%, #f89d5c 100%);
     color: white;
     font-weight: 600;
     font-size: 13px;
     padding: 16px 20px;
+    overflow-y: auto;
 }
 
 .table-body {
@@ -285,11 +286,12 @@
 
 .table-row {
     display: grid;
-    grid-template-columns: 60px 1fr 1.5fr 120px 120px 180px;
+    grid-template-columns: 60px 250px 1fr 110px 140px 140px 180px; /* Dodana kolumna 140px dla mnożnika */
     padding: 16px 20px;
     border-bottom: 1px solid #e9ecef;
     align-items: center;
     transition: all 0.2s;
+    overflow-y: auto;
 }
 
     .table-row:hover {
@@ -302,6 +304,24 @@
 
 .th, .td {
     padding: 4px 8px;
+}
+
+.multiplier-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 10px;
+    border-radius: 12px;
+    font-size: 11px;
+    font-weight: 600;
+    background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
+    color: #92400e;
+    border: 1px solid #fbbf24;
+}
+
+.text-muted {
+    color: #9ca3af;
+    font-size: 14px;
 }
 
 /* Avatar */
@@ -1522,6 +1542,10 @@
 
     .td-actions {
         justify-content: center;
+    }
+
+    .th-multiplier, .td-multiplier {
+        text-align: center;
     }
 
     /* Modal */

@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Zarządzanie artykułami - Pomoc - Wood Power CRM</title>
+    <link rel="icon" href="{{ url_for('static', filename='images/favicon.png') }}" type="image/png">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="stylesheet" href="{{ url_for('help.static', filename='css/help_interface.css') }}">
+    <link rel="stylesheet" href="{{ url_for('help.static', filename='css/help_article.css') }}">
+    <!-- Font Awesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Google Fonts - Poppins -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="app-container">
+        {% include 'sidebar/sidebar.html' %}
+        
+        <main class="main-content">
+            <div class="help-admin-container">
+                <!-- Header -->
+                <div class="help-admin-header">
+                    <div class="help-admin-header-content">
+                        <div class="help-admin-title-section">
+                            <h1 class="help-admin-title">
+                                <i class="fas fa-cog"></i>
+                                Zarządzanie artykułami
+                            </h1>
+                            <p class="help-admin-subtitle">Lista wszystkich artykułów pomocy</p>
+                        </div>
+                        
+                        <div class="help-admin-header-actions">
+                            <a href="{{ url_for('help.admin_article_new') }}" class="help-admin-btn help-admin-btn-primary">
+                                <i class="fas fa-plus"></i>
+                                Nowy artykuł
+                            </a>
+                            <a href="{{ url_for('help.admin_categories') }}" class="help-admin-btn help-admin-btn-secondary">
+                                <i class="fas fa-folder"></i>
+                                Kategorie
+                            </a>
+                            <a href="{{ url_for('help.admin_media') }}" class="help-admin-btn help-admin-btn-secondary">
+                                <i class="fas fa-images"></i>
+                                Galeria
+                            </a>
+                            <a href="{{ url_for('help.index') }}" class="help-admin-btn help-admin-btn-back">
+                                <i class="fas fa-arrow-left"></i>
+                                Powrót
+                            </a>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Filters -->
+                <div class="help-admin-filters">
+                    <form method="GET" action="{{ url_for('help.admin_articles_list') }}" class="help-admin-filter-form">
+                        <div class="help-admin-filter-group">
+                            <label for="categoryFilter" class="help-admin-filter-label">
+                                <i class="fas fa-filter"></i>
+                                Filtruj po kategorii:
+                            </label>
+                            <select name="category_id" id="categoryFilter" class="help-admin-filter-select" onchange="this.form.submit()">
+                                <option value="">Wszystkie kategorie</option>
+                                {% for category in categories %}
+                                <option value="{{ category.id }}" {% if selected_category == category.id %}selected{% endif %}>
+                                    {{ category.icon }} {{ category.name }}
+                                </option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        
+                        <div class="help-admin-filter-stats">
+                            <span class="help-admin-stats-item">
+                                <i class="fas fa-file-alt"></i>
+                                <strong>{{ articles|length }}</strong> artykułów
+                            </span>
+                            <span class="help-admin-stats-item">
+                                <i class="fas fa-eye"></i>
+                                <strong>{{ articles|selectattr('is_published')|list|length }}</strong> opublikowanych
+                            </span>
+                        </div>
+                    </form>
+                </div>
+
+                <!-- Articles Table -->
+                {% if articles %}
+                <div class="help-admin-table-wrapper">
+                    <table class="help-admin-table">
+                        <thead class="help-admin-table-head">
+                            <tr>
+                                <th class="help-admin-table-th help-admin-th-title">Tytuł</th>
+                                <th class="help-admin-table-th help-admin-th-category">Kategoria</th>
+                                <th class="help-admin-table-th help-admin-th-author">Autor</th>
+                                <th class="help-admin-table-th help-admin-th-date">Data edycji</th>
+                                <th class="help-admin-table-th help-admin-th-status">Status</th>
+                                <th class="help-admin-table-th help-admin-th-actions">Akcje</th>
+                            </tr>
+                        </thead>
+                        <tbody class="help-admin-table-body">
+                            {% for article in articles %}
+                            <tr class="help-admin-table-row {% if not article.is_published %}help-admin-row-unpublished{% endif %}">
+                                <!-- Title -->
+                                <td class="help-admin-table-td help-admin-td-title">
+                                    <div class="help-admin-article-title-wrapper">
+                                        <a href="{{ url_for('help.article', slug=article.slug) }}" 
+                                           class="help-admin-article-title-link" 
+                                           target="_blank">
+                                            {{ article.title }}
+                                        </a>
+                                        <span class="help-admin-article-slug">/{{ article.slug }}</span>
+                                    </div>
+                                </td>
+                                
+                                <!-- Category -->
+                                <td class="help-admin-table-td help-admin-td-category">
+                                    <span class="help-admin-category-badge">
+                                        {{ article.category.icon }} {{ article.category.name }}
+                                    </span>
+                                </td>
+                                
+                                <!-- Author -->
+                                <td class="help-admin-table-td help-admin-td-author">
+                                    <div class="help-admin-author-info">
+                                        <i class="fas fa-user-circle"></i>
+                                        <span>{{ article.author.name }}</span>
+                                    </div>
+                                </td>
+                                
+                                <!-- Date -->
+                                <td class="help-admin-table-td help-admin-td-date">
+                                    <div class="help-admin-date-info">
+                                        <i class="far fa-clock"></i>
+                                        <span>{{ article.updated_at.strftime('%d.%m.%Y %H:%M') }}</span>
+                                    </div>
+                                </td>
+                                
+                                <!-- Status -->
+                                <td class="help-admin-table-td help-admin-td-status">
+                                    <button 
+                                        class="help-admin-status-toggle {% if article.is_published %}help-admin-status-published{% else %}help-admin-status-unpublished{% endif %}"
+                                        data-article-id="{{ article.id }}"
+                                        data-current-status="{{ article.is_published|lower }}"
+                                        onclick="toggleArticleVisibility({{ article.id }}, {{ article.is_published|lower }})">
+                                        {% if article.is_published %}
+                                            <i class="fas fa-eye"></i>
+                                            Widoczny
+                                        {% else %}
+                                            <i class="fas fa-eye-slash"></i>
+                                            Ukryty
+                                        {% endif %}
+                                    </button>
+                                </td>
+                                
+                                <!-- Actions -->
+                                <td class="help-admin-table-td help-admin-td-actions">
+                                    <div class="help-admin-actions-group">
+                                        <a href="{{ url_for('help.admin_article_edit', article_id=article.id) }}" 
+                                           class="help-admin-action-btn help-admin-action-edit"
+                                           title="Edytuj">
+                                            <i class="fas fa-edit"></i>
+                                        </a>
+                                        <a href="{{ url_for('help.article', slug=article.slug) }}" 
+                                           class="help-admin-action-btn help-admin-action-view"
+                                           target="_blank"
+                                           title="Podgląd">
+                                            <i class="fas fa-external-link-alt"></i>
+                                        </a>
+                                        <button 
+                                           class="help-admin-action-btn help-admin-action-delete"
+                                           onclick="deleteArticle({{ article.id }}, '{{ article.title }}')"
+                                           title="Usuń">
+                                            <i class="fas fa-trash"></i>
+                                        </button>
+                                    </div>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <!-- Empty State -->
+                <div class="help-admin-empty-state">
+                    <i class="fas fa-inbox help-admin-empty-icon"></i>
+                    <h3 class="help-admin-empty-title">Brak artykułów</h3>
+                    <p class="help-admin-empty-text">
+                        {% if selected_category %}
+                        Nie ma artykułów w wybranej kategorii.
+                        <a href="{{ url_for('help.admin_articles_list') }}" class="help-admin-empty-link">Pokaż wszystkie</a>
+                        {% else %}
+                        Nie masz jeszcze żadnych artykułów pomocy.
+                        {% endif %}
+                    </p>
+                    <a href="{{ url_for('help.admin_article_new') }}" class="help-admin-empty-btn">
+                        <i class="fas fa-plus"></i>
+                        Utwórz pierwszy artykuł
+                    </a>
+                </div>
+                {% endif %}
+            </div>
+        </main>
+    </div>
+
+    <!-- Delete Confirmation Modal -->
+    <div id="deleteModal" class="help-admin-modal" style="display: none;">
+        <div class="help-admin-modal-overlay" onclick="closeDeleteModal()"></div>
+        <div class="help-admin-modal-content">
+            <div class="help-admin-modal-header">
+                <h3 class="help-admin-modal-title">
+                    <i class="fas fa-exclamation-triangle"></i>
+                    Potwierdź usunięcie
+                </h3>
+                <button class="help-admin-modal-close" onclick="closeDeleteModal()">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="help-admin-modal-body">
+                <p>Czy na pewno chcesz usunąć artykuł:</p>
+                <p class="help-admin-modal-article-title" id="deleteArticleTitle"></p>
+                <p class="help-admin-modal-warning">
+                    <i class="fas fa-info-circle"></i>
+                    Tej operacji nie można cofnąć!
+                </p>
+            </div>
+            <div class="help-admin-modal-footer">
+                <button class="help-admin-modal-btn help-admin-modal-btn-cancel" onclick="closeDeleteModal()">
+                    Anuluj
+                </button>
+                <form id="deleteForm" method="POST" style="display: inline;">
+                    <button type="submit" class="help-admin-modal-btn help-admin-modal-btn-delete">
+                        <i class="fas fa-trash"></i>
+                        Usuń artykuł
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <script src="{{ url_for('help.static', filename='js/help_editor.js') }}"></script>
+    <script>
+        // Toggle visibility (AJAX)
+        function toggleArticleVisibility(articleId, currentStatus) {
+            fetch(`/help/admin/articles/${articleId}/toggle-visibility`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                }
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    location.reload();
+                } else {
+                    alert('Błąd: ' + data.error);
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                alert('Wystąpił błąd podczas zmiany widoczności');
+            });
+        }
+
+        // Delete article modal
+        function deleteArticle(articleId, articleTitle) {
+            document.getElementById('deleteArticleTitle').textContent = articleTitle;
+            document.getElementById('deleteForm').action = `/help/admin/articles/${articleId}/delete`;
+            document.getElementById('deleteModal').style.display = 'flex';
+        }
+
+        function closeDeleteModal() {
+            document.getElementById('deleteModal').style.display = 'none';
+        }
+    </script>
+</body>
+</html>

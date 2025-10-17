@@ -6,6 +6,7 @@
     <link rel="icon" href="{{ url_for('static', filename='images/favicon.png') }}" type="image/png">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
     <link rel="stylesheet" href="{{ url_for('calculator.static', filename='css/style_calculator.css') }}">
+    <link rel="stylesheet" href="{{ url_for('calculator.static', filename='css/save_quote.css') }}">
     <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.140.0/build/three.min.js"></script>
@@ -382,7 +383,7 @@
         </div>
     </div>
 
-    {% include 'save_modal.html' %}
+    {% include 'save_quote.html' %}
     {% include 'download_quote_modal.html' %}
     <script src="{{ url_for('static', filename='js/sidebar.js') }}"></script>
     <script src="{{ url_for('calculator.static', filename='js/qdraft_backup_cookies.js') }}"></script>
