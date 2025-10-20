@@ -60,31 +60,6 @@
                                 </span>
                             </div>
                         </div>
-
-                        {% if current_user.role == 'admin' %}
-                        <div class="issues-detail-actions">
-                            <div class="issues-dropdown">
-                                <button class="issues-btn issues-btn-secondary issues-dropdown-toggle" id="issuesActionsDropdown">
-                                    <i class="fas fa-cog"></i> Akcje
-                                </button>
-                                <div class="issues-dropdown-menu" id="issuesActionsMenu">
-                                    <button class="issues-dropdown-item" data-action="change-status">
-                                        <i class="fas fa-exchange-alt"></i> Zmień status
-                                    </button>
-                                    <button class="issues-dropdown-item" data-action="change-priority">
-                                        <i class="fas fa-flag"></i> Zmień priorytet
-                                    </button>
-                                    <button class="issues-dropdown-item" data-action="assign-to-me">
-                                        <i class="fas fa-user-check"></i> Przypisz do mnie
-                                    </button>
-                                    <div class="issues-dropdown-divider"></div>
-                                    <button class="issues-dropdown-item issues-dropdown-item-danger" data-action="close-ticket">
-                                        <i class="fas fa-check-circle"></i> Zamknij ticket
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
-                        {% endif %}
                     </div>
                 </div>
 
@@ -101,72 +76,90 @@
                             </div>
                         </div>
 
-                        <!-- Formularz odpowiedzi -->
-                        <div class="issues-reply-container">
-                            <div class="issues-card">
-                                <div class="issues-card-header">
-                                    <h3 class="issues-card-title">
-                                        <i class="fas fa-reply"></i> Dodaj odpowiedź
-                                    </h3>
-                                </div>
-                                <div class="issues-card-body">
-                                    <form id="issuesReplyForm" class="issues-form">
+                        <!-- Formularz odpowiedzi lub komunikat o zamkniętym tickecie -->
+                        {% if ticket.status != 'closed' %}
+                        <div class="issues-card">
+                            <div class="issues-card-header">
+                                <h3 class="issues-card-title">
+                                    <i class="fas fa-reply"></i> Dodaj odpowiedź
+                                </h3>
+                            </div>
+                            <div class="issues-card-body">
+                                <form id="issuesReplyForm" class="issues-form">
 
-                                        <!-- Textarea wiadomości -->
-                                        <div class="issues-form-group">
-                                            <textarea id="issuesReplyMessage"
-                                                      name="message"
-                                                      class="issues-form-textarea"
-                                                      rows="5"
-                                                      placeholder="Napisz odpowiedź... (min. 5 znaków)"
-                                                      required
-                                                      minlength="5"></textarea>
+                                    <!-- Textarea wiadomości -->
+                                    <div class="issues-form-group">
+                                        <textarea id="issuesReplyMessage"
+                                                  name="message"
+                                                  class="issues-form-textarea"
+                                                  rows="5"
+                                                  placeholder="Napisz odpowiedź... (min. 5 znaków)"
+                                                  required
+                                                  minlength="5"></textarea>
+                                    </div>
+
+                                    <!-- Załączniki -->
+                                    <div class="issues-form-group">
+                                        <label class="issues-form-label">
+                                            Załączniki (opcjonalnie)
+                                        </label>
+                                        <div class="issues-upload-area issues-upload-area-compact" id="issuesReplyUploadArea">
+                                            <i class="fas fa-paperclip"></i>
+                                            <span>Dodaj pliki (max 5, 5 MB każdy)</span>
+                                            <input type="file"
+                                                   id="issuesReplyFileInput"
+                                                   name="files"
+                                                   class="issues-file-input"
+                                                   multiple
+                                                   accept="image/*,.pdf,.doc,.docx,.txt">
                                         </div>
+                                        <div id="issuesReplyFilesList" class="issues-files-list"></div>
+                                    </div>
 
-                                        <!-- Załączniki -->
-                                        <div class="issues-form-group">
-                                            <label class="issues-form-label">
-                                                Załączniki (opcjonalnie)
-                                            </label>
-                                            <div class="issues-upload-area issues-upload-area-compact" id="issuesReplyUploadArea">
-                                                <i class="fas fa-paperclip"></i>
-                                                <span>Dodaj pliki (max 5, 5 MB każdy)</span>
-                                                <input type="file"
-                                                       id="issuesReplyFileInput"
-                                                       name="files"
-                                                       class="issues-file-input"
-                                                       multiple
-                                                       accept="image/*,.pdf,.doc,.docx,.txt">
-                                            </div>
-                                            <div id="issuesReplyFilesList" class="issues-files-list"></div>
-                                        </div>
+                                    {% if current_user.role == 'admin' %}
+                                    <!-- Checkbox notatka wewnętrzna -->
+                                    <div class="issues-form-group">
+                                        <label class="issues-checkbox-label">
+                                            <input type="checkbox"
+                                                   id="issuesInternalNote"
+                                                   name="is_internal_note"
+                                                   class="issues-checkbox">
+                                            <span class="issues-checkbox-text">
+                                                <i class="fas fa-lock"></i> Notatka wewnętrzna (widoczna tylko dla adminów)
+                                            </span>
+                                        </label>
+                                    </div>
+                                    {% endif %}
 
-                                        {% if current_user.role == 'admin' %}
-                                        <!-- Checkbox notatka wewnętrzna -->
-                                        <div class="issues-form-group">
-                                            <label class="issues-checkbox-label">
-                                                <input type="checkbox"
-                                                       id="issuesInternalNote"
-                                                       name="is_internal_note"
-                                                       class="issues-checkbox">
-                                                <span class="issues-checkbox-text">
-                                                    <i class="fas fa-lock"></i> Notatka wewnętrzna (widoczna tylko dla adminów)
-                                                </span>
-                                            </label>
-                                        </div>
-                                        {% endif %}
+                                    <!-- Przyciski -->
+                                    <div class="issues-form-actions">
+                                        <button type="submit" class="issues-btn issues-btn-primary">
+                                            <i class="fas fa-paper-plane"></i> Wyślij odpowiedź
+                                        </button>
+                                    </div>
 
-                                        <!-- Przyciski -->
-                                        <div class="issues-form-actions">
-                                            <button type="submit" class="issues-btn issues-btn-primary">
-                                                <i class="fas fa-paper-plane"></i> Wyślij odpowiedź
-                                            </button>
-                                        </div>
-
-                                    </form>
+                                </form>
+                            </div>
+                        </div>
+                        {% else %}
+                        <!-- Komunikat dla zamkniętego ticketa -->
+                        <div class="issues-card">
+                            <div class="issues-card-body">
+                                <div class="issues-closed-notice">
+                                    <i class="fas fa-lock"></i>
+                                    <p><strong>Ten ticket został zamknięty</strong></p>
+                                    <p>Nie można dodawać nowych wiadomości do zamkniętego ticketu.</p>
+                                    {% if current_user.role == 'admin' %}
+                                    <button class="issues-btn issues-btn-sm issues-btn-primary" 
+                                            onclick="IssuesTicketDetail.showChangeStatusModal()"
+                                            style="margin-top: 12px;">
+                                        <i class="fas fa-unlock"></i> Otwórz ponownie
+                                    </button>
+                                    {% endif %}
                                 </div>
                             </div>
                         </div>
+                        {% endif %}
 
                     </div>
 
@@ -184,15 +177,33 @@
                                 <div class="issues-info-list">
                                     <div class="issues-info-item">
                                         <span class="issues-info-label">Status:</span>
+                                        {% if current_user.role == 'admin' %}
+                                        <span class="issues-badge issues-badge-status-{{ ticket.status }} issues-badge-clickable" 
+                                              id="issuesStatusBadge"
+                                              onclick="IssuesTicketDetail.showChangeStatusModal()"
+                                              title="Kliknij aby zmienić status">
+                                            {{ ticket.status|upper }}
+                                        </span>
+                                        {% else %}
                                         <span class="issues-badge issues-badge-status-{{ ticket.status }}">
                                             {{ ticket.status|upper }}
                                         </span>
+                                        {% endif %}
                                     </div>
                                     <div class="issues-info-item">
                                         <span class="issues-info-label">Priorytet:</span>
+                                        {% if current_user.role == 'admin' %}
+                                        <span class="issues-badge issues-badge-priority-{{ ticket.priority }} issues-badge-clickable"
+                                              id="issuesPriorityBadge"
+                                              onclick="IssuesTicketDetail.showChangePriorityModal()"
+                                              title="Kliknij aby zmienić priorytet">
+                                            {{ ticket.priority|upper }}
+                                        </span>
+                                        {% else %}
                                         <span class="issues-badge issues-badge-priority-{{ ticket.priority }}">
                                             {{ ticket.priority|upper }}
                                         </span>
+                                        {% endif %}
                                     </div>
                                     <div class="issues-info-item">
                                         <span class="issues-info-label">Kategoria:</span>
@@ -220,6 +231,26 @@
                                     <div class="issues-info-item">
                                         <span class="issues-info-label">Pierwsza odpowiedź:</span>
                                         <span>{{ ticket.first_response_at.strftime('%Y-%m-%d %H:%M') }}</span>
+                                    </div>
+                                    {% endif %}
+                                    
+                                    {% if current_user.role == 'admin' %}
+                                    <div class="issues-info-item">
+                                        <span class="issues-info-label">Akcje:</span>
+                                        <div class="issues-info-actions">
+                                            <button class="issues-btn issues-btn-sm issues-btn-secondary" 
+                                                    onclick="IssuesTicketDetail.assignToMe()"
+                                                    title="Przypisz do mnie">
+                                                <i class="fas fa-user-check"></i> Przypisz
+                                            </button>
+                                            {% if ticket.status != 'closed' %}
+                                            <button class="issues-btn issues-btn-sm issues-btn-danger" 
+                                                    onclick="IssuesTicketDetail.closeTicket()"
+                                                    title="Zamknij ticket">
+                                                <i class="fas fa-times-circle"></i> Zamknij
+                                            </button>
+                                            {% endif %}
+                                        </div>
                                     </div>
                                     {% endif %}
                                 </div>
