@@ -14,6 +14,18 @@ Data: 2025-01-20
 from extensions import db
 from datetime import datetime
 
+# ============================================================================
+# HELPER FUNCTION - Formatowanie dat
+# ============================================================================
+
+def format_datetime_utc(dt):
+    """
+    Formatuje datetime jako UTC z oznaczeniem strefy czasowej 'Z'
+    Dzięki temu JavaScript poprawnie interpretuje czas
+    """
+    if dt is None:
+        return None
+    return dt.strftime('%Y-%m-%dT%H:%M:%S') + 'Z'
 
 # ============================================================================
 # MODEL: Ticket - Zgłoszenia
@@ -78,16 +90,21 @@ class Ticket(db.Model):
             'status': self.status,
             'created_by_user_id': self.created_by_user_id,
             'created_by_email': self.created_by.email if self.created_by else None,
-            'created_by_name': f"{self.created_by.first_name} {self.created_by.last_name}" if self.created_by and self.created_by.first_name else self.created_by.email if self.created_by else 'Unknown',  # ← DODANE
+            'created_by_name': f"{self.created_by.first_name} {self.created_by.last_name}" if self.created_by and self.created_by.first_name else self.created_by.email if self.created_by else 'Unknown',
             'assigned_to_user_id': self.assigned_to_user_id,
             'assigned_to_email': self.assigned_to.email if self.assigned_to else None,
-            'assigned_to_name': f"{self.assigned_to.first_name} {self.assigned_to.last_name}" if self.assigned_to and self.assigned_to.first_name else self.assigned_to.email if self.assigned_to else None,  # ← DODANE
-            'created_at': self.created_at.isoformat() if self.created_at else None,
-            'updated_at': self.updated_at.isoformat() if self.updated_at else None,
-            'first_response_at': self.first_response_at.isoformat() if self.first_response_at else None,
-            'closed_at': self.closed_at.isoformat() if self.closed_at else None,
+            'assigned_to_name': f"{self.assigned_to.first_name} {self.assigned_to.last_name}" if self.assigned_to and self.assigned_to.first_name else self.assigned_to.email if self.assigned_to else None,
+            'created_at': format_datetime_utc(self.created_at),  # ← ZMIENIONE
+            'updated_at': format_datetime_utc(self.updated_at),  # ← ZMIENIONE
+            'first_response_at': format_datetime_utc(self.first_response_at),  # ← ZMIENIONE
+            'closed_at': format_datetime_utc(self.closed_at),  # ← ZMIENIONE
             'messages_count': len(self.messages) if self.messages else 0,
-            'attachments_count': len(self.attachments) if self.attachments else 0
+            'attachments_count': len(self.attachments) if self.attachments else 0,
+            'created_by': {
+                'id': self.created_by_user_id,
+                'email': self.created_by.email if self.created_by else None,
+                'name': f"{self.created_by.first_name} {self.created_by.last_name}" if self.created_by and self.created_by.first_name else self.created_by.email if self.created_by else 'Unknown'
+            } if self.created_by else None
         }
 
 
@@ -128,10 +145,10 @@ class TicketMessage(db.Model):
             'user_email': self.user.email if self.user else None,
             'user_name': f"{self.user.first_name} {self.user.last_name}" if self.user and self.user.first_name else self.user.email if self.user else 'Unknown',
             'user_role': self.user.role if self.user else None,
-            'user_avatar': self.user.avatar_path if self.user and self.user.avatar_path else None,  # ← DODANE
+            'user_avatar': self.user.avatar_path if self.user and self.user.avatar_path else None,
             'message': self.message,
             'is_internal_note': self.is_internal_note,
-            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'created_at': format_datetime_utc(self.created_at),  # ← ZMIENIONE
             'attachments': [att.to_dict() for att in self.attachments] if self.attachments else []
         }
 
@@ -183,7 +200,7 @@ class TicketAttachment(db.Model):
             'filesize': self.filesize,
             'filesize_mb': round(self.filesize / (1024 * 1024), 2),
             'mimetype': self.mimetype,
-            'created_at': self.created_at.isoformat() if self.created_at else None
+            'created_at': format_datetime_utc(self.created_at)  # ← ZMIENIONE
         }
 
 # ============================================================================
@@ -234,6 +251,6 @@ class TicketEvent(db.Model):
             'performed_by_name': f"{self.performed_by.first_name} {self.performed_by.last_name}" if self.performed_by and self.performed_by.first_name else self.performed_by.email if self.performed_by else 'System',
             'old_value': self.old_value,
             'new_value': self.new_value,
-            'extra_data': self.extra_data,  # ← Zmienione z metadata
-            'created_at': self.created_at.isoformat() if self.created_at else None
+            'extra_data': self.extra_data,
+            'created_at': format_datetime_utc(self.created_at)  # ← ZMIENIONE
         }
