@@ -135,7 +135,7 @@
 
         const html = tickets.map(ticket => renderTicket(ticket)).join('');
         elements.list.innerHTML = html;
-        elements.list.style.display = 'block';
+        elements.list.style.display = 'flex';
         elements.empty.style.display = 'none';
     }
 
