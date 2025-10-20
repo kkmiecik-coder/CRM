@@ -104,9 +104,6 @@
                 <!-- Nowości w aplikacji (4 kolumny) -->
                 {% include 'widgets/changelog_widget.html' %}
 
-                <!-- Issues Widget - Moje zgłoszenia (4 kolumny) -->
-                {% include 'widgets/issues_widget.html' %}
-
                 <!-- Ostatnie działania (4 kolumny) -->
                 {% include 'widgets/recent_activity_widget.html' %}
 
@@ -120,9 +117,6 @@
     <!-- Skrypty -->
     <script src="{{ url_for('static', filename='js/sidebar.js') }}"></script>
     <script src="{{ url_for('static', filename='js/main.js') }}"></script>
-
-    <!-- DODAJ: Skrypt Issues Widget -->
-    <script src="{{ url_for('dashboard.static', filename='js/issues_widget.js') }}"></script>
 
     <script>
         // Przekazujemy dane z backendu do JavaScript

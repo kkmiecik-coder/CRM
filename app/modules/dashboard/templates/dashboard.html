@@ -69,9 +69,6 @@
                 <!-- Changelog Widget -->
                 {% include 'widgets/changelog_widget.html' %}
 
-                <!-- Issues Widget - Moje zgłoszenia -->
-                {% include 'widgets/issues_widget.html' %}
-
                 <!-- Quotes Chart -->
                 {% include 'widgets/quotes_chart_widget.html' %}
 
@@ -93,9 +90,6 @@
     {% if user and user.role == 'admin' %}
     <script src="{{ url_for('dashboard.static', filename='js/active_users.js') }}"></script>
     {% endif %}
-
-    <!-- DODAJ: Skrypt Issues Widget -->
-    <script src="{{ url_for('dashboard.static', filename='js/issues_widget.js') }}"></script>
 
     <script>
         // Przekazujemy dane z backendu do JavaScript
