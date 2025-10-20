@@ -384,11 +384,51 @@ class TicketService:
                 'tickets': tickets,
                 'total': total
             }
-        
+
         except Exception as e:
             logger.error(f"Błąd pobierania ticketów: {e}")
             raise
-    
+
+    @staticmethod
+    def get_open_tickets_for_widget(user_id: int, is_admin: bool = False, limit: int = 5) -> list:
+        """
+        Pobiera otwarte tickety dla widgetu dashboardu
+
+        Wyklucza tickety ze statusem 'closed' i 'cancelled'.
+        Sortuje według daty ostatniej aktualizacji (updated_at).
+
+        Args:
+            user_id: ID użytkownika
+            is_admin: Czy użytkownik jest adminem
+            limit: Maksymalna liczba ticketów do zwrócenia (domyślnie 5)
+
+        Returns:
+            list: Lista obiektów Ticket
+        """
+        try:
+            # Admin widzi wszystkie, user tylko swoje
+            if is_admin:
+                query = Ticket.query
+            else:
+                query = Ticket.query.filter_by(created_by_user_id=user_id)
+
+            # Wyklucz zamknięte i anulowane tickety
+            query = query.filter(Ticket.status.notin_(['closed', 'cancelled']))
+
+            # Sortuj po dacie ostatniej aktualizacji (najnowsze pierwsze)
+            query = query.order_by(Ticket.updated_at.desc().nullsfirst(), Ticket.created_at.desc())
+
+            # Limit wyników
+            tickets = query.limit(limit).all()
+
+            logger.info(f"Pobrano {len(tickets)} otwartych ticketów dla user_id={user_id} (admin={is_admin})")
+
+            return tickets
+
+        except Exception as e:
+            logger.error(f"Błąd pobierania otwartych ticketów: {e}")
+            raise
+
     @staticmethod
     def can_user_access_ticket(user_id: int, ticket: Ticket) -> bool:
         """Sprawdza czy użytkownik ma dostęp do ticketu"""

@@ -709,3 +709,56 @@ def get_current_user_activity():
             'success': False,
             'error': f'Błąd serwera: {str(e)}'
         }), 500
+
+@dashboard_bp.route('/api/open-tickets')
+@require_module_access('dashboard')
+def get_open_tickets():
+    """
+    API endpoint zwracający otwarte tickety dla widgetu Issues
+
+    Zwraca maksymalnie 5 ostatnich ticketów użytkownika (lub wszystkich dla admina)
+    wykluczając tickety ze statusem 'closed' i 'cancelled'.
+
+    Returns:
+        JSON: Lista otwartych ticketów
+    """
+    try:
+        user_email = session.get('user_email')
+        user = User.query.filter_by(email=user_email).first()
+
+        if not user:
+            return jsonify({
+                'success': False,
+                'error': 'Użytkownik nie znaleziony'
+            }), 404
+
+        logger.info(f"[Dashboard] Pobieranie otwartych ticketów dla user_id={user.id}, role={user.role}")
+
+        # Import TicketService z modułu issues
+        from modules.issues.services import TicketService
+
+        # Pobierz otwarte tickety
+        tickets = TicketService.get_open_tickets_for_widget(
+            user_id=user.id,
+            is_admin=(user.role == 'admin'),
+            limit=5
+        )
+
+        # Konwertuj do dict
+        tickets_data = [ticket.to_dict() for ticket in tickets]
+
+        logger.info(f"[Dashboard] Zwracam {len(tickets_data)} otwartych ticketów")
+
+        return jsonify({
+            'success': True,
+            'tickets': tickets_data,
+            'count': len(tickets_data),
+            'timestamp': datetime.utcnow().isoformat()
+        })
+
+    except Exception as e:
+        logger.exception("[Dashboard] Błąd pobierania otwartych ticketów")
+        return jsonify({
+            'success': False,
+            'error': f'Błąd serwera: {str(e)}'
+        }), 500

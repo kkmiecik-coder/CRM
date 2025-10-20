@@ -1,8 +1,12 @@
 /**
  * Issues Widget - Ostatnie niezamknięte tickety użytkownika
  *
- * Wyświetla 5 ostatnich ticketów użytkownika w statusach: new, open, in_progress
+ * Wyświetla 5 ostatnich ticketów użytkownika (wykluczając closed i cancelled)
  * Dla każdego ticketa pokazuje: tytuł, status, datę ostatniej wiadomości
+ *
+ * Backend endpoint: /dashboard/api/open-tickets
+ * - Filtrowanie i sortowanie wykonywane jest po stronie serwera
+ * - Admin widzi wszystkie otwarte tickety, zwykły użytkownik tylko swoje
  */
 
 (function() {
@@ -12,9 +16,7 @@
 
     // Konfiguracja
     const CONFIG = {
-        apiEndpoint: '/issues/api/tickets',
-        limit: 5,
-        excludedStatuses: ['closed', 'cancelled'],
+        apiEndpoint: '/dashboard/api/open-tickets',
         refreshInterval: 60000 // 1 minuta
     };
 
@@ -169,7 +171,7 @@
         try {
             console.log('[Issues Widget] Fetching tickets...');
 
-            const response = await fetch(`${CONFIG.apiEndpoint}?limit=${CONFIG.limit + 10}`);
+            const response = await fetch(CONFIG.apiEndpoint);
 
             if (!response.ok) {
                 throw new Error(`HTTP ${response.status}: ${response.statusText}`);
@@ -183,25 +185,9 @@
 
             console.log('[Issues Widget] Received tickets:', data.tickets.length);
 
-            // Filtruj niezamknięte tickety
-            const openTickets = data.tickets.filter(ticket =>
-                !CONFIG.excludedStatuses.includes(ticket.status)
-            );
-
-            console.log('[Issues Widget] Open tickets:', openTickets.length);
-
-            // Sortuj po dacie ostatniej wiadomości (updated_at lub created_at)
-            openTickets.sort((a, b) => {
-                const dateA = new Date(a.updated_at || a.created_at);
-                const dateB = new Date(b.updated_at || b.created_at);
-                return dateB - dateA; // Najnowsze pierwsze
-            });
-
-            // Weź tylko pierwsze 5
-            const topTickets = openTickets.slice(0, CONFIG.limit);
-
-            // Renderuj
-            renderTickets(topTickets);
+            // Backend już zwraca przefiltrowane i posortowane tickety
+            // Nie ma potrzeby dodatkowego przetwarzania
+            renderTickets(data.tickets);
 
         } catch (error) {
             console.error('[Issues Widget] Error fetching tickets:', error);
