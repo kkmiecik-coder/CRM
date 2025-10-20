@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Nowe zgłoszenie - Ticket #{{ ticket.ticket_number }}</title>
+    <style>
+        /* Inline CSS dla emaili */
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            line-height: 1.6;
+            color: #333333;
+            background-color: #f5f5f5;
+            margin: 0;
+            padding: 0;
+        }
+
+        .email-container {
+            max-width: 600px;
+            margin: 20px auto;
+            background-color: #ffffff;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        }
+
+        .email-header {
+            background: linear-gradient(135deg, #2196F3 0%, #1976D2 100%);
+            color: #ffffff;
+            padding: 30px 20px;
+            text-align: center;
+        }
+
+            .email-header h1 {
+                margin: 0;
+                font-size: 24px;
+                font-weight: 600;
+            }
+
+            .email-header p {
+                margin: 10px 0 0 0;
+                font-size: 14px;
+                opacity: 0.9;
+            }
+
+        .email-body {
+            padding: 30px 20px;
+        }
+
+        .ticket-info {
+            background-color: #f8f9fa;
+            border-left: 4px solid #2196F3;
+            padding: 15px;
+            margin: 20px 0;
+            border-radius: 4px;
+        }
+
+        .ticket-info-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 8px 0;
+            border-bottom: 1px solid #e0e0e0;
+        }
+
+            .ticket-info-row:last-child {
+                border-bottom: none;
+            }
+
+        .ticket-info-label {
+            font-weight: 600;
+            color: #666666;
+        }
+
+        .ticket-info-value {
+            color: #333333;
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .badge-priority-low {
+            background-color: #8BC34A;
+            color: white;
+        }
+
+        .badge-priority-medium {
+            background-color: #FFC107;
+            color: white;
+        }
+
+        .badge-priority-high {
+            background-color: #FF9800;
+            color: white;
+        }
+
+        .badge-priority-critical {
+            background-color: #F44336;
+            color: white;
+        }
+
+        .ticket-message {
+            background-color: #ffffff;
+            border: 1px solid #e0e0e0;
+            border-radius: 4px;
+            padding: 20px;
+            margin: 20px 0;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+
+        .email-button {
+            display: inline-block;
+            padding: 14px 28px;
+            background-color: #2196F3;
+            color: #ffffff !important;
+            text-decoration: none;
+            border-radius: 6px;
+            font-weight: 600;
+            text-align: center;
+            margin: 20px 0;
+        }
+
+            .email-button:hover {
+                background-color: #1976D2;
+            }
+
+        .email-footer {
+            background-color: #f8f9fa;
+            padding: 20px;
+            text-align: center;
+            font-size: 12px;
+            color: #666666;
+            border-top: 1px solid #e0e0e0;
+        }
+
+            .email-footer p {
+                margin: 5px 0;
+            }
+
+            .email-footer a {
+                color: #2196F3;
+                text-decoration: none;
+            }
+    </style>
+</head>
+<body>
+    <div class="email-container">
+        <!-- Header -->
+        <div class="email-header">
+            <h1>🆕 Nowe zgłoszenie w Help Center</h1>
+            <p>Ticket #{{ ticket.ticket_number }}</p>
+        </div>
+
+        <!-- Body -->
+        <div class="email-body">
+            <p>Witaj {{ admin.first_name or 'Administratorze' }},</p>
+
+            <p>Otrzymaliśmy nowe zgłoszenie w systemie Help Center, które wymaga Twojej uwagi.</p>
+
+            <!-- Informacje o tickecie -->
+            <div class="ticket-info">
+                <div class="ticket-info-row">
+                    <span class="ticket-info-label">Numer ticketu:</span>
+                    <span class="ticket-info-value"><strong>#{{ ticket.ticket_number }}</strong></span>
+                </div>
+                <div class="ticket-info-row">
+                    <span class="ticket-info-label">Temat:</span>
+                    <span class="ticket-info-value">{{ ticket.title }}</span>
+                </div>
+                <div class="ticket-info-row">
+                    <span class="ticket-info-label">Kategoria:</span>
+                    <span class="ticket-info-value">{{ ticket.category }} / {{ ticket.subcategory }}</span>
+                </div>
+                <div class="ticket-info-row">
+                    <span class="ticket-info-label">Priorytet:</span>
+                    <span class="ticket-info-value">
+                        <span class="badge badge-priority-{{ ticket.priority }}">
+                            {{ ticket.priority|upper }}
+                        </span>
+                    </span>
+                </div>
+                <div class="ticket-info-row">
+                    <span class="ticket-info-label">Zgłaszający:</span>
+                    <span class="ticket-info-value">{{ ticket.created_by.email }}</span>
+                </div>
+                <div class="ticket-info-row">
+                    <span class="ticket-info-label">Data utworzenia:</span>
+                    <span class="ticket-info-value">{{ ticket.created_at.strftime('%Y-%m-%d %H:%M') }}</span>
+                </div>
+            </div>
+
+            <!-- Treść zgłoszenia -->
+            <p><strong>Treść zgłoszenia:</strong></p>
+            <div class="ticket-message">{{ first_message.message if first_message else 'Brak wiadomości' }}</div>
+
+            {% if ticket.attachments %}
+            <p><strong>Załączniki:</strong> {{ ticket.attachments|length }} plik(ów)</p>
+            {% endif %}
+
+            <!-- Przycisk CTA -->
+            <center>
+                <a href="{{ ticket_url }}" class="email-button">
+                    👁️ Wyświetl zgłoszenie i odpowiedz
+                </a>
+            </center>
+
+            <p style="margin-top: 30px; font-size: 14px; color: #666666;">
+                <em>To powiadomienie zostało wysłane automatycznie. Możesz odpowiedzieć na zgłoszenie klikając w przycisk powyżej lub logując się do panelu CRM.</em>
+            </p>
+        </div>
+
+        <!-- Footer -->
+        <div class="email-footer">
+            <p><strong>Wood Power CRM</strong></p>
+            <p>System zgłoszeń i pomocy technicznej</p>
+            <p><a href="https://crm.woodpower.pl">crm.woodpower.pl</a></p>
+        </div>
+    </div>
+</body>
+</html>

@@ -1,0 +1,578 @@
+/* app/modules/issues/static/css/ticket_detail.css */
+/* 
+ * Style dla widoku szczegółów ticketu (konwersacja)
+ * Zawiera: Header, timeline wiadomości, formularz odpowiedzi, sidebar info
+ * 
+ * Autor: Konrad Kmiecik
+ * Data: 2025-10-20
+ */
+
+/* ============================================================================
+   CONTAINER
+   ============================================================================ */
+
+.issues-detail-container {
+    padding: 24px;
+    max-width: 1400px;
+    margin: 0 auto;
+}
+
+/* ============================================================================
+   BREADCRUMB
+   ============================================================================ */
+
+.issues-breadcrumb {
+    margin-bottom: 16px;
+}
+
+.issues-breadcrumb-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--issues-text-secondary);
+    text-decoration: none;
+    font-size: 14px;
+    transition: color 0.2s ease;
+}
+
+    .issues-breadcrumb-link:hover {
+        color: var(--issues-primary);
+    }
+
+/* ============================================================================
+   HEADER TICKETU
+   ============================================================================ */
+
+.issues-detail-header {
+    background: white;
+    border: 1px solid var(--issues-border);
+    border-radius: var(--issues-radius);
+    padding: 24px;
+    margin-bottom: 24px;
+    box-shadow: var(--issues-shadow-sm);
+}
+
+.issues-detail-header-main {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 24px;
+}
+
+.issues-detail-title-section {
+    flex: 1;
+}
+
+.issues-detail-title {
+    font-size: 28px;
+    font-weight: 700;
+    margin: 0 0 12px 0;
+    color: var(--issues-text-primary);
+    line-height: 1.3;
+}
+
+.issues-detail-ticket-number {
+    color: var(--issues-primary);
+    margin-right: 8px;
+}
+
+.issues-detail-meta {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    flex-wrap: wrap;
+}
+
+.issues-detail-category,
+.issues-detail-date {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 14px;
+    color: var(--issues-text-secondary);
+}
+
+.issues-detail-actions {
+    flex-shrink: 0;
+}
+
+/* ============================================================================
+   DROPDOWN MENU
+   ============================================================================ */
+
+.issues-dropdown {
+    position: relative;
+}
+
+.issues-dropdown-toggle {
+    /* Dziedziczenie z .issues-btn */
+}
+
+.issues-dropdown-menu {
+    position: absolute;
+    top: 100%;
+    right: 0;
+    margin-top: 8px;
+    min-width: 220px;
+    background-color: white;
+    border: 1px solid var(--issues-border);
+    border-radius: var(--issues-radius);
+    box-shadow: var(--issues-shadow-lg);
+    z-index: 1000;
+    display: none;
+}
+
+    .issues-dropdown-menu.issues-show {
+        display: block;
+        animation: issuesDropdownSlide 0.2s ease;
+    }
+
+@keyframes issuesDropdownSlide {
+    from {
+        opacity: 0;
+        transform: translateY(-10px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.issues-dropdown-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+    padding: 12px 16px;
+    border: none;
+    background: none;
+    text-align: left;
+    font-size: 14px;
+    color: var(--issues-text-primary);
+    cursor: pointer;
+    transition: background-color 0.2s ease;
+}
+
+    .issues-dropdown-item:hover {
+        background-color: var(--issues-bg-light);
+    }
+
+    .issues-dropdown-item i {
+        font-size: 16px;
+        color: var(--issues-primary);
+    }
+
+.issues-dropdown-item-danger {
+    color: var(--issues-error);
+}
+
+    .issues-dropdown-item-danger i {
+        color: var(--issues-error);
+    }
+
+.issues-dropdown-divider {
+    height: 1px;
+    background-color: var(--issues-border);
+    margin: 8px 0;
+}
+
+/* ============================================================================
+   LAYOUT: Konwersacja + Sidebar
+   ============================================================================ */
+
+.issues-detail-layout {
+    display: grid;
+    grid-template-columns: 1fr 320px;
+    gap: 24px;
+}
+
+/* ============================================================================
+   GŁÓWNA SEKCJA: Konwersacja
+   ============================================================================ */
+
+.issues-detail-main {
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+}
+
+/* ============================================================================
+   LISTA WIADOMOŚCI (Timeline)
+   ============================================================================ */
+
+.issues-messages-container {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.issues-message {
+    display: flex;
+    gap: 16px;
+    padding: 20px;
+    background-color: white;
+    border: 1px solid var(--issues-border);
+    border-radius: var(--issues-radius);
+    box-shadow: var(--issues-shadow-sm);
+}
+
+.issues-message-admin {
+    background-color: #f0f7ff;
+    border-left: 4px solid var(--issues-primary);
+}
+
+.issues-message-internal {
+    background-color: #fff3e0;
+    border-left: 4px solid var(--issues-warning);
+}
+
+.issues-message-avatar {
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, var(--issues-primary) 0%, #1976D2 100%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    font-weight: 700;
+    font-size: 18px;
+    flex-shrink: 0;
+}
+
+.issues-message-avatar-admin {
+    background: linear-gradient(135deg, #FF6B6B 0%, #C92A2A 100%);
+}
+
+.issues-message-content {
+    flex: 1;
+}
+
+.issues-message-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
+}
+
+.issues-message-author {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.issues-message-name {
+    font-weight: 700;
+    color: var(--issues-text-primary);
+    font-size: 15px;
+}
+
+.issues-message-email {
+    font-size: 13px;
+    color: var(--issues-text-secondary);
+}
+
+.issues-message-date {
+    font-size: 13px;
+    color: var(--issues-text-secondary);
+}
+
+.issues-message-text {
+    color: var(--issues-text-primary);
+    line-height: 1.6;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    margin: 0 0 12px 0;
+}
+
+.issues-message-attachments {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 12px;
+}
+
+.issues-message-attachment {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    background-color: var(--issues-bg-light);
+    border: 1px solid var(--issues-border);
+    border-radius: var(--issues-radius-sm);
+    text-decoration: none;
+    color: var(--issues-text-primary);
+    font-size: 13px;
+    transition: all 0.2s ease;
+}
+
+    .issues-message-attachment:hover {
+        background-color: #e3f2fd;
+        border-color: var(--issues-primary);
+        color: var(--issues-primary);
+    }
+
+    .issues-message-attachment i {
+        font-size: 16px;
+    }
+
+.issues-message-internal-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 12px;
+    background-color: var(--issues-warning);
+    color: white;
+    border-radius: var(--issues-radius-sm);
+    font-size: 12px;
+    font-weight: 600;
+    margin-top: 8px;
+}
+
+/* ============================================================================
+   FORMULARZ ODPOWIEDZI
+   ============================================================================ */
+
+.issues-reply-container {
+    /* Dziedziczenie z .issues-card */
+}
+
+/* ============================================================================
+   SIDEBAR: Informacje
+   ============================================================================ */
+
+.issues-detail-sidebar {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    position: sticky;
+    top: 24px;
+    align-self: start;
+}
+
+.issues-info-list {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.issues-info-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--issues-border);
+}
+
+    .issues-info-item:last-child {
+        border-bottom: none;
+        padding-bottom: 0;
+    }
+
+.issues-info-label {
+    font-size: 13px;
+    color: var(--issues-text-secondary);
+    font-weight: 600;
+}
+
+.issues-info-item .issues-badge {
+    margin-left: auto;
+}
+
+.issues-stats-list {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+}
+
+.issues-stats-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 16px;
+    background-color: var(--issues-bg-light);
+    border-radius: var(--issues-radius);
+}
+
+    .issues-stats-item i {
+        font-size: 24px;
+        color: var(--issues-primary);
+        margin-bottom: 8px;
+    }
+
+.issues-stats-value {
+    font-size: 24px;
+    font-weight: 700;
+    color: var(--issues-text-primary);
+    margin-bottom: 4px;
+}
+
+.issues-stats-label {
+    font-size: 12px;
+    color: var(--issues-text-secondary);
+    text-align: center;
+}
+
+/* ============================================================================
+   MODAL
+   ============================================================================ */
+
+.issues-modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 9999;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.issues-modal-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.5);
+    backdrop-filter: blur(4px);
+}
+
+.issues-modal-content {
+    position: relative;
+    background-color: white;
+    border-radius: var(--issues-radius);
+    box-shadow: var(--issues-shadow-lg);
+    max-width: 500px;
+    width: 90%;
+    max-height: 90vh;
+    overflow: auto;
+    animation: issuesModalSlide 0.3s ease;
+}
+
+@keyframes issuesModalSlide {
+    from {
+        opacity: 0;
+        transform: scale(0.95);
+    }
+
+    to {
+        opacity: 1;
+        transform: scale(1);
+    }
+}
+
+.issues-modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 20px 24px;
+    border-bottom: 1px solid var(--issues-border);
+}
+
+.issues-modal-title {
+    font-size: 20px;
+    font-weight: 700;
+    margin: 0;
+    color: var(--issues-text-primary);
+}
+
+.issues-modal-close {
+    background: none;
+    border: none;
+    font-size: 28px;
+    color: var(--issues-text-secondary);
+    cursor: pointer;
+    padding: 0;
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: color 0.2s ease;
+}
+
+    .issues-modal-close:hover {
+        color: var(--issues-text-primary);
+    }
+
+.issues-modal-body {
+    padding: 24px;
+}
+
+.issues-modal-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 12px;
+    padding: 16px 24px;
+    border-top: 1px solid var(--issues-border);
+    background-color: var(--issues-bg-light);
+}
+
+.issues-modal-cancel {
+    /* Dziedziczenie z .issues-btn-secondary */
+}
+
+/* ============================================================================
+   RESPONSIVE
+   ============================================================================ */
+
+@media (max-width: 1024px) {
+    .issues-detail-layout {
+        grid-template-columns: 1fr;
+    }
+
+    .issues-detail-sidebar {
+        position: static;
+        order: 2;
+    }
+
+    .issues-detail-main {
+        order: 1;
+    }
+}
+
+@media (max-width: 768px) {
+    .issues-detail-container {
+        padding: 16px;
+    }
+
+    .issues-detail-header {
+        padding: 16px;
+    }
+
+    .issues-detail-header-main {
+        flex-direction: column;
+    }
+
+    .issues-detail-title {
+        font-size: 22px;
+    }
+
+    .issues-detail-actions {
+        width: 100%;
+    }
+
+    .issues-dropdown-menu {
+        left: 0;
+        right: 0;
+        width: 100%;
+    }
+
+    .issues-message {
+        flex-direction: column;
+        padding: 16px;
+    }
+
+    .issues-message-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 8px;
+    }
+
+    .issues-stats-list {
+        grid-template-columns: 1fr;
+    }
+}

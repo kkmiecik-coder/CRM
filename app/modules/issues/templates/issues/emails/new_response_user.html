@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odpowiedź na zgłoszenie - Ticket #{{ ticket.ticket_number }}</title>
+    <style>
+        /* Inline CSS dla emaili */
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            line-height: 1.6;
+            color: #333333;
+            background-color: #f5f5f5;
+            margin: 0;
+            padding: 0;
+        }
+
+        .email-container {
+            max-width: 600px;
+            margin: 20px auto;
+            background-color: #ffffff;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        }
+
+        .email-header {
+            background: linear-gradient(135deg, #4CAF50 0%, #388E3C 100%);
+            color: #ffffff;
+            padding: 30px 20px;
+            text-align: center;
+        }
+
+            .email-header h1 {
+                margin: 0;
+                font-size: 24px;
+                font-weight: 600;
+            }
+
+            .email-header p {
+                margin: 10px 0 0 0;
+                font-size: 14px;
+                opacity: 0.9;
+            }
+
+        .email-body {
+            padding: 30px 20px;
+        }
+
+        .alert-box {
+            background-color: #e8f5e9;
+            border-left: 4px solid #4CAF50;
+            padding: 15px;
+            margin: 20px 0;
+            border-radius: 4px;
+        }
+
+        .alert-box-icon {
+            font-size: 24px;
+            margin-right: 10px;
+        }
+
+        .ticket-info {
+            background-color: #f8f9fa;
+            border: 1px solid #e0e0e0;
+            border-radius: 4px;
+            padding: 15px;
+            margin: 20px 0;
+        }
+
+        .ticket-info-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 8px 0;
+            border-bottom: 1px solid #e0e0e0;
+        }
+
+            .ticket-info-row:last-child {
+                border-bottom: none;
+            }
+
+        .ticket-info-label {
+            font-weight: 600;
+            color: #666666;
+        }
+
+        .ticket-info-value {
+            color: #333333;
+        }
+
+        .email-button {
+            display: inline-block;
+            padding: 14px 28px;
+            background-color: #4CAF50;
+            color: #ffffff !important;
+            text-decoration: none;
+            border-radius: 6px;
+            font-weight: 600;
+            text-align: center;
+            margin: 20px 0;
+        }
+
+            .email-button:hover {
+                background-color: #388E3C;
+            }
+
+        .email-footer {
+            background-color: #f8f9fa;
+            padding: 20px;
+            text-align: center;
+            font-size: 12px;
+            color: #666666;
+            border-top: 1px solid #e0e0e0;
+        }
+
+            .email-footer p {
+                margin: 5px 0;
+            }
+
+            .email-footer a {
+                color: #4CAF50;
+                text-decoration: none;
+            }
+
+        .highlight {
+            background-color: #fff9c4;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-weight: 600;
+        }
+    </style>
+</head>
+<body>
+    <div class="email-container">
+        <!-- Header -->
+        <div class="email-header">
+            <h1>✅ Otrzymałeś odpowiedź</h1>
+            <p>Ticket #{{ ticket.ticket_number }}</p>
+        </div>
+
+        <!-- Body -->
+        <div class="email-body">
+            <p>Witaj {{ user.first_name or user.email }},</p>
+
+            <!-- Alert box -->
+            <div class="alert-box">
+                <span class="alert-box-icon">💬</span>
+                <strong>Administrator odpowiedział na Twoje zgłoszenie!</strong>
+            </div>
+
+            <p>Mamy dobrą wiadomość - otrzymaliśmy odpowiedź na Twoje zgłoszenie <span class="highlight">"{{ ticket.title }}"</span>.</p>
+
+            <!-- Informacje o tickecie -->
+            <div class="ticket-info">
+                <div class="ticket-info-row">
+                    <span class="ticket-info-label">Numer ticketu:</span>
+                    <span class="ticket-info-value"><strong>#{{ ticket.ticket_number }}</strong></span>
+                </div>
+                <div class="ticket-info-row">
+                    <span class="ticket-info-label">Temat:</span>
+                    <span class="ticket-info-value">{{ ticket.title }}</span>
+                </div>
+                <div class="ticket-info-row">
+                    <span class="ticket-info-label">Status:</span>
+                    <span class="ticket-info-value">{{ ticket.status|upper }}</span>
+                </div>
+                <div class="ticket-info-row">
+                    <span class="ticket-info-label">Data utworzenia:</span>
+                    <span class="ticket-info-value">{{ ticket.created_at.strftime('%Y-%m-%d %H:%M') }}</span>
+                </div>
+            </div>
+
+            <p>Aby zobaczyć pełną odpowiedź i kontynuować konwersację, kliknij w poniższy przycisk:</p>
+
+            <!-- Przycisk CTA -->
+            <center>
+                <a href="{{ ticket_url }}" class="email-button">
+                    👁️ Zobacz odpowiedź i odpowiedz
+                </a>
+            </center>
+
+            <p style="margin-top: 30px; font-size: 14px; color: #666666;">
+                <strong>Potrzebujesz dalszej pomocy?</strong><br>
+                Jeśli problem nie został rozwiązany, odpowiedz na zgłoszenie klikając w przycisk powyżej. Nasza pomoc techniczna jest do Twojej dyspozycji.
+            </p>
+
+            <p style="margin-top: 20px; font-size: 14px; color: #666666;">
+                <em>To powiadomienie zostało wysłane automatycznie. Nie odpowiadaj na ten email - zaloguj się do systemu CRM, aby kontynuować konwersację.</em>
+            </p>
+        </div>
+
+        <!-- Footer -->
+        <div class="email-footer">
+            <p><strong>Wood Power CRM</strong></p>
+            <p>System zgłoszeń i pomocy technicznej</p>
+            <p><a href="https://crm.woodpower.pl">crm.woodpower.pl</a></p>
+            <p style="margin-top: 15px;">Dziękujemy za skorzystanie z naszego systemu wsparcia!</p>
+        </div>
+    </div>
+</body>
+</html>

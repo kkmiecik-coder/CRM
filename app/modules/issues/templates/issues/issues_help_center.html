@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Help Center - Wood Power CRM</title>
+    <link rel="icon" href="{{ url_for('static', filename='images/favicon.png') }}" type="image/png">
+
+    <!-- Główny CSS projektu -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+
+    <!-- CSS modułu Issues -->
+    <link rel="stylesheet" href="{{ url_for('issues.static', filename='css/issues.css') }}">
+    <link rel="stylesheet" href="{{ url_for('issues.static', filename='css/help_center.css') }}">
+
+    <!-- Font Awesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+    <!-- Google Fonts - Poppins -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="app-container">
+        {% include 'sidebar/sidebar.html' %}
+
+        <main class="main-content">
+            <div class="issues-help-container">
+
+                <!-- HEADER -->
+                <div class="issues-help-header">
+                    <div class="issues-help-header-content">
+                        <div class="issues-help-title-section">
+                            <h1 class="issues-help-title">
+                                <i class="fas fa-question-circle"></i>
+                                Help Center
+                            </h1>
+                            <p class="issues-help-subtitle">System zgłoszeń błędów i pomocy technicznej</p>
+                        </div>
+                        {% if current_user.role == 'admin' %}
+                        <div class="issues-help-admin-link">
+                            <a href="{{ url_for('issues.admin_panel') }}" class="issues-btn issues-btn-admin">
+                                <i class="fas fa-tools"></i> Panel Administratora
+                            </a>
+                        </div>
+                        {% endif %}
+                    </div>
+                </div>
+
+                <!-- SKRÓTY + PRZYCISK UTWÓRZ -->
+                <div class="issues-help-actions-bar">
+                    <!-- Skróty do pomocy -->
+                    <div class="issues-help-shortcuts">
+                        <a href="/help/jak-stworzyc-wycene" class="issues-help-shortcut">
+                            <i class="fas fa-file-invoice"></i>
+                            <span>Jak stworzyć wycenę?</span>
+                        </a>
+                        <a href="/help/synchronizacja-baselinker" class="issues-help-shortcut">
+                            <i class="fas fa-sync"></i>
+                            <span>Synchronizacja Baselinker</span>
+                        </a>
+                        <a href="/help/zarzadzanie-uzytkownikami" class="issues-help-shortcut">
+                            <i class="fas fa-users"></i>
+                            <span>Zarządzanie użytkownikami</span>
+                        </a>
+                        <a href="/help" class="issues-help-shortcut">
+                            <i class="fas fa-book"></i>
+                            <span>Więcej artykułów</span>
+                        </a>
+                    </div>
+
+                    <!-- Przycisk utwórz zgłoszenie -->
+                    <button id="issuesToggleFormBtn" class="issues-btn issues-btn-primary issues-btn-lg">
+                        <i class="fas fa-plus-circle"></i> Utwórz nowe zgłoszenie
+                    </button>
+                </div>
+
+                <!-- ROZWIJANY BOX: Multi-step form -->
+                <div id="issuesFormContainer" class="issues-form-container" style="display: none;">
+
+                    <!-- KROK 1: Wybór kategorii -->
+                    <div id="issuesStep1" class="issues-form-step issues-form-step-active">
+                        <div class="issues-form-step-header">
+                            <h2 class="issues-form-step-title">Wybierz kategorię zgłoszenia</h2>
+                            <button id="issuesCloseFormBtn" class="issues-form-close-btn">
+                                <i class="fas fa-times"></i>
+                            </button>
+                        </div>
+                        <div id="issuesCategoryGrid" class="issues-category-grid">
+                            <div class="issues-loading">
+                                <i class="fas fa-spinner fa-spin"></i> Ładowanie kategorii...
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- KROK 2: Wybór podkategorii -->
+                    <div id="issuesStep2" class="issues-form-step" style="display: none;">
+                        <div class="issues-form-step-header">
+                            <div class="issues-breadcrumb-nav">
+                                <button id="issuesBackToStep1" class="issues-breadcrumb-back">
+                                    <i class="fas fa-arrow-left"></i>
+                                </button>
+                                <span id="issuesBreadcrumbStep2" class="issues-breadcrumb-text">CRM</span>
+                            </div>
+                            <button class="issues-form-close-btn" onclick="IssuesHelpCenter.closeForm()">
+                                <i class="fas fa-times"></i>
+                            </button>
+                        </div>
+                        <h2 class="issues-form-step-title">Wybierz podkategorię</h2>
+                        <div id="issuesSubcategoryGrid" class="issues-subcategory-grid">
+                            <!-- Generowane przez JS -->
+                        </div>
+                    </div>
+
+                    <!-- KROK 3: Formularz -->
+                    <div id="issuesStep3" class="issues-form-step" style="display: none;">
+                        <div class="issues-form-step-header">
+                            <div class="issues-breadcrumb-nav">
+                                <button id="issuesBackToStep2" class="issues-breadcrumb-back">
+                                    <i class="fas fa-arrow-left"></i>
+                                </button>
+                                <span id="issuesBreadcrumbStep3" class="issues-breadcrumb-text">CRM > Calculator</span>
+                            </div>
+                            <button class="issues-form-close-btn" onclick="IssuesHelpCenter.closeForm()">
+                                <i class="fas fa-times"></i>
+                            </button>
+                        </div>
+                        <h2 class="issues-form-step-title">Opisz problem</h2>
+
+                        <form id="issuesNewTicketForm" class="issues-form">
+                            <!-- Ukryte pola z wyborami -->
+                            <input type="hidden" id="issuesSelectedCategory" name="category" value="">
+                            <input type="hidden" id="issuesSelectedSubcategory" name="subcategory" value="">
+
+                            <!-- Priorytet -->
+                            <div class="issues-form-group">
+                                <label for="issuesTicketPriority" class="issues-form-label">
+                                    Priorytet <span class="issues-required">*</span>
+                                </label>
+                                <select id="issuesTicketPriority" name="priority" class="issues-form-select" required>
+                                    <option value="low">🟢 Niski - Może poczekać</option>
+                                    <option value="medium" selected>🟡 Średni - W miarę pilne</option>
+                                    <option value="high">🟠 Wysoki - Pilne</option>
+                                    <option value="critical">🔴 Krytyczny - Blokuje pracę</option>
+                                </select>
+                            </div>
+
+                            <!-- Tytuł -->
+                            <div class="issues-form-group">
+                                <label for="issuesTicketTitle" class="issues-form-label">
+                                    Temat problemu: <span class="issues-required">*</span>
+                                </label>
+                                <input type="text"
+                                       id="issuesTicketTitle"
+                                       name="title"
+                                       class="issues-form-input"
+                                       placeholder="np. Błąd w kalkulatorze przy obliczaniu rabatu"
+                                       required
+                                       minlength="5"
+                                       maxlength="255">
+                            </div>
+
+                            <!-- Szczegółowy opis -->
+                            <div class="issues-form-group">
+                                <label for="issuesTicketMessage" class="issues-form-label">
+                                    Szczegółowy opis <span class="issues-required">*</span>
+                                </label>
+                                <textarea id="issuesTicketMessage"
+                                          name="message"
+                                          class="issues-form-textarea"
+                                          rows="6"
+                                          placeholder="Opisz problem jak najdokładniej:
+- Co się stało?
+- Kiedy to nastąpiło?
+- Jakie kroki wykonałeś?
+- Co oczekiwałeś że się stanie?"
+                                          required
+                                          minlength="10"></textarea>
+                            </div>
+
+                            <!-- Załączniki -->
+                            <div class="issues-form-group">
+                                <label class="issues-form-label">
+                                    Załączniki (opcjonalnie)
+                                </label>
+                                <div class="issues-upload-area" id="issuesUploadArea">
+                                    <i class="fas fa-cloud-upload-alt issues-upload-icon"></i>
+                                    <p class="issues-upload-text">Przeciągnij pliki lub kliknij aby wybrać</p>
+                                    <p class="issues-upload-hint">Max 5 plików, 5 MB każdy (zrzuty ekranu, pliki)</p>
+                                    <input type="file"
+                                           id="issuesFileInput"
+                                           name="files"
+                                           class="issues-file-input"
+                                           multiple
+                                           accept="image/*,.pdf,.doc,.docx,.txt">
+                                </div>
+                                <div id="issuesFilesList" class="issues-files-list"></div>
+                            </div>
+
+                            <!-- Przyciski -->
+                            <div class="issues-form-actions">
+                                <button type="submit" class="issues-btn issues-btn-primary issues-btn-lg">
+                                    <i class="fas fa-paper-plane"></i> Wyślij zgłoszenie
+                                </button>
+                                <button type="button" class="issues-btn issues-btn-secondary" onclick="IssuesHelpCenter.closeForm()">
+                                    <i class="fas fa-times"></i> Anuluj
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+
+                </div>
+
+                <!-- TABELA: Moje zgłoszenia -->
+                <div class="issues-tickets-section">
+                    <div class="issues-tickets-header">
+                        <h2 class="issues-tickets-title">
+                            <i class="fas fa-list"></i> Moje zgłoszenia
+                        </h2>
+                        <div class="issues-tickets-filters">
+                            <select id="issuesFilterStatus" class="issues-form-select issues-form-select-sm">
+                                <option value="">Wszystkie statusy</option>
+                                <option value="new">🟢 Nowe</option>
+                                <option value="open">🟡 Otwarte</option>
+                                <option value="in_progress">🔵 W trakcie</option>
+                                <option value="closed">✅ Zamknięte</option>
+                            </select>
+                            <button id="issuesRefreshTickets" class="issues-btn issues-btn-secondary issues-btn-sm">
+                                <i class="fas fa-sync"></i> Odśwież
+                            </button>
+                        </div>
+                    </div>
+
+                    <div id="issuesTicketsList" class="issues-tickets-table-wrapper">
+                        <div class="issues-loading">
+                            <i class="fas fa-spinner fa-spin"></i> Ładowanie zgłoszeń...
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+        </main>
+    </div>
+
+    <!-- Toast notifications -->
+    <div id="issuesToastContainer" class="issues-toast-container"></div>
+
+    <!-- JavaScript -->
+    <script src="{{ url_for('issues.static', filename='js/issues.js') }}"></script>
+    <script src="{{ url_for('issues.static', filename='js/help_center.js') }}"></script>
+</body>
+</html>

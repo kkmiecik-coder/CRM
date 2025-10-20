@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ticket #{{ ticket.ticket_number }} - Wood Power CRM</title>
+    <link rel="icon" href="{{ url_for('static', filename='images/favicon.png') }}" type="image/png">
+
+    <!-- Główny CSS projektu -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+
+    <!-- CSS modułu Issues -->
+    <link rel="stylesheet" href="{{ url_for('issues.static', filename='css/issues.css') }}">
+    <link rel="stylesheet" href="{{ url_for('issues.static', filename='css/ticket_detail.css') }}">
+
+    <!-- Font Awesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+    <!-- Google Fonts - Poppins -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="app-container">
+        {% include 'sidebar/sidebar.html' %}
+
+        <main class="main-content">
+            <div class="issues-detail-container">
+
+                <!-- Breadcrumb -->
+                <div class="issues-breadcrumb">
+                    <a href="{{ url_for('issues.help_center') }}" class="issues-breadcrumb-link">
+                        <i class="fas fa-arrow-left"></i> Powrót do Help Center
+                    </a>
+                </div>
+
+                <!-- Header ticketu -->
+                <div class="issues-detail-header">
+                    <div class="issues-detail-header-main">
+                        <div class="issues-detail-title-section">
+                            <h1 class="issues-detail-title">
+                                <span class="issues-detail-ticket-number">#{{ ticket.ticket_number }}</span>
+                                {{ ticket.title }}
+                            </h1>
+                            <div class="issues-detail-meta">
+                                <span class="issues-badge issues-badge-status-{{ ticket.status }}">
+                                    {{ ticket.status|upper }}
+                                </span>
+                                <span class="issues-badge issues-badge-priority-{{ ticket.priority }}">
+                                    {{ ticket.priority|upper }}
+                                </span>
+                                <span class="issues-detail-category">
+                                    <i class="fas fa-folder"></i>
+                                    {{ ticket.category }} / {{ ticket.subcategory }}
+                                </span>
+                                <span class="issues-detail-date">
+                                    <i class="fas fa-clock"></i>
+                                    Utworzono: {{ ticket.created_at.strftime('%Y-%m-%d %H:%M') }}
+                                </span>
+                            </div>
+                        </div>
+
+                        {% if current_user.role == 'admin' %}
+                        <div class="issues-detail-actions">
+                            <div class="issues-dropdown">
+                                <button class="issues-btn issues-btn-secondary issues-dropdown-toggle" id="issuesActionsDropdown">
+                                    <i class="fas fa-cog"></i> Akcje
+                                </button>
+                                <div class="issues-dropdown-menu" id="issuesActionsMenu">
+                                    <button class="issues-dropdown-item" data-action="change-status">
+                                        <i class="fas fa-exchange-alt"></i> Zmień status
+                                    </button>
+                                    <button class="issues-dropdown-item" data-action="change-priority">
+                                        <i class="fas fa-flag"></i> Zmień priorytet
+                                    </button>
+                                    <button class="issues-dropdown-item" data-action="assign-to-me">
+                                        <i class="fas fa-user-check"></i> Przypisz do mnie
+                                    </button>
+                                    <div class="issues-dropdown-divider"></div>
+                                    <button class="issues-dropdown-item issues-dropdown-item-danger" data-action="close-ticket">
+                                        <i class="fas fa-check-circle"></i> Zamknij ticket
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                        {% endif %}
+                    </div>
+                </div>
+
+                <!-- Layout: Konwersacja + Sidebar -->
+                <div class="issues-detail-layout">
+
+                    <!-- Główna sekcja: Konwersacja -->
+                    <div class="issues-detail-main">
+
+                        <!-- Lista wiadomości -->
+                        <div class="issues-messages-container" id="issuesMessagesContainer">
+                            <div class="issues-loading">
+                                <i class="fas fa-spinner fa-spin"></i> Ładowanie wiadomości...
+                            </div>
+                        </div>
+
+                        <!-- Formularz odpowiedzi -->
+                        <div class="issues-reply-container">
+                            <div class="issues-card">
+                                <div class="issues-card-header">
+                                    <h3 class="issues-card-title">
+                                        <i class="fas fa-reply"></i> Dodaj odpowiedź
+                                    </h3>
+                                </div>
+                                <div class="issues-card-body">
+                                    <form id="issuesReplyForm" class="issues-form">
+
+                                        <!-- Textarea wiadomości -->
+                                        <div class="issues-form-group">
+                                            <textarea id="issuesReplyMessage"
+                                                      name="message"
+                                                      class="issues-form-textarea"
+                                                      rows="5"
+                                                      placeholder="Napisz odpowiedź... (min. 5 znaków)"
+                                                      required
+                                                      minlength="5"></textarea>
+                                        </div>
+
+                                        <!-- Załączniki -->
+                                        <div class="issues-form-group">
+                                            <label class="issues-form-label">
+                                                Załączniki (opcjonalnie)
+                                            </label>
+                                            <div class="issues-upload-area issues-upload-area-compact" id="issuesReplyUploadArea">
+                                                <i class="fas fa-paperclip"></i>
+                                                <span>Dodaj pliki (max 5, 5 MB każdy)</span>
+                                                <input type="file"
+                                                       id="issuesReplyFileInput"
+                                                       name="files"
+                                                       class="issues-file-input"
+                                                       multiple
+                                                       accept="image/*,.pdf,.doc,.docx,.txt">
+                                            </div>
+                                            <div id="issuesReplyFilesList" class="issues-files-list"></div>
+                                        </div>
+
+                                        {% if current_user.role == 'admin' %}
+                                        <!-- Checkbox notatka wewnętrzna -->
+                                        <div class="issues-form-group">
+                                            <label class="issues-checkbox-label">
+                                                <input type="checkbox"
+                                                       id="issuesInternalNote"
+                                                       name="is_internal_note"
+                                                       class="issues-checkbox">
+                                                <span class="issues-checkbox-text">
+                                                    <i class="fas fa-lock"></i> Notatka wewnętrzna (widoczna tylko dla adminów)
+                                                </span>
+                                            </label>
+                                        </div>
+                                        {% endif %}
+
+                                        <!-- Przyciski -->
+                                        <div class="issues-form-actions">
+                                            <button type="submit" class="issues-btn issues-btn-primary">
+                                                <i class="fas fa-paper-plane"></i> Wyślij odpowiedź
+                                            </button>
+                                        </div>
+
+                                    </form>
+                                </div>
+                            </div>
+                        </div>
+
+                    </div>
+
+                    <!-- Sidebar: Informacje o tickecie -->
+                    <aside class="issues-detail-sidebar">
+
+                        <!-- Informacje podstawowe -->
+                        <div class="issues-card">
+                            <div class="issues-card-header">
+                                <h3 class="issues-card-title">
+                                    <i class="fas fa-info-circle"></i> Informacje
+                                </h3>
+                            </div>
+                            <div class="issues-card-body">
+                                <div class="issues-info-list">
+                                    <div class="issues-info-item">
+                                        <span class="issues-info-label">Status:</span>
+                                        <span class="issues-badge issues-badge-status-{{ ticket.status }}">
+                                            {{ ticket.status|upper }}
+                                        </span>
+                                    </div>
+                                    <div class="issues-info-item">
+                                        <span class="issues-info-label">Priorytet:</span>
+                                        <span class="issues-badge issues-badge-priority-{{ ticket.priority }}">
+                                            {{ ticket.priority|upper }}
+                                        </span>
+                                    </div>
+                                    <div class="issues-info-item">
+                                        <span class="issues-info-label">Kategoria:</span>
+                                        <span>{{ ticket.category }}</span>
+                                    </div>
+                                    <div class="issues-info-item">
+                                        <span class="issues-info-label">Podkategoria:</span>
+                                        <span>{{ ticket.subcategory or 'Brak' }}</span>
+                                    </div>
+                                    <div class="issues-info-item">
+                                        <span class="issues-info-label">Utworzył:</span>
+                                        <span>{{ ticket.created_by.email }}</span>
+                                    </div>
+                                    <div class="issues-info-item">
+                                        <span class="issues-info-label">Data utworzenia:</span>
+                                        <span>{{ ticket.created_at.strftime('%Y-%m-%d %H:%M') }}</span>
+                                    </div>
+                                    {% if ticket.assigned_to %}
+                                    <div class="issues-info-item">
+                                        <span class="issues-info-label">Przypisany:</span>
+                                        <span>{{ ticket.assigned_to.email }}</span>
+                                    </div>
+                                    {% endif %}
+                                    {% if ticket.first_response_at %}
+                                    <div class="issues-info-item">
+                                        <span class="issues-info-label">Pierwsza odpowiedź:</span>
+                                        <span>{{ ticket.first_response_at.strftime('%Y-%m-%d %H:%M') }}</span>
+                                    </div>
+                                    {% endif %}
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Statystyki -->
+                        <div class="issues-card">
+                            <div class="issues-card-header">
+                                <h3 class="issues-card-title">
+                                    <i class="fas fa-chart-line"></i> Statystyki
+                                </h3>
+                            </div>
+                            <div class="issues-card-body">
+                                <div class="issues-stats-list">
+                                    <div class="issues-stats-item">
+                                        <i class="fas fa-comments"></i>
+                                        <span class="issues-stats-value">{{ ticket.messages|length }}</span>
+                                        <span class="issues-stats-label">Wiadomości</span>
+                                    </div>
+                                    <div class="issues-stats-item">
+                                        <i class="fas fa-paperclip"></i>
+                                        <span class="issues-stats-value">{{ ticket.attachments|length }}</span>
+                                        <span class="issues-stats-label">Załączniki</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                    </aside>
+
+                </div>
+
+            </div>
+        </main>
+    </div>
+
+    <!-- Toast notifications -->
+    <div id="issuesToastContainer" class="issues-toast-container"></div>
+
+    <!-- Modal: Zmiana statusu -->
+    <div id="issuesChangeStatusModal" class="issues-modal" style="display: none;">
+        <div class="issues-modal-overlay"></div>
+        <div class="issues-modal-content">
+            <div class="issues-modal-header">
+                <h3 class="issues-modal-title">Zmień status ticketu</h3>
+                <button class="issues-modal-close">&times;</button>
+            </div>
+            <div class="issues-modal-body">
+                <select id="issuesNewStatus" class="issues-form-select">
+                    <option value="new">🟢 Nowy</option>
+                    <option value="open">🟡 Otwarty</option>
+                    <option value="in_progress">🔵 W trakcie</option>
+                    <option value="closed">✅ Zamknięty</option>
+                    <option value="cancelled">❌ Anulowany</option>
+                </select>
+            </div>
+            <div class="issues-modal-footer">
+                <button class="issues-btn issues-btn-primary" id="issuesConfirmStatusChange">Zapisz</button>
+                <button class="issues-btn issues-btn-secondary issues-modal-cancel">Anuluj</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal: Zmiana priorytetu -->
+    <div id="issuesChangePriorityModal" class="issues-modal" style="display: none;">
+        <div class="issues-modal-overlay"></div>
+        <div class="issues-modal-content">
+            <div class="issues-modal-header">
+                <h3 class="issues-modal-title">Zmień priorytet ticketu</h3>
+                <button class="issues-modal-close">&times;</button>
+            </div>
+            <div class="issues-modal-body">
+                <select id="issuesNewPriority" class="issues-form-select">
+                    <option value="low">🟢 Niski</option>
+                    <option value="medium">🟡 Średni</option>
+                    <option value="high">🟠 Wysoki</option>
+                    <option value="critical">🔴 Krytyczny</option>
+                </select>
+            </div>
+            <div class="issues-modal-footer">
+                <button class="issues-btn issues-btn-primary" id="issuesConfirmPriorityChange">Zapisz</button>
+                <button class="issues-btn issues-btn-secondary issues-modal-cancel">Anuluj</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- JavaScript -->
+    <script>
+        // Przekaż dane ticketu do JavaScript
+        window.TICKET_DATA = {
+            ticket_number: "{{ ticket.ticket_number }}",
+            ticket_id: {{ ticket.id }},
+            current_user_role: "{{ current_user.role }}",
+            current_user_id: {{ current_user.id }}
+        };
+    </script>
+    <script src="{{ url_for('issues.static', filename='js/issues.js') }}"></script>
+    <script src="{{ url_for('issues.static', filename='js/ticket_detail.js') }}"></script>
+</body>
+</html>

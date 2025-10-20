@@ -1,0 +1,493 @@
+/* app/modules/issues/static/css/issues.css */
+/* 
+ * Wspólne style dla modułu Issues
+ * Zawiera: CSS Variables, komponenty wielokrotnego użytku
+ * Wszystkie klasy z prefixem "issues-"
+ * 
+ * Autor: Konrad Kmiecik
+ * Data: 2025-10-20
+ */
+
+/* ============================================================================
+   CSS VARIABLES
+   ============================================================================ */
+
+:root {
+    /* Kolory statusów */
+    --issues-status-new: #4CAF50;
+    --issues-status-open: #FFC107;
+    --issues-status-in-progress: #2196F3;
+    --issues-status-closed: #9E9E9E;
+    --issues-status-cancelled: #F44336;
+    /* Kolory priorytetów */
+    --issues-priority-low: #8BC34A;
+    --issues-priority-medium: #FFC107;
+    --issues-priority-high: #FF9800;
+    --issues-priority-critical: #F44336;
+    /* Kolory główne */
+    --issues-primary: #2196F3;
+    --issues-success: #4CAF50;
+    --issues-error: #F44336;
+    --issues-warning: #FF9800;
+    --issues-info: #2196F3;
+    /* Kolory tła */
+    --issues-bg-white: #ffffff;
+    --issues-bg-light: #f8f9fa;
+    --issues-bg-dark: #263238;
+    /* Kolory tekstu */
+    --issues-text-primary: #212121;
+    --issues-text-secondary: #757575;
+    --issues-text-disabled: #9E9E9E;
+    /* Kolory obramowania */
+    --issues-border: #e0e0e0;
+    --issues-border-dark: #bdbdbd;
+    /* Cienie */
+    --issues-shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.12);
+    --issues-shadow-md: 0 4px 6px rgba(0, 0, 0, 0.1);
+    --issues-shadow-lg: 0 10px 20px rgba(0, 0, 0, 0.15);
+    /* Rozmiary */
+    --issues-radius: 8px;
+    --issues-radius-sm: 4px;
+    --issues-spacing-xs: 4px;
+    --issues-spacing-sm: 8px;
+    --issues-spacing-md: 16px;
+    --issues-spacing-lg: 24px;
+    --issues-spacing-xl: 32px;
+}
+
+/* ============================================================================
+   BADGE - Statusy i Priorytety
+   ============================================================================ */
+
+p {
+    text-align: center;
+}
+
+.issues-badge {
+    display: inline-block;
+    padding: 4px 12px;
+    border-radius: var(--issues-radius-sm);
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    white-space: nowrap;
+}
+
+/* Statusy */
+.issues-badge-status-new {
+    background-color: var(--issues-status-new);
+    color: white;
+}
+
+.issues-badge-status-open {
+    background-color: var(--issues-status-open);
+    color: white;
+}
+
+.issues-badge-status-in_progress,
+.issues-badge-status-in-progress {
+    background-color: var(--issues-status-in-progress);
+    color: white;
+}
+
+.issues-badge-status-closed {
+    background-color: var(--issues-status-closed);
+    color: white;
+}
+
+.issues-badge-status-cancelled {
+    background-color: var(--issues-status-cancelled);
+    color: white;
+}
+
+/* Priorytety */
+.issues-badge-priority-low {
+    background-color: var(--issues-priority-low);
+    color: white;
+}
+
+.issues-badge-priority-medium {
+    background-color: var(--issues-priority-medium);
+    color: white;
+}
+
+.issues-badge-priority-high {
+    background-color: var(--issues-priority-high);
+    color: white;
+}
+
+.issues-badge-priority-critical {
+    background-color: var(--issues-priority-critical);
+    color: white;
+}
+
+/* ============================================================================
+   PRZYCISKI
+   ============================================================================ */
+
+.issues-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 20px;
+    border: none;
+    border-radius: var(--issues-radius);
+    font-size: 14px;
+    font-weight: 600;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    text-decoration: none;
+    font-family: inherit;
+}
+
+    .issues-btn:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+    }
+
+.issues-btn-primary {
+    background-color: var(--issues-primary);
+    color: white;
+}
+
+    .issues-btn-primary:hover:not(:disabled) {
+        background-color: #1976D2;
+        box-shadow: var(--issues-shadow-md);
+    }
+
+.issues-btn-success {
+    background-color: var(--issues-success);
+    color: white;
+}
+
+    .issues-btn-success:hover:not(:disabled) {
+        background-color: #388E3C;
+    }
+
+.issues-btn-danger {
+    background-color: var(--issues-error);
+    color: white;
+}
+
+    .issues-btn-danger:hover:not(:disabled) {
+        background-color: #D32F2F;
+    }
+
+.issues-btn-secondary {
+    background-color: var(--issues-bg-light);
+    color: var(--issues-text-primary);
+    border: 1px solid var(--issues-border);
+}
+
+    .issues-btn-secondary:hover:not(:disabled) {
+        background-color: #e0e0e0;
+    }
+
+.issues-btn-admin {
+    background: linear-gradient(135deg, #FF6B6B 0%, #C92A2A 100%);
+    color: white;
+}
+
+    .issues-btn-admin:hover:not(:disabled) {
+        background: linear-gradient(135deg, #FA5252 0%, #A61E1E 100%);
+        box-shadow: var(--issues-shadow-md);
+    }
+
+.issues-btn-sm {
+    padding: 6px 12px;
+    font-size: 12px;
+}
+
+.issues-btn-lg {
+    padding: 14px 28px;
+    font-size: 16px;
+}
+
+.issues-btn-full {
+    width: 100%;
+    justify-content: center;
+}
+
+/* ============================================================================
+   KARTY
+   ============================================================================ */
+
+.issues-card {
+    background-color: var(--issues-bg-white);
+    border: 1px solid var(--issues-border);
+    border-radius: var(--issues-radius);
+    box-shadow: var(--issues-shadow-sm);
+    margin-bottom: var(--issues-spacing-md);
+    overflow: hidden;
+}
+
+.issues-card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: var(--issues-spacing-lg);
+    border-bottom: 1px solid var(--issues-border);
+    background-color: var(--issues-bg-light);
+}
+
+.issues-card-title {
+    font-size: 18px;
+    font-weight: 600;
+    margin: 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--issues-text-primary);
+}
+
+.issues-card-body {
+    padding: var(--issues-spacing-lg);
+}
+
+/* ============================================================================
+   FORMULARZE
+   ============================================================================ */
+
+.issues-form-group {
+    margin-bottom: var(--issues-spacing-md);
+}
+
+.issues-form-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--issues-spacing-md);
+}
+
+.issues-form-label {
+    display: block;
+    margin-bottom: var(--issues-spacing-sm);
+    font-weight: 600;
+    color: var(--issues-text-primary);
+    font-size: 14px;
+}
+
+.issues-required {
+    color: var(--issues-error);
+}
+
+.issues-form-input,
+.issues-form-select,
+.issues-form-textarea {
+    width: 100%;
+    padding: 10px 12px;
+    border: 1px solid var(--issues-border);
+    border-radius: var(--issues-radius-sm);
+    font-size: 14px;
+    font-family: inherit;
+    transition: border-color 0.3s ease, box-shadow 0.3s ease;
+}
+
+    .issues-form-input:focus,
+    .issues-form-select:focus,
+    .issues-form-textarea:focus {
+        outline: none;
+        border-color: var(--issues-primary);
+        box-shadow: 0 0 0 3px rgba(33, 150, 243, 0.1);
+    }
+
+.issues-form-textarea {
+    resize: vertical;
+    min-height: 100px;
+}
+
+.issues-form-hint {
+    display: block;
+    margin-top: var(--issues-spacing-xs);
+    font-size: 12px;
+    color: var(--issues-text-secondary);
+}
+
+.issues-form-select-sm {
+    padding: 6px 10px;
+    font-size: 13px;
+}
+
+.issues-form-actions {
+    display: flex;
+    gap: var(--issues-spacing-sm);
+    margin-top: var(--issues-spacing-lg);
+}
+
+/* Checkbox */
+.issues-checkbox-label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    user-select: none;
+}
+
+.issues-checkbox {
+    width: 18px;
+    height: 18px;
+    cursor: pointer;
+}
+
+.issues-checkbox-text {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 14px;
+    color: var(--issues-text-secondary);
+}
+
+/* ============================================================================
+   LOADING
+   ============================================================================ */
+
+.issues-loading {
+    text-align: center;
+    padding: var(--issues-spacing-xl);
+    color: var(--issues-text-secondary);
+}
+
+    .issues-loading i {
+        font-size: 24px;
+        margin-right: 8px;
+    }
+
+/* ============================================================================
+   TOAST NOTIFICATIONS
+   ============================================================================ */
+
+.issues-toast-container {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    z-index: 10000;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.issues-toast {
+    min-width: 300px;
+    max-width: 400px;
+    padding: 16px 20px;
+    background-color: white;
+    border-radius: var(--issues-radius);
+    box-shadow: var(--issues-shadow-lg);
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    animation: issuesSlideIn 0.3s ease;
+}
+
+@keyframes issuesSlideIn {
+    from {
+        transform: translateX(100%);
+        opacity: 0;
+    }
+
+    to {
+        transform: translateX(0);
+        opacity: 1;
+    }
+}
+
+.issues-toast-icon {
+    font-size: 20px;
+    flex-shrink: 0;
+}
+
+.issues-toast-content {
+    flex: 1;
+}
+
+.issues-toast-message {
+    font-weight: 600;
+    margin-bottom: 4px;
+    color: var(--issues-text-primary);
+}
+
+.issues-toast-description {
+    font-size: 13px;
+    color: var(--issues-text-secondary);
+}
+
+.issues-toast-close {
+    background: none;
+    border: none;
+    font-size: 18px;
+    cursor: pointer;
+    color: var(--issues-text-secondary);
+    padding: 0;
+    width: 24px;
+    height: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+    .issues-toast-close:hover {
+        color: var(--issues-text-primary);
+    }
+
+.issues-toast-success {
+    border-left: 4px solid var(--issues-success);
+}
+
+    .issues-toast-success .issues-toast-icon {
+        color: var(--issues-success);
+    }
+
+.issues-toast-error {
+    border-left: 4px solid var(--issues-error);
+}
+
+    .issues-toast-error .issues-toast-icon {
+        color: var(--issues-error);
+    }
+
+.issues-toast-warning {
+    border-left: 4px solid var(--issues-warning);
+}
+
+    .issues-toast-warning .issues-toast-icon {
+        color: var(--issues-warning);
+    }
+
+.issues-toast-info {
+    border-left: 4px solid var(--issues-info);
+}
+
+    .issues-toast-info .issues-toast-icon {
+        color: var(--issues-info);
+    }
+
+/* ============================================================================
+   RESPONSIVE
+   ============================================================================ */
+
+@media (max-width: 768px) {
+    .issues-form-row {
+        grid-template-columns: 1fr;
+    }
+
+    .issues-toast-container {
+        left: 10px;
+        right: 10px;
+        top: 10px;
+    }
+
+    .issues-toast {
+        min-width: auto;
+        max-width: 100%;
+    }
+
+    .issues-form-actions {
+        flex-direction: column;
+    }
+
+    .issues-btn {
+        width: 100%;
+        justify-content: center;
+    }
+}
