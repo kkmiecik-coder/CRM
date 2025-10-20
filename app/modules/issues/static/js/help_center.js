@@ -638,7 +638,7 @@ IssuesHelpCenter.renderTickets = function () {
                     <th>Kategoria</th>
                     <th>Temat</th>
                     <th>Status</th>
-                    <th>Ostatnia wiadomość</th>
+                    <th>Data utworzenia</th>
                     <th>Statystyki</th>
                 </tr>
             </thead>
@@ -662,7 +662,7 @@ IssuesHelpCenter.renderTickets = function () {
                                 ${IssuesCommon.getStatusName(ticket.status)}
                             </span>
                         </td>
-                        <td class="issues-ticket-date-cell">${IssuesCommon.formatDateFull(ticket.updated_at)}</td>
+                        <td class="issues-ticket-date-cell">${IssuesCommon.formatDate(ticket.created_at)}</td>
                         <td class="issues-ticket-stats-cell">
                             <span class="issues-ticket-stat">
                                 <i class="fas fa-comments"></i> ${ticket.messages_count || 0}

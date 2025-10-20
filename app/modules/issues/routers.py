@@ -527,13 +527,6 @@ def api_add_message(ticket_number):
                 'error': 'Brak uprawnień do dodawania wiadomości'
             }), 403
         
-        # Sprawdź czy ticket jest zamknięty
-        if ticket.status == 'closed':
-            return jsonify({
-                'success': False,
-                'error': 'Nie można dodać wiadomości do zamkniętego ticketu'
-            }), 400
-        
         # Walidacja
         if not data.get('message') or len(data.get('message')) < 5:
             return jsonify({

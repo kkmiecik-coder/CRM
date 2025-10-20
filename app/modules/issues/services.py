@@ -166,24 +166,10 @@ class TicketService:
             # Aktualizuj updated_at ticketu
             ticket.updated_at = datetime.utcnow()
             
-            # Jeśli admin wysyła odpowiedź, automatycznie przypisz go do ticketa
-            if user.role == 'admin' and not ticket.assigned_to_user_id:
-                old_assigned = None
-                ticket.assigned_to_user_id = user_id
-                
-                # Loguj event przypisania
-                EventService.log_event(
-                    ticket_id=ticket_id,
-                    event_type='assigned',
-                    performed_by_user_id=user_id,
-                    new_value=user.email,
-                    extra_data={'auto': True, 'reason': 'admin_response'}
-                )
-
             # Jeśli to pierwsza odpowiedź admina, zapisz first_response_at
             if user.role == 'admin' and not ticket.first_response_at:
                 ticket.first_response_at = datetime.utcnow()
-
+    
                 # Automatycznie zmień status z "new" na "open" po pierwszej odpowiedzi admina
                 if ticket.status == 'new':
                     old_status = ticket.status

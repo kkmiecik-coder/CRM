@@ -392,57 +392,6 @@ IssuesCommon.getPriorityName = function (priority) {
     return names[priority] || priority;
 };
 
-/**
- * Formatuje datę (wersja relatywna - "X dni temu")
- */
-IssuesCommon.formatDate = function (dateString) {
-    if (!dateString) return '-';
-    
-    const date = new Date(dateString);  // Teraz z 'Z' na końcu poprawnie interpretuje UTC
-    const now = new Date();
-    const diff = now - date;
-    const seconds = Math.floor(diff / 1000);
-    const minutes = Math.floor(seconds / 60);
-    const hours = Math.floor(minutes / 60);
-    const days = Math.floor(hours / 24);
-
-    if (days > 7) {
-        return date.toLocaleString('pl-PL', {
-            year: 'numeric',
-            month: '2-digit',
-            day: '2-digit',
-            hour: '2-digit',
-            minute: '2-digit'
-        });
-    } else if (days > 0) {
-        return `${days} dni temu`;
-    } else if (hours > 0) {
-        return `${hours} godz. temu`;
-    } else if (minutes > 0) {
-        return `${minutes} min. temu`;
-    } else {
-        return 'Przed chwilą';
-    }
-};
-
-/**
- * Formatuje datę do pełnego formatu (dd.mm.yyyy hh:mm)
- */
-IssuesCommon.formatDateFull = function (dateString) {
-    if (!dateString) return '-';
-    
-    const date = new Date(dateString);
-    
-    // Formatuj w lokalnej strefie czasowej użytkownika
-    return date.toLocaleString('pl-PL', {
-        year: 'numeric',
-        month: '2-digit',
-        day: '2-digit',
-        hour: '2-digit',
-        minute: '2-digit'
-    });
-};
-
 // ============================================================================
 // INICJALIZACJA
 // ============================================================================

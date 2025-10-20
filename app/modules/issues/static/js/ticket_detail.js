@@ -49,12 +49,15 @@ IssuesTicketDetail.init = function () {
         replyFileInput: document.getElementById('issuesReplyFileInput'),
         replyFilesList: document.getElementById('issuesReplyFilesList'),
         internalNote: document.getElementById('issuesInternalNote'),
+        actionsDropdown: document.getElementById('issuesActionsDropdown'),
+        actionsMenu: document.getElementById('issuesActionsMenu')
     };
 
     // Inicjalizuj komponenty
     IssuesTicketDetail.loadTimeline();  // ← ZMIENIONE z loadMessages()
     IssuesTicketDetail.initReplyForm();
     IssuesTicketDetail.initUpload();
+    IssuesTicketDetail.initDropdown();
     IssuesTicketDetail.initModals();
 
     // Przetłumacz statusy i priorytety przy starcie
@@ -423,6 +426,55 @@ IssuesTicketDetail.removeReplyFile = function (index) {
 IssuesTicketDetail.clearReplyFiles = function () {
     IssuesTicketDetail.state.uploadedFiles = [];
     IssuesTicketDetail.renderReplyFilesList();
+};
+
+// ============================================================================
+// DROPDOWN MENU (AKCJE)
+// ============================================================================
+
+IssuesTicketDetail.initDropdown = function () {
+    const dropdown = IssuesTicketDetail.elements.actionsDropdown;
+    const menu = IssuesTicketDetail.elements.actionsMenu;
+
+    if (!dropdown || !menu) return;
+
+    // Toggle menu
+    dropdown.addEventListener('click', (e) => {
+        e.stopPropagation();
+        menu.classList.toggle('issues-show');
+    });
+
+    // Zamknij przy kliknięciu poza menu
+    document.addEventListener('click', () => {
+        menu.classList.remove('issues-show');
+    });
+
+    // Obsługa akcji
+    menu.querySelectorAll('[data-action]').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const action = btn.dataset.action;
+            IssuesTicketDetail.handleAction(action);
+            menu.classList.remove('issues-show');
+        });
+    });
+};
+
+IssuesTicketDetail.handleAction = function (action) {
+    switch (action) {
+        case 'change-status':
+            IssuesTicketDetail.showChangeStatusModal();
+            break;
+        case 'change-priority':
+            IssuesTicketDetail.showChangePriorityModal();
+            break;
+        case 'assign-to-me':
+            IssuesTicketDetail.assignToMe();
+            break;
+        case 'close-ticket':
+            IssuesTicketDetail.closeTicket();
+            break;
+    }
 };
 
 // ============================================================================

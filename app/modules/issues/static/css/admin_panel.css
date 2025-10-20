@@ -1,0 +1,486 @@
+/* app/modules/issues/static/css/admin_panel.css */
+/* 
+ * Style dla panelu administratora
+ * Zawiera: Header, statystyki, tabs, tabele ticketów, modals
+ * 
+ * Autor: Konrad Kmiecik
+ * Data: 2025-10-20
+ */
+
+/* ============================================================================
+   CONTAINER
+   ============================================================================ */
+
+.issues-admin-container {
+    padding: 24px;
+    margin: 0 auto;
+}
+
+/* ============================================================================
+   HEADER
+   ============================================================================ */
+
+.issues-admin-header {
+    margin-bottom: 32px;
+}
+
+.issues-admin-header-content {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 24px;
+    background: linear-gradient(135deg, #FF6B6B 0%, #C92A2A 100%);
+    border-radius: 12px;
+    color: white;
+    box-shadow: 0 4px 12px rgba(201, 42, 42, 0.3);
+}
+
+.issues-admin-title-section {
+    flex: 1;
+}
+
+.issues-admin-title {
+    font-size: 32px;
+    font-weight: 700;
+    margin: 0 0 8px 0;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.issues-admin-subtitle {
+    font-size: 16px;
+    margin: 0;
+    opacity: 0.9;
+}
+
+.issues-admin-header-actions {
+    flex-shrink: 0;
+}
+
+/* ============================================================================
+   STATYSTYKI
+   ============================================================================ */
+
+.issues-admin-stats {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 16px;
+    margin-bottom: 32px;
+}
+
+.issues-stat-card {
+    background-color: white;
+    border: 1px solid var(--issues-border);
+    border-radius: var(--issues-radius);
+    padding: 20px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    box-shadow: var(--issues-shadow-sm);
+    transition: all 0.3s ease;
+}
+
+    .issues-stat-card:hover {
+        box-shadow: var(--issues-shadow-md);
+        transform: translateY(-2px);
+    }
+
+.issues-stat-icon {
+    width: 56px;
+    height: 56px;
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 24px;
+    color: white;
+    flex-shrink: 0;
+}
+
+.issues-stat-card-new .issues-stat-icon {
+    background: linear-gradient(135deg, #4CAF50 0%, #388E3C 100%);
+}
+
+.issues-stat-card-open .issues-stat-icon {
+    background: linear-gradient(135deg, #FFC107 0%, #FFA000 100%);
+}
+
+.issues-stat-card-progress .issues-stat-icon {
+    background: linear-gradient(135deg, #2196F3 0%, #1976D2 100%);
+}
+
+.issues-stat-card-closed .issues-stat-icon {
+    background: linear-gradient(135deg, #9E9E9E 0%, #757575 100%);
+}
+
+.issues-stat-card-total .issues-stat-icon {
+    background: linear-gradient(135deg, #673AB7 0%, #512DA8 100%);
+}
+
+.issues-stat-content {
+    flex: 1;
+}
+
+.issues-stat-value {
+    font-size: 32px;
+    font-weight: 700;
+    color: var(--issues-text-primary);
+    line-height: 1;
+    margin-bottom: 4px;
+}
+
+.issues-stat-label {
+    font-size: 13px;
+    color: var(--issues-text-secondary);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+/* ============================================================================
+   TABS
+   ============================================================================ */
+
+.issues-admin-tabs {
+    display: flex;
+    gap: 8px;
+    border-bottom: 2px solid var(--issues-border);
+    margin-bottom: 24px;
+}
+
+.issues-tab {
+    padding: 12px 24px;
+    background: none;
+    border: none;
+    border-bottom: 3px solid transparent;
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--issues-text-secondary);
+    cursor: pointer;
+    transition: all 0.3s ease;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    position: relative;
+    bottom: -2px;
+}
+
+    .issues-tab:hover {
+        color: var(--issues-text-primary);
+        background-color: var(--issues-bg-light);
+    }
+
+.issues-tab-active {
+    color: var(--issues-primary);
+    border-bottom-color: var(--issues-primary);
+}
+
+.issues-tab-content {
+    display: none;
+}
+
+.issues-tab-content-active {
+    display: block;
+    animation: issuesTabFade 0.3s ease;
+}
+
+@keyframes issuesTabFade {
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* ============================================================================
+   FILTRY
+   ============================================================================ */
+
+.issues-filters {
+    display: flex;
+    gap: 8px;
+}
+
+/* ============================================================================
+   TABELA
+   ============================================================================ */
+
+.issues-table-wrapper {
+    overflow-x: auto;
+}
+
+.issues-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 14px;
+}
+
+    .issues-table thead {
+        background-color: var(--issues-bg-light);
+    }
+
+    .issues-table th {
+        padding: 12px 16px;
+        text-align: left;
+        font-weight: 600;
+        color: var(--issues-text-secondary);
+        text-transform: uppercase;
+        font-size: 12px;
+        letter-spacing: 0.5px;
+        border-bottom: 2px solid var(--issues-border);
+    }
+
+    .issues-table tbody tr {
+        border-bottom: 1px solid var(--issues-border);
+        transition: background-color 0.2s ease;
+    }
+
+        .issues-table tbody tr:hover {
+            background-color: var(--issues-bg-light);
+        }
+
+    .issues-table td {
+        padding: 14px 16px;
+        color: var(--issues-text-primary);
+        vertical-align: middle;
+    }
+
+.issues-table-loading {
+    text-align: center;
+    padding: 48px;
+    color: var(--issues-text-secondary);
+}
+
+    .issues-table-loading i {
+        font-size: 24px;
+        margin-right: 8px;
+    }
+
+.issues-table-empty {
+    text-align: center;
+    padding: 48px;
+    color: var(--issues-text-secondary);
+}
+
+    .issues-table-empty i {
+        font-size: 48px;
+        margin-bottom: 16px;
+        opacity: 0.5;
+    }
+
+.issues-table-ticket-number {
+    font-weight: 700;
+    color: var(--issues-primary);
+    text-decoration: none;
+    transition: color 0.2s ease;
+}
+
+    .issues-table-ticket-number:hover {
+        color: #1976D2;
+        text-decoration: underline;
+    }
+
+.issues-table-title {
+    font-weight: 600;
+    max-width: 300px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.issues-table-category {
+    font-size: 13px;
+    color: var(--issues-text-secondary);
+}
+
+.issues-table-user {
+    font-size: 13px;
+}
+
+.issues-table-date {
+    font-size: 13px;
+    color: var(--issues-text-secondary);
+    white-space: nowrap;
+}
+
+.issues-table-actions {
+    display: flex;
+    gap: 8px;
+}
+
+.issues-table-action-btn {
+    padding: 6px 12px;
+    background: none;
+    border: 1px solid var(--issues-border);
+    border-radius: var(--issues-radius-sm);
+    font-size: 12px;
+    color: var(--issues-text-primary);
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+    .issues-table-action-btn:hover {
+        background-color: var(--issues-primary);
+        border-color: var(--issues-primary);
+        color: white;
+    }
+
+/* ============================================================================
+   PAGINACJA
+   ============================================================================ */
+
+.issues-pagination {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 8px;
+    margin-top: 24px;
+    padding-top: 24px;
+    border-top: 1px solid var(--issues-border);
+}
+
+.issues-pagination-btn {
+    padding: 8px 12px;
+    background-color: white;
+    border: 1px solid var(--issues-border);
+    border-radius: var(--issues-radius-sm);
+    font-size: 14px;
+    color: var(--issues-text-primary);
+    cursor: pointer;
+    transition: all 0.2s ease;
+    min-width: 40px;
+}
+
+    .issues-pagination-btn:hover:not(:disabled) {
+        background-color: var(--issues-primary);
+        border-color: var(--issues-primary);
+        color: white;
+    }
+
+    .issues-pagination-btn:disabled {
+        opacity: 0.4;
+        cursor: not-allowed;
+    }
+
+.issues-pagination-btn-active {
+    background-color: var(--issues-primary);
+    border-color: var(--issues-primary);
+    color: white;
+}
+
+.issues-pagination-info {
+    font-size: 14px;
+    color: var(--issues-text-secondary);
+    margin: 0 16px;
+}
+
+/* ============================================================================
+   QUICK ACTIONS MODAL
+   ============================================================================ */
+
+.issues-quick-actions {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 12px;
+}
+
+.issues-quick-action-btn {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    padding: 24px;
+    background-color: white;
+    border: 2px solid var(--issues-border);
+    border-radius: var(--issues-radius);
+    cursor: pointer;
+    transition: all 0.3s ease;
+    text-align: center;
+}
+
+    .issues-quick-action-btn:hover {
+        border-color: var(--issues-primary);
+        background-color: rgba(33, 150, 243, 0.05);
+        transform: translateY(-2px);
+    }
+
+    .issues-quick-action-btn i {
+        font-size: 32px;
+        color: var(--issues-primary);
+    }
+
+    .issues-quick-action-btn span {
+        font-size: 14px;
+        font-weight: 600;
+        color: var(--issues-text-primary);
+    }
+
+/* ============================================================================
+   RESPONSIVE
+   ============================================================================ */
+
+@media (max-width: 1200px) {
+    .issues-admin-stats {
+        grid-template-columns: repeat(3, 1fr);
+    }
+}
+
+@media (max-width: 768px) {
+    .issues-admin-container {
+        padding: 16px;
+    }
+
+    .issues-admin-header-content {
+        flex-direction: column;
+        text-align: center;
+        gap: 16px;
+    }
+
+    .issues-admin-title {
+        font-size: 24px;
+        justify-content: center;
+    }
+
+    .issues-admin-stats {
+        grid-template-columns: 1fr;
+    }
+
+    .issues-stat-card {
+        padding: 16px;
+    }
+
+    .issues-admin-tabs {
+        overflow-x: auto;
+    }
+
+    .issues-tab {
+        flex-shrink: 0;
+        padding: 10px 16px;
+        font-size: 14px;
+    }
+
+    .issues-filters {
+        flex-direction: column;
+    }
+
+    .issues-table-wrapper {
+        overflow-x: scroll;
+    }
+
+    .issues-table {
+        min-width: 800px;
+    }
+
+    .issues-quick-actions {
+        grid-template-columns: 1fr;
+    }
+
+    .issues-pagination {
+        flex-wrap: wrap;
+    }
+}
