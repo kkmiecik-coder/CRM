@@ -367,19 +367,34 @@ function setDefaultClientType(form, skipIfAlreadySet = true) {
         return;
     }
 
-    // Nie ustawiaj domyślnej grupy dla partnerów - oni mają swój multiplier
-    if (isPartner) {
-        console.log(`[setDefaultClientType] Partner - pomijam ustawienie domyślnej grupy`);
+    // ✅ ZMIENIONE: Różnicuj standardowych i flexible partnerów
+    const isFlexiblePartner = document.body.dataset.flexiblePartner === 'true';
+
+    // Standardowi partnerzy nie używają selecta (mają fixed multiplier)
+    if (isPartner && !isFlexiblePartner) {
+        console.log(`[setDefaultClientType] Standardowy Partner - pomijam ustawienie domyślnej grupy`);
         return;
     }
 
-    const defaultClientType = getDefaultClientTypeForId(DEFAULT_MULTIPLIER_ID);
+    // ✅ NOWE: Różny domyślny mnożnik dla flexible partners
+    const FLEXIBLE_PARTNER_DEFAULT_MULTIPLIER_ID = 5;  // Domyślny mnożnik dla flexible partners
+
+    let defaultMultiplierId;
+    if (isFlexiblePartner) {
+        defaultMultiplierId = FLEXIBLE_PARTNER_DEFAULT_MULTIPLIER_ID;
+        console.log(`[setDefaultClientType] Flexible Partner - używam mnożnika ID: ${defaultMultiplierId}`);
+    } else {
+        defaultMultiplierId = DEFAULT_MULTIPLIER_ID;
+        console.log(`[setDefaultClientType] Admin/User - używam mnożnika ID: ${defaultMultiplierId}`);
+    }
+
+    const defaultClientType = getDefaultClientTypeForId(defaultMultiplierId);
 
     if (defaultClientType && multiplierMapping[defaultClientType]) {
         clientTypeSelect.value = defaultClientType;
         console.log(`[setDefaultClientType] Ustawiono domyślną grupę cenową: ${defaultClientType}`);
     } else {
-        console.warn(`[setDefaultClientType] Nie można ustawić domyślnej grupy cenowej`);
+        console.warn(`[setDefaultClientType] Nie można ustawić domyślnej grupy cenowej dla ID: ${defaultMultiplierId}`);
     }
 }
 
@@ -467,7 +482,17 @@ function updatePrices() {
     }
 
     const singleVolume = calculateSingleVolume(length, width, Math.ceil(thickness));
-    let multiplier = isPartner ? userMultiplier : (multiplierMapping[clientType] || 1.0);
+    // ✅ POPRAWIONE: Flexible partner używa selecta, standardowy partner używa userMultiplier
+    const isFlexiblePartner = document.body.dataset.flexiblePartner === 'true';
+
+    let multiplier;
+    if (isPartner && !isFlexiblePartner) {
+        // Standardowy partner - fixed multiplier
+        multiplier = userMultiplier;
+    } else {
+        // Admin/User/Flexible Partner - multiplier z selecta
+        multiplier = multiplierMapping[clientType] || 1.0;
+    }
 
     dbg("updatePrices: dimensions and multiplier", {
         length, width, thickness, quantity, singleVolume, multiplier, clientType
@@ -1799,12 +1824,6 @@ function init() {
     isPartner = userRole === "partner";
     dbg("Rola użytkownika:", userRole, "Mnożnik:", userMultiplier);
 
-    // NOWA LOGIKA: Ustaw domyślną grupę cenową dla partnerów
-    if (isPartner) {
-        currentClientType = 'Partner';
-        currentMultiplier = userMultiplier;
-    }
-
     multiplierMapping = {};
     const multipliersDataEl = document.getElementById('multipliers-data');
     if (multipliersDataEl) {
@@ -1819,6 +1838,28 @@ function init() {
         }
     } else {
         console.warn("Brak #multipliers-data – nie załadowano mnożników.");
+    }
+
+    // ✅ ZMIENIONE: Różnicuj standardowych i flexible partnerów
+    const isFlexiblePartner = document.body.dataset.flexiblePartner === 'true';
+
+    if (isPartner && !isFlexiblePartner) {
+        // Standardowy partner - używa tylko swojego mnożnika (fixed)
+        currentClientType = document.body.dataset.clientType || null;
+        currentMultiplier = userMultiplier;
+        dbg("Standardowy Partner - grupa cenowa:", currentClientType, "Mnożnik:", currentMultiplier);
+    } else if (isPartner && isFlexiblePartner) {
+        // ✅ NOWE: Flexible partner - ustaw domyślny mnożnik ID=5
+        const FLEXIBLE_PARTNER_DEFAULT_MULTIPLIER_ID = 5;
+        const defaultClientType = getDefaultClientTypeForId(FLEXIBLE_PARTNER_DEFAULT_MULTIPLIER_ID);
+
+        if (defaultClientType && multiplierMapping[defaultClientType]) {
+            currentClientType = defaultClientType;
+            currentMultiplier = multiplierMapping[defaultClientType];
+            dbg("Flexible Partner - domyślna grupa cenowa:", currentClientType, "Mnożnik:", currentMultiplier);
+        } else {
+            dbg("⚠️ Flexible Partner - nie znaleziono domyślnej grupy o ID:", FLEXIBLE_PARTNER_DEFAULT_MULTIPLIER_ID);
+        }
     }
 
     orderSummaryEls.brutto = document.querySelector('.quote-summary .order-summary .order-brutto');
@@ -1887,7 +1928,8 @@ function init() {
     };
     populateMultiplierSelects();
 
-    if (isPartner) {
+    if (isPartner && !isFlexiblePartner) {
+        // Tylko standardowi partnerzy mają ukryty select
         document.querySelectorAll('select[data-field="clientType"]').forEach(el => {
             const wrapper = el.closest('.client-type');
             if (wrapper) wrapper.remove();

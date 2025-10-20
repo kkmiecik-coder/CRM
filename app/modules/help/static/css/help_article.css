@@ -26,10 +26,12 @@
 
 /* ==================== ARTICLE CONTAINER ==================== */
 .help-article-container {
+    display: grid;
     max-width: 1600px;
     margin: 0 auto;
     padding: var(--help-spacing-xl);
     font-family: var(--help-font-family);
+    justify-content: center;
 }
 
 /* ==================== BREADCRUMBS ==================== */
@@ -85,7 +87,7 @@
 /* ==================== SIDEBAR NAVIGATION ==================== */
 .help-article-sidebar {
     position: sticky;
-    top: var(--help-spacing-xl);
+    top: var(--help-spacing-sm);
     background: var(--help-article-sidebar-bg);
     border-radius: var(--help-radius-lg);
     padding: var(--help-spacing-lg);
@@ -291,7 +293,6 @@
     color: var(--help-primary);
     background: var(--help-bg-hover);
     border-left-color: var(--help-primary);
-    padding-left: calc(var(--help-spacing-sm) + 4px);
 }
 
 .help-sidebar-toc-level-1 {
@@ -300,6 +301,7 @@
 
 .help-sidebar-toc-level-2 {
     padding-left: var(--help-spacing-md);
+    font-weight: 800;
 }
 
 .help-sidebar-toc-level-3 {

@@ -52,7 +52,7 @@ def load_user(user_id):
     """
     try:
         # Import lokalny aby uniknąć circular imports
-        from modules.calculator.models import User
+        from modules.users.models import User
         user = User.query.get(int(user_id))
         
         # Dodatkowa walidacja - sprawdź czy konto jest aktywne

@@ -12,6 +12,13 @@ const ALLOWED_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.webp', '.svg'];
 let uploadQueue = [];
 let isUploading = false;
 
+// ==================== GLOBAL API ====================
+// Expose functions for use in editor modal
+window.HelpMediaGallery = {
+    loadGalleryInModal: loadGalleryInModal,
+    insertImageToEditor: insertImageToEditorFromGallery
+};
+
 // ==================== INITIALIZATION ====================
 document.addEventListener('DOMContentLoaded', function() {
     initUploadArea();
@@ -654,5 +661,276 @@ document.addEventListener('paste', function(e) {
         handleFiles(files);
     }
 });
+
+// ==================== MODAL GALLERY FUNCTIONS ====================
+function loadGalleryInModal() {
+    const modalContent = document.getElementById('mediaGalleryContent');
+    if (!modalContent) {
+        console.error('Modal content element not found!');
+        return;
+    }
+
+    // Show loading state
+    modalContent.innerHTML = `
+        <div class="help-media-loading">
+            <i class="fas fa-spinner fa-spin" style="font-size: 3rem; color: var(--help-primary);"></i>
+            <p style="margin-top: 1rem; color: var(--help-text-secondary);">Ładowanie galerii...</p>
+        </div>
+    `;
+
+    // Fetch media files
+    fetch('/help/admin/media/list')
+        .then(response => {
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+            return response.json();
+        })
+        .then(data => {
+            if (data.success) {
+                renderMediaGalleryInModal(data.media_files || []);
+            } else {
+                throw new Error(data.error || 'Nie udało się załadować galerii');
+            }
+        })
+        .catch(error => {
+            console.error('Error loading media gallery:', error);
+            modalContent.innerHTML = `
+                <div class="help-admin-empty-state">
+                    <i class="fas fa-exclamation-triangle help-admin-empty-icon"></i>
+                    <h3 class="help-admin-empty-title">Błąd ładowania galerii</h3>
+                    <p class="help-admin-empty-text">${error.message}</p>
+                    <button class="help-admin-empty-btn" onclick="window.HelpMediaGallery.loadGalleryInModal()">
+                        <i class="fas fa-redo"></i> Spróbuj ponownie
+                    </button>
+                </div>
+            `;
+        });
+}
+
+function renderMediaGalleryInModal(mediaFiles) {
+    const modalContent = document.getElementById('mediaGalleryContent');
+    if (!modalContent) return;
+
+    let html = `
+        <!-- Upload Section -->
+        <div class="help-media-upload-area-modal" id="uploadAreaModal">
+            <div class="help-media-upload-content">
+                <i class="fas fa-cloud-upload-alt" style="font-size: 3rem; color: var(--help-primary); margin-bottom: 1rem;"></i>
+                <h3 style="margin: 0 0 0.5rem 0;">Przeciągnij pliki tutaj</h3>
+                <p style="margin: 0 0 1rem 0; color: var(--help-text-secondary);">lub kliknij, aby wybrać pliki</p>
+                <input type="file" id="fileInputModal" accept="image/jpeg,image/png,image/webp,image/svg+xml" multiple style="display: none;">
+                <button type="button" class="help-admin-btn help-admin-btn-primary" id="selectFilesModalBtn">
+                    <i class="fas fa-folder-open"></i> Wybierz pliki
+                </button>
+                <small style="display: block; margin-top: 0.5rem; color: var(--help-text-muted); font-size: 0.875rem;">
+                    Dozwolone: JPG, PNG, WebP, SVG • Max: 5 MB
+                </small>
+            </div>
+        </div>
+        
+        <hr style="margin: 2rem 0; border: none; border-top: 2px solid var(--help-border-color);">
+    `;
+
+    if (mediaFiles.length > 0) {
+        html += `
+            <div style="margin-bottom: 1.5rem;">
+                <h4 style="margin: 0 0 1rem 0; font-size: 1.125rem; font-weight: 700;">
+                    <i class="fas fa-images" style="color: var(--help-primary);"></i>
+                    Twoje pliki (${mediaFiles.length})
+                </h4>
+            </div>
+            
+            <div class="help-media-grid-modal">
+        `;
+
+        mediaFiles.forEach(file => {
+            const fileSize = file.size < 1024 ? `${file.size} B` :
+                file.size < 1048576 ? `${(file.size / 1024).toFixed(1)} KB` :
+                    `${(file.size / 1048576).toFixed(2)} MB`;
+
+            html += `
+                <div class="help-media-item-modal" data-url="${file.url}">
+                    <div class="help-media-preview-modal">
+                        <img src="${file.url}" alt="${file.filename}" loading="lazy">
+                        <div class="help-media-overlay-modal">
+                            <button type="button" class="help-media-btn-insert-modal" data-url="${file.url}" title="Wstaw do edytora">
+                                <i class="fas fa-plus"></i>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="help-media-info-modal">
+                        <p class="help-media-filename-modal" title="${file.filename}">${file.filename}</p>
+                        <div style="font-size: 0.75rem; color: var(--help-text-muted);">
+                            ${file.width && file.height ? `${file.width}×${file.height} • ` : ''}
+                            ${fileSize}
+                        </div>
+                    </div>
+                </div>
+            `;
+        });
+
+        html += `</div>`;
+    } else {
+        html += `
+            <div class="help-admin-empty-state">
+                <i class="fas fa-images help-admin-empty-icon"></i>
+                <h3 class="help-admin-empty-title">Brak plików w galerii</h3>
+                <p class="help-admin-empty-text">Upload pierwszy obraz, aby rozpocząć.</p>
+            </div>
+        `;
+    }
+
+    modalContent.innerHTML = html;
+
+    // Initialize upload functionality
+    initModalUpload();
+
+    // Initialize insert buttons
+    initModalInsertButtons();
+}
+
+function initModalUpload() {
+    const uploadArea = document.getElementById('uploadAreaModal');
+    const fileInput = document.getElementById('fileInputModal');
+    const selectBtn = document.getElementById('selectFilesModalBtn');
+
+    if (!uploadArea || !fileInput) return;
+
+    // Click to select
+    if (selectBtn) {
+        selectBtn.addEventListener('click', () => fileInput.click());
+    }
+
+    uploadArea.addEventListener('click', function (e) {
+        if (e.target !== selectBtn && !selectBtn.contains(e.target)) {
+            fileInput.click();
+        }
+    });
+
+    // Drag & drop
+    uploadArea.addEventListener('dragover', function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        this.style.borderColor = 'var(--help-primary)';
+        this.style.background = 'rgba(251, 146, 60, 0.1)';
+    });
+
+    uploadArea.addEventListener('dragleave', function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        this.style.borderColor = '';
+        this.style.background = '';
+    });
+
+    uploadArea.addEventListener('drop', function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        this.style.borderColor = '';
+        this.style.background = '';
+
+        const files = e.dataTransfer.files;
+        if (files.length > 0) {
+            uploadFilesFromModal(files);
+        }
+    });
+
+    // File input change
+    fileInput.addEventListener('change', function () {
+        if (this.files.length > 0) {
+            uploadFilesFromModal(this.files);
+        }
+    });
+}
+
+function uploadFilesFromModal(files) {
+    const modalContent = document.getElementById('mediaGalleryContent');
+    if (!modalContent) return;
+
+    // Show uploading state
+    modalContent.innerHTML = `
+        <div class="help-media-loading">
+            <i class="fas fa-spinner fa-spin" style="font-size: 3rem; color: var(--help-primary);"></i>
+            <p style="margin-top: 1rem; color: var(--help-text-secondary);">Przesyłanie ${files.length} ${files.length === 1 ? 'pliku' : 'plików'}...</p>
+        </div>
+    `;
+
+    const formData = new FormData();
+    Array.from(files).forEach(file => {
+        formData.append('file', file);
+    });
+
+    fetch('/help/admin/media/upload', {
+        method: 'POST',
+        body: formData
+    })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                // Reload gallery
+                loadGalleryInModal();
+            } else {
+                throw new Error(data.error || 'Upload failed');
+            }
+        })
+        .catch(error => {
+            console.error('Upload error:', error);
+            alert('Błąd przesyłania plików: ' + error.message);
+            loadGalleryInModal();
+        });
+}
+
+function initModalInsertButtons() {
+    const insertButtons = document.querySelectorAll('.help-media-btn-insert-modal');
+
+    insertButtons.forEach(btn => {
+        btn.addEventListener('click', function (e) {
+            e.stopPropagation();
+            const url = this.getAttribute('data-url');
+            insertImageToEditorFromGallery(url);
+        });
+    });
+}
+
+function insertImageToEditorFromGallery(url) {
+    const editor = document.getElementById('contentEditor');
+    if (!editor) {
+        console.error('Editor not found!');
+        return;
+    }
+
+    const cursorPos = editor.selectionStart;
+    const before = editor.value.substring(0, cursorPos);
+    const after = editor.value.substring(cursorPos);
+
+    const imgTag = `\n<img src="${url}" alt="Image" class="help-article-image">\n`;
+
+    editor.value = before + imgTag + after;
+    editor.selectionStart = editor.selectionEnd = cursorPos + imgTag.length;
+
+    // Update preview (function from help_editor.js)
+    if (typeof updatePreview === 'function') {
+        updatePreview();
+    }
+
+    // Mark as changed (variable from help_editor.js)
+    if (typeof hasUnsavedChanges !== 'undefined') {
+        hasUnsavedChanges = true;
+    }
+
+    // Close modal (function from help_editor.js)
+    if (typeof closeMediaGallery === 'function') {
+        closeMediaGallery();
+    } else {
+        // Fallback
+        const modal = document.getElementById('mediaGalleryModal');
+        if (modal) modal.style.display = 'none';
+    }
+
+    // Focus editor
+    editor.focus();
+}
+
+console.log('Help Media Gallery initialized');
 
 console.log('Help Media Gallery initialized');

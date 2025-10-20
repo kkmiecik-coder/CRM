@@ -371,8 +371,12 @@ function closeMediaGallery() {
 }
 
 function loadMediaGallery() {
-    // Placeholder - będzie implementowane w help_media_gallery.js
-    console.log('Loading media gallery...');
+    // Wywołaj funkcję z help_media_gallery.js (jeśli dostępna)
+    if (typeof window.HelpMediaGallery !== 'undefined' && window.HelpMediaGallery.loadGalleryInModal) {
+        window.HelpMediaGallery.loadGalleryInModal();
+    } else {
+        console.error('Help Media Gallery module not loaded!');
+    }
 }
 
 // Close modal on overlay click

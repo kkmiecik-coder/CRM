@@ -18,7 +18,7 @@
 <body>
     <div class="app-container">
         {% include 'sidebar/sidebar.html' %}
-        
+
         <main class="main-content">
             <div class="help-editor-container">
                 <!-- Header -->
@@ -55,7 +55,7 @@
                                 <select name="category_id" id="category" class="help-editor-select" required>
                                     <option value="">Wybierz kategorię</option>
                                     {% for cat in categories %}
-                                    <option value="{{ cat.id }}" 
+                                    <option value="{{ cat.id }}"
                                             {% if article and article.category_id == cat.id %}selected{% endif %}>
                                         {{ cat.icon }} {{ cat.name }}
                                     </option>
@@ -69,15 +69,14 @@
                                     <i class="fas fa-heading"></i>
                                     Tytuł *
                                 </label>
-                                <input 
-                                    type="text" 
-                                    name="title" 
-                                    id="title" 
-                                    class="help-editor-input"
-                                    placeholder="Wpisz tytuł artykułu..."
-                                    value="{% if article %}{{ article.title }}{% endif %}"
-                                    required
-                                    minlength="3">
+                                <input type="text"
+                                       name="title"
+                                       id="title"
+                                       class="help-editor-input"
+                                       placeholder="Wpisz tytuł artykułu..."
+                                       value="{% if article %}{{ article.title }}{% endif %}"
+                                       required
+                                       minlength="3">
                             </div>
                         </div>
 
@@ -90,15 +89,14 @@
                                 </label>
                                 <div class="help-editor-slug-wrapper">
                                     <span class="help-editor-slug-prefix">/help/</span>
-                                    <input 
-                                        type="text" 
-                                        name="slug" 
-                                        id="slug" 
-                                        class="help-editor-input help-editor-input-slug"
-                                        placeholder="automatycznie-generowany"
-                                        value="{% if article %}{{ article.slug }}{% endif %}"
-                                        pattern="[a-z0-9-]+"
-                                        title="Tylko małe litery, cyfry i myślniki">
+                                    <input type="text"
+                                           name="slug"
+                                           id="slug"
+                                           class="help-editor-input help-editor-input-slug"
+                                           placeholder="automatycznie-generowany"
+                                           value="{% if article %}{{ article.slug }}{% endif %}"
+                                           pattern="[a-z0-9-]+"
+                                           title="Tylko małe litery, cyfry i myślniki">
                                 </div>
                                 <small class="help-editor-hint">Pozostaw puste, aby wygenerować automatycznie z tytułu</small>
                             </div>
@@ -106,12 +104,11 @@
                             <!-- Published -->
                             <div class="help-editor-field help-editor-field-published">
                                 <label class="help-editor-checkbox-wrapper">
-                                    <input 
-                                        type="checkbox" 
-                                        name="is_published" 
-                                        id="is_published" 
-                                        class="help-editor-checkbox"
-                                        {% if not article or article.is_published %}checked{% endif %}>
+                                    <input type="checkbox"
+                                           name="is_published"
+                                           id="is_published"
+                                           class="help-editor-checkbox"
+                                           {% if not article or article.is_published %}checked{% endif %}>
                                     <span class="help-editor-checkbox-label">
                                         <i class="fas fa-eye"></i>
                                         Opublikowany
@@ -191,11 +188,10 @@
                                     Kod HTML
                                 </h3>
                             </div>
-                            <textarea 
-                                name="content" 
-                                id="contentEditor" 
-                                class="help-editor-textarea"
-                                placeholder="<h1>Twój artykuł...</h1>
+                            <textarea name="content"
+                                      id="contentEditor"
+                                      class="help-editor-textarea"
+                                      placeholder="<h1>Twój artykuł...</h1>
 <p>Napisz treść artykułu używając HTML lub skorzystaj z przycisków powyżej.</p>"
                                 required>{% if article %}{{ article.content }}{% endif %}</textarea>
                         </div>
@@ -254,5 +250,6 @@
     </div>
 
     <script src="{{ url_for('help.static', filename='js/help_editor.js') }}"></script>
+    <script src="{{ url_for('help.static', filename='js/help_media_gallery.js') }}"></script>
 </body>
 </html>

@@ -139,14 +139,12 @@ def validate_email_or_phone(email_or_phone, quote):
 def quotes_home():
     """Główna strona modułu quotes - z dodanymi danymi dla calculator.js"""
     try:
-        
-        # DODANE: Pobierz dane użytkownika i jego rolę
         user_email = session.get('user_email')
         user = User.query.filter_by(email=user_email).first()
         user_role = user.role if user else 'user'
         user_multiplier = user.multiplier.multiplier if user and user.multiplier else 1.0
+        user_client_type = user.multiplier.client_type if user and user.multiplier else None
                 
-        # DODANE: Pobierz ceny z bazy danych (tak jak w calculator)
         prices_query = db.session.execute(text("""
             SELECT species, technology, wood_class, thickness_min, thickness_max, 
                    length_min, length_max, price_per_m3 
@@ -158,16 +156,33 @@ def quotes_home():
                 if key in row and row[key] is not None:
                     row[key] = float(row[key])
         prices_json = json.dumps(prices_list)
-
-        # DODANE: Pobierz mnożniki z bazy danych (tak jak w calculator)  
-        multipliers_query = Multiplier.query.all()
+        
+        # ✅ NOWE: Konfiguracja flexible partners
+        FLEXIBLE_PARTNER_IDS = [14, 15, 16]
+        FLEXIBLE_PARTNER_ALLOWED_MULTIPLIERS = {
+            14: [5, 6],
+            15: [5, 6],
+            16: [5, 6],
+        }
+        
+        # Pobieranie mnożników z bazy - filtrowanie per user
+        if user and user_role == 'partner' and user.id in FLEXIBLE_PARTNER_IDS:
+            # Flexible partner - pokaż tylko dozwolone mnożniki
+            allowed_ids = FLEXIBLE_PARTNER_ALLOWED_MULTIPLIERS.get(user.id, [])
+            multipliers_query = Multiplier.query.filter(Multiplier.id.in_(allowed_ids)).all()
+        else:
+            # Wszyscy inni (admin, user, standardowi partnerzy) - pokaż wszystkie
+            multipliers_query = Multiplier.query.all()
+        
         multipliers_list = [
             {"label": m.client_type, "value": float(m.multiplier)}
             for m in multipliers_query
         ]
         multipliers_json = json.dumps(multipliers_list)
         
-        # Sprawdź konfigurację Baselinker (istniejący kod - pozostaw bez zmian)
+        # ✅ NOWE: Flaga czy to "flexible partner"
+        is_flexible_partner = (user and user_role == 'partner' and user.id in FLEXIBLE_PARTNER_IDS)
+        
         from modules.baselinker.models import BaselinkerConfig
         from modules.baselinker.service import BaselinkerService
         
@@ -191,18 +206,20 @@ def quotes_home():
             
     except Exception as e:
         print(f"[quotes_home] Błąd podczas ładowania danych: {e}", file=sys.stderr)
-        # Utwórz puste dane w przypadku błędu
         prices_json = json.dumps([])
         multipliers_json = json.dumps([])
         user_role = 'user'
         user_multiplier = 1.0
+        user_client_type = None
+        is_flexible_partner = False  # ✅ NOWE: Domyślna wartość w przypadku błędu
     
-    # ZMIANA: Przekaż dane do template (tak jak w calculator)
     return render_template('quotes/templates/quotes.html', 
                           prices_json=prices_json,
                           multipliers_json=multipliers_json,
                           user_role=user_role,
-                          user_multiplier=user_multiplier)
+                          user_multiplier=user_multiplier,
+                          user_client_type=user_client_type,
+                          is_flexible_partner=is_flexible_partner)  # ✅ NOWY PARAMETR
 
 @quotes_bp.route('/api/quotes')
 @require_module_access('quotes')

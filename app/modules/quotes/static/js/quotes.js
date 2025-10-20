@@ -330,11 +330,23 @@ function showDetailsModal(quoteData) {
         console.log('[MODAL] Ustawiono dataset.token:', downloadBtn.dataset.token);
     }
 
-    // Reszta istniejącego kodu...
     updateCostsDisplay(quoteData);
     setupStatusDropdown(quoteData, optionsContainer, selectedDiv, dropdownWrap);
     setupProductTabs(quoteData, tabsContainer, itemsContainer);
-    addTotalDiscountButton(quoteData);
+
+    // Podepnij event listener do przycisku rabatu (jeśli istnieje w HTML)
+    const totalDiscountBtn = document.getElementById('total-discount-btn');
+    if (totalDiscountBtn) {
+        // Usuń stare listenery (żeby nie duplikować)
+        const newBtn = totalDiscountBtn.cloneNode(true);
+        totalDiscountBtn.parentNode.replaceChild(newBtn, totalDiscountBtn);
+
+        // Dodaj nowy listener
+        document.getElementById('total-discount-btn').addEventListener('click', () => {
+            console.log('[TOTAL DISCOUNT] Otwieranie modala rabatu całkowitego');
+            openTotalDiscountModal(currentQuoteData);
+        });
+    }
 
     const summaryContainer = document.getElementById("quotes-details-selected-summary");
     if (summaryContainer) {
@@ -1016,17 +1028,29 @@ function buildVariantPriceDisplay(variant, quantity, quoteData) {
                 <div class="qvmd-variant-actions">
     `;
 
-    // Przyciski akcji
+    // Sprawdź rolę użytkownika
+    const userRole = window.userRole || 'user';
+    const isPartner = userRole === 'partner';
+
+    console.log('[buildVariantPriceDisplay] Rola użytkownika:', userRole, 'isPartner:', isPartner);
+
+    // Przycisk wyboru wariantu - ZAWSZE WIDOCZNY
     if (variant.is_selected) {
         cardHTML += `<button class="qvmd-btn qvmd-btn-selected">✓ Wybrany wariant</button>`;
     } else {
         cardHTML += `<button class="qvmd-btn" onclick="selectVariant(${variant.id})">Ustaw jako wybrany</button>`;
     }
 
-    cardHTML += `
+    // Przycisk edycji - TYLKO dla admin i user (UKRYTY dla partnera)
+    if (!isPartner) {
+        cardHTML += `
                     <button class="qvmd-btn qvmd-btn-edit" onclick="openVariantEditModal(${JSON.stringify(variant).replace(/"/g, '&quot;')}, currentQuoteData)">
                         <img src="/quotes/quotes/static/img/edit.svg" alt="Edytuj" class="qvmd-edit-icon">
                     </button>
+        `;
+    }
+
+    cardHTML += `
                 </div>
             </div>
         </div>
@@ -2386,39 +2410,6 @@ function getDiscountReasonName(reasonId) {
     return reason ? reason.name : 'Nieznany powód';
 }
 
-// Funkcja dodawania przycisku rabatu całkowitego
-function addTotalDiscountButton(quoteData) {
-    // Sprawdź czy przycisk już istnieje
-    let totalDiscountBtn = document.getElementById('total-discount-btn');
-
-    if (!totalDiscountBtn) {
-        // Znajdź kontener dla przycisków w headerze
-        const headerActions = document.querySelector('.quotes-details-modal-header-actions');
-
-        if (headerActions) {
-            // Utwórz przycisk
-            totalDiscountBtn = document.createElement('button');
-            totalDiscountBtn.id = 'total-discount-btn';
-            totalDiscountBtn.className = 'quotes-btn total-discount-btn';
-            totalDiscountBtn.innerHTML = '<span>Rabat całkowity</span>';
-            totalDiscountBtn.title = 'Zastosuj rabat do wszystkich produktów';
-
-            // Dodaj event listener
-            totalDiscountBtn.onclick = () => {
-                console.log('[TOTAL DISCOUNT] Otwieranie modala rabatu całkowitego');
-                openTotalDiscountModal(quoteData);
-            };
-
-            // Wstaw przycisk przed przyciskiem "Pełny ekran"
-            const fullscreenBtn = document.getElementById('toggle-fullscreen-modal');
-            if (fullscreenBtn) {
-                headerActions.insertBefore(totalDiscountBtn, fullscreenBtn);
-            } else {
-                headerActions.appendChild(totalDiscountBtn);
-            }
-        }
-    }
-}
 function initializeClientPageButtons(quoteData) {
     console.log('[ClientPage] Inicjalizacja przycisków strony klienta dla:', quoteData.quote_number);
 

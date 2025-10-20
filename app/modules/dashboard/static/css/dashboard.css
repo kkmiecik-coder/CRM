@@ -1294,13 +1294,6 @@
     margin-bottom: 1rem;
 }
 
-.widget-title {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    margin: 0;
-}
-
 .active-count {
     font-size: 0.875rem;
     color: #64748b;

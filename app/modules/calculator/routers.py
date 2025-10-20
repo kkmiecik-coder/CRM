@@ -24,10 +24,11 @@ calculator_bp = Blueprint('calculator', __name__, template_folder='templates', s
 def calculator_home():
     user_email = session.get('user_email')
     user_id = session.get('user_id')
-
+    
     user = User.query.filter_by(email=user_email).first()
     user_role = user.role
     user_multiplier = user.multiplier.multiplier if user.multiplier else 1.0
+    user_client_type = user.multiplier.client_type if user.multiplier else None
     
     prices_query = db.session.execute(text("""
         SELECT species, technology, wood_class, thickness_min, thickness_max, 
@@ -40,16 +41,44 @@ def calculator_home():
             if key in row and row[key] is not None:
                 row[key] = float(row[key])
     prices_json = json.dumps(prices_list)
-
-    # Pobieranie mnożników z bazy
-    multipliers_query = Multiplier.query.all()
+    
+    # ✅ NOWE: Konfiguracja flexible partners
+    FLEXIBLE_PARTNER_IDS = [14, 15, 16]
+    FLEXIBLE_PARTNER_ALLOWED_MULTIPLIERS = {
+        14: [5, 6],
+        15: [5, 6],
+        16: [5, 6],
+    }
+    
+    # Pobieranie mnożników z bazy - filtrowanie per user
+    if user_role == 'partner' and user_id in FLEXIBLE_PARTNER_IDS:
+        # Flexible partner - pokaż tylko dozwolone mnożniki
+        allowed_ids = FLEXIBLE_PARTNER_ALLOWED_MULTIPLIERS.get(user_id, [])
+        multipliers_query = Multiplier.query.filter(Multiplier.id.in_(allowed_ids)).all()
+    else:
+        # Wszyscy inni (admin, user, standardowi partnerzy) - pokaż wszystkie
+        multipliers_query = Multiplier.query.all()
+    
     multipliers_list = [
         {"id": m.id, "label": m.client_type, "value": m.multiplier}
         for m in multipliers_query
     ]
     multipliers_json = json.dumps(multipliers_list)
-
-    return render_template("calculator.html", user_email=user_email, user_id=user_id, prices_json=prices_json, multipliers_json=multipliers_json, user_role=user_role, user_multiplier=user_multiplier)
+    
+    # ✅ NOWE: Flaga czy to "flexible partner"
+    is_flexible_partner = (user_role == 'partner' and user_id in FLEXIBLE_PARTNER_IDS)
+    
+    return render_template(
+        "calculator.html", 
+        user_email=user_email, 
+        user_id=user_id, 
+        prices_json=prices_json, 
+        multipliers_json=multipliers_json, 
+        user_role=user_role, 
+        user_multiplier=user_multiplier,
+        user_client_type=user_client_type,
+        is_flexible_partner=is_flexible_partner  # ← NOWY PARAMETR
+    )
 
 @calculator_bp.route('/shipping_quote', methods=['POST'])
 @require_module_access('calculator')

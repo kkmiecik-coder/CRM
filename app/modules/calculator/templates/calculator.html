@@ -19,7 +19,9 @@
 </head>
 <body data-role="{{ user_role }}"
       data-multiplier="{{ user_multiplier }}"
-      data-user-id="{{ user_id }}">
+      data-client-type="{{ user_client_type or '' }}"
+      data-user-id="{{ user_id }}"
+      data-flexible-partner="{{ 'true' if is_flexible_partner else 'false' }}">
     <div id="loadingOverlay"><!-- overlay text ustawiany dynamicznie --></div>
     <div class="app-container" style="display: flex;">
         <!-- Sidebar – jest wstawiany w każdej podstronie -->

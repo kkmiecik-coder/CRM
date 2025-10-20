@@ -1273,27 +1273,6 @@ select.select-small option {
     justify-content: stretch;
 }
 
-
-#newQuoteBtn {
-    display: flex;
-    padding: 4px 12px;
-    justify-content: center;
-    align-items: center;
-    border-radius: 24px;
-    color: #000;
-    cursor: pointer;
-    font-family: Poppins, sans-serif;
-    position: relative;
-    transition: all 0.1s ease;
-    background-color: #fff;
-    border: 2px solid #ed6b24;
-}
-
-    #newQuoteBtn:hover {
-        background-color: #ed6b24;
-        color: #fff;
-    }
-
 #closeModalBtn2 {
     display: flex;
     padding: 4px 12px;
@@ -1314,7 +1293,6 @@ select.select-small option {
         color: #000;
     }
 
-#newQuoteBtn,
 #closeModalBtn2 {
     flex: 1;
 }
@@ -2170,25 +2148,6 @@ select.select-small option {
     font-size: 13px;
     font-style: italic;
 }
-
-#goToQuoteBtn {
-    display: flex;
-    padding: 4px 12px;
-    justify-content: center;
-    align-items: center;
-    border-radius: 24px;
-    color: #fff;
-    cursor: pointer;
-    font-family: Poppins, sans-serif;
-    position: relative;
-    transition: all 0.1s ease;
-    background-color: #ed6b24;
-    border: none;
-}
-
-    #goToQuoteBtn:hover {
-        background-color: #BD4D0F;
-    }
 
 .clients-modal-overlay.active {
     display: flex !important;

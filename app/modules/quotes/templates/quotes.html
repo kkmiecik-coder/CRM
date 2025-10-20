@@ -11,7 +11,10 @@
     <script id="prices-data" type="application/json">{{ prices_json|safe }}</script>
     <script id="multipliers-data" type="application/json">{{ multipliers_json|safe }}</script>
 </head>
-<body data-role="{{ user_role }}" data-multiplier="{{ user_multiplier }}">
+<body data-role="{{ user_role }}"
+      data-multiplier="{{ user_multiplier }}"
+      data-client-type="{{ user_client_type or '' }}"
+      data-flexible-partner="{{ 'true' if is_flexible_partner else 'false' }}">
     <div class="app-container">
         {% include 'sidebar/sidebar.html' %}
         <main class="main-content">
@@ -426,6 +429,12 @@
             </div>
         </div>
     </div>
+
+    <script>
+        // Przekaż rolę użytkownika do JavaScript
+        window.userRole = "{{ user_role }}";
+        console.log('[UserRole] Rola użytkownika:', window.userRole);
+    </script>
 
     <script src="{{ url_for('static', filename='js/sidebar.js') }}"></script>
     <script src="{{ url_for('quotes.static', filename='js/quotes.js') }}"></script>

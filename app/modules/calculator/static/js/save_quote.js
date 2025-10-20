@@ -720,15 +720,31 @@ function collectQuoteData() {
     const shippingNetto = parseFloat(document.getElementById('delivery-netto')?.textContent.replace(" PLN", "")) || 0;
     const courierName = document.getElementById('courier-name')?.textContent.trim() || null;
 
+    // ✅ POPRAWIONA LOGIKA: Rozróżnienie per rola (flexible vs standardowy partner)
     const firstForm = forms[0];
     const clientTypeSelect = firstForm?.querySelector('select[data-field="clientType"]');
-    const selectedClientType = clientTypeSelect?.value || null;
-
+    let selectedClientType = null;
     let selectedMultiplier = 1.0;
-    if (selectedClientType && window.multiplierMapping && window.multiplierMapping[selectedClientType]) {
-        selectedMultiplier = window.multiplierMapping[selectedClientType];
-    } else if (window.isPartner && window.userMultiplier) {
+
+    // Sprawdź czy to flexible partner
+    const isFlexiblePartner = document.body.dataset.flexiblePartner === 'true';
+
+    if (window.isPartner && !isFlexiblePartner) {
+        // Standardowy partner: użyj danych z body (fixed multiplier)
         selectedMultiplier = window.userMultiplier;
+        selectedClientType = document.body.dataset.clientType || null;
+        console.log(`[collectQuoteData] Standardowy Partner: grupa="${selectedClientType}", mnożnik=${selectedMultiplier}`);
+
+    } else {
+        // Admin/User/Flexible Partner: użyj danych z selecta (user choice)
+        selectedClientType = clientTypeSelect?.value || null;
+
+        if (selectedClientType && window.multiplierMapping && window.multiplierMapping[selectedClientType]) {
+            selectedMultiplier = window.multiplierMapping[selectedClientType];
+            console.log(`[collectQuoteData] User/Flexible Partner: grupa="${selectedClientType}", mnożnik=${selectedMultiplier}`);
+        } else {
+            console.warn(`[collectQuoteData] ⚠️ Brak wybranej grupy cenowej - używam domyślnego mnożnika 1.0`);
+        }
     }
 
     console.log(`[collectQuoteData] SUMA produktów brutto=${sumProductBrutto}, netto=${sumProductNetto}`);
