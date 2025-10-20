@@ -1,0 +1,28 @@
+<!-- Issues Widget - Ostatnie niezamknięte tickety -->
+<div class="widget issues-widget">
+    <div class="widget-header-with-action">
+        <h2 class="widget-title">
+            <span class="widget-icon">🎫</span>
+            Moje zgłoszenia
+        </h2>
+        <a href="/issues" class="widget-action-btn" title="Nowe zgłoszenie">
+            <span class="action-icon">+</span>
+            Nowy ticket
+        </a>
+    </div>
+
+    <div class="issues-list" id="issues-list">
+        <!-- Loader podczas ładowania -->
+        <div class="issues-loading">
+            <div class="loader-spinner"></div>
+            <p>Ładowanie zgłoszeń...</p>
+        </div>
+    </div>
+
+    <!-- Empty state gdy brak ticketów -->
+    <div class="issues-empty" id="issues-empty" style="display: none;">
+        <div class="empty-icon">📭</div>
+        <p class="empty-message">Brak aktywnych zgłoszeń</p>
+        <a href="/issues" class="empty-action-btn">Utwórz nowe zgłoszenie</a>
+    </div>
+</div>
