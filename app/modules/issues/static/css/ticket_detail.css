@@ -13,7 +13,6 @@
 
 .issues-detail-container {
     padding: 24px;
-    max-width: 1400px;
     margin: 0 auto;
 }
 
@@ -183,7 +182,7 @@
 
 .issues-detail-layout {
     display: grid;
-    grid-template-columns: 1fr 320px;
+    grid-template-columns: 1fr 400px;
     gap: 24px;
 }
 
@@ -198,55 +197,107 @@
 }
 
 /* ============================================================================
-   LISTA WIADOMOŚCI (Timeline)
+   LISTA WIADOMOŚCI (Timeline) - Layout konwersacyjny
    ============================================================================ */
 
 .issues-messages-container {
     display: flex;
     flex-direction: column;
-    gap: 16px;
+    padding: 24px;
+    gap: 8px;
 }
 
 .issues-message {
     display: flex;
-    gap: 16px;
-    padding: 20px;
-    background-color: white;
-    border: 1px solid var(--issues-border);
-    border-radius: var(--issues-radius);
-    box-shadow: var(--issues-shadow-sm);
+    gap: 12px;
+    margin-bottom: 16px;
+    max-width: 75%; /* Maksymalna szerokość wiadomości */
+    align-self: flex-start; /* Domyślnie po lewej (użytkownik) */
 }
 
+/* Wiadomość admina - po prawej */
 .issues-message-admin {
-    background-color: #f0f7ff;
-    border-left: 4px solid var(--issues-primary);
-}
-
-.issues-message-internal {
-    background-color: #fff3e0;
-    border-left: 4px solid var(--issues-warning);
+    align-self: flex-end;
+    flex-direction: row-reverse; /* Avatar po prawej */
 }
 
 .issues-message-avatar {
     width: 48px;
     height: 48px;
     border-radius: 50%;
-    background: linear-gradient(135deg, var(--issues-primary) 0%, #1976D2 100%);
+    background: linear-gradient(135deg, #E3F2FD 0%, #BBDEFB 100%);
+    color: var(--issues-primary);
     display: flex;
     align-items: center;
     justify-content: center;
-    color: white;
     font-weight: 700;
-    font-size: 18px;
+    font-size: 16px;
     flex-shrink: 0;
+    border: 2px solid transparent;
+    transition: all 0.3s ease;
+    overflow: hidden;
 }
 
 .issues-message-avatar-admin {
     background: linear-gradient(135deg, #FF6B6B 0%, #C92A2A 100%);
+    color: white;
+    border-color: #FA5252;
+}
+
+.issues-avatar-image {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
 }
 
 .issues-message-content {
     flex: 1;
+    background: #F5F5F5; /* ← Szare tło dla użytkownika */
+    padding: 16px;
+    border-radius: 16px;
+    border: 1px solid #E0E0E0;
+    box-shadow: var(--issues-shadow-sm);
+    position: relative;
+}
+
+/* Ogon wiadomości - użytkownik (lewo) */
+.issues-message:not(.issues-message-admin) .issues-message-content::before {
+    content: '';
+    position: absolute;
+    left: -8px;
+    top: 20px;
+    width: 0;
+    height: 0;
+    border-top: 8px solid transparent;
+    border-bottom: 8px solid transparent;
+    border-right: 8px solid #F5F5F5; /* ← Szary ogon */
+}
+
+/* Ogon wiadomości - admin (prawo) */
+.issues-message-admin .issues-message-content::before {
+    content: '';
+    position: absolute;
+    right: -8px;
+    top: 20px;
+    width: 0;
+    height: 0;
+    border-top: 8px solid transparent;
+    border-bottom: 8px solid transparent;
+    border-left: 8px solid #E3F2FD; /* ← Niebieski ogon */
+}
+
+/* Tło wiadomości admina */
+.issues-message-admin .issues-message-content {
+    background: #E3F2FD; /* ← Jasnoniebieski płaski kolor */
+    border-color: #90CAF9;
+}
+
+/* Notatka wewnętrzna */
+.issues-message-internal .issues-message-content {
+    background: #FFF3E0;
+    border-color: #FFB74D;
+    border-left: 4px solid var(--issues-warning);
 }
 
 .issues-message-header {
@@ -265,16 +316,16 @@
 .issues-message-name {
     font-weight: 700;
     color: var(--issues-text-primary);
-    font-size: 15px;
+    font-size: 14px;
 }
 
 .issues-message-email {
-    font-size: 13px;
+    font-size: 12px;
     color: var(--issues-text-secondary);
 }
 
 .issues-message-date {
-    font-size: 13px;
+    font-size: 12px;
     color: var(--issues-text-secondary);
 }
 
@@ -283,59 +334,30 @@
     line-height: 1.6;
     white-space: pre-wrap;
     word-wrap: break-word;
-    margin: 0 0 12px 0;
+    margin: 0;
+    font-size: 14px;
 }
-
-.issues-message-attachments {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-    margin-top: 12px;
-}
-
-.issues-message-attachment {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 8px 12px;
-    background-color: var(--issues-bg-light);
-    border: 1px solid var(--issues-border);
-    border-radius: var(--issues-radius-sm);
-    text-decoration: none;
-    color: var(--issues-text-primary);
-    font-size: 13px;
-    transition: all 0.2s ease;
-}
-
-    .issues-message-attachment:hover {
-        background-color: #e3f2fd;
-        border-color: var(--issues-primary);
-        color: var(--issues-primary);
-    }
-
-    .issues-message-attachment i {
-        font-size: 16px;
-    }
 
 .issues-message-internal-badge {
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    padding: 4px 12px;
+    padding: 6px 12px;
     background-color: var(--issues-warning);
     color: white;
     border-radius: var(--issues-radius-sm);
-    font-size: 12px;
+    font-size: 11px;
     font-weight: 600;
-    margin-top: 8px;
+    margin-top: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
 }
 
-/* ============================================================================
-   FORMULARZ ODPOWIEDZI
-   ============================================================================ */
-
-.issues-reply-container {
-    /* Dziedziczenie z .issues-card */
+/* Responsive */
+@media (max-width: 768px) {
+    .issues-message {
+        max-width: 90%;
+    }
 }
 
 /* ============================================================================
@@ -349,6 +371,7 @@
     position: sticky;
     top: 24px;
     align-self: start;
+    min-width: 320px;
 }
 
 .issues-info-list {
@@ -574,5 +597,360 @@
 
     .issues-stats-list {
         grid-template-columns: 1fr;
+    }
+}
+
+
+/* ============================================================================
+   ZAŁĄCZNIKI W WIADOMOŚCIACH
+   ============================================================================ */
+
+.issues-message-attachments {
+    margin-top: 16px;
+    padding-top: 16px;
+    border-top: 1px solid var(--issues-border);
+}
+
+.issues-attachments-label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--issues-text-secondary);
+    margin-bottom: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+    .issues-attachments-label i {
+        color: var(--issues-primary);
+    }
+
+.issues-attachments-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+    gap: 12px;
+}
+
+/* Miniaturka obrazu */
+.issues-attachment-item {
+    position: relative;
+    border-radius: 8px;
+    overflow: hidden;
+    transition: all 0.3s ease;
+    cursor: pointer;
+}
+
+.issues-attachment-image {
+    aspect-ratio: 1;
+    background: var(--issues-bg-light);
+    border: 2px solid var(--issues-border);
+}
+
+    .issues-attachment-image img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        display: block;
+    }
+
+.issues-attachment-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.6);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    transition: opacity 0.3s ease;
+}
+
+    .issues-attachment-overlay i {
+        color: white;
+        font-size: 24px;
+    }
+
+.issues-attachment-image:hover .issues-attachment-overlay {
+    opacity: 1;
+}
+
+.issues-attachment-image:hover {
+    transform: scale(1.05);
+    border-color: var(--issues-primary);
+    box-shadow: 0 4px 12px rgba(33, 150, 243, 0.3);
+}
+
+/* Plik (PDF, DOC, etc.) */
+.issues-attachment-file {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 16px 8px;
+    background: var(--issues-bg-light);
+    border: 2px solid var(--issues-border);
+    border-radius: 8px;
+    text-decoration: none;
+    min-height: 120px;
+    transition: all 0.3s ease;
+}
+
+    .issues-attachment-file:hover {
+        background: white;
+        border-color: var(--issues-primary);
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(33, 150, 243, 0.2);
+    }
+
+.issues-attachment-filename {
+    margin-top: 8px;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--issues-text-primary);
+    text-align: center;
+    word-break: break-word;
+    line-height: 1.3;
+    max-height: 2.6em;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+}
+
+.issues-attachment-size {
+    margin-top: 4px;
+    font-size: 10px;
+    color: var(--issues-text-secondary);
+}
+
+/* ============================================================================
+   LIGHTBOX
+   ============================================================================ */
+
+.issues-lightbox {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 10000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    transition: opacity 0.3s ease;
+    pointer-events: none;
+}
+
+.issues-lightbox-active {
+    opacity: 1;
+    pointer-events: all;
+}
+
+.issues-lightbox-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.9);
+    cursor: pointer;
+}
+
+.issues-lightbox-content {
+    position: relative;
+    z-index: 10001;
+    max-width: 90vw;
+    max-height: 90vh;
+    display: flex;
+    flex-direction: column;
+    background: white;
+    border-radius: 12px;
+    overflow: hidden;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+}
+
+.issues-lightbox-header {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    padding: 16px 24px;
+    background: var(--issues-bg-light);
+    border-bottom: 1px solid var(--issues-border);
+}
+
+.issues-lightbox-filename {
+    font-weight: 600;
+    color: var(--issues-text-primary);
+    font-size: 14px;
+}
+
+.issues-lightbox-download {
+    position: absolute;
+    bottom: 24px;
+    right: 24px;
+    z-index: 10003;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 12px 20px;
+    background: var(--issues-primary);
+    color: white;
+    border-radius: 8px;
+    text-decoration: none;
+    font-size: 14px;
+    font-weight: 600;
+    transition: all 0.3s ease;
+    box-shadow: 0 4px 12px rgba(33, 150, 243, 0.4);
+}
+
+    .issues-lightbox-download:hover {
+        background: #1976D2;
+        transform: translateY(-1px);
+        box-shadow: 0 4px 12px rgba(33, 150, 243, 0.3);
+    }
+
+.issues-lightbox-close {
+    position: absolute;
+    top: 16px;
+    right: 16px;
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    border: none;
+    background: rgba(0, 0, 0, 0.6);
+    color: white;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 18px;
+    transition: all 0.3s ease;
+    z-index: 10002;
+}
+
+    .issues-lightbox-close:hover {
+        background: var(--issues-error);
+        transform: rotate(90deg);
+    }
+
+.issues-lightbox-image-container {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    overflow: auto;
+    max-height: calc(90vh - 80px);
+}
+
+.issues-lightbox-image {
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: contain;
+    border-radius: 4px;
+}
+
+/* ============================================================================
+   UPLOAD AREA W FORMULARZU ODPOWIEDZI
+   ============================================================================ */
+
+.issues-upload-area-compact {
+    border: 2px dashed var(--issues-border);
+    border-radius: var(--issues-radius);
+    padding: 20px;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    background-color: var(--issues-bg-light);
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+}
+
+    .issues-upload-area-compact:hover {
+        border-color: var(--issues-primary);
+        background-color: rgba(33, 150, 243, 0.05);
+    }
+
+    .issues-upload-area-compact.issues-drag-over {
+        border-color: var(--issues-success);
+        background-color: rgba(76, 175, 80, 0.1);
+    }
+
+    .issues-upload-area-compact i {
+        font-size: 20px;
+        color: var(--issues-primary);
+    }
+
+    .issues-upload-area-compact span {
+        font-size: 14px;
+        font-weight: 500;
+        color: var(--issues-text-secondary);
+    }
+
+    .issues-upload-area-compact .issues-file-input {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        opacity: 0;
+        cursor: pointer;
+    }
+
+/* ============================================================================
+   TIMELINE EVENTS (separatory zdarzeń)
+   ============================================================================ */
+
+.issues-timeline-event {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    margin: 24px 0;
+    opacity: 0.6;
+}
+
+.issues-timeline-line {
+    flex: 1;
+    height: 1px;
+    background: #E0E0E0;
+}
+
+.issues-timeline-text {
+    font-size: 12px;
+    color: #9E9E9E;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    white-space: nowrap;
+    font-weight: 600;
+}
+
+/* ============================================================================
+   RESPONSIVE
+   ============================================================================ */
+
+@media (max-width: 768px) {
+    .issues-attachments-grid {
+        grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+        gap: 8px;
+    }
+
+    .issues-lightbox-content {
+        max-width: 95vw;
+        max-height: 95vh;
+    }
+
+    .issues-lightbox-download {
+        bottom: 16px;
+        right: 16px;
+        left: 16px;
+        justify-content: center;
     }
 }

@@ -535,6 +535,7 @@
         padding: 16px;
         border-bottom: 1px solid var(--issues-border);
         vertical-align: middle;
+        height: 64px; /* ← DODANE - stała wysokość wiersza */
     }
 
     .issues-tickets-table tbody tr {
@@ -573,17 +574,26 @@
 }
 
 .issues-ticket-stats-cell {
-    display: flex;
-    gap: 16px;
+    white-space: nowrap; /* ← Zapobiega łamaniu */
 }
 
 .issues-ticket-stat {
-    display: flex;
-    align-items: center;
-    gap: 6px;
+    display: inline-block; /* ← Zmienione z flex */
     font-size: 13px;
     color: var(--issues-text-secondary);
+    line-height: 1;
+    margin-right: 16px; /* ← Zastępuje gap */
+    vertical-align: middle; /* ← KLUCZOWE dla wyrównania */
 }
+
+    .issues-ticket-stat:last-child {
+        margin-right: 0; /* ← Usuń margines z ostatniego */
+    }
+
+    .issues-ticket-stat i {
+        margin-right: 6px; /* ← Odstęp między ikoną a liczbą */
+        vertical-align: middle; /* ← KLUCZOWE */
+    }
 
 /* Empty state */
 .issues-ticket-empty {

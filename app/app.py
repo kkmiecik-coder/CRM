@@ -34,6 +34,7 @@ from modules.partner_academy import partner_academy_bp
 from modules.partner_academy.models import PartnerApplication
 from modules.users import users_bp
 from modules.help import help_bp
+from modules.issues import issues_bp
 
 from flask_login import login_user, logout_user  # DODANE importy
 from sqlalchemy.exc import ResourceClosedError, OperationalError
@@ -242,6 +243,7 @@ def create_app():
         app.register_blueprint(partner_academy_bp, url_prefix='/partner-academy')
         app.register_blueprint(users_bp)
         app.register_blueprint(help_bp)
+        app.register_blueprint(issues_bp)
 
         print("✅ Wszystkie blueprinty zarejestrowane", file=sys.stderr)
 
@@ -485,131 +487,6 @@ def create_app():
         # Oryginalne czyszczenie sesji
         session.clear()
         return render_template("logged_out.html")
-    
-    # W app.py możesz dodać testowy endpoint:
-    @app.route('/test-error')
-    def test_error():
-       return render_template('error.html', message="To jest testowy błąd")
-
-    @app.route("/issue", methods=["GET", "POST"])
-    @login_required
-    def issue():
-        user_email = session.get('user_email')
-        
-        if request.method == "POST":
-            # Pobranie danych z formularza
-            problem_location = request.form.get('problem_location')
-            priority = request.form.get('priority')
-            problem_description = request.form.get('problem_description')
-
-            # Walidacja podstawowych pól
-            if not problem_location or not priority or not problem_description:
-                flash("Wszystkie pola są wymagane.", "error")
-                return redirect(url_for("issue"))
-
-            # Pobranie wszystkich załączników z pola 'attachments'
-            attachments = request.files.getlist('attachments')
-            
-            # Stałe walidacyjne
-            MAX_FILE_SIZE_MB = 2
-            MAX_TOTAL_SIZE_MB = 15
-            MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024
-            MAX_TOTAL_SIZE_BYTES = MAX_TOTAL_SIZE_MB * 1024 * 1024
-            
-            # Walidacja załączników
-            if attachments:
-                total_size = 0
-                valid_attachments = []
-                errors = []
-                
-                for attachment in attachments:
-                    if attachment and attachment.filename:
-                        # Sprawdź rozmiar pojedynczego pliku
-                        attachment.seek(0, 2)  # Przejdź na koniec pliku
-                        file_size = attachment.tell()
-                        attachment.seek(0)  # Wróć na początek
-                        
-                        if file_size > MAX_FILE_SIZE_BYTES:
-                            errors.append(f"Plik '{attachment.filename}' jest za duży ({file_size / (1024*1024):.1f}MB). Maksymalny rozmiar: {MAX_FILE_SIZE_MB}MB")
-                            continue
-                        
-                        total_size += file_size
-                        valid_attachments.append(attachment)
-                
-                # Sprawdź łączny rozmiar
-                if total_size > MAX_TOTAL_SIZE_BYTES:
-                    errors.append(f"Łączny rozmiar plików ({total_size / (1024*1024):.1f}MB) przekracza limit {MAX_TOTAL_SIZE_MB}MB")
-                
-                # Jeśli są błędy walidacji
-                if errors:
-                    flash(errors[0], "error")  # Pokazuj tylko pierwszy błąd w toast
-                    return redirect(url_for("issue"))
-                
-                # Użyj tylko prawidłowych załączników
-                attachments = valid_attachments
-
-            try:
-                # Utworzenie wiadomości email
-                msg = Message("Nowe zgłoszenie błędu",
-                            sender=app.config.get("MAIL_USERNAME"),
-                            recipients=["admin@woodpower.pl"])
-                
-                # Ustawienie reply_to na adres zalogowanego użytkownika
-                msg.reply_to = user_email
-
-                # Wygenerowanie treści maila przy użyciu szablonu
-                msg.html = render_template("issue_mail.html",
-                                        user_email=user_email,
-                                        problem_location=problem_location,
-                                        priority=priority,
-                                        problem_description=problem_description,
-                                        attachments_count=len(attachments) if attachments else 0)
-
-                # Dołączenie załączników
-                total_attached_size = 0
-                if attachments:
-                    for attachment in attachments:
-                        if attachment and attachment.filename:
-                            # Bezpieczna nazwa pliku (usunięcie potencjalnie niebezpiecznych znaków)
-                            import re
-                            safe_filename = re.sub(r'[^\w\s.-]', '', attachment.filename)
-                            safe_filename = re.sub(r'[-\s]+', '-', safe_filename)
-                            
-                            # Odczytaj zawartość pliku
-                            file_content = attachment.read()
-                            file_size = len(file_content)
-                            total_attached_size += file_size
-                            
-                            # Dołącz do wiadomości
-                            msg.attach(
-                                safe_filename,
-                                attachment.content_type or 'application/octet-stream',
-                                file_content
-                            )
-                            
-                            current_app.logger.info(f"Załączono plik: {safe_filename} ({file_size} bytes)")
-
-                # Logowanie informacji o zgłoszeniu
-                current_app.logger.info(f"Nowe zgłoszenie od {user_email}: {problem_location} - {priority}")
-                current_app.logger.info(f"Liczba załączników: {len(attachments) if attachments else 0}")
-                current_app.logger.info(f"Łączny rozmiar załączników: {total_attached_size} bytes")
-
-                 # Wysłanie maila
-                mail.send(msg)
-                
-                # ✅ PRAWIDŁOWE Flash – komunikat o sukcesie
-                if attachments:
-                    flash(f"Zgłoszenie wysłane z {len(attachments)} załącznikami. Odpowiemy najszybciej jak to będzie możliwe.", "success")
-                else:
-                    flash("Zgłoszenie zostało wysłane. Odpowiemy najszybciej jak to będzie możliwe.", "success")
-                    
-            except Exception as e:
-                current_app.logger.error(f"Błąd podczas wysyłania zgłoszenia: {str(e)}")
-                flash(f"Wystąpił błąd: {str(e)} podczas wysyłania zgłoszenia. Spróbuj ponownie.", "error")
-
-            return redirect(url_for("issue"))
-        
-        return render_template("issue/issue.html", user_email=user_email)
 
     @app.route("/settings/prices", methods=["GET", "POST"])
     @login_required

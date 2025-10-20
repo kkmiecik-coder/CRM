@@ -15,7 +15,7 @@ from modules.users.decorators import require_module_access
 from modules.users.models import User
 from modules.logging import get_logger
 from .services import TicketService, AttachmentService, NotificationService
-from .models import Ticket, TicketMessage, TicketAttachment
+from .models import Ticket, TicketMessage, TicketAttachment, TicketEvent
 from extensions import db
 import os
 
@@ -38,20 +38,6 @@ def help_center():
     """
     user_id = session.get('user_id')
     return render_template('issues/issues_help_center.html')
-
-
-@issues_bp.route('/admin')
-@require_module_access('issues')
-def admin_panel():
-    """
-    Panel administratora - dostęp tylko dla adminów
-    """
-    user = User.query.get(session.get('user_id'))
-    if user.role != 'admin':
-        flash('Brak uprawnień do panelu administratora', 'error')
-        return redirect(url_for('issues.help_center'))
-    
-    return render_template('issues/issues_admin_panel.html')
 
 
 @issues_bp.route('/ticket/<ticket_number>')
@@ -443,6 +429,73 @@ def api_get_messages(ticket_number):
         }), 500
 
 
+@issues_bp.route('/api/tickets/<ticket_number>/timeline', methods=['GET'])
+@require_module_access('issues')
+def api_get_timeline(ticket_number):
+    """
+    API: Pobiera timeline ticketu (wiadomości + eventy)
+    
+    Response:
+        {
+            "success": true,
+            "timeline": [
+                {"type": "event", ...},
+                {"type": "message", ...},
+                ...
+            ]
+        }
+    """
+    try:
+        user_id = session.get('user_id')
+        user = User.query.get(user_id)
+        ticket = Ticket.query.filter_by(ticket_number=ticket_number).first_or_404()
+        
+        # Sprawdź uprawnienia
+        if not TicketService.can_user_access_ticket(user_id, ticket):
+            return jsonify({
+                'success': False,
+                'error': 'Brak dostępu do tego ticketu'
+            }), 403
+        
+        # Pobierz wiadomości
+        messages = TicketMessage.query.filter_by(ticket_id=ticket.id).all()
+        
+        # Filtruj notatki wewnętrzne dla nie-adminów
+        if user.role != 'admin':
+            messages = [m for m in messages if not m.is_internal_note]
+        
+        # Pobierz eventy
+        events = TicketEvent.query.filter_by(ticket_id=ticket.id).all()
+        
+        # Scal timeline
+        timeline = []
+        
+        # Dodaj wiadomości
+        for msg in messages:
+            msg_dict = msg.to_dict()
+            msg_dict['type'] = 'message'
+            timeline.append(msg_dict)
+        
+        # Dodaj eventy
+        for event in events:
+            timeline.append(event.to_dict())
+        
+        # Sortuj po dacie
+        timeline.sort(key=lambda x: x['created_at'])
+        
+        return jsonify({
+            'success': True,
+            'timeline': timeline
+        })
+    
+    except Exception as e:
+        logger.error(f"Błąd pobierania timeline: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
 @issues_bp.route('/api/tickets/<ticket_number>/messages', methods=['POST'])
 @require_module_access('issues')
 def api_add_message(ticket_number):
@@ -526,6 +579,7 @@ def api_upload_attachment():
     Response:
         {
             "success": true,
+            "attachment_id": 123,  # ← DODANE
             "attachment": {...}
         }
     """
@@ -552,6 +606,7 @@ def api_upload_attachment():
         
         return jsonify({
             'success': True,
+            'attachment_id': attachment.id,  # ← DODANE - dla kompatybilności z frontendem
             'attachment': attachment.to_dict()
         }), 201
     
@@ -567,6 +622,52 @@ def api_upload_attachment():
         return jsonify({
             'success': False,
             'error': 'Wystąpił błąd podczas uploadu pliku'
+        }), 500
+
+
+@issues_bp.route('/api/attachments/<int:attachment_id>/view', methods=['GET'])
+@require_module_access('issues')
+def api_view_attachment(attachment_id):
+    """
+    API: Wyświetlanie załącznika (inline w przeglądarce)
+    """
+    try:
+        user_id = session.get('user_id')
+        attachment = TicketAttachment.query.get_or_404(attachment_id)
+        ticket = Ticket.query.get(attachment.ticket_id)
+        
+        # Sprawdź uprawnienia
+        if not TicketService.can_user_access_ticket(user_id, ticket):
+            return jsonify({
+                'success': False,
+                'error': 'Brak dostępu do załącznika'
+            }), 403
+        
+        # Ścieżka do pliku
+        file_path = os.path.join(
+            current_app.config.get('BASE_DIR', os.getcwd()),
+            'modules/issues/uploads',
+            attachment.filepath
+        )
+        
+        if not os.path.exists(file_path):
+            logger.error(f"Plik nie istnieje: {file_path}")
+            return jsonify({
+                'success': False,
+                'error': 'Plik nie został znaleziony'
+            }), 404
+        
+        return send_file(
+            file_path,
+            mimetype=attachment.mimetype,
+            as_attachment=False  # ← WAŻNE: wyświetl w przeglądarce
+        )
+    
+    except Exception as e:
+        logger.error(f"Błąd wyświetlania załącznika: {e}")
+        return jsonify({
+            'success': False,
+            'error': 'Wystąpił błąd podczas wyświetlania pliku'
         }), 500
 
 
@@ -613,187 +714,6 @@ def api_download_attachment(attachment_id):
         return jsonify({
             'success': False,
             'error': 'Wystąpił błąd podczas pobierania pliku'
-        }), 500
-
-
-# ============================================================================
-# API - PANEL ADMINA
-# ============================================================================
-
-@issues_bp.route('/api/admin/tickets/active', methods=['GET'])
-@require_module_access('issues')
-def api_admin_active_tickets():
-    """
-    API: Lista aktywnych ticketów dla admina
-    
-    Query params:
-        - priority: filtr po priorytecie
-        - limit: limit wyników
-        - offset: offset dla paginacji
-    
-    Response:
-        {
-            "success": true,
-            "tickets": [...],
-            "total": 25
-        }
-    """
-    try:
-        user_id = session.get('user_id')
-        user = User.query.get(user_id)
-        
-        # Sprawdź czy admin
-        if user.role != 'admin':
-            return jsonify({
-                'success': False,
-                'error': 'Brak uprawnień'
-            }), 403
-        
-        # Parametry
-        priority = request.args.get('priority')
-        limit = int(request.args.get('limit', 50))
-        offset = int(request.args.get('offset', 0))
-        
-        # Query
-        query = Ticket.query.filter(Ticket.status.in_(['new', 'open', 'in_progress']))
-        
-        if priority:
-            query = query.filter_by(priority=priority)
-        
-        # Sortowanie: priorytet DESC, updated_at DESC
-        priority_order = db.case(
-            (Ticket.priority == 'critical', 4),
-            (Ticket.priority == 'high', 3),
-            (Ticket.priority == 'medium', 2),
-            (Ticket.priority == 'low', 1),
-            else_=0
-        )
-        query = query.order_by(priority_order.desc(), Ticket.updated_at.desc())
-        
-        total = query.count()
-        tickets = query.limit(limit).offset(offset).all()
-        
-        return jsonify({
-            'success': True,
-            'tickets': [t.to_dict() for t in tickets],
-            'total': total
-        })
-    
-    except Exception as e:
-        logger.error(f"Błąd pobierania aktywnych ticketów: {e}")
-        return jsonify({
-            'success': False,
-            'error': str(e)
-        }), 500
-
-
-@issues_bp.route('/api/admin/tickets/closed', methods=['GET'])
-@require_module_access('issues')
-def api_admin_closed_tickets():
-    """
-    API: Lista zamkniętych ticketów dla admina
-    
-    Query params:
-        - limit: limit wyników
-        - offset: offset dla paginacji
-    
-    Response:
-        {
-            "success": true,
-            "tickets": [...],
-            "total": 147
-        }
-    """
-    try:
-        user_id = session.get('user_id')
-        user = User.query.get(user_id)
-        
-        # Sprawdź czy admin
-        if user.role != 'admin':
-            return jsonify({
-                'success': False,
-                'error': 'Brak uprawnień'
-            }), 403
-        
-        # Parametry
-        limit = int(request.args.get('limit', 50))
-        offset = int(request.args.get('offset', 0))
-        
-        # Query
-        query = Ticket.query.filter_by(status='closed').order_by(Ticket.closed_at.desc())
-        
-        total = query.count()
-        tickets = query.limit(limit).offset(offset).all()
-        
-        return jsonify({
-            'success': True,
-            'tickets': [t.to_dict() for t in tickets],
-            'total': total
-        })
-    
-    except Exception as e:
-        logger.error(f"Błąd pobierania zamkniętych ticketów: {e}")
-        return jsonify({
-            'success': False,
-            'error': str(e)
-        }), 500
-
-
-@issues_bp.route('/api/admin/stats', methods=['GET'])
-@require_module_access('issues')
-def api_admin_stats():
-    """
-    API: Statystyki ticketów
-    
-    Response:
-        {
-            "success": true,
-            "stats": {
-                "new": 12,
-                "open": 8,
-                "in_progress": 5,
-                "closed_today": 3,
-                "total_active": 25
-            }
-        }
-    """
-    try:
-        user_id = session.get('user_id')
-        user = User.query.get(user_id)
-        
-        # Sprawdź czy admin
-        if user.role != 'admin':
-            return jsonify({
-                'success': False,
-                'error': 'Brak uprawnień'
-            }), 403
-        
-        from datetime import datetime, timedelta
-        today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
-        
-        stats = {
-            'new': Ticket.query.filter_by(status='new').count(),
-            'open': Ticket.query.filter_by(status='open').count(),
-            'in_progress': Ticket.query.filter_by(status='in_progress').count(),
-            'closed_today': Ticket.query.filter(
-                Ticket.status == 'closed',
-                Ticket.closed_at >= today_start
-            ).count(),
-            'total_active': Ticket.query.filter(
-                Ticket.status.in_(['new', 'open', 'in_progress'])
-            ).count()
-        }
-        
-        return jsonify({
-            'success': True,
-            'stats': stats
-        })
-    
-    except Exception as e:
-        logger.error(f"Błąd pobierania statystyk: {e}")
-        return jsonify({
-            'success': False,
-            'error': str(e)
         }), 500
 
 

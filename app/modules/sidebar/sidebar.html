@@ -151,8 +151,8 @@
         <div class="extra-modules">
             <ul class="menu-options-list">
                 <!-- Zgłoś błąd -->
-                <li class="menu-options {% if request.endpoint == 'issue' %}active{% endif %}" data-sidebar-tooltip="Zgłoś błąd/propozycję">
-                    <a href="{{ url_for('issue') }}">
+                <li class="menu-options {% if request.endpoint and request.endpoint.startswith('issues.') %}active{% endif %}" data-sidebar-tooltip="Help Center">
+                    <a href="{{ url_for('issues.help_center') }}">
                         <span class="sidebar-icon">
                             <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
                                 <path class="st0" d="M12,14h0c-.6,0-1,.4-1,1h0c0,.7.4,1.1,1,1.1h0c.3,0,.5-.1.7-.3.2-.2.3-.4.3-.7h0c0-.7-.4-1.1-1-1.1Z" />

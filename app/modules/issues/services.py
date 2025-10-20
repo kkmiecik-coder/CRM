@@ -16,7 +16,7 @@ from modules.logging import get_logger
 from modules.users.models import User
 from flask import current_app, render_template, url_for
 from flask_mail import Message
-from .models import Ticket, TicketMessage, TicketAttachment
+from .models import Ticket, TicketMessage, TicketAttachment, TicketEvent
 from .utils import generate_ticket_number
 from datetime import datetime
 from werkzeug.utils import secure_filename
@@ -39,7 +39,7 @@ class TicketService:
                      attachment_ids: list = None) -> Ticket:
         """
         Tworzy nowy ticket
-        
+    
         Args:
             user_id: ID użytkownika
             title: Tytuł ticketu
@@ -48,10 +48,10 @@ class TicketService:
             priority: Priorytet
             initial_message: Pierwsza wiadomość
             attachment_ids: Lista ID załączników
-        
+    
         Returns:
             Ticket: Utworzony ticket
-        
+    
         Raises:
             ValueError: Błąd walidacji
         """
@@ -59,13 +59,13 @@ class TicketService:
             # Walidacja
             if not title or len(title) < 5:
                 raise ValueError("Tytuł musi mieć minimum 5 znaków")
-            
+        
             if not initial_message or len(initial_message) < 10:
                 raise ValueError("Wiadomość musi mieć minimum 10 znaków")
-            
+        
             # Generuj unikalny numer ticketu
             ticket_number = generate_ticket_number()
-            
+        
             # Utwórz ticket
             ticket = Ticket(
                 ticket_number=ticket_number,
@@ -78,7 +78,7 @@ class TicketService:
             )
             db.session.add(ticket)
             db.session.flush()  # Pobierz ID
-            
+        
             # Dodaj pierwszą wiadomość
             message = TicketMessage(
                 ticket_id=ticket.id,
@@ -88,24 +88,40 @@ class TicketService:
             )
             db.session.add(message)
             db.session.flush()
-            
+        
             # Przypisz załączniki
             if attachment_ids:
+                logger.info(f"📎 Otrzymane attachment_ids: {attachment_ids}")
                 for att_id in attachment_ids[:5]:  # Max 5
+                    logger.info(f"📎 Przetwarzanie załącznika ID: {att_id}")
                     attachment = TicketAttachment.query.get(att_id)
-                    if attachment and attachment.user_id == user_id:
-                        attachment.ticket_id = ticket.id
-                        attachment.message_id = message.id
-                        # Przenieś plik z temp do folderu ticketu
-                        AttachmentService.move_attachment_to_ticket(att_id, ticket_number)
-            
+                    if attachment:
+                        logger.info(f"📎 Załącznik znaleziony: {attachment.original_filename}")
+                        if attachment.user_id == user_id:
+                            attachment.ticket_id = ticket.id
+                            attachment.message_id = message.id
+                            logger.info(f"📎 Przypisano: ticket_id={ticket.id}, message_id={message.id}")
+                            # Przenieś plik z temp do folderu ticketu
+                            AttachmentService.move_attachment_to_ticket(att_id, ticket_number)
+                        else:
+                            logger.warning(f"📎 Załącznik {att_id} należy do innego użytkownika")
+                    else:
+                        logger.warning(f"📎 Załącznik {att_id} nie istnieje w bazie")
+        
             db.session.commit()
-            
+        
+            # Loguj event utworzenia ticketu (DODANE)
+            EventService.log_event(
+                ticket_id=ticket.id,
+                event_type='created',
+                performed_by_user_id=user_id
+            )
+        
             # Wyślij powiadomienie do adminów
             NotificationService.notify_admins_new_ticket(ticket)
-            
-            return ticket
         
+            return ticket
+    
         except ValueError:
             db.session.rollback()
             raise
@@ -153,6 +169,21 @@ class TicketService:
             # Jeśli to pierwsza odpowiedź admina, zapisz first_response_at
             if user.role == 'admin' and not ticket.first_response_at:
                 ticket.first_response_at = datetime.utcnow()
+    
+                # Automatycznie zmień status z "new" na "open" po pierwszej odpowiedzi admina
+                if ticket.status == 'new':
+                    old_status = ticket.status
+                    ticket.status = 'open'
+                
+                    # Loguj automatyczną zmianę statusu
+                    EventService.log_event(
+                        ticket_id=ticket_id,
+                        event_type='status_changed',
+                        performed_by_user_id=user_id,
+                        old_value=old_status,
+                        new_value='open',
+                        extra_data={'auto': True, 'reason': 'first_admin_response'}
+                    )
             
             # Przypisz załączniki
             if attachment_ids:
@@ -208,6 +239,15 @@ class TicketService:
             
             db.session.commit()
             
+            # Loguj event zmiany statusu
+            EventService.log_event(
+                ticket_id=ticket_id,
+                event_type='status_changed',
+                performed_by_user_id=user_id,
+                old_value=old_status,
+                new_value=new_status
+            )
+            
             return ticket
         
         except Exception as e:
@@ -239,6 +279,15 @@ class TicketService:
             
             db.session.commit()
             
+            # Loguj event zmiany priorytetu
+            EventService.log_event(
+                ticket_id=ticket_id,
+                event_type='priority_changed',
+                performed_by_user_id=user_id,
+                old_value=old_priority,
+                new_value=new_priority
+            )
+            
             return ticket
         
         except Exception as e:
@@ -267,6 +316,15 @@ class TicketService:
             ticket.updated_at = datetime.utcnow()
             
             db.session.commit()
+            
+            # Loguj event przypisania (DODAJ)
+            admin = User.query.get(admin_user_id)
+            EventService.log_event(
+                ticket_id=ticket_id,
+                event_type='assigned',
+                performed_by_user_id=admin_user_id,
+                new_value=admin.email if admin else str(admin_user_id)
+            )
             
             return ticket
         
@@ -527,3 +585,43 @@ class NotificationService:
         
         except Exception as e:
             logger.error(f"Błąd wysyłania powiadomienia do użytkownika: {e}")
+
+
+# ============================================================================
+# EVENT SERVICE
+# ============================================================================
+
+class EventService:
+    """Serwis logowania zdarzeń w ticketach"""
+    
+    @staticmethod
+    def log_event(ticket_id: int, event_type: str, performed_by_user_id: int,
+                  old_value: str = None, new_value: str = None, extra_data: dict = None):
+        """
+        Loguje zdarzenie w tickecie
+        
+        Args:
+            ticket_id: ID ticketu
+            event_type: Typ zdarzenia (created, status_changed, priority_changed, etc.)
+            performed_by_user_id: ID użytkownika wykonującego akcję
+            old_value: Poprzednia wartość
+            new_value: Nowa wartość
+            extra_data: Dodatkowe dane JSON
+        """
+        try:
+            event = TicketEvent(
+                ticket_id=ticket_id,
+                event_type=event_type,
+                performed_by_user_id=performed_by_user_id,
+                old_value=old_value,
+                new_value=new_value,
+                extra_data=extra_data
+            )
+            db.session.add(event)
+            db.session.commit()
+            
+            logger.info(f"📝 Event logged: {event_type} for ticket #{ticket_id}")
+            
+        except Exception as e:
+            logger.error(f"Błąd logowania eventu: {e}")
+            db.session.rollback()

@@ -237,6 +237,14 @@ IssuesCommon.addMessage = async function (ticketNumber, messageData) {
     return await IssuesCommon.ajax('POST', url, messageData);
 };
 
+/**
+ * Pobiera timeline ticketu (wiadomości + eventy)
+ */
+IssuesCommon.getTimeline = async function (ticketNumber) {
+    const url = `${IssuesCommon.config.apiBaseUrl}/tickets/${ticketNumber}/timeline`;
+    return await IssuesCommon.ajax('GET', url);
+};
+
 // ============================================================================
 // API CALLS - ATTACHMENTS
 // ============================================================================
@@ -265,45 +273,6 @@ IssuesCommon.uploadAttachment = async function (file) {
         console.error('Upload Error:', error);
         throw error;
     }
-};
-
-// ============================================================================
-// API CALLS - ADMIN
-// ============================================================================
-
-/**
- * Pobiera aktywne tickety (admin)
- */
-IssuesCommon.getActiveTickets = async function (filters = {}) {
-    const params = new URLSearchParams();
-
-    if (filters.priority) params.append('priority', filters.priority);
-    if (filters.limit) params.append('limit', filters.limit);
-    if (filters.offset) params.append('offset', filters.offset);
-
-    const url = `${IssuesCommon.config.apiBaseUrl}/admin/tickets/active?${params.toString()}`;
-    return await IssuesCommon.ajax('GET', url);
-};
-
-/**
- * Pobiera zamknięte tickety (admin)
- */
-IssuesCommon.getClosedTickets = async function (filters = {}) {
-    const params = new URLSearchParams();
-
-    if (filters.limit) params.append('limit', filters.limit);
-    if (filters.offset) params.append('offset', filters.offset);
-
-    const url = `${IssuesCommon.config.apiBaseUrl}/admin/tickets/closed?${params.toString()}`;
-    return await IssuesCommon.ajax('GET', url);
-};
-
-/**
- * Pobiera statystyki (admin)
- */
-IssuesCommon.getStats = async function () {
-    const url = `${IssuesCommon.config.apiBaseUrl}/admin/stats`;
-    return await IssuesCommon.ajax('GET', url);
 };
 
 // ============================================================================

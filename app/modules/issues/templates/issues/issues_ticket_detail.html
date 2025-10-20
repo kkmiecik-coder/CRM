@@ -204,7 +204,7 @@
                                     </div>
                                     <div class="issues-info-item">
                                         <span class="issues-info-label">Utworzył:</span>
-                                        <span>{{ ticket.created_by.email }}</span>
+                                        <span>{% if ticket.created_by.first_name %}{{ ticket.created_by.first_name }} {{ ticket.created_by.last_name }}{% else %}{{ ticket.created_by.email }}{% endif %}</span>
                                     </div>
                                     <div class="issues-info-item">
                                         <span class="issues-info-label">Data utworzenia:</span>
@@ -213,7 +213,7 @@
                                     {% if ticket.assigned_to %}
                                     <div class="issues-info-item">
                                         <span class="issues-info-label">Przypisany:</span>
-                                        <span>{{ ticket.assigned_to.email }}</span>
+                                        <span>{% if ticket.assigned_to.first_name %}{{ ticket.assigned_to.first_name }} {{ ticket.assigned_to.last_name }}{% else %}{{ ticket.assigned_to.email }}{% endif %}</span>
                                     </div>
                                     {% endif %}
                                     {% if ticket.first_response_at %}
