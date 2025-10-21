@@ -1206,7 +1206,69 @@ def update_quote_quantity(quote_id):
             "error": "Błąd podczas aktualizacji ilości",
             "message": str(e)
         }), 500
-    
+
+
+@quotes_bp.route('/api/quotes/<int:quote_id>/note', methods=['PATCH'])
+@require_module_access('quotes')
+def update_quote_note(quote_id):
+    """Aktualizuje notatkę wyceny"""
+    try:
+        # Pobierz wycenę
+        quote = Quote.query.get_or_404(quote_id)
+
+        # Sprawdź czy wycena nie jest już w Baselinkerze
+        if quote.base_linker_order_id:
+            return jsonify({
+                "error": "Nie można edytować notatki - zamówienie zostało już złożone w Baselinker"
+            }), 403
+
+        # Pobierz dane z requestu
+        data = request.get_json()
+        new_note = data.get('notes', '').strip()
+
+        # Walidacja długości (max 180 znaków)
+        if len(new_note) > 180:
+            return jsonify({
+                "error": f"Notatka jest za długa ({len(new_note)} znaków). Maksymalna długość to 180 znaków."
+            }), 400
+
+        # Zapisz starą wartość dla logowania
+        old_note = quote.notes or ''
+
+        # Aktualizuj notatkę
+        quote.notes = new_note
+
+        # Zaloguj zmianę
+        user_email = session.get('user_email')
+        user = db.session.execute(
+            text("SELECT id FROM users WHERE email = :email"),
+            {'email': user_email}
+        ).fetchone()
+
+        if user:
+            log_entry = QuoteLog(
+                quote_id=quote_id,
+                user_id=user.id,
+                description=f"Zaktualizowano notatkę wyceny (długość: {len(new_note)} znaków)"
+            )
+            db.session.add(log_entry)
+
+        # Zapisz zmiany
+        db.session.commit()
+
+        return jsonify({
+            "message": "Notatka została zaktualizowana",
+            "notes": new_note
+        })
+
+    except Exception as e:
+        db.session.rollback()
+        print(f"[update_quote_note] Błąd podczas aktualizacji notatki: {e}", file=sys.stderr)
+        return jsonify({
+            "error": "Błąd podczas aktualizacji notatki",
+            "message": str(e)
+        }), 500
+
 
 @quotes_bp.route('/api/quotes/<int:quote_id>/user-accept', methods=['POST'])
 @require_module_access('quotes')

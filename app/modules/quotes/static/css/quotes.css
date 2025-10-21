@@ -4958,3 +4958,145 @@
         height: 14px;
     }
 
+/* ================================
+   NOTE SECTION IN QUOTE DETAILS
+   ================================ */
+
+.modal-block-note {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.note-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+}
+
+.edit-note-btn {
+    background: transparent;
+    border: none;
+    color: #ED6B24;
+    cursor: pointer;
+    padding: 6px 10px;
+    border-radius: 4px;
+    transition: all 0.2s ease;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+    .edit-note-btn:hover {
+        background: rgba(237, 107, 36, 0.1);
+    }
+
+    .edit-note-btn:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+    }
+
+    .edit-note-btn svg {
+        width: 16px;
+        height: 16px;
+    }
+
+.quote-note-textarea {
+    width: 100%;
+    min-height: 80px;
+    padding: 12px;
+    border: 1px solid #D0D0D0;
+    border-radius: 6px;
+    font-family: inherit;
+    font-size: 14px;
+    line-height: 1.5;
+    resize: vertical;
+    transition: all 0.2s ease;
+}
+
+    .quote-note-textarea:focus {
+        outline: none;
+        border-color: #ED6B24;
+        box-shadow: 0 0 0 3px rgba(237, 107, 36, 0.1);
+    }
+
+    .quote-note-textarea:disabled {
+        background: #F5F5F5;
+        color: #666;
+        cursor: not-allowed;
+    }
+
+    .quote-note-textarea::placeholder {
+        color: #999;
+    }
+
+.note-counter-wrapper {
+    display: flex;
+    justify-content: flex-end;
+}
+
+.note-counter {
+    font-size: 13px;
+    color: #666;
+}
+
+    .note-counter.warning {
+        color: #ED6B24;
+        font-weight: 500;
+    }
+
+.note-actions {
+    display: flex;
+    gap: 8px;
+    justify-content: flex-end;
+}
+
+.btn-save-note,
+.btn-cancel-note {
+    padding: 8px 16px;
+    border-radius: 6px;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    border: none;
+}
+
+.btn-save-note {
+    background: #07B90D;
+    color: white;
+}
+
+    .btn-save-note:hover {
+        background: #059c0a;
+    }
+
+.btn-cancel-note {
+    background: #E0E0E0;
+    color: #333;
+}
+
+    .btn-cancel-note:hover {
+        background: #D0D0D0;
+    }
+
+.note-warning {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 12px;
+    background: #FFF3E0;
+    border-left: 4px solid #FF9800;
+    border-radius: 4px;
+    font-size: 13px;
+    color: #E65100;
+}
+
+    .note-warning svg {
+        flex-shrink: 0;
+        width: 16px;
+        height: 16px;
+        fill: #FF9800;
+    }
+

@@ -747,11 +747,15 @@ function collectQuoteData() {
         }
     }
 
+    // Pobierz notatkę z textarea
+    const quoteNote = document.getElementById('quote_note')?.value.trim() || '';
+
     console.log(`[collectQuoteData] SUMA produktów brutto=${sumProductBrutto}, netto=${sumProductNetto}`);
     console.log(`[collectQuoteData] SUMA wykończenia brutto=${sumFinishingBrutto}, netto=${sumFinishingNetto}`);
     console.log(`[collectQuoteData] SUMA wysyłki brutto=${shippingBrutto}, netto=${shippingNetto}`);
     console.log(`[collectQuoteData] Kurier: ${courierName}`);
     console.log(`[collectQuoteData] Grupa cenowa: ${selectedClientType} (mnożnik: ${selectedMultiplier})`);
+    console.log(`[collectQuoteData] Notatka: "${quoteNote}" (${quoteNote.length} znaków)`);
 
     const result = {
         products,
@@ -760,6 +764,7 @@ function collectQuoteData() {
         shipping_cost_netto: shippingNetto,
         quote_client_type: selectedClientType,
         quote_multiplier: selectedMultiplier,
+        quote_note: quoteNote,
         summary: {
             products_brutto: sumProductBrutto,
             products_netto: sumProductNetto,
@@ -854,7 +859,43 @@ function enhanceQuoteDraftBackupWithSaveDetection() {
     return null;
 }
 
+// Licznik znaków dla notatki
+function initNoteCounter() {
+    const noteTextarea = document.getElementById('quote_note');
+    const noteCounter = document.getElementById('note_counter');
+
+    if (!noteTextarea || !noteCounter) return;
+
+    const maxLength = 180;
+
+    function updateCounter() {
+        const currentLength = noteTextarea.value.length;
+        const remaining = maxLength - currentLength;
+
+        noteCounter.textContent = remaining;
+
+        // Dodaj klasę ostrzegawczą gdy zostało mało znaków
+        const counterElement = noteCounter.parentElement;
+        if (remaining <= 20) {
+            counterElement.classList.add('warning');
+        } else {
+            counterElement.classList.remove('warning');
+        }
+    }
+
+    // Event listener dla zmian w textarea
+    noteTextarea.addEventListener('input', updateCounter);
+
+    // Inicjalna aktualizacja
+    updateCounter();
+
+    console.log('[save_quote.js] Licznik znaków dla notatki zainicjalizowany');
+}
+
 document.addEventListener('DOMContentLoaded', function () {
+    // Inicjalizacja licznika znaków notatki
+    initNoteCounter();
+
     setTimeout(() => {
         const enhanced = enhanceQuoteDraftBackupWithSaveDetection();
         if (enhanced) {

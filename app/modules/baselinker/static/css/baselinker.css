@@ -1325,3 +1325,23 @@
         opacity: 0.9;
         font-weight: 400;
     }
+
+/* ================================
+   NOTE IN ORDER SUMMARY
+   ================================ */
+
+.bl-style-summary-note {
+    background: #FFF8E1;
+    border-left: 3px solid #FFA726;
+    padding: 12px !important;
+    margin-top: 8px;
+    border-radius: 4px;
+}
+
+.bl-style-note-text {
+    color: #E65100;
+    font-weight: 400;
+    word-wrap: break-word;
+    white-space: pre-wrap;
+    line-height: 1.5;
+}
