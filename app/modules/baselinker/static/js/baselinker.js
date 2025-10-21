@@ -355,7 +355,7 @@ class BaselinkerModal {
         const quote = this.modalData.quote;
         const client = this.modalData.client;
 
-        container.innerHTML = `
+        let summaryHTML = `
             <div class="bl-style-summary-row">
                 <span>Numer wyceny:</span>
                 <strong>${quote.quote_number}</strong>
@@ -377,6 +377,18 @@ class BaselinkerModal {
                 <strong>${quote.source || 'Nie podano'}</strong>
             </div>
         `;
+
+        // Dodaj notatkę jeśli istnieje
+        if (quote.notes && quote.notes.trim()) {
+            summaryHTML += `
+                <div class="bl-style-summary-row bl-style-summary-note">
+                    <span>Notatka:</span>
+                    <div class="bl-style-note-text">${this.escapeHtml(quote.notes)}</div>
+                </div>
+            `;
+        }
+
+        container.innerHTML = summaryHTML;
     }
 
     populateProductsList() {
@@ -1949,6 +1961,12 @@ class BaselinkerModal {
                 console.log(`- ${selectId}: ELEMENT NIE ZNALEZIONY`);
             }
         });
+    }
+
+    escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
     }
 }
 

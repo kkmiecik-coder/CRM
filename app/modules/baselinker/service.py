@@ -673,8 +673,8 @@ class BaselinkerService:
             'payment_method': payment_method,
             'payment_method_cod': 'false',
             'paid': '0',
-            'user_comments': '',
-            'admin_comments': f"Zamówienie z wyceny {quote.quote_number}",
+            'user_comments': self._build_user_comments(quote),
+            'admin_comments': f"Wycena {quote.quote_number}",
             'phone': client_data.get('phone', ''),
             'email': client_data.get('email', ''),
             'user_login': client_data.get('name', ''),
@@ -888,9 +888,32 @@ class BaselinkerService:
                          finishing_type=finishing_details.finishing_type,
                          finishing_color=finishing_details.finishing_color,
                          result=result)
-    
+
         return result
-    
+
+    def _build_user_comments(self, quote):
+        """Buduje komentarz użytkownika z numerem wyceny i notatką"""
+        # Zawsze dodaj numer wyceny
+        comments = f"Wycena {quote.quote_number}"
+
+        # Dodaj notatkę jeśli istnieje
+        if quote.notes and quote.notes.strip():
+            comments += f". {quote.notes}"
+
+        # Ogranicz do 200 znaków (limit Baselinker)
+        if len(comments) > 200:
+            comments = comments[:197] + "..."
+            self.logger.warning("Komentarz został skrócony do 200 znaków",
+                              quote_number=quote.quote_number,
+                              original_length=len(f"Wycena {quote.quote_number}. {quote.notes}"))
+
+        self.logger.debug("Zbudowano komentarz użytkownika",
+                         quote_number=quote.quote_number,
+                         has_notes=bool(quote.notes and quote.notes.strip()),
+                         comment_length=len(comments))
+
+        return comments
+
     def _calculate_item_weight(self, item) -> float:
         """Oblicza wagę produktu na podstawie objętości (przyjmując gęstość drewna 800kg/m³)"""
         if item.volume_m3:

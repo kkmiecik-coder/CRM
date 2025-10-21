@@ -626,6 +626,75 @@ select.sq-form-input {
     }
 
 /* ================================
+   NOTE SECTION
+   ================================ */
+
+.sq-note-section {
+    margin-top: 24px;
+    padding: 20px;
+    background: #F9F9F9;
+    border-radius: 8px;
+    border: 1px solid #E0E0E0;
+}
+
+.sq-note-wrapper {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.sq-note-textarea {
+    width: 100%;
+    min-height: 80px;
+    padding: 12px;
+    border: 1px solid #D0D0D0;
+    border-radius: 6px;
+    font-family: inherit;
+    font-size: 14px;
+    line-height: 1.5;
+    resize: vertical;
+    transition: border-color 0.2s ease;
+}
+
+    .sq-note-textarea:focus {
+        outline: none;
+        border-color: #ED6B24;
+        box-shadow: 0 0 0 3px rgba(237, 107, 36, 0.1);
+    }
+
+    .sq-note-textarea::placeholder {
+        color: #999;
+    }
+
+.sq-note-counter {
+    text-align: right;
+    font-size: 13px;
+    color: #666;
+}
+
+    .sq-note-counter.warning {
+        color: #ED6B24;
+        font-weight: 500;
+    }
+
+.sq-note-info {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 12px;
+    background: #E3F2FD;
+    border-left: 4px solid #2196F3;
+    border-radius: 4px;
+    font-size: 13px;
+    color: #1565C0;
+}
+
+.sq-info-icon {
+    font-size: 16px;
+    line-height: 1;
+}
+
+/* ================================
    RESPONSIVE
    ================================ */
 

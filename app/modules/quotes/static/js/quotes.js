@@ -456,6 +456,9 @@ function showDetailsModal(quoteData) {
         }
     }
 
+    // Inicjalizacja sekcji notatki
+    initializeNoteSection(quoteData);
+
     modal.classList.add('active');
     console.log('[MODAL] Modal powinien być teraz widoczny! Data:', quoteData);
 
@@ -2376,6 +2379,187 @@ async function refreshQuoteDetailsModal() {
     } catch (error) {
         console.error("[refreshQuoteDetailsModal] Błąd:", error);
         showToast('Błąd podczas odświeżania danych wyceny', 'error');
+    }
+}
+
+// ============================================
+// FUNKCJE DO ZARZĄDZANIA NOTATKĄ
+// ============================================
+
+let originalNoteValue = '';
+
+function initializeNoteSection(quoteData) {
+    console.log('[NOTE] Inicjalizacja sekcji notatki dla wyceny:', quoteData.id);
+
+    const textarea = document.getElementById('quote-note-textarea');
+    const editBtn = document.getElementById('edit-note-btn');
+    const saveBtn = document.getElementById('save-note-btn');
+    const cancelBtn = document.getElementById('cancel-note-btn');
+    const counterWrapper = document.querySelector('.note-counter-wrapper');
+    const counter = document.getElementById('quote-note-counter');
+    const actionsDiv = document.querySelector('.note-actions');
+    const warningDiv = document.getElementById('note-length-warning');
+
+    if (!textarea || !editBtn || !saveBtn || !cancelBtn) {
+        console.warn('[NOTE] Brak wymaganych elementów w DOM');
+        return;
+    }
+
+    // Wypełnij textarea wartością z bazy
+    const noteValue = quoteData.notes || '';
+    textarea.value = noteValue;
+    originalNoteValue = noteValue;
+
+    // Sprawdź czy wycena jest już w Baselinkerze
+    const isOrdered = quoteData.base_linker_order_id && quoteData.base_linker_order_id.trim() !== '';
+
+    if (isOrdered) {
+        // Jeśli zamówienie złożone, wyłącz edycję całkowicie
+        editBtn.disabled = true;
+        editBtn.style.display = 'none';
+        console.log('[NOTE] Wycena złożona w Baselinker - edycja wyłączona');
+    } else {
+        // Włącz możliwość edycji
+        editBtn.disabled = false;
+        editBtn.style.display = 'flex';
+    }
+
+    // Sprawdź długość notatki i pokaż ostrzeżenie jeśli > 180
+    updateNoteLengthWarning(noteValue, warningDiv);
+
+    // Event: Kliknięcie ikony ołówka - włączenie edycji
+    const newEditBtn = editBtn.cloneNode(true);
+    editBtn.parentNode.replaceChild(newEditBtn, editBtn);
+
+    newEditBtn.addEventListener('click', () => {
+        enableNoteEdit(textarea, newEditBtn, actionsDiv, counterWrapper, counter);
+    });
+
+    // Event: Zapisz notatkę
+    const newSaveBtn = saveBtn.cloneNode(true);
+    saveBtn.parentNode.replaceChild(newSaveBtn, saveBtn);
+
+    newSaveBtn.addEventListener('click', () => {
+        saveNoteEdit(quoteData.id, textarea, newEditBtn, actionsDiv, counterWrapper, warningDiv);
+    });
+
+    // Event: Anuluj edycję
+    const newCancelBtn = cancelBtn.cloneNode(true);
+    cancelBtn.parentNode.replaceChild(newCancelBtn, cancelBtn);
+
+    newCancelBtn.addEventListener('click', () => {
+        cancelNoteEdit(textarea, newEditBtn, actionsDiv, counterWrapper, warningDiv);
+    });
+
+    // Event: Licznik znaków podczas pisania
+    textarea.addEventListener('input', () => {
+        updateNoteCounter(textarea, counter, warningDiv);
+    });
+
+    console.log('[NOTE] Notatka zainicjalizowana:', {
+        value: noteValue,
+        length: noteValue.length,
+        isOrdered: isOrdered
+    });
+}
+
+function enableNoteEdit(textarea, editBtn, actionsDiv, counterWrapper, counter) {
+    console.log('[NOTE] Włączanie trybu edycji notatki');
+
+    textarea.disabled = false;
+    textarea.focus();
+    editBtn.style.display = 'none';
+    actionsDiv.style.display = 'flex';
+    counterWrapper.style.display = 'flex';
+
+    updateNoteCounter(textarea, counter);
+}
+
+function cancelNoteEdit(textarea, editBtn, actionsDiv, counterWrapper, warningDiv) {
+    console.log('[NOTE] Anulowanie edycji notatki');
+
+    textarea.value = originalNoteValue;
+    textarea.disabled = true;
+    editBtn.style.display = 'flex';
+    actionsDiv.style.display = 'none';
+    counterWrapper.style.display = 'none';
+
+    updateNoteLengthWarning(originalNoteValue, warningDiv);
+}
+
+async function saveNoteEdit(quoteId, textarea, editBtn, actionsDiv, counterWrapper, warningDiv) {
+    console.log('[NOTE] Zapisywanie notatki dla wyceny:', quoteId);
+
+    const newNote = textarea.value.trim();
+
+    try {
+        const response = await fetch(`/quotes/api/quotes/${quoteId}/note`, {
+            method: 'PATCH',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ notes: newNote })
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+            throw new Error(data.error || 'Błąd podczas zapisywania notatki');
+        }
+
+        // Sukces - zaktualizuj wartość oryginalną i wyłącz edycję
+        originalNoteValue = newNote;
+        textarea.disabled = true;
+        editBtn.style.display = 'flex';
+        actionsDiv.style.display = 'none';
+        counterWrapper.style.display = 'none';
+
+        // Zaktualizuj currentQuoteData
+        if (currentQuoteData) {
+            currentQuoteData.notes = newNote;
+        }
+
+        updateNoteLengthWarning(newNote, warningDiv);
+
+        showToast('Notatka została zapisana', 'success');
+        console.log('[NOTE] Notatka zapisana pomyślnie');
+
+    } catch (error) {
+        console.error('[NOTE] Błąd podczas zapisywania notatki:', error);
+        showToast(error.message || 'Błąd podczas zapisywania notatki', 'error');
+    }
+}
+
+function updateNoteCounter(textarea, counter, warningDiv) {
+    const currentLength = textarea.value.length;
+    const maxLength = 180;
+    const remaining = maxLength - currentLength;
+
+    counter.textContent = remaining;
+
+    const counterElement = counter.parentElement;
+    if (remaining <= 20) {
+        counterElement.classList.add('warning');
+    } else {
+        counterElement.classList.remove('warning');
+    }
+
+    // Zaktualizuj ostrzeżenie o długości
+    if (warningDiv) {
+        updateNoteLengthWarning(textarea.value, warningDiv);
+    }
+}
+
+function updateNoteLengthWarning(noteValue, warningDiv) {
+    if (!warningDiv) return;
+
+    const noteLength = noteValue.length;
+
+    if (noteLength > 180) {
+        warningDiv.style.display = 'flex';
+        console.log('[NOTE] Ostrzeżenie: notatka za długa (', noteLength, '/ 180)');
+    } else {
+        warningDiv.style.display = 'none';
     }
 }
 
