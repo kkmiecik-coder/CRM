@@ -240,7 +240,7 @@ def save_quote():
         courier_name = data.get('courier_name')
         shipping_netto = data.get('shipping_cost_netto', 0.0)
         shipping_brutto = data.get('shipping_cost_brutto', 0.0)
-
+        
         # Dane grupy cenowej
         quote_client_type = data.get('quote_client_type')
         quote_multiplier = data.get('quote_multiplier', 1.0)
@@ -305,7 +305,7 @@ def save_quote():
         user = db.session.execute(text("SELECT id FROM users WHERE email = :email"), {'email': user_email}).fetchone()
         user_id = user.id if user else None
 
-        # Zapisz wycenę z danymi kuriera, grupy cenowej i notatką
+        # Zapisz wycenę z danymi kuriera i grupy cenowej i notatką
         quote = Quote(
             quote_number=quote_number,
             user_id=user_id,

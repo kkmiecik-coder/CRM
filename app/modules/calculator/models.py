@@ -51,6 +51,9 @@ class Quote(db.Model):
     # POLE: Mnożnik (grupa cenowa) przypisany do wyceny
     quote_multiplier = db.Column(db.Numeric(5, 2))
     quote_client_type = db.Column(db.String(100))  # Nazwa grupy cenowej
+
+    # NOWE POLE: Notatki do wyceny
+    notes = db.Column(db.Text)
     
     # POPRAWIONE RELACJE - bez konfliktów
     user = db.relationship('User', foreign_keys=[user_id], backref='quotes')

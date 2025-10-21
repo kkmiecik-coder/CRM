@@ -355,7 +355,7 @@ class BaselinkerModal {
         const quote = this.modalData.quote;
         const client = this.modalData.client;
 
-        let summaryHTML = `
+        container.innerHTML = `
             <div class="bl-style-summary-row">
                 <span>Numer wyceny:</span>
                 <strong>${quote.quote_number}</strong>
@@ -1962,7 +1962,6 @@ class BaselinkerModal {
             }
         });
     }
-
     escapeHtml(text) {
         const div = document.createElement('div');
         div.textContent = text;

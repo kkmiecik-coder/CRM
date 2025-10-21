@@ -1206,7 +1206,7 @@ def update_quote_quantity(quote_id):
             "error": "Błąd podczas aktualizacji ilości",
             "message": str(e)
         }), 500
-
+    
 
 @quotes_bp.route('/api/quotes/<int:quote_id>/note', methods=['PATCH'])
 @require_module_access('quotes')

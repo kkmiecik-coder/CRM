@@ -888,9 +888,9 @@ class BaselinkerService:
                          finishing_type=finishing_details.finishing_type,
                          finishing_color=finishing_details.finishing_color,
                          result=result)
-
+    
         return result
-
+    
     def _build_user_comments(self, quote):
         """Buduje komentarz użytkownika z numerem wyceny i notatką"""
         # Zawsze dodaj numer wyceny
@@ -913,7 +913,7 @@ class BaselinkerService:
                          comment_length=len(comments))
 
         return comments
-
+    
     def _calculate_item_weight(self, item) -> float:
         """Oblicza wagę produktu na podstawie objętości (przyjmując gęstość drewna 800kg/m³)"""
         if item.volume_m3:

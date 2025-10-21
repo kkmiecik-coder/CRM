@@ -781,6 +781,38 @@ function collectQuoteData() {
     return result;
 }
 
+// Licznik znaków dla notatki
+function initNoteCounter() {
+    const noteTextarea = document.getElementById('quote_note');
+    const noteCounter = document.getElementById('note_counter');
+
+    if (!noteTextarea || !noteCounter) return;
+
+    const maxLength = 180;
+
+    function updateCounter() {
+        const currentLength = noteTextarea.value.length;
+        const remaining = maxLength - currentLength;
+
+        noteCounter.textContent = remaining;
+
+        // Dodaj klasę ostrzegawczą gdy zostało mało znaków
+        const counterElement = noteCounter.parentElement;
+        if (remaining <= 20) {
+            counterElement.classList.add('warning');
+        } else {
+            counterElement.classList.remove('warning');
+        }
+    }
+
+    // Event listener dla zmian w textarea
+    noteTextarea.addEventListener('input', updateCounter);
+
+    // Inicjalna aktualizacja
+    updateCounter();
+
+    console.log('[save_quote.js] Licznik znaków dla notatki zainicjalizowany');
+}
 
 /**
  * ========================================
@@ -859,41 +891,9 @@ function enhanceQuoteDraftBackupWithSaveDetection() {
     return null;
 }
 
-// Licznik znaków dla notatki
-function initNoteCounter() {
-    const noteTextarea = document.getElementById('quote_note');
-    const noteCounter = document.getElementById('note_counter');
-
-    if (!noteTextarea || !noteCounter) return;
-
-    const maxLength = 180;
-
-    function updateCounter() {
-        const currentLength = noteTextarea.value.length;
-        const remaining = maxLength - currentLength;
-
-        noteCounter.textContent = remaining;
-
-        // Dodaj klasę ostrzegawczą gdy zostało mało znaków
-        const counterElement = noteCounter.parentElement;
-        if (remaining <= 20) {
-            counterElement.classList.add('warning');
-        } else {
-            counterElement.classList.remove('warning');
-        }
-    }
-
-    // Event listener dla zmian w textarea
-    noteTextarea.addEventListener('input', updateCounter);
-
-    // Inicjalna aktualizacja
-    updateCounter();
-
-    console.log('[save_quote.js] Licznik znaków dla notatki zainicjalizowany');
-}
-
 document.addEventListener('DOMContentLoaded', function () {
-    // Inicjalizacja licznika znaków notatki
+
+    // Inicjalizacja licznika znaków dla notatki
     initNoteCounter();
 
     setTimeout(() => {
