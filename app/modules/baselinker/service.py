@@ -661,9 +661,12 @@ class BaselinkerService:
 
         total_quantity = sum(p['quantity'] for p in products)
         self.logger.info("Przygotowano produkty do zamówienia",
-                       products_count=len(products),
-                       total_quantity=total_quantity,
-                       using_override_client_data=bool(config.get('client_data')))
+                    products_count=len(products),
+                    total_quantity=total_quantity,
+                    using_override_client_data=bool(config.get('client_data')))
+
+        # ✅ DODANE: Zbuduj user_comments z debugowaniem
+        user_comments_value = self._build_user_comments(quote)
 
         order_data = {
             'custom_source_id': order_source_id,
@@ -673,8 +676,8 @@ class BaselinkerService:
             'payment_method': payment_method,
             'payment_method_cod': 'false',
             'paid': '0',
-            'user_comments': self._build_user_comments(quote),
-            'admin_comments': f"Wycena {quote.quote_number}",
+            'user_comments': '',
+            'admin_comments': user_comments_value,
             'phone': client_data.get('phone', ''),
             'email': client_data.get('email', ''),
             'user_login': client_data.get('name', ''),
@@ -898,7 +901,7 @@ class BaselinkerService:
 
         # Dodaj notatkę jeśli istnieje
         if quote.notes and quote.notes.strip():
-            comments += f". {quote.notes}"
+            comments += f" - {quote.notes}"
 
         # Ogranicz do 200 znaków (limit Baselinker)
         if len(comments) > 200:

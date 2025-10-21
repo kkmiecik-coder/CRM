@@ -355,7 +355,8 @@ class BaselinkerModal {
         const quote = this.modalData.quote;
         const client = this.modalData.client;
 
-        container.innerHTML = `
+        // ✅ NAJPIERW zbuduj cały HTML w zmiennej
+        let summaryHTML = `
             <div class="bl-style-summary-row">
                 <span>Numer wyceny:</span>
                 <strong>${quote.quote_number}</strong>
@@ -378,7 +379,7 @@ class BaselinkerModal {
             </div>
         `;
 
-        // Dodaj notatkę jeśli istnieje
+        // ✅ Dodaj notatkę jeśli istnieje
         if (quote.notes && quote.notes.trim()) {
             summaryHTML += `
                 <div class="bl-style-summary-row bl-style-summary-note">
@@ -388,6 +389,7 @@ class BaselinkerModal {
             `;
         }
 
+        // ✅ DOPIERO TERAZ wstaw do kontenera
         container.innerHTML = summaryHTML;
     }
 

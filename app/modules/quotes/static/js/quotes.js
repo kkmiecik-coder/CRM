@@ -199,8 +199,168 @@ function fetchUsers() {
         .catch(err => console.error("Błąd pobierania użytkowników:", err));
 }
 
-// Aktualizacja funkcji showDetailsModal w app/modules/quotes/static/js/quotes.js
-// Dodaj te wywołania na końcu istniejącej funkcji showDetailsModal
+/**
+ * Inicjalizacja sekcji notatki w modalu szczegółów wyceny
+ */
+function initializeNoteSection(quoteData) {
+    console.log('[NOTE] Inicjalizacja sekcji notatki dla wyceny:', quoteData.id);
+    
+    const noteTextarea = document.getElementById('quote-note-textarea');
+    const editNoteBtn = document.getElementById('edit-note-btn');
+    const saveNoteBtn = document.getElementById('save-note-btn');
+    const cancelNoteBtn = document.getElementById('cancel-note-btn');
+    const noteActions = document.querySelector('.note-actions');
+    const noteCounterWrapper = document.querySelector('.note-counter-wrapper');
+    const noteCounter = document.getElementById('quote-note-counter');
+    const noteWarning = document.getElementById('note-length-warning');
+
+    if (!noteTextarea) {
+        console.warn('[NOTE] Brak elementu textarea notatki');
+        return;
+    }
+
+    // Wypełnij textarea danymi z wyceny
+    noteTextarea.value = quoteData.notes || '';
+    noteTextarea.disabled = true; // Upewnij się że jest disabled na start
+    console.log('[NOTE] Wypełniono notatkę:', quoteData.notes);
+
+    // Ukryj elementy edycji na start
+    if (noteActions) noteActions.style.display = 'none';
+    if (noteCounterWrapper) noteCounterWrapper.style.display = 'none';
+    if (noteWarning) noteWarning.style.display = 'none';
+    if (editNoteBtn) editNoteBtn.style.display = 'flex';
+
+    // Usuń poprzednie event listenery (klonowanie elementów)
+    if (editNoteBtn) {
+        const newEditBtn = editNoteBtn.cloneNode(true);
+        editNoteBtn.parentNode.replaceChild(newEditBtn, editNoteBtn);
+        
+        // Przycisk edycji - aktywuje tryb edycji
+        newEditBtn.addEventListener('click', function() {
+            console.log('[NOTE] Kliknięto przycisk edycji');
+            
+            if (quoteData.base_linker_order_id) {
+                alert('Nie można edytować notatki - zamówienie zostało już złożone w Baselinker');
+                return;
+            }
+            
+            // Aktywuj edycję
+            noteTextarea.disabled = false;
+            noteTextarea.focus();
+            
+            // Pokaż przyciski akcji i licznik
+            if (noteActions) noteActions.style.display = 'flex';
+            if (noteCounterWrapper) noteCounterWrapper.style.display = 'flex';
+            
+            // Ukryj przycisk edycji
+            newEditBtn.style.display = 'none';
+            
+            // Aktualizuj licznik
+            updateNoteCounter();
+            
+            console.log('[NOTE] Aktywowano tryb edycji notatki');
+        });
+    }
+
+    // Funkcja aktualizacji licznika znaków
+    function updateNoteCounter() {
+        if (!noteTextarea || !noteCounter || !noteWarning) return;
+        
+        const currentLength = noteTextarea.value.length;
+        const remaining = 180 - currentLength;
+        noteCounter.textContent = remaining;
+        
+        // Pokaż ostrzeżenie jeśli za długie
+        if (currentLength > 180) {
+            noteWarning.style.display = 'flex';
+            if (noteCounterWrapper) noteCounterWrapper.classList.add('warning');
+        } else {
+            noteWarning.style.display = 'none';
+            if (noteCounterWrapper) noteCounterWrapper.classList.remove('warning');
+        }
+    }
+
+    // Event listener dla zmian w textarea
+    const newTextarea = noteTextarea.cloneNode(true);
+    noteTextarea.parentNode.replaceChild(newTextarea, noteTextarea);
+    newTextarea.addEventListener('input', updateNoteCounter);
+
+    // Przycisk Zapisz
+    if (saveNoteBtn) {
+        const newSaveBtn = saveNoteBtn.cloneNode(true);
+        saveNoteBtn.parentNode.replaceChild(newSaveBtn, saveNoteBtn);
+        
+        newSaveBtn.addEventListener('click', async function() {
+            console.log('[NOTE] Kliknięto przycisk Zapisz');
+            const newNote = newTextarea.value.trim();
+            
+            // Walidacja długości
+            if (newNote.length > 180) {
+                alert('Notatka jest za długa. Maksymalna długość to 180 znaków.');
+                return;
+            }
+            
+            try {
+                const response = await fetch(`/quotes/api/quotes/${quoteData.id}/note`, {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ notes: newNote })
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    // Sukces - zaktualizuj dane lokalne
+                    quoteData.notes = newNote;
+                    
+                    // Wyłącz tryb edycji
+                    newTextarea.disabled = true;
+                    if (noteActions) noteActions.style.display = 'none';
+                    if (noteCounterWrapper) noteCounterWrapper.style.display = 'none';
+                    if (noteWarning) noteWarning.style.display = 'none';
+                    if (document.getElementById('edit-note-btn')) {
+                        document.getElementById('edit-note-btn').style.display = 'flex';
+                    }
+                    
+                    console.log('[NOTE] Notatka zapisana pomyślnie');
+                    alert('Notatka została zaktualizowana');
+                } else {
+                    console.error('[NOTE] Błąd zapisu:', data.error);
+                    alert(data.error || 'Błąd podczas zapisu notatki');
+                }
+            } catch (error) {
+                console.error('[NOTE] Błąd sieci:', error);
+                alert('Wystąpił błąd podczas zapisywania notatki');
+            }
+        });
+    }
+
+    // Przycisk Anuluj
+    if (cancelNoteBtn) {
+        const newCancelBtn = cancelNoteBtn.cloneNode(true);
+        cancelNoteBtn.parentNode.replaceChild(newCancelBtn, cancelNoteBtn);
+        
+        newCancelBtn.addEventListener('click', function() {
+            console.log('[NOTE] Kliknięto przycisk Anuluj');
+            
+            // Przywróć oryginalną wartość
+            newTextarea.value = quoteData.notes || '';
+            
+            // Wyłącz tryb edycji
+            newTextarea.disabled = true;
+            if (noteActions) noteActions.style.display = 'none';
+            if (noteCounterWrapper) noteCounterWrapper.style.display = 'none';
+            if (noteWarning) noteWarning.style.display = 'none';
+            if (document.getElementById('edit-note-btn')) {
+                document.getElementById('edit-note-btn').style.display = 'flex';
+            }
+            
+            console.log('[NOTE] Anulowano edycję notatki');
+        });
+    }
+
+    console.log('[NOTE] Inicjalizacja obsługi notatki zakończona');
+}
 
 function showDetailsModal(quoteData) {
     console.log('[MODAL] Otwieranie szczegółów wyceny:', quoteData);
@@ -455,6 +615,9 @@ function showDetailsModal(quoteData) {
             });
         }
     }
+
+    // Inicjalizacja sekcji notatki
+    initializeNoteSection(quoteData);
 
     modal.classList.add('active');
     console.log('[MODAL] Modal powinien być teraz widoczny! Data:', quoteData);
@@ -2379,6 +2542,187 @@ async function refreshQuoteDetailsModal() {
     }
 }
 
+// ============================================
+// FUNKCJE DO ZARZĄDZANIA NOTATKĄ
+// ============================================
+
+let originalNoteValue = '';
+
+function initializeNoteSection(quoteData) {
+    console.log('[NOTE] Inicjalizacja sekcji notatki dla wyceny:', quoteData.id);
+
+    const textarea = document.getElementById('quote-note-textarea');
+    const editBtn = document.getElementById('edit-note-btn');
+    const saveBtn = document.getElementById('save-note-btn');
+    const cancelBtn = document.getElementById('cancel-note-btn');
+    const counterWrapper = document.querySelector('.note-counter-wrapper');
+    const counter = document.getElementById('quote-note-counter');
+    const actionsDiv = document.querySelector('.note-actions');
+    const warningDiv = document.getElementById('note-length-warning');
+
+    if (!textarea || !editBtn || !saveBtn || !cancelBtn) {
+        console.warn('[NOTE] Brak wymaganych elementów w DOM');
+        return;
+    }
+
+    // Wypełnij textarea wartością z bazy
+    const noteValue = quoteData.notes || '';
+    textarea.value = noteValue;
+    originalNoteValue = noteValue;
+
+    // Sprawdź czy wycena jest już w Baselinkerze
+    const isOrdered = quoteData.base_linker_order_id && quoteData.base_linker_order_id.trim() !== '';
+
+    if (isOrdered) {
+        // Jeśli zamówienie złożone, wyłącz edycję całkowicie
+        editBtn.disabled = true;
+        editBtn.style.display = 'none';
+        console.log('[NOTE] Wycena złożona w Baselinker - edycja wyłączona');
+    } else {
+        // Włącz możliwość edycji
+        editBtn.disabled = false;
+        editBtn.style.display = 'flex';
+    }
+
+    // Sprawdź długość notatki i pokaż ostrzeżenie jeśli > 180
+    updateNoteLengthWarning(noteValue, warningDiv);
+
+    // Event: Kliknięcie ikony ołówka - włączenie edycji
+    const newEditBtn = editBtn.cloneNode(true);
+    editBtn.parentNode.replaceChild(newEditBtn, editBtn);
+
+    newEditBtn.addEventListener('click', () => {
+        enableNoteEdit(textarea, newEditBtn, actionsDiv, counterWrapper, counter);
+    });
+
+    // Event: Zapisz notatkę
+    const newSaveBtn = saveBtn.cloneNode(true);
+    saveBtn.parentNode.replaceChild(newSaveBtn, saveBtn);
+
+    newSaveBtn.addEventListener('click', () => {
+        saveNoteEdit(quoteData.id, textarea, newEditBtn, actionsDiv, counterWrapper, warningDiv);
+    });
+
+    // Event: Anuluj edycję
+    const newCancelBtn = cancelBtn.cloneNode(true);
+    cancelBtn.parentNode.replaceChild(newCancelBtn, cancelBtn);
+
+    newCancelBtn.addEventListener('click', () => {
+        cancelNoteEdit(textarea, newEditBtn, actionsDiv, counterWrapper, warningDiv);
+    });
+
+    // Event: Licznik znaków podczas pisania
+    textarea.addEventListener('input', () => {
+        updateNoteCounter(textarea, counter, warningDiv);
+    });
+
+    console.log('[NOTE] Notatka zainicjalizowana:', {
+        value: noteValue,
+        length: noteValue.length,
+        isOrdered: isOrdered
+    });
+}
+
+function enableNoteEdit(textarea, editBtn, actionsDiv, counterWrapper, counter) {
+    console.log('[NOTE] Włączanie trybu edycji notatki');
+
+    textarea.disabled = false;
+    textarea.focus();
+    editBtn.style.display = 'none';
+    actionsDiv.style.display = 'flex';
+    counterWrapper.style.display = 'flex';
+
+    updateNoteCounter(textarea, counter);
+}
+
+function cancelNoteEdit(textarea, editBtn, actionsDiv, counterWrapper, warningDiv) {
+    console.log('[NOTE] Anulowanie edycji notatki');
+
+    textarea.value = originalNoteValue;
+    textarea.disabled = true;
+    editBtn.style.display = 'flex';
+    actionsDiv.style.display = 'none';
+    counterWrapper.style.display = 'none';
+
+    updateNoteLengthWarning(originalNoteValue, warningDiv);
+}
+
+async function saveNoteEdit(quoteId, textarea, editBtn, actionsDiv, counterWrapper, warningDiv) {
+    console.log('[NOTE] Zapisywanie notatki dla wyceny:', quoteId);
+
+    const newNote = textarea.value.trim();
+
+    try {
+        const response = await fetch(`/quotes/api/quotes/${quoteId}/note`, {
+            method: 'PATCH',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ notes: newNote })
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+            throw new Error(data.error || 'Błąd podczas zapisywania notatki');
+        }
+
+        // Sukces - zaktualizuj wartość oryginalną i wyłącz edycję
+        originalNoteValue = newNote;
+        textarea.disabled = true;
+        editBtn.style.display = 'flex';
+        actionsDiv.style.display = 'none';
+        counterWrapper.style.display = 'none';
+
+        // Zaktualizuj currentQuoteData
+        if (currentQuoteData) {
+            currentQuoteData.notes = newNote;
+        }
+
+        updateNoteLengthWarning(newNote, warningDiv);
+
+        showToast('Notatka została zapisana', 'success');
+        console.log('[NOTE] Notatka zapisana pomyślnie');
+
+    } catch (error) {
+        console.error('[NOTE] Błąd podczas zapisywania notatki:', error);
+        showToast(error.message || 'Błąd podczas zapisywania notatki', 'error');
+    }
+}
+
+function updateNoteCounter(textarea, counter, warningDiv) {
+    const currentLength = textarea.value.length;
+    const maxLength = 180;
+    const remaining = maxLength - currentLength;
+
+    counter.textContent = remaining;
+
+    const counterElement = counter.parentElement;
+    if (remaining <= 20) {
+        counterElement.classList.add('warning');
+    } else {
+        counterElement.classList.remove('warning');
+    }
+
+    // Zaktualizuj ostrzeżenie o długości
+    if (warningDiv) {
+        updateNoteLengthWarning(textarea.value, warningDiv);
+    }
+}
+
+function updateNoteLengthWarning(noteValue, warningDiv) {
+    if (!warningDiv) return;
+
+    const noteLength = noteValue.length;
+
+    if (noteLength > 180) {
+        warningDiv.style.display = 'flex';
+        console.log('[NOTE] Ostrzeżenie: notatka za długa (', noteLength, '/ 180)');
+    } else {
+        warningDiv.style.display = 'none';
+    }
+}
+
 // Funkcja toast notifications
 function showToast(message, type = 'success') {
     // Usuń istniejące toasty
@@ -3462,31 +3806,6 @@ if (!document.querySelector('style[data-bulk-variant-styles]')) {
         }
     `;
     document.head.appendChild(style);
-}
-
-
-// Dodaj też funkcję pomocniczą do odświeżania modala po zmianach
-async function refreshQuoteModal(quoteId) {
-    try {
-        console.log(`[refreshQuoteModal] Odświeżanie danych wyceny ${quoteId}`);
-
-        // Pobierz zaktualizowane dane wyceny
-        const response = await fetch(`/quotes/api/quotes/${quoteId}`);
-        if (!response.ok) {
-            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-        }
-
-        const updatedQuoteData = await response.json();
-
-        // Zaktualizuj modal z nowymi danymi
-        populateQuoteDetailsModal(updatedQuoteData);
-
-        console.log('[refreshQuoteModal] Modal został odświeżony');
-
-    } catch (error) {
-        console.error('[refreshQuoteModal] Błąd odświeżania modala:', error);
-        showNotification('Błąd podczas odświeżania danych. Odśwież stronę.', 'error');
-    }
 }
 
 // Funkcja pomocnicza do wyświetlania powiadomień (jeśli nie istnieje)

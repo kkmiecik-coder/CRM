@@ -470,6 +470,7 @@ document.addEventListener('DOMContentLoaded', function () {
         const clientPhone = document.querySelector('[name="client_phone"]')?.value?.trim() || null;
         const clientEmail = document.querySelector('[name="client_email"]')?.value?.trim() || null;
         const quoteSource = document.querySelector('[name="quote_source"]')?.value?.trim();
+        const quoteNote = document.getElementById('quote_note')?.value?.trim() || '';
 
         // Zbierz dane produktów
         const quoteData = collectQuoteData();
@@ -507,7 +508,8 @@ document.addEventListener('DOMContentLoaded', function () {
             shipping_cost_netto,
             shipping_cost_brutto,
             quote_client_type,
-            quote_multiplier
+            quote_multiplier,
+            quote_note: quoteNote
         };
 
         console.log("[save_quote.js] Payload:", payload);

@@ -26,10 +26,12 @@ def create_order(quote_id):
         quote = Quote.query.get_or_404(quote_id)
         
         baselinker_logger.debug("Pobrano wycenę do przetworzenia",
-                               quote_id=quote_id,
-                               quote_number=quote.quote_number,
-                               client_id=quote.client_id,
-                               status_id=quote.status_id)
+                            quote_id=quote_id,
+                            quote_number=quote.quote_number,
+                            client_id=quote.client_id,
+                            status_id=quote.status_id,
+                            notes=quote.notes,  # ✅ DODANE: Dodaj do logowania
+                            has_notes=bool(quote.notes and quote.notes.strip()))
         
         # Sprawdź czy wycena ma wybrane produkty
         selected_items = [item for item in quote.items if item.is_selected]
@@ -577,7 +579,8 @@ def get_order_modal_data(quote_id):
                 'courier_name': quote.courier_name,
                 'source': getattr(quote, 'source', ''),
                 'status_name': quote.quote_status.name if quote.quote_status else 'Nieznany',
-                'status_id': quote.status_id
+                'status_id': quote.status_id,
+                'notes': quote.notes or ''
             },
             'client': client_data,
             'products': products,

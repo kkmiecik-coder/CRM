@@ -587,8 +587,9 @@ def get_quote_details(quote_id):
             "is_client_editable": quote.is_client_editable,
             "base_linker_order_id": quote.base_linker_order_id,
             "public_url": quote.get_public_url(),
+            "notes": quote.notes or "",
 
-            # NOWE POLE: Informacje o użytkowniku akceptującym
+            # Informacje o użytkowniku akceptującym
             "accepted_by_user": {
                 "id": accepted_by_user.id if accepted_by_user else None,
                 "first_name": accepted_by_user.first_name if accepted_by_user else None,
