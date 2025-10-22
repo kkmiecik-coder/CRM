@@ -124,9 +124,9 @@ document.addEventListener("DOMContentLoaded", () => {
         let valid = true;
         let message = "";
         const val = parseFloat(el.value.replace(',', '.'));
-        if (field === "length" && (val < 1 || val > 450)) {
+        if (field === "length" && (val < 1 || val > 500)) {
             valid = false;
-            message = "Dostępny zakres: 1–450 cm";
+            message = "Dostępny zakres: 1–500 cm";
         }
         if (field === "width" && (val < 1 || val > 120)) {
             valid = false;
@@ -168,11 +168,22 @@ document.addEventListener("DOMContentLoaded", () => {
         const l = parseFloat(document.getElementById("length")?.value.replace(',', '.'));
         const w = parseFloat(document.getElementById("width")?.value.replace(',', '.'));
         const tRaw = document.getElementById("thickness")?.value;
-        if (!tRaw || tRaw.trim() === '') return;
+
+        // Sprawdź czy są dane do obliczenia
+        if (!tRaw || tRaw.trim() === '') {
+            return; // Nic nie rób jeśli brak danych
+        }
+
         const t = parseFloat(tRaw.replace(',', '.'));
         const q = parseInt(qtyInput?.value || "1");
-        if (isNaN(l) || isNaN(w) || isNaN(t) || isNaN(q)) return;
-        if (l > 450 || w > 120 || t > 8) return;
+
+        // Sprawdź czy dane są liczbami
+        if (isNaN(l) || isNaN(w) || isNaN(t) || isNaN(q)) {
+            return; // Nic nie rób jeśli nieprawidłowe dane
+        }
+
+        // Sprawdź zakres - jeśli poza zakresem, wyświetl "Brak ceny"
+        const isOutOfRange = l > 450 || w > 120 || t > 8;
 
         const tRounded = roundUpThickness(t);
         const vol = (l / 100) * (w / 100) * (tRounded / 100);
@@ -192,6 +203,18 @@ document.addEventListener("DOMContentLoaded", () => {
         container.innerHTML = "";
 
         variants.forEach(v => {
+            const div = document.createElement("div");
+            div.className = "variant-result";
+            const title = `${v.species} ${v.technology} ${v.wood_class}`;
+
+            // Jeśli poza zakresem, od razu wyświetl "Brak ceny"
+            if (isOutOfRange) {
+                div.innerHTML = `<p class='variant-title' style="font-size: 18px; font-weight: 600; color: #ED6B24;">${title}</p><p>Brak ceny</p>`;
+                container.appendChild(div);
+                return;
+            }
+
+            // Szukaj w cenniku
             const match = prices.find(p =>
                 p.species === v.species &&
                 p.technology === v.technology &&
@@ -201,10 +224,6 @@ document.addEventListener("DOMContentLoaded", () => {
                 lRounded >= p.length_min &&
                 lRounded <= p.length_max
             );
-
-            const div = document.createElement("div");
-            div.className = "variant-result";
-            const title = `${v.species} ${v.technology} ${v.wood_class}`;
 
             if (!match) {
                 div.innerHTML = `<p class='variant-title' style="font-size: 18px; font-weight: 600; color: #ED6B24;">${title}</p><p>Brak ceny</p>`;
@@ -217,8 +236,8 @@ document.addEventListener("DOMContentLoaded", () => {
                 div.innerHTML = `
                     <p class='variant-title' style="font-size: 18px; font-weight: 600; color: #ED6B24;">${title}</p>
                     <div style="display: flex; justify-content: space-between; font-size: 13px; font-weight: bold; margin-bottom: 4px;">
-                        <span>Cena za 1 szt.</span>
-                        <span style="text-align: left;">Cena za ${q} szt.</span>
+                        <span>Cena za 1 szt. surową</span>
+                        <span style="text-align: left;">Cena za ${q} szt. surowych</span>
                     </div>
                     <div style="display: flex; justify-content: space-between; font-size: 13px;">
                         <span>${brutto.toFixed(2)} PLN brutto</span>
@@ -236,7 +255,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
         const finishingSummary = document.getElementById("finishingSummary");
         if (finishingSummary) {
-            if (finishingType === "Brak" || !finishingVariant) {
+            if (finishingType === "Brak" || !finishingVariant || isOutOfRange) {
                 finishingSummary.innerHTML = "";
             } else {
                 const totalFinishingPrice = finishingCost * totalArea;
@@ -247,6 +266,12 @@ document.addEventListener("DOMContentLoaded", () => {
                     </div>
                 `;
             }
+        }
+
+        // Pokaż disclaimer zawsze gdy są wyświetlone jakiekolwiek wyniki
+        const disclaimer = document.getElementById("priceDisclaimer");
+        if (disclaimer) {
+            disclaimer.style.display = "block";
         }
     }
 
