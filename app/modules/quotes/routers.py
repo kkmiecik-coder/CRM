@@ -162,7 +162,6 @@ def quotes_home():
         FLEXIBLE_PARTNER_ALLOWED_MULTIPLIERS = {
             14: [5, 6],
             15: [5, 6],
-            16: [5, 6],
         }
         
         # Pobieranie mnożników z bazy - filtrowanie per user
