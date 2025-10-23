@@ -906,34 +906,39 @@ function updateCostsDisplay(quoteData) {
     updateBaselinkerSection(quoteData);
 }
 function updateBaselinkerSection(quoteData) {
-    // ZMIANA: Teraz używamy ID bloku zamiast sekcji wewnętrznej
+    console.log('[Baselinker] Aktualizacja sekcji zamówienia:', quoteData.base_linker_order_id);
+
     const orderBlock = document.getElementById('baselinker-order-block');
     const orderNumber = document.getElementById('baselinker-order-number');
     const orderLink = document.getElementById('baselinker-order-link');
     const orderStatus = document.getElementById('baselinker-order-status');
-    
+
     if (!orderBlock || !orderNumber || !orderLink || !orderStatus) {
-        console.warn('[updateBaselinkerSection] Brak elementów bloku zamówienia Baselinker');
+        console.warn('[Baselinker] Brak elementów bloku zamówienia Baselinker');
         return;
     }
-    
+
     // Sprawdź czy wycena ma zamówienie Baselinker
     if (quoteData.base_linker_order_id) {
-        orderBlock.style.display = 'block'; // ZMIANA: pokazujemy cały blok
+        orderBlock.style.display = 'block';
         orderNumber.textContent = `#${quoteData.base_linker_order_id}`;
         orderLink.href = `https://panel-f.baselinker.com/orders.php#order:${quoteData.base_linker_order_id}`;
-        
+
         // Pobierz status z Baselinker (asynchronicznie)
         fetchBaselinkerOrderStatus(quoteData.base_linker_order_id)
             .then(status => {
                 orderStatus.textContent = status || 'Nieznany';
             })
             .catch(error => {
-                console.error('[updateBaselinkerSection] Błąd pobierania statusu:', error);
+                console.error('[Baselinker] Błąd pobierania statusu:', error);
                 orderStatus.textContent = 'Błąd pobierania lub nie znaleziono zamówienia';
             });
+
+        // NOWE: Załaduj dokumenty sprzedaży
+        console.log('[Baselinker] Ładuję dokumenty sprzedaży...');
+        loadSalesDocuments(quoteData);
     } else {
-        orderBlock.style.display = 'none'; // ZMIANA: ukrywamy cały blok
+        orderBlock.style.display = 'none';
     }
 }
 
@@ -3830,4 +3835,416 @@ function showNotification(message, type = 'info') {
         // Dla typu 'info' tylko console.log
         console.info(`[Info] ${message}`);
     }
+}
+
+// ============================================
+// FUNKCJE DOKUMENTÓW SPRZEDAŻY BASELINKER
+// ============================================
+
+/**
+ * Główna funkcja ładująca dokumenty sprzedaży
+ */
+async function loadSalesDocuments(quoteData) {
+    console.log('[SalesDocuments] Rozpoczynam ładowanie dokumentów dla zamówienia:', quoteData.base_linker_order_id);
+
+    if (!quoteData.base_linker_order_id) {
+        console.warn('[SalesDocuments] Brak ID zamówienia Baselinker');
+        return;
+    }
+
+    // NOWE: Pokaż stan ładowania dla całej sekcji
+    showDocumentsLoading();
+
+    try {
+        // Wywołaj endpoint backendu
+        const response = await fetch(`/baselinker/api/order/${quoteData.base_linker_order_id}/sales-documents`);
+
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+        }
+
+        const data = await response.json();
+        console.log('[SalesDocuments] Otrzymano dane:', data);
+
+        // Sprawdź czy są JAKIEKOLWIEK dokumenty
+        const hasAnyDocument = data.invoice?.exists || data.correction?.exists || data.receipt?.exists;
+
+        if (!hasAnyDocument) {
+            // NOWE: Pokaż komunikat "brak dokumentów"
+            showNoDocumentsMessage();
+        } else {
+            // NOWE: Pokaż tylko te dokumenty które istnieją
+            showAvailableDocuments(data, quoteData.id);
+        }
+
+        // Zawsze aktualizuj order_page
+        updateOrderPageLink(data.order_page);
+
+    } catch (error) {
+        console.error('[SalesDocuments] Błąd pobierania dokumentów:', error);
+        showDocumentsError(error.message);
+    }
+}
+
+/**
+ * Ustawia stan ładowania dla dokumentu
+ */
+function setDocumentLoading(docType) {
+    const btn = document.getElementById(`baselinker-${docType}-btn`);
+    const valueSpan = document.getElementById(`baselinker-${docType}-value`);
+
+    if (!btn || !valueSpan) return;
+
+    btn.className = 'doc-btn doc-loading';
+    btn.dataset.status = 'loading';
+    btn.disabled = true;
+    valueSpan.textContent = 'Ładowanie...';
+
+    console.log(`[SalesDocuments] ${docType}: ustawiono stan ładowania`);
+}
+
+/**
+ * Ustawia błąd dla dokumentu
+ */
+function setDocumentError(docType, errorMessage) {
+    const btn = document.getElementById(`baselinker-${docType}-btn`);
+    const valueSpan = document.getElementById(`baselinker-${docType}-value`);
+
+    if (!btn || !valueSpan) return;
+
+    btn.className = 'doc-btn doc-error';
+    btn.dataset.status = 'error';
+    btn.disabled = true;
+    btn.title = `Błąd: ${errorMessage}`;
+    valueSpan.textContent = 'Błąd pobierania';
+
+    console.error(`[SalesDocuments] ${docType}: błąd - ${errorMessage}`);
+}
+
+/**
+ * Aktualizuje wyświetlanie faktury
+ */
+function updateInvoiceDisplay(invoiceData, quoteId) {
+    console.log('[SalesDocuments] Aktualizacja faktury:', invoiceData);
+
+    const btn = document.getElementById('baselinker-invoice-btn');
+    const valueSpan = document.getElementById('baselinker-invoice-value');
+
+    if (!btn || !valueSpan) {
+        console.warn('[SalesDocuments] Brak elementów faktury w DOM');
+        return;
+    }
+
+    if (!invoiceData || !invoiceData.exists) {
+        // ZMIANA: Ukryj przycisk zamiast pokazywać "Niewystawiona"
+        btn.style.display = 'none';
+        console.log('[SalesDocuments] Faktura: nie wystawiona - ukryto');
+    } else {
+        // Faktura dostępna - pokaż
+        btn.style.display = 'flex';
+        btn.className = 'doc-btn doc-ready';
+        btn.dataset.status = 'ready';
+        btn.disabled = false;
+        valueSpan.textContent = invoiceData.number;
+
+        // Usuń stare event listenery i dodaj nowy
+        const newBtn = btn.cloneNode(true);
+        btn.parentNode.replaceChild(newBtn, btn);
+
+        newBtn.addEventListener('click', () => {
+            console.log('[SalesDocuments] Klik faktury - pobieranie PDF');
+            downloadInvoice(quoteId);
+        });
+
+        console.log(`[SalesDocuments] Faktura: gotowa (${invoiceData.number})`);
+    }
+}
+
+/**
+ * Aktualizuje wyświetlanie korekty
+ */
+function updateCorrectionDisplay(correctionData, quoteId) {
+    console.log('[SalesDocuments] Aktualizacja korekty:', correctionData);
+
+    const btn = document.getElementById('baselinker-correction-btn');
+    const valueSpan = document.getElementById('baselinker-correction-value');
+
+    if (!btn || !valueSpan) {
+        console.warn('[SalesDocuments] Brak elementów korekty w DOM');
+        return;
+    }
+
+    if (!correctionData || !correctionData.exists) {
+        // Korekta nie istnieje - ukryj
+        btn.style.display = 'none';
+        console.log('[SalesDocuments] Korekta: brak - ukryto');
+    } else {
+        // Korekta istnieje - pokaż
+        btn.style.display = 'flex';
+        btn.className = 'doc-btn doc-ready';
+        btn.dataset.status = 'ready';
+        btn.disabled = false;
+        valueSpan.textContent = correctionData.number;
+
+        // Usuń stare event listenery i dodaj nowy
+        const newBtn = btn.cloneNode(true);
+        btn.parentNode.replaceChild(newBtn, btn);
+
+        newBtn.addEventListener('click', () => {
+            console.log('[SalesDocuments] Klik korekty - pobieranie PDF');
+            downloadCorrection(quoteId);
+        });
+
+        console.log(`[SalesDocuments] Korekta: gotowa (${correctionData.number})`);
+    }
+}
+
+/**
+ * Aktualizuje wyświetlanie e-paragonu
+ */
+function updateReceiptDisplay(receiptData) {
+    console.log('[SalesDocuments] Aktualizacja e-paragonu:', receiptData);
+
+    const btn = document.getElementById('baselinker-receipt-btn');
+    const valueSpan = document.getElementById('baselinker-receipt-value');
+
+    if (!btn || !valueSpan) {
+        console.warn('[SalesDocuments] Brak elementów e-paragonu w DOM');
+        return;
+    }
+
+    if (!receiptData || !receiptData.exists) {
+        // E-paragon nie istnieje - ukryj
+        btn.style.display = 'none';
+        console.log('[SalesDocuments] E-paragon: brak - ukryto');
+    } else {
+        // E-paragon istnieje - pokaż
+        btn.style.display = 'flex';
+        btn.className = 'doc-btn doc-ready';
+        btn.dataset.status = 'ready';
+        btn.disabled = false;
+        valueSpan.textContent = 'Otwórz';
+
+        // Usuń stare event listenery i dodaj nowy
+        const newBtn = btn.cloneNode(true);
+        btn.parentNode.replaceChild(newBtn, btn);
+
+        newBtn.addEventListener('click', () => {
+            console.log('[SalesDocuments] Klik e-paragonu - otwieranie URL:', receiptData.url);
+            window.open(receiptData.url, '_blank', 'noopener,noreferrer');
+        });
+
+        console.log(`[SalesDocuments] E-paragon: gotowy (${receiptData.url})`);
+    }
+}
+
+/**
+ * Aktualizuje link strony informacyjnej zamówienia
+ */
+function updateOrderPageLink(orderPageUrl) {
+    console.log('[SalesDocuments] Aktualizacja order_page:', orderPageUrl);
+
+    const pageBtn = document.getElementById('baselinker-order-page-btn');
+
+    if (!pageBtn) {
+        console.warn('[SalesDocuments] Brak przycisku order_page w DOM');
+        return;
+    }
+
+    if (orderPageUrl) {
+        pageBtn.href = orderPageUrl;
+        pageBtn.style.display = 'inline-flex';
+        console.log('[SalesDocuments] Order page: link ustawiony');
+    } else {
+        pageBtn.style.display = 'none';
+        console.log('[SalesDocuments] Order page: brak URL - ukryto');
+    }
+}
+
+/**
+ * Pobiera PDF faktury
+ */
+async function downloadInvoice(quoteId) {
+    console.log('[SalesDocuments] Pobieranie faktury dla wyceny:', quoteId);
+
+    try {
+        const response = await fetch(`/quotes/api/quotes/${quoteId}/invoice/download`);
+
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+        }
+
+        // Pobierz blob PDF
+        const blob = await response.blob();
+
+        // Wyodrębnij nazwę pliku z headera Content-Disposition
+        const contentDisposition = response.headers.get('Content-Disposition');
+        let filename = 'Faktura.pdf';
+
+        if (contentDisposition) {
+            const filenameMatch = contentDisposition.match(/filename="?(.+?)"?$/);
+            if (filenameMatch) {
+                filename = filenameMatch[1];
+            }
+        }
+
+        // Utwórz URL do pobierania
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+
+        // Cleanup
+        window.URL.revokeObjectURL(url);
+        document.body.removeChild(a);
+
+        console.log('[SalesDocuments] Faktura pobrana:', filename);
+        showToast('Faktura została pobrana', 'success');
+
+    } catch (error) {
+        console.error('[SalesDocuments] Błąd pobierania faktury:', error);
+        showToast('Błąd pobierania faktury', 'error');
+    }
+}
+
+/**
+ * Pobiera PDF korekty
+ */
+async function downloadCorrection(quoteId) {
+    console.log('[SalesDocuments] Pobieranie korekty dla wyceny:', quoteId);
+
+    try {
+        const response = await fetch(`/quotes/api/quotes/${quoteId}/correction/download`);
+
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+        }
+
+        // Pobierz blob PDF
+        const blob = await response.blob();
+
+        // Wyodrębnij nazwę pliku z headera Content-Disposition
+        const contentDisposition = response.headers.get('Content-Disposition');
+        let filename = 'Korekta.pdf';
+
+        if (contentDisposition) {
+            const filenameMatch = contentDisposition.match(/filename="?(.+?)"?$/);
+            if (filenameMatch) {
+                filename = filenameMatch[1];
+            }
+        }
+
+        // Utwórz URL do pobierania
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+
+        // Cleanup
+        window.URL.revokeObjectURL(url);
+        document.body.removeChild(a);
+
+        console.log('[SalesDocuments] Korekta pobrana:', filename);
+        showToast('Korekta została pobrana', 'success');
+
+    } catch (error) {
+        console.error('[SalesDocuments] Błąd pobierania korekty:', error);
+        showToast('Błąd pobierania korekty', 'error');
+    }
+}
+
+/**
+* Pokazuje stan ładowania dla dokumentów
+*/
+function showDocumentsLoading() {
+    console.log('[SalesDocuments] Pokazuję stan ładowania');
+
+    // Ukryj wszystkie przyciski dokumentów
+    const invoiceBtn = document.getElementById('baselinker-invoice-btn');
+    const correctionBtn = document.getElementById('baselinker-correction-btn');
+    const receiptBtn = document.getElementById('baselinker-receipt-btn');
+
+    if (invoiceBtn) invoiceBtn.style.display = 'none';
+    if (correctionBtn) correctionBtn.style.display = 'none';
+    if (receiptBtn) receiptBtn.style.display = 'none';
+
+    // Pokaż komunikat ładowania
+    showDocumentsMessage('Ładowanie dokumentów...', 'loading');
+}
+
+/**
+ * Pokazuje komunikat "brak dokumentów"
+ */
+function showNoDocumentsMessage() {
+    console.log('[SalesDocuments] Pokazuję komunikat: brak dokumentów');
+    showDocumentsMessage('Brak wystawionych dokumentów sprzedaży', 'info');
+}
+
+/**
+ * Pokazuje komunikat o błędzie
+ */
+function showDocumentsError(errorMessage) {
+    console.error('[SalesDocuments] Pokazuję błąd:', errorMessage);
+    showDocumentsMessage('Błąd pobierania lub brak zamówienia w Base.', 'error');
+}
+
+/**
+ * Wyświetla komunikat w sekcji dokumentów
+ */
+function showDocumentsMessage(message, type = 'info') {
+    // Usuń istniejący komunikat jeśli jest
+    const existingMessage = document.querySelector('.documents-message');
+    if (existingMessage) {
+        existingMessage.remove();
+    }
+
+    // Znajdź sekcję dokumentów (container dla przycisków)
+    const invoiceBtn = document.getElementById('baselinker-invoice-btn');
+    if (!invoiceBtn || !invoiceBtn.parentElement) {
+        console.warn('[SalesDocuments] Nie znaleziono kontenera dokumentów');
+        return;
+    }
+
+    const container = invoiceBtn.parentElement;
+
+    // Utwórz komunikat
+    const messageDiv = document.createElement('div');
+    messageDiv.className = `documents-message documents-message-${type}`;
+    messageDiv.innerHTML = `
+        <div class="documents-message-content">
+            ${type === 'loading' ? '<div class="documents-spinner"></div>' : ''}
+            <span class="documents-message-text">${message}</span>
+        </div>
+    `;
+
+    // Dodaj na początku kontenera
+    container.insertBefore(messageDiv, container.firstChild);
+}
+
+/**
+ * Pokazuje tylko dostępne dokumenty
+ */
+function showAvailableDocuments(data, quoteId) {
+    console.log('[SalesDocuments] Pokazuję dostępne dokumenty');
+
+    // Usuń komunikat ładowania/błędu jeśli istnieje
+    const existingMessage = document.querySelector('.documents-message');
+    if (existingMessage) {
+        existingMessage.remove();
+    }
+
+    // Aktualizuj wyświetlanie dla każdego dokumentu
+    updateInvoiceDisplay(data.invoice, quoteId);
+    updateCorrectionDisplay(data.correction, quoteId);
+    updateReceiptDisplay(data.receipt);
+
+    console.log('[SalesDocuments] Dokumenty wyświetlone:', {
+        invoice: data.invoice?.exists,
+        correction: data.correction?.exists,
+        receipt: data.receipt?.exists
+    });
 }

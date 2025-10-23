@@ -936,21 +936,21 @@ class BaselinkerService:
     def get_sales_documents(self, order_id: int, quote_id: int) -> Dict:
         """
         Pobiera wszystkie dokumenty sprzedaży dla zamówienia (faktura, korekta, e-paragon)
-        
+    
         Args:
             order_id: ID zamówienia w Baselinker
             quote_id: ID wyceny w CRM
-            
+        
         Returns:
             Dict z danymi dokumentów lub błędem
         """
         self.logger.info("Pobieranie dokumentów sprzedaży",
                         order_id=order_id,
                         quote_id=quote_id)
-        
+    
         try:
             from modules.calculator.models import Quote
-            
+        
             # Pobierz wycenę z bazy
             quote = Quote.query.get(quote_id)
             if not quote:
@@ -960,7 +960,7 @@ class BaselinkerService:
                     'error': 'Wycena nie znaleziona',
                     'code': 'QUOTE_NOT_FOUND'
                 }
-            
+        
             result = {
                 'status': 'success',
                 'order_page': None,
@@ -968,7 +968,53 @@ class BaselinkerService:
                 'correction': {'exists': False},
                 'receipt': {'exists': False}
             }
-            
+        
+            # ============================================
+            # OPTYMALIZACJA: Pobierz zamówienie RAZ z custom_extra_fields
+            # ============================================
+            self.logger.info("Pobieranie szczegółów zamówienia z custom_extra_fields", 
+                            order_id=order_id)
+        
+            order_response = self._make_request('getOrders', {
+                'order_id': order_id,
+                'include_custom_extra_fields': True  # ✅ Pobierz wszystko naraz
+            })
+        
+            if order_response.get('status') != 'SUCCESS':
+                self.logger.error("Nie udało się pobrać szczegółów zamówienia",
+                                order_id=order_id,
+                                error=order_response.get('error_message'))
+                return {
+                    'status': 'error',
+                    'error': 'Nie udało się pobrać szczegółów zamówienia',
+                    'code': 'ORDER_FETCH_FAILED'
+                }
+        
+            orders = order_response.get('orders', [])
+            if not orders:
+                self.logger.error("Zamówienie nie znalezione", order_id=order_id)
+                return {
+                    'status': 'error',
+                    'error': 'Zamówienie nie znalezione',
+                    'code': 'ORDER_NOT_FOUND'
+                }
+        
+            order_data = orders[0]
+        
+            self.logger.debug("Pobrano szczegóły zamówienia",
+                             order_id=order_id,
+                             has_custom_fields=bool(order_data.get('custom_extra_fields')),
+                             custom_fields_count=len(order_data.get('custom_extra_fields', {})))
+        
+            # ============================================
+            # STRONA INFORMACYJNA - zapisz od razu
+            # ============================================
+            order_page = order_data.get('order_page')
+            if order_page:
+                quote.baselinker_order_page = order_page
+                result['order_page'] = order_page
+                self.logger.debug("Zapisano order_page", order_page=order_page)
+        
             # ============================================
             # FAKTURA - sprawdź cache, pobierz jeśli brak
             # ============================================
@@ -986,36 +1032,30 @@ class BaselinkerService:
                 # Pobierz fakturę z API
                 invoice_data = self._fetch_invoice(order_id, quote)
                 result['invoice'] = invoice_data
-            
+        
             # ============================================
             # KOREKTA - zawsze sprawdzaj (może się pojawić)
             # ============================================
             correction_data = self._fetch_correction(order_id, quote)
             result['correction'] = correction_data
-            
+        
             # ============================================
-            # E-PARAGON - zawsze sprawdzaj
+            # E-PARAGON - przekaż order_data zamiast wywoływać API ponownie
             # ============================================
-            receipt_data = self._fetch_receipt(order_id, quote)
+            receipt_data = self._fetch_receipt_from_order_data(order_data, quote)
             result['receipt'] = receipt_data
-            
-            # ============================================
-            # STRONA INFORMACYJNA - z getOrders
-            # ============================================
-            if quote.baselinker_order_page:
-                result['order_page'] = quote.baselinker_order_page
-            
+        
             # Zapisz zmiany w bazie
             db.session.commit()
-            
+        
             self.logger.info("Dokumenty sprzedaży pobrane pomyślnie",
                            order_id=order_id,
                            has_invoice=result['invoice']['exists'],
                            has_correction=result['correction']['exists'],
                            has_receipt=result['receipt']['exists'])
-            
+        
             return result
-            
+        
         except Exception as e:
             self.logger.error("Błąd podczas pobierania dokumentów sprzedaży",
                             order_id=order_id,
@@ -1186,65 +1226,58 @@ class BaselinkerService:
             quote.baselinker_correction_last_check = datetime.utcnow()
             return {'exists': False, 'error': str(e)}
     
-    def _fetch_receipt(self, order_id: int, quote) -> Dict:
-        """Pobiera URL e-paragonu z extra_field_78400"""
-        self.logger.info("Sprawdzanie e-paragonu", order_id=order_id)
+    def _fetch_receipt_from_order_data(self, order_data: Dict, quote) -> Dict:
+        """
+        Pobiera URL e-paragonu z już pobranych danych zamówienia
+    
+        Args:
+            order_data: Dane zamówienia z getOrders (z custom_extra_fields)
+            quote: Obiekt Quote z bazy danych
         
+        Returns:
+            Dict z informacją o e-paragonie
+        """
+        self.logger.info("Sprawdzanie e-paragonu w danych zamówienia")
+    
         try:
-            # Użyj istniejącej metody get_order_details
-            result = self.get_order_details(order_id)
-            
             from datetime import datetime
-            
-            if not result.get('success'):
+        
+            # Pobierz custom_extra_fields z już pobranych danych
+            custom_fields = order_data.get('custom_extra_fields', {})
+        
+            self.logger.debug("Custom extra fields",
+                             fields_count=len(custom_fields),
+                             field_ids=list(custom_fields.keys()) if custom_fields else [])
+        
+            # Pobierz wartość pola 78400 (e-paragon)
+            receipt_url = custom_fields.get('78400', '').strip()
+        
+            self.logger.info("Wartość pola 78400 (e-paragon)",
+                            receipt_url=receipt_url if receipt_url else 'EMPTY')
+        
+            if not receipt_url:
+                self.logger.info("E-paragon nie został wystawiony (pole 78400 puste)")
                 quote.baselinker_receipt_last_check = datetime.utcnow()
                 return {'exists': False}
-            
-            order = result.get('order', {})
-            
-            # Zapisz order_page (strona informacyjna)
-            order_page = order.get('order_page')
-            if order_page:
-                quote.baselinker_order_page = order_page
-            
-            # WAŻNE: Pobierz pełne dane zamówienia z extra_fields
-            # get_order_details zwraca tylko podstawowe dane, musimy wywołać getOrders ponownie
-            full_response = self._make_request('getOrders', {'order_id': order_id})
-            
-            if full_response.get('status') != 'SUCCESS':
-                quote.baselinker_receipt_last_check = datetime.utcnow()
-                return {'exists': False}
-            
-            orders = full_response.get('orders', [])
-            if not orders:
-                quote.baselinker_receipt_last_check = datetime.utcnow()
-                return {'exists': False}
-            
-            full_order = orders[0]
-            
-            # Pobierz URL e-paragonu z extra_field_78400
-            receipt_url = full_order.get('extra_field_78400')
-            
-            if not receipt_url or receipt_url.strip() == '':
-                self.logger.info("E-paragon nie został wystawiony", order_id=order_id)
-                quote.baselinker_receipt_last_check = datetime.utcnow()
-                return {'exists': False}
-            
-            # Zapisz URL e-paragonu
+        
+            # Zapisz URL e-paragonu w bazie
             quote.baselinker_receipt_url = receipt_url
             quote.baselinker_receipt_last_check = datetime.utcnow()
-            
-            self.logger.info("E-paragon znaleziony", receipt_url=receipt_url)
-            
+        
+            self.logger.info("E-paragon znaleziony w polu 78400", 
+                            receipt_url=receipt_url)
+        
             return {
                 'exists': True,
                 'url': receipt_url
             }
-            
+        
         except Exception as e:
-            self.logger.error("Wyjątek podczas pobierania e-paragonu",
-                            order_id=order_id,
+            self.logger.error("Wyjątek podczas przetwarzania e-paragonu",
                             error=str(e))
+            import traceback
+            self.logger.debug("Stack trace", traceback=traceback.format_exc())
+        
             from datetime import datetime
             quote.baselinker_receipt_last_check = datetime.utcnow()
             return {'exists': False, 'error': str(e)}

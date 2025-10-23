@@ -132,6 +132,53 @@
                     </a>
                 </p>
                 <p><strong>Status BL:</strong> <span id="baselinker-order-status">Pobieranie...</span></p>
+
+                <p><strong>Dok. sprzedaży:</strong></p>
+                <div class="sales-documents-list">
+                    <!-- Faktura -->
+                    <button id="baselinker-invoice-btn"
+                            class="doc-btn doc-loading"
+                            data-status="loading"
+                            disabled>
+                        <span class="doc-icon">📄</span>
+                        <span class="doc-label">Faktura:</span>
+                        <span id="baselinker-invoice-value" class="doc-value">Ładowanie...</span>
+                    </button>
+
+                    <!-- Korekta (ukryta domyślnie) -->
+                    <button id="baselinker-correction-btn"
+                            class="doc-btn doc-loading"
+                            data-status="loading"
+                            style="display: none;"
+                            disabled>
+                        <span class="doc-icon">⚠️</span>
+                        <span class="doc-label">Korekta:</span>
+                        <span id="baselinker-correction-value" class="doc-value">Ładowanie...</span>
+                    </button>
+
+                    <!-- E-paragon (ukryty domyślnie) -->
+                    <button id="baselinker-receipt-btn"
+                            class="doc-btn doc-loading"
+                            data-status="loading"
+                            style="display: none;"
+                            disabled>
+                        <span class="doc-icon">🧾</span>
+                        <span class="doc-label">E-paragon:</span>
+                        <span id="baselinker-receipt-value" class="doc-value">Ładowanie...</span>
+                    </button>
+                </div>
+
+                <!-- Strona informacyjna -->
+                <p style="margin-top: 15px;">
+                    <a id="baselinker-order-page-btn"
+                       href="#"
+                       target="_blank"
+                       rel="noopener noreferrer"
+                       class="quotes-btn quotes-btn-secondary"
+                       style="display: none;">
+                        📋 Strona informacyjna zamówienia
+                    </a>
+                </p>
             </div>
 
             <div class="modal-block modal-block-note">

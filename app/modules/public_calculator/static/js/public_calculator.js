@@ -5,6 +5,9 @@ console.log("[public_calculator.js] załadowany!");
 document.addEventListener("DOMContentLoaded", () => {
     const prices = JSON.parse(document.getElementById("prices-data")?.textContent || "[]");
 
+    // pobieranie mnożnika z routingu:
+    const priceMultiplier = parseFloat(document.getElementById("price-multiplier")?.textContent || "1.3");
+
     const variants = [
         { species: "Dąb", technology: "Lity", wood_class: "A/B" },
         { species: "Dąb", technology: "Lity", wood_class: "B/B" },
@@ -273,7 +276,7 @@ document.addEventListener("DOMContentLoaded", () => {
                     </div>
                 `;
             } else {
-                const netto = match.price_per_m3 * vol * 1.3;
+                const netto = match.price_per_m3 * vol * priceMultiplier;
                 const brutto = netto * 1.23;
                 const totalNetto = netto * q;
                 const totalBrutto = brutto * q;
