@@ -8,6 +8,7 @@ from flask import current_app, session, request
 from extensions import db
 from .models import BaselinkerOrderLog, BaselinkerConfig
 from modules.logging import get_structured_logger
+from datetime import datetime
 
 class BaselinkerService:
     """Serwis do komunikacji z API Baselinker"""
@@ -927,3 +928,323 @@ class BaselinkerService:
                             weight_kg=weight)
             return weight
         return 0.0
+
+# ============================================
+# sprawdzaj dokumenty sprzedaży - faktura, korekta, e-paragon - modal szczegółów wyceny
+# ============================================
+
+    def get_sales_documents(self, order_id: int, quote_id: int) -> Dict:
+        """
+        Pobiera wszystkie dokumenty sprzedaży dla zamówienia (faktura, korekta, e-paragon)
+        
+        Args:
+            order_id: ID zamówienia w Baselinker
+            quote_id: ID wyceny w CRM
+            
+        Returns:
+            Dict z danymi dokumentów lub błędem
+        """
+        self.logger.info("Pobieranie dokumentów sprzedaży",
+                        order_id=order_id,
+                        quote_id=quote_id)
+        
+        try:
+            from modules.calculator.models import Quote
+            
+            # Pobierz wycenę z bazy
+            quote = Quote.query.get(quote_id)
+            if not quote:
+                self.logger.error("Wycena nie znaleziona", quote_id=quote_id)
+                return {
+                    'status': 'error',
+                    'error': 'Wycena nie znaleziona',
+                    'code': 'QUOTE_NOT_FOUND'
+                }
+            
+            result = {
+                'status': 'success',
+                'order_page': None,
+                'invoice': {'exists': False},
+                'correction': {'exists': False},
+                'receipt': {'exists': False}
+            }
+            
+            # ============================================
+            # FAKTURA - sprawdź cache, pobierz jeśli brak
+            # ============================================
+            if quote.has_invoice():
+                # Faktura w cache - użyj bez wywoływania API
+                self.logger.info("Faktura w cache", 
+                               invoice_number=quote.baselinker_invoice_number)
+                result['invoice'] = {
+                    'exists': True,
+                    'invoice_id': quote.baselinker_invoice_id,
+                    'number': quote.baselinker_invoice_number,
+                    'file_base64': quote.baselinker_invoice_file
+                }
+            else:
+                # Pobierz fakturę z API
+                invoice_data = self._fetch_invoice(order_id, quote)
+                result['invoice'] = invoice_data
+            
+            # ============================================
+            # KOREKTA - zawsze sprawdzaj (może się pojawić)
+            # ============================================
+            correction_data = self._fetch_correction(order_id, quote)
+            result['correction'] = correction_data
+            
+            # ============================================
+            # E-PARAGON - zawsze sprawdzaj
+            # ============================================
+            receipt_data = self._fetch_receipt(order_id, quote)
+            result['receipt'] = receipt_data
+            
+            # ============================================
+            # STRONA INFORMACYJNA - z getOrders
+            # ============================================
+            if quote.baselinker_order_page:
+                result['order_page'] = quote.baselinker_order_page
+            
+            # Zapisz zmiany w bazie
+            db.session.commit()
+            
+            self.logger.info("Dokumenty sprzedaży pobrane pomyślnie",
+                           order_id=order_id,
+                           has_invoice=result['invoice']['exists'],
+                           has_correction=result['correction']['exists'],
+                           has_receipt=result['receipt']['exists'])
+            
+            return result
+            
+        except Exception as e:
+            self.logger.error("Błąd podczas pobierania dokumentów sprzedaży",
+                            order_id=order_id,
+                            quote_id=quote_id,
+                            error=str(e),
+                            error_type=type(e).__name__)
+            import traceback
+            self.logger.debug("Stack trace błędu", traceback=traceback.format_exc())
+            return {
+                'status': 'error',
+                'error': str(e),
+                'code': 'GENERAL_ERROR'
+            }
+    
+    def _fetch_invoice(self, order_id: int, quote) -> Dict:
+        """Pobiera fakturę z API Baselinker i zapisuje w cache"""
+        self.logger.info("Pobieranie faktury z API", order_id=order_id)
+        
+        try:
+            # Wywołaj API getInvoices
+            response = self._make_request('getInvoices', {'order_id': order_id})
+            
+            if response.get('status') != 'SUCCESS':
+                self.logger.warning("API getInvoices zwróciło błąd",
+                                  order_id=order_id,
+                                  error=response.get('error_message'))
+                return {'exists': False}
+            
+            invoices = response.get('invoices', [])
+
+            # DEBUG: Wypisz wszystkie faktury
+            self.logger.info(f"DEBUG: Znalezione faktury: {invoices}")
+            print(f"[DEBUG INVOICES] {invoices}", file=sys.stderr)
+            
+            # Znajdź fakturę (type="normal" lub type="vat")
+            invoice = next((inv for inv in invoices 
+                        if inv.get('type') in ['INVOICE', 'NORMAL', 'VAT', 'normal', 'vat', 'invoice']), None)
+            
+            if not invoice:
+                self.logger.info("Faktura nie została jeszcze wystawiona", order_id=order_id)
+                return {'exists': False}
+            
+            invoice_id = invoice.get('invoice_id')
+            invoice_number = invoice.get('invoice_number') or invoice.get('number')
+            
+            # Pobierz plik PDF faktury
+            file_response = self._make_request('getInvoiceFile', {
+                'invoice_id': invoice_id
+            })
+
+            # DEBUG: Sprawdź całą odpowiedź
+            self.logger.info(f"DEBUG: Klucze w file_response: {file_response.keys()}")
+            self.logger.info(f"DEBUG: Cała odpowiedź getInvoiceFile: {file_response}")
+            
+            if file_response.get('status') != 'SUCCESS':
+                self.logger.error("Błąd pobierania pliku faktury",
+                                invoice_id=invoice_id,
+                                error=file_response.get('error_message'))
+                return {'exists': False}
+            
+            invoice_file = file_response.get('invoice')
+
+            self.logger.info(f"DEBUG: Typ invoice_file: {type(invoice_file)}")
+            self.logger.info(f"DEBUG: Czy invoice_file jest None? {invoice_file is None}")
+            if invoice_file:
+                self.logger.info(f"DEBUG: Długość: {len(invoice_file)}")
+                self.logger.info(f"DEBUG: Pierwsze 50 znaków: {invoice_file[:50]}")
+            
+            # Zapisz fakturę w cache (baza danych)
+            from datetime import datetime
+            quote.baselinker_invoice_id = invoice_id
+            quote.baselinker_invoice_number = invoice_number
+            quote.baselinker_invoice_file = invoice_file
+            quote.baselinker_invoice_fetched_at = datetime.utcnow()
+            
+            self.logger.info("Faktura zapisana w cache",
+                           invoice_id=invoice_id,
+                           invoice_number=invoice_number)
+            
+            return {
+                'exists': True,
+                'invoice_id': invoice_id,
+                'number': invoice_number,
+                'file_base64': invoice_file
+            }
+            
+        except Exception as e:
+            self.logger.error("Wyjątek podczas pobierania faktury",
+                            order_id=order_id,
+                            error=str(e))
+            return {'exists': False, 'error': str(e)}
+    
+    def _fetch_correction(self, order_id: int, quote) -> Dict:
+        """Pobiera korektę faktury z API Baselinker"""
+        self.logger.info("Sprawdzanie korekty faktury", order_id=order_id)
+        
+        try:
+            # Wywołaj API getInvoices
+            response = self._make_request('getInvoices', {'order_id': order_id})
+            
+            if response.get('status') != 'SUCCESS':
+                from datetime import datetime
+                quote.baselinker_correction_last_check = datetime.utcnow()
+                return {'exists': False}
+            
+            invoices = response.get('invoices', [])
+            
+            # Znajdź korektę (type="correction" lub type="corrective")
+            correction = next((inv for inv in invoices 
+                             if inv.get('type') in ['CORRECTION', 'CORRECTIVE', 'correction', 'corrective']), None)
+            
+            if not correction:
+                self.logger.info("Korekta nie została wystawiona", order_id=order_id)
+                from datetime import datetime
+                quote.baselinker_correction_last_check = datetime.utcnow()
+                return {'exists': False}
+            
+            correction_id = correction.get('invoice_id')
+            correction_number = correction.get('invoice_number') or correction.get('number')
+            
+            # Jeśli korekta już w cache - zwróć z cache
+            if quote.baselinker_correction_invoice_number == correction_number:
+                self.logger.info("Korekta w cache", correction_number=correction_number)
+                from datetime import datetime
+                quote.baselinker_correction_last_check = datetime.utcnow()
+                return {
+                    'exists': True,
+                    'invoice_id': correction_id,
+                    'number': correction_number,
+                    'file_base64': quote.baselinker_correction_invoice_file
+                }
+            
+            # Pobierz plik PDF korekty
+            file_response = self._make_request('getInvoiceFile', {
+                'invoice_id': correction_id
+            })
+            
+            if file_response.get('status') != 'SUCCESS':
+                from datetime import datetime
+                quote.baselinker_correction_last_check = datetime.utcnow()
+                return {'exists': False}
+            
+            correction_file = file_response.get('invoice')
+            
+            # Zapisz korektę w cache
+            from datetime import datetime
+            quote.baselinker_correction_invoice_id = correction_id
+            quote.baselinker_correction_invoice_number = correction_number
+            quote.baselinker_correction_invoice_file = correction_file
+            quote.baselinker_correction_last_check = datetime.utcnow()
+            
+            self.logger.info("Korekta zapisana w cache",
+                           correction_id=correction_id,
+                           correction_number=correction_number)
+            
+            return {
+                'exists': True,
+                'invoice_id': correction_id,
+                'number': correction_number,
+                'file_base64': correction_file
+            }
+            
+        except Exception as e:
+            self.logger.error("Wyjątek podczas pobierania korekty",
+                            order_id=order_id,
+                            error=str(e))
+            from datetime import datetime
+            quote.baselinker_correction_last_check = datetime.utcnow()
+            return {'exists': False, 'error': str(e)}
+    
+    def _fetch_receipt(self, order_id: int, quote) -> Dict:
+        """Pobiera URL e-paragonu z extra_field_78400"""
+        self.logger.info("Sprawdzanie e-paragonu", order_id=order_id)
+        
+        try:
+            # Użyj istniejącej metody get_order_details
+            result = self.get_order_details(order_id)
+            
+            from datetime import datetime
+            
+            if not result.get('success'):
+                quote.baselinker_receipt_last_check = datetime.utcnow()
+                return {'exists': False}
+            
+            order = result.get('order', {})
+            
+            # Zapisz order_page (strona informacyjna)
+            order_page = order.get('order_page')
+            if order_page:
+                quote.baselinker_order_page = order_page
+            
+            # WAŻNE: Pobierz pełne dane zamówienia z extra_fields
+            # get_order_details zwraca tylko podstawowe dane, musimy wywołać getOrders ponownie
+            full_response = self._make_request('getOrders', {'order_id': order_id})
+            
+            if full_response.get('status') != 'SUCCESS':
+                quote.baselinker_receipt_last_check = datetime.utcnow()
+                return {'exists': False}
+            
+            orders = full_response.get('orders', [])
+            if not orders:
+                quote.baselinker_receipt_last_check = datetime.utcnow()
+                return {'exists': False}
+            
+            full_order = orders[0]
+            
+            # Pobierz URL e-paragonu z extra_field_78400
+            receipt_url = full_order.get('extra_field_78400')
+            
+            if not receipt_url or receipt_url.strip() == '':
+                self.logger.info("E-paragon nie został wystawiony", order_id=order_id)
+                quote.baselinker_receipt_last_check = datetime.utcnow()
+                return {'exists': False}
+            
+            # Zapisz URL e-paragonu
+            quote.baselinker_receipt_url = receipt_url
+            quote.baselinker_receipt_last_check = datetime.utcnow()
+            
+            self.logger.info("E-paragon znaleziony", receipt_url=receipt_url)
+            
+            return {
+                'exists': True,
+                'url': receipt_url
+            }
+            
+        except Exception as e:
+            self.logger.error("Wyjątek podczas pobierania e-paragonu",
+                            order_id=order_id,
+                            error=str(e))
+            from datetime import datetime
+            quote.baselinker_receipt_last_check = datetime.utcnow()
+            return {'exists': False, 'error': str(e)}

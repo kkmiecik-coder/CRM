@@ -906,19 +906,20 @@ function updateCostsDisplay(quoteData) {
     updateBaselinkerSection(quoteData);
 }
 function updateBaselinkerSection(quoteData) {
-    const section = document.getElementById('baselinker-section');
+    // ZMIANA: Teraz używamy ID bloku zamiast sekcji wewnętrznej
+    const orderBlock = document.getElementById('baselinker-order-block');
     const orderNumber = document.getElementById('baselinker-order-number');
     const orderLink = document.getElementById('baselinker-order-link');
     const orderStatus = document.getElementById('baselinker-order-status');
     
-    if (!section || !orderNumber || !orderLink || !orderStatus) {
-        console.warn('[updateBaselinkerSection] Brak elementów sekcji Baselinker');
+    if (!orderBlock || !orderNumber || !orderLink || !orderStatus) {
+        console.warn('[updateBaselinkerSection] Brak elementów bloku zamówienia Baselinker');
         return;
     }
     
     // Sprawdź czy wycena ma zamówienie Baselinker
     if (quoteData.base_linker_order_id) {
-        section.style.display = 'block';
+        orderBlock.style.display = 'block'; // ZMIANA: pokazujemy cały blok
         orderNumber.textContent = `#${quoteData.base_linker_order_id}`;
         orderLink.href = `https://panel-f.baselinker.com/orders.php#order:${quoteData.base_linker_order_id}`;
         
@@ -932,7 +933,7 @@ function updateBaselinkerSection(quoteData) {
                 orderStatus.textContent = 'Błąd pobierania lub nie znaleziono zamówienia';
             });
     } else {
-        section.style.display = 'none';
+        orderBlock.style.display = 'none'; // ZMIANA: ukrywamy cały blok
     }
 }
 

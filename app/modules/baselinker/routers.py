@@ -618,3 +618,77 @@ def get_order_modal_data(quote_id):
         import traceback
         baselinker_logger.debug("Stack trace błędu", traceback=traceback.format_exc())
         return jsonify({'error': 'Błąd pobierania danych'}), 500
+
+
+@baselinker_bp.route('/api/order/<int:order_id>/sales-documents')
+@require_module_access('baselinker')
+def get_sales_documents(order_id):
+    """
+    Pobiera wszystkie dokumenty sprzedaży dla zamówienia Baselinker
+    (faktura, korekta, e-paragon, strona informacyjna)
+    """
+    baselinker_logger.info("Rozpoczęcie pobierania dokumentów sprzedaży",
+                          order_id=order_id,
+                          endpoint='get_sales_documents')
+    
+    try:
+        # Znajdź wycenę po base_linker_order_id
+        from modules.calculator.models import Quote
+        
+        quote = Quote.query.filter_by(base_linker_order_id=str(order_id)).first()
+        
+        if not quote:
+            baselinker_logger.warning("Nie znaleziono wyceny dla zamówienia Baselinker",
+                                     order_id=order_id)
+            return jsonify({
+                'status': 'error',
+                'error': 'Nie znaleziono wyceny dla tego zamówienia',
+                'code': 'QUOTE_NOT_FOUND'
+            }), 404
+        
+        baselinker_logger.debug("Znaleziono wycenę dla zamówienia",
+                               order_id=order_id,
+                               quote_id=quote.id,
+                               quote_number=quote.quote_number)
+        
+        # Wywołaj service do pobrania dokumentów
+        service = BaselinkerService()
+        result = service.get_sales_documents(order_id, quote.id)
+        
+        baselinker_logger.debug("Otrzymano wynik z service",
+                               order_id=order_id,
+                               result_status=result.get('status'),
+                               has_invoice=result.get('invoice', {}).get('exists'),
+                               has_correction=result.get('correction', {}).get('exists'),
+                               has_receipt=result.get('receipt', {}).get('exists'))
+        
+        if result.get('status') == 'error':
+            baselinker_logger.error("Błąd podczas pobierania dokumentów",
+                                   order_id=order_id,
+                                   error=result.get('error'),
+                                   error_code=result.get('code'))
+            return jsonify(result), 500
+        
+        baselinker_logger.info("Pomyślnie pobrano dokumenty sprzedaży",
+                              order_id=order_id,
+                              quote_id=quote.id,
+                              invoice_exists=result['invoice']['exists'],
+                              correction_exists=result['correction']['exists'],
+                              receipt_exists=result['receipt']['exists'])
+        
+        return jsonify(result)
+        
+    except Exception as e:
+        baselinker_logger.error("Wyjątek podczas pobierania dokumentów sprzedaży",
+                               order_id=order_id,
+                               error=str(e),
+                               error_type=type(e).__name__)
+        import traceback
+        baselinker_logger.debug("Stack trace błędu",
+                               traceback=traceback.format_exc())
+        
+        return jsonify({
+            'status': 'error',
+            'error': 'Błąd serwera podczas pobierania dokumentów',
+            'code': 'SERVER_ERROR'
+        }), 500
