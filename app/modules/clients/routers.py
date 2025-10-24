@@ -279,13 +279,32 @@ def gus_lookup():
 
         logger.info(f"[GUS API] Odebrano dane dla NIP {nip}: {subject}")
 
-        full_address = subject.get("residenceAddress") or ""
+        # POPRAWKA: Użyj workingAddress (adres siedziby firmy) zamiast residenceAddress
+        # residenceAddress jest dla osób fizycznych i często jest None dla firm
+        full_address = subject.get("workingAddress") or subject.get("residenceAddress") or ""
+        
+        logger.info(f"[GUS Lookup] Przetwarzanie adresu: {full_address}")
+        
+        # Wyciągnij kod pocztowy z adresu
         zip_match = re.search(r"\d{2}-\d{3}", full_address)
         zip_code = zip_match.group(0) if zip_match else ""
-        city = full_address.split()[-1] if full_address else ""
         
-        # NOWE: Określ województwo na podstawie kodu pocztowego
+        # Wyciągnij miasto (ostatnie słowo po kodzie pocztowym)
+        city = ""
+        if zip_code:
+            # Wszystko po kodzie pocztowym to prawdopodobnie miasto
+            parts = full_address.split(zip_code)
+            if len(parts) > 1:
+                city = parts[1].strip().strip(',').strip()
+        
+        if not city:
+            # Fallback: ostatnie słowo
+            city = full_address.split()[-1] if full_address else ""
+        
+        # Określ województwo na podstawie kodu pocztowego
         voivodeship = get_voivodeship_from_zipcode(zip_code) if zip_code else None
+        
+        logger.info(f"[GUS Lookup] Przetworzone dane: zip={zip_code}, city={city}, voivodeship={voivodeship}")
 
         return jsonify({
             "name": subject.get("name"),
@@ -293,7 +312,7 @@ def gus_lookup():
             "address": subject.get("workingAddress"),
             "zip": zip_code,
             "city": city,
-            "voivodeship": voivodeship  # NOWE POLE
+            "voivodeship": voivodeship
         })
 
     except Exception as e:

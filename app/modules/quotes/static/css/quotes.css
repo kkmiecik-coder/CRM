@@ -2509,7 +2509,7 @@
 .user-acceptance-banner {
     background: linear-gradient(135deg, #d4edda 0%, #c3e6cb 100%);
     border-left: 4px solid #28a745;
-    margin: 0 0 20px 0;
+    margin: 20px 0;
     padding: 16px 20px;
     border-radius: 8px;
     display: flex;

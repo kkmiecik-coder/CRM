@@ -305,29 +305,46 @@ class BaselinkerModal {
 
     setSelectValue(selectId, value) {
         const select = document.getElementById(selectId);
-        if (select && value) {
-            // Znajdź opcję o odpowiedniej wartości
-            const option = Array.from(select.options).find(opt =>
-                opt.value.toLowerCase() === value.toLowerCase()
-            );
-
-            if (option) {
-                select.value = option.value;
-                console.log(`[Baselinker] ✅ Ustawiono ${selectId}: ${option.value}`);
-            } else {
-                console.log(`[Baselinker] ⚠️ Nie znaleziono opcji "${value}" w ${selectId}`);
-                // Jeśli nie ma dokładnego dopasowania, spróbuj częściowego
-                const partialMatch = Array.from(select.options).find(opt =>
-                    opt.value.toLowerCase().includes(value.toLowerCase()) ||
-                    value.toLowerCase().includes(opt.value.toLowerCase())
-                );
-
-                if (partialMatch) {
-                    select.value = partialMatch.value;
-                    console.log(`[Baselinker] ✅ Częściowe dopasowanie ${selectId}: ${partialMatch.value}`);
-                }
-            }
+        if (!select || !value) {
+            console.log(`[Baselinker] ⚠️ setSelectValue: brak elementu lub wartości (${selectId})`);
+            return;
         }
+
+        console.log(`[Baselinker] setSelectValue dla ${selectId} z wartością: "${value}"`);
+
+        // Konwertuj wartość na lowercase dla porównania
+        const valueLower = String(value).toLowerCase().trim();
+
+        // Znajdź opcję o odpowiedniej wartości (dokładne dopasowanie)
+        let option = Array.from(select.options).find(opt =>
+            opt.value.toLowerCase().trim() === valueLower
+        );
+
+        if (option) {
+            select.value = option.value;
+            console.log(`[Baselinker] ✅ Dokładne dopasowanie ${selectId}: "${option.value}"`);
+            return;
+        }
+
+        // Jeśli nie ma dokładnego dopasowania, spróbuj częściowego
+        console.log(`[Baselinker] ⚠️ Nie znaleziono dokładnej opcji "${value}" w ${selectId}, próbuję częściowego dopasowania`);
+
+        const partialMatch = Array.from(select.options).find(opt =>
+            opt.value.toLowerCase().includes(valueLower) ||
+            valueLower.includes(opt.value.toLowerCase())
+        );
+
+        if (partialMatch) {
+            select.value = partialMatch.value;
+            console.log(`[Baselinker] ✅ Częściowe dopasowanie ${selectId}: "${partialMatch.value}"`);
+            return;
+        }
+
+        // Jeśli nie znaleziono żadnego dopasowania
+        console.warn(`[Baselinker] ❌ Nie znaleziono opcji dla "${value}" w ${selectId}`);
+        console.log(`[Baselinker] Dostępne opcje w ${selectId}:`,
+            Array.from(select.options).map(opt => opt.value)
+        );
     }
 
     // NOWA FUNKCJA: Porównuje dane klienta
@@ -1709,14 +1726,19 @@ class BaselinkerModal {
 
     setInputValue(inputId, value) {
         const element = document.getElementById(inputId);
-        if (element) {
-            if (element.tagName.toLowerCase() === 'select') {
-                // Dla select-ów użyj specjalnej funkcji
-                this.setSelectValue(inputId, value || '');
-            } else {
-                // Dla input-ów normalne ustawienie
-                element.value = value || '';
-            }
+        if (!element) {
+            console.log(`[Baselinker] ⚠️ setInputValue: element ${inputId} nie znaleziony`);
+            return;
+        }
+
+        // Sprawdź czy to select
+        if (element.tagName.toLowerCase() === 'select') {
+            console.log(`[Baselinker] setInputValue: ${inputId} jest SELECT-em, używam setSelectValue`);
+            this.setSelectValue(inputId, value || '');
+        } else {
+            // Dla input-ów normalne ustawienie
+            element.value = value || '';
+            console.log(`[Baselinker] setInputValue: ustawiono ${inputId} = "${element.value}"`);
         }
     }
 
@@ -2192,10 +2214,32 @@ class BaselinkerModal {
                 this.setInputValue('invoice-postcode', parsedAddress.zipCode || data.zip || '');
                 this.setInputValue('invoice-city', parsedAddress.city || data.city || '');
 
-                // NOWE: Uzupełnij województwo jeśli dostępne
+                // POPRAWKA: Województwo - używaj setInputValue która wykrywa że to select
                 if (data.voivodeship) {
+                    console.log(`[Baselinker] 🔍 Ustawiam województwo: "${data.voivodeship}"`);
                     this.setInputValue('invoice-region', data.voivodeship);
-                    console.log(`[Baselinker] ✅ Ustawiono województwo: ${data.voivodeship}`);
+
+                    // DODATKOWA WERYFIKACJA
+                    setTimeout(() => {
+                        const regionSelect = document.getElementById('invoice-region');
+                        if (regionSelect) {
+                            console.log(`[Baselinker] ✅ Weryfikacja województwa: wartość = "${regionSelect.value}"`);
+                            if (!regionSelect.value || regionSelect.value === '') {
+                                console.error(`[Baselinker] ❌ Województwo nie zostało ustawione! Próba ponowna...`);
+                                // Próba bezpośredniego ustawienia
+                                const options = Array.from(regionSelect.options);
+                                const matchingOption = options.find(opt =>
+                                    opt.value.toLowerCase() === data.voivodeship.toLowerCase()
+                                );
+                                if (matchingOption) {
+                                    regionSelect.value = matchingOption.value;
+                                    console.log(`[Baselinker] ✅ Województwo ustawione bezpośrednio: ${regionSelect.value}`);
+                                }
+                            }
+                        }
+                    }, 100);
+                } else {
+                    console.log('[Baselinker] ⚠️ Brak województwa w odpowiedzi GUS');
                 }
 
                 // Feedback sukcesu
@@ -2209,7 +2253,7 @@ class BaselinkerModal {
 
                 this.showAlert('Dane z GUS zostały pobrane pomyślnie', 'success');
 
-                // ZAKTUALIZOWANO: Dodano invoice-region do animowanych pól
+                // Animacja wypełnionych pól (włącznie z województwem)
                 const filledFields = ['invoice-fullname', 'invoice-company', 'invoice-address', 'invoice-postcode', 'invoice-city', 'invoice-region'];
                 filledFields.forEach(fieldId => {
                     const field = document.getElementById(fieldId);

@@ -450,15 +450,42 @@ class BaselinkerService:
                         config_keys=list(config.keys()),
                         has_client_data_override=bool(config.get('client_data')))
 
-        creator = getattr(quote, 'user', None)
-        creator_name = f"{creator.first_name} {creator.last_name}" if creator else ''
+        # ✅ NOWE: Konfiguracja flexible partners
+        FLEXIBLE_PARTNER_IDS = [14, 15]
 
+        # Pobierz twórcę wyceny
+        creator = getattr(quote, 'user', None)
+    
+        # ✅ NOWE: Logika dodawania prefiksu "Partner"
+        if creator:
+            creator_name = f"{creator.first_name} {creator.last_name}".strip()
+        
+            # Sprawdź czy użytkownik jest partnerem (ale nie flexible partner)
+            is_partner = creator.role == 'partner'
+            is_flexible_partner = creator.id in FLEXIBLE_PARTNER_IDS
+        
+            # Dodaj prefiks "Partner" tylko dla zwykłych partnerów (nie flexible)
+            if is_partner and not is_flexible_partner:
+                creator_name = f"Partner {creator_name}"
+                self.logger.info("Dodano prefiks 'Partner' do pola Opiekun",
+                               user_id=creator.id,
+                               user_role=creator.role,
+                               final_name=creator_name)
+            else:
+                self.logger.info("Pole Opiekun bez prefiksu 'Partner'",
+                               user_id=creator.id,
+                               user_role=creator.role,
+                               is_flexible_partner=is_flexible_partner,
+                               final_name=creator_name)
+        else:
+            creator_name = ''
+            self.logger.warning("Brak twórcy wyceny", quote_id=quote.id)
         # 🔧 POPRAWKA: Zabezpieczenie przed błędem AppenderQuery
         try:
             # Konwertuj AppenderQuery na listę przed użyciem len()
             all_items = list(quote.items)
             selected_items = [item for item in all_items if item.is_selected]
-    
+
             self.logger.debug("Wybrane produkty do zamówienia", 
                             selected_items_count=len(selected_items),
                             total_items_count=len(all_items))
@@ -471,7 +498,7 @@ class BaselinkerService:
             for item in quote.items:
                 if item.is_selected:
                     selected_items.append(item)
-    
+
             self.logger.debug("Wybrane produkty do zamówienia (fallback)", 
                             selected_items_count=len(selected_items))
 
@@ -518,7 +545,7 @@ class BaselinkerService:
                 # Dzielimy przez quantity, żeby otrzymać koszt za 1 sztukę
                 finishing_total_netto = float(finishing_details.finishing_price_netto or 0)
                 finishing_total_brutto = float(finishing_details.finishing_price_brutto or 0)
-    
+
                 finishing_unit_netto = finishing_total_netto / quantity if quantity > 0 else 0
                 finishing_unit_brutto = finishing_total_brutto / quantity if quantity > 0 else 0
 
@@ -572,18 +599,18 @@ class BaselinkerService:
 
         # 🆕 NOWA LOGIKA: Przygotuj dane klienta z obsługą jednorazowych zmian
         client_data = {}
-    
+
         # Sprawdź czy w config są jednorazowe dane klienta
         if 'client_data' in config and config['client_data']:
             # Użyj jednorazowych danych z formularza
             form_data = config['client_data']
-        
+    
             self.logger.info("Używam jednorazowych danych klienta z formularza",
                             quote_id=quote.id,
                             delivery_name=form_data.get('delivery_name'),
                             email=form_data.get('email'),
                             want_invoice=form_data.get('want_invoice'))
-        
+    
             client_data = {
                 'name': form_data.get('delivery_name', ''),
                 'delivery_name': form_data.get('delivery_name', ''),
@@ -603,16 +630,16 @@ class BaselinkerService:
                 'invoice_region': form_data.get('invoice_region', ''),
                 'want_invoice': form_data.get('want_invoice', False)
             }
-        
+    
         elif quote.client:
             # Fallback: użyj danych z bazy (istniejący kod)
             client = quote.client
-        
+    
             self.logger.info("Używam danych klienta z bazy danych",
                             quote_id=quote.id,
                             client_id=client.id,
                             client_name=client.client_name)
-        
+    
             client_data = {
                 'name': client.client_name,
                 'delivery_name': client.client_delivery_name or client.client_name,
@@ -642,7 +669,7 @@ class BaselinkerService:
         order_status_id = config.get('order_status_id')
         payment_method = config.get('payment_method', 'Przelew bankowy')
         delivery_method = config.get('delivery_method', quote.courier_name or 'Przesyłka kurierska')
-    
+
         # Obsługa nadpisanych kosztów wysyłki
         if 'shipping_cost_override' in config and config['shipping_cost_override'] is not None:
             delivery_price = float(config['shipping_cost_override'])
@@ -708,7 +735,7 @@ class BaselinkerService:
             'extra_field_1': '',
             'extra_field_2': '',
             'custom_extra_fields': {
-                '105623': creator_name
+                '105623': creator_name  # ✅ Tu trafia wartość z prefiksem "Partner" lub bez
             },
             'products': products
         }
@@ -721,7 +748,8 @@ class BaselinkerService:
                        products_count=len(products),
                        client_email=order_data['email'],
                        client_delivery_name=order_data['delivery_fullname'],
-                       client_invoice_name=order_data['invoice_fullname'])
+                       client_invoice_name=order_data['invoice_fullname'],
+                       creator_field_105623=creator_name)  # ✅ Dodano do logowania
 
         return order_data
     
