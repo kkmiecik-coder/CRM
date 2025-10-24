@@ -43,7 +43,7 @@ def calculator_home():
     prices_json = json.dumps(prices_list)
     
     # ✅ NOWE: Konfiguracja flexible partners
-    FLEXIBLE_PARTNER_IDS = [14, 15, 16]
+    FLEXIBLE_PARTNER_IDS = [14, 15]
     FLEXIBLE_PARTNER_ALLOWED_MULTIPLIERS = {
         14: [5, 6],
         15: [5, 6],

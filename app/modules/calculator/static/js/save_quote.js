@@ -240,7 +240,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 variantName = `${species} ${technology}${woodClass ? ' ' + woodClass : ''}`;
             }
 
-            const productName = `Klejonka ${variantName} ${product.length}x${product.width}x${product.thickness}mm (x${product.quantity} szt.)`;
+            const productName = `Klejonka ${variantName} ${product.length}x${product.width}x${product.thickness} cm (x${product.quantity} szt.)`;
             const rawPrice = selectedVariant.final_price_brutto.toFixed(2);
             const finishingPrice = product.finishing_brutto.toFixed(2);
             const totalPrice = (selectedVariant.final_price_brutto + product.finishing_brutto).toFixed(2);
@@ -332,9 +332,13 @@ document.addEventListener('DOMContentLoaded', function () {
             isValid = false;
         }
 
-        // 6. Jedno z pól: telefon LUB email (chyba że OLX)
-        const isOlxSource = sourceField?.value.toLowerCase().includes('olx');
-        if (!isOlxSource && !phoneValue && !emailValue) {
+        // ✅ ZMIENIONE: 6. Jedno z pól: telefon LUB email (wyjątki: OLX i Czernecki)
+        const sourceValue = sourceField?.value.toLowerCase() || '';
+        const isOlxSource = sourceValue.includes('olx');
+        const isCzerneckiSource = sourceValue.includes('czernecki');
+
+        // Dla OLX i Czernecki - telefon i email są opcjonalne
+        if (!isOlxSource && !isCzerneckiSource && !phoneValue && !emailValue) {
             showFieldError(phoneField, 'Wymagany telefon lub email');
             showFieldError(emailField, 'Wymagany telefon lub email');
             isValid = false;
@@ -403,10 +407,14 @@ document.addEventListener('DOMContentLoaded', function () {
 
         if (!sourceField) return;
 
-        const isOlxSource = sourceField.value.toLowerCase().includes('olx');
+        const sourceValue = sourceField.value.toLowerCase();
+        const isOlxSource = sourceValue.includes('olx');
+        const isCzerneckiSource = sourceValue.includes('czernecki');
 
-        if (isOlxSource) {
-            // OLX - usuń gwiazdki i zmień notatkę
+        if (isOlxSource || isCzerneckiSource) {
+            // OLX lub Czernecki - usuń gwiazdki i zmień notatkę
+            const sourceName = isOlxSource ? 'OLX' : 'Czernecki';
+
             if (phoneLabel) {
                 phoneLabel.innerHTML = 'Telefon <span class="sq-optional" style="color: #999;">(opcjonalne)</span>';
             }
@@ -416,10 +424,10 @@ document.addEventListener('DOMContentLoaded', function () {
             if (noteElement) {
                 noteElement.innerHTML = `
                 <span class="sq-required">*</span> - wymagane pola<br>
-                <span style="color: #999;">Dla OLX telefon i e-mail są opcjonalne</span>
+                <span style="color: #999;">Dla ${sourceName} telefon i e-mail są opcjonalne</span>
             `;
             }
-            console.log('[handleSourceChange] OLX: telefon i email opcjonalne');
+            console.log(`[handleSourceChange] ${sourceName}: telefon i email opcjonalne`);
         } else {
             // Inne źródła - przywróć gwiazdki
             if (phoneLabel) {

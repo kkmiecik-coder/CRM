@@ -50,7 +50,7 @@
                             <option value="" disabled selected>Wybierz źródło zapytania</option>
 
                             {% if user_role != 'partner' %}
-                            <!-- Opcje dla admin i user - wszystkie grupy -->
+                            {# Admin i User - wszystkie opcje #}
                             <optgroup label="Allegro">
                                 <option value="woodpower">woodpower</option>
                             </optgroup>
@@ -61,6 +61,7 @@
                                 <option value="Osobiście">Osobiście</option>
                                 <option value="Telefon">Telefon</option>
                                 <option value="E-mail">E-mail</option>
+                                <option value="Czernecki">Czernecki</option>
                             </optgroup>
                             <optgroup label="Ceneo">
                                 <option value="Ceneo">Ceneo</option>
@@ -68,8 +69,16 @@
                             <optgroup label="OLX">
                                 <option value="OLX">OLX</option>
                             </optgroup>
+
+                            {% elif is_flexible_partner %}
+                            {# Flexible Partner - opcje podstawowe + Czernecki #}
+                            <option value="Osobiście">Osobiście</option>
+                            <option value="Telefon">Telefon</option>
+                            <option value="E-mail">E-mail</option>
+                            <option value="Czernecki">Czernecki</option>
+
                             {% else %}
-                            <!-- Opcje dla partnera - tylko "Pozostałe" bez nagłówka grupy -->
+                            {# Standardowy Partner - tylko opcje podstawowe #}
                             <option value="Osobiście">Osobiście</option>
                             <option value="Telefon">Telefon</option>
                             <option value="E-mail">E-mail</option>

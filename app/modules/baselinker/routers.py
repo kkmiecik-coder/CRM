@@ -415,6 +415,28 @@ def get_order_modal_data(quote_id):
                           endpoint='get_order_modal_data')
     
     try:
+        # ✅ DODANE: Pobierz użytkownika i określ jego rolę
+        user_email = session.get('user_email')
+        user_id = session.get('user_id')
+        
+        if not user_email:
+            return jsonify({"error": "Brak sesji użytkownika"}), 401
+        
+        user = User.query.filter_by(email=user_email).first()
+        if not user:
+            return jsonify({"error": "Użytkownik nie znaleziony"}), 404
+        
+        user_role = user.role
+        
+        # ✅ DODANE: Określ czy flexible partner (to samo co w calculator)
+        FLEXIBLE_PARTNER_IDS = [14, 15, 16]
+        is_flexible_partner = (user_role == 'partner' and user_id in FLEXIBLE_PARTNER_IDS)
+        
+        baselinker_logger.debug("Dane użytkownika",
+                               user_id=user_id,
+                               user_role=user_role,
+                               is_flexible_partner=is_flexible_partner)
+        
         quote = Quote.query.get_or_404(quote_id)
         
         # Pobierz wybrane produkty
@@ -429,11 +451,11 @@ def get_order_modal_data(quote_id):
         
         products = []
         
-        # POPRAWKA 1: Osobno oblicz koszty produktów surowych i wykończenia
-        total_products_value_brutto = 0  # Tylko surowe produkty
-        total_products_value_netto = 0   # Tylko surowe produkty
-        total_finishing_value_brutto = 0 # Tylko wykończenie
-        total_finishing_value_netto = 0  # Tylko wykończenie
+        # Osobno oblicz koszty produktów surowych i wykończenia
+        total_products_value_brutto = 0
+        total_products_value_netto = 0
+        total_finishing_value_brutto = 0
+        total_finishing_value_netto = 0
         
         for item in selected_items:
             # Pobierz szczegóły wykończenia dla tego produktu
@@ -454,12 +476,14 @@ def get_order_modal_data(quote_id):
             total_products_value_brutto += unit_price_brutto * quantity
             
             # CENY WYKOŃCZENIA (jeśli istnieje)
+            finishing_total_netto = 0
+            finishing_total_brutto = 0
+            
             if finishing_details and finishing_details.finishing_price_netto:
-                # finishing_price_netto to już CAŁKOWITA kwota za wykończenie wszystkich sztuk
                 finishing_total_netto = float(finishing_details.finishing_price_netto or 0)
                 finishing_total_brutto = float(finishing_details.finishing_price_brutto or 0)
                 
-                # Dodaj do sumy wykończenia (bez mnożenia przez quantity!)
+                # Dodaj do sumy wykończenia
                 total_finishing_value_netto += finishing_total_netto
                 total_finishing_value_brutto += finishing_total_brutto
             
@@ -468,18 +492,18 @@ def get_order_modal_data(quote_id):
             finishing_unit_brutto = 0
             
             if finishing_details and finishing_details.finishing_price_netto:
-                finishing_unit_netto = float(finishing_details.finishing_price_netto or 0) / quantity if quantity > 0 else 0
-                finishing_unit_brutto = float(finishing_details.finishing_price_brutto or 0) / quantity if quantity > 0 else 0
+                finishing_unit_netto = finishing_total_netto / quantity if quantity > 0 else 0
+                finishing_unit_brutto = finishing_total_brutto / quantity if quantity > 0 else 0
             
             final_unit_price_netto = unit_price_netto + finishing_unit_netto
             final_unit_price_brutto = unit_price_brutto + finishing_unit_brutto
             
-            # Przygotuj dane produktu dla frontendu
+            # Przygotuj dane produktu
             product_name = f"{item.variant_code} {item.length_cm}×{item.width_cm}×{item.thickness_cm}cm"
             
             # Oblicz wagę
             volume_m3 = (item.length_cm * item.width_cm * item.thickness_cm) / 1_000_000
-            weight_kg = round(volume_m3 * 650, 2)  # gęstość drewna
+            weight_kg = round(volume_m3 * 650, 2)
             
             product_data = {
                 'product_index': item.product_index,
@@ -526,21 +550,49 @@ def get_order_modal_data(quote_id):
                 'want_invoice': bool(quote.client.invoice_nip)
             }
         
-        # Pobierz konfigurację Baselinker
+        # ✅ ZMIENIONA SEKCJA: Pobierz konfigurację Baselinker z filtrowaniem
         try:
-            order_sources = BaselinkerConfig.query.filter_by(
+            # Pobierz wszystkie aktywne źródła
+            all_order_sources = BaselinkerConfig.query.filter_by(
                 config_type='order_source',
                 is_active=True
             ).order_by(BaselinkerConfig.name).all()
             
-            sources_data = [{'id': source.baselinker_id, 'name': source.name} for source in order_sources]
+            # ✅ FILTRUJ źródła według uprawnień użytkownika
+            filtered_sources = [
+                source 
+                for source in all_order_sources 
+                if source.is_allowed_for_role(user_role, is_flexible_partner)
+            ]
             
-            order_statuses = BaselinkerConfig.query.filter_by(
+            sources_data = [{'id': source.baselinker_id, 'name': source.name} for source in filtered_sources]
+            
+            baselinker_logger.info("Przefiltrowano źródła zamówień",
+                                  user_role=user_role,
+                                  is_flexible_partner=is_flexible_partner,
+                                  all_sources_count=len(all_order_sources),
+                                  filtered_sources_count=len(filtered_sources))
+            
+            # Pobierz wszystkie aktywne statusy
+            all_order_statuses = BaselinkerConfig.query.filter_by(
                 config_type='order_status',
                 is_active=True
             ).order_by(BaselinkerConfig.name).all()
             
-            statuses_data = [{'id': status.baselinker_id, 'name': status.name} for status in order_statuses]
+            # ✅ FILTRUJ statusy według uprawnień użytkownika
+            filtered_statuses = [
+                status 
+                for status in all_order_statuses 
+                if status.is_allowed_for_role(user_role, is_flexible_partner)
+            ]
+            
+            statuses_data = [{'id': status.baselinker_id, 'name': status.name} for status in filtered_statuses]
+            
+            baselinker_logger.info("Przefiltrowano statusy zamówień",
+                                  user_role=user_role,
+                                  is_flexible_partner=is_flexible_partner,
+                                  all_statuses_count=len(all_order_statuses),
+                                  filtered_statuses_count=len(filtered_statuses))
             
         except Exception as config_error:
             baselinker_logger.error("Błąd podczas pobierania konfiguracji Baselinker", error=str(config_error))
@@ -550,7 +602,7 @@ def get_order_modal_data(quote_id):
         config_data = {
             'order_sources': sources_data,
             'order_statuses': statuses_data,
-            'payment_methods': ['Przelew bankowy', 'Płatność przy odbiorze', 'Karta płatnicza'],
+            'payment_methods': ['Przelew bankowy', 'Płatność przy odbiorze'],
             'delivery_countries': [
                 {'code': 'PL', 'name': 'Polska'},
                 {'code': 'DE', 'name': 'Niemcy'},
@@ -562,11 +614,11 @@ def get_order_modal_data(quote_id):
             ]
         }
         
-        # POPRAWKA 2: Oblicz koszty wysyłki
+        # Oblicz koszty wysyłki
         shipping_cost_brutto = float(quote.shipping_cost_brutto or 0)
         shipping_cost_netto = shipping_cost_brutto / 1.23 if shipping_cost_brutto > 0 else 0
         
-        # POPRAWKA 3: Poprawne koszty całkowite
+        # Poprawne koszty całkowite
         total_value_netto = total_products_value_netto + total_finishing_value_netto + shipping_cost_netto
         total_value_brutto = total_products_value_brutto + total_finishing_value_brutto + shipping_cost_brutto
 
@@ -585,7 +637,6 @@ def get_order_modal_data(quote_id):
             'client': client_data,
             'products': products,
             'costs': {
-                # POPRAWKA 4: Osobne koszty dla produktów surowych i wykończenia
                 'products_brutto': round(total_products_value_brutto, 2),
                 'products_netto': round(total_products_value_netto, 2),
                 'finishing_brutto': round(total_finishing_value_brutto, 2),

@@ -27,13 +27,11 @@
                 <button id="quote-preview3d-btn" class="quotes-btn quotes-btn-preview3d" title="Podgląd wybranego wariantu w 3D/AR">
                     <span>3D</span>
                 </button>
-                {% if user_role in ['admin', 'user'] %}
                 <button id="total-discount-btn"
                         class="quotes-btn total-discount-btn"
                         title="Zastosuj rabat do wszystkich produktów">
                     <span>Rabat całkowity</span>
                 </button>
-                {% endif %}
                 <button class="quotes-btn quotes-btn-full-screen" id="toggle-fullscreen-modal">Pełny ekran</button>
                 <button class="modal-action-btn edit-quote-btn"
                         onclick="openQuoteEditor(currentQuoteData)"
