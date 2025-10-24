@@ -118,7 +118,15 @@
                         Dane klienta
                     </h3>
 
-                    <h4 class="bl-style-section-subtitle">Adres dostawy</h4>
+                    <div class="bl-style-section-header-with-btn">
+                        <h4 class="bl-style-section-subtitle">Adres dostawy</h4>
+                        <button type="button" class="bl-copy-invoice-btn" id="bl-copy-invoice-to-delivery" title="Kopiuj dane z faktury">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                                <path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm-1 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h7v14z" />
+                            </svg>
+                            Kopiuj z faktury
+                        </button>
+                    </div>
                     <div class="bl-style-client-form-grid">
                         <div class="bl-style-form-group">
                             <label class="bl-style-form-label">Imię i nazwisko</label>
@@ -182,7 +190,15 @@
                         </div>
 
                         <div id="invoice-data-section" class="bl-style-invoice-data" style="display: none;">
-                            <h4 class="bl-style-section-subtitle">Dane do faktury</h4>
+                            <div class="bl-style-section-header-with-btn">
+                                <h4 class="bl-style-section-subtitle">Dane do faktury</h4>
+                                <button type="button" class="bl-copy-delivery-btn" id="bl-copy-delivery-to-invoice" title="Kopiuj dane z adresu dostawy">
+                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                                        <path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z" />
+                                    </svg>
+                                    Kopiuj z dostawy
+                                </button>
+                            </div>
                             <div class="bl-style-client-form-grid">
                                 <div class="bl-style-form-group">
                                     <label class="bl-style-form-label">Imię i nazwisko</label>
@@ -229,7 +245,13 @@
                                 </div>
                                 <div class="bl-style-form-group">
                                     <label class="bl-style-form-label">NIP</label>
-                                    <input type="text" id="invoice-nip" class="bl-style-form-input">
+                                    <div class="bl-nip-row">
+                                        <input type="text" id="invoice-nip" class="bl-style-form-input">
+                                        <button type="button" class="bl-gus-btn" id="bl-gus-lookup-btn" title="Pobierz dane z GUS">
+                                            Pobierz z GUS
+                                        </button>
+                                    </div>
+                                    <p class="bl-style-input-error" id="error-invoice-nip" style="display: none;"></p>
                                 </div>
                             </div>
                         </div>

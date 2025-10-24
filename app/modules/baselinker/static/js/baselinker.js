@@ -39,40 +39,68 @@ class BaselinkerModal {
     }
 
     setupModalEventListeners() {
-        // Zamykanie modala
+        // ZOPTYMALIZOWANE: Jeden event listener dla wszystkich kliknięć
         document.addEventListener('click', (e) => {
-            if (e.target.closest('#baselinker-close-modal') ||
-                e.target.closest('#baselinker-close-modal-footer')) {
+            const target = e.target;
+
+            // Zamykanie modala
+            if (target.closest('#baselinker-close-modal') ||
+                target.closest('#baselinker-close-modal-footer')) {
                 this.closeModal();
+                return;
             }
 
             // Zamykanie przez kliknięcie tła
-            if (e.target.classList.contains('bl-style-modal-overlay')) {
+            if (target.classList.contains('bl-style-modal-overlay')) {
                 this.closeModal();
+                return;
             }
-        });
 
-        // Nawigacja między krokami
-        document.addEventListener('click', (e) => {
-            if (e.target.closest('#baselinker-prev-step')) {
+            // Nawigacja między krokami
+            if (target.closest('#baselinker-prev-step')) {
                 this.prevStep();
+                return;
             }
 
-            if (e.target.closest('#baselinker-next-step')) {
+            if (target.closest('#baselinker-next-step')) {
                 this.nextStep();
+                return;
             }
 
-            if (e.target.closest('#baselinker-submit-order')) {
+            if (target.closest('#baselinker-submit-order')) {
                 this.submitOrder();
+                return;
             }
 
-            // Sync config button
-            if (e.target.closest('#baselinker-sync-config')) {
+            // Sync config
+            if (target.closest('#baselinker-sync-config')) {
                 this.syncConfig();
+                return;
+            }
+
+            // Kopiuj z faktury do dostawy
+            if (target.closest('#bl-copy-invoice-to-delivery')) {
+                e.preventDefault();
+                this.copyInvoiceToDelivery();
+                return;
+            }
+
+            // Kopiuj z dostawy do faktury
+            if (target.closest('#bl-copy-delivery-to-invoice')) {
+                e.preventDefault();
+                this.copyDeliveryToInvoice();
+                return;
+            }
+
+            // Pobierz z GUS
+            if (target.closest('#bl-gus-lookup-btn')) {
+                e.preventDefault();
+                this.handleGusLookup();
+                return;
             }
         });
 
-        // Klawisz ESC
+        // Klawisz ESC - musi być osobny listener dla keydown
         document.addEventListener('keydown', (e) => {
             if (e.key === 'Escape' && this.isModalOpen()) {
                 this.closeModal();
@@ -1968,6 +1996,337 @@ class BaselinkerModal {
         const div = document.createElement('div');
         div.textContent = text;
         return div.innerHTML;
+    }
+
+    // ========== FUNKCJE KOPIOWANIA I GUS ========== //
+
+    /**
+     * Kopiuje dane z faktury do adresu dostawy
+     */
+    copyInvoiceToDelivery() {
+        console.log('[Baselinker] Kopiowanie danych z faktury do dostawy');
+
+        const copyMapping = {
+            'invoice-fullname': 'delivery-fullname',
+            'invoice-company': 'delivery-company',
+            'invoice-address': 'delivery-address',
+            'invoice-postcode': 'delivery-postcode',
+            'invoice-city': 'delivery-city',
+            'invoice-region': 'delivery-region'
+        };
+
+        let copiedCount = 0;
+        const copiedFields = [];
+
+        for (const [sourceId, targetId] of Object.entries(copyMapping)) {
+            const sourceValue = this.getInputValue(sourceId);
+            if (sourceValue) {
+                this.setInputValue(targetId, sourceValue);
+                copiedFields.push(targetId);
+                copiedCount++;
+            }
+        }
+
+        // Wizualny feedback na przycisku
+        const btn = document.getElementById('bl-copy-invoice-to-delivery');
+        if (btn) {
+            const originalHTML = btn.innerHTML;
+            const originalClass = btn.className;
+
+            btn.className = 'bl-copy-invoice-btn success';
+            btn.innerHTML = `
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/>
+            </svg>
+            Skopiowano!
+        `;
+
+            setTimeout(() => {
+                btn.className = originalClass;
+                btn.innerHTML = originalHTML;
+            }, 2000);
+        }
+
+        // Animacja skopiowanych pól
+        copiedFields.forEach(fieldId => {
+            const field = document.getElementById(fieldId);
+            if (field && field.value) {
+                field.classList.add('bl-copied-field');
+                setTimeout(() => {
+                    field.classList.remove('bl-copied-field');
+                }, 1500);
+            }
+        });
+
+        if (copiedCount > 0) {
+            this.showAlert(`Skopiowano ${copiedCount} pól z faktury do adresu dostawy`, 'success');
+        } else {
+            this.showAlert('Brak danych do skopiowania - wypełnij dane faktury', 'warning');
+        }
+
+        console.log(`[Baselinker] Skopiowano ${copiedCount} pól`);
+    }
+
+    /**
+     * Kopiuje dane z adresu dostawy do faktury
+     */
+    copyDeliveryToInvoice() {
+        console.log('[Baselinker] Kopiowanie danych z dostawy do faktury');
+
+        const copyMapping = {
+            'delivery-fullname': 'invoice-fullname',
+            'delivery-company': 'invoice-company',
+            'delivery-address': 'invoice-address',
+            'delivery-postcode': 'invoice-postcode',
+            'delivery-city': 'invoice-city',
+            'delivery-region': 'invoice-region'
+        };
+
+        let copiedCount = 0;
+        const copiedFields = [];
+
+        for (const [sourceId, targetId] of Object.entries(copyMapping)) {
+            const sourceValue = this.getInputValue(sourceId);
+            if (sourceValue) {
+                this.setInputValue(targetId, sourceValue);
+                copiedFields.push(targetId);
+                copiedCount++;
+            }
+        }
+
+        // Wizualny feedback na przycisku
+        const btn = document.getElementById('bl-copy-delivery-to-invoice');
+        if (btn) {
+            const originalHTML = btn.innerHTML;
+            const originalClass = btn.className;
+
+            btn.className = 'bl-copy-delivery-btn success';
+            btn.innerHTML = `
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/>
+            </svg>
+            Skopiowano!
+        `;
+
+            setTimeout(() => {
+                btn.className = originalClass;
+                btn.innerHTML = originalHTML;
+            }, 2000);
+        }
+
+        // Animacja skopiowanych pól
+        copiedFields.forEach(fieldId => {
+            const field = document.getElementById(fieldId);
+            if (field && field.value) {
+                field.classList.add('bl-copied-field');
+                setTimeout(() => {
+                    field.classList.remove('bl-copied-field');
+                }, 1500);
+            }
+        });
+
+        if (copiedCount > 0) {
+            this.showAlert(`Skopiowano ${copiedCount} pól z dostawy do faktury`, 'success');
+        } else {
+            this.showAlert('Brak danych do skopiowania - wypełnij adres dostawy', 'warning');
+        }
+
+        console.log(`[Baselinker] Skopiowano ${copiedCount} pól`);
+    }
+
+    /**
+     * Obsługa pobierania danych z GUS
+     */
+    async handleGusLookup() {
+        console.log('[Baselinker] Pobieranie danych z GUS');
+
+        const nipInput = document.getElementById('invoice-nip');
+        const gusBtn = document.getElementById('bl-gus-lookup-btn');
+        const errorElement = document.getElementById('error-invoice-nip');
+
+        if (!nipInput || !gusBtn) {
+            console.error('[Baselinker] Nie znaleziono elementów NIP lub przycisku GUS');
+            return;
+        }
+
+        const nip = nipInput.value.trim().replace(/\s+/g, '');
+
+        // Wyczyść poprzednie błędy
+        if (errorElement) {
+            errorElement.style.display = 'none';
+            errorElement.textContent = '';
+        }
+        nipInput.classList.remove('bl-style-error');
+
+        // Walidacja NIP
+        if (!nip) {
+            this.showGusError(nipInput, errorElement, 'Podaj NIP aby skorzystać z GUS');
+            return;
+        }
+
+        if (!this.isValidNIP(nip)) {
+            this.showGusError(nipInput, errorElement, 'Podaj prawidłowy NIP (10 cyfr)');
+            return;
+        }
+
+        // Animacja loading
+        gusBtn.classList.add('loading');
+        gusBtn.disabled = true;
+        const originalText = gusBtn.textContent;
+        gusBtn.textContent = 'Ładowanie...';
+
+        try {
+            const response = await fetch(`/clients/api/gus_lookup?nip=${nip}`);
+            const data = await response.json();
+
+            if (response.ok && data.name) {
+                console.log('[Baselinker] Dane z GUS otrzymane:', data);
+
+                // Parsuj adres z GUS
+                const parsedAddress = this.parseGusAddress(data.address || '');
+
+                // Wypełnij pola faktury
+                this.setInputValue('invoice-fullname', data.name || '');
+                this.setInputValue('invoice-company', data.company || data.name || '');
+                this.setInputValue('invoice-address', parsedAddress.street || '');
+                this.setInputValue('invoice-postcode', parsedAddress.zipCode || data.zip || '');
+                this.setInputValue('invoice-city', parsedAddress.city || data.city || '');
+
+                // NOWE: Uzupełnij województwo jeśli dostępne
+                if (data.voivodeship) {
+                    this.setInputValue('invoice-region', data.voivodeship);
+                    console.log(`[Baselinker] ✅ Ustawiono województwo: ${data.voivodeship}`);
+                }
+
+                // Feedback sukcesu
+                gusBtn.textContent = 'Pobrano dane ✓';
+                gusBtn.style.background = '#28a745';
+
+                setTimeout(() => {
+                    gusBtn.textContent = originalText;
+                    gusBtn.style.background = '';
+                }, 2000);
+
+                this.showAlert('Dane z GUS zostały pobrane pomyślnie', 'success');
+
+                // ZAKTUALIZOWANO: Dodano invoice-region do animowanych pól
+                const filledFields = ['invoice-fullname', 'invoice-company', 'invoice-address', 'invoice-postcode', 'invoice-city', 'invoice-region'];
+                filledFields.forEach(fieldId => {
+                    const field = document.getElementById(fieldId);
+                    if (field && field.value) {
+                        field.classList.add('bl-copied-field');
+                        setTimeout(() => {
+                            field.classList.remove('bl-copied-field');
+                        }, 1500);
+                    }
+                });
+
+            } else {
+                this.showGusError(nipInput, errorElement, data.error || 'Nie znaleziono danych dla podanego NIP');
+                gusBtn.textContent = 'Błąd ❌';
+                gusBtn.style.background = '#dc3545';
+
+                setTimeout(() => {
+                    gusBtn.textContent = originalText;
+                    gusBtn.style.background = '';
+                }, 2000);
+            }
+
+        } catch (error) {
+            console.error('[Baselinker] Błąd GUS:', error);
+            this.showGusError(nipInput, errorElement, 'Błąd połączenia z GUS');
+
+            gusBtn.textContent = 'Błąd połączenia ❌';
+            gusBtn.style.background = '#dc3545';
+
+            setTimeout(() => {
+                gusBtn.textContent = originalText;
+                gusBtn.style.background = '';
+            }, 2000);
+
+        } finally {
+            gusBtn.classList.remove('loading');
+            gusBtn.disabled = false;
+        }
+    }
+
+    /**
+     * Pokazuje błąd walidacji GUS
+     */
+    showGusError(nipInput, errorElement, message) {
+        if (nipInput) {
+            nipInput.classList.add('bl-style-error');
+        }
+
+        if (errorElement) {
+            errorElement.textContent = message;
+            errorElement.style.display = 'block';
+        }
+
+        this.showAlert(message, 'error');
+    }
+
+    /**
+     * Walidacja numeru NIP
+     */
+    isValidNIP(nip) {
+        // NIP musi mieć dokładnie 10 cyfr
+        return /^\d{10}$/.test(nip);
+    }
+
+    /**
+     * Parsuje adres z GUS na komponenty
+     */
+    parseGusAddress(fullAddress) {
+        console.log('[Baselinker] Parsowanie adresu GUS:', fullAddress);
+
+        if (!fullAddress || typeof fullAddress !== 'string') {
+            return { street: '', zipCode: '', city: '' };
+        }
+
+        const cleanAddress = fullAddress.trim().replace(/\s+/g, ' ');
+        const zipCodePattern = /\b\d{2}-\d{3}\b/;
+        const zipCodeMatch = cleanAddress.match(zipCodePattern);
+
+        let street = '';
+        let zipCode = '';
+        let city = '';
+
+        if (zipCodeMatch) {
+            zipCode = zipCodeMatch[0];
+            const zipIndex = cleanAddress.indexOf(zipCode);
+
+            // Wszystko przed kodem pocztowym to ulica
+            street = cleanAddress.substring(0, zipIndex).trim();
+            street = street.replace(/[,;]+$/, '').trim();
+
+            // Wszystko po kodzie pocztowym to miasto
+            city = cleanAddress.substring(zipIndex + zipCode.length).trim();
+            city = city.replace(/^[,;]+/, '').trim();
+
+        } else {
+            // Jeśli nie ma kodu pocztowego, spróbuj innych metod
+            const parts = cleanAddress.split(/[,;]/);
+
+            if (parts.length >= 2) {
+                street = parts[0].trim();
+                const lastPart = parts[parts.length - 1].trim();
+
+                const lastPartZipMatch = lastPart.match(zipCodePattern);
+                if (lastPartZipMatch) {
+                    zipCode = lastPartZipMatch[0];
+                    city = lastPart.replace(zipCodePattern, '').trim();
+                } else {
+                    city = lastPart;
+                }
+            } else {
+                street = cleanAddress;
+            }
+        }
+
+        console.log('[Baselinker] Sparsowany adres:', { street, zipCode, city });
+
+        return { street, zipCode, city };
     }
 }
 
