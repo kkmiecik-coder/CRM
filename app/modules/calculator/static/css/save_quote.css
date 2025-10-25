@@ -729,3 +729,52 @@ select.sq-form-input {
         font-size: 24px;
     }
 }
+
+/* ================================
+   BADGE "Klient utworzony przez innego handlowca"
+   ================================ */
+
+/* Wiersz z flexboxem - nazwa po lewej, badge po prawej */
+.sq-search-result-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 16px;
+    width: 100%;
+}
+
+/* Lewy kontener z nazwą i kontaktem */
+.sq-search-result-info {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0; /* Pozwala na text-overflow */
+}
+
+/* Żółty badge */
+.sq-other-client-badge {
+    display: inline-block;
+    padding: 6px 12px;
+    background: #FFC107;
+    color: #1F2020;
+    font-family: 'Poppins', sans-serif;
+    font-size: 12px;
+    font-weight: 600;
+    border-radius: 6px;
+    white-space: nowrap;
+    flex-shrink: 0; /* Badge nie kurczy się */
+}
+
+/* Responsive - na małych ekranach badge pod spodem */
+@media (max-width: 600px) {
+    .sq-search-result-row {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 8px;
+    }
+    
+    .sq-other-client-badge {
+        align-self: flex-start;
+    }
+}

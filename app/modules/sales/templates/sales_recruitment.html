@@ -1,0 +1,652 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Handlowcy Woodpower - Dołącz do nas</title>
+    <link rel="stylesheet" href="{{ url_for('sales.static', filename='css/recruitment.css') }}">
+    <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='images/favicon.png') }}">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="container">
+        <!-- Progress Bar - Desktop -->
+        <div class="progress-bar-desktop">
+            <div class="progress-track">
+                <div class="progress-fill" id="progressFill"></div>
+            </div>
+            <div class="progress-steps-list">
+                <div class="progress-step active" data-step="1" onclick="goToStep(1)">
+                    <div class="step-indicator">1</div>
+                    <div class="step-label">Rekrutacja</div>
+                </div>
+                <div class="progress-step" data-step="2" onclick="goToStep(2)">
+                    <div class="step-indicator">2</div>
+                    <div class="step-label">Kim jesteśmy</div>
+                </div>
+                <div class="progress-step" data-step="3" onclick="goToStep(3)">
+                    <div class="step-indicator">3</div>
+                    <div class="step-label">Korzyści</div>
+                </div>
+                <div class="progress-step" data-step="4" onclick="goToStep(4)">
+                    <div class="step-indicator">4</div>
+                    <div class="step-label">Produkty</div>
+                </div>
+                <div class="progress-step" data-step="5" onclick="goToStep(5)">
+                    <div class="step-indicator">5</div>
+                    <div class="step-label">Nasi klienci</div>
+                </div>
+                <div class="progress-step" data-step="6" onclick="goToStep(6)">
+                    <div class="step-indicator">6</div>
+                    <div class="step-label">Zespół</div>
+                </div>
+                <div class="progress-step" data-step="7" onclick="goToStep(7)">
+                    <div class="step-indicator">7</div>
+                    <div class="step-label">Formularz</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Progress Bar - Mobile -->
+        <div class="progress-bar-mobile">
+            <div class="mobile-progress-track" id="mobileProgressTrack"></div>
+        </div>
+
+        <!-- Content Wrapper -->
+        <div class="content-wrapper">
+            <!-- Step 1: Rekrutacja (Hero + Proces) -->
+            <div class="step-content active" data-step="1">
+                <div class="hero">
+                    <img src="{{ url_for('static', filename='images/logo.svg') }}" alt="WoodPower Logo" class="hero-logo">
+                    <h1 class="hero-title">Zostań<span class="highlight"> przedstawicielem handlowym</span></h1>
+                    <p class="hero-subtitle">Dołącz do grona profesjonalistów i rozwijaj biznes z najlepszymi produktami drewnianymi na rynku</p>
+                </div>
+
+                <div style="margin-top: 60px;">
+                    <h2 class="section-title">Proces rekrutacji</h2>
+                    <p class="section-subtitle" style="margin: 0">Poznaj 4 proste kroki do dołączenia do zespołu WoodPower</p>
+
+                    <div class="timeline">
+                        <!-- DESKTOP VERSION - Horizontal -->
+                        <div class="timeline-horizontal">
+                            <div class="timeline-item">
+                                <div class="timeline-number">1</div>
+                                <div class="timeline-content">
+                                    <h3>Wypełnij formularz</h3>
+                                    <p>Podaj swoje dane i załącz podpisaną umowę NDA</p>
+                                </div>
+                            </div>
+
+                            <div class="timeline-item">
+                                <div class="timeline-number">2</div>
+                                <div class="timeline-content">
+                                    <h3>Weryfikacja</h3>
+                                    <p>Sprawdzimy Twoje dane i skontaktujemy się z Tobą</p>
+                                </div>
+                            </div>
+
+                            <div class="timeline-item">
+                                <div class="timeline-number">3</div>
+                                <div class="timeline-content">
+                                    <h3>Szkolenie</h3>
+                                    <p>Przejdziesz szkolenie online z naszych produktów</p>
+                                </div>
+                            </div>
+
+                            <div class="timeline-item">
+                                <div class="timeline-number">4</div>
+                                <div class="timeline-content">
+                                    <h3>Start współpracy</h3>
+                                    <p>Otrzymasz dostęp do systemu CRM i możesz zacząć sprzedaż</p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- MOBILE VERSION - Vertical -->
+                        <div class="timeline-vertical">
+                            <div class="timeline-item">
+                                <div class="timeline-number">1</div>
+                                <div class="timeline-content">
+                                    <h3>Wypełnij formularz</h3>
+                                    <p>Podaj swoje dane kontaktowe i załącz podpisaną umowę NDA, która gwarantuje poufność informacji o naszych produktach i cenach.</p>
+                                </div>
+                            </div>
+
+                            <div class="timeline-item">
+                                <div class="timeline-number">2</div>
+                                <div class="timeline-content">
+                                    <h3>Weryfikacja</h3>
+                                    <p>Sprawdzimy Twoje dane i skontaktujemy się z Tobą w ciągu 48 godzin, aby potwierdzić chęć współpracy i omówić kolejne kroki.</p>
+                                </div>
+                            </div>
+
+                            <div class="timeline-item">
+                                <div class="timeline-number">3</div>
+                                <div class="timeline-content">
+                                    <h3>Szkolenie online</h3>
+                                    <p>Przejdziesz szkolenie e-learningowe z naszych produktów, technologii produkcji i zasad współpracy. To zajmie około 2-3 godzin.</p>
+                                </div>
+                            </div>
+
+                            <div class="timeline-item">
+                                <div class="timeline-number">4</div>
+                                <div class="timeline-content">
+                                    <h3>Start współpracy</h3>
+                                    <p>Po ukończeniu szkolenia otrzymasz dostęp do cennika, materiałów marketingowych i możesz zacząć sprzedaż naszych produktów.</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Step 2: Kim jesteśmy -->
+            <div class="step-content" data-step="2">
+                <h2 class="section-title">Kim jesteśmy</h2>
+                <p class="section-subtitle">Poznaj WoodPower - polskiego producenta klejonki z Podkarpacia</p>
+
+                <div class="about-section-new">
+                    <!-- Hero Box z głównym opisem -->
+                    <div class="about-hero-box">
+                        <div class="about-hero-content">
+                            <h3>Polska firma z sercem w Podkarpackim</h3>
+                            <p>WoodPower to dumnie polska firma z wieloletnim doświadczeniem w przetwórstwie drewna. Nasza fabryka zlokalizowana jest w sercu Podkarpacia, gdzie łączymy tradycję stolarską z nowoczesnymi technologiami produkcji.</p>
+                            <p>Oferujemy kompleksową gamę produktów drewnianych najwyższej jakości - od desek tarasowych, przez elewacje, aż po podbitki dachowe. Każdy element powstaje z dbałością o szczegóły i zgodnie z najwyższymi standardami jakości.</p>
+                        </div>
+                        <div class="about-hero-icon">🏭</div>
+                    </div>
+
+                    <!-- Grid z feature boxes -->
+                    <div class="about-features-grid">
+                        <div class="about-feature-box">
+                            <div class="feature-icon">🌲</div>
+                            <h4>Polskie drewno</h4>
+                            <p>Wykorzystujemy wyłącznie drewno z certyfikowanych, lokalnych źródeł. Dbamy o ekologię i zrównoważony rozwój.</p>
+                        </div>
+
+                        <div class="about-feature-box">
+                            <div class="feature-icon">⚙️</div>
+                            <h4>Nowoczesna produkcja</h4>
+                            <p>Nasza fabryka wyposażona jest w najnowocześniejsze maszyny do obróbki drewna.</p>
+                        </div>
+
+                        <div class="about-feature-box">
+                            <div class="feature-icon">🎯</div>
+                            <h4>Kontrola jakości</h4>
+                            <p>Każdy element przechodzi wieloetapową kontrolę jakości. Gwarantujemy najwyższe standardy wykonania.</p>
+                        </div>
+
+                        <div class="about-feature-box">
+                            <div class="feature-icon">🚚</div>
+                            <h4>Dostawa w całej Polsce</h4>
+                            <p>Realizujemy zamówienia na terenie całego kraju. Szybka dostawa i profesjonalna obsługa logistyczna.</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Step 3: Korzyści -->
+            <div class="step-content" data-step="3">
+                <h2 class="section-title">Korzyści</h2>
+                <p class="section-subtitle">Dlaczego warto zostać przedstawicielem handlowym</p>
+
+                <div class="commission-highlight">
+                    <h3>💰 Atrakcyjne prowizje od sprzedaży</h3>
+                    <p>Oferujemy jeden z najwyższych systemów prowizyjnych na rynku. Im więcej sprzedajesz, tym więcej zarabiasz. Twój sukces to nasz wspólny cel - dlatego stawiamy na przejrzyste i motywujące zasady wynagradzania.</p>
+                </div>
+
+                <div class="benefits-grid">
+                    <div class="benefit-card">
+                        <div class="benefit-icon">🎓</div>
+                        <h3>Szkolenia</h3>
+                        <p>Pełne wsparcie merytoryczne i dostęp do profesjonalnych szkoleń produktowych</p>
+                    </div>
+                    <div class="benefit-card">
+                        <div class="benefit-icon">📊</div>
+                        <h3>System CRM</h3>
+                        <p>Nowoczesne narzędzia do zarządzania klientami i procesami sprzedaży</p>
+                    </div>
+                    <div class="benefit-card">
+                        <div class="benefit-icon">🤝</div>
+                        <h3>Wsparcie</h3>
+                        <p>Dedykowany opiekun i pomoc na każdym etapie współpracy</p>
+                    </div>
+                    <div class="benefit-card">
+                        <div class="benefit-icon">📦</div>
+                        <h3>Jakość</h3>
+                        <p>Produkty najwyższej jakości z gwarancją i terminową realizacją</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Step 4: Produkty -->
+            <div class="step-content" data-step="4">
+                <h2 class="section-title">Produkty</h2>
+                <p class="section-subtitle">Poznaj nasze produkty premium, które możesz oferować swoim klientom</p>
+
+                <div class="products-grid">
+                    <a href="{{ url_for('sales.static', filename='media/documents/Oferta_schody_woodpower.pdf') }}" target="_blank" class="product-tile">
+                        <div class="product-image">
+                            <img src="{{ url_for('sales.static', filename='media/images/products/schody.jpg') }}" alt="Schody drewniane">
+                        </div>
+                        <div class="product-info">
+                            <div class="product-name">Schody</div>
+                            <div class="product-cta">
+                                <span>Poznaj szczegóły</span>
+                                <span>→</span>
+                            </div>
+                        </div>
+                    </a>
+
+                    <a href="{{ url_for('sales.static', filename='media/documents/Oferta_blaty_woodpower.pdf') }}" target="_blank" class="product-tile">
+                        <div class="product-image">
+                            <img src="{{ url_for('sales.static', filename='media/images/products/blaty.jpg') }}" alt="Blaty drewniane">
+                        </div>
+                        <div class="product-info">
+                            <div class="product-name">Blaty</div>
+                            <div class="product-cta">
+                                <span>Poznaj szczegóły</span>
+                                <span>→</span>
+                            </div>
+                        </div>
+                    </a>
+
+                    <a href="{{ url_for('sales.static', filename='media/documents/Oferta_woodpower.pdf') }}" target="_blank" class="product-tile">
+                        <div class="product-image">
+                            <img src="{{ url_for('sales.static', filename='media/images/products/parapety.jpg') }}" alt="Parapety drewniane">
+                        </div>
+                        <div class="product-info">
+                            <div class="product-name">Parapety</div>
+                            <div class="product-cta">
+                                <span>Poznaj szczegóły</span>
+                                <span>→</span>
+                            </div>
+                        </div>
+                    </a>
+
+                    <a href="{{ url_for('sales.static', filename='media/documents/Oferta_woodpower.pdf') }}" target="_blank" class="product-tile">
+                        <div class="product-image">
+                            <img src="{{ url_for('sales.static', filename='media/images/products/wszystko.jpg') }}" alt="Wszystkie produkty">
+                        </div>
+                        <div class="product-info">
+                            <div class="product-name">Wszystkie produkty</div>
+                            <div class="product-cta">
+                                <span>Poznaj szczegóły</span>
+                                <span>→</span>
+                            </div>
+                        </div>
+                    </a>
+                </div>
+            </div>
+
+            <!-- Step 5: Nasi klienci -->
+            <div class="step-content" data-step="5">
+                <h2 class="section-title">Nasi klienci</h2>
+                <p class="section-subtitle">Dla kogo są nasze produkty?</p>
+
+                <div class="clients-grid">
+                    <div class="client-card">
+                        <div class="client-icon">🪚</div>
+                        <h3>Stolarze</h3>
+                        <p>Profesjonalne drewno klejone do produkcji mebli, schodów i innych elementów wyposażenia wnętrz</p>
+                    </div>
+
+                    <div class="client-card">
+                        <div class="client-icon">🪑</div>
+                        <h3>Meblarze</h3>
+                        <p>Wysokiej jakości blaty, parapety i inne elementy do produkcji mebli na wymiar</p>
+                    </div>
+
+                    <div class="client-card">
+                        <div class="client-icon">🪜</div>
+                        <h3>Schodziarze</h3>
+                        <p>Kompleksowa oferta drewna klejonego do produkcji schodów – stopnie, podstopnie, poręcze</p>
+                    </div>
+
+                    <div class="client-card">
+                        <div class="client-icon">🏗️</div>
+                        <h3>Firmy wykończeniowe</h3>
+                        <p>Szerokie spektrum produktów do wykończenia wnętrz – od elewacji po elementy dekoracyjne</p>
+                    </div>
+
+                    <div class="client-card">
+                        <div class="client-icon">🏭</div>
+                        <h3>Zakłady meblowe</h3>
+                        <p>Dostawy hurtowe drewna klejonego dla producentów mebli i elementów drewnianych</p>
+                    </div>
+
+                    <div class="client-card">
+                        <div class="client-icon">📐</div>
+                        <h3>Architekci i projektanci</h3>
+                        <p>Wsparcie w doborze materiałów i realizacji nietypowych projektów z drewna</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Step 6: Zespół -->
+            <div class="step-content" data-step="6">
+                <h2 class="section-title">Zespół</h2>
+                <p class="section-subtitle">Dołącz do działu sprzedaży</p>
+
+                <div class="values-grid">
+                    <div class="value-card">
+                        <div class="value-number">
+                            <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                                <path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round" />
+                            </svg>
+                        </div>
+                        <h3>Jakość</h3>
+                        <p>Najwyższa jakość produktów z polskiego surowca potwierdzona zadowoleniem klientów</p>
+                    </div>
+                    <div class="value-card">
+                        <div class="value-number">
+                            <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                                <path d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round" />
+                            </svg>
+                        </div>
+                        <h3>Personalizacja</h3>
+                        <p>Każdy produkt dostosowany do indywidualnych potrzeb i wymiarów klienta</p>
+                    </div>
+                    <div class="value-card">
+                        <div class="value-number">
+                            <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                                <path d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round" />
+                            </svg>
+                        </div>
+                        <h3>Czas realizacji</h3>
+                        <p>Terminowa realizacja zamówień i pełna transparentność procesu produkcji</p>
+                    </div>
+                    <div class="value-card">
+                        <div class="value-number">
+                            <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                                <path d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round" />
+                            </svg>
+                        </div>
+                        <h3>Partnerstwo</h3>
+                        <p>Długoterminowe relacje oparte na zaufaniu i wzajemnym sukcesie</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Step 7: Formularz -->
+            <div class="step-content" data-step="7">
+                <h2 class="section-title">Formularz aplikacyjny</h2>
+                <p class="section-subtitle">Wypełnij formularz i dołącz do nas już dziś!</p>
+
+                <div class="form-container">
+                    <div class="form-info-box">
+                        <p><strong>ℹ️ Informacja:</strong> Dane z tego formularza są niezbędne do przygotowania umowy NDA oraz dalszego procesu rekrutacji.</p>
+                    </div>
+
+                    <form id="applicationForm">
+                        <div class="form-two-columns">
+                            <!-- LEFT COLUMN - Dane osobowe -->
+                            <div class="form-column-left">
+                                <h4 style="margin-bottom: 12px; color: var(--primary-color); font-size: 18px; font-weight: 600; ">Dane osobowe:</h4>
+                                <div class="form-row">
+                                    <div class="form-group">
+                                        <label for="first_name">Imię *</label>
+                                        <input type="text" id="first_name" name="first_name" required placeholder="np. Jan">
+                                        <span class="error-message" id="error_first_name"></span>
+                                    </div>
+
+                                    <div class="form-group">
+                                        <label for="last_name">Nazwisko *</label>
+                                        <input type="text" id="last_name" name="last_name" required placeholder="np. Kowalski">
+                                        <span class="error-message" id="error_last_name"></span>
+                                    </div>
+                                </div>
+
+                                <div class="form-row">
+                                    <div class="form-group">
+                                        <label for="email">Email *</label>
+                                        <input type="email" id="email" name="email" required placeholder="np. jan.kowalski@mail.com">
+                                        <span class="error-message" id="error_email"></span>
+                                    </div>
+
+                                    <div class="form-group">
+                                        <label for="phone">Telefon *</label>
+                                        <input type="tel" id="phone" name="phone" required placeholder="np. +48 123 456 789">
+                                        <span class="error-message" id="error_phone"></span>
+                                    </div>
+                                </div>
+
+                                <h4 style="margin: 24px 0 12px 0; color: var(--primary-color); font-size: 18px; font-weight: 600; ">Adres zamieszkania:</h4>
+                                <div class="form-row">
+                                    <div class="form-group">
+                                        <label for="address">Adres (ulica i numer) *</label>
+                                        <input type="text" id="address" name="address" required placeholder="np. ul. Przykładowa 15/3">
+                                        <span class="error-message" id="error_address"></span>
+                                    </div>
+
+                                    <div class="form-group">
+                                        <label for="postal_code">Kod pocztowy *</label>
+                                        <input type="text" id="postal_code" name="postal_code" required placeholder="00-000" maxlength="6">
+                                        <span class="error-message" id="error_postal_code"></span>
+                                    </div>
+                                </div>
+
+                                <div class="form-row">
+                                    <div class="form-group">
+                                        <label for="city">Miejscowość *</label>
+                                        <input type="text" id="city" name="city" required placeholder="np. Warszawa">
+                                        <span class="error-message" id="error_city"></span>
+                                    </div>
+                                </div>
+
+                                <div class="form-group">
+                                    <label for="about_text">Dlaczego chcesz zostać przedstawicielem handlowym? <span style="color: grey; font-weight: 400;"> (opcjonalnie)</span></label>
+                                    <textarea id="about_text" name="about_text" placeholder="Opowiedz nam o sobie..." style="min-height: 120px;"></textarea>
+                                </div>
+
+                                <!-- B2B FIELDS -->
+                                <div class="b2b-fields" id="b2bFields" style="display: none;">
+                                    <h4 style="margin-bottom: 12px; color: var(--primary-color); font-size: 18px; font-weight: 600; ">Dane firmy:</h4>
+
+                                    <div class="form-group">
+                                        <label for="company_name">Nazwa firmy *</label>
+                                        <input type="text" id="company_name" name="company_name">
+                                        <span class="error-message" id="error_company_name"></span>
+                                    </div>
+
+                                    <div class="form-row">
+                                        <div class="form-group">
+                                            <label for="nip">NIP *</label>
+                                            <input type="text" id="nip" name="nip" maxlength="10" placeholder="10 cyfr">
+                                            <span class="error-message" id="error_nip"></span>
+                                        </div>
+
+                                        <div class="form-group">
+                                            <label for="regon">REGON</label>
+                                            <input type="text" id="regon" name="regon" maxlength="14" placeholder="9 lub 14 cyfr">
+                                        </div>
+                                    </div>
+
+                                    <div class="form-group">
+                                        <label for="company_address">Adres firmy *</label>
+                                        <input type="text" id="company_address" name="company_address" placeholder="Ulica, numer">
+                                        <span class="error-message" id="error_company_address"></span>
+                                    </div>
+
+                                    <div class="form-row">
+                                        <div class="form-group">
+                                            <label for="company_city">Miasto *</label>
+                                            <input type="text" id="company_city" name="company_city">
+                                            <span class="error-message" id="error_company_city"></span>
+                                        </div>
+
+                                        <div class="form-group">
+                                            <label for="company_postal_code">Kod pocztowy *</label>
+                                            <input type="text" id="company_postal_code" name="company_postal_code" placeholder="00-000" maxlength="6">
+                                            <span class="error-message" id="error_company_postal_code"></span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- RIGHT COLUMN - Forma współpracy + NDA -->
+                            <div class="form-column-right">
+
+                                <!-- FORMA WSPÓŁPRACY -->
+                                <div class="form-group">
+                                    <label style="display: block; font-size: 18px; font-weight: 600; color: var(--primary-color)">
+                                        Wybierz formę współpracy *
+                                    </label>
+                                </div>
+
+                                <div class="cooperation-cards-compact">
+                                    <label class="cooperation-card-compact" id="card_b2b">
+                                        <input type="radio" name="cooperation_type" value="b2b" required>
+                                        <div class="card-compact-icon">🏢</div>
+                                        <div class="card-compact-content">
+                                            <div class="card-compact-title">B2B</div>
+                                            <div class="card-compact-description">Rozliczenie przez własną firmę</div>
+                                        </div>
+                                        <div class="card-checkmark-compact">✓</div>
+                                    </label>
+
+                                    <label class="cooperation-card-compact active" id="card_contract">
+                                        <input type="radio" name="cooperation_type" value="contract" checked required>
+                                        <div class="card-compact-icon">👤</div>
+                                        <div class="card-compact-content">
+                                            <div class="card-compact-title">Umowa zlecenie</div>
+                                            <div class="card-compact-description">Rozliczenie jako osoba fizyczna</div>
+                                        </div>
+                                        <div class="card-checkmark-compact">✓</div>
+                                    </label>
+                                </div>
+                                <div style="display: block">
+                                    <h4 style="margin-bottom: 12px; color: var(--primary-color); font-size: 18px; font-weight: 600; ">Region sprzedaży:</h4>
+                                        <!-- WOJEWÓDZTWO I MIEJSCOWOŚĆ DZIAŁALNOŚCI -->
+                                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px">
+                                        <div class="form-group">
+                                            <label for="voivodeship">Województwo *</label>
+                                            <select id="voivodeship" name="voivodeship" required>
+                                                <option value="">Wybierz województwo</option>
+                                                <option value="dolnośląskie">Dolnośląskie</option>
+                                                <option value="kujawsko-pomorskie">Kujawsko-pomorskie</option>
+                                                <option value="lubelskie">Lubelskie</option>
+                                                <option value="lubuskie">Lubuskie</option>
+                                                <option value="łódzkie">Łódzkie</option>
+                                                <option value="małopolskie">Małopolskie</option>
+                                                <option value="mazowieckie">Mazowieckie</option>
+                                                <option value="opolskie">Opolskie</option>
+                                                <option value="podkarpackie">Podkarpackie</option>
+                                                <option value="podlaskie">Podlaskie</option>
+                                                <option value="pomorskie">Pomorskie</option>
+                                                <option value="śląskie">Śląskie</option>
+                                                <option value="świętokrzyskie">Świętokrzyskie</option>
+                                                <option value="warmińsko-mazurskie">Warmińsko-mazurskie</option>
+                                                <option value="wielkopolskie">Wielkopolskie</option>
+                                                <option value="zachodniopomorskie">Zachodniopomorskie</option>
+                                            </select>
+                                            <span class="error-message" id="error_voivodeship"></span>
+                                        </div>
+
+                                        <div class="form-group">
+                                            <label for="business_location">Miejscowość *</label>
+                                            <input type="text" id="business_location" name="business_location" required placeholder="np. Kraków">
+                                            <span class="error-message" id="error_business_location"></span>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- ZGODA -->
+                                <div class="form-group">
+                                    <label class="consent-label">
+                                        <input type="checkbox" name="data_processing_consent" id="data_processing_consent" required>
+                                        <span>Wyrażam zgodę na przetwarzanie danych osobowych <a href="#" class="rodo-link" onclick="event.preventDefault(); event.stopPropagation(); showPrivacyModal();">zgodnie z RODO</a> *</span>
+                                    </label>
+                                </div>
+
+                                <!-- NDA SECTION -->
+                                <div class="form-group">
+                                    <h4 style="margin-bottom: 12px; color: var(--primary-color); font-size: 18px; font-weight: 600;">Umowa NDA *</h4>
+                                    <button type="button" class="btn-generate-nda" onclick="generateNDA()">
+                                        📄 Wygeneruj umowę NDA
+                                    </button>
+                                    <p style="font-size: 13px; color: #666; margin: 10px 0;">
+                                        Podpisz dokument i załącz poniżej
+                                    </p>
+
+                                    <!-- Upload Area -->
+                                    <div class="file-upload-area" id="fileUploadArea">
+                                        <input type="file" id="ndaFile" accept=".pdf,.jpg,.jpeg,.png,.docx,.odt" style="display: none;" onchange="handleFileSelect(event)">
+                                        <label for="ndaFile" style="cursor: pointer; display: block;">
+                                            <div style="text-align: center; padding: 24px;">
+                                                <div style="font-size: 40px; margin-bottom: 8px;">📎</div>
+                                                <p style="font-weight: 600; margin-bottom: 6px; color: var(--text-primary); font-size: 14px;">Przeciągnij lub kliknij</p>
+                                                <p style="font-size: 12px; color: #666;">PDF, JPG, PNG, DOCX (max 5 MB)</p>
+                                            </div>
+                                        </label>
+                                    </div>
+
+                                    <!-- File Preview -->
+                                    <div class="file-preview" id="filePreview" style="display: none;">
+                                        <div style="display: flex; align-items: center; justify-content: space-between; padding: 12px; background: #f9f9f9; border-radius: 8px; border: 2px solid var(--accent-orange);">
+                                            <div style="display: flex; align-items: center; gap: 10px;">
+                                                <span style="font-size: 24px;">📄</span>
+                                                <div>
+                                                    <p id="fileName" style="font-weight: 600; margin-bottom: 2px; color: var(--text-primary); font-size: 13px;"></p>
+                                                    <p id="fileSize" style="font-size: 12px; color: #666;"></p>
+                                                </div>
+                                            </div>
+                                            <button type="button" onclick="removeFile()" style="background: #ff4444; color: white; border: none; padding: 6px 12px; border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 12px;">
+                                                Usuń
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- SUBMIT BUTTON -->
+                                <div>
+                                    <button type="button" class="btn-submit-form" id="submitButton" onclick="submitForm()">
+                                        Wyślij aplikację
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <!-- Navigation Buttons (below content box) -->
+        <div class="navigation-buttons" id="navButtons">
+            <button class="btn-back" onclick="prevStep()" id="btnBack" style="display: none;">←</button>
+            <button class="btn-primary" onclick="nextStep()" id="btnNext">Rozpocznij</button>
+        </div>
+    </div>
+
+    <!-- Privacy Modal -->
+    <div id="privacyModal" class="modal">
+        <div class="modal-content">
+            <span class="modal-close" onclick="closePrivacyModal()">&times;</span>
+            <h2>Polityka prywatności</h2>
+            <div class="modal-body">
+                <p><strong>Administrator danych:</strong> Wood Power Sp. z o.o., Bachórz 14N, 36-068 Bachórz</p>
+                <p><strong>Cel przetwarzania:</strong> Rekrutacja przedstawicieli handlowych oraz realizacja umowy</p>
+                <p><strong>Podstawa prawna:</strong> Zgoda (art. 6 ust. 1 lit. a RODO) oraz wykonanie umowy (art. 6 ust. 1 lit. b RODO)</p>
+                <p><strong>Okres przechowywania:</strong> Dane będą przechowywane przez okres niezbędny do realizacji celów przetwarzania, a następnie przez okres wynikający z przepisów prawa</p>
+                <p><strong>Twoje prawa:</strong></p>
+                <ul>
+                    <li>Prawo dostępu do swoich danych osobowych</li>
+                    <li>Prawo do sprostowania danych</li>
+                    <li>Prawo do usunięcia danych</li>
+                    <li>Prawo do ograniczenia przetwarzania</li>
+                    <li>Prawo do przenoszenia danych</li>
+                    <li>Prawo do wycofania zgody w dowolnym momencie</li>
+                    <li>Prawo do wniesienia skargi do organu nadzorczego (UODO)</li>
+                </ul>
+                <p><strong>Kontakt w sprawach danych osobowych:</strong> biuro@woodpower.pl</p>
+                <p>Podanie danych jest dobrowolne, jednak niezbędne do wzięcia udziału w procesie rekrutacji.</p>
+            </div>
+            <button class="btn-primary" onclick="closePrivacyModal()" style="margin-top: var(--spacing-md);">Rozumiem</button>
+        </div>
+    </div>
+
+    <script src="{{ url_for('sales.static', filename='js/recruitment.js') }}"></script>
+</body>
+</html>

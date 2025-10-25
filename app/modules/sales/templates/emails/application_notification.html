@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1.0" />
+    <title>Nowa aplikacja partnera - WoodPower</title>
+    <style type="text/css">
+        body, table, td, p {
+            margin: 0;
+            padding: 0;
+        }
+
+        img {
+            border: 0;
+            display: block;
+            line-height: 100%;
+        }
+
+        a {
+            text-decoration: none;
+        }
+    </style>
+</head>
+
+<body style="margin: 0; padding: 0; background-color: #F8F8F8;">
+    <table width="100%" border="0" cellspacing="0" cellpadding="0" align="center" style="border-collapse: collapse; background-color: #F8F8F8;">
+        <tr>
+            <td align="center" style="padding-top: 30px; padding-bottom: 30px;">
+                <table width="604" border="0" cellspacing="0" cellpadding="0" style="border-collapse: collapse; border-radius: 8px; background: #ffffff; box-shadow: 0px 50px 14px 0px rgba(237, 107, 36, 0.00), 0px 32px 13px 0px rgba(237, 107, 36, 0.01), 0px 18px 11px 0px rgba(0, 0, 0, 0.03), 0px 8px 8px 0px rgba(0, 0, 0, 0.04), 0px 2px 4px 0px rgba(0, 0, 0, 0.05); overflow: hidden;">
+
+                    <!-- Header -->
+                    <tr>
+                        <td style="background: #ED6B24; height: 80px; padding: 0 26px; vertical-align: middle;">
+                            <a href="https://woodpower.pl" target="_blank" style="display: block;">
+                                <img src="https://serwer2100532.home.pl/woodpower/img/cms/mail/logowhite.png" alt="WoodPower" width="200" height="36" style="display: block;" />
+                            </a>
+                        </td>
+                    </tr>
+
+                    <!-- Content -->
+                    <tr>
+                        <td style="border-collapse: collapse;">
+                            <table width="100%" border="0" cellspacing="0" cellpadding="0" style="border-collapse: collapse;">
+
+                                <!-- Heading -->
+                                <tr>
+                                    <td style="padding: 50px 40px 0;">
+                                        <p style="font-family: Poppins, Arial, sans-serif; font-size: 24px; font-weight: 600; color: #1F2020; margin: 0;">
+                                            Nowa aplikacja partnera
+                                        </p>
+                                        <div style="width: 70px; height: 4px; background-color: #ED6B24; border-radius: 2px; margin-top: 6px;"></div>
+                                    </td>
+                                </tr>
+
+                                <!-- Alert box -->
+                                <tr>
+                                    <td style="padding: 30px 40px 0;">
+                                        <table width="100%" border="0" cellspacing="0" cellpadding="0" style="border-collapse: collapse; background-color: #FFF4E6; border-left: 4px solid #ED6B24; border-radius: 4px;">
+                                            <tr>
+                                                <td style="padding: 20px;">
+                                                    <p style="font-family: Poppins, Arial, sans-serif; font-size: 14px; font-weight: 600; color: #1F2020; margin: 0;">
+                                                        🔔 Nowa aplikacja wymaga weryfikacji
+                                                    </p>
+                                                    <p style="font-family: Poppins, Arial, sans-serif; font-size: 12px; font-weight: 400; color: #666; margin: 8px 0 0;">
+                                                        Data złożenia: {{ application.created_at.strftime('%d.%m.%Y %H:%M') }}
+                                                    </p>
+                                                </td>
+                                            </tr>
+                                        </table>
+                                    </td>
+                                </tr>
+
+                                <!-- Dane kandydata -->
+                                <tr>
+                                    <td style="padding: 30px 40px 0;">
+                                        <p style="font-family: Poppins, Arial, sans-serif; font-size: 16px; font-weight: 600; color: #1F2020; margin: 0;">
+                                            Dane kandydata
+                                        </p>
+
+                                        <!-- Tabela z danymi -->
+                                        <table width="100%" border="0" cellspacing="0" cellpadding="0" style="border-collapse: collapse; margin-top: 16px;">
+                                            <tr>
+                                                <td style="padding: 8px 0; border-bottom: 1px solid #f0f0f0;">
+                                                    <p style="font-family: Poppins, Arial, sans-serif; font-size: 12px; font-weight: 600; color: #666; margin: 0;">
+                                                        Imię i nazwisko
+                                                    </p>
+                                                </td>
+                                                <td style="padding: 8px 0; border-bottom: 1px solid #f0f0f0;">
+                                                    <p style="font-family: Poppins, Arial, sans-serif; font-size: 14px; font-weight: 400; color: #1F2020; margin: 0;">
+                                                        {{ application.first_name }} {{ application.last_name }}
+                                                    </p>
+                                                </td>
+                                            </tr>
+                                            <tr>
+                                                <td style="padding: 8px 0; border-bottom: 1px solid #f0f0f0;">
+                                                    <p style="font-family: Poppins, Arial, sans-serif; font-size: 12px; font-weight: 600; color: #666; margin: 0;">
+                                                        Email
+                                                    </p>
+                                                </td>
+                                                <td style="padding: 8px 0; border-bottom: 1px solid #f0f0f0;">
+                                                    <p style="font-family: Poppins, Arial, sans-serif; font-size: 14px; font-weight: 400; color: #1F2020; margin: 0;">
+                                                        <a href="mailto:{{ application.email }}" style="color: #ED6B24; text-decoration: underline;">{{ application.email }}</a>
+                                                    </p>
+                                                </td>
+                                            </tr>
+                                            <tr>
+                                                <td style="padding: 8px 0; border-bottom: 1px solid #f0f0f0;">
+                                                    <p style="font-family: Poppins, Arial, sans-serif; font-size: 12px; font-weight: 600; color: #666; margin: 0;">
+                                                        Telefon
+                                                    </p>
+                                                </td>
+                                                <td style="padding: 8px 0; border-bottom: 1px solid #f0f0f0;">
+                                                    <p style="font-family: Poppins, Arial, sans-serif; font-size: 14px; font-weight: 400; color: #1F2020; margin: 0;">
+                                                        <a href="tel:{{ application.phone }}" style="color: #ED6B24; text-decoration: underline;">{{ application.phone }}</a>
+                                                    </p>
+                                                </td>
+                                            </tr>
+                                            <tr>
+                                                <td style="padding: 8px 0; border-bottom: 1px solid #f0f0f0;">
+                                                    <p style="font-family: Poppins, Arial, sans-serif; font-size: 12px; font-weight: 600; color: #666; margin: 0;">
+                                                        Adres
+                                                    </p>
+                                                </td>
+                                                <td style="padding: 8px 0; border-bottom: 1px solid #f0f0f0;">
+                                                    <p style="font-family: Poppins, Arial, sans-serif; font-size: 14px; font-weight: 400; color: #1F2020; margin: 0;">
+                                                        {{ application.address }}, {{ application.postal_code }} {{ application.city }}
+                                                    </p>
+                                                </td>
+                                            </tr>
+                                            <tr>
+                                                <td style="padding: 8px 0; border-bottom: 1px solid #f0f0f0;">
+                                                    <p style="font-family: Poppins, Arial, sans-serif; font-size: 12px; font-weight: 600; color: #666; margin: 0;">
+                                                        Typ współpracy
+                                                    </p>
+                                                </td>
+                                                <td style="padding: 8px 0; border-bottom: 1px solid #f0f0f0;">
+                                                    <p style="font-family: Poppins, Arial, sans-serif; font-size: 14px; font-weight: 400; color: #1F2020; margin: 0;">
+                                                        {% if application.is_b2b %}
+                                                        <strong>B2B</strong>
+                                                        {% else %}
+                                                        <strong>Umowa zlecenie</strong>
+                                                        {% endif %}
+                                                    </p>
+                                                </td>
+                                            </tr>
+
+                                            <!-- Dane B2B jeśli istnieją -->
+                                            {% if application.is_b2b %}
+                                            <tr>
+                                                <td style="padding: 8px 0; border-bottom: 1px solid #f0f0f0;">
+                                                    <p style="font-family: Poppins, Arial, sans-serif; font-size: 12px; font-weight: 600; color: #666; margin: 0;">
+                                                        Nazwa firmy
+                                                    </p>
+                                                </td>
+                                                <td style="padding: 8px 0; border-bottom: 1px solid #f0f0f0;">
+                                                    <p style="font-family: Poppins, Arial, sans-serif; font-size: 14px; font-weight: 400; color: #1F2020; margin: 0;">
+                                                        {{ application.company_name }}
+                                                    </p>
+                                                </td>
+                                            </tr>
+                                            <tr>
+                                                <td style="padding: 8px 0; border-bottom: 1px solid #f0f0f0;">
+                                                    <p style="font-family: Poppins, Arial, sans-serif; font-size: 12px; font-weight: 600; color: #666; margin: 0;">
+                                                        NIP
+                                                    </p>
+                                                </td>
+                                                <td style="padding: 8px 0; border-bottom: 1px solid #f0f0f0;">
+                                                    <p style="font-family: Poppins, Arial, sans-serif; font-size: 14px; font-weight: 400; color: #1F2020; margin: 0;">
+                                                        {{ application.nip }}
+                                                    </p>
+                                                </td>
+                                            </tr>
+                                            {% if application.regon %}
+                                            <tr>
+                                                <td style="padding: 8px 0; border-bottom: 1px solid #f0f0f0;">
+                                                    <p style="font-family: Poppins, Arial, sans-serif; font-size: 12px; font-weight: 600; color: #666; margin: 0;">
+                                                        REGON
+                                                    </p>
+                                                </td>
+                                                <td style="padding: 8px 0; border-bottom: 1px solid #f0f0f0;">
+                                                    <p style="font-family: Poppins, Arial, sans-serif; font-size: 14px; font-weight: 400; color: #1F2020; margin: 0;">
+                                                        {{ application.regon }}
+                                                    </p>
+                                                </td>
+                                            </tr>
+                                            {% endif %}
+                                            <tr>
+                                                <td style="padding: 8px 0; border-bottom: 1px solid #f0f0f0;">
+                                                    <p style="font-family: Poppins, Arial, sans-serif; font-size: 12px; font-weight: 600; color: #666; margin: 0;">
+                                                        Adres firmy
+                                                    </p>
+                                                </td>
+                                                <td style="padding: 8px 0; border-bottom: 1px solid #f0f0f0;">
+                                                    <p style="font-family: Poppins, Arial, sans-serif; font-size: 14px; font-weight: 400; color: #1F2020; margin: 0;">
+                                                        {{ application.company_address }}, {{ application.company_postal_code }} {{ application.company_city }}
+                                                    </p>
+                                                </td>
+                                            </tr>
+                                            {% endif %}
+
+                                            <!-- Doświadczenie jeśli istnieje -->
+                                            {% if application.experience_level %}
+                                            <tr>
+                                                <td style="padding: 8px 0; border-bottom: 1px solid #f0f0f0;">
+                                                    <p style="font-family: Poppins, Arial, sans-serif; font-size: 12px; font-weight: 600; color: #666; margin: 0;">
+                                                        Doświadczenie
+                                                    </p>
+                                                </td>
+                                                <td style="padding: 8px 0; border-bottom: 1px solid #f0f0f0;">
+                                                    <p style="font-family: Poppins, Arial, sans-serif; font-size: 14px; font-weight: 400; color: #1F2020; margin: 0;">
+                                                        {{ application.experience_level }}
+                                                    </p>
+                                                </td>
+                                            </tr>
+                                            {% endif %}
+                                        </table>
+                                    </td>
+                                </tr>
+
+                                <!-- O sobie -->
+                                {% if application.about_text %}
+                                <tr>
+                                    <td style="padding: 30px 40px 0;">
+                                        <p style="font-family: Poppins, Arial, sans-serif; font-size: 16px; font-weight: 600; color: #1F2020; margin: 0;">
+                                            Dlaczego chce zostać partnerem
+                                        </p>
+                                        <p style="font-family: Poppins, Arial, sans-serif; font-size: 14px; font-weight: 400; color: #1F2020; margin: 12px 0 0; text-align: justify; line-height: 160%; background-color: #f9f9f9; padding: 16px; border-radius: 4px;">
+                                            {{ application.about_text }}
+                                        </p>
+                                    </td>
+                                </tr>
+                                {% endif %}
+
+                                <!-- Zgody RODO -->
+                                <tr>
+                                    <td style="padding: 30px 40px 0;">
+                                        <p style="font-family: Poppins, Arial, sans-serif; font-size: 16px; font-weight: 600; color: #1F2020; margin: 0;">
+                                            Zgody
+                                        </p>
+                                        <ul style="font-family: Poppins, Arial, sans-serif; font-size: 14px; font-weight: 400; color: #1F2020; margin: 12px 0 0; padding-left: 20px; line-height: 160%;">
+                                            <li>Przetwarzanie danych: <strong style="color: #2ECC71;">✓ TAK</strong></li>
+                                        </ul>
+                                    </td>
+                                </tr>
+
+                                <!-- Informacja o załączniku -->
+                                <tr>
+                                    <td style="padding: 30px 40px 0;">
+                                        <table width="100%" border="0" cellspacing="0" cellpadding="0" style="border-collapse: collapse; background-color: #E8F5E9; border-left: 4px solid #2ECC71; border-radius: 4px;">
+                                            <tr>
+                                                <td style="padding: 16px;">
+                                                    <p style="font-family: Poppins, Arial, sans-serif; font-size: 14px; font-weight: 600; color: #1F2020; margin: 0;">
+                                                        📎 Podpisane NDA załączone do wiadomości
+                                                    </p>
+                                                    <p style="font-family: Poppins, Arial, sans-serif; font-size: 12px; font-weight: 400; color: #666; margin: 8px 0 0;">
+                                                        Plik: {{ application.nda_filename }} ({{ (application.nda_filesize / 1024) | round(1) }} KB)
+                                                    </p>
+                                                </td>
+                                            </tr>
+                                        </table>
+                                    </td>
+                                </tr>
+
+                                <!-- Button do CRM -->
+                                <tr>
+                                    <td style="padding: 30px 40px 0;">
+                                        <table border="0" cellspacing="0" cellpadding="0" style="border-collapse: collapse;">
+                                            <tr>
+                                                <td style="background: #ED6B24; border-radius: 4px; padding: 12px 32px;">
+                                                    <a href="https://crm.woodpower.pl/sales/admin" style="font-family: Poppins, Arial, sans-serif; font-size: 14px; font-weight: 600; color: #ffffff; text-decoration: none; display: inline-block;">
+                                                        Zobacz w systemie CRM →
+                                                    </a>
+                                                </td>
+                                            </tr>
+                                        </table>
+                                    </td>
+                                </tr>
+
+                                <!-- Separator -->
+                                <tr>
+                                    <td style="padding: 30px 0 0 0;">
+                                        <div style="width: 100%; height: 1px; background-color: #ED6B24;"></div>
+                                    </td>
+                                </tr>
+
+                                <!-- Footer -->
+                                <tr>
+                                    <td style="padding: 30px 40px;">
+                                        <p style="font-family: Poppins, Arial, sans-serif; font-size: 12px; font-weight: 400; color: #939393; margin: 0; text-align: left;">
+                                            Wiadomość została wysłana automatycznie przez system WoodPower CRM.
+                                        </p>
+                                        <p style="font-family: Poppins, Arial, sans-serif; font-size: 12px; font-weight: 400; color: #939393; margin: 12px 0 0; text-align: left;">
+                                            Adres IP: {{ application.ip_address }}
+                                        </p>
+                                    </td>
+                                </tr>
+                            </table>
+                        </td>
+                    </tr>
+                </table>
+            </td>
+        </tr>
+
+        <!-- Company Info -->
+        <tr>
+            <td align="center">
+                <table width="604" border="0" cellspacing="0" cellpadding="0" style="border-collapse: collapse;">
+                    <tr>
+                        <td align="left" style="padding: 0px 40px 40px;">
+                            <p style="font-family: Poppins, Arial, sans-serif; font-size: 10px; font-weight: 400; color: #939393; margin: 0; text-align: justify;">
+                                Wood Power Spółka z ograniczoną odpowiedzialnością, Bachórz 14N, 36-068 Bachórz, NIP: 8133787635
+                            </p>
+                        </td>
+                    </tr>
+                </table>
+            </td>
+        </tr>
+    </table>
+</body>
+</html>

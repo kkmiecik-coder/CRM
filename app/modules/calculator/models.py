@@ -45,15 +45,38 @@ class Quote(db.Model):
     acceptance_date = db.Column(db.DateTime)
     accepted_by_email = db.Column(db.String(255))
     
-    # NOWE POLE - akceptacja przez użytkownika wewnętrznego
+    # Akceptacja przez użytkownika wewnętrznego
     accepted_by_user_id = db.Column(db.Integer, db.ForeignKey('users.id'))
     
-    # POLE: Mnożnik (grupa cenowa) przypisany do wyceny
+    # Mnożnik (grupa cenowa) przypisany do wyceny
     quote_multiplier = db.Column(db.Numeric(5, 2))
     quote_client_type = db.Column(db.String(100))  # Nazwa grupy cenowej
 
-    # NOWE POLE: Notatki do wyceny
+    # Notatki do wyceny
     notes = db.Column(db.Text)
+
+    # ============================================
+    # DOKUMENTY SPRZEDAŻY BASELINKER
+    # ============================================
+    
+    # FAKTURA
+    baselinker_invoice_id = db.Column(db.Integer, nullable=True)
+    baselinker_invoice_number = db.Column(db.String(50), nullable=True)
+    baselinker_invoice_file = db.Column(db.Text, nullable=True)
+    baselinker_invoice_fetched_at = db.Column(db.DateTime, nullable=True)
+    
+    # KOREKTA FAKTURY
+    baselinker_correction_invoice_id = db.Column(db.Integer, nullable=True)
+    baselinker_correction_invoice_number = db.Column(db.String(50), nullable=True)
+    baselinker_correction_invoice_file = db.Column(db.Text, nullable=True)
+    baselinker_correction_last_check = db.Column(db.DateTime, nullable=True)
+    
+    # E-PARAGON
+    baselinker_receipt_url = db.Column(db.String(500), nullable=True)
+    baselinker_receipt_last_check = db.Column(db.DateTime, nullable=True)
+    
+    # STRONA INFORMACYJNA
+    baselinker_order_page = db.Column(db.String(255), nullable=True)
     
     # POPRAWIONE RELACJE - bez konfliktów
     user = db.relationship('User', foreign_keys=[user_id], backref='quotes')
@@ -180,6 +203,40 @@ class Quote(db.Model):
         if QuoteItemDetails:
             return db.session.query(QuoteItemDetails).filter_by(quote_id=self.id)
         return db.session.query(db.Model).filter(False)  # Pusty query jako fallback
+
+    # ============================================
+    # METODY HELPER DLA DOKUMENTÓW SPRZEDAŻY
+    # ============================================
+    
+    def has_invoice(self):
+        """Sprawdza czy faktura jest dostępna w cache"""
+        return self.baselinker_invoice_number is not None
+    
+    def has_correction(self):
+        """Sprawdza czy korekta jest dostępna w cache"""
+        return self.baselinker_correction_invoice_number is not None
+    
+    def has_receipt(self):
+        """Sprawdza czy e-paragon jest dostępny"""
+        return self.baselinker_receipt_url is not None
+    
+    def should_check_correction(self):
+        """Sprawdza czy należy ponownie sprawdzić korektę (cache starszy niż 1h)"""
+        if not self.baselinker_correction_last_check:
+            return True
+        
+        from datetime import timedelta
+        time_since_check = datetime.utcnow() - self.baselinker_correction_last_check
+        return time_since_check > timedelta(hours=1)
+    
+    def should_check_receipt(self):
+        """Sprawdza czy należy ponownie sprawdzić e-paragon (cache starszy niż 1h)"""
+        if not self.baselinker_receipt_last_check:
+            return True
+        
+        from datetime import timedelta
+        time_since_check = datetime.utcnow() - self.baselinker_receipt_last_check
+        return time_since_check > timedelta(hours=1)
 
     def __repr__(self):
         return f"<Quote {self.quote_number}>"

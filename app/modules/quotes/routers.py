@@ -158,11 +158,10 @@ def quotes_home():
         prices_json = json.dumps(prices_list)
         
         # ✅ NOWE: Konfiguracja flexible partners
-        FLEXIBLE_PARTNER_IDS = [14, 15, 16]
+        FLEXIBLE_PARTNER_IDS = [14, 15]
         FLEXIBLE_PARTNER_ALLOWED_MULTIPLIERS = {
             14: [5, 6],
             15: [5, 6],
-            16: [5, 6],
         }
         
         # Pobieranie mnożników z bazy - filtrowanie per user
@@ -1956,3 +1955,120 @@ def get_finishing_data():
         import traceback
         traceback.print_exc(file=sys.stderr)
         return jsonify({'error': 'Błąd pobierania danych wykończenia'}), 500
+
+
+@quotes_bp.route('/api/quotes/<int:quote_id>/invoice/download')
+@require_module_access('quotes')
+def download_invoice(quote_id):
+    """
+    Pobiera PDF faktury z cache (bazy danych)
+    """
+    try:
+        # Pobierz wycenę
+        quote = Quote.query.get_or_404(quote_id)
+        
+        # Sprawdź czy faktura istnieje w cache
+        if not quote.has_invoice() or not quote.baselinker_invoice_file:
+            return jsonify({
+                'error': 'Faktura nie jest dostępna'
+            }), 404
+        
+        # Dekoduj base64 do binary
+        import base64
+        
+        # Usuń prefix "data:application/pdf;base64," jeśli istnieje
+        invoice_data = quote.baselinker_invoice_file
+        if invoice_data.startswith('data:'):
+            parts = invoice_data.split(',', 1)
+            if len(parts) > 1:
+                invoice_data = parts[1]
+            else:
+                invoice_data = invoice_data.replace('data:', '')
+        
+        # Dekoduj base64
+        pdf_binary = base64.b64decode(invoice_data)
+        
+        # Przygotuj nazwę pliku (usuń znaki specjalne z numeru faktury)
+        safe_number = quote.baselinker_invoice_number.replace('/', '_')
+        filename = f"Faktura_{safe_number}.pdf"
+        
+        # Zwróć PDF jako Response
+        from flask import Response
+        
+        return Response(
+            pdf_binary,
+            mimetype='application/pdf',
+            headers={
+                'Content-Disposition': f'attachment; filename="{filename}"',
+                'Content-Type': 'application/pdf',
+                'Content-Length': len(pdf_binary)
+            }
+        )
+        
+    except Exception as e:
+        print(f"[download_invoice] Błąd: {e}", file=sys.stderr)
+        import traceback
+        traceback.print_exc(file=sys.stderr)
+        
+        return jsonify({
+            'error': 'Błąd pobierania faktury',
+            'details': str(e)
+        }), 500
+
+@quotes_bp.route('/api/quotes/<int:quote_id>/correction/download')
+@require_module_access('quotes')
+def download_correction(quote_id):
+    """
+    Pobiera PDF korekty faktury z cache (bazy danych)
+    """
+    try:
+        # Pobierz wycenę
+        quote = Quote.query.get_or_404(quote_id)
+        
+        # Sprawdź czy korekta istnieje w cache
+        if not quote.has_correction() or not quote.baselinker_correction_invoice_file:
+            return jsonify({
+                'error': 'Korekta faktury nie jest dostępna'
+            }), 404
+        
+        # Dekoduj base64 do binary
+        import base64
+        
+        # Usuń prefix "data:application/pdf;base64," jeśli istnieje
+        correction_data = quote.baselinker_correction_invoice_file
+        if correction_data.startswith('data:'):
+            parts = correction_data.split(',', 1)
+            if len(parts) > 1:
+                correction_data = parts[1]
+            else:
+                correction_data = correction_data.replace('data:', '')
+        
+        # Dekoduj base64
+        pdf_binary = base64.b64decode(correction_data)
+        
+        # Przygotuj nazwę pliku (usuń znaki specjalne z numeru korekty)
+        safe_number = quote.baselinker_correction_invoice_number.replace('/', '_')
+        filename = f"Korekta_{safe_number}.pdf"
+        
+        # Zwróć PDF jako Response
+        from flask import Response
+        
+        return Response(
+            pdf_binary,
+            mimetype='application/pdf',
+            headers={
+                'Content-Disposition': f'attachment; filename="{filename}"',
+                'Content-Type': 'application/pdf',
+                'Content-Length': len(pdf_binary)
+            }
+        )
+        
+    except Exception as e:
+        print(f"[download_correction] Błąd: {e}", file=sys.stderr)
+        import traceback
+        traceback.print_exc(file=sys.stderr)
+        
+        return jsonify({
+            'error': 'Błąd pobierania korekty',
+            'details': str(e)
+        }), 500

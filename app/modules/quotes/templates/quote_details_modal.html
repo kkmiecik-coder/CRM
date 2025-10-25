@@ -27,13 +27,11 @@
                 <button id="quote-preview3d-btn" class="quotes-btn quotes-btn-preview3d" title="Podgląd wybranego wariantu w 3D/AR">
                     <span>3D</span>
                 </button>
-                {% if user_role in ['admin', 'user'] %}
                 <button id="total-discount-btn"
                         class="quotes-btn total-discount-btn"
                         title="Zastosuj rabat do wszystkich produktów">
                     <span>Rabat całkowity</span>
                 </button>
-                {% endif %}
                 <button class="quotes-btn quotes-btn-full-screen" id="toggle-fullscreen-modal">Pełny ekran</button>
                 <button class="modal-action-btn edit-quote-btn"
                         onclick="openQuoteEditor(currentQuoteData)"
@@ -77,14 +75,6 @@
                         <div class="dropdown-toggle" id="custom-status-selected">Wybierz status</div>
                         <div class="dropdown-options" id="custom-status-options"></div>
                     </div>
-                </div>
-                <div id="baselinker-section" style="display: none;">
-                    <p><strong>Numer zamówienia:</strong> 
-                            <a id="baselinker-order-link" href="#" target="_blank" style="color: #4284F3; text-decoration: none;">
-                                <span id="baselinker-order-number">-</span>
-                            </a>
-                    </p>
-                    <p><strong>Status BL:</strong> <span id="baselinker-order-status">Pobieranie...</span></p>
                 </div>
             </div>
 
@@ -130,6 +120,65 @@
                 </p>
             </div>
 
+            <!-- NOWA SEKCJA: Dane zamówienia -->
+            <div id="baselinker-order-block" class="modal-block" style="display: none;">
+                <h3 class="quotes-details-modal-subtitle">Dane zamówienia</h3>
+                <p>
+                    <strong>Numer zamówienia:</strong>
+                    <a id="baselinker-order-link" href="#" target="_blank" style="color: #4284F3; text-decoration: none;">
+                        <span id="baselinker-order-number">-</span>
+                    </a>
+                </p>
+                <p><strong>Status BL:</strong> <span id="baselinker-order-status">Pobieranie...</span></p>
+
+                <p><strong>Dok. sprzedaży:</strong></p>
+                <div class="sales-documents-list">
+                    <!-- Faktura -->
+                    <button id="baselinker-invoice-btn"
+                            class="doc-btn doc-loading"
+                            data-status="loading"
+                            disabled>
+                        <span class="doc-icon">📄</span>
+                        <span class="doc-label">Faktura:</span>
+                        <span id="baselinker-invoice-value" class="doc-value">Ładowanie...</span>
+                    </button>
+
+                    <!-- Korekta (ukryta domyślnie) -->
+                    <button id="baselinker-correction-btn"
+                            class="doc-btn doc-loading"
+                            data-status="loading"
+                            style="display: none;"
+                            disabled>
+                        <span class="doc-icon">⚠️</span>
+                        <span class="doc-label">Korekta:</span>
+                        <span id="baselinker-correction-value" class="doc-value">Ładowanie...</span>
+                    </button>
+
+                    <!-- E-paragon (ukryty domyślnie) -->
+                    <button id="baselinker-receipt-btn"
+                            class="doc-btn doc-loading"
+                            data-status="loading"
+                            style="display: none;"
+                            disabled>
+                        <span class="doc-icon">🧾</span>
+                        <span class="doc-label">E-paragon:</span>
+                        <span id="baselinker-receipt-value" class="doc-value">Ładowanie...</span>
+                    </button>
+                </div>
+
+                <!-- Strona informacyjna -->
+                <p style="margin-top: 15px;">
+                    <a id="baselinker-order-page-btn"
+                       href="#"
+                       target="_blank"
+                       rel="noopener noreferrer"
+                       class="quotes-btn quotes-btn-secondary"
+                       style="display: none;">
+                        📋 Strona informacyjna zamówienia
+                    </a>
+                </p>
+            </div>
+
             <div class="modal-block modal-block-note">
                 <div class="note-header">
                     <h3 class="quotes-details-modal-subtitle">Notatka</h3>
@@ -155,7 +204,7 @@
                 </div>
                 <div class="note-warning" id="note-length-warning" style="display: none;">
                     <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-                        <path d="M8.982 1.566a1.13 1.13 0 0 0-1.96 0L.165 13.233c-.457.778.091 1.767.98 1.767h13.713c.889 0 1.438-.99.98-1.767L8.982 1.566zM8 5c.535 0 .954.462.9.995l-.35 3.507a.552.552 0 0 1-1.1 0L7.1 5.995A.905.905 0 0 1 8 5zm.002 6a1 1 0 1 1 0 2 1 1 0 0 1 0-2z"/>
+                        <path d="M8.982 1.566a1.13 1.13 0 0 0-1.96 0L.165 13.233c-.457.778.091 1.767.98 1.767h13.713c.889 0 1.438-.99.98-1.767L8.982 1.566zM8 5c.535 0 .954.462.9.995l-.35 3.507a.552.552 0 0 1-1.1 0L7.1 5.995A.905.905 0 0 1 8 5zm.002 6a1 1 0 1 1 0 2 1 1 0 0 1 0-2z" />
                     </svg>
                     <span>Notatka jest za długa i nie zmieści się w zamówieniu Baselinker (limit 180 znaków)</span>
                 </div>

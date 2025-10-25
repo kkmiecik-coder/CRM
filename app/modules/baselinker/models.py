@@ -8,12 +8,12 @@ class BaselinkerOrderLog(db.Model):
     
     id = db.Column(db.Integer, primary_key=True)
     quote_id = db.Column(db.Integer, db.ForeignKey('quotes.id'), nullable=False)
-    baselinker_order_id = db.Column(db.Integer, nullable=True)  # ID zamówienia w Baselinker
-    action = db.Column(db.String(50), nullable=False)  # 'create_order', 'update_order', etc.
-    status = db.Column(db.String(20), nullable=False)  # 'success', 'error', 'pending'
-    request_data = db.Column(db.Text)  # JSON request sent to API
-    response_data = db.Column(db.Text)  # JSON response from API
-    error_message = db.Column(db.Text)  # Error message if any
+    baselinker_order_id = db.Column(db.Integer, nullable=True)
+    action = db.Column(db.String(50), nullable=False)
+    status = db.Column(db.String(20), nullable=False)
+    request_data = db.Column(db.Text)
+    response_data = db.Column(db.Text)
+    error_message = db.Column(db.Text)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     created_by = db.Column(db.Integer, db.ForeignKey('users.id'))
     
@@ -33,16 +33,28 @@ class BaselinkerOrderLog(db.Model):
             'created_by': self.created_by
         }
 
+
 class BaselinkerConfig(db.Model):
-    """Konfiguracja Baselinker - źródła, statusy itp."""
+    """
+    Konfiguracja Baselinker - źródła, statusy itp.
+    
+    NOWA KOLUMNA: allowed_roles (JSON)
+    - NULL = dostępne dla wszystkich ról
+    - JSON array = dostępne tylko dla wymienionych ról
+      np. ["admin", "user", "flexible_partner"]
+    """
     __tablename__ = 'baselinker_config'
     
     id = db.Column(db.Integer, primary_key=True)
-    config_type = db.Column(db.String(50), nullable=False)  # 'order_source', 'order_status', 'payment_method'
-    baselinker_id = db.Column(db.Integer, nullable=False)  # ID w systemie Baselinker
+    config_type = db.Column(db.String(50), nullable=False)
+    baselinker_id = db.Column(db.Integer, nullable=False)
     name = db.Column(db.String(255), nullable=False)
     is_default = db.Column(db.Boolean, default=False)
     is_active = db.Column(db.Boolean, default=True)
+    
+    # NOWA KOLUMNA - kontrola dostępu
+    allowed_roles = db.Column(db.JSON, nullable=True)
+    
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
@@ -53,3 +65,38 @@ class BaselinkerConfig(db.Model):
     @classmethod
     def get_default_order_status(cls):
         return cls.query.filter_by(config_type='order_status', is_default=True, is_active=True).first()
+    
+    def is_allowed_for_role(self, user_role, is_flexible_partner=False):
+        """
+        Sprawdza czy dany element jest dostępny dla roli użytkownika
+        
+        Args:
+            user_role (str): 'admin', 'user', 'partner'
+            is_flexible_partner (bool): Czy użytkownik jest flexible partner
+            
+        Returns:
+            bool: True jeśli element jest dostępny
+        """
+        # NULL = brak ograniczeń, dostępne dla wszystkich
+        if self.allowed_roles is None:
+            return True
+        
+        # Określ efektywną rolę użytkownika
+        effective_role = 'flexible_partner' if is_flexible_partner else user_role
+        
+        # Sprawdź czy rola jest na liście dozwolonych
+        return effective_role in self.allowed_roles
+    
+    def to_dict(self, include_permissions=False):
+        """Konwersja do słownika dla JSON"""
+        data = {
+            'id': self.baselinker_id,  # WAŻNE: używamy baselinker_id jako 'id'
+            'name': self.name,
+            'is_default': self.is_default,
+            'is_active': self.is_active
+        }
+        
+        if include_permissions:
+            data['allowed_roles'] = self.allowed_roles
+            
+        return data

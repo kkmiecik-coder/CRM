@@ -196,3 +196,137 @@ function handleMouseLeave(event) {
 
 // Funkcja globalna dostępna w HTML
 window.toggleSidebar = toggleSidebar;
+
+// ============================================
+// MOBILE MENU FUNCTIONALITY
+// ============================================
+
+(function() {
+    'use strict';
+    
+    // Sprawdź czy jesteśmy na mobile
+    function isMobile() {
+        return window.innerWidth <= 768;
+    }
+    
+    // Inicjalizacja mobile menu
+    function initMobileMenu() {
+        // Sprawdź czy elementy już istnieją
+        if (document.querySelector('.mobile-menu-toggle')) {
+            return;
+        }
+        
+        // Utwórz hamburger button
+        const mobileToggle = document.createElement('button');
+        mobileToggle.className = 'mobile-menu-toggle';
+        mobileToggle.setAttribute('aria-label', 'Toggle menu');
+        mobileToggle.innerHTML = `
+            <div class="hamburger-icon">
+                <span></span>
+                <span></span>
+                <span></span>
+            </div>
+        `;
+        
+        // Utwórz overlay
+        const mobileOverlay = document.createElement('div');
+        mobileOverlay.className = 'mobile-overlay';
+        mobileOverlay.setAttribute('aria-hidden', 'true');
+        
+        // Dodaj do body
+        document.body.appendChild(mobileToggle);
+        document.body.appendChild(mobileOverlay);
+        
+        // Ukryj elementy na desktop
+        if (!isMobile()) {
+            mobileToggle.style.display = 'none';
+        }
+        
+        const sidebar = document.querySelector('.sidebar');
+        
+        // Toggle menu function
+        function toggleMobileMenu(event) {
+            if (event) {
+                event.preventDefault();
+                event.stopPropagation();
+            }
+            
+            const isOpen = sidebar.classList.contains('mobile-open');
+            
+            if (isOpen) {
+                // Zamknij menu
+                sidebar.classList.remove('mobile-open');
+                mobileToggle.classList.remove('active');
+                mobileOverlay.classList.remove('active');
+                document.body.style.overflow = '';
+                
+                console.log('[Mobile Menu] Menu zamknięte');
+            } else {
+                // Otwórz menu
+                sidebar.classList.add('mobile-open');
+                mobileToggle.classList.add('active');
+                mobileOverlay.classList.add('active');
+                document.body.style.overflow = 'hidden';
+                
+                console.log('[Mobile Menu] Menu otwarte');
+            }
+        }
+        
+        // Event listeners
+        mobileToggle.addEventListener('click', toggleMobileMenu);
+        mobileToggle.addEventListener('touchstart', function(e) {
+            e.preventDefault();
+            toggleMobileMenu();
+        }, { passive: false });
+        
+        mobileOverlay.addEventListener('click', toggleMobileMenu);
+        
+        // Zamknij menu po kliknięciu w link
+        const menuLinks = sidebar.querySelectorAll('.menu-options a, .shorts-link, .footer-menu-item');
+        menuLinks.forEach(link => {
+            link.addEventListener('click', function() {
+                if (isMobile() && sidebar.classList.contains('mobile-open')) {
+                    setTimeout(() => {
+                        toggleMobileMenu();
+                    }, 200);
+                }
+            });
+        });
+        
+        // Handle resize
+        let resizeTimer;
+        window.addEventListener('resize', function() {
+            clearTimeout(resizeTimer);
+            resizeTimer = setTimeout(function() {
+                if (!isMobile()) {
+                    // Desktop mode
+                    sidebar.classList.remove('mobile-open');
+                    mobileToggle.classList.remove('active');
+                    mobileOverlay.classList.remove('active');
+                    document.body.style.overflow = '';
+                    mobileToggle.style.display = 'none';
+                } else {
+                    // Mobile mode
+                    mobileToggle.style.display = 'flex';
+                }
+            }, 250);
+        });
+        
+        // Zapobiegnij scrollowaniu sidebara gdy jest otwarty
+        sidebar.addEventListener('touchmove', function(e) {
+            if (sidebar.classList.contains('mobile-open')) {
+                e.stopPropagation();
+            }
+        }, { passive: true });
+        
+        console.log('[Mobile Menu] Initialized');
+    }
+    
+    // Inicjalizuj po załadowaniu DOM
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', initMobileMenu);
+    } else {
+        initMobileMenu();
+    }
+    
+})();

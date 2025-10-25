@@ -43,11 +43,10 @@ def calculator_home():
     prices_json = json.dumps(prices_list)
     
     # ✅ NOWE: Konfiguracja flexible partners
-    FLEXIBLE_PARTNER_IDS = [14, 15, 16]
+    FLEXIBLE_PARTNER_IDS = [14, 15]
     FLEXIBLE_PARTNER_ALLOWED_MULTIPLIERS = {
         14: [5, 6],
         15: [5, 6],
-        16: [5, 6],
     }
     
     # Pobieranie mnożników z bazy - filtrowanie per user
@@ -419,7 +418,16 @@ def search_clients():
     from modules.clients.models import Client
     from modules.users.models import User
 
-    # ✅ NOWE: Najpierw bazowe query z wyszukiwaniem
+    # Pobierz aktualnego użytkownika
+    user_id = session.get('user_id')
+    if not user_id:
+        return jsonify([])
+    
+    user = User.query.get(user_id)
+    if not user:
+        return jsonify([])
+
+    # ✅ NOWE: Bazowe query - WSZYSCY klienci (usunięto filtrowanie per rola)
     base_query = Client.query.filter(
         (Client.client_number.ilike(f"%{term}%")) |
         (Client.client_name.ilike(f"%{term}%")) |
@@ -427,17 +435,12 @@ def search_clients():
         (Client.phone.ilike(f"%{term}%"))
     )
 
-    # ✅ NOWE: Filtrowanie per rola
-    user_id = session.get('user_id')
-    if user_id:
-        user = User.query.get(user_id)
-        if user and user.role == 'partner':
-            # Partner widzi tylko swoich klientów
-            base_query = base_query.filter(Client.created_by_user_id == user_id)
-
     matches = base_query.all()
 
-    result = []
+    # ✅ NOWE: Segreguj klientów na własnych i cudzych
+    own_clients = []
+    other_clients = []
+    
     for c in matches:
         # POPRAWKA: Priorityzuj client_number (imię i nazwisko) nad client_name
         if c.client_number and c.client_number.strip():
@@ -457,12 +460,22 @@ def search_clients():
             # Ostatnia deska ratunku
             display_name = f"Klient ID: {c.id}"
         
-        result.append({
+        client_data = {
             "id": c.id,
             "name": display_name,
             "email": c.email or "",
-            "phone": c.phone or ""
-        })
+            "phone": c.phone or "",
+            "is_own_client": c.created_by_user_id == user_id  # ✅ NOWE POLE
+        }
+        
+        # ✅ NOWE: Segregacja - własni na górze, cudzy na dole
+        if c.created_by_user_id == user_id:
+            own_clients.append(client_data)
+        else:
+            other_clients.append(client_data)
+
+    # ✅ NOWE: Złącz listy - własni klienci najpierw
+    result = own_clients + other_clients
 
     return jsonify(result)
 

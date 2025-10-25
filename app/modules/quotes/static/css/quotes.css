@@ -2509,7 +2509,7 @@
 .user-acceptance-banner {
     background: linear-gradient(135deg, #d4edda 0%, #c3e6cb 100%);
     border-left: 4px solid #28a745;
-    margin: 0 0 20px 0;
+    margin: 20px 0;
     padding: 16px 20px;
     border-radius: 8px;
     display: flex;
@@ -5099,3 +5099,335 @@
         height: 16px;
         fill: #FF9800;
     }
+
+/* ============================================
+   SEKCJA: Dokumenty sprzedaży Baselinker
+   ============================================ */
+
+/* Kontener sekcji dokumentów */
+.sales-documents-section {
+    margin-top: 20px;
+    padding-top: 15px;
+    border-top: 1px solid #e0e0e0;
+}
+
+    .sales-documents-section > p {
+        margin-bottom: 12px;
+        font-size: 14px;
+    }
+
+/* Lista przycisków dokumentów */
+.sales-documents-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+/* ============================================
+   PRZYCISK DOKUMENTU - STYLE BAZOWE
+   ============================================ */
+
+.doc-btn {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 12px 16px;
+    border: 1px solid #e0e0e0;
+    border-radius: 6px;
+    background: #ffffff;
+    text-align: left;
+    font-family: inherit;
+    font-size: 14px;
+    transition: all 0.2s ease;
+    cursor: default;
+}
+
+    .doc-btn:focus {
+        outline: 2px solid #4284F3;
+        outline-offset: 2px;
+    }
+
+/* Ikona dokumentu (emoji) */
+.doc-icon {
+    font-size: 18px;
+    flex-shrink: 0;
+}
+
+/* Etykieta dokumentu */
+.doc-label {
+    font-weight: 600;
+    color: #333333;
+    flex-shrink: 0;
+}
+
+/* Wartość/status dokumentu */
+.doc-value {
+    font-weight: normal;
+    margin-left: auto;
+}
+
+/* ============================================
+   STAN: LOADING (Ładowanie...)
+   ============================================ */
+
+.doc-btn.doc-loading {
+    background: #f8f9fa;
+    border-color: #4284F3;
+    cursor: wait;
+}
+
+    .doc-btn.doc-loading .doc-value {
+        color: #4284F3;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+
+        /* Spinner animowany */
+        .doc-btn.doc-loading .doc-value::before {
+            content: "";
+            display: inline-block;
+            width: 14px;
+            height: 14px;
+            border: 2px solid #4284F3;
+            border-top-color: transparent;
+            border-radius: 50%;
+            animation: doc-spinner 0.8s linear infinite;
+        }
+
+@keyframes doc-spinner {
+    from {
+        transform: rotate(0deg);
+    }
+
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+/* ============================================
+   STAN: READY (Dokument dostępny)
+   ============================================ */
+
+.doc-btn.doc-ready {
+    border-color: #4284F3;
+    background: #f0f7ff;
+    cursor: pointer;
+}
+
+    .doc-btn.doc-ready:hover {
+        background: #e3f2fd;
+        border-color: #1967d2;
+        transform: translateY(-1px);
+        box-shadow: 0 2px 4px rgba(66, 132, 243, 0.2);
+    }
+
+    .doc-btn.doc-ready:active {
+        transform: translateY(0);
+        box-shadow: none;
+    }
+
+    .doc-btn.doc-ready .doc-value {
+        color: #4284F3;
+        font-weight: 600;
+        text-decoration: underline;
+    }
+
+    .doc-btn.doc-ready:hover .doc-value {
+        color: #1967d2;
+    }
+
+/* ============================================
+   STAN: NOT ISSUED (Niewystawiony)
+   ============================================ */
+
+.doc-btn.doc-not-issued {
+    background: #fafafa;
+    border-color: #e0e0e0;
+    cursor: not-allowed;
+    opacity: 0.7;
+}
+
+    .doc-btn.doc-not-issued .doc-value {
+        color: #999999;
+        font-style: italic;
+    }
+
+    .doc-btn.doc-not-issued .doc-icon {
+        opacity: 0.5;
+    }
+
+/* ============================================
+   STAN: ERROR (Błąd pobierania)
+   ============================================ */
+
+.doc-btn.doc-error {
+    background: #fff5f5;
+    border-color: #dc3545;
+    cursor: help;
+}
+
+    .doc-btn.doc-error .doc-value {
+        color: #dc3545;
+        font-weight: 600;
+    }
+
+    .doc-btn.doc-error:hover {
+        background: #ffe5e5;
+    }
+
+    /* Tooltip dla błędu (native title attribute) */
+    .doc-btn.doc-error[title] {
+        position: relative;
+    }
+
+/* ============================================
+   KOREKTA - SPECJALNE STYLE
+   ============================================ */
+
+/* Korekta zawsze czerwona (nawet w stanie ready) */
+#baselinker-correction-btn.doc-ready {
+    border-color: #dc3545;
+    background: #fff5f5;
+}
+
+    #baselinker-correction-btn.doc-ready:hover {
+        background: #ffe5e5;
+        border-color: #c82333;
+    }
+
+    #baselinker-correction-btn.doc-ready .doc-value {
+        color: #dc3545;
+    }
+
+    #baselinker-correction-btn.doc-ready:hover .doc-value {
+        color: #c82333;
+    }
+
+    /* Ikona korekty pulsująca */
+    #baselinker-correction-btn.doc-ready .doc-icon {
+        animation: pulse-warning 2s ease-in-out infinite;
+    }
+
+@keyframes pulse-warning {
+    0%, 100% {
+        opacity: 1;
+    }
+
+    50% {
+        opacity: 0.6;
+    }
+}
+
+/* ============================================
+   PRZYCISK: Strona informacyjna zamówienia
+   ============================================ */
+
+#baselinker-order-page-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 20px;
+    background: #ffffff;
+    border: 1px solid #4284F3;
+    color: #4284F3;
+    text-decoration: none;
+    border-radius: 6px;
+    font-size: 14px;
+    font-weight: 500;
+    transition: all 0.2s ease;
+}
+
+    #baselinker-order-page-btn:hover {
+        background: #f0f7ff;
+        border-color: #1967d2;
+        color: #1967d2;
+        transform: translateY(-1px);
+        box-shadow: 0 2px 4px rgba(66, 132, 243, 0.2);
+    }
+
+    #baselinker-order-page-btn:active {
+        transform: translateY(0);
+        box-shadow: none;
+    }
+
+/* ============================================
+   RESPONSIVE (Mobile)
+   ============================================ */
+
+@media (max-width: 768px) {
+    .doc-btn {
+        padding: 10px 12px;
+        font-size: 13px;
+    }
+
+    .doc-icon {
+        font-size: 16px;
+    }
+
+    .doc-label {
+        font-size: 13px;
+    }
+
+    .doc-value {
+        font-size: 13px;
+    }
+
+    #baselinker-order-page-btn {
+        width: 100%;
+        justify-content: center;
+    }
+}
+
+/* Komunikaty w sekcji dokumentów */
+.documents-message {
+    padding: 12px 16px;
+    border-radius: 6px;
+    margin-bottom: 12px;
+    font-size: 14px;
+}
+
+.documents-message-loading {
+    background: #e3f2fd;
+    border: 1px solid #90caf9;
+    color: #1976d2;
+}
+
+.documents-message-info {
+    background: #fff3e0;
+    border: 1px solid #ffb74d;
+    color: #f57c00;
+}
+
+.documents-message-error {
+    background: #ffebee;
+    border: 1px solid #ef5350;
+    color: #c62828;
+}
+
+.documents-message-content {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+/* Spinner ładowania */
+.documents-spinner {
+    width: 16px;
+    height: 16px;
+    border: 2px solid #90caf9;
+    border-top-color: #1976d2;
+    border-radius: 50%;
+    animation: documents-spin 0.8s linear infinite;
+}
+
+@keyframes documents-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+.documents-message-text {
+    flex: 1;
+}

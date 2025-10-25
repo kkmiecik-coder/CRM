@@ -9,6 +9,7 @@ from datetime import datetime
 
 @public_calculator_bp.route("/kalkulator", methods=["GET"])
 def public_calculator():
+    """Publiczny kalkulator z mnożnikiem 1.3 dla klientów detalicznych"""
     # Pobranie danych cennika z bazy
     prices = Price.query.order_by(Price.species, Price.technology, Price.wood_class).all()
     prices_data = [
@@ -24,7 +25,35 @@ def public_calculator():
         }
         for p in prices
     ]
-    return render_template("public_calculator.html", prices_data=json.dumps(prices_data))
+    
+    # Przekazujemy mnożnik 1.3 dla klientów detalicznych
+    return render_template("public_calculator.html", 
+                         prices_data=json.dumps(prices_data),
+                         price_multiplier=1.3)
+
+@public_calculator_bp.route("/kalkulatorb2b", methods=["GET"])
+def public_calculator_b2b():
+    """Kalkulator B2B z mnożnikiem 1.1 dla partnerów biznesowych"""
+    # Pobranie danych cennika z bazy
+    prices = Price.query.order_by(Price.species, Price.technology, Price.wood_class).all()
+    prices_data = [
+        {
+            "species": p.species,
+            "technology": p.technology,
+            "wood_class": p.wood_class,
+            "price_per_m3": float(p.price_per_m3),
+            "length_min": float(p.length_min),
+            "length_max": float(p.length_max),
+            "thickness_min": float(p.thickness_min),
+            "thickness_max": float(p.thickness_max)
+        }
+        for p in prices
+    ]
+    
+    # Przekazujemy mnożnik 1.0 dla partnerów B2B (bez marży)
+    return render_template("public_calculator.html", 
+                         prices_data=json.dumps(prices_data),
+                         price_multiplier=1.1)
 
 @public_calculator_bp.route("/log_session_public", methods=["POST"])
 def log_session_public():

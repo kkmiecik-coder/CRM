@@ -1,59 +1,55 @@
 # .htaccess - Optymalizacja dla CYBER_FOLKS shared hosting
-
-# Podstawowa konfiguracja Passenger
+# ===== PODSTAWOWA KONFIGURACJA PASSENGER =====
 PassengerEnabled On
 PassengerAppRoot /home/woodpower/domains/crm.woodpower.pl/public_html/app
 PassengerPython /home/woodpower/virtualenv/domains/crm.woodpower.pl/public_html/app/3.9/bin/python
 
-# ===== CYBER_FOLKS COMPATIBLE OPTIMIZATIONS =====
+# ===== KRYTYCZNE OPTYMALIZACJE (rozwi¹zanie cold start) =====
+# ZAWSZE trzymaj minimum 2 procesy ¿ywe (eliminuje cold start)
+PassengerMinInstances 2
 
-# Wiêcej procesów na starcie (w ramach limitów hostingu)
-PassengerMinInstances 3
+# Maksymalnie 4 procesy (wystarczaj¹ce dla shared hosting)
+PassengerMaxPoolSize 4
 
-# Ograniczenie procesów (¿eby nie przekroczyæ limitów)
-PassengerMaxPoolSize 5
-
-# D³u¿szy czas ¿ycia procesów (30 minut)
+# Procesy ¿yj¹ 30 minut bez aktywnoœci (by³o 1800s = 30min)
 PassengerPoolIdleTime 1800
 
-# Wiêcej requestów na proces (mniej restartów)
-PassengerMaxRequests 800
+# Wiêcej requestów na proces = mniej restartów
+PassengerMaxRequests 1000
 
-# Szybszy start
-PassengerStartTimeout 60
+# Wyd³u¿ony timeout startu (dla pierwszego uruchomienia)
+PassengerStartTimeout 90
+
+# Wy³¹cz przyjazne b³êdy (szybsze odpowiedzi)
 PassengerFriendlyErrorPages off
 
-# ===== SHARED HOSTING OPTIMIZATIONS =====
-
-# Smart spawning (efektywniejsze dla shared hosting)
+# ===== SMART SPAWNING (kluczowe dla wydajnoœci) =====
 PassengerSpawnMethod smart
 PassengerMaxPreloaderIdleTime 1800
 
-# Preload przy starcie (jeœli Cyber_folks pozwala)
+# PRESTART - uruchom aplikacjê przy restarcie serwera
 PassengerPreStart https://crm.woodpower.pl/
 
-# ===== ENVIRONMENT OPTIMIZATIONS =====
-
+# ===== ENVIRONMENT =====
 PassengerAppEnv production
 PassengerEnvVar PYTHONIOENCODING utf-8
 PassengerEnvVar LC_ALL C.UTF-8
 PassengerEnvVar LANG C.UTF-8
-
-# Python optimizations (kompatybilne z shared hosting)
 PassengerEnvVar PYTHONDONTWRITEBYTECODE 1
 PassengerEnvVar PYTHONUNBUFFERED 1
 
-# ===== CONSERVATIVE MONITORING =====
+# NOWE: Wy³¹cz debug mode w production
+PassengerEnvVar FLASK_ENV production
+PassengerEnvVar FLASK_DEBUG 0
 
-# Minimalne logowanie (shared hosting ma limity)
+# ===== MONITORING (minimalne logowanie) =====
 PassengerLogLevel 1
 
-# ===== STANDARD OPTIMIZATIONS =====
-
+# ===== RESPONSE BUFFERING =====
 PassengerBufferResponse on
 PassengerAppGroupName crm_woodpower
 
-# Przekierowania i zabezpieczenia
+# ===== PRZEKIEROWANIA I ZABEZPIECZENIA =====
 RewriteEngine On
 
 # Wymuszenie HTTPS
@@ -61,44 +57,58 @@ RewriteCond %{HTTPS} off
 RewriteRule ^(.*)$ https://%{HTTP_HOST}/$1 [R=301,L]
 
 # Blokowanie dostêpu do plików konfiguracyjnych
-<FilesMatch "\.(json|log|db|sqlite|env)$">
+<FilesMatch "\.(json|log|db|sqlite|env|py)$">
     Order deny,allow
     Deny from all
 </FilesMatch>
 
+# Wyj¹tek dla passenger_wsgi.py (musi byæ dostêpny)
+<Files "passenger_wsgi.py">
+    Order allow,deny
+    Allow from all
+</Files>
+
 # Blokowanie dostêpu do katalogów systemowych
-<DirectoryMatch "/(config|logs|migrations|__pycache__|\.git)/">
+<DirectoryMatch "/(config|logs|migrations|__pycache__|\.git|venv|virtualenv)/">
     Order deny,allow
     Deny from all
 </DirectoryMatch>
 
-# Nag³ówki bezpieczeñstwa
+# ===== NAG£ÓWKI BEZPIECZEÑSTWA =====
 <IfModule mod_headers.c>
     Header set X-Content-Type-Options "nosniff"
     Header set X-Frame-Options "SAMEORIGIN"
     Header set X-XSS-Protection "1; mode=block"
     Header set Referrer-Policy "strict-origin-when-cross-origin"
+    
+    # Cache dla statycznych plików
+    <FilesMatch "\.(js|css|jpg|jpeg|png|gif|svg|woff|woff2|ttf|eot)$">
+        Header set Cache-Control "public, max-age=2592000"
+    </FilesMatch>
 </IfModule>
 
-# Kompresja (shared hosting friendly)
+# ===== KOMPRESJA GZIP =====
 <IfModule mod_deflate.c>
-    AddOutputFilterByType DEFLATE text/html text/plain text/xml text/css text/javascript application/javascript application/json
+    AddOutputFilterByType DEFLATE text/html text/plain text/xml text/css
+    AddOutputFilterByType DEFLATE text/javascript application/javascript application/json
+    AddOutputFilterByType DEFLATE application/xml application/xhtml+xml
+    AddOutputFilterByType DEFLATE image/svg+xml
 </IfModule>
 
-# Cache dla statycznych plików (shared hosting friendly)
+# ===== CACHE DLA STATYCZNYCH PLIKÓW =====
 <IfModule mod_expires.c>
     ExpiresActive On
     ExpiresByType image/jpeg "access plus 1 month"
     ExpiresByType image/png "access plus 1 month"
     ExpiresByType image/gif "access plus 1 month"
     ExpiresByType image/svg+xml "access plus 1 month"
+    ExpiresByType image/webp "access plus 1 month"
     ExpiresByType text/css "access plus 1 week"
     ExpiresByType application/javascript "access plus 1 week"
-    ExpiresByType application/font-woff2 "access plus 1 month"
+    ExpiresByType font/woff2 "access plus 1 month"
+    ExpiresByType font/woff "access plus 1 month"
+    ExpiresByType font/ttf "access plus 1 month"
 </IfModule>
 
-# Charset
+# ===== CHARSET =====
 AddDefaultCharset UTF-8
-
-# ===== CYBER_FOLKS SPECIFIC =====
-# Jeœli hosting ma limity CPU/pamiêci, te ustawienia powinny je uszanowaæ

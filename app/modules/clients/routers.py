@@ -186,6 +186,72 @@ def get_client_quotes(client_id):
 GUS_API_KEY = os.getenv("GUS_API_KEY")
 GUS_BASE_URL = "https://wl-api.mf.gov.pl/api/search/nip/"
 
+def get_voivodeship_from_zipcode(zip_code):
+    """
+    Mapuje kod pocztowy na województwo
+    Bazuje na pierwszych 2 cyfrach kodu pocztowego
+    """
+    if not zip_code or len(zip_code) < 2:
+        return None
+    
+    # Wyciągnij pierwsze 2 cyfry
+    prefix = zip_code[:2]
+    
+    # Mapowanie przedziałów kodów pocztowych na województwa
+    voivodeship_map = {
+        # Dolnośląskie: 50-59
+        **{str(i).zfill(2): 'dolnośląskie' for i in range(50, 60)},
+        
+        # Kujawsko-pomorskie: 85-87
+        **{str(i).zfill(2): 'kujawsko-pomorskie' for i in range(85, 88)},
+        
+        # Lubelskie: 20-24
+        **{str(i).zfill(2): 'lubelskie' for i in range(20, 25)},
+        
+        # Lubuskie: 65-68
+        **{str(i).zfill(2): 'lubuskie' for i in range(65, 69)},
+        
+        # Łódzkie: 90-99
+        **{str(i).zfill(2): 'łódzkie' for i in range(90, 100)},
+        
+        # Małopolskie: 30-34
+        **{str(i).zfill(2): 'małopolskie' for i in range(30, 35)},
+        
+        # Mazowieckie: 00-09, 95-97 (Warszawa + okolice)
+        **{str(i).zfill(2): 'mazowieckie' for i in range(0, 10)},
+        **{str(i).zfill(2): 'mazowieckie' for i in range(95, 98)},
+        **{str(i).zfill(2): 'mazowieckie' for i in [5, 6, 7, 8, 9]},  # 05-09
+        
+        # Opolskie: 45-49
+        **{str(i).zfill(2): 'opolskie' for i in range(45, 50)},
+        
+        # Podkarpackie: 35-39
+        **{str(i).zfill(2): 'podkarpackie' for i in range(35, 40)},
+        
+        # Podlaskie: 15-19
+        **{str(i).zfill(2): 'podlaskie' for i in range(15, 20)},
+        
+        # Pomorskie: 80-84
+        **{str(i).zfill(2): 'pomorskie' for i in range(80, 85)},
+        
+        # Śląskie: 40-44
+        **{str(i).zfill(2): 'śląskie' for i in range(40, 45)},
+        
+        # Świętokrzyskie: 25-29
+        **{str(i).zfill(2): 'świętokrzyskie' for i in range(25, 30)},
+        
+        # Warmińsko-mazurskie: 10-14
+        **{str(i).zfill(2): 'warmińsko-mazurskie' for i in range(10, 15)},
+        
+        # Wielkopolskie: 60-64
+        **{str(i).zfill(2): 'wielkopolskie' for i in range(60, 65)},
+        
+        # Zachodniopomorskie: 70-79
+        **{str(i).zfill(2): 'zachodniopomorskie' for i in range(70, 80)},
+    }
+    
+    return voivodeship_map.get(prefix, None)
+
 @clients_bp.route('/api/gus_lookup')
 @require_module_access('clients')
 def gus_lookup():
@@ -213,17 +279,40 @@ def gus_lookup():
 
         logger.info(f"[GUS API] Odebrano dane dla NIP {nip}: {subject}")
 
-        full_address = subject.get("residenceAddress") or ""
+        # POPRAWKA: Użyj workingAddress (adres siedziby firmy) zamiast residenceAddress
+        # residenceAddress jest dla osób fizycznych i często jest None dla firm
+        full_address = subject.get("workingAddress") or subject.get("residenceAddress") or ""
+        
+        logger.info(f"[GUS Lookup] Przetwarzanie adresu: {full_address}")
+        
+        # Wyciągnij kod pocztowy z adresu
         zip_match = re.search(r"\d{2}-\d{3}", full_address)
         zip_code = zip_match.group(0) if zip_match else ""
-        city = full_address.split()[-1] if full_address else ""
+        
+        # Wyciągnij miasto (ostatnie słowo po kodzie pocztowym)
+        city = ""
+        if zip_code:
+            # Wszystko po kodzie pocztowym to prawdopodobnie miasto
+            parts = full_address.split(zip_code)
+            if len(parts) > 1:
+                city = parts[1].strip().strip(',').strip()
+        
+        if not city:
+            # Fallback: ostatnie słowo
+            city = full_address.split()[-1] if full_address else ""
+        
+        # Określ województwo na podstawie kodu pocztowego
+        voivodeship = get_voivodeship_from_zipcode(zip_code) if zip_code else None
+        
+        logger.info(f"[GUS Lookup] Przetworzone dane: zip={zip_code}, city={city}, voivodeship={voivodeship}")
 
         return jsonify({
             "name": subject.get("name"),
             "company": subject.get("name"),
             "address": subject.get("workingAddress"),
             "zip": zip_code,
-            "city": city
+            "city": city,
+            "voivodeship": voivodeship
         })
 
     except Exception as e:

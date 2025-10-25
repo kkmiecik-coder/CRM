@@ -5,6 +5,9 @@ console.log("[public_calculator.js] załadowany!");
 document.addEventListener("DOMContentLoaded", () => {
     const prices = JSON.parse(document.getElementById("prices-data")?.textContent || "[]");
 
+    // pobieranie mnożnika z routingu:
+    const priceMultiplier = parseFloat(document.getElementById("price-multiplier")?.textContent || "1.3");
+
     const variants = [
         { species: "Dąb", technology: "Lity", wood_class: "A/B" },
         { species: "Dąb", technology: "Lity", wood_class: "B/B" },
@@ -17,7 +20,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const finishingCosts = {
         Brak: 0,
         Lakierowanie: { Bezbarwne: 200, Barwne: 250 },
-        Olejowanie: { Bezbarwne: 300, Barwne: 350 }
+        Olejowanie: 300  // Olejowanie ma jedną stałą cenę
     };
 
     const qtyInput = document.getElementById("quantity");
@@ -49,27 +52,24 @@ document.addEventListener("DOMContentLoaded", () => {
             const type = btn.dataset.finishingType;
             const variantWrap = document.getElementById("finishing-variant-wrapper");
             const colorWrap = document.getElementById("finishing-color-wrapper");
-            const glossWrap = document.getElementById("finishing-gloss-wrapper");
-            const finishingSummary = document.getElementById("finishingSummary");
 
             if (type === "Brak") {
+                // Brak - ukryj wszystko
                 if (variantWrap) variantWrap.style.display = "none";
                 if (colorWrap) colorWrap.style.display = "none";
-                if (glossWrap) glossWrap.style.display = "none";
-                if (finishingSummary) {
-                    finishingSummary.innerHTML = "";
-                    finishingSummary.style.display = "none";
-                }
-            } else {
+            } else if (type === "Lakierowanie") {
+                // Lakierowanie - pokaż warianty
                 if (variantWrap) variantWrap.style.display = "block";
                 const variantActive = document.querySelector(".finishing-btn.active[data-finishing-variant]")?.dataset.finishingVariant;
                 if (variantActive === "Barwne") {
                     if (colorWrap) colorWrap.style.display = "block";
-                    if (glossWrap) glossWrap.style.display = "block";
                 } else {
                     if (colorWrap) colorWrap.style.display = "none";
-                    if (glossWrap) glossWrap.style.display = "none";
                 }
+            } else if (type === "Olejowanie") {
+                // Olejowanie - ukryj warianty i kolory
+                if (variantWrap) variantWrap.style.display = "none";
+                if (colorWrap) colorWrap.style.display = "none";
             }
 
             calculate();
@@ -83,32 +83,20 @@ document.addEventListener("DOMContentLoaded", () => {
 
             const variant = btn.dataset.finishingVariant;
             const colorWrap = document.getElementById("finishing-color-wrapper");
-            const glossWrap = document.getElementById("finishing-gloss-wrapper");
 
             if (variant === "Barwne") {
                 if (colorWrap) colorWrap.style.display = "block";
-                if (glossWrap) glossWrap.style.display = "block";
             } else {
                 if (colorWrap) colorWrap.style.display = "none";
-                if (glossWrap) glossWrap.style.display = "none";
             }
 
             calculate();
         });
     });
 
-
     document.querySelectorAll(".color-btn").forEach(btn => {
         btn.addEventListener("click", () => {
             document.querySelectorAll(".color-btn").forEach(b => b.classList.remove("active"));
-            btn.classList.add("active");
-            calculate();
-        });
-    });
-
-    document.querySelectorAll(".finishing-btn[data-finishing-gloss]").forEach(btn => {
-        btn.addEventListener("click", () => {
-            document.querySelectorAll(".finishing-btn[data-finishing-gloss]").forEach(b => b.classList.remove("active"));
             btn.classList.add("active");
             calculate();
         });
@@ -124,9 +112,9 @@ document.addEventListener("DOMContentLoaded", () => {
         let valid = true;
         let message = "";
         const val = parseFloat(el.value.replace(',', '.'));
-        if (field === "length" && (val < 1 || val > 450)) {
+        if (field === "length" && (val < 1 || val > 500)) {
             valid = false;
-            message = "Dostępny zakres: 1–450 cm";
+            message = "Dostępny zakres: 1–500 cm";
         }
         if (field === "width" && (val < 1 || val > 120)) {
             valid = false;
@@ -168,12 +156,19 @@ document.addEventListener("DOMContentLoaded", () => {
         const l = parseFloat(document.getElementById("length")?.value.replace(',', '.'));
         const w = parseFloat(document.getElementById("width")?.value.replace(',', '.'));
         const tRaw = document.getElementById("thickness")?.value;
-        if (!tRaw || tRaw.trim() === '') return;
+
+        if (!tRaw || tRaw.trim() === '') {
+            return;
+        }
+
         const t = parseFloat(tRaw.replace(',', '.'));
         const q = parseInt(qtyInput?.value || "1");
-        if (isNaN(l) || isNaN(w) || isNaN(t) || isNaN(q)) return;
-        if (l > 450 || w > 120 || t > 8) return;
 
+        if (isNaN(l) || isNaN(w) || isNaN(t) || isNaN(q)) {
+            return;
+        }
+
+        const isOutOfRange = l > 450 || w > 120 || t > 8;
         const tRounded = roundUpThickness(t);
         const vol = (l / 100) * (w / 100) * (tRounded / 100);
         const lRounded = Math.ceil(l);
@@ -181,17 +176,77 @@ document.addEventListener("DOMContentLoaded", () => {
         const finishingType = document.querySelector(".finishing-btn.active[data-finishing-type]")?.dataset.finishingType || "Brak";
         const finishingVariant = document.querySelector(".finishing-btn.active[data-finishing-variant]")?.dataset.finishingVariant || null;
 
-        let finishingCost = 0;
-        if (finishingType !== "Brak" && finishingVariant && finishingCosts[finishingType]?.[finishingVariant]) {
-            finishingCost = finishingCosts[finishingType][finishingVariant];
+        let finishingCostPerM2 = 0;
+        let hasFinishing = false;
+
+        if (finishingType === "Olejowanie") {
+            // Olejowanie ma stałą cenę
+            finishingCostPerM2 = finishingCosts[finishingType];
+            hasFinishing = true;
+        } else if (finishingType === "Lakierowanie" && finishingVariant) {
+            // Lakierowanie wymaga wybrania wariantu
+            finishingCostPerM2 = finishingCosts[finishingType][finishingVariant];
+            hasFinishing = true;
         }
 
         const totalArea = calculateSurfaceArea(l, w, tRounded, q);
+        const totalFinishingCost = finishingCostPerM2 * totalArea;
+        const totalFinishingCostBrutto = totalFinishingCost * 1.23;
+
+        // Pokaż sekcję wyliczeń i disclaimer
+        const calcSection = document.getElementById("calculationsSection");
+        const disclaimer = document.getElementById("priceDisclaimer");
+        if (calcSection) {
+            calcSection.classList.add("visible");
+        }
+        if (disclaimer) {
+            disclaimer.style.display = "block";
+        }
 
         const container = document.getElementById("variantsContainer");
         container.innerHTML = "";
 
+        // Buduj HTML dla tabeli desktop i kart mobile
+        let tableHTML = `
+            <table class="results-table">
+                <thead>
+                    <tr>
+                        <th>Wariant produktu</th>
+                        <th>Cena za 1 szt. (surowa)</th>
+                        ${q > 1 ? `<th>Cena za ${q} szt. (surowe)</th>` : ''}
+                        ${hasFinishing ? '<th>Koszt wykończenia</th>' : ''}
+                        <th>Suma za cały produkt</th>
+                    </tr>
+                </thead>
+                <tbody>
+        `;
+
+        let mobileHTML = '<div class="mobile-cards">';
+
         variants.forEach(v => {
+            const title = `${v.species} ${v.technology} ${v.wood_class}`;
+
+            if (isOutOfRange) {
+                // Desktop - wiersz z brakiem ceny
+                tableHTML += `
+                    <tr class="no-price-row">
+                        <td colspan="${3 + (q > 1 ? 1 : 0) + (hasFinishing ? 1 : 0)}">
+                            <div class="variant-name-cell" style="margin-bottom: 4px;">${title}</div>
+                            <div class="no-price-text">Brak ceny dla podanych parametrów</div>
+                        </td>
+                    </tr>
+                `;
+
+                // Mobile - karta z brakiem ceny
+                mobileHTML += `
+                    <div class="variant-card">
+                        <div class="variant-card-header">${title}</div>
+                        <div class="no-price-text">Brak ceny dla podanych parametrów</div>
+                    </div>
+                `;
+                return;
+            }
+
             const match = prices.find(p =>
                 p.species === v.species &&
                 p.technology === v.technology &&
@@ -202,53 +257,133 @@ document.addEventListener("DOMContentLoaded", () => {
                 lRounded <= p.length_max
             );
 
-            const div = document.createElement("div");
-            div.className = "variant-result";
-            const title = `${v.species} ${v.technology} ${v.wood_class}`;
-
             if (!match) {
-                div.innerHTML = `<p class='variant-title' style="font-size: 18px; font-weight: 600; color: #ED6B24;">${title}</p><p>Brak ceny</p>`;
+                // Desktop - wiersz z brakiem ceny
+                tableHTML += `
+                    <tr class="no-price-row">
+                        <td colspan="${3 + (q > 1 ? 1 : 0) + (hasFinishing ? 1 : 0)}">
+                            <div class="variant-name-cell" style="margin-bottom: 4px;">${title}</div>
+                            <div class="no-price-text">Brak ceny dla podanych parametrów</div>
+                        </td>
+                    </tr>
+                `;
+
+                // Mobile - karta z brakiem ceny
+                mobileHTML += `
+                    <div class="variant-card">
+                        <div class="variant-card-header">${title}</div>
+                        <div class="no-price-text">Brak ceny dla podanych parametrów</div>
+                    </div>
+                `;
             } else {
-                const netto = match.price_per_m3 * vol * 1.1;
+                const netto = match.price_per_m3 * vol * priceMultiplier;
                 const brutto = netto * 1.23;
                 const totalNetto = netto * q;
                 const totalBrutto = brutto * q;
 
-                div.innerHTML = `
-                    <p class='variant-title' style="font-size: 18px; font-weight: 600; color: #ED6B24;">${title}</p>
-                    <div style="display: flex; justify-content: space-between; font-size: 13px; font-weight: bold; margin-bottom: 4px;">
-                        <span>Cena za 1 szt.</span>
-                        <span style="text-align: left;">Cena za ${q} szt.</span>
-                    </div>
-                    <div style="display: flex; justify-content: space-between; font-size: 13px;">
-                        <span>${brutto.toFixed(2)} PLN brutto</span>
-                        <span style="text-align: left;">${totalBrutto.toFixed(2)} PLN brutto</span>
-                    </div>
-                    <div style="display: flex; justify-content: space-between; font-size: 13px;">
-                        <span>${netto.toFixed(2)} PLN netto</span>
-                        <span style="text-align: left;">${totalNetto.toFixed(2)} PLN netto</span>
+                // Oblicz sumę końcową
+                const finalTotalNetto = totalNetto + totalFinishingCost;
+                const finalTotalBrutto = totalBrutto + totalFinishingCostBrutto;
+
+                // Desktop - wiersz z cenami
+                tableHTML += `
+                    <tr>
+                        <td>
+                            <div class="variant-name-cell">${title}</div>
+                        </td>
+                        <td>
+                            <div class="price-cell">
+                                <span class="price-brutto">${brutto.toFixed(2)} zł</span>
+                                <span class="price-netto">${netto.toFixed(2)} zł netto</span>
+                            </div>
+                        </td>
+                        ${q > 1 ? `
+                            <td>
+                                <div class="price-cell">
+                                    <span class="price-brutto">${totalBrutto.toFixed(2)} zł</span>
+                                    <span class="price-netto">${totalNetto.toFixed(2)} zł netto</span>
+                                </div>
+                            </td>
+                        ` : ''}
+                        ${hasFinishing ? `
+                            <td>
+                                <div class="price-cell">
+                                    <span class="price-brutto">${totalFinishingCostBrutto.toFixed(2)} zł</span>
+                                    <span class="price-netto">${totalFinishingCost.toFixed(2)} zł netto</span>
+                                </div>
+                            </td>
+                        ` : ''}
+                        <td>
+                            <div class="price-cell total-price">
+                                <span class="price-brutto">${finalTotalBrutto.toFixed(2)} zł</span>
+                                <span class="price-netto">${finalTotalNetto.toFixed(2)} zł netto</span>
+                            </div>
+                        </td>
+                    </tr>
+                `;
+
+                // Mobile - karta z cenami
+                mobileHTML += `
+                    <div class="variant-card">
+                        <div class="variant-card-header">${title}</div>
+                        
+                        <div class="card-row">
+                            <span class="card-label">Cena za 1 szt. (surowa):</span>
+                            <div class="card-value">
+                                <div class="price-cell">
+                                    <span class="price-brutto">${brutto.toFixed(2)} zł</span>
+                                    <span class="price-netto">${netto.toFixed(2)} zł netto</span>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        ${q > 1 ? `
+                            <div class="card-row">
+                                <span class="card-label">Cena za ${q} szt. (surowe):</span>
+                                <div class="card-value">
+                                    <div class="price-cell">
+                                        <span class="price-brutto">${totalBrutto.toFixed(2)} zł</span>
+                                        <span class="price-netto">${totalNetto.toFixed(2)} zł netto</span>
+                                    </div>
+                                </div>
+                            </div>
+                        ` : ''}
+                        
+                        ${hasFinishing ? `
+                            <div class="card-row">
+                                <span class="card-label">Koszt wykończenia:</span>
+                                <div class="card-value">
+                                    <div class="price-cell">
+                                        <span class="price-brutto">${totalFinishingCostBrutto.toFixed(2)} zł</span>
+                                        <span class="price-netto">${totalFinishingCost.toFixed(2)} zł netto</span>
+                                    </div>
+                                </div>
+                            </div>
+                        ` : ''}
+                        
+                        <div class="card-total-row">
+                            <div class="card-row">
+                                <span class="card-label"><strong>Suma za cały produkt:</strong></span>
+                                <div class="card-value">
+                                    <div class="price-cell">
+                                        <span class="price-brutto">${finalTotalBrutto.toFixed(2)} zł</span>
+                                        <span class="price-netto">${finalTotalNetto.toFixed(2)} zł netto</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                 `;
             }
-
-            container.appendChild(div);
         });
 
-        const finishingSummary = document.getElementById("finishingSummary");
-        if (finishingSummary) {
-            if (finishingType === "Brak" || !finishingVariant) {
-                finishingSummary.innerHTML = "";
-            } else {
-                const totalFinishingPrice = finishingCost * totalArea;
-                finishingSummary.innerHTML = `
-                    <div class='variant-result'>
-                        <p class='variant-title' style="font-size: 18px; font-weight: 600; color: #ED6B24;">Całkowity koszt wykończenia za ${q} szt.</p>
-                        <p style="font-size: 13px;">${totalFinishingPrice.toFixed(2)} PLN</p>
-                    </div>
-                `;
-            }
-        }
+        tableHTML += '</tbody></table>';
+        mobileHTML += '</div>';
+
+        // Wstaw oba układy
+        container.innerHTML = tableHTML + mobileHTML;
     }
 
+    // Inicjalna kalkulacja przy załadowaniu
     calculate();
 });

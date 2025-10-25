@@ -2291,3 +2291,261 @@ select.select-input {
             margin-left: 80px;
         }
 }
+
+/* ============================================
+   MOBILE RESPONSIVE - HAMBURGER MENU
+   ============================================ */
+
+@media (max-width: 768px) {
+    /* === HAMBURGER BUTTON === */
+    .mobile-menu-toggle {
+        position: fixed;
+        top: 20px;
+        left: 20px;
+        z-index: 10001;
+        width: 48px;
+        height: 48px;
+        background: #ED6B24;
+        border: none;
+        border-radius: 12px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        box-shadow: 0 4px 12px rgba(237, 107, 36, 0.3);
+        transition: all 0.3s ease;
+    }
+    
+    .mobile-menu-toggle:active {
+        transform: scale(0.95);
+    }
+    
+    /* Hamburger Icon Animation */
+    .hamburger-icon {
+        width: 24px;
+        height: 18px;
+        position: relative;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+    }
+    
+    .hamburger-icon span {
+        display: block;
+        height: 3px;
+        width: 100%;
+        background: white;
+        border-radius: 3px;
+        transition: all 0.3s ease;
+        transform-origin: center;
+    }
+    
+    /* Animacja do X przy otwarciu */
+    .mobile-menu-toggle.active .hamburger-icon span:nth-child(1) {
+        transform: translateY(7.5px) rotate(45deg);
+    }
+    
+    .mobile-menu-toggle.active .hamburger-icon span:nth-child(2) {
+        opacity: 0;
+        transform: scaleX(0);
+    }
+    
+    .mobile-menu-toggle.active .hamburger-icon span:nth-child(3) {
+        transform: translateY(-7.5px) rotate(-45deg);
+    }
+    
+    /* === MOBILE OVERLAY === */
+    .mobile-overlay {
+        display: none;
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0, 0, 0, 0.6);
+        z-index: 9998;
+        opacity: 0;
+        transition: opacity 0.3s ease;
+    }
+    
+    .mobile-overlay.active {
+        display: block;
+        opacity: 1;
+    }
+    
+    /* === SIDEBAR NA MOBILE === */
+    .sidebar {
+        position: fixed;
+        left: -100%;
+        width: 280px;
+        height: 100vh;
+        transition: left 0.3s ease;
+        z-index: 9999;
+        box-shadow: 4px 0 20px rgba(0, 0, 0, 0.3);
+    }
+    
+    .sidebar.mobile-open {
+        left: 0;
+    }
+    
+    /* Ukryj desktop toggle button */
+    .sidebar-toggle {
+        display: none !important;
+    }
+    
+    /* Sidebar zawsze rozwięty na mobile */
+    .sidebar.collapsed {
+        width: 280px;
+    }
+    
+    /* Pokaż wszystkie teksty i elementy */
+    .sidebar.collapsed .option-txt,
+    .sidebar.collapsed .short-txt,
+    .sidebar.collapsed .footer-menu-text,
+    .sidebar.collapsed .beta-tag,
+    .sidebar.collapsed .shorts-title,
+    .sidebar.collapsed .link-icon {
+        opacity: 1 !important;
+        pointer-events: auto !important;
+        position: static !important;
+    }
+    
+    /* Logo zawsze pełne */
+    .sidebar.collapsed .logo-main {
+        display: block !important;
+        width: 200px;
+    }
+    
+    .sidebar.collapsed .logo-sygnet {
+        display: none !important;
+    }
+    
+    /* Menu items z pełną szerokością */
+    .sidebar.collapsed .menu-options,
+    .sidebar.collapsed .shorts-options {
+        width: 248px;
+        justify-content: flex-start;
+        padding: 9px 16px;
+    }
+    
+    .sidebar.collapsed .menu-options a {
+        justify-content: flex-start;
+    }
+    
+    /* === MAIN CONTENT === */
+    .main-content {
+        margin-left: 0 !important;
+        width: 100%;
+        padding: 80px 20px 20px 20px; /* dodatkowy padding top dla hamburger button */
+    }
+    
+    .main-content.sidebar-collapsed {
+        margin-left: 0 !important;
+    }
+    
+    /* === ZWIĘKSZONE OBSZARY KLIKALNE === */
+    .menu-options,
+    .shorts-options,
+    .footer-menu-item {
+        min-height: 48px;
+        padding: 12px 16px;
+    }
+    
+    .menu-options a {
+        padding: 0;
+    }
+    
+    /* === WIĘKSZA CZCIONKA === */
+    .option-txt,
+    .short-txt,
+    .footer-menu-text {
+        font-size: 14px;
+    }
+    
+    /* === ZWIĘKSZONE ODSTĘPY === */
+    .main-modules,
+    .extra-modules {
+        padding: 20px;
+    }
+    
+    .shorts {
+        padding: 20px 20px 0px 20px;
+    }
+    
+    /* === TOOLTIPS WYŁĄCZONE NA MOBILE === */
+    .sidebar-tooltip {
+        display: none !important;
+    }
+    
+    /* === LOGO SECTION === */
+    .logo-section {
+        padding: 20px;
+    }
+    
+    .logo img {
+        max-width: 180px;
+    }
+    
+    .beta-tag {
+        font-size: 11px;
+        padding: 4px 10px;
+    }
+    
+    /* === FOOTER === */
+    .footer {
+        padding: 12px 20px;
+    }
+    
+    .footer-menu {
+        gap: 8px;
+    }
+}
+
+/* Tablet specific */
+@media (max-width: 1024px) and (min-width: 769px) {
+    .sidebar {
+        width: 280px;
+    }
+    
+    .sidebar.collapsed {
+        width: 80px;
+    }
+    
+    .main-content {
+        margin-left: 280px;
+    }
+    
+    .main-content.sidebar-collapsed {
+        margin-left: 80px;
+    }
+}
+
+/* Small mobile */
+@media (max-width: 480px) {
+    .sidebar {
+        width: 100%;
+    }
+    
+    .sidebar.mobile-open {
+        left: 0;
+    }
+    
+    .main-content {
+        padding: 70px 16px 16px 16px;
+    }
+    
+    .mobile-menu-toggle {
+        top: 16px;
+        left: 16px;
+        width: 44px;
+        height: 44px;
+    }
+    
+    /* Większe elementy na małych ekranach */
+    .menu-options,
+    .shorts-options,
+    .footer-menu-item {
+        min-height: 52px;
+        padding: 14px 20px;
+    }
+}

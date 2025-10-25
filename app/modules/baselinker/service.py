@@ -8,6 +8,7 @@ from flask import current_app, session, request
 from extensions import db
 from .models import BaselinkerOrderLog, BaselinkerConfig
 from modules.logging import get_structured_logger
+from datetime import datetime
 
 class BaselinkerService:
     """Serwis do komunikacji z API Baselinker"""
@@ -449,15 +450,42 @@ class BaselinkerService:
                         config_keys=list(config.keys()),
                         has_client_data_override=bool(config.get('client_data')))
 
-        creator = getattr(quote, 'user', None)
-        creator_name = f"{creator.first_name} {creator.last_name}" if creator else ''
+        # ✅ NOWE: Konfiguracja flexible partners
+        FLEXIBLE_PARTNER_IDS = [14, 15]
 
+        # Pobierz twórcę wyceny
+        creator = getattr(quote, 'user', None)
+    
+        # ✅ NOWE: Logika dodawania prefiksu "Partner"
+        if creator:
+            creator_name = f"{creator.first_name} {creator.last_name}".strip()
+        
+            # Sprawdź czy użytkownik jest partnerem (ale nie flexible partner)
+            is_partner = creator.role == 'partner'
+            is_flexible_partner = creator.id in FLEXIBLE_PARTNER_IDS
+        
+            # Dodaj prefiks "Partner" tylko dla zwykłych partnerów (nie flexible)
+            if is_partner and not is_flexible_partner:
+                creator_name = f"Partner {creator_name}"
+                self.logger.info("Dodano prefiks 'Partner' do pola Opiekun",
+                               user_id=creator.id,
+                               user_role=creator.role,
+                               final_name=creator_name)
+            else:
+                self.logger.info("Pole Opiekun bez prefiksu 'Partner'",
+                               user_id=creator.id,
+                               user_role=creator.role,
+                               is_flexible_partner=is_flexible_partner,
+                               final_name=creator_name)
+        else:
+            creator_name = ''
+            self.logger.warning("Brak twórcy wyceny", quote_id=quote.id)
         # 🔧 POPRAWKA: Zabezpieczenie przed błędem AppenderQuery
         try:
             # Konwertuj AppenderQuery na listę przed użyciem len()
             all_items = list(quote.items)
             selected_items = [item for item in all_items if item.is_selected]
-    
+
             self.logger.debug("Wybrane produkty do zamówienia", 
                             selected_items_count=len(selected_items),
                             total_items_count=len(all_items))
@@ -470,7 +498,7 @@ class BaselinkerService:
             for item in quote.items:
                 if item.is_selected:
                     selected_items.append(item)
-    
+
             self.logger.debug("Wybrane produkty do zamówienia (fallback)", 
                             selected_items_count=len(selected_items))
 
@@ -517,7 +545,7 @@ class BaselinkerService:
                 # Dzielimy przez quantity, żeby otrzymać koszt za 1 sztukę
                 finishing_total_netto = float(finishing_details.finishing_price_netto or 0)
                 finishing_total_brutto = float(finishing_details.finishing_price_brutto or 0)
-    
+
                 finishing_unit_netto = finishing_total_netto / quantity if quantity > 0 else 0
                 finishing_unit_brutto = finishing_total_brutto / quantity if quantity > 0 else 0
 
@@ -571,18 +599,18 @@ class BaselinkerService:
 
         # 🆕 NOWA LOGIKA: Przygotuj dane klienta z obsługą jednorazowych zmian
         client_data = {}
-    
+
         # Sprawdź czy w config są jednorazowe dane klienta
         if 'client_data' in config and config['client_data']:
             # Użyj jednorazowych danych z formularza
             form_data = config['client_data']
-        
+    
             self.logger.info("Używam jednorazowych danych klienta z formularza",
                             quote_id=quote.id,
                             delivery_name=form_data.get('delivery_name'),
                             email=form_data.get('email'),
                             want_invoice=form_data.get('want_invoice'))
-        
+    
             client_data = {
                 'name': form_data.get('delivery_name', ''),
                 'delivery_name': form_data.get('delivery_name', ''),
@@ -602,16 +630,16 @@ class BaselinkerService:
                 'invoice_region': form_data.get('invoice_region', ''),
                 'want_invoice': form_data.get('want_invoice', False)
             }
-        
+    
         elif quote.client:
             # Fallback: użyj danych z bazy (istniejący kod)
             client = quote.client
-        
+    
             self.logger.info("Używam danych klienta z bazy danych",
                             quote_id=quote.id,
                             client_id=client.id,
                             client_name=client.client_name)
-        
+    
             client_data = {
                 'name': client.client_name,
                 'delivery_name': client.client_delivery_name or client.client_name,
@@ -641,7 +669,7 @@ class BaselinkerService:
         order_status_id = config.get('order_status_id')
         payment_method = config.get('payment_method', 'Przelew bankowy')
         delivery_method = config.get('delivery_method', quote.courier_name or 'Przesyłka kurierska')
-    
+
         # Obsługa nadpisanych kosztów wysyłki
         if 'shipping_cost_override' in config and config['shipping_cost_override'] is not None:
             delivery_price = float(config['shipping_cost_override'])
@@ -707,7 +735,7 @@ class BaselinkerService:
             'extra_field_1': '',
             'extra_field_2': '',
             'custom_extra_fields': {
-                '105623': creator_name
+                '105623': creator_name  # ✅ Tu trafia wartość z prefiksem "Partner" lub bez
             },
             'products': products
         }
@@ -720,7 +748,8 @@ class BaselinkerService:
                        products_count=len(products),
                        client_email=order_data['email'],
                        client_delivery_name=order_data['delivery_fullname'],
-                       client_invoice_name=order_data['invoice_fullname'])
+                       client_invoice_name=order_data['invoice_fullname'],
+                       creator_field_105623=creator_name)  # ✅ Dodano do logowania
 
         return order_data
     
@@ -927,3 +956,356 @@ class BaselinkerService:
                             weight_kg=weight)
             return weight
         return 0.0
+
+# ============================================
+# sprawdzaj dokumenty sprzedaży - faktura, korekta, e-paragon - modal szczegółów wyceny
+# ============================================
+
+    def get_sales_documents(self, order_id: int, quote_id: int) -> Dict:
+        """
+        Pobiera wszystkie dokumenty sprzedaży dla zamówienia (faktura, korekta, e-paragon)
+    
+        Args:
+            order_id: ID zamówienia w Baselinker
+            quote_id: ID wyceny w CRM
+        
+        Returns:
+            Dict z danymi dokumentów lub błędem
+        """
+        self.logger.info("Pobieranie dokumentów sprzedaży",
+                        order_id=order_id,
+                        quote_id=quote_id)
+    
+        try:
+            from modules.calculator.models import Quote
+        
+            # Pobierz wycenę z bazy
+            quote = Quote.query.get(quote_id)
+            if not quote:
+                self.logger.error("Wycena nie znaleziona", quote_id=quote_id)
+                return {
+                    'status': 'error',
+                    'error': 'Wycena nie znaleziona',
+                    'code': 'QUOTE_NOT_FOUND'
+                }
+        
+            result = {
+                'status': 'success',
+                'order_page': None,
+                'invoice': {'exists': False},
+                'correction': {'exists': False},
+                'receipt': {'exists': False}
+            }
+        
+            # ============================================
+            # OPTYMALIZACJA: Pobierz zamówienie RAZ z custom_extra_fields
+            # ============================================
+            self.logger.info("Pobieranie szczegółów zamówienia z custom_extra_fields", 
+                            order_id=order_id)
+        
+            order_response = self._make_request('getOrders', {
+                'order_id': order_id,
+                'include_custom_extra_fields': True  # ✅ Pobierz wszystko naraz
+            })
+        
+            if order_response.get('status') != 'SUCCESS':
+                self.logger.error("Nie udało się pobrać szczegółów zamówienia",
+                                order_id=order_id,
+                                error=order_response.get('error_message'))
+                return {
+                    'status': 'error',
+                    'error': 'Nie udało się pobrać szczegółów zamówienia',
+                    'code': 'ORDER_FETCH_FAILED'
+                }
+        
+            orders = order_response.get('orders', [])
+            if not orders:
+                self.logger.error("Zamówienie nie znalezione", order_id=order_id)
+                return {
+                    'status': 'error',
+                    'error': 'Zamówienie nie znalezione',
+                    'code': 'ORDER_NOT_FOUND'
+                }
+        
+            order_data = orders[0]
+        
+            self.logger.debug("Pobrano szczegóły zamówienia",
+                             order_id=order_id,
+                             has_custom_fields=bool(order_data.get('custom_extra_fields')),
+                             custom_fields_count=len(order_data.get('custom_extra_fields', {})))
+        
+            # ============================================
+            # STRONA INFORMACYJNA - zapisz od razu
+            # ============================================
+            order_page = order_data.get('order_page')
+            if order_page:
+                quote.baselinker_order_page = order_page
+                result['order_page'] = order_page
+                self.logger.debug("Zapisano order_page", order_page=order_page)
+        
+            # ============================================
+            # FAKTURA - sprawdź cache, pobierz jeśli brak
+            # ============================================
+            if quote.has_invoice():
+                # Faktura w cache - użyj bez wywoływania API
+                self.logger.info("Faktura w cache", 
+                               invoice_number=quote.baselinker_invoice_number)
+                result['invoice'] = {
+                    'exists': True,
+                    'invoice_id': quote.baselinker_invoice_id,
+                    'number': quote.baselinker_invoice_number,
+                    'file_base64': quote.baselinker_invoice_file
+                }
+            else:
+                # Pobierz fakturę z API
+                invoice_data = self._fetch_invoice(order_id, quote)
+                result['invoice'] = invoice_data
+        
+            # ============================================
+            # KOREKTA - zawsze sprawdzaj (może się pojawić)
+            # ============================================
+            correction_data = self._fetch_correction(order_id, quote)
+            result['correction'] = correction_data
+        
+            # ============================================
+            # E-PARAGON - przekaż order_data zamiast wywoływać API ponownie
+            # ============================================
+            receipt_data = self._fetch_receipt_from_order_data(order_data, quote)
+            result['receipt'] = receipt_data
+        
+            # Zapisz zmiany w bazie
+            db.session.commit()
+        
+            self.logger.info("Dokumenty sprzedaży pobrane pomyślnie",
+                           order_id=order_id,
+                           has_invoice=result['invoice']['exists'],
+                           has_correction=result['correction']['exists'],
+                           has_receipt=result['receipt']['exists'])
+        
+            return result
+        
+        except Exception as e:
+            self.logger.error("Błąd podczas pobierania dokumentów sprzedaży",
+                            order_id=order_id,
+                            quote_id=quote_id,
+                            error=str(e),
+                            error_type=type(e).__name__)
+            import traceback
+            self.logger.debug("Stack trace błędu", traceback=traceback.format_exc())
+            return {
+                'status': 'error',
+                'error': str(e),
+                'code': 'GENERAL_ERROR'
+            }
+    
+    def _fetch_invoice(self, order_id: int, quote) -> Dict:
+        """Pobiera fakturę z API Baselinker i zapisuje w cache"""
+        self.logger.info("Pobieranie faktury z API", order_id=order_id)
+        
+        try:
+            # Wywołaj API getInvoices
+            response = self._make_request('getInvoices', {'order_id': order_id})
+            
+            if response.get('status') != 'SUCCESS':
+                self.logger.warning("API getInvoices zwróciło błąd",
+                                  order_id=order_id,
+                                  error=response.get('error_message'))
+                return {'exists': False}
+            
+            invoices = response.get('invoices', [])
+
+            # DEBUG: Wypisz wszystkie faktury
+            self.logger.info(f"DEBUG: Znalezione faktury: {invoices}")
+            print(f"[DEBUG INVOICES] {invoices}", file=sys.stderr)
+            
+            # Znajdź fakturę (type="normal" lub type="vat")
+            invoice = next((inv for inv in invoices 
+                        if inv.get('type') in ['INVOICE', 'NORMAL', 'VAT', 'normal', 'vat', 'invoice']), None)
+            
+            if not invoice:
+                self.logger.info("Faktura nie została jeszcze wystawiona", order_id=order_id)
+                return {'exists': False}
+            
+            invoice_id = invoice.get('invoice_id')
+            invoice_number = invoice.get('invoice_number') or invoice.get('number')
+            
+            # Pobierz plik PDF faktury
+            file_response = self._make_request('getInvoiceFile', {
+                'invoice_id': invoice_id
+            })
+
+            # DEBUG: Sprawdź całą odpowiedź
+            self.logger.info(f"DEBUG: Klucze w file_response: {file_response.keys()}")
+            self.logger.info(f"DEBUG: Cała odpowiedź getInvoiceFile: {file_response}")
+            
+            if file_response.get('status') != 'SUCCESS':
+                self.logger.error("Błąd pobierania pliku faktury",
+                                invoice_id=invoice_id,
+                                error=file_response.get('error_message'))
+                return {'exists': False}
+            
+            invoice_file = file_response.get('invoice')
+
+            self.logger.info(f"DEBUG: Typ invoice_file: {type(invoice_file)}")
+            self.logger.info(f"DEBUG: Czy invoice_file jest None? {invoice_file is None}")
+            if invoice_file:
+                self.logger.info(f"DEBUG: Długość: {len(invoice_file)}")
+                self.logger.info(f"DEBUG: Pierwsze 50 znaków: {invoice_file[:50]}")
+            
+            # Zapisz fakturę w cache (baza danych)
+            from datetime import datetime
+            quote.baselinker_invoice_id = invoice_id
+            quote.baselinker_invoice_number = invoice_number
+            quote.baselinker_invoice_file = invoice_file
+            quote.baselinker_invoice_fetched_at = datetime.utcnow()
+            
+            self.logger.info("Faktura zapisana w cache",
+                           invoice_id=invoice_id,
+                           invoice_number=invoice_number)
+            
+            return {
+                'exists': True,
+                'invoice_id': invoice_id,
+                'number': invoice_number,
+                'file_base64': invoice_file
+            }
+            
+        except Exception as e:
+            self.logger.error("Wyjątek podczas pobierania faktury",
+                            order_id=order_id,
+                            error=str(e))
+            return {'exists': False, 'error': str(e)}
+    
+    def _fetch_correction(self, order_id: int, quote) -> Dict:
+        """Pobiera korektę faktury z API Baselinker"""
+        self.logger.info("Sprawdzanie korekty faktury", order_id=order_id)
+        
+        try:
+            # Wywołaj API getInvoices
+            response = self._make_request('getInvoices', {'order_id': order_id})
+            
+            if response.get('status') != 'SUCCESS':
+                from datetime import datetime
+                quote.baselinker_correction_last_check = datetime.utcnow()
+                return {'exists': False}
+            
+            invoices = response.get('invoices', [])
+            
+            # Znajdź korektę (type="correction" lub type="corrective")
+            correction = next((inv for inv in invoices 
+                             if inv.get('type') in ['CORRECTION', 'CORRECTIVE', 'correction', 'corrective']), None)
+            
+            if not correction:
+                self.logger.info("Korekta nie została wystawiona", order_id=order_id)
+                from datetime import datetime
+                quote.baselinker_correction_last_check = datetime.utcnow()
+                return {'exists': False}
+            
+            correction_id = correction.get('invoice_id')
+            correction_number = correction.get('invoice_number') or correction.get('number')
+            
+            # Jeśli korekta już w cache - zwróć z cache
+            if quote.baselinker_correction_invoice_number == correction_number:
+                self.logger.info("Korekta w cache", correction_number=correction_number)
+                from datetime import datetime
+                quote.baselinker_correction_last_check = datetime.utcnow()
+                return {
+                    'exists': True,
+                    'invoice_id': correction_id,
+                    'number': correction_number,
+                    'file_base64': quote.baselinker_correction_invoice_file
+                }
+            
+            # Pobierz plik PDF korekty
+            file_response = self._make_request('getInvoiceFile', {
+                'invoice_id': correction_id
+            })
+            
+            if file_response.get('status') != 'SUCCESS':
+                from datetime import datetime
+                quote.baselinker_correction_last_check = datetime.utcnow()
+                return {'exists': False}
+            
+            correction_file = file_response.get('invoice')
+            
+            # Zapisz korektę w cache
+            from datetime import datetime
+            quote.baselinker_correction_invoice_id = correction_id
+            quote.baselinker_correction_invoice_number = correction_number
+            quote.baselinker_correction_invoice_file = correction_file
+            quote.baselinker_correction_last_check = datetime.utcnow()
+            
+            self.logger.info("Korekta zapisana w cache",
+                           correction_id=correction_id,
+                           correction_number=correction_number)
+            
+            return {
+                'exists': True,
+                'invoice_id': correction_id,
+                'number': correction_number,
+                'file_base64': correction_file
+            }
+            
+        except Exception as e:
+            self.logger.error("Wyjątek podczas pobierania korekty",
+                            order_id=order_id,
+                            error=str(e))
+            from datetime import datetime
+            quote.baselinker_correction_last_check = datetime.utcnow()
+            return {'exists': False, 'error': str(e)}
+    
+    def _fetch_receipt_from_order_data(self, order_data: Dict, quote) -> Dict:
+        """
+        Pobiera URL e-paragonu z już pobranych danych zamówienia
+    
+        Args:
+            order_data: Dane zamówienia z getOrders (z custom_extra_fields)
+            quote: Obiekt Quote z bazy danych
+        
+        Returns:
+            Dict z informacją o e-paragonie
+        """
+        self.logger.info("Sprawdzanie e-paragonu w danych zamówienia")
+    
+        try:
+            from datetime import datetime
+        
+            # Pobierz custom_extra_fields z już pobranych danych
+            custom_fields = order_data.get('custom_extra_fields', {})
+        
+            self.logger.debug("Custom extra fields",
+                             fields_count=len(custom_fields),
+                             field_ids=list(custom_fields.keys()) if custom_fields else [])
+        
+            # Pobierz wartość pola 78400 (e-paragon)
+            receipt_url = custom_fields.get('78400', '').strip()
+        
+            self.logger.info("Wartość pola 78400 (e-paragon)",
+                            receipt_url=receipt_url if receipt_url else 'EMPTY')
+        
+            if not receipt_url:
+                self.logger.info("E-paragon nie został wystawiony (pole 78400 puste)")
+                quote.baselinker_receipt_last_check = datetime.utcnow()
+                return {'exists': False}
+        
+            # Zapisz URL e-paragonu w bazie
+            quote.baselinker_receipt_url = receipt_url
+            quote.baselinker_receipt_last_check = datetime.utcnow()
+        
+            self.logger.info("E-paragon znaleziony w polu 78400", 
+                            receipt_url=receipt_url)
+        
+            return {
+                'exists': True,
+                'url': receipt_url
+            }
+        
+        except Exception as e:
+            self.logger.error("Wyjątek podczas przetwarzania e-paragonu",
+                            error=str(e))
+            import traceback
+            self.logger.debug("Stack trace", traceback=traceback.format_exc())
+        
+            from datetime import datetime
+            quote.baselinker_receipt_last_check = datetime.utcnow()
+            return {'exists': False, 'error': str(e)}
