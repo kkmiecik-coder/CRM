@@ -95,6 +95,7 @@ class QuoteDraftBackup {
         // Pobierz grupę cenową z pierwszego formularza
         let clientType = null;
         let multiplier = 1.0;
+        let quoteType = 'brutto';
 
         if (forms.length > 0) {
             const firstForm = forms[0];
@@ -107,6 +108,21 @@ class QuoteDraftBackup {
             } else if (window.isPartner && window.userMultiplier) {
                 multiplier = window.userMultiplier;
                 clientType = 'Partner';
+            }
+
+            // ========================================
+            // POBIERZ TRYB CEN (BRUTTO/NETTO)
+            // ========================================
+
+            if (typeof window.getCurrentPriceMode === 'function') {
+                quoteType = window.getCurrentPriceMode();
+                console.log(`[QuoteDraftBackup] Tryb cen: ${quoteType}`);
+            } else {
+                // Fallback - sprawdź radio buttony
+                const nettoRadio = document.getElementById('priceModeNetto');
+                if (nettoRadio && nettoRadio.checked) {
+                    quoteType = 'netto';
+                }
             }
         }
 
@@ -127,6 +143,7 @@ class QuoteDraftBackup {
             version: this.version,
             clientType,
             multiplier,
+            quoteType,
             totalProducts: products.length,
             products
         };
@@ -235,6 +252,7 @@ class QuoteDraftBackup {
             partsCount: parts.length,
             clientType: quoteData.clientType,
             multiplier: quoteData.multiplier,
+            quoteType: quoteData.quoteType || 'brutto',
             totalProducts: quoteData.totalProducts,
             expires: expirationDate.getTime()
         };
@@ -444,6 +462,29 @@ class QuoteDraftBackup {
             // Przywróć grupę cenową
             if (draftData.clientType) {
                 await this.restoreClientType(draftData.clientType);
+            }
+
+            // ========================================
+            // PRZYWRÓĆ TRYB CEN (BRUTTO/NETTO)
+            // ========================================
+
+            if (draftData.quoteType) {
+                console.log(`[QuoteDraftBackup] Przywracam tryb cen: ${draftData.quoteType}`);
+
+                const bruttoRadio = document.getElementById('priceModeBrutto');
+                const nettoRadio = document.getElementById('priceModeNetto');
+
+                if (draftData.quoteType === 'netto' && nettoRadio) {
+                    nettoRadio.checked = true;
+                    nettoRadio.dispatchEvent(new Event('change', { bubbles: true }));
+                    console.log('[QuoteDraftBackup] ✅ Przywrócono tryb netto');
+                } else if (bruttoRadio) {
+                    bruttoRadio.checked = true;
+                    bruttoRadio.dispatchEvent(new Event('change', { bubbles: true }));
+                    console.log('[QuoteDraftBackup] ✅ Przywrócono tryb brutto');
+                }
+
+                await this.delay(100);
             }
 
             // Przywróć produkty jeden po drugim

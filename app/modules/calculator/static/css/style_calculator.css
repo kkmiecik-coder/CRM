@@ -3922,3 +3922,207 @@ select.select-small option {
     .products-list::-webkit-scrollbar-thumb:hover {
         background: #a8a8a8;
     }
+
+/* ============================================
+   POPRAWKI DLA MODALA BŁĘDÓW WYSYŁKI
+   Dodaj te style na końcu pliku calculator.css
+   ============================================ */
+
+/* Poprawiony styl dla error state w delivery modal */
+.delivery-modal-error {
+    padding: 40px 20px;
+    text-align: center;
+    background: #fff;
+    border-radius: 8px;
+}
+
+    .delivery-modal-error strong {
+        display: block;
+        font-size: 18px;
+        color: #d32f2f;
+        margin-bottom: 12px;
+        font-weight: 600;
+    }
+
+#deliveryErrorMessage {
+    font-size: 15px;
+    color: #666;
+    line-height: 1.6;
+    margin-bottom: 20px;
+    max-width: 500px;
+    margin-left: auto;
+    margin-right: auto;
+}
+
+/* Animacja ikony błędu */
+.delivery-modal-error::before {
+    content: "⚠️";
+    display: block;
+    font-size: 48px;
+    margin-bottom: 16px;
+    animation: errorPulse 2s ease-in-out infinite;
+}
+
+@keyframes errorPulse {
+    0%, 100% {
+        opacity: 1;
+        transform: scale(1);
+    }
+
+    50% {
+        opacity: 0.7;
+        transform: scale(1.05);
+    }
+}
+
+/* Loading overlay - lepsze centrowanie komunikatów */
+#loadingOverlay .loading-text {
+    margin-top: 20px;
+    font-size: 16px;
+    color: #fff;
+    font-weight: 500;
+    transition: opacity 0.3s ease;
+}
+
+/* Spinner animation */
+.spinner {
+    width: 50px;
+    height: 50px;
+    border: 4px solid #f3f3f3;
+    border-top: 4px solid #ED6B24;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    0% {
+        transform: rotate(0deg);
+    }
+
+    100% {
+        transform: rotate(360deg);
+    }
+}
+
+/* Dark mode support dla błędów */
+[data-theme="dark"] .delivery-modal-error {
+    background: #2a2a2a;
+}
+
+    [data-theme="dark"] .delivery-modal-error strong {
+        color: #ff5252;
+    }
+
+[data-theme="dark"] #deliveryErrorMessage {
+    color: #b0b0b0;
+}
+
+[data-theme="dark"] #loadingOverlay .loading-text {
+    color: #e0e0e0;
+}
+
+/* Responsywność */
+@media (max-width: 600px) {
+    .delivery-modal-error {
+        padding: 30px 15px;
+    }
+
+        .delivery-modal-error::before {
+            font-size: 36px;
+        }
+
+        .delivery-modal-error strong {
+            font-size: 16px;
+        }
+
+    #deliveryErrorMessage {
+        font-size: 14px;
+    }
+}
+
+/* ========================================
+   PRZEŁĄCZNIK TRYBU BRUTTO/NETTO
+   ======================================== */
+
+.toggle-switch {
+    display: flex;
+    position: relative;
+    background: #f0f0f0;
+    border-radius: 8px;
+    padding: 4px;
+    width: 200px;
+    height: 40px;
+}
+
+    .toggle-switch input[type="radio"] {
+        display: none;
+    }
+
+.toggle-option {
+    flex: 1;
+    text-align: center;
+    line-height: 32px;
+    cursor: pointer;
+    z-index: 2;
+    transition: color 0.3s;
+    font-weight: 500;
+    color: #333;
+    font-family: 'Poppins', sans-serif;
+    font-size: 14px;
+}
+
+/* Biały kolor dla aktywnej opcji */
+.toggle-switch input[value="brutto"]:checked ~ label[for="priceModeBrutto"],
+.toggle-switch input[value="netto"]:checked ~ label[for="priceModeNetto"] {
+    color: white;
+}
+
+.toggle-slider {
+    position: absolute;
+    top: 4px;
+    left: 4px;
+    width: calc(50% - 4px);
+    height: 32px;
+    background: #ED6B24;
+    border-radius: 6px;
+    transition: transform 0.3s ease;
+    z-index: 1;
+}
+
+.toggle-switch input[value="netto"]:checked ~ .toggle-slider {
+    transform: translateX(100%);
+}
+
+/* ========================================
+   UKRYWANIE ELEMENTÓW CENOWYCH
+   ======================================== */
+
+/* Ukryj elementy BRUTTO gdy aktywny tryb NETTO */
+.hide-brutto .unit-brutto,
+.hide-brutto .total-brutto,
+.hide-brutto .order-brutto,
+.hide-brutto .finishing-brutto,
+.hide-brutto .header-unit-brutto,
+.hide-brutto .header-total-brutto,
+.hide-brutto #summary-products-brutto,
+.hide-brutto #summary-finishing-brutto,
+.hide-brutto #summary-shipping-brutto,
+.hide-brutto #summary-total-brutto,
+.hide-brutto .sq-summary-brutto {
+    display: none !important;
+}
+
+/* Ukryj elementy NETTO gdy aktywny tryb BRUTTO */
+.hide-netto .unit-netto,
+.hide-netto .total-netto,
+.hide-netto .order-netto,
+.hide-netto .finishing-netto,
+.hide-netto .header-unit-netto,
+.hide-netto .header-total-netto,
+.hide-netto #summary-products-netto,
+.hide-netto #summary-finishing-netto,
+.hide-netto #summary-shipping-netto,
+.hide-netto #summary-total-netto,
+.hide-netto .sq-summary-netto {
+    display: none !important;
+}

@@ -512,6 +512,12 @@ document.addEventListener('DOMContentLoaded', function () {
             return;
         }
 
+        console.log("[save_quote.js] ⚠️ DEBUG quote_type:");
+        console.log("  - quoteData.quote_type:", quoteData.quote_type);
+        console.log("  - getCurrentPriceMode():", window.getCurrentPriceMode?.());
+        console.log("  - Radio netto checked:", document.getElementById('priceModeNetto')?.checked);
+        console.log("  - Radio brutto checked:", document.getElementById('priceModeBrutto')?.checked);
+
         // Przygotuj payload
         const payload = {
             client_id,
@@ -527,7 +533,8 @@ document.addEventListener('DOMContentLoaded', function () {
             shipping_cost_brutto,
             quote_client_type,
             quote_multiplier,
-            quote_note: quoteNote
+            quote_note: quoteNote,
+            quote_type: quoteData.quote_type || 'brutto'
         };
 
         console.log("[save_quote.js] Payload:", payload);
@@ -770,6 +777,26 @@ function collectQuoteData() {
     // Pobierz notatkę z textarea
     const quoteNote = document.getElementById('quote_note')?.value.trim() || '';
 
+
+    // ========================================
+    // POBIERZ TRYB CEN (BRUTTO/NETTO)
+    // ========================================
+
+    let quoteType = 'brutto'; // Domyślnie brutto
+
+    // Pobierz z funkcji window.getCurrentPriceMode jeśli dostępna
+    if (typeof window.getCurrentPriceMode === 'function') {
+        quoteType = window.getCurrentPriceMode();
+        console.log(`[collectQuoteData] Tryb cen z getCurrentPriceMode(): ${quoteType}`);
+    } else {
+        // Fallback - sprawdź bezpośrednio radio buttony
+        const nettoRadio = document.getElementById('priceModeNetto');
+        if (nettoRadio && nettoRadio.checked) {
+            quoteType = 'netto';
+        }
+        console.log(`[collectQuoteData] Tryb cen z radio buttonów (fallback): ${quoteType}`);
+    }
+
     console.log(`[collectQuoteData] SUMA produktów brutto=${sumProductBrutto}, netto=${sumProductNetto}`);
     console.log(`[collectQuoteData] SUMA wykończenia brutto=${sumFinishingBrutto}, netto=${sumFinishingNetto}`);
     console.log(`[collectQuoteData] SUMA wysyłki brutto=${shippingBrutto}, netto=${shippingNetto}`);
@@ -785,6 +812,7 @@ function collectQuoteData() {
         quote_client_type: selectedClientType,
         quote_multiplier: selectedMultiplier,
         quote_note: quoteNote,
+        quote_type: quoteType,  // ✅ TYLKO TUTAJ
         summary: {
             products_brutto: sumProductBrutto,
             products_netto: sumProductNetto,

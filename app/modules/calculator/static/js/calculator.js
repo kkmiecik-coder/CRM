@@ -12,10 +12,10 @@ function dbg(...args) { if (DEBUG) console.log(...args); }
 const shippingMessages = [
     { text: "Wyceniam wysyłkę, proszę czekać...", delay: 0 },
     { text: "Sprawdzam dostępnych kurierów...", delay: 3000 },
-    { text: "Wycena mniejszych produktów trwa zwykle dłużej...", delay: 6000 },
-    { text: "Jeszcze chwilka...", delay: 9000 },
-    { text: "Już widzę kuriera! 🚚", delay: 12000 },
-    { text: "Negocjuję najlepszą cenę...", delay: 15000 },
+    { text: "Negocjuję najlepszą cenę...", delay: 6000 },
+    { text: "Wycena mniejszych produktów trwa zwykle dłużej...", delay: 9000 },
+    { text: "Jeszcze chwilka...", delay: 12000 },
+    { text: "Już widzę kuriera! 🚚", delay: 15000 },
     { text: "Prawie gotowe...", delay: 18000 }
 ];
 
@@ -23,9 +23,124 @@ let messageTimeouts = [];
 let currentClientType = '';
 let currentMultiplier = 1.0;
 let mainContainer = null;
+let currentPriceMode = 'brutto'; // Domyślny tryb: brutto
 
 // Domyślna grupa cenowa - ID z tabeli multipliers
 const DEFAULT_MULTIPLIER_ID = 2;
+
+/**
+ * Inicjalizuje przełącznik trybu cen
+ */
+function initPriceModeToggle() {
+    console.log('[initPriceModeToggle] Inicjalizacja przełącznika brutto/netto');
+
+    const bruttoRadio = document.getElementById('priceModeBrutto');
+    const nettoRadio = document.getElementById('priceModeNetto');
+    const mainContainer = document.querySelector('.calculator-main');
+
+    if (!bruttoRadio || !nettoRadio || !mainContainer) {
+        console.warn('[initPriceModeToggle] Nie znaleziono wszystkich elementów przełącznika');
+        return;
+    }
+
+    // Funkcja przełączania trybu
+    function switchPriceMode(mode) {
+        console.log(`[switchPriceMode] Przełączam na tryb: ${mode}`);
+        currentPriceMode = mode;
+
+        // Aktualizuj klasy na głównym kontenerze
+        if (mode === 'brutto') {
+            mainContainer.classList.remove('hide-brutto');
+            mainContainer.classList.add('hide-netto');
+            quoteSummary?.classList.remove('hide-brutto');
+            quoteSummary?.classList.add('hide-netto');
+        } else {
+            mainContainer.classList.remove('hide-netto');
+            mainContainer.classList.add('hide-brutto');
+            quoteSummary?.classList.remove('hide-netto');
+            quoteSummary?.classList.add('hide-brutto');
+        }
+
+        // Aktualizuj kolory przycisków
+        updateToggleButtonColors();
+
+        // Zapisz preferencję w localStorage
+        try {
+            localStorage.setItem('woodpower_price_mode', mode);
+            console.log(`[switchPriceMode] Zapisano preferencję: ${mode}`);
+        } catch (e) {
+            console.warn('[switchPriceMode] Nie można zapisać do localStorage:', e);
+        }
+    }
+
+    // Funkcja aktualizacji kolorów przycisków
+    function updateToggleButtonColors() {
+        const bruttoLabel = document.querySelector('label[for="priceModeBrutto"]');
+        const nettoLabel = document.querySelector('label[for="priceModeNetto"]');
+
+        if (currentPriceMode === 'brutto') {
+            bruttoLabel?.classList.add('toggle-option-active');
+            nettoLabel?.classList.remove('toggle-option-active');
+        } else {
+            bruttoLabel?.classList.remove('toggle-option-active');
+            nettoLabel?.classList.add('toggle-option-active');
+        }
+    }
+
+    // Event listenery
+    bruttoRadio.addEventListener('change', function () {
+        if (this.checked) {
+            switchPriceMode('brutto');
+        }
+    });
+
+    nettoRadio.addEventListener('change', function () {
+        if (this.checked) {
+            switchPriceMode('netto');
+        }
+    });
+
+    // Przywróć zapisaną preferencję z localStorage
+    try {
+        const savedMode = localStorage.getItem('woodpower_price_mode');
+        if (savedMode === 'netto') {
+            nettoRadio.checked = true;
+            switchPriceMode('netto');
+            console.log('[initPriceModeToggle] Przywrócono tryb netto z localStorage');
+        } else {
+            bruttoRadio.checked = true;
+            switchPriceMode('brutto');
+            console.log('[initPriceModeToggle] Ustawiono domyślny tryb brutto');
+        }
+    } catch (e) {
+        console.warn('[initPriceModeToggle] Nie można odczytać localStorage:', e);
+        bruttoRadio.checked = true;
+        switchPriceMode('brutto');
+    }
+
+    console.log('[initPriceModeToggle] ✅ Przełącznik zainicjalizowany');
+}
+
+/**
+ * Pobiera aktualny tryb cen
+ */
+function getCurrentPriceMode() {
+    // Zawsze czytaj bezpośrednio z radio buttons jako źródło prawdy
+    const nettoRadio = document.getElementById('priceModeNetto');
+    const bruttoRadio = document.getElementById('priceModeBrutto');
+
+    if (nettoRadio && nettoRadio.checked) {
+        console.log('[getCurrentPriceMode] Zwracam: netto (z radio)');
+        return 'netto';
+    } else if (bruttoRadio && bruttoRadio.checked) {
+        console.log('[getCurrentPriceMode] Zwracam: brutto (z radio)');
+        return 'brutto';
+    }
+
+    // Fallback
+    console.warn('[getCurrentPriceMode] Brak zaznaczonego radio - zwracam domyślny: brutto');
+    return 'brutto';
+}
 
 // Pobieranie cen wykończeń z bazy danych
 async function loadFinishingPrices() {
@@ -105,7 +220,7 @@ async function calculateDelivery() {
 
     if (overlay) {
         overlay.style.display = 'flex';
-        showRotatingMessages(overlay);
+        showRotatingMessages(overlay); // ✅ ZACHOWANE - rotujące komunikaty
     }
 
     const shippingParams = computeAggregatedData();
@@ -126,6 +241,7 @@ async function calculateDelivery() {
         });
 
         if (response.ok) {
+            // ✅ ZACHOWANA cała sekcja sukcesu - bez zmian
             const quotesData = await response.json();
             const quotesList = Array.isArray(quotesData) ? quotesData : [quotesData];
             const quotes = quotesList.map(option => {
@@ -146,7 +262,6 @@ async function calculateDelivery() {
             if (quotes.length === 0) {
                 showDeliveryErrorModal("Brak dostępnych metod dostawy.");
             } else {
-                // ✅ DODAJ packingInfo:
                 const packingInfo = {
                     multiplier: shippingPackingMultiplier,
                     message: `Do cen wysyłki została doliczona kwota ${Math.round((shippingPackingMultiplier - 1) * 100)}% na pakowanie.`
@@ -154,13 +269,65 @@ async function calculateDelivery() {
                 showDeliveryModal(quotes, packingInfo);
             }
         } else {
-            console.error("Błąd w żądaniu wyceny wysyłki:", response.status);
-            showDeliveryErrorModal("Błąd serwera przy wycenie wysyłki.");
+            // ===== ✨ NOWA CZĘŚĆ: Lepsza obsługa błędów HTTP =====
+            let errorMessage = "Błąd podczas wyceny wysyłki.";
+
+            try {
+                const errorData = await response.json();
+
+                // Użyj komunikatu z backendu jeśli istnieje
+                if (errorData.error) {
+                    errorMessage = errorData.error;
+                } else {
+                    // Mapowanie kodów HTTP na przyjazne komunikaty
+                    switch (response.status) {
+                        case 502:
+                        case 503:
+                        case 504:
+                            errorMessage = "Serwis kurierski chwilowo niedostępny. Spróbuj ponownie za chwilę.";
+                            break;
+                        case 401:
+                            errorMessage = "Problem z autoryzacją serwisu kurierskiego. Skontaktuj się z administratorem.";
+                            break;
+                        case 400:
+                            errorMessage = "Nieprawidłowe dane wysyłki. Sprawdź wymiary i wagę paczki.";
+                            break;
+                        case 500:
+                            errorMessage = "Błąd serwera. Spróbuj ponownie lub skontaktuj się z administratorem.";
+                            break;
+                        default:
+                            errorMessage = `Błąd serwisu kurierskiego (kod: ${response.status}). Spróbuj ponownie.`;
+                    }
+                }
+            } catch (e) {
+                // Jeśli nie można sparsować JSON, użyj komunikatu opartego na kodzie HTTP
+                console.error("Nie można sparsować odpowiedzi błędu:", e);
+
+                if (response.status === 502 || response.status === 503 || response.status === 504) {
+                    errorMessage = "Serwis kurierski chwilowo niedostępny. Spróbuj ponownie za chwilę.";
+                }
+            }
+
+            console.error("Błąd w żądaniu wyceny wysyłki:", response.status, errorMessage);
+            showDeliveryErrorModal(errorMessage);
         }
     } catch (error) {
         console.error("Wyjątek przy wycenie wysyłki:", error);
-        showDeliveryErrorModal("Błąd sieci przy wycenie wysyłki.");
+
+        // ===== ✨ NOWA CZĘŚĆ: Rozróżnienie typów błędów JavaScript =====
+        let errorMessage;
+
+        if (error.name === 'TypeError' && error.message.includes('fetch')) {
+            errorMessage = "Brak połączenia z serwerem. Sprawdź połączenie internetowe.";
+        } else if (error.name === 'AbortError') {
+            errorMessage = "Zapytanie przekroczyło czas oczekiwania. Spróbuj ponownie.";
+        } else {
+            errorMessage = "Wystąpił nieoczekiwany błąd. Spróbuj ponownie lub skontaktuj się z administratorem.";
+        }
+
+        showDeliveryErrorModal(errorMessage);
     } finally {
+        // ✅ ZACHOWANE - zatrzymaj rotujące komunikaty i ukryj overlay
         stopRotatingMessages();
         if (overlay) {
             overlay.style.display = 'none';
@@ -2084,6 +2251,9 @@ function init() {
         }
     }, 100);
 
+    // Inicjalizuj przełącznik brutto/netto
+    initPriceModeToggle();
+
     console.log("Inicjalizacja calculator.js zakończona");
 
 }
@@ -3322,13 +3492,15 @@ document.addEventListener('DOMContentLoaded', () => {
  */
 function checkProductCompleteness(form) {
     if (!form) return false;
-    
+
     const length = form.querySelector('[data-field="length"]')?.value;
     const width = form.querySelector('[data-field="width"]')?.value;
     const thickness = form.querySelector('[data-field="thickness"]')?.value;
     const quantity = form.querySelector('[data-field="quantity"]')?.value;
-    const variant = form.querySelector('input[type="radio"]:checked');
-    
+
+    // ✅ POPRAWKA: Sprawdź zaznaczony wariant (tylko w sekcji .variants)
+    const variant = form.querySelector('.variants input[type="radio"]:checked');
+
     return !!(length && width && thickness && quantity && variant);
 }
 
@@ -3454,7 +3626,8 @@ function generateProductDescription(form, index) {
     const thickness = form.querySelector('[data-field="thickness"]')?.value;
     const quantity = form.querySelector('[data-field="quantity"]')?.value;
 
-    const variantRadio = form.querySelector('input[type="radio"]:checked');
+    // ✅ POPRAWKA: Szukaj tylko w sekcji .variants
+    const variantRadio = form.querySelector('.variants input[type="radio"]:checked');
     const variantLabel = variantRadio ? form.querySelector(`label[for="${variantRadio.id}"]`) : null;
     const variantName = variantLabel ? variantLabel.textContent.replace(/BRAK/g, '').trim() : 'Nieznany wariant';
 
@@ -4410,28 +4583,46 @@ function addNewProductWithAvailability() {
  * Walidacja przed zapisem wyceny - sprawdź czy są dostępne warianty
  */
 function validateAvailableVariants() {
+    console.log('[validateAvailableVariants] 🔍 START walidacji');
+
     const forms = Array.from(quoteFormsContainer.querySelectorAll('.quote-form'));
+    console.log(`[validateAvailableVariants] Znaleziono ${forms.length} formularzy`);
 
     for (let i = 0; i < forms.length; i++) {
         const form = forms[i];
         const availableVariants = getAvailableVariants(form);
 
+        console.log(`[validateAvailableVariants] Produkt ${i + 1}:`, {
+            dostepne: availableVariants,
+            liczba: availableVariants.length
+        });
+
         if (availableVariants.length === 0) {
+            console.error(`[validateAvailableVariants] ❌ Produkt ${i + 1} nie ma dostępnych wariantów`);
             alert(`Produkt ${i + 1} nie ma żadnych dostępnych wariantów. Dodaj przynajmniej jeden dostępny wariant.`);
             return false;
         }
 
-        // Sprawdź czy zaznaczony wariant jest dostępny
-        const selectedRadio = form.querySelector('input[type="radio"]:checked');
+        // ✅ POPRAWKA: Szukaj tylko w sekcji .variants
+        const selectedRadio = form.querySelector('.variants input[type="radio"]:checked');
+        console.log(`[validateAvailableVariants] Produkt ${i + 1} - zaznaczony:`, selectedRadio?.value);
+
         if (selectedRadio) {
             const selectedVariant = selectedRadio.value;
+
+            console.log(`[validateAvailableVariants] Sprawdzam czy '${selectedVariant}' jest w:`, availableVariants);
+
             if (!availableVariants.includes(selectedVariant)) {
+                console.error(`[validateAvailableVariants] ❌ Zaznaczony wariant '${selectedVariant}' NIE jest dostępny`);
                 alert(`Produkt ${i + 1} ma zaznaczony niedostępny wariant. Wybierz dostępny wariant.`);
                 return false;
             }
+
+            console.log(`[validateAvailableVariants] ✅ Wariant '${selectedVariant}' jest dostępny`);
         }
     }
 
+    console.log('[validateAvailableVariants] ✅ Walidacja PRZESZŁA');
     return true;
 }
 

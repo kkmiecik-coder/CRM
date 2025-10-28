@@ -82,6 +82,8 @@ def calculator_home():
 @calculator_bp.route('/shipping_quote', methods=['POST'])
 @require_module_access('calculator')
 def shipping_quote():
+    import time
+    
     current_app.logger.info(">>> shipping_quote: endpoint wywołany")
     
     shipping_params = request.get_json()
@@ -134,7 +136,61 @@ def shipping_quote():
         current_app.logger.error(">>> shipping_quote: Brak konfiguracji GlobKURIER")
         return jsonify({"error": "Brak konfiguracji GlobKURIER"}), 500
 
-    # Logowanie do GlobKurier
+    # ===== NOWE: Konfiguracja timeout i retry =====
+    REQUEST_TIMEOUT = 30  # 30 sekund timeout dla każdego requesta
+    MAX_RETRIES = 2  # Maksymalnie 2 próby (czyli 3 wywołania: pierwsze + 2 retry)
+    RETRY_DELAY = 2  # 2 sekundy przerwy między próbami
+    RETRYABLE_STATUS_CODES = [502, 503, 504]  # Kody błędów, które warto retry'ować
+
+    def make_request_with_retry(request_func, request_name, *args, **kwargs):
+        """
+        Wykonuje request z mechanizmem retry dla błędów tymczasowych
+        """
+        for attempt in range(MAX_RETRIES + 1):
+            try:
+                # Dodaj timeout do kwargs jeśli nie ma
+                if 'timeout' not in kwargs:
+                    kwargs['timeout'] = REQUEST_TIMEOUT
+                
+                current_app.logger.info(f">>> shipping_quote: {request_name} - próba {attempt + 1}/{MAX_RETRIES + 1}")
+                response = request_func(*args, **kwargs)
+                
+                # Jeśli status jest OK lub nie jest retry'owalny, zwróć response
+                if response.status_code == 200 or response.status_code not in RETRYABLE_STATUS_CODES:
+                    return response
+                
+                # Jeśli to błąd retry'owalny i nie jest ostatnia próba, poczekaj i spróbuj ponownie
+                if attempt < MAX_RETRIES:
+                    current_app.logger.warning(
+                        f">>> shipping_quote: {request_name} - błąd {response.status_code}, "
+                        f"retry za {RETRY_DELAY}s..."
+                    )
+                    time.sleep(RETRY_DELAY)
+                    continue
+                
+                # Ostatnia próba też się nie powiodła
+                return response
+                
+            except requests.exceptions.Timeout:
+                current_app.logger.error(f">>> shipping_quote: {request_name} - timeout po {REQUEST_TIMEOUT}s")
+                if attempt < MAX_RETRIES:
+                    current_app.logger.warning(f">>> shipping_quote: {request_name} - retry za {RETRY_DELAY}s...")
+                    time.sleep(RETRY_DELAY)
+                    continue
+                else:
+                    raise
+            except requests.exceptions.RequestException as e:
+                current_app.logger.error(f">>> shipping_quote: {request_name} - wyjątek: {e}")
+                if attempt < MAX_RETRIES:
+                    current_app.logger.warning(f">>> shipping_quote: {request_name} - retry za {RETRY_DELAY}s...")
+                    time.sleep(RETRY_DELAY)
+                    continue
+                else:
+                    raise
+        
+        return None
+
+    # ===== Logowanie do GlobKurier z retry =====
     auth_url = glob_config["endpoint"] + "/auth/login"
     login_payload = {
         "email": glob_config["login"],
@@ -147,37 +203,80 @@ def shipping_quote():
     }
 
     try:
-        auth_response = requests.post(auth_url, headers=headers, json=login_payload)
+        auth_response = make_request_with_retry(
+            requests.post,
+            "auth/login",
+            auth_url,
+            headers=headers,
+            json=login_payload
+        )
+        
+        if not auth_response:
+            current_app.logger.error(">>> shipping_quote: Nie otrzymano odpowiedzi po wszystkich próbach logowania")
+            return jsonify({
+                "error": "Serwis kurierski chwilowo niedostępny. Spróbuj ponownie za chwilę."
+            }), 503
+        
         if auth_response.status_code != 200:
             current_app.logger.error(">>> shipping_quote: Blad logowania, status: %s", auth_response.status_code)
-            return jsonify({"error": "Blad logowania do GlobKurier", "status": auth_response.status_code}), 401
+            return jsonify({
+                "error": "Błąd logowania do serwisu kurierskiego",
+                "status": auth_response.status_code
+            }), 401
+        
         auth_data = auth_response.json()
         token = auth_data.get("token")
         if not token:
             current_app.logger.error(">>> shipping_quote: Nie otrzymano tokena")
-            return jsonify({"error": "Nie otrzymano tokena"}), 401
+            return jsonify({"error": "Nie otrzymano tokena autoryzacyjnego"}), 401
+            
+    except requests.exceptions.Timeout:
+        current_app.logger.error(">>> shipping_quote: Timeout podczas logowania po wszystkich próbach")
+        return jsonify({
+            "error": "Serwis kurierski nie odpowiada. Spróbuj ponownie za chwilę."
+        }), 504
     except Exception as e:
         current_app.logger.error(">>> shipping_quote: Wyjatek podczas logowania: %s", e)
-        return jsonify({"error": "Wyjatek podczas logowania: " + str(e)}), 500
+        return jsonify({
+            "error": "Błąd połączenia z serwisem kurierskim"
+        }), 500
 
-    # Wysyłamy zapytanie do /products
+    # ===== Wysyłamy zapytanie do /products z retry =====
     products_url = glob_config["endpoint"] + "/products"
     headers_quote = {
         "accept-language": "en",
         "x-auth-token": token
     }
+    
     try:
-        quote_response = requests.get(products_url, headers=headers_quote, params=query_params)
-        if quote_response.status_code != 200:
-            current_app.logger.error(">>> shipping_quote: Blad pobierania wyceny, status: %s, treść: %s", 
-                                       quote_response.status_code, quote_response.text)
+        quote_response = make_request_with_retry(
+            requests.get,
+            "products",
+            products_url,
+            headers=headers_quote,
+            params=query_params
+        )
+        
+        if not quote_response:
+            current_app.logger.error(">>> shipping_quote: Nie otrzymano odpowiedzi po wszystkich próbach wyceny")
             return jsonify({
-                "error": "Błąd pobierania wyceny",
-                "status": quote_response.status_code,
-                "treść": quote_response.text
+                "error": "Serwis kurierski chwilowo niedostępny. Spróbuj ponownie za chwilę."
+            }), 503
+        
+        if quote_response.status_code != 200:
+            current_app.logger.error(
+                ">>> shipping_quote: Blad pobierania wyceny, status: %s, treść: %s", 
+                quote_response.status_code,
+                quote_response.text[:500]  # Loguj tylko pierwsze 500 znaków
+            )
+            return jsonify({
+                "error": "Nie udało się pobrać wyceny wysyłki",
+                "status": quote_response.status_code
             }), quote_response.status_code
+        
         quote_data = quote_response.json()
-        # Łączymy wszystkie kategorie produktów, upewniając się, że każde zagranie jest listą
+        
+        # Łączymy wszystkie kategorie produktów
         all_products = []
         for category in quote_data:
             items = quote_data[category]
@@ -185,6 +284,7 @@ def shipping_quote():
                 all_products.extend(items)
             else:
                 all_products.append(items)
+        
         if not all_products:
             result = []
         else:
@@ -197,11 +297,20 @@ def shipping_quote():
                 }
                 for product in all_products
             ]
+        
+        current_app.logger.info(f">>> shipping_quote: Zwrócono {len(result)} opcji wysyłki")
+        return jsonify(result), 200
+        
+    except requests.exceptions.Timeout:
+        current_app.logger.error(">>> shipping_quote: Timeout podczas pobierania wyceny po wszystkich próbach")
+        return jsonify({
+            "error": "Serwis kurierski nie odpowiada. Spróbuj ponownie za chwilę."
+        }), 504
     except Exception as e:
         current_app.logger.error(">>> shipping_quote: Wyjatek podczas pobierania wyceny: %s", e)
-        return jsonify({"error": "Wyjatek podczas pobierania wyceny: " + str(e)}), 500
-    
-    return jsonify(result), 200
+        return jsonify({
+            "error": "Błąd podczas pobierania wyceny wysyłki"
+        }), 500
 
 logger = logging.getLogger(__name__)
 
@@ -251,6 +360,10 @@ def save_quote():
         products = data.get('products')
 
         total_price = data.get('total_price', 0.0)
+
+        # Typ wyceny (brutto/netto)
+        quote_type = data.get('quote_type', 'brutto')
+        current_app.logger.info(f"[save_quote] 🔍 DEBUG quote_type: otrzymano='{quote_type}', payload={data.get('quote_type')}")
 
         if not client_id:
             login = data.get('client_login')
@@ -315,6 +428,7 @@ def save_quote():
             courier_name=courier_name,
             quote_client_type=quote_client_type,
             quote_multiplier=quote_multiplier,
+            quote_type=quote_type,
             source=data.get('quote_source'),
             notes=quote_note,
             status_id=1,

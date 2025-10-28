@@ -52,6 +52,9 @@ class Quote(db.Model):
     quote_multiplier = db.Column(db.Numeric(5, 2))
     quote_client_type = db.Column(db.String(100))  # Nazwa grupy cenowej
 
+    # POLE: Typ wyceny (brutto/netto) - metadata określająca preferowany tryb wyświetlania
+    quote_type = db.Column(db.Enum('brutto', 'netto'), default='brutto')
+
     # Notatki do wyceny
     notes = db.Column(db.Text)
 
