@@ -36,10 +36,9 @@ function initPriceModeToggle() {
 
     const bruttoRadio = document.getElementById('priceModeBrutto');
     const nettoRadio = document.getElementById('priceModeNetto');
-    const mainContainer = document.querySelector('.calculator-main');
 
-    if (!bruttoRadio || !nettoRadio || !mainContainer) {
-        console.warn('[initPriceModeToggle] Nie znaleziono wszystkich elementów przełącznika');
+    if (!bruttoRadio || !nettoRadio) {
+        console.error('[initPriceModeToggle] ❌ Nie znaleziono radio buttonów brutto/netto');
         return;
     }
 
@@ -48,23 +47,27 @@ function initPriceModeToggle() {
         console.log(`[switchPriceMode] Przełączam na tryb: ${mode}`);
         currentPriceMode = mode;
 
-        // Aktualizuj klasy na głównym kontenerze
-        if (mode === 'brutto') {
-            mainContainer.classList.remove('hide-brutto');
-            mainContainer.classList.add('hide-netto');
-            quoteSummary?.classList.remove('hide-brutto');
-            quoteSummary?.classList.add('hide-netto');
-        } else {
-            mainContainer.classList.remove('hide-netto');
-            mainContainer.classList.add('hide-brutto');
-            quoteSummary?.classList.remove('hide-netto');
-            quoteSummary?.classList.add('hide-brutto');
-        }
+        const quoteContainer = document.querySelector('.quote-container');
+        const quoteSummary = document.querySelector('.quote-summary');
+        const quoteForms = document.querySelector('.quote-forms');
+        const containers = [quoteContainer, quoteSummary, quoteForms, document.body].filter(Boolean);
 
-        // Aktualizuj kolory przycisków
+        console.log(`[switchPriceMode] Znalezione kontenery:`, containers.length);
+
+        containers.forEach(container => {
+            if (mode === 'brutto') {
+                // Tryb BRUTTO = pokaż WSZYSTKO (usuń obie klasy ukrywające)
+                container.classList.remove('hide-brutto');
+                container.classList.remove('hide-netto');
+            } else {
+                // Tryb NETTO = ukryj TYLKO brutto, pokaż netto
+                container.classList.remove('hide-netto');
+                container.classList.add('hide-brutto');
+            }
+        });
+
         updateToggleButtonColors();
 
-        // Zapisz preferencję w localStorage
         try {
             localStorage.setItem('woodpower_price_mode', mode);
             console.log(`[switchPriceMode] Zapisano preferencję: ${mode}`);
@@ -141,6 +144,11 @@ function getCurrentPriceMode() {
     console.warn('[getCurrentPriceMode] Brak zaznaczonego radio - zwracam domyślny: brutto');
     return 'brutto';
 }
+
+// ✅ Eksportuj funkcję globalnie
+window.getCurrentPriceMode = getCurrentPriceMode;
+
+console.log('✅ Poprawki calculator.js zostały załadowane - przełącznik brutto/netto jest teraz globalny');
 
 // Pobieranie cen wykończeń z bazy danych
 async function loadFinishingPrices() {
@@ -413,34 +421,14 @@ function getPrice(species, technology, wood_class, thickness, length) {
 }
 
 /**
- * Aktualizuje globalne podsumowanie oraz pojedynczy koszt aktywnego formularza
+ * Aktualizuje globalne podsumowanie - suma wszystkich produktów
  */
 function updateGlobalSummary() {
-
     if (!quoteFormsContainer) return;
 
-    // 1) Pokaż w "Koszt surowego" i "Koszty wykończenia" dane tylko dla activeQuoteForm
-    if (activeQuoteForm) {
-        // Surowy z activeQuoteForm
-        const orderBruttoVal = parseFloat(activeQuoteForm.dataset.orderBrutto) || 0;
-        const orderNettoVal = parseFloat(activeQuoteForm.dataset.orderNetto) || 0;
-        orderSummaryEls.brutto.textContent = orderBruttoVal ? formatPLN(orderBruttoVal) : "0.00 PLN";
-        orderSummaryEls.netto.textContent = orderNettoVal ? formatPLN(orderNettoVal) : "0.00 PLN";
-
-        // Wykończenie dla activeQuoteForm
-        const finBruttoVal = parseFloat(activeQuoteForm.dataset.finishingBrutto) || 0;
-        const finNettoVal = parseFloat(activeQuoteForm.dataset.finishingNetto) || 0;
-        finishingSummaryEls.brutto.textContent = finBruttoVal ? formatPLN(finBruttoVal) : "0.00 PLN";
-        finishingSummaryEls.netto.textContent = finNettoVal ? formatPLN(finNettoVal) : "0.00 PLN";
-    } else {
-        // Jeśli nie ma aktywnego, pokaż puste / domyślne
-        orderSummaryEls.brutto.textContent = "0.00 PLN";
-        orderSummaryEls.netto.textContent = "0.00 PLN";
-        finishingSummaryEls.brutto.textContent = "0.00 PLN";
-        finishingSummaryEls.netto.textContent = "0.00 PLN";
-    }
-
-    // 2) Oblicz sumę globalną: surowy + wykończenie ze wszystkich formularzy
+    // ===================================================================
+    // KROK 1: Oblicz sumy ze WSZYSTKICH formularzy
+    // ===================================================================
     let sumOrderBrutto = 0;
     let sumOrderNetto = 0;
     let sumFinishingBrutto = 0;
@@ -452,17 +440,33 @@ function updateGlobalSummary() {
         const oNt = parseFloat(form.dataset.orderNetto) || 0;
         const fBr = parseFloat(form.dataset.finishingBrutto) || 0;
         const fNt = parseFloat(form.dataset.finishingNetto) || 0;
+
         sumOrderBrutto += oBr;
         sumOrderNetto += oNt;
         sumFinishingBrutto += fBr;
         sumFinishingNetto += fNt;
     });
 
-    // 3) Teraz odczytaj koszt kuriera (delivery) – zakładamy, że został ustawiony w DOM przez showDeliveryModal
+    // ===================================================================
+    // KROK 2: Wyświetl SUMĘ produktów surowych w "Koszt surowego"
+    // ===================================================================
+    orderSummaryEls.brutto.textContent = sumOrderBrutto > 0 ? formatPLN(sumOrderBrutto) : "0.00 PLN";
+    orderSummaryEls.netto.textContent = sumOrderNetto > 0 ? formatPLN(sumOrderNetto) : "0.00 PLN";
+
+    // ===================================================================
+    // KROK 3: Wyświetl SUMĘ wykończeń w "Koszty wykończenia"
+    // ===================================================================
+    finishingSummaryEls.brutto.textContent = sumFinishingBrutto > 0 ? formatPLN(sumFinishingBrutto) : "0.00 PLN";
+    finishingSummaryEls.netto.textContent = sumFinishingNetto > 0 ? formatPLN(sumFinishingNetto) : "0.00 PLN";
+
+    // ===================================================================
+    // KROK 4: Odczytaj koszt wysyłki (ustawiony wcześniej przez showDeliveryModal)
+    // ===================================================================
     let deliveryBruttoVal = 0;
     let deliveryNettoVal = 0;
     const deliveryBruttoText = deliverySummaryEls.brutto.textContent;
     const deliveryNettoText = deliverySummaryEls.netto.textContent;
+
     if (deliveryBruttoText.endsWith('PLN')) {
         deliveryBruttoVal = parseFloat(deliveryBruttoText.replace(" PLN", "")) || 0;
     }
@@ -470,17 +474,18 @@ function updateGlobalSummary() {
         deliveryNettoVal = parseFloat(deliveryNettoText.replace(" PLN", "")) || 0;
     }
 
-    // 4) Wstaw do sekcji "Koszt wysyłki" nazwę i wartości brutto/netto (jeżeli nie wyliczone, zostaw poprzedni tekst)
-    //    (zakładamy, że deliverySummaryEls.courier, .brutto i .netto już wcześniej wypełniono przez showDeliveryModal / showDeliveryErrorModal)
-
-    // 5) W sekcji „Suma” zsumuj:
-    //    SUMA_BRUTTO = sumOrderBrutto + sumFinishingBrutto + deliveryBruttoVal
-    //    SUMA_NETTO  = sumOrderNetto  + sumFinishingNetto  + deliveryNettoVal
+    // ===================================================================
+    // KROK 5: Oblicz i wyświetl SUMĘ KOŃCOWĄ
+    // ===================================================================
     const totalBrutto = sumOrderBrutto + sumFinishingBrutto + deliveryBruttoVal;
     const totalNetto = sumOrderNetto + sumFinishingNetto + deliveryNettoVal;
-    finalSummaryEls.brutto.textContent = (totalBrutto > 0) ? formatPLN(totalBrutto) : "0.00 PLN";
-    finalSummaryEls.netto.textContent = (totalNetto > 0) ? formatPLN(totalNetto) : "0.00 PLN";
 
+    finalSummaryEls.brutto.textContent = totalBrutto > 0 ? formatPLN(totalBrutto) : "0.00 PLN";
+    finalSummaryEls.netto.textContent = totalNetto > 0 ? formatPLN(totalNetto) : "0.00 PLN";
+
+    // ===================================================================
+    // KROK 6: Aktualizuj inne elementy UI
+    // ===================================================================
     updateCalculateDeliveryButtonState();
     generateProductsSummary();
 }
@@ -1184,7 +1189,6 @@ function attachFinishingListenersToForm(form) {
 
 function attachFormListeners(form) {
     if (!form) return;
-
     console.log(`[attachFormListeners] Dodaję listenery dla formularza`);
 
     // ✅ NOWA POPRAWKA: Zachowaj aktualną grupę cenową przed dodaniem listeners
@@ -1212,6 +1216,10 @@ function attachFormListeners(form) {
 
     // ✅ POPRAWKA: Dodaj listenery dla radio buttons z obsługą klasy 'selected'
     attachVariantSelectionListeners(form);
+
+    // ✅ NOWE: Dodaj walidację długości i szerokości dla tego formularza
+    attachLengthValidation(form);
+    attachWidthValidation(form);
 
     // Oznacz formularz jako mający event listenery
     form.dataset.listenersAttached = "true";
@@ -1336,6 +1344,13 @@ function prepareNewProductForm(form, index) {
     if (!form) return;
 
     console.log(`[prepareNewProductForm] Przygotowuję formularz dla produktu ${index + 1}`);
+
+    // Usuń sklonowany przełącznik brutto/netto (jeśli istnieje)
+    const clonedPriceToggle = form.querySelector('.price-mode-toggle');
+    if (clonedPriceToggle) {
+        console.log(`[prepareNewProductForm] Usuwam sklonowany przełącznik brutto/netto z produktu ${index + 1}`);
+        clonedPriceToggle.remove();
+    }
 
     // KROK 1: Zachowaj aktualną grupę cenową PRZED resetowaniem
     const currentClientType = form.querySelector('select[data-field="clientType"]')?.value;
@@ -1898,49 +1913,81 @@ function attachDownloadFormatButtons() {
 /**
  * Walidacja długości (max 450 cm)
  */
-function attachLengthValidation() {
-    const lengthInput = document.querySelector('input[data-field="length"]');
+function attachLengthValidation(form) {
+    if (!form) return;
+
+    const lengthInput = form.querySelector('input[data-field="length"]');
     if (!lengthInput) return;
-    lengthInput.addEventListener('input', function () {
+
+    // Usuń poprzedni listener jeśli istnieje
+    lengthInput.removeEventListener('input', lengthInput._validationHandler);
+
+    // Utwórz nowy handler
+    lengthInput._validationHandler = function () {
         const val = parseFloat(this.value);
         let errorSpan = this.parentNode.querySelector('.error-message-length');
+
         if (!errorSpan) {
             errorSpan = document.createElement('span');
             errorSpan.classList.add('error-message-length');
             errorSpan.style.color = 'red';
             errorSpan.style.fontSize = '12px';
+            errorSpan.style.display = 'block';
+            errorSpan.style.marginTop = '4px';
             this.parentNode.appendChild(errorSpan);
         }
+
         if (!isNaN(val) && val > 450) {
             errorSpan.textContent = "Długość poza odpowiednim zakresem 0-450 cm.";
+            this.classList.add('error-outline');
         } else {
             errorSpan.textContent = "";
+            this.classList.remove('error-outline');
         }
-    });
+    };
+
+    // Dodaj listener
+    lengthInput.addEventListener('input', lengthInput._validationHandler);
 }
 
 /**
  * Walidacja szerokości (max 120 cm)
  */
-function attachWidthValidation() {
-    const widthInput = document.querySelector('input[data-field="width"]');
+function attachWidthValidation(form) {
+    if (!form) return;
+
+    const widthInput = form.querySelector('input[data-field="width"]');
     if (!widthInput) return;
-    widthInput.addEventListener('input', function () {
+
+    // Usuń poprzedni listener jeśli istnieje
+    widthInput.removeEventListener('input', widthInput._validationHandler);
+
+    // Utwórz nowy handler
+    widthInput._validationHandler = function () {
         const val = parseFloat(this.value);
         let errorSpan = this.parentNode.querySelector('.error-message-width');
+
         if (!errorSpan) {
             errorSpan = document.createElement('span');
             errorSpan.classList.add('error-message-width');
             errorSpan.style.color = 'red';
             errorSpan.style.fontSize = '12px';
+            errorSpan.style.display = 'block';
+            errorSpan.style.marginTop = '4px';
             this.parentNode.appendChild(errorSpan);
         }
+
         if (!isNaN(val) && val > 120) {
             errorSpan.textContent = "Szerokość poza odpowiednim zakresem 0-120 cm.";
+            this.classList.add('error-outline');
         } else {
             errorSpan.textContent = "";
+            this.classList.remove('error-outline');
         }
-    });
+    };
+
+    // Dodaj listener
+    widthInput.addEventListener('input', widthInput._validationHandler);
 }
 
 /**
@@ -2182,8 +2229,6 @@ function init() {
     initCalculatorDownloadModal();
     attachDownloadModalClose();
     attachDownloadFormatButtons();
-    attachLengthValidation();
-    attachWidthValidation();
     attachGlobalValidationListeners();
     attachGoToQuoteListeners();
     initMainContainer();
@@ -3610,7 +3655,7 @@ function getFinishingDescriptionWithGloss(form) {
 }
 
 /**
- * Generuje opis produktu
+ * Generuje opis produktu z cenami
  */
 function generateProductDescription(form, index) {
     if (!form) return { main: `Błąd formularza`, sub: "" };
@@ -3640,10 +3685,37 @@ function generateProductDescription(form, index) {
         mainDescription += ` | ${finishingDescription}`;
     }
 
-    // NOWE: Oblicz objętość i wagę dla informacji dodatkowych
+    // ===================================================================
+    // NOWE: Oblicz objętość, wagę i ceny dla informacji dodatkowych
+    // ===================================================================
     const volume = calculateProductVolume(form);
     const weight = calculateProductWeight(form);
-    const subDescription = volume > 0 ? `${formatVolume(volume)} | ${formatWeight(weight)}` : "";
+
+    // Pobierz ceny z dataset formularza (cena surowa + wykończenie)
+    const orderBrutto = parseFloat(form.dataset.orderBrutto) || 0;
+    const orderNetto = parseFloat(form.dataset.orderNetto) || 0;
+    const finishingBrutto = parseFloat(form.dataset.finishingBrutto) || 0;
+    const finishingNetto = parseFloat(form.dataset.finishingNetto) || 0;
+
+    // Oblicz całkowite ceny (surowe + wykończenie)
+    const totalBrutto = orderBrutto + finishingBrutto;
+    const totalNetto = orderNetto + finishingNetto;
+
+    // Formatuj ceny
+    const bruttoText = totalBrutto > 0 ? `${totalBrutto.toFixed(2)} PLN brutto` : '';
+    const nettoText = totalNetto > 0 ? `${totalNetto.toFixed(2)} PLN netto` : '';
+
+    // Zbuduj tekst dodatkowy
+    let subDescription = '';
+
+    if (volume > 0) {
+        subDescription = `${formatVolume(volume)} | ${formatWeight(weight)}`;
+
+        // Dodaj ceny jeśli są dostępne
+        if (totalBrutto > 0 && totalNetto > 0) {
+            subDescription += ` | ${bruttoText} | ${nettoText}`;
+        }
+    }
 
     return { main: mainDescription, sub: subDescription };
 }

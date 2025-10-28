@@ -36,28 +36,31 @@
                 </h1>
                 <!-- Główna sekcja kalkulatora: 3 kolumny (Dane klienta, Dane produktu, Kalkulacja) -->
                 <div class="quote-container">
+
+                    <!-- ✅ NOWE: Kontrolki globalne PRZED formularzami -->
+                    <div class="calculator-controls">
+                        <div class="price-mode-toggle">
+                            <label for="priceMode" class="input-txt">Tryb wyceny:</label>
+                            <div class="toggle-switch" id="priceModeToggle">
+                                <input type="radio" name="priceMode" id="priceModeBrutto" value="brutto" checked>
+                                <label for="priceModeBrutto" class="toggle-option toggle-option-active">
+                                    Brutto
+                                </label>
+                                <input type="radio" name="priceMode" id="priceModeNetto" value="netto">
+                                <label for="priceModeNetto" class="toggle-option">
+                                    Netto
+                                </label>
+                                <div class="toggle-slider"></div>
+                            </div>
+                        </div>
+                    </div>
+
                     <div class="quote-forms">
                         <div class="quote-form">
                             <!-- Kolumna 2: Dane produktu -->
                             <section class="product-data">
                                 <h2 class="title-with-underline-h2">Produkt</h2>
                                 <div class="product-inputs">
-                                    <!-- Tryb wyceny: Brutto/Netto -->
-                                    <div class="price-mode-toggle">
-                                        <label for="priceMode" class="input-txt">Tryb wyceny:</label>
-                                        <div class="toggle-switch" id="priceModeToggle">
-                                            <input type="radio" name="priceMode" id="priceModeBrutto" value="brutto" checked>
-                                            <label for="priceModeBrutto" class="toggle-option toggle-option-active">
-                                                Brutto
-                                            </label>
-
-                                            <input type="radio" name="priceMode" id="priceModeNetto" value="netto">
-                                            <label for="priceModeNetto" class="toggle-option">
-                                                Netto
-                                            </label>
-                                            <div class="toggle-slider"></div>
-                                        </div>
-                                    </div>
                                     <div class="client-type">
                                         <label for="clientType" class="input-txt">Grupa cenowa:</label>
                                         <select data-field="clientType" id="clientType" class="input-window">
@@ -293,7 +296,7 @@
 
                         <div class="quote-summary">
                             <div class="order-summary">
-                                <span class="input-txt-bold" style="padding-right: 110px;">Koszt surowego:</span>
+                                <span class="input-txt-bold" style="padding-right: 110px;">Koszt produktów surowych:</span>
                                 <span class="order-brutto">0.00 PLN</span>
                                 <span class="order-netto">0.00 PLN</span>
                             </div>

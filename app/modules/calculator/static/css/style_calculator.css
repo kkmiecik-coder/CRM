@@ -587,7 +587,7 @@
 .delivery-netto,
 .finishing-netto,
 .final-netto {
-    width: 90px;
+    min-width: 120px;
     color: #7E7E7E;
     text-align: right;
     font-family: Poppins, sans-serif;
@@ -634,7 +634,6 @@
 }
 
 .quote-summary {
-    flex: 0 0 350px; /* Stała szerokość 350px */
     display: flex;
     flex-direction: column;
     gap: 15px;
@@ -1683,7 +1682,7 @@ select.select-small option {
         color: #1F2020;
         font-family: Poppins, sans-serif;
         text-align: right;
-        min-width: 80px;
+        min-width: 120px;
     }
 
 /* Checkbox dostępności */
@@ -1859,7 +1858,7 @@ select.select-small option {
 
 .header-unit-netto,
 .header-total-netto {
-    width: 90px;
+    width: 120px;
     text-align: right;
 }
 
@@ -2907,11 +2906,33 @@ select.select-small option {
     color: #D32F2F;
 }
 
-/* Dodatkowe informacje o produkcie */
+/* Dodatkowe informacje o produkcie (objętość, waga, ceny) */
 .product-card-sub-info {
     font-size: 10px;
-    color: #666666;
+    color: #888888;
     font-family: Poppins, sans-serif;
+    font-weight: 400;
+    line-height: 1.4; /* ✅ Zwiększona wysokość linii dla lepszej czytelności */
+    overflow: visible; /* ✅ Zmienione z hidden - pozwól na zawijanie */
+    text-overflow: clip; /* ✅ Bez ellipsis */
+    white-space: normal; /* ✅ Pozwól na zawijanie tekstu */
+    max-width: 100%;
+    word-break: break-word; /* ✅ Łam długie słowa jeśli trzeba */
+}
+
+/* Responsive - na małych ekranach zmniejsz font */
+@media (max-width: 1200px) {
+    .product-card-sub-info {
+        font-size: 9px;
+        gap: 3px 6px;
+    }
+}
+
+@media (max-width: 768px) {
+    .product-card-sub-info {
+        font-size: 8px;
+        gap: 2px 4px;
+    }
 }
 
 /* Status produktu */
@@ -4041,6 +4062,36 @@ select.select-small option {
 }
 
 /* ========================================
+   KONTROLKI KALKULATORA (GLOBALNE)
+   ======================================== */
+
+.calculator-controls {
+    display: flex;
+    justify-content: flex-start;
+    align-items: center;
+    padding: 16px 20px;
+    background: #f8f9fa;
+    border-radius: 12px;
+    margin-bottom: 20px;
+    border: 1px solid #e0e0e0;
+    width: fit-content;
+}
+
+.price-mode-toggle {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+    .price-mode-toggle .input-txt {
+        font-family: 'Poppins', sans-serif;
+        font-size: 14px;
+        font-weight: 500;
+        color: #1F2020;
+        margin: 0;
+    }
+
+/* ========================================
    PRZEŁĄCZNIK TRYBU BRUTTO/NETTO
    ======================================== */
 
@@ -4094,35 +4145,158 @@ select.select-small option {
 }
 
 /* ========================================
-   UKRYWANIE ELEMENTÓW CENOWYCH
+   WIZUALNE WYRÓŻNIENIE TRYBU CEN
    ======================================== */
 
-/* Ukryj elementy BRUTTO gdy aktywny tryb NETTO */
-.hide-brutto .unit-brutto,
-.hide-brutto .total-brutto,
-.hide-brutto .order-brutto,
-.hide-brutto .finishing-brutto,
-.hide-brutto .header-unit-brutto,
-.hide-brutto .header-total-brutto,
-.hide-brutto #summary-products-brutto,
-.hide-brutto #summary-finishing-brutto,
-.hide-brutto #summary-shipping-brutto,
-.hide-brutto #summary-total-brutto,
-.hide-brutto .sq-summary-brutto {
-    display: none !important;
+/* TRYB BRUTTO - wyróżnij ceny brutto, przyciemnij netto */
+.hide-netto .unit-brutto,
+.hide-netto .total-brutto,
+.hide-netto .order-brutto,
+.hide-netto .finishing-brutto,
+.hide-netto .delivery-brutto,
+.hide-netto .final-brutto,
+.hide-netto .header-unit-brutto,
+.hide-netto .header-total-brutto {
+    color: #ED6B24 !important;
+    font-weight: 700 !important;
 }
 
-/* Ukryj elementy NETTO gdy aktywny tryb BRUTTO */
 .hide-netto .unit-netto,
 .hide-netto .total-netto,
 .hide-netto .order-netto,
 .hide-netto .finishing-netto,
+.hide-netto .delivery-netto,
+.hide-netto .final-netto,
 .hide-netto .header-unit-netto,
-.hide-netto .header-total-netto,
+.hide-netto .header-total-netto {
+    font-weight: 400 !important;
+    opacity: 0.6;
+}
+
+/* TRYB NETTO - wyróżnij ceny netto, przyciemnij brutto */
+.hide-brutto .unit-netto,
+.hide-brutto .total-netto,
+.hide-brutto .order-netto,
+.hide-brutto .finishing-netto,
+.hide-brutto .delivery-netto,
+.hide-brutto .final-netto,
+.hide-brutto .header-unit-netto,
+.hide-brutto .header-total-netto {
+    color: #ED6B24 !important;
+    font-weight: 700 !important;
+    font-size: 14px !important;
+}
+
+.hide-brutto .unit-brutto,
+.hide-brutto .total-brutto,
+.hide-brutto .order-brutto,
+.hide-brutto .finishing-brutto,
+.hide-brutto .delivery-brutto,
+.hide-brutto .final-brutto,
+.hide-brutto .header-unit-brutto,
+.hide-brutto .header-total-brutto {
+    font-weight: 400 !important;
+    opacity: 0.6;
+}
+
+/* Opcjonalnie: dodaj subtelną animację przy przełączaniu */
+.unit-brutto,
+.unit-netto,
+.total-brutto,
+.total-netto,
+.order-brutto,
+.order-netto,
+.finishing-brutto,
+.finishing-netto,
+.delivery-brutto,
+.delivery-netto,
+.final-brutto,
+.final-netto,
+.header-unit-brutto,
+.header-unit-netto,
+.header-total-brutto,
+.header-total-netto {
+    transition: color 0.3s ease, font-weight 0.3s ease, opacity 0.3s ease, font-size 0.3s ease;
+}
+
+/* Wyróżnienie nagłówków kolumn w tabeli wariantów */
+.hide-netto .variants-header .header-unit-brutto,
+.hide-netto .variants-header .header-total-brutto {
+    color: #ED6B24 !important;
+    font-weight: 700 !important;
+}
+
+.hide-netto .variants-header .header-unit-netto,
+.hide-netto .variants-header .header-total-netto {
+    font-weight: 400 !important;
+    opacity: 0.6;
+}
+
+.hide-brutto .variants-header .header-unit-netto,
+.hide-brutto .variants-header .header-total-netto {
+    color: #ED6B24 !important;
+    font-weight: 700 !important;
+}
+
+.hide-brutto .variants-header .header-unit-brutto,
+.hide-brutto .variants-header .header-total-brutto {
+    font-weight: 400 !important;
+    opacity: 0.6;
+}
+
+/* Wyróżnienie w sekcji podsumowania (quote-summary) */
+.hide-netto #summary-products-brutto,
+.hide-netto #summary-finishing-brutto,
+.hide-netto #summary-shipping-brutto,
+.hide-netto #summary-total-brutto {
+    color: #ED6B24 !important;
+    font-weight: 700 !important;
+    font-size: 16px !important;
+}
+
 .hide-netto #summary-products-netto,
 .hide-netto #summary-finishing-netto,
 .hide-netto #summary-shipping-netto,
-.hide-netto #summary-total-netto,
+.hide-netto #summary-total-netto {
+    font-weight: 400 !important;
+    opacity: 0.6;
+}
+
+.hide-brutto #summary-products-netto,
+.hide-brutto #summary-finishing-netto,
+.hide-brutto #summary-shipping-netto,
+.hide-brutto #summary-total-netto {
+    color: #ED6B24 !important;
+    font-weight: 700 !important;
+    font-size: 14px !important;
+}
+
+.hide-brutto #summary-products-brutto,
+.hide-brutto #summary-finishing-brutto,
+.hide-brutto #summary-shipping-brutto,
+.hide-brutto #summary-total-brutto {
+    font-weight: 400 !important;
+    opacity: 0.6;
+    color: #1F2020 !important;
+}
+
+/* Wyróżnienie w modalu zapisywania wyceny */
+.hide-netto .sq-summary-brutto {
+    color: #ED6B24 !important;
+    font-weight: 700 !important;
+}
+
 .hide-netto .sq-summary-netto {
-    display: none !important;
+    font-weight: 400 !important;
+    opacity: 0.6;
+}
+
+.hide-brutto .sq-summary-netto {
+    color: #ED6B24 !important;
+    font-weight: 700 !important;
+}
+
+.hide-brutto .sq-summary-brutto {
+    font-weight: 400 !important;
+    opacity: 0.6;
 }
