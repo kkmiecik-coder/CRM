@@ -426,6 +426,9 @@ function showDetailsModal(quoteData) {
         acceptedQuotes.delete(quoteData.id);
     }
 
+    // Inicjalizuj toggle trybu wyceny
+    initializeQuoteTypeToggle(quoteData);
+
     // ZAKTUALIZUJ Dane klienta
     document.getElementById('quotes-details-modal-client-name').textContent = quoteData.client?.client_name || '-';
     document.getElementById('quotes-details-modal-client-fullname').textContent = 
@@ -634,6 +637,285 @@ function showDetailsModal(quoteData) {
         console.log('[MODAL] currentQuoteData przed initBulkVariantChange:', currentQuoteData);
         initBulkVariantChange();
     }, 100);
+}
+
+/**
+ * Inicjalizacja toggle trybu wyceny
+ */
+function initializeQuoteTypeToggle(quoteData) {
+    console.log('[QUOTE TYPE] Inicjalizacja toggle, quote_type:', quoteData.quote_type);
+
+    const bruttoRadio = document.getElementById('quoteTypeBrutto');
+    const nettoRadio = document.getElementById('quoteTypeNetto');
+
+    if (!bruttoRadio || !nettoRadio) {
+        console.warn('[QUOTE TYPE] Brak elementów toggle w DOM');
+        return;
+    }
+
+    // Ustaw aktualny stan na podstawie danych z API
+    const currentType = quoteData.quote_type || 'brutto';
+
+    if (currentType === 'netto') {
+        nettoRadio.checked = true;
+    } else {
+        bruttoRadio.checked = true;
+    }
+
+    // Zastosuj style odpowiednie dla trybu
+    applyQuoteTypeStyles(currentType);
+
+    // Usuń stare listenery (żeby nie duplikować)
+    const newBruttoRadio = bruttoRadio.cloneNode(true);
+    const newNettoRadio = nettoRadio.cloneNode(true);
+    bruttoRadio.parentNode.replaceChild(newBruttoRadio, bruttoRadio);
+    nettoRadio.parentNode.replaceChild(newNettoRadio, nettoRadio);
+
+    // Dodaj event listenery do zmiany
+    newBruttoRadio.addEventListener('change', function () {
+        if (this.checked) {
+            handleQuoteTypeChange(quoteData.id, 'brutto');
+        }
+    });
+
+    newNettoRadio.addEventListener('change', function () {
+        if (this.checked) {
+            handleQuoteTypeChange(quoteData.id, 'netto');
+        }
+    });
+
+    console.log('[QUOTE TYPE] Toggle zainicjalizowany:', currentType);
+}
+
+/**
+ * Obsługa zmiany trybu wyceny
+ */
+async function handleQuoteTypeChange(quoteId, newQuoteType) {
+    console.log('[QUOTE TYPE] Zmiana na:', newQuoteType);
+
+    // Pokaż alert z potwierdzeniem
+    const confirmMessage = `Czy na pewno chcesz zmienić tryb wyceny na "${newQuoteType.toUpperCase()}"?\n\nDane zostaną zapisane w bazie danych.`;
+
+    if (!confirm(confirmMessage)) {
+        // Anulowano - przywróć poprzedni stan
+        const currentType = currentQuoteData.quote_type || 'brutto';
+        if (currentType === 'brutto') {
+            document.getElementById('quoteTypeBrutto').checked = true;
+        } else {
+            document.getElementById('quoteTypeNetto').checked = true;
+        }
+        console.log('[QUOTE TYPE] Zmiana anulowana');
+        return;
+    }
+
+    // Wywołaj endpoint
+    try {
+        const response = await fetch(`/quotes/api/quotes/${quoteId}/update-quote-type`, {
+            method: 'PATCH',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                quote_type: newQuoteType
+            })
+        });
+
+        if (!response.ok) {
+            throw new Error('Błąd podczas aktualizacji trybu wyceny');
+        }
+
+        const result = await response.json();
+        console.log('[QUOTE TYPE] Zaktualizowano:', result);
+
+        // Zaktualizuj currentQuoteData
+        currentQuoteData.quote_type = newQuoteType;
+
+        // Zastosuj nowe style
+        applyQuoteTypeStyles(newQuoteType);
+
+        // Pokaż toast sukcesu
+        showToast(`Tryb wyceny zmieniony na "${newQuoteType.toUpperCase()}"`, 'success');
+
+    } catch (error) {
+        console.error('[QUOTE TYPE] Błąd:', error);
+        showToast('Błąd podczas zmiany trybu wyceny', 'error');
+
+        // Przywróć poprzedni stan toggle
+        const currentType = currentQuoteData.quote_type || 'brutto';
+        if (currentType === 'brutto') {
+            document.getElementById('quoteTypeBrutto').checked = true;
+        } else {
+            document.getElementById('quoteTypeNetto').checked = true;
+        }
+    }
+}
+
+/**
+ * Aplikowanie stylów dla trybu wyceny
+ */
+function applyQuoteTypeStyles(quoteType) {
+    console.log('[QUOTE TYPE] Aplikowanie stylów dla:', quoteType);
+
+    const modalBox = document.querySelector('.quotes-details-modal-box');
+
+    if (!modalBox) {
+        console.warn('[QUOTE TYPE] Brak elementu .quotes-details-modal-box');
+        return;
+    }
+
+    // Usuń poprzednie klasy
+    modalBox.classList.remove('quote-type-brutto', 'quote-type-netto');
+
+    // Dodaj odpowiednią klasę
+    modalBox.classList.add(`quote-type-${quoteType}`);
+
+    // NOWE: Zastosuj ukrywanie/pokazywanie kwot przez JS
+    if (quoteType === 'netto') {
+        hideAllBruttoPrice();
+        styleNettoAsMain();
+    } else {
+        showAllBruttoPrice();
+        styleNettoAsSecondary();
+    }
+
+    console.log('[QUOTE TYPE] Zastosowano klasę i style:', `quote-type-${quoteType}`);
+}
+
+/**
+ * Ukrywa wszystkie kwoty brutto
+ */
+function hideAllBruttoPrice() {
+    console.log('[QUOTE TYPE] Ukrywam wszystkie kwoty brutto');
+
+    // Sekcja kosztów - ID elementów
+    const bruttoElements = [
+        'quotes-details-modal-cost-products-brutto',
+        'quotes-details-modal-cost-finishing-brutto',
+        'quotes-details-modal-cost-products-total-brutto',
+        'quotes-details-modal-cost-shipping-brutto',
+        'quotes-details-modal-cost-total-brutto'
+    ];
+
+    bruttoElements.forEach(id => {
+        const element = document.getElementById(id);
+        if (element) {
+            element.style.display = 'none';
+        }
+    });
+
+    // Kafelki wariantów - klasy
+    const variantBruttoElements = document.querySelectorAll('.qvmd-price-brutto');
+    variantBruttoElements.forEach(element => {
+        element.style.display = 'none';
+    });
+
+    console.log('[QUOTE TYPE] Ukryto kwoty brutto:', {
+        sekcjaKosztow: bruttoElements.length,
+        kafelkiWariantow: variantBruttoElements.length
+    });
+}
+
+/**
+ * Pokazuje wszystkie kwoty brutto
+ */
+function showAllBruttoPrice() {
+    console.log('[QUOTE TYPE] Pokazuję wszystkie kwoty brutto');
+
+    // Sekcja kosztów
+    const bruttoElements = [
+        'quotes-details-modal-cost-products-brutto',
+        'quotes-details-modal-cost-finishing-brutto',
+        'quotes-details-modal-cost-products-total-brutto',
+        'quotes-details-modal-cost-shipping-brutto',
+        'quotes-details-modal-cost-total-brutto'
+    ];
+
+    bruttoElements.forEach(id => {
+        const element = document.getElementById(id);
+        if (element) {
+            element.style.display = '';
+        }
+    });
+
+    // Kafelki wariantów
+    const variantBruttoElements = document.querySelectorAll('.qvmd-price-brutto');
+    variantBruttoElements.forEach(element => {
+        element.style.display = '';
+    });
+
+    console.log('[QUOTE TYPE] Pokazano kwoty brutto');
+}
+
+/**
+ * Styluje kwoty netto jako główne (większa czcionka, pogrubienie)
+ */
+function styleNettoAsMain() {
+    console.log('[QUOTE TYPE] Styluję kwoty netto jako główne');
+
+    // Sekcja kosztów
+    const nettoElements = [
+        'quotes-details-modal-cost-products-netto',
+        'quotes-details-modal-cost-finishing-netto',
+        'quotes-details-modal-cost-products-total-netto',
+        'quotes-details-modal-cost-shipping-netto',
+        'quotes-details-modal-cost-total-netto'
+    ];
+
+    nettoElements.forEach(id => {
+        const element = document.getElementById(id);
+        if (element) {
+            element.style.fontSize = '16px';
+            element.style.fontWeight = '600';
+            element.style.color = '#1F2020';
+        }
+    });
+
+    // Kafelki wariantów
+    const variantNettoElements = document.querySelectorAll('.qvmd-price-netto');
+    variantNettoElements.forEach(element => {
+        element.style.fontSize = '15px';
+        element.style.fontWeight = '600';
+        element.style.color = '#1F2020';
+        element.style.marginTop = '0';
+    });
+
+    console.log('[QUOTE TYPE] Netto stylowane jako główne');
+}
+
+/**
+ * Przywraca style kwot netto jako drugorzędne (mniejsza czcionka, szary kolor)
+ */
+function styleNettoAsSecondary() {
+    console.log('[QUOTE TYPE] Przywracam style netto jako drugorzędne');
+
+    // Sekcja kosztów
+    const nettoElements = [
+        'quotes-details-modal-cost-products-netto',
+        'quotes-details-modal-cost-finishing-netto',
+        'quotes-details-modal-cost-products-total-netto',
+        'quotes-details-modal-cost-shipping-netto',
+        'quotes-details-modal-cost-total-netto'
+    ];
+
+    nettoElements.forEach(id => {
+        const element = document.getElementById(id);
+        if (element) {
+            element.style.fontSize = '';
+            element.style.fontWeight = '';
+            element.style.color = '';
+        }
+    });
+
+    // Kafelki wariantów
+    const variantNettoElements = document.querySelectorAll('.qvmd-price-netto');
+    variantNettoElements.forEach(element => {
+        element.style.fontSize = '';
+        element.style.fontWeight = '';
+        element.style.color = '';
+        element.style.marginTop = '';
+    });
+
+    console.log('[QUOTE TYPE] Netto przywrócone jako drugorzędne');
 }
 
 function updateMultiplierDisplay(quoteData) {

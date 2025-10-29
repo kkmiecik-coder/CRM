@@ -587,6 +587,9 @@ def get_quote_details(quote_id):
             "base_linker_order_id": quote.base_linker_order_id,
             "public_url": quote.get_public_url(),
             "notes": quote.notes or "",
+            
+            # ✅ NOWE: Informacja o trybie wyceny (brutto/netto)
+            "quote_type": quote.quote_type if quote.quote_type else "brutto",
 
             # Informacje o użytkowniku akceptującym
             "accepted_by_user": {
@@ -644,6 +647,51 @@ def get_quote_details(quote_id):
         traceback.print_exc(file=sys.stderr)
         print(f"{'='*60}\n", file=sys.stderr)
         return jsonify({"error": "Błąd serwera"}), 500
+
+
+@quotes_bp.route("/api/quotes/<int:quote_id>/update-quote-type", methods=['PATCH'])
+@require_module_access('quotes')
+def update_quote_type(quote_id):
+    """Aktualizuje tryb wyceny (brutto/netto)"""
+    try:
+        quote = Quote.query.get_or_404(quote_id)
+        
+        data = request.get_json()
+        new_quote_type = data.get('quote_type')
+        
+        # Walidacja
+        if new_quote_type not in ['brutto', 'netto']:
+            return jsonify({"error": "Nieprawidłowa wartość quote_type. Dozwolone: 'brutto' lub 'netto'"}), 400
+        
+        # Zapisz starą wartość dla logu
+        old_quote_type = quote.quote_type or 'brutto'
+        
+        # Aktualizuj
+        quote.quote_type = new_quote_type
+        db.session.commit()
+        
+        # Log zmian
+        current_user_id = session.get('user_id')
+        if current_user_id:
+            log_entry = QuoteLog(
+                quote_id=quote_id,
+                user_id=current_user_id,
+                description=f"Zmieniono tryb wyceny z '{old_quote_type}' na '{new_quote_type}'"
+            )
+            db.session.add(log_entry)
+            db.session.commit()
+        
+        return jsonify({
+            "success": True,
+            "message": f"Tryb wyceny zmieniony na '{new_quote_type}'",
+            "quote_type": new_quote_type
+        })
+        
+    except Exception as e:
+        db.session.rollback()
+        print(f"[update_quote_type] Błąd: {e}", file=sys.stderr)
+        return jsonify({"error": "Błąd podczas aktualizacji trybu wyceny"}), 500
+
 
 @quotes_bp.route("/api/quote_items/<int:item_id>/select", methods=["PATCH"])
 @require_module_access('quotes')

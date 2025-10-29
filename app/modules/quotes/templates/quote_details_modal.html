@@ -54,7 +54,7 @@
         <div class="quotes-details-modal-section quotes-details-modal-grid">
             <div class="modal-block">
                 <h3 class="quotes-details-modal-subtitle">Dane klienta</h3>
-                <!-- POPRAWIONE POLA KLIENTA -->
+                <!-- POLA KLIENTA -->
                 <p><strong>Nazwa klienta:</strong> <span id="quotes-details-modal-client-name"></span></p>
                 <p><strong>Imię i nazwisko:</strong> <span id="quotes-details-modal-client-fullname"></span></p>
                 <p><strong>Firma:</strong> <span id="quotes-details-modal-client-company"></span></p>
@@ -67,8 +67,27 @@
                 <p><strong>Numer wyceny:</strong> <span id="quotes-details-modal-quote-number"></span></p>
                 <p><strong>Data złożenia:</strong> <span id="quotes-details-modal-quote-date"></span></p>
                 <p><strong>Źródło:</strong> <span id="quotes-details-modal-quote-source"></span></p>
-                <!-- DODANE POLE PRACOWNIKA -->
+                <!-- POLE PRACOWNIKA -->
                 <p><strong>Opiekun oferty: </strong><span id="quotes-details-modal-employee-name"></span></p>
+
+                <!-- NOWE: Toggle trybu wyceny -->
+                <div class="quotes-details-modal-quote-type-wrapper">
+                    <strong>Tryb wyceny:</strong>
+                    <div class="quote-type-toggle" id="quote-type-toggle-container">
+                        <input type="radio" name="quoteType" id="quoteTypeBrutto" value="brutto" checked>
+                        <label for="quoteTypeBrutto" class="toggle-option">Brutto</label>
+
+                        <input type="radio" name="quoteType" id="quoteTypeNetto" value="netto">
+                        <label for="quoteTypeNetto" class="toggle-option">Netto</label>
+
+                        <div class="toggle-slider"></div>
+                    </div>
+                </div>
+
+                <span style="color: red; font-size: 14px;">
+                    W trakcie wdrażania - nie zamawiać do Base. w trybie netto
+                </span>
+
                 <div class="quotes-details-modal-status-wrapper">
                     <strong>Status:</strong>
                     <div id="quotes-details-modal-status-dropdown" class="custom-status-dropdown">
