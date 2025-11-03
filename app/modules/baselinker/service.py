@@ -378,6 +378,12 @@ class BaselinkerService:
             
             self.logger.debug("Utworzono log entry", log_id=log_entry.id)
             
+            # 🔧 DEBUG LOG - tuż PRZED self._make_request()
+            self.logger.info("DEBUG: Pełne dane wysyłane do Baselinker",
+                            quote_id=quote.id,  # ← POPRAWKA
+                            custom_extra_fields=str(order_data.get('custom_extra_fields', {})),
+                            extra_field_106169=order_data.get('custom_extra_fields', {}).get('106169'))
+
             # Wyślij żądanie do API
             response = self._make_request('addOrder', order_data)
             
@@ -455,15 +461,15 @@ class BaselinkerService:
 
         # Pobierz twórcę wyceny
         creator = getattr(quote, 'user', None)
-    
+
         # ✅ NOWE: Logika dodawania prefiksu "Partner"
         if creator:
             creator_name = f"{creator.first_name} {creator.last_name}".strip()
-        
+    
             # Sprawdź czy użytkownik jest partnerem (ale nie flexible partner)
             is_partner = creator.role == 'partner'
             is_flexible_partner = creator.id in FLEXIBLE_PARTNER_IDS
-        
+    
             # Dodaj prefiks "Partner" tylko dla zwykłych partnerów (nie flexible)
             if is_partner and not is_flexible_partner:
                 creator_name = f"Partner {creator_name}"
@@ -480,6 +486,16 @@ class BaselinkerService:
         else:
             creator_name = ''
             self.logger.warning("Brak twórcy wyceny", quote_id=quote.id)
+
+        # 🆕 NOWE: Określ tryb cen (netto/brutto)
+        quote_type = getattr(quote, 'quote_type', 'brutto') or 'brutto'
+        is_netto_mode = (quote_type == 'netto')
+    
+        self.logger.info("Tryb cen dla zamówienia",
+                        quote_id=quote.id,
+                        quote_type=quote_type,
+                        is_netto_mode=is_netto_mode)
+
         # 🔧 POPRAWKA: Zabezpieczenie przed błędem AppenderQuery
         try:
             # Konwertuj AppenderQuery na listę przed użyciem len()
@@ -585,12 +601,26 @@ class BaselinkerService:
             else:
                 product_name += " surowa"
 
+            # 🆕 NOWE: Wybierz odpowiednie ceny w zależności od trybu
+            if is_netto_mode:
+                # Tryb NETTO - wysyłamy ceny netto
+                product_price_to_send = round(unit_price_netto, 2)
+                self.logger.debug("Używam ceny NETTO dla produktu",
+                                product_index=item.product_index,
+                                price=product_price_to_send)
+            else:
+                # Tryb BRUTTO (domyślny) - wysyłamy ceny brutto
+                product_price_to_send = round(unit_price_brutto, 2)
+                self.logger.debug("Używam ceny BRUTTO dla produktu",
+                                product_index=item.product_index,
+                                price=product_price_to_send)
+
             products.append({
                 'name': product_name,
                 'sku': sku,
                 'ean': '',  # EAN opcjonalny
-                'price_brutto': round(unit_price_brutto, 2),  # CENA JEDNOSTKOWA (nie całkowita!)
-                'price_netto': round(unit_price_netto, 2),    # CENA JEDNOSTKOWA (nie całkowita!)
+                'price_brutto': product_price_to_send,  # W trybie netto tutaj też będzie netto (API Baselinker wymaga tej nazwy pola)
+                'price_netto': product_price_to_send,   # W trybie netto tutaj będzie netto, w brutto - brutto
                 'tax_rate': 23,  # VAT 23%
                 'quantity': quantity,
                 'weight': weight_kg,
@@ -604,13 +634,13 @@ class BaselinkerService:
         if 'client_data' in config and config['client_data']:
             # Użyj jednorazowych danych z formularza
             form_data = config['client_data']
-    
+
             self.logger.info("Używam jednorazowych danych klienta z formularza",
                             quote_id=quote.id,
                             delivery_name=form_data.get('delivery_name'),
                             email=form_data.get('email'),
                             want_invoice=form_data.get('want_invoice'))
-    
+
             client_data = {
                 'name': form_data.get('delivery_name', ''),
                 'delivery_name': form_data.get('delivery_name', ''),
@@ -630,16 +660,16 @@ class BaselinkerService:
                 'invoice_region': form_data.get('invoice_region', ''),
                 'want_invoice': form_data.get('want_invoice', False)
             }
-    
+
         elif quote.client:
             # Fallback: użyj danych z bazy (istniejący kod)
             client = quote.client
-    
+
             self.logger.info("Używam danych klienta z bazy danych",
                             quote_id=quote.id,
                             client_id=client.id,
                             client_name=client.client_name)
-    
+
             client_data = {
                 'name': client.client_name,
                 'delivery_name': client.client_delivery_name or client.client_name,
@@ -670,22 +700,34 @@ class BaselinkerService:
         payment_method = config.get('payment_method', 'Przelew bankowy')
         delivery_method = config.get('delivery_method', quote.courier_name or 'Przesyłka kurierska')
 
-        # Obsługa nadpisanych kosztów wysyłki
+        # 🆕 NOWE: Obsługa kosztów wysyłki w zależności od trybu
         if 'shipping_cost_override' in config and config['shipping_cost_override'] is not None:
             delivery_price = float(config['shipping_cost_override'])
             self.logger.debug("Używam nadpisanych kosztów wysyłki",
                              quote_id=quote.id,
                              override_cost=delivery_price,
-                             original_cost=quote.shipping_cost_brutto)
+                             original_cost_brutto=quote.shipping_cost_brutto,
+                             original_cost_netto=quote.shipping_cost_netto)
         else:
-            delivery_price = float(quote.shipping_cost_brutto or 0)
+            # Wybierz odpowiedni koszt wysyłki w zależności od trybu
+            if is_netto_mode:
+                delivery_price = float(quote.shipping_cost_netto or 0)
+                self.logger.debug("Używam kosztów wysyłki NETTO",
+                                 quote_id=quote.id,
+                                 delivery_price=delivery_price)
+            else:
+                delivery_price = float(quote.shipping_cost_brutto or 0)
+                self.logger.debug("Używam kosztów wysyłki BRUTTO",
+                                 quote_id=quote.id,
+                                 delivery_price=delivery_price)
 
         self.logger.debug("Konfiguracja zamówienia",
                         order_source_id=order_source_id,
                         order_status_id=order_status_id,
                         payment_method=payment_method,
                         delivery_method=delivery_method,
-                        delivery_price=delivery_price)
+                        delivery_price=delivery_price,
+                        quote_type=quote_type)
 
         total_quantity = sum(p['quantity'] for p in products)
         self.logger.info("Przygotowano produkty do zamówienia",
@@ -695,6 +737,14 @@ class BaselinkerService:
 
         # ✅ DODANE: Zbuduj user_comments z debugowaniem
         user_comments_value = self._build_user_comments(quote)
+
+        # 🆕 NOWE: Określ wartość dla extra_field_106169 (Typ płatności)
+        payment_type_value = "Netto" if is_netto_mode else "Brutto"
+    
+        self.logger.info("Ustawienie typu płatności dla Baselinker",
+                        quote_id=quote.id,
+                        extra_field_106169=payment_type_value,
+                        quote_type=quote_type)
 
         order_data = {
             'custom_source_id': order_source_id,
@@ -735,7 +785,8 @@ class BaselinkerService:
             'extra_field_1': '',
             'extra_field_2': '',
             'custom_extra_fields': {
-                '105623': creator_name  # ✅ Tu trafia wartość z prefiksem "Partner" lub bez
+                '105623': creator_name,  # Opiekun
+                '106169': payment_type_value  # 🆕 NOWE: Typ płatności (Brutto/Netto)
             },
             'products': products
         }
@@ -749,7 +800,9 @@ class BaselinkerService:
                        client_email=order_data['email'],
                        client_delivery_name=order_data['delivery_fullname'],
                        client_invoice_name=order_data['invoice_fullname'],
-                       creator_field_105623=creator_name)  # ✅ Dodano do logowania
+                       creator_field_105623=creator_name,
+                       payment_type_field_106169=payment_type_value,  # 🆕 NOWE w logowaniu
+                       quote_type=quote_type)
 
         return order_data
     

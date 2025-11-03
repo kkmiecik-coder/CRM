@@ -38,6 +38,14 @@ class BaselinkerModal {
         this.setupModalEventListeners();
     }
 
+    /**
+     * Sprawdza czy wycena jest w trybie NETTO
+     * @returns {boolean}
+     */
+    isNettoMode() {
+        return this.modalData?.quote?.quote_type === 'netto';
+    }
+
     setupModalEventListeners() {
         // ZOPTYMALIZOWANE: Jeden event listener dla wszystkich kliknięć
         document.addEventListener('click', (e) => {
@@ -393,6 +401,9 @@ class BaselinkerModal {
         this.populateFinalSummary();
     }
 
+    /**
+     * Renderuje podsumowanie zamówienia (KROK 1) z obsługą trybu netto/brutto
+     */
     populateOrderSummary() {
         const container = document.getElementById('baselinker-order-summary');
         if (!container) return;
@@ -400,89 +411,98 @@ class BaselinkerModal {
         const quote = this.modalData.quote;
         const client = this.modalData.client;
 
-        // ✅ NAJPIERW zbuduj cały HTML w zmiennej
         let summaryHTML = `
-            <div class="bl-style-summary-row">
-                <span>Numer wyceny:</span>
-                <strong>${quote.quote_number}</strong>
-            </div>
-            <div class="bl-style-summary-row">
-                <span>Klient:</span>
-                <strong>${client.name}${client.company ? ` - ${client.company}` : ''}</strong>
-            </div>
-            <div class="bl-style-summary-row">
-                <span>Data wyceny:</span>
-                <strong>${new Date(quote.created_at).toLocaleDateString('pl-PL')}</strong>
-            </div>
-            <div class="bl-style-summary-row">
-                <span>Status wyceny:</span>
-                <div class="bl-style-status-badge bl-style-status-ready">✓ ${quote.status_name}</div>
-            </div>
-            <div class="bl-style-summary-row">
-                <span>Źródło wyceny:</span>
-                <strong>${quote.source || 'Nie podano'}</strong>
-            </div>
-        `;
+        <div class="bl-style-summary-row">
+            <span>Numer wyceny:</span>
+            <strong>${quote.quote_number}</strong>
+        </div>
+        <div class="bl-style-summary-row">
+            <span>Klient:</span>
+            <strong>${client.name}${client.company ? ` - ${client.company}` : ''}</strong>
+        </div>
+        <div class="bl-style-summary-row">
+            <span>Data wyceny:</span>
+            <strong>${new Date(quote.created_at).toLocaleDateString('pl-PL')}</strong>
+        </div>
+        <div class="bl-style-summary-row">
+            <span>Status wyceny:</span>
+            <div class="bl-style-status-badge bl-style-status-ready">✓ ${quote.status_name}</div>
+        </div>
+        <div class="bl-style-summary-row">
+            <span>Źródło wyceny:</span>
+            <strong>${quote.source || 'Nie podano'}</strong>
+        </div>
+    `;
 
         // ✅ Dodaj notatkę jeśli istnieje
         if (quote.notes && quote.notes.trim()) {
             summaryHTML += `
-                <div class="bl-style-summary-row bl-style-summary-note">
-                    <span>Notatka:</span>
-                    <div class="bl-style-note-text">${this.escapeHtml(quote.notes)}</div>
-                </div>
-            `;
+            <div class="bl-style-summary-row bl-style-summary-note">
+                <span>Notatka:</span>
+                <div class="bl-style-note-text">${this.escapeHtml(quote.notes)}</div>
+            </div>
+        `;
         }
 
         // ✅ DOPIERO TERAZ wstaw do kontenera
         container.innerHTML = summaryHTML;
     }
 
+    /**
+     * Renderuje listę produktów (KROK 1) z obsługą trybu netto/brutto
+     */
     populateProductsList() {
         const container = document.getElementById('baselinker-products-list');
         if (!container) return;
 
         const products = this.modalData.products;
+        const isNetto = this.isNettoMode();
 
         if (!products || products.length === 0) {
             container.innerHTML = '<p>Brak produktów do wyświetlenia</p>';
             return;
         }
 
+        console.log('[Baselinker] Renderowanie listy produktów, tryb:', isNetto ? 'NETTO' : 'BRUTTO');
+
         container.innerHTML = products.map(product => {
             // POPRAWKA: Pobierz quantity z finishing details
             let quantity = 1;
-            
+
             if (product.finishing && product.finishing.quantity) {
                 quantity = parseInt(product.finishing.quantity);
             } else if (product.quantity) {
                 quantity = parseInt(product.quantity);
             }
-            
+
             if (isNaN(quantity) || quantity <= 0) {
                 quantity = 1;
             }
 
+            // 🆕 NOWE: Wybierz odpowiednie ceny w zależności od trybu
+            const unitPrice = isNetto ? product.unit_price_netto : product.unit_price_brutto;
+            const priceLabel = isNetto ? 'netto' : 'brutto';
+
             return `
-                <div class="bl-style-product-item">
-                    <div class="bl-style-product-name">
-                        ${this.buildProductName(product)}
-                        <div class="bl-style-product-details">
-                            Waga: <span style="font-weight: 400;">${this.calculateProductWeight(product)} kg</span>
-                            ${product.finishing ? 
-                                `<br>Wykończenie: <span class="bl-style-product-finishing">${this.getFinishingDescription(product.finishing)}</span>` : ''}
-                        </div>
-                    </div>
-                    <div>${product.dimensions}</div>
-                    <div class="bl-style-product-quantity">${quantity} szt.</div>
-                    <div class="bl-style-product-price">
-                        <div class="bl-style-amount">
-                            <div class="bl-style-amount-brutto">${this.formatCurrency(product.unit_price_brutto)}</div>
-                            <div class="bl-style-amount-netto">${this.formatCurrency(product.unit_price_netto)} netto</div>
-                        </div>
+            <div class="bl-style-product-item">
+                <div class="bl-style-product-name">
+                    ${this.buildProductName(product)}
+                    <div class="bl-style-product-details">
+                        Waga: <span style="font-weight: 400;">${this.calculateProductWeight(product)} kg</span>
+                        ${product.finishing ?
+                    `<br>Wykończenie: <span class="bl-style-product-finishing">${this.getFinishingDescription(product.finishing)}</span>` : ''}
                     </div>
                 </div>
-            `;
+                <div>${product.dimensions}</div>
+                <div class="bl-style-product-quantity">${quantity} szt.</div>
+                <div class="bl-style-product-price">
+                    <div class="bl-style-amount">
+                        <div class="bl-style-amount-main">${this.formatCurrency(unitPrice)}</div>
+                        <div class="bl-style-amount-label">${priceLabel}</div>
+                    </div>
+                </div>
+            </div>
+        `;
         }).join('');
     }
 
@@ -499,42 +519,55 @@ class BaselinkerModal {
         return parts.length > 0 ? parts.join(' - ') : 'Brak wykończenia';
     }
 
+    /**
+     * Renderuje podsumowanie finansowe (KROK 1) z obsługą trybu netto/brutto
+     */
     populateFinancialSummary() {
         const container = document.getElementById('baselinker-financial-summary');
         if (!container) return;
 
         const costs = this.modalData.costs;
+        const isNetto = this.isNettoMode();
+
+        console.log('[Baselinker] Renderowanie podsumowania finansowego, tryb:', isNetto ? 'NETTO' : 'BRUTTO');
+
+        // 🆕 NOWE: Wybierz odpowiednie kwoty w zależności od trybu
+        const productsCost = isNetto ? costs.products_netto : costs.products_brutto;
+        const finishingCost = isNetto ? costs.finishing_netto : costs.finishing_brutto;
+        const shippingCost = isNetto ? costs.shipping_netto : costs.shipping_brutto;
+        const totalCost = isNetto ? costs.total_netto : costs.total_brutto;
+        const priceLabel = isNetto ? 'netto' : 'brutto';
 
         container.innerHTML = `
-            <div class="bl-style-summary-row">
-                <span>Koszt produktów:</span>
-                <div class="bl-style-amount">
-                    <div class="bl-style-amount-brutto">${this.formatCurrency(costs.products_brutto)}</div>
-                    <div class="bl-style-amount-netto">${this.formatCurrency(costs.products_netto)} netto</div>
-                </div>
+        <div class="bl-style-summary-row">
+            <span>Koszt produktów:</span>
+            <div class="bl-style-amount">
+                <div class="bl-style-amount-main">${this.formatCurrency(productsCost)}</div>
+                <div class="bl-style-amount-label">${priceLabel}</div>
             </div>
-            <div class="bl-style-summary-row">
-                <span>Koszt wykończenia:</span>
-                <div class="bl-style-amount">
-                    <div class="bl-style-amount-brutto">${this.formatCurrency(costs.finishing_brutto)}</div>
-                    <div class="bl-style-amount-netto">${this.formatCurrency(costs.finishing_netto)} netto</div>
-                </div>
+        </div>
+        <div class="bl-style-summary-row">
+            <span>Koszt wykończenia:</span>
+            <div class="bl-style-amount">
+                <div class="bl-style-amount-main">${this.formatCurrency(finishingCost)}</div>
+                <div class="bl-style-amount-label">${priceLabel}</div>
             </div>
-            <div class="bl-style-summary-row">
-                <span>Koszt wysyłki:</span>
-                <div class="bl-style-amount">
-                    <div class="bl-style-amount-brutto">${this.formatCurrency(costs.shipping_brutto)}</div>
-                    <div class="bl-style-amount-netto">${this.formatCurrency(costs.shipping_netto)} netto</div>
-                </div>
+        </div>
+        <div class="bl-style-summary-row">
+            <span>Koszt wysyłki:</span>
+            <div class="bl-style-amount">
+                <div class="bl-style-amount-main">${this.formatCurrency(shippingCost)}</div>
+                <div class="bl-style-amount-label">${priceLabel}</div>
             </div>
-            <div class="bl-style-summary-row">
-                <span>Wartość całkowita:</span>
-                <div class="bl-style-amount">
-                    <div class="bl-style-amount-brutto">${this.formatCurrency(costs.total_brutto)}</div>
-                    <div class="bl-style-amount-netto">${this.formatCurrency(costs.total_netto)} netto</div>
-                </div>
+        </div>
+        <div class="bl-style-summary-row">
+            <span>Wartość całkowita:</span>
+            <div class="bl-style-amount">
+                <div class="bl-style-amount-main">${this.formatCurrency(totalCost)}</div>
+                <div class="bl-style-amount-label">${priceLabel}</div>
             </div>
-        `;
+        </div>
+    `;
     }
 
     populateConfigurationForm() {
@@ -1282,12 +1315,19 @@ class BaselinkerModal {
         }
     }
 
+    /**
+     * Renderuje finalne podsumowanie (KROK 3) z obsługą trybu netto/brutto
+     */
     populateFinalSummary() {
         const container = document.getElementById('baselinker-final-summary');
         if (!container) return;
 
         const quote = this.modalData.quote;
         const client = this.modalData.client;
+        const costs = this.modalData.costs;
+        const isNetto = this.isNettoMode();
+
+        console.log('[Baselinker] Renderowanie finalnego podsumowania, tryb:', isNetto ? 'NETTO' : 'BRUTTO');
 
         // DEBUG: Wyświetl szczegóły produktów
         console.log('[Baselinker] Debug modalData.products:', this.modalData.products);
@@ -1296,61 +1336,89 @@ class BaselinkerModal {
                 name: product.name,
                 quantity: product.quantity,
                 finishing: product.finishing,
-                finishing_quantity: product.finishing ? product.finishing.quantity : 'brak'
+                finishing_quantity: product.finishing ? product.finishing.quantity : null
             });
         });
 
-        // POPRAWKA: Używaj quantity z finishing details (tak jak w modalu szczegółów)
-        const totalQuantity = this.modalData.products.reduce((sum, product) => {
-            // Sprawdź czy product ma finishing z quantity
-            let quantity = 1; // domyślna wartość
-            
+        // 🆕 NOWE: Oblicz całkowitą ilość produktów
+        let totalQuantity = 0;
+        this.modalData.products.forEach(product => {
+            let quantity = 1;
+
             if (product.finishing && product.finishing.quantity) {
                 quantity = parseInt(product.finishing.quantity);
             } else if (product.quantity) {
                 quantity = parseInt(product.quantity);
             }
-            
-            // Upewnij się, że quantity jest liczbą większą od 0
-            if (isNaN(quantity) || quantity <= 0) {
-                quantity = 1;
+
+            if (!isNaN(quantity) && quantity > 0) {
+                totalQuantity += quantity;
             }
-            
-            console.log(`[Baselinker] Produkt "${product.name}": quantity=${quantity}`);
-            return sum + quantity;
-        }, 0);
+        });
 
-        console.log(`[Baselinker] Obliczona łączna ilość: ${totalQuantity}`);
+        console.log('[Baselinker] Obliczona całkowita ilość produktów:', totalQuantity);
 
-        // POPRAWKA: Użyj aktualnych kosztów (po ewentualnym zerowaniu wysyłki)
-        const costs = this.modalData.costs;
+        // 🆕 NOWE: Wybierz odpowiednie kwoty w zależności od trybu
+        const productsCost = isNetto ? costs.products_netto : costs.products_brutto;
+        const finishingCost = isNetto ? costs.finishing_netto : costs.finishing_brutto;
+        const shippingCost = isNetto ? costs.shipping_netto : costs.shipping_brutto;
+        const totalCost = isNetto ? costs.total_netto : costs.total_brutto;
+        const priceLabel = isNetto ? 'netto' : 'brutto';
 
         container.innerHTML = `
-            <div class="bl-style-summary-row">
-                <span>Wycena:</span>
-                <strong>${quote.quote_number}</strong>
+        <h4 class="bl-style-section-subtitle">Podsumowanie zamówienia</h4>
+            
+        <div class="bl-style-summary-grid">
+            <div class="bl-style-summary-item">
+                <span class="bl-style-summary-label">Wycena:</span>
+                <span class="bl-style-summary-value">${quote.quote_number}</span>
             </div>
-            <div class="bl-style-summary-row">
-                <span>Klient:</span>
-                <strong>${client.name}${client.company ? ` - ${client.company}` : ''}</strong>
+                
+            <div class="bl-style-summary-item">
+                <span class="bl-style-summary-label">Klient:</span>
+                <span class="bl-style-summary-value">${client.name}</span>
             </div>
-            <div class="bl-style-summary-row">
-                <span>Produktów:</span>
-                <strong>${this.modalData.products.length} ${this.modalData.products.length === 1 ? 'pozycja' : 'pozycje'} (${totalQuantity} szt.)</strong>
+                
+            <div class="bl-style-summary-item">
+                <span class="bl-style-summary-label">Liczba produktów:</span>
+                <span class="bl-style-summary-value">${this.modalData.products.length} poz. (${totalQuantity} szt.)</span>
             </div>
+        </div>
+
+        <div class="bl-style-financial-breakdown">
+            <div class="bl-style-summary-row">
+                <span>Koszt produktów:</span>
+                <div class="bl-style-amount">
+                    <div class="bl-style-amount-main">${this.formatCurrency(productsCost)}</div>
+                    <div class="bl-style-amount-label">${priceLabel}</div>
+                </div>
+            </div>
+                
+            <div class="bl-style-summary-row">
+                <span>Koszt wykończenia:</span>
+                <div class="bl-style-amount">
+                    <div class="bl-style-amount-main">${this.formatCurrency(finishingCost)}</div>
+                    <div class="bl-style-amount-label">${priceLabel}</div>
+                </div>
+            </div>
+                
             <div class="bl-style-summary-row">
                 <span>Koszt wysyłki:</span>
-                <strong>${this.formatCurrency(costs.shipping_brutto)}</strong>
+                <div class="bl-style-amount">
+                    <div class="bl-style-amount-main">${this.formatCurrency(shippingCost)}</div>
+                    <div class="bl-style-amount-label">${priceLabel}</div>
+                </div>
             </div>
-            <div class="bl-style-summary-row">
-                <span>Wartość zamówienia:</span>
-                <strong>${this.formatCurrency(costs.total_brutto)} brutto</strong>
+                
+            <div class="bl-style-summary-row bl-style-summary-total">
+                <span>Wartość całkowita:</span>
+                <div class="bl-style-amount">
+                    <div class="bl-style-amount-main">${this.formatCurrency(totalCost)}</div>
+                    <div class="bl-style-amount-label">${priceLabel}</div>
+                </div>
             </div>
-            <div class="bl-style-summary-row">
-                <span>Status zamówienia:</span>
-                <div class="bl-style-status-ready" id="final-order-status">✓ Gotowe do wysłania</div>
-            </div>
-        `;
+        </div>
+    `;
     }
 
     prepareValidation() {
@@ -1834,6 +1902,18 @@ class BaselinkerModal {
         // Pokaż modal
         modal.style.display = 'flex';
         setTimeout(() => modal.classList.add('active'), 10);
+
+        // 🆕 NOWE: Automatycznie odśwież modal szczegółów wyceny po 1 sekundzie
+        console.log('[Baselinker] Planowanie automatycznego odświeżenia modalu wyceny...');
+        setTimeout(() => {
+            console.log('[Baselinker] Odświeżam modal szczegółów wyceny');
+            if (typeof window.refreshQuoteDetailsModal === 'function') {
+                console.log('[Baselinker] ✅ Wywołuję refreshQuoteDetailsModal()');
+                window.refreshQuoteDetailsModal();
+            } else {
+                console.warn('[Baselinker] ⚠️ Funkcja refreshQuoteDetailsModal() niedostępna');
+            }
+        }, 1000);
     }
 
     updateAllSummariesWithNewShipping() {

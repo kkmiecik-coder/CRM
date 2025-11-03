@@ -22,35 +22,34 @@
       data-client-type="{{ user_client_type or '' }}"
       data-user-id="{{ user_id }}"
       data-flexible-partner="{{ 'true' if is_flexible_partner else 'false' }}">
-    <div id="loadingOverlay"><!-- overlay text ustawiany dynamicznie --></div>
+    <div id="loadingOverlay"></div>
     <div class="app-container" style="display: flex;">
-        <!-- Sidebar – jest wstawiany w każdej podstronie -->
         {% include 'sidebar/sidebar.html' %}
         <!-- Główna zawartość modułu -->
         <div class="main-content">
-            <!-- Sekcja dedykowana kalkulatorowi -->
             <div class="calculatorrr">
-                <!-- Tytuł strony (nagłówek kalkulatora) -->
                 <h1 class="page-title title-with-underline">
                     Kalkulator produktowy
                 </h1>
                 <!-- Główna sekcja kalkulatora: 3 kolumny (Dane klienta, Dane produktu, Kalkulacja) -->
                 <div class="quote-container">
 
-                    <!-- ✅ NOWE: Kontrolki globalne PRZED formularzami -->
+                    <!-- Kontrolki globalne PRZED formularzami -->
                     <div class="calculator-controls">
-                        <div class="price-mode-toggle">
-                            <label for="priceMode" class="input-txt">Tryb wyceny:</label>
-                            <div class="toggle-switch" id="priceModeToggle">
-                                <input type="radio" name="priceMode" id="priceModeBrutto" value="brutto" checked>
-                                <label for="priceModeBrutto" class="toggle-option toggle-option-active">
-                                    Brutto
-                                </label>
-                                <input type="radio" name="priceMode" id="priceModeNetto" value="netto">
-                                <label for="priceModeNetto" class="toggle-option">
-                                    Netto
-                                </label>
-                                <div class="toggle-slider"></div>
+                        <div>
+                            <div class="price-mode-toggle">
+                                <label for="priceMode" class="input-txt">Tryb wyceny:</label>
+                                <div class="toggle-switch" id="priceModeToggle">
+                                    <input type="radio" name="priceMode" id="priceModeBrutto" value="brutto" checked>
+                                    <label for="priceModeBrutto" class="toggle-option toggle-option-active">
+                                        Brutto
+                                    </label>
+                                    <input type="radio" name="priceMode" id="priceModeNetto" value="netto">
+                                    <label for="priceModeNetto" class="toggle-option">
+                                        Netto
+                                    </label>
+                                    <div class="toggle-slider"></div>
+                                </div>
                             </div>
                         </div>
                     </div>

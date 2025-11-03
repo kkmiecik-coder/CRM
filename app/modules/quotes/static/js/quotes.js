@@ -662,9 +662,6 @@ function initializeQuoteTypeToggle(quoteData) {
         bruttoRadio.checked = true;
     }
 
-    // Zastosuj style odpowiednie dla trybu
-    applyQuoteTypeStyles(currentType);
-
     // Usuń stare listenery (żeby nie duplikować)
     const newBruttoRadio = bruttoRadio.cloneNode(true);
     const newNettoRadio = nettoRadio.cloneNode(true);
@@ -730,8 +727,12 @@ async function handleQuoteTypeChange(quoteId, newQuoteType) {
         // Zaktualizuj currentQuoteData
         currentQuoteData.quote_type = newQuoteType;
 
-        // Zastosuj nowe style
-        applyQuoteTypeStyles(newQuoteType);
+        // STARA METODA: Zastosuj nowe style (tylko ukrywa/pokazuje istniejące elementy)
+        // applyQuoteTypeStyles(newQuoteType);
+
+        // NOWA METODA: Przeładuj całe kafelki wariantów z nowym trybem
+        console.log('[QUOTE TYPE] Przeładowuję kafelki wariantów...');
+        await reloadQuoteDetailsModal(quoteId);
 
         // Pokaż toast sukcesu
         showToast(`Tryb wyceny zmieniony na "${newQuoteType.toUpperCase()}"`, 'success');
@@ -751,6 +752,62 @@ async function handleQuoteTypeChange(quoteId, newQuoteType) {
 }
 
 /**
+ * Przeładowanie całego modala szczegółów wyceny
+ */
+async function reloadQuoteDetailsModal(quoteId) {
+    console.log('[QUOTE TYPE] === ROZPOCZĘCIE PRZEŁADOWANIA MODALA ===');
+    console.log('[QUOTE TYPE] Przeładowuję modal dla wyceny ID:', quoteId);
+
+    try {
+        // 1. Pobierz świeże dane z API
+        const response = await fetch(`/quotes/api/quotes/${quoteId}`);
+
+        if (!response.ok) {
+            throw new Error('Błąd podczas pobierania danych wyceny');
+        }
+
+        const freshQuoteData = await response.json();
+        console.log('[QUOTE TYPE] Pobrano świeże dane:', freshQuoteData);
+        console.log('[QUOTE TYPE] Nowy tryb wyceny:', freshQuoteData.quote_type);
+
+        // 2. Zaktualizuj globalną zmienną
+        currentQuoteData = freshQuoteData;
+        window.currentQuoteData = freshQuoteData;
+        console.log('[QUOTE TYPE] Zaktualizowano currentQuoteData');
+
+        // 3. KLUCZOWE: Reinicjalizuj toggle (żeby wizualnie był w dobrym stanie)
+        console.log('[QUOTE TYPE] Reinicjalizuję toggle...');
+        initializeQuoteTypeToggle(freshQuoteData);
+
+        // 4. Znajdź kontenery do aktualizacji
+        const tabsContainer = document.getElementById('quotes-details-tabs');
+        const itemsContainer = document.getElementById('quotes-details-modal-items-body');
+
+        if (!tabsContainer || !itemsContainer) {
+            console.error('[QUOTE TYPE] Nie znaleziono kontenerów!');
+            console.error('[QUOTE TYPE] tabs:', tabsContainer, 'items:', itemsContainer);
+            return;
+        }
+
+        // 5. Wyczyść i przebuduj zakładki oraz produkty (kafelki wariantów)
+        console.log('[QUOTE TYPE] Przebudowuję zakładki i kafelki produktów...');
+        setupProductTabs(freshQuoteData, tabsContainer, itemsContainer);
+
+        // 6. Zaktualizuj sekcję kosztów
+        console.log('[QUOTE TYPE] Aktualizuję sekcję kosztów...');
+        updateCostsDisplay(freshQuoteData);
+
+        // 7. USUŃ to - nie potrzebujemy już aplikować stylów, bo kafelki są już z dobrym HTML
+        // applyQuoteTypeStyles(freshQuoteData.quote_type || 'brutto');
+
+        console.log('[QUOTE TYPE] ✅ Modal przeładowany pomyślnie');
+
+    } catch (error) {
+        console.error('[QUOTE TYPE] ❌ Błąd podczas przeładowania modala:', error);
+        throw error;
+    }
+}
+/**
  * Aplikowanie stylów dla trybu wyceny
  */
 function applyQuoteTypeStyles(quoteType) {
@@ -769,7 +826,7 @@ function applyQuoteTypeStyles(quoteType) {
     // Dodaj odpowiednią klasę
     modalBox.classList.add(`quote-type-${quoteType}`);
 
-    // NOWE: Zastosuj ukrywanie/pokazywanie kwot przez JS
+    // POPRAWKA: Zastosuj ukrywanie/pokazywanie kwot przez JS
     if (quoteType === 'netto') {
         hideAllBruttoPrice();
         styleNettoAsMain();
@@ -873,7 +930,7 @@ function styleNettoAsMain() {
     // Kafelki wariantów
     const variantNettoElements = document.querySelectorAll('.qvmd-price-netto');
     variantNettoElements.forEach(element => {
-        element.style.fontSize = '15px';
+        element.style.fontSize = '12px';  // POPRAWKA: zwiększona z 10px do 12px
         element.style.fontWeight = '600';
         element.style.color = '#1F2020';
         element.style.marginTop = '0';
@@ -1092,7 +1149,6 @@ function removeOrderBanner(modalBox) {
     }
 }
 
-// POPRAWIONA funkcja wyświetlania kosztów - wklej do app/modules/quotes/static/js/quotes.js
 function updateCostsDisplay(quoteData) {
     console.log('[updateCostsDisplay] Aktualizuję wyświetlanie kosztów', quoteData);
 
@@ -1106,28 +1162,28 @@ function updateCostsDisplay(quoteData) {
             // Użyj nowej struktury z backendu
             const costs = quoteData.costs;
 
-            // Koszt surowych
+            // Koszt surowych - POPRAWKA: bez nawiasów
             document.getElementById('quotes-details-modal-cost-products-brutto').textContent = `${costs.products.brutto.toFixed(2)} PLN`;
-            document.getElementById('quotes-details-modal-cost-products-netto').textContent = `${costs.products.netto.toFixed(2)} PLN`;
+            document.getElementById('quotes-details-modal-cost-products-netto').textContent = `${costs.products.netto.toFixed(2)} PLN netto`;
 
-            // Koszt wykończenia
+            // Koszt wykończenia - POPRAWKA: bez nawiasów
             document.getElementById('quotes-details-modal-cost-finishing-brutto').textContent = `${costs.finishing.brutto.toFixed(2)} PLN`;
-            document.getElementById('quotes-details-modal-cost-finishing-netto').textContent = `${costs.finishing.netto.toFixed(2)} PLN`;
+            document.getElementById('quotes-details-modal-cost-finishing-netto').textContent = `${costs.finishing.netto.toFixed(2)} PLN netto`;
 
-            // NOWE: Suma produktów bez dostawy (surowe + wykończenie)
+            // NOWE: Suma produktów bez dostawy (surowe + wykończenie) - POPRAWKA: bez nawiasów
             const productsTotalNetto = costs.products.netto + costs.finishing.netto;
             const productsTotalBrutto = costs.products.brutto + costs.finishing.brutto;
 
             document.getElementById('quotes-details-modal-cost-products-total-brutto').textContent = `${productsTotalBrutto.toFixed(2)} PLN`;
-            document.getElementById('quotes-details-modal-cost-products-total-netto').textContent = `${productsTotalNetto.toFixed(2)} PLN`;
+            document.getElementById('quotes-details-modal-cost-products-total-netto').textContent = `${productsTotalNetto.toFixed(2)} PLN netto`;
 
-            // Koszt wysyłki
+            // Koszt wysyłki - POPRAWKA: bez nawiasów
             document.getElementById('quotes-details-modal-cost-shipping-brutto').textContent = `${costs.shipping.brutto.toFixed(2)} PLN`;
-            document.getElementById('quotes-details-modal-cost-shipping-netto').textContent = `${costs.shipping.netto.toFixed(2)} PLN`;
+            document.getElementById('quotes-details-modal-cost-shipping-netto').textContent = `${costs.shipping.netto.toFixed(2)} PLN netto`;
 
-            // Koszt całkowity
+            // Koszt całkowity - POPRAWKA: bez nawiasów
             document.getElementById('quotes-details-modal-cost-total-brutto').textContent = `${costs.total.brutto.toFixed(2)} PLN`;
-            document.getElementById('quotes-details-modal-cost-total-netto').textContent = `${costs.total.netto.toFixed(2)} PLN`;
+            document.getElementById('quotes-details-modal-cost-total-netto').textContent = `${costs.total.netto.toFixed(2)} PLN netto`;
 
             // Kurier - wypełnij nazwę kuriera
             const courierElement = document.getElementById('quotes-details-modal-courier-name');
@@ -1138,28 +1194,28 @@ function updateCostsDisplay(quoteData) {
             // Oblicz VAT po stronie frontend
             const costs = calculateCostsClientSide(quoteData);
 
-            // Koszt surowych
+            // Koszt surowych - POPRAWKA: bez nawiasów
             document.getElementById('quotes-details-modal-cost-products-brutto').textContent = `${costs.products.brutto.toFixed(2)} PLN`;
-            document.getElementById('quotes-details-modal-cost-products-netto').textContent = `${costs.products.netto.toFixed(2)} PLN`;
+            document.getElementById('quotes-details-modal-cost-products-netto').textContent = `${costs.products.netto.toFixed(2)} PLN netto`;
 
-            // Koszt wykończenia
+            // Koszt wykończenia - POPRAWKA: bez nawiasów
             document.getElementById('quotes-details-modal-cost-finishing-brutto').textContent = `${costs.finishing.brutto.toFixed(2)} PLN`;
-            document.getElementById('quotes-details-modal-cost-finishing-netto').textContent = `${costs.finishing.netto.toFixed(2)} PLN`;
+            document.getElementById('quotes-details-modal-cost-finishing-netto').textContent = `${costs.finishing.netto.toFixed(2)} PLN netto`;
 
-            // NOWE: Suma produktów bez dostawy
+            // NOWE: Suma produktów bez dostawy - POPRAWKA: bez nawiasów
             const productsTotalNetto = costs.products.netto + costs.finishing.netto;
             const productsTotalBrutto = costs.products.brutto + costs.finishing.brutto;
 
             document.getElementById('quotes-details-modal-cost-products-total-brutto').textContent = `${productsTotalBrutto.toFixed(2)} PLN`;
-            document.getElementById('quotes-details-modal-cost-products-total-netto').textContent = `${productsTotalNetto.toFixed(2)} PLN`;
+            document.getElementById('quotes-details-modal-cost-products-total-netto').textContent = `${productsTotalNetto.toFixed(2)} PLN netto`;
 
-            // Koszt wysyłki
+            // Koszt wysyłki - POPRAWKA: bez nawiasów
             document.getElementById('quotes-details-modal-cost-shipping-brutto').textContent = `${costs.shipping.brutto.toFixed(2)} PLN`;
-            document.getElementById('quotes-details-modal-cost-shipping-netto').textContent = `${costs.shipping.netto.toFixed(2)} PLN`;
+            document.getElementById('quotes-details-modal-cost-shipping-netto').textContent = `${costs.shipping.netto.toFixed(2)} PLN netto`;
 
-            // Koszt całkowity
+            // Koszt całkowity - POPRAWKA: bez nawiasów
             document.getElementById('quotes-details-modal-cost-total-brutto').textContent = `${costs.total.brutto.toFixed(2)} PLN`;
-            document.getElementById('quotes-details-modal-cost-total-netto').textContent = `${costs.total.netto.toFixed(2)} PLN`;
+            document.getElementById('quotes-details-modal-cost-total-netto').textContent = `${costs.total.netto.toFixed(2)} PLN netto`;
 
             // Kurier - wypełnij nazwę kuriera
             const courierElement = document.getElementById('quotes-details-modal-courier-name');
@@ -1184,8 +1240,75 @@ function updateCostsDisplay(quoteData) {
         if (oldShipping) oldShipping.textContent = `${costs.shipping?.brutto?.toFixed(2) || '0.00'} PLN`;
         if (oldTotal) oldTotal.textContent = `${costs.total?.brutto?.toFixed(2) || '0.00'} PLN`;
     }
+
     // NOWE: Sekcja Baselinker
     updateBaselinkerSection(quoteData);
+
+    // DODAJ TO:
+    // Zastosuj style dla sekcji kosztów (ukryj/pokaż brutto, styluj netto)
+    const currentType = quoteData.quote_type || 'brutto';
+    console.log('[updateCostsDisplay] Aplikuję style kosztów dla trybu:', currentType);
+
+    if (currentType === 'netto') {
+        // Ukryj kwoty brutto w sekcji kosztów
+        const bruttoElements = [
+            'quotes-details-modal-cost-products-brutto',
+            'quotes-details-modal-cost-finishing-brutto',
+            'quotes-details-modal-cost-products-total-brutto',
+            'quotes-details-modal-cost-shipping-brutto',
+            'quotes-details-modal-cost-total-brutto'
+        ];
+        bruttoElements.forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.style.display = 'none';
+        });
+
+        // Styluj kwoty netto jako główne
+        const nettoElements = [
+            'quotes-details-modal-cost-products-netto',
+            'quotes-details-modal-cost-finishing-netto',
+            'quotes-details-modal-cost-products-total-netto',
+            'quotes-details-modal-cost-shipping-netto',
+            'quotes-details-modal-cost-total-netto'
+        ];
+        nettoElements.forEach(id => {
+            const el = document.getElementById(id);
+            if (el) {
+                el.style.fontSize = '14px';
+                el.style.color = '#1F2020';
+            }
+        });
+    } else {
+        // Pokaż kwoty brutto
+        const bruttoElements = [
+            'quotes-details-modal-cost-products-brutto',
+            'quotes-details-modal-cost-finishing-brutto',
+            'quotes-details-modal-cost-products-total-brutto',
+            'quotes-details-modal-cost-shipping-brutto',
+            'quotes-details-modal-cost-total-brutto'
+        ];
+        bruttoElements.forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.style.display = '';
+        });
+
+        // Przywróć style netto jako drugorzędne
+        const nettoElements = [
+            'quotes-details-modal-cost-products-netto',
+            'quotes-details-modal-cost-finishing-netto',
+            'quotes-details-modal-cost-products-total-netto',
+            'quotes-details-modal-cost-shipping-netto',
+            'quotes-details-modal-cost-total-netto'
+        ];
+        nettoElements.forEach(id => {
+            const el = document.getElementById(id);
+            if (el) {
+                el.style.fontSize = '';
+                el.style.fontWeight = '';
+                el.style.color = '';
+            }
+        });
+    }
 }
 function updateBaselinkerSection(quoteData) {
     console.log('[Baselinker] Aktualizacja sekcji zamówienia:', quoteData.base_linker_order_id);
@@ -1360,6 +1483,12 @@ function getEditIconURL() {
 }
 
 function buildVariantPriceDisplay(variant, quantity, quoteData) {
+    // NOWE: Sprawdź tryb wyceny
+    const quoteType = quoteData.quote_type || 'brutto';
+    const isNettoMode = quoteType === 'netto';
+
+    console.log('[buildVariantPriceDisplay] Tryb wyceny:', quoteType, 'isNettoMode:', isNettoMode);
+
     // Znajdź szczegóły wykończenia dla tego produktu
     const finishing = (quoteData.finishing || []).find(f => f.product_index == variant.product_index);
     const finishingType = finishing ? finishing.finishing_type : 'Surowe';
@@ -1417,12 +1546,41 @@ function buildVariantPriceDisplay(variant, quantity, quoteData) {
                     <div class="qvmd-pricing-row">
                         <span class="qvmd-pricing-label">Cena</span>
                         <div class="qvmd-pricing-values">
+        `;
+
+        // NOWE: Warunkowe generowanie HTML dla brutto/netto
+        if (isNettoMode) {
+            // Tryb NETTO - tylko kwoty netto, większe i pogrubione
+            cardHTML += `
+                            <div class="qvmd-price-netto qvmd-netto-primary">${unitPriceNetto.toFixed(2)} PLN netto</div>
+            `;
+        } else {
+            // Tryb BRUTTO - standard: brutto na górze, netto na dole
+            cardHTML += `
                             <div class="qvmd-price-brutto">${unitPriceBrutto.toFixed(2)} PLN brutto</div>
                             <div class="qvmd-price-netto">${unitPriceNetto.toFixed(2)} PLN netto</div>
+            `;
+        }
+
+        cardHTML += `
                         </div>
                         <div class="qvmd-pricing-values">
+        `;
+
+        if (isNettoMode) {
+            // Tryb NETTO - tylko wykończenie netto
+            cardHTML += `
+                            <div class="qvmd-price-netto qvmd-netto-primary qvmd-finishing">${(unitPriceNetto + finishingPriceNetto).toFixed(2)} PLN netto</div>
+            `;
+        } else {
+            // Tryb BRUTTO - wykończenie brutto i netto
+            cardHTML += `
                             <div class="qvmd-price-brutto qvmd-finishing">${(unitPriceBrutto + finishingPriceBrutto).toFixed(2)} PLN brutto</div>
                             <div class="qvmd-price-netto">${(unitPriceNetto + finishingPriceNetto).toFixed(2)} PLN netto</div>
+            `;
+        }
+
+        cardHTML += `
                         </div>
                     </div>
                     
@@ -1430,16 +1588,44 @@ function buildVariantPriceDisplay(variant, quantity, quoteData) {
                     <div class="qvmd-pricing-row">
                         <span class="qvmd-pricing-label">Wartość</span>
                         <div class="qvmd-pricing-values">
+        `;
+
+        if (isNettoMode) {
+            // Tryb NETTO - tylko wartość netto
+            cardHTML += `
+                            <div class="qvmd-price-netto qvmd-netto-primary">${totalNetto.toFixed(2)} PLN netto</div>
+            `;
+        } else {
+            // Tryb BRUTTO - wartość brutto i netto
+            cardHTML += `
                             <div class="qvmd-price-brutto">${totalBrutto.toFixed(2)} PLN brutto</div>
                             <div class="qvmd-price-netto">${totalNetto.toFixed(2)} PLN netto</div>
+            `;
+        }
+
+        cardHTML += `
                         </div>
                         <div class="qvmd-pricing-values">
+        `;
+
+        if (isNettoMode) {
+            // Tryb NETTO - tylko wykończenie wartość netto
+            cardHTML += `
+                            <div class="qvmd-price-netto qvmd-netto-primary qvmd-finishing">${(totalNetto + finishingTotalNetto).toFixed(2)} PLN netto</div>
+            `;
+        } else {
+            // Tryb BRUTTO - wykończenie wartość brutto i netto
+            cardHTML += `
                             <div class="qvmd-price-brutto qvmd-finishing">${(totalBrutto + finishingTotalBrutto).toFixed(2)} PLN brutto</div>
                             <div class="qvmd-price-netto">${(totalNetto + finishingTotalNetto).toFixed(2)} PLN netto</div>
+            `;
+        }
+
+        cardHTML += `
                         </div>
                     </div>
                 </div>
-    `;
+        `;
     } else {
         // Layout surowy (prosta kolumna)
         cardHTML += `
@@ -1447,15 +1633,43 @@ function buildVariantPriceDisplay(variant, quantity, quoteData) {
                         <div class="qvmd-pricing-row">
                             <span class="qvmd-pricing-label">Cena</span>
                             <div class="qvmd-pricing-values">
+        `;
+
+        if (isNettoMode) {
+            // Tryb NETTO - tylko cena netto
+            cardHTML += `
+                                <div class="qvmd-price-netto qvmd-netto-primary">${unitPriceNetto.toFixed(2)} PLN netto</div>
+            `;
+        } else {
+            // Tryb BRUTTO - cena brutto i netto
+            cardHTML += `
                                 <div class="qvmd-price-brutto">${unitPriceBrutto.toFixed(2)} PLN brutto</div>
                                 <div class="qvmd-price-netto">${unitPriceNetto.toFixed(2)} PLN netto</div>
+            `;
+        }
+
+        cardHTML += `
                             </div>
                         </div>
                         <div class="qvmd-pricing-row">
                             <span class="qvmd-pricing-label">Wartość</span>
                             <div class="qvmd-pricing-values">
+        `;
+
+        if (isNettoMode) {
+            // Tryb NETTO - tylko wartość netto
+            cardHTML += `
+                                <div class="qvmd-price-netto qvmd-netto-primary">${totalNetto.toFixed(2)} PLN netto</div>
+            `;
+        } else {
+            // Tryb BRUTTO - wartość brutto i netto
+            cardHTML += `
                                 <div class="qvmd-price-brutto">${totalBrutto.toFixed(2)} PLN brutto</div>
                                 <div class="qvmd-price-netto">${totalNetto.toFixed(2)} PLN netto</div>
+            `;
+        }
+
+        cardHTML += `
                             </div>
                         </div>
                     </div>

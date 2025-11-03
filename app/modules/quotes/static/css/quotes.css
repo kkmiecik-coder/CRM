@@ -1173,18 +1173,8 @@
     color: #777;
     font-weight: normal;
     display: inline-block;
+    margin-left: 6px; /* POPRAWKA: dodany odstęp od kwoty brutto */
 }
-
-    /* Opcjonalnie: dodaj separatory dla lepszej czytelności */
-    .cost-netto::before {
-        content: "(";
-        color: #999;
-    }
-
-    .cost-netto::after {
-        content: " netto)";
-        color: #999;
-    }
 
 /* Wrapper z przyciskami */
 .variant-actions {
@@ -2661,9 +2651,8 @@
 /* Grid layout - 4 kolumny na desktop */
 .qvmd-variants-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
     gap: var(--spacing-base);
-    margin-bottom: var(--spacing-xl);
 }
 
 @media (max-width: 1024px) {
@@ -2735,7 +2724,7 @@
 
 .qvmd-variant-title {
     font-weight: 500;
-    font-size: 10px;
+    font-size: 14px;
     color: var(--text-primary);
     margin-bottom: var(--spacing-sm);
     display: flex;
@@ -2745,19 +2734,19 @@
 .qvmd-variant-name {
     display: inline;
     font-weight: 600;
-    font-size: 12px;
+    font-size: 14px;
     color: var(--primary-color);
 }
 
 .qvmd-price-per-m2-label {
-    font-weight: 400;
-    font-size: 10px;
+    font-weight: 500;
+    font-size: 14px;
     color: var(--text-primary);
 }
 
 .qvmd-price-per-m2-value {
-    font-weight: 500;
-    font-size: 12px;
+    font-weight: 400;
+    font-size: 14px;
     color: var(--text-primary);
 }
 
@@ -2811,7 +2800,7 @@
     margin-bottom: var(--spacing-xs);
 }
 
-.qvmd-pricing-with-finishing .qvmd-pricing-label {
+.qvmd-pricing-with-finishing {
     font-weight: 600;
     font-size: 12px;
     color: var(--text-primary);
@@ -2844,7 +2833,7 @@
 
 .qvmd-pricing-label {
     font-weight: 600;
-    font-size: 12px;
+    font-size: 14px;
     color: var(--text-primary);
 }
 
@@ -2854,7 +2843,7 @@
 
 .qvmd-price-brutto {
     font-weight: 500;
-    font-size: 12px;
+    font-size: 14px;
     color: var(--text-primary);
     line-height: 1.2;
 }
@@ -2865,7 +2854,7 @@
 
 .qvmd-price-netto {
     font-weight: 300;
-    font-size: 10px;
+    font-size: 14px;
     color: var(--text-primary);
     margin-top: 1px;
 }
@@ -2883,7 +2872,7 @@
         margin-bottom: var(--spacing-xs);
     }
 
-    .qvmd-pricing-simple .qvmd-pricing-label {
+    .qvmd-pricing-simple {
         font-weight: 600;
         font-size: 12px;
         color: var(--text-primary);
@@ -5499,3 +5488,16 @@
 .quote-type-toggle:hover {
     background: #e8e8e8;
 }
+
+/* Klasa dla kwot netto jako głównych (w trybie netto) */
+.qvmd-netto-primary {
+    font-size: 16px !important;
+    font-weight: 500 !important;
+    color: #1F2020 !important;
+    margin-top: 0 !important;
+}
+
+    /* Opcjonalnie: jeśli chcesz jeszcze większą czcionkę w trybie netto */
+    .qvmd-netto-primary.qvmd-finishing {
+        color: #FF5A00 !important; /* Pomarańczowy dla wykończenia */
+    }

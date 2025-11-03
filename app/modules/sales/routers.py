@@ -37,6 +37,7 @@ from extensions import db
 from modules.sales.models import SalesApplication
 import io
 import os
+import sys
 from datetime import datetime, timedelta
 
 from sqlalchemy import func, or_, desc
@@ -366,11 +367,6 @@ def admin_dashboard():
 def get_admin_stats():
     """Statystyki aplikacji dla dashboardu"""
 
-    # ===== DEBUGGING - USUŃ PO TEŚCIE =====
-    print(f"[DEBUG SALES] Model: {SalesApplication.__tablename__}", file=sys.stderr)
-    print(f"[DEBUG SALES] Query count: {SalesApplication.query.count()}", file=sys.stderr)
-    import sys
-
     try:
         # ============================================================================
         # STATYSTYKI APLIKACJI REKRUTACYJNYCH
@@ -643,6 +639,7 @@ def export_admin_applications():
         search = request.args.get('search', '')
         is_b2b = request.args.get('is_b2b', '')
         
+        # Buduj query
         query = SalesApplication.query
         
         if status_filter:
@@ -659,61 +656,130 @@ def export_admin_applications():
                 or_(
                     SalesApplication.first_name.ilike(pattern),
                     SalesApplication.last_name.ilike(pattern),
-                    SalesApplication.email.ilike(pattern)
+                    SalesApplication.email.ilike(pattern),
+                    SalesApplication.phone.ilike(pattern),
+                    SalesApplication.company_name.ilike(pattern),
+                    SalesApplication.nip.ilike(pattern)
                 )
             )
         
         applications = query.order_by(desc(SalesApplication.created_at)).all()
         
-        # Utwórz workbook
+        # Tworzenie workbooka
         wb = Workbook()
         ws = wb.active
-        ws.title = "Aplikacje"
+        ws.title = "Aplikacje Sales"
         
-        # Nagłówki
+        # Nagłówki - nowa kolejność według specyfikacji
         headers = [
-            'ID', 'Imię', 'Nazwisko', 'Email', 'Telefon', 
-            'Miasto', 'Adres', 'Kod pocztowy',
-            'Status', 'Typ', 'Data utworzenia',
-            'Firma', 'NIP', 'REGON', 'Adres firmy', 'Miasto firmy', 'Kod pocztowy firmy',
-            'O sobie', 'IP', 'Ma NDA'
+            'Data aplikacji', 'Imię', 'Nazwisko', 'Typ', 'Województwo',
+            'Miejscowość działalności', 'Źródło',
+            'E-mail', 'Telefon', 'Adres', 'Miasto', 'Kod pocztowy',
+            'O sobie', 'Firma', 'NIP', 'REGON', 'Adres firmy',
+            'Miasto firmy', 'Kod pocztowy firmy'
         ]
         
-        # Stylowanie nagłówków
-        header_font = Font(bold=True, color="FFFFFF")
-        header_fill = PatternFill(start_color="ED6B24", end_color="ED6B24", fill_type="solid")
+        # Stylizacja nagłówków
+        header_fill = PatternFill(start_color='366092', end_color='366092', fill_type='solid')
+        header_font = Font(bold=True, color='FFFFFF')
         
         for col_num, header in enumerate(headers, 1):
             cell = ws.cell(row=1, column=col_num, value=header)
-            cell.font = header_font
             cell.fill = header_fill
+            cell.font = header_font
             cell.alignment = Alignment(horizontal='center', vertical='center')
         
-        # Dane
+        # Funkcja pomocnicza do formatowania telefonu
+        def format_phone(phone_str):
+            """
+            Formatuje numer telefonu do formatu: 123 456 789
+            Usuwa prefixy +48 lub 48 oraz wszystkie znaki specjalne
+            """
+            if not phone_str:
+                return ''
+            
+            # Usuń wszystkie znaki nie będące cyframi
+            digits = ''.join(filter(str.isdigit, phone_str))
+            
+            # Usuń prefix 48 jeśli występuje na początku
+            if digits.startswith('48') and len(digits) > 9:
+                digits = digits[2:]
+            
+            # Jeśli mamy dokładnie 9 cyfr, formatuj jako XXX XXX XXX
+            if len(digits) == 9:
+                return f'{digits[0:3]} {digits[3:6]} {digits[6:9]}'
+            
+            # Jeśli inna liczba cyfr, zwróć jak jest
+            return digits
+        
+        # Funkcja pomocnicza do formatowania tekstu (pierwsza litera duża, reszta mała)
+        def format_text(text):
+            """
+            Formatuje tekst: pierwsza litera duża, reszta małe
+            Np. "JAN KOWALSKI" -> "Jan kowalski", "WARSZAWA" -> "Warszawa"
+            """
+            if not text:
+                return ''
+            return text.strip().capitalize()
+        
+        # Wypełnianie danymi
         for row_num, app in enumerate(applications, 2):
-            ws.cell(row=row_num, column=1, value=app.id)
-            ws.cell(row=row_num, column=2, value=app.first_name)
-            ws.cell(row=row_num, column=3, value=app.last_name)
-            ws.cell(row=row_num, column=4, value=app.email)
-            ws.cell(row=row_num, column=5, value=app.phone)
-            ws.cell(row=row_num, column=6, value=app.city)
-            ws.cell(row=row_num, column=7, value=app.address)
-            ws.cell(row=row_num, column=8, value=app.postal_code)
-            ws.cell(row=row_num, column=9, value=app.status)
-            ws.cell(row=row_num, column=10, value='B2B' if app.is_b2b else 'B2C')
-            ws.cell(row=row_num, column=11, value=app.created_at.strftime('%Y-%m-%d %H:%M') if app.created_at else '')
+            # Kolumna 1: Data aplikacji (format YYYY-MM-DD)
+            ws.cell(row=row_num, column=1, value=app.created_at.strftime('%Y-%m-%d') if app.created_at else '')
             
-            # Dane B2B
-            ws.cell(row=row_num, column=12, value=app.company_name if app.is_b2b else '')
-            ws.cell(row=row_num, column=13, value=app.nip if app.is_b2b else '')
-            ws.cell(row=row_num, column=14, value=app.regon if app.is_b2b else '')
-            ws.cell(row=row_num, column=15, value=app.company_address if app.is_b2b else '')
-            ws.cell(row=row_num, column=16, value=app.company_city if app.is_b2b else '')
-            ws.cell(row=row_num, column=17, value=app.company_postal_code if app.is_b2b else '')
+            # Kolumna 2: Imię (sformatowane)
+            ws.cell(row=row_num, column=2, value=format_text(app.first_name))
             
-            ws.cell(row=row_num, column=18, value=app.about_text or '')
-            ws.cell(row=row_num, column=19, value=app.ip_address or '')
-            ws.cell(row=row_num, column=20, value='Tak' if app.nda_filepath else 'Nie')
+            # Kolumna 3: Nazwisko (sformatowane)
+            ws.cell(row=row_num, column=3, value=format_text(app.last_name))
+            
+            # Kolumna 4: Typ (B2B lub Zlecenie zamiast B2C)
+            ws.cell(row=row_num, column=4, value='B2B' if app.is_b2b else 'Zlecenie')
+            
+            # Kolumna 5: Województwo (sformatowane)
+            ws.cell(row=row_num, column=5, value=format_text(app.voivodeship))
+            
+            # Kolumna 6: Miejscowość działalności (sformatowane)
+            ws.cell(row=row_num, column=6, value=format_text(app.business_location))
+            
+            # Kolumna 7: Źródło (zawsze "Sales")
+            ws.cell(row=row_num, column=7, value='Sales')
+            
+            # Kolumna 8: E-mail
+            ws.cell(row=row_num, column=8, value=app.email)
+            
+            # Kolumna 9: Telefon (sformatowany)
+            ws.cell(row=row_num, column=9, value=format_phone(app.phone))
+            
+            # Kolumna 10: Adres (sformatowany)
+            ws.cell(row=row_num, column=10, value=format_text(app.address))
+            
+            # Kolumna 11: Miasto (sformatowane)
+            ws.cell(row=row_num, column=11, value=format_text(app.city))
+            
+            # Kolumna 12: Kod pocztowy
+            ws.cell(row=row_num, column=12, value=app.postal_code)
+            
+            # Kolumna 13: O sobie
+            ws.cell(row=row_num, column=13, value=app.about_text or '')
+            
+            # Kolumna 14: Firma (tylko dla B2B)
+            ws.cell(row=row_num, column=14, value=app.company_name if app.is_b2b else '')
+            
+            # Kolumna 15: NIP (tylko dla B2B)
+            ws.cell(row=row_num, column=15, value=app.nip if app.is_b2b else '')
+            
+            # Kolumna 16: REGON (tylko dla B2B)
+            ws.cell(row=row_num, column=16, value=app.regon if app.is_b2b else '')
+            
+            # Kolumna 17: Adres firmy (tylko dla B2B)
+            ws.cell(row=row_num, column=17, value=app.company_address if app.is_b2b else '')
+            
+            # Kolumna 18: Miasto firmy (tylko dla B2B, sformatowane)
+            ws.cell(row=row_num, column=18, value=format_text(app.company_city) if app.is_b2b else '')
+            
+            # Kolumna 19: Kod pocztowy firmy (tylko dla B2B)
+            ws.cell(row=row_num, column=19, value=app.company_postal_code if app.is_b2b else '')
         
         # Autosize kolumn
         for column in ws.columns:
@@ -733,19 +799,24 @@ def export_admin_applications():
         wb.save(output)
         output.seek(0)
         
+        # Przygotuj nazwę pliku
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         filename = f'aplikacje_sales_{timestamp}.xlsx'
         
-        return send_file(
-            output,
-            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-            as_attachment=True,
-            download_name=filename
-        )
+        # ============================================================================
+        # POPRAWKA: Użyj make_response() zamiast send_file() dla BytesIO w Passenger
+        # ============================================================================
+        response = make_response(output.getvalue())
+        response.headers['Content-Type'] = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        response.headers['Content-Disposition'] = f'attachment; filename={filename}'
+        
+        return response
         
     except Exception as e:
         current_app.logger.error(f"Export error: {str(e)}")
-        return jsonify({'success': False, 'message': 'Błąd eksportu'}), 500
+        import traceback
+        current_app.logger.error(traceback.format_exc())
+        return jsonify({'success': False, 'message': f'Błąd eksportu: {str(e)}'}), 500
 
 
 @sales_bp.route('/admin/api/export-applications')

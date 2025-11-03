@@ -415,7 +415,7 @@ def get_order_modal_data(quote_id):
                           endpoint='get_order_modal_data')
     
     try:
-        # ✅ DODANE: Pobierz użytkownika i określ jego rolę
+        # Pobierz użytkownika i określ jego rolę
         user_email = session.get('user_email')
         user_id = session.get('user_id')
         
@@ -428,7 +428,7 @@ def get_order_modal_data(quote_id):
         
         user_role = user.role
         
-        # ✅ DODANE: Określ czy flexible partner (to samo co w calculator)
+        # Określ czy flexible partner (to samo co w calculator)
         FLEXIBLE_PARTNER_IDS = [14, 15, 16]
         is_flexible_partner = (user_role == 'partner' and user_id in FLEXIBLE_PARTNER_IDS)
         
@@ -438,6 +438,13 @@ def get_order_modal_data(quote_id):
                                is_flexible_partner=is_flexible_partner)
         
         quote = Quote.query.get_or_404(quote_id)
+        
+        # Pobierz tryb cen z wyceny
+        quote_type = getattr(quote, 'quote_type', 'brutto') or 'brutto'
+        
+        baselinker_logger.info("Tryb cen wyceny",
+                              quote_id=quote_id,
+                              quote_type=quote_type)
         
         # Pobierz wybrane produkty
         selected_items = [item for item in quote.items if item.is_selected]
@@ -550,7 +557,7 @@ def get_order_modal_data(quote_id):
                 'want_invoice': bool(quote.client.invoice_nip)
             }
         
-        # ✅ ZMIENIONA SEKCJA: Pobierz konfigurację Baselinker z filtrowaniem
+        # ZMIENIONA SEKCJA: Pobierz konfigurację Baselinker z filtrowaniem
         try:
             # Pobierz wszystkie aktywne źródła
             all_order_sources = BaselinkerConfig.query.filter_by(
@@ -558,7 +565,7 @@ def get_order_modal_data(quote_id):
                 is_active=True
             ).order_by(BaselinkerConfig.name).all()
             
-            # ✅ FILTRUJ źródła według uprawnień użytkownika
+            # FILTRUJ źródła według uprawnień użytkownika
             filtered_sources = [
                 source 
                 for source in all_order_sources 
@@ -579,7 +586,7 @@ def get_order_modal_data(quote_id):
                 is_active=True
             ).order_by(BaselinkerConfig.name).all()
             
-            # ✅ FILTRUJ statusy według uprawnień użytkownika
+            # FILTRUJ statusy według uprawnień użytkownika
             filtered_statuses = [
                 status 
                 for status in all_order_statuses 
@@ -632,7 +639,8 @@ def get_order_modal_data(quote_id):
                 'source': getattr(quote, 'source', ''),
                 'status_name': quote.quote_status.name if quote.quote_status else 'Nieznany',
                 'status_id': quote.status_id,
-                'notes': quote.notes or ''
+                'notes': quote.notes or '',
+                'quote_type': quote_type
             },
             'client': client_data,
             'products': products,
@@ -651,6 +659,7 @@ def get_order_modal_data(quote_id):
         
         baselinker_logger.info("Przygotowano dane dla modalu zamówienia",
                               quote_id=quote_id,
+                              quote_type=quote_type,
                               products_count=len(products),
                               products_value_brutto=total_products_value_brutto,
                               finishing_value_brutto=total_finishing_value_brutto,
