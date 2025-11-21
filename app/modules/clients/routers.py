@@ -351,3 +351,81 @@ def gus_lookup():
     except Exception as e:
         logger.exception("[GUS Lookup Error] Wyjątek podczas przetwarzania")
         return jsonify({"error": "Błąd przetwarzania danych", "details": str(e)}), 500
+
+
+@clients_bp.route('/search_in_database', methods=['GET'])
+@require_module_access('clients')
+def search_in_database():
+    """
+    Endpoint dla Partnera do wyszukiwania klientów w całej bazie.
+    Admin/User widzą wszystkich (jak zwykle).
+    Partner widzi tylko swoich w liście głównej, ale przez ten endpoint może sprawdzić czy klient istnieje.
+
+    Logika wyświetlania dla cudzych klientów:
+    - Jeśli ostatnia wycena > 6 miesięcy LUB brak wyceny → pokaż wszystkie dane
+    - Jeśli ostatnia wycena < 6 miesięcy → pokaż tylko nazwę i imię
+    """
+    from datetime import datetime, timedelta
+
+    term = request.args.get('q', '').strip()
+    if len(term) < 3:
+        return jsonify([])
+
+    user_id = session.get('user_id')
+    if not user_id:
+        return jsonify([])
+
+    user = User.query.get(user_id)
+    if not user:
+        return jsonify([])
+
+    # Wyszukiwanie w całej bazie (dla wszystkich ról)
+    base_query = Client.query.filter(
+        (Client.client_number.ilike(f"%{term}%")) |
+        (Client.client_name.ilike(f"%{term}%")) |
+        (Client.email.ilike(f"%{term}%")) |
+        (Client.phone.ilike(f"%{term}%")) |
+        (Client.invoice_nip.ilike(f"%{term}%"))
+    )
+
+    matches = base_query.all()
+
+    results = []
+    six_months_ago = datetime.utcnow() - timedelta(days=180)
+
+    for client in matches:
+        is_own_client = client.created_by_user_id == user_id
+
+        # Pobierz najnowszą wycenę dla tego klienta
+        latest_quote = Quote.query.filter_by(client_id=client.id).order_by(Quote.created_at.desc()).first()
+
+        # Sprawdź czy ostatnia wycena jest młodsza niż 6 miesięcy
+        has_recent_quote = latest_quote and latest_quote.created_at > six_months_ago
+
+        # Przygotuj dane klienta
+        client_data = {
+            "id": client.id,
+            "is_own_client": is_own_client,
+            "latest_quote_date": latest_quote.created_at.strftime("%Y-%m-%d") if latest_quote else None,
+        }
+
+        # Zawsze pokazujemy nazwę i imię
+        client_data["client_number"] = client.client_number or ""
+        client_data["client_name"] = client.client_name or ""
+
+        # Jeśli to nasz klient LUB cudzy bez świeżej wyceny - pokaż wszystkie dane
+        if is_own_client or not has_recent_quote:
+            client_data["email"] = client.email or ""
+            client_data["phone"] = client.phone or ""
+            client_data["invoice_nip"] = client.invoice_nip or ""
+            client_data["show_full_data"] = True
+        else:
+            # Cudzy klient ze świeżą wyceną - ukryj dane kontaktowe
+            client_data["email"] = None
+            client_data["phone"] = None
+            client_data["invoice_nip"] = None
+            client_data["show_full_data"] = False
+
+        results.append(client_data)
+
+    return jsonify(results)

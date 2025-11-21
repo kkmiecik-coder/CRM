@@ -57,20 +57,20 @@
             <!-- Dashboard Grid -->
             <div class="dashboard-grid">
 
+                <!-- Active Users Widget (tylko dla adminów) -->
+                {% include 'widgets/active_users_widget.html' %}
+
                 <!-- Stats Overview -->
                 {% include 'widgets/stats_widget.html' %}
 
-                <!-- Weather Widget -->
-                {% include 'widgets/weather_widget.html' %}
-
-                <!-- NOWY: Active Users Widget (tylko dla adminów) -->
-                {% include 'widgets/active_users_widget.html' %}
+                <!-- Issues Widget - Moje zgłoszenia -->
+                {% include 'widgets/issues_widget.html' %}
 
                 <!-- Changelog Widget -->
                 {% include 'widgets/changelog_widget.html' %}
 
-                <!-- Issues Widget - Moje zgłoszenia -->
-                {% include 'widgets/issues_widget.html' %}
+                <!-- Weather Widget -->
+                {% include 'widgets/weather_widget.html' %}
 
                 <!-- Quotes Chart -->
                 {% include 'widgets/quotes_chart_widget.html' %}

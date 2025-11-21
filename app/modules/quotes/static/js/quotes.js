@@ -431,8 +431,7 @@ function showDetailsModal(quoteData) {
 
     // ZAKTUALIZUJ Dane klienta
     document.getElementById('quotes-details-modal-client-name').textContent = quoteData.client?.client_name || '-';
-    document.getElementById('quotes-details-modal-client-fullname').textContent = 
-        `${quoteData.client?.first_name || ''} ${quoteData.client?.last_name || ''}`.trim() || '-';
+    document.getElementById('quotes-details-modal-client-fullname').textContent = quoteData.client?.first_name || '-';
     document.getElementById('quotes-details-modal-client-company').textContent = quoteData.client?.company_name || '-';
     document.getElementById('quotes-details-modal-client-email').textContent = quoteData.client?.email || '-';
     document.getElementById('quotes-details-modal-client-phone').textContent = quoteData.client?.phone || '-';
@@ -1923,8 +1922,8 @@ function renderQuotesTable(quotes) {
         card.innerHTML = `
             <div class="quote-field">${quote.quote_number}</div>
             <div class="quote-field">${new Date(quote.created_at).toLocaleDateString()}</div>
-            <div class="quote-field">${quote.client_name || "-"}</div>
             <div class="quote-field">${quote.client_number || "-"}</div>
+            <div class="quote-field">${quote.client_name || "-"}</div>
             <div class="quote-field">${quote.client_caretaker_name || "-"}</div>
             <div class="quote-field">${quote.source || "-"}</div>
             <div class="quote-field">${statusPill}</div>

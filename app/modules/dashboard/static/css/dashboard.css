@@ -2280,300 +2280,306 @@
    RESPONSIVE DESIGN
    ============================================================================ */
 
-/* Large Screens (1200px+) */
+/* Large Desktop (1200px+) - Full 12-column grid */
 @media (max-width: 1200px) {
     .stats-overview {
         grid-column: span 12;
     }
-    
+
     .weather-widget {
         grid-column: span 6;
     }
-    
+
     .active-users-widget {
         grid-column: span 6;
     }
-    
+
     .changelog-widget {
         grid-column: span 6;
     }
-    
+
     .issues-widget {
         grid-column: span 6;
     }
-    
+
     .quotes-chart {
         grid-column: span 12;
     }
-    
+
     .recent-activity {
         grid-column: span 12;
     }
-    
+
     .top-products {
         grid-column: span 12;
     }
 }
 
-/* Tablets (768px - 1023px) */
-@media (max-width: 768px) {
+/* Tablets (768px - 1023px) - Flexible 2-column layout */
+@media (max-width: 1023px) and (min-width: 768px) {
     .main-content {
-        padding: var(--spacing-lg);
+        padding: var(--spacing-xl);
     }
-    
+
+    .dashboard-grid {
+        grid-template-columns: repeat(2, 1fr);
+        gap: var(--spacing-lg);
+    }
+
+    /* Full width widgets */
+    .stats-overview,
+    .quotes-chart {
+        grid-column: span 2;
+    }
+
+    /* 2-column widgets - zajmują 1 kolumnę każdy */
+    .active-users-widget,
+    .issues-widget,
+    .changelog-widget,
+    .weather-widget,
+    .recent-activity,
+    .top-products {
+        grid-column: span 1;
+    }
+
+    /* Stats grid na tablet - 2x2 */
     .stats-grid {
         grid-template-columns: repeat(2, 1fr);
+        gap: var(--spacing-md);
     }
-    
+
+    .stat-number {
+        font-size: 1.5rem;
+    }
+
+    .stat-label {
+        font-size: 0.7rem;
+    }
+}
+
+/* Mobile (< 768px) - Single column layout */
+@media (max-width: 767px) {
+    .main-content {
+        padding: var(--spacing-md);
+    }
+
+    /* UKRYJ Quick Actions Bar na mobile */
+    .quick-actions-bar {
+        display: none !important;
+    }
+
+    /* Header - tytuł + avatar w jednej linii */
+    .header-top {
+        display: flex;
+        flex-direction: row;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: var(--spacing-lg);
+        gap: var(--spacing-md);
+    }
+
+    .page-title {
+        font-size: 1.5rem;
+        margin: 0;
+    }
+
+    .user-greeting {
+        padding: 6px 10px 6px 6px;
+        gap: 8px;
+    }
+
+    .user-avatar {
+        width: 36px;
+        height: 36px;
+    }
+
+    .greeting-text {
+        font-size: 0.9rem;
+        display: none; /* Ukryj tekst, zostaw tylko avatar */
+    }
+
+    /* Dashboard Grid - wszystko jeden pod drugim */
     .dashboard-grid {
         grid-template-columns: 1fr;
         gap: var(--spacing-lg);
     }
-    
+
+    /* Wszystkie widgety full width */
+    .stats-overview,
     .weather-widget,
     .active-users-widget,
     .changelog-widget,
-    .issues-widget {
+    .issues-widget,
+    .quotes-chart,
+    .recent-activity,
+    .top-products {
         grid-column: span 1;
     }
-    
-    .quick-actions-bar {
-        flex-direction: column;
-        align-items: flex-start;
-        gap: var(--spacing-md);
+
+    /* Stats Widget - 2x2 grid */
+    .stats-grid {
+        grid-template-columns: repeat(2, 1fr);
+        gap: var(--spacing-sm);
     }
-    
-    .quick-actions-list {
-        width: 100%;
-        justify-content: flex-start;
+
+    .stat-card {
+        padding: var(--spacing-md);
     }
-    
+
+    .stat-number {
+        font-size: 1.25rem;
+        margin-bottom: 0.25rem;
+    }
+
+    .stat-label {
+        font-size: 0.65rem;
+    }
+
+    /* Weather widget adjustments */
     .weather-content {
         flex-direction: column;
         text-align: center;
         gap: var(--spacing-md);
     }
-    
+
+    .weather-icon {
+        width: 60px;
+        height: 60px;
+        font-size: 2rem;
+        margin: 0 auto;
+    }
+
+    .weather-temp {
+        font-size: 2rem;
+    }
+
+    .weather-location {
+        font-size: 0.9rem;
+    }
+
     .weather-details {
         grid-template-columns: 1fr;
         gap: var(--spacing-sm);
     }
-    
-    .user-actions {
-        opacity: 1; /* Always visible on mobile */
+
+    /* Widget titles smaller on mobile */
+    .widget-title {
+        font-size: 1rem;
+        margin-bottom: var(--spacing-md);
     }
-    
+
+    /* User actions always visible */
+    .user-actions {
+        opacity: 1;
+    }
+
     .modal-content {
         width: 95%;
         margin: var(--spacing-lg);
     }
 }
 
-/* Small Screens (550px - 767px) */
-@media (max-width: 550px) {
-    .header-top {
-        display: block;
-        margin-bottom: var(--spacing-lg);
+/* Extra Small Screens (< 480px) - Dodatkowe optymalizacje */
+@media (max-width: 479px) {
+    .main-content {
+        padding: var(--spacing-sm);
     }
-    
-    .title-and-greeting-container {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        margin-bottom: var(--spacing-lg);
-        gap: var(--spacing-lg);
-    }
-    
-    .page-title {
-        margin: 0;
-        flex: 1;
-    }
-    
-    .user-greeting-container {
-        flex-shrink: 0;
-    }
-    
-    .quick-actions-bar {
-        width: 100%;
-        margin-top: 0;
-        justify-content: center;
-        padding: var(--spacing-md) var(--spacing-lg);
-        border-radius: 20px;
-    }
-    
-    .quick-actions-list {
-        width: 100%;
-        justify-content: center;
-        gap: var(--spacing-sm);
-    }
-    
-    .quick-action-btn {
-        padding: var(--spacing-sm) var(--spacing-md);
-        font-size: 0.8rem;
-        border-radius: 20px;
-        flex: 1;
-        min-width: calc(50% - 0.25rem);
-        max-width: 150px;
-        justify-content: center;
-    }
-    
-    .quick-action-icon {
-        font-size: 0.9rem;
-    }
-}
 
-/* Extra Small Screens (470px and below) */
-@media (max-width: 470px) {
-    .weather-info {
-        display: block;
+    .page-title {
+        font-size: 1.35rem;
     }
-    
-    .weather-content {
-        display: flex;
-        align-items: center;
-        gap: var(--spacing-lg);
-        margin-right: 0;
-        margin-bottom: var(--spacing-lg);
+
+    .user-avatar {
+        width: 32px;
+        height: 32px;
     }
-    
+
+    /* Stats - mniejsze odstępy */
+    .stat-card {
+        padding: 0.625rem 0.5rem;
+    }
+
+    .stat-number {
+        font-size: 1.1rem;
+    }
+
+    .stat-label {
+        font-size: 0.6rem;
+    }
+
+    /* Weather adjustments */
     .weather-icon {
-        width: 60px;
-        height: 60px;
-        font-size: 2rem;
+        width: 50px;
+        height: 50px;
+        font-size: 1.75rem;
     }
-    
+
     .weather-temp {
-        font-size: 2rem;
+        font-size: 1.75rem;
     }
-    
+
     .weather-location {
-        font-size: 0.9rem;
+        font-size: 0.85rem;
     }
-    
+
     .weather-desc {
-        font-size: 0.8rem;
+        font-size: 0.75rem;
     }
-    
-    .weather-details {
-        grid-template-columns: 1fr;
+
+    /* Widget adjustments */
+    .widget {
+        padding: var(--spacing-lg);
+    }
+
+    .widget-title {
+        font-size: 0.95rem;
+    }
+
+    /* Issues widget */
+    .widget-header-with-action {
+        flex-direction: column;
+        align-items: flex-start;
         gap: var(--spacing-sm);
-        margin-top: 0;
     }
-    
-    .weather-detail-item {
+
+    .widget-action-btn {
+        width: 100%;
+        justify-content: center;
         font-size: 0.8rem;
     }
-    
+
+    .issue-title {
+        font-size: 0.85rem;
+    }
+
+    .issue-footer {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: var(--spacing-xs);
+    }
+
+    /* User meta info */
     .user-info {
         gap: var(--spacing-sm);
     }
-    
+
     .user-meta {
         flex-direction: column;
         gap: 0.125rem;
         align-items: flex-start;
     }
-    
+
     .user-separator {
         display: none;
     }
-    
-    .widget-header-with-action {
-        flex-direction: column;
-        align-items: flex-start;
-        gap: var(--spacing-md);
-    }
-    
-    .widget-action-btn {
-        width: 100%;
-        justify-content: center;
-    }
-    
-    .issue-footer {
-        flex-direction: column;
-        align-items: flex-start;
-        gap: var(--spacing-sm);
-    }
-    
-    .issue-title {
-        font-size: 0.875rem;
-    }
-}
 
-/* Very Small Screens (400px and below) */
-@media (max-width: 400px) {
-    .title-and-greeting-container {
-        flex-direction: column;
-        align-items: flex-start;
-        gap: var(--spacing-md);
-    }
-    
-    .page-title {
-        font-size: 1.5rem;
-    }
-    
-    .user-greeting-container {
-        align-self: center;
-    }
-    
-    .quick-actions-bar {
-        padding: var(--spacing-sm);
-    }
-    
-    .quick-action-btn {
-        padding: 0.4rem 0.6rem;
-        font-size: 0.75rem;
-        min-width: calc(100% - 0.5rem);
-    }
-    
-    .weather-content {
-        flex-direction: column;
-        text-align: center;
-        gap: var(--spacing-md);
-    }
-    
-    .weather-icon {
-        width: 50px;
-        height: 50px;
-        font-size: 1.75rem;
-        margin: 0 auto;
-    }
-    
-    .weather-temp {
-        font-size: 1.75rem;
-    }
-    
-    .weather-main {
-        width: 100%;
-    }
-    
-    .stats-grid {
-        grid-template-columns: 1fr;
-    }
-    
-    .stat-card {
-        padding: var(--spacing-lg) var(--spacing-md);
-    }
-    
+    /* Chart height adjustment */
     .real-chart-container {
         height: 250px;
         padding: 0.25rem;
     }
 }
 
-/* Chart responsive adjustments */
-@media (max-width: 768px) {
-    .real-chart-container {
-        height: 300px;
-    }
-}
-
-@media (max-width: 480px) {
-    .real-chart-container {
-        height: 250px;
-        padding: 0.25rem;
-    }
-}
 
 /* ============================================================================
    ACCESSIBILITY

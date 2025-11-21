@@ -621,11 +621,10 @@ def get_quote_details(quote_id):
             } for d in finishing_details],
             "client": {
                 "id": quote.client.id if quote.client else None,
-                "client_name": quote.client.client_name if quote.client else None,
+                "client_name": quote.client.client_number if quote.client else None,  # Nazwa klienta (login)
                 "client_number": quote.client.client_number if quote.client else None,
-                "client_delivery_name": quote.client.client_delivery_name if quote.client else None,
                 "company_name": quote.client.delivery_company if quote.client else None,
-                "first_name": quote.client.client_number if quote.client else None,  # client_number zawiera imię i nazwisko
+                "first_name": quote.client.client_name if quote.client else None,  # Imię i nazwisko
                 "last_name": "",  # W bazie nie ma oddzielnych pól
                 "email": quote.client.email if quote.client else None,
                 "phone": quote.client.phone if quote.client else None
@@ -1044,9 +1043,13 @@ def client_accept_quote(token):
         db.session.add(log_entry)
         
         db.session.commit()
-                
-        # TODO: Wysłanie emaila z potwierdzeniem
-        
+
+        # Wysłanie emaili z potwierdzeniem
+        try:
+            send_acceptance_emails(quote)
+        except Exception as e:
+            print(f"[client_accept_quote] Błąd wysyłki emaili: {e}", file=sys.stderr)
+
         return jsonify({
             "success": True,
             "message": "Wycena została zaakceptowana",
@@ -1076,7 +1079,7 @@ def send_acceptance_email_to_salesperson(quote):
         selected_items = quote.get_selected_items()
         
         # Oblicz koszty
-        cost_products_netto = round(sum(i.get_total_price_netto or 0 for i in selected_items), 2)
+        cost_products_netto = round(sum(i.get_total_price_netto() or 0 for i in selected_items), 2)
         cost_finishing_netto = round(sum(d.finishing_price_netto or 0.0 for d in db.session.query(QuoteItemDetails).filter_by(quote_id=quote.id).all()), 2)
         cost_shipping_brutto = quote.shipping_cost_brutto or 0.0
         costs = calculate_costs_with_vat(cost_products_netto, cost_finishing_netto, cost_shipping_brutto)
@@ -1124,7 +1127,7 @@ def send_acceptance_email_to_client(quote):
         selected_items = quote.get_selected_items()
         
         # Oblicz koszty
-        cost_products_netto = round(sum(i.get_total_price_netto or 0 for i in selected_items), 2)
+        cost_products_netto = round(sum(i.get_total_price_netto() or 0 for i in selected_items), 2)
         cost_finishing_netto = round(sum(d.finishing_price_netto or 0.0 for d in db.session.query(QuoteItemDetails).filter_by(quote_id=quote.id).all()), 2)
         cost_shipping_brutto = quote.shipping_cost_brutto or 0.0
         costs = calculate_costs_with_vat(cost_products_netto, cost_finishing_netto, cost_shipping_brutto)
@@ -1414,9 +1417,9 @@ def send_user_acceptance_email_to_client(quote, accepting_user):
     try:
         # Przygotuj dane do szablonu
         selected_items = quote.get_selected_items()
-        
+
         # Oblicz koszty
-        cost_products_netto = round(sum(i.get_total_price_netto() for i in selected_items), 2)
+        cost_products_netto = round(sum(i.get_total_price_netto() or 0 for i in selected_items), 2)
         cost_finishing_netto = round(sum(d.finishing_price_netto or 0.0 for d in db.session.query(QuoteItemDetails).filter_by(quote_id=quote.id).all()), 2)
         cost_shipping_brutto = quote.shipping_cost_brutto or 0.0
         costs = calculate_costs_with_vat(cost_products_netto, cost_finishing_netto, cost_shipping_brutto)
@@ -1488,6 +1491,11 @@ def client_accept_quote_with_data(token):
         phone_digits = re.sub(r'[^\d]', '', phone)
         if len(phone_digits) < 9 or len(phone_digits) > 15:
             return jsonify({"error": "Nieprawidłowy numer telefonu"}), 400
+
+        # Pobierz dodatkowe dane z formularza
+        is_self_pickup = data.get('is_self_pickup', False)
+        wants_invoice = data.get('wants_invoice', False)
+        invoice_nip = data.get('invoice_nip', '').strip() if wants_invoice else None
 
         # === KRYTYCZNA WALIDACJA BEZPIECZEŃSTWA ===
         # Sprawdź czy podany email LUB telefon pasuje do danych w bazie
@@ -2168,11 +2176,10 @@ def save_quote_changes(quote_id):
             } for d in finishing_details],
             "client": {
                 "id": quote.client.id if quote.client else None,
-                "client_name": quote.client.client_name if quote.client else None,
+                "client_name": quote.client.client_number if quote.client else None,  # Nazwa klienta (login)
                 "client_number": quote.client.client_number if quote.client else None,
-                "client_delivery_name": quote.client.client_delivery_name if quote.client else None,
                 "company_name": quote.client.delivery_company if quote.client else None,
-                "first_name": quote.client.client_number if quote.client else None,
+                "first_name": quote.client.client_name if quote.client else None,  # Imię i nazwisko
                 "last_name": "",
                 "email": quote.client.email if quote.client else None,
                 "phone": quote.client.phone if quote.client else None

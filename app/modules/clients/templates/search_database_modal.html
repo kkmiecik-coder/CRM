@@ -1,0 +1,30 @@
+<!-- modules/clients/templates/search_database_modal.html -->
+<div id="search-database-modal" class="clients-modal-overlay" style="display: none;">
+    <div class="clients-modal search-database-modal">
+        <div class="search-database-header">
+            <h2 class="title-with-underline-h2">Wyszukaj w bazie danych</h2>
+        </div>
+
+        <div class="search-database-content">
+            <div class="search-database-input-wrapper">
+                <input
+                    type="text"
+                    id="databaseSearchInput"
+                    class="clients-input search-database-input"
+                    placeholder="Wpisz NIP, nazwę klienta, imię i nazwisko, email lub telefon..."
+                    autocomplete="off"
+                >
+                <div class="search-database-hint">Wpisz minimum 3 znaki, aby rozpocząć wyszukiwanie</div>
+            </div>
+
+            <!-- Kontener na wyniki wyszukiwania -->
+            <div id="databaseSearchResults" class="database-search-results" style="display: none;">
+                <!-- Wyniki będą generowane dynamicznie przez JavaScript -->
+            </div>
+        </div>
+
+        <div class="clients-modal-actions">
+            <button type="button" class="clients-btn clients-btn-secondary" id="closeDatabaseSearchBtn">Zamknij</button>
+        </div>
+    </div>
+</div>

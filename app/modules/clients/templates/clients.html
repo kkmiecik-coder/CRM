@@ -16,6 +16,7 @@
             <div class="clients-controls">
                 <div class="clients-controls-row">
                     <button id="addClientBtn" class="clients-btn-add">+ Dodaj klienta</button>
+                    <button id="searchInDatabaseBtn" class="clients-btn-search">Wyszukaj w bazie</button>
                 </div>
                 <div class="clients-controls-row">
                     <input type="text" id="search-input" placeholder="Szukaj klienta...">
@@ -54,6 +55,7 @@
 
     {% include 'clients/templates/details_modal.html' %}
     {% include 'clients/templates/add_client_modal.html' %}
+    {% include 'clients/templates/search_database_modal.html' %}
 
     <div id="toast" class="toast" style="display: none;"></div>
     <script src="{{ url_for('clients.static', filename='js/clients.js') }}"></script>

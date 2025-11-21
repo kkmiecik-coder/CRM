@@ -182,38 +182,64 @@
 }
 
 /* ============================================================================
-   RESPONSYWNOŚĆ
+   RESPONSYWNOŚĆ - DASHBOARD PARTNERA
    ============================================================================ */
 
-@media (max-width: 1400px) {
-    /* Dostosowanie dla mniejszych ekranów */
+/* Large Desktop (1200px+) */
+@media (max-width: 1200px) {
     .partner-stats {
         grid-column: span 12;
     }
 
-    .partner-grid .weather-widget {
-        grid-column: span 12;
+    .partner-grid .weather-widget,
+    .partner-grid .issues-widget,
+    .partner-grid .changelog-widget {
+        grid-column: span 6;
     }
 
-    .partner-grid .changelog-widget,
     .partner-grid .recent-activity,
     .partner-grid .top-products {
         grid-column: span 6;
     }
 }
 
-@media (max-width: 768px) {
-    /* Mobile */
-    .partner-grid > * {
-        grid-column: span 12 !important;
+/* Tablets (768px - 1023px) - Flexible 2-column layout */
+@media (max-width: 1023px) and (min-width: 768px) {
+    .partner-dashboard .main-content {
+        padding: var(--spacing-xl);
     }
 
+    .partner-grid {
+        grid-template-columns: repeat(2, 1fr);
+        gap: var(--spacing-lg);
+    }
+
+    /* Full width widget */
+    .partner-stats {
+        grid-column: span 2;
+    }
+
+    /* 2-column widgets - zajmują 1 kolumnę każdy */
+    .partner-grid .issues-widget,
+    .partner-grid .changelog-widget,
+    .partner-grid .weather-widget,
+    .partner-grid .recent-activity,
+    .partner-grid .top-products {
+        grid-column: span 1;
+    }
+
+    /* Stats grid na tablet - 2x2 */
     .partner-stats .stats-grid {
         grid-template-columns: repeat(2, 1fr);
+        gap: var(--spacing-md);
     }
 
     .partner-stats .stat-number {
         font-size: 1.75rem;
+    }
+
+    .partner-stats .stat-label {
+        font-size: 0.75rem;
     }
 
     .partner-stats .stat-ratio {
@@ -221,14 +247,139 @@
     }
 }
 
-@media (max-width: 480px) {
-    /* Extra small screens */
-    .partner-stats .stats-grid {
+/* Mobile (< 768px) - Single column layout */
+@media (max-width: 767px) {
+    .partner-dashboard .main-content {
+        padding: var(--spacing-md);
+    }
+
+    /* UKRYJ Quick Actions Bar na mobile */
+    .partner-dashboard .quick-actions-bar {
+        display: none !important;
+    }
+
+    /* Header - tytuł + avatar w jednej linii */
+    .partner-dashboard .header-top {
+        display: flex;
+        flex-direction: row;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: var(--spacing-lg);
+        gap: var(--spacing-md);
+    }
+
+    .partner-dashboard .page-title {
+        font-size: 1.5rem;
+        margin: 0;
+    }
+
+    .partner-dashboard .user-greeting {
+        padding: 6px 10px 6px 6px;
+        gap: 8px;
+    }
+
+    .partner-dashboard .user-avatar {
+        width: 36px;
+        height: 36px;
+    }
+
+    .partner-dashboard .greeting-text {
+        font-size: 0.9rem;
+        display: none; /* Ukryj tekst, zostaw tylko avatar */
+    }
+
+    /* Dashboard Grid - wszystko jeden pod drugim */
+    .partner-grid {
         grid-template-columns: 1fr;
+        gap: var(--spacing-lg);
+    }
+
+    /* Wszystkie widgety full width */
+    .partner-stats,
+    .partner-grid .weather-widget,
+    .partner-grid .issues-widget,
+    .partner-grid .changelog-widget,
+    .partner-grid .recent-activity,
+    .partner-grid .top-products {
+        grid-column: span 1 !important;
+    }
+
+    /* Partner Stats Widget - 2x2 grid */
+    .partner-stats .stats-grid {
+        grid-template-columns: repeat(2, 1fr);
+        gap: var(--spacing-sm);
     }
 
     .partner-stats .stat-card {
-        padding: 1rem 0.75rem;
+        padding: var(--spacing-md);
+    }
+
+    .partner-stats .stat-number {
+        font-size: 1.35rem;
+        margin-bottom: 0.25rem;
+    }
+
+    .partner-stats .stat-label {
+        font-size: 0.65rem;
+    }
+
+    .partner-stats .stat-ratio {
+        font-size: 0.7rem;
+    }
+
+    /* Widget titles smaller on mobile */
+    .partner-dashboard .widget-title {
+        font-size: 1rem;
+        margin-bottom: var(--spacing-md);
+    }
+}
+
+/* Extra Small Screens (< 480px) - Dodatkowe optymalizacje */
+@media (max-width: 479px) {
+    .partner-dashboard .main-content {
+        padding: var(--spacing-sm);
+    }
+
+    .partner-dashboard .page-title {
+        font-size: 1.35rem;
+    }
+
+    .partner-dashboard .user-avatar {
+        width: 32px;
+        height: 32px;
+    }
+
+    /* Partner Stats - mniejsze odstępy */
+    .partner-stats .stat-card {
+        padding: 0.625rem 0.5rem;
+    }
+
+    .partner-stats .stat-number {
+        font-size: 1.15rem;
+    }
+
+    .partner-stats .stat-label {
+        font-size: 0.6rem;
+    }
+
+    .partner-stats .stat-ratio {
+        font-size: 0.65rem;
+        flex-direction: column;
+        gap: 0.125rem;
+    }
+
+    /* Widget adjustments */
+    .partner-dashboard .widget {
+        padding: var(--spacing-lg);
+    }
+
+    .partner-dashboard .widget-title {
+        font-size: 0.95rem;
+    }
+
+    /* Highlight card adjustments */
+    .partner-stats .stat-card.highlight .stat-number {
+        font-size: 1rem;
     }
 }
 

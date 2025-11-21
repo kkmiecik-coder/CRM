@@ -1212,8 +1212,200 @@
         font-size: 12px;
         padding: 6px 10px;
     }
-    
+
     .copy-delivery-btn span {
         display: none;
+    }
+}
+
+/* ============================================
+   WYSZUKIWANIE W BAZIE DANYCH
+   ============================================ */
+
+/* Przycisk "Wyszukaj w bazie" */
+.clients-btn-search {
+    background-color: #007bff;
+    color: #fff;
+    padding: 10px 18px;
+    border: none;
+    border-radius: 8px;
+    font-family: 'Poppins', sans-serif;
+    font-size: 14px;
+    cursor: pointer;
+    transition: background-color 0.2s ease;
+    margin-left: 10px;
+}
+
+.clients-btn-search:hover {
+    background-color: #0056b3;
+}
+
+/* Modal wyszukiwania */
+.search-database-modal {
+    max-width: 700px;
+    width: 90%;
+    max-height: 80vh;
+    overflow-y: auto;
+}
+
+/* Header modala z odstępem */
+.search-database-header {
+    margin-bottom: 24px;
+}
+
+/* Kontener treści wyszukiwania */
+.search-database-content {
+    margin-bottom: 20px;
+}
+
+/* Input wyszukiwania */
+.search-database-input-wrapper {
+    margin-bottom: 20px;
+}
+
+.search-database-input {
+    width: 100%;
+    padding: 12px 16px;
+    font-size: 15px;
+    border: 2px solid #DEDEDE;
+    border-radius: 8px;
+    font-family: 'Poppins', sans-serif;
+    transition: border-color 0.2s ease;
+}
+
+.search-database-input:focus {
+    outline: none;
+    border-color: #007bff;
+}
+
+.search-database-hint {
+    font-size: 13px;
+    color: #666;
+    margin-top: 8px;
+    font-family: 'Poppins', sans-serif;
+}
+
+/* Kontener wyników */
+.database-search-results {
+    background: white;
+    border: 2px solid #DEDEDE;
+    border-radius: 12px;
+    overflow: hidden;
+    margin-top: 12px;
+    max-height: 400px;
+    overflow-y: auto;
+}
+
+/* Pojedynczy wynik */
+.db-search-result-item {
+    padding: 16px 20px;
+    border-bottom: 1px solid #f0f0f0;
+    transition: background-color 0.2s ease;
+}
+
+.db-search-result-item:last-child {
+    border-bottom: none;
+}
+
+.db-search-result-item:hover {
+    background-color: #f8f9fa;
+}
+
+/* Header wyniku (nazwa + badge) */
+.db-search-result-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 16px;
+    margin-bottom: 8px;
+}
+
+/* Nazwy klienta */
+.db-search-result-names {
+    flex: 1;
+    min-width: 0;
+}
+
+.db-search-result-name {
+    font-family: 'Poppins', sans-serif;
+    font-size: 15px;
+    font-weight: 600;
+    color: #1F2020;
+    margin-bottom: 4px;
+}
+
+.db-search-result-fullname {
+    font-family: 'Poppins', sans-serif;
+    font-size: 14px;
+    color: #666;
+}
+
+/* Badge (Twój klient / Cudzy klient) */
+.db-search-badge {
+    display: inline-block;
+    padding: 6px 12px;
+    font-family: 'Poppins', sans-serif;
+    font-size: 12px;
+    font-weight: 500;
+    border-radius: 6px;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+.db-search-badge-own {
+    background-color: #28a745;
+    color: white;
+}
+
+.db-search-badge-other {
+    background-color: #FFC107;
+    color: #1F2020;
+}
+
+/* Dane kontaktowe */
+.db-search-contact {
+    font-family: 'Poppins', sans-serif;
+    font-size: 13px;
+    color: #666;
+    margin-bottom: 6px;
+}
+
+.db-search-hidden {
+    color: #999;
+    font-style: italic;
+}
+
+/* Data ostatniej wyceny */
+.db-search-quote-date {
+    font-family: 'Poppins', sans-serif;
+    font-size: 12px;
+    color: #888;
+}
+
+/* Brak wyników */
+.db-search-no-results {
+    padding: 20px;
+    text-align: center;
+    font-family: 'Poppins', sans-serif;
+    font-size: 14px;
+    color: #999;
+}
+
+/* Responsive - na małych ekranach */
+@media (max-width: 600px) {
+    .db-search-result-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 8px;
+    }
+
+    .db-search-badge {
+        align-self: flex-start;
+    }
+
+    .clients-btn-search {
+        margin-left: 0;
+        margin-top: 10px;
+        width: 100%;
     }
 }

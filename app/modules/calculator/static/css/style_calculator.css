@@ -3128,7 +3128,6 @@ select.select-small option {
     
     .quote-summary {
         flex: none; /* Usuń ograniczenie szerokości */
-        width: 100%;
     }
     
     .products-summary-main {

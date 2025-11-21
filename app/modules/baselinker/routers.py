@@ -539,7 +539,7 @@ def get_order_modal_data(quote_id):
         if quote.client:
             client_data = {
                 'name': quote.client.client_name,
-                'delivery_name': quote.client.client_delivery_name or quote.client.client_name,
+                'delivery_name': quote.client.delivery_name or quote.client.client_name,
                 'email': quote.client.email,
                 'phone': quote.client.phone,
                 'delivery_address': quote.client.delivery_address or '',

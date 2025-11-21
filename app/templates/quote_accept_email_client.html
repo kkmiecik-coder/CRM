@@ -121,7 +121,7 @@
                           margin: 10px 0 0;
                           text-align: justify;
                         ">
-                                            Dziękujemy za zaakceptowanie wyceny <strong>{{ quote.quote_number }}</strong>. Twoje zamówienie zostało przekazane do realizacji.
+                                            Dziękujemy za zaakceptowanie wyceny <strong>{{ quote.quote_number }}</strong>. Wkrótce otrzymasz od nas fakturę PRO-FORMA w celu opłacenia zamówienia.
                                         </p>
                                     </td>
                                 </tr>
@@ -248,7 +248,7 @@
                                                         </tr>
                                                         <tr>
                                                             <td colspan="2" style="padding: 2px 0;">
-                                                                <span style="font-family: Poppins, Arial, sans-serif; font-size: 13px; color: #666;"><strong>Cena:</strong> {{ "%.2f"|format(item.final_price_brutto) }} PLN brutto</span>
+                                                                <span style="font-family: Poppins, Arial, sans-serif; font-size: 13px; color: #666;"><strong>Cena:</strong> {{ "%.2f"|format(item.get_total_price_brutto()) }} PLN brutto</span>
                                                             </td>
                                                         </tr>
                                                     </table>

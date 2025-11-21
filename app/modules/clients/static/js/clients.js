@@ -917,6 +917,131 @@ function copyInvoiceToDeliveryAdd() {
             }, 1500);
         }
     });
-    
+
     showToast('Dane z faktury zostały skopiowane do adresu dostawy!');
 }
+
+// ============================================
+// WYSZUKIWANIE W BAZIE DANYCH
+// ============================================
+
+const searchDatabaseModal = document.getElementById('search-database-modal');
+const searchInDatabaseBtn = document.getElementById('searchInDatabaseBtn');
+const closeDatabaseSearchBtn = document.getElementById('closeDatabaseSearchBtn');
+const databaseSearchInput = document.getElementById('databaseSearchInput');
+const databaseSearchResults = document.getElementById('databaseSearchResults');
+
+// Otwórz modal wyszukiwania
+searchInDatabaseBtn.addEventListener('click', () => {
+    searchDatabaseModal.style.display = 'flex';
+    databaseSearchInput.value = '';
+    databaseSearchResults.style.display = 'none';
+    databaseSearchResults.innerHTML = '';
+    setTimeout(() => databaseSearchInput.focus(), 100);
+});
+
+// Zamknij modal
+closeDatabaseSearchBtn.addEventListener('click', () => {
+    searchDatabaseModal.style.display = 'none';
+});
+
+// Zamknij modal przy kliknięciu poza nim
+searchDatabaseModal.addEventListener('click', (e) => {
+    if (e.target === searchDatabaseModal) {
+        searchDatabaseModal.style.display = 'none';
+    }
+});
+
+// Debounce function
+function debounce(func, wait) {
+    let timeout;
+    return function executedFunction(...args) {
+        const later = () => {
+            clearTimeout(timeout);
+            func(...args);
+        };
+        clearTimeout(timeout);
+        timeout = setTimeout(later, wait);
+    };
+}
+
+// Funkcja wyszukiwania
+const handleDatabaseSearch = debounce(async function(value) {
+    const query = value.trim();
+
+    if (query.length < 3) {
+        databaseSearchResults.style.display = 'none';
+        databaseSearchResults.innerHTML = '';
+        return;
+    }
+
+    try {
+        const res = await fetch(`/clients/search_in_database?q=${encodeURIComponent(query)}`);
+        const clients = await res.json();
+
+        let html = '';
+
+        if (!clients || clients.length === 0) {
+            html = '<div class="db-search-no-results">Nie znaleziono klientów</div>';
+        } else {
+            html = clients.map(client => {
+                // Przygotuj badge
+                let badge = '';
+                if (client.is_own_client) {
+                    badge = '<span class="db-search-badge db-search-badge-own">Twój klient</span>';
+                } else {
+                    badge = '<span class="db-search-badge db-search-badge-other">Utworzony przez innego handlowca</span>';
+                }
+
+                // Przygotuj dane kontaktowe (jeśli dostępne)
+                let contactInfo = '';
+                if (client.show_full_data) {
+                    const parts = [];
+                    if (client.email) parts.push(`Email: ${client.email}`);
+                    if (client.phone) parts.push(`Tel: ${client.phone}`);
+                    if (client.invoice_nip) parts.push(`NIP: ${client.invoice_nip}`);
+                    if (parts.length > 0) {
+                        contactInfo = `<div class="db-search-contact">${parts.join(' • ')}</div>`;
+                    }
+                } else {
+                    contactInfo = '<div class="db-search-contact db-search-hidden">Dane kontaktowe ukryte (aktywny klient)</div>';
+                }
+
+                // Data ostatniej wyceny
+                let quoteInfo = '';
+                if (client.latest_quote_date) {
+                    quoteInfo = `<div class="db-search-quote-date">Ostatnia wycena: ${client.latest_quote_date}</div>`;
+                } else {
+                    quoteInfo = '<div class="db-search-quote-date">Brak wycen w systemie</div>';
+                }
+
+                return `
+                    <div class="db-search-result-item">
+                        <div class="db-search-result-header">
+                            <div class="db-search-result-names">
+                                <div class="db-search-result-name">${client.client_number || '-'}</div>
+                                <div class="db-search-result-fullname">${client.client_name || '-'}</div>
+                            </div>
+                            ${badge}
+                        </div>
+                        ${contactInfo}
+                        ${quoteInfo}
+                    </div>
+                `;
+            }).join('');
+        }
+
+        databaseSearchResults.innerHTML = html;
+        databaseSearchResults.style.display = 'block';
+
+    } catch (err) {
+        console.error('[search_in_database] Błąd fetch:', err);
+        databaseSearchResults.innerHTML = '<div class="db-search-no-results">Błąd podczas wyszukiwania</div>';
+        databaseSearchResults.style.display = 'block';
+    }
+}, 300);
+
+// Event listener dla inputa
+databaseSearchInput.addEventListener('input', (e) => {
+    handleDatabaseSearch(e.target.value);
+});

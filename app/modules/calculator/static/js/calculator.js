@@ -5,7 +5,7 @@ console.log("calculator.js załadowany!");
 // GLOBAL STATE & CACHING SETUP
 // ------------------------------
 
-const DEBUG = true;
+const DEBUG = false;  // ✅ Wyłączone - zmniejsza ilość logów w konsoli
 function dbg(...args) { if (DEBUG) console.log(...args); }
 
 // Dodaj na początku pliku
@@ -4684,19 +4684,21 @@ function addNewProductWithAvailability() {
  * Walidacja przed zapisem wyceny - sprawdź czy są dostępne warianty
  */
 function validateAvailableVariants() {
-    console.log('[validateAvailableVariants] 🔍 START walidacji');
+    if (DEBUG) console.log('[validateAvailableVariants] 🔍 START walidacji');
 
     const forms = Array.from(quoteFormsContainer.querySelectorAll('.quote-form'));
-    console.log(`[validateAvailableVariants] Znaleziono ${forms.length} formularzy`);
+    if (DEBUG) console.log(`[validateAvailableVariants] Znaleziono ${forms.length} formularzy`);
 
     for (let i = 0; i < forms.length; i++) {
         const form = forms[i];
         const availableVariants = getAvailableVariants(form);
 
-        console.log(`[validateAvailableVariants] Produkt ${i + 1}:`, {
-            dostepne: availableVariants,
-            liczba: availableVariants.length
-        });
+        if (DEBUG) {
+            console.log(`[validateAvailableVariants] Produkt ${i + 1}:`, {
+                dostepne: availableVariants,
+                liczba: availableVariants.length
+            });
+        }
 
         if (availableVariants.length === 0) {
             console.error(`[validateAvailableVariants] ❌ Produkt ${i + 1} nie ma dostępnych wariantów`);
@@ -4706,7 +4708,7 @@ function validateAvailableVariants() {
 
         // ✅ POPRAWKA: Szukaj tylko w sekcji .variants
         const selectedRadio = form.querySelector('.variants input[type="radio"]:checked');
-        console.log(`[validateAvailableVariants] Produkt ${i + 1} - zaznaczony:`, selectedRadio?.value);
+        if (DEBUG) console.log(`[validateAvailableVariants] Produkt ${i + 1} - zaznaczony:`, selectedRadio?.value);
 
         if (selectedRadio) {
             const selectedVariant = selectedRadio.value;

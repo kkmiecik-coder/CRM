@@ -53,8 +53,7 @@
             <!-- Dashboard Grid -->
             <div class="dashboard-grid partner-grid">
 
-                <!-- WIERSZ 1 -->
-                <!-- Statystyki partnera (8 kolumn) -->
+                <!-- Statystyki partnera (8 kolumn na desktop) -->
                 <div class="widget stats-overview partner-stats">
                     <h2 class="widget-title">
                         <span class="widget-icon">📊</span>
@@ -97,20 +96,19 @@
                     </div>
                 </div>
 
-                <!-- Pogoda (4 kolumny) -->
-                {% include 'widgets/weather_widget.html' %}
-
-                <!-- WIERSZ 2 -->
-                <!-- Nowości w aplikacji (4 kolumny) -->
-                {% include 'widgets/changelog_widget.html' %}
-
-                <!-- Issues Widget - Moje zgłoszenia (4 kolumny) -->
+                <!-- Issues Widget - Moje zgłoszenia -->
                 {% include 'widgets/issues_widget.html' %}
 
-                <!-- Ostatnie działania (4 kolumny) -->
+                <!-- Changelog Widget - Nowości w aplikacji -->
+                {% include 'widgets/changelog_widget.html' %}
+
+                <!-- Weather Widget - Pogoda -->
+                {% include 'widgets/weather_widget.html' %}
+
+                <!-- Recent Activity - Ostatnie działania -->
                 {% include 'widgets/recent_activity_widget.html' %}
 
-                <!-- Top produkty (4 kolumny) -->
+                <!-- Top Products - Top produkty -->
                 {% include 'widgets/top_products_widget.html' %}
 
             </div>

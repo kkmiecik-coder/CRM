@@ -333,19 +333,19 @@ document.addEventListener('DOMContentLoaded', function () {
             isValid = false;
         }
 
-        // 3. Imię i nazwisko (jeśli wypełnione, min 3 znaki)
-        const nameField = document.querySelector('[name="client_name"]');
-        if (nameField && nameField.value.trim() && nameField.value.trim().length < 3) {
-            showFieldError(nameField, 'Minimalna długość: 3 znaki');
-            isValid = false;
-        }
+        // 3. Imię i nazwisko - opcjonalne, bez walidacji
+        // Pole zostało zmienione na opcjonalne
 
-        // 4. Telefon (jeśli wypełniony, min 9 cyfr)
+        // 4. Telefon (jeśli wypełniony, min 9 cyfr bez znaków specjalnych)
         const phoneField = document.querySelector('[name="client_phone"]');
-        const phoneValue = phoneField?.value.trim().replace(/\s/g, '');
-        if (phoneValue && !/^\d{9,}$/.test(phoneValue)) {
-            showFieldError(phoneField, 'Minimum 9 cyfr');
-            isValid = false;
+        const phoneValue = phoneField?.value.trim();
+        if (phoneValue) {
+            // Usuń wszystkie znaki oprócz cyfr do walidacji
+            const phoneDigits = phoneValue.replace(/\D/g, '');
+            if (phoneDigits.length < 9) {
+                showFieldError(phoneField, 'Minimum 9 cyfr');
+                isValid = false;
+            }
         }
 
         // 5. Email (jeśli wypełniony, prawidłowy format)
@@ -362,10 +362,14 @@ document.addEventListener('DOMContentLoaded', function () {
         const isCzerneckiSource = sourceValue.includes('czernecki');
 
         // Dla OLX i Czernecki - telefon i email są opcjonalne
-        if (!isOlxSource && !isCzerneckiSource && !phoneValue && !emailValue) {
-            showFieldError(phoneField, 'Wymagany telefon lub email');
-            showFieldError(emailField, 'Wymagany telefon lub email');
-            isValid = false;
+        // Dla pozostałych źródeł - wymagany jest telefon LUB email
+        if (!isOlxSource && !isCzerneckiSource) {
+            const phoneDigits = phoneValue ? phoneValue.replace(/\D/g, '') : '';
+            if (!phoneDigits && !emailValue) {
+                showFieldError(phoneField, 'Wymagany telefon lub email');
+                showFieldError(emailField, 'Wymagany telefon lub email');
+                isValid = false;
+            }
         }
 
         // 7. Sprawdź czy wszystkie produkty mają wybrane warianty

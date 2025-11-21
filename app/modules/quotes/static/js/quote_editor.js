@@ -15,27 +15,30 @@ let isRecalculating = false; // ✅ NOWE: Flaga zapobiegająca nieskończonej p�
 
 // Optimized logging - centralized debug control
 const DEBUG_LOGS = {
-    editor: true,
-    calculator: false,
-    finishing: false,
-    sync: true
+    editor: true,      // Główne operacje edytora
+    calculator: false,  // Operacje kalkulatora (wyłączone - zbyt dużo)
+    finishing: false,   // Operacje wykończenia (wyłączone - zbyt dużo)
+    sync: false,        // Synchronizacja pól (wyłączone - zbyt dużo)
+    debug: false        // Szczegółowe debugowanie danych (wyłączone - powtórzenia)
 };
 
 // Centralized logger to reduce repetitive logging
 function log(category, message, data = null) {
-    if (DEBUG_LOGS[category] || DEBUG_LOGS.editor) {
-        const prefix = `[QUOTE EDITOR ${category.toUpperCase()}]`;
-        if (data) {
-            console.log(prefix, message, data);
-        } else {
-            console.log(prefix, message);
-        }
+    // Sprawdź tylko specyficzną kategorię, NIE nadpisuj ustawieniem editor
+    if (!DEBUG_LOGS[category]) return;
+
+    const prefix = `[QUOTE EDITOR ${category.toUpperCase()}]`;
+    if (data) {
+        console.log(prefix, message, data);
+    } else {
+        console.log(prefix, message);
     }
 }
 
 // ==================== GŁÓWNE FUNKCJE EDYTORA ====================
 
 function debugIncomingQuoteData(quoteData, context = 'unknown') {
+    if (!DEBUG_LOGS.debug) return; // ✅ Wyłącz gdy debug=false
     console.log(`=== DEBUG INCOMING DATA (${context}) ===`);
     console.log('Quote ID:', quoteData?.id);
     console.log('Wszystkich pozycji:', quoteData?.items?.length || 0);
@@ -95,14 +98,11 @@ async function openQuoteEditor(quoteData) {
 
     log('editor', '✅ Zablokowano problematyczne funkcje calculator.js');
 
-    // DEBUGOWANIE: Sprawdź dane wejściowe
-    debugIncomingQuoteData(quoteData, 'openQuoteEditor - wejście');
-
     // Walidacja wstępna
     if (!validateQuoteData(quoteData)) return;
 
-    // DEBUGOWANIE: Sprawdź czy dane nie są modyfikowane po walidacji
-    debugIncomingQuoteData(quoteData, 'openQuoteEditor - po walidacji');
+    // DEBUGOWANIE: Sprawdź dane wejściowe (tylko gdy debug=true)
+    debugIncomingQuoteData(quoteData, 'openQuoteEditor');
 
     // Przygotowanie środowiska
     currentEditingQuoteData = quoteData;
@@ -152,10 +152,6 @@ async function openQuoteEditor(quoteData) {
         });
     }
 
-    // DEBUGOWANIE: Sprawdź currentEditingQuoteData po przypisaniu
-    console.log('=== DEBUG currentEditingQuoteData PO PRZYPISANIU ===');
-    debugIncomingQuoteData(currentEditingQuoteData, 'currentEditingQuoteData - po przypisaniu');
-
     const modal = initializeModal();
     if (!modal) return;
 
@@ -172,16 +168,8 @@ async function openQuoteEditor(quoteData) {
 
         await initializeFinishingPrices();
 
-        // DEBUGOWANIE: Sprawdź dane przed loadQuoteDataToEditor
-        console.log('=== DEBUG PRZED loadQuoteDataToEditor ===');
-        debugIncomingQuoteData(currentEditingQuoteData, 'przed loadQuoteDataToEditor');
-
         // Synchroniczne operacje po załadowaniu danych
         loadQuoteDataToEditor(quoteData);
-
-        // DEBUGOWANIE: Sprawdź dane po loadQuoteDataToEditor
-        console.log('=== DEBUG PO loadQuoteDataToEditor ===');
-        debugIncomingQuoteData(currentEditingQuoteData, 'po loadQuoteDataToEditor');
 
         initializeEventListeners();
 
@@ -646,7 +634,7 @@ function createElement(tag, options = {}) {
 function createMockFormHTML() {
     return `
         <div class="product-inputs">
-            <select data-field="clientType" style="display: none;">
+            <select data-field="clientType" id="mock-clientType" style="display: none;">
                 <option value="">Wybierz grupę</option>
                 <option value="Bazowy">Bazowy</option>
                 <option value="Hurt">Hurt</option>
@@ -1207,14 +1195,28 @@ function syncEditorDataToCalculatorForm() {
             `sync ${calculatorField}`
         );
 
-        if (editorElement && calculatorElement) {
-            calculatorElement.value = editorElement.value || '';
-            syncedCount++;
-            if (DEBUG_LOGS.sync) {
-                log('sync', `✅ ${calculatorField}: ${editorElement.value}`);
+        if (calculatorElement) {
+            // Dla clientType: jeśli element nie istnieje (ukryty dla partnera), użyj data-client-type
+            if (!editorElement && calculatorField === 'clientType') {
+                const userClientType = document.body.dataset.clientType;
+                if (userClientType) {
+                    calculatorElement.value = userClientType;
+                    syncedCount++;
+                    log('sync', `✅ ${calculatorField}: ${userClientType} (z body.dataset)`);
+                } else {
+                    log('sync', `⚠️ Brak wartości clientType w body.dataset`);
+                }
+            } else if (editorElement) {
+                calculatorElement.value = editorElement.value || '';
+                syncedCount++;
+                if (DEBUG_LOGS.sync) {
+                    log('sync', `✅ ${calculatorField}: ${editorElement.value}`);
+                }
+            } else {
+                log('sync', `⚠️ Nie można zsynchronizować ${calculatorField} - brak elementu #${editorId}`);
             }
         } else {
-            log('sync', `⚠️ Nie można zsynchronizować ${calculatorField}`);
+            log('sync', `⚠️ Nie można zsynchronizować ${calculatorField} - brak pola w formularzu`);
         }
     });
 
@@ -1468,6 +1470,56 @@ function populateClientTypeSelect(multipliers) {
     // Single DOM operation
     select.innerHTML = '';
     select.appendChild(fragment);
+
+    // ✅ NOWE: Dla standardowych partnerów ustaw automatycznie ich grupę cenową i ukryj pole
+    const userRole = document.body.dataset.role;
+    const isFlexiblePartner = document.body.dataset.flexiblePartner === 'true';
+    const isPartner = userRole === 'partner';
+
+    if (isPartner && !isFlexiblePartner) {
+        const userClientType = document.body.dataset.clientType;
+        log('editor', `[PARTNER SETUP] userClientType z body: "${userClientType}"`);
+        log('editor', `[PARTNER SETUP] Dostępne opcje w select:`, Array.from(select.options).map(opt => `"${opt.value}"`));
+
+        // Ustaw wartość PRZED ukryciem pola
+        if (userClientType) {
+            select.value = userClientType;
+            log('editor', `[PARTNER SETUP] Ustawiono select.value na: "${userClientType}"`);
+            log('editor', `[PARTNER SETUP] Aktualna wartość select.value po ustawieniu: "${select.value}"`);
+            log('editor', `[PARTNER SETUP] selectedIndex: ${select.selectedIndex}`);
+
+            // Sprawdź czy wartość została faktycznie ustawiona
+            if (select.value === userClientType) {
+                log('editor', `✅ Pomyślnie ustawiono grupę cenową partnera: ${userClientType}`);
+            } else {
+                log('editor', `❌ BŁĄD: Nie udało się ustawić wartości "${userClientType}". Aktualna wartość: "${select.value}"`);
+                // Spróbuj znaleźć opcję ręcznie (case-insensitive)
+                const matchingOption = Array.from(select.options).find(opt =>
+                    opt.value.toLowerCase() === userClientType.toLowerCase()
+                );
+                if (matchingOption) {
+                    matchingOption.selected = true;
+                    log('editor', `✅ Ustawiono przez matchingOption: ${matchingOption.value}`);
+                }
+            }
+        }
+
+        // Ukryj pole grupy cenowej
+        const wrapper = select.closest('.client-type');
+        if (wrapper) {
+            wrapper.style.display = 'none';
+            log('editor', '✅ Ukryto pole grupy cenowej dla standardowego partnera');
+        }
+
+        // Wywołaj event change aby przeliczenia się wykonały (jeśli wartość została ustawiona)
+        if (userClientType && select.value) {
+            const event = new Event('change', { bubbles: true });
+            select.dispatchEvent(event);
+            log('editor', `✅ Wywołano event change dla wartości: "${select.value}"`);
+        }
+    } else {
+        log('editor', `✅ Pole grupy cenowej pozostaje widoczne (flexible partner lub admin)`);
+    }
 }
 
 // ==================== OPTIMIZED CALCULATION CORE ====================
@@ -1627,7 +1679,8 @@ function calculateVariantPrice(variantCode, formData) {
     }
 
     // Calculate prices
-    const unitNetto = formData.volume * basePrice * formData.multiplier;
+    const pricePerM3WithMultiplier = basePrice * formData.multiplier; // ✅ Cena za m³ PO przeliczniku
+    const unitNetto = formData.volume * pricePerM3WithMultiplier;
     const unitBrutto = unitNetto * 1.23;
     const totalNetto = unitNetto * formData.quantity;
     const totalBrutto = unitBrutto * formData.quantity;
@@ -1638,7 +1691,7 @@ function calculateVariantPrice(variantCode, formData) {
         totalNetto,
         totalBrutto,
         noPrice: false,
-        price_per_m3: basePrice,
+        price_per_m3: pricePerM3WithMultiplier, // ✅ POPRAWKA: Zapisz cenę PO przeliczniku
         volume_m3: formData.volume
     };
 }
@@ -3119,10 +3172,21 @@ function validateFormBeforeSave() {
     // Check all fields in single loop
     for (const rule of validationRules) {
         const element = document.getElementById(rule.field);
+
+        // ✅ POPRAWKA: Dla clientType sprawdź także body.dataset jeśli element nie istnieje (partner)
+        if (rule.field === 'edit-clientType') {
+            const value = element?.value || document.body.dataset.clientType;
+            if (!rule.validator(value)) {
+                alert(rule.message);
+                return false;
+            }
+            continue; // Przejdź do następnej reguły
+        }
+
         const value = element?.value;
         const numValue = parseFloat(value);
 
-        if (!rule.validator(rule.field === 'edit-clientType' ? value : numValue)) {
+        if (!rule.validator(numValue)) {
             alert(rule.message);
             return false;
         }
@@ -3278,20 +3342,55 @@ function copyVariantMappingToEditor() {
  * Aktualizuje przelicznik w calculator.js z danych edytora
  */
 function updateMultiplierFromEditor() {
-    const clientTypeSelect = document.getElementById('edit-clientType');
-    if (!clientTypeSelect || !clientTypeSelect.value) {
-        log('sync', '⚠️ Brak grupy cenowej w edytorze');
+    // Szukaj w edytorze wyceny ALBO w mock formie kalkulatora
+    let clientTypeSelect = document.getElementById('edit-clientType');
+    if (!clientTypeSelect) {
+        clientTypeSelect = document.getElementById('mock-clientType');
+    }
+    // Alternatywnie: szukaj po data-field w active form
+    if (!clientTypeSelect && window.activeQuoteForm) {
+        clientTypeSelect = window.activeQuoteForm.querySelector('select[data-field="clientType"]');
+    }
+
+    log('sync', `[MULTIPLIER UPDATE] Rozpoczynam aktualizację przelicznika...`);
+    log('sync', `[MULTIPLIER UPDATE] clientTypeSelect istnieje: ${!!clientTypeSelect}`);
+    log('sync', `[MULTIPLIER UPDATE] Znaleziono w: ${clientTypeSelect?.id || 'data-field selector'}`);
+
+    if (!clientTypeSelect) {
+        log('sync', '❌ Brak elementu clientType (sprawdzono: #edit-clientType, #mock-clientType, activeQuoteForm)');
+        return;
+    }
+
+    log('sync', `[MULTIPLIER UPDATE] select.value: "${clientTypeSelect.value}"`);
+    log('sync', `[MULTIPLIER UPDATE] selectedIndex: ${clientTypeSelect.selectedIndex}`);
+    log('sync', `[MULTIPLIER UPDATE] Liczba opcji: ${clientTypeSelect.options.length}`);
+
+    if (!clientTypeSelect.value) {
+        log('sync', '⚠️ Brak grupy cenowej w edytorze (select.value jest puste)');
+        log('sync', '[MULTIPLIER UPDATE] Dostępne opcje:', Array.from(clientTypeSelect.options).map(opt => `"${opt.value}"`));
         return;
     }
 
     const selectedOption = clientTypeSelect.options[clientTypeSelect.selectedIndex];
-    if (!selectedOption || !selectedOption.dataset.multiplierValue) {
+    log('sync', `[MULTIPLIER UPDATE] selectedOption istnieje: ${!!selectedOption}`);
+
+    if (!selectedOption) {
+        log('sync', '❌ Brak wybranej opcji (selectedOption jest null)');
+        return;
+    }
+
+    log('sync', `[MULTIPLIER UPDATE] selectedOption.value: "${selectedOption.value}"`);
+    log('sync', `[MULTIPLIER UPDATE] selectedOption.dataset.multiplierValue: "${selectedOption.dataset.multiplierValue}"`);
+
+    if (!selectedOption.dataset.multiplierValue) {
         log('sync', '⚠️ Brak danych przelicznika dla wybranej grupy');
         return;
     }
 
     const clientType = selectedOption.value;
     const multiplierValue = parseFloat(selectedOption.dataset.multiplierValue);
+
+    log('sync', `[MULTIPLIER UPDATE] Finalne wartości: clientType="${clientType}", multiplier=${multiplierValue}`);
 
     // ✅ KLUCZOWA POPRAWKA: Zaktualizuj zmienne globalne calculator.js
     if (typeof window.currentClientType !== 'undefined') {
@@ -3579,15 +3678,17 @@ function saveActiveProductFormData() {
             item.volume_m3 = parseFloat(radio.dataset.volumeM3);
         }
 
-        // ✅ DEBUG: Szczegółowy log cen dla każdego wariantu
-        console.log(`[SAVE PRICES] Wariant ${variantCode}:`, {
-            price_per_m3: item.price_per_m3,
-            volume_m3: item.volume_m3,
-            calculated_volume_m3: item.calculated_volume_m3,
-            unit_price_brutto: item.unit_price_brutto,
-            calculated_price_brutto: item.calculated_price_brutto,
-            final_price_brutto: item.final_price_brutto
-        });
+        // ✅ DEBUG: Szczegółowy log cen (wyłączony - zbyt dużo logów)
+        if (DEBUG_LOGS.debug) {
+            console.log(`[SAVE PRICES] Wariant ${variantCode}:`, {
+                price_per_m3: item.price_per_m3,
+                volume_m3: item.volume_m3,
+                calculated_volume_m3: item.calculated_volume_m3,
+                unit_price_brutto: item.unit_price_brutto,
+                calculated_price_brutto: item.calculated_price_brutto,
+                final_price_brutto: item.final_price_brutto
+            });
+        }
     });
 
     // ✅ POPRAWKA: Zapisz koszty wykończenia dla aktywnego produktu
@@ -3595,15 +3696,17 @@ function saveActiveProductFormData() {
         const finishingBrutto = parseFloat(window.activeQuoteForm.dataset.finishingBrutto) || 0;
         const finishingNetto = parseFloat(window.activeQuoteForm.dataset.finishingNetto) || 0;
 
-        // DEBUG: Log przed zapisaniem
-        console.log(`[SAVE FINISHING] Produkt ${activeProductIndex}:`, {
-            formElements_finishingType: formElements.finishingType,
-            formElements_finishingVariant: formElements.finishingVariant,
-            formElements_finishingColor: formElements.finishingColor,
-            formElements_finishingGloss: formElements.finishingGloss,
-            finishingBrutto,
-            finishingNetto
-        });
+        // DEBUG: Log przed zapisaniem (wyłączony - zbyt dużo logów)
+        if (DEBUG_LOGS.debug) {
+            console.log(`[SAVE FINISHING] Produkt ${activeProductIndex}:`, {
+                formElements_finishingType: formElements.finishingType,
+                formElements_finishingVariant: formElements.finishingVariant,
+                formElements_finishingColor: formElements.finishingColor,
+                formElements_finishingGloss: formElements.finishingGloss,
+                finishingBrutto,
+                finishingNetto
+            });
+        }
 
         // Aktualizuj wykończenie w details
         detailsItem.finishing_price_brutto = finishingBrutto;
@@ -3613,12 +3716,14 @@ function saveActiveProductFormData() {
         detailsItem.finishing_color = formElements.finishingColor || null;
         detailsItem.finishing_gloss_level = formElements.finishingGloss || null;
 
-        console.log(`[SAVE FINISHING] Po zapisaniu do detailsItem:`, {
-            finishing_type: detailsItem.finishing_type,
-            finishing_variant: detailsItem.finishing_variant,
-            finishing_color: detailsItem.finishing_color,
-            finishing_gloss_level: detailsItem.finishing_gloss_level
-        });
+        if (DEBUG_LOGS.debug) {
+            console.log(`[SAVE FINISHING] Po zapisaniu do detailsItem:`, {
+                finishing_type: detailsItem.finishing_type,
+                finishing_variant: detailsItem.finishing_variant,
+                finishing_color: detailsItem.finishing_color,
+                finishing_gloss_level: detailsItem.finishing_gloss_level
+            });
+        }
 
         log('sync', `✅ Zapisano wykończenie w details: ${finishingBrutto} PLN brutto`);
     }
@@ -4441,22 +4546,53 @@ function collectUpdatedQuoteData() {
                 },
 
                 // Wszystkie warianty (dostępność, zaznaczenie i CENY)
-                variants: productItems.map(item => ({
-                    item_id: item.id,
-                    variant_code: item.variant_code,
-                    is_selected: item.is_selected,
-                    show_on_client_page: item.show_on_client_page,
-                    length_cm: item.length_cm,
-                    width_cm: item.width_cm,
-                    thickness_cm: item.thickness_cm,
-                    // ✅ POPRAWKA: Wysyłaj ceny - jeśli null/undefined to 0
-                    price_per_m3: item.price_per_m3 ?? 0,
-                    volume_m3: item.calculated_volume_m3 ?? item.volume_m3 ?? 0,
-                    unit_price_netto: item.calculated_price_netto ?? item.unit_price_netto ?? item.final_price_netto ?? 0,
-                    unit_price_brutto: item.calculated_price_brutto ?? item.unit_price_brutto ?? item.final_price_brutto ?? 0,
-                    final_price_netto: item.calculated_price_netto ?? item.final_price_netto ?? 0,
-                    final_price_brutto: item.calculated_price_brutto ?? item.final_price_brutto ?? 0
-                })),
+                variants: productItems.map(item => {
+                    // ✅ POPRAWKA: ZAWSZE przelicz price_per_m3 przez multiplier
+                    let freshPricePerM3 = null;
+
+                    // Dla aktywnego produktu - najpierw spróbuj pobrać z UI (jeśli użytkownik zmienił wymiary)
+                    if (parseInt(productIndex) === activeProductIndex) {
+                        const radio = document.querySelector(`input[name="edit-variantOption"][value="${item.variant_code}"]`);
+                        if (radio?.dataset.pricePerM3) {
+                            freshPricePerM3 = parseFloat(radio.dataset.pricePerM3);
+                        }
+                    }
+
+                    // Jeśli nie ma w UI (dla aktywnego) lub to nieaktywny produkt - przelicz bazową cenę
+                    if (freshPricePerM3 === null) {
+                        const config = window.variantMapping?.[item.variant_code];
+                        if (config && window.priceIndex) {
+                            const match = getEditorPrice(
+                                config.species,
+                                config.technology,
+                                config.wood_class,
+                                item.thickness_cm,
+                                item.length_cm
+                            );
+                            if (match) {
+                                // Bazowa cena * multiplier = cena dla grupy cenowej
+                                freshPricePerM3 = match.price_per_m3 * multiplier;
+                            }
+                        }
+                    }
+
+                    return {
+                        item_id: item.id,
+                        variant_code: item.variant_code,
+                        is_selected: item.is_selected,
+                        show_on_client_page: item.show_on_client_page,
+                        length_cm: item.length_cm,
+                        width_cm: item.width_cm,
+                        thickness_cm: item.thickness_cm,
+                        // ✅ POPRAWKA: Użyj przeliczonej ceny per m3
+                        price_per_m3: freshPricePerM3 ?? 0,
+                        volume_m3: item.calculated_volume_m3 ?? item.volume_m3 ?? 0,
+                        unit_price_netto: item.calculated_price_netto ?? item.unit_price_netto ?? item.final_price_netto ?? 0,
+                        unit_price_brutto: item.calculated_price_brutto ?? item.unit_price_brutto ?? item.final_price_brutto ?? 0,
+                        final_price_netto: item.calculated_price_netto ?? item.final_price_netto ?? 0,
+                        final_price_brutto: item.calculated_price_brutto ?? item.final_price_brutto ?? 0
+                    };
+                }),
 
                 // Wykończenie
                 finishing: finishingData
@@ -5144,25 +5280,28 @@ function checkProductCompletenessInEditor() {
 
     const isComplete = hasBasicData && hasVariant && hasValidFinishing;
 
-    console.log('[checkProductCompletenessInEditor] Walidacja formularza:', {
-        length: length,
-        width: width,
-        thickness: thickness,
-        quantity: quantity,
-        hasBasicData: hasBasicData,
-        selectedVariant: selectedVariant?.value,
-        hasVariant: hasVariant,
-        finishingType: finishingType,
-        finishingVariant: finishingVariant,
-        finishingColor: finishingColor,
-        hasValidFinishing: hasValidFinishing,
-        finishingErrorMessage: finishingErrorMessage,
-        isComplete: isComplete
-    });
+    // ✅ DEBUG: Szczegółowy log walidacji (wyłączony - zbyt dużo logów)
+    if (DEBUG_LOGS.debug) {
+        console.log('[checkProductCompletenessInEditor] Walidacja formularza:', {
+            length: length,
+            width: width,
+            thickness: thickness,
+            quantity: quantity,
+            hasBasicData: hasBasicData,
+            selectedVariant: selectedVariant?.value,
+            hasVariant: hasVariant,
+            finishingType: finishingType,
+            finishingVariant: finishingVariant,
+            finishingColor: finishingColor,
+            hasValidFinishing: hasValidFinishing,
+            finishingErrorMessage: finishingErrorMessage,
+            isComplete: isComplete
+        });
 
-    // ✅ OPCJONALNE: Pokaż komunikat błędu wykończenia w konsoli do debugowania
-    if (!hasValidFinishing) {
-        console.warn('[checkProductCompletenessInEditor] Wykończenie niekompletne:', finishingErrorMessage);
+        // ✅ OPCJONALNE: Pokaż komunikat błędu wykończenia w konsoli do debugowania
+        if (!hasValidFinishing) {
+            console.warn('[checkProductCompletenessInEditor] Wykończenie niekompletne:', finishingErrorMessage);
+        }
     }
 
     return isComplete;
@@ -5322,22 +5461,26 @@ function formatVolumeDisplay(volume) {
 
 function checkProductCompletenessForQuote(item) {
     if (!item) {
-        console.log('[checkProductCompletenessForQuote] Brak item');
+        if (DEBUG_LOGS.debug) {
+            console.log('[checkProductCompletenessForQuote] Brak item');
+        }
         return false;
     }
 
-    // Debugging - sprawdź wszystkie pola
-    console.log('[checkProductCompletenessForQuote] Sprawdzanie produktu (struktura quotes):', {
-        length_cm: item.length_cm,
-        width_cm: item.width_cm,
-        thickness_cm: item.thickness_cm,
-        quantity: item.quantity,
-        variant_code: item.variant_code,
-        final_price_netto: item.final_price_netto,
-        final_price_brutto: item.final_price_brutto,
-        // W quotes nie ma finishing_type w QuoteItem - tylko w QuoteItemDetails
-        is_selected: item.is_selected
-    });
+    // ✅ DEBUG: Szczegółowy log walidacji (wyłączony - zbyt dużo logów)
+    if (DEBUG_LOGS.debug) {
+        console.log('[checkProductCompletenessForQuote] Sprawdzanie produktu (struktura quotes):', {
+            length_cm: item.length_cm,
+            width_cm: item.width_cm,
+            thickness_cm: item.thickness_cm,
+            quantity: item.quantity,
+            variant_code: item.variant_code,
+            final_price_netto: item.final_price_netto,
+            final_price_brutto: item.final_price_brutto,
+            // W quotes nie ma finishing_type w QuoteItem - tylko w QuoteItemDetails
+            is_selected: item.is_selected
+        });
+    }
 
     // POPRAWKA: W module quotes sprawdzamy tylko podstawowe pola
     // finishing_type jest w osobnej tabeli QuoteItemDetails
@@ -5354,13 +5497,15 @@ function checkProductCompletenessForQuote(item) {
 
     const isComplete = requiredFields.every(field => {
         const isValid = field !== null && field !== undefined && field !== '';
-        if (!isValid) {
+        if (!isValid && DEBUG_LOGS.debug) {
             console.log('[checkProductCompletenessForQuote] Brakuje pola:', field);
         }
         return isValid;
     });
 
-    console.log('[checkProductCompletenessForQuote] Produkt jest kompletny:', isComplete);
+    if (DEBUG_LOGS.debug) {
+        console.log('[checkProductCompletenessForQuote] Produkt jest kompletny:', isComplete);
+    }
     return isComplete;
 }
 

@@ -672,7 +672,7 @@ class BaselinkerService:
 
             client_data = {
                 'name': client.client_name,
-                'delivery_name': client.client_delivery_name or client.client_name,
+                'delivery_name': client.delivery_name or client.client_name,
                 'email': client.email,
                 'phone': client.phone,
                 'delivery_address': client.delivery_address or '',

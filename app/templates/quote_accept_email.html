@@ -275,7 +275,7 @@
                                                                     <strong>Cena za m³:</strong> {{ "%.2f"|format(item.price_per_m3) }} PLN
                                                                 </p>
                                                                 <p style="font-family: Poppins, Arial, sans-serif; font-size: 13px; color: #666; margin: 0;">
-                                                                    <strong>Cena końcowa:</strong> {{ "%.2f"|format(item.final_price_brutto) }} PLN brutto
+                                                                    <strong>Cena końcowa:</strong> {{ "%.2f"|format(item.get_total_price_brutto()) }} PLN brutto
                                                                 </p>
                                                             </td>
                                                         </tr>
