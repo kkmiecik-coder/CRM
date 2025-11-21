@@ -149,11 +149,7 @@
                                         <label for="edit-clientType" class="input-txt">Grupa cenowa:</label>
                                         <select data-field="clientType" id="edit-clientType" class="input-window">
                                             <option value="" disabled selected>Wybierz grupę</option>
-                                            <option value="Partner">Partner</option>
-                                            <option value="Florek">Hurt</option>
-                                            <option value="Warszawa/Hurt">Warszawa/Hurt</option>
-                                            <option value="Detal">Detal</option>
-                                            <option value="Detal+">Detal+</option>
+                                            <!-- Opcje są ładowane dynamicznie z API /quotes/api/multipliers -->
                                         </select>
                                     </div>
                                     <!-- Długość -->
@@ -353,6 +349,15 @@
                                         </button>
                                     </div>
                                 </div>
+
+                                <!-- Koszt wykończenia aktywnego produktu -->
+                                <div class="products-total-summary" id="edit-active-finishing-cost" style="display: none;">
+                                    <div class="products-total-title">Koszt wykończenia tego produktu:</div>
+                                    <div class="products-total-details">
+                                        <span class="edit-active-finishing-brutto-display">0.00 PLN brutto</span>
+                                        <span class="edit-active-finishing-netto-display">0.00 PLN netto</span>
+                                    </div>
+                                </div>
                             </section>
 
                         </div>
@@ -378,7 +383,7 @@
                         <!-- Podsumowanie kosztów - POPRAWIONA STRUKTURA -->
                         <div class="edit-quote-summary">
                             <div class="cost-row">
-                                <span class="input-txt-bold">Koszt surowego:</span>
+                                <span class="input-txt-bold">Koszt surowych produktów:</span>
                                 <div class="cost-values">
                                     <span class="edit-order-brutto">0.00 PLN</span>
                                     <span class="edit-order-netto">0.00 PLN netto</span>
@@ -394,7 +399,7 @@
                             </div>
 
                             <div class="cost-row" style="margin-bottom: 30px;">
-                                <span class="input-txt-bold">Koszt produktu:</span>
+                                <span class="input-txt-bold">Koszty produktów:</span>
                                 <div class="cost-values">
                                     <span class="edit-product-total-brutto">0.00 PLN</span>
                                     <span class="edit-product-total-netto">0.00 PLN netto</span>
@@ -424,8 +429,163 @@
 
             <!-- Footer z przyciskami akcji -->
             <div class="quote-editor-modal-footer">
-                <button type="button" class="btn btn-secondary" id="cancel-quote-edit">Anuluj</button>
-                <button type="button" class="btn btn-primary" id="save-quote-changes">Zapisz zmiany</button>
+                <button type="button" class="btn-calculate-shipping" id="edit-calculate-shipping-btn" title="Oblicz wycenę wysyłki GlobKurier">
+                    <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                        <path d="M0 3.5A1.5 1.5 0 0 1 1.5 2h9A1.5 1.5 0 0 1 12 3.5V5h1.02a1.5 1.5 0 0 1 1.17.563l1.481 1.85a1.5 1.5 0 0 1 .329.938V10.5a1.5 1.5 0 0 1-1.5 1.5H14a2 2 0 1 1-4 0H5a2 2 0 1 1-3.998-.085A1.5 1.5 0 0 1 0 10.5v-7zm1.294 7.456A1.999 1.999 0 0 1 4.732 11h5.536a2.01 2.01 0 0 1 .732-.732V3.5a.5.5 0 0 0-.5-.5h-9a.5.5 0 0 0-.5.5v7a.5.5 0 0 0 .294.456zM12 10a2 2 0 0 1 1.732 1h.768a.5.5 0 0 0 .5-.5V8.35a.5.5 0 0 0-.11-.312l-1.48-1.85A.5.5 0 0 0 13.02 6H12v4zm-9 1a1 1 0 1 0 0 2 1 1 0 0 0 0-2zm9 0a1 1 0 1 0 0 2 1 1 0 0 0 0-2z"/>
+                    </svg>
+                    Oblicz wysyłkę
+                </button>
+                <div class="footer-right-buttons">
+                    <button type="button" class="btn btn-secondary" id="cancel-quote-edit">Anuluj</button>
+                    <button type="button" class="btn btn-primary" id="save-quote-changes">Zapisz zmiany</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal wyboru dostawy (skopiowany z calculator) -->
+    <div id="deliveryModal" class="delivery-modal-overlay">
+        <div class="delivery-modal-container">
+            <!-- Header -->
+            <div class="delivery-modal-header">
+                <h2 class="delivery-modal-title">Wybierz sposób dostawy</h2>
+                <button type="button" class="delivery-modal-close" id="deliveryModalClose">
+                    ×
+                </button>
+            </div>
+
+            <!-- Widok główny - lista opcji -->
+            <div id="deliveryMainView" class="delivery-modal-main-view">
+                <!-- Przycisk dodania własnego kuriera -->
+                <button type="button" class="delivery-modal-add-custom" id="addCustomCarrier">
+                    <span>➕</span>
+                    Dodaj własnego kuriera
+                </button>
+
+                <!-- Nagłówki kolumn -->
+                <div class="delivery-modal-headers">
+                    <div></div>
+                    <div>Kurier</div>
+                    <div id="deliveryHeaderAdjusted">Cena + 15%</div>
+                    <div>Cena oryginalna</div>
+                </div>
+
+                <!-- Kontener opcji -->
+                <div class="delivery-modal-options">
+                    <!-- Lista opcji dostawy -->
+                    <div class="delivery-modal-list" id="deliveryOptionsList">
+                        <!-- Opcje generowane dynamicznie -->
+                    </div>
+
+                    <!-- Loading state -->
+                    <div class="delivery-modal-loading delivery-modal-hidden" id="deliveryLoading">
+                        <div class="delivery-modal-spinner"></div>
+                        Ładowanie opcji dostawy...
+                    </div>
+
+                    <!-- Empty state -->
+                    <div class="delivery-modal-empty delivery-modal-hidden" id="deliveryEmpty">
+                        <div class="delivery-modal-empty-icon">📦</div>
+                        <div>Brak dostępnych opcji dostawy</div>
+                    </div>
+
+                    <!-- Error state -->
+                    <div class="delivery-modal-error delivery-modal-hidden" id="deliveryError">
+                        <strong>Błąd podczas ładowania opcji dostawy</strong>
+                        <div id="deliveryErrorMessage"></div>
+                    </div>
+                </div>
+
+                <!-- Paginacja -->
+                <div class="delivery-modal-pagination delivery-modal-hidden" id="deliveryPagination">
+                    <button type="button" class="delivery-modal-page-btn" id="deliveryPrevPage" disabled>
+                        ‹
+                    </button>
+                    <div id="deliveryPageNumbers" class="delivery-modal-page-numbers">
+                        <!-- Numery stron generowane dynamicznie -->
+                    </div>
+                    <button type="button" class="delivery-modal-page-btn" id="deliveryNextPage" disabled>
+                        ›
+                    </button>
+                </div>
+
+                <!-- Info o pakowaniu -->
+                <div class="delivery-modal-packing-info delivery-modal-hidden" id="deliveryPackingInfo">
+                    ℹ️ Do cen wysyłki została doliczona kwota na pakowanie.
+                </div>
+            </div>
+
+            <!-- Widok formularza własnego kuriera -->
+            <div id="deliveryCustomView" class="delivery-modal-custom-form">
+                <!-- Header z przyciskiem powrotu -->
+                <div style="margin-bottom: 24px;">
+                    <button type="button" class="delivery-modal-back" id="backToDeliveryList">
+                        ← Powrót do listy kurierów
+                    </button>
+                </div>
+
+                <!-- Formularz -->
+                <div class="delivery-modal-form-grid">
+                    <div class="delivery-modal-form-group full-width">
+                        <label class="delivery-modal-form-label">Nazwa kuriera</label>
+                        <input type="text"
+                               class="delivery-modal-form-input"
+                               id="customCarrierName"
+                               placeholder="Wpisz nazwę kuriera...">
+                    </div>
+
+                    <div class="delivery-modal-form-group">
+                        <label class="delivery-modal-form-label">Kwota netto (PLN)</label>
+                        <input type="number"
+                               class="delivery-modal-form-input"
+                               id="customCarrierNetto"
+                               placeholder="0.00"
+                               step="0.01"
+                               min="0">
+                    </div>
+
+                    <div class="delivery-modal-form-group">
+                        <label class="delivery-modal-form-label">Kwota brutto (PLN)</label>
+                        <input type="number"
+                               class="delivery-modal-form-input"
+                               id="customCarrierBrutto"
+                               placeholder="0.00"
+                               step="0.01"
+                               min="0">
+                    </div>
+                </div>
+
+                <!-- Kalkulator marży -->
+                <div class="delivery-modal-calculator">
+                    <div class="delivery-modal-calculator-title">
+                        🧮 Kalkulacja końcowej ceny
+                    </div>
+
+                    <div class="delivery-modal-calculation-row">
+                        <div class="delivery-modal-calculation-label">Kwota brutto:</div>
+                        <div class="delivery-modal-calculation-value" id="calcBaseBrutto">0.00 PLN</div>
+                    </div>
+
+                    <div class="delivery-modal-calculation-row">
+                        <div class="delivery-modal-calculation-label">Koszty pakowania (+15%):</div>
+                        <div class="delivery-modal-calculation-value" id="calcMargin">0.00 PLN</div>
+                    </div>
+
+                    <div class="delivery-modal-calculation-row delivery-modal-calculation-final">
+                        <div class="delivery-modal-calculation-label">Końcowa cena:</div>
+                        <div class="delivery-modal-calculation-value" id="calcFinalPrice">0.00 PLN</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Footer z przyciskami -->
+            <div class="delivery-modal-footer">
+                <button type="button" class="delivery-modal-btn delivery-modal-btn-secondary" id="deliveryModalCancel">
+                    Anuluj
+                </button>
+                <button type="button" class="delivery-modal-btn delivery-modal-btn-primary" id="deliveryModalConfirm" disabled>
+                    <span id="deliveryConfirmText">Zapisz</span>
+                </button>
             </div>
         </div>
     </div>
@@ -437,6 +597,7 @@
     </script>
 
     <script src="{{ url_for('static', filename='js/sidebar.js') }}"></script>
+    <script src="{{ url_for('calculator.static', filename='js/calculator.js') }}"></script>
     <script src="{{ url_for('quotes.static', filename='js/quotes.js') }}"></script>
     <script src="{{ url_for('baselinker.static', filename='js/baselinker.js') }}"></script>
 </body>

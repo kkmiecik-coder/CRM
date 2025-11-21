@@ -106,9 +106,29 @@ async function autoRefreshCallback() {
         const stationCode = window.STATION_STATE.config.stationCode;
         console.log(`[Packaging] Fetching orders for station: ${stationCode}`);
 
-        // Note: Używamy tego samego endpointa co inne stanowiska
-        // Backend zwraca orders_grouped dla packaging
-        const data = await window.StationCommon.fetchProducts(stationCode, 'priority');
+        // Note: Pakowanie używa dedykowanego endpointa /ajax/orders/packaging
+        // który zwraca zgrupowane zamówienia
+        const config = window.STATION_STATE.config;
+        const url = `${config.ajaxBaseUrl}/orders/packaging?sort=priority`;
+
+        const response = await fetch(url, {
+            method: 'GET',
+            headers: {
+                'Content-Type': 'application/json'
+            }
+        });
+
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+
+        const result = await response.json();
+
+        if (!result.success) {
+            throw new Error(result.error || 'Unknown error');
+        }
+
+        const data = result.data;
 
         if (!data || !data.orders) {
             throw new Error('Invalid response data');
@@ -741,15 +761,20 @@ async function onCountdownComplete(card, orderNumber) {
  * API call to complete packaging
  */
 async function completePackaging(orderNumber, productIds) {
-    // Note: Ten endpoint musi być w station_routers.py lub api_routers.py
+    // Przekształć product_ids na format wymagany przez backend
+    const completedProducts = productIds.map(productId => ({
+        product_id: productId,
+        confirmed: true
+    }));
+
     const response = await fetch('/production/api/complete-packaging', {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-            internal_order_number: orderNumber,  // ✅ POPRAWKA: backend wymaga 'internal_order_number'
-            product_ids: productIds
+            internal_order_number: orderNumber,
+            completed_products: completedProducts  // ✅ POPRAWKA: backend wymaga 'completed_products' z objektami {product_id, confirmed}
         })
     });
 

@@ -222,6 +222,16 @@ document.addEventListener('DOMContentLoaded', function () {
             const selectedVariant = product.variants.find(v => v.is_selected);
             if (!selectedVariant) return; // Pomijamy produkty bez wybranego wariantu
 
+            // ✅ DEBUG: Log szczegółowych danych produktu
+            console.log(`[renderProductsTable] 🔍 DEBUG Produkt ${idx + 1}:`, {
+                wymiary: `${product.length}x${product.width}x${product.thickness}`,
+                quantity: product.quantity,
+                'selectedVariant.final_price_brutto': selectedVariant.final_price_brutto,
+                'selectedVariant.final_price_netto': selectedVariant.final_price_netto,
+                'product.finishing_brutto': product.finishing_brutto,
+                'selectedVariant.variant_code': selectedVariant.variant_code
+            });
+
             // Parsuj variant_code aby wyciągnąć informacje o wariancie
             // Format: "dab-lity-ab" → Dąb Lity A/B
             const variantCode = selectedVariant.variant_code || '';
@@ -254,6 +264,10 @@ document.addEventListener('DOMContentLoaded', function () {
             const rawPrice = selectedVariant.final_price_brutto.toFixed(2);
             const finishingPrice = product.finishing_brutto.toFixed(2);
             const totalPrice = (selectedVariant.final_price_brutto + product.finishing_brutto).toFixed(2);
+
+            console.log(`[renderProductsTable] 🔍 DEBUG Produkt ${idx + 1} ceny:`, {
+                rawPrice, finishingPrice, totalPrice
+            });
 
             html += `
             <div class="sq-product-row">
@@ -663,6 +677,10 @@ function collectQuoteData() {
         const thickness = parseFloat(form.querySelector('[data-field="thickness"]')?.value || 0);
         const quantity = parseInt(form.querySelector('[data-field="quantity"]')?.value || 1);
 
+        console.log(`[collectQuoteData] 🔍 DEBUG Produkt ${index + 1} - wymiary:`, {
+            length, width, thickness, quantity
+        });
+
         const finishingType = form.querySelector('[data-finishing-type].active')?.dataset.finishingType || null;
         const finishingVariant = form.querySelector('[data-finishing-variant].active')?.dataset.finishingVariant || null;
         const finishingColor = form.querySelector('[data-finishing-color].active')?.dataset.finishingColor || null;
@@ -682,6 +700,17 @@ function collectQuoteData() {
             const brutto = parseFloat(radio.dataset.totalBrutto || 0);
             const netto = parseFloat(radio.dataset.totalNetto || 0);
             const volume = (length / 100) * (width / 100) * (thickness / 100);
+
+            // ✅ DEBUG: Log szczegółowych danych dla zaznaczonego wariantu
+            if (radio.checked) {
+                console.log(`[collectQuoteData] 🔍 DEBUG Produkt ${index + 1} - zaznaczony wariant ${radio.value}:`, {
+                    brutto, netto, volume,
+                    'radio.dataset.totalBrutto': radio.dataset.totalBrutto,
+                    'radio.dataset.totalNetto': radio.dataset.totalNetto,
+                    'radio.dataset.pricePerM3': radio.dataset.pricePerM3,
+                    'radio.dataset.multiplier': radio.dataset.multiplier
+                });
+            }
 
             const checkbox = form.querySelector(`[data-variant="${radio.value}"]`);
             const isAvailable = checkbox && checkbox.checked;

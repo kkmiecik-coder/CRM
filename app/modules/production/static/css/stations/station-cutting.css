@@ -165,15 +165,14 @@ body.light-mode [data-wood-class*="BB"] .badge-class {
         font-size: 14px;
     }
 
-    .dimensions-box {
-        font-size: 22px;
-        padding: 16px 20px;
+    .products-grid {
+        grid-template-columns: repeat(2, 1fr);
     }
 }
 
 @media (min-width: 768px) and (max-width: 1199px) {
     .products-grid {
-        grid-template-columns: repeat(2, 1fr);
+        grid-template-columns: repeat(3, 1fr);
     }
 }
 

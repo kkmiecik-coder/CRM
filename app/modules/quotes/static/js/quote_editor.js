@@ -11,6 +11,7 @@ let clientTypesCache = null;
 let finishingDataCache = null;
 let calculatorScriptLoaded = false;
 let calculatorInitialized = false;
+let isRecalculating = false; // ✅ NOWE: Flaga zapobiegająca nieskończonej pętli
 
 // Optimized logging - centralized debug control
 const DEBUG_LOGS = {
@@ -66,6 +67,34 @@ function debugIncomingQuoteData(quoteData, context = 'unknown') {
 async function openQuoteEditor(quoteData) {
     log('editor', '===== OTWIERANIE EDYTORA WYCENY =====');
 
+    // ✅ KRYTYCZNA POPRAWKA: Zrób głęboką kopię quoteData aby zachować oryginalne wartości
+    // To zapobiega nadpisywaniu show_on_client_page podczas edycji
+    const originalQuoteData = JSON.parse(JSON.stringify(quoteData));
+    window.originalQuoteData = originalQuoteData;  // Zapisz dla późniejszego użycia
+    log('editor', '✅ Zapisano oryginalną kopię danych wyceny');
+
+    // ✅ NOWE: Zablokuj problematyczne funkcje calculator.js w kontekście edytora
+    if (!window._originalCalculatorFunctions) {
+        window._originalCalculatorFunctions = {
+            handleClientTypeChange: window.handleClientTypeChange,
+            syncClientTypeAcrossProducts: window.syncClientTypeAcrossProducts
+        };
+        log('editor', '✅ Zapisano oryginalne funkcje calculator.js');
+    }
+
+    // Nadpisz funkcje calculator.js pustymi wersjami (zapobiega błędom DOM)
+    window.handleClientTypeChange = function (event) {
+        log('editor', '⚠️ Zablokowano handleClientTypeChange z calculator.js (użyj onClientTypeChange z edytora)');
+        // Nie rób nic - zapobiega błędowi "Cannot read properties of null"
+    };
+
+    window.syncClientTypeAcrossProducts = function (selectedType, sourceForm) {
+        log('editor', '⚠️ Zablokowano syncClientTypeAcrossProducts z calculator.js (użyj syncClientTypeAcrossAllProducts z edytora)');
+        // Nie rób nic - zapobiega błędowi "Cannot read properties of null"
+    };
+
+    log('editor', '✅ Zablokowano problematyczne funkcje calculator.js');
+
     // DEBUGOWANIE: Sprawdź dane wejściowe
     debugIncomingQuoteData(quoteData, 'openQuoteEditor - wejście');
 
@@ -77,6 +106,51 @@ async function openQuoteEditor(quoteData) {
 
     // Przygotowanie środowiska
     currentEditingQuoteData = quoteData;
+
+    // ✅ KRYTYCZNA POPRAWKA: Backend zwraca dane wykończenia w "finishing", ale frontend używa "details"
+    // Mapuj finishing → details
+    if (quoteData.finishing && Array.isArray(quoteData.finishing)) {
+        currentEditingQuoteData.details = quoteData.finishing.map(f => ({
+            product_index: f.product_index,
+            quantity: f.quantity || 1,
+            finishing_type: f.finishing_type || 'Surowe',
+            finishing_variant: f.finishing_variant || null,
+            finishing_color: f.finishing_color || null,
+            finishing_gloss_level: f.finishing_gloss_level || null,
+            finishing_price_netto: f.finishing_price_netto || 0,
+            finishing_price_brutto: f.finishing_price_brutto || 0
+        }));
+        console.log(`[INIT DETAILS] Zmapowano ${quoteData.finishing.length} rekordów z finishing → details`);
+    } else if (!currentEditingQuoteData.details) {
+        currentEditingQuoteData.details = [];
+    }
+
+    // Sprawdź wszystkie produkty i stwórz brakujące rekordy details
+    if (currentEditingQuoteData.items) {
+        const uniqueProductIndexes = [...new Set(currentEditingQuoteData.items.map(item => item.product_index))];
+
+        uniqueProductIndexes.forEach(productIndex => {
+            // Sprawdź czy istnieje rekord details dla tego produktu
+            const existingDetail = currentEditingQuoteData.details.find(d => d.product_index === productIndex);
+
+            if (!existingDetail) {
+                // Utwórz nowy rekord details z wartościami domyślnymi
+                currentEditingQuoteData.details.push({
+                    product_index: productIndex,
+                    quantity: 1,
+                    finishing_type: 'Surowe',
+                    finishing_variant: null,
+                    finishing_color: null,
+                    finishing_gloss_level: null,
+                    finishing_price_netto: 0,
+                    finishing_price_brutto: 0
+                });
+                console.log(`[INIT DETAILS] Utworzono rekord details dla produktu ${productIndex}`);
+            } else {
+                console.log(`[INIT DETAILS] Produkt ${productIndex} ma już rekord details:`, existingDetail);
+            }
+        });
+    }
 
     // DEBUGOWANIE: Sprawdź currentEditingQuoteData po przypisaniu
     console.log('=== DEBUG currentEditingQuoteData PO PRZYPISANIU ===');
@@ -119,6 +193,19 @@ async function openQuoteEditor(quoteData) {
 
     } catch (error) {
         console.error('[QUOTE EDITOR] ❌ BŁĄD podczas ładowania:', error);
+    }
+}
+
+/**
+ * ✅ NOWA FUNKCJA: Przywracanie oryginalnych funkcji calculator.js
+ * Wywołaj ją przy zamykaniu modalu edytora
+ */
+function restoreCalculatorFunctions() {
+    if (window._originalCalculatorFunctions) {
+        window.handleClientTypeChange = window._originalCalculatorFunctions.handleClientTypeChange;
+        window.syncClientTypeAcrossProducts = window._originalCalculatorFunctions.syncClientTypeAcrossProducts;
+        log('editor', '✅ Przywrócono oryginalne funkcje calculator.js');
+        delete window._originalCalculatorFunctions;
     }
 }
 
@@ -227,6 +314,86 @@ function initializeEventListeners() {
 }
 
 /**
+ * ✅ NOWA FUNKCJA: Walidacja wymiarów produktu
+ */
+function validateDimensions() {
+    const lengthInput = document.getElementById('edit-length');
+    const widthInput = document.getElementById('edit-width');
+    const thicknessInput = document.getElementById('edit-thickness');
+
+    const length = parseFloat(lengthInput?.value) || 0;
+    const width = parseFloat(widthInput?.value) || 0;
+    const thickness = parseFloat(thicknessInput?.value) || 0;
+
+    const MAX_LENGTH = 500;
+    const MAX_WIDTH = 120;
+    const MAX_THICKNESS = 8;
+
+    const errors = [];
+
+    // Sprawdź limity wymiarów
+    if (length > MAX_LENGTH) {
+        errors.push(`Długość nie może przekraczać ${MAX_LENGTH} cm`);
+        lengthInput?.classList.add('dimension-error');
+    } else {
+        lengthInput?.classList.remove('dimension-error');
+    }
+
+    if (width > MAX_WIDTH) {
+        errors.push(`Szerokość nie może przekraczać ${MAX_WIDTH} cm`);
+        widthInput?.classList.add('dimension-error');
+    } else {
+        widthInput?.classList.remove('dimension-error');
+    }
+
+    if (thickness > MAX_THICKNESS) {
+        errors.push(`Grubość nie może przekraczać ${MAX_THICKNESS} cm`);
+        thicknessInput?.classList.add('dimension-error');
+    } else {
+        thicknessInput?.classList.remove('dimension-error');
+    }
+
+    // Wyświetl komunikaty walidacji
+    displayValidationMessages(errors);
+
+    return errors.length === 0;
+}
+
+/**
+ * ✅ NOWA FUNKCJA: Wyświetlanie komunikatów walidacji
+ */
+function displayValidationMessages(errors) {
+    // Usuń poprzednie komunikaty
+    const existingAlert = document.querySelector('.dimension-validation-alert');
+    if (existingAlert) {
+        existingAlert.remove();
+    }
+
+    if (errors.length === 0) return;
+
+    // Stwórz nowy komunikat
+    const alert = document.createElement('div');
+    alert.className = 'dimension-validation-alert';
+    alert.innerHTML = `
+        <div class="validation-alert-content">
+            <svg width="20" height="20" viewBox="0 0 16 16" fill="currentColor">
+                <path d="M8.982 1.566a1.13 1.13 0 0 0-1.96 0L.165 13.233c-.457.778.091 1.767.98 1.767h13.713c.889 0 1.438-.99.98-1.767L8.982 1.566zM8 5c.535 0 .954.462.9.995l-.35 3.507a.552.552 0 0 1-1.1 0L7.1 5.995A.905.905 0 0 1 8 5zm.002 6a1 1 0 1 1 0 2 1 1 0 0 1 0-2z"/>
+            </svg>
+            <div class="validation-alert-messages">
+                ${errors.map(err => `<div>${err}</div>`).join('')}
+            </div>
+        </div>
+    `;
+
+    // Wstaw komunikat pod formularzem wymiarów
+    const dimensionsContainer = document.querySelector('.edit-dimensions-row') ||
+                                 document.getElementById('edit-length')?.closest('.form-group');
+    if (dimensionsContainer) {
+        dimensionsContainer.insertAdjacentElement('afterend', alert);
+    }
+}
+
+/**
  * Centralizowana obsługa zmian w inputach - debounced
  */
 const handleInputChange = debounce((e) => {
@@ -234,6 +401,12 @@ const handleInputChange = debounce((e) => {
 
     if (target.matches('#edit-length, #edit-width, #edit-thickness, #edit-quantity')) {
         log('sync', `Input change: ${target.id} = "${target.value}"`);
+
+        // ✅ POPRAWKA: Waliduj wymiary przed dalszym przetwarzaniem
+        if (target.matches('#edit-length, #edit-width, #edit-thickness')) {
+            validateDimensions();
+        }
+
         syncEditorToMockForm();
         onFormDataChange();
     }
@@ -251,18 +424,21 @@ function handleSelectChange(e) {
 
     log('sync', `Variant change: ${radio.value}`);
 
+    // ✅ POPRAWKA: Zaktualizuj klasę .selected na wierszu wariantu
+    updateSelectedVariant(radio);
+
     // Wywołaj oryginalną logikę
     onFormDataChange();
 
-    // DODANE: Synchronizuj dataset po zmianie wariantu
+    // ✅ POPRAWKA: Odśwież karty produktów DOPIERO po zakończeniu obliczeń
     setTimeout(() => {
         syncRadioDatasetWithMockForm();
         // Odśwież podsumowanie po synchronizacji
         updateQuoteSummary();
         updateProductsSummaryTotals();
+        // Odśwież karty produktów (z aktualnymi danymi)
+        refreshProductCards();
     }, 100);
-
-    refreshProductCards();
 }
 
 /**
@@ -334,6 +510,12 @@ function handleButtonClick(e) {
 
     if (target.id === 'close-quote-editor') {
         window.QuoteEditor.close();
+        return;
+    }
+
+    // ✅ NOWE: Obsługa przycisku obliczania wysyłki
+    if (target.id === 'edit-calculate-shipping-btn') {
+        calculateEditorDelivery();
         return;
     }
 
@@ -466,10 +648,12 @@ function createMockFormHTML() {
         <div class="product-inputs">
             <select data-field="clientType" style="display: none;">
                 <option value="">Wybierz grupę</option>
-                <option value="Florek">Florek</option>
+                <option value="Bazowy">Bazowy</option>
                 <option value="Hurt">Hurt</option>
                 <option value="Detal">Detal</option>
                 <option value="Detal+">Detal+</option>
+                <option value="Czernecki netto">Czernecki netto</option>
+                <option value="Czernecki FV">Czernecki FV</option>
             </select>
             <input type="number" data-field="length" style="display: none;">
             <input type="number" data-field="width" style="display: none;">
@@ -506,13 +690,26 @@ function createMockFormHTML() {
     `;
 }
 
-// ==================== OPTIMIZED DATA LOADING ====================
-
 /**
  * Zoptymalizowane ładowanie danych wyceny
  */
 function loadQuoteDataToEditor(quoteData) {
     log('editor', 'Ładowanie danych do edytora...');
+
+    // ✅ NOWE: Inicjalizuj zmienne globalne dla calculator.js NA SAMYM POCZĄTKU
+    const clientType = quoteData.quote_client_type || 'Hurt';
+    const multiplier = parseFloat(quoteData.quote_multiplier) || 1.1;
+
+    window.currentClientType = clientType;
+    window.currentMultiplier = multiplier;
+
+    log('editor', `✅ Zainicjalizowano grupę cenową: ${clientType} (${multiplier})`);
+
+    // ✅ NOWE: Zaktualizuj multiplierMapping jeśli istnieje
+    if (window.multiplierMapping) {
+        window.multiplierMapping[clientType] = multiplier;
+        log('editor', `✅ Dodano do multiplierMapping: ${clientType} = ${multiplier}`);
+    }
 
     // Ustal pierwszy produkt na podstawie items
     if (quoteData.items?.length > 0) {
@@ -543,7 +740,39 @@ function loadQuoteDataToEditor(quoteData) {
     // Zainicjalizuj event listenery dla checkboxów
     initializeVariantAvailabilityListeners();
 
+    // ✅ NOWE: Wymuś przeliczenie po załadowaniu danych
+    setTimeout(() => {
+        if (typeof window.calculateVariantPrices === 'function') {
+            try {
+                window.calculateVariantPrices();
+                log('editor', '✅ Wywołano przeliczenie po załadowaniu danych');
+            } catch (error) {
+                log('editor', '⚠️ Błąd przeliczenia po załadowaniu:', error);
+            }
+        }
+    }, 200);
+
     log('editor', '✅ Dane wyceny załadowane do edytora');
+}
+
+/**
+ * POMOCNICZA FUNKCJA: Bezpieczne wywołanie funkcji calculator.js
+ * Sprawdza czy funkcja istnieje przed wywołaniem
+ */
+function safeCallCalculatorFunction(functionName, ...args) {
+    if (typeof window[functionName] === 'function') {
+        try {
+            window[functionName](...args);
+            log('sync', `✅ Wywołano ${functionName}()`);
+            return true;
+        } catch (error) {
+            log('sync', `⚠️ Błąd w ${functionName}():`, error);
+            return false;
+        }
+    } else {
+        log('sync', `⚠️ Funkcja ${functionName} nie istnieje`);
+        return false;
+    }
 }
 
 /**
@@ -687,7 +916,9 @@ function createProductCard(productItems, productIndex, displayNumber, totalProdu
     if (totalProducts === null) {
         totalProducts = getUniqueProductsCount(currentEditingQuoteData?.items?.filter(item => item.is_selected) || []);
     }
-    const showButtons = totalProducts > 1;
+
+    // ✅ POPRAWKA: Przycisk kopiowania zawsze widoczny, usuwania tylko gdy >1 produkt
+    const showRemoveButton = totalProducts > 1;
 
     card.innerHTML = `
         <div class="product-card-content">
@@ -696,14 +927,14 @@ function createProductCard(productItems, productIndex, displayNumber, totalProdu
                 <div class="product-card-main-info">${description.main}</div>
                 ${description.sub ? `<div class="product-card-sub-info">${description.sub}</div>` : ''}
             </div>
-            <div class="product-card-actions" style="display: ${showButtons ? 'flex' : 'none'};">
+            <div class="product-card-actions">
                 <button class="copy-product-btn" data-index="${productIndex}" title="Kopiuj produkt">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                         <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
                         <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
                     </svg>
                 </button>
-                <button class="remove-product-btn" data-index="${productIndex}" title="Usuń produkt">
+                <button class="remove-product-btn" data-index="${productIndex}" title="Usuń produkt" style="display: ${showRemoveButton ? 'inline-flex' : 'none'};">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                         <line x1="18" y1="6" x2="6" y2="18"></line>
                         <line x1="6" y1="6" x2="18" y2="18"></line>
@@ -764,12 +995,86 @@ function refreshProductCards() {
 function copyProductInQuote(sourceProductIndex) {
     log('editor', `Kopiowanie produktu: ${sourceProductIndex}`);
 
-    if (!confirm('Czy na pewno chcesz skopiować ten produkt?')) return;
+    if (!currentEditingQuoteData || !currentEditingQuoteData.items) {
+        log('editor', '❌ Brak danych wyceny');
+        return;
+    }
 
-    // TODO: Implementacja kopiowania produktu w wycenie
-    alert(`Kopiowanie produktu ${sourceProductIndex} będzie dostępne wkrótce!`);
-    updateProductsSummaryTotals();
-    refreshProductCards();
+    // Zapisz aktywny produkt przed kopiowaniem
+    saveActiveProductFormData();
+
+    // Znajdź wszystkie itemy (warianty) źródłowego produktu
+    const sourceItems = currentEditingQuoteData.items.filter(
+        item => item.product_index === sourceProductIndex
+    );
+
+    if (sourceItems.length === 0) {
+        log('editor', '❌ Nie znaleziono produktu do skopiowania');
+        return;
+    }
+
+    // Znajdź maksymalny product_index i zwiększ o 1
+    const maxProductIndex = Math.max(...currentEditingQuoteData.items.map(item => item.product_index));
+    const newProductIndex = maxProductIndex + 1;
+
+    log('editor', `Kopiowanie ${sourceItems.length} wariantów z produktu ${sourceProductIndex} do ${newProductIndex}`);
+
+    // Skopiuj wszystkie warianty
+    const newItems = sourceItems.map(sourceItem => {
+        // Utwórz głęboką kopię itemu
+        const newItem = { ...sourceItem };
+
+        // Zmień product_index na nowy
+        newItem.product_index = newProductIndex;
+
+        // Usuń ID (będzie nadane przez backend przy zapisie)
+        delete newItem.id;
+
+        // Zachowaj is_selected dla wybranego wariantu
+        // Pozostałe właściwości kopiujemy 1:1
+
+        return newItem;
+    });
+
+    // Dodaj nowe itemy do currentEditingQuoteData
+    currentEditingQuoteData.items.push(...newItems);
+
+    // ✅ POPRAWKA: Dodaj również do originalQuoteData aby checkboxy dostępności działały
+    if (window.originalQuoteData && window.originalQuoteData.items) {
+        window.originalQuoteData.items.push(...newItems);
+        log('editor', '✅ Dodano skopiowane warianty również do originalQuoteData');
+    }
+
+    // Skopiuj wykończenie jeśli istnieje
+    if (currentEditingQuoteData.finishing) {
+        const sourceFinishing = currentEditingQuoteData.finishing.find(
+            f => f.product_index === sourceProductIndex
+        );
+
+        if (sourceFinishing) {
+            const newFinishing = { ...sourceFinishing };
+            newFinishing.product_index = newProductIndex;
+            delete newFinishing.id;
+            currentEditingQuoteData.finishing.push(newFinishing);
+
+            // ✅ POPRAWKA: Dodaj również do originalQuoteData
+            if (window.originalQuoteData && window.originalQuoteData.finishing) {
+                window.originalQuoteData.finishing.push({ ...newFinishing });
+            }
+
+            log('editor', '✅ Skopiowano wykończenie');
+        }
+    }
+
+    log('editor', `✅ Skopiowano produkt: ${sourceProductIndex} → ${newProductIndex}`);
+
+    // Odśwież listę produktów
+    loadProductsToEditor(currentEditingQuoteData);
+
+    // Aktywuj nowo skopiowany produkt
+    setTimeout(() => {
+        activateProductInEditor(newProductIndex);
+    }, 100);
 }
 
 // ==================== OPTIMIZED CALCULATION FUNCTIONS ====================
@@ -778,6 +1083,13 @@ function copyProductInQuote(sourceProductIndex) {
  * ULEPSZONA funkcja onFormDataChange z lepszym error handling
  */
 function onFormDataChange() {
+    // ✅ KRYTYCZNA POPRAWKA: Zapobiegnij nieskończonej pętli
+    if (isRecalculating) {
+        log('sync', '⚠️ Przeliczenie już w toku - pomijam wywołanie');
+        return;
+    }
+
+    isRecalculating = true;
     log('sync', 'Dane formularza zostały zmienione');
 
     if (!checkCalculatorReadiness()) {
@@ -786,6 +1098,7 @@ function onFormDataChange() {
         updateQuoteSummary();
         saveActiveProductFormData();
         updateProductsSummaryTotals();
+        isRecalculating = false; // ✅ Zwolnij flagę
         return;
     }
 
@@ -797,6 +1110,7 @@ function onFormDataChange() {
             updateQuoteSummary();
             saveActiveProductFormData();
             updateProductsSummaryTotals();
+            isRecalculating = false; // ✅ Zwolnij flagę
             return;
         }
 
@@ -805,6 +1119,7 @@ function onFormDataChange() {
             log('sync', 'Sync danych nie powiódł się - fallback');
             calculateEditorPrices();
             updateQuoteSummary();
+            isRecalculating = false; // ✅ Zwolnij flagę
             return;
         }
 
@@ -819,6 +1134,11 @@ function onFormDataChange() {
         syncFinishingStateToMockForm();
 
         callUpdatePricesSecurely();
+
+        // ✅ POPRAWKA: Zapisz dane formularza PRZED kopiowaniem wyników
+        // (żeby is_selected był ustawiony prawidłowo)
+        saveActiveProductFormData();
+
         copyCalculationResults();
         updateQuoteSummary();
 
@@ -829,9 +1149,12 @@ function onFormDataChange() {
         log('editor', 'Używam fallback z powodu błędu');
         calculateEditorPrices();
         updateQuoteSummary();
+        saveActiveProductFormData(); // ✅ Zapisz także w przypadku błędu
+    } finally {
+        // ✅ KRYTYCZNA POPRAWKA: ZAWSZE zwolnij flagę (nawet przy błędzie)
+        updateProductsSummaryTotals();
+        isRecalculating = false;
     }
-    saveActiveProductFormData();
-    updateProductsSummaryTotals();
 }
 
 /**
@@ -1247,6 +1570,14 @@ function processVariantsOptimized(form, formData) {
         const result = calculateVariantPrice(radio.value, formData);
         updateVariantDisplay(variant, result);
 
+        // ✅ NOWE: Zapisz price_per_m3 i volume_m3 do dataset
+        if (result.price_per_m3 !== undefined) {
+            radio.dataset.pricePerM3 = result.price_per_m3;
+        }
+        if (result.volume_m3 !== undefined) {
+            radio.dataset.volumeM3 = result.volume_m3;
+        }
+
         if (radio.checked) {
             selectedVariantData = result;
             // Highlight selected variant
@@ -1269,7 +1600,7 @@ function processVariantsOptimized(form, formData) {
 function calculateVariantPrice(variantCode, formData) {
     const config = window.variantMapping?.[variantCode];
     if (!config) {
-        return { unitBrutto: 0, unitNetto: 0, totalBrutto: 0, totalNetto: 0 };
+        return { unitBrutto: 0, unitNetto: 0, totalBrutto: 0, totalNetto: 0, noPrice: true };
     }
 
     let basePrice = 0;
@@ -1282,13 +1613,17 @@ function calculateVariantPrice(variantCode, formData) {
         }
     }
 
-    // Fallback prices if needed
+    // ✅ POPRAWKA: Jeśli nie ma ceny w bazie (wymiary poza limitami), zwróć noPrice: true
     if (basePrice === 0) {
-        const fallbackPrices = {
-            'dab-lity-ab': 14500, 'dab-lity-bb': 13000, 'dab-micro-ab': 10000, 'dab-micro-bb': 10000,
-            'jes-lity-ab': 13000, 'jes-micro-ab': 11000, 'buk-lity-ab': 9000, 'buk-micro-ab': 8500
+        return {
+            unitBrutto: 0,
+            unitNetto: 0,
+            totalBrutto: 0,
+            totalNetto: 0,
+            noPrice: true,
+            price_per_m3: 0,
+            volume_m3: formData.volume
         };
-        basePrice = fallbackPrices[variantCode] || 10000;
     }
 
     // Calculate prices
@@ -1297,7 +1632,15 @@ function calculateVariantPrice(variantCode, formData) {
     const totalNetto = unitNetto * formData.quantity;
     const totalBrutto = unitBrutto * formData.quantity;
 
-    return { unitNetto, unitBrutto, totalNetto, totalBrutto };
+    return {
+        unitNetto,
+        unitBrutto,
+        totalNetto,
+        totalBrutto,
+        noPrice: false,
+        price_per_m3: basePrice,
+        volume_m3: formData.volume
+    };
 }
 
 /**
@@ -1310,6 +1653,16 @@ function updateVariantDisplay(variant, prices) {
         totalBrutto: variant.querySelector('.total-brutto'),
         totalNetto: variant.querySelector('.total-netto')
     };
+
+    // ✅ POPRAWKA: Jeśli brak ceny (wymiary poza limitami z bazy), wyświetl "Brak ceny"
+    if (prices.noPrice) {
+        Object.values(elements).forEach(element => {
+            if (element) {
+                element.textContent = 'Brak ceny';
+            }
+        });
+        return;
+    }
 
     // Batch DOM updates
     Object.entries(elements).forEach(([key, element]) => {
@@ -1332,7 +1685,14 @@ function getMultiplierValue(clientType) {
         return window.multiplierMapping[clientType];
     }
 
-    const fallback = { 'Florek': 1.0, 'Hurt': 1.1, 'Detal': 1.3, 'Detal+': 1.5 };
+    const fallback = {
+        'Bazowy': 1.0,
+        'Hurt': 1.1,
+        'Detal': 1.3,
+        'Detal+': 1.5,
+        'Czernecki netto': 0.935,
+        'Czernecki FV': 1.015
+    };
     return fallback[clientType] || 1.0;
 }
 
@@ -1348,6 +1708,29 @@ function calculateSingleVolume(length, width, thickness) {
 // ==================== OPTIMIZED SUMMARY UPDATES ====================
 
 /**
+ * ✅ NOWA FUNKCJA: Wyświetla koszt wykończenia aktywnego produktu w sekcji finishing
+ */
+function updateActiveFinishingCostDisplay(activeFinishingCosts) {
+    const displayDiv = document.getElementById('edit-active-finishing-cost');
+    const bruttoSpan = document.querySelector('.edit-active-finishing-brutto-display');
+    const nettoSpan = document.querySelector('.edit-active-finishing-netto-display');
+
+    if (!displayDiv || !bruttoSpan || !nettoSpan) return;
+
+    // Pokaż div tylko jeśli wykończenie > 0 lub nie jest "Surowe"
+    const finishingType = getSelectedFinishingType();
+    const hasFinishing = finishingType !== 'Surowe' || activeFinishingCosts.brutto > 0;
+
+    displayDiv.style.display = hasFinishing ? 'block' : 'none';
+
+    if (hasFinishing) {
+        bruttoSpan.textContent = `${activeFinishingCosts.brutto.toFixed(2)} PLN brutto`;
+        nettoSpan.textContent = `${activeFinishingCosts.netto.toFixed(2)} PLN netto`;
+        log('finishing', `✅ Wyświetlono koszt wykończenia aktywnego produktu: ${activeFinishingCosts.brutto.toFixed(2)} PLN`);
+    }
+}
+
+/**
  * Zoptymalizowane odświeżanie podsumowania
  */
 function updateQuoteSummary() {
@@ -1357,6 +1740,9 @@ function updateQuoteSummary() {
         // ✅ Oblicz koszty aktywnego produktu (do pokazania w formularzu)
         const activeProductCosts = calculateActiveProductCosts();
         const activeFinishingCosts = calculateActiveProductFinishingCosts();
+
+        // ✅ NOWE: Zaktualizuj wyświetlanie kosztu wykończenia w sekcji finishing
+        updateActiveFinishingCostDisplay(activeFinishingCosts);
         const activeProductTotal = {
             brutto: activeProductCosts.brutto + activeFinishingCosts.brutto,
             netto: activeProductCosts.netto + activeFinishingCosts.netto
@@ -1423,21 +1809,23 @@ function updateSummaryElementsFixed(activeProductCosts, activeFinishingCosts, ac
     }
 
     const updates = [
-        // Pokazuj koszty tylko aktywnego produktu w górnych wierszach
-        { selector: '.edit-order-brutto', value: activeProductCosts.brutto },
-        { selector: '.edit-order-netto', value: activeProductCosts.netto, suffix: ' netto' },
-        { selector: '.edit-finishing-brutto', value: activeFinishingCosts.brutto },
-        { selector: '.edit-finishing-netto', value: activeFinishingCosts.netto, suffix: ' netto' },
+        // ✅ ZMIANA: Pokazuj sumy WSZYSTKICH surowych produktów (nie tylko aktywnego)
+        { selector: '.edit-order-brutto', value: orderTotals.productsRaw.brutto },
+        { selector: '.edit-order-netto', value: orderTotals.productsRaw.netto, suffix: ' netto' },
 
-        // Suma za aktywny produkt
-        { selector: '.edit-product-total-brutto', value: activeProductTotal.brutto },
-        { selector: '.edit-product-total-netto', value: activeProductTotal.netto, suffix: ' netto' },
+        // ✅ ZMIANA: Pokazuj sumy wykończeń WSZYSTKICH produktów (nie tylko aktywnego)
+        { selector: '.edit-finishing-brutto', value: orderTotals.finishing.brutto },
+        { selector: '.edit-finishing-netto', value: orderTotals.finishing.netto, suffix: ' netto' },
+
+        // ✅ ZMIANA: Pokazuj sumy WSZYSTKICH produktów (surowe + wykończenia)
+        { selector: '.edit-product-total-brutto', value: orderTotals.products.brutto },
+        { selector: '.edit-product-total-netto', value: orderTotals.products.netto, suffix: ' netto' },
 
         // Dostawa (bez zmian)
         { selector: '.edit-delivery-brutto', value: shippingCosts.brutto },
         { selector: '.edit-delivery-netto', value: shippingCosts.netto, suffix: ' netto' },
 
-        // ✅ POPRAWKA: Suma zamówienia = WSZYSTKIE produkty (z wykończeniem) + dostawa (używamy orderTotals + shippingCosts)
+        // Suma zamówienia = WSZYSTKIE produkty (z wykończeniem) + dostawa
         { selector: '.edit-final-brutto', value: finalOrderTotal.brutto },
         { selector: '.edit-final-netto', value: finalOrderTotal.netto, suffix: ' netto' }
     ];
@@ -1602,8 +1990,9 @@ function calculateActiveProductFinishingCosts() {
  */
 function calculateOrderTotals() {
     const totals = {
-        products: { brutto: 0, netto: 0 },
-        finishing: { brutto: 0, netto: 0 }
+        productsRaw: { brutto: 0, netto: 0 },    // ✅ NOWE: suma surowych produktów (bez wykończeń)
+        finishing: { brutto: 0, netto: 0 },      // suma wykończeń
+        products: { brutto: 0, netto: 0 }        // suma całkowita (surowe + wykończenia)
     };
 
     log('editor', '=== OBLICZANIE CAŁKOWITEJ SUMY ZAMÓWIENIA ===');
@@ -1612,8 +2001,13 @@ function calculateOrderTotals() {
         currentEditingQuoteData.items.forEach(item => {
             if (!item.is_selected) return;
 
-            const productBrutto = parseFloat(item.calculated_price_brutto ?? item.final_price_brutto ?? 0);
-            const productNetto = parseFloat(item.calculated_price_netto ?? item.final_price_netto ?? 0);
+            // ✅ POPRAWKA: Użyj calculated_price jeśli dostępny (aktywny produkt),
+            // w przeciwnym razie użyj final_price (nieaktywne produkty z bazy)
+            const productBrutto = parseFloat(item.calculated_price_brutto || item.final_price_brutto || 0);
+            const productNetto = parseFloat(item.calculated_price_netto || item.final_price_netto || 0);
+
+            // ✅ DEBUG: Wyloguj szczegóły każdego produktu
+            log('editor', `📦 Produkt ${item.product_index}: ${productBrutto.toFixed(2)} PLN brutto (calculated: ${item.calculated_price_brutto}, final: ${item.final_price_brutto})`);
 
             // Pobierz koszt wykończenia z wielu możliwych źródeł
             let finishingBrutto = parseFloat(
@@ -1639,19 +2033,24 @@ function calculateOrderTotals() {
             const totalBrutto = productBrutto + finishingBrutto;
             const totalNetto = productNetto + finishingNetto;
 
-            // Do sumy zamówienia dodajemy pełny koszt produktu (surowe + wykończenie)
-            totals.products.brutto += totalBrutto;
-            totals.products.netto += totalNetto;
+            // ✅ NOWE: Dodaj do surowych produktów (bez wykończeń)
+            totals.productsRaw.brutto += productBrutto;
+            totals.productsRaw.netto += productNetto;
 
-            // Zachowaj osobne sumy wykończeń do ewentualnego debugowania
+            // Dodaj do sumy wykończeń
             totals.finishing.brutto += finishingBrutto;
             totals.finishing.netto += finishingNetto;
+
+            // Dodaj do sumy całkowitej produktów (surowe + wykończenie)
+            totals.products.brutto += totalBrutto;
+            totals.products.netto += totalNetto;
         });
     }
 
     log('editor', '🏁 SUMA CAŁKOWITA:', {
-        produkty_z_wykończeniem: `${totals.products.brutto.toFixed(2)} PLN brutto, ${totals.products.netto.toFixed(2)} PLN netto`,
-        wykończenie: `${totals.finishing.brutto.toFixed(2)} PLN brutto, ${totals.finishing.netto.toFixed(2)} PLN netto`
+        surowe_produkty: `${totals.productsRaw.brutto.toFixed(2)} PLN brutto, ${totals.productsRaw.netto.toFixed(2)} PLN netto`,
+        wykończenie: `${totals.finishing.brutto.toFixed(2)} PLN brutto, ${totals.finishing.netto.toFixed(2)} PLN netto`,
+        produkty_z_wykończeniem: `${totals.products.brutto.toFixed(2)} PLN brutto, ${totals.products.netto.toFixed(2)} PLN netto`
     });
 
     return totals;
@@ -1803,6 +2202,534 @@ function getShippingCosts() {
         return { brutto, netto: brutto / 1.23 };
     }
     return { brutto: 0, netto: 0 };
+}
+
+// ==================== SHIPPING CALCULATION (GLOBKURIER) ====================
+
+/**
+ * ✅ POPRAWIONA FUNKCJA: Obliczanie wymiarów agregowanych dla wysyłki
+ */
+function computeEditorAggregatedData() {
+    if (!currentEditingQuoteData?.items || currentEditingQuoteData.items.length === 0) {
+        console.error("Brak produktów w wycenie");
+        return null;
+    }
+
+    let maxLength = 0;
+    let maxWidth = 0;
+    let totalThickness = 0;
+    let totalWeight = 0;
+
+    // Grupuj items według product_index (jeden produkt może mieć kilka wariantów)
+    const productGroups = {};
+    currentEditingQuoteData.items.forEach(item => {
+        const productIndex = item.product_index;
+        if (!productGroups[productIndex]) {
+            productGroups[productIndex] = [];
+        }
+        productGroups[productIndex].push(item);
+    });
+
+    // Iteruj przez grupy produktów (bierzemy tylko pierwszy item z każdej grupy dla wymiarów)
+    Object.keys(productGroups).forEach(productIndex => {
+        const items = productGroups[productIndex];
+        const firstItem = items[0]; // Wszystkie warianty mają te same wymiary
+
+        const lengthVal = parseFloat(firstItem.length_cm) || 0;
+        const widthVal = parseFloat(firstItem.width_cm) || 0;
+        const thicknessVal = parseFloat(firstItem.thickness_cm) || 0;
+
+        // Pobierz ilość z details (jeśli istnieje)
+        let quantityVal = 1;
+        if (currentEditingQuoteData.details) {
+            const detail = currentEditingQuoteData.details.find(d => d.product_index === parseInt(productIndex));
+            if (detail) {
+                quantityVal = parseInt(detail.quantity) || 1;
+            }
+        }
+
+        console.log(`📦 Produkt ${productIndex}:`, {
+            length: lengthVal,
+            width: widthVal,
+            thickness: thicknessVal,
+            quantity: quantityVal
+        });
+
+        if (lengthVal > maxLength) maxLength = lengthVal;
+        if (widthVal > maxWidth) maxWidth = widthVal;
+
+        totalThickness += thicknessVal * quantityVal;
+
+        // Oblicz wagę (objętość * gęstość drewna 800 kg/m³)
+        const volume = (lengthVal / 100) * (widthVal / 100) * (thicknessVal / 100);
+        const productWeight = volume * 800 * quantityVal;
+        totalWeight += productWeight;
+    });
+
+    // Dodaj margines bezpieczeństwa
+    const aggregatedLength = maxLength + 5;
+    const aggregatedWidth = maxWidth + 5;
+    const aggregatedThickness = totalThickness + 5;
+
+    console.log('📦 Wymiary agregowane dla wysyłki:', {
+        length: aggregatedLength,
+        width: aggregatedWidth,
+        height: aggregatedThickness,
+        weight: totalWeight
+    });
+
+    return {
+        length: aggregatedLength,
+        width: aggregatedWidth,
+        height: aggregatedThickness,
+        weight: totalWeight,
+        quantity: 1,
+        senderCountryId: "1",
+        receiverCountryId: "1"
+    };
+}
+
+/**
+ * ✅ NOWA FUNKCJA: Główna funkcja obliczania wysyłki w edytorze
+ */
+async function calculateEditorDelivery() {
+    console.log('🚚 Rozpoczynam obliczanie wysyłki...');
+
+    const button = document.getElementById('edit-calculate-shipping-btn');
+    if (button) {
+        button.disabled = true;
+        button.innerHTML = `
+            <span class="btn-loading-dots">
+                <span class="dot"></span>
+                <span class="dot"></span>
+                <span class="dot"></span>
+            </span>
+            Obliczam...
+        `;
+    }
+
+    const shippingParams = computeEditorAggregatedData();
+    if (!shippingParams) {
+        console.error("❌ Brak danych wysyłki");
+        if (button) {
+            button.disabled = false;
+            button.innerHTML = '<svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M0 3.5A1.5 1.5 0 0 1 1.5 2h9A1.5 1.5 0 0 1 12 3.5V5h1.02a1.5 1.5 0 0 1 1.17.563l1.481 1.85a1.5 1.5 0 0 1 .329.938V10.5a1.5 1.5 0 0 1-1.5 1.5H14a2 2 0 1 1-4 0H5a2 2 0 1 1-3.998-.085A1.5 1.5 0 0 1 0 10.5v-7zm1.294 7.456A1.999 1.999 0 0 1 4.732 11h5.536a2.01 2.01 0 0 1 .732-.732V3.5a.5.5 0 0 0-.5-.5h-9a.5.5 0 0 0-.5.5v7a.5.5 0 0 0 .294.456zM12 10a2 2 0 0 1 1.732 1h.768a.5.5 0 0 0 .5-.5V8.35a.5.5 0 0 0-.11-.312l-1.48-1.85A.5.5 0 0 0 13.02 6H12v4zm-9 1a1 1 0 1 0 0 2 1 1 0 0 0 0-2zm9 0a1 1 0 1 0 0 2 1 1 0 0 0 0-2z"/></svg> Oblicz wysyłkę';
+        }
+        alert('Brak produktów w wycenie do obliczenia wysyłki.');
+        return;
+    }
+
+    try {
+        const response = await fetch('/calculator/shipping_quote', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(shippingParams)
+        });
+
+        if (response.ok) {
+            const quotesData = await response.json();
+            const quotesList = Array.isArray(quotesData) ? quotesData : [quotesData];
+
+            // Zastosuj mnożnik pakowania (tak jak w calculator)
+            const shippingPackingMultiplier = 1.15;
+            const quotes = quotesList.map(option => ({
+                carrierName: option.carrierName,
+                rawGrossPrice: option.grossPrice,
+                rawNetPrice: option.netPrice,
+                grossPrice: option.grossPrice * shippingPackingMultiplier,
+                netPrice: option.netPrice * shippingPackingMultiplier,
+                carrierLogoLink: option.carrierLogoLink || ""
+            }));
+
+            console.log('✅ Otrzymano wyceny wysyłki:', quotes);
+
+            if (quotes.length === 0) {
+                alert('Brak dostępnych metod dostawy.');
+            } else {
+                // Użyj modalu delivery z calculator (teraz dostępny w quotes dzięki przekopiowaniu HTML i CSS)
+                const packingInfo = {
+                    multiplier: shippingPackingMultiplier,
+                    message: `Do cen wysyłki została doliczona kwota ${Math.round((shippingPackingMultiplier - 1) * 100)}% na pakowanie.`
+                };
+
+                // Użyj dedykowanego modalu delivery który został przekopiowany do quotes
+                showQuotesDeliveryModal(quotes, packingInfo);
+            }
+        } else {
+            let errorMessage = "Błąd podczas wyceny wysyłki.";
+            try {
+                const errorData = await response.json();
+                if (errorData.error) {
+                    errorMessage = errorData.error;
+                }
+            } catch (parseError) {
+                console.error("Nie udało się sparsować odpowiedzi błędu:", parseError);
+            }
+            console.error('❌ Błąd HTTP:', response.status, errorMessage);
+            alert(errorMessage);
+        }
+    } catch (err) {
+        console.error('❌ Wyjątek podczas pobierania wyceny:', err);
+        let userMessage = "Błąd połączenia. Sprawdź połączenie internetowe.";
+        if (err.name === 'TypeError' && err.message.includes('fetch')) {
+            userMessage = "Nie można połączyć się z serwerem. Sprawdź połączenie internetowe.";
+        }
+        alert(userMessage);
+    } finally {
+        if (button) {
+            button.disabled = false;
+            button.innerHTML = '<svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M0 3.5A1.5 1.5 0 0 1 1.5 2h9A1.5 1.5 0 0 1 12 3.5V5h1.02a1.5 1.5 0 0 1 1.17.563l1.481 1.85a1.5 1.5 0 0 1 .329.938V10.5a1.5 1.5 0 0 1-1.5 1.5H14a2 2 0 1 1-4 0H5a2 2 0 1 1-3.998-.085A1.5 1.5 0 0 1 0 10.5v-7zm1.294 7.456A1.999 1.999 0 0 1 4.732 11h5.536a2.01 2.01 0 0 1 .732-.732V3.5a.5.5 0 0 0-.5-.5h-9a.5.5 0 0 0-.5.5v7a.5.5 0 0 0 .294.456zM12 10a2 2 0 0 1 1.732 1h.768a.5.5 0 0 0 .5-.5V8.35a.5.5 0 0 0-.11-.312l-1.48-1.85A.5.5 0 0 0 13.02 6H12v4zm-9 1a1 1 0 1 0 0 2 1 1 0 0 0 0-2zm9 0a1 1 0 1 0 0 2 1 1 0 0 0 0-2z"/></svg> Oblicz wysyłkę';
+        }
+    }
+}
+
+/**
+ * ✅ NOWA FUNKCJA: Modal delivery dla quotes (wykorzystuje przekopiowany HTML z calculator)
+ */
+function showQuotesDeliveryModal(quotes, packingInfo) {
+    const modal = document.getElementById('deliveryModal');
+    if (!modal) {
+        console.error('❌ Nie znaleziono elementu #deliveryModal');
+        return;
+    }
+
+    const optionsList = document.getElementById('deliveryOptionsList');
+    const packingInfoEl = document.getElementById('deliveryPackingInfo');
+    const headerAdjusted = document.getElementById('deliveryHeaderAdjusted');
+    let confirmBtn = document.getElementById('deliveryModalConfirm');
+    let closeBtn = document.getElementById('deliveryModalClose');
+    let cancelBtn = document.getElementById('deliveryModalCancel');
+
+    // Wyczyść poprzednie opcje
+    optionsList.innerHTML = '';
+
+    // Ustaw informację o pakowaniu
+    if (packingInfo && packingInfoEl) {
+        packingInfoEl.textContent = `ℹ️ ${packingInfo.message}`;
+        packingInfoEl.classList.remove('delivery-modal-hidden');
+        if (headerAdjusted) {
+            headerAdjusted.textContent = `Cena + ${Math.round((packingInfo.multiplier - 1) * 100)}%`;
+        }
+    }
+
+    // Dodaj event listenery (usuń stare przed dodaniem nowych) - PRZED generowaniem opcji
+    confirmBtn.replaceWith(confirmBtn.cloneNode(true));
+    closeBtn.replaceWith(closeBtn.cloneNode(true));
+    cancelBtn.replaceWith(cancelBtn.cloneNode(true));
+
+    // Pobierz nowe referencje
+    confirmBtn = document.getElementById('deliveryModalConfirm');
+    closeBtn = document.getElementById('deliveryModalClose');
+    cancelBtn = document.getElementById('deliveryModalCancel');
+
+    // Generuj opcje kurierów
+    quotes.forEach((quote, index) => {
+        const option = document.createElement('div');
+        option.className = 'delivery-modal-option';
+        option.innerHTML = `
+            <input type="radio" name="deliveryOption" value="${index}" id="delivery-opt-${index}">
+            <div class="delivery-modal-name-container">
+                ${quote.carrierLogoLink ? `<img src="${quote.carrierLogoLink}" alt="${quote.carrierName}" class="delivery-modal-logo">` : ''}
+                <span class="delivery-modal-name">${quote.carrierName}</span>
+            </div>
+            <div class="delivery-modal-price">
+                <div class="delivery-modal-price-brutto">${formatPLN(quote.grossPrice)}</div>
+                <div class="delivery-modal-price-netto">${formatPLN(quote.netPrice)} netto</div>
+            </div>
+            <div class="delivery-modal-price">
+                <div class="delivery-modal-price-brutto">${formatPLN(quote.rawGrossPrice)}</div>
+                <div class="delivery-modal-price-netto">${formatPLN(quote.rawNetPrice)} netto</div>
+            </div>
+        `;
+
+        // Obsługa kliknięcia w opcję
+        option.addEventListener('click', () => {
+            // Zaznacz radio
+            const radio = option.querySelector('input[type="radio"]');
+            radio.checked = true;
+
+            // Usuń selected z innych
+            document.querySelectorAll('.delivery-modal-option').forEach(opt => {
+                opt.classList.remove('selected');
+            });
+            option.classList.add('selected');
+
+            // Aktywuj przycisk potwierdzenia (teraz mamy poprawną referencję)
+            confirmBtn.disabled = false;
+        });
+
+        optionsList.appendChild(option);
+    });
+
+    // Obsługa potwierdzenia
+    const handleConfirm = () => {
+        const selectedRadio = document.querySelector('input[name="deliveryOption"]:checked');
+        if (!selectedRadio) return;
+
+        const selectedIndex = parseInt(selectedRadio.value);
+        const selectedQuote = quotes[selectedIndex];
+
+        // Zapisz do currentEditingQuoteData
+        currentEditingQuoteData.shipping_cost_brutto = selectedQuote.grossPrice;
+        currentEditingQuoteData.shipping_cost_netto = selectedQuote.netPrice;
+        currentEditingQuoteData.courier_name = selectedQuote.carrierName;
+
+        // Zaktualizuj wyświetlanie
+        document.getElementById('edit-courier-name').textContent = selectedQuote.carrierName;
+        document.querySelector('.edit-delivery-brutto').textContent = formatPLN(selectedQuote.grossPrice);
+        document.querySelector('.edit-delivery-netto').textContent = formatPLN(selectedQuote.netPrice) + ' netto';
+
+        // Przelicz sumy
+        updateQuoteSummary();
+
+        console.log('✅ Wybrano kuriera:', selectedQuote.carrierName);
+
+        // Zamknij modal
+        modal.classList.remove('active');
+    };
+
+    // Obsługa zamknięcia
+    const handleClose = () => {
+        modal.classList.remove('active');
+        confirmBtn.disabled = true;
+        document.querySelectorAll('.delivery-modal-option').forEach(opt => {
+            opt.classList.remove('selected');
+        });
+    };
+
+    confirmBtn.addEventListener('click', handleConfirm);
+    closeBtn.addEventListener('click', handleClose);
+    cancelBtn.addEventListener('click', handleClose);
+
+    // ✅ NOWE: Obsługa dodawania własnego kuriera
+    const addCustomBtn = document.getElementById('addCustomCarrier');
+    const backToListBtn = document.getElementById('backToDeliveryList');
+    const mainView = document.getElementById('deliveryMainView');
+    const customView = document.getElementById('deliveryCustomView');
+
+    if (addCustomBtn) {
+        addCustomBtn.addEventListener('click', () => {
+            // Pokaż formularz własnego kuriera
+            mainView?.classList.add('delivery-modal-hidden');
+            customView?.classList.remove('delivery-modal-hidden');
+            confirmBtn.disabled = true;
+            document.getElementById('deliveryConfirmText').textContent = 'Dodaj kuriera';
+        });
+    }
+
+    if (backToListBtn) {
+        backToListBtn.addEventListener('click', () => {
+            // Wróć do listy kurierów
+            customView?.classList.add('delivery-modal-hidden');
+            mainView?.classList.remove('delivery-modal-hidden');
+            confirmBtn.disabled = true;
+            document.getElementById('deliveryConfirmText').textContent = 'Zapisz';
+        });
+    }
+
+    // ✅ NOWE: Walidacja i kalkulacja formularza własnego kuriera
+    const customNameInput = document.getElementById('customCarrierName');
+    const customNettoInput = document.getElementById('customCarrierNetto');
+    const customBruttoInput = document.getElementById('customCarrierBrutto');
+
+    const validateCustomForm = () => {
+        const name = customNameInput?.value.trim();
+        const netto = parseFloat(customNettoInput?.value) || 0;
+        const brutto = parseFloat(customBruttoInput?.value) || 0;
+
+        // Aktywuj przycisk tylko jeśli wszystkie pola wypełnione
+        const isValid = name && (netto > 0 || brutto > 0);
+        confirmBtn.disabled = !isValid;
+
+        return { name, netto, brutto, isValid };
+    };
+
+    // Auto-kalkulacja netto <-> brutto
+    if (customNettoInput) {
+        customNettoInput.addEventListener('input', (e) => {
+            const netto = parseFloat(e.target.value) || 0;
+            const brutto = netto * 1.23;
+            if (customBruttoInput) {
+                customBruttoInput.value = brutto.toFixed(2);
+            }
+
+            // Aktualizuj kalkulator
+            const baseEl = document.getElementById('calcBaseBrutto');
+            const marginEl = document.getElementById('calcMargin');
+            const finalEl = document.getElementById('calcFinalPrice');
+
+            if (baseEl) baseEl.textContent = brutto.toFixed(2) + ' PLN';
+
+            const margin = brutto * 0.15;
+            if (marginEl) marginEl.textContent = margin.toFixed(2) + ' PLN';
+
+            const finalPrice = brutto * 1.15;
+            if (finalEl) finalEl.textContent = finalPrice.toFixed(2) + ' PLN';
+
+            validateCustomForm();
+        });
+    }
+
+    if (customBruttoInput) {
+        customBruttoInput.addEventListener('input', (e) => {
+            const brutto = parseFloat(e.target.value) || 0;
+            const netto = brutto / 1.23;
+            if (customNettoInput) {
+                customNettoInput.value = netto.toFixed(2);
+            }
+
+            // Aktualizuj kalkulator
+            const baseEl = document.getElementById('calcBaseBrutto');
+            const marginEl = document.getElementById('calcMargin');
+            const finalEl = document.getElementById('calcFinalPrice');
+
+            if (baseEl) baseEl.textContent = brutto.toFixed(2) + ' PLN';
+
+            const margin = brutto * 0.15;
+            if (marginEl) marginEl.textContent = margin.toFixed(2) + ' PLN';
+
+            const finalPrice = brutto * 1.15;
+            if (finalEl) finalEl.textContent = finalPrice.toFixed(2) + ' PLN';
+
+            validateCustomForm();
+        });
+    }
+
+    if (customNameInput) {
+        customNameInput.addEventListener('input', () => {
+            validateCustomForm();
+        });
+    }
+
+    // ✅ NOWE: Modyfikacja handleConfirm - obsługa własnego kuriera
+    const originalHandleConfirm = handleConfirm;
+    const newHandleConfirm = () => {
+        // Sprawdź czy jesteśmy w widoku własnego kuriera
+        if (!customView?.classList.contains('delivery-modal-hidden')) {
+            const { name, netto, brutto, isValid } = validateCustomForm();
+
+            if (!isValid) {
+                alert('Wypełnij wszystkie pola formularza');
+                return;
+            }
+
+            // Oblicz końcowe ceny z marżą pakowania
+            const finalBrutto = brutto * 1.15;
+            const finalNetto = netto * 1.15;
+
+            // Zapisz własnego kuriera
+            currentEditingQuoteData.shipping_cost_brutto = finalBrutto;
+            currentEditingQuoteData.shipping_cost_netto = finalNetto;
+            currentEditingQuoteData.courier_name = name;
+
+            // Zaktualizuj wyświetlanie
+            document.getElementById('edit-courier-name').textContent = name;
+            document.querySelector('.edit-delivery-brutto').textContent = formatPLN(finalBrutto);
+            document.querySelector('.edit-delivery-netto').textContent = formatPLN(finalNetto) + ' netto';
+
+            // Przelicz sumy
+            updateQuoteSummary();
+
+            console.log('✅ Dodano własnego kuriera:', name, finalBrutto);
+
+            // Wyczyść formularz
+            customNameInput.value = '';
+            customNettoInput.value = '';
+            customBruttoInput.value = '';
+
+            // Zamknij modal
+            modal.classList.remove('active');
+        } else {
+            // Standardowy przepływ wyboru kuriera z listy
+            originalHandleConfirm();
+        }
+    };
+
+    // Zastąp event listener na przycisku confirm
+    confirmBtn.removeEventListener('click', handleConfirm);
+    confirmBtn.addEventListener('click', newHandleConfirm);
+
+    // Zamknij na kliknięcie w overlay
+    modal.addEventListener('click', (e) => {
+        if (e.target === modal) {
+            handleClose();
+        }
+    });
+
+    // Pokaż modal
+    confirmBtn.disabled = true;
+    modal.classList.add('active');
+
+    console.log('✅ Modal delivery otwarty z', quotes.length, 'opcjami');
+}
+
+/**
+ * ✅ NOWA FUNKCJA: Prosty modal wyboru kuriera (dedykowany dla edytora) - FALLBACK
+ */
+function showEditorShippingModal(quotes, packingInfo) {
+    const modal = document.createElement('div');
+    modal.className = 'simple-shipping-modal-overlay';
+    modal.innerHTML = `
+        <div class="simple-shipping-modal-box">
+            <div class="simple-shipping-modal-header">
+                <h3>Wybierz kuriera</h3>
+                <button class="simple-shipping-modal-close">&times;</button>
+            </div>
+            ${packingInfo ? `
+                <div class="shipping-packing-info">
+                    <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                        <path d="M8 16A8 8 0 1 0 8 0a8 8 0 0 0 0 16zm.93-9.412-1 4.705c-.07.34.029.533.304.533.194 0 .487-.07.686-.246l-.088.416c-.287.346-.92.598-1.465.598-.703 0-1.002-.422-.808-1.319l.738-3.468c.064-.293.006-.399-.287-.47l-.451-.081.082-.381 2.29-.287zM8 5.5a1 1 0 1 1 0-2 1 1 0 0 1 0 2z"/>
+                    </svg>
+                    <span>${packingInfo.message}</span>
+                </div>
+            ` : ''}
+            <div class="simple-shipping-modal-content">
+                ${quotes.map((quote, index) => `
+                    <div class="shipping-option" data-index="${index}">
+                        <div class="shipping-option-name">${quote.carrierName}</div>
+                        <div class="shipping-option-price">
+                            <span class="price-brutto">${formatPLN(quote.grossPrice)}</span>
+                            <span class="price-netto">${formatPLN(quote.netPrice)} netto</span>
+                        </div>
+                        <button class="btn-select-shipping" data-index="${index}">Wybierz</button>
+                    </div>
+                `).join('')}
+            </div>
+        </div>
+    `;
+
+    document.body.appendChild(modal);
+
+    // Zamknięcie modalu
+    const closeModal = () => modal.remove();
+    modal.querySelector('.simple-shipping-modal-close').addEventListener('click', closeModal);
+    modal.addEventListener('click', (e) => {
+        if (e.target === modal) closeModal();
+    });
+
+    // Wybór kuriera
+    modal.querySelectorAll('.btn-select-shipping').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const index = parseInt(btn.dataset.index);
+            const selectedQuote = quotes[index];
+
+            // Zapisz do currentEditingQuoteData
+            currentEditingQuoteData.shipping_cost_brutto = selectedQuote.grossPrice;
+            currentEditingQuoteData.shipping_cost_netto = selectedQuote.netPrice;
+            currentEditingQuoteData.courier_name = selectedQuote.carrierName;
+
+            // Zaktualizuj wyświetlanie
+            document.getElementById('edit-courier-name').textContent = selectedQuote.carrierName;
+            document.querySelector('.edit-delivery-brutto').textContent = formatPLN(selectedQuote.grossPrice);
+            document.querySelector('.edit-delivery-netto').textContent = formatPLN(selectedQuote.netPrice) + ' netto';
+
+            // Przelicz sumy
+            updateQuoteSummary();
+
+            console.log('✅ Wybrano kuriera:', selectedQuote.carrierName);
+            closeModal();
+        });
+    });
 }
 
 // ==================== OPTIMIZED UTILITY FUNCTIONS ====================
@@ -2498,8 +3425,9 @@ function updateActiveProductTotals() {
         return;
     }
 
+    // ✅ KLUCZOWA POPRAWKA: Znajdź WYBRANY wariant (is_selected), nie pierwszy z product_index
     const activeProduct = currentEditingQuoteData?.items?.find(
-        item => item.product_index === activeProductIndex
+        item => item.product_index === activeProductIndex && item.is_selected === true
     );
 
     if (activeProduct && window.currentActiveProductData.orderBrutto) {
@@ -2507,10 +3435,19 @@ function updateActiveProductTotals() {
         activeProduct.total_brutto = parseFloat(window.currentActiveProductData.orderBrutto);
         activeProduct.total_netto = parseFloat(window.currentActiveProductData.orderNetto);
 
-        log('sync', `✅ Zaktualizowano totały produktu ${activeProductIndex}:`, {
+        // ✅ KLUCZOWA POPRAWKA: Zaktualizuj także calculated_price_* które używa calculateOrderTotals()
+        activeProduct.calculated_price_brutto = parseFloat(window.currentActiveProductData.orderBrutto);
+        activeProduct.calculated_price_netto = parseFloat(window.currentActiveProductData.orderNetto);
+
+        log('sync', `✅ Zaktualizowano totały WYBRANEGO wariantu produktu ${activeProductIndex}:`, {
+            variant_code: activeProduct.variant_code,
             brutto: activeProduct.total_brutto,
-            netto: activeProduct.total_netto
+            netto: activeProduct.total_netto,
+            calculated_brutto: activeProduct.calculated_price_brutto,
+            calculated_netto: activeProduct.calculated_price_netto
         });
+    } else {
+        log('sync', `⚠️ Nie znaleziono wybranego wariantu dla produktu ${activeProductIndex}`);
     }
 }
 
@@ -2524,16 +3461,26 @@ function saveActiveProductFormData() {
         return;
     }
 
+    // ✅ Pobierz dane wykończenia z aktywnych przycisków (tak jak collectFinishingFromUI)
+    const finishingTypeBtn = document.querySelector('#quote-editor-modal .finishing-btn[data-finishing-type].active');
+    const finishingVariantBtn = document.querySelector('#quote-editor-modal .finishing-btn[data-finishing-variant].active');
+    const finishingColorBtn = document.querySelector('#quote-editor-modal .color-btn.active');
+    const finishingGlossBtn = document.querySelector('#quote-editor-modal .finishing-btn[data-finishing-gloss].active');
+
     const formElements = {
-        length: document.getElementById('edit-length')?.value,
-        width: document.getElementById('edit-width')?.value,
-        thickness: document.getElementById('edit-thickness')?.value,
-        quantity: document.getElementById('edit-quantity')?.value,
-        finishingType: document.getElementById('finishing-type')?.textContent?.trim(),
-        finishingVariant: document.getElementById('finishing-variant')?.textContent?.trim(),
-        finishingColor: document.getElementById('finishing-color')?.textContent?.trim(),
-        finishingGloss: document.getElementById('finishing-gloss-level')?.textContent?.trim()
+        length: parseFloat(document.getElementById('edit-length')?.value) || 0,
+        width: parseFloat(document.getElementById('edit-width')?.value) || 0,
+        thickness: parseFloat(document.getElementById('edit-thickness')?.value) || 0,
+        quantity: parseInt(document.getElementById('edit-quantity')?.value) || 1,
+        finishingType: finishingTypeBtn?.dataset.finishingType || 'Surowe',
+        finishingVariant: finishingVariantBtn?.dataset.finishingVariant || null,
+        finishingColor: finishingColorBtn?.dataset.finishingColor || null,
+        finishingGloss: finishingGlossBtn?.dataset.finishingGloss || null
     };
+
+    // ✅ NOWE: Oblicz objętość na podstawie aktualnych wymiarów z formularza
+    const currentVolume = (formElements.length / 100) * (formElements.width / 100) * (formElements.thickness / 100);
+    log('sync', `📏 Obliczono objętość z wymiarów ${formElements.length}x${formElements.width}x${formElements.thickness}: ${currentVolume.toFixed(6)} m³`);
 
     const selectedVariant = document.querySelector('input[name="edit-variantOption"]:checked');
 
@@ -2544,12 +3491,137 @@ function saveActiveProductFormData() {
             item.length_cm = formElements.length;
             item.width_cm = formElements.width;
             item.thickness_cm = formElements.thickness;
-            item.quantity = formElements.quantity;
-            item.finishing_type = formElements.finishingType;
-            item.finishing_variant = formElements.finishingVariant;
-            item.finishing_color = formElements.finishingColor;
-            item.finishing_gloss = formElements.finishingGloss;
+            // ✅ NOWE: Aktualizuj objętość na podstawie nowych wymiarów
+            item.volume_m3 = currentVolume;
+            item.calculated_volume_m3 = currentVolume;
+            // ❌ USUŃ - ilość nie należy do tabeli quote_items
+            // item.quantity = formElements.quantity;
+            // ❌ USUŃ - wykończenie należy do tabeli quote_items_details, nie quote_items
+            // Dane wykończenia są zapisywane do details poniżej (linie 3554-3557)
+            // item.finishing_type = formElements.finishingType;
+            // item.finishing_variant = formElements.finishingVariant;
+            // item.finishing_color = formElements.finishingColor;
+            // item.finishing_gloss = formElements.finishingGloss;
         });
+
+    // ✅ POPRAWKA: Zapisz ilość do quote_details (gdzie powinna być)
+    if (!currentEditingQuoteData.details) {
+        currentEditingQuoteData.details = [];
+    }
+
+    let detailsItem = currentEditingQuoteData.details.find(d => d.product_index === activeProductIndex);
+    if (!detailsItem) {
+        // Utwórz nowy rekord details jeśli nie istnieje
+        detailsItem = {
+            product_index: activeProductIndex,
+            quantity: 1,
+            finishing_type: 'Surowe',
+            finishing_variant: null,
+            finishing_color: null,
+            finishing_gloss_level: null,
+            finishing_price_netto: 0,
+            finishing_price_brutto: 0
+        };
+        currentEditingQuoteData.details.push(detailsItem);
+    }
+
+    // Aktualizuj ilość w details
+    detailsItem.quantity = parseInt(formElements.quantity) || 1;
+    log('sync', `✅ Zaktualizowano ilość w details: ${detailsItem.quantity}`);
+
+    // ✅ NOWA POPRAWKA: Zapisz ceny z kalkulatora do currentEditingQuoteData.items
+    // Pobierz ceny z UI edytora dla każdego wariantu
+    const editorVariants = document.querySelectorAll('.variant-option');
+    editorVariants.forEach(variantEl => {
+        const radio = variantEl.querySelector('input[type="radio"]');
+        if (!radio) return;
+
+        const variantCode = radio.value;
+        const item = currentEditingQuoteData.items.find(
+            i => i.product_index === activeProductIndex && i.variant_code === variantCode
+        );
+
+        if (!item) return;
+
+        // Pobierz ceny z UI (skopiowane z kalkulatora przez copyCalculationResults)
+        const unitBruttoEl = variantEl.querySelector('.unit-brutto');
+        const unitNettoEl = variantEl.querySelector('.unit-netto');
+        const totalBruttoEl = variantEl.querySelector('.total-brutto');
+        const totalNettoEl = variantEl.querySelector('.total-netto');
+
+        // Zapisz ceny jako calculated_price_* (używane w collectUpdatedQuoteData)
+        if (unitBruttoEl?.textContent) {
+            const price = parseFloat(unitBruttoEl.textContent.replace(/[^\d,.]/g, '').replace(',', '.'));
+            if (!isNaN(price)) {
+                item.calculated_price_brutto = price;
+                item.unit_price_brutto = price;
+                item.final_price_brutto = price;
+            }
+        }
+
+        if (unitNettoEl?.textContent) {
+            const price = parseFloat(unitNettoEl.textContent.replace(/[^\d,.]/g, '').replace(',', '.'));
+            if (!isNaN(price)) {
+                item.calculated_price_netto = price;
+                item.unit_price_netto = price;
+                item.final_price_netto = price;
+            }
+        }
+
+        // ✅ NOWE: Zapisz price_per_m3 z dataset
+        if (radio.dataset.pricePerM3) {
+            item.price_per_m3 = parseFloat(radio.dataset.pricePerM3);
+        }
+
+        // Zapisz również objętość jeśli dostępna
+        if (radio.dataset.volumeM3) {
+            item.calculated_volume_m3 = parseFloat(radio.dataset.volumeM3);
+            item.volume_m3 = parseFloat(radio.dataset.volumeM3);
+        }
+
+        // ✅ DEBUG: Szczegółowy log cen dla każdego wariantu
+        console.log(`[SAVE PRICES] Wariant ${variantCode}:`, {
+            price_per_m3: item.price_per_m3,
+            volume_m3: item.volume_m3,
+            calculated_volume_m3: item.calculated_volume_m3,
+            unit_price_brutto: item.unit_price_brutto,
+            calculated_price_brutto: item.calculated_price_brutto,
+            final_price_brutto: item.final_price_brutto
+        });
+    });
+
+    // ✅ POPRAWKA: Zapisz koszty wykończenia dla aktywnego produktu
+    if (window.activeQuoteForm?.dataset) {
+        const finishingBrutto = parseFloat(window.activeQuoteForm.dataset.finishingBrutto) || 0;
+        const finishingNetto = parseFloat(window.activeQuoteForm.dataset.finishingNetto) || 0;
+
+        // DEBUG: Log przed zapisaniem
+        console.log(`[SAVE FINISHING] Produkt ${activeProductIndex}:`, {
+            formElements_finishingType: formElements.finishingType,
+            formElements_finishingVariant: formElements.finishingVariant,
+            formElements_finishingColor: formElements.finishingColor,
+            formElements_finishingGloss: formElements.finishingGloss,
+            finishingBrutto,
+            finishingNetto
+        });
+
+        // Aktualizuj wykończenie w details
+        detailsItem.finishing_price_brutto = finishingBrutto;
+        detailsItem.finishing_price_netto = finishingNetto;
+        detailsItem.finishing_type = formElements.finishingType || 'Surowe';
+        detailsItem.finishing_variant = formElements.finishingVariant || null;
+        detailsItem.finishing_color = formElements.finishingColor || null;
+        detailsItem.finishing_gloss_level = formElements.finishingGloss || null;
+
+        console.log(`[SAVE FINISHING] Po zapisaniu do detailsItem:`, {
+            finishing_type: detailsItem.finishing_type,
+            finishing_variant: detailsItem.finishing_variant,
+            finishing_color: detailsItem.finishing_color,
+            finishing_gloss_level: detailsItem.finishing_gloss_level
+        });
+
+        log('sync', `✅ Zapisano wykończenie w details: ${finishingBrutto} PLN brutto`);
+    }
 
     // Aktualizuj is_selected tylko dla wybranego wariantu
     if (selectedVariant) {
@@ -2610,6 +3682,27 @@ function saveActiveProductFormData() {
  * Zoptymalizowana aktywacja produktu
  */
 function activateProductInEditor(productIndex) {
+    log('editor', `Aktywacja produktu: ${productIndex}`);
+
+    // ✅ KROK 1: Zapisz stan zaznaczonych wariantów WSZYSTKICH produktów (wzorowane na calculator.js)
+    const savedVariants = {};
+    if (currentEditingQuoteData?.items) {
+        const uniqueProductIndexes = [...new Set(currentEditingQuoteData.items.map(item => item.product_index))];
+
+        uniqueProductIndexes.forEach(pIndex => {
+            const selectedItem = currentEditingQuoteData.items.find(
+                item => item.product_index === pIndex && item.is_selected === true
+            );
+            if (selectedItem) {
+                savedVariants[pIndex] = {
+                    variant_code: selectedItem.variant_code,
+                    id: selectedItem.id
+                };
+                log('editor', `💾 Zapisano wariant produktu ${pIndex}: ${selectedItem.variant_code}`);
+            }
+        });
+    }
+
     // Zachowaj poprzedni indeks przed zmianą
     const previousIndex = activeProductIndex;
 
@@ -2627,7 +3720,7 @@ function activateProductInEditor(productIndex) {
         return;
     }
 
-    const productItem = currentEditingQuoteData.items.find(item => item.product_index === productIndex);
+    const productItem = currentEditingQuoteData.items.find(item => item.product_index === productIndex && item.is_selected === true);
     if (!productItem) {
         log('editor', `❌ Nie znaleziono produktu o indeksie: ${productIndex}`);
         return;
@@ -2662,8 +3755,29 @@ function activateProductInEditor(productIndex) {
         }
     }
 
-    // DODAJ TO: Ustaw odpowiedni wariant dla aktywnego produktu
-    if (currentEditingQuoteData) {
+    // ✅ KROK 2: Przywróć zaznaczenia wariantów WSZYSTKICH produktów (wzorowane na calculator.js)
+    Object.entries(savedVariants).forEach(([pIndex, variantData]) => {
+        const pIndexInt = parseInt(pIndex);
+
+        // Dla każdego produktu przywróć jego wybrany wariant w danych
+        currentEditingQuoteData.items.forEach(item => {
+            if (item.product_index === pIndexInt) {
+                // Zaznacz tylko ten który był zapisany
+                if (item.variant_code === variantData.variant_code) {
+                    item.is_selected = true;
+                } else {
+                    item.is_selected = false;
+                }
+            }
+        });
+
+        log('editor', `🔄 Przywrócono wariant produktu ${pIndexInt}: ${variantData.variant_code}`);
+    });
+
+    // ✅ KROK 3: Ustaw odpowiedni wariant w UI dla aktywnego produktu
+    if (savedVariants[productIndex]) {
+        selectVariantByCode(savedVariants[productIndex].variant_code);
+    } else {
         setSelectedVariantForActiveProduct(productIndex);
     }
 
@@ -2889,24 +4003,59 @@ function selectVariantByCode(variantCode) {
  */
 function setupModalCloseHandlers() {
     const modal = document.getElementById('quote-editor-modal');
-    const closeElements = [
-        '#close-quote-editor',
-        '#cancel-quote-edit'
-    ];
+    const closeButton = document.getElementById('close-quote-editor');
+    const cancelButton = document.getElementById('cancel-quote-edit'); // ✅ NOWE: Przycisk Anuluj
 
-    const closeModal = () => {
+    if (!modal || !closeButton) {
+        console.error('[QUOTE EDITOR] Nie znaleziono przycisku zamykania');
+        return;
+    }
+
+    // Handler zamykania
+    const closeHandler = () => {
+        log('editor', 'Zamykanie edytora wyceny...');
+
+        // ✅ NOWE: Przywróć funkcje calculator.js przed zamknięciem
+        restoreCalculatorFunctions();
+
+        // ✅ NOWE: Pełne czyszczenie danych przy zamknięciu
+        clearEditorData();
+
+        // Zamknij modal
         modal.style.display = 'none';
-        resetEditorState(); // ✅ Używaj resetEditorState zamiast clearEditorData
+
+        // Opcjonalnie: odśwież listę wycen
+        if (typeof loadQuotes === 'function') {
+            loadQuotes();
+        }
+
+        log('editor', '✅ Edytor zamknięty');
     };
 
-    // Attach close handlers
-    closeElements.forEach(selector => {
-        const element = document.querySelector(selector);
-        if (element) element.onclick = closeModal;
+    // Usuń stare event listenery i dodaj nowe
+    closeButton.replaceWith(closeButton.cloneNode(true));
+    const newCloseButton = document.getElementById('close-quote-editor');
+
+    newCloseButton.addEventListener('click', closeHandler);
+
+    // ✅ NOWE: Dodaj listener dla przycisku Anuluj
+    if (cancelButton) {
+        cancelButton.replaceWith(cancelButton.cloneNode(true));
+        const newCancelButton = document.getElementById('cancel-quote-edit');
+        newCancelButton.addEventListener('click', closeHandler);
+        log('editor', '✅ Przycisk Anuluj skonfigurowany');
+    } else {
+        log('editor', '⚠️ Nie znaleziono przycisku Anuluj (#cancel-quote-edit)');
+    }
+
+    // Zamknij przez ESC
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && modal.style.display === 'flex') {
+            closeHandler();
+        }
     });
 
-    // ✅ DODAJ: Pełne czyszczenie tylko przy rzeczywistym opuszczeniu strony
-    window.addEventListener('beforeunload', clearEditorData);
+    log('editor', '✅ Handlery zamykania skonfigurowane (kliknięcie w tło wyłączone)');
 }
 
 /**
@@ -2938,9 +4087,103 @@ function resetEditorState() {
  */
 function clearEditorData() {
     log('editor', 'Pełne czyszczenie danych edytora...');
+
+    // Wyczyść dane wyceny
     currentEditingQuoteData = null;
     activeProductIndex = null;
+
+    // Wyczyść cache
+    window.currentActiveProductData = {};
+
+    // ✅ NOWE: Reset flagi przeliczania
+    isRecalculating = false;
+
+    // ✅ NOWE: Wyczyść oryginalną kopię danych
+    window.originalQuoteData = null;
+
+    // Reset kalkulatora
     resetCalculatorAfterEditor();
+
+    // Wyczyść formularz UI
+    clearEditorForm();
+
+    log('editor', '✅ Dane edytora wyczyszczone');
+}
+
+/**
+ * ✅ NOWA FUNKCJA - Czyszczenie formularza UI
+ */
+function clearEditorForm() {
+    // Wyczyść pola formularza
+    const fieldsToReset = [
+        'edit-length',
+        'edit-width',
+        'edit-thickness',
+        'edit-quantity',
+        'edit-clientType'
+    ];
+
+    fieldsToReset.forEach(fieldId => {
+        const field = document.getElementById(fieldId);
+        if (field) {
+            if (fieldId === 'edit-clientType') {
+                field.selectedIndex = 0; // Reset select do pierwszej opcji
+            } else if (fieldId === 'edit-quantity') {
+                field.value = '1'; // Ilość na 1
+            } else {
+                field.value = ''; // Wyczyść inne pola
+            }
+        }
+    });
+
+    // Wyczyść listę produktów
+    const productsList = document.getElementById('edit-products-list');
+    if (productsList) {
+        productsList.innerHTML = '';
+    }
+
+    // Wyczyść podsumowanie
+    const summaryElements = document.querySelectorAll(
+        '.edit-order-brutto, .edit-order-netto, ' +
+        '.edit-finishing-brutto, .edit-finishing-netto, ' +
+        '.edit-product-total-brutto, .edit-product-total-netto'
+    );
+    summaryElements.forEach(el => {
+        if (el) el.textContent = '0.00';
+    });
+
+    // Reset wykończenia do "Surowe"
+    const finishingButtons = document.querySelectorAll('#quote-editor-modal .finishing-btn');
+    finishingButtons.forEach(btn => btn.classList.remove('active'));
+
+    const surowiBtn = document.querySelector('#quote-editor-modal [data-finishing-type="Surowe"]');
+    if (surowiBtn) surowiBtn.classList.add('active');
+
+    // Wyczyść warianty
+    const variantOptions = document.querySelectorAll('#quote-editor-modal .variant-option');
+    variantOptions.forEach(variant => {
+        // Odznacz radio buttony
+        const radio = variant.querySelector('input[type="radio"]');
+        if (radio) radio.checked = false;
+
+        // Usuń klasę selected
+        variant.classList.remove('selected');
+
+        // Resetuj checkboxy dostępności
+        const checkbox = variant.querySelector('.variant-availability-checkbox');
+        if (checkbox) checkbox.checked = false;
+    });
+
+    // Ukryj sekcje wykończenia
+    const finishingVariantWrapper = document.getElementById('edit-finishing-variant-wrapper');
+    const finishingColorWrapper = document.getElementById('edit-finishing-color-wrapper');
+    const finishingGlossWrapper = document.getElementById('edit-finishing-gloss-wrapper');
+
+    if (finishingVariantWrapper) finishingVariantWrapper.style.display = 'none';
+    if (finishingColorWrapper) finishingColorWrapper.style.display = 'none';
+    if (finishingGlossWrapper) finishingGlossWrapper.style.display = 'none';
+
+    log('editor', '✅ Formularz UI wyczyszczony');
 }
 
 /**
@@ -2987,14 +4230,14 @@ function resetCalculatorAfterEditor() {
 /**
  * Zoptymalizowane zapisywanie zmian
  */
-function saveQuoteChanges() {
+async function saveQuoteChanges() {
     log('editor', 'Zapisywanie zmian w wycenie...');
 
     // Zachowaj bieżące dane produktu przed zapisem
     saveActiveProductFormData();
 
     if (!currentEditingQuoteData) {
-        alert('Błąd: Brak danych wyceny do zapisu');
+        showToast('Błąd: Brak danych wyceny do zapisu', 'error');
         return;
     }
 
@@ -3002,51 +4245,358 @@ function saveQuoteChanges() {
 
     const updatedData = collectUpdatedQuoteData();
     if (!updatedData) {
-        alert('Błąd: Nie udało się zebrać danych z formularza');
+        showToast('Błąd: Nie udało się zebrać danych z formularza', 'error');
         return;
     }
 
-    log('editor', 'Dane do zapisu:', updatedData);
+    // ✅ DEBUG: Szczegółowy log payloadu - WARIANTY I CENY
+    console.log('═══════════════════════════════════════════════════');
+    console.log('[PAYLOAD TO BACKEND] Liczba produktów:', updatedData.products.length);
+    updatedData.products.forEach((product, index) => {
+        console.log(`\n[PRODUCT ${index + 1}] Product Index: ${product.product_index}`);
+        console.log(`  Wymiary: ${product.length_cm} x ${product.width_cm} x ${product.thickness_cm} cm`);
+        console.log(`  Ilość: ${product.quantity}`);
+        console.log(`  Wybrany wariant: ${product.selected_variant.variant_code}`);
+        console.log(`  Liczba wariantów: ${product.variants.length}`);
 
-    // TODO: Implement actual save to backend
-    alert('Zapisywanie zmian będzie dostępne wkrótce!\n\nZebrane dane:\n' + JSON.stringify(updatedData, null, 2));
+        product.variants.forEach((variant, vIdx) => {
+            console.log(`    [Wariant ${vIdx + 1}] ${variant.variant_code}:`, {
+                item_id: variant.item_id,
+                is_selected: variant.is_selected,
+                price_per_m3: variant.price_per_m3,
+                volume_m3: variant.volume_m3,
+                unit_price_brutto: variant.unit_price_brutto,
+                unit_price_netto: variant.unit_price_netto
+            });
+        });
+    });
+    console.log('═══════════════════════════════════════════════════\n');
+
+    // Pokaż stan ładowania
+    setSaveButtonLoading(true);
+
+    try {
+        const response = await fetch(`/quotes/api/quotes/${currentEditingQuoteData.id}/save`, {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(updatedData)
+        });
+
+        const result = await response.json();
+
+        if (!response.ok) {
+            throw new Error(result.error || result.details || 'Błąd podczas zapisywania');
+        }
+
+        log('editor', '✅ Wycena zapisana pomyślnie:', result);
+
+        // Pokaż sukces
+        showToast('Wycena została zaktualizowana', 'success');
+
+        // ✅ POPRAWKA: refreshQuoteModal w quotes.js oczekuje ID (liczby), nie obiektu
+        if (result.quote && result.quote.id) {
+            await refreshQuoteModal(result.quote.id);
+        }
+
+        // ✅ Zamknij edytor po pomyślnym zapisie
+        if (window.QuoteEditor && typeof window.QuoteEditor.close === 'function') {
+            window.QuoteEditor.close();
+        }
+
+    } catch (error) {
+        console.error('[QUOTE EDITOR] Błąd zapisu:', error);
+        showToast(error.message || 'Wystąpił błąd podczas zapisywania wyceny', 'error');
+    } finally {
+        // Ukryj stan ładowania
+        setSaveButtonLoading(false);
+    }
+}
+
+function setSaveButtonLoading(isLoading) {
+    const saveButton = document.getElementById('save-quote-changes');
+    if (!saveButton) return;
+
+    if (isLoading) {
+        saveButton.dataset.originalText = saveButton.innerHTML;
+        saveButton.disabled = true;
+        saveButton.innerHTML = `
+            <span class="btn-loading-dots">
+                <span class="dot"></span>
+                <span class="dot"></span>
+                <span class="dot"></span>
+            </span>
+            Zapisywanie...
+        `;
+    } else {
+        saveButton.disabled = false;
+        saveButton.innerHTML = saveButton.dataset.originalText || 'Zapisz zmiany';
+    }
+}
+
+// ❌ USUNIĘTO: refreshQuoteModal - używamy funkcji z quotes.js
+// która pobiera świeże dane z serwera i odświeża modal szczegółów wyceny
+
+function showToast(message, type = 'info') {
+    if (typeof window.showToast === 'function') {
+        window.showToast(message, type);
+        return;
+    }
+
+    const icons = {
+        'success': '✅',
+        'error': '❌',
+        'warning': '⚠️',
+        'info': 'ℹ️'
+    };
+
+    const icon = icons[type] || icons['info'];
+    alert(`${icon} ${message}`);
 }
 
 /**
- * Zbieranie danych do zapisu - zoptymalizowane
+ * ✅ POPRAWIONA FUNKCJA - Zbieranie WSZYSTKICH danych do zapisu w bazie
  */
 function collectUpdatedQuoteData() {
     try {
-        const formFields = ['edit-clientType', 'edit-length', 'edit-width', 'edit-thickness', 'edit-quantity'];
-        const data = {};
+        if (!currentEditingQuoteData || !currentEditingQuoteData.items) {
+            console.error('[QUOTE EDITOR] Brak danych wyceny');
+            return null;
+        }
 
-        formFields.forEach(fieldId => {
-            const element = document.getElementById(fieldId);
-            if (element) {
-                const key = fieldId.replace('edit-', '');
-                data[key] = fieldId === 'edit-clientType' ? element.value : parseFloat(element.value) || 0;
+        // Pobierz grupę cenową i mnożnik
+        const clientTypeSelect = document.getElementById('edit-clientType');
+        const clientType = clientTypeSelect?.value || currentEditingQuoteData.quote_client_type;
+        const multiplier = getMultiplierValue(clientType);
+
+        // ===== DANE GŁÓWNE WYCENY (tabela quotes) =====
+        const quoteData = {
+            quote_id: currentEditingQuoteData.id,
+            quote_number: currentEditingQuoteData.quote_number,
+            quote_client_type: clientType,
+            quote_multiplier: multiplier,
+            quote_type: currentEditingQuoteData.quote_type || 'brutto',
+            notes: currentEditingQuoteData.notes || null,
+            // Dane kuriera - używamy ?? zamiast || żeby zachować wartość 0 jeśli została jawnie ustawiona
+            courier_name: currentEditingQuoteData.courier_name ?? null,
+            shipping_cost_netto: currentEditingQuoteData.shipping_cost_netto ?? null,
+            shipping_cost_brutto: currentEditingQuoteData.shipping_cost_brutto ?? null
+        };
+
+        // ===== DANE WSZYSTKICH PRODUKTÓW (tabela quote_items + quote_items_details) =====
+        const products = [];
+
+        // Zbierz wszystkie produkty z currentEditingQuoteData.items
+        const productIndexes = [...new Set(currentEditingQuoteData.items.map(item => item.product_index))];
+
+        productIndexes.forEach(productIndex => {
+            // Znajdź wszystkie warianty dla tego produktu
+            const productItems = currentEditingQuoteData.items.filter(item => item.product_index === productIndex);
+
+            if (productItems.length === 0) return;
+
+            // Znajdź wybrany wariant dla tego produktu
+            const selectedItem = productItems.find(item => item.is_selected);
+
+            if (!selectedItem) return;
+
+            // Zbierz dane szczegółowe (z tabeli quote_items_details)
+            const productDetails = currentEditingQuoteData.details?.find(d => d.product_index === productIndex);
+
+            // ✅ POPRAWKA: Dla aktywnego produktu pobierz świeżą ilość z UI
+            let quantity = productDetails?.quantity || 1;
+            if (parseInt(productIndex) === activeProductIndex) {
+                const quantityInput = document.getElementById('edit-quantity');
+                if (quantityInput && quantityInput.value) {
+                    quantity = parseInt(quantityInput.value) || 1;
+                }
             }
+
+            // Zbierz dane wykończenia
+            const finishingData = collectFinishingData(productIndex);
+
+            // Buduj obiekt produktu
+            const product = {
+                product_index: productIndex,
+
+                // Dane wymiarów i ilości
+                length_cm: selectedItem.length_cm,
+                width_cm: selectedItem.width_cm,
+                thickness_cm: selectedItem.thickness_cm,
+                quantity: quantity,
+
+                // Wybrany wariant
+                selected_variant: {
+                    variant_code: selectedItem.variant_code,
+                    item_id: selectedItem.id,
+                    // ✅ POPRAWKA: Użyj świeżych obliczeń jeśli dostępne, inaczej wartości z bazy
+                    volume_m3: selectedItem.calculated_volume_m3 || selectedItem.volume_m3,
+                    price_per_m3: selectedItem.price_per_m3,
+                    multiplier: multiplier,
+                    unit_price_netto: selectedItem.calculated_price_netto || selectedItem.unit_price_netto || selectedItem.final_price_netto,
+                    unit_price_brutto: selectedItem.calculated_price_brutto || selectedItem.unit_price_brutto || selectedItem.final_price_brutto,
+                    total_price_netto: selectedItem.calculated_price_netto || selectedItem.final_price_netto,
+                    total_price_brutto: selectedItem.calculated_price_brutto || selectedItem.final_price_brutto
+                },
+
+                // Wszystkie warianty (dostępność, zaznaczenie i CENY)
+                variants: productItems.map(item => ({
+                    item_id: item.id,
+                    variant_code: item.variant_code,
+                    is_selected: item.is_selected,
+                    show_on_client_page: item.show_on_client_page,
+                    length_cm: item.length_cm,
+                    width_cm: item.width_cm,
+                    thickness_cm: item.thickness_cm,
+                    // ✅ POPRAWKA: Wysyłaj ceny - jeśli null/undefined to 0
+                    price_per_m3: item.price_per_m3 ?? 0,
+                    volume_m3: item.calculated_volume_m3 ?? item.volume_m3 ?? 0,
+                    unit_price_netto: item.calculated_price_netto ?? item.unit_price_netto ?? item.final_price_netto ?? 0,
+                    unit_price_brutto: item.calculated_price_brutto ?? item.unit_price_brutto ?? item.final_price_brutto ?? 0,
+                    final_price_netto: item.calculated_price_netto ?? item.final_price_netto ?? 0,
+                    final_price_brutto: item.calculated_price_brutto ?? item.final_price_brutto ?? 0
+                })),
+
+                // Wykończenie
+                finishing: finishingData
+            };
+
+            products.push(product);
         });
 
-        const selectedVariant = document.querySelector('input[name="edit-variantOption"]:checked');
-
+        // ===== ZWRÓĆ KOMPLETNE DANE =====
         return {
-            quote_id: currentEditingQuoteData.id,
-            client_type: data.clientType,
-            active_product: {
-                index: activeProductIndex,
-                length_cm: data.length,
-                width_cm: data.width,
-                thickness_cm: data.thickness,
-                quantity: parseInt(data.quantity) || 1,
-                variant_code: selectedVariant?.value || null,
-                variant_name: selectedVariant?.dataset.variantName || null
-            }
+            quote: quoteData,
+            products: products,
+            total_products: products.length
         };
+
     } catch (error) {
         console.error('[QUOTE EDITOR] Błąd zbierania danych:', error);
+        console.error('[QUOTE EDITOR] Stack trace:', error.stack);
         return null;
     }
+}
+
+/**
+ * ✅ NOWA FUNKCJA - Zbieranie danych wykończenia dla produktu
+ */
+function collectFinishingData(productIndex) {
+    try {
+        // ✅ POPRAWKA: Sprawdź czy to aktywny produkt - jeśli tak, pobierz dane z UI
+        const isActiveProduct = parseInt(productIndex) === activeProductIndex;
+
+        if (isActiveProduct) {
+            // Dla aktywnego produktu - pobierz dane z UI i świeże obliczenia
+            const uiData = collectFinishingFromUI();
+
+            // ✅ POPRAWKA: Pobierz ceny wykończenia z activeQuoteForm.dataset (zapisane przez saveActiveProductFormData)
+            let finishingNetto = 0;
+            let finishingBrutto = 0;
+
+            // Sprawdź najpierw w details (zapisane przez saveActiveProductFormData)
+            const detailsItem = currentEditingQuoteData.details?.find(d => d.product_index === productIndex);
+            if (detailsItem) {
+                finishingNetto = detailsItem.finishing_price_netto || 0;
+                finishingBrutto = detailsItem.finishing_price_brutto || 0;
+            }
+
+            // Jeśli nie ma w details, spróbuj pobrać z activeQuoteForm.dataset
+            if (finishingNetto === 0 && finishingBrutto === 0 && window.activeQuoteForm?.dataset) {
+                finishingNetto = parseFloat(window.activeQuoteForm.dataset.finishingNetto) || 0;
+                finishingBrutto = parseFloat(window.activeQuoteForm.dataset.finishingBrutto) || 0;
+            }
+
+            // DEBUG: Log dla aktywnego produktu
+            console.log(`[COLLECT FINISHING] Produkt ${productIndex} (AKTYWNY), dane z UI:`, {
+                finishing_type: uiData.finishing_type,
+                finishing_variant: uiData.finishing_variant,
+                finishing_color: uiData.finishing_color,
+                finishing_gloss_level: uiData.finishing_gloss_level,
+                finishingNetto,
+                finishingBrutto
+            });
+
+            const result = {
+                finishing_type: uiData.finishing_type,
+                finishing_variant: uiData.finishing_variant,
+                finishing_color: uiData.finishing_color,
+                finishing_gloss_level: uiData.finishing_gloss_level,
+                finishing_price_netto: finishingNetto,
+                finishing_price_brutto: finishingBrutto
+            };
+
+            console.log(`[COLLECT FINISHING] Produkt ${productIndex} (AKTYWNY), zwracam:`, result);
+            return result;
+        }
+
+        // Dla nieaktywnych produktów - użyj zapisanych danych
+        const detailsItem = currentEditingQuoteData.details?.find(d => d.product_index === productIndex);
+
+        if (!detailsItem) {
+            // Brak zapisanych danych
+            console.log(`[COLLECT FINISHING] Produkt ${productIndex} (nieaktywny): Brak detailsItem, zwracam Surowe`);
+            return {
+                finishing_type: 'Surowe',
+                finishing_variant: null,
+                finishing_color: null,
+                finishing_gloss_level: null,
+                finishing_price_netto: 0,
+                finishing_price_brutto: 0
+            };
+        }
+
+        // DEBUG: Log danych z details
+        console.log(`[COLLECT FINISHING] Produkt ${productIndex} (nieaktywny), dane z details:`, {
+            finishing_type: detailsItem.finishing_type,
+            finishing_variant: detailsItem.finishing_variant,
+            finishing_color: detailsItem.finishing_color,
+            finishing_gloss_level: detailsItem.finishing_gloss_level
+        });
+
+        // Zwróć zapisane dane
+        const result = {
+            finishing_type: detailsItem.finishing_type || 'Surowe',
+            finishing_variant: detailsItem.finishing_variant || null,
+            finishing_color: detailsItem.finishing_color || null,
+            finishing_gloss_level: detailsItem.finishing_gloss_level || null,
+            finishing_price_netto: detailsItem.finishing_price_netto || 0,
+            finishing_price_brutto: detailsItem.finishing_price_brutto || 0
+        };
+
+        console.log(`[COLLECT FINISHING] Produkt ${productIndex} (nieaktywny), zwracam:`, result);
+        return result;
+    } catch (error) {
+        console.error('[QUOTE EDITOR] Błąd zbierania danych wykończenia:', error);
+        return {
+            finishing_type: 'Surowe',
+            finishing_variant: null,
+            finishing_color: null,
+            finishing_gloss_level: null,
+            finishing_price_netto: 0,
+            finishing_price_brutto: 0
+        };
+    }
+}
+
+/**
+ * ✅ NOWA FUNKCJA - Zbieranie danych wykończenia z UI edytora
+ */
+function collectFinishingFromUI() {
+    const finishingTypeBtn = document.querySelector('#quote-editor-modal .finishing-btn[data-finishing-type].active');
+    const finishingVariantBtn = document.querySelector('#quote-editor-modal .finishing-btn[data-finishing-variant].active');
+    const finishingColorBtn = document.querySelector('#quote-editor-modal .color-btn.active');
+    const finishingGlossBtn = document.querySelector('#quote-editor-modal .finishing-btn[data-finishing-gloss].active');
+
+    return {
+        finishing_type: finishingTypeBtn?.dataset.finishingType || 'Surowe',
+        finishing_variant: finishingVariantBtn?.dataset.finishingVariant || null,
+        finishing_color: finishingColorBtn?.dataset.finishingColor || null,
+        finishing_gloss_level: finishingGlossBtn?.dataset.finishingGloss || null,
+        finishing_price_netto: 0, // Backend będzie obliczał na podstawie typu
+        finishing_price_brutto: 0
+    };
 }
 
 // ==================== OPTIMIZED FINISHING DATA LOADING ====================
@@ -3450,7 +5000,7 @@ function generateProductDescriptionForQuote(item, productItems) {
                     // DODAJ KOLOR jeśli wariant to "Barwne"
                     if (finishingVariant === 'Barwne') {
                         const finishingColor = getSelectedFinishingColor?.();
-                        if (finishingColor && finishingColor !== 'Brak') {
+                        if (finishingColor) {
                             finishing += ` ${finishingColor}`;
                         }
                     }
@@ -3458,45 +5008,87 @@ function generateProductDescriptionForQuote(item, productItems) {
             }
         }
     } else {
-        // Dla nieaktywnego - sprawdź dane wykończenia z bazy
-        if (currentEditingQuoteData?.finishing) {
-            const finishingDetails = currentEditingQuoteData.finishing.find(f =>
-                f.product_index === item.product_index
-            );
-            if (finishingDetails && finishingDetails.finishing_type) {
-                finishing = ` | ${finishingDetails.finishing_type}`;
+        // Dla nieaktywnych - pobierz wykończenie z danych wyceny
+        const finishingData = currentEditingQuoteData?.finishing?.find(f => f.product_index === item.product_index);
+        if (finishingData && finishingData.finishing_type) {
+            finishing = ` | ${finishingData.finishing_type}`;
 
-                // Dodaj wariant i kolor tylko jeśli nie jest "Surowe"
-                if (finishingDetails.finishing_type !== 'Surowe') {
-                    // Dodaj wariant jeśli istnieje
-                    if (finishingDetails.finishing_variant) {
-                        finishing += ` ${finishingDetails.finishing_variant}`;
-                    }
+            if (finishingData.finishing_type !== 'Surowe' && finishingData.finishing_variant) {
+                finishing += ` ${finishingData.finishing_variant}`;
 
-                    // DODAJ KOLOR z bazy danych
-                    if (finishingDetails.finishing_color && finishingDetails.finishing_color !== 'Brak') {
-                        finishing += ` ${finishingDetails.finishing_color}`;
-                    }
+                if (finishingData.finishing_variant === 'Barwne' && finishingData.finishing_color) {
+                    finishing += ` ${finishingData.finishing_color}`;
                 }
             }
         }
     }
 
-    const quantityText = ` | ${quantity} szt.`;
-    const main = `${translatedVariant} ${dimensions}${finishing}${quantityText}`;
+    // Main info: wariant + wymiary + wykończenie + ilość
+    const main = `${translatedVariant} • ${dimensions}${finishing} • ${quantity} szt.`;
 
     // Oblicz objętość i wagę
-    const volume = calculateSingleVolume(length, width, thickness) * quantity;
-    const weight = volume * 800; // gęstość drewna
-    const volumeText = volume ? `${volume.toFixed(3)} m³` : '0.000 m³';
-    const weightText = formatWeightDisplay ? formatWeightDisplay(weight) : `${weight.toFixed(1)} kg`;
-    const sub = `${volumeText} | ${weightText}`;
+    const volume = (length * width * thickness * quantity) / 1000000; // cm³ -> m³
+    const weight = volume * 800; // kg (gęstość drewna)
+    const volumeText = typeof formatVolumeDisplay === 'function' ?
+        formatVolumeDisplay(volume) : `${volume.toFixed(3)} m³`;
+    const weightText = typeof formatWeightDisplay === 'function' ?
+        formatWeightDisplay(weight) : `${weight.toFixed(1)} kg`;
 
-    console.log('[generateProductDescriptionForQuote] Wygenerowany opis z kolorem:', {
-        main, sub, isActiveProduct, length, width, thickness, quantity, variantCode, finishing
+    // Pobierz ceny (wartość całkowita, nie jednostkowa)
+    let valueNetto = 0;
+    let valueBrutto = 0;
+
+    if (isActiveProduct) {
+        // Dla aktywnego produktu - pobierz z activeProductCosts i activeFinishingCosts
+        const productCosts = calculateActiveProductCosts();
+        const finishingCosts = calculateActiveProductFinishingCosts();
+
+        valueNetto = (productCosts.netto || 0) + (finishingCosts.netto || 0);
+        valueBrutto = (productCosts.brutto || 0) + (finishingCosts.brutto || 0);
+
+        console.log('[generateProductDescriptionForQuote] Aktywny produkt - ceny z obliczeń:', {
+            productCosts, finishingCosts, valueNetto, valueBrutto
+        });
+    } else {
+        // Dla nieaktywnych - użyj zapisanych wartości
+        valueNetto = parseFloat(item.final_price_netto || item.calculated_price_netto || 0);
+        valueBrutto = parseFloat(item.final_price_brutto || item.calculated_price_brutto || 0);
+
+        // Dodaj koszt wykończenia jeśli istnieje
+        const finishingData = currentEditingQuoteData?.finishing?.find(f => f.product_index === item.product_index);
+        if (finishingData) {
+            valueNetto += parseFloat(finishingData.finishing_price_netto || 0);
+            valueBrutto += parseFloat(finishingData.finishing_price_brutto || 0);
+        }
+
+        console.log('[generateProductDescriptionForQuote] Nieaktywny produkt - ceny z danych:', {
+            item_netto: item.final_price_netto,
+            item_brutto: item.final_price_brutto,
+            finishing_netto: finishingData?.finishing_price_netto,
+            finishing_brutto: finishingData?.finishing_price_brutto,
+            valueNetto, valueBrutto
+        });
+    }
+
+    // ✅ NOWE: Formatuj ceny (podobnie jak w calculator)
+    const priceNettoText = valueNetto > 0 ? `${valueNetto.toFixed(2)} PLN netto` : '0.00 PLN netto';
+    const priceBruttoText = valueBrutto > 0 ? `${valueBrutto.toFixed(2)} PLN brutto` : '0.00 PLN brutto';
+
+    // ✅ NOWE: Sub info zawiera teraz: objętość | waga | wartość netto | wartość brutto
+    const sub = `${volumeText}  |  ${weightText}  |  ${priceBruttoText}  |  ${priceNettoText}`;
+
+    console.log('[generateProductDescriptionForQuote] Wygenerowany opis z cenami:', {
+        main, sub, isActiveProduct, length, width, thickness, quantity, variantCode, finishing,
+        valueNetto, valueBrutto
     });
+
     return { main, sub };
 }
+
+
+
+
+
 
 /**
  * NOWA FUNKCJA POMOCNICZA - Oblicz objętość pojedynczego produktu (cm³ -> m³)
@@ -3610,36 +5202,60 @@ function updateProductsSummaryTotals() {
     const { totalVolume, totalWeight } =
         calculateTotalVolumeAndWeightFromQuoteFixed(currentEditingQuoteData);
 
-    // POPRAWKA: Znajdź główną sekcję produktów, nie kontener scroll
+    // Znajdź główną sekcję produktów, nie kontener scroll
     const mainSection = document.querySelector('.edit-products-summary-main');
     if (!mainSection) {
         console.error('Nie znaleziono głównej sekcji produktów');
         return;
     }
 
-    // POPRAWKA: Usuń istniejące podsumowanie jeśli istnieje
+    // ✅ KLUCZOWA POPRAWKA: Znajdź lub utwórz element podsumowania
     let summaryElement = mainSection.querySelector('.products-total-summary');
-    if (summaryElement) {
-        summaryElement.remove();
-    }
 
-    // POPRAWKA: Utwórz nowe podsumowanie tylko jeśli są dane
     if (totalVolume > 0 || totalWeight > 0) {
-        summaryElement = document.createElement('div');
-        summaryElement.className = 'products-total-summary';
-        summaryElement.innerHTML = `
-            <div class="products-total-title">Łączne podsumowanie:</div>
-            <div class="products-total-details">
-                <span class="products-total-volume">${formatVolumeDisplay(totalVolume)}</span>
-                <span class="products-total-weight">${formatWeightDisplay(totalWeight)}</span>
-            </div>
-        `;
+        // Jeśli nie ma elementu, utwórz go
+        if (!summaryElement) {
+            summaryElement = document.createElement('div');
+            summaryElement.className = 'products-total-summary';
+            summaryElement.innerHTML = `
+                <div class="products-total-title">Łączne podsumowanie:</div>
+                <div class="products-total-details">
+                    <span class="products-total-volume"></span>
+                    <span class="products-total-weight"></span>
+                </div>
+            `;
+            // Dodaj na końcu głównej sekcji
+            mainSection.appendChild(summaryElement);
 
-        // KLUCZOWE: Dodaj podsumowanie na końcu głównej sekcji, NIE do scroll container
-        mainSection.appendChild(summaryElement);
+            log('editor', '✅ Utworzono nowy element podsumowania');
+        }
+
+        // ✅ KLUCZOWA POPRAWKA: Aktualizuj tylko zawartość spanów, nie cały innerHTML
+        const volumeSpan = summaryElement.querySelector('.products-total-volume');
+        const weightSpan = summaryElement.querySelector('.products-total-weight');
+
+        if (volumeSpan && weightSpan) {
+            // Sprawdź czy wartości się zmieniły przed aktualizacją (optymalizacja)
+            const newVolumeText = formatVolumeDisplay(totalVolume);
+            const newWeightText = formatWeightDisplay(totalWeight);
+
+            if (volumeSpan.textContent !== newVolumeText) {
+                volumeSpan.textContent = newVolumeText;
+            }
+
+            if (weightSpan.textContent !== newWeightText) {
+                weightSpan.textContent = newWeightText;
+            }
+
+            log('editor', `✅ Zaktualizowano zawartość podsumowania: ${newVolumeText} | ${newWeightText}`);
+        }
+    } else {
+        // Jeśli brak danych, usuń element jeśli istnieje
+        if (summaryElement) {
+            summaryElement.remove();
+            log('editor', '✅ Usunięto podsumowanie (brak danych)');
+        }
     }
-
-    log('editor', `Zaktualizowano podsumowanie (poza scrollem): ${formatVolumeDisplay(totalVolume)} | ${formatWeightDisplay(totalWeight)}`);
 }
 
 function calculateTotalVolumeAndWeightFromQuoteFixed(quoteData) {
@@ -3870,10 +5486,12 @@ function loadDefaultFinishingData() {
 
 function loadDefaultClientTypes() {
     const defaultGroups = [
-        { client_type: 'Partner', multiplier: 1.0 },
+        { client_type: 'Bazowy', multiplier: 1.0 },
         { client_type: 'Hurt', multiplier: 1.1 },
         { client_type: 'Detal', multiplier: 1.3 },
-        { client_type: 'Detal+', multiplier: 1.5 }
+        { client_type: 'Detal+', multiplier: 1.5 },
+        { client_type: 'Czernecki netto', multiplier: 0.935 },
+        { client_type: 'Czernecki FV', multiplier: 1.015 }
     ];
 
     clientTypesCache = defaultGroups;
@@ -3963,8 +5581,13 @@ function applyVariantAvailabilityFromQuoteData(quoteData, productIndex) {
         return;
     }
 
+    // ✅ KRYTYCZNA POPRAWKA: Używaj ORYGINALNYCH danych, nie zmodyfikowanych
+    // Jeśli mamy zapisaną oryginalną kopię, użyj jej zamiast zmodyfikowanych danych
+    const dataSource = window.originalQuoteData || quoteData;
+    log('sync', `Używam ${window.originalQuoteData ? 'ORYGINALNYCH' : 'bieżących'} danych do synchronizacji checkboxów`);
+
     // Znajdź pozycje dla tego produktu
-    const productItems = quoteData.items.filter(item => item.product_index === productIndex);
+    const productItems = dataSource.items.filter(item => item.product_index === productIndex);
 
     log('sync', `Synchronizuję checkboxy i selecty dla produktu ${productIndex}, znalezionych pozycji: ${productItems.length}`);
 
@@ -4046,19 +5669,9 @@ function applyVariantAvailabilityFromQuoteData(quoteData, productIndex) {
         log('sync', '⚠️ Brak wybranego wariantu w danych z backend-u');
     }
 
-    // 3. SYNCHRONIZACJA WIZUALNYCH ELEMENTÓW (DIV.variant-option)
-    log('sync', '--- Synchronizacja wizualnych elementów ---');
-    allVariants.forEach(variantCode => {
-        const visualElement = document.querySelector(`#quote-editor-modal .${variantCode}-option.variant-option`);
-        if (visualElement) {
-            if (selectedVariant === variantCode) {
-                visualElement.classList.add('selected');
-                log('sync', `✅ Dodano klasę 'selected' do elementu: ${variantCode}`);
-            } else {
-                visualElement.classList.remove('selected');
-            }
-        }
-    });
+    // ✅ USUNIĘTO: Synchronizację wizualnych elementów (.selected)
+    // Klasa .selected jest zarządzana przez updateSelectedVariant() podczas kliknięcia w radio button
+    // NIE synchronizujemy jej tutaj, bo to powoduje konflikty
 
     // ✅ DODAJ: Aktualizuj dostępność radio buttonów na podstawie checkboxów
     syncRadioButtonAvailability();
@@ -4192,26 +5805,34 @@ function onClientTypeChange() {
     const selectedOption = clientTypeSelect.options[clientTypeSelect.selectedIndex];
     if (!selectedOption) return;
 
-    const multiplierValue = selectedOption.dataset.multiplierValue;
+    // ✅ POPRAWKA: Konwertuj na number od razu
+    const multiplierValue = parseFloat(selectedOption.dataset.multiplierValue);
     const clientType = selectedOption.value;
 
     log('sync', `Zmiana grupy cenowej: ${clientType} (mnożnik: ${multiplierValue})`);
 
-    // ✅ KLUCZOWA POPRAWKA: Synchronizuj grupę cenową na wszystkich produktach
+    // ✅ KLUCZOWA POPRAWKA: Aktualizuj zmienne globalne BEZPOŚREDNIO (bez sprawdzania typeof)
+    window.currentClientType = clientType;
+    window.currentMultiplier = multiplierValue;
+    log('sync', `✅ Zaktualizowano window.currentClientType = ${clientType}`);
+    log('sync', `✅ Zaktualizowano window.currentMultiplier = ${multiplierValue}`);
+
+    // ✅ Aktualizuj multiplierMapping
+    if (window.multiplierMapping) {
+        window.multiplierMapping[clientType] = multiplierValue;
+        log('sync', `✅ Zaktualizowano multiplierMapping[${clientType}] = ${multiplierValue}`);
+    }
+
+    // ✅ Synchronizuj grupę cenową w danych wyceny
     syncClientTypeAcrossAllProducts(clientType, multiplierValue);
 
-    // ✅ Zaktualizuj zmienne globalne calculator.js
-    updateMultiplierFromEditor();
-
-    // ✅ Wywołaj przeliczenie po krótkiej pauzie
+    // ✅ POPRAWKA: Wywołaj onFormDataChange() aby przeliczyć ceny i zaktualizować podsumowanie
     setTimeout(() => {
+        log('sync', 'Wywołuję onFormDataChange() po zmianie grupy cenowej...');
         onFormDataChange();
-        updateQuoteSummary();
-        updateProductsSummaryTotals();
-    }, 50);
-    updateQuoteSummary();
-    updateProductsSummaryTotals();
-    refreshProductCards();
+
+        log('sync', '✅ Zakończono aktualizację po zmianie grupy cenowej');
+    }, 100);
 }
 
 // ==================== PLACEHOLDER FUNCTIONS (TODO) ====================
@@ -4258,18 +5879,35 @@ function addNewProductToQuote() {
             quantity: 1,
             variant_code: code,
             is_selected: code === 'dab-lity-ab',
-            // Default availability: hide specific variants on client page
-            show_on_client_page: code === 'buk-micro-ab' || code === 'jes-micro-ab' ? 0 : 1,
+            // ✅ POPRAWKA: Domyślnie wszystkie warianty widoczne (checkboxy włączone)
+            // Ukryj tylko jesion-micro-ab i buk-micro-ab
+            show_on_client_page: (code === 'buk-micro-ab' || code === 'jes-micro-ab') ? 0 : 1,
             final_price_brutto: 0,
             final_price_netto: 0,
             calculated_price_brutto: 0,
             calculated_price_netto: 0,
             calculated_finishing_brutto: 0,
-            calculated_finishing_netto: 0
+            calculated_finishing_netto: 0,
+            // ✅ WAŻNE: Brak id - oznacza nowy produkt do dodania w bazie
+            id: null,
+            is_new: true  // Flaga dla backendu
         });
     });
 
-    // Ensure finishing array has placeholder for this product
+    // ✅ POPRAWKA: Dodaj details dla nowego produktu (ilość, wykończenie)
+    currentEditingQuoteData.details = currentEditingQuoteData.details || [];
+    currentEditingQuoteData.details.push({
+        product_index: newIndex,
+        quantity: 1,
+        finishing_type: 'Surowe',
+        finishing_variant: null,
+        finishing_color: null,
+        finishing_gloss_level: null,
+        finishing_price_brutto: 0,
+        finishing_price_netto: 0
+    });
+
+    // Ensure finishing array has placeholder for this product (dla kompatybilności wstecznej)
     currentEditingQuoteData.finishing = currentEditingQuoteData.finishing || [];
     currentEditingQuoteData.finishing.push({
         product_index: newIndex,
@@ -4293,9 +5931,58 @@ function addNewProductToQuote() {
 function removeProductFromQuote(productIndex) {
     log('editor', `Usuwanie produktu: ${productIndex}`);
 
+    if (!currentEditingQuoteData || !currentEditingQuoteData.items) {
+        log('editor', '❌ Brak danych wyceny');
+        return;
+    }
+
+    // Sprawdź ile produktów jest w wycenie
+    const uniqueProducts = getUniqueProductsCount(currentEditingQuoteData.items.filter(item => item.is_selected));
+
+    if (uniqueProducts <= 1) {
+        showToast('Nie możesz usunąć ostatniego produktu z wyceny', 'error');
+        return;
+    }
+
     if (!confirm('Czy na pewno chcesz usunąć ten produkt?')) return;
 
-    alert(`Usuwanie produktu ${productIndex} będzie dostępne wkrótce!`);
+    // Usuń wszystkie itemy (warianty) tego produktu
+    const itemsToRemove = currentEditingQuoteData.items.filter(
+        item => item.product_index === productIndex
+    );
+
+    log('editor', `Usuwanie ${itemsToRemove.length} wariantów produktu ${productIndex}`);
+
+    // Usuń itemy z tablicy
+    currentEditingQuoteData.items = currentEditingQuoteData.items.filter(
+        item => item.product_index !== productIndex
+    );
+
+    // Usuń wykończenie jeśli istnieje
+    if (currentEditingQuoteData.finishing) {
+        currentEditingQuoteData.finishing = currentEditingQuoteData.finishing.filter(
+            f => f.product_index !== productIndex
+        );
+        log('editor', '✅ Usunięto wykończenie produktu');
+    }
+
+    log('editor', `✅ Usunięto produkt ${productIndex}`);
+
+    // Znajdź następny produkt do aktywowania
+    const remainingProducts = [...new Set(currentEditingQuoteData.items.map(item => item.product_index))];
+    const nextProductIndex = remainingProducts.length > 0 ? remainingProducts[0] : null;
+
+    // Odśwież listę produktów
+    loadProductsToEditor(currentEditingQuoteData);
+
+    // Aktywuj pierwszy dostępny produkt
+    if (nextProductIndex !== null) {
+        setTimeout(() => {
+            activateProductInEditor(nextProductIndex);
+        }, 100);
+    }
+
+    // Zaktualizuj podsumowanie
     updateProductsSummaryTotals();
 }
 
@@ -4390,12 +6077,17 @@ window.QuoteEditor = {
     open: openQuoteEditor,
     close: () => {
 
-        // Zachowaj dane bieżącego produktu przed zamknięciem
-        saveActiveProductFormData();
-
+        // ✅ POPRAWKA: Pełne czyszczenie danych przy zamykaniu modala
         const modal = document.getElementById('quote-editor-modal');
         if (modal) modal.style.display = 'none';
+
+        // Wyczyść wszystkie dane edytora
+        clearEditorData();
+
+        // Reset stanu UI
         resetEditorState();
+
+        log('editor', '✅ Modal zamknięty i dane wyczyszczone');
     },
     save: saveQuoteChanges,
     updateSummary: updateQuoteSummary,

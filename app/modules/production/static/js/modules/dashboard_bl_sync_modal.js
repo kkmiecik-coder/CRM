@@ -1523,12 +1523,32 @@ class DashboardBLSyncModal {
 
     /**
      * Formatowanie daty
+     * Obsługuje zarówno Unix timestamp (sekundy) jak i ISO string
      */
     formatDate(dateString) {
         if (!dateString) return '—';
 
         try {
-            const date = new Date(dateString);
+            let date;
+
+            // Jeśli to liczba (Unix timestamp w sekundach z Baselinker), pomnóż przez 1000
+            if (typeof dateString === 'number') {
+                date = new Date(dateString * 1000);
+            }
+            // Jeśli to string z samych cyfr (timestamp jako string), pomnóż przez 1000
+            else if (typeof dateString === 'string' && /^\d+$/.test(dateString)) {
+                date = new Date(parseInt(dateString) * 1000);
+            }
+            // W przeciwnym razie (ISO string) użyj bezpośrednio
+            else {
+                date = new Date(dateString);
+            }
+
+            // Sprawdź czy data jest poprawna
+            if (isNaN(date.getTime())) {
+                return '—';
+            }
+
             return date.toLocaleDateString('pl-PL', {
                 day: '2-digit',
                 month: '2-digit',

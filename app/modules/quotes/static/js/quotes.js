@@ -1502,6 +1502,7 @@ function buildVariantPriceDisplay(variant, quantity, quoteData) {
     const unitPriceNetto = variant.unit_price_netto || variant.final_price_netto || 0;
     const totalBrutto = unitPriceBrutto * quantity;
     const totalNetto = unitPriceNetto * quantity;
+    const pricePerM3 = variant.price_per_m3 || 0;
 
     // Ceny wykończenia (jeśli istnieje)
     let finishingPriceBrutto = 0;
@@ -1524,7 +1525,7 @@ function buildVariantPriceDisplay(variant, quantity, quoteData) {
                     <div class="qvmd-variant-title">Wariant: <span class="qvmd-variant-name">${variantName}</span></div>
                     <div class="qvmd-price-per-m2-wrapper">
                         <div class="qvmd-price-per-m2-label">Cena za m³:</div>
-                        <div class="qvmd-price-per-m2-value">${variant.price_per_m3.toFixed(2)} PLN netto</div>
+                        <div class="qvmd-price-per-m2-value">${pricePerM3.toFixed(2)} PLN netto</div>
                     </div>
                 </div>
 
@@ -2309,177 +2310,12 @@ function renderVariantSummary(groupedItemsForIndex, quoteData, productIndex) {
         <div class="product-pricing">
             <div class="pricing-row" style="align-items: center;">
                 <span><strong>Ilość:</strong></span>
-                <div class="quantity-container">
-                    <span id="quantity-field-${productIndex}">
-                        ${quantity} szt.
-                        <button class="quantity-edit-btn" data-product-index="${productIndex}" data-current-quantity="${quantity}" title="Zmień ilość">
-                            <svg class="edit-icon" width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
-                                <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/>
-                            </svg>
-                        </button>
-                    </span>
-                    <div id="quantity-edit-${productIndex}" class="quantity-edit-form" style="display: none;">
-                        <div class="quantity-input-container">
-                            <input type="number" 
-                                   class="quantity-input" 
-                                   value="${quantity}" 
-                                   min="1" 
-                                   step="1">
-                        </div>
-                        <div class="quantity-edit-actions">
-                            <button class="quantity-save-btn" data-product-index="${productIndex}">Zapisz</button>
-                            <button class="quantity-cancel-btn" data-product-index="${productIndex}">Anuluj</button>
-                        </div>
-                    </div>
-                </div>
+                <span>${quantity} szt.</span>
             </div>
         </div>
     `;
 
-    // WAŻNE: Dodaj event listenery po dodaniu do DOM
-    setTimeout(() => {
-        setupQuantityEditHandlers(productIndex, quoteData);
-    }, 0);
-
     return wrap;
-}
-
-// Funkcja do obsługi edycji ilości
-function setupQuantityEditHandlers(productIndex, quoteData) {
-    const editBtn = document.querySelector(`.quantity-edit-btn[data-product-index="${productIndex}"]`);
-    const saveBtn = document.querySelector(`.quantity-save-btn[data-product-index="${productIndex}"]`);
-    const cancelBtn = document.querySelector(`.quantity-cancel-btn[data-product-index="${productIndex}"]`);
-    const editForm = document.getElementById(`quantity-edit-${productIndex}`);
-    const displayField = document.getElementById(`quantity-field-${productIndex}`);
-    const input = editForm?.querySelector('.quantity-input');
-
-    if (!editBtn || !saveBtn || !cancelBtn || !editForm || !displayField || !input) {
-        console.warn(`[setupQuantityEditHandlers] Brakuje elementów dla produktu ${productIndex}`);
-        return;
-    }
-
-    // Obsługa kliknięcia przycisku edycji
-    editBtn.addEventListener('click', (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        
-        // Ukryj display i pokaż formularz
-        displayField.style.display = 'none';
-        editBtn.style.display = 'none';
-        editForm.style.display = 'flex';
-        
-        // Focus na input i zaznacz tekst
-        input.focus();
-        input.select();
-    });
-
-    // Obsługa anulowania
-    cancelBtn.addEventListener('click', (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        
-        // Przywróć oryginalną wartość
-        const originalQuantity = parseInt(editBtn.dataset.currentQuantity);
-        input.value = originalQuantity;
-        
-        // Ukryj formularz i pokaż display
-        editForm.style.display = 'none';
-        displayField.style.display = 'inline';
-        editBtn.style.display = 'inline-block';
-    });
-
-    // Obsługa zapisywania
-    saveBtn.addEventListener('click', async (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        
-        const newQuantity = parseInt(input.value);
-        
-        // Walidacja
-        if (!newQuantity || newQuantity < 1) {
-            alert('Ilość musi być liczbą większą od 0');
-            input.focus();
-            return;
-        }
-
-        // Sprawdź czy wartość się zmieniła
-        const currentQuantity = parseInt(editBtn.dataset.currentQuantity);
-        if (newQuantity === currentQuantity) {
-            // Anuluj jeśli nie ma zmian
-            cancelBtn.click();
-            return;
-        }
-
-        // Wyłącz przyciski podczas zapisywania
-        saveBtn.disabled = true;
-        cancelBtn.disabled = true;
-        input.disabled = true;
-        
-        const originalSaveText = saveBtn.textContent;
-        saveBtn.textContent = 'Zapisywanie...';
-        saveBtn.classList.add('loading');
-
-        try {
-            // Wywołaj API do aktualizacji ilości
-            const response = await fetch(`/quotes/api/quotes/${quoteData.id}/update-quantity`, {
-                method: 'PATCH',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    product_index: productIndex,
-                    quantity: newQuantity
-                })
-            });
-
-            if (!response.ok) {
-                const errorData = await response.json();
-                throw new Error(errorData.message || 'Błąd podczas zapisywania ilości');
-            }
-
-            // Sukces - odśwież modal
-            console.log(`[setupQuantityEditHandlers] Pomyślnie zaktualizowano ilość produktu ${productIndex} na ${newQuantity}`);
-            
-            // Pobierz zaktualizowane dane wyceny
-            const updatedResponse = await fetch(`/quotes/api/quotes/${quoteData.id}`);
-            if (!updatedResponse.ok) {
-                throw new Error('Błąd podczas odświeżania danych wyceny');
-            }
-            
-            const updatedQuoteData = await updatedResponse.json();
-            
-            // Odśwież cały modal z nowymi danymi
-            showDetailsModal(updatedQuoteData);
-            
-        } catch (error) {
-            console.error('[setupQuantityEditHandlers] Błąd:', error);
-            alert(`Błąd podczas zapisywania ilości: ${error.message}`);
-            
-            // Przywróć kontrolki w przypadku błędu
-            saveBtn.disabled = false;
-            cancelBtn.disabled = false;
-            input.disabled = false;
-            saveBtn.textContent = originalSaveText;
-            saveBtn.classList.remove('loading');
-            input.focus();
-        }
-    });
-
-    // Obsługa klawisza Enter i Escape
-    input.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter') {
-            e.preventDefault();
-            saveBtn.click();
-        } else if (e.key === 'Escape') {
-            e.preventDefault();
-            cancelBtn.click();
-        }
-    });
-
-    // Zapobiegaj zamknięciu modala podczas edycji
-    editForm.addEventListener('click', (e) => {
-        e.stopPropagation();
-    });
 }
 
 function translateVariantCode(code) {
@@ -4743,4 +4579,53 @@ function showAvailableDocuments(data, quoteId) {
         correction: data.correction?.exists,
         receipt: data.receipt?.exists
     });
+}
+
+/**
+ * ✅ NOWA FUNKCJA: Otwiera edytor wyceny z pobraniem świeżych danych z serwera
+ */
+async function openQuoteEditorWithFreshData() {
+    if (!currentQuoteData || !currentQuoteData.id) {
+        console.error('[QuoteEditor] Brak ID wyceny w currentQuoteData');
+        if (typeof showToast === 'function') {
+            showToast('Błąd: Brak danych wyceny', 'error');
+        }
+        return;
+    }
+
+    const quoteId = currentQuoteData.id;
+
+    try {
+        console.log(`[QuoteEditor] Pobieranie świeżych danych dla wyceny ID: ${quoteId}`);
+
+        // Pobierz świeże dane z serwera
+        const response = await fetch(`/quotes/api/quotes/${quoteId}`);
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
+        const freshQuoteData = await response.json();
+        console.log(`[QuoteEditor] Otrzymano świeże dane wyceny: ${freshQuoteData.quote_number}`);
+
+        // Zaktualizuj currentQuoteData
+        currentQuoteData = freshQuoteData;
+        window.currentQuoteData = freshQuoteData;
+
+        // Otwórz edytor ze świeżymi danymi
+        if (typeof openQuoteEditor === 'function') {
+            await openQuoteEditor(freshQuoteData);
+            console.log('[QuoteEditor] ✅ Edytor otwarty ze świeżymi danymi');
+        } else {
+            console.error('[QuoteEditor] Funkcja openQuoteEditor nie istnieje');
+            throw new Error('Funkcja openQuoteEditor nie jest dostępna');
+        }
+
+    } catch (error) {
+        console.error(`[QuoteEditor] Błąd podczas otwierania edytora:`, error);
+        if (typeof showToast === 'function') {
+            showToast('Nie udało się otworzyć edytora wyceny', 'error');
+        } else {
+            alert('Nie udało się otworzyć edytora wyceny');
+        }
+    }
 }

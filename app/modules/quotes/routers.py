@@ -238,20 +238,18 @@ def api_quotes():
             user = q.user
             status_data = statuses.get(q.quote_status.name if q.quote_status else None, {})
             
-            # NOWE: Pobranie opiekuna klienta (created_by_user_id)
-            client_caretaker_name = None
-            if client and client.created_by_user_id:
-                caretaker_user = User.query.get(client.created_by_user_id)
-                if caretaker_user:
-                    client_caretaker_name = f"{caretaker_user.first_name} {caretaker_user.last_name}".strip()
-            
+            # POPRAWKA: Pobranie opiekuna wyceny (user_id z tabeli quotes)
+            quote_caretaker_name = None
+            if user:
+                quote_caretaker_name = f"{user.first_name} {user.last_name}".strip()
+
             result = {
                 "id": q.id,
                 "quote_number": q.quote_number,
                 "created_at": q.created_at.isoformat() if q.created_at else None,
                 "client_number": client.client_number if client else None,
                 "client_name": client.client_name if client else None,
-                "client_caretaker_name": client_caretaker_name,  # NOWE POLE
+                "client_caretaker_name": quote_caretaker_name,  # POPRAWIONE: teraz pokazuje użytkownika wyceny
                 "user_id": user.id if user else None,
                 "user_name": f"{user.first_name} {user.last_name}" if user else None,
                 "source": q.source,
@@ -1938,6 +1936,270 @@ def update_quote_variant(quote_id):
         import traceback
         traceback.print_exc(file=sys.stderr)
         return jsonify({"error": "Błąd podczas zmiany wariantu"}), 500
+
+@quotes_bp.route('/api/quotes/<int:quote_id>/save', methods=['PUT'])
+@require_module_access('quotes')
+def save_quote_changes(quote_id):
+    """
+    Zapisuje wszystkie zmiany w wycenie z edytora
+    Aktualizuje: Quote, QuoteItems, QuoteItemsDetails
+    """
+    try:
+        data = request.get_json()
+
+        if not data:
+            return jsonify({"error": "Brak danych do zapisu"}), 400
+
+        print(f"\n[BACKEND] Zapisywanie wyceny {quote_id}...", file=sys.stderr)
+
+        # Pobierz wycenę
+        quote = Quote.query.get_or_404(quote_id)
+
+        # ===== AKTUALIZACJA DANYCH GŁÓWNYCH WYCENY (tabela quotes) =====
+        quote_data = data.get('quote', {})
+
+        if 'quote_client_type' in quote_data:
+            quote.quote_client_type = quote_data['quote_client_type']
+
+        if 'quote_multiplier' in quote_data:
+            quote.quote_multiplier = quote_data['quote_multiplier']
+
+        if 'quote_type' in quote_data:
+            quote.quote_type = quote_data['quote_type']
+
+        if 'notes' in quote_data:
+            quote.notes = quote_data['notes']
+
+        # Dane kuriera i wysyłki - aktualizuj tylko jeśli wartość nie jest None
+        if 'courier_name' in quote_data and quote_data['courier_name'] is not None:
+            quote.courier_name = quote_data['courier_name']
+
+        if 'shipping_cost_netto' in quote_data and quote_data['shipping_cost_netto'] is not None:
+            quote.shipping_cost_netto = quote_data['shipping_cost_netto']
+
+        if 'shipping_cost_brutto' in quote_data and quote_data['shipping_cost_brutto'] is not None:
+            quote.shipping_cost_brutto = quote_data['shipping_cost_brutto']
+
+        # ===== AKTUALIZACJA PRODUKTÓW =====
+        products = data.get('products', [])
+
+        for product_data in products:
+            product_index = product_data.get('product_index')
+
+            if not product_index:
+                continue
+
+            # Pobierz wszystkie pozycje dla tego produktu
+            product_items = QuoteItem.query.filter_by(
+                quote_id=quote_id,
+                product_index=product_index
+            ).all()
+
+            # Aktualizuj wymiary dla wszystkich wariantów tego produktu
+            length_cm = product_data.get('length_cm')
+            width_cm = product_data.get('width_cm')
+            thickness_cm = product_data.get('thickness_cm')
+
+            # Pobierz mnożnik dla obliczeń cen
+            selected_variant_data = product_data.get('selected_variant', {})
+            multiplier = selected_variant_data.get('multiplier', quote.quote_multiplier or 1.0)
+
+            # ✅ POPRAWKA: Aktualizuj tylko wymiary, NIE przeliczaj cen automatycznie
+            # Ceny są już przeliczone w frontendzie i przyjdą w variants_data
+            for item in product_items:
+                # Aktualizuj wymiary
+                if length_cm:
+                    item.length_cm = length_cm
+                if width_cm:
+                    item.width_cm = width_cm
+                if thickness_cm:
+                    item.thickness_cm = thickness_cm
+
+            # Aktualizuj warianty (is_selected, show_on_client_page, CENY)
+            variants_data = product_data.get('variants', [])
+
+            for idx, variant_data in enumerate(variants_data, 1):
+                item_id = variant_data.get('item_id')
+                variant_code = variant_data.get('variant_code', 'unknown')
+
+                # ✅ NOWE: Jeśli brak item_id, utwórz nowy QuoteItem
+                if not item_id:
+                    new_item = QuoteItem(
+                        quote_id=quote_id,
+                        product_index=product_index,
+                        variant_code=variant_code,
+                        length_cm=variant_data.get('length_cm', 0),
+                        width_cm=variant_data.get('width_cm', 0),
+                        thickness_cm=variant_data.get('thickness_cm', 0),
+                        is_selected=variant_data.get('is_selected', False),
+                        show_on_client_page=variant_data.get('show_on_client_page', 1),
+                        price_per_m3=variant_data.get('price_per_m3') if variant_data.get('price_per_m3') is not None else 0,
+                        volume_m3=variant_data.get('volume_m3') if variant_data.get('volume_m3') is not None else 0,
+                        price_netto=variant_data.get('unit_price_netto', 0),
+                        price_brutto=variant_data.get('unit_price_brutto', 0)
+                    )
+                    db.session.add(new_item)
+                    continue
+
+                # Aktualizacja istniejącego wariantu
+                item = QuoteItem.query.get(item_id)
+                if not item or item.quote_id != quote_id:
+                    continue
+
+                # Aktualizuj is_selected
+                if 'is_selected' in variant_data:
+                    item.is_selected = variant_data['is_selected']
+
+                # Aktualizuj show_on_client_page
+                if 'show_on_client_page' in variant_data:
+                    item.show_on_client_page = variant_data['show_on_client_page']
+
+                # ✅ NOWE: Aktualizuj ceny dla każdego wariantu
+                if 'price_per_m3' in variant_data:
+                    item.price_per_m3 = variant_data['price_per_m3']
+
+                if 'volume_m3' in variant_data and variant_data['volume_m3'] is not None:
+                    item.volume_m3 = variant_data['volume_m3']
+
+                # ✅ POPRAWKA: Kolumny w bazie nazywają się price_netto i price_brutto (nie unit_price_*)
+                if 'unit_price_netto' in variant_data:
+                    item.price_netto = variant_data['unit_price_netto']
+
+                if 'unit_price_brutto' in variant_data:
+                    item.price_brutto = variant_data['unit_price_brutto']
+
+            # ===== AKTUALIZACJA SZCZEGÓŁÓW PRODUKTU (tabela quote_items_details) =====
+            quantity = product_data.get('quantity', 1)
+            finishing = product_data.get('finishing', {})
+
+            # Sprawdź czy istnieje rekord details dla tego produktu
+            details = QuoteItemDetails.query.filter_by(
+                quote_id=quote_id,
+                product_index=product_index
+            ).first()
+
+            if not details:
+                # Utwórz nowy rekord details
+                details = QuoteItemDetails(
+                    quote_id=quote_id,
+                    product_index=product_index
+                )
+                db.session.add(details)
+
+            # Aktualizuj ilość
+            details.quantity = quantity
+
+            # Aktualizuj wykończenie
+            details.finishing_type = finishing.get('finishing_type', 'Surowe')
+            details.finishing_variant = finishing.get('finishing_variant')
+            details.finishing_color = finishing.get('finishing_color')
+            details.finishing_gloss_level = finishing.get('finishing_gloss_level')
+            details.finishing_price_netto = finishing.get('finishing_price_netto', 0)
+            details.finishing_price_brutto = finishing.get('finishing_price_brutto', 0)
+
+        # Zapisz zmiany w bazie
+        db.session.commit()
+
+        print(f"[BACKEND] ✅ Wycena {quote_id} zapisana pomyślnie", file=sys.stderr)
+
+        # Pobierz zaktualizowane dane wyceny (używając tej samej logiki co get_quote_details)
+        quote = db.session.query(Quote)\
+            .options(
+                joinedload(Quote.client),
+                joinedload(Quote.user),
+                joinedload(Quote.quote_status),
+                joinedload(Quote.accepted_by_user)
+            )\
+            .filter_by(id=quote_id).first()
+
+        finishing_details = db.session.query(QuoteItemDetails).filter_by(quote_id=quote_id).all()
+        quote_items = quote.items.all()
+
+        selected_items = [item for item in quote_items if item.is_selected]
+        cost_products_netto = round(sum(item.get_total_price_netto() for item in selected_items), 2)
+        cost_finishing_netto = round(sum(d.finishing_price_netto or 0.0 for d in finishing_details), 2)
+        cost_shipping_brutto = quote.shipping_cost_brutto or 0.0
+        costs = calculate_costs_with_vat(cost_products_netto, cost_finishing_netto, cost_shipping_brutto)
+
+        all_statuses = QuoteStatus.query.all()
+
+        accepted_by_user = None
+        if (quote.accepted_by_user_id and
+            quote.accepted_by_email and
+            quote.accepted_by_email.startswith('internal_user_')):
+            accepted_by_user = quote.accepted_by_user
+
+        updated_quote = {
+            "id": quote.id,
+            "quote_number": quote.quote_number,
+            "created_at": quote.created_at.isoformat() if quote.created_at else None,
+            "source": quote.source,
+            "status_id": quote.status_id,
+            "status_name": quote.quote_status.name if quote.quote_status else None,
+            "acceptance_date": quote.acceptance_date.isoformat() if quote.acceptance_date else None,
+            "accepted_by_email": quote.accepted_by_email,
+            "is_client_editable": quote.is_client_editable,
+            "base_linker_order_id": quote.base_linker_order_id,
+            "public_url": quote.get_public_url(),
+            "notes": quote.notes or "",
+            "quote_type": quote.quote_type if quote.quote_type else "brutto",
+            "accepted_by_user": {
+                "id": accepted_by_user.id if accepted_by_user else None,
+                "first_name": accepted_by_user.first_name if accepted_by_user else None,
+                "last_name": accepted_by_user.last_name if accepted_by_user else None,
+                "full_name": f"{accepted_by_user.first_name} {accepted_by_user.last_name}" if accepted_by_user else None
+            } if accepted_by_user else None,
+            "quote_multiplier": float(quote.quote_multiplier) if quote.quote_multiplier else None,
+            "quote_client_type": quote.quote_client_type,
+            "costs": costs,
+            "cost_products": cost_products_netto,
+            "cost_finishing": cost_finishing_netto,
+            "cost_shipping": cost_shipping_brutto,
+            "courier_name": quote.courier_name or "-",
+            "all_statuses": {s.name: {"id": s.id, "name": s.name, "color": s.color_hex} for s in all_statuses},
+            "details": [d.to_dict() if hasattr(d, 'to_dict') else {
+                "product_index": d.product_index,
+                "finishing_type": d.finishing_type,
+                "finishing_variant": d.finishing_variant,
+                "finishing_color": d.finishing_color,
+                "finishing_gloss_level": d.finishing_gloss_level,
+                "finishing_price_netto": float(d.finishing_price_netto) if d.finishing_price_netto else 0.0,
+                "quantity": d.quantity or 1
+            } for d in finishing_details],
+            "client": {
+                "id": quote.client.id if quote.client else None,
+                "client_name": quote.client.client_name if quote.client else None,
+                "client_number": quote.client.client_number if quote.client else None,
+                "client_delivery_name": quote.client.client_delivery_name if quote.client else None,
+                "company_name": quote.client.delivery_company if quote.client else None,
+                "first_name": quote.client.client_number if quote.client else None,
+                "last_name": "",
+                "email": quote.client.email if quote.client else None,
+                "phone": quote.client.phone if quote.client else None
+            },
+            "user": {
+                "id": quote.user.id if quote.user else None,
+                "first_name": quote.user.first_name if quote.user else "",
+                "last_name": quote.user.last_name if quote.user else ""
+            },
+            "items": [item.to_dict() for item in quote_items]
+        }
+
+        return jsonify({
+            "success": True,
+            "message": "Wycena została zaktualizowana",
+            "quote": updated_quote
+        }), 200
+
+    except Exception as e:
+        db.session.rollback()
+        print(f"[save_quote_changes] ❌ Błąd: {e}", file=sys.stderr)
+        import traceback
+        traceback.print_exc(file=sys.stderr)
+        return jsonify({
+            "error": "Błąd podczas zapisywania wyceny",
+            "details": str(e)
+        }), 500
 
 @quotes_bp.route('/api/multipliers', methods=['GET'])
 def get_multipliers():

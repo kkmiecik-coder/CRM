@@ -32,6 +32,8 @@ from modules.production.routers import register_production_routers
 from modules.dashboard.services.user_activity_service import UserActivityService
 from modules.partner_academy import partner_academy_bp
 from modules.partner_academy.models import PartnerApplication
+from modules.sales import sales_bp
+from modules.sales.models import SalesApplication
 from modules.users import users_bp
 from modules.help import help_bp
 from modules.issues import issues_bp
@@ -241,6 +243,7 @@ def create_app():
         register_production_routers(production_bp)
         app.register_blueprint(production_bp, url_prefix='/production')
         app.register_blueprint(partner_academy_bp, url_prefix='/partner-academy')
+        app.register_blueprint(sales_bp, url_prefix='/sales')
         app.register_blueprint(users_bp)
         app.register_blueprint(help_bp)
         app.register_blueprint(issues_bp)

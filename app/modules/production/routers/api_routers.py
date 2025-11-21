@@ -1555,8 +1555,8 @@ def complete_packaging():
         })
         
         from ..models import ProductionItem
-        from ..services.sync_service import update_order_status_in_baselinker
-        
+        from ..services.sync_service import get_sync_service
+
         # Walidacja i przygotowanie listy produktów do aktualizacji
         products_to_complete = []
         validation_errors = []
@@ -1657,12 +1657,23 @@ def complete_packaging():
                     'internal_order_number': internal_order_number,
                     'total_products': len(all_products_in_order)
                 })
-                
+
                 # Aktualizuj status w Baselinker
-                baselinker_update_success = update_order_status_in_baselinker(internal_order_number)
-                
-                if not baselinker_update_success:
-                    baselinker_error = "Nie udało się zaktualizować statusu w Baselinker"
+                try:
+                    sync_service = get_sync_service()
+                    if sync_service:
+                        baselinker_update_success = sync_service.update_order_status_in_baselinker(internal_order_number)
+                        if not baselinker_update_success:
+                            baselinker_error = "Nie udało się zaktualizować statusu w Baselinker"
+                    else:
+                        baselinker_error = "Sync service niedostępny"
+                        logger.warning("Sync service niedostępny - pominięto aktualizację Baselinker")
+                except Exception as bl_error:
+                    baselinker_error = f"Błąd komunikacji z Baselinker: {str(bl_error)}"
+                    logger.error("Błąd podczas aktualizacji Baselinker", extra={
+                        'internal_order_number': internal_order_number,
+                        'error': str(bl_error)
+                    })
             else:
                 packed_count = sum(1 for p in all_products_in_order if p.current_status == 'spakowane')
                 logger.info("Nie wszystkie produkty spakowane - brak aktualizacji Baselinker", extra={

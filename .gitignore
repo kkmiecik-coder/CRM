@@ -180,3 +180,7 @@ cython_debug/
 .cursorignore
 .cursorindexingignore
 app/config/core.json
+/app/modules/logging/logs
+/app/modules/partner_academy/static/media/documents
+/app/modules/preview3d_ar/static/ar-models/temp
+/app/modules/preview3d_ar/static/ar-models/cache

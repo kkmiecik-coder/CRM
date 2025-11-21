@@ -237,7 +237,6 @@ body.light-mode .theme-toggle-btn {
     font-size: 18px;
     font-weight: bold;
     color: var(--text-primary);
-    font-family: 'Courier New', monospace;
 }
 
     .stat-value.warning {
@@ -248,7 +247,7 @@ body.light-mode .theme-toggle-btn {
    MAIN CONTENT
    ============================================================================ */
 .station-content {
-    padding: 30px;
+    padding: 20px;
     max-width: 1920px;
     margin: 0 auto;
 }
@@ -335,14 +334,14 @@ body.light-mode .theme-toggle-btn {
    CARD BADGES
    ============================================================================ */
 .card-badges {
-    padding: 20px 18px;
+    padding: 12px;
     display: grid;
     grid-template-columns: 1fr 1fr 1fr;
     gap: 10px;
 }
 
 .badge {
-    padding: 12px 8px;
+    padding: 6px 8px;
     border-radius: 10px;
     font-size: 15px;
     font-weight: bold;
@@ -398,7 +397,7 @@ body.light-mode .badge-class {
    CARD DIMENSIONS
    ============================================================================ */
 .card-dimensions {
-    padding: 0 20px;
+    padding: 0 12px;
     flex: 1;
     display: flex;
     align-items: center;
@@ -409,12 +408,11 @@ body.light-mode .badge-class {
     background: var(--bg-tertiary);
     border: 2px solid var(--border-color-light);
     color: var(--text-primary);
-    padding: 18px 24px;
+    padding: 8px 12px;
     border-radius: 12px;
     font-size: 26px;
     font-weight: bold;
     text-align: center;
-    font-family: 'Courier New', monospace;
     letter-spacing: 1px;
     width: 100%;
 }
@@ -423,7 +421,7 @@ body.light-mode .badge-class {
    CARD ACTION
    ============================================================================ */
 .card-action {
-    padding: 20px;
+    padding: 12px;
     display: flex;
     flex-direction: column;
     gap: 10px;
@@ -680,10 +678,25 @@ body.light-mode .offline-text p {
     background: var(--border-color) !important;
 }
 
+
+/* ============================================================================
+   RESPONSIVE
+   ============================================================================ */
+
 /* Responsive dla małych ekranów */
-@media (max-width: 768px) {
+@media (max-width: 1080px) {
     .connection-status {
         padding: 8px 16px;
+        font-size: 12px;
+    }
+
+    .card-header {
+        padding: 8px 12px;
+    }
+
+    .id-short,
+    .id-baselinker,
+    .header-volume {
         font-size: 12px;
     }
     
@@ -702,32 +715,113 @@ body.light-mode .offline-text p {
     .offline-text p {
         font-size: 13px;
     }
-}
 
-/* ============================================================================
-   RESPONSIVE
-   ============================================================================ */
-@media (max-width: 767px) {
-    .station-header {
-        padding: 15px 20px;
+    .header-content {
+        padding: 8px 16px;
+    }
+
+    .station-logo {
+        height: 26px;
     }
 
     .station-title {
-        font-size: 24px;
+        font-size: 16px;
     }
 
     .stats-bar {
         padding: 15px 20px;
-        gap: 20px;
+        gap: 8px;
+    }
+
+    .stat-icon {
+        width: 18px;
+        height: 18px;
     }
 
     .station-content {
-        padding: 20px;
+        padding: 10px;
+    }
+    
+    .theme-toggle-btn {
+        padding: 6px 12px;
+        font-size: 12px;
+    }
+
+    .stat-label {
+        font-size: 8px;
+    }
+
+    .stat-value {
+        font-size: 12px;
+    }
+
+    .stat-item {
+        gap: 8px;
     }
 
     .products-grid {
-        grid-template-columns: 1fr;
-        gap: 20px;
+        grid-template-columns: 2fr;
+        gap: 10px;
+    }
+}
+
+/* Responsive dla małych ekranów */
+@media (max-width: 768px) {
+    .connection-status {
+        padding: 6px 12px;
+        font-size: 8px;
+    }
+
+    .id-short,
+    .id-baselinker,
+    .header-volume {
+        font-size: 10px;
+    }
+
+    .dimensions-box {
+        font-size: 16px;
+    }
+    
+    .offline-banner {
+        padding: 16px 20px;
+    }
+    
+    .offline-icon {
+        font-size: 28px;
+    }
+    
+    .offline-text strong {
+        font-size: 16px;
+    }
+    
+    .offline-text p {
+        font-size: 13px;
+    }
+
+    .header-content {
+        padding: 8px 16px;
+    }
+
+    .theme-toggle-btn {
+        padding: 6px 12px;
+        font-size: 8px;
+    }
+
+    .station-logo {
+        height: 26px;
+    }
+
+    .station-title {
+        font-size: 16px;
+    }
+
+    .station-content {
+        padding: 10px;
+    }
+
+    .products-grid {
+        grid-template-columns: 2fr;
+        gap: 10px;
     }
 }
 

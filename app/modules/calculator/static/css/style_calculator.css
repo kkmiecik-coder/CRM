@@ -4299,3 +4299,128 @@ select.select-small option {
     font-weight: 400 !important;
     opacity: 0.6;
 }
+
+/* ============================================
+   Copy to Clipboard - Styles
+   ============================================ */
+
+/* [copy-to-clipboard-container] */
+.copy-to-clipboard-container {
+    position: relative;
+    display: inline-block;
+}
+
+/* [copy-to-clipboard button] */
+.copy-to-clipboard {
+    background: #0177D9;
+    display: flex;
+    padding: 4px 8px;
+    justify-content: center;
+    align-items: center;
+    border-radius: 6px;
+    border: none;
+    color: #FFF;
+    cursor: pointer;
+    font-family: Poppins, sans-serif;
+    position: relative;
+    padding-right: 32px;
+    transition: all 0.2s ease;
+}
+
+.copy-to-clipboard:hover {
+    background-color: #015193;
+}
+
+.copy-to-clipboard:disabled {
+    background-color: #cccccc;
+    cursor: not-allowed;
+    opacity: 0.6;
+}
+
+.copy-to-clipboard::after {
+    content: "";
+    display: inline-block;
+    position: absolute;
+    right: 9px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 16px;
+    height: 16px;
+    background-image: url('/static/icons/copy.svg');
+    background-size: contain;
+    background-repeat: no-repeat;
+    background-position: center;
+}
+
+/* Feedback po skopiowaniu */
+.copy-to-clipboard.copied {
+    background-color: #07B90D;
+}
+
+.copy-to-clipboard.copied:hover {
+    background-color: #06930A;
+}
+
+/* [copy-tooltip] */
+.copy-tooltip {
+    display: none;
+    position: absolute;
+    top: calc(100% + 8px);
+    left: 50%;
+    transform: translateX(-50%);
+    background: #2C2C2C;
+    border-radius: 6px;
+    padding: 8px 0;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+    z-index: 1000;
+}
+
+.copy-tooltip::before {
+    content: "";
+    position: absolute;
+    bottom: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    border: 6px solid transparent;
+    border-bottom-color: #2C2C2C;
+}
+
+/* Obszar między przyciskiem a tooltipem - nie zamyka tooltipa */
+.copy-to-clipboard-container::after {
+    content: "";
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    height: 12px;
+    display: none;
+}
+
+.copy-to-clipboard-container:hover::after {
+    display: block;
+}
+
+.copy-to-clipboard-container:hover .copy-tooltip,
+.copy-tooltip:hover {
+    display: block;
+}
+
+.copy-to-clipboard-container:hover .copy-tooltip.hide-tooltip,
+.copy-tooltip.hide-tooltip:hover {
+    display: none !important;
+}
+
+/* [copy-tooltip-option] */
+.copy-tooltip-option {
+    padding: 8px 16px;
+    color: #FFFFFF;
+    font-family: Poppins, sans-serif;
+    font-size: 14px;
+    cursor: pointer;
+    transition: background-color 0.2s ease;
+    white-space: nowrap;
+}
+
+.copy-tooltip-option:hover {
+    background-color: #404040;
+}

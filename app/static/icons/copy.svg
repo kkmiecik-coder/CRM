@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg id="Warstwa_1" xmlns="http://www.w3.org/2000/svg" version="1.1" viewBox="0 0 24 24">
+  <defs>
+    <style>
+      .st0 {
+        fill: #fff;
+      }
+    </style>
+  </defs>
+  <!-- Pierwszy prostokąt (tylny dokument) -->
+  <rect class="st0" x="8" y="2" width="12" height="14" rx="1.5" fill="none" stroke="#fff" stroke-width="1.5"/>
+  <!-- Drugi prostokąt (przedni dokument) -->
+  <rect class="st0" x="4" y="8" width="12" height="14" rx="1.5"/>
+  <!-- Linie tekstu na przednim dokumencie -->
+  <line x1="6.5" y1="12" x2="13.5" y2="12" stroke="#0177D9" stroke-width="1" stroke-linecap="round"/>
+  <line x1="6.5" y1="15" x2="13.5" y2="15" stroke="#0177D9" stroke-width="1" stroke-linecap="round"/>
+  <line x1="6.5" y1="18" x2="10.5" y2="18" stroke="#0177D9" stroke-width="1" stroke-linecap="round"/>
+</svg>
