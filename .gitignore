@@ -184,3 +184,5 @@ app/config/core.json
 /app/modules/partner_academy/static/media/documents
 /app/modules/preview3d_ar/static/ar-models/temp
 /app/modules/preview3d_ar/static/ar-models/cache
+/app/modules/sales/static/media/nda_users
+/app/modules/partner_academy/static/media/nda_users
