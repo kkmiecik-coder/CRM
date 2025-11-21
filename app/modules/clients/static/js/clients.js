@@ -30,7 +30,6 @@ function renderTable() {
         return (
             (c.client_number || '').toLowerCase().includes(query) ||
             (c.client_name || '').toLowerCase().includes(query) ||
-            (c.client_delivery_name || '').toLowerCase().includes(query) ||
             (c.email || '').toLowerCase().includes(query) ||
             (c.phone || '').toLowerCase().includes(query)
         );
@@ -95,28 +94,38 @@ rowsSelect.addEventListener('change', () => {
 });
 
 function showClientDetails(clientId) {
+    console.log('=== showClientDetails START ===');
+    console.log('Client ID:', clientId);
+
     currentEditClientId = clientId; // Zapisz ID dla trybu edycji
-    
+
     // RESETUJ flagę załadowania dla nowego klienta
     const editNameField = document.getElementById('editClientName');
     if (editNameField) {
         editNameField.dataset.loaded = 'false';
+        console.log('Reset flagi loaded na false');
     }
-    
+
     fetch(`/clients/${clientId}/data`)
         .then(res => res.json())
         .then(client => {
+            console.log('Otrzymane dane klienta:', client);
+
             document.getElementById('detailClientName').textContent = client.client_number || '---';
             document.getElementById('detailClientDeliveryName').textContent = client.client_name || '---';
             document.getElementById('detailClientEmail').textContent = client.email || '---';
             document.getElementById('detailClientPhone').textContent = client.phone || '---';
-            
+
             loadClientQuotes(clientId);
-            
+
             // Upewnij się, że jesteśmy w trybie wyświetlania
             disableEditMode();
-            
+
             document.getElementById('clients-details-modal').style.display = 'flex';
+            console.log('=== showClientDetails END - Modal otwarty ===');
+        })
+        .catch(err => {
+            console.error('Błąd podczas ładowania szczegółów klienta:', err);
         });
 }
 
@@ -192,59 +201,6 @@ function renderQuotesPagination() {
         paginationContainer.appendChild(pageBtn);
     }
 }
-
-document.getElementById('clientsCancelBtn').addEventListener('click', () => {
-    document.getElementById('clients-edit-modal').style.display = 'none';
-});
-
-document.getElementById('clientsSaveBtn').addEventListener('click', () => {
-    if (!editedClientId) return;
-
-    const payload = {
-        client_name: document.getElementById('editClientName').value,
-        client_delivery_name: document.getElementById('editClientDeliveryName').value,
-        email: document.getElementById('editClientEmail').value,
-        phone: document.getElementById('editClientPhone').value,
-        source: '',
-        delivery: {
-            name: document.getElementById('editDeliveryName').value,
-            company: document.getElementById('editDeliveryCompany').value,
-            address: document.getElementById('editDeliveryAddress').value,
-            zip: document.getElementById('editDeliveryZip').value,
-            city: document.getElementById('editDeliveryCity').value,
-            region: document.getElementById('editDeliveryRegion').value,
-            country: document.getElementById('editDeliveryCountry').value
-        },
-        invoice: {
-            name: document.getElementById('editInvoiceName').value,
-            company: document.getElementById('editInvoiceCompany').value,
-            address: document.getElementById('editInvoiceAddress').value,
-            zip: document.getElementById('editInvoiceZip').value,
-            city: document.getElementById('editInvoiceCity').value,
-            nip: document.getElementById('editInvoiceNIP').value
-        }
-    };
-
-    fetch(`/clients/${editedClientId}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-    })
-        .then(res => {
-            if (!res.ok) throw new Error('Błąd zapisu klienta');
-            return res.json();
-        })
-        .then(() => {
-            showToast('Zapisano dane klienta ✔');
-            document.getElementById('clients-edit-modal').style.display = 'none';
-            fetchClients();
-        })
-        .catch(err => {
-            console.error('❌ Błąd podczas zapisu:', err);
-            showToast('Nie udało się zapisać zmian ❌', false);
-        });
-});
-
 
 // ========== DOMContentLoaded ========== //
 document.addEventListener('DOMContentLoaded', () => {
@@ -471,60 +427,81 @@ function redirectToQuote(quoteId) {
 let currentEditClientId = null;
 
 function enableEditMode() {
-    console.log('[enableEditMode] Przełączam na tryb edycji');
-    
+    console.log('=== enableEditMode START ===');
+    console.log('currentEditClientId:', currentEditClientId);
+
     // Przełącz widoki
     document.getElementById('view-mode').style.display = 'none';
     document.getElementById('edit-mode').style.display = 'block';
     document.getElementById('view-actions').style.display = 'none';
     document.getElementById('edit-actions').style.display = 'flex';
-    
+
     // Zmień tytuł
     document.getElementById('modalTitle').textContent = 'Edytuj dane klienta';
-    
+
     // TYLKO JEDNORAZOWO załaduj dane - nie przy każdym przełączeniu
     const isAlreadyLoaded = document.getElementById('editClientName').dataset.loaded;
-    
-    if (!isAlreadyLoaded && currentEditClientId) {
-        console.log('[enableEditMode] Ładuję dane po raz pierwszy...');
+    console.log('isAlreadyLoaded (dataset.loaded):', isAlreadyLoaded);
+    console.log('isAlreadyLoaded === "true":', isAlreadyLoaded === 'true');
+
+    if (isAlreadyLoaded !== 'true' && currentEditClientId) {
+        console.log('✅ Warunek spełniony - wywołuję loadClientDataForEdit');
         loadClientDataForEdit(currentEditClientId);
-        
+
         // Oznacz jako załadowane
         document.getElementById('editClientName').dataset.loaded = 'true';
+        console.log('Ustawiono dataset.loaded = true');
     } else {
-        console.log('[enableEditMode] Dane już załadowane - pomijam loadClientDataForEdit');
+        console.log('❌ Warunek NIE spełniony - dane już załadowane lub brak ID');
+        console.log('  isAlreadyLoaded:', isAlreadyLoaded);
+        console.log('  isAlreadyLoaded === "true":', isAlreadyLoaded === 'true');
+        console.log('  currentEditClientId:', currentEditClientId);
     }
+
+    console.log('=== enableEditMode END ===');
 }
 
 function disableEditMode() {
-    console.log('[disableEditMode] Powrót do trybu wyświetlania');
-    
     // Przełącz widoki
     document.getElementById('view-mode').style.display = 'block';
     document.getElementById('edit-mode').style.display = 'none';
     document.getElementById('view-actions').style.display = 'flex';
     document.getElementById('edit-actions').style.display = 'none';
-    
+
     // Zmień tytuł
     document.getElementById('modalTitle').textContent = 'Szczegóły klienta';
 }
 
 function loadClientDataForEdit(clientId) {
-    console.log('[loadClientDataForEdit] START - Ładowanie danych klienta ID:', clientId);
-    
+    console.log('=== loadClientDataForEdit START ===');
+    console.log('Ładuję dane dla klienta ID:', clientId);
+
     fetch(`/clients/${clientId}/data`)
-        .then(res => res.json())
+        .then(res => {
+            console.log('Odpowiedź z serwera - status:', res.status);
+            return res.json();
+        })
         .then(client => {
-            console.log('[loadClientDataForEdit] OTRZYMANE DANE KLIENTA:', client);
-            console.log('[loadClientDataForEdit] client.invoice:', client.invoice);
-            
+            console.log('✅ Otrzymane dane z API:', client);
+
             // Dane podstawowe
-            document.getElementById('editClientName').value = client.client_name || '';
-            document.getElementById('editClientDeliveryName').value = client.client_number || '';
+            console.log('--- DANE PODSTAWOWE ---');
+            console.log('client_number:', client.client_number);
+            console.log('client_name:', client.client_name);
+            console.log('email:', client.email);
+            console.log('phone:', client.phone);
+
+            document.getElementById('editClientName').value = client.client_number || '';
+            document.getElementById('editClientDeliveryName').value = client.client_name || '';
             document.getElementById('editClientEmail').value = client.email || '';
             document.getElementById('editClientPhone').value = client.phone || '';
-            
+
+            console.log('✅ Wypełniono pola podstawowe');
+
             // Adres dostawy
+            console.log('--- ADRES DOSTAWY ---');
+            console.log('delivery:', client.delivery);
+
             document.getElementById('editDeliveryName').value = client.delivery?.name || '';
             document.getElementById('editDeliveryCompany').value = client.delivery?.company || '';
             document.getElementById('editDeliveryAddress').value = client.delivery?.address || '';
@@ -532,43 +509,33 @@ function loadClientDataForEdit(clientId) {
             document.getElementById('editDeliveryCity').value = client.delivery?.city || '';
             document.getElementById('editDeliveryRegion').value = client.delivery?.region || '';
             document.getElementById('editDeliveryCountry').value = client.delivery?.country || '';
-            
-            // Dane do faktury z logami
-            console.log('[loadClientDataForEdit] WYPEŁNIANIE PÓL FAKTURY:');
-            
-            const invoiceName = client.invoice?.name || '';
-            const invoiceCompany = client.invoice?.company || '';
-            const invoiceAddress = client.invoice?.address || '';
-            const invoiceZip = client.invoice?.zip || '';
-            const invoiceCity = client.invoice?.city || '';
-            const invoiceNip = client.invoice?.nip || '';
-            
-            console.log('- invoice name:', invoiceName);
-            console.log('- invoice company:', invoiceCompany);
-            console.log('- invoice address:', invoiceAddress);
-            console.log('- invoice zip:', invoiceZip);
-            console.log('- invoice city:', invoiceCity);
-            console.log('- invoice nip:', invoiceNip);
-            
-            document.getElementById('editInvoiceName').value = invoiceName;
-            document.getElementById('editInvoiceCompany').value = invoiceCompany;
-            document.getElementById('editInvoiceAddress').value = invoiceAddress;
-            document.getElementById('editInvoiceZip').value = invoiceZip;
-            document.getElementById('editInvoiceCity').value = invoiceCity;
-            document.getElementById('editInvoiceNIP').value = invoiceNip;
-            
-            // Sprawdź czy pola są rzeczywiście wypełnione
-            console.log('[loadClientDataForEdit] WERYFIKACJA WYPEŁNIENIA:');
-            console.log('- editInvoiceName.value:', document.getElementById('editInvoiceName').value);
-            console.log('- editInvoiceCompany.value:', document.getElementById('editInvoiceCompany').value);
-            console.log('- editInvoiceAddress.value:', document.getElementById('editInvoiceAddress').value);
-            console.log('- editInvoiceZip.value:', document.getElementById('editInvoiceZip').value);
-            console.log('- editInvoiceCity.value:', document.getElementById('editInvoiceCity').value);
-            
-            console.log('[loadClientDataForEdit] END');
+
+            console.log('✅ Wypełniono pola dostawy');
+
+            // Dane do faktury
+            console.log('--- DANE FAKTURY ---');
+            console.log('invoice:', client.invoice);
+
+            document.getElementById('editInvoiceName').value = client.invoice?.name || '';
+            document.getElementById('editInvoiceCompany').value = client.invoice?.company || '';
+            document.getElementById('editInvoiceAddress').value = client.invoice?.address || '';
+            document.getElementById('editInvoiceZip').value = client.invoice?.zip || '';
+            document.getElementById('editInvoiceCity').value = client.invoice?.city || '';
+            document.getElementById('editInvoiceNIP').value = client.invoice?.nip || '';
+
+            console.log('✅ Wypełniono pola faktury');
+
+            // WERYFIKACJA - sprawdź czy pola rzeczywiście mają wartości
+            console.log('--- WERYFIKACJA PÓL ---');
+            console.log('editClientName.value:', document.getElementById('editClientName').value);
+            console.log('editClientEmail.value:', document.getElementById('editClientEmail').value);
+            console.log('editDeliveryName.value:', document.getElementById('editDeliveryName').value);
+            console.log('editInvoiceName.value:', document.getElementById('editInvoiceName').value);
+
+            console.log('=== loadClientDataForEdit END ===');
         })
         .catch(err => {
-            console.error('[loadClientDataForEdit] Błąd:', err);
+            console.error('❌ Błąd podczas ładowania danych klienta:', err);
             showToast('Błąd podczas ładowania danych klienta', false);
         });
 }
@@ -654,15 +621,44 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 function saveClientChanges() {
+    console.log('=== saveClientChanges START ===');
+
     if (!currentEditClientId) {
-        console.error('[saveClientChanges] Brak ID klienta');
+        console.error('❌ Brak ID klienta do zapisu');
         return;
     }
-    
+
+    console.log('Zapisuję zmiany dla klienta ID:', currentEditClientId);
+
+    // Pobierz wartości pól
+    const clientName = document.getElementById('editClientName').value.trim();
+    const email = document.getElementById('editClientEmail').value.trim();
+
+    console.log('Pobrane wartości:');
+    console.log('  clientName:', clientName);
+    console.log('  email:', email);
+
+    // Walidacja wymaganych pól
+    if (!clientName) {
+        showToast('Nazwa klienta jest wymagana', false);
+        document.getElementById('editClientName').focus();
+        return;
+    }
+
+    // Email jest opcjonalny, ale jeśli podany to musi być poprawny
+    if (email) {
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        if (!emailRegex.test(email)) {
+            showToast('Podaj poprawny adres email', false);
+            document.getElementById('editClientEmail').focus();
+            return;
+        }
+    }
+
     const payload = {
-        client_name: document.getElementById('editClientName').value.trim(),
+        client_name: clientName,
         client_delivery_name: document.getElementById('editClientDeliveryName').value.trim(),
-        email: document.getElementById('editClientEmail').value.trim(),
+        email: email,
         phone: document.getElementById('editClientPhone').value.trim(),
         delivery: {
             name: document.getElementById('editDeliveryName').value.trim(),
@@ -689,22 +685,26 @@ function saveClientChanges() {
         body: JSON.stringify(payload)
     })
     .then(res => {
-        if (!res.ok) throw new Error('Błąd zapisu klienta');
+        if (!res.ok) {
+            return res.json().then(data => {
+                throw new Error(data.error || 'Błąd zapisu klienta');
+            });
+        }
         return res.json();
     })
     .then(() => {
         showToast('Zapisano dane klienta ✔');
         disableEditMode();
-        
+
         // Odśwież dane w trybie wyświetlania
         showClientDetails(currentEditClientId);
-        
+
         // Odśwież listę klientów
         fetchClients();
     })
     .catch(err => {
         console.error('❌ Błąd podczas zapisu:', err);
-        showToast('Nie udało się zapisać zmian ❌', false);
+        showToast(err.message || 'Nie udało się zapisać zmian', false);
     });
 }
 
@@ -712,48 +712,19 @@ function saveClientChanges() {
 // ========== KOPIOWANIE DANYCH Z DOSTAWY DO FAKTURY ========== //
 
 function copyDeliveryToInvoice() {
-    console.log('[copyDeliveryToInvoice] Kopiowanie danych z adresu dostawy');
-    
-    // UŻYWAJ querySelectorAll i weź WIDOCZNY element (ostatni)
-    const deliveryNameEls = document.querySelectorAll('#editDeliveryName');
-    const deliveryCompanyEls = document.querySelectorAll('#editDeliveryCompany');
-    const deliveryAddressEls = document.querySelectorAll('#editDeliveryAddress');
-    const deliveryZipEls = document.querySelectorAll('#editDeliveryZip');
-    const deliveryCityEls = document.querySelectorAll('#editDeliveryCity');
-    
-    // Weź ostatni (widoczny) element z każdej listy
-    const deliveryNameEl = deliveryNameEls[deliveryNameEls.length - 1];
-    const deliveryCompanyEl = deliveryCompanyEls[deliveryCompanyEls.length - 1];
-    const deliveryAddressEl = deliveryAddressEls[deliveryAddressEls.length - 1];
-    const deliveryZipEl = deliveryZipEls[deliveryZipEls.length - 1];
-    const deliveryCityEl = deliveryCityEls[deliveryCityEls.length - 1];
-    
     // Pobierz dane z pól dostawy
-    const deliveryName = deliveryNameEl ? deliveryNameEl.value : '';
-    const deliveryCompany = deliveryCompanyEl ? deliveryCompanyEl.value : '';
-    const deliveryAddress = deliveryAddressEl ? deliveryAddressEl.value : '';
-    const deliveryZip = deliveryZipEl ? deliveryZipEl.value : '';
-    const deliveryCity = deliveryCityEl ? deliveryCityEl.value : '';
-    
-    // Elementy docelowe (faktury) - także z querySelectorAll
-    const invoiceNameEls = document.querySelectorAll('#editInvoiceName');
-    const invoiceCompanyEls = document.querySelectorAll('#editInvoiceCompany');
-    const invoiceAddressEls = document.querySelectorAll('#editInvoiceAddress');
-    const invoiceZipEls = document.querySelectorAll('#editInvoiceZip');
-    const invoiceCityEls = document.querySelectorAll('#editInvoiceCity');
-    
-    const invoiceNameEl = invoiceNameEls[invoiceNameEls.length - 1];
-    const invoiceCompanyEl = invoiceCompanyEls[invoiceCompanyEls.length - 1];
-    const invoiceAddressEl = invoiceAddressEls[invoiceAddressEls.length - 1];
-    const invoiceZipEl = invoiceZipEls[invoiceZipEls.length - 1];
-    const invoiceCityEl = invoiceCityEls[invoiceCityEls.length - 1];
-    
+    const deliveryName = document.getElementById('editDeliveryName').value;
+    const deliveryCompany = document.getElementById('editDeliveryCompany').value;
+    const deliveryAddress = document.getElementById('editDeliveryAddress').value;
+    const deliveryZip = document.getElementById('editDeliveryZip').value;
+    const deliveryCity = document.getElementById('editDeliveryCity').value;
+
     // Wstaw do pól faktury
-    if (invoiceNameEl) invoiceNameEl.value = deliveryName;
-    if (invoiceCompanyEl) invoiceCompanyEl.value = deliveryCompany;
-    if (invoiceAddressEl) invoiceAddressEl.value = deliveryAddress;
-    if (invoiceZipEl) invoiceZipEl.value = deliveryZip;
-    if (invoiceCityEl) invoiceCityEl.value = deliveryCity;
+    document.getElementById('editInvoiceName').value = deliveryName;
+    document.getElementById('editInvoiceCompany').value = deliveryCompany;
+    document.getElementById('editInvoiceAddress').value = deliveryAddress;
+    document.getElementById('editInvoiceZip').value = deliveryZip;
+    document.getElementById('editInvoiceCity').value = deliveryCity;
     
     // Dodaj wizualny feedback
     const copyBtn = event.target.closest('.copy-delivery-btn');
@@ -793,48 +764,19 @@ function copyDeliveryToInvoice() {
 // ========== KOPIOWANIE DANYCH Z FAKTURY DO DOSTAWY ========== //
 
 function copyInvoiceToDelivery() {
-    console.log('[copyInvoiceToDelivery] START - Kopiowanie danych z faktury do dostawy');
-    
-    // UŻYWAJ querySelectorAll i weź WIDOCZNY element (ostatni)
-    const invoiceNameEls = document.querySelectorAll('#editInvoiceName');
-    const invoiceCompanyEls = document.querySelectorAll('#editInvoiceCompany');
-    const invoiceAddressEls = document.querySelectorAll('#editInvoiceAddress');
-    const invoiceZipEls = document.querySelectorAll('#editInvoiceZip');
-    const invoiceCityEls = document.querySelectorAll('#editInvoiceCity');
-    
-    // Weź ostatni (widoczny) element z każdej listy
-    const invoiceNameEl = invoiceNameEls[invoiceNameEls.length - 1];
-    const invoiceCompanyEl = invoiceCompanyEls[invoiceCompanyEls.length - 1];
-    const invoiceAddressEl = invoiceAddressEls[invoiceAddressEls.length - 1];
-    const invoiceZipEl = invoiceZipEls[invoiceZipEls.length - 1];
-    const invoiceCityEl = invoiceCityEls[invoiceCityEls.length - 1];
-    
-    // Pobierz wartości z widocznych elementów
-    const invoiceName = invoiceNameEl ? invoiceNameEl.value : '';
-    const invoiceCompany = invoiceCompanyEl ? invoiceCompanyEl.value : '';
-    const invoiceAddress = invoiceAddressEl ? invoiceAddressEl.value : '';
-    const invoiceZip = invoiceZipEl ? invoiceZipEl.value : '';
-    const invoiceCity = invoiceCityEl ? invoiceCityEl.value : '';
-    
-    // Elementy docelowe (także z querySelectorAll)
-    const deliveryNameEls = document.querySelectorAll('#editDeliveryName');
-    const deliveryCompanyEls = document.querySelectorAll('#editDeliveryCompany');
-    const deliveryAddressEls = document.querySelectorAll('#editDeliveryAddress');
-    const deliveryZipEls = document.querySelectorAll('#editDeliveryZip');
-    const deliveryCityEls = document.querySelectorAll('#editDeliveryCity');
-    
-    const deliveryNameEl = deliveryNameEls[deliveryNameEls.length - 1];
-    const deliveryCompanyEl = deliveryCompanyEls[deliveryCompanyEls.length - 1];
-    const deliveryAddressEl = deliveryAddressEls[deliveryAddressEls.length - 1];
-    const deliveryZipEl = deliveryZipEls[deliveryZipEls.length - 1];
-    const deliveryCityEl = deliveryCityEls[deliveryCityEls.length - 1];
-    
-    // KOPIOWANIE
-    if (deliveryNameEl) deliveryNameEl.value = invoiceName;
-    if (deliveryCompanyEl) deliveryCompanyEl.value = invoiceCompany;
-    if (deliveryAddressEl) deliveryAddressEl.value = invoiceAddress;
-    if (deliveryZipEl) deliveryZipEl.value = invoiceZip;
-    if (deliveryCityEl) deliveryCityEl.value = invoiceCity;
+    // Pobierz dane z pól faktury
+    const invoiceName = document.getElementById('editInvoiceName').value;
+    const invoiceCompany = document.getElementById('editInvoiceCompany').value;
+    const invoiceAddress = document.getElementById('editInvoiceAddress').value;
+    const invoiceZip = document.getElementById('editInvoiceZip').value;
+    const invoiceCity = document.getElementById('editInvoiceCity').value;
+
+    // Wstaw do pól dostawy
+    document.getElementById('editDeliveryName').value = invoiceName;
+    document.getElementById('editDeliveryCompany').value = invoiceCompany;
+    document.getElementById('editDeliveryAddress').value = invoiceAddress;
+    document.getElementById('editDeliveryZip').value = invoiceZip;
+    document.getElementById('editDeliveryCity').value = invoiceCity;
     
     // Feedback wizualny
     const copyBtn = event.target.closest('.copy-invoice-btn');

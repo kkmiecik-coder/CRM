@@ -5,10 +5,9 @@ class Client(db.Model):
     __tablename__ = 'clients'
     id = db.Column(db.Integer, primary_key=True)
     client_number = db.Column(db.String(20), unique=True, nullable=False)
-    client_name = db.Column(db.String(255))
-    client_delivery_name = db.Column(db.String(255), nullable=True)
-    email = db.Column(db.String(120), unique=True)
-    phone = db.Column(db.String(20))
+    client_name = db.Column(db.String(255), nullable=False)
+    email = db.Column(db.String(120), nullable=True)  # Email opcjonalny, ale unikalny jeśli podany
+    phone = db.Column(db.String(20), nullable=True)
     
     # Adres dostawy
     delivery_name = db.Column(db.String(255))

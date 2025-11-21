@@ -88,7 +88,6 @@ def get_client_data(client_id):
         "id": client.id,
         "client_number": client.client_number,
         "client_name": client.client_name,
-        "client_delivery_name": client.client_delivery_name,
         "email": client.email,
         "phone": client.phone,
         "delivery": {
@@ -115,43 +114,77 @@ def get_client_data(client_id):
 @clients_bp.route('/<int:client_id>', methods=['PATCH'])
 @require_module_access('clients')
 def update_client(client_id):
-    # ✅ NOWE: Sprawdź czy partner ma dostęp
+    # Sprawdź czy partner ma dostęp
     user_id = session.get('user_id')
     user = User.query.get(user_id)
-    
+
     client = Client.query.get_or_404(client_id)
-    
+
     # Partner może edytować TYLKO swoich klientów
     if user and user.role == 'partner':
         if client.created_by_user_id != user_id:
             return jsonify({"error": "Brak dostępu do tego klienta"}), 403
-    
-    data = request.json
 
-    client.client_name = data.get("client_name")
-    client.email = data.get("email")
-    client.phone = data.get("phone")
-    client.source = data.get("source")
+    try:
+        data = request.json
 
-    delivery = data.get("delivery", {})
-    client.delivery_name = delivery.get("name")
-    client.delivery_company = delivery.get("company")
-    client.delivery_address = delivery.get("address")
-    client.delivery_zip = delivery.get("zip")
-    client.delivery_city = delivery.get("city")
-    client.delivery_region = delivery.get("region")
-    client.delivery_country = delivery.get("country")
+        # Walidacja wymaganych pól
+        client_name = data.get("client_name", "").strip()  # To jest "Nazwa klienta" z UI
+        client_delivery_name = data.get("client_delivery_name", "").strip()  # To jest "Imię i nazwisko"
+        email = data.get("email", "").strip()
 
-    invoice = data.get("invoice", {})
-    client.invoice_name = invoice.get("name")
-    client.invoice_company = invoice.get("company")
-    client.invoice_address = invoice.get("address")
-    client.invoice_zip = invoice.get("zip")
-    client.invoice_city = invoice.get("city")
-    client.invoice_nip = invoice.get("nip")
+        if not client_name:
+            return jsonify({"error": "Nazwa klienta jest wymagana"}), 400
 
-    db.session.commit()
-    return jsonify({"success": True})
+        # Email jest opcjonalny, ale jeśli podany to musi być unikalny i poprawny
+        if email:
+            # Sprawdź czy email jest unikalny (jeśli zmieniony i nie pusty)
+            if email != client.email:
+                existing_client = Client.query.filter(
+                    Client.email == email,
+                    Client.id != client_id
+                ).first()
+
+                if existing_client:
+                    return jsonify({"error": f"Email {email} jest już przypisany do innego klienta"}), 400
+
+        # Aktualizuj dane klienta
+        # MAPOWANIE:
+        # - client_name (z frontu) → client_number (w bazie) - "Nazwa klienta"
+        # - client_delivery_name (z frontu) → client_name (w bazie) - "Imię i nazwisko" w sekcji Dane klienta
+        # UWAGA: editClientDeliveryName (nazwa pola w HTML) jest myląca, ale zapisuje do client_name!
+        client.client_number = client_name  # "Nazwa klienta" (np. "Wood Power Sp. z o.o.")
+        client.client_name = client_delivery_name  # "Imię i nazwisko" (np. "Konrad Kmiecik")
+        client.email = email if email else None  # Zapisz NULL jeśli email pusty
+        client.phone = data.get("phone", "").strip()
+        client.source = data.get("source", "").strip()
+
+        # Aktualizuj adres dostawy
+        delivery = data.get("delivery", {})
+        client.delivery_name = delivery.get("name", "").strip()
+        client.delivery_company = delivery.get("company", "").strip()
+        client.delivery_address = delivery.get("address", "").strip()
+        client.delivery_zip = delivery.get("zip", "").strip()
+        client.delivery_city = delivery.get("city", "").strip()
+        client.delivery_region = delivery.get("region", "").strip()
+        client.delivery_country = delivery.get("country", "").strip()
+
+        # Aktualizuj dane do faktury
+        invoice = data.get("invoice", {})
+        client.invoice_name = invoice.get("name", "").strip()
+        client.invoice_company = invoice.get("company", "").strip()
+        client.invoice_address = invoice.get("address", "").strip()
+        client.invoice_zip = invoice.get("zip", "").strip()
+        client.invoice_city = invoice.get("city", "").strip()
+        client.invoice_nip = invoice.get("nip", "").strip()
+
+        db.session.commit()
+        return jsonify({"success": True})
+
+    except Exception as e:
+        db.session.rollback()
+        logger.exception(f"[update_client] Błąd podczas aktualizacji klienta {client_id}")
+        return jsonify({"error": f"Błąd podczas zapisywania danych: {str(e)}"}), 500
 
 
 @clients_bp.route('/<int:client_id>/quotes')
