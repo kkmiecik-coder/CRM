@@ -1391,7 +1391,7 @@ class ProductsModule {
                 const daysUntil = this.calculateDaysUntilDeadline(product.deadline_date);
                 if (daysUntil !== null) {
                     deadlineBadge.textContent = this.getDeadlineLabel(daysUntil);
-                    
+
                     // POPRAWKA: Używaj tylko klasy z prod_list- prefiksem
                     const deadlineClass = this.getDeadlineClass(daysUntil);
                     deadlineBadge.className = `prod_list-deadline-badge ${deadlineClass}`;
@@ -1403,6 +1403,11 @@ class ProductsModule {
                     deadlineBadge.className = 'prod_list-deadline-badge normal';
                     deadlineDate.textContent = '';
                 }
+            }
+
+            // Hook dla załączników - wywołaj jeśli funkcja istnieje
+            if (typeof window.handleProductAttachmentRender === 'function') {
+                window.handleProductAttachmentRender(rowElement, product);
             }
 
         } catch (error) {
@@ -2115,7 +2120,28 @@ class ProductsModule {
     showEmptyState() {
         this.hideAllStates();
         if (this.elements.emptyState) {
-            this.elements.emptyState.style.display = 'block';
+            this.elements.emptyState.style.display = 'flex';
+
+            // Sprawdź czy są aktywne filtry i dostosuj komunikat
+            const hasActiveFilters = this.hasActiveFilters();
+            const emptyReason = document.getElementById('empty-reason');
+            const clearFiltersBtn = document.getElementById('clear-filters-empty');
+
+            if (hasActiveFilters) {
+                if (emptyReason) {
+                    emptyReason.textContent = 'Nie znaleziono produktów spełniających aktywne kryteria filtrowania.';
+                }
+                if (clearFiltersBtn) {
+                    clearFiltersBtn.style.display = 'inline-block';
+                }
+            } else {
+                if (emptyReason) {
+                    emptyReason.textContent = 'Nie ma żadnych produktów w systemie. Zaimportuj zamówienia z Baselinker.';
+                }
+                if (clearFiltersBtn) {
+                    clearFiltersBtn.style.display = 'none';
+                }
+            }
         }
     }
 
@@ -2426,15 +2452,19 @@ class ProductsModule {
      */
     showProductDetails(productId) {
         console.log(`[ProductsModule] Showing details for product ${productId}`);
-        
+
         // Znajdź produkt
-        const product = this.state.filteredProducts.find(p => p.id == productId) || 
+        const product = this.state.filteredProducts.find(p => p.id == productId) ||
                     this.state.products.find(p => p.id == productId);
-        
+
         if (!product) {
             alert('Nie znaleziono produktu');
             return;
         }
+
+        // DEBUG: Loguj cały obiekt produktu
+        console.log('[ProductsModule] Full product object:', product);
+        console.log('[ProductsModule] Product keys:', Object.keys(product));
         
         // Usuń poprzedni modal
         const existingModal = document.getElementById('product-details-modal');
@@ -2528,7 +2558,7 @@ class ProductsModule {
         }
 
         if (priorityIndicator) {
-            const priority = parseInt(product.priority_score) || 100;
+            const priority = parseInt(product.priority_rank) || parseInt(product.priority_score) || 100;
             priorityIndicator.className = `priority-indicator ${this.getPriorityClass(priority)}`;
         }
     }
@@ -2570,14 +2600,14 @@ class ProductsModule {
      */
     populateAllFields(modalElement, product) {
         const fields = modalElement.querySelectorAll('[data-field]');
-        
+
         fields.forEach(field => {
             const fieldName = field.dataset.field;
             const fieldType = field.dataset.type;
             const unit = field.dataset.unit;
-            
+
             let value = product[fieldName];
-            
+
             if (fieldName === 'current_status') {
                 const statusConfig = this.getStatusConfig(value);
                 field.innerHTML = `
@@ -2592,16 +2622,42 @@ class ProductsModule {
                 value = this.formatDimensions(product);
             } else if (fieldName === 'baselinker_link') {
                 return;
+            } else if (fieldName === 'attachment_file_url') {
+                // Specjalna obsługa dla linku do załącznika
+                if (value && field.tagName === 'A') {
+                    field.href = value;
+                }
+                return;
             }
-            
+
             const formattedValue = this.formatModalValue(value, fieldType, unit);
-            
+
             if (fieldType === 'email' && value) {
                 field.innerHTML = `<a href="mailto:${value}">${value}</a>`;
             } else {
                 field.innerHTML = formattedValue;
             }
         });
+
+        // Obsługa pola załączników w specyfikacji technicznej - pokaż/ukryj w zależności od obecności załącznika
+        const attachmentFieldGroup = modalElement.querySelector('#attachment-field-group');
+        console.log('[ProductsModule] Attachment field group:', attachmentFieldGroup);
+        console.log('[ProductsModule] Product attachment data:', {
+            url: product.attachment_file_url,
+            name: product.attachment_file_name
+        });
+
+        if (attachmentFieldGroup) {
+            if (product.attachment_file_url && product.attachment_file_name) {
+                attachmentFieldGroup.style.display = 'block';
+                console.log('[ProductsModule] Showing attachment field');
+            } else {
+                attachmentFieldGroup.style.display = 'none';
+                console.log('[ProductsModule] Hiding attachment field - no attachment');
+            }
+        } else {
+            console.warn('[ProductsModule] Attachment field group element not found in modal');
+        }
     }
 
     /**

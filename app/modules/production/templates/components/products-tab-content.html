@@ -283,11 +283,15 @@
         <!-- EMPTY STATE -->
         <div class="products-empty-state" id="products-empty-state" style="display: none;">
             <div class="empty-icon">
-                <i class="fas fa-search"></i>
+                <i class="fas fa-inbox"></i>
             </div>
-            <h4>Brak produktów</h4>
-            <p>Nie znaleziono produktów spełniających kryteria filtrowania.</p>
-            <button class="btn btn-outline-primary" id="clear-filters-empty">
+            <h4>Lista produktów jest pusta</h4>
+            <p class="empty-description">Brak produktów do wyświetlenia.</p>
+            <p class="empty-hint">
+                <i class="fas fa-lightbulb me-2"></i>
+                <span id="empty-reason">Nie znaleziono produktów spełniających aktywne kryteria filtrowania.</span>
+            </p>
+            <button class="btn btn-outline-primary" id="clear-filters-empty" style="display: none;">
                 <i class="fas fa-times me-1"></i>Wyczyść filtry
             </button>
         </div>
@@ -366,6 +370,11 @@
             <div class="prod_list-deadline-date"></div>
         </div>
         <div class="prod_list-actions-cell">
+            <span class="prod_list-attachment-icon" title="Produkt ma załącznik" style="display: none;">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+            </span>
             <button class="prod_list-action-btn prod_list-details-btn" title="Szczegóły produktu">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                     <path d="M12 9C10.3431 9 9 10.3431 9 12C9 13.6569 10.3431 15 12 15C13.6569 15 15 13.6569 15 12C15 10.3431 13.6569 9 12 9Z" stroke="currentColor" stroke-width="2"/>
@@ -630,6 +639,16 @@
                                     <div class="field-group">
                                         <div class="field-label">Objętość</div>
                                         <div class="field-value highlight" data-field="volume_m3" data-type="decimal" data-unit="m³">2.400 m³</div>
+                                    </div>
+                                    <!-- Załączniki - wyświetlane tylko gdy produkt ma załącznik -->
+                                    <div class="field-group" id="attachment-field-group" style="display: none; grid-column: 1 / -1;">
+                                        <div class="field-label">Załączniki</div>
+                                        <div class="field-value">
+                                            <a href="#" class="attachment-link" data-field="attachment_file_url" target="_blank" rel="noopener noreferrer">
+                                                <i class="fas fa-paperclip me-1"></i>
+                                                <span data-field="attachment_file_name">plik.pdf</span>
+                                            </a>
+                                        </div>
                                     </div>
                                 </div>
                             </div>

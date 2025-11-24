@@ -116,6 +116,12 @@ class ProductionItem(db.Model):
     unit_price_net = Column(Numeric(10, 2))
     total_value_net = Column(Numeric(10, 2))
 
+    # ZAŁĄCZNIKI Z BASELINKER
+    attachment_file_name = Column(String(255), nullable=True,
+                                 comment='Nazwa pliku załącznika z Baselinker (np. specyfikacja.pdf)')
+    attachment_file_url = Column(Text, nullable=True,
+                                comment='URL do pliku załącznika z CDN Baselinker')
+
     # DANE KLIENTA
     client_name = Column(String(255), index=True)
     client_email = Column(String(255))
@@ -244,7 +250,30 @@ class ProductionItem(db.Model):
     def wood_class(self):
         """Alias dla nowego algorytmu priorytetów"""
         return self.parsed_wood_class
-    
+
+    @property
+    def has_attachment(self):
+        """Sprawdza czy produkt ma załącznik"""
+        return bool(self.attachment_file_url and self.attachment_file_url.strip())
+
+    @property
+    def attachment_file_extension(self):
+        """Pobiera rozszerzenie pliku załącznika"""
+        if not self.attachment_file_name:
+            return None
+        return self.attachment_file_name.split('.')[-1].lower() if '.' in self.attachment_file_name else None
+
+    @property
+    def is_attachment_image(self):
+        """Sprawdza czy załącznik jest obrazkiem"""
+        image_extensions = ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp']
+        return self.attachment_file_extension in image_extensions if self.attachment_file_extension else False
+
+    @property
+    def is_attachment_pdf(self):
+        """Sprawdza czy załącznik jest PDF"""
+        return self.attachment_file_extension == 'pdf' if self.attachment_file_extension else False
+
     # ============================================================================
     # NOWE METODY DLA ENHANCED PRIORITY SYSTEM 2.0
     # ============================================================================

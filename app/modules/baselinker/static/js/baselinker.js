@@ -360,15 +360,24 @@ class BaselinkerModal {
         if (!this.originalClientData) return false;
 
         const currentData = this.getCurrentClientData();
-        
+
+        // Funkcja normalizująca wartości (trimuje i zamienia puste stringi na '')
+        const normalize = (value) => {
+            if (value === null || value === undefined) return '';
+            return String(value).trim();
+        };
+
         // Porównaj wszystkie pola
         for (const key in this.originalClientData) {
-            if (this.originalClientData[key] !== currentData[key]) {
-                console.log(`[Baselinker] Zmiana w polu ${key}: "${this.originalClientData[key]}" -> "${currentData[key]}"`);
+            const originalValue = normalize(this.originalClientData[key]);
+            const currentValue = normalize(currentData[key]);
+
+            if (originalValue !== currentValue) {
+                console.log(`[Baselinker] Zmiana w polu ${key}: "${originalValue}" -> "${currentValue}"`);
                 return true;
             }
         }
-        
+
         return false;
     }
 
@@ -720,55 +729,20 @@ class BaselinkerModal {
             }
         }
 
-        // 4. METODY DOSTAWY - POPRAWIONA LOGIKA Z ZABEZPIECZENIAMI
-        const deliveryMethodSelect = document.getElementById('delivery-method-select');
-        if (deliveryMethodSelect) {
-            deliveryMethodSelect.innerHTML = '<option value="">Wybierz metodę...</option>';
-
-            // 🔧 POPRAWKA 1: Zabezpieczenie przed undefined delivery_methods
-            const deliveryMethods = config.delivery_methods || [];
-            console.log('[Baselinker] Dostępne metody dostawy:', deliveryMethods);
-
-            if (deliveryMethods.length === 0) {
-                console.warn('[Baselinker] ⚠️ Brak metod dostawy w konfiguracji - używam domyślnych');
-                // Fallback na wypadek problemów z backendem
-                deliveryMethods.push('Kurier', 'Odbiór osobisty');
-            }
-
-            let courierMethodSet = false;
-
-            // 🔧 POPRAWKA 2: Użycie prawidłowej ścieżki do nazwy kuriera
-            const courierFromQuote = this.modalData.quote?.courier_name; // BYŁO: this.modalData.courier
+        // 4. METODA DOSTAWY - NOWA LOGIKA DLA INPUT (zamiast select)
+        const deliveryMethodInput = document.getElementById('delivery-method-input');
+        if (deliveryMethodInput) {
+            // Pobierz courier_name z wyceny
+            const courierFromQuote = this.modalData.quote?.courier_name;
             console.log(`[Baselinker] Kurier z wyceny: "${courierFromQuote}"`);
 
-            deliveryMethods.forEach(method => {
-                const option = document.createElement('option');
-                option.value = method;
-                option.textContent = method;
-
-                // Wybierz metodę kuriera z wyceny jako domyślną (dopasowanie częściowe)
-                if (courierFromQuote && method.toLowerCase().includes(courierFromQuote.toLowerCase())) {
-                    option.selected = true;
-                    courierMethodSet = true;
-                    console.log(`[Baselinker] ✅ Ustawiono metodę dostawy z wyceny: ${method} (dopasowana do: ${courierFromQuote})`);
-                }
-
-                deliveryMethodSelect.appendChild(option);
-            });
-
-            // Ustaw wartość select programowo
-            if (courierMethodSet && courierFromQuote) {
-                // Znajdź metodę która najlepiej pasuje do kuriera z wyceny
-                const matchingMethod = deliveryMethods.find(method =>
-                    method.toLowerCase().includes(courierFromQuote.toLowerCase())
-                );
-                if (matchingMethod) {
-                    deliveryMethodSelect.value = matchingMethod;
-                    console.log(`[Baselinker] ✅ Programowo ustawiono metodę dostawy: ${matchingMethod}`);
-                }
-            } else if (deliveryMethods.length > 0) {
-                deliveryMethodSelect.value = deliveryMethods[0];
-                console.log(`[Baselinker] ✅ Auto-wybrano pierwszą metodę dostawy: ${deliveryMethods[0]}`);
+            // Jeśli jest courier_name i nie jest pusty ani "-", użyj go; w przeciwnym razie ustaw "Odbiór osobisty"
+            if (courierFromQuote && courierFromQuote.trim() !== '' && courierFromQuote.trim() !== '-') {
+                deliveryMethodInput.value = courierFromQuote.trim();
+                console.log(`[Baselinker] ✅ Ustawiono metodę dostawy z wyceny: "${courierFromQuote}"`);
+            } else {
+                deliveryMethodInput.value = 'Odbiór osobisty';
+                console.log(`[Baselinker] ✅ Ustawiono domyślną metodę dostawy: "Odbiór osobisty"`);
             }
         }
 
@@ -781,12 +755,6 @@ class BaselinkerModal {
             console.log('[Baselinker] 🔍 DEBUG po ustawieniu domyślnych wartości:');
             this.debugSelectValues();
 
-            // 🔧 POPRAWKA: Wywołaj handleDeliveryMethodChange() TYLKO RAZ na początku
-            if (!this.deliveryMethodListenerAttached) {
-                this.handleDeliveryMethodChange();
-                this.deliveryMethodListenerAttached = true;
-            }
-
             this.debugShippingCosts();
         }, 100);
     }
@@ -798,7 +766,7 @@ class BaselinkerModal {
 
     // 5. NOWA METODA - POPRAWIONA OBSŁUGA EVENT LISTENERÓW KONFIGURACJI
     setupConfigurationEventListeners() {
-        const selectIds = ['order-source-select', 'order-status-select', 'payment-method-select', 'delivery-method-select'];
+        const selectIds = ['order-source-select', 'order-status-select', 'payment-method-select'];
 
         selectIds.forEach(selectId => {
             const select = document.getElementById(selectId);
@@ -830,11 +798,6 @@ class BaselinkerModal {
                             errorMsg.remove();
                         }
 
-                        // Specjalna obsługa dla metody dostawy
-                        if (selectId === 'delivery-method-select') {
-                            this.handleDeliveryMethodChangeEvent(e);
-                        }
-
                         // Sprawdź walidację
                         this.validateConfiguration();
                     });
@@ -842,32 +805,27 @@ class BaselinkerModal {
             }
         });
 
+        // Dodaj event listener dla klikalnych opcji dostawy
+        this.setupDeliveryOptionsListeners();
+
         console.log('[Baselinker] ✅ Event listenery skonfigurowane z zachowaniem wartości');
     }
 
-    // NOWA FUNKCJA dla obsługi zmiany metody dostawy z event listenera
-    handleDeliveryMethodChangeEvent(event) {
-        const selectedMethod = event.target.value;
-        console.log(`[Baselinker] 🚚 Zmiana metody dostawy na: "${selectedMethod}"`);
+    // NOWA FUNKCJA: Obsługa klikalnych opcji dostawy
+    setupDeliveryOptionsListeners() {
+        const deliveryOptions = document.querySelectorAll('.bl-delivery-option');
 
-        // Sprawdź czy wybrano odbiór osobisty
-        const isPersonalPickup = selectedMethod && (
-            selectedMethod.toLowerCase().includes('odbiór') ||
-            selectedMethod.toLowerCase().includes('odbior') ||
-            selectedMethod.toLowerCase().includes('personal') ||
-            selectedMethod.toLowerCase().includes('pickup')
-        );
+        deliveryOptions.forEach(option => {
+            option.addEventListener('click', (e) => {
+                const value = e.target.getAttribute('data-value');
+                const deliveryInput = document.getElementById('delivery-method-input');
 
-        if (isPersonalPickup) {
-            console.log('[Baselinker] 🏪 Wykryto odbiór osobisty - zerowanie kosztów wysyłki');
-            this.updateShippingCosts(0);
-        } else {
-            console.log(`[Baselinker] 🚛 Przywracanie oryginalnych kosztów wysyłki: ${this.originalShippingCost}`);
-            this.updateShippingCosts(this.originalShippingCost);
-        }
-
-        // Zaktualizuj wszystkie podsumowania
-        this.updateAllSummariesWithNewShipping();
+                if (deliveryInput && value) {
+                    deliveryInput.value = value;
+                    console.log(`[Baselinker] ✅ Ustawiono metodę dostawy: "${value}"`);
+                }
+            });
+        });
     }
 
     populateClientData() {
@@ -1189,7 +1147,7 @@ class BaselinkerModal {
         const orderSourceId = document.getElementById('order-source-select').value;
         const orderStatusId = document.getElementById('order-status-select').value;
         const paymentMethod = document.getElementById('payment-method-select').value;
-        const deliveryMethod = document.getElementById('delivery-method-select').value;
+        const deliveryMethod = document.getElementById('delivery-method-input').value;
 
         // DODATKOWA WALIDACJA PRZED WYSŁANIEM
         console.log('[Baselinker] 🔍 FINALNA WALIDACJA PRZED WYSŁANIEM:');
@@ -1429,26 +1387,134 @@ class BaselinkerModal {
         const orderSource = document.getElementById('order-source-select')?.value;
         const orderStatus = document.getElementById('order-status-select')?.value;
         const paymentMethod = document.getElementById('payment-method-select')?.value;
-        const deliveryMethod = document.getElementById('delivery-method-select')?.value;
+        const deliveryMethod = document.getElementById('delivery-method-input')?.value;
 
+        // Pobierz aktualne dane klienta z formularza (krok 2)
+        const currentClientData = this.getCurrentClientData();
+
+        // Sprawdź czy klient chce fakturę
+        const wantInvoice = document.getElementById('want-invoice-checkbox')?.checked || false;
+
+        // Sekcja konfiguracji zamówienia
+        let configSection = `
+        <div class="bl-style-validation-section">
+            <h4>Konfiguracja zamówienia</h4>
+            <div class="bl-style-config-row">
+                <span class="bl-style-config-label">Źródło:</span>
+                <span class="bl-style-config-value">${this.getSelectedOptionText('order-source-select')}</span>
+            </div>
+            <div class="bl-style-config-row">
+                <span class="bl-style-config-label">Status:</span>
+                <span class="bl-style-config-value">${this.getSelectedOptionText('order-status-select')}</span>
+            </div>
+            <div class="bl-style-config-row">
+                <span class="bl-style-config-label">Płatność:</span>
+                <span class="bl-style-config-value">${this.getSelectedOptionText('payment-method-select')}</span>
+            </div>
+            <div class="bl-style-config-row">
+                <span class="bl-style-config-label">Dostawa:</span>
+                <span class="bl-style-config-value">${deliveryMethod || 'Nie wybrano'}</span>
+            </div>
+        </div>
+        `;
+
+        // Sekcja adresu dostawy
+        let deliverySection = `
+        <div class="bl-style-validation-section">
+            <h4>Adres dostawy</h4>
+            <div class="bl-style-config-row">
+                <span class="bl-style-config-label">Imię:</span>
+                <span class="bl-style-config-value">${currentClientData.delivery_name || '-'}</span>
+            </div>
+            ${currentClientData.delivery_company ? `
+            <div class="bl-style-config-row">
+                <span class="bl-style-config-label">Firma:</span>
+                <span class="bl-style-config-value">${currentClientData.delivery_company}</span>
+            </div>
+            ` : ''}
+            <div class="bl-style-config-row">
+                <span class="bl-style-config-label">Adres:</span>
+                <span class="bl-style-config-value">${currentClientData.delivery_address || '-'}</span>
+            </div>
+            <div class="bl-style-config-row">
+                <span class="bl-style-config-label">Miasto:</span>
+                <span class="bl-style-config-value">${currentClientData.delivery_postcode || ''} ${currentClientData.delivery_city || '-'}</span>
+            </div>
+            ${currentClientData.delivery_region ? `
+            <div class="bl-style-config-row">
+                <span class="bl-style-config-label">Województwo:</span>
+                <span class="bl-style-config-value">${currentClientData.delivery_region}</span>
+            </div>
+            ` : ''}
+            <div class="bl-style-config-row">
+                <span class="bl-style-config-label">Email:</span>
+                <span class="bl-style-config-value">${currentClientData.email || '-'}</span>
+            </div>
+            <div class="bl-style-config-row">
+                <span class="bl-style-config-label">Telefon:</span>
+                <span class="bl-style-config-value">${currentClientData.phone || '-'}</span>
+            </div>
+        </div>
+        `;
+
+        // Sekcja danych faktury (jeśli zaznaczono)
+        let invoiceSection = '';
+        if (wantInvoice) {
+            invoiceSection = `
+            <div class="bl-style-validation-section" style="grid-column: 1 / -1;">
+                <h4>Dane do faktury</h4>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+                    <div>
+                        <div class="bl-style-config-row">
+                            <span class="bl-style-config-label">Imię:</span>
+                            <span class="bl-style-config-value">${currentClientData.invoice_name || '-'}</span>
+                        </div>
+                        ${currentClientData.invoice_company ? `
+                        <div class="bl-style-config-row">
+                            <span class="bl-style-config-label">Firma:</span>
+                            <span class="bl-style-config-value">${currentClientData.invoice_company}</span>
+                        </div>
+                        ` : ''}
+                        ${currentClientData.invoice_nip ? `
+                        <div class="bl-style-config-row">
+                            <span class="bl-style-config-label">NIP:</span>
+                            <span class="bl-style-config-value">${currentClientData.invoice_nip}</span>
+                        </div>
+                        ` : ''}
+                    </div>
+                    <div>
+                        <div class="bl-style-config-row">
+                            <span class="bl-style-config-label">Adres:</span>
+                            <span class="bl-style-config-value">${currentClientData.invoice_address || '-'}</span>
+                        </div>
+                        <div class="bl-style-config-row">
+                            <span class="bl-style-config-label">Miasto:</span>
+                            <span class="bl-style-config-value">${currentClientData.invoice_postcode || ''} ${currentClientData.invoice_city || '-'}</span>
+                        </div>
+                        ${currentClientData.invoice_region ? `
+                        <div class="bl-style-config-row">
+                            <span class="bl-style-config-label">Województwo:</span>
+                            <span class="bl-style-config-value">${currentClientData.invoice_region}</span>
+                        </div>
+                        ` : ''}
+                    </div>
+                </div>
+            </div>
+            `;
+        }
+
+        // Złóż wszystko razem w grid z nagłówkiem
         container.innerHTML = `
-        <div class="bl-style-config-row">
-            <span class="bl-style-config-label">Źródło zamówienia:</span>
-            <span class="bl-style-config-value">${this.getSelectedOptionText('order-source-select')}</span>
+        <h3 class="bl-style-section-title" style="margin-bottom: 16px;">
+            <span class="bl-style-icon">⚙️</span>
+            Wybrana konfiguracja
+        </h3>
+        <div class="bl-style-validation-grid">
+            ${configSection}
+            ${deliverySection}
         </div>
-        <div class="bl-style-config-row">
-            <span class="bl-style-config-label">Status zamówienia:</span>
-            <span class="bl-style-config-value">${this.getSelectedOptionText('order-status-select')}</span>
-        </div>
-        <div class="bl-style-config-row">
-            <span class="bl-style-config-label">Metoda płatności:</span>
-            <span class="bl-style-config-value">${this.getSelectedOptionText('payment-method-select')}</span>
-        </div>
-        <div class="bl-style-config-row">
-            <span class="bl-style-config-label">Metoda dostawy:</span>
-            <span class="bl-style-config-value">${this.getSelectedOptionText('delivery-method-select') || 'Nie wybrano'}</span>
-        </div>
-    `;
+        ${invoiceSection}
+        `;
 
         // POPRAWKA: Aktualizuj finalne podsumowanie z aktualnymi kosztami
         this.populateFinalSummary();
@@ -1931,47 +1997,8 @@ class BaselinkerModal {
         console.log('[Baselinker] Aktualne koszty po zmianie:', this.modalData.costs);
     }
 
-    handleDeliveryMethodChange() {
-        const deliveryMethodSelect = document.getElementById('delivery-method-select');
-
-        if (!deliveryMethodSelect) return;
-
-        // Usuń poprzedni event listener jeśli istnieje
-        if (this.deliveryMethodChangeHandler) {
-            deliveryMethodSelect.removeEventListener('change', this.deliveryMethodChangeHandler);
-        }
-
-        // Stwórz nowy handler
-        this.deliveryMethodChangeHandler = (e) => {
-            const selectedMethod = e.target.value;
-            console.log(`[Baselinker] Zmiana metody dostawy na: "${selectedMethod}"`);
-
-            // POPRAWIONA LOGIKA: Sprawdź czy wybrano odbiór osobisty
-            const isPersonalPickup = selectedMethod && (
-                selectedMethod.toLowerCase().includes('odbiór') ||
-                selectedMethod.toLowerCase().includes('odbior') ||
-                selectedMethod.toLowerCase().includes('personal') ||
-                selectedMethod.toLowerCase().includes('pickup')
-            );
-
-            if (isPersonalPickup) {
-                console.log('[Baselinker] Wykryto odbiór osobisty - zerowanie kosztów wysyłki');
-                this.updateShippingCosts(0);
-            } else {
-                // KRYTYCZNA POPRAWKA: Przywróć ORYGINALNE koszty wysyłki
-                console.log(`[Baselinker] Przywracanie oryginalnych kosztów wysyłki: ${this.originalShippingCost}`);
-                this.updateShippingCosts(this.originalShippingCost);
-            }
-
-            // Zaktualizuj wszystkie podsumowania
-            this.updateAllSummariesWithNewShipping();
-        };
-
-        // Dodaj nowy event listener
-        deliveryMethodSelect.addEventListener('change', this.deliveryMethodChangeHandler);
-
-        console.log(`[Baselinker] Event listener dla metody dostawy dodany. Oryginalne koszty: ${this.originalShippingCost}`);
-    }
+    // USUNIĘTA FUNKCJA - nie jest już potrzebna, bo pole metody dostawy to teraz input tekstowy, a nie select
+    // handleDeliveryMethodChange() { ... }
 
     updateShippingCosts(newShippingCost) {
         if (!this.modalData) {
@@ -2021,13 +2048,13 @@ class BaselinkerModal {
         const orderSource = document.getElementById('order-source-select');
         const orderStatus = document.getElementById('order-status-select');
         const paymentMethod = document.getElementById('payment-method-select');
-        const deliveryMethod = document.getElementById('delivery-method-select');
+        const deliveryMethod = document.getElementById('delivery-method-input');
 
         console.log('[Baselinker] DEBUG - Stan formularza:');
         console.log(`- Źródło: value="${orderSource?.value}", selectedIndex=${orderSource?.selectedIndex}`);
         console.log(`- Status: value="${orderStatus?.value}", selectedIndex=${orderStatus?.selectedIndex}`);
         console.log(`- Płatność: value="${paymentMethod?.value}", selectedIndex=${paymentMethod?.selectedIndex}`);
-        console.log(`- Dostawa: value="${deliveryMethod?.value}", selectedIndex=${deliveryMethod?.selectedIndex}`);
+        console.log(`- Dostawa: value="${deliveryMethod?.value}"`);
     }
 
     debugShippingCosts() {
@@ -2035,7 +2062,7 @@ class BaselinkerModal {
         console.log(`- Oryginalne koszty: ${this.originalShippingCost}`);
         console.log(`- Aktualne koszty w modalData: ${this.modalData?.costs?.shipping_brutto}`);
 
-        const deliveryMethod = document.getElementById('delivery-method-select')?.value;
+        const deliveryMethod = document.getElementById('delivery-method-input')?.value;
         console.log(`- Wybrana metoda dostawy: "${deliveryMethod}"`);
 
         const isPersonalPickup = deliveryMethod && (
@@ -2076,7 +2103,7 @@ class BaselinkerModal {
     }
 
     debugSelectValues() {
-        const selectIds = ['order-source-select', 'order-status-select', 'payment-method-select', 'delivery-method-select'];
+        const selectIds = ['order-source-select', 'order-status-select', 'payment-method-select'];
 
         console.log('[Baselinker] 🔍 DEBUG - Aktualne wartości select-ów:');
         selectIds.forEach(selectId => {
@@ -2093,6 +2120,14 @@ class BaselinkerModal {
                 console.log(`- ${selectId}: ELEMENT NIE ZNALEZIONY`);
             }
         });
+
+        // Dodaj debug dla delivery method input
+        const deliveryInput = document.getElementById('delivery-method-input');
+        if (deliveryInput) {
+            console.log(`- delivery-method-input: value="${deliveryInput.value}"`);
+        } else {
+            console.log(`- delivery-method-input: ELEMENT NIE ZNALEZIONY`);
+        }
     }
     escapeHtml(text) {
         const div = document.createElement('div');

@@ -2245,7 +2245,11 @@ def products_tab_content():
                 'created_at': product.created_at.isoformat() if hasattr(product, 'created_at') and product.created_at else None,
                 'updated_at': product.updated_at.isoformat() if hasattr(product, 'updated_at') and product.updated_at else None,
                 'sync_source': get_attr(product, 'sync_source', None),
-                
+
+                # Załączniki
+                'attachment_file_name': get_attr(product, 'attachment_file_name', None),
+                'attachment_file_url': get_attr(product, 'attachment_file_url', None),
+
                 # Unique identifier dla frontend
                 'unique_id': f"{get_attr(product, 'short_product_id', '')}-{product.id}"
             }
@@ -3347,6 +3351,7 @@ def products_filtered():
                 'short_product_id': getattr(item, 'short_product_id', f'ID-{item.id}'),
                 'internal_order_number': getattr(item, 'internal_order_number', ''),
                 'product_name': getattr(item, 'original_product_name', getattr(item, 'product_name', 'Brak nazwy')),
+                'original_product_name': getattr(item, 'original_product_name', getattr(item, 'product_name', 'Brak nazwy')),
                 'client_name': getattr(item, 'client_name', ''),
                 'current_status': getattr(item, 'current_status', 'unknown'),
                 # ZMIANA: priority_rank jako główne pole priorytetów
@@ -3354,12 +3359,30 @@ def products_filtered():
                 # KOMPATYBILNOŚĆ: zachowaj priority_score dla starych klientów
                 'priority_score': float(getattr(item, 'priority_score', 0) or 0),
                 'volume_m3': float(getattr(item, 'volume_m3', 0) or 0),
+                'total_value_net': float(getattr(item, 'total_value_net', getattr(item, 'total_value', 0)) or 0),
                 'total_value': float(getattr(item, 'total_value_net', getattr(item, 'total_value', 0)) or 0),
                 'order_date': getattr(item, 'order_date', getattr(item, 'created_at', None)),
                 'deadline_date': deadline_date.isoformat() if deadline_date else None,
                 'days_to_deadline': days_to_deadline,
+                'days_until_deadline': days_to_deadline,
+                'is_overdue': days_to_deadline < 0 if days_to_deadline is not None else False,
                 'baselinker_order_id': getattr(item, 'baselinker_order_id', None),
-                'created_at': getattr(item, 'created_at', None)
+                'created_at': getattr(item, 'created_at', None),
+                # Załączniki
+                'attachment_file_name': getattr(item, 'attachment_file_name', None),
+                'attachment_file_url': getattr(item, 'attachment_file_url', None),
+                # Parsowane dane
+                'parsed_wood_species': getattr(item, 'parsed_wood_species', None),
+                'parsed_technology': getattr(item, 'parsed_technology', None),
+                'parsed_wood_class': getattr(item, 'parsed_wood_class', None),
+                'parsed_finish_state': getattr(item, 'parsed_finish_state', None),
+                'parsed_width_cm': getattr(item, 'parsed_width_cm', None),
+                'parsed_length_cm': getattr(item, 'parsed_length_cm', None),
+                'parsed_thickness_cm': getattr(item, 'parsed_thickness_cm', None),
+                # Kontakt
+                'client_email': getattr(item, 'client_email', ''),
+                'client_phone': getattr(item, 'client_phone', ''),
+                'product_sequence_in_order': getattr(item, 'product_sequence_in_order', None)
             }
             
             # Konwertuj daty na ISO string
@@ -4642,7 +4665,7 @@ def _format_product_for_navigation(product):
         'specification': specification,
         'sequence': product.product_sequence_in_order,
         'status': product.current_status,
-        'priority': product.priority_score or 100
+        'priority': product.priority_rank or 100
     }
 
 

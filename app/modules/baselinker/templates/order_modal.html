@@ -105,9 +105,13 @@
 
                         <div class="bl-style-form-group">
                             <label class="bl-style-form-label">Metoda dostawy</label>
-                            <select id="delivery-method-select" class="bl-style-form-select">
-                                <option value="">Wybierz metodę...</option>
-                            </select>
+                            <input type="text" id="delivery-method-input" class="bl-style-form-input" placeholder="Wpisz lub wybierz metodę dostawy...">
+                            <div class="bl-delivery-options">
+                                <span class="bl-delivery-options-label">Wklej:</span>
+                                <span class="bl-delivery-option" data-value="Kurier">Kurier</span>
+                                <span class="bl-delivery-option" data-value="Odbiór osobisty">Odbiór osobisty</span>
+                                <span class="bl-delivery-option" data-value="Transport WoodPower">Transport WoodPower</span>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -285,7 +289,6 @@
                     </div>
 
                     <div class="bl-style-section" id="baselinker-validation-results">
-                        <h4 class="bl-style-section-subtitle">Wybrana konfiguracja:</h4>
                         <div class="bl-style-config-summary" id="baselinker-config-display">
                             <!-- Wypełniane dynamicznie -->
                         </div>

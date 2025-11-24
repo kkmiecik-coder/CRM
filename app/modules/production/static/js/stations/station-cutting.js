@@ -1,70 +1,777 @@
-// station-cutting.js - Dedykowana logika dla stanowiska wycinania
-// Wersja 2.0 - Nowy interfejs
-
 /**
- * Initialize Cutting Station
+ * ============================================================================
+ * STATION CUTTING - ORDER-BASED VERSION
+ * ============================================================================
+ *
+ * Nowa wersja z order-based cards zamiast product-based
+ *
+ * Funkcjonalność:
+ * - Checkbox tracking w localStorage per zamówienie
+ * - Bulk completion całych zamówień z countdown 10s
+ * - Optimistic UI z error recovery
+ * - Smart merge podczas auto-refresh
+ * - Zegar odświeżany co sekundę
+ * - Auto-refresh co 60s (z konfiguracji)
+ *
+ * @author: Konrad Kmiecik
+ * @date: 2025-01-24
+ * @version: 2.0
  */
-function initAssemblyStation() {
-    console.log('[Cutting] Initializing station v2.0...');
 
-    // Load config
-    const config = window.StationCommon.loadStationConfig();
+(function() {
+    'use strict';
 
-    if (!config) {
-        console.error('[Cutting] Failed to load config');
-        window.StationCommon.showError('Błąd konfiguracji stanowiska');
-        return;
+    // ========================================================================
+    // STATE
+    // ========================================================================
+
+    const state = {
+        config: null,
+        refreshTimer: null,
+        countdownTimer: null,
+        activeCountdowns: new Map() // orderNumber -> { timerId, secondsLeft }
+    };
+
+    // ========================================================================
+    // INITIALIZATION
+    // ========================================================================
+
+    document.addEventListener('DOMContentLoaded', function() {
+        console.log('[Cutting] Initializing ORDER-BASED station v2.0...');
+        initializeCuttingStation();
+    });
+
+    function initializeCuttingStation() {
+        const config = window.STATION_CONFIG;
+
+        if (!config || config.stationCode !== 'cutting') {
+            console.error('[Cutting] Invalid station config');
+            return;
+        }
+
+        state.config = config;
+        console.log('[Cutting] Station config loaded:', config);
+
+        // Attach event listeners to existing order cards
+        const existingCards = document.querySelectorAll('.order-card');
+        console.log(`[Cutting] Found ${existingCards.length} order cards`);
+
+        existingCards.forEach(card => {
+            initializeOrderCard(card);
+        });
+
+        // Fetch today's m³
+        fetchTodayM3();
+
+        // POPRAWKA 1: Start datetime clock (updates every second)
+        setInterval(updateCurrentDatetime, 1000);
+        updateCurrentDatetime();
+
+        // POPRAWKA 2: Start auto-refresh with countdown
+        if (config.refreshInterval && config.refreshInterval > 0) {
+            startAutoRefresh(config.refreshInterval);
+            startRefreshCountdown(config.refreshInterval);
+        }
+
+        // Theme toggle
+        setupThemeToggle();
+
+        console.log('[Cutting] Station initialized successfully');
     }
 
-    // Attach event listeners to existing cards
-    const existingCards = document.querySelectorAll('.product-card');
-    console.log(`[Cutting] Found ${existingCards.length} existing cards`);
+    // ========================================================================
+    // DATETIME UPDATES
+    // ========================================================================
 
-    existingCards.forEach(card => {
-        attachCardEventListeners(card);
-    });
+    function updateCurrentDatetime() {
+        const datetimeElement = document.getElementById('current-datetime');
+        if (!datetimeElement) return;
 
-    // Start auto-refresh
-    if (config.autoRefreshEnabled) {
-        window.StationCommon.startAutoRefresh(autoRefreshCallback);
-        console.log(`[Cutting] Auto-refresh started (${config.refreshInterval}s)`);
+        const now = new Date();
+        const days = ['Niedziela', 'Poniedziałek', 'Wtorek', 'Środa', 'Czwartek', 'Piątek', 'Sobota'];
+        const dayName = days[now.getDay()];
+
+        const date = now.toLocaleDateString('pl-PL', {
+            day: '2-digit',
+            month: '2-digit',
+            year: 'numeric'
+        });
+
+        const time = now.toLocaleTimeString('pl-PL', {
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit'
+        });
+
+        datetimeElement.textContent = `${date} • ${time}`;
+
+        // Update day label
+        const labelElement = datetimeElement.previousElementSibling;
+        if (labelElement && labelElement.classList.contains('stat-label')) {
+            labelElement.textContent = dayName;
+        }
     }
 
-    // Initialize Connection Monitor (Offline Mode)
-    window.StationCommon.initConnectionMonitor();
-    
-    // Register connection change handler
-    window.StationCommon.onConnectionChange((isOnline) => {
-        handleConnectionChange(isOnline);
-    });
+    // ========================================================================
+    // REFRESH COUNTDOWN
+    // ========================================================================
 
-    // ✅ POPRAWIONE
-    window.StationCommon.fetchTodayM3('assembly').catch(err => {
-        console.error('[Cutting] Failed to load today m3:', err);
-    });
+    function startRefreshCountdown(intervalSeconds) {
+        if (state.countdownTimer) {
+            clearInterval(state.countdownTimer);
+        }
 
-    // Setup keyboard shortcuts
-    setupKeyboardShortcuts();
+        let secondsLeft = intervalSeconds;
+        const countdownElement = document.getElementById('refresh-countdown');
 
-    // Theme toggle
-    const themeToggle = document.getElementById('theme-toggle');
-    if (themeToggle) {
-        themeToggle.addEventListener('click', () => {
+        const updateCountdown = () => {
+            if (countdownElement) {
+                countdownElement.textContent = `${secondsLeft}s`;
+            }
+        };
+
+        updateCountdown();
+
+        state.countdownTimer = setInterval(() => {
+            secondsLeft--;
+
+            if (secondsLeft <= 0) {
+                secondsLeft = intervalSeconds;
+            }
+
+            updateCountdown();
+        }, 1000);
+
+        console.log(`[Cutting] Refresh countdown started: ${intervalSeconds}s`);
+    }
+
+    // ========================================================================
+    // ORDER CARD INITIALIZATION
+    // ========================================================================
+
+    function initializeOrderCard(card) {
+        const orderNumber = card.dataset.orderNumber;
+
+        if (!orderNumber) {
+            console.warn('[Cutting] Order card missing order number');
+            return;
+        }
+
+        console.log(`[Cutting] Initializing order card: ${orderNumber}`);
+
+        // Load checkbox state from localStorage
+        loadCheckboxState(card, orderNumber);
+
+        // Attach checkbox listeners
+        const checkboxes = card.querySelectorAll('.product-check');
+        checkboxes.forEach(checkbox => {
+            checkbox.addEventListener('change', function() {
+                handleCheckboxChange(card, orderNumber);
+            });
+        });
+
+        // Attach complete button listener
+        const completeBtn = card.querySelector('.btn-complete');
+        if (completeBtn) {
+            completeBtn.addEventListener('click', function() {
+                handleCompleteClick(card, orderNumber);
+            });
+        }
+
+        // Initial button state update
+        updateCompleteButtonState(card);
+        updateCheckedCounter(card);
+    }
+
+    // ========================================================================
+    // CHECKBOX STATE MANAGEMENT
+    // ========================================================================
+
+    function loadCheckboxState(card, orderNumber) {
+        const storageKey = `cutting_order_${orderNumber}`;
+        const savedState = localStorage.getItem(storageKey);
+
+        if (!savedState) {
+            return;
+        }
+
+        try {
+            const checkedProductIds = JSON.parse(savedState);
+
+            if (!Array.isArray(checkedProductIds)) {
+                return;
+            }
+
+            const checkboxes = card.querySelectorAll('.product-check');
+            checkboxes.forEach(checkbox => {
+                const productId = checkbox.dataset.productId;
+                if (checkedProductIds.includes(productId)) {
+                    checkbox.checked = true;
+                }
+            });
+
+            console.log(`[Cutting] Loaded checkbox state for ${orderNumber}:`, checkedProductIds.length);
+        } catch (error) {
+            console.error(`[Cutting] Error loading checkbox state:`, error);
+        }
+    }
+
+    function saveCheckboxState(card, orderNumber) {
+        const checkedProductIds = getCheckedProductIds(card);
+        const storageKey = `cutting_order_${orderNumber}`;
+
+        localStorage.setItem(storageKey, JSON.stringify(checkedProductIds));
+
+        console.log(`[Cutting] Saved checkbox state for ${orderNumber}:`, checkedProductIds.length);
+    }
+
+    function getCheckedProductIds(card) {
+        const checkedProductIds = [];
+        const checkboxes = card.querySelectorAll('.product-check:checked');
+
+        checkboxes.forEach(checkbox => {
+            checkedProductIds.push(checkbox.dataset.productId);
+        });
+
+        return checkedProductIds;
+    }
+
+    function clearCheckboxState(orderNumber) {
+        const storageKey = `cutting_order_${orderNumber}`;
+        localStorage.removeItem(storageKey);
+        console.log(`[Cutting] Cleared checkbox state for ${orderNumber}`);
+    }
+
+    function handleCheckboxChange(card, orderNumber) {
+        // Save state to localStorage
+        saveCheckboxState(card, orderNumber);
+
+        // Update complete button state
+        updateCompleteButtonState(card);
+
+        // Update checked counter in UI
+        updateCheckedCounter(card);
+    }
+
+    function updateCheckedCounter(card) {
+        const orderNumber = card.dataset.orderNumber;
+        const totalProducts = parseInt(card.dataset.totalProducts) || 0;
+        const checkedCount = card.querySelectorAll('.product-check:checked').length;
+
+        const counterElement = document.querySelector(`.products-checked[data-order="${orderNumber}"]`);
+        if (counterElement) {
+            counterElement.textContent = checkedCount;
+        }
+
+        console.log(`[Cutting] Updated counter for ${orderNumber}: ${checkedCount}/${totalProducts}`);
+    }
+
+    // ========================================================================
+    // COMPLETE BUTTON STATE
+    // ========================================================================
+
+    function updateCompleteButtonState(card) {
+        const completeBtn = card.querySelector('.btn-complete');
+        if (!completeBtn) {
+            return;
+        }
+
+        const totalProducts = parseInt(card.dataset.totalProducts) || 0;
+        const checkedCount = card.querySelectorAll('.product-check:checked').length;
+
+        // Enable button only if ALL products are checked
+        if (checkedCount === totalProducts && totalProducts > 0) {
+            completeBtn.disabled = false;
+        } else {
+            completeBtn.disabled = true;
+        }
+    }
+
+    // ========================================================================
+    // POPRAWKA 3: COUNTDOWN 10 SEKUND PRZED ZAKOŃCZENIEM
+    // ========================================================================
+
+    function handleCompleteClick(card, orderNumber) {
+        console.log(`[Cutting] Complete button clicked for order: ${orderNumber}`);
+
+        const checkedProductIds = getCheckedProductIds(card);
+
+        if (checkedProductIds.length === 0) {
+            console.warn('[Cutting] No products checked');
+            showToast('warning', 'Zaznacz produkty przed zakończeniem');
+            return;
+        }
+
+        const totalProducts = parseInt(card.dataset.totalProducts) || 0;
+        if (checkedProductIds.length !== totalProducts) {
+            showToast('warning', 'Zaznacz wszystkie produkty przed zakończeniem');
+            return;
+        }
+
+        // Mark card as in-progress
+        card.dataset.inProgress = 'true';
+        card.classList.add('processing');
+
+        // Start 10-second countdown
+        startCountdown(card, orderNumber, checkedProductIds);
+    }
+
+    function startCountdown(card, orderNumber, productIds) {
+        console.log(`[Cutting] Starting 10-second countdown for ${orderNumber}`);
+
+        const actionContainer = card.querySelector('.order-action');
+        if (!actionContainer) {
+            console.error('[Cutting] No action container found');
+            return;
+        }
+
+        // Replace button with countdown UI
+        actionContainer.innerHTML = `
+            <div class="action-countdown">
+                <button class="btn-complete processing">
+                    <span class="spinner"></span>
+                    <span class="countdown-text">WYCIĘCIE... 10s</span>
+                </button>
+                <button class="btn-cancel">ANULUJ</button>
+            </div>
+        `;
+
+        const processingBtn = actionContainer.querySelector('.btn-complete');
+        const cancelBtn = actionContainer.querySelector('.btn-cancel');
+        const countdownText = processingBtn.querySelector('.countdown-text');
+
+        let secondsLeft = 10;
+
+        const updateCountdownText = () => {
+            if (countdownText) {
+                countdownText.textContent = `WYCIĘCIE... ${secondsLeft}s`;
+            }
+        };
+
+        const timerId = setInterval(() => {
+            secondsLeft--;
+
+            if (secondsLeft > 0) {
+                updateCountdownText();
+            } else {
+                // Countdown complete - execute bulk completion
+                clearInterval(timerId);
+                state.activeCountdowns.delete(orderNumber);
+                completeOrder(card, orderNumber, productIds);
+            }
+        }, 1000);
+
+        // Store timer ID
+        state.activeCountdowns.set(orderNumber, { timerId, secondsLeft });
+
+        // Cancel button listener
+        cancelBtn.addEventListener('click', function(event) {
+            event.preventDefault();
+            event.stopPropagation();
+            cancelCountdown(card, orderNumber, timerId);
+        });
+
+        console.log(`[Cutting] Countdown started for ${orderNumber}`);
+    }
+
+    function cancelCountdown(card, orderNumber, timerId) {
+        console.log(`[Cutting] Countdown cancelled for ${orderNumber}`);
+
+        // Clear timer
+        if (timerId) {
+            clearInterval(timerId);
+            state.activeCountdowns.delete(orderNumber);
+        }
+
+        // Reset card state
+        card.dataset.inProgress = 'false';
+        card.classList.remove('processing');
+
+        // Restore original button
+        const actionContainer = card.querySelector('.order-action');
+        if (actionContainer) {
+            actionContainer.innerHTML = '<button class="btn-complete" data-action="complete" disabled>ZAKOŃCZ WYCIĘCIE</button>';
+
+            // Re-attach listener
+            const completeBtn = actionContainer.querySelector('.btn-complete');
+            if (completeBtn) {
+                completeBtn.addEventListener('click', function() {
+                    handleCompleteClick(card, orderNumber);
+                });
+
+                // Update button state
+                updateCompleteButtonState(card);
+            }
+        }
+
+        showToast('info', 'Anulowano wycięcie zamówienia');
+    }
+
+    // ========================================================================
+    // BULK COMPLETION - Optimistic UI
+    // ========================================================================
+
+    async function completeOrder(card, orderNumber, productIds) {
+        console.log(`[Cutting] Starting bulk completion for ${orderNumber}`, productIds);
+
+        // BACKUP before removal
+        const cardBackup = card.cloneNode(true);
+        const checkboxStateBackup = getCheckedProductIds(card);
+
+        // Show processing state
+        const actionContainer = card.querySelector('.order-action');
+        if (actionContainer) {
+            actionContainer.innerHTML = `
+                <button class="btn-complete processing">
+                    <span class="spinner"></span>
+                    <span>ZAPISYWANIE...</span>
+                </button>
+            `;
+        }
+
+        try {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 10000); // 10s timeout
+
+            const response = await fetch('/production/stations/complete-order', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    order_number: orderNumber,
+                    product_ids: productIds,
+                    station: 'cutting',
+                    action: 'complete'
+                }),
+                signal: controller.signal
+            });
+
+            clearTimeout(timeoutId);
+
+            if (!response.ok) {
+                const errorText = await response.text();
+                throw new Error(errorText || `HTTP ${response.status}`);
+            }
+
+            const result = await response.json();
+
+            console.log('[Cutting] Order completed successfully:', result);
+
+            // SUCCESS - show success state
+            if (actionContainer) {
+                actionContainer.innerHTML = '<button class="btn-complete success">WYCIĘTO ✓</button>';
+            }
+
+            showToast('success', `Zamówienie ${orderNumber} ukończone`);
+
+            // Clear localStorage
+            clearCheckboxState(orderNumber);
+
+            // Wait 1 second, then remove card with animation
+            setTimeout(() => {
+                card.classList.add('removing');
+                setTimeout(() => {
+                    card.remove();
+                    updateStatsAfterRemoval();
+                }, 300);
+            }, 1000);
+
+        } catch (error) {
+            // ERROR - restore card
+            console.error('[Cutting] Failed to complete order:', error);
+
+            const ordersList = document.getElementById('orders-list');
+
+            if (ordersList) {
+                // Re-insert card
+                ordersList.insertBefore(cardBackup, ordersList.firstChild);
+
+                // Re-initialize the restored card
+                initializeOrderCard(cardBackup);
+
+                // Restore checkbox state
+                const checkboxes = cardBackup.querySelectorAll('.product-check');
+                checkboxes.forEach(checkbox => {
+                    const productId = checkbox.dataset.productId;
+                    if (checkboxStateBackup.includes(productId)) {
+                        checkbox.checked = true;
+                    }
+                });
+
+                saveCheckboxState(cardBackup, orderNumber);
+                updateCompleteButtonState(cardBackup);
+                updateCheckedCounter(cardBackup);
+            }
+
+            let errorMessage = error.message;
+            if (error.name === 'AbortError') {
+                errorMessage = 'Timeout - przekroczono 10 sekund';
+            }
+
+            showToast('error', `Błąd ukończenia: ${errorMessage}`);
+        }
+    }
+
+    // ========================================================================
+    // STATS UPDATE
+    // ========================================================================
+
+    function updateStatsAfterRemoval() {
+        // Check if empty state should be shown
+        const remainingCards = document.querySelectorAll('.order-card').length;
+
+        if (remainingCards === 0) {
+            showEmptyState();
+        }
+
+        console.log(`[Cutting] Remaining cards: ${remainingCards}`);
+    }
+
+    function showEmptyState() {
+        const ordersList = document.getElementById('orders-list');
+
+        if (!ordersList) {
+            return;
+        }
+
+        ordersList.innerHTML = `
+            <div class="empty-state">
+                <div class="empty-state-icon">✅</div>
+                <h2>Brak zamówień do wycięcia</h2>
+                <p>Świetna robota! Wszystkie zamówienia zostały wycięte.</p>
+            </div>
+        `;
+
+        console.log('[Cutting] Showing empty state');
+    }
+
+    // ========================================================================
+    // TOAST NOTIFICATIONS
+    // ========================================================================
+
+    function showToast(type, message) {
+        const prefix = type === 'success' ? '✅' : type === 'error' ? '❌' : type === 'warning' ? '⚠️' : 'ℹ️';
+        console.log(`[Cutting] ${prefix} ${message}`);
+
+        // TODO: Implement visual toast notifications if needed
+    }
+
+    // ========================================================================
+    // AUTO-REFRESH WITH SMART MERGE
+    // ========================================================================
+
+    function startAutoRefresh(intervalSeconds) {
+        if (state.refreshTimer) {
+            clearInterval(state.refreshTimer);
+        }
+
+        console.log(`[Cutting] Starting auto-refresh every ${intervalSeconds}s`);
+
+        state.refreshTimer = setInterval(async () => {
+            await performAutoRefresh();
+        }, intervalSeconds * 1000);
+    }
+
+    async function performAutoRefresh() {
+        console.log('[Cutting] Performing auto-refresh...');
+
+        try {
+            const response = await fetch('/production/ajax/orders/cutting?sort=priority');
+
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}`);
+            }
+
+            const result = await response.json();
+
+            if (!result.success || !result.data || !result.data.orders) {
+                throw new Error('Invalid response format');
+            }
+
+            console.log(`[Cutting] Fetched ${result.data.orders.length} orders`);
+
+            smartMergeOrders(result.data.orders);
+
+        } catch (error) {
+            console.error('[Cutting] Auto-refresh failed:', error);
+        }
+    }
+
+    function smartMergeOrders(newOrders) {
+        const ordersList = document.getElementById('orders-list');
+
+        if (!ordersList) {
+            return;
+        }
+
+        const existingCards = ordersList.querySelectorAll('.order-card');
+        const existingOrderNumbers = new Set();
+
+        existingCards.forEach(card => {
+            existingOrderNumbers.add(card.dataset.orderNumber);
+        });
+
+        // Add only NEW orders (that don't exist yet)
+        newOrders.forEach(order => {
+            if (!existingOrderNumbers.has(order.order_number)) {
+                console.log(`[Cutting] Adding new order: ${order.order_number}`);
+                addOrderCard(order);
+            }
+        });
+
+        // Note: We DON'T remove cards that are no longer in the API response
+        // This prevents accidental removal of cards user is working on
+
+        console.log('[Cutting] Smart merge completed');
+    }
+
+    function addOrderCard(orderData) {
+        const ordersList = document.getElementById('orders-list');
+
+        if (!ordersList) {
+            return;
+        }
+
+        // Remove empty state if present
+        const emptyState = ordersList.querySelector('.empty-state');
+        if (emptyState) {
+            emptyState.remove();
+        }
+
+        // Create card HTML
+        const cardHTML = createOrderCardHTML(orderData);
+
+        // Insert at the beginning (highest priority)
+        ordersList.insertAdjacentHTML('afterbegin', cardHTML);
+
+        // Initialize the new card
+        const newCard = ordersList.querySelector(`[data-order-number="${orderData.order_number}"]`);
+        if (newCard) {
+            initializeOrderCard(newCard);
+
+            // Re-initialize attachment handlers for the new card
+            if (typeof window.reinitializeAttachmentHandlers === 'function') {
+                window.reinitializeAttachmentHandlers();
+            }
+        }
+    }
+
+    function createOrderCardHTML(order) {
+        const productsHTML = order.products.map(product => {
+            const attachmentHTML = product.attachment_file_url ? `
+                <div class="attachment-icon-wrapper"
+                     data-attachment-url="${product.attachment_file_url}"
+                     data-attachment-name="${product.attachment_file_name}"
+                     data-attachment-type="${product.attachment_file_name.toLowerCase().endsWith('.pdf') ? 'pdf' : 'image'}">
+                    <svg class="attachment-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path>
+                    </svg>
+                </div>
+            ` : '';
+
+            const badgesHTML = `
+                ${product.wood_species ? `<span class="badge badge-species">${product.wood_species}</span>` : ''}
+                ${product.technology ? `<span class="badge badge-technology">${product.technology}</span>` : ''}
+                ${product.wood_class ? `<span class="badge badge-class">${product.wood_class}</span>` : ''}
+                ${product.dimensions ? `<span class="badge badge-dimensions">${product.dimensions}</span>` : ''}
+            `;
+
+            return `
+                <div class="product-row"
+                     data-product-id="${product.id}"
+                     data-status="${product.current_status}"
+                     data-species="${product.wood_species || ''}"
+                     data-technology="${product.technology || ''}"
+                     data-wood-class="${product.wood_class || ''}">
+                    <div class="product-checkbox">
+                        <input type="checkbox"
+                               class="product-check"
+                               id="check-${product.id}"
+                               data-product-id="${product.id}">
+                        <label for="check-${product.id}"></label>
+                    </div>
+                    <div class="product-id-wrapper">
+                        <span class="product-id">${product.id}</span>
+                        ${attachmentHTML}
+                    </div>
+                    <div class="product-badges">${badgesHTML}</div>
+                </div>
+            `;
+        }).join('');
+
+        const blBadge = order.baselinker_order_id ? `<span class="order-baselinker">BL-${order.baselinker_order_id}</span>` : '';
+
+        return `
+            <div class="order-card"
+                 data-order-number="${order.order_number}"
+                 data-priority-rank="${order.best_priority_rank}"
+                 data-total-products="${order.total_products}"
+                 data-total-volume="${order.total_volume}"
+                 data-in-progress="false">
+                <div class="order-header">
+                    <div class="order-ids">
+                        <span class="order-number">${order.order_number}</span>
+                        ${blBadge}
+                    </div>
+                    <div class="order-stats">
+                        <span class="products-checked" data-order="${order.order_number}">0</span>/${order.total_products} ${order.total_products === 1 ? 'produkt' : order.total_products < 5 ? 'produkty' : 'produktów'} • ${order.total_volume.toFixed(4)} m³
+                    </div>
+                </div>
+                <div class="products-list">
+                    ${productsHTML}
+                </div>
+                <div class="order-action">
+                    <button class="btn-complete" data-action="complete" disabled>ZAKOŃCZ WYCIĘCIE</button>
+                </div>
+            </div>
+        `;
+    }
+
+    // ========================================================================
+    // FETCH TODAY'S M³
+    // ========================================================================
+
+    async function fetchTodayM3() {
+        try {
+            const response = await fetch('/production/stations/ajax/station-today-m3/cutting');
+
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}`);
+            }
+
+            const result = await response.json();
+
+            if (result.success && result.data) {
+                const todayM3Element = document.getElementById('today-m3');
+                if (todayM3Element) {
+                    todayM3Element.textContent = result.data.today_m3.toFixed(4);
+                }
+
+                console.log(`[Cutting] Today's m³: ${result.data.today_m3}`);
+            }
+
+        } catch (error) {
+            console.error('[Cutting] Failed to fetch today m³:', error);
+        }
+    }
+
+    // ========================================================================
+    // THEME TOGGLE
+    // ========================================================================
+
+    function setupThemeToggle() {
+        const themeToggle = document.getElementById('theme-toggle');
+
+        if (!themeToggle) {
+            return;
+        }
+
+        themeToggle.addEventListener('click', function() {
             document.body.classList.toggle('light-mode');
             const isLight = document.body.classList.contains('light-mode');
 
-            // Zmień ikonę
             const sunIcon = themeToggle.querySelector('.sun-icon');
             const moonIcon = themeToggle.querySelector('.moon-icon');
             const themeText = themeToggle.querySelector('.theme-text');
-
-            // DODANE: Zmień logo
-            const logo = document.getElementById('station-logo');
-            if (logo) {
-                logo.src = isLight
-                    ? "{{ url_for('static', filename='images/logo.svg') }}"
-                    : "{{ url_for('static', filename='images/logo-light.svg') }}";
-            }
 
             if (isLight) {
                 sunIcon.style.display = 'none';
@@ -76,608 +783,40 @@ function initAssemblyStation() {
                 themeText.textContent = 'Tryb jasny';
             }
 
-            // Zapisz preferencję
             localStorage.setItem('theme', isLight ? 'light' : 'dark');
         });
 
-        // Wczytaj zapisaną preferencję
+        // Load saved theme
         const savedTheme = localStorage.getItem('theme');
         if (savedTheme === 'light') {
             themeToggle.click();
         }
     }
-    console.log('[Cutting] Station initialized successfully');
-}
 
-/**
- * Auto-refresh callback
- */
-async function autoRefreshCallback() {
-    // Check if already refreshing
-    if (window.STATION_STATE.isRefreshing) {
-        console.log('[Cutting] Refresh already in progress, skipping');
-        return;
-    }
-    // Check network
-    if (!window.StationCommon.isOnline()) {
-        console.warn('[Cutting] Offline - skipping refresh');
-        window.StationCommon.showWarning('Brak połączenia - pominięto odświeżanie');
-        return;
-    }
-    window.STATION_STATE.isRefreshing = true;
-    try {
-        const stationCode = window.STATION_STATE.config.stationCode;
-        console.log(`[Cutting] Fetching products for station: ${stationCode}`);
-        // Fetch new data
-        const data = await window.StationCommon.fetchProducts(stationCode, 'priority');
-        // Validate data
-        if (!data || !data.products) {
-            throw new Error('Invalid response data');
-        }
-        console.log(`[Cutting] Received ${data.products.length} products`);
-        // Smart merge - only add new, don't touch processing
-        window.StationCommon.smartMergeProducts(data.products);
-        // Update stats bar
-        if (data.stats) {
-            window.StationCommon.updateStatsBar(data.stats);
+    // ========================================================================
+    // CLEANUP
+    // ========================================================================
+
+    window.addEventListener('beforeunload', function() {
+        if (state.refreshTimer) {
+            clearInterval(state.refreshTimer);
+            console.log('[Cutting] Cleared auto-refresh interval');
         }
 
-        // ✅ POPRAWIONE
-        window.StationCommon.fetchTodayM3('assembly').catch(err => {
-            console.error('[Cutting] Failed to refresh today m3:', err);
-        });
-
-        console.log('[Cutting] Auto-refresh completed successfully');
-    } catch (error) {
-        console.error('[Cutting] Auto-refresh failed:', error);
-        window.StationCommon.showError(`Błąd odświeżania: ${error.message}`);
-    } finally {
-        window.STATION_STATE.isRefreshing = false;
-        
-        // Restart countdown po zakończeniu odświeżania
-        if (typeof window.StationCommon.startRefreshCountdown === 'function') {
-            window.StationCommon.startRefreshCountdown();
-        }
-    }
-}
-
-/**
- * Attach event listeners to a card
- * @param {HTMLElement} card - Product card element
- */
-function attachCardEventListeners(card) {
-    if (!card) {
-        console.warn('[Cutting] Cannot attach listeners to null card');
-        return;
-    }
-
-    const productId = card.dataset.productId;
-    const completeBtn = card.querySelector('[data-action="complete"]');
-
-    if (!completeBtn) {
-        console.warn(`[Cutting] Complete button not found in card: ${productId}`);
-        return;
-    }
-
-    // Remove existing listeners (prevent duplicates)
-    const newBtn = completeBtn.cloneNode(true);
-    completeBtn.parentNode.replaceChild(newBtn, completeBtn);
-
-    // Add click listener
-    newBtn.addEventListener('click', function (event) {
-        event.preventDefault();
-        event.stopPropagation();
-        handleCompleteClick(card, productId);
-    });
-
-    // Add keyboard support (Enter or Space when focused)
-    newBtn.addEventListener('keydown', function (event) {
-        if (event.key === 'Enter' || event.key === ' ') {
-            event.preventDefault();
-            handleCompleteClick(card, productId);
-        }
-    });
-
-    console.log(`[Cutting] Event listeners attached to card: ${productId}`);
-}
-
-/**
- * Handle complete button click
- * @param {HTMLElement} card - Card element
- * @param {string} productId - Product ID
- */
-function handleCompleteClick(card, productId) {
-    console.log(`[Cutting] Complete clicked: ${productId}`);
-
-    // Check if online - FIRST PRIORITY
-    if (!window.StationCommon.isOnline()) {
-        console.warn('[Cutting] Cannot complete - offline');
-        window.StationCommon.showWarning('Brak połączenia - poczekaj na powrót internetu');
-        return;
-    }
-
-    // Check if already in progress
-    if (card.dataset.inProgress === 'true') {
-        console.warn(`[Cutting] Card already in progress: ${productId}`);
-        return;
-    }
-
-    // Validate card state
-    if (!card || !card.parentElement) {
-        console.error(`[Cutting] Invalid card state: ${productId}`);
-        return;
-    }
-
-    // Mark card as in progress
-    card.dataset.inProgress = 'true';
-    card.classList.add('processing');
-
-    // Start countdown
-    startCompleteCountdown(card, productId);
-}
-/**
- * Start 10-second countdown before completion
- * @param {HTMLElement} card - Card element
- * @param {string} productId - Product ID
- */
-function startCompleteCountdown(card, productId) {
-    const completeBtn = card.querySelector('.btn-complete');
-    const actionContainer = card.querySelector('.card-action');
-
-    if (!completeBtn || !actionContainer) {
-        console.error(`[Cutting] Missing button/container for ${productId}`);
-        return;
-    }
-
-    // Change button to processing state
-    setButtonProcessing(completeBtn);
-
-    // Create countdown container
-    const countdownHTML = document.createElement('div');
-    countdownHTML.className = 'action-countdown';
-    countdownHTML.innerHTML = `
-        <button class="btn-complete processing">
-            <span class="spinner"></span>
-            <span>KOŃCZENIE... 10s</span>
-        </button>
-        <button class="btn-cancel" data-action="cancel">ANULUJ</button>
-    `;
-
-    // Replace button with countdown
-    actionContainer.innerHTML = '';
-    actionContainer.appendChild(countdownHTML);
-
-    const processingBtn = countdownHTML.querySelector('.btn-complete');
-    const cancelBtn = countdownHTML.querySelector('.btn-cancel');
-
-    // Countdown state
-    let secondsLeft = 10;
-    let timerId = null;
-
-    // Update countdown text
-    const updateCountdown = () => {
-        if (!processingBtn || !processingBtn.parentElement) {
-            console.warn(`[Cutting] Button removed during countdown: ${productId}`);
-            if (timerId) clearInterval(timerId);
-            return;
+        if (state.countdownTimer) {
+            clearInterval(state.countdownTimer);
+            console.log('[Cutting] Cleared countdown timer');
         }
 
-        const textSpan = processingBtn.querySelector('span:last-child');
-        if (textSpan) {
-            textSpan.textContent = `KOŃCZENIE... ${secondsLeft}s`;
-        }
-    };
-
-    // Start countdown timer
-    timerId = setInterval(() => {
-        secondsLeft--;
-
-        if (secondsLeft > 0) {
-            updateCountdown();
-        } else {
-            // Countdown finished
-            clearInterval(timerId);
-            window.STATION_STATE.countdownTimers.delete(productId);
-
-            // Execute completion
-            onCountdownComplete(card, productId);
-        }
-    }, 1000);
-
-    // Store timer ID
-    window.STATION_STATE.countdownTimers.set(productId, timerId);
-
-    // Cancel button listener
-    const cancelHandler = (event) => {
-        event.preventDefault();
-        event.stopPropagation();
-        console.log(`[Cutting] Cancel button clicked for ${productId}`);
-        cancelCountdown(card, productId, timerId);
-    };
-
-    cancelBtn.addEventListener('click', cancelHandler);
-    cancelBtn.addEventListener('touchstart', cancelHandler, { passive: false });
-
-    // Keyboard support for cancel
-    cancelBtn.addEventListener('keydown', (event) => {
-        if (event.key === 'Enter' || event.key === ' ') {
-            event.preventDefault();
-            cancelCountdown(card, productId, timerId);
-        }
-    });
-
-    console.log(`[Cutting] Countdown started for ${productId} (10s)`);
-}
-
-/**
- * Cancel countdown for a card
- * @param {HTMLElement} card - Card element
- * @param {string} productId - Product ID
- * @param {number} timerId - Timer ID
- */
-function cancelCountdown(card, productId, timerId) {
-    console.log(`[Cutting] Countdown cancelled: ${productId}`);
-
-    // Clear timer
-    if (timerId) {
-        clearInterval(timerId);
-        window.STATION_STATE.countdownTimers.delete(productId);
-    }
-
-    // Validate card still exists
-    if (!card || !card.parentElement) {
-        console.warn(`[Cutting] Card no longer exists: ${productId}`);
-        return;
-    }
-
-    // Reset card state
-    card.dataset.inProgress = 'false';
-    card.classList.remove('processing');
-
-    // Reset button
-    const actionContainer = card.querySelector('.card-action');
-    if (actionContainer) {
-        actionContainer.innerHTML = '<button class="btn-complete" data-action="complete">ZAKOŃCZ</button>';
-
-        // Re-attach listener
-        const newCompleteBtn = actionContainer.querySelector('.btn-complete');
-        if (newCompleteBtn) {
-            // Check if we're offline and disable button if needed
-            if (!window.StationCommon.isOnline()) {
-                newCompleteBtn.classList.add('disabled-offline');
-                newCompleteBtn.disabled = true;
-                console.log(`[Cutting] Button disabled after cancel (offline): ${productId}`);
-            }
-            
-            newCompleteBtn.addEventListener('click', function (event) {
-                event.preventDefault();
-                event.stopPropagation();
-                handleCompleteClick(card, productId);
-            });
-        }
-    }
-
-    window.StationCommon.showInfo('Anulowano ukończenie zadania');
-}
-
-/**
- * Execute task completion after countdown
- * @param {HTMLElement} card - Card element
- * @param {string} productId - Product ID
- */
-async function onCountdownComplete(card, productId) {
-    console.log(`[Cutting] Completing task: ${productId}`);
-
-    const actionContainer = card.querySelector('.card-action');
-    const stationCode = window.STATION_STATE.config.stationCode;
-
-    // Validate card still exists
-    if (!card || !card.parentElement) {
-        console.error(`[Cutting] Card removed during countdown: ${productId}`);
-        return;
-    }
-
-    // ✅ DODANE - Pobierz volume_m3 PRZED usunięciem karty
-    const volumeElement = card.querySelector('.header-volume');
-    let productVolume = 0.0;
-    if (volumeElement) {
-        const match = volumeElement.textContent.match(/[\d.]+/);
-        if (match) {
-            productVolume = parseFloat(match[0]);
-            console.log(`[Cutting] Product volume: ${productVolume} m³`);
-        }
-    }
-
-    try {
-        // Show processing state
-        if (actionContainer) {
-            actionContainer.innerHTML = `
-                <button class="btn-complete processing">
-                    <span class="spinner"></span>
-                    <span>ZAPISYWANIE...</span>
-                </button>
-            `;
-        }
-
-        // Call API
-        const response = await window.StationCommon.completeTask(productId, stationCode);
-
-        console.log(`[Cutting] Task completed successfully: ${productId}`, response);
-
-        // ✅ DODANE - Inkrementuj today-m3 natychmiast po sukcesie
-        if (productVolume > 0) {
-            window.StationCommon.incrementTodayM3(productVolume);
-        }
-
-        // Show success state (1 second)
-        if (actionContainer) {
-            actionContainer.innerHTML = `
-                <button class="btn-complete success">ZAKOŃCZONO ✓</button>
-            `;
-        }
-
-        // Success notification
-        window.StationCommon.showSuccess(`Produkt ${productId} ukończony`);
-
-        // Wait 1 second, then remove card
-        setTimeout(() => {
-            if (card && card.parentElement) {
-                window.StationCommon.removeProductCard(productId);
-                updateStatsAfterCompletion();
-            }
-        }, 1000);
-
-    } catch (error) {
-        console.error(`[Cutting] Failed to complete task: ${productId}`, error);
-
-        // Show detailed error
-        const errorMessage = error.message || 'Nieznany błąd';
-        window.StationCommon.showError(`Nie udało się ukończyć: ${errorMessage}`);
-
-        // Reset card on error
-        if (card && card.parentElement) {
-            card.dataset.inProgress = 'false';
-            card.classList.remove('processing');
-
-            if (actionContainer) {
-                actionContainer.innerHTML = '<button class="btn-complete" data-action="complete">ZAKOŃCZ</button>';
-
-                // Re-attach listener
-                const newCompleteBtn = actionContainer.querySelector('.btn-complete');
-                if (newCompleteBtn) {
-                    newCompleteBtn.addEventListener('click', function (event) {
-                        event.preventDefault();
-                        event.stopPropagation();
-                        handleCompleteClick(card, productId);
-                    });
-                }
-            }
-        }
-    }
-}
-
-/**
- * Update stats after completion (approximate)
- */
-function updateStatsAfterCompletion() {
-    const totalElement = document.getElementById('total-products');
-    if (totalElement) {
-        const current = parseInt(totalElement.textContent) || 0;
-        if (current > 0) {
-            totalElement.textContent = current - 1;
-        }
-    }
-
-    // Update volume
-    const volumeElement = document.getElementById('total-volume');
-    if (volumeElement) {
-        const cards = document.querySelectorAll('.product-card');
-        let totalVolume = 0;
-
-        cards.forEach(card => {
-            const volumeText = card.querySelector('.header-volume');
-            if (volumeText) {
-                const match = volumeText.textContent.match(/[\d.]+/);
-                if (match) {
-                    totalVolume += parseFloat(match[0]);
-                }
+        // Clear all active order countdowns
+        state.activeCountdowns.forEach((countdown, orderNumber) => {
+            if (countdown.timerId) {
+                clearInterval(countdown.timerId);
+                console.log(`[Cutting] Cleared countdown for ${orderNumber}`);
             }
         });
-
-        volumeElement.textContent = totalVolume.toFixed(4);
-    }
-
-    // Check if empty
-    const remainingCards = window.StationCommon.getAllCards();
-    if (remainingCards.length === 0) {
-        console.log('[Cutting] No more products - showing empty state');
-        window.StationCommon.showEmptyState();
-    }
-}
-
-/**
- * Set button to processing state
- * @param {HTMLElement} button - Button element
- */
-function setButtonProcessing(button) {
-    if (!button) return;
-    button.classList.add('processing');
-    button.classList.remove('success');
-    button.disabled = true;
-}
-
-/**
- * Handle connection state changes
- * @param {boolean} isOnline - Connection state
- */
-function handleConnectionChange(isOnline) {
-    console.log(`[Cutting] Connection changed: ${isOnline ? 'ONLINE' : 'OFFLINE'}`);
-    
-    const completeButtons = document.querySelectorAll('.btn-complete');
-    const refreshCountdownElement = document.getElementById('refresh-countdown');
-    
-    if (isOnline) {
-        // ========== ONLINE MODE ==========
-        
-        // Enable all complete buttons
-        completeButtons.forEach(btn => {
-            btn.classList.remove('disabled-offline');
-            btn.disabled = false;
-        });
-        console.log('[Cutting] All complete buttons enabled');
-        
-        // Resume refresh countdown
-        if (window.STATION_STATE.countdownTimer) {
-            console.log('[Cutting] Refresh countdown already running');
-        } else {
-            console.log('[Cutting] Restarting refresh countdown');
-            window.StationCommon.startRefreshCountdown();
-        }
-        
-        // Remove warning class from countdown display
-        if (refreshCountdownElement) {
-            refreshCountdownElement.classList.remove('warning');
-        }
-        
-    } else {
-        // ========== OFFLINE MODE ==========
-        
-        // Disable all complete buttons
-        completeButtons.forEach(btn => {
-            btn.classList.add('disabled-offline');
-            btn.disabled = true;
-        });
-        
-        // Cancel all active countdowns
-        const activeTimers = window.STATION_STATE.countdownTimers;
-        if (activeTimers.size > 0) {
-            console.log(`[Cutting] Cancelling ${activeTimers.size} active countdowns due to offline`);
-            activeTimers.forEach((timerId, productId) => {
-                const card = window.StationCommon.getCardById(productId);
-                if (card) {
-                    cancelCountdown(card, productId, timerId);
-                }
-            });
-            window.StationCommon.showWarning('Aktywne zadania anulowane - brak połączenia');
-        }
-        
-        // Stop refresh countdown
-        if (window.STATION_STATE.countdownTimer) {
-            clearInterval(window.STATION_STATE.countdownTimer);
-            window.STATION_STATE.countdownTimer = null;
-            console.log('[Cutting] Refresh countdown stopped');
-        }
-        
-        // Update countdown display to show offline
-        if (refreshCountdownElement) {
-            refreshCountdownElement.textContent = 'OFFLINE';
-            refreshCountdownElement.classList.add('warning');
-        }
-        
-        console.log('[Cutting] All complete buttons disabled');
-    }
-}
-
-/**
- * Setup keyboard shortcuts
- */
-function setupKeyboardShortcuts() {
-    document.addEventListener('keydown', (event) => {
-        // Escape - cancel all countdowns
-        if (event.key === 'Escape') {
-            const activeTimers = window.STATION_STATE.countdownTimers;
-            if (activeTimers.size > 0) {
-                console.log(`[Cutting] Escape pressed - cancelling ${activeTimers.size} countdowns`);
-                activeTimers.forEach((timerId, productId) => {
-                    const card = window.StationCommon.getCardById(productId);
-                    if (card) {
-                        cancelCountdown(card, productId, timerId);
-                    }
-                });
-            }
-        }
-
-        // F5 or Ctrl+R - manual refresh (log it)
-        if (event.key === 'F5' || (event.ctrlKey && event.key === 'r')) {
-            console.log('[Cutting] Manual refresh triggered');
-        }
     });
-}
 
-/**
- * Toggle debug mode
- */
-function toggleDebugMode() {
-    document.body.classList.toggle('debug-mode');
-    console.log('[Cutting] Debug mode toggled');
-    console.log('State:', window.STATION_STATE);
-    window.StationCommon.showInfo('Debug mode toggled (check console)');
-}
+    console.log('[Cutting] Module loaded v2.0 (order-based with countdown)');
 
-/**
- * Initialize on DOM ready
- */
-if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', initAssemblyStation);
-} else {
-    initAssemblyStation();
-}
-
-/**
- * Cleanup on page unload
- */
-window.addEventListener('beforeunload', () => {
-    console.log('[Cutting] Cleaning up...');
-    window.StationCommon.stopAutoRefresh();
-
-    // Clear all countdown timers
-    window.STATION_STATE.countdownTimers.forEach((timerId, productId) => {
-        clearInterval(timerId);
-        console.log(`[Cutting] Cleared timer for ${productId}`);
-    });
-    window.STATION_STATE.countdownTimers.clear();
-});
-
-/**
- * Debug helpers (available in console)
- */
-window.CuttingDebug = {
-    getState: () => window.STATION_STATE,
-    getConfig: () => window.STATION_STATE.config,
-    triggerRefresh: autoRefreshCallback,
-    cancelAll: () => {
-        window.STATION_STATE.countdownTimers.forEach((timerId, productId) => {
-            const card = window.StationCommon.getCardById(productId);
-            if (card) cancelCountdown(card, productId, timerId);
-        });
-    },
-    listCards: () => {
-        const cards = window.StationCommon.getAllCards();
-        console.table(cards.map(c => ({
-            id: c.dataset.productId,
-            priority: c.dataset.priorityRank,
-            inProgress: c.dataset.inProgress
-        })));
-    },
-    forceComplete: async (productId) => {
-        try {
-            const result = await window.StationCommon.completeTask(
-                productId,
-                window.STATION_STATE.config.stationCode
-            );
-            console.log('Force complete result:', result);
-            window.StationCommon.removeProductCard(productId);
-        } catch (error) {
-            console.error('Force complete failed:', error);
-        }
-    }
-};
-
-// Attach debug toggle to button
-const debugBtn = document.getElementById('debug-toggle');
-if (debugBtn) {
-    debugBtn.addEventListener('click', toggleDebugMode);
-}
-
-console.log('[Cutting] Station module loaded v2.0');
-console.log('[Cutting] Debug commands available via window.CuttingDebug');
+})();

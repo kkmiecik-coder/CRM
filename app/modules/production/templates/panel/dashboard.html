@@ -306,6 +306,12 @@
     console.log('[HTML] Production config loaded:', window.PRODUCTION_CONFIG);
     </script>
 
+    <!-- ATTACHMENT MODAL -->
+    <div id="attachmentModal" class="attachment-modal-admin">
+        <div class="modal-close-admin" onclick="closeAttachmentModalAdmin()">&times;</div>
+        <div class="modal-content-admin" id="modalAttachmentContentAdmin"></div>
+    </div>
+
     <!-- Wspólne serwisy -->
     <script src="{{ url_for('production.static', filename='js/shared-services.js') }}"></script>
     <!-- Moduły funkcjonalne -->
@@ -317,6 +323,8 @@
     <script src="{{ url_for('production.static', filename='js/production-app-loader.js') }}"></script>
     <!-- Obsługa modala synchronizacji z Baselinkerem -->
     <script src="{{ url_for('production.static', filename='js/modules/dashboard_bl_sync_modal.js') }}"></script>
+    <!-- Obsługa załączników produktów -->
+    <script src="{{ url_for('production.static', filename='js/modules/products-attachments.js') }}"></script>
 
 </body>
 </html>

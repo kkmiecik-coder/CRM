@@ -959,17 +959,58 @@
     padding: 4rem 2rem;
     text-align: center;
     color: #6c757d;
+    background: linear-gradient(135deg, #f8f9fa 0%, #ffffff 100%);
+    border-radius: 8px;
+    margin: 2rem 1rem;
+    border: 2px dashed #dee2e6;
 }
 
     .products-empty-state .empty-icon {
-        font-size: 4rem;
+        font-size: 5rem;
         margin-bottom: 1.5rem;
-        color: #dee2e6;
+        color: #adb5bd;
+        animation: emptyIconFloat 3s ease-in-out infinite;
+    }
+
+    @keyframes emptyIconFloat {
+        0%, 100% {
+            transform: translateY(0);
+        }
+        50% {
+            transform: translateY(-10px);
+        }
     }
 
     .products-empty-state h4 {
-        margin-bottom: 0.5rem;
+        margin-bottom: 0.75rem;
         color: var(--products-dark);
+        font-size: 1.5rem;
+        font-weight: 600;
+    }
+
+    .products-empty-state .empty-description {
+        margin-bottom: 0.5rem;
+        text-align: center;
+        font-size: 1rem;
+        color: #6c757d;
+    }
+
+    .products-empty-state .empty-hint {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0.5rem;
+        padding: 0.75rem 1.5rem;
+        background: #fff3cd;
+        border: 1px solid #ffc107;
+        border-radius: 6px;
+        margin-bottom: 1.5rem;
+        color: #856404;
+        font-size: 0.9rem;
+    }
+
+    .products-empty-state .empty-hint i {
+        color: #ffc107;
     }
 
     .products-empty-state p {
@@ -2074,6 +2115,42 @@
     font-weight: 600;
 }
 
+/* Załączniki w modalu szczegółów */
+.attachment-item {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 12px;
+    background: #f8f9fa;
+    border-radius: 6px;
+}
+
+.attachment-name {
+    font-size: var(--font-size-base);
+    color: var(--production-dark);
+    font-weight: 600;
+}
+
+.attachment-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    color: #3b82f6;
+    text-decoration: none;
+    font-size: var(--font-size-sm);
+    font-weight: 500;
+    transition: color 0.2s ease;
+}
+
+.attachment-link:hover {
+    color: #2563eb;
+    text-decoration: underline;
+}
+
+.attachment-link i {
+    font-size: 12px;
+}
+
 /* Kolory dla stanowisk */
 .cutting-theme { color: var(--cutting-color); }
 .assembly-theme { color: var(--assembly-color); }
@@ -2824,6 +2901,21 @@
     background: #fef2f2;
 }
 
+/* Attachment icon (informacyjna - nie klikalna) */
+.prod_list-attachment-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    color: #f97316;
+    opacity: 0.8;
+}
+
+.prod_list-attachment-icon svg {
+    stroke: currentColor;
+}
+
 /* ============================================================================
    ANIMATIONS
    ============================================================================ */
@@ -2947,4 +3039,83 @@
     align-items: center;
     justify-content: center;
     z-index: 10;
+}
+
+/* ============================================================================
+   ATTACHMENT ICON & MODAL - Panel admina
+   ============================================================================ */
+
+/* Przycisk załącznika w liście produktów */
+.prod_list-attachment-btn {
+    color: #ED6B24 !important;
+}
+
+.prod_list-attachment-btn:hover {
+    color: #ff8844 !important;
+    transform: scale(1.1);
+}
+
+/* Modal pełnoekranowy dla admina */
+.attachment-modal-admin {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    background-color: rgba(0, 0, 0, 0.95);
+    z-index: 100000;
+    padding: 0;
+    justify-content: center;
+    align-items: center;
+}
+
+.attachment-modal-admin.show {
+    display: flex;
+}
+
+.attachment-modal-admin .modal-close-admin {
+    position: absolute;
+    top: 20px;
+    right: 20px;
+    width: 40px;
+    height: 40px;
+    background-color: rgba(255, 255, 255, 0.1);
+    border: 2px solid rgba(255, 255, 255, 0.3);
+    border-radius: 50%;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 24px;
+    color: white;
+    transition: all 0.2s ease;
+    z-index: 100001;
+}
+
+.attachment-modal-admin .modal-close-admin:hover {
+    background-color: rgba(255, 255, 255, 0.2);
+    transform: scale(1.1);
+}
+
+.attachment-modal-admin .modal-content-admin {
+    max-width: 95vw;
+    max-height: 95vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.attachment-modal-admin img {
+    max-width: 100%;
+    max-height: 95vh;
+    object-fit: contain;
+    border-radius: 8px;
+}
+
+.attachment-modal-admin iframe {
+    width: 90vw;
+    height: 90vh;
+    border: none;
+    border-radius: 8px;
 }

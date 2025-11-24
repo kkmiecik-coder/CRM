@@ -39,6 +39,7 @@ class ProductionApp {
 
         this.config = window.PRODUCTION_CONFIG || {};
         this.shared = window.ProductionShared;
+        this.modules = {}; // Mapa modułów dla poszczególnych tabów
 
         // Bind methods
         this.handleTabClick = this.handleTabClick.bind(this);
@@ -646,13 +647,14 @@ class ProductionApp {
             
             // Utwórz nową instancję DashboardModule
             const dashboardModule = new DashboardModule(this.shared, this.config);
-            
+
             // Załaduj moduł
             await dashboardModule.load();
-            
+
             // Zapisz w state
             this.state.loadedModules.set('dashboard', dashboardModule);
-            
+            this.modules['dashboard-tab'] = dashboardModule;
+
             console.log('[ProductionApp] DashboardModule initialized successfully');
             
         } catch (error) {
@@ -676,8 +678,9 @@ class ProductionApp {
 
             // Store reference to module
             this.state.loadedModules.set('products', productsModule);
+            this.modules['products-tab'] = productsModule;
 
-            console.log('[ProductionApp] ProductsModule initialized successfully');
+            console.log('[ProductsApp] ProductsModule initialized successfully');
 
             // Ustaw globalną referencję dla template onclick handlers
             window.productsModule = productsModule;

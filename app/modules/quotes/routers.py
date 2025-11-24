@@ -224,6 +224,26 @@ def quotes_home():
 @require_module_access('quotes')
 def api_quotes():
     try:
+        # Pobierz parametry paginacji z query string
+        page = request.args.get('page', 1, type=int)
+        per_page = request.args.get('per_page', 20, type=int)
+
+        # Pobierz parametry filtrów
+        quote_number = request.args.get('quote_number', '').strip()
+        client_number = request.args.get('client_number', '').strip()
+        client_name = request.args.get('client_name', '').strip()
+        source = request.args.get('source', '').strip()
+        employee_id = request.args.get('employee_id', type=int)
+        date_from = request.args.get('date_from', '').strip()
+        date_to = request.args.get('date_to', '').strip()
+        status_filter = request.args.get('status', '').strip()
+
+        # Walidacja parametrów
+        if page < 1:
+            page = 1
+        if per_page < 1 or per_page > 200:
+            per_page = 20
+
         # Mapa statusów
         statuses = {
             s.name: {"id": s.id, "name": s.name, "color": s.color_hex}
@@ -231,13 +251,60 @@ def api_quotes():
         }
         # ✅ NOWE: Filtrowanie per rola
         base_query = Quote.query.order_by(Quote.created_at.desc())
-        quotes = get_filtered_quotes_query(base_query).all()
+        filtered_query = get_filtered_quotes_query(base_query)
+
+        # Dodaj filtry
+        if quote_number:
+            filtered_query = filtered_query.filter(Quote.quote_number.ilike(f'{quote_number}%'))
+
+        # Sprawdź czy potrzebujemy join z Client
+        need_client_join = bool(client_number or client_name)
+        if need_client_join:
+            filtered_query = filtered_query.join(Client, Quote.client_id == Client.id, isouter=True)
+            if client_number:
+                filtered_query = filtered_query.filter(Client.client_number.ilike(f'%{client_number}%'))
+            if client_name:
+                filtered_query = filtered_query.filter(Client.client_name.ilike(f'%{client_name}%'))
+
+        if source:
+            filtered_query = filtered_query.filter(Quote.source == source)
+
+        if employee_id:
+            filtered_query = filtered_query.filter(Quote.user_id == employee_id)
+
+        if date_from:
+            try:
+                date_from_obj = datetime.strptime(date_from, '%Y-%m-%d')
+                filtered_query = filtered_query.filter(Quote.created_at >= date_from_obj)
+            except ValueError:
+                pass
+
+        if date_to:
+            try:
+                date_to_obj = datetime.strptime(date_to, '%Y-%m-%d')
+                # Dodaj 1 dzień aby uwzględnić cały dzień
+                date_to_obj = date_to_obj.replace(hour=23, minute=59, second=59)
+                filtered_query = filtered_query.filter(Quote.created_at <= date_to_obj)
+            except ValueError:
+                pass
+
+        if status_filter:
+            filtered_query = filtered_query.join(QuoteStatus, Quote.status_id == QuoteStatus.id, isouter=True).filter(
+                QuoteStatus.name == status_filter
+            )
+
+        # Policz całkowitą liczbę wyników
+        total_count = filtered_query.count()
+
+        # Pobierz paginowane wyniki
+        quotes = filtered_query.offset((page - 1) * per_page).limit(per_page).all()
+
         results = []
         for q in quotes:
             client = q.client
             user = q.user
             status_data = statuses.get(q.quote_status.name if q.quote_status else None, {})
-            
+
             # POPRAWKA: Pobranie opiekuna wyceny (user_id z tabeli quotes)
             quote_caretaker_name = None
             if user:
@@ -263,7 +330,17 @@ def api_quotes():
                 "public_token": q.public_token
             }
             results.append(result)
-        return jsonify(results)
+
+        # Zwróć dane z informacjami o paginacji
+        return jsonify({
+            "quotes": results,
+            "pagination": {
+                "page": page,
+                "per_page": per_page,
+                "total_count": total_count,
+                "total_pages": (total_count + per_page - 1) // per_page  # Zaokrąglenie w górę
+            }
+        })
     except Exception as e:
         print(f"[api_quotes] Błąd: {str(e)}", file=sys.stderr)
         return jsonify({"error": "Wystapil blad serwera"}), 500

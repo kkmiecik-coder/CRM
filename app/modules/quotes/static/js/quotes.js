@@ -7,12 +7,15 @@ let allQuotes = [];
 let activeStatus = null;
 let currentPage = 1;
 let resultsPerPage = 20;
+let totalPages = 1;
+let totalCount = 0;
 let allUsers = [];
 let currentEditingItem = null;
 let currentQuoteData = null;
 let discountReasons = [];
 let originalPrices = {};
 let acceptedQuotes = new Set(); // Set do śledzenia ID zaakceptowanych wycen
+let isLoadingQuotes = false; // Flaga czy trwa ładowanie
 
 document.addEventListener("DOMContentLoaded", () => {
     console.log("[DOMContentLoaded] Inicjalizacja komponentów");
@@ -156,25 +159,62 @@ function initDownloadModal() {
     });
 }
 
-function fetchQuotes() {
-    console.info("[fetchQuotes] Pobieranie wycen z /quotes/api/quotes");
+function fetchQuotes(page = null, perPage = null) {
+    if (isLoadingQuotes) {
+        console.log("[fetchQuotes] Ładowanie już w trakcie, pomijam...");
+        return Promise.resolve();
+    }
 
-    return fetch("/quotes/api/quotes")
+    // Użyj przekazanych parametrów lub domyślnych
+    const targetPage = page !== null ? page : currentPage;
+    const targetPerPage = perPage !== null ? perPage : resultsPerPage;
+
+    console.info(`[fetchQuotes] Pobieranie wycen - strona ${targetPage}, wyników na stronę: ${targetPerPage}`);
+
+    // Pokaż overlay z loaderem
+    showLoadingOverlay();
+    isLoadingQuotes = true;
+
+    // Buduj URL z parametrami paginacji
+    const url = `/quotes/api/quotes?page=${targetPage}&per_page=${targetPerPage}`;
+
+    return fetch(url)
         .then(res => res.json())
         .then(data => {
-            allQuotes = data;
-            console.log(`[fetchQuotes] Załadowano ${data.length} wycen`);
-            if (data.length > 0) {
-                allStatuses = data[0].all_statuses;
+            // Backend zwraca teraz obiekt z quotes i pagination
+            allQuotes = data.quotes || [];
+            const pagination = data.pagination || {};
+
+            // Zaktualizuj zmienne paginacji
+            currentPage = pagination.page || 1;
+            resultsPerPage = pagination.per_page || 20;
+            totalCount = pagination.total_count || 0;
+            totalPages = pagination.total_pages || 1;
+
+            console.log(`[fetchQuotes] Załadowano ${allQuotes.length} wycen (strona ${currentPage}/${totalPages}, łącznie: ${totalCount})`);
+
+            // Pobierz statusy z pierwszej wyceny (jeśli istnieje)
+            if (allQuotes.length > 0) {
+                allStatuses = allQuotes[0].all_statuses;
             }
-            filterQuotes();
-            
+
+            // Renderuj tabelę i paginację
+            renderQuotesTable(allQuotes);
+            renderPagination();
+
+            // Ukryj overlay
+            hideLoadingOverlay();
+            isLoadingQuotes = false;
+
             // NOWA FUNKCJONALNOŚĆ: Sprawdź czy mamy parametr open_quote w URL
             console.log("[fetchQuotes] Sprawdzam parametr open_quote...");
             checkForOpenQuoteParameter();
         })
         .catch(err => {
             console.error("[fetchQuotes] Błąd pobierania wycen:", err);
+            hideLoadingOverlay();
+            isLoadingQuotes = false;
+            alert("Wystąpił błąd podczas pobierania wycen.");
         });
 }
 
@@ -1866,36 +1906,82 @@ function setupProductTabs(quoteData, tabsContainer, itemsContainer) {
 }
 
 function filterQuotes() {
-    console.log("Filtrujemy wyceny...");
+    console.log("[filterQuotes] Uruchamianie filtrowania...");
 
-    const quoteNumber = document.getElementById("quote-number-filter")?.value?.toLowerCase() || "";
-    const clientNumber = document.getElementById("client-number-filter")?.value?.toLowerCase() || "";
-    const clientName = document.getElementById("client-name-filter")?.value?.toLowerCase() || "";
+    // Resetuj do pierwszej strony przy zmianie filtrów
+    currentPage = 1;
+
+    // Pobierz wartości filtrów
+    const quoteNumber = document.getElementById("quote-number-filter")?.value || "";
+    const clientNumber = document.getElementById("client-number-filter")?.value || "";
+    const clientName = document.getElementById("client-name-filter")?.value || "";
     const source = document.getElementById("source-filter")?.value || "";
     const employee = document.getElementById("employee-filter")?.value || "";
-    const dateFrom = document.getElementById("date-from-filter")?.value;
-    const dateTo = document.getElementById("date-to-filter")?.value;
+    const dateFrom = document.getElementById("date-from-filter")?.value || "";
+    const dateTo = document.getElementById("date-to-filter")?.value || "";
 
-    const filtered = allQuotes.filter(q => {
-        const createdDate = new Date(q.created_at);
-        const matchDateFrom = !dateFrom || createdDate >= new Date(dateFrom);
-        const matchDateTo = !dateTo || createdDate <= new Date(dateTo);
+    if (isLoadingQuotes) {
+        console.log("[filterQuotes] Ładowanie już w trakcie, pomijam...");
+        return;
+    }
 
-        return (!quoteNumber || q.quote_number?.toLowerCase().startsWith(quoteNumber)) &&
-            (!clientNumber || (q.client_number || "").toLowerCase().includes(clientNumber)) &&
-            (!clientName || (q.client_name || "").toLowerCase().includes(clientName)) &&
-            (!source || q.source === source) &&
-            (!employee || q.user_id == employee) &&
-            matchDateFrom &&
-            matchDateTo &&
-            (!activeStatus || q.status_name === activeStatus);
+    // Pokaż overlay z loaderem
+    showLoadingOverlay();
+    isLoadingQuotes = true;
+
+    // Buduj URL z parametrami paginacji i filtrów
+    const params = new URLSearchParams({
+        page: currentPage,
+        per_page: resultsPerPage
     });
 
-    console.log(`[filterQuotes] Wszystkich wyników: ${filtered.length}, currentPage: ${currentPage}, resultsPerPage: ${resultsPerPage}`);
-    const paginated = filtered.slice((currentPage - 1) * resultsPerPage, currentPage * resultsPerPage);
+    // Dodaj filtry tylko jeśli mają wartość
+    if (quoteNumber) params.append('quote_number', quoteNumber);
+    if (clientNumber) params.append('client_number', clientNumber);
+    if (clientName) params.append('client_name', clientName);
+    if (source) params.append('source', source);
+    if (employee) params.append('employee_id', employee);
+    if (dateFrom) params.append('date_from', dateFrom);
+    if (dateTo) params.append('date_to', dateTo);
+    if (activeStatus) params.append('status', activeStatus);
 
-    renderQuotesTable(paginated);
-    renderPagination(filtered.length);
+    const url = `/quotes/api/quotes?${params.toString()}`;
+    console.log(`[filterQuotes] URL: ${url}`);
+
+    fetch(url)
+        .then(res => res.json())
+        .then(data => {
+            // Backend zwraca teraz obiekt z quotes i pagination
+            allQuotes = data.quotes || [];
+            const pagination = data.pagination || {};
+
+            // Zaktualizuj zmienne paginacji
+            currentPage = pagination.page || 1;
+            resultsPerPage = pagination.per_page || 20;
+            totalCount = pagination.total_count || 0;
+            totalPages = pagination.total_pages || 1;
+
+            console.log(`[filterQuotes] Załadowano ${allQuotes.length} wycen (strona ${currentPage}/${totalPages}, łącznie: ${totalCount})`);
+
+            // Pobierz statusy z pierwszej wyceny (jeśli istnieje)
+            if (allQuotes.length > 0) {
+                allStatuses = allQuotes[0].all_statuses;
+            }
+
+            // Renderuj tabelę i paginację
+            renderQuotesTable(allQuotes);
+            renderPagination();
+
+            // Ukryj overlay
+            hideLoadingOverlay();
+            isLoadingQuotes = false;
+        })
+        .catch(err => {
+            console.error("[filterQuotes] Błąd pobierania wycen:", err);
+            hideLoadingOverlay();
+            isLoadingQuotes = false;
+            alert("Wystąpił błąd podczas filtrowania wycen.");
+        });
 }
 
 function renderQuotesTable(quotes) {
@@ -1997,10 +2083,7 @@ async function initStatusPanel() {
     statusPanel.innerHTML = "";
 
     try {
-        const [counts, statuses] = await Promise.all([
-            fetch("/quotes/api/quotes/status-counts").then(res => res.json()),
-            fetch("/quotes/api/quotes").then(res => res.json())
-        ]);
+        const counts = await fetch("/quotes/api/quotes/status-counts").then(res => res.json());
 
         const totalCount = counts.reduce((sum, s) => sum + s.count, 0);
         const allBtn = renderStatusButton("Wszystkie", totalCount, "#999", true);
@@ -2017,38 +2100,225 @@ async function initStatusPanel() {
 
 // Event listeners dla filtrów
 document.addEventListener("DOMContentLoaded", () => {
-    ["quote-number-filter", "client-number-filter", "client-name-filter", "source-filter"].forEach(id => {
+    // Usuń automatyczne filtrowanie - teraz wymaga przycisku "Filtruj wyceny"
+    // Dodaj tylko nasłuchiwanie Enter na inputach tekstowych
+    ["quote-number-filter", "client-number-filter", "client-name-filter"].forEach(id => {
         const el = document.getElementById(id);
         if (el) {
-            const evt = el.tagName === "SELECT" ? "change" : "input";
-            el.addEventListener(evt, filterQuotes);
+            el.addEventListener("keypress", (e) => {
+                if (e.key === "Enter") {
+                    filterQuotes();
+                }
+            });
         }
     });
 
-    ["date-from-filter", "date-to-filter", "employee-filter"].forEach(id => {
-        const el = document.getElementById(id);
-        if (el) {
-            el.addEventListener("change", filterQuotes);
-        }
-    });
+    // Przycisk "Filtruj wyceny"
+    const applyFiltersBtn = document.getElementById("apply-filters");
+    if (applyFiltersBtn) {
+        applyFiltersBtn.addEventListener("click", () => {
+            console.log("[ApplyFilters] Kliknięto przycisk Filtruj wyceny");
+            filterQuotes();
+        });
+    }
 });
 
-function renderPagination(total) {
-    console.log(`[renderPagination] Łącznie wyników: ${total}, resultsPerPage: ${resultsPerPage}`);
+function renderPagination() {
+    console.log(`[renderPagination] Strona ${currentPage}/${totalPages}, łącznie: ${totalCount}`);
 
     let container = document.getElementById("pagination-container");
     if (!container) {
         container = document.createElement("div");
         container.id = "pagination-container";
-        container.className = "quotes-pagination";
+        container.className = "quotes-pagination-wrapper";
         document.querySelector(".quotes-main").appendChild(container);
     }
 
     container.innerHTML = "";
 
-    const totalPages = Math.ceil(total / resultsPerPage);
+    // Jeśli nie ma wyników, nie pokazuj paginacji
+    if (totalPages === 0) {
+        return;
+    }
 
-    // Selektor ilości wyników na stronę
+    // Kontener na paginację (środek)
+    const paginationDiv = document.createElement("div");
+    paginationDiv.className = "quotes-pagination-center";
+
+    // Przycisk Previous
+    const prevBtn = document.createElement("button");
+    prevBtn.className = "pagination-arrow";
+    prevBtn.innerHTML = `<svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+        <path d="M7.5 2L3.5 6L7.5 10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>`;
+    prevBtn.disabled = currentPage === 1;
+    prevBtn.addEventListener("click", () => {
+        if (currentPage > 1) {
+            goToPage(currentPage - 1);
+        }
+    });
+
+    // Przycisk pierwszej strony
+    const firstPageBtn = document.createElement("button");
+    firstPageBtn.className = "pagination-number" + (currentPage === 1 ? " active" : "");
+    firstPageBtn.textContent = "1";
+    firstPageBtn.addEventListener("click", () => goToPage(1));
+
+    // Kontener na środkowe elementy
+    const middleContainer = document.createElement("div");
+    middleContainer.className = "pagination-middle";
+
+    // Logika wyświetlania numerów stron
+    // Strona 1 (początek): < [1] 2 ... 43 >
+    if (currentPage === 1 && totalPages > 1) {
+        const page2Btn = document.createElement("button");
+        page2Btn.className = "pagination-number";
+        page2Btn.textContent = "2";
+        page2Btn.addEventListener("click", () => goToPage(2));
+        middleContainer.appendChild(page2Btn);
+
+        if (totalPages > 2) {
+            const dots = document.createElement("button");
+            dots.className = "pagination-dots";
+            dots.textContent = "...";
+            dots.addEventListener("click", () => openGoToPageModal());
+            middleContainer.appendChild(dots);
+        }
+    }
+    // Strona 2: < 1 [2] 3 ... 43 >
+    else if (currentPage === 2) {
+        const page2Btn = document.createElement("button");
+        page2Btn.className = "pagination-number active";
+        page2Btn.textContent = "2";
+        page2Btn.addEventListener("click", () => goToPage(2));
+        middleContainer.appendChild(page2Btn);
+
+        if (totalPages > 2) {
+            const page3Btn = document.createElement("button");
+            page3Btn.className = "pagination-number";
+            page3Btn.textContent = "3";
+            page3Btn.addEventListener("click", () => goToPage(3));
+            middleContainer.appendChild(page3Btn);
+        }
+
+        if (totalPages > 3) {
+            const dots = document.createElement("button");
+            dots.className = "pagination-dots";
+            dots.textContent = "...";
+            dots.addEventListener("click", () => openGoToPageModal());
+            middleContainer.appendChild(dots);
+        }
+    }
+    // Strona 3: < 1 2 [3] 4 ... 43 >
+    else if (currentPage === 3) {
+        const page2Btn = document.createElement("button");
+        page2Btn.className = "pagination-number";
+        page2Btn.textContent = "2";
+        page2Btn.addEventListener("click", () => goToPage(2));
+        middleContainer.appendChild(page2Btn);
+
+        const page3Btn = document.createElement("button");
+        page3Btn.className = "pagination-number active";
+        page3Btn.textContent = "3";
+        page3Btn.addEventListener("click", () => goToPage(3));
+        middleContainer.appendChild(page3Btn);
+
+        if (totalPages > 3) {
+            const page4Btn = document.createElement("button");
+            page4Btn.className = "pagination-number";
+            page4Btn.textContent = "4";
+            page4Btn.addEventListener("click", () => goToPage(4));
+            middleContainer.appendChild(page4Btn);
+        }
+
+        if (totalPages > 4) {
+            const dots = document.createElement("button");
+            dots.className = "pagination-dots";
+            dots.textContent = "...";
+            dots.addEventListener("click", () => openGoToPageModal());
+            middleContainer.appendChild(dots);
+        }
+    }
+    // Strony środkowe (4+): < 1 ... prev [current] next ... 43 >
+    else if (currentPage > 3 && currentPage < totalPages) {
+        // Kropki na początku
+        const dotsStart = document.createElement("button");
+        dotsStart.className = "pagination-dots";
+        dotsStart.textContent = "...";
+        dotsStart.addEventListener("click", () => openGoToPageModal());
+        middleContainer.appendChild(dotsStart);
+
+        // Poprzednia strona
+        const prevPageBtn = document.createElement("button");
+        prevPageBtn.className = "pagination-number";
+        prevPageBtn.textContent = currentPage - 1;
+        prevPageBtn.addEventListener("click", () => goToPage(currentPage - 1));
+        middleContainer.appendChild(prevPageBtn);
+
+        // Aktualna strona
+        const currentBtn = document.createElement("button");
+        currentBtn.className = "pagination-number active";
+        currentBtn.textContent = currentPage;
+        currentBtn.addEventListener("click", () => goToPage(currentPage));
+        middleContainer.appendChild(currentBtn);
+
+        // Następna strona
+        const nextPageBtn = document.createElement("button");
+        nextPageBtn.className = "pagination-number";
+        nextPageBtn.textContent = currentPage + 1;
+        nextPageBtn.addEventListener("click", () => goToPage(currentPage + 1));
+        middleContainer.appendChild(nextPageBtn);
+
+        // Kropki na końcu (tylko jeśli nie jesteśmy obok ostatniej strony)
+        if (currentPage < totalPages - 1) {
+            const dotsEnd = document.createElement("button");
+            dotsEnd.className = "pagination-dots";
+            dotsEnd.textContent = "...";
+            dotsEnd.addEventListener("click", () => openGoToPageModal());
+            middleContainer.appendChild(dotsEnd);
+        }
+    }
+    // Ostatnia strona (jeśli istnieje więcej niż 1 strona)
+    let lastPageBtn = null;
+    if (totalPages > 1) {
+        lastPageBtn = document.createElement("button");
+        lastPageBtn.className = "pagination-number" + (currentPage === totalPages ? " active" : "");
+        lastPageBtn.textContent = totalPages;
+        lastPageBtn.addEventListener("click", () => goToPage(totalPages));
+    }
+
+    // Przycisk Next
+    const nextBtn = document.createElement("button");
+    nextBtn.className = "pagination-arrow";
+    nextBtn.innerHTML = `<svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+        <path d="M4.5 2L8.5 6L4.5 10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>`;
+    nextBtn.disabled = currentPage === totalPages;
+    nextBtn.addEventListener("click", () => {
+        if (currentPage < totalPages) {
+            goToPage(currentPage + 1);
+        }
+    });
+
+    // Złóż paginację
+    paginationDiv.appendChild(prevBtn);
+    paginationDiv.appendChild(firstPageBtn);
+    if (totalPages > 1) {
+        paginationDiv.appendChild(middleContainer);
+        if (lastPageBtn) {
+            paginationDiv.appendChild(lastPageBtn);
+        }
+    }
+    paginationDiv.appendChild(nextBtn);
+
+    // Selektor ilości wyników na stronę (po prawej)
+    const selectWrapper = document.createElement("div");
+    selectWrapper.className = "quotes-pagination-select-wrapper";
+
+    const selectLabel = document.createElement("span");
+    selectLabel.textContent = "Wyników na stronę:";
+    selectLabel.className = "pagination-select-label";
+
     const select = document.createElement("select");
     select.className = "pagination-select";
 
@@ -2063,36 +2333,126 @@ function renderPagination(total) {
     select.addEventListener("change", () => {
         resultsPerPage = parseInt(select.value);
         currentPage = 1;
-        filterQuotes();
+        fetchQuotes();
     });
 
-    // Paginacja
-    const pagination = document.createElement("div");
-    pagination.className = "quotes-pagination";
+    selectWrapper.appendChild(selectLabel);
+    selectWrapper.appendChild(select);
 
-    for (let i = 1; i <= totalPages; i++) {
-        const btn = document.createElement("button");
-        btn.textContent = i;
-        if (i === currentPage) btn.classList.add("active");
-        btn.addEventListener("click", () => {
-            currentPage = i;
-            filterQuotes();
-        });
-        pagination.appendChild(btn);
+    // Dodaj do kontenera
+    container.appendChild(paginationDiv);
+    container.appendChild(selectWrapper);
+}
+
+// Funkcja do przechodzenia na konkretną stronę
+function goToPage(page) {
+    if (page < 1 || page > totalPages || page === currentPage) {
+        return;
+    }
+    currentPage = page;
+    fetchQuotes();
+}
+
+// Funkcje dla overlaya ładowania
+function showLoadingOverlay() {
+    let overlay = document.getElementById("quotes-loading-overlay");
+    if (!overlay) {
+        overlay = document.createElement("div");
+        overlay.id = "quotes-loading-overlay";
+        overlay.className = "quotes-loading-overlay";
+        overlay.innerHTML = `
+            <div class="quotes-loading-spinner">
+                <div class="spinner-ring"></div>
+                <div class="spinner-ring"></div>
+                <div class="spinner-ring"></div>
+                <span class="spinner-text">Wczytywanie...</span>
+            </div>
+        `;
+        document.querySelector("#quotes-table-body").parentElement.appendChild(overlay);
+    }
+    overlay.style.display = "flex";
+}
+
+function hideLoadingOverlay() {
+    const overlay = document.getElementById("quotes-loading-overlay");
+    if (overlay) {
+        overlay.style.display = "none";
+    }
+}
+
+// Mini-modal "Idź do strony"
+function openGoToPageModal() {
+    // Usuń poprzedni modal jeśli istnieje
+    const existingModal = document.getElementById("goto-page-modal");
+    if (existingModal) {
+        existingModal.remove();
     }
 
-    container.appendChild(pagination);
-    container.appendChild(select);
+    // Stwórz modal
+    const modal = document.createElement("div");
+    modal.id = "goto-page-modal";
+    modal.className = "goto-page-modal";
+    modal.innerHTML = `
+        <div class="goto-page-content">
+            <h3>Przejdź do strony</h3>
+            <div class="goto-page-input-wrapper">
+                <input type="number" id="goto-page-input" min="1" max="${totalPages}" value="${currentPage}" />
+                <span class="goto-page-max">z ${totalPages}</span>
+            </div>
+            <div class="goto-page-buttons">
+                <button class="goto-page-cancel">Anuluj</button>
+                <button class="goto-page-confirm">Przejdź</button>
+            </div>
+        </div>
+    `;
+
+    document.body.appendChild(modal);
+
+    // Focus na input
+    const input = document.getElementById("goto-page-input");
+    setTimeout(() => input.focus(), 50);
+
+    // Event listeners
+    modal.querySelector(".goto-page-cancel").addEventListener("click", () => {
+        modal.remove();
+    });
+
+    modal.querySelector(".goto-page-confirm").addEventListener("click", () => {
+        const page = parseInt(input.value);
+        if (page >= 1 && page <= totalPages) {
+            goToPage(page);
+            modal.remove();
+        } else {
+            alert(`Proszę podać numer strony od 1 do ${totalPages}`);
+        }
+    });
+
+    // Enter na input
+    input.addEventListener("keypress", (e) => {
+        if (e.key === "Enter") {
+            modal.querySelector(".goto-page-confirm").click();
+        }
+    });
+
+    // Kliknięcie poza modalem zamyka go
+    modal.addEventListener("click", (e) => {
+        if (e.target === modal) {
+            modal.remove();
+        }
+    });
 }
 
 function initClearFiltersButton() {
-    const btn = document.getElementById("clear-filters");
-    if (!btn) {
+    const clearBtn = document.getElementById("clear-filters");
+    if (!clearBtn) {
         console.warn("Przycisk #clear-filters nie znaleziony");
         return;
     }
 
-    btn.addEventListener("click", () => {
+    clearBtn.addEventListener("click", () => {
+        console.log("[ClearFilters] Czyszczenie filtrów");
+
+        // Wyczyść wszystkie pola filtrów
         ["quote-number-filter", "client-number-filter", "client-name-filter", "source-filter", "employee-filter"].forEach(id => {
             const el = document.getElementById(id);
             if (el) el.value = "";
@@ -2101,14 +2461,18 @@ function initClearFiltersButton() {
         document.getElementById("date-from-filter").value = "";
         document.getElementById("date-to-filter").value = "";
 
+        // Zresetuj statusy - aktywuj "Wszystkie"
         document.querySelectorAll(".status-button").forEach(btn => btn.classList.remove("active"));
+        const allButton = document.querySelector('.status-button');
+        if (allButton) allButton.classList.add("active");
         activeStatus = null;
 
+        // Odfiltruj od razu
         filterQuotes();
         updateClearFiltersButtonState();
     });
 
-    // Event listeners dla aktualizacji stanu przycisku
+    // Event listeners dla aktualizacji stanu przycisku "Wyczyść filtry"
     ["quote-number-filter", "client-number-filter", "client-name-filter", "source-filter", "employee-filter", "date-from-filter", "date-to-filter"]
         .forEach(id => {
             const el = document.getElementById(id);

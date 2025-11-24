@@ -485,17 +485,24 @@ class ProductNameParser:
     def _parse_wood_class(self, name: str) -> Optional[str]:
         """
         Parsuje klase drewna z nazwy
-        
+
         Args:
             name (str): Nazwa do parsowania
-            
+
         Returns:
             Optional[str]: Klasa wykończenia lub None
         """
-        for key, finish in self._wood_class_mapping.items():
-            if key in name:
-                return finish
-        
+        import re
+
+        # Sortuj klucze według długości (od najdłuższych) aby uniknąć fałszywych dopasowań
+        sorted_keys = sorted(self._wood_class_mapping.keys(), key=len, reverse=True)
+
+        for key in sorted_keys:
+            # Szukaj jako całe słowo lub z granicami (spacje, slash, myślniki)
+            pattern = r'(?:^|[\s\-/])' + re.escape(key) + r'(?:[\s\-/]|$)'
+            if re.search(pattern, name, re.IGNORECASE):
+                return self._wood_class_mapping[key]
+
         return None
     
     def _get_default_parsing_result(self, original_name: str, errors: List[str] = None) -> Dict[str, Any]:

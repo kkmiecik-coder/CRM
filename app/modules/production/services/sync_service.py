@@ -670,6 +670,74 @@ class BaselinkerSyncService:
             })
             return None
 
+    def _has_attachment_in_order(self, order_data: Dict[str, Any]) -> bool:
+        """
+        Sprawdza czy zamówienie ma załącznik w custom_extra_fields
+
+        Returns:
+            bool: True jeśli zamówienie ma załącznik
+        """
+        try:
+            custom_fields = order_data.get('custom_extra_fields', {})
+            if not custom_fields or not isinstance(custom_fields, dict):
+                return False
+
+            # ID pola załącznika w Baselinker (sprawdzone w teście API)
+            ATTACHMENT_FIELD_ID = '56476'
+
+            attachment_data = custom_fields.get(ATTACHMENT_FIELD_ID)
+
+            if attachment_data and isinstance(attachment_data, dict):
+                url = attachment_data.get('url', '').strip()
+                return bool(url)
+
+            return False
+
+        except Exception as e:
+            logger.warning("Błąd sprawdzania załącznika", extra={
+                'order_id': order_data.get('order_id'),
+                'error': str(e)
+            })
+            return False
+
+    def _extract_attachment_from_order(self, order_data: Dict[str, Any]) -> Optional[Dict[str, str]]:
+        """
+        Ekstraktuje dane załącznika z zamówienia
+
+        Returns:
+            Dict z kluczami 'title' i 'url' lub None
+        """
+        try:
+            custom_fields = order_data.get('custom_extra_fields', {})
+            if not custom_fields or not isinstance(custom_fields, dict):
+                return None
+
+            # ID pola załącznika w Baselinker
+            ATTACHMENT_FIELD_ID = '56476'
+
+            attachment_data = custom_fields.get(ATTACHMENT_FIELD_ID)
+
+            if attachment_data and isinstance(attachment_data, dict):
+                title = attachment_data.get('title', '').strip()
+                url = attachment_data.get('url', '').strip()
+
+                if title and url:
+                    logger.info("Znaleziono załącznik w zamówieniu", extra={
+                        'order_id': order_data.get('order_id'),
+                        'attachment_name': title,
+                        'attachment_url': url[:100]
+                    })
+                    return {'title': title, 'url': url}
+
+            return None
+
+        except Exception as e:
+            logger.error("Błąd ekstrakcji załącznika", extra={
+                'order_id': order_data.get('order_id'),
+                'error': str(e)
+            })
+            return None
+
     def extract_payment_date_from_order(self, order_data: Dict[str, Any]) -> Optional[datetime]:
         try:
             order_id = order_data.get('order_id')
@@ -738,61 +806,74 @@ class BaselinkerSyncService:
             return None
 
     def validate_order_products_completeness(self, order_data: Dict[str, Any]) -> Tuple[bool, List[str]]:
+        """
+        Walidacja kompletności danych produktów w zamówieniu.
+        NOWA LOGIKA: Produkty bez wymiarów są akceptowane TYLKO jeśli zamówienie ma załącznik.
+        """
         try:
             from ..services.parser_service import get_parser_service
-            
+
             products = order_data.get('products', [])
             if not products:
                 return False, ['Zamówienie nie zawiera produktów']
-            
+
+            # Sprawdź czy zamówienie ma załącznik
+            order_has_attachment = self._has_attachment_in_order(order_data)
+
             parser = get_parser_service()
             validation_errors = []
-            
+            products_without_dimensions_count = 0
+
             for i, product in enumerate(products):
                 product_name = product.get('name', '').strip()
                 if not product_name:
                     validation_errors.append(f'Produkt {i+1}: Brak nazwy produktu')
                     continue
-                
+
                 try:
                     parsed_data = parser.parse_product_name(product_name)
-                    
-                    missing_fields = []
-                    
-                    if not parsed_data.get('wood_species'):
-                        missing_fields.append('gatunek drewna')
-                    if not parsed_data.get('finish_state'): 
-                        missing_fields.append('stan wykończenia')
-                    if not parsed_data.get('thickness_cm'):
-                        missing_fields.append('grubość')
-                    if not parsed_data.get('wood_class'):
-                        missing_fields.append('klasa drewna')
-                    if not parsed_data.get('width_cm'):
-                        missing_fields.append('szerokość')
-                    if not parsed_data.get('length_cm'):
-                        missing_fields.append('długość')
-                    
-                    if missing_fields:
-                        validation_errors.append(
-                            f'Produkt {i+1} "{product_name[:30]}": Brakujące dane - {", ".join(missing_fields)}'
-                        )
-                        
+
+                    # Sprawdź czy produkt ma wymiary
+                    has_dimensions = all([
+                        parsed_data.get('width_cm'),
+                        parsed_data.get('length_cm'),
+                        parsed_data.get('thickness_cm')
+                    ])
+
+                    if not has_dimensions:
+                        products_without_dimensions_count += 1
+
+                        # Jeśli brak wymiarów ORAZ brak załącznika → BŁĄD
+                        if not order_has_attachment:
+                            validation_errors.append(
+                                f'Produkt {i+1} "{product_name[:40]}": Brak wymiarów (szerokość, długość, grubość) i brak załącznika w zamówieniu'
+                            )
+                        else:
+                            # Produkt bez wymiarów ALE z załącznikiem → OK, tylko logujemy
+                            logger.info("Produkt bez wymiarów z załącznikiem - akceptuję", extra={
+                                'order_id': order_data.get('order_id'),
+                                'product_index': i+1,
+                                'product_name': product_name[:50]
+                            })
+
                 except Exception as parse_error:
                     validation_errors.append(
                         f'Produkt {i+1} "{product_name[:30]}": Błąd parsowania - {str(parse_error)}'
                     )
-            
+
             is_valid = len(validation_errors) == 0
-            
+
             logger.debug("Walidacja produktów zamówienia", extra={
                 'order_id': order_data.get('order_id'),
                 'products_count': len(products),
+                'products_without_dimensions': products_without_dimensions_count,
+                'order_has_attachment': order_has_attachment,
                 'is_valid': is_valid,
                 'errors_count': len(validation_errors)
             })
-            
+
             return is_valid, validation_errors
-            
+
         except Exception as e:
             logger.error("Błąd walidacji produktów zamówienia", extra={
                 'order_id': order_data.get('order_id'),
@@ -969,12 +1050,12 @@ class BaselinkerSyncService:
             logger.error("CRON: Błąd pobierania zamówień", extra={'error': str(e)})
             raise SyncError(f'Błąd pobierania zamówień CRON: {str(e)}')
 
-    def _prepare_product_data_enhanced(self, order: Dict[str, Any], product: Dict[str, Any], 
-                             product_id: str, id_result: Dict[str, Any], 
+    def _prepare_product_data_enhanced(self, order: Dict[str, Any], product: Dict[str, Any],
+                             product_id: str, id_result: Dict[str, Any],
                              parsed_data: Dict[str, Any], client_data: Dict[str, str],
                              deadline_date: date, order_product_id: Any,
                              sequence_number: int, payment_date: Optional[datetime]) -> Dict[str, Any]:
-    
+
         product_data = {
             'short_product_id': product_id,
             'internal_order_number': id_result['internal_order_number'],
@@ -992,6 +1073,16 @@ class BaselinkerSyncService:
             'current_status': 'czeka_na_wyciecie',
             'sync_source': 'baselinker_auto'
         }
+
+        # Ekstrakcja załącznika z zamówienia
+        attachment_info = self._extract_attachment_from_order(order)
+        if attachment_info:
+            product_data['attachment_file_name'] = attachment_info['title']
+            product_data['attachment_file_url'] = attachment_info['url']
+            logger.debug("Dodano załącznik do produktu", extra={
+                'product_id': product_id,
+                'attachment_name': attachment_info['title']
+            })
     
         if deadline_date:
             today = date.today()
