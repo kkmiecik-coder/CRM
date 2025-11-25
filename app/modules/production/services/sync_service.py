@@ -324,6 +324,14 @@ class BaselinkerSyncService:
             'auto_status_change': auto_status_change
         })
 
+        # Mapowanie sync_type na sync_source dla bazy danych
+        sync_source_map = {
+            'cron': 'baselinker_auto',
+            'manual': 'manual_entry',
+            'auto': 'baselinker_auto'
+        }
+        sync_source = sync_source_map.get(sync_type, 'manual_entry')
+
         orders_processed_list = []
 
         processing_stats = {
@@ -437,11 +445,12 @@ class BaselinkerSyncService:
                         for qty_index in range(quantity):
                             try:
                                 production_item = self._create_product_from_order_data(
-                                    order_data=order_data, 
-                                    product_data=product_data, 
+                                    order_data=order_data,
+                                    product_data=product_data,
                                     payment_date=payment_date,
                                     sequence_number=current_sequence,
-                                    id_generation_result=id_generation_result
+                                    id_generation_result=id_generation_result,
+                                    sync_source=sync_source
                                 )
                 
                                 if production_item:
@@ -589,7 +598,7 @@ class BaselinkerSyncService:
         logger.info("Zakończono przetwarzanie zamówień", extra=final_result)
         return final_result
 
-    def _create_product_from_order_data(self, order_data: Dict[str, Any], product_data: Dict[str, Any], payment_date: Optional[datetime] = None, sequence_number: int = 1, id_generation_result: Dict[str, Any] = None) -> Optional['ProductionItem']:
+    def _create_product_from_order_data(self, order_data: Dict[str, Any], product_data: Dict[str, Any], payment_date: Optional[datetime] = None, sequence_number: int = 1, id_generation_result: Dict[str, Any] = None, sync_source: str = 'baselinker_auto') -> Optional['ProductionItem']:
         try:
             from ..models import ProductionItem
             from ..services.parser_service import ProductNameParser
@@ -650,7 +659,8 @@ class BaselinkerSyncService:
                 deadline_date=deadline_date,
                 order_product_id=product_data.get('order_product_id'),
                 sequence_number=sequence_number,
-                payment_date=payment_date
+                payment_date=payment_date,
+                sync_source=sync_source
             )
         
             production_item = ProductionItem(**product_data_dict)
@@ -1054,7 +1064,8 @@ class BaselinkerSyncService:
                              product_id: str, id_result: Dict[str, Any],
                              parsed_data: Dict[str, Any], client_data: Dict[str, str],
                              deadline_date: date, order_product_id: Any,
-                             sequence_number: int, payment_date: Optional[datetime]) -> Dict[str, Any]:
+                             sequence_number: int, payment_date: Optional[datetime],
+                             sync_source: str = 'baselinker_auto') -> Dict[str, Any]:
 
         product_data = {
             'short_product_id': product_id,
@@ -1071,7 +1082,7 @@ class BaselinkerSyncService:
             'delivery_address': client_data.get('delivery_address', ''),
             'deadline_date': deadline_date,
             'current_status': 'czeka_na_wyciecie',
-            'sync_source': 'baselinker_auto'
+            'sync_source': sync_source  # Przekazany z parametru funkcji
         }
 
         # Ekstrakcja załącznika z zamówienia
@@ -2045,7 +2056,7 @@ class BaselinkerSyncService:
                 added_days += 1
         return current_date
 
-    def _process_single_order_enhanced(self, order: Dict[str, Any], products: List[Dict[str, Any]], 
+    def _process_single_order_enhanced(self, order: Dict[str, Any], products: List[Dict[str, Any]],
                                      payment_date: Optional[datetime], sync_type: str) -> Dict[str, Any]:
         results = {
             'created': 0,
@@ -2053,7 +2064,15 @@ class BaselinkerSyncService:
             'errors': 0,
             'error_details': []
         }
-        
+
+        # Mapowanie sync_type na sync_source dla bazy danych
+        sync_source_map = {
+            'cron': 'baselinker_auto',
+            'manual': 'manual_entry',
+            'auto': 'baselinker_auto'
+        }
+        sync_source = sync_source_map.get(sync_type, 'manual_entry')
+
         baselinker_order_id = order['order_id']
         
         try:
@@ -2099,7 +2118,8 @@ class BaselinkerSyncService:
                             deadline_date=deadline_date,
                             order_product_id=order_product_id,
                             sequence_number=current_id_index,
-                            payment_date=payment_date
+                            payment_date=payment_date,
+                            sync_source=sync_source
                         )
                         
                         production_item = ProductionItem(**product_data)

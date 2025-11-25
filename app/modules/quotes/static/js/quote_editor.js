@@ -2384,7 +2384,7 @@ async function calculateEditorDelivery() {
             const quotesList = Array.isArray(quotesData) ? quotesData : [quotesData];
 
             // Zastosuj mnożnik pakowania (tak jak w calculator)
-            const shippingPackingMultiplier = 1.15;
+            const shippingPackingMultiplier = 1.30;
             const quotes = quotesList.map(option => ({
                 carrierName: option.carrierName,
                 rawGrossPrice: option.grossPrice,
@@ -2613,10 +2613,10 @@ function showQuotesDeliveryModal(quotes, packingInfo) {
 
             if (baseEl) baseEl.textContent = brutto.toFixed(2) + ' PLN';
 
-            const margin = brutto * 0.15;
+            const margin = brutto * 0.30;
             if (marginEl) marginEl.textContent = margin.toFixed(2) + ' PLN';
 
-            const finalPrice = brutto * 1.15;
+            const finalPrice = brutto * 1.30;
             if (finalEl) finalEl.textContent = finalPrice.toFixed(2) + ' PLN';
 
             validateCustomForm();
@@ -2638,10 +2638,10 @@ function showQuotesDeliveryModal(quotes, packingInfo) {
 
             if (baseEl) baseEl.textContent = brutto.toFixed(2) + ' PLN';
 
-            const margin = brutto * 0.15;
+            const margin = brutto * 0.30;
             if (marginEl) marginEl.textContent = margin.toFixed(2) + ' PLN';
 
-            const finalPrice = brutto * 1.15;
+            const finalPrice = brutto * 1.30;
             if (finalEl) finalEl.textContent = finalPrice.toFixed(2) + ' PLN';
 
             validateCustomForm();
@@ -2658,7 +2658,7 @@ function showQuotesDeliveryModal(quotes, packingInfo) {
     const originalHandleConfirm = handleConfirm;
     const newHandleConfirm = () => {
         // Sprawdź czy jesteśmy w widoku własnego kuriera
-        if (!customView?.classList.contains('delivery-modal-hidden')) {
+        if (customView && !customView.classList.contains('delivery-modal-hidden')) {
             const { name, netto, brutto, isValid } = validateCustomForm();
 
             if (!isValid) {
@@ -2667,8 +2667,8 @@ function showQuotesDeliveryModal(quotes, packingInfo) {
             }
 
             // Oblicz końcowe ceny z marżą pakowania
-            const finalBrutto = brutto * 1.15;
-            const finalNetto = netto * 1.15;
+            const finalBrutto = brutto * 1.30;
+            const finalNetto = netto * 1.30;
 
             // Zapisz własnego kuriera
             currentEditingQuoteData.shipping_cost_brutto = finalBrutto;
@@ -2711,6 +2711,11 @@ function showQuotesDeliveryModal(quotes, packingInfo) {
 
     // Pokaż modal
     confirmBtn.disabled = true;
+
+    // Upewnij się, że widok główny jest widoczny, a formularz własnego kuriera ukryty
+    if (mainView) mainView.classList.remove('delivery-modal-hidden');
+    if (customView) customView.classList.add('delivery-modal-hidden');
+
     modal.classList.add('active');
 
     console.log('✅ Modal delivery otwarty z', quotes.length, 'opcjami');

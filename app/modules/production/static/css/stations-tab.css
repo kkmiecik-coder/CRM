@@ -1,0 +1,530 @@
+/* ============================================================================
+   STATIONS TAB - Minimalistyczny, profesjonalny design
+   ============================================================================ */
+
+:root {
+    --border-color: #e5e7eb;
+    --text-primary: #1f2937;
+    --text-secondary: #6b7280;
+    --text-muted: #9ca3af;
+    --bg-gray: #f9fafb;
+    --bg-hover: #f3f4f6;
+    --primary-color: #2563eb;
+    --success-color: #10b981;
+    --warning-color: #f59e0b;
+    --danger-color: #ef4444;
+}
+
+/* ============================================================================
+   CONTAINER
+   ============================================================================ */
+
+.stations-container {
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+}
+
+/* ============================================================================
+   SECTION HEADERS
+   ============================================================================ */
+
+.section-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 16px;
+}
+
+.section-header h3 {
+    font-size: 1.125rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin: 0;
+}
+
+.btn-refresh {
+    padding: 8px 16px;
+    background: white;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.btn-refresh:hover {
+    background: var(--bg-hover);
+    border-color: var(--text-secondary);
+}
+
+/* ============================================================================
+   WORKFLOW SECTION - Minimalistyczny przepływ
+   ============================================================================ */
+
+.workflow-section {
+    background: white;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 20px;
+}
+
+.workflow-track {
+    display: flex;
+    align-items: center;
+    gap: 0;
+    overflow-x: auto;
+    padding: 12px 0;
+}
+
+.workflow-item {
+    flex: 1;
+    min-width: 120px;
+    padding: 16px;
+    text-align: center;
+    cursor: pointer;
+    transition: background 0.2s;
+    border-radius: 6px;
+    position: relative;
+}
+
+.workflow-item:hover {
+    background: var(--bg-gray);
+}
+
+.workflow-icon {
+    font-size: 32px;
+    margin-bottom: 8px;
+}
+
+.workflow-name {
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: var(--text-primary);
+    margin-bottom: 6px;
+}
+
+.workflow-count {
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: var(--text-primary);
+    position: relative;
+    display: inline-block;
+}
+
+.high-priority-dot {
+    position: absolute;
+    top: -4px;
+    right: -8px;
+    width: 8px;
+    height: 8px;
+    background: var(--danger-color);
+    border-radius: 50%;
+    border: 2px solid white;
+}
+
+.workflow-separator {
+    font-size: 20px;
+    color: var(--border-color);
+    flex-shrink: 0;
+    padding: 0 8px;
+}
+
+/* ============================================================================
+   STATIONS LIST - Lista stanowisk
+   ============================================================================ */
+
+.stations-list {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.station-item {
+    background: white;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    overflow: hidden;
+    transition: box-shadow 0.2s;
+}
+
+.station-item:hover {
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+}
+
+.station-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 20px;
+    background: var(--bg-gray);
+    border-bottom: 1px solid var(--border-color);
+}
+
+.station-title-group {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+}
+
+.station-emoji {
+    font-size: 36px;
+}
+
+.station-title-group h4 {
+    font-size: 1.125rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin: 0 0 6px 0;
+}
+
+.station-stats-inline {
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+}
+
+.priority-count {
+    color: var(--danger-color);
+    font-weight: 500;
+}
+
+.btn-link-station {
+    padding: 8px 16px;
+    background: white;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    font-size: 0.875rem;
+    color: var(--text-primary);
+    text-decoration: none;
+    transition: all 0.2s;
+    display: inline-flex;
+    align-items: center;
+}
+
+.btn-link-station:hover {
+    background: var(--text-primary);
+    color: white;
+    border-color: var(--text-primary);
+}
+
+.station-content {
+    padding: 20px;
+}
+
+/* Metryki stanowiska */
+
+.station-metrics {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 16px;
+    margin-bottom: 20px;
+}
+
+.metric-item {
+    text-align: center;
+    padding: 16px;
+    background: var(--bg-gray);
+    border-radius: 6px;
+}
+
+.metric-label {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 6px;
+}
+
+.metric-value {
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: var(--text-primary);
+}
+
+/* Podgląd produktów */
+
+.products-preview {
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    overflow: hidden;
+}
+
+.preview-title {
+    padding: 12px 16px;
+    background: var(--bg-gray);
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    border-bottom: 1px solid var(--border-color);
+}
+
+.preview-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.preview-table tr {
+    border-bottom: 1px solid var(--border-color);
+    cursor: pointer;
+    transition: background 0.15s;
+}
+
+.preview-table tr:last-child {
+    border-bottom: none;
+}
+
+.preview-table tr:hover {
+    background: var(--bg-gray);
+}
+
+.preview-table td {
+    padding: 12px 16px;
+    font-size: 0.875rem;
+}
+
+.td-priority {
+    width: 80px;
+}
+
+.td-id {
+    width: 120px;
+    font-weight: 600;
+    color: var(--primary-color);
+}
+
+.td-name {
+    color: var(--text-primary);
+}
+
+.td-deadline {
+    width: 100px;
+    text-align: right;
+}
+
+.priority-value {
+    display: inline-block;
+    padding: 4px 10px;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    font-weight: 700;
+}
+
+.priority-value.priority-high {
+    background: #fef2f2;
+    color: var(--danger-color);
+}
+
+.priority-value.priority-normal {
+    background: #fffbeb;
+    color: var(--warning-color);
+}
+
+.priority-value.priority-low {
+    background: #f3f4f6;
+    color: var(--text-muted);
+}
+
+.deadline-text {
+    font-size: 0.875rem;
+    font-weight: 500;
+}
+
+.deadline-text.overdue {
+    color: var(--danger-color);
+}
+
+.deadline-text.urgent {
+    color: #ea580c;
+}
+
+.deadline-text.warning {
+    color: var(--warning-color);
+}
+
+.preview-footer {
+    padding: 12px 16px;
+    background: var(--bg-gray);
+    border-top: 1px solid var(--border-color);
+    text-align: center;
+}
+
+.btn-show-more {
+    padding: 8px 16px;
+    background: white;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.btn-show-more:hover {
+    background: var(--text-primary);
+    color: white;
+    border-color: var(--text-primary);
+}
+
+/* Stan pusty */
+
+.empty-state {
+    text-align: center;
+    padding: 40px;
+    color: var(--text-muted);
+    font-size: 0.875rem;
+}
+
+.empty-state i {
+    font-size: 32px;
+    color: var(--success-color);
+    margin-bottom: 8px;
+}
+
+/* ============================================================================
+   PRIORITY SECTION - Produkty priorytetowe
+   ============================================================================ */
+
+.priority-section {
+    background: white;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 20px;
+}
+
+.priority-badge {
+    padding: 6px 12px;
+    background: #fef2f2;
+    color: var(--danger-color);
+    border-radius: 6px;
+    font-size: 0.75rem;
+    font-weight: 600;
+}
+
+.priority-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 16px;
+}
+
+.priority-table thead {
+    background: var(--bg-gray);
+}
+
+.priority-table thead th {
+    padding: 12px 16px;
+    text-align: left;
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    border-bottom: 2px solid var(--border-color);
+}
+
+.priority-table tbody tr {
+    border-bottom: 1px solid var(--border-color);
+    transition: background 0.15s;
+}
+
+.priority-table tbody tr:hover {
+    background: var(--bg-gray);
+}
+
+.priority-table tbody td {
+    padding: 14px 16px;
+    font-size: 0.875rem;
+    color: var(--text-primary);
+    vertical-align: middle;
+}
+
+.station-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.station-emoji-small {
+    font-size: 16px;
+}
+
+.btn-icon {
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    background: white;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: all 0.2s;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    margin-right: 6px;
+}
+
+.btn-icon:hover {
+    background: var(--text-primary);
+    color: white;
+    border-color: var(--text-primary);
+}
+
+.text-muted {
+    color: var(--text-muted);
+}
+
+/* ============================================================================
+   RESPONSIVE
+   ============================================================================ */
+
+@media (max-width: 1024px) {
+    .workflow-track {
+        overflow-x: auto;
+    }
+
+    .workflow-item {
+        min-width: 110px;
+    }
+
+    .station-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 16px;
+    }
+
+    .btn-link-station {
+        width: 100%;
+        justify-content: center;
+    }
+}
+
+@media (max-width: 768px) {
+    .priority-table {
+        font-size: 0.8125rem;
+    }
+
+    .priority-table thead th,
+    .priority-table tbody td {
+        padding: 10px 12px;
+    }
+
+    .station-metrics {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* ============================================================================
+   UTILITIES
+   ============================================================================ */
+
+.ms-1 {
+    margin-left: 0.25rem;
+}
+
+.me-2 {
+    margin-right: 0.5rem;
+}

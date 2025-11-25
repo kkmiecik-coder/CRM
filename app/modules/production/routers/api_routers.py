@@ -383,7 +383,10 @@ def chart_data():
         # Mapowanie statusów na stanowiska dla zakończonych zadań
         station_completion_mapping = {
             'cutting': 'cutting_completed_at',
-            'assembly': 'assembly_completed_at', 
+            'assembly': 'assembly_completed_at',
+            'gluing': 'gluing_completed_at',
+            'formatting': 'formatting_completed_at',
+            'finishing': 'finishing_completed_at',
             'packaging': 'packaging_completed_at'
         }
         
@@ -399,10 +402,34 @@ def chart_data():
                     'fill': True
                 },
                 {
-                    'label': 'Składanie', 
+                    'label': 'Składanie',
                     'data': [],
                     'borderColor': '#007bff',
                     'backgroundColor': 'rgba(0, 123, 255, 0.1)',
+                    'tension': 0.4,
+                    'fill': True
+                },
+                {
+                    'label': 'Sklejanie',
+                    'data': [],
+                    'borderColor': '#9c27b0',
+                    'backgroundColor': 'rgba(156, 39, 176, 0.1)',
+                    'tension': 0.4,
+                    'fill': True
+                },
+                {
+                    'label': 'Formatowanie',
+                    'data': [],
+                    'borderColor': '#ff5722',
+                    'backgroundColor': 'rgba(255, 87, 34, 0.1)',
+                    'tension': 0.4,
+                    'fill': True
+                },
+                {
+                    'label': 'Wykańczanie',
+                    'data': [],
+                    'borderColor': '#00bcd4',
+                    'backgroundColor': 'rgba(0, 188, 212, 0.1)',
                     'tension': 0.4,
                     'fill': True
                 },
@@ -427,10 +454,15 @@ def chart_data():
         
         # Pobierz dane wydajności dla każdego stanowiska
         daily_data = {}
-        
+
         for station, completion_field in station_completion_mapping.items():
-            completion_attr = getattr(ProductionItem, completion_field)
-            
+            # TYMCZASOWE: Sprawdź czy pole istnieje (gluing/formatting/finishing_completed_at nie istnieją jeszcze)
+            try:
+                completion_attr = getattr(ProductionItem, completion_field)
+            except AttributeError:
+                # Pole nie istnieje - pomiń to stanowisko (będzie 0 na wykresie)
+                continue
+
             # Zapytanie o sumę objętości per dzień dla stanowiska
             daily_volumes = db.session.query(
                 func.date(completion_attr).label('completion_date'),
@@ -444,13 +476,16 @@ def chart_data():
             ).group_by(
                 func.date(completion_attr)
             ).all()
-            
+
             # Wypełnij dane dla stanowiska
             for completion_date, total_volume in daily_volumes:
                 if completion_date not in daily_data:
                     daily_data[completion_date] = {
                         'cutting': 0.0,
                         'assembly': 0.0,
+                        'gluing': 0.0,
+                        'formatting': 0.0,
+                        'finishing': 0.0,
                         'packaging': 0.0
                     }
                 daily_data[completion_date][station] = float(total_volume or 0)
@@ -462,27 +497,36 @@ def chart_data():
             while current_date <= end_date:
                 label = current_date.strftime('%Y-%m-%d')
                 chart_data['labels'].append(label)
-                
+
                 if current_date not in daily_data:
-                    daily_data[current_date] = {'cutting': 0.0, 'assembly': 0.0, 'packaging': 0.0}
-                
+                    daily_data[current_date] = {
+                        'cutting': 0.0, 'assembly': 0.0, 'gluing': 0.0,
+                        'formatting': 0.0, 'finishing': 0.0, 'packaging': 0.0
+                    }
+
                 chart_data['datasets'][0]['data'].append(daily_data[current_date]['cutting'])
                 chart_data['datasets'][1]['data'].append(daily_data[current_date]['assembly'])
-                chart_data['datasets'][2]['data'].append(daily_data[current_date]['packaging'])
+                chart_data['datasets'][2]['data'].append(daily_data[current_date]['gluing'])
+                chart_data['datasets'][3]['data'].append(daily_data[current_date]['formatting'])
+                chart_data['datasets'][4]['data'].append(daily_data[current_date]['finishing'])
+                chart_data['datasets'][5]['data'].append(daily_data[current_date]['packaging'])
                 current_date += timedelta(days=1)
                 
         elif aggregation_type == 'weekly':
             # Agregacja tygodniowa (90 dni)
             from collections import defaultdict
-            weekly_data = defaultdict(lambda: {'cutting': 0.0, 'assembly': 0.0, 'packaging': 0.0})
-            
+            weekly_data = defaultdict(lambda: {
+                'cutting': 0.0, 'assembly': 0.0, 'gluing': 0.0,
+                'formatting': 0.0, 'finishing': 0.0, 'packaging': 0.0
+            })
+
             # Grupuj dane dzienne po tygodniach
             for day_date, volumes in daily_data.items():
                 # Oblicz początek tygodnia (poniedziałek)
                 week_start = day_date - timedelta(days=day_date.weekday())
-                for station in ['cutting', 'assembly', 'packaging']:
+                for station in ['cutting', 'assembly', 'gluing', 'formatting', 'finishing', 'packaging']:
                     weekly_data[week_start][station] += volumes[station]
-            
+
             # Generuj etykiety tygodniowe
             current_date = start_date - timedelta(days=start_date.weekday())
             while current_date <= end_date:
@@ -490,31 +534,40 @@ def chart_data():
                 chart_data['labels'].append(week_label)
                 chart_data['datasets'][0]['data'].append(weekly_data[current_date]['cutting'])
                 chart_data['datasets'][1]['data'].append(weekly_data[current_date]['assembly'])
-                chart_data['datasets'][2]['data'].append(weekly_data[current_date]['packaging'])
+                chart_data['datasets'][2]['data'].append(weekly_data[current_date]['gluing'])
+                chart_data['datasets'][3]['data'].append(weekly_data[current_date]['formatting'])
+                chart_data['datasets'][4]['data'].append(weekly_data[current_date]['finishing'])
+                chart_data['datasets'][5]['data'].append(weekly_data[current_date]['packaging'])
                 current_date += timedelta(weeks=1)
                 
         elif aggregation_type == 'monthly':
             # Agregacja miesięczna (180, 365 dni)
             from collections import defaultdict
-            monthly_data = defaultdict(lambda: {'cutting': 0.0, 'assembly': 0.0, 'packaging': 0.0})
-            
+            monthly_data = defaultdict(lambda: {
+                'cutting': 0.0, 'assembly': 0.0, 'gluing': 0.0,
+                'formatting': 0.0, 'finishing': 0.0, 'packaging': 0.0
+            })
+
             # Grupuj dane dzienne po miesiącach
             for day_date, volumes in daily_data.items():
                 month_start = date(day_date.year, day_date.month, 1)
-                for station in ['cutting', 'assembly', 'packaging']:
+                for station in ['cutting', 'assembly', 'gluing', 'formatting', 'finishing', 'packaging']:
                     monthly_data[month_start][station] += volumes[station]
-            
+
             # Generuj etykiety miesięczne
             current_month = date(start_date.year, start_date.month, 1)
             end_month = date(end_date.year, end_date.month, 1)
-            
+
             while current_month <= end_month:
                 month_label = current_month.strftime('%Y-%m-01')
                 chart_data['labels'].append(month_label)
                 chart_data['datasets'][0]['data'].append(monthly_data[current_month]['cutting'])
                 chart_data['datasets'][1]['data'].append(monthly_data[current_month]['assembly'])
-                chart_data['datasets'][2]['data'].append(monthly_data[current_month]['packaging'])
-                
+                chart_data['datasets'][2]['data'].append(monthly_data[current_month]['gluing'])
+                chart_data['datasets'][3]['data'].append(monthly_data[current_month]['formatting'])
+                chart_data['datasets'][4]['data'].append(monthly_data[current_month]['finishing'])
+                chart_data['datasets'][5]['data'].append(monthly_data[current_month]['packaging'])
+
                 # Przejdź do następnego miesiąca
                 if current_month.month == 12:
                     current_month = date(current_month.year + 1, 1, 1)
@@ -525,7 +578,10 @@ def chart_data():
         total_volumes = {
             'cutting': sum(chart_data['datasets'][0]['data']),
             'assembly': sum(chart_data['datasets'][1]['data']),
-            'packaging': sum(chart_data['datasets'][2]['data'])
+            'gluing': sum(chart_data['datasets'][2]['data']),
+            'formatting': sum(chart_data['datasets'][3]['data']),
+            'finishing': sum(chart_data['datasets'][4]['data']),
+            'packaging': sum(chart_data['datasets'][5]['data'])
         }
         
         # ZMIENIONE: avg per okres (nie tylko dzienny)
@@ -1912,14 +1968,20 @@ def dashboard_tab_content():
         # Statystyki stacji - POPRAWIONA STRUKTURA dla template
         cutting_count = ProductionItem.query.filter(ProductionItem.current_status == 'czeka_na_wyciecie').count()
         assembly_count = ProductionItem.query.filter(ProductionItem.current_status == 'czeka_na_skladanie').count()
+        gluing_count = ProductionItem.query.filter(ProductionItem.current_status == 'czeka_na_sklejanie').count()
+        formatting_count = ProductionItem.query.filter(ProductionItem.current_status == 'czeka_na_formatowanie').count()
+        finishing_count = ProductionItem.query.filter(ProductionItem.current_status == 'czeka_na_wykanczanie').count()
         packaging_count = ProductionItem.query.filter(ProductionItem.current_status == 'czeka_na_pakowanie').count()
-        
+
         # Oblicz dzisiejsze m3 dla każdej stacji
         today_start = datetime.combine(today, datetime.min.time())
         today_end = datetime.combine(today, datetime.max.time())
-        
+
         cutting_m3_today = 0.0
         assembly_m3_today = 0.0
+        gluing_m3_today = 0.0
+        formatting_m3_today = 0.0
+        finishing_m3_today = 0.0
         packaging_m3_today = 0.0
         
         try:
@@ -1930,7 +1992,7 @@ def dashboard_tab_content():
                 ProductionItem.cutting_completed_at >= today_start,
                 ProductionItem.cutting_completed_at <= today_end
             ).scalar() or 0.0
-            
+
             # M3 składanych dzisiaj
             assembly_m3_today = db.session.query(
                 db.func.coalesce(db.func.sum(ProductionItem.volume_m3), 0)
@@ -1938,7 +2000,40 @@ def dashboard_tab_content():
                 ProductionItem.assembly_completed_at >= today_start,
                 ProductionItem.assembly_completed_at <= today_end
             ).scalar() or 0.0
-            
+
+            # M3 sklejanych dzisiaj - TYMCZASOWE: pole nie istnieje jeszcze
+            try:
+                gluing_m3_today = db.session.query(
+                    db.func.coalesce(db.func.sum(ProductionItem.volume_m3), 0)
+                ).filter(
+                    ProductionItem.gluing_completed_at >= today_start,
+                    ProductionItem.gluing_completed_at <= today_end
+                ).scalar() or 0.0
+            except AttributeError:
+                gluing_m3_today = 0.0
+
+            # M3 formatowanych dzisiaj - TYMCZASOWE: pole nie istnieje jeszcze
+            try:
+                formatting_m3_today = db.session.query(
+                    db.func.coalesce(db.func.sum(ProductionItem.volume_m3), 0)
+                ).filter(
+                    ProductionItem.formatting_completed_at >= today_start,
+                    ProductionItem.formatting_completed_at <= today_end
+                ).scalar() or 0.0
+            except AttributeError:
+                formatting_m3_today = 0.0
+
+            # M3 wykańczanych dzisiaj - TYMCZASOWE: pole nie istnieje jeszcze
+            try:
+                finishing_m3_today = db.session.query(
+                    db.func.coalesce(db.func.sum(ProductionItem.volume_m3), 0)
+                ).filter(
+                    ProductionItem.finishing_completed_at >= today_start,
+                    ProductionItem.finishing_completed_at <= today_end
+                ).scalar() or 0.0
+            except AttributeError:
+                finishing_m3_today = 0.0
+
             # M3 pakowanych dzisiaj
             packaging_m3_today = db.session.query(
                 db.func.coalesce(db.func.sum(ProductionItem.volume_m3), 0)
@@ -1946,7 +2041,7 @@ def dashboard_tab_content():
                 ProductionItem.packaging_completed_at >= today_start,
                 ProductionItem.packaging_completed_at <= today_end
             ).scalar() or 0.0
-            
+
         except Exception as volume_error:
             logger.warning("Nie udało się pobrać volume_m3 dla stacji", extra={'error': str(volume_error)})
         
@@ -1964,6 +2059,24 @@ def dashboard_tab_content():
                 'status': 'active' if assembly_count > 0 else 'idle',
                 'status_class': 'station-active' if assembly_count > 0 else 'station-idle'
             },
+            'gluing': {
+                'pending_count': gluing_count,
+                'today_m3': float(gluing_m3_today),
+                'status': 'active' if gluing_count > 0 else 'idle',
+                'status_class': 'station-active' if gluing_count > 0 else 'station-idle'
+            },
+            'formatting': {
+                'pending_count': formatting_count,
+                'today_m3': float(formatting_m3_today),
+                'status': 'active' if formatting_count > 0 else 'idle',
+                'status_class': 'station-active' if formatting_count > 0 else 'station-idle'
+            },
+            'finishing': {
+                'pending_count': finishing_count,
+                'today_m3': float(finishing_m3_today),
+                'status': 'active' if finishing_count > 0 else 'idle',
+                'status_class': 'station-active' if finishing_count > 0 else 'station-idle'
+            },
             'packaging': {
                 'pending_count': packaging_count,
                 'today_m3': float(packaging_m3_today),
@@ -1975,27 +2088,55 @@ def dashboard_tab_content():
         # Dzisiejsze sumy
         today_start = datetime.combine(today, datetime.min.time())
         today_end = datetime.combine(today, datetime.max.time())
-        
-        completed_today = ProductionItem.query.filter(
+
+        # Liczba ukończonych ZAMÓWIEŃ (nie produktów) - unikalne internal_order_number
+        completed_orders_today = db.session.query(
+            db.func.count(db.func.distinct(ProductionItem.internal_order_number))
+        ).filter(
             ProductionItem.current_status == 'spakowane',
             ProductionItem.packaging_completed_at >= today_start,
             ProductionItem.packaging_completed_at <= today_end
-        ).count()
-        
+        ).scalar() or 0
+
+        # Całkowity wolumen ukończonych zamówień
         total_m3_today = 0.0
         try:
             total_m3_today = db.session.query(
                 db.func.coalesce(db.func.sum(ProductionItem.volume_m3), 0)
             ).filter(
+                ProductionItem.current_status == 'spakowane',
                 ProductionItem.packaging_completed_at >= today_start,
                 ProductionItem.packaging_completed_at <= today_end
             ).scalar() or 0.0
         except:
             total_m3_today = 0.0
-        
+
+        # Średni deadline (dni do deadline dla aktywnych produktów)
+        avg_deadline_distance = 0.0
+        try:
+            active_products = ProductionItem.query.filter(
+                ProductionItem.current_status.in_([
+                    'czeka_na_wyciecie', 'czeka_na_skladanie', 'czeka_na_sklejanie',
+                    'czeka_na_formatowanie', 'czeka_na_wykanczanie', 'czeka_na_pakowanie',
+                    'w_realizacji'
+                ]),
+                ProductionItem.deadline_date.isnot(None)
+            ).all()
+
+            if active_products:
+                total_days = sum(
+                    (product.deadline_date.date() - today).days
+                    for product in active_products
+                )
+                avg_deadline_distance = total_days / len(active_products)
+        except Exception as e:
+            print(f"[Dashboard] Błąd obliczania średniego deadline: {e}")
+            avg_deadline_distance = 0.0
+
         dashboard_stats['today_totals'] = {
-            'completed_orders': completed_today,
+            'completed_orders': completed_orders_today,
             'total_m3': float(total_m3_today),
+            'avg_deadline_distance': round(avg_deadline_distance, 1),
             'total_orders': ProductionItem.query.count()
         }
         
@@ -2532,12 +2673,15 @@ def stations_tab_content():
         
         # Dane dla każdego stanowiska
         stations_data = {}
-        stations = ['cutting', 'assembly', 'packaging']
+        stations = ['cutting', 'assembly', 'gluing', 'formatting', 'finishing', 'packaging']
         
         for station in stations:
             status_map = {
                 'cutting': 'czeka_na_wyciecie',
-                'assembly': 'czeka_na_skladanie', 
+                'assembly': 'czeka_na_skladanie',
+                'gluing': 'czeka_na_sklejanie',
+                'formatting': 'czeka_na_formatowanie',
+                'finishing': 'czeka_na_wykanczanie',
                 'packaging': 'czeka_na_pakowanie'
             }
             
@@ -2546,45 +2690,64 @@ def stations_tab_content():
             # Produkty oczekujące na danym stanowisku
             pending_products = ProductionItem.query\
                                            .filter_by(current_status=status)\
-                                           .order_by(ProductionItem.priority_score.desc())\
+                                           .order_by(ProductionItem.priority_rank.asc())\
                                            .limit(20).all()
-            
+
             # Statystyki stanowiska
             total_pending = ProductionItem.query.filter_by(current_status=status).count()
             high_priority = ProductionItem.query.filter(
                 ProductionItem.current_status == status,
-                ProductionItem.priority_score >= 150
+                ProductionItem.priority_rank <= 100
             ).count()
             
             # Dzisiejsze wykonania
             today = date.today()
             today_start = datetime.combine(today, datetime.min.time())
-            
+
+            # TYMCZASOWE: Pola gluing/formatting/finishing_completed_at nie istnieją jeszcze w modelu
+            # Zostaną dodane w Zadaniu 2 (Backend Integration)
             completed_field_map = {
-                'cutting': ProductionItem.cutting_completed_at,
-                'assembly': ProductionItem.assembly_completed_at,
-                'packaging': ProductionItem.packaging_completed_at
+                'cutting': 'cutting_completed_at',
+                'assembly': 'assembly_completed_at',
+                'gluing': 'gluing_completed_at',
+                'formatting': 'formatting_completed_at',
+                'finishing': 'finishing_completed_at',
+                'packaging': 'packaging_completed_at'
             }
-            
-            completed_field = completed_field_map[station]
-            today_completed = ProductionItem.query.filter(
-                completed_field >= today_start
-            ).count()
-            
-            today_volume = db.session.query(db.func.sum(ProductionItem.volume_m3))\
-                                   .filter(completed_field >= today_start)\
-                                   .scalar() or 0.0
+
+            field_name = completed_field_map[station]
+
+            # Sprawdź czy pole istnieje w modelu
+            try:
+                completed_field = getattr(ProductionItem, field_name)
+                today_completed = ProductionItem.query.filter(
+                    completed_field >= today_start
+                ).count()
+
+                today_volume = db.session.query(db.func.sum(ProductionItem.volume_m3))\
+                                       .filter(completed_field >= today_start)\
+                                       .scalar() or 0.0
+            except AttributeError:
+                # Pole nie istnieje jeszcze w modelu - zwróć 0
+                today_completed = 0
+                today_volume = 0.0
             
             # POPRAWIONE: twórz słowniki zamiast obiektów z .days_diff
             stations_data[station] = {
                 'name': {
                     'cutting': 'Wycinanie',
                     'assembly': 'Składanie',
+                    'gluing': 'Sklejanie',
+                    'formatting': 'Formatowanie',
+                    'finishing': 'Wykańczanie',
                     'packaging': 'Pakowanie'
                 }[station],
                 'icon': {
                     'cutting': '🪚',
-                    'assembly': '🔧', 
+                    'assembly': '🔧',
+                    'gluing': '🧲',
+                    'formatting': '📐',
+                    'finishing': '✨',
                     'packaging': '📦'
                 }[station],
                 'pending_products': [
@@ -2592,8 +2755,9 @@ def stations_tab_content():
                         'short_id': p.short_product_id,
                         'product_name': p.original_product_name[:50] + '...' if len(p.original_product_name or '') > 50 else (p.original_product_name or ''),
                         'priority_rank': p.priority_rank,
+                        'priority_score': p.priority_rank,  # Alias dla kompatybilności z template
                         'deadline_date': p.deadline_date.isoformat() if p.deadline_date else None,
-                        'days_remaining': (p.deadline_date - today).days if p.deadline_date else 0,  # DODANO: days_remaining
+                        'days_remaining': (p.deadline_date - today).days if p.deadline_date else 0,
                         'volume_m3': float(p.volume_m3 or 0),
                         'internal_order_number': p.internal_order_number
                     }
@@ -3382,7 +3546,37 @@ def products_filtered():
                 # Kontakt
                 'client_email': getattr(item, 'client_email', ''),
                 'client_phone': getattr(item, 'client_phone', ''),
-                'product_sequence_in_order': getattr(item, 'product_sequence_in_order', None)
+                'product_sequence_in_order': getattr(item, 'product_sequence_in_order', None),
+                # Oblicz całkowitą liczbę produktów w zamówieniu
+                'total_products_in_order': db.session.query(db.func.count(ProductionItem.id)).filter(
+                    ProductionItem.internal_order_number == item.internal_order_number
+                ).scalar() if item.internal_order_number else None,
+
+                # Przepływ produkcji - wszystkie 6 stanowisk
+                # Wycinanie
+                'cutting_started_at': getattr(item, 'cutting_started_at', None),
+                'cutting_completed_at': getattr(item, 'cutting_completed_at', None),
+                'cutting_duration_minutes': getattr(item, 'cutting_duration_minutes', None),
+                # Składanie
+                'assembly_started_at': getattr(item, 'assembly_started_at', None),
+                'assembly_completed_at': getattr(item, 'assembly_completed_at', None),
+                'assembly_duration_minutes': getattr(item, 'assembly_duration_minutes', None),
+                # Sklejanie
+                'gluing_started_at': getattr(item, 'gluing_started_at', None),
+                'gluing_completed_at': getattr(item, 'gluing_completed_at', None),
+                'gluing_duration_minutes': getattr(item, 'gluing_duration_minutes', None),
+                # Formatowanie
+                'formatting_started_at': getattr(item, 'formatting_started_at', None),
+                'formatting_completed_at': getattr(item, 'formatting_completed_at', None),
+                'formatting_duration_minutes': getattr(item, 'formatting_duration_minutes', None),
+                # Wykańczanie
+                'finishing_started_at': getattr(item, 'finishing_started_at', None),
+                'finishing_completed_at': getattr(item, 'finishing_completed_at', None),
+                'finishing_duration_minutes': getattr(item, 'finishing_duration_minutes', None),
+                # Pakowanie
+                'packaging_started_at': getattr(item, 'packaging_started_at', None),
+                'packaging_completed_at': getattr(item, 'packaging_completed_at', None),
+                'packaging_duration_minutes': getattr(item, 'packaging_duration_minutes', None)
             }
             
             # Konwertuj daty na ISO string
@@ -3390,7 +3584,18 @@ def products_filtered():
                 product_data['order_date'] = product_data['order_date'].isoformat()
             if product_data['created_at'] and hasattr(product_data['created_at'], 'isoformat'):
                 product_data['created_at'] = product_data['created_at'].isoformat()
-            
+
+            # Konwertuj daty stanowisk na ISO string
+            station_fields = ['cutting', 'assembly', 'gluing', 'formatting', 'finishing', 'packaging']
+            for station in station_fields:
+                started_field = f'{station}_started_at'
+                completed_field = f'{station}_completed_at'
+
+                if product_data.get(started_field) and hasattr(product_data[started_field], 'isoformat'):
+                    product_data[started_field] = product_data[started_field].isoformat()
+                if product_data.get(completed_field) and hasattr(product_data[completed_field], 'isoformat'):
+                    product_data[completed_field] = product_data[completed_field].isoformat()
+
             products_data.append(product_data)
         
         # ZMIANA: Statystyki oparte na priority_rank
@@ -4132,23 +4337,62 @@ def dashboard_data():
         assembly_count = ProductionItem.query.filter(
             ProductionItem.current_status == 'czeka_na_skladanie'
         ).count()
-        
+
         stations_data.append({
-            'code': 'assembly', 
+            'code': 'assembly',
             'name': 'Składanie',
             'status': 'active' if assembly_count > 0 else 'idle',
             'status_class': 'station-active' if assembly_count > 0 else 'station-idle',
             'active_orders': assembly_count
         })
-        
+
+        # Stacja sklejania
+        gluing_count = ProductionItem.query.filter(
+            ProductionItem.current_status == 'czeka_na_sklejanie'
+        ).count()
+
+        stations_data.append({
+            'code': 'gluing',
+            'name': 'Sklejanie',
+            'status': 'active' if gluing_count > 0 else 'idle',
+            'status_class': 'station-active' if gluing_count > 0 else 'station-idle',
+            'active_orders': gluing_count
+        })
+
+        # Stacja formatowania
+        formatting_count = ProductionItem.query.filter(
+            ProductionItem.current_status == 'czeka_na_formatowanie'
+        ).count()
+
+        stations_data.append({
+            'code': 'formatting',
+            'name': 'Formatowanie',
+            'status': 'active' if formatting_count > 0 else 'idle',
+            'status_class': 'station-active' if formatting_count > 0 else 'station-idle',
+            'active_orders': formatting_count
+        })
+
+        # Stacja wykańczania
+        finishing_count = ProductionItem.query.filter(
+            ProductionItem.current_status == 'czeka_na_wykanczanie'
+        ).count()
+
+        stations_data.append({
+            'code': 'finishing',
+            'name': 'Wykańczanie',
+            'status': 'active' if finishing_count > 0 else 'idle',
+            'status_class': 'station-active' if finishing_count > 0 else 'station-idle',
+            'active_orders': finishing_count
+        })
+
         # Stacja pakowania
         packaging_count = ProductionItem.query.filter(
             ProductionItem.current_status == 'czeka_na_pakowanie'
         ).count()
-        
+
         stations_data.append({
             'code': 'packaging',
-            'name': 'Pakowanie', 
+            'name': 'Pakowanie',
             'status': 'active' if packaging_count > 0 else 'idle',
             'status_class': 'station-active' if packaging_count > 0 else 'station-idle',
             'active_orders': packaging_count

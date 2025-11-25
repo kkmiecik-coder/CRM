@@ -9,7 +9,7 @@
 
     <!-- CSS -->
     <link rel="stylesheet" href="{{ url_for('production.static', filename='css/stations/station-shared.css') }}">
-    <link rel="stylesheet" href="{{ url_for('production.static', filename='css/stations/station-cutting.css') }}">
+    <link rel="stylesheet" href="{{ url_for('production.static', filename='css/stations/station-formatting.css') }}">
 
     <!-- Favicon -->
     <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='images/favicon.png') }}">
@@ -24,7 +24,7 @@
             <img src="{{ url_for('static', filename='images/logo.svg') }}"
                  class="station-logo logo-light"
                  alt="WoodPower">
-            <h1 class="station-title">Stanowisko wycinania</h1>
+            <h1 class="station-title">Stanowisko formatowania</h1>
             <div class="header-buttons">
                 <button class="theme-toggle-btn" id="theme-toggle">
                     <svg class="theme-icon sun-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -126,8 +126,8 @@
             <!-- EMPTY STATE -->
             <div class="empty-state">
                 <div class="empty-state-icon">✅</div>
-                <h2>Brak zamówień do wycięcia</h2>
-                <p>Świetna robota! Wszystkie zamówienia zostały wycięte.</p>
+                <h2>Brak zamówień do formatowania</h2>
+                <p>Świetna robota! Wszystkie zamówienia zostały sformatowane.</p>
             </div>
             {% else %}
             <!-- ORDER CARDS -->
@@ -219,7 +219,7 @@
 
                 <!-- ORDER ACTION (przycisk na dole) -->
                 <div class="order-action">
-                    <button class="btn-complete" data-action="complete" disabled>ZAKOŃCZ WYCIĘCIE</button>
+                    <button class="btn-complete" data-action="complete" disabled>ZAKOŃCZ</button>
                 </div>
             </div>
             {% endfor %}
@@ -246,14 +246,14 @@
     <!-- SCRIPTS -->
     <script>
         window.STATION_CONFIG = {
-            stationCode: 'cutting',
-            stationName: 'Wycinanie',
+            stationCode: 'formatting',
+            stationName: 'Formatowanie',
             refreshInterval: {{ config['refresh_interval'] }},
             debugMode: {{ 'true' if config['debug_frontend'] else 'false' }}
         };
     </script>
     <script src="{{ url_for('production.static', filename='js/stations/station-common.js') }}"></script>
-    <script src="{{ url_for('production.static', filename='js/stations/station-cutting.js') }}"></script>
+    <script src="{{ url_for('production.static', filename='js/stations/station-formatting.js') }}"></script>
     <script src="{{ url_for('production.static', filename='js/stations/station-attachments.js') }}"></script>
 </body>
 </html>

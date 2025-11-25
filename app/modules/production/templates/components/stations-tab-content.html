@@ -1,295 +1,282 @@
 <!-- stations-tab-content.html -->
-<!-- Komponent zawartości taba Stanowiska -->
+<!-- Minimalistyczna zakładka Stanowiska -->
 
-<!-- Przegląd stanowisk -->
-<div class="stations-overview">
-    <div class="row g-4 mb-4">
+<div class="stations-container">
+    <!-- Przepływ produkcji - minimalistyczny -->
+    <div class="workflow-section">
+        <div class="section-header">
+            <h3>Przepływ produkcji</h3>
+            <button class="btn-refresh" onclick="refreshWorkflowData()">
+                <i class="fas fa-sync-alt"></i> Odśwież
+            </button>
+        </div>
+
+        <div class="workflow-track">
+            {% for station_key, station in stations_data.items() %}
+            <div class="workflow-item" onclick="navigateToStation('{{ station_key }}')">
+                <div class="workflow-icon">{{ station.icon }}</div>
+                <div class="workflow-name">{{ station.name }}</div>
+                <div class="workflow-count">
+                    {{ station.stats.total_pending }}
+                    {% if station.stats.high_priority > 0 %}
+                    <span class="high-priority-dot" title="{{ station.stats.high_priority }} priorytetowych"></span>
+                    {% endif %}
+                </div>
+                {% if not loop.last %}
+                <div class="workflow-separator">→</div>
+                {% endif %}
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+
+    <!-- Lista stanowisk -->
+    <div class="stations-list">
         {% for station_key, station in stations_data.items() %}
-        <div class="col-lg-4">
-            <div class="station-overview-card station-{{ station_key }}">
-                <div class="station-header">
-                    <div class="station-icon-large">{{ station.icon }}</div>
-                    <div class="station-title">
+        <div class="station-item">
+            <div class="station-header">
+                <div class="station-title-group">
+                    <span class="station-emoji">{{ station.icon }}</span>
+                    <div>
                         <h4>{{ station.name }}</h4>
-                        <div class="station-quick-stats">
-                            <span class="stat">{{ station.stats.total_pending }} oczekuje</span>
-                            <span class="stat">{{ station.stats.high_priority }} priorytet</span>
+                        <div class="station-stats-inline">
+                            {{ station.stats.total_pending }} oczekuje
+                            {% if station.stats.high_priority > 0 %}
+                            <span class="priority-count">• {{ station.stats.high_priority }} pilne</span>
+                            {% endif %}
                         </div>
                     </div>
                 </div>
-                
-                <div class="station-stats-grid">
-                    <div class="stat-item">
-                        <div class="stat-value">{{ station.stats.today_completed }}</div>
-                        <div class="stat-label">Dzisiaj ukończono</div>
-                    </div>
-                    <div class="stat-item">
-                        <div class="stat-value">{{ "%.2f"|format(station.stats.today_volume) }}</div>
-                        <div class="stat-label">m³ dzisiaj</div>
-                    </div>
-                </div>
-                
-                <div class="station-actions">
-                    <a href="{{ url_for('production.production_stations.' + station_key + '_station') }}" 
-                       class="btn btn-primary btn-sm">
-                        <i class="fas fa-external-link-alt me-1"></i>
-                        Przejdź do stanowiska
-                    </a>
-                    <button class="btn btn-outline-secondary btn-sm" 
-                            onclick="refreshStationData('{{ station_key }}')">
-                        <i class="fas fa-sync-alt"></i>
-                    </button>
-                </div>
+                <a href="{{ url_for('production.production_stations.' + station_key + '_station') }}"
+                   class="btn-link-station">
+                    Przejdź do stanowiska <i class="fas fa-arrow-right ms-1"></i>
+                </a>
             </div>
-        </div>
-        {% endfor %}
-    </div>
-</div>
 
-<!-- Szczegółowy widok stanowisk -->
-<div class="stations-details">
-    {% for station_key, station in stations_data.items() %}
-    <div class="widget station-detail-widget mb-4">
-        <div class="widget-header">
-            <h4>
-                {{ station.icon }} {{ station.name }} - Oczekujące produkty
-            </h4>
-            <div class="station-controls">
-                <span class="badge bg-primary me-2">
-                    {{ station.stats.total_pending }} produktów
-                </span>
-                <span class="badge bg-warning me-2">
-                    {{ station.stats.high_priority }} wysoki priorytet
-                </span>
-                <button class="btn btn-outline-primary btn-sm" 
-                        onclick="viewFullStationList('{{ station_key }}')">
-                    <i class="fas fa-list me-1"></i>Pełna lista
-                </button>
-            </div>
-        </div>
-        
-        <div class="widget-content">
-            {% if station.pending_products %}
-            <div class="table-responsive">
-                <table class="table table-sm table-hover">
-                    <thead>
-                        <tr>
-                            <th>Priorytet</th>
-                            <th>ID Produktu</th>
-                            <th>Nazwa produktu</th>
-                            <th>Deadline</th>
-                            <th>Objętość</th>
-                            <th>Akcje</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for product in station.pending_products[:10] %}
-                        <tr>
-                            <td>
-                                <span class="priority-badge priority-{{ 'high' if product.priority_score >= 150 else 'normal' if product.priority_score >= 100 else 'low' }}">
+            <div class="station-content">
+                <div class="station-metrics">
+                    <div class="metric-item">
+                        <div class="metric-label">Ukończono dziś</div>
+                        <div class="metric-value">{{ station.stats.today_completed }}</div>
+                    </div>
+                    <div class="metric-item">
+                        <div class="metric-label">Objętość dziś</div>
+                        <div class="metric-value">{{ "%.2f"|format(station.stats.today_volume) }} m³</div>
+                    </div>
+                </div>
+
+                {% if station.pending_products and station.pending_products|length > 0 %}
+                <div class="products-preview">
+                    <div class="preview-title">Następne w kolejce:</div>
+                    <table class="preview-table">
+                        {% for product in station.pending_products[:5] %}
+                        <tr onclick="viewProductDetails('{{ product.short_id }}')">
+                            <td class="td-priority">
+                                <span class="priority-value priority-{{ 'high' if product.priority_score >= 150 else 'normal' if product.priority_score >= 100 else 'low' }}">
                                     {{ product.priority_score }}
                                 </span>
                             </td>
-                            <td>
-                                <strong>{{ product.short_id }}</strong>
-                                <br><small class="text-muted">{{ product.internal_order_number }}</small>
-                            </td>
-                            <td>
-                                <div class="product-name-cell">{{ product.product_name }}</div>
-                            </td>
-                            <td>
+                            <td class="td-id">{{ product.short_id }}</td>
+                            <td class="td-name">{{ product.product_name|truncate(50, True) }}</td>
+                            <td class="td-deadline">
                                 {% if product.deadline_date %}
                                     {% set days_remaining = product.days_remaining %}
-                                    <span class="deadline-badge {% if days_remaining < 0 %}overdue{% elif days_remaining <= 1 %}urgent{% elif days_remaining <= 3 %}warning{% else %}normal{% endif %}">
+                                    <span class="deadline-text {% if days_remaining < 0 %}overdue{% elif days_remaining <= 1 %}urgent{% elif days_remaining <= 3 %}warning{% endif %}">
                                         {% if days_remaining < 0 %}
-                                            {{ days_remaining|abs }} dni temu
+                                            {{ days_remaining|abs }}d temu
                                         {% elif days_remaining == 0 %}
                                             Dziś
                                         {% elif days_remaining == 1 %}
                                             Jutro
                                         {% else %}
-                                            Za {{ days_remaining }} dni
+                                            {{ days_remaining }}d
                                         {% endif %}
                                     </span>
                                 {% else %}
-                                    <span class="text-muted">Brak terminu</span>
+                                    <span class="text-muted">-</span>
                                 {% endif %}
-                            </td>
-                            <td>
-                                {{ "%.3f"|format(product.volume_m3) }} m³
-                            </td>
-                            <td>
-                                <div class="btn-group btn-group-sm">
-                                    <button class="btn btn-outline-success btn-sm" 
-                                            onclick="startProcessing('{{ station_key }}', '{{ product.short_id }}')"
-                                            title="Rozpocznij przetwarzanie">
-                                        <i class="fas fa-play"></i>
-                                    </button>
-                                    <button class="btn btn-outline-primary btn-sm" 
-                                            onclick="viewProductDetails('{{ product.short_id }}')"
-                                            title="Szczegóły">
-                                        <i class="fas fa-eye"></i>
-                                    </button>
-                                </div>
                             </td>
                         </tr>
                         {% endfor %}
-                    </tbody>
-                </table>
+                    </table>
+                    {% if station.stats.total_pending > 5 %}
+                    <div class="preview-footer">
+                        <button class="btn-show-more" onclick="viewFullStationList('{{ station_key }}')">
+                            Pokaż wszystkie ({{ station.stats.total_pending }})
+                        </button>
+                    </div>
+                    {% endif %}
+                </div>
+                {% else %}
+                <div class="empty-state">
+                    <i class="fas fa-check-circle"></i> Brak oczekujących produktów
+                </div>
+                {% endif %}
             </div>
-            
-            {% if station.pending_products|length > 10 %}
-            <div class="text-center mt-3">
-                <button class="btn btn-outline-primary" onclick="showAllProducts('{{ station_key }}')">
-                    <i class="fas fa-plus me-1"></i>
-                    Pokaż wszystkie {{ station.stats.total_pending }} produktów
-                </button>
-            </div>
-            {% endif %}
-            
-            {% else %}
-            <div class="text-center py-4">
-                <i class="fas fa-check-circle fa-3x text-success mb-3"></i>
-                <h5>Brak oczekujących produktów</h5>
-                <p class="text-muted">Wszystkie produkty zostały przetworzone na tym stanowisku.</p>
-            </div>
-            {% endif %}
         </div>
+        {% endfor %}
     </div>
-    {% endfor %}
-</div>
 
-<!-- Podsumowanie przepływu -->
-<div class="widget workflow-summary-widget">
-    <div class="widget-header">
-        <h4>Przepływ produkcyjny</h4>
-        <button class="btn btn-outline-primary btn-sm" onclick="refreshWorkflowSummary()">
-            <i class="fas fa-sync-alt me-1"></i>Odśwież
-        </button>
-    </div>
-    <div class="widget-content">
-        <div class="workflow-diagram">
-            <div class="workflow-step">
-                <div class="step-icon">🪚</div>
-                <div class="step-name">Wycinanie</div>
-                <div class="step-count">{{ stations_data.cutting.stats.total_pending }}</div>
-                <div class="step-arrow">→</div>
-            </div>
-            <div class="workflow-step">
-                <div class="step-icon">🔧</div>
-                <div class="step-name">Składanie</div>
-                <div class="step-count">{{ stations_data.assembly.stats.total_pending }}</div>
-                <div class="step-arrow">→</div>
-            </div>
-            <div class="workflow-step">
-                <div class="step-icon">📦</div>
-                <div class="step-name">Pakowanie</div>
-                <div class="step-count">{{ stations_data.packaging.stats.total_pending }}</div>
-                <div class="step-arrow">✅</div>
-            </div>
+    <!-- Priorytetowe produkty -->
+    {% set all_priority_products = [] %}
+    {% for station_key, station in stations_data.items() %}
+        {% for product in station.pending_products %}
+            {% if product.priority_score >= 150 %}
+                {% set _ = all_priority_products.append({
+                    'station_key': station_key,
+                    'station_name': station.name,
+                    'station_icon': station.icon,
+                    'product': product
+                }) %}
+            {% endif %}
+        {% endfor %}
+    {% endfor %}
+
+    {% set sorted_priority_products = all_priority_products|sort(attribute='product.priority_score', reverse=True) %}
+
+    {% if sorted_priority_products|length > 0 %}
+    <div class="priority-section">
+        <div class="section-header">
+            <h3><i class="fas fa-exclamation-triangle me-2"></i>Produkty wymagające uwagi</h3>
+            <span class="priority-badge">{{ sorted_priority_products|length }} produktów</span>
         </div>
+
+        <table class="priority-table">
+            <thead>
+                <tr>
+                    <th width="80">Priorytet</th>
+                    <th width="140">Stanowisko</th>
+                    <th width="140">ID Produktu</th>
+                    <th>Nazwa produktu</th>
+                    <th width="120">Deadline</th>
+                    <th width="100">Objętość</th>
+                    <th width="140">Akcje</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in sorted_priority_products[:15] %}
+                <tr>
+                    <td>
+                        <span class="priority-value priority-high">{{ item.product.priority_score }}</span>
+                    </td>
+                    <td>
+                        <span class="station-label">
+                            <span class="station-emoji-small">{{ item.station_icon }}</span>
+                            {{ item.station_name }}
+                        </span>
+                    </td>
+                    <td>
+                        <strong>{{ item.product.short_id }}</strong>
+                        <br><small class="text-muted">{{ item.product.internal_order_number }}</small>
+                    </td>
+                    <td>{{ item.product.product_name }}</td>
+                    <td>
+                        {% if item.product.deadline_date %}
+                            {% set days_remaining = item.product.days_remaining %}
+                            <span class="deadline-text {% if days_remaining < 0 %}overdue{% elif days_remaining <= 1 %}urgent{% elif days_remaining <= 3 %}warning{% endif %}">
+                                {% if days_remaining < 0 %}
+                                    {{ days_remaining|abs }} dni temu
+                                {% elif days_remaining == 0 %}
+                                    Dziś
+                                {% elif days_remaining == 1 %}
+                                    Jutro
+                                {% else %}
+                                    Za {{ days_remaining }} dni
+                                {% endif %}
+                            </span>
+                        {% else %}
+                            <span class="text-muted">Brak terminu</span>
+                        {% endif %}
+                    </td>
+                    <td>{{ "%.3f"|format(item.product.volume_m3) }} m³</td>
+                    <td>
+                        <button class="btn-icon"
+                                onclick="startProcessing('{{ item.station_key }}', '{{ item.product.short_id }}')"
+                                title="Rozpocznij">
+                            <i class="fas fa-play"></i>
+                        </button>
+                        <button class="btn-icon"
+                                onclick="viewProductDetails('{{ item.product.short_id }}')"
+                                title="Szczegóły">
+                            <i class="fas fa-eye"></i>
+                        </button>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
     </div>
+    {% endif %}
 </div>
 
 <script>
-// JavaScript dla taba stanowisk
 function initStationsTab() {
     console.log('[Stations Tab] Inicjalizacja');
-    
-    // Inicjalizuj timery odświeżania dla każdego stanowiska
     initStationRefreshTimers();
 }
 
 function initStationRefreshTimers() {
-    // Auto-odświeżanie co 2 minuty dla stanowisk
     setInterval(() => {
-        console.log('[Stations Tab] Auto-refresh stanowisk');
-        // Przeładuj dane stanowisk bez pełnego przeładowania taba
-        refreshAllStationsData();
-    }, 120000); // 2 minuty
+        refreshWorkflowData();
+    }, 120000);
 }
 
-function refreshStationData(stationKey) {
-    console.log('[Stations Tab] Odświeżanie danych stanowiska:', stationKey);
-    
-    // Pokaż loading dla konkretnego stanowiska
-    const stationCard = document.querySelector(`.station-${stationKey}`);
-    if (stationCard) {
-        stationCard.classList.add('loading');
-    }
-    
-    // Przeładuj cały tab stanowisk
-    window.loadTabContent('stations-tab', true); // silent refresh
-}
-
-function refreshAllStationsData() {
-    console.log('[Stations Tab] Odświeżanie wszystkich stanowisk');
-    window.loadTabContent('stations-tab', true); // silent refresh
-}
-
-function viewFullStationList(stationKey) {
-    console.log('[Stations Tab] Wyświetl pełną listę dla stanowiska:', stationKey);
-    
-    // Przekierowanie do dedykowanego widoku stanowiska
+function navigateToStation(stationKey) {
     const stationUrls = {
         'cutting': '{{ url_for("production.production_stations.cutting_station") }}',
         'assembly': '{{ url_for("production.production_stations.assembly_station") }}',
+        'gluing': '{{ url_for("production.production_stations.gluing_station") }}',
+        'formatting': '{{ url_for("production.production_stations.formatting_station") }}',
+        'finishing': '{{ url_for("production.production_stations.finishing_station") }}',
         'packaging': '{{ url_for("production.production_stations.packaging_station") }}'
     };
-    
+
+    if (stationUrls[stationKey]) {
+        window.location.href = stationUrls[stationKey];
+    }
+}
+
+function refreshWorkflowData() {
+    if (typeof window.loadTabContent === 'function') {
+        window.loadTabContent('stations-tab', true);
+    }
+}
+
+function viewFullStationList(stationKey) {
+    const stationUrls = {
+        'cutting': '{{ url_for("production.production_stations.cutting_station") }}',
+        'assembly': '{{ url_for("production.production_stations.assembly_station") }}',
+        'gluing': '{{ url_for("production.production_stations.gluing_station") }}',
+        'formatting': '{{ url_for("production.production_stations.formatting_station") }}',
+        'finishing': '{{ url_for("production.production_stations.finishing_station") }}',
+        'packaging': '{{ url_for("production.production_stations.packaging_station") }}'
+    };
+
     if (stationUrls[stationKey]) {
         window.open(stationUrls[stationKey], '_blank');
     }
 }
 
-function showAllProducts(stationKey) {
-    console.log('[Stations Tab] Pokaż wszystkie produkty dla:', stationKey);
-    
-    // Przełącz się na tab produktów z filtrem statusu
-    const statusFilters = {
-        'cutting': 'czeka_na_wyciecie',
-        'assembly': 'czeka_na_skladanie',
-        'packaging': 'czeka_na_pakowanie'
-    };
-    
-    // Aktywuj tab produktów
-    const productsTab = document.getElementById('products-tab');
-    if (productsTab) {
-        productsTab.click();
-        
-        // Po załadowaniu taba produktów, ustaw filtr
-        setTimeout(() => {
-            const statusFilter = document.getElementById('status-filter');
-            if (statusFilter && statusFilters[stationKey]) {
-                statusFilter.value = statusFilters[stationKey];
-                statusFilter.dispatchEvent(new Event('change'));
-            }
-        }, 500);
-    }
-}
-
 function startProcessing(stationKey, productId) {
-    console.log('[Stations Tab] Rozpocznij przetwarzanie:', stationKey, productId);
-    
-    // Potwierdzenie akcji
-    if (confirm(`Czy na pewno chcesz rozpocząć przetwarzanie produktu ${productId} na stanowisku ${stationKey}?`)) {
-        // TODO: Wywołanie API do rozpoczęcia przetwarzania
-        alert('Funkcja rozpoczynania przetwarzania będzie wkrótce dostępna!');
+    if (confirm(`Czy rozpocząć przetwarzanie produktu ${productId}?`)) {
+        alert('Funkcja będzie wkrótce dostępna');
     }
 }
 
 function viewProductDetails(productId) {
-    console.log('[Stations Tab] Wyświetl szczegóły produktu:', productId);
-    // TODO: Modal ze szczegółami produktu
-    alert(`Szczegóły produktu ${productId} - funkcja w przygotowaniu!`);
+    const productsTab = document.getElementById('products-tab');
+    if (productsTab) {
+        productsTab.click();
+        setTimeout(() => {
+            const searchInput = document.querySelector('input[placeholder*="Szukaj"]');
+            if (searchInput) {
+                searchInput.value = productId;
+                searchInput.dispatchEvent(new Event('input', { bubbles: true }));
+            }
+        }, 300);
+    }
 }
 
-function refreshWorkflowSummary() {
-    console.log('[Stations Tab] Odświeżanie podsumowania przepływu');
-    refreshAllStationsData();
-}
-
-// Auto-inicjalizacja
 if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', initStationsTab);
 } else {

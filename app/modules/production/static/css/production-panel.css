@@ -22,6 +22,9 @@
     /* Kolory stanowisk */
     --cutting-color: #fd7e14;
     --assembly-color: #007bff;
+    --gluing-color: #9c27b0;
+    --formatting-color: #ff5722;
+    --finishing-color: #00bcd4;
     --packaging-color: #28a745;
     
     /* Typografia */
@@ -278,6 +281,30 @@ body {
 
 .assembly-station:hover {
     border-color: var(--assembly-color);
+}
+
+.gluing-station::before {
+    background: var(--gluing-color);
+}
+
+.gluing-station:hover {
+    border-color: var(--gluing-color);
+}
+
+.formatting-station::before {
+    background: var(--formatting-color);
+}
+
+.formatting-station:hover {
+    border-color: var(--formatting-color);
+}
+
+.finishing-station::before {
+    background: var(--finishing-color);
+}
+
+.finishing-station:hover {
+    border-color: var(--finishing-color);
 }
 
 .packaging-station::before {

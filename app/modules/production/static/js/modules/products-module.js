@@ -2450,12 +2450,48 @@ class ProductsModule {
      * Pokazuje modal szczegółów produktu - REDESIGNED VERSION
      * @param {number} productId ID produktu
      */
-    showProductDetails(productId) {
+    async showProductDetails(productId) {
         console.log(`[ProductsModule] Showing details for product ${productId}`);
 
-        // Znajdź produkt
-        const product = this.state.filteredProducts.find(p => p.id == productId) ||
-                    this.state.products.find(p => p.id == productId);
+        // Najpierw znajdź produkt w cache
+        let product = this.state.filteredProducts.find(p => p.id == productId) ||
+                     this.state.products.find(p => p.id == productId);
+
+        // Sprawdź czy cached product ma nowe pola station (gluing, formatting, finishing)
+        const hasNewStationFields = product && (
+            product.hasOwnProperty('gluing_started_at') ||
+            product.hasOwnProperty('formatting_started_at') ||
+            product.hasOwnProperty('finishing_started_at')
+        );
+
+        // Jeśli nie ma nowych pól, pobierz świeże dane z API
+        if (!hasNewStationFields) {
+            console.log(`[ProductsModule] Cached product missing new station fields, fetching fresh data from API`);
+            try {
+                // Pobierz wszystkie produkty z odświeżonymi danymi
+                const response = await fetch(`/production/api/products-filtered`);
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                const data = await response.json();
+
+                if (data.products && data.products.length > 0) {
+                    // Zaktualizuj cache nowymi danymi
+                    this.state.products = data.products;
+                    this.state.filteredProducts = data.products;
+
+                    // Znajdź produkt z odświeżonych danych
+                    product = data.products.find(p => p.id == productId);
+                    console.log('[ProductsModule] Fresh product data loaded from API:', product);
+                }
+            } catch (error) {
+                console.error('[ProductsModule] Error fetching fresh product data:', error);
+                console.log('[ProductsModule] Using cached data despite missing fields');
+                // Kontynuuj z cached data mimo braku nowych pól
+            }
+        } else {
+            console.log('[ProductsModule] Using cached product data (has new station fields)');
+        }
 
         if (!product) {
             alert('Nie znaleziono produktu');
@@ -2465,26 +2501,26 @@ class ProductsModule {
         // DEBUG: Loguj cały obiekt produktu
         console.log('[ProductsModule] Full product object:', product);
         console.log('[ProductsModule] Product keys:', Object.keys(product));
-        
+
         // Usuń poprzedni modal
         const existingModal = document.getElementById('product-details-modal');
         if (existingModal) existingModal.remove();
-        
+
         // Sklonuj template
         const template = document.getElementById('product-details-modal-template');
         const clone = template.content.cloneNode(true);
-        
+
         // Wypełnij dane
         this.populateProductDetailsModal(clone, product);
-        
+
         // Dodaj do DOM i pokaż
         document.body.appendChild(clone);
         const modal = new bootstrap.Modal(document.getElementById('product-details-modal'));
         modal.show();
-        
+
         // Załaduj produkty z zamówienia (asynchronicznie)
         this.loadOrderProducts(productId);
-        
+
         // Cleanup
         document.getElementById('product-details-modal').addEventListener('hidden.bs.modal', () => {
             document.getElementById('product-details-modal').remove();
@@ -2617,7 +2653,9 @@ class ProductsModule {
                 field.className = `status-badge ${statusConfig.badgeClass}`;
                 return;
             } else if (fieldName === 'sequence_display') {
-                value = `${product.product_sequence_in_order || 1}/--`;
+                // Użyj total_products_in_order jeśli istnieje, inaczej pokaż placeholder
+                const total = product.total_products_in_order || '--';
+                value = `${product.product_sequence_in_order || 1}/${total}`;
             } else if (fieldName === 'dimensions_display') {
                 value = this.formatDimensions(product);
             } else if (fieldName === 'baselinker_link') {
@@ -2689,6 +2727,36 @@ class ProductsModule {
                 durationField: 'assembly_duration_minutes'
             },
             {
+                code: 'gluing',
+                name: 'Sklejanie',
+                status: 'czeka_na_sklejanie',
+                icon: 'fas fa-compress-arrows-alt',
+                color: 'gluing-theme',
+                startField: 'gluing_started_at',
+                endField: 'gluing_completed_at',
+                durationField: 'gluing_duration_minutes'
+            },
+            {
+                code: 'formatting',
+                name: 'Formatowanie',
+                status: 'czeka_na_formatowanie',
+                icon: 'fas fa-ruler-combined',
+                color: 'formatting-theme',
+                startField: 'formatting_started_at',
+                endField: 'formatting_completed_at',
+                durationField: 'formatting_duration_minutes'
+            },
+            {
+                code: 'finishing',
+                name: 'Wykańczanie',
+                status: 'czeka_na_wykanczanie',
+                icon: 'fas fa-star',
+                color: 'finishing-theme',
+                startField: 'finishing_started_at',
+                endField: 'finishing_completed_at',
+                durationField: 'finishing_duration_minutes'
+            },
+            {
                 code: 'packaging',
                 name: 'Pakowanie',
                 status: 'czeka_na_pakowanie',
@@ -2729,7 +2797,10 @@ class ProductsModule {
     getTimelineState(station, product) {
         const statusMap = {
             'cutting': 'czeka_na_wyciecie',
-            'assembly': 'czeka_na_skladanie', 
+            'assembly': 'czeka_na_skladanie',
+            'gluing': 'czeka_na_sklejanie',
+            'formatting': 'czeka_na_formatowanie',
+            'finishing': 'czeka_na_wykanczanie',
             'packaging': 'czeka_na_pakowanie'
         };
 

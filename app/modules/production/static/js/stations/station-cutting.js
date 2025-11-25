@@ -76,6 +76,18 @@
         // Theme toggle
         setupThemeToggle();
 
+        // Initialize connection monitor
+        if (window.StationCommon && window.StationCommon.initConnectionMonitor) {
+            window.StationCommon.initConnectionMonitor();
+            console.log('[Cutting] Connection monitor initialized');
+
+            // Register listener for connection changes
+            if (window.StationCommon.onConnectionChange) {
+                window.StationCommon.onConnectionChange(handleConnectionChange);
+                console.log('[Cutting] Connection change listener registered');
+            }
+        }
+
         console.log('[Cutting] Station initialized successfully');
     }
 
@@ -123,10 +135,25 @@
 
         let secondsLeft = intervalSeconds;
         const countdownElement = document.getElementById('refresh-countdown');
+        const refreshIcon = document.querySelector('.refresh-icon');
 
         const updateCountdown = () => {
             if (countdownElement) {
                 countdownElement.textContent = `${secondsLeft}s`;
+
+                // Add warning class when < 10s
+                if (secondsLeft <= 10) {
+                    countdownElement.classList.add('warning');
+                } else {
+                    countdownElement.classList.remove('warning');
+                }
+
+                // Spin icon when <= 5s
+                if (secondsLeft <= 5) {
+                    if (refreshIcon) refreshIcon.classList.add('spinning');
+                } else {
+                    if (refreshIcon) refreshIcon.classList.remove('spinning');
+                }
             }
         };
 
@@ -159,6 +186,9 @@
 
         console.log(`[Cutting] Initializing order card: ${orderNumber}`);
 
+        // Hide empty product-params containers
+        hideEmptyProductParams(card);
+
         // Load checkbox state from localStorage
         loadCheckboxState(card, orderNumber);
 
@@ -181,6 +211,27 @@
         // Initial button state update
         updateCompleteButtonState(card);
         updateCheckedCounter(card);
+    }
+
+    // ========================================================================
+    // HIDE EMPTY PRODUCT PARAMS
+    // ========================================================================
+
+    function hideEmptyProductParams(card) {
+        const productRows = card.querySelectorAll('.product-row');
+
+        productRows.forEach(row => {
+            const paramsContainer = row.querySelector('.product-params');
+            if (!paramsContainer) return;
+
+            // Check if there are any badges inside
+            const badges = paramsContainer.querySelectorAll('.badge');
+
+            // If no badges exist, hide the container
+            if (badges.length === 0) {
+                paramsContainer.style.display = 'none';
+            }
+        });
     }
 
     // ========================================================================
@@ -267,6 +318,20 @@
     }
 
     // ========================================================================
+    // CONNECTION STATUS HANDLING
+    // ========================================================================
+
+    function handleConnectionChange(isOnline) {
+        console.log(`[Cutting] Connection status changed: ${isOnline ? 'ONLINE' : 'OFFLINE'}`);
+
+        // Update all complete buttons
+        const allCards = document.querySelectorAll('.order-card');
+        allCards.forEach(card => {
+            updateCompleteButtonState(card);
+        });
+    }
+
+    // ========================================================================
     // COMPLETE BUTTON STATE
     // ========================================================================
 
@@ -275,6 +340,20 @@
         if (!completeBtn) {
             return;
         }
+
+        // Check if offline first
+        const isOnline = window.StationCommon && window.StationCommon.isOnline ? window.StationCommon.isOnline() : true;
+
+        if (!isOnline) {
+            completeBtn.disabled = true;
+            completeBtn.textContent = 'Jesteś offline';
+            completeBtn.classList.add('offline');
+            return;
+        }
+
+        // Remove offline styling if previously set
+        completeBtn.classList.remove('offline');
+        completeBtn.textContent = 'ZAKOŃCZ WYCIĘCIE';
 
         const totalProducts = parseInt(card.dataset.totalProducts) || 0;
         const checkedCount = card.querySelectorAll('.product-check:checked').length;
@@ -293,6 +372,13 @@
 
     function handleCompleteClick(card, orderNumber) {
         console.log(`[Cutting] Complete button clicked for order: ${orderNumber}`);
+
+        // Check online status first
+        if (!window.StationCommon.isOnline()) {
+            console.warn('[Cutting] Offline - cannot complete orders');
+            showToast('warning', 'Brak połączenia - nie możesz zakończyć zamówienia');
+            return;
+        }
 
         const checkedProductIds = getCheckedProductIds(card);
 
@@ -330,7 +416,7 @@
             <div class="action-countdown">
                 <button class="btn-complete processing">
                     <span class="spinner"></span>
-                    <span class="countdown-text">WYCIĘCIE... 10s</span>
+                    <span class="countdown-text">Zapisuje... 10s</span>
                 </button>
                 <button class="btn-cancel">ANULUJ</button>
             </div>
@@ -344,7 +430,7 @@
 
         const updateCountdownText = () => {
             if (countdownText) {
-                countdownText.textContent = `WYCIĘCIE... ${secondsLeft}s`;
+                countdownText.textContent = `Zapisuje... ${secondsLeft}s`;
             }
         };
 
@@ -422,9 +508,9 @@
         const actionContainer = card.querySelector('.order-action');
         if (actionContainer) {
             actionContainer.innerHTML = `
-                <button class="btn-complete processing">
+                <button class="btn-complete saving">
                     <span class="spinner"></span>
-                    <span>ZAPISYWANIE...</span>
+                    <span>Zapisuje</span>
                 </button>
             `;
         }
@@ -458,13 +544,16 @@
 
             // SUCCESS - show success state
             if (actionContainer) {
-                actionContainer.innerHTML = '<button class="btn-complete success">WYCIĘTO ✓</button>';
+                actionContainer.innerHTML = '<button class="btn-complete success">Zapisano</button>';
             }
 
             showToast('success', `Zamówienie ${orderNumber} ukończone`);
 
             // Clear localStorage
             clearCheckboxState(orderNumber);
+
+            // Update today's m³ statistics
+            fetchTodayM3();
 
             // Wait 1 second, then remove card with animation
             setTimeout(() => {
@@ -523,7 +612,39 @@
             showEmptyState();
         }
 
+        // Update header statistics
+        updateHeaderStats();
+
         console.log(`[Cutting] Remaining cards: ${remainingCards}`);
+    }
+
+    function updateHeaderStats() {
+        const allCards = document.querySelectorAll('.order-card');
+
+        let totalProducts = 0;
+        let totalVolume = 0;
+
+        allCards.forEach(card => {
+            const cardTotalProducts = parseInt(card.dataset.totalProducts) || 0;
+            const cardTotalVolume = parseFloat(card.dataset.totalVolume) || 0;
+
+            totalProducts += cardTotalProducts;
+            totalVolume += cardTotalVolume;
+        });
+
+        // Update DOM
+        const totalProductsElement = document.getElementById('total-products');
+        const totalVolumeElement = document.getElementById('total-volume');
+
+        if (totalProductsElement) {
+            totalProductsElement.textContent = totalProducts;
+        }
+
+        if (totalVolumeElement) {
+            totalVolumeElement.textContent = totalVolume.toFixed(4);
+        }
+
+        console.log(`[Cutting] Updated header stats: ${totalProducts} products, ${totalVolume.toFixed(4)} m³`);
     }
 
     function showEmptyState() {
@@ -590,6 +711,12 @@
             console.log(`[Cutting] Fetched ${result.data.orders.length} orders`);
 
             smartMergeOrders(result.data.orders);
+
+            // Update header statistics
+            updateHeaderStats();
+
+            // Update today's m³ statistics
+            fetchTodayM3();
 
         } catch (error) {
             console.error('[Cutting] Auto-refresh failed:', error);
@@ -668,11 +795,29 @@
                 </div>
             ` : '';
 
-            const badgesHTML = `
+            // Małe badges z parametrami
+            const paramsHTML = `
                 ${product.wood_species ? `<span class="badge badge-species">${product.wood_species}</span>` : ''}
                 ${product.technology ? `<span class="badge badge-technology">${product.technology}</span>` : ''}
                 ${product.wood_class ? `<span class="badge badge-class">${product.wood_class}</span>` : ''}
-                ${product.dimensions ? `<span class="badge badge-dimensions">${product.dimensions}</span>` : ''}
+            `;
+
+            // Duży badge z wymiarami lub nazwą + ikona załącznika
+            let dimensionsRowHTML = '';
+            if (product.dimensions) {
+                const formattedDimensions = product.dimensions.replace(/x/g, ' x ').replace(/×/g, ' × ');
+                dimensionsRowHTML = `<div class="product-dimensions">${formattedDimensions}</div>`;
+            } else if (product.original_name) {
+                dimensionsRowHTML = `<div class="product-dimensions product-name-label">${product.original_name}</div>`;
+            } else if (product.attachment_file_url) {
+                dimensionsRowHTML = `<div class="product-dimensions product-attachment-label">Zgodnie z załącznikiem</div>`;
+            }
+
+            const dimensionsHTML = `
+                <div class="product-dimensions-row">
+                    ${attachmentHTML}
+                    ${dimensionsRowHTML}
+                </div>
             `;
 
             return `
@@ -682,18 +827,22 @@
                      data-species="${product.wood_species || ''}"
                      data-technology="${product.technology || ''}"
                      data-wood-class="${product.wood_class || ''}">
-                    <div class="product-checkbox">
-                        <input type="checkbox"
-                               class="product-check"
-                               id="check-${product.id}"
-                               data-product-id="${product.id}">
-                        <label for="check-${product.id}"></label>
+                    <div class="product-left-col">
+                        <div class="product-checkbox">
+                            <input type="checkbox"
+                                   class="product-check"
+                                   id="check-${product.id}"
+                                   data-product-id="${product.id}">
+                            <label for="check-${product.id}"></label>
+                        </div>
+                        <div class="product-id-wrapper">
+                            <span class="product-id">${product.id}</span>
+                        </div>
                     </div>
-                    <div class="product-id-wrapper">
-                        <span class="product-id">${product.id}</span>
-                        ${attachmentHTML}
+                    <div class="product-info">
+                        <div class="product-params">${paramsHTML}</div>
+                        ${dimensionsHTML}
                     </div>
-                    <div class="product-badges">${badgesHTML}</div>
                 </div>
             `;
         }).join('');

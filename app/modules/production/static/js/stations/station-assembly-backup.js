@@ -1,6 +1,6 @@
 /**
  * ============================================================================
- * STATION ASSEMBLY - ORDER-BASED VERSION
+ * STATION CUTTING - ORDER-BASED VERSION
  * ============================================================================
  *
  * Nowa wersja z order-based cards zamiast product-based
@@ -37,28 +37,24 @@
     // ========================================================================
 
     document.addEventListener('DOMContentLoaded', function() {
-        console.log('[Assembly] Initializing ORDER-BASED station v2.0...');
-        initializeAssemblyStation();
+        console.log('[Cutting] Initializing ORDER-BASED station v2.0...');
+        initializeCuttingStation();
     });
 
-    function initializeAssemblyStation() {
+    function initializeCuttingStation() {
         const config = window.STATION_CONFIG;
 
-        if (!config || config.stationCode !== 'assembly') {
-            console.error('[Assembly] Invalid station config');
+        if (!config || config.stationCode !== 'cutting') {
+            console.error('[Cutting] Invalid station config');
             return;
         }
 
         state.config = config;
-        console.log('[Assembly] Station config loaded:', config);
+        console.log('[Cutting] Station config loaded:', config);
 
         // Attach event listeners to existing order cards
         const existingCards = document.querySelectorAll('.order-card');
-        console.log(`[Assembly] Found ${existingCards.length} order cards on initial page load`);
-
-        if (existingCards.length === 0) {
-            console.log('[Assembly] No order cards on page - will fetch from API');
-        }
+        console.log(`[Cutting] Found ${existingCards.length} order cards`);
 
         existingCards.forEach(card => {
             initializeOrderCard(card);
@@ -71,13 +67,7 @@
         setInterval(updateCurrentDatetime, 1000);
         updateCurrentDatetime();
 
-        // POPRAWKA 2: Perform initial fetch if no cards on page
-        if (existingCards.length === 0) {
-            console.log('[Assembly] Performing initial fetch...');
-            performAutoRefresh();
-        }
-
-        // POPRAWKA 3: Start auto-refresh with countdown
+        // POPRAWKA 2: Start auto-refresh with countdown
         if (config.refreshInterval && config.refreshInterval > 0) {
             startAutoRefresh(config.refreshInterval);
             startRefreshCountdown(config.refreshInterval);
@@ -86,19 +76,7 @@
         // Theme toggle
         setupThemeToggle();
 
-        // Initialize connection monitor
-        if (window.StationCommon && window.StationCommon.initConnectionMonitor) {
-            window.StationCommon.initConnectionMonitor();
-            console.log('[Assembly] Connection monitor initialized');
-
-            // Register listener for connection changes
-            if (window.StationCommon.onConnectionChange) {
-                window.StationCommon.onConnectionChange(handleConnectionChange);
-                console.log('[Assembly] Connection change listener registered');
-            }
-        }
-
-        console.log('[Assembly] Station initialized successfully');
+        console.log('[Cutting] Station initialized successfully');
     }
 
     // ========================================================================
@@ -179,7 +157,7 @@
             updateCountdown();
         }, 1000);
 
-        console.log(`[Assembly] Refresh countdown started: ${intervalSeconds}s`);
+        console.log(`[Cutting] Refresh countdown started: ${intervalSeconds}s`);
     }
 
     // ========================================================================
@@ -190,11 +168,11 @@
         const orderNumber = card.dataset.orderNumber;
 
         if (!orderNumber) {
-            console.warn('[Assembly] Order card missing order number');
+            console.warn('[Cutting] Order card missing order number');
             return;
         }
 
-        console.log(`[Assembly] Initializing order card: ${orderNumber}`);
+        console.log(`[Cutting] Initializing order card: ${orderNumber}`);
 
         // Hide empty product-params containers
         hideEmptyProductParams(card);
@@ -249,7 +227,7 @@
     // ========================================================================
 
     function loadCheckboxState(card, orderNumber) {
-        const storageKey = `assembly_order_${orderNumber}`;
+        const storageKey = `cutting_order_${orderNumber}`;
         const savedState = localStorage.getItem(storageKey);
 
         if (!savedState) {
@@ -271,19 +249,19 @@
                 }
             });
 
-            console.log(`[Assembly] Loaded checkbox state for ${orderNumber}:`, checkedProductIds.length);
+            console.log(`[Cutting] Loaded checkbox state for ${orderNumber}:`, checkedProductIds.length);
         } catch (error) {
-            console.error(`[Assembly] Error loading checkbox state:`, error);
+            console.error(`[Cutting] Error loading checkbox state:`, error);
         }
     }
 
     function saveCheckboxState(card, orderNumber) {
         const checkedProductIds = getCheckedProductIds(card);
-        const storageKey = `assembly_order_${orderNumber}`;
+        const storageKey = `cutting_order_${orderNumber}`;
 
         localStorage.setItem(storageKey, JSON.stringify(checkedProductIds));
 
-        console.log(`[Assembly] Saved checkbox state for ${orderNumber}:`, checkedProductIds.length);
+        console.log(`[Cutting] Saved checkbox state for ${orderNumber}:`, checkedProductIds.length);
     }
 
     function getCheckedProductIds(card) {
@@ -298,9 +276,9 @@
     }
 
     function clearCheckboxState(orderNumber) {
-        const storageKey = `assembly_order_${orderNumber}`;
+        const storageKey = `cutting_order_${orderNumber}`;
         localStorage.removeItem(storageKey);
-        console.log(`[Assembly] Cleared checkbox state for ${orderNumber}`);
+        console.log(`[Cutting] Cleared checkbox state for ${orderNumber}`);
     }
 
     function handleCheckboxChange(card, orderNumber) {
@@ -324,21 +302,7 @@
             counterElement.textContent = checkedCount;
         }
 
-        console.log(`[Assembly] Updated counter for ${orderNumber}: ${checkedCount}/${totalProducts}`);
-    }
-
-    // ========================================================================
-    // CONNECTION STATUS HANDLING
-    // ========================================================================
-
-    function handleConnectionChange(isOnline) {
-        console.log(`[Assembly] Connection status changed: ${isOnline ? 'ONLINE' : 'OFFLINE'}`);
-
-        // Update all complete buttons
-        const allCards = document.querySelectorAll('.order-card');
-        allCards.forEach(card => {
-            updateCompleteButtonState(card);
-        });
+        console.log(`[Cutting] Updated counter for ${orderNumber}: ${checkedCount}/${totalProducts}`);
     }
 
     // ========================================================================
@@ -350,20 +314,6 @@
         if (!completeBtn) {
             return;
         }
-
-        // Check if offline first
-        const isOnline = window.StationCommon && window.StationCommon.isOnline ? window.StationCommon.isOnline() : true;
-
-        if (!isOnline) {
-            completeBtn.disabled = true;
-            completeBtn.textContent = 'Jesteś offline';
-            completeBtn.classList.add('offline');
-            return;
-        }
-
-        // Remove offline styling if previously set
-        completeBtn.classList.remove('offline');
-        completeBtn.textContent = 'ZAKOŃCZ SKŁADANIE';
 
         const totalProducts = parseInt(card.dataset.totalProducts) || 0;
         const checkedCount = card.querySelectorAll('.product-check:checked').length;
@@ -381,19 +331,12 @@
     // ========================================================================
 
     function handleCompleteClick(card, orderNumber) {
-        console.log(`[Assembly] Complete button clicked for order: ${orderNumber}`);
-
-        // Check online status first
-        if (!window.StationCommon.isOnline()) {
-            console.warn('[Assembly] Offline - cannot complete orders');
-            showToast('warning', 'Brak połączenia - nie możesz zakończyć zamówienia');
-            return;
-        }
+        console.log(`[Cutting] Complete button clicked for order: ${orderNumber}`);
 
         const checkedProductIds = getCheckedProductIds(card);
 
         if (checkedProductIds.length === 0) {
-            console.warn('[Assembly] No products checked');
+            console.warn('[Cutting] No products checked');
             showToast('warning', 'Zaznacz produkty przed zakończeniem');
             return;
         }
@@ -413,11 +356,11 @@
     }
 
     function startCountdown(card, orderNumber, productIds) {
-        console.log(`[Assembly] Starting 10-second countdown for ${orderNumber}`);
+        console.log(`[Cutting] Starting 10-second countdown for ${orderNumber}`);
 
         const actionContainer = card.querySelector('.order-action');
         if (!actionContainer) {
-            console.error('[Assembly] No action container found');
+            console.error('[Cutting] No action container found');
             return;
         }
 
@@ -467,11 +410,11 @@
             cancelCountdown(card, orderNumber, timerId);
         });
 
-        console.log(`[Assembly] Countdown started for ${orderNumber}`);
+        console.log(`[Cutting] Countdown started for ${orderNumber}`);
     }
 
     function cancelCountdown(card, orderNumber, timerId) {
-        console.log(`[Assembly] Countdown cancelled for ${orderNumber}`);
+        console.log(`[Cutting] Countdown cancelled for ${orderNumber}`);
 
         // Clear timer
         if (timerId) {
@@ -486,7 +429,7 @@
         // Restore original button
         const actionContainer = card.querySelector('.order-action');
         if (actionContainer) {
-            actionContainer.innerHTML = '<button class="btn-complete" data-action="complete" disabled>ZAKOŃCZ SKŁADANIE</button>';
+            actionContainer.innerHTML = '<button class="btn-complete" data-action="complete" disabled>ZAKOŃCZ WYCIĘCIE</button>';
 
             // Re-attach listener
             const completeBtn = actionContainer.querySelector('.btn-complete');
@@ -500,7 +443,7 @@
             }
         }
 
-        showToast('info', 'Anulowano składanie zamówienia');
+        showToast('info', 'Anulowano wycięcie zamówienia');
     }
 
     // ========================================================================
@@ -508,7 +451,7 @@
     // ========================================================================
 
     async function completeOrder(card, orderNumber, productIds) {
-        console.log(`[Assembly] Starting bulk completion for ${orderNumber}`, productIds);
+        console.log(`[Cutting] Starting bulk completion for ${orderNumber}`, productIds);
 
         // BACKUP before removal
         const cardBackup = card.cloneNode(true);
@@ -535,7 +478,7 @@
                 body: JSON.stringify({
                     order_number: orderNumber,
                     product_ids: productIds,
-                    station: 'assembly',
+                    station: 'cutting',
                     action: 'complete'
                 }),
                 signal: controller.signal
@@ -550,7 +493,7 @@
 
             const result = await response.json();
 
-            console.log('[Assembly] Order completed successfully:', result);
+            console.log('[Cutting] Order completed successfully:', result);
 
             // SUCCESS - show success state
             if (actionContainer) {
@@ -576,7 +519,7 @@
 
         } catch (error) {
             // ERROR - restore card
-            console.error('[Assembly] Failed to complete order:', error);
+            console.error('[Cutting] Failed to complete order:', error);
 
             const ordersList = document.getElementById('orders-list');
 
@@ -622,39 +565,7 @@
             showEmptyState();
         }
 
-        // Update header statistics
-        updateHeaderStats();
-
-        console.log(`[Assembly] Remaining cards: ${remainingCards}`);
-    }
-
-    function updateHeaderStats() {
-        const allCards = document.querySelectorAll('.order-card');
-
-        let totalProducts = 0;
-        let totalVolume = 0;
-
-        allCards.forEach(card => {
-            const cardTotalProducts = parseInt(card.dataset.totalProducts) || 0;
-            const cardTotalVolume = parseFloat(card.dataset.totalVolume) || 0;
-
-            totalProducts += cardTotalProducts;
-            totalVolume += cardTotalVolume;
-        });
-
-        // Update DOM
-        const totalProductsElement = document.getElementById('total-products');
-        const totalVolumeElement = document.getElementById('total-volume');
-
-        if (totalProductsElement) {
-            totalProductsElement.textContent = totalProducts;
-        }
-
-        if (totalVolumeElement) {
-            totalVolumeElement.textContent = totalVolume.toFixed(4);
-        }
-
-        console.log(`[Assembly] Updated header stats: ${totalProducts} products, ${totalVolume.toFixed(4)} m³`);
+        console.log(`[Cutting] Remaining cards: ${remainingCards}`);
     }
 
     function showEmptyState() {
@@ -667,12 +578,12 @@
         ordersList.innerHTML = `
             <div class="empty-state">
                 <div class="empty-state-icon">✅</div>
-                <h2>Brak zamówień do składania</h2>
-                <p>Świetna robota! Wszystkie zamówienia zostały złożone.</p>
+                <h2>Brak zamówień do wycięcia</h2>
+                <p>Świetna robota! Wszystkie zamówienia zostały wycięte.</p>
             </div>
         `;
 
-        console.log('[Assembly] Showing empty state');
+        console.log('[Cutting] Showing empty state');
     }
 
     // ========================================================================
@@ -681,7 +592,7 @@
 
     function showToast(type, message) {
         const prefix = type === 'success' ? '✅' : type === 'error' ? '❌' : type === 'warning' ? '⚠️' : 'ℹ️';
-        console.log(`[Assembly] ${prefix} ${message}`);
+        console.log(`[Cutting] ${prefix} ${message}`);
 
         // TODO: Implement visual toast notifications if needed
     }
@@ -695,7 +606,7 @@
             clearInterval(state.refreshTimer);
         }
 
-        console.log(`[Assembly] Starting auto-refresh every ${intervalSeconds}s`);
+        console.log(`[Cutting] Starting auto-refresh every ${intervalSeconds}s`);
 
         state.refreshTimer = setInterval(async () => {
             await performAutoRefresh();
@@ -703,122 +614,93 @@
     }
 
     async function performAutoRefresh() {
-        console.log('[Assembly] Performing auto-refresh...');
+        console.log('[Cutting] Performing auto-refresh...');
 
         try {
-            const response = await fetch('/production/stations/ajax/orders/assembly?sort=priority');
+            const response = await fetch('/production/ajax/orders/cutting?sort=priority');
 
             if (!response.ok) {
                 throw new Error(`HTTP ${response.status}`);
             }
 
             const result = await response.json();
-            console.log('[Assembly] API Response:', result);
 
             if (!result.success || !result.data || !result.data.orders) {
                 throw new Error('Invalid response format');
             }
 
-            console.log(`[Assembly] Fetched ${result.data.orders.length} orders`);
-            console.log('[Assembly] Orders data:', JSON.stringify(result.data.orders, null, 2));
+            console.log(`[Cutting] Fetched ${result.data.orders.length} orders`);
 
             smartMergeOrders(result.data.orders);
-
-            // Update header statistics
-            updateHeaderStats();
 
             // Update today's m³ statistics
             fetchTodayM3();
 
         } catch (error) {
-            console.error('[Assembly] Auto-refresh failed:', error);
+            console.error('[Cutting] Auto-refresh failed:', error);
         }
     }
 
     function smartMergeOrders(newOrders) {
-        console.log('[Assembly] smartMergeOrders called with:', newOrders.length, 'orders');
-
         const ordersList = document.getElementById('orders-list');
 
         if (!ordersList) {
-            console.error('[Assembly] orders-list element not found!');
             return;
         }
 
         const existingCards = ordersList.querySelectorAll('.order-card');
         const existingOrderNumbers = new Set();
 
-        console.log(`[Assembly] Existing cards on page: ${existingCards.length}`);
         existingCards.forEach(card => {
-            const orderNum = card.dataset.orderNumber;
-            existingOrderNumbers.add(orderNum);
-            console.log(`[Assembly] Existing order: ${orderNum}`);
+            existingOrderNumbers.add(card.dataset.orderNumber);
         });
 
         // Add only NEW orders (that don't exist yet)
-        let addedCount = 0;
         newOrders.forEach(order => {
-            console.log(`[Assembly] Checking order ${order.order_number}...`);
             if (!existingOrderNumbers.has(order.order_number)) {
-                console.log(`[Assembly] Adding new order: ${order.order_number}`);
+                console.log(`[Cutting] Adding new order: ${order.order_number}`);
                 addOrderCard(order);
-                addedCount++;
-            } else {
-                console.log(`[Assembly] Order ${order.order_number} already exists, skipping`);
             }
         });
 
         // Note: We DON'T remove cards that are no longer in the API response
         // This prevents accidental removal of cards user is working on
 
-        console.log(`[Assembly] Smart merge completed: ${addedCount} new orders added`);
+        console.log('[Cutting] Smart merge completed');
     }
 
     function addOrderCard(orderData) {
-        console.log('[Assembly] addOrderCard called for:', orderData.order_number);
-        console.log('[Assembly] Order data:', orderData);
-
         const ordersList = document.getElementById('orders-list');
 
         if (!ordersList) {
-            console.error('[Assembly] orders-list element not found in addOrderCard!');
             return;
         }
 
         // Remove empty state if present
         const emptyState = ordersList.querySelector('.empty-state');
         if (emptyState) {
-            console.log('[Assembly] Removing empty state');
             emptyState.remove();
         }
 
         // Create card HTML
         const cardHTML = createOrderCardHTML(orderData);
-        console.log('[Assembly] Generated HTML length:', cardHTML.length, 'chars');
 
         // Insert at the beginning (highest priority)
         ordersList.insertAdjacentHTML('afterbegin', cardHTML);
-        console.log('[Assembly] Card HTML inserted');
 
         // Initialize the new card
         const newCard = ordersList.querySelector(`[data-order-number="${orderData.order_number}"]`);
         if (newCard) {
-            console.log('[Assembly] New card found in DOM, initializing...');
             initializeOrderCard(newCard);
 
             // Re-initialize attachment handlers for the new card
             if (typeof window.reinitializeAttachmentHandlers === 'function') {
                 window.reinitializeAttachmentHandlers();
             }
-        } else {
-            console.error('[Assembly] New card NOT found in DOM after insertion!');
         }
     }
 
     function createOrderCardHTML(order) {
-        console.log('[Assembly] createOrderCardHTML called for order:', order.order_number);
-        console.log('[Assembly] Order has', order.products.length, 'products');
-
         const productsHTML = order.products.map(product => {
             const attachmentHTML = product.attachment_file_url ? `
                 <div class="attachment-icon-wrapper"
@@ -905,7 +787,7 @@
                     ${productsHTML}
                 </div>
                 <div class="order-action">
-                    <button class="btn-complete" data-action="complete" disabled>ZAKOŃCZ SKŁADANIE</button>
+                    <button class="btn-complete" data-action="complete" disabled>ZAKOŃCZ WYCIĘCIE</button>
                 </div>
             </div>
         `;
@@ -917,7 +799,7 @@
 
     async function fetchTodayM3() {
         try {
-            const response = await fetch('/production/stations/ajax/station-today-m3/assembly');
+            const response = await fetch('/production/stations/ajax/station-today-m3/cutting');
 
             if (!response.ok) {
                 throw new Error(`HTTP ${response.status}`);
@@ -931,11 +813,11 @@
                     todayM3Element.textContent = result.data.today_m3.toFixed(4);
                 }
 
-                console.log(`[Assembly] Today's m³: ${result.data.today_m3}`);
+                console.log(`[Cutting] Today's m³: ${result.data.today_m3}`);
             }
 
         } catch (error) {
-            console.error('[Assembly] Failed to fetch today m³:', error);
+            console.error('[Cutting] Failed to fetch today m³:', error);
         }
     }
 
@@ -985,23 +867,23 @@
     window.addEventListener('beforeunload', function() {
         if (state.refreshTimer) {
             clearInterval(state.refreshTimer);
-            console.log('[Assembly] Cleared auto-refresh interval');
+            console.log('[Cutting] Cleared auto-refresh interval');
         }
 
         if (state.countdownTimer) {
             clearInterval(state.countdownTimer);
-            console.log('[Assembly] Cleared countdown timer');
+            console.log('[Cutting] Cleared countdown timer');
         }
 
         // Clear all active order countdowns
         state.activeCountdowns.forEach((countdown, orderNumber) => {
             if (countdown.timerId) {
                 clearInterval(countdown.timerId);
-                console.log(`[Assembly] Cleared countdown for ${orderNumber}`);
+                console.log(`[Cutting] Cleared countdown for ${orderNumber}`);
             }
         });
     });
 
-    console.log('[Assembly] Module loaded v2.0 (order-based with countdown)');
+    console.log('[Cutting] Module loaded v2.0 (order-based with countdown)');
 
 })();

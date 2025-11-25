@@ -2154,6 +2154,9 @@
 /* Kolory dla stanowisk */
 .cutting-theme { color: var(--cutting-color); }
 .assembly-theme { color: var(--assembly-color); }
+.gluing-theme { color: var(--gluing-color); }
+.formatting-theme { color: var(--formatting-color); }
+.finishing-theme { color: var(--finishing-color); }
 .packaging-theme { color: var(--packaging-color); }
 
 /* Timeline produkcji */
@@ -2218,14 +2221,26 @@
     background: var(--status-active);
 }
 
+.timeline-completed .timeline-title {
+    color: #212529 !important; /* Czarny dla ukończonych */
+}
+
 .timeline-active .timeline-icon {
     background: var(--cutting-color);
     animation: pulse 2s infinite;
 }
 
+.timeline-active .timeline-title {
+    color: var(--cutting-color) !important; /* Pomarańczowy dla aktywnego */
+}
+
 .timeline-pending .timeline-icon {
     background: #e9ecef;
     color: #6c757d;
+}
+
+.timeline-pending .timeline-title {
+    color: #6c757d !important; /* Szary dla oczekujących */
 }
 
 @keyframes pulse {

@@ -73,7 +73,7 @@
                     <path d="M9 21V9"></path>
                 </svg>
                 <div class="stat-content">
-                    <div class="stat-label">Produkty</div>
+                    <div class="stat-label">Zamówienia</div>
                     <div class="stat-value">
                         <span id="total-products">{{ station_stats.total_products }}</span> /
                         <span id="total-volume">{{ "%.4f"|format(products|map(attribute='volume_m3')|sum) }}</span> m³
@@ -112,7 +112,7 @@
                 <span class="offline-icon">⚠️</span>
                 <div class="offline-text">
                     <strong>BRAK POŁĄCZENIA Z SERWEREM</strong>
-                    <p>Zakończenie produktów jest niemożliwe. Poczekaj na przywrócenie połączenia.</p>
+                    <p>Zakończenie zamówień jest niemożliwe. Poczekaj na przywrócenie połączenia.</p>
                 </div>
             </div>
         </div>
@@ -120,83 +120,118 @@
 
     <!-- MAIN CONTENT -->
     <main class="station-content">
-        <!-- PRODUCTS GRID -->
-        <div class="products-grid" id="products-grid">
-            {% if products|length == 0 %}
+        <!-- ORDERS LIST -->
+        <div class="orders-list" id="orders-list">
+            {% if orders_grouped|length == 0 %}
             <!-- EMPTY STATE -->
             <div class="empty-state">
                 <div class="empty-state-icon">✅</div>
-                <h2>Brak produktów do wycięcia</h2>
-                <p>Świetna robota! Wszystkie produkty zostały przetworzone.</p>
+                <h2>Brak zamówień do składania</h2>
+                <p>Świetna robota! Wszystkie zamówienia zostały złożone.</p>
             </div>
             {% else %}
-            <!-- PRODUCT CARDS -->
-            {% for product in products %}
-            <div class="product-card"
-                 data-product-id="{{ product['id'] }}"
-                 data-in-progress="false"
-                 data-priority-rank="{{ product['priority_rank'] }}"
-                 data-species="{{ product['wood_species'] or '' }}"
-                 data-technology="{{ product['technology'] or '' }}"
-                 data-wood-class="{{ product['wood_class'] or '' }}">
-                <!-- CARD HEADER -->
-                <div class="card-header">
-                    <div class="header-ids">
-                        <span class="id-short">{{ product['id'] }}</span>
-                        <span class="id-baselinker">BL-{{ product['baselinker_order_id'] }}</span>
+            <!-- ORDER CARDS -->
+            {% for order in orders_grouped %}
+            <div class="order-card"
+                 data-order-number="{{ order.order_number }}"
+                 data-priority-rank="{{ order.best_priority_rank }}"
+                 data-total-products="{{ order.total_products }}"
+                 data-in-progress="false">
+
+                <!-- ORDER HEADER - NOWY LAYOUT: jedna linia z space-between -->
+                <div class="order-header">
+                    <div class="order-ids">
+                        <span class="order-number">{{ order.order_number }}</span>
+                        {% if order.baselinker_order_id %}
+                        <span class="order-baselinker">BL-{{ order.baselinker_order_id }}</span>
+                        {% endif %}
                     </div>
-                    <div class="header-right">
-                        {% if product.get('attachment_file_url') %}
-                        <div class="attachment-icon-wrapper"
-                             data-attachment-url="{{ product['attachment_file_url'] }}"
-                             data-attachment-name="{{ product['attachment_file_name'] }}"
-                             data-attachment-type="{{ 'pdf' if product['attachment_file_name'].lower().endswith('.pdf') else 'image' }}">
-                            <svg class="attachment-icon" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path>
-                            </svg>
+                    <div class="order-stats">
+                        <span class="products-checked" data-order="{{ order.order_number }}">0</span>/{{ order.total_products }} {% if order.total_products == 1 %}produkt{% elif order.total_products < 5 %}produkty{% else %}produktów{% endif %} • {{ "%.4f"|format(order.total_volume) }} m³
+                    </div>
+                </div>
+
+                <!-- PRODUCTS LIST -->
+                <div class="products-list">
+                    {% for product in order.products %}
+                    <div class="product-row"
+                         data-product-id="{{ product.id }}"
+                         data-status="{{ product.current_status }}"
+                         data-species="{{ product.wood_species or '' }}"
+                         data-technology="{{ product.technology or '' }}"
+                         data-wood-class="{{ product.wood_class or '' }}">
+
+                        <!-- LEFT COLUMN: Checkbox + Product ID -->
+                        <div class="product-left-col">
+                            <div class="product-checkbox">
+                                <input type="checkbox"
+                                       class="product-check"
+                                       id="check-{{ product.id }}"
+                                       data-product-id="{{ product.id }}">
+                                <label for="check-{{ product.id }}"></label>
+                            </div>
+
+                            <div class="product-id-wrapper">
+                                <span class="product-id">{{ product.id }}</span>
+                            </div>
                         </div>
-                        {% endif %}
-                        <div class="header-volume">{{ "%.4f"|format(product['volume_m3']) if product['volume_m3'] else '0.0000' }} m³</div>
+
+                        <!-- PRODUCT INFO CONTAINER -->
+                        <div class="product-info">
+                            <!-- Małe badges z parametrami -->
+                            <div class="product-params">
+                                {% if product.wood_species %}
+                                <span class="badge badge-species">{{ product.wood_species }}</span>
+                                {% endif %}
+                                {% if product.technology %}
+                                <span class="badge badge-technology">{{ product.technology }}</span>
+                                {% endif %}
+                                {% if product.wood_class %}
+                                <span class="badge badge-class">{{ product.wood_class }}</span>
+                                {% endif %}
+                            </div>
+
+                            <!-- Duży badge z wymiarami + ikona załącznika -->
+                            <div class="product-dimensions-row">
+                                {% if product.get('attachment_file_url') %}
+                                <div class="attachment-icon-wrapper"
+                                     data-attachment-url="{{ product['attachment_file_url'] }}"
+                                     data-attachment-name="{{ product['attachment_file_name'] }}"
+                                     data-attachment-type="{{ 'pdf' if product['attachment_file_name'].lower().endswith('.pdf') else 'image' }}">
+                                    <svg class="attachment-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path>
+                                    </svg>
+                                </div>
+                                {% endif %}
+
+                                {% if product.dimensions %}
+                                <div class="product-dimensions">{{ product.dimensions | replace('x', ' x ') | replace('×', ' × ') }}</div>
+                                {% elif product.original_name %}
+                                <div class="product-dimensions product-name-label">{{ product.original_name }}</div>
+                                {% elif product.get('attachment_file_url') %}
+                                <div class="product-dimensions product-attachment-label">Zgodnie z załącznikiem</div>
+                                {% endif %}
+                            </div>
+                        </div>
                     </div>
+                    {% endfor %}
                 </div>
-                <!-- CARD BADGES -->
-                <div class="card-badges">
-                    {% if product['wood_species'] %}
-                    <div class="badge badge-species">{{ product['wood_species'] }}</div>
-                    {% endif %}
-                    {% if product['technology'] %}
-                    <div class="badge badge-technology">{{ product['technology'] }}</div>
-                    {% endif %}
-                    {% if product['wood_class'] %}
-                    <div class="badge badge-class">{{ product['wood_class'] }}</div>
-                    {% endif %}
-                </div>
-                <!-- CARD DIMENSIONS -->
-                <div class="card-dimensions">
-                    <div class="dimensions-box">
-                        {% if product['dimensions'] %}
-                        {{ product['dimensions'] }}
-                        {% else %}
-                        {{ product['original_name'] }}
-                        {% endif %}
-                    </div>
-                </div>
-                <!-- CARD ACTION -->
-                <div class="card-action">
-                    <button class="btn-complete" data-action="complete">ZAKOŃCZ</button>
+
+                <!-- ORDER ACTION (przycisk na dole) -->
+                <div class="order-action">
+                    <button class="btn-complete" data-action="complete" disabled>ZAKOŃCZ SKŁADANIE</button>
                 </div>
             </div>
             {% endfor %}
             {% endif %}
         </div>
+
         <!-- LOADING SKELETON (hidden by default) -->
         <div class="loading-skeleton" id="loading-skeleton" style="display: none;">
-            {% for i in range(12) %}
+            {% for i in range(8) %}
             <div class="skeleton-card">
                 <div class="skeleton-header"></div>
-                <div class="skeleton-badges"></div>
-                <div class="skeleton-dimensions"></div>
-                <div class="skeleton-button"></div>
+                <div class="skeleton-body"></div>
             </div>
             {% endfor %}
         </div>
@@ -213,7 +248,7 @@
         window.STATION_CONFIG = {
             stationCode: 'assembly',
             stationName: 'Składanie',
-            refreshInterval: {{ config['refresh_interval'] }},  // POPRAWIONE
+            refreshInterval: {{ config['refresh_interval'] }},
             debugMode: {{ 'true' if config['debug_frontend'] else 'false' }}
         };
     </script>

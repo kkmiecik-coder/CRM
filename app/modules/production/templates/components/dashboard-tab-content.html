@@ -68,6 +68,75 @@
                     </div>
                 </div>
 
+                <!-- GLUING STATION -->
+                <div class="station-card gluing-station"
+                     data-station="gluing"
+                     data-station-url="{{ url_for('production.production_stations.gluing_station') }}">
+                    <div class="station-icon">🧲</div>
+                    <div class="station-info">
+                        <h4>Sklejanie</h4>
+                        <div class="station-stats">
+                            <div class="stat">
+                                <span class="stat-value" id="gluing-pending">{{ dashboard_stats.stations.gluing.pending_count or 0 }}</span>
+                                <span class="stat-label">Oczekujące</span>
+                            </div>
+                            <div class="stat">
+                                <span class="stat-value" id="gluing-today-m3">{{ "%.3f"|format(dashboard_stats.stations.gluing.today_m3 or 0) }}</span>
+                                <span class="stat-label">m3 dzisiaj</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="station-status" id="gluing-status">
+                        <span class="status-dot {% if dashboard_stats.stations.gluing.pending_count > 15 %}danger{% elif dashboard_stats.stations.gluing.pending_count > 5 %}warning{% elif dashboard_stats.stations.gluing.pending_count > 0 %}active{% endif %}"></span>
+                    </div>
+                </div>
+
+                <!-- FORMATTING STATION -->
+                <div class="station-card formatting-station"
+                     data-station="formatting"
+                     data-station-url="{{ url_for('production.production_stations.formatting_station') }}">
+                    <div class="station-icon">📐</div>
+                    <div class="station-info">
+                        <h4>Formatowanie</h4>
+                        <div class="station-stats">
+                            <div class="stat">
+                                <span class="stat-value" id="formatting-pending">{{ dashboard_stats.stations.formatting.pending_count or 0 }}</span>
+                                <span class="stat-label">Oczekujące</span>
+                            </div>
+                            <div class="stat">
+                                <span class="stat-value" id="formatting-today-m3">{{ "%.3f"|format(dashboard_stats.stations.formatting.today_m3 or 0) }}</span>
+                                <span class="stat-label">m3 dzisiaj</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="station-status" id="formatting-status">
+                        <span class="status-dot {% if dashboard_stats.stations.formatting.pending_count > 15 %}danger{% elif dashboard_stats.stations.formatting.pending_count > 5 %}warning{% elif dashboard_stats.stations.formatting.pending_count > 0 %}active{% endif %}"></span>
+                    </div>
+                </div>
+
+                <!-- FINISHING STATION -->
+                <div class="station-card finishing-station"
+                     data-station="finishing"
+                     data-station-url="{{ url_for('production.production_stations.finishing_station') }}">
+                    <div class="station-icon">✨</div>
+                    <div class="station-info">
+                        <h4>Wykańczanie</h4>
+                        <div class="station-stats">
+                            <div class="stat">
+                                <span class="stat-value" id="finishing-pending">{{ dashboard_stats.stations.finishing.pending_count or 0 }}</span>
+                                <span class="stat-label">Oczekujące</span>
+                            </div>
+                            <div class="stat">
+                                <span class="stat-value" id="finishing-today-m3">{{ "%.3f"|format(dashboard_stats.stations.finishing.today_m3 or 0) }}</span>
+                                <span class="stat-label">m3 dzisiaj</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="station-status" id="finishing-status">
+                        <span class="status-dot {% if dashboard_stats.stations.finishing.pending_count > 15 %}danger{% elif dashboard_stats.stations.finishing.pending_count > 5 %}warning{% elif dashboard_stats.stations.finishing.pending_count > 0 %}active{% endif %}"></span>
+                    </div>
+                </div>
+
                 <!-- PACKAGING STATION - POPRAWIONE DANE -->
                 <div class="station-card packaging-station"
                      data-station="packaging"

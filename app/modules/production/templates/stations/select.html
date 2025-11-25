@@ -132,6 +132,33 @@
                 background: linear-gradient(to bottom, #fff 0%, #e6f2ff 100%);
             }
 
+            .station-card.gluing::before {
+                background: linear-gradient(90deg, #9c27b0 0%, #ba68c8 100%);
+            }
+
+            .station-card.gluing:hover {
+                border-color: #9c27b0;
+                background: linear-gradient(to bottom, #fff 0%, #f3e5f5 100%);
+            }
+
+            .station-card.formatting::before {
+                background: linear-gradient(90deg, #ff5722 0%, #ff7043 100%);
+            }
+
+            .station-card.formatting:hover {
+                border-color: #ff5722;
+                background: linear-gradient(to bottom, #fff 0%, #fbe9e7 100%);
+            }
+
+            .station-card.finishing::before {
+                background: linear-gradient(90deg, #00bcd4 0%, #26c6da 100%);
+            }
+
+            .station-card.finishing:hover {
+                border-color: #00bcd4;
+                background: linear-gradient(to bottom, #fff 0%, #e0f7fa 100%);
+            }
+
             .station-card.packaging::before {
                 background: linear-gradient(90deg, #28a745 0%, #20c997 100%);
             }
@@ -222,6 +249,21 @@
         .assembly .station-badge {
             background: #e6f2ff;
             color: #007bff;
+        }
+
+        .gluing .station-badge {
+            background: #f3e5f5;
+            color: #9c27b0;
+        }
+
+        .formatting .station-badge {
+            background: #fbe9e7;
+            color: #ff5722;
+        }
+
+        .finishing .station-badge {
+            background: #e0f7fa;
+            color: #00bcd4;
         }
 
         .packaging .station-badge {
@@ -331,6 +373,27 @@
                 <div class="station-icon">🔧</div>
                 <div class="station-name">Składanie</div>
                 <div class="station-description">Montaż i łączenie elementów</div>
+                <span class="station-badge">Przejdź do stanowiska</span>
+            </a>
+
+            <a href="/production/stations/gluing" class="station-card gluing">
+                <div class="station-icon">🧲</div>
+                <div class="station-name">Sklejanie</div>
+                <div class="station-description">Łączenie i sklejanie elementów</div>
+                <span class="station-badge">Przejdź do stanowiska</span>
+            </a>
+
+            <a href="/production/stations/formatting" class="station-card formatting">
+                <div class="station-icon">📐</div>
+                <div class="station-name">Formatowanie</div>
+                <div class="station-description">Obróbka i formatowanie produktów</div>
+                <span class="station-badge">Przejdź do stanowiska</span>
+            </a>
+
+            <a href="/production/stations/finishing" class="station-card finishing">
+                <div class="station-icon">✨</div>
+                <div class="station-name">Wykańczanie</div>
+                <div class="station-description">Finalna obróbka i wykończenie</div>
                 <span class="station-badge">Przejdź do stanowiska</span>
             </a>
 

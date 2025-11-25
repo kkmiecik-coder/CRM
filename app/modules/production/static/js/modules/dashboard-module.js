@@ -610,9 +610,9 @@ class DashboardModule {
                     statusDot.classList.remove('active', 'warning', 'danger');
 
                     // Dodaj nową klasę na podstawie liczby zamówień
-                    if (station.active_orders > 15) {
+                    if (station.active_orders > 50) {
                         statusDot.classList.add('danger');
-                    } else if (station.active_orders > 5) {
+                    } else if (station.active_orders > 30) {
                         statusDot.classList.add('warning');
                     } else if (station.active_orders > 0) {
                         statusDot.classList.add('active');

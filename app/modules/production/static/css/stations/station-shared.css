@@ -9,7 +9,7 @@
     /* Kolory tła */
     --bg-primary: #1a1a1a;
     --bg-secondary: #2d2d2d;
-    --bg-tertiary: #3a3a3a;
+    --bg-tertiary: #4d4d4d;
     --bg-card: #2d2d2d;
     --bg-header: #1f1f1f;
     --success-color: #28a745;
@@ -22,7 +22,7 @@
     --border-color-light: #505050;
     /* Kolory akcentów */
     --accent-orange: #ED6B24;
-    --accent-blue: #007bff;
+    --accent-blue: #279EFF;
     /* Kolory przycisków */
     --btn-primary: #007bff;
     --btn-primary-hover: #0056b3;
@@ -68,7 +68,7 @@ body {
     body.light-mode {
         --bg-primary: #f0f2f5;
         --bg-secondary: #ffffff;
-        --bg-tertiary: #f8f9fa;
+        --bg-tertiary: #d8dadc;
         --bg-card: #ffffff;
         --bg-header: #f8f9fa;
         --text-primary: #212529;
@@ -93,7 +93,7 @@ body {
 
 .header-content {
     max-width: 1920px;
-    padding: 20px 30px;
+    padding: 10px 30px;
     margin: 0 auto;
     display: flex;
     justify-content: space-between;
@@ -182,7 +182,7 @@ body.light-mode .theme-toggle-btn {
    ============================================================================ */
 .stats-bar {
     background: var(--bg-secondary);
-    padding: 20px 30px;
+    padding: 10px 30px;
     margin-top: 2px;
     border-top: 1px solid var(--border-color);
     display: flex;
@@ -470,6 +470,16 @@ body.light-mode .badge-class {
         background: var(--btn-success);
     }
 
+    .btn-complete.offline {
+        background: #6c757d;
+        cursor: not-allowed;
+        opacity: 0.7;
+    }
+
+    .btn-complete.offline:hover {
+        background: #6c757d;
+    }
+
 .btn-cancel {
     padding: 16px 24px;
     background: var(--btn-cancel);
@@ -608,7 +618,7 @@ body.light-mode .connection-status.checking {
     border-left: 6px solid #fd7e14;
     border-radius: 0;
     margin: 0;
-    padding: 20px 30px;
+    padding: 10px 30px;
     box-shadow: 0 4px 12px rgba(253, 126, 20, 0.2);
 }
 
@@ -716,7 +726,7 @@ body.light-mode .offline-text p {
     }
 
     .header-content {
-        padding: 8px 16px;
+        padding: 6px 16px;
     }
 
     .station-logo {
@@ -728,7 +738,7 @@ body.light-mode .offline-text p {
     }
 
     .stats-bar {
-        padding: 15px 20px;
+        padding: 8px 20px;
         gap: 8px;
     }
 

@@ -132,7 +132,10 @@ class ProductionItem(db.Model):
     current_status = Column(Enum(
         'czeka_na_wyciecie',
         'czeka_na_skladanie',
-        'czeka_na_pakowanie', 
+        'czeka_na_sklejanie',
+        'czeka_na_formatowanie',
+        'czeka_na_wykanczanie',
+        'czeka_na_pakowanie',
         'spakowane',
         'anulowane',
         'wstrzymane',
@@ -172,7 +175,25 @@ class ProductionItem(db.Model):
     assembly_completed_at = Column(DateTime, index=True)
     assembly_duration_minutes = Column(Integer)
     assembly_assigned_worker_id = Column(Integer, ForeignKey('users.id'))
-    
+
+    # ŚLEDZENIE CZASU WYKONANIA - SKLEJANIE
+    gluing_started_at = Column(DateTime)
+    gluing_completed_at = Column(DateTime, index=True)
+    gluing_duration_minutes = Column(Integer)
+    gluing_assigned_worker_id = Column(Integer, ForeignKey('users.id'))
+
+    # ŚLEDZENIE CZASU WYKONANIA - FORMATOWANIE
+    formatting_started_at = Column(DateTime)
+    formatting_completed_at = Column(DateTime, index=True)
+    formatting_duration_minutes = Column(Integer)
+    formatting_assigned_worker_id = Column(Integer, ForeignKey('users.id'))
+
+    # ŚLEDZENIE CZASU WYKONANIA - WYKAŃCZANIE
+    finishing_started_at = Column(DateTime)
+    finishing_completed_at = Column(DateTime, index=True)
+    finishing_duration_minutes = Column(Integer)
+    finishing_assigned_worker_id = Column(Integer, ForeignKey('users.id'))
+
     # ŚLEDZENIE CZASU WYKONANIA - PAKOWANIE
     packaging_started_at = Column(DateTime)
     packaging_completed_at = Column(DateTime, index=True)
@@ -428,9 +449,9 @@ class ProductionItem(db.Model):
         })
     
     def complete_task(self, station_code):
-        """Ukończenie pracy na stanowisku - ZACHOWANE"""
+        """Ukończenie pracy na stanowisku - ROZSZERZONY O NOWE STANOWISKA"""
         now = get_local_now()
-        
+
         if station_code == 'cutting':
             self.cutting_completed_at = now
             if self.cutting_started_at:
@@ -438,15 +459,39 @@ class ProductionItem(db.Model):
                     (now - self.cutting_started_at).total_seconds() / 60
                 )
             self.current_status = 'czeka_na_skladanie'
-            
+
         elif station_code == 'assembly':
             self.assembly_completed_at = now
             if self.assembly_started_at:
                 self.assembly_duration_minutes = int(
                     (now - self.assembly_started_at).total_seconds() / 60
                 )
+            self.current_status = 'czeka_na_sklejanie'  # ZMIENIONE: było czeka_na_pakowanie
+
+        elif station_code == 'gluing':
+            self.gluing_completed_at = now
+            if self.gluing_started_at:
+                self.gluing_duration_minutes = int(
+                    (now - self.gluing_started_at).total_seconds() / 60
+                )
+            self.current_status = 'czeka_na_formatowanie'
+
+        elif station_code == 'formatting':
+            self.formatting_completed_at = now
+            if self.formatting_started_at:
+                self.formatting_duration_minutes = int(
+                    (now - self.formatting_started_at).total_seconds() / 60
+                )
+            self.current_status = 'czeka_na_wykanczanie'
+
+        elif station_code == 'finishing':
+            self.finishing_completed_at = now
+            if self.finishing_started_at:
+                self.finishing_duration_minutes = int(
+                    (now - self.finishing_started_at).total_seconds() / 60
+                )
             self.current_status = 'czeka_na_pakowanie'
-            
+
         elif station_code == 'packaging':
             self.packaging_completed_at = now
             if self.packaging_started_at:
@@ -454,14 +499,14 @@ class ProductionItem(db.Model):
                     (now - self.packaging_started_at).total_seconds() / 60
                 )
             self.current_status = 'spakowane'
-        
+
         self.updated_at = now
-        
+
         logger.info("Ukończono zadanie", extra={
             'product_id': self.short_product_id,
             'station': station_code,
             'new_status': self.current_status,
-            'duration_minutes': getattr(self, f'{station_code}_duration_minutes')
+            'duration_minutes': getattr(self, f'{station_code}_duration_minutes', None)
         })
 
 class ProductionPriorityConfig(db.Model):
@@ -589,22 +634,26 @@ class ProductionError(db.Model):
     
     id = Column(Integer, primary_key=True)
     error_type = Column(Enum(
-        'sync_error', 'parsing_error', 'validation_error', 
-        'api_error', 'database_error', 'priority_calc_error', name='error_type'
+        'sync_error', 'parsing_error', 'validation_error',
+        'api_error', 'database_error', 'priority_calc_error', 'template_error',
+        name='error_type'
     ), nullable=False, index=True)
     error_message = Column(Text, nullable=False)
     error_details_json = Column(JSON)
-    
+    stack_trace = Column(Text)  # Pełny stack trace dla debugowania
+
     # KONTEKST BŁĘDU
     related_product_id = Column(Integer, ForeignKey('prod_items.id'))
     related_order_id = Column(Integer)
-    
+    request_url = Column(String(500))  # URL gdzie wystąpił błąd
+    request_method = Column(String(10))  # GET, POST, etc.
+
     # STATUS ROZWIĄZANIA
     is_resolved = Column(Boolean, default=False, index=True)
     resolution_notes = Column(Text)
     resolved_at = Column(DateTime)
     resolved_by = Column(Integer, ForeignKey('users.id'))
-    
+
     # METADANE
     error_occurred_at = Column(DateTime, default=datetime.utcnow, index=True)
     user_ip = Column(String(45))

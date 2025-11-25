@@ -37,27 +37,27 @@
     // ========================================================================
 
     document.addEventListener('DOMContentLoaded', function() {
-        console.log('[Assembly] Initializing ORDER-BASED station v2.0...');
-        initializeAssemblyStation();
+        console.log('[Finishing] Initializing ORDER-BASED station v2.0...');
+        initializeFinishingStation();
     });
 
-    function initializeAssemblyStation() {
+    function initializeFinishingStation() {
         const config = window.STATION_CONFIG;
 
-        if (!config || config.stationCode !== 'assembly') {
-            console.error('[Assembly] Invalid station config');
+        if (!config || config.stationCode !== 'finishing') {
+            console.error('[Finishing] Invalid station config');
             return;
         }
 
         state.config = config;
-        console.log('[Assembly] Station config loaded:', config);
+        console.log('[Finishing] Station config loaded:', config);
 
         // Attach event listeners to existing order cards
         const existingCards = document.querySelectorAll('.order-card');
-        console.log(`[Assembly] Found ${existingCards.length} order cards on initial page load`);
+        console.log(`[Finishing] Found ${existingCards.length} order cards on initial page load`);
 
         if (existingCards.length === 0) {
-            console.log('[Assembly] No order cards on page - will fetch from API');
+            console.log('[Finishing] No order cards on page - will fetch from API');
         }
 
         existingCards.forEach(card => {
@@ -73,7 +73,7 @@
 
         // POPRAWKA 2: Perform initial fetch if no cards on page
         if (existingCards.length === 0) {
-            console.log('[Assembly] Performing initial fetch...');
+            console.log('[Finishing] Performing initial fetch...');
             performAutoRefresh();
         }
 
@@ -89,16 +89,16 @@
         // Initialize connection monitor
         if (window.StationCommon && window.StationCommon.initConnectionMonitor) {
             window.StationCommon.initConnectionMonitor();
-            console.log('[Assembly] Connection monitor initialized');
+            console.log('[Finishing] Connection monitor initialized');
 
             // Register listener for connection changes
             if (window.StationCommon.onConnectionChange) {
                 window.StationCommon.onConnectionChange(handleConnectionChange);
-                console.log('[Assembly] Connection change listener registered');
+                console.log('[Finishing] Connection change listener registered');
             }
         }
 
-        console.log('[Assembly] Station initialized successfully');
+        console.log('[Finishing] Station initialized successfully');
     }
 
     // ========================================================================
@@ -179,7 +179,7 @@
             updateCountdown();
         }, 1000);
 
-        console.log(`[Assembly] Refresh countdown started: ${intervalSeconds}s`);
+        console.log(`[Finishing] Refresh countdown started: ${intervalSeconds}s`);
     }
 
     // ========================================================================
@@ -190,11 +190,11 @@
         const orderNumber = card.dataset.orderNumber;
 
         if (!orderNumber) {
-            console.warn('[Assembly] Order card missing order number');
+            console.warn('[Finishing] Order card missing order number');
             return;
         }
 
-        console.log(`[Assembly] Initializing order card: ${orderNumber}`);
+        console.log(`[Finishing] Initializing order card: ${orderNumber}`);
 
         // Hide empty product-params containers
         hideEmptyProductParams(card);
@@ -249,7 +249,7 @@
     // ========================================================================
 
     function loadCheckboxState(card, orderNumber) {
-        const storageKey = `assembly_order_${orderNumber}`;
+        const storageKey = `finishing_order_${orderNumber}`;
         const savedState = localStorage.getItem(storageKey);
 
         if (!savedState) {
@@ -271,19 +271,19 @@
                 }
             });
 
-            console.log(`[Assembly] Loaded checkbox state for ${orderNumber}:`, checkedProductIds.length);
+            console.log(`[Finishing] Loaded checkbox state for ${orderNumber}:`, checkedProductIds.length);
         } catch (error) {
-            console.error(`[Assembly] Error loading checkbox state:`, error);
+            console.error(`[Finishing] Error loading checkbox state:`, error);
         }
     }
 
     function saveCheckboxState(card, orderNumber) {
         const checkedProductIds = getCheckedProductIds(card);
-        const storageKey = `assembly_order_${orderNumber}`;
+        const storageKey = `finishing_order_${orderNumber}`;
 
         localStorage.setItem(storageKey, JSON.stringify(checkedProductIds));
 
-        console.log(`[Assembly] Saved checkbox state for ${orderNumber}:`, checkedProductIds.length);
+        console.log(`[Finishing] Saved checkbox state for ${orderNumber}:`, checkedProductIds.length);
     }
 
     function getCheckedProductIds(card) {
@@ -298,9 +298,9 @@
     }
 
     function clearCheckboxState(orderNumber) {
-        const storageKey = `assembly_order_${orderNumber}`;
+        const storageKey = `finishing_order_${orderNumber}`;
         localStorage.removeItem(storageKey);
-        console.log(`[Assembly] Cleared checkbox state for ${orderNumber}`);
+        console.log(`[Finishing] Cleared checkbox state for ${orderNumber}`);
     }
 
     function handleCheckboxChange(card, orderNumber) {
@@ -324,7 +324,7 @@
             counterElement.textContent = checkedCount;
         }
 
-        console.log(`[Assembly] Updated counter for ${orderNumber}: ${checkedCount}/${totalProducts}`);
+        console.log(`[Finishing] Updated counter for ${orderNumber}: ${checkedCount}/${totalProducts}`);
     }
 
     // ========================================================================
@@ -332,7 +332,7 @@
     // ========================================================================
 
     function handleConnectionChange(isOnline) {
-        console.log(`[Assembly] Connection status changed: ${isOnline ? 'ONLINE' : 'OFFLINE'}`);
+        console.log(`[Finishing] Connection status changed: ${isOnline ? 'ONLINE' : 'OFFLINE'}`);
 
         // Update all complete buttons
         const allCards = document.querySelectorAll('.order-card');
@@ -363,7 +363,7 @@
 
         // Remove offline styling if previously set
         completeBtn.classList.remove('offline');
-        completeBtn.textContent = 'ZAKOŃCZ SKŁADANIE';
+        completeBtn.textContent = 'ZAKOŃCZ';
 
         const totalProducts = parseInt(card.dataset.totalProducts) || 0;
         const checkedCount = card.querySelectorAll('.product-check:checked').length;
@@ -381,11 +381,11 @@
     // ========================================================================
 
     function handleCompleteClick(card, orderNumber) {
-        console.log(`[Assembly] Complete button clicked for order: ${orderNumber}`);
+        console.log(`[Finishing] Complete button clicked for order: ${orderNumber}`);
 
         // Check online status first
         if (!window.StationCommon.isOnline()) {
-            console.warn('[Assembly] Offline - cannot complete orders');
+            console.warn('[Finishing] Offline - cannot complete orders');
             showToast('warning', 'Brak połączenia - nie możesz zakończyć zamówienia');
             return;
         }
@@ -393,7 +393,7 @@
         const checkedProductIds = getCheckedProductIds(card);
 
         if (checkedProductIds.length === 0) {
-            console.warn('[Assembly] No products checked');
+            console.warn('[Finishing] No products checked');
             showToast('warning', 'Zaznacz produkty przed zakończeniem');
             return;
         }
@@ -413,11 +413,11 @@
     }
 
     function startCountdown(card, orderNumber, productIds) {
-        console.log(`[Assembly] Starting 10-second countdown for ${orderNumber}`);
+        console.log(`[Finishing] Starting 10-second countdown for ${orderNumber}`);
 
         const actionContainer = card.querySelector('.order-action');
         if (!actionContainer) {
-            console.error('[Assembly] No action container found');
+            console.error('[Finishing] No action container found');
             return;
         }
 
@@ -467,11 +467,11 @@
             cancelCountdown(card, orderNumber, timerId);
         });
 
-        console.log(`[Assembly] Countdown started for ${orderNumber}`);
+        console.log(`[Finishing] Countdown started for ${orderNumber}`);
     }
 
     function cancelCountdown(card, orderNumber, timerId) {
-        console.log(`[Assembly] Countdown cancelled for ${orderNumber}`);
+        console.log(`[Finishing] Countdown cancelled for ${orderNumber}`);
 
         // Clear timer
         if (timerId) {
@@ -486,7 +486,7 @@
         // Restore original button
         const actionContainer = card.querySelector('.order-action');
         if (actionContainer) {
-            actionContainer.innerHTML = '<button class="btn-complete" data-action="complete" disabled>ZAKOŃCZ SKŁADANIE</button>';
+            actionContainer.innerHTML = '<button class="btn-complete" data-action="complete" disabled>ZAKOŃCZ</button>';
 
             // Re-attach listener
             const completeBtn = actionContainer.querySelector('.btn-complete');
@@ -500,7 +500,7 @@
             }
         }
 
-        showToast('info', 'Anulowano składanie zamówienia');
+        showToast('info', 'Anulowano wykańczanie zamówienia');
     }
 
     // ========================================================================
@@ -508,7 +508,7 @@
     // ========================================================================
 
     async function completeOrder(card, orderNumber, productIds) {
-        console.log(`[Assembly] Starting bulk completion for ${orderNumber}`, productIds);
+        console.log(`[Finishing] Starting bulk completion for ${orderNumber}`, productIds);
 
         // BACKUP before removal
         const cardBackup = card.cloneNode(true);
@@ -535,7 +535,7 @@
                 body: JSON.stringify({
                     order_number: orderNumber,
                     product_ids: productIds,
-                    station: 'assembly',
+                    station: 'finishing',
                     action: 'complete'
                 }),
                 signal: controller.signal
@@ -550,7 +550,7 @@
 
             const result = await response.json();
 
-            console.log('[Assembly] Order completed successfully:', result);
+            console.log('[Finishing] Order completed successfully:', result);
 
             // SUCCESS - show success state
             if (actionContainer) {
@@ -576,7 +576,7 @@
 
         } catch (error) {
             // ERROR - restore card
-            console.error('[Assembly] Failed to complete order:', error);
+            console.error('[Finishing] Failed to complete order:', error);
 
             const ordersList = document.getElementById('orders-list');
 
@@ -625,7 +625,7 @@
         // Update header statistics
         updateHeaderStats();
 
-        console.log(`[Assembly] Remaining cards: ${remainingCards}`);
+        console.log(`[Finishing] Remaining cards: ${remainingCards}`);
     }
 
     function updateHeaderStats() {
@@ -654,7 +654,7 @@
             totalVolumeElement.textContent = totalVolume.toFixed(4);
         }
 
-        console.log(`[Assembly] Updated header stats: ${totalProducts} products, ${totalVolume.toFixed(4)} m³`);
+        console.log(`[Finishing] Updated header stats: ${totalProducts} products, ${totalVolume.toFixed(4)} m³`);
     }
 
     function showEmptyState() {
@@ -667,12 +667,12 @@
         ordersList.innerHTML = `
             <div class="empty-state">
                 <div class="empty-state-icon">✅</div>
-                <h2>Brak zamówień do składania</h2>
-                <p>Świetna robota! Wszystkie zamówienia zostały złożone.</p>
+                <h2>Brak zamówień do wykańczania</h2>
+                <p>Świetna robota! Wszystkie zamówienia zostały wykończone.</p>
             </div>
         `;
 
-        console.log('[Assembly] Showing empty state');
+        console.log('[Finishing] Showing empty state');
     }
 
     // ========================================================================
@@ -681,7 +681,7 @@
 
     function showToast(type, message) {
         const prefix = type === 'success' ? '✅' : type === 'error' ? '❌' : type === 'warning' ? '⚠️' : 'ℹ️';
-        console.log(`[Assembly] ${prefix} ${message}`);
+        console.log(`[Finishing] ${prefix} ${message}`);
 
         // TODO: Implement visual toast notifications if needed
     }
@@ -695,7 +695,7 @@
             clearInterval(state.refreshTimer);
         }
 
-        console.log(`[Assembly] Starting auto-refresh every ${intervalSeconds}s`);
+        console.log(`[Finishing] Starting auto-refresh every ${intervalSeconds}s`);
 
         state.refreshTimer = setInterval(async () => {
             await performAutoRefresh();
@@ -703,24 +703,24 @@
     }
 
     async function performAutoRefresh() {
-        console.log('[Assembly] Performing auto-refresh...');
+        console.log('[Finishing] Performing auto-refresh...');
 
         try {
-            const response = await fetch('/production/stations/ajax/orders/assembly?sort=priority');
+            const response = await fetch('/production/stations/ajax/orders/finishing?sort=priority');
 
             if (!response.ok) {
                 throw new Error(`HTTP ${response.status}`);
             }
 
             const result = await response.json();
-            console.log('[Assembly] API Response:', result);
+            console.log('[Finishing] API Response:', result);
 
             if (!result.success || !result.data || !result.data.orders) {
                 throw new Error('Invalid response format');
             }
 
-            console.log(`[Assembly] Fetched ${result.data.orders.length} orders`);
-            console.log('[Assembly] Orders data:', JSON.stringify(result.data.orders, null, 2));
+            console.log(`[Finishing] Fetched ${result.data.orders.length} orders`);
+            console.log('[Finishing] Orders data:', JSON.stringify(result.data.orders, null, 2));
 
             smartMergeOrders(result.data.orders);
 
@@ -731,79 +731,79 @@
             fetchTodayM3();
 
         } catch (error) {
-            console.error('[Assembly] Auto-refresh failed:', error);
+            console.error('[Finishing] Auto-refresh failed:', error);
         }
     }
 
     function smartMergeOrders(newOrders) {
-        console.log('[Assembly] smartMergeOrders called with:', newOrders.length, 'orders');
+        console.log('[Finishing] smartMergeOrders called with:', newOrders.length, 'orders');
 
         const ordersList = document.getElementById('orders-list');
 
         if (!ordersList) {
-            console.error('[Assembly] orders-list element not found!');
+            console.error('[Finishing] orders-list element not found!');
             return;
         }
 
         const existingCards = ordersList.querySelectorAll('.order-card');
         const existingOrderNumbers = new Set();
 
-        console.log(`[Assembly] Existing cards on page: ${existingCards.length}`);
+        console.log(`[Finishing] Existing cards on page: ${existingCards.length}`);
         existingCards.forEach(card => {
             const orderNum = card.dataset.orderNumber;
             existingOrderNumbers.add(orderNum);
-            console.log(`[Assembly] Existing order: ${orderNum}`);
+            console.log(`[Finishing] Existing order: ${orderNum}`);
         });
 
         // Add only NEW orders (that don't exist yet)
         let addedCount = 0;
         newOrders.forEach(order => {
-            console.log(`[Assembly] Checking order ${order.order_number}...`);
+            console.log(`[Finishing] Checking order ${order.order_number}...`);
             if (!existingOrderNumbers.has(order.order_number)) {
-                console.log(`[Assembly] Adding new order: ${order.order_number}`);
+                console.log(`[Finishing] Adding new order: ${order.order_number}`);
                 addOrderCard(order);
                 addedCount++;
             } else {
-                console.log(`[Assembly] Order ${order.order_number} already exists, skipping`);
+                console.log(`[Finishing] Order ${order.order_number} already exists, skipping`);
             }
         });
 
         // Note: We DON'T remove cards that are no longer in the API response
         // This prevents accidental removal of cards user is working on
 
-        console.log(`[Assembly] Smart merge completed: ${addedCount} new orders added`);
+        console.log(`[Finishing] Smart merge completed: ${addedCount} new orders added`);
     }
 
     function addOrderCard(orderData) {
-        console.log('[Assembly] addOrderCard called for:', orderData.order_number);
-        console.log('[Assembly] Order data:', orderData);
+        console.log('[Finishing] addOrderCard called for:', orderData.order_number);
+        console.log('[Finishing] Order data:', orderData);
 
         const ordersList = document.getElementById('orders-list');
 
         if (!ordersList) {
-            console.error('[Assembly] orders-list element not found in addOrderCard!');
+            console.error('[Finishing] orders-list element not found in addOrderCard!');
             return;
         }
 
         // Remove empty state if present
         const emptyState = ordersList.querySelector('.empty-state');
         if (emptyState) {
-            console.log('[Assembly] Removing empty state');
+            console.log('[Finishing] Removing empty state');
             emptyState.remove();
         }
 
         // Create card HTML
         const cardHTML = createOrderCardHTML(orderData);
-        console.log('[Assembly] Generated HTML length:', cardHTML.length, 'chars');
+        console.log('[Finishing] Generated HTML length:', cardHTML.length, 'chars');
 
         // Insert at the beginning (highest priority)
         ordersList.insertAdjacentHTML('afterbegin', cardHTML);
-        console.log('[Assembly] Card HTML inserted');
+        console.log('[Finishing] Card HTML inserted');
 
         // Initialize the new card
         const newCard = ordersList.querySelector(`[data-order-number="${orderData.order_number}"]`);
         if (newCard) {
-            console.log('[Assembly] New card found in DOM, initializing...');
+            console.log('[Finishing] New card found in DOM, initializing...');
             initializeOrderCard(newCard);
 
             // Re-initialize attachment handlers for the new card
@@ -811,13 +811,13 @@
                 window.reinitializeAttachmentHandlers();
             }
         } else {
-            console.error('[Assembly] New card NOT found in DOM after insertion!');
+            console.error('[Finishing] New card NOT found in DOM after insertion!');
         }
     }
 
     function createOrderCardHTML(order) {
-        console.log('[Assembly] createOrderCardHTML called for order:', order.order_number);
-        console.log('[Assembly] Order has', order.products.length, 'products');
+        console.log('[Finishing] createOrderCardHTML called for order:', order.order_number);
+        console.log('[Finishing] Order has', order.products.length, 'products');
 
         const productsHTML = order.products.map(product => {
             const attachmentHTML = product.attachment_file_url ? `
@@ -905,7 +905,7 @@
                     ${productsHTML}
                 </div>
                 <div class="order-action">
-                    <button class="btn-complete" data-action="complete" disabled>ZAKOŃCZ SKŁADANIE</button>
+                    <button class="btn-complete" data-action="complete" disabled>ZAKOŃCZ</button>
                 </div>
             </div>
         `;
@@ -917,7 +917,7 @@
 
     async function fetchTodayM3() {
         try {
-            const response = await fetch('/production/stations/ajax/station-today-m3/assembly');
+            const response = await fetch('/production/stations/ajax/station-today-m3/finishing');
 
             if (!response.ok) {
                 throw new Error(`HTTP ${response.status}`);
@@ -931,11 +931,11 @@
                     todayM3Element.textContent = result.data.today_m3.toFixed(4);
                 }
 
-                console.log(`[Assembly] Today's m³: ${result.data.today_m3}`);
+                console.log(`[Finishing] Today's m³: ${result.data.today_m3}`);
             }
 
         } catch (error) {
-            console.error('[Assembly] Failed to fetch today m³:', error);
+            console.error('[Finishing] Failed to fetch today m³:', error);
         }
     }
 
@@ -985,23 +985,23 @@
     window.addEventListener('beforeunload', function() {
         if (state.refreshTimer) {
             clearInterval(state.refreshTimer);
-            console.log('[Assembly] Cleared auto-refresh interval');
+            console.log('[Finishing] Cleared auto-refresh interval');
         }
 
         if (state.countdownTimer) {
             clearInterval(state.countdownTimer);
-            console.log('[Assembly] Cleared countdown timer');
+            console.log('[Finishing] Cleared countdown timer');
         }
 
         // Clear all active order countdowns
         state.activeCountdowns.forEach((countdown, orderNumber) => {
             if (countdown.timerId) {
                 clearInterval(countdown.timerId);
-                console.log(`[Assembly] Cleared countdown for ${orderNumber}`);
+                console.log(`[Finishing] Cleared countdown for ${orderNumber}`);
             }
         });
     });
 
-    console.log('[Assembly] Module loaded v2.0 (order-based with countdown)');
+    console.log('[Finishing] Module loaded v2.0 (order-based with countdown)');
 
 })();

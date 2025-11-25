@@ -235,6 +235,11 @@ function smartMergeOrders(newOrders) {
     if (toAdd.length > 0) {
         window.StationCommon.showInfo(`Dodano ${toAdd.length} ${toAdd.length === 1 ? 'nowe zamówienie' : 'nowych zamówień'}`);
     }
+
+    // Reinicjalizuj handlery załączników po aktualizacji DOM
+    if (typeof window.reinitializeAttachmentHandlers === 'function') {
+        window.reinitializeAttachmentHandlers();
+    }
 }
 
 /**
@@ -280,14 +285,26 @@ function createOrderCard(order) {
         const dataTechnology = product.technology ? `data-technology="${escapeHtml(product.technology)}"` : '';
         const dataWoodClass = product.wood_class ? `data-wood-class="${escapeHtml(product.wood_class)}"` : '';
 
+        // Attachment icon HTML
+        const attachmentHTML = product.attachment_file_url ? `
+            <div class="attachment-icon-wrapper"
+                 data-attachment-url="${escapeHtml(product.attachment_file_url)}"
+                 data-attachment-name="${escapeHtml(product.attachment_file_name || '')}"
+                 data-attachment-type="${(product.attachment_file_name || '').toLowerCase().endsWith('.pdf') ? 'pdf' : 'image'}">
+                <svg class="attachment-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path>
+                </svg>
+            </div>
+        ` : '';
+
         return `
-            <div class="product-row ${notReadyClass}" 
+            <div class="product-row ${notReadyClass}"
                  data-product-id="${product.id}"
                  data-status="${product.current_status}"
                  ${dataSpecies}
                  ${dataTechnology}
                  ${dataWoodClass}>
-                
+
                 <div class="product-checkbox">
                     <input type="checkbox"
                            class="product-check"
@@ -297,7 +314,10 @@ function createOrderCard(order) {
                     <label for="check-${product.id}"></label>
                 </div>
 
-                <span class="product-id">${product.id}</span>
+                <div class="product-id-wrapper">
+                    <span class="product-id">${product.id}</span>
+                    ${attachmentHTML}
+                </div>
 
                 <div class="product-details">
                     <div class="product-badges">
@@ -306,10 +326,10 @@ function createOrderCard(order) {
                         ${classBadge}
                         ${dimensionsBadge}
                     </div>
-                    
+
                     <span class="product-name">${escapeHtml(product.original_name || 'Brak nazwy')}</span>
                 </div>
-                
+
                 <span class="product-volume">${product.volume_m3.toFixed(4)} m³</span>
             </div>
         `;

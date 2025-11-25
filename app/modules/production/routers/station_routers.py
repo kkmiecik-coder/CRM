@@ -647,48 +647,172 @@ def cutting_station():
 @station_bp.route('/assembly')
 def assembly_station():
     """
-    Interfejs stanowiska składania
-    
+    Interfejs stanowiska składania - ORDER-BASED VERSION
+
+    Pokazuje CAŁE zamówienia (grouped by internal_order_number)
+
     Query params:
         sort: priority|deadline|created_at (default: priority)
         limit: max liczba produktów (default: 50)
-        
+
     Returns:
-        HTML: Interfejs stanowiska składania
+        HTML: Interfejs stanowiska składania z pogrupowanymi zamówieniami
     """
     try:
+        from ..models import ProductionItem
+        from sqlalchemy import asc, desc
+
         sort_by = request.args.get('sort', 'priority')
         limit = min(int(request.args.get('limit', 50)), 100)
-        
+
         logger.info("Dostęp do stanowiska składania", extra={
             'client_ip': request.remote_addr,
             'sort_by': sort_by,
             'limit': limit
         })
-        
-        # Pobranie produktów
-        products = get_products_for_station('assembly', limit, sort_by)
-        
+
+        # NOWA LOGIKA: Znajdź zamówienia które mają choć 1 produkt do składania
+        orders_with_assembly = db.session.query(
+            ProductionItem.internal_order_number
+        ).filter(
+            ProductionItem.current_status == 'czeka_na_skladanie'
+        ).distinct().all()
+
+        order_numbers = [order[0] for order in orders_with_assembly if order[0]]
+
+        if not order_numbers:
+            products = []
+        else:
+            # Pobierz WSZYSTKIE produkty z tych zamówień
+            query = ProductionItem.query.filter(
+                ProductionItem.internal_order_number.in_(order_numbers)
+            )
+
+            # Sortowanie
+            if sort_by == 'priority':
+                query = query.order_by(asc(ProductionItem.priority_rank))
+            elif sort_by == 'deadline':
+                query = query.order_by(asc(ProductionItem.deadline_date))
+            else:
+                query = query.order_by(asc(ProductionItem.created_at))
+
+            products_db = query.limit(limit).all()
+
+            # Przygotuj dane produktów
+            products = []
+            today = date.today()
+
+            for product in products_db:
+                priority_rank = product.priority_rank if product.priority_rank else 999
+
+                # Wymiary w MM (mnożymy przez 10)
+                dimensions_parts = []
+                if product.parsed_length_cm:
+                    dimensions_parts.append(str(int(product.parsed_length_cm * 10)))
+                if product.parsed_width_cm:
+                    dimensions_parts.append(str(int(product.parsed_width_cm * 10)))
+                if product.parsed_thickness_cm:
+                    dimensions_parts.append(str(int(product.parsed_thickness_cm * 10)))
+                dimensions_text = '×'.join(dimensions_parts) + ' mm' if dimensions_parts else None
+
+                volume_m3 = float(product.volume_m3) if product.volume_m3 else 0.0
+
+                product_data = {
+                    'id': product.short_product_id,
+                    'internal_order': product.internal_order_number,
+                    'baselinker_order_id': product.baselinker_order_id,
+                    'original_name': product.original_product_name,
+                    'current_status': product.current_status,
+                    'priority_rank': priority_rank,
+                    'deadline_date': product.deadline_date,
+                    'volume_m3': volume_m3,
+                    'wood_species': product.parsed_wood_species,
+                    'technology': product.parsed_technology,
+                    'wood_class': product.parsed_wood_class,
+                    'dimensions': dimensions_text,
+                    'attachment_file_name': product.attachment_file_name,
+                    'attachment_file_url': product.attachment_file_url,
+                    'product_sequence_in_order': product.product_sequence_in_order
+                }
+
+                products.append(product_data)
+
+        # Grupowanie produktów po zamówieniach
+        orders_grouped = {}
+        for product in products:
+            order_number = product['internal_order']
+            if order_number not in orders_grouped:
+                orders_grouped[order_number] = {
+                    'order_number': order_number,
+                    'baselinker_order_id': product.get('baselinker_order_id'),
+                    'products': [],
+                    'total_products': 0,
+                    'total_volume': 0,
+                    'best_priority_rank': 999,
+                    'worst_deadline': None
+                }
+
+            order = orders_grouped[order_number]
+            order['products'].append(product)
+            order['total_products'] += 1
+            order['total_volume'] += product['volume_m3'] or 0
+
+            # Najlepszy priorytet z zamówienia
+            if product['priority_rank'] < order['best_priority_rank']:
+                order['best_priority_rank'] = product['priority_rank']
+
+            # Najgorszy deadline (najpóźniejszy)
+            if product['deadline_date']:
+                if order['worst_deadline'] is None or product['deadline_date'] > order['worst_deadline']:
+                    order['worst_deadline'] = product['deadline_date']
+
+        # Sortuj produkty wewnątrz zamówienia po product_sequence_in_order
+        for order in orders_grouped.values():
+            order['products'].sort(key=lambda p: p['product_sequence_in_order'])
+
+        # Dodaj display_deadline do każdego zamówienia
+        today = date.today()
+        for order in orders_grouped.values():
+            if order['worst_deadline']:
+                days_diff = (order['worst_deadline'] - today).days
+                if days_diff < 0:
+                    order['display_deadline'] = f"Opóźnione o {abs(days_diff)} dni"
+                elif days_diff == 0:
+                    order['display_deadline'] = "Dziś!"
+                elif days_diff == 1:
+                    order['display_deadline'] = "Jutro"
+                else:
+                    order['display_deadline'] = f"Za {days_diff} dni"
+            else:
+                order['display_deadline'] = "Brak terminu"
+
+        # Sortowanie zamówień
+        if sort_by == 'priority':
+            orders_list = sorted(orders_grouped.values(), key=lambda x: x['best_priority_rank'])
+        elif sort_by == 'deadline':
+            orders_list = sorted(orders_grouped.values(), key=lambda x: x['worst_deadline'] or date(9999, 12, 31))
+        else:
+            orders_list = list(orders_grouped.values())
+
         # Konfiguracja interfejsu
         config = get_station_config()
-        
-        # Statystyki stanowiska - POPRAWKA: priority_rank zamiast priority_score
-        total_products = len(products)
-        high_priority_count = sum(1 for p in products if p['priority_rank'] <= 50)
-        overdue_count = sum(1 for p in products if p['is_overdue'])
-        
+
+        # Statystyki stanowiska
+        total_products = sum(order['total_products'] for order in orders_list)
+        high_priority_count = sum(1 for order in orders_list if order['best_priority_rank'] <= 50)
+
         station_stats = {
             'total_products': total_products,
-            'high_priority_count': high_priority_count,
-            'overdue_count': overdue_count,
-            'avg_priority_rank': sum(p['priority_rank'] for p in products) / len(products) if products else 999
+            'total_orders': len(orders_list),
+            'high_priority_count': high_priority_count
         }
 
         now = datetime.utcnow()
-        
+
         return render_template(
             'stations/assembly.html',
-            products=products,
+            orders_grouped=orders_list,
+            products=products,  # Dla kompatybilności wstecznej
             station_code='assembly',
             station_name='Składanie',
             station_stats=station_stats,
@@ -699,19 +823,606 @@ def assembly_station():
             last_updated=datetime.utcnow(),
             page_title="Stanowisko Składania"
         )
-        
+
     except Exception as e:
         logger.error("Błąd interfejsu składania", extra={
             'client_ip': request.remote_addr,
-            'error': str(e)
+            'error': str(e),
+            'traceback': traceback.format_exc()
         })
-        
+
         return render_template(
             'stations/error.html',
             error_message="Błąd ładowania stanowiska składania",
             error_details=str(e),
             back_url=url_for('production.production_stations.station_select')
         ), 500
+
+# ============================================================================
+# ROUTERS - NOWE STANOWISKA (Gluing, Formatting, Finishing)
+# ============================================================================
+
+@station_bp.route('/gluing')
+def gluing_station():
+    """
+    Interfejs stanowiska sklejania - ORDER-BASED VERSION
+    Pokazuje CAŁE zamówienia (grouped by internal_order_number)
+
+    Query params:
+        sort: priority|deadline|created_at (default: priority)
+        limit: max liczba produktów (default: 50)
+
+    Returns:
+        HTML: Interfejs stanowiska sklejania z pogrupowanymi zamówieniami
+    """
+    try:
+        from ..models import ProductionItem
+        from sqlalchemy import asc, desc
+
+        sort_by = request.args.get('sort', 'priority')
+        limit = min(int(request.args.get('limit', 50)), 100)
+
+        logger.info("Dostęp do stanowiska sklejania", extra={
+            'client_ip': request.remote_addr,
+            'sort_by': sort_by,
+            'limit': limit
+        })
+
+        # Znajdź zamówienia które mają choć 1 produkt do sklejania
+        orders_with_gluing = db.session.query(
+            ProductionItem.internal_order_number
+        ).filter(
+            ProductionItem.current_status == 'czeka_na_sklejanie'
+        ).distinct().all()
+
+        order_numbers = [order[0] for order in orders_with_gluing if order[0]]
+
+        if not order_numbers:
+            products = []
+        else:
+            # Pobierz WSZYSTKIE produkty z tych zamówień
+            query = ProductionItem.query.filter(
+                ProductionItem.internal_order_number.in_(order_numbers)
+            )
+
+            # Sortowanie
+            if sort_by == 'priority':
+                query = query.order_by(asc(ProductionItem.priority_rank))
+            elif sort_by == 'deadline':
+                query = query.order_by(asc(ProductionItem.deadline_date))
+            else:
+                query = query.order_by(asc(ProductionItem.created_at))
+
+            products_db = query.limit(limit).all()
+
+            # Przygotuj dane produktów
+            products = []
+            today = date.today()
+
+            for product in products_db:
+                priority_rank = product.priority_rank if product.priority_rank else 999
+
+                # Wymiary w MM (mnożymy przez 10)
+                dimensions_parts = []
+                if product.parsed_length_cm:
+                    dimensions_parts.append(str(int(product.parsed_length_cm * 10)))
+                if product.parsed_width_cm:
+                    dimensions_parts.append(str(int(product.parsed_width_cm * 10)))
+                if product.parsed_thickness_cm:
+                    dimensions_parts.append(str(int(product.parsed_thickness_cm * 10)))
+                dimensions_text = '×'.join(dimensions_parts) + ' mm' if dimensions_parts else None
+
+                volume_m3 = float(product.volume_m3) if product.volume_m3 else 0.0
+
+                product_data = {
+                    'id': product.short_product_id,
+                    'internal_order': product.internal_order_number,
+                    'baselinker_order_id': product.baselinker_order_id,
+                    'original_name': product.original_product_name,
+                    'current_status': product.current_status,
+                    'priority_rank': priority_rank,
+                    'deadline_date': product.deadline_date,
+                    'volume_m3': volume_m3,
+                    'wood_species': product.parsed_wood_species,
+                    'technology': product.parsed_technology,
+                    'wood_class': product.parsed_wood_class,
+                    'dimensions': dimensions_text,
+                    'attachment_file_name': product.attachment_file_name,
+                    'attachment_file_url': product.attachment_file_url,
+                    'product_sequence_in_order': product.product_sequence_in_order
+                }
+
+                products.append(product_data)
+
+        # Grupowanie produktów po zamówieniach
+        orders_grouped = {}
+        for product in products:
+            order_number = product['internal_order']
+            if order_number not in orders_grouped:
+                orders_grouped[order_number] = {
+                    'order_number': order_number,
+                    'baselinker_order_id': product.get('baselinker_order_id'),
+                    'products': [],
+                    'total_products': 0,
+                    'total_volume': 0,
+                    'best_priority_rank': 999,
+                    'worst_deadline': None
+                }
+
+            order = orders_grouped[order_number]
+            order['products'].append(product)
+            order['total_products'] += 1
+            order['total_volume'] += product['volume_m3'] or 0
+
+            # Najlepszy priorytet z zamówienia
+            if product['priority_rank'] < order['best_priority_rank']:
+                order['best_priority_rank'] = product['priority_rank']
+
+            # Najgorszy deadline (najpóźniejszy)
+            if product['deadline_date']:
+                if order['worst_deadline'] is None or product['deadline_date'] > order['worst_deadline']:
+                    order['worst_deadline'] = product['deadline_date']
+
+        # Sortuj produkty wewnątrz zamówienia po product_sequence_in_order
+        for order in orders_grouped.values():
+            order['products'].sort(key=lambda p: p['product_sequence_in_order'])
+
+        # Dodaj display_deadline do każdego zamówienia
+        today = date.today()
+        for order in orders_grouped.values():
+            if order['worst_deadline']:
+                days_diff = (order['worst_deadline'] - today).days
+                if days_diff < 0:
+                    order['display_deadline'] = f"Opóźnione o {abs(days_diff)} dni"
+                elif days_diff == 0:
+                    order['display_deadline'] = "Dziś!"
+                elif days_diff == 1:
+                    order['display_deadline'] = "Jutro"
+                else:
+                    order['display_deadline'] = f"Za {days_diff} dni"
+            else:
+                order['display_deadline'] = "Brak terminu"
+
+        # Sortowanie zamówień
+        if sort_by == 'priority':
+            orders_list = sorted(orders_grouped.values(), key=lambda x: x['best_priority_rank'])
+        elif sort_by == 'deadline':
+            orders_list = sorted(orders_grouped.values(), key=lambda x: x['worst_deadline'] or date(9999, 12, 31))
+        else:
+            orders_list = list(orders_grouped.values())
+
+        # Konfiguracja interfejsu
+        config = get_station_config()
+
+        # Statystyki stanowiska
+        total_products = sum(order['total_products'] for order in orders_list)
+        high_priority_count = sum(1 for order in orders_list if order['best_priority_rank'] <= 50)
+
+        station_stats = {
+            'total_products': total_products,
+            'total_orders': len(orders_list),
+            'high_priority_count': high_priority_count
+        }
+
+        now = datetime.utcnow()
+
+        return render_template(
+            'stations/gluing.html',
+            orders_grouped=orders_list,
+            products=products,
+            station_code='gluing',
+            station_name='Sklejanie',
+            station_stats=station_stats,
+            config=config,
+            sort_by=sort_by,
+            limit=limit,
+            now=now,
+            last_updated=datetime.utcnow(),
+            page_title="Stanowisko Sklejania"
+        )
+
+    except Exception as e:
+        logger.error("Błąd interfejsu sklejania", extra={
+            'client_ip': request.remote_addr,
+            'error': str(e),
+            'traceback': traceback.format_exc()
+        })
+
+        return render_template(
+            'stations/error.html',
+            error_message="Błąd ładowania stanowiska sklejania",
+            error_details=str(e),
+            back_url=url_for('production.production_stations.station_select')
+        ), 500
+
+
+@station_bp.route('/formatting')
+def formatting_station():
+    """
+    Interfejs stanowiska formatowania - ORDER-BASED VERSION
+    Pokazuje CAŁE zamówienia (grouped by internal_order_number)
+
+    Query params:
+        sort: priority|deadline|created_at (default: priority)
+        limit: max liczba produktów (default: 50)
+
+    Returns:
+        HTML: Interfejs stanowiska formatowania z pogrupowanymi zamówieniami
+    """
+    try:
+        from ..models import ProductionItem
+        from sqlalchemy import asc, desc
+
+        sort_by = request.args.get('sort', 'priority')
+        limit = min(int(request.args.get('limit', 50)), 100)
+
+        logger.info("Dostęp do stanowiska formatowania", extra={
+            'client_ip': request.remote_addr,
+            'sort_by': sort_by,
+            'limit': limit
+        })
+
+        # Znajdź zamówienia które mają choć 1 produkt do formatowania
+        orders_with_formatting = db.session.query(
+            ProductionItem.internal_order_number
+        ).filter(
+            ProductionItem.current_status == 'czeka_na_formatowanie'
+        ).distinct().all()
+
+        order_numbers = [order[0] for order in orders_with_formatting if order[0]]
+
+        if not order_numbers:
+            products = []
+        else:
+            # Pobierz WSZYSTKIE produkty z tych zamówień
+            query = ProductionItem.query.filter(
+                ProductionItem.internal_order_number.in_(order_numbers)
+            )
+
+            # Sortowanie
+            if sort_by == 'priority':
+                query = query.order_by(asc(ProductionItem.priority_rank))
+            elif sort_by == 'deadline':
+                query = query.order_by(asc(ProductionItem.deadline_date))
+            else:
+                query = query.order_by(asc(ProductionItem.created_at))
+
+            products_db = query.limit(limit).all()
+
+            # Przygotuj dane produktów
+            products = []
+            today = date.today()
+
+            for product in products_db:
+                priority_rank = product.priority_rank if product.priority_rank else 999
+
+                # Wymiary w MM (mnożymy przez 10)
+                dimensions_parts = []
+                if product.parsed_length_cm:
+                    dimensions_parts.append(str(int(product.parsed_length_cm * 10)))
+                if product.parsed_width_cm:
+                    dimensions_parts.append(str(int(product.parsed_width_cm * 10)))
+                if product.parsed_thickness_cm:
+                    dimensions_parts.append(str(int(product.parsed_thickness_cm * 10)))
+                dimensions_text = '×'.join(dimensions_parts) + ' mm' if dimensions_parts else None
+
+                volume_m3 = float(product.volume_m3) if product.volume_m3 else 0.0
+
+                product_data = {
+                    'id': product.short_product_id,
+                    'internal_order': product.internal_order_number,
+                    'baselinker_order_id': product.baselinker_order_id,
+                    'original_name': product.original_product_name,
+                    'current_status': product.current_status,
+                    'priority_rank': priority_rank,
+                    'deadline_date': product.deadline_date,
+                    'volume_m3': volume_m3,
+                    'wood_species': product.parsed_wood_species,
+                    'technology': product.parsed_technology,
+                    'wood_class': product.parsed_wood_class,
+                    'dimensions': dimensions_text,
+                    'attachment_file_name': product.attachment_file_name,
+                    'attachment_file_url': product.attachment_file_url,
+                    'product_sequence_in_order': product.product_sequence_in_order
+                }
+
+                products.append(product_data)
+
+        # Grupowanie produktów po zamówieniach
+        orders_grouped = {}
+        for product in products:
+            order_number = product['internal_order']
+            if order_number not in orders_grouped:
+                orders_grouped[order_number] = {
+                    'order_number': order_number,
+                    'baselinker_order_id': product.get('baselinker_order_id'),
+                    'products': [],
+                    'total_products': 0,
+                    'total_volume': 0,
+                    'best_priority_rank': 999,
+                    'worst_deadline': None
+                }
+
+            order = orders_grouped[order_number]
+            order['products'].append(product)
+            order['total_products'] += 1
+            order['total_volume'] += product['volume_m3'] or 0
+
+            # Najlepszy priorytet z zamówienia
+            if product['priority_rank'] < order['best_priority_rank']:
+                order['best_priority_rank'] = product['priority_rank']
+
+            # Najgorszy deadline (najpóźniejszy)
+            if product['deadline_date']:
+                if order['worst_deadline'] is None or product['deadline_date'] > order['worst_deadline']:
+                    order['worst_deadline'] = product['deadline_date']
+
+        # Sortuj produkty wewnątrz zamówienia po product_sequence_in_order
+        for order in orders_grouped.values():
+            order['products'].sort(key=lambda p: p['product_sequence_in_order'])
+
+        # Dodaj display_deadline do każdego zamówienia
+        today = date.today()
+        for order in orders_grouped.values():
+            if order['worst_deadline']:
+                days_diff = (order['worst_deadline'] - today).days
+                if days_diff < 0:
+                    order['display_deadline'] = f"Opóźnione o {abs(days_diff)} dni"
+                elif days_diff == 0:
+                    order['display_deadline'] = "Dziś!"
+                elif days_diff == 1:
+                    order['display_deadline'] = "Jutro"
+                else:
+                    order['display_deadline'] = f"Za {days_diff} dni"
+            else:
+                order['display_deadline'] = "Brak terminu"
+
+        # Sortowanie zamówień
+        if sort_by == 'priority':
+            orders_list = sorted(orders_grouped.values(), key=lambda x: x['best_priority_rank'])
+        elif sort_by == 'deadline':
+            orders_list = sorted(orders_grouped.values(), key=lambda x: x['worst_deadline'] or date(9999, 12, 31))
+        else:
+            orders_list = list(orders_grouped.values())
+
+        # Konfiguracja interfejsu
+        config = get_station_config()
+
+        # Statystyki stanowiska
+        total_products = sum(order['total_products'] for order in orders_list)
+        high_priority_count = sum(1 for order in orders_list if order['best_priority_rank'] <= 50)
+
+        station_stats = {
+            'total_products': total_products,
+            'total_orders': len(orders_list),
+            'high_priority_count': high_priority_count
+        }
+
+        now = datetime.utcnow()
+
+        return render_template(
+            'stations/formatting.html',
+            orders_grouped=orders_list,
+            products=products,
+            station_code='formatting',
+            station_name='Formatowanie',
+            station_stats=station_stats,
+            config=config,
+            sort_by=sort_by,
+            limit=limit,
+            now=now,
+            last_updated=datetime.utcnow(),
+            page_title="Stanowisko Formatowania"
+        )
+
+    except Exception as e:
+        logger.error("Błąd interfejsu formatowania", extra={
+            'client_ip': request.remote_addr,
+            'error': str(e),
+            'traceback': traceback.format_exc()
+        })
+
+        return render_template(
+            'stations/error.html',
+            error_message="Błąd ładowania stanowiska formatowania",
+            error_details=str(e),
+            back_url=url_for('production.production_stations.station_select')
+        ), 500
+
+
+@station_bp.route('/finishing')
+def finishing_station():
+    """
+    Interfejs stanowiska wykańczania - ORDER-BASED VERSION
+    Pokazuje CAŁE zamówienia (grouped by internal_order_number)
+
+    Query params:
+        sort: priority|deadline|created_at (default: priority)
+        limit: max liczba produktów (default: 50)
+
+    Returns:
+        HTML: Interfejs stanowiska wykańczania z pogrupowanymi zamówieniami
+    """
+    try:
+        from ..models import ProductionItem
+        from sqlalchemy import asc, desc
+
+        sort_by = request.args.get('sort', 'priority')
+        limit = min(int(request.args.get('limit', 50)), 100)
+
+        logger.info("Dostęp do stanowiska wykańczania", extra={
+            'client_ip': request.remote_addr,
+            'sort_by': sort_by,
+            'limit': limit
+        })
+
+        # Znajdź zamówienia które mają choć 1 produkt do wykańczania
+        orders_with_finishing = db.session.query(
+            ProductionItem.internal_order_number
+        ).filter(
+            ProductionItem.current_status == 'czeka_na_wykanczanie'
+        ).distinct().all()
+
+        order_numbers = [order[0] for order in orders_with_finishing if order[0]]
+
+        if not order_numbers:
+            products = []
+        else:
+            # Pobierz WSZYSTKIE produkty z tych zamówień
+            query = ProductionItem.query.filter(
+                ProductionItem.internal_order_number.in_(order_numbers)
+            )
+
+            # Sortowanie
+            if sort_by == 'priority':
+                query = query.order_by(asc(ProductionItem.priority_rank))
+            elif sort_by == 'deadline':
+                query = query.order_by(asc(ProductionItem.deadline_date))
+            else:
+                query = query.order_by(asc(ProductionItem.created_at))
+
+            products_db = query.limit(limit).all()
+
+            # Przygotuj dane produktów
+            products = []
+            today = date.today()
+
+            for product in products_db:
+                priority_rank = product.priority_rank if product.priority_rank else 999
+
+                # Wymiary w MM (mnożymy przez 10)
+                dimensions_parts = []
+                if product.parsed_length_cm:
+                    dimensions_parts.append(str(int(product.parsed_length_cm * 10)))
+                if product.parsed_width_cm:
+                    dimensions_parts.append(str(int(product.parsed_width_cm * 10)))
+                if product.parsed_thickness_cm:
+                    dimensions_parts.append(str(int(product.parsed_thickness_cm * 10)))
+                dimensions_text = '×'.join(dimensions_parts) + ' mm' if dimensions_parts else None
+
+                volume_m3 = float(product.volume_m3) if product.volume_m3 else 0.0
+
+                product_data = {
+                    'id': product.short_product_id,
+                    'internal_order': product.internal_order_number,
+                    'baselinker_order_id': product.baselinker_order_id,
+                    'original_name': product.original_product_name,
+                    'current_status': product.current_status,
+                    'priority_rank': priority_rank,
+                    'deadline_date': product.deadline_date,
+                    'volume_m3': volume_m3,
+                    'wood_species': product.parsed_wood_species,
+                    'technology': product.parsed_technology,
+                    'wood_class': product.parsed_wood_class,
+                    'dimensions': dimensions_text,
+                    'attachment_file_name': product.attachment_file_name,
+                    'attachment_file_url': product.attachment_file_url,
+                    'product_sequence_in_order': product.product_sequence_in_order
+                }
+
+                products.append(product_data)
+
+        # Grupowanie produktów po zamówieniach
+        orders_grouped = {}
+        for product in products:
+            order_number = product['internal_order']
+            if order_number not in orders_grouped:
+                orders_grouped[order_number] = {
+                    'order_number': order_number,
+                    'baselinker_order_id': product.get('baselinker_order_id'),
+                    'products': [],
+                    'total_products': 0,
+                    'total_volume': 0,
+                    'best_priority_rank': 999,
+                    'worst_deadline': None
+                }
+
+            order = orders_grouped[order_number]
+            order['products'].append(product)
+            order['total_products'] += 1
+            order['total_volume'] += product['volume_m3'] or 0
+
+            # Najlepszy priorytet z zamówienia
+            if product['priority_rank'] < order['best_priority_rank']:
+                order['best_priority_rank'] = product['priority_rank']
+
+            # Najgorszy deadline (najpóźniejszy)
+            if product['deadline_date']:
+                if order['worst_deadline'] is None or product['deadline_date'] > order['worst_deadline']:
+                    order['worst_deadline'] = product['deadline_date']
+
+        # Sortuj produkty wewnątrz zamówienia po product_sequence_in_order
+        for order in orders_grouped.values():
+            order['products'].sort(key=lambda p: p['product_sequence_in_order'])
+
+        # Dodaj display_deadline do każdego zamówienia
+        today = date.today()
+        for order in orders_grouped.values():
+            if order['worst_deadline']:
+                days_diff = (order['worst_deadline'] - today).days
+                if days_diff < 0:
+                    order['display_deadline'] = f"Opóźnione o {abs(days_diff)} dni"
+                elif days_diff == 0:
+                    order['display_deadline'] = "Dziś!"
+                elif days_diff == 1:
+                    order['display_deadline'] = "Jutro"
+                else:
+                    order['display_deadline'] = f"Za {days_diff} dni"
+            else:
+                order['display_deadline'] = "Brak terminu"
+
+        # Sortowanie zamówień
+        if sort_by == 'priority':
+            orders_list = sorted(orders_grouped.values(), key=lambda x: x['best_priority_rank'])
+        elif sort_by == 'deadline':
+            orders_list = sorted(orders_grouped.values(), key=lambda x: x['worst_deadline'] or date(9999, 12, 31))
+        else:
+            orders_list = list(orders_grouped.values())
+
+        # Konfiguracja interfejsu
+        config = get_station_config()
+
+        # Statystyki stanowiska
+        total_products = sum(order['total_products'] for order in orders_list)
+        high_priority_count = sum(1 for order in orders_list if order['best_priority_rank'] <= 50)
+
+        station_stats = {
+            'total_products': total_products,
+            'total_orders': len(orders_list),
+            'high_priority_count': high_priority_count
+        }
+
+        now = datetime.utcnow()
+
+        return render_template(
+            'stations/finishing.html',
+            orders_grouped=orders_list,
+            products=products,
+            station_code='finishing',
+            station_name='Wykańczanie',
+            station_stats=station_stats,
+            config=config,
+            sort_by=sort_by,
+            limit=limit,
+            now=now,
+            last_updated=datetime.utcnow(),
+            page_title="Stanowisko Wykańczania"
+        )
+
+    except Exception as e:
+        logger.error("Błąd interfejsu wykańczania", extra={
+            'client_ip': request.remote_addr,
+            'error': str(e),
+            'traceback': traceback.format_exc()
+        })
+
+        return render_template(
+            'stations/error.html',
+            error_message="Błąd ładowania stanowiska wykańczania",
+            error_details=str(e),
+            back_url=url_for('production.production_stations.station_select')
+        ), 500
+
 
 # ============================================================================
 # ROUTERS - STANOWISKO PAKOWANIA
@@ -1724,6 +2435,618 @@ def ajax_get_orders_assembly():
             'error': str(e)
         }), 500
 
+@station_bp.route('/ajax/orders/gluing')
+def ajax_get_orders_gluing():
+    """
+    AJAX endpoint dla odświeżania ZAMÓWIEŃ na stanowisku sklejania
+
+    Query params:
+        sort: priority|deadline|created_at (default: priority)
+        limit: max liczba produktów (default: 50)
+
+    Returns:
+        JSON: {
+            success: bool,
+            data: {
+                orders: [...],  # Pogrupowane zamówienia
+                stats: {...}    # Statystyki
+            }
+        }
+    """
+    try:
+        from ..models import ProductionItem
+        from sqlalchemy import asc, desc
+
+        sort_by = request.args.get('sort', 'priority')
+        limit = min(int(request.args.get('limit', 50)), 100)
+
+        logger.debug("AJAX: Pobieranie zamówień gluing", extra={
+            'sort_by': sort_by,
+            'limit': limit,
+            'client_ip': request.remote_addr
+        })
+
+        # KROK 1: Znajdź zamówienia które mają choć 1 produkt do sklejania
+        orders_with_gluing = db.session.query(
+            ProductionItem.internal_order_number
+        ).filter(
+            ProductionItem.current_status == 'czeka_na_sklejanie'
+        ).distinct().all()
+
+        order_numbers = [order[0] for order in orders_with_gluing]
+
+        if not order_numbers:
+            return jsonify({
+                'success': True,
+                'data': {
+                    'orders': [],
+                    'stats': {
+                        'total_orders': 0,
+                        'total_products': 0,
+                        'high_priority_count': 0,
+                        'overdue_count': 0,
+                        'total_volume': 0
+                    }
+                }
+            }), 200
+
+        # KROK 2: Pobierz WSZYSTKIE produkty z tych zamówień
+        query = ProductionItem.query.filter(
+            ProductionItem.internal_order_number.in_(order_numbers)
+        )
+
+        # Sortowanie
+        if sort_by == 'priority':
+            query = query.order_by(asc(ProductionItem.priority_rank))
+        elif sort_by == 'deadline':
+            query = query.order_by(asc(ProductionItem.deadline_date))
+        elif sort_by == 'created_at':
+            query = query.order_by(asc(ProductionItem.created_at))
+
+        products = query.limit(limit).all()
+
+        # KROK 3: Grupowanie produktów po zamówieniach
+        orders_grouped = {}
+        today = date.today()
+
+        for product in products:
+            order_num = product.internal_order_number
+
+            if order_num not in orders_grouped:
+                orders_grouped[order_num] = {
+                    'order_number': order_num,
+                    'baselinker_order_id': None,
+                    'products': [],
+                    'total_products': 0,
+                    'total_volume': 0,
+                    'best_priority_rank': 999,
+                    'worst_deadline': None
+                }
+
+            # Dodaj produkt do zamówienia
+            product_data = {
+                'id': product.short_product_id,
+                'short_product_id': product.short_product_id,
+                'product_sequence_in_order': product.product_sequence_in_order,
+                'original_name': product.original_product_name or 'Brak nazwy',
+                'dimensions': None,
+                'volume_m3': float(product.volume_m3 or 0),
+                'wood_species': product.parsed_wood_species,
+                'technology': product.parsed_technology,
+                'wood_class': product.parsed_wood_class,
+                'current_status': product.current_status,
+                'priority_rank': product.priority_rank or 999,
+                'deadline_date': product.deadline_date.isoformat() if product.deadline_date else None,
+                'attachment_file_name': product.attachment_file_name,
+                'attachment_file_url': product.attachment_file_url
+            }
+
+            if product.parsed_length_cm and product.parsed_width_cm and product.parsed_thickness_cm:
+                product_data['dimensions'] = f"{int(product.parsed_length_cm)}×{int(product.parsed_width_cm)}×{int(product.parsed_thickness_cm)}"
+
+            orders_grouped[order_num]['products'].append(product_data)
+            orders_grouped[order_num]['total_products'] += 1
+            orders_grouped[order_num]['total_volume'] += float(product.volume_m3 or 0)
+
+            if not orders_grouped[order_num]['baselinker_order_id'] and product.baselinker_order_id:
+                orders_grouped[order_num]['baselinker_order_id'] = product.baselinker_order_id
+
+            if product.priority_rank and product.priority_rank < orders_grouped[order_num]['best_priority_rank']:
+                orders_grouped[order_num]['best_priority_rank'] = product.priority_rank
+
+            if product.deadline_date:
+                if orders_grouped[order_num]['worst_deadline'] is None:
+                    orders_grouped[order_num]['worst_deadline'] = product.deadline_date
+                elif product.deadline_date > orders_grouped[order_num]['worst_deadline']:
+                    orders_grouped[order_num]['worst_deadline'] = product.deadline_date
+
+        # KROK 4: Sortuj produkty wewnątrz każdego zamówienia
+        for order_num, order_data in orders_grouped.items():
+            order_data['products'].sort(key=lambda p: p['product_sequence_in_order'])
+
+        # KROK 5: Dodaj informacje wyświetlania
+        for order_num, order_data in orders_grouped.items():
+            rank = order_data['best_priority_rank']
+            if rank <= 10:
+                order_data['priority_class'] = 'priority-critical'
+                order_data['priority_label'] = 'KRYTYCZNY'
+            elif rank <= 50:
+                order_data['priority_class'] = 'priority-high'
+                order_data['priority_label'] = 'WYSOKI'
+            elif rank <= 100:
+                order_data['priority_class'] = 'priority-normal'
+                order_data['priority_label'] = 'NORMALNY'
+            else:
+                order_data['priority_class'] = 'priority-low'
+                order_data['priority_label'] = 'NISKI'
+
+            deadline = order_data['worst_deadline']
+            if deadline:
+                days_diff = (deadline - today).days
+                if days_diff < 0:
+                    order_data['display_deadline'] = f"Opóźnione o {abs(days_diff)} dni"
+                elif days_diff == 0:
+                    order_data['display_deadline'] = "Dziś!"
+                elif days_diff == 1:
+                    order_data['display_deadline'] = "Jutro"
+                else:
+                    order_data['display_deadline'] = f"Za {days_diff} dni"
+            else:
+                order_data['display_deadline'] = "Brak terminu"
+
+            if order_data['worst_deadline']:
+                order_data['deadline_date'] = order_data['worst_deadline'].isoformat()
+                order_data['worst_deadline'] = order_data['worst_deadline'].isoformat()
+
+        # KROK 6: Sortowanie zamówień
+        orders_list = list(orders_grouped.values())
+        if sort_by == 'priority':
+            orders_list.sort(key=lambda x: x['best_priority_rank'])
+        elif sort_by == 'deadline':
+            orders_list.sort(key=lambda x: x['worst_deadline'] or '9999-12-31')
+
+        # KROK 7: Statystyki
+        high_priority_count = sum(1 for order in orders_list if order['best_priority_rank'] <= 50)
+        overdue_count = sum(1 for order in orders_list
+                           if order['worst_deadline'] and order['worst_deadline'] < today.isoformat())
+        total_volume = sum(order['total_volume'] for order in orders_list)
+        total_products = sum(order['total_products'] for order in orders_list)
+
+        stats = {
+            'total_orders': len(orders_list),
+            'total_products': total_products,
+            'high_priority_count': high_priority_count,
+            'overdue_count': overdue_count,
+            'total_volume': round(total_volume, 4)
+        }
+
+        return jsonify({
+            'success': True,
+            'data': {
+                'orders': orders_list,
+                'stats': stats
+            }
+        }), 200
+
+    except Exception as e:
+        logger.error("Błąd AJAX orders gluing", extra={
+            'error': str(e),
+            'traceback': traceback.format_exc()
+        })
+
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+@station_bp.route('/ajax/orders/formatting')
+def ajax_get_orders_formatting():
+    """
+    AJAX endpoint dla odświeżania ZAMÓWIEŃ na stanowisku formatowania
+
+    Query params:
+        sort: priority|deadline|created_at (default: priority)
+        limit: max liczba produktów (default: 50)
+
+    Returns:
+        JSON: {
+            success: bool,
+            data: {
+                orders: [...],  # Pogrupowane zamówienia
+                stats: {...}    # Statystyki
+            }
+        }
+    """
+    try:
+        from ..models import ProductionItem
+        from sqlalchemy import asc, desc
+
+        sort_by = request.args.get('sort', 'priority')
+        limit = min(int(request.args.get('limit', 50)), 100)
+
+        logger.debug("AJAX: Pobieranie zamówień formatting", extra={
+            'sort_by': sort_by,
+            'limit': limit,
+            'client_ip': request.remote_addr
+        })
+
+        # KROK 1: Znajdź zamówienia które mają choć 1 produkt do formatowania
+        orders_with_formatting = db.session.query(
+            ProductionItem.internal_order_number
+        ).filter(
+            ProductionItem.current_status == 'czeka_na_formatowanie'
+        ).distinct().all()
+
+        order_numbers = [order[0] for order in orders_with_formatting]
+
+        if not order_numbers:
+            return jsonify({
+                'success': True,
+                'data': {
+                    'orders': [],
+                    'stats': {
+                        'total_orders': 0,
+                        'total_products': 0,
+                        'high_priority_count': 0,
+                        'overdue_count': 0,
+                        'total_volume': 0
+                    }
+                }
+            }), 200
+
+        # KROK 2: Pobierz WSZYSTKIE produkty z tych zamówień
+        query = ProductionItem.query.filter(
+            ProductionItem.internal_order_number.in_(order_numbers)
+        )
+
+        # Sortowanie
+        if sort_by == 'priority':
+            query = query.order_by(asc(ProductionItem.priority_rank))
+        elif sort_by == 'deadline':
+            query = query.order_by(asc(ProductionItem.deadline_date))
+        elif sort_by == 'created_at':
+            query = query.order_by(asc(ProductionItem.created_at))
+
+        products = query.limit(limit).all()
+
+        # KROK 3: Grupowanie produktów po zamówieniach
+        orders_grouped = {}
+        today = date.today()
+
+        for product in products:
+            order_num = product.internal_order_number
+
+            if order_num not in orders_grouped:
+                orders_grouped[order_num] = {
+                    'order_number': order_num,
+                    'baselinker_order_id': None,
+                    'products': [],
+                    'total_products': 0,
+                    'total_volume': 0,
+                    'best_priority_rank': 999,
+                    'worst_deadline': None
+                }
+
+            # Dodaj produkt do zamówienia
+            product_data = {
+                'id': product.short_product_id,
+                'short_product_id': product.short_product_id,
+                'product_sequence_in_order': product.product_sequence_in_order,
+                'original_name': product.original_product_name or 'Brak nazwy',
+                'dimensions': None,
+                'volume_m3': float(product.volume_m3 or 0),
+                'wood_species': product.parsed_wood_species,
+                'technology': product.parsed_technology,
+                'wood_class': product.parsed_wood_class,
+                'current_status': product.current_status,
+                'priority_rank': product.priority_rank or 999,
+                'deadline_date': product.deadline_date.isoformat() if product.deadline_date else None,
+                'attachment_file_name': product.attachment_file_name,
+                'attachment_file_url': product.attachment_file_url
+            }
+
+            if product.parsed_length_cm and product.parsed_width_cm and product.parsed_thickness_cm:
+                product_data['dimensions'] = f"{int(product.parsed_length_cm)}×{int(product.parsed_width_cm)}×{int(product.parsed_thickness_cm)}"
+
+            orders_grouped[order_num]['products'].append(product_data)
+            orders_grouped[order_num]['total_products'] += 1
+            orders_grouped[order_num]['total_volume'] += float(product.volume_m3 or 0)
+
+            if not orders_grouped[order_num]['baselinker_order_id'] and product.baselinker_order_id:
+                orders_grouped[order_num]['baselinker_order_id'] = product.baselinker_order_id
+
+            if product.priority_rank and product.priority_rank < orders_grouped[order_num]['best_priority_rank']:
+                orders_grouped[order_num]['best_priority_rank'] = product.priority_rank
+
+            if product.deadline_date:
+                if orders_grouped[order_num]['worst_deadline'] is None:
+                    orders_grouped[order_num]['worst_deadline'] = product.deadline_date
+                elif product.deadline_date > orders_grouped[order_num]['worst_deadline']:
+                    orders_grouped[order_num]['worst_deadline'] = product.deadline_date
+
+        # KROK 4: Sortuj produkty wewnątrz każdego zamówienia
+        for order_num, order_data in orders_grouped.items():
+            order_data['products'].sort(key=lambda p: p['product_sequence_in_order'])
+
+        # KROK 5: Dodaj informacje wyświetlania
+        for order_num, order_data in orders_grouped.items():
+            rank = order_data['best_priority_rank']
+            if rank <= 10:
+                order_data['priority_class'] = 'priority-critical'
+                order_data['priority_label'] = 'KRYTYCZNY'
+            elif rank <= 50:
+                order_data['priority_class'] = 'priority-high'
+                order_data['priority_label'] = 'WYSOKI'
+            elif rank <= 100:
+                order_data['priority_class'] = 'priority-normal'
+                order_data['priority_label'] = 'NORMALNY'
+            else:
+                order_data['priority_class'] = 'priority-low'
+                order_data['priority_label'] = 'NISKI'
+
+            deadline = order_data['worst_deadline']
+            if deadline:
+                days_diff = (deadline - today).days
+                if days_diff < 0:
+                    order_data['display_deadline'] = f"Opóźnione o {abs(days_diff)} dni"
+                elif days_diff == 0:
+                    order_data['display_deadline'] = "Dziś!"
+                elif days_diff == 1:
+                    order_data['display_deadline'] = "Jutro"
+                else:
+                    order_data['display_deadline'] = f"Za {days_diff} dni"
+            else:
+                order_data['display_deadline'] = "Brak terminu"
+
+            if order_data['worst_deadline']:
+                order_data['deadline_date'] = order_data['worst_deadline'].isoformat()
+                order_data['worst_deadline'] = order_data['worst_deadline'].isoformat()
+
+        # KROK 6: Sortowanie zamówień
+        orders_list = list(orders_grouped.values())
+        if sort_by == 'priority':
+            orders_list.sort(key=lambda x: x['best_priority_rank'])
+        elif sort_by == 'deadline':
+            orders_list.sort(key=lambda x: x['worst_deadline'] or '9999-12-31')
+
+        # KROK 7: Statystyki
+        high_priority_count = sum(1 for order in orders_list if order['best_priority_rank'] <= 50)
+        overdue_count = sum(1 for order in orders_list
+                           if order['worst_deadline'] and order['worst_deadline'] < today.isoformat())
+        total_volume = sum(order['total_volume'] for order in orders_list)
+        total_products = sum(order['total_products'] for order in orders_list)
+
+        stats = {
+            'total_orders': len(orders_list),
+            'total_products': total_products,
+            'high_priority_count': high_priority_count,
+            'overdue_count': overdue_count,
+            'total_volume': round(total_volume, 4)
+        }
+
+        return jsonify({
+            'success': True,
+            'data': {
+                'orders': orders_list,
+                'stats': stats
+            }
+        }), 200
+
+    except Exception as e:
+        logger.error("Błąd AJAX orders formatting", extra={
+            'error': str(e),
+            'traceback': traceback.format_exc()
+        })
+
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+@station_bp.route('/ajax/orders/finishing')
+def ajax_get_orders_finishing():
+    """
+    AJAX endpoint dla odświeżania ZAMÓWIEŃ na stanowisku wykańczania
+
+    Query params:
+        sort: priority|deadline|created_at (default: priority)
+        limit: max liczba produktów (default: 50)
+
+    Returns:
+        JSON: {
+            success: bool,
+            data: {
+                orders: [...],  # Pogrupowane zamówienia
+                stats: {...}    # Statystyki
+            }
+        }
+    """
+    try:
+        from ..models import ProductionItem
+        from sqlalchemy import asc, desc
+
+        sort_by = request.args.get('sort', 'priority')
+        limit = min(int(request.args.get('limit', 50)), 100)
+
+        logger.debug("AJAX: Pobieranie zamówień finishing", extra={
+            'sort_by': sort_by,
+            'limit': limit,
+            'client_ip': request.remote_addr
+        })
+
+        # KROK 1: Znajdź zamówienia które mają choć 1 produkt do wykańczania
+        orders_with_finishing = db.session.query(
+            ProductionItem.internal_order_number
+        ).filter(
+            ProductionItem.current_status == 'czeka_na_wykanczanie'
+        ).distinct().all()
+
+        order_numbers = [order[0] for order in orders_with_finishing]
+
+        if not order_numbers:
+            return jsonify({
+                'success': True,
+                'data': {
+                    'orders': [],
+                    'stats': {
+                        'total_orders': 0,
+                        'total_products': 0,
+                        'high_priority_count': 0,
+                        'overdue_count': 0,
+                        'total_volume': 0
+                    }
+                }
+            }), 200
+
+        # KROK 2: Pobierz WSZYSTKIE produkty z tych zamówień
+        query = ProductionItem.query.filter(
+            ProductionItem.internal_order_number.in_(order_numbers)
+        )
+
+        # Sortowanie
+        if sort_by == 'priority':
+            query = query.order_by(asc(ProductionItem.priority_rank))
+        elif sort_by == 'deadline':
+            query = query.order_by(asc(ProductionItem.deadline_date))
+        elif sort_by == 'created_at':
+            query = query.order_by(asc(ProductionItem.created_at))
+
+        products = query.limit(limit).all()
+
+        # KROK 3: Grupowanie produktów po zamówieniach
+        orders_grouped = {}
+        today = date.today()
+
+        for product in products:
+            order_num = product.internal_order_number
+
+            if order_num not in orders_grouped:
+                orders_grouped[order_num] = {
+                    'order_number': order_num,
+                    'baselinker_order_id': None,
+                    'products': [],
+                    'total_products': 0,
+                    'total_volume': 0,
+                    'best_priority_rank': 999,
+                    'worst_deadline': None
+                }
+
+            # Dodaj produkt do zamówienia
+            product_data = {
+                'id': product.short_product_id,
+                'short_product_id': product.short_product_id,
+                'product_sequence_in_order': product.product_sequence_in_order,
+                'original_name': product.original_product_name or 'Brak nazwy',
+                'dimensions': None,
+                'volume_m3': float(product.volume_m3 or 0),
+                'wood_species': product.parsed_wood_species,
+                'technology': product.parsed_technology,
+                'wood_class': product.parsed_wood_class,
+                'current_status': product.current_status,
+                'priority_rank': product.priority_rank or 999,
+                'deadline_date': product.deadline_date.isoformat() if product.deadline_date else None,
+                'attachment_file_name': product.attachment_file_name,
+                'attachment_file_url': product.attachment_file_url
+            }
+
+            if product.parsed_length_cm and product.parsed_width_cm and product.parsed_thickness_cm:
+                product_data['dimensions'] = f"{int(product.parsed_length_cm)}×{int(product.parsed_width_cm)}×{int(product.parsed_thickness_cm)}"
+
+            orders_grouped[order_num]['products'].append(product_data)
+            orders_grouped[order_num]['total_products'] += 1
+            orders_grouped[order_num]['total_volume'] += float(product.volume_m3 or 0)
+
+            if not orders_grouped[order_num]['baselinker_order_id'] and product.baselinker_order_id:
+                orders_grouped[order_num]['baselinker_order_id'] = product.baselinker_order_id
+
+            if product.priority_rank and product.priority_rank < orders_grouped[order_num]['best_priority_rank']:
+                orders_grouped[order_num]['best_priority_rank'] = product.priority_rank
+
+            if product.deadline_date:
+                if orders_grouped[order_num]['worst_deadline'] is None:
+                    orders_grouped[order_num]['worst_deadline'] = product.deadline_date
+                elif product.deadline_date > orders_grouped[order_num]['worst_deadline']:
+                    orders_grouped[order_num]['worst_deadline'] = product.deadline_date
+
+        # KROK 4: Sortuj produkty wewnątrz każdego zamówienia
+        for order_num, order_data in orders_grouped.items():
+            order_data['products'].sort(key=lambda p: p['product_sequence_in_order'])
+
+        # KROK 5: Dodaj informacje wyświetlania
+        for order_num, order_data in orders_grouped.items():
+            rank = order_data['best_priority_rank']
+            if rank <= 10:
+                order_data['priority_class'] = 'priority-critical'
+                order_data['priority_label'] = 'KRYTYCZNY'
+            elif rank <= 50:
+                order_data['priority_class'] = 'priority-high'
+                order_data['priority_label'] = 'WYSOKI'
+            elif rank <= 100:
+                order_data['priority_class'] = 'priority-normal'
+                order_data['priority_label'] = 'NORMALNY'
+            else:
+                order_data['priority_class'] = 'priority-low'
+                order_data['priority_label'] = 'NISKI'
+
+            deadline = order_data['worst_deadline']
+            if deadline:
+                days_diff = (deadline - today).days
+                if days_diff < 0:
+                    order_data['display_deadline'] = f"Opóźnione o {abs(days_diff)} dni"
+                elif days_diff == 0:
+                    order_data['display_deadline'] = "Dziś!"
+                elif days_diff == 1:
+                    order_data['display_deadline'] = "Jutro"
+                else:
+                    order_data['display_deadline'] = f"Za {days_diff} dni"
+            else:
+                order_data['display_deadline'] = "Brak terminu"
+
+            if order_data['worst_deadline']:
+                order_data['deadline_date'] = order_data['worst_deadline'].isoformat()
+                order_data['worst_deadline'] = order_data['worst_deadline'].isoformat()
+
+        # KROK 6: Sortowanie zamówień
+        orders_list = list(orders_grouped.values())
+        if sort_by == 'priority':
+            orders_list.sort(key=lambda x: x['best_priority_rank'])
+        elif sort_by == 'deadline':
+            orders_list.sort(key=lambda x: x['worst_deadline'] or '9999-12-31')
+
+        # KROK 7: Statystyki
+        high_priority_count = sum(1 for order in orders_list if order['best_priority_rank'] <= 50)
+        overdue_count = sum(1 for order in orders_list
+                           if order['worst_deadline'] and order['worst_deadline'] < today.isoformat())
+        total_volume = sum(order['total_volume'] for order in orders_list)
+        total_products = sum(order['total_products'] for order in orders_list)
+
+        stats = {
+            'total_orders': len(orders_list),
+            'total_products': total_products,
+            'high_priority_count': high_priority_count,
+            'overdue_count': overdue_count,
+            'total_volume': round(total_volume, 4)
+        }
+
+        return jsonify({
+            'success': True,
+            'data': {
+                'orders': orders_list,
+                'stats': stats
+            }
+        }), 200
+
+    except Exception as e:
+        logger.error("Błąd AJAX orders finishing", extra={
+            'error': str(e),
+            'traceback': traceback.format_exc()
+        })
+
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
 @station_bp.route('/ajax/station-today-m3/<station_code>')
 def ajax_station_today_m3(station_code):
     """
@@ -1733,7 +3056,7 @@ def ajax_station_today_m3(station_code):
     Używa tej samej logiki co dashboard dla spójności danych.
 
     Args:
-        station_code: cutting|assembly|packaging
+        station_code: cutting|assembly|gluing|formatting|finishing|packaging
 
     Returns:
         JSON: {
@@ -1748,35 +3071,45 @@ def ajax_station_today_m3(station_code):
     """
     try:
         # Walidacja station_code
-        if station_code not in ['cutting', 'assembly', 'packaging']:
+        if station_code not in ['cutting', 'assembly', 'gluing', 'formatting', 'finishing', 'packaging']:
             return jsonify({
                 'success': False,
-                'error': f'Nieprawidłowy station_code. Dozwolone: cutting, assembly, packaging'
+                'error': f'Nieprawidłowy station_code. Dozwolone: cutting, assembly, gluing, formatting, finishing, packaging'
             }), 400
-        
+
         from ..models import ProductionItem
-        
+
         # Określ zakres czasowy dla "dzisiaj"
         today = date.today()
         today_start = datetime.combine(today, datetime.min.time())
         today_end = datetime.combine(today, datetime.max.time())
-        
-        # Mapowanie station_code na pole completed_at
-        completed_at_field_map = {
-            'cutting': ProductionItem.cutting_completed_at,
-            'assembly': ProductionItem.assembly_completed_at,
-            'packaging': ProductionItem.packaging_completed_at
-        }
-        
-        completed_at_field = completed_at_field_map[station_code]
-        
-        # Query dla dzisiejszych m³ (identyczna logika jak w dashboard)
-        today_m3 = db.session.query(
-            db.func.coalesce(db.func.sum(ProductionItem.volume_m3), 0)
-        ).filter(
-            completed_at_field >= today_start,
-            completed_at_field <= today_end
-        ).scalar() or 0.0
+
+        # Mapowanie station_code na pole completed_at z try-except dla nowych pól
+        try:
+            completed_at_field_map = {
+                'cutting': ProductionItem.cutting_completed_at,
+                'assembly': ProductionItem.assembly_completed_at,
+                'gluing': ProductionItem.gluing_completed_at,
+                'formatting': ProductionItem.formatting_completed_at,
+                'finishing': ProductionItem.finishing_completed_at,
+                'packaging': ProductionItem.packaging_completed_at
+            }
+
+            completed_at_field = completed_at_field_map[station_code]
+
+            # Query dla dzisiejszych m³ (identyczna logika jak w dashboard)
+            today_m3 = db.session.query(
+                db.func.coalesce(db.func.sum(ProductionItem.volume_m3), 0)
+            ).filter(
+                completed_at_field >= today_start,
+                completed_at_field <= today_end
+            ).scalar() or 0.0
+        except AttributeError:
+            # Pole nie istnieje jeszcze w modelu - zwróć 0
+            logger.warning(f"Pole {station_code}_completed_at nie istnieje w modelu", extra={
+                'station_code': station_code
+            })
+            today_m3 = 0.0
         
         # Konwersja na float dla JSON
         today_m3 = float(today_m3)
@@ -1812,7 +3145,7 @@ def ajax_station_today_m3(station_code):
         }), 500
 
 # ============================================================================
-# BULK COMPLETION ENDPOINT - Order-based stations (cutting, assembly)
+# BULK COMPLETION ENDPOINT - Order-based stations (all 6 stations)
 # ============================================================================
 
 @station_bp.route('/complete-order', methods=['POST'])
@@ -1865,10 +3198,10 @@ def complete_order_bulk():
                 'error': 'Wymagane pola: order_number, product_ids, station, action'
             }), 400
 
-        if station not in ['cutting', 'assembly']:
+        if station not in ['cutting', 'assembly', 'gluing', 'formatting', 'finishing', 'packaging']:
             return jsonify({
                 'success': False,
-                'error': 'Endpoint przeznaczony dla cutting i assembly. Packaging używa starego API.'
+                'error': f'Nieprawidłowe stanowisko: {station}. Dozwolone: cutting, assembly, gluing, formatting, finishing, packaging'
             }), 400
 
         if action != 'complete':
@@ -1916,7 +3249,11 @@ def complete_order_bulk():
         # KROK 3: Walidacja statusów
         expected_status_map = {
             'cutting': 'czeka_na_wyciecie',
-            'assembly': 'czeka_na_skladanie'
+            'assembly': 'czeka_na_skladanie',
+            'gluing': 'czeka_na_sklejanie',
+            'formatting': 'czeka_na_formatowanie',
+            'finishing': 'czeka_na_wykanczanie',
+            'packaging': 'czeka_na_pakowanie'
         }
         expected_status = expected_status_map[station]
 
@@ -2065,12 +3402,28 @@ def station_access_denied(error):
 @station_bp.errorhandler(500)
 def station_server_error(error):
     """Handler dla błędów serwera w interfejsach stanowisk"""
+    from ..services.error_service import log_production_error
+
+    # Loguj do Python logger
     logger.error("Błąd serwera w interfejsie stanowiska", extra={
         'client_ip': request.remote_addr,
         'path': request.path,
         'error': str(error)
     })
-    
+
+    # Zapisz do bazy danych prod_errors
+    error_type = 'template_error' if 'template' in str(error).lower() or 'jinja' in str(error).lower() else 'api_error'
+
+    log_production_error(
+        error_type=error_type,
+        error_message=f"Błąd 500 w interfejsie stanowiska: {str(error)}",
+        exception=error if isinstance(error, Exception) else None,
+        error_details={
+            'path': request.path,
+            'station_type': request.path.split('/')[-1] if '/' in request.path else 'unknown'
+        }
+    )
+
     return render_template(
         'stations/error.html',
         error_message="Błąd systemu",

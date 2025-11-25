@@ -349,7 +349,21 @@ class ProductNameParser:
                     confidence_factors.append(0.9)  # Objętość jest bardzo pewna jeśli mamy wymiary
                 except (ValueError, TypeError):
                     errors.append("Błąd obliczania objętości")
-            
+            else:
+                # 7b. Jeśli brak wymiarów, spróbuj wyciągnąć objętość bezpośrednio z nazwy
+                # Pattern: 0,35m3 / 0,35 m3 / 0.35m³ / 0.3500 m³ itp.
+                volume_pattern = r'(\d+[.,]\d+)\s*m[³3]'
+                volume_match = re.search(volume_pattern, original_name, re.IGNORECASE)
+                if volume_match:
+                    try:
+                        # Zamień przecinek na kropkę i konwertuj na float
+                        volume_str = volume_match.group(1).replace(',', '.')
+                        volume = float(volume_str)
+                        result['volume_m3'] = round(volume, 6)
+                        confidence_factors.append(0.7)  # Niższa pewność niż z wymiarów
+                    except (ValueError, TypeError):
+                        errors.append("Nie udało się sparsować objętości z nazwy")
+
             # 8. Obliczenie ogólnej pewności parsowania
             if confidence_factors:
                 result['parsing_confidence'] = sum(confidence_factors) / len(confidence_factors)
