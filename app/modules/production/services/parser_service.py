@@ -261,8 +261,8 @@ class ProductNameParser:
         # Zamiana przecinków na kropki w liczbach
         normalized = re.sub(r'(\d+),(\d+)', r'\1.\2', normalized)
         
-        # Standardizacja separatorów wymiarów
-        normalized = re.sub(r'\s*[x×]\s*', 'x', normalized)
+        # Standardizacja separatorów wymiarów (tylko między liczbami!)
+        normalized = re.sub(r'(\d+)\s*[x×]\s*(\d+)', r'\1x\2', normalized)
         
         return normalized
     
@@ -482,19 +482,135 @@ class ProductNameParser:
     
     def _parse_finish_state(self, name: str) -> Optional[str]:
         """
-        Parsuje stan wykończenia z nazwy
-        
+        Parsuje stan wykończenia z nazwy z obsługą kolorów lakieru i bejcy
+
         Args:
             name (str): Nazwa do parsowania
-            
+
         Returns:
             Optional[str]: Stan wykończenia lub None
+
+        Przykłady:
+            "lakierowany bezbarwny" -> "Lakierowany bezbarwny"
+            "lakierowany POPIEL 20-07" -> "Lakierowany POPIEL 20-07"
+            "bejcowany BRUNAT 22-15" -> "Bejcowany BRUNAT 22-15"
+            "olejowany" -> "Olejowany"
+            "surowy" -> "Surowe"
         """
-        for key, finish in self._finish_mapping.items():
-            if key in name:
-                return finish
-        
+        # Sprawdzenie czy lakierowany
+        if 'lakier' in name:
+            return self._parse_lacquer_finish(name)
+
+        # Sprawdzenie czy bejcowany
+        if 'bejc' in name or 'stain' in name:
+            return self._parse_stain_finish(name)
+
+        # Sprawdzenie olejowania
+        if 'olej' in name or 'oil' in name:
+            return 'Olejowane'
+
+        # Sprawdzenie surowego
+        if 'sur' in name or 'raw' in name:
+            return 'Surowe'
+
         return None
+
+    def _parse_lacquer_finish(self, name: str) -> str:
+        """
+        Parsuje szczegółowe wykończenie lakierowane (bezbarwny vs barwny + kolor)
+
+        Args:
+            name (str): Nazwa produktu (znormalizowana)
+
+        Returns:
+            str: Szczegółowy opis lakierowania
+        """
+        # Sprawdź czy bezbarwny
+        if 'bezbarw' in name:
+            return 'Lakierowany bezbarwny'
+
+        # Szukaj koloru po słowie "lakier"
+        # Pattern: "lakier(owany/owanie) NAZWA_KOLORU KOD"
+        # Przykład: "lakierowany POPIEL 20-07"
+
+        # Znajdź pozycję słowa "lakier"
+        lacquer_match = re.search(r'lakier\w*', name)
+        if not lacquer_match:
+            return 'Lakierowany'
+
+        # Weź tekst po słowie "lakier"
+        text_after_lacquer = name[lacquer_match.end():].strip()
+
+        # Spróbuj wyciągnąć nazwę koloru + kod
+        # Wzorzec: NAZWA_KOLORU [KOD]
+        # Przykłady: "POPIEL 20-07", "BEŻ BN-125/09", "ZIELONY XYZ-123"
+
+        # Najpierw szukaj pełnego wzorca z kodem
+        # Pattern: nazwa_koloru (tylko litery i spacje) + spacja + kod (litery/cyfry + separator + cyfry)
+        full_pattern = r'([A-ZĘÓŁŚĄŻŹĆŃ]+(?:\s+[A-ZĘÓŁŚĄŻŹĆŃ]+)*?)\s+([\w]{2,3}[\-/]\d{2,3})'
+        full_match = re.search(full_pattern, text_after_lacquer.upper())
+
+        if full_match:
+            color_name = full_match.group(1).strip()
+            color_code = full_match.group(2).upper()
+            return f'Lakierowany {color_name} {color_code}'
+
+        # Jeśli nie znaleziono kodu, szukaj samej nazwy koloru (wielkie litery)
+        # Bierzemy pierwsze słowo/słowa pisane wielkimi literami
+        color_only_pattern = r'^([A-ZĘÓŁŚĄŻŹĆŃ]+(?:\s+[A-ZĘÓŁŚĄŻŹĆŃ]+)?)'
+        color_match = re.search(color_only_pattern, text_after_lacquer.upper())
+
+        if color_match:
+            color_name = color_match.group(1).strip()
+            # Sprawdź czy to nie jest jakieś przypadkowe słowo (musi być dość krótkie)
+            if len(color_name) <= 30:  # maksymalnie 30 znaków dla nazwy koloru
+                return f'Lakierowany {color_name}'
+
+        # Jeśli nie znaleziono koloru, zwróć ogólne "Lakierowany"
+        return 'Lakierowany'
+
+    def _parse_stain_finish(self, name: str) -> str:
+        """
+        Parsuje szczegółowe wykończenie bejcowane (może mieć kolor)
+
+        Args:
+            name (str): Nazwa produktu (znormalizowana)
+
+        Returns:
+            str: Szczegółowy opis bejcowania
+        """
+        # Sprawdź czy bezbarwny
+        if 'bezbarw' in name:
+            return 'Bejcowane bezbarwne'
+
+        # Szukaj koloru po słowie "bejc"
+        bejc_match = re.search(r'bejc\w*', name)
+        if not bejc_match:
+            return 'Bejcowane'
+
+        # Weź tekst po słowie "bejc"
+        text_after_bejc = name[bejc_match.end():].strip()
+
+        # Spróbuj wyciągnąć nazwę koloru + kod
+        # Najpierw szukaj pełnego wzorca z kodem
+        full_pattern = r'([A-ZĘÓŁŚĄŻŹĆŃ]+(?:\s+[A-ZĘÓŁŚĄŻŹĆŃ]+)*?)\s+([\w]{2,3}[\-/]\d{2,3})'
+        full_match = re.search(full_pattern, text_after_bejc.upper())
+
+        if full_match:
+            color_name = full_match.group(1).strip()
+            color_code = full_match.group(2).upper()
+            return f'Bejcowane {color_name} {color_code}'
+
+        # Jeśli nie znaleziono kodu, szukaj samej nazwy koloru
+        color_only_pattern = r'^([A-ZĘÓŁŚĄŻŹĆŃ]+(?:\s+[A-ZĘÓŁŚĄŻŹĆŃ]+)?)'
+        color_match = re.search(color_only_pattern, text_after_bejc.upper())
+
+        if color_match:
+            color_name = color_match.group(1).strip()
+            if len(color_name) <= 30:
+                return f'Bejcowane {color_name}'
+
+        return 'Bejcowane'
     
     def _parse_wood_class(self, name: str) -> Optional[str]:
         """

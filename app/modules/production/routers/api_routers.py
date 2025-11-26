@@ -4006,46 +4006,107 @@ def fetch_orders_preview():
         # Filtruj zamówienia po statusach
         status_ids_set = set(status_ids)
         filtered_orders = []
-        
+
+        # Pobierz istniejące zamówienia z bazy danych
+        from ..models import ProductionItem
+
+        # Zbierz wszystkie baselinker_order_id z pobranych zamówień
+        baselinker_ids = [order.get('order_id') for order in all_orders if order.get('order_id')]
+
+        # Pobierz istniejące produkty z bazy pogrupowane po baselinker_order_id
+        existing_products_query = db.session.query(
+            ProductionItem.baselinker_order_id,
+            ProductionItem.original_product_name
+        ).filter(
+            ProductionItem.baselinker_order_id.in_(baselinker_ids)
+        ).all()
+
+        # Stwórz mapę: baselinker_order_id -> set(nazwy produktów)
+        existing_orders_map = {}
+        for bl_id, product_name in existing_products_query:
+            if bl_id not in existing_orders_map:
+                existing_orders_map[bl_id] = set()
+            if product_name:
+                existing_orders_map[bl_id].add(product_name.strip().lower())
+
+        orders_skipped_complete = 0
+        orders_with_missing_products = 0
+
         for order in all_orders:
             order_status = order.get('order_status_id') or order.get('status_id')
             if order_status in status_ids_set:
-                # Dodaj dodatkowe pola dla frontendu
-                order['id'] = order.get('order_id')
-                order['customer_name'] = order.get('delivery_fullname') or order.get('buyer_name') or 'Brak nazwy'
-                order['baselinker_order_id'] = order.get('order_id')
-                order['status_id'] = order_status
-                order['order_date'] = order.get('date_add')
-                
-                # Przetwórz produkty
+                baselinker_order_id = order.get('order_id')
+
+                # Sprawdź czy zamówienie istnieje w bazie
+                existing_product_names = existing_orders_map.get(baselinker_order_id, set())
+
+                # Przetwórz produkty i sprawdź które już istnieją
                 if 'products' in order and order['products']:
                     processed_products = []
+                    has_new_products = False
+
                     for product in order['products']:
+                        product_name = product.get('name', 'Bez nazwy')
+                        product_name_lower = product_name.strip().lower()
+
+                        # Sprawdź czy produkt już istnieje w bazie
+                        already_exists = product_name_lower in existing_product_names
+
+                        if not already_exists:
+                            has_new_products = True
+
                         processed_products.append({
-                            'name': product.get('name', 'Bez nazwy'),
+                            'name': product_name,
                             'sku': product.get('sku', ''),
                             'variant': product.get('variant', ''),
                             'quantity': float(product.get('quantity', 0)),
                             'price': float(product.get('price_brutto', 0)),
-                            'unit': product.get('unit', 'szt.')
+                            'unit': product.get('unit', 'szt.'),
+                            'already_in_db': already_exists
                         })
+
                     order['products'] = processed_products
-                
+
+                    # Jeśli wszystkie produkty już istnieją - pomiń zamówienie
+                    if existing_product_names and not has_new_products:
+                        orders_skipped_complete += 1
+                        continue
+
+                    # Oznacz zamówienie jako częściowo istniejące
+                    if existing_product_names and has_new_products:
+                        order['partially_exists'] = True
+                        order['existing_products_count'] = len(existing_product_names)
+                        orders_with_missing_products += 1
+                    else:
+                        order['partially_exists'] = False
+                        order['existing_products_count'] = 0
+
+                # Dodaj dodatkowe pola dla frontendu
+                order['id'] = baselinker_order_id
+                order['customer_name'] = order.get('delivery_fullname') or order.get('buyer_name') or 'Brak nazwy'
+                order['baselinker_order_id'] = baselinker_order_id
+                order['status_id'] = order_status
+                order['order_date'] = order.get('date_add')
+
                 filtered_orders.append(order)
         
         logger.info("API: Zamówienia pobrane pomyślnie", extra={
             'total_orders': len(all_orders),
             'filtered_orders': len(filtered_orders),
+            'orders_skipped_complete': orders_skipped_complete,
+            'orders_with_missing_products': orders_with_missing_products,
             'pages_processed': pages_processed,
             'user_id': current_user.id
         })
-        
+
         return jsonify({
             'success': True,
             'orders': filtered_orders,
             'pages_processed': pages_processed,
             'total_count': len(all_orders),
             'filtered_count': len(filtered_orders),
+            'orders_skipped_complete': orders_skipped_complete,
+            'orders_with_missing_products': orders_with_missing_products,
             'date_range': {
                 'from': date_from.isoformat(),
                 'to': date_to.isoformat(),

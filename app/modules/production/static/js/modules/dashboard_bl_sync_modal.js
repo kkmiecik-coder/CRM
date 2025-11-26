@@ -41,7 +41,9 @@ class DashboardBLSyncModal {
             selectedProductsCount: 0,
             savedOrders: 0,
             savedProducts: 0,
-            skippedProducts: 0
+            skippedProducts: 0,
+            ordersSkippedComplete: 0,      // Zamówienia pominięte (wszystkie produkty w bazie)
+            ordersWithMissingProducts: 0   // Zamówienia z brakującymi produktami
         };
 
         // Logi synchronizacji
@@ -353,7 +355,9 @@ class DashboardBLSyncModal {
             selectedProductsCount: 0,
             savedOrders: 0,
             savedProducts: 0,
-            skippedProducts: 0
+            skippedProducts: 0,
+            ordersSkippedComplete: 0,
+            ordersWithMissingProducts: 0
         };
 
         // Reset UI
@@ -760,11 +764,22 @@ class DashboardBLSyncModal {
                 this.fetchedOrders = data.orders || [];
                 this.stats.apiPages = data.pages_processed || 0;
                 this.stats.ordersCount = this.fetchedOrders.length;
+                this.stats.ordersSkippedComplete = data.orders_skipped_complete || 0;
+                this.stats.ordersWithMissingProducts = data.orders_with_missing_products || 0;
 
                 // Policz produkty i przefiltruj
                 this.processOrdersData();
 
                 this.addLog('info', `Pobrano ${this.stats.ordersCount} zamówień z ${this.stats.apiPages} stron API`);
+
+                // Log o pominiętych zamówieniach
+                if (this.stats.ordersSkippedComplete > 0) {
+                    this.addLog('warning', `Pominięto ${this.stats.ordersSkippedComplete} zamówień (wszystkie produkty już w bazie)`);
+                }
+                if (this.stats.ordersWithMissingProducts > 0) {
+                    this.addLog('info', `${this.stats.ordersWithMissingProducts} zamówień ma brakujące produkty do dodania`);
+                }
+
                 this.updateProgressBar(80, 'Filtrowanie produktów...');
 
                 // Symuluj krótkie opóźnienie dla UX
@@ -920,25 +935,38 @@ class DashboardBLSyncModal {
         this.fetchedOrders.forEach((order, index) => {
             const isSelected = this.selectedOrders.includes(order);
             const hasFilteredProducts = order.filteredCount > 0;
+            const isPartiallyExists = order.partially_exists === true;
+            const existingProductsCount = order.existing_products_count || 0;
+
+            // Określ badge dla zamówienia częściowo istniejącego
+            let partialBadge = '';
+            if (isPartiallyExists) {
+                partialBadge = `<span class="sync-order-partial-badge" title="${existingProductsCount} produktów już w bazie">
+                    <span style="color: #f59e0b; font-size: 12px; padding: 2px 6px; background: rgba(245, 158, 11, 0.1); border-radius: 4px; margin-left: 8px;">
+                        ⚡ częściowo w bazie
+                    </span>
+                </span>`;
+            }
 
             html += `
-                <div class="sync-order-item ${isSelected ? 'selected' : ''}" data-order-id="${order.id || index}">
+                <div class="sync-order-item ${isSelected ? 'selected' : ''} ${isPartiallyExists ? 'partially-exists' : ''}" data-order-id="${order.id || index}">
                     <div class="sync-order-header" onclick="window.dashboardBLSyncModal.toggleOrderSelection(${index})">
-                        <input type="checkbox" 
-                               class="sync-order-checkbox" 
+                        <input type="checkbox"
+                               class="sync-order-checkbox"
                                ${isSelected ? 'checked' : ''}
                                onclick="event.stopPropagation(); window.dashboardBLSyncModal.toggleOrderSelection(${index})">
-                        
+
                         <div class="sync-order-info">
                             <div class="sync-order-main">
                                 <div class="sync-order-id">
                                     Zamówienie #${order.baselinker_order_id || order.id || `TEMP-${index}`}
+                                    ${partialBadge}
                                 </div>
                                 <div class="sync-order-customer">
                                     ${order.customer_name || order.delivery_fullname || 'Brak nazwy klienta'}
                                 </div>
                             </div>
-                            
+
                             <div class="sync-order-meta">
                                 <div class="sync-order-status status-${this.getStatusClass(order.status_id)}">
                                     ${this.getStatusName(order.status_id)}
@@ -949,7 +977,7 @@ class DashboardBLSyncModal {
                             </div>
                         </div>
                     </div>
-                    
+
                     <div class="sync-order-products">
                         ${this.renderOrderProducts(order)}
                     </div>
@@ -972,9 +1000,11 @@ class DashboardBLSyncModal {
         let html = '';
         let totalQuantity = 0;
         let totalValue = 0;
+        let existingInDbCount = 0;
 
         order.products.forEach(product => {
             const isFiltered = this.isProductFiltered(product);
+            const isAlreadyInDb = product.already_in_db === true;
             const quantity = parseFloat(product.quantity || 0);
             const price = parseFloat(product.price || 0);
             const value = quantity * price;
@@ -984,23 +1014,39 @@ class DashboardBLSyncModal {
                 totalValue += value;
             }
 
+            if (isAlreadyInDb) {
+                existingInDbCount++;
+            }
+
+            // Określ klasy i oznaczenia
+            let itemClasses = 'sync-product-item';
+            let statusLabel = '';
+
+            if (isFiltered) {
+                itemClasses += ' filtered';
+                statusLabel = '<small style="color: #dc2626;">(pominięty)</small>';
+            } else if (isAlreadyInDb) {
+                itemClasses += ' already-in-db';
+                statusLabel = '<small style="color: #10b981;">✓ w bazie</small>';
+            }
+
             html += `
-                <div class="sync-product-item ${isFiltered ? 'filtered' : ''}">
+                <div class="${itemClasses}">
                     <div class="sync-product-info">
                         <div class="sync-product-name">
                             ${product.name || 'Bez nazwy'}
-                            ${isFiltered ? ' <small style="color: #dc2626;">(pominięty)</small>' : ''}
+                            ${statusLabel}
                         </div>
                         <div class="sync-product-details">
                             ${product.sku ? `SKU: ${product.sku}` : ''}
                             ${product.variant ? ` • Wariant: ${product.variant}` : ''}
                         </div>
                     </div>
-                    
+
                     <div class="sync-product-quantity">
                         ${quantity}${product.unit ? ` ${product.unit}` : ' szt.'}
                     </div>
-                    
+
                     <div class="sync-product-price">
                         ${value.toFixed(2)} zł
                     </div>
@@ -1010,10 +1056,18 @@ class DashboardBLSyncModal {
 
         // Dodaj podsumowanie
         if (totalQuantity > 0) {
+            let summaryExtra = [];
+            if (order.filteredCount > 0) {
+                summaryExtra.push(`<span style="color: #dc2626;">pominięto ${order.filteredCount} poz.</span>`);
+            }
+            if (existingInDbCount > 0) {
+                summaryExtra.push(`<span style="color: #10b981;">${existingInDbCount} w bazie</span>`);
+            }
+
             html += `
                 <div class="sync-order-summary">
                     <span><strong>Razem:</strong> ${totalQuantity} produktów • ${totalValue.toFixed(2)} zł</span>
-                    ${order.filteredCount > 0 ? ` <span style="color: #dc2626;">(pominięto ${order.filteredCount} poz.)</span>` : ''}
+                    ${summaryExtra.length > 0 ? ` (${summaryExtra.join(', ')})` : ''}
                 </div>
             `;
         }
@@ -1129,7 +1183,11 @@ class DashboardBLSyncModal {
      */
     updateStep3Stats() {
         if (this.elements.syncOrdersCount) {
-            this.elements.syncOrdersCount.textContent = `${this.stats.ordersCount} zamówień`;
+            let orderText = `${this.stats.ordersCount} zamówień`;
+            if (this.stats.ordersSkippedComplete > 0) {
+                orderText += ` <span style="color: #10b981; font-size: 12px;">(pominięto ${this.stats.ordersSkippedComplete} w bazie)</span>`;
+            }
+            this.elements.syncOrdersCount.innerHTML = orderText;
         }
 
         if (this.elements.syncProductsCount) {

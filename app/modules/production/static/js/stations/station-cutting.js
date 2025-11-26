@@ -696,7 +696,7 @@
         console.log('[Cutting] Performing auto-refresh...');
 
         try {
-            const response = await fetch('/production/ajax/orders/cutting?sort=priority');
+            const response = await fetch('/production/stations/ajax/orders/cutting?sort=priority');
 
             if (!response.ok) {
                 throw new Error(`HTTP ${response.status}`);
@@ -737,6 +737,9 @@
             existingOrderNumbers.add(card.dataset.orderNumber);
         });
 
+        // Stwórz zbiór numerów zamówień z API
+        const apiOrderNumbers = new Set(newOrders.map(order => order.order_number));
+
         // Add only NEW orders (that don't exist yet)
         newOrders.forEach(order => {
             if (!existingOrderNumbers.has(order.order_number)) {
@@ -745,10 +748,48 @@
             }
         });
 
-        // Note: We DON'T remove cards that are no longer in the API response
-        // This prevents accidental removal of cards user is working on
+        // Remove cards that are no longer in API response (but not if user is working on them)
+        existingCards.forEach(card => {
+            const orderNumber = card.dataset.orderNumber;
+            if (!apiOrderNumbers.has(orderNumber)) {
+                // Sprawdź czy karta nie jest w trakcie przetwarzania (countdown aktywny)
+                const hasActiveCountdown = state.activeCountdowns.has(orderNumber);
+                const isProcessing = card.classList.contains('processing');
+
+                if (!hasActiveCountdown && !isProcessing) {
+                    console.log(`[Cutting] Removing order no longer on station: ${orderNumber}`);
+                    card.classList.add('removing');
+                    setTimeout(() => {
+                        card.remove();
+                        // Jeśli nie ma już żadnych kart, pokaż empty state
+                        checkAndShowEmptyState();
+                    }, 300);
+                } else {
+                    console.log(`[Cutting] Keeping order ${orderNumber} - user is working on it`);
+                }
+            }
+        });
 
         console.log('[Cutting] Smart merge completed');
+    }
+
+    function checkAndShowEmptyState() {
+        const ordersList = document.getElementById('orders-list');
+        if (!ordersList) return;
+
+        const remainingCards = ordersList.querySelectorAll('.order-card:not(.removing)');
+        if (remainingCards.length === 0) {
+            const emptyState = ordersList.querySelector('.empty-state');
+            if (!emptyState) {
+                ordersList.innerHTML = `
+                    <div class="empty-state">
+                        <div class="empty-state-icon">✅</div>
+                        <h2>Brak zamówień do wycięcia</h2>
+                        <p>Świetna robota! Wszystkie zamówienia zostały wycięte.</p>
+                    </div>
+                `;
+            }
+        }
     }
 
     function addOrderCard(orderData) {

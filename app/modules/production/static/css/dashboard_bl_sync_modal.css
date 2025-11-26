@@ -644,6 +644,23 @@
         text-decoration: line-through;
     }
 
+    .sync-product-item.already-in-db {
+        opacity: 0.6;
+        background-color: #f0fdf4;
+        border-left: 3px solid #10b981;
+        padding-left: 8px;
+        margin-left: -8px;
+    }
+
+/* Zamówienia częściowo istniejące */
+.sync-order-item.partially-exists {
+    border-left: 3px solid #f59e0b;
+}
+
+    .sync-order-item.partially-exists .sync-order-header {
+        background-color: #fffbeb;
+    }
+
 .sync-product-info {
     flex: 1;
 }

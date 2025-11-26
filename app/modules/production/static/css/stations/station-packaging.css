@@ -245,7 +245,7 @@ body.light-mode .product-row.product-not-ready {
 }
 
 .badge {
-    padding: 4px 10px;
+    padding: 4px 8px;
     border-radius: 6px;
     font-size: 12px;
     font-weight: bold;
@@ -388,6 +388,19 @@ body.light-mode [data-wood-class*="BB"] .badge-class {
     color: #bf360c;
 }
 
+/* Wykończenie - fioletowy */
+.badge-finish {
+    background: #3a1f4a;
+    border-color: #5c3570;
+    color: #ce93d8;
+}
+
+body.light-mode .badge-finish {
+    background: #f3e5f5;
+    border-color: #9c27b0;
+    color: #6a1b9a;
+}
+
 /* Wymiary - szary/neutralny */
 .badge-dimensions {
     background: var(--bg-tertiary);
@@ -427,7 +440,6 @@ body.light-mode .badge-dimensions {
    ORDER ACTION (przycisk na dole)
    ============================================================================ */
 .order-action {
-    padding: 20px;
     display: flex;
     flex-direction: column;
     gap: 10px;
@@ -517,10 +529,6 @@ body.light-mode .badge-dimensions {
 
     .product-volume {
         margin-left: 0;
-    }
-
-    .order-action {
-        padding: 16px;
     }
 }
 

@@ -163,6 +163,28 @@ async function autoRefreshCallback() {
 }
 
 /**
+ * Check and show empty state if no orders remain
+ */
+function checkAndShowEmptyState() {
+    const ordersList = document.getElementById('orders-list');
+    if (!ordersList) return;
+
+    const remainingCards = ordersList.querySelectorAll('.order-card:not(.removing)');
+    if (remainingCards.length === 0) {
+        const emptyState = ordersList.querySelector('.empty-state');
+        if (!emptyState) {
+            ordersList.innerHTML = `
+                <div class="empty-state">
+                    <div class="empty-state-icon">✅</div>
+                    <h2>Brak zamówień do spakowania</h2>
+                    <p>Świetna robota! Wszystkie zamówienia zostały spakowane.</p>
+                </div>
+            `;
+        }
+    }
+}
+
+/**
  * Smart merge orders - add new, update existing, preserve in-progress
  */
 function smartMergeOrders(newOrders) {
@@ -200,6 +222,7 @@ function smartMergeOrders(newOrders) {
     });
 
     // Update existing orders (skip in-progress)
+    let updatedCount = 0;
     newOrders.forEach(newOrder => {
         const existingCard = ordersList.querySelector(`[data-order-number="${newOrder.order_number}"]`);
 
@@ -207,19 +230,49 @@ function smartMergeOrders(newOrders) {
             return;
         }
 
-        // Update products and priority if needed
-        updateOrderProducts(existingCard, newOrder);
+        // Check if card is missing finish_state badges
+        const hasFinishBadge = existingCard.querySelector('.badge-finish');
+        const orderHasFinishData = newOrder.products.some(p => p.finish_state);
+
+        if (!hasFinishBadge && orderHasFinishData) {
+            console.log(`[Packaging] Order ${newOrder.order_number} missing finish badges, recreating...`);
+            // Remove and recreate the card to include finish badges
+            existingCard.remove();
+            const cardHTML = createOrderCard(newOrder);
+            ordersList.insertAdjacentHTML('beforeend', cardHTML);
+            const newCard = ordersList.querySelector(`[data-order-number="${newOrder.order_number}"]`);
+            if (newCard) {
+                attachOrderCardListeners(newCard);
+                updatedCount++;
+            }
+        } else {
+            // Update products and priority if needed
+            updateOrderProducts(existingCard, newOrder);
+        }
     });
+
+    if (updatedCount > 0) {
+        console.log(`[Packaging] Updated ${updatedCount} orders with finish badges`);
+    }
 
     // Remove orders that no longer exist
     const newOrderNumbers = newOrders.map(o => o.order_number);
+    let removedCount = 0;
     existingCards.forEach(card => {
         if (card.dataset.inProgress !== 'true' && !newOrderNumbers.includes(card.dataset.orderNumber)) {
             console.log(`[Packaging] Removing order: ${card.dataset.orderNumber}`);
             card.classList.add('removing');
-            setTimeout(() => card.remove(), 300);
+            setTimeout(() => {
+                card.remove();
+                checkAndShowEmptyState();
+            }, 300);
+            removedCount++;
         }
     });
+
+    if (removedCount > 0) {
+        console.log(`[Packaging] Removed ${removedCount} orders no longer on station`);
+    }
 
     // Show empty state if no orders
     if (newOrders.length === 0 && !emptyState) {
@@ -276,6 +329,9 @@ function createOrderCard(order) {
         const classBadge = product.wood_class
             ? `<span class="badge badge-class">${escapeHtml(product.wood_class)}</span>`
             : '';
+        const finishBadge = product.finish_state
+            ? `<span class="badge badge-finish">${escapeHtml(product.finish_state)}</span>`
+            : '';
         const dimensionsBadge = product.dimensions
             ? `<span class="badge badge-dimensions">${escapeHtml(product.dimensions)}</span>`
             : '';
@@ -324,6 +380,7 @@ function createOrderCard(order) {
                         ${speciesBadge}
                         ${techBadge}
                         ${classBadge}
+                        ${finishBadge}
                         ${dimensionsBadge}
                     </div>
 

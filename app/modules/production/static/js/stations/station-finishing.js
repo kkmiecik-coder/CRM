@@ -746,32 +746,86 @@
         }
 
         const existingCards = ordersList.querySelectorAll('.order-card');
-        const existingOrderNumbers = new Set();
+        const existingOrderNumbers = new Map(); // Changed to Map to store card references
 
         console.log(`[Finishing] Existing cards on page: ${existingCards.length}`);
         existingCards.forEach(card => {
             const orderNum = card.dataset.orderNumber;
-            existingOrderNumbers.add(orderNum);
+            existingOrderNumbers.set(orderNum, card);
             console.log(`[Finishing] Existing order: ${orderNum}`);
         });
 
-        // Add only NEW orders (that don't exist yet)
+        // Stwórz zbiór numerów zamówień z API
+        const apiOrderNumbers = new Set(newOrders.map(order => order.order_number));
+
+        // Add NEW orders or UPDATE existing ones if they're missing finish_state badges
         let addedCount = 0;
+        let updatedCount = 0;
         newOrders.forEach(order => {
             console.log(`[Finishing] Checking order ${order.order_number}...`);
-            if (!existingOrderNumbers.has(order.order_number)) {
+            const existingCard = existingOrderNumbers.get(order.order_number);
+
+            if (!existingCard) {
                 console.log(`[Finishing] Adding new order: ${order.order_number}`);
                 addOrderCard(order);
                 addedCount++;
             } else {
-                console.log(`[Finishing] Order ${order.order_number} already exists, skipping`);
+                // Check if existing card has finish_state badges
+                const hasFinishBadge = existingCard.querySelector('.badge-finish');
+                if (!hasFinishBadge && order.products.some(p => p.finish_state)) {
+                    console.log(`[Finishing] Order ${order.order_number} missing finish badges, updating...`);
+                    // Remove old card and add updated one
+                    existingCard.remove();
+                    addOrderCard(order);
+                    updatedCount++;
+                } else {
+                    console.log(`[Finishing] Order ${order.order_number} already up-to-date, skipping`);
+                }
             }
         });
 
-        // Note: We DON'T remove cards that are no longer in the API response
-        // This prevents accidental removal of cards user is working on
+        // Remove cards that are no longer in API response (but not if user is working on them)
+        let removedCount = 0;
+        existingCards.forEach(card => {
+            const orderNumber = card.dataset.orderNumber;
+            if (!apiOrderNumbers.has(orderNumber)) {
+                const hasActiveCountdown = state.activeCountdowns.has(orderNumber);
+                const isProcessing = card.classList.contains('processing');
 
-        console.log(`[Finishing] Smart merge completed: ${addedCount} new orders added`);
+                if (!hasActiveCountdown && !isProcessing) {
+                    console.log(`[Finishing] Removing order no longer on station: ${orderNumber}`);
+                    card.classList.add('removing');
+                    setTimeout(() => {
+                        card.remove();
+                        checkAndShowEmptyState();
+                    }, 300);
+                    removedCount++;
+                } else {
+                    console.log(`[Finishing] Keeping order ${orderNumber} - user is working on it`);
+                }
+            }
+        });
+
+        console.log(`[Finishing] Smart merge completed: ${addedCount} added, ${updatedCount} updated, ${removedCount} removed`);
+    }
+
+    function checkAndShowEmptyState() {
+        const ordersList = document.getElementById('orders-list');
+        if (!ordersList) return;
+
+        const remainingCards = ordersList.querySelectorAll('.order-card:not(.removing)');
+        if (remainingCards.length === 0) {
+            const emptyState = ordersList.querySelector('.empty-state');
+            if (!emptyState) {
+                ordersList.innerHTML = `
+                    <div class="empty-state">
+                        <div class="empty-state-icon">✅</div>
+                        <h2>Brak zamówień do wykończenia</h2>
+                        <p>Świetna robota! Wszystkie zamówienia zostały wykończone.</p>
+                    </div>
+                `;
+            }
+        }
     }
 
     function addOrderCard(orderData) {
@@ -831,11 +885,15 @@
                 </div>
             ` : '';
 
+            // Debug: log finish_state
+            console.log(`[DEBUG] Product ${product.id} finish_state:`, product.finish_state);
+
             // Małe badges z parametrami
             const paramsHTML = `
                 ${product.wood_species ? `<span class="badge badge-species">${product.wood_species}</span>` : ''}
                 ${product.technology ? `<span class="badge badge-technology">${product.technology}</span>` : ''}
                 ${product.wood_class ? `<span class="badge badge-class">${product.wood_class}</span>` : ''}
+                ${product.finish_state ? `<span class="badge badge-finish">${product.finish_state}</span>` : ''}
             `;
 
             // Duży badge z wymiarami lub nazwą + ikona załącznika

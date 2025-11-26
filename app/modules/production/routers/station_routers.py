@@ -456,7 +456,6 @@ def cutting_station():
 
     Query params:
         sort: priority|deadline|created_at (default: priority)
-        limit: max liczba produktów (default: 50)
 
     Returns:
         HTML: Interfejs stanowiska wycinania z pogrupowanymi zamówieniami
@@ -466,12 +465,10 @@ def cutting_station():
         from sqlalchemy import asc, desc
 
         sort_by = request.args.get('sort', 'priority')
-        limit = min(int(request.args.get('limit', 50)), 100)
 
         logger.info("Dostęp do stanowiska wycinania", extra={
             'client_ip': request.remote_addr,
-            'sort_by': sort_by,
-            'limit': limit
+            'sort_by': sort_by
         })
 
         # NOWA LOGIKA: Znajdź zamówienia które mają choć 1 produkt do wycięcia
@@ -499,7 +496,7 @@ def cutting_station():
             else:
                 query = query.order_by(asc(ProductionItem.created_at))
 
-            products_db = query.limit(limit).all()
+            products_db = query.all()
 
             # Przygotuj dane produktów
             products = []
@@ -532,6 +529,7 @@ def cutting_station():
                     'wood_species': product.parsed_wood_species,
                     'technology': product.parsed_technology,
                     'wood_class': product.parsed_wood_class,
+                    'finish_state': product.parsed_finish_state,
                     'dimensions': dimensions_text,
                     'attachment_file_name': product.attachment_file_name,
                     'attachment_file_url': product.attachment_file_url,
@@ -621,7 +619,6 @@ def cutting_station():
             station_stats=station_stats,
             config=config,
             sort_by=sort_by,
-            limit=limit,
             now=now,
             last_updated=datetime.utcnow(),
             page_title="Stanowisko Wycinania"
@@ -653,7 +650,6 @@ def assembly_station():
 
     Query params:
         sort: priority|deadline|created_at (default: priority)
-        limit: max liczba produktów (default: 50)
 
     Returns:
         HTML: Interfejs stanowiska składania z pogrupowanymi zamówieniami
@@ -663,12 +659,10 @@ def assembly_station():
         from sqlalchemy import asc, desc
 
         sort_by = request.args.get('sort', 'priority')
-        limit = min(int(request.args.get('limit', 50)), 100)
 
         logger.info("Dostęp do stanowiska składania", extra={
             'client_ip': request.remote_addr,
-            'sort_by': sort_by,
-            'limit': limit
+            'sort_by': sort_by
         })
 
         # NOWA LOGIKA: Znajdź zamówienia które mają choć 1 produkt do składania
@@ -696,7 +690,7 @@ def assembly_station():
             else:
                 query = query.order_by(asc(ProductionItem.created_at))
 
-            products_db = query.limit(limit).all()
+            products_db = query.all()
 
             # Przygotuj dane produktów
             products = []
@@ -729,6 +723,7 @@ def assembly_station():
                     'wood_species': product.parsed_wood_species,
                     'technology': product.parsed_technology,
                     'wood_class': product.parsed_wood_class,
+                    'finish_state': product.parsed_finish_state,
                     'dimensions': dimensions_text,
                     'attachment_file_name': product.attachment_file_name,
                     'attachment_file_url': product.attachment_file_url,
@@ -818,7 +813,6 @@ def assembly_station():
             station_stats=station_stats,
             config=config,
             sort_by=sort_by,
-            limit=limit,
             now=now,
             last_updated=datetime.utcnow(),
             page_title="Stanowisko Składania"
@@ -850,7 +844,6 @@ def gluing_station():
 
     Query params:
         sort: priority|deadline|created_at (default: priority)
-        limit: max liczba produktów (default: 50)
 
     Returns:
         HTML: Interfejs stanowiska sklejania z pogrupowanymi zamówieniami
@@ -860,12 +853,10 @@ def gluing_station():
         from sqlalchemy import asc, desc
 
         sort_by = request.args.get('sort', 'priority')
-        limit = min(int(request.args.get('limit', 50)), 100)
 
         logger.info("Dostęp do stanowiska sklejania", extra={
             'client_ip': request.remote_addr,
-            'sort_by': sort_by,
-            'limit': limit
+            'sort_by': sort_by
         })
 
         # Znajdź zamówienia które mają choć 1 produkt do sklejania
@@ -893,7 +884,7 @@ def gluing_station():
             else:
                 query = query.order_by(asc(ProductionItem.created_at))
 
-            products_db = query.limit(limit).all()
+            products_db = query.all()
 
             # Przygotuj dane produktów
             products = []
@@ -926,6 +917,7 @@ def gluing_station():
                     'wood_species': product.parsed_wood_species,
                     'technology': product.parsed_technology,
                     'wood_class': product.parsed_wood_class,
+                    'finish_state': product.parsed_finish_state,
                     'dimensions': dimensions_text,
                     'attachment_file_name': product.attachment_file_name,
                     'attachment_file_url': product.attachment_file_url,
@@ -1015,7 +1007,6 @@ def gluing_station():
             station_stats=station_stats,
             config=config,
             sort_by=sort_by,
-            limit=limit,
             now=now,
             last_updated=datetime.utcnow(),
             page_title="Stanowisko Sklejania"
@@ -1044,7 +1035,6 @@ def formatting_station():
 
     Query params:
         sort: priority|deadline|created_at (default: priority)
-        limit: max liczba produktów (default: 50)
 
     Returns:
         HTML: Interfejs stanowiska formatowania z pogrupowanymi zamówieniami
@@ -1054,12 +1044,10 @@ def formatting_station():
         from sqlalchemy import asc, desc
 
         sort_by = request.args.get('sort', 'priority')
-        limit = min(int(request.args.get('limit', 50)), 100)
 
         logger.info("Dostęp do stanowiska formatowania", extra={
             'client_ip': request.remote_addr,
-            'sort_by': sort_by,
-            'limit': limit
+            'sort_by': sort_by
         })
 
         # Znajdź zamówienia które mają choć 1 produkt do formatowania
@@ -1087,7 +1075,7 @@ def formatting_station():
             else:
                 query = query.order_by(asc(ProductionItem.created_at))
 
-            products_db = query.limit(limit).all()
+            products_db = query.all()
 
             # Przygotuj dane produktów
             products = []
@@ -1120,6 +1108,7 @@ def formatting_station():
                     'wood_species': product.parsed_wood_species,
                     'technology': product.parsed_technology,
                     'wood_class': product.parsed_wood_class,
+                    'finish_state': product.parsed_finish_state,
                     'dimensions': dimensions_text,
                     'attachment_file_name': product.attachment_file_name,
                     'attachment_file_url': product.attachment_file_url,
@@ -1209,7 +1198,6 @@ def formatting_station():
             station_stats=station_stats,
             config=config,
             sort_by=sort_by,
-            limit=limit,
             now=now,
             last_updated=datetime.utcnow(),
             page_title="Stanowisko Formatowania"
@@ -1238,7 +1226,6 @@ def finishing_station():
 
     Query params:
         sort: priority|deadline|created_at (default: priority)
-        limit: max liczba produktów (default: 50)
 
     Returns:
         HTML: Interfejs stanowiska wykańczania z pogrupowanymi zamówieniami
@@ -1248,12 +1235,10 @@ def finishing_station():
         from sqlalchemy import asc, desc
 
         sort_by = request.args.get('sort', 'priority')
-        limit = min(int(request.args.get('limit', 50)), 100)
 
         logger.info("Dostęp do stanowiska wykańczania", extra={
             'client_ip': request.remote_addr,
-            'sort_by': sort_by,
-            'limit': limit
+            'sort_by': sort_by
         })
 
         # Znajdź zamówienia które mają choć 1 produkt do wykańczania
@@ -1281,7 +1266,7 @@ def finishing_station():
             else:
                 query = query.order_by(asc(ProductionItem.created_at))
 
-            products_db = query.limit(limit).all()
+            products_db = query.all()
 
             # Przygotuj dane produktów
             products = []
@@ -1314,6 +1299,7 @@ def finishing_station():
                     'wood_species': product.parsed_wood_species,
                     'technology': product.parsed_technology,
                     'wood_class': product.parsed_wood_class,
+                    'finish_state': product.parsed_finish_state,
                     'dimensions': dimensions_text,
                     'attachment_file_name': product.attachment_file_name,
                     'attachment_file_url': product.attachment_file_url,
@@ -1403,7 +1389,6 @@ def finishing_station():
             station_stats=station_stats,
             config=config,
             sort_by=sort_by,
-            limit=limit,
             now=now,
             last_updated=datetime.utcnow(),
             page_title="Stanowisko Wykańczania"
@@ -1437,24 +1422,21 @@ def packaging_station():
     
     Query params:
         sort: priority|deadline|created_at (default: priority)
-        limit: max liczba produktów (default: 50)
         view: grid|list (default: list) - pakowanie używa widoku listy
-        
+
     Returns:
         HTML: Interfejs stanowiska pakowania
     """
     try:
         from ..models import ProductionItem
         from sqlalchemy import asc, desc
-        
+
         sort_by = request.args.get('sort', 'priority')
-        limit = min(int(request.args.get('limit', 50)), 100)
         view_mode = request.args.get('view', 'list')
-        
+
         logger.info("Dostęp do stanowiska pakowania", extra={
             'client_ip': request.remote_addr,
             'sort_by': sort_by,
-            'limit': limit,
             'view_mode': view_mode
         })
         
@@ -1660,7 +1642,6 @@ def packaging_station():
             station_stats=station_stats,
             config=config,
             sort_by=sort_by,
-            limit=limit,
             now=now,
             view_mode=view_mode,
             last_updated=datetime.utcnow(),
@@ -2008,7 +1989,6 @@ def ajax_get_orders_cutting():
 
     Query params:
         sort: priority|deadline|created_at (default: priority)
-        limit: max liczba produktów (default: 50)
 
     Returns:
         JSON: {
@@ -2024,11 +2004,9 @@ def ajax_get_orders_cutting():
         from sqlalchemy import asc, desc
 
         sort_by = request.args.get('sort', 'priority')
-        limit = min(int(request.args.get('limit', 50)), 100)
 
         logger.debug("AJAX: Pobieranie zamówień cutting", extra={
             'sort_by': sort_by,
-            'limit': limit,
             'client_ip': request.remote_addr
         })
 
@@ -2069,7 +2047,7 @@ def ajax_get_orders_cutting():
         elif sort_by == 'created_at':
             query = query.order_by(asc(ProductionItem.created_at))
 
-        products = query.limit(limit).all()
+        products = query.all()
 
         # KROK 3: Grupowanie produktów po zamówieniach
         orders_grouped = {}
@@ -2100,6 +2078,7 @@ def ajax_get_orders_cutting():
                 'wood_species': product.parsed_wood_species,
                 'technology': product.parsed_technology,
                 'wood_class': product.parsed_wood_class,
+                'finish_state': product.parsed_finish_state,
                 'current_status': product.current_status,
                 'priority_rank': product.priority_rank or 999,
                 'deadline_date': product.deadline_date.isoformat() if product.deadline_date else None,
@@ -2107,9 +2086,9 @@ def ajax_get_orders_cutting():
                 'attachment_file_url': product.attachment_file_url
             }
 
-            # Oblicz wymiary z parsowanych pól
+            # Oblicz wymiary z parsowanych pól (w MM z jednostką)
             if product.parsed_length_cm and product.parsed_width_cm and product.parsed_thickness_cm:
-                product_data['dimensions'] = f"{int(product.parsed_length_cm)}×{int(product.parsed_width_cm)}×{int(product.parsed_thickness_cm)}"
+                product_data['dimensions'] = f"{int(product.parsed_length_cm * 10)} × {int(product.parsed_width_cm * 10)} × {int(product.parsed_thickness_cm * 10)} mm"
 
             orders_grouped[order_num]['products'].append(product_data)
             orders_grouped[order_num]['total_products'] += 1
@@ -2318,6 +2297,7 @@ def ajax_get_orders_assembly():
                 'wood_species': product.parsed_wood_species,
                 'technology': product.parsed_technology,
                 'wood_class': product.parsed_wood_class,
+                'finish_state': product.parsed_finish_state,
                 'current_status': product.current_status,
                 'priority_rank': product.priority_rank or 999,
                 'deadline_date': product.deadline_date.isoformat() if product.deadline_date else None,
@@ -2325,9 +2305,9 @@ def ajax_get_orders_assembly():
                 'attachment_file_url': product.attachment_file_url
             }
 
-            # Oblicz wymiary z parsowanych pól
+            # Oblicz wymiary z parsowanych pól (w MM z jednostką)
             if product.parsed_length_cm and product.parsed_width_cm and product.parsed_thickness_cm:
-                product_data['dimensions'] = f"{int(product.parsed_length_cm)}×{int(product.parsed_width_cm)}×{int(product.parsed_thickness_cm)}"
+                product_data['dimensions'] = f"{int(product.parsed_length_cm * 10)} × {int(product.parsed_width_cm * 10)} × {int(product.parsed_thickness_cm * 10)} mm"
 
             orders_grouped[order_num]['products'].append(product_data)
             orders_grouped[order_num]['total_products'] += 1
@@ -2534,6 +2514,7 @@ def ajax_get_orders_gluing():
                 'wood_species': product.parsed_wood_species,
                 'technology': product.parsed_technology,
                 'wood_class': product.parsed_wood_class,
+                'finish_state': product.parsed_finish_state,
                 'current_status': product.current_status,
                 'priority_rank': product.priority_rank or 999,
                 'deadline_date': product.deadline_date.isoformat() if product.deadline_date else None,
@@ -2541,8 +2522,9 @@ def ajax_get_orders_gluing():
                 'attachment_file_url': product.attachment_file_url
             }
 
+            # Oblicz wymiary z parsowanych pól (w MM z jednostką)
             if product.parsed_length_cm and product.parsed_width_cm and product.parsed_thickness_cm:
-                product_data['dimensions'] = f"{int(product.parsed_length_cm)}×{int(product.parsed_width_cm)}×{int(product.parsed_thickness_cm)}"
+                product_data['dimensions'] = f"{int(product.parsed_length_cm * 10)} × {int(product.parsed_width_cm * 10)} × {int(product.parsed_thickness_cm * 10)} mm"
 
             orders_grouped[order_num]['products'].append(product_data)
             orders_grouped[order_num]['total_products'] += 1
@@ -2738,6 +2720,7 @@ def ajax_get_orders_formatting():
                 'wood_species': product.parsed_wood_species,
                 'technology': product.parsed_technology,
                 'wood_class': product.parsed_wood_class,
+                'finish_state': product.parsed_finish_state,
                 'current_status': product.current_status,
                 'priority_rank': product.priority_rank or 999,
                 'deadline_date': product.deadline_date.isoformat() if product.deadline_date else None,
@@ -2745,8 +2728,9 @@ def ajax_get_orders_formatting():
                 'attachment_file_url': product.attachment_file_url
             }
 
+            # Oblicz wymiary z parsowanych pól (w MM z jednostką)
             if product.parsed_length_cm and product.parsed_width_cm and product.parsed_thickness_cm:
-                product_data['dimensions'] = f"{int(product.parsed_length_cm)}×{int(product.parsed_width_cm)}×{int(product.parsed_thickness_cm)}"
+                product_data['dimensions'] = f"{int(product.parsed_length_cm * 10)} × {int(product.parsed_width_cm * 10)} × {int(product.parsed_thickness_cm * 10)} mm"
 
             orders_grouped[order_num]['products'].append(product_data)
             orders_grouped[order_num]['total_products'] += 1
@@ -2942,6 +2926,7 @@ def ajax_get_orders_finishing():
                 'wood_species': product.parsed_wood_species,
                 'technology': product.parsed_technology,
                 'wood_class': product.parsed_wood_class,
+                'finish_state': product.parsed_finish_state,
                 'current_status': product.current_status,
                 'priority_rank': product.priority_rank or 999,
                 'deadline_date': product.deadline_date.isoformat() if product.deadline_date else None,
@@ -2949,8 +2934,9 @@ def ajax_get_orders_finishing():
                 'attachment_file_url': product.attachment_file_url
             }
 
+            # Oblicz wymiary z parsowanych pól (w MM z jednostką)
             if product.parsed_length_cm and product.parsed_width_cm and product.parsed_thickness_cm:
-                product_data['dimensions'] = f"{int(product.parsed_length_cm)}×{int(product.parsed_width_cm)}×{int(product.parsed_thickness_cm)}"
+                product_data['dimensions'] = f"{int(product.parsed_length_cm * 10)} × {int(product.parsed_width_cm * 10)} × {int(product.parsed_thickness_cm * 10)} mm"
 
             orders_grouped[order_num]['products'].append(product_data)
             orders_grouped[order_num]['total_products'] += 1

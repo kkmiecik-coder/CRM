@@ -755,6 +755,9 @@
             console.log(`[Formatting] Existing order: ${orderNum}`);
         });
 
+        // Stwórz zbiór numerów zamówień z API
+        const apiOrderNumbers = new Set(newOrders.map(order => order.order_number));
+
         // Add only NEW orders (that don't exist yet)
         let addedCount = 0;
         newOrders.forEach(order => {
@@ -768,10 +771,48 @@
             }
         });
 
-        // Note: We DON'T remove cards that are no longer in the API response
-        // This prevents accidental removal of cards user is working on
+        // Remove cards that are no longer in API response (but not if user is working on them)
+        let removedCount = 0;
+        existingCards.forEach(card => {
+            const orderNumber = card.dataset.orderNumber;
+            if (!apiOrderNumbers.has(orderNumber)) {
+                const hasActiveCountdown = state.activeCountdowns.has(orderNumber);
+                const isProcessing = card.classList.contains('processing');
 
-        console.log(`[Formatting] Smart merge completed: ${addedCount} new orders added`);
+                if (!hasActiveCountdown && !isProcessing) {
+                    console.log(`[Formatting] Removing order no longer on station: ${orderNumber}`);
+                    card.classList.add('removing');
+                    setTimeout(() => {
+                        card.remove();
+                        checkAndShowEmptyState();
+                    }, 300);
+                    removedCount++;
+                } else {
+                    console.log(`[Formatting] Keeping order ${orderNumber} - user is working on it`);
+                }
+            }
+        });
+
+        console.log(`[Formatting] Smart merge completed: ${addedCount} added, ${removedCount} removed`);
+    }
+
+    function checkAndShowEmptyState() {
+        const ordersList = document.getElementById('orders-list');
+        if (!ordersList) return;
+
+        const remainingCards = ordersList.querySelectorAll('.order-card:not(.removing)');
+        if (remainingCards.length === 0) {
+            const emptyState = ordersList.querySelector('.empty-state');
+            if (!emptyState) {
+                ordersList.innerHTML = `
+                    <div class="empty-state">
+                        <div class="empty-state-icon">✅</div>
+                        <h2>Brak zamówień do formatowania</h2>
+                        <p>Świetna robota! Wszystkie zamówienia zostały sformatowane.</p>
+                    </div>
+                `;
+            }
+        }
     }
 
     function addOrderCard(orderData) {
