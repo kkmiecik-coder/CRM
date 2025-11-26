@@ -440,6 +440,7 @@ body.light-mode .badge-dimensions {
    ORDER ACTION (przycisk na dole)
    ============================================================================ */
 .order-action {
+    padding: 20px;
     display: flex;
     flex-direction: column;
     gap: 10px;
@@ -529,6 +530,10 @@ body.light-mode .badge-dimensions {
 
     .product-volume {
         margin-left: 0;
+    }
+
+    .order-action {
+        padding: 16px;
     }
 }
 

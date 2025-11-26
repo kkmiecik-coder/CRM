@@ -461,6 +461,7 @@ body.light-mode .badge-dimensions {
    ORDER ACTION (button)
    ============================================================================ */
 .order-action {
+    padding: 16px 20px;
     border-top: 1px solid var(--border-color);
     background: var(--bg-card);
     border-radius: 0 0 12px 12px;
