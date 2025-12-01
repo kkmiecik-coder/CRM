@@ -5,8 +5,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="mobile-web-app-capable" content="yes">
+<<<<<<< Updated upstream
     <!-- Fallback auto-refresh dla TV Box gdy JS zamiera (5 minut) -->
     <meta http-equiv="refresh" content="{{ config.fallback_refresh_interval | default(300) }}">
+=======
+>>>>>>> Stashed changes
     <title>{{ page_title }} - WoodPower CRM</title>
 
     <!-- CSS -->
@@ -24,9 +27,13 @@
                      class="monitor-logo"
                      alt="WoodPower">
             </div>
+<<<<<<< Updated upstream
             <div class="header-center">
                 <h1 class="monitor-title">Monitor Produkcji</h1>
             </div>
+=======
+            <h1 class="monitor-title">Monitor Produkcji</h1>
+>>>>>>> Stashed changes
             <div class="header-right">
                 <!-- CONNECTION STATUS BADGE -->
                 <div id="connection-status" class="connection-status online">
@@ -118,6 +125,7 @@
         <!-- ORDERS GRID - Two columns -->
         <div class="orders-grid">
             {% for order in orders %}
+<<<<<<< Updated upstream
             <div class="order-card {{ order.status_class }}" data-order="{{ order.order_number }}">
                 <div class="order-main">
                     <div class="order-ids">
@@ -125,6 +133,12 @@
                         {% if order.client_order_number %}
                         <span class="order-client-number">{{ order.client_order_number }}</span>
                         {% endif %}
+=======
+            <div class="order-card {{ order.status_class }}">
+                <div class="order-main">
+                    <div class="order-ids">
+                        <span class="order-number">{{ order.order_number }}</span>
+>>>>>>> Stashed changes
                         {% if order.baselinker_order_id %}
                         <span class="order-baselinker">BL-{{ order.baselinker_order_id }}</span>
                         {% endif %}
