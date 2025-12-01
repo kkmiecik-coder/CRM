@@ -1,12 +1,14 @@
 /**
  * ============================================================================
- * STATION CUTTING - ORDER-BASED VERSION
+ * STATION CUTTING - QUANTITY-BASED VERSION
  * ============================================================================
  *
- * Nowa wersja z order-based cards zamiast product-based
+ * Wersja z quantity buttons (+/-) zamiast checkboxów
  *
  * Funkcjonalność:
- * - Checkbox tracking w localStorage per zamówienie
+ * - Przyciski +/- do zmiany quantity_done
+ * - Przyciski +10/-10 dla ilości >= 10
+ * - Natychmiastowy zapis do API (rate limiting 200ms)
  * - Bulk completion całych zamówień z countdown 10s
  * - Optimistic UI z error recovery
  * - Smart merge podczas auto-refresh
@@ -14,8 +16,8 @@
  * - Auto-refresh co 60s (z konfiguracji)
  *
  * @author: Konrad Kmiecik
- * @date: 2025-01-24
- * @version: 2.0
+ * @date: 2025-11
+ * @version: 3.0
  */
 
 (function() {
@@ -29,15 +31,19 @@
         config: null,
         refreshTimer: null,
         countdownTimer: null,
-        activeCountdowns: new Map() // orderNumber -> { timerId, secondsLeft }
+        activeCountdowns: new Map(), // orderNumber -> { timerId, secondsLeft }
+        pendingRequests: new Map(),  // productId -> timeoutId (rate limiting)
+        lastRequestTime: new Map()   // productId -> timestamp
     };
+
+    const RATE_LIMIT_MS = 200; // Minimalny odstęp między requestami dla tego samego produktu
 
     // ========================================================================
     // INITIALIZATION
     // ========================================================================
 
     document.addEventListener('DOMContentLoaded', function() {
-        console.log('[Cutting] Initializing ORDER-BASED station v2.0...');
+        console.log('[Cutting] Initializing QUANTITY-BASED station v3.0...');
         initializeCuttingStation();
     });
 
@@ -63,11 +69,11 @@
         // Fetch today's m³
         fetchTodayM3();
 
-        // POPRAWKA 1: Start datetime clock (updates every second)
+        // Start datetime clock (updates every second)
         setInterval(updateCurrentDatetime, 1000);
         updateCurrentDatetime();
 
-        // POPRAWKA 2: Start auto-refresh with countdown
+        // Start auto-refresh with countdown
         if (config.refreshInterval && config.refreshInterval > 0) {
             startAutoRefresh(config.refreshInterval);
             startRefreshCountdown(config.refreshInterval);
@@ -189,14 +195,12 @@
         // Hide empty product-params containers
         hideEmptyProductParams(card);
 
-        // Load checkbox state from localStorage
-        loadCheckboxState(card, orderNumber);
-
-        // Attach checkbox listeners
-        const checkboxes = card.querySelectorAll('.product-check');
-        checkboxes.forEach(checkbox => {
-            checkbox.addEventListener('change', function() {
-                handleCheckboxChange(card, orderNumber);
+        // Attach quantity button listeners
+        const quantityButtons = card.querySelectorAll('.btn-qty');
+        quantityButtons.forEach(button => {
+            button.addEventListener('click', function(e) {
+                e.preventDefault();
+                handleQuantityButtonClick(card, orderNumber, this);
             });
         });
 
@@ -210,7 +214,7 @@
 
         // Initial button state update
         updateCompleteButtonState(card);
-        updateCheckedCounter(card);
+        updateOrderCounter(card);
     }
 
     // ========================================================================
@@ -235,86 +239,189 @@
     }
 
     // ========================================================================
-    // CHECKBOX STATE MANAGEMENT
+    // QUANTITY BUTTON HANDLING
     // ========================================================================
 
-    function loadCheckboxState(card, orderNumber) {
-        const storageKey = `cutting_order_${orderNumber}`;
-        const savedState = localStorage.getItem(storageKey);
+    async function handleQuantityButtonClick(card, orderNumber, button) {
+        const productId = button.dataset.productId;
+        const action = button.dataset.action;
+        const productRow = button.closest('.product-row');
 
-        if (!savedState) {
+        if (!productId || !action || !productRow) {
+            console.warn('[Cutting] Invalid button data');
             return;
         }
 
-        try {
-            const checkedProductIds = JSON.parse(savedState);
-
-            if (!Array.isArray(checkedProductIds)) {
-                return;
-            }
-
-            const checkboxes = card.querySelectorAll('.product-check');
-            checkboxes.forEach(checkbox => {
-                const productId = checkbox.dataset.productId;
-                if (checkedProductIds.includes(productId)) {
-                    checkbox.checked = true;
-                }
-            });
-
-            console.log(`[Cutting] Loaded checkbox state for ${orderNumber}:`, checkedProductIds.length);
-        } catch (error) {
-            console.error(`[Cutting] Error loading checkbox state:`, error);
+        // Check online status
+        const isOnline = window.StationCommon && window.StationCommon.isOnline ? window.StationCommon.isOnline() : true;
+        if (!isOnline) {
+            showToast('warning', 'Brak połączenia - nie można zapisać zmiany');
+            return;
         }
-    }
 
-    function saveCheckboxState(card, orderNumber) {
-        const checkedProductIds = getCheckedProductIds(card);
-        const storageKey = `cutting_order_${orderNumber}`;
+        // Get current values
+        const qtyDoneEl = productRow.querySelector('.qty-done');
+        const qtyTotalEl = productRow.querySelector('.qty-total');
 
-        localStorage.setItem(storageKey, JSON.stringify(checkedProductIds));
+        if (!qtyDoneEl || !qtyTotalEl) return;
 
-        console.log(`[Cutting] Saved checkbox state for ${orderNumber}:`, checkedProductIds.length);
-    }
+        let qtyDone = parseInt(qtyDoneEl.textContent) || 0;
+        const qtyTotal = parseInt(qtyTotalEl.textContent) || 0;
 
-    function getCheckedProductIds(card) {
-        const checkedProductIds = [];
-        const checkboxes = card.querySelectorAll('.product-check:checked');
+        // Calculate new value based on action
+        let newQtyDone = qtyDone;
+        switch (action) {
+            case 'increment':
+                newQtyDone = Math.min(qtyDone + 1, qtyTotal);
+                break;
+            case 'decrement':
+                newQtyDone = Math.max(qtyDone - 1, 0);
+                break;
+            case 'increment10':
+                newQtyDone = Math.min(qtyDone + 10, qtyTotal);
+                break;
+            case 'decrement10':
+                newQtyDone = Math.max(qtyDone - 10, 0);
+                break;
+        }
 
-        checkboxes.forEach(checkbox => {
-            checkedProductIds.push(checkbox.dataset.productId);
-        });
+        // Skip if no change
+        if (newQtyDone === qtyDone) {
+            return;
+        }
 
-        return checkedProductIds;
-    }
+        // Optimistic UI update
+        qtyDoneEl.textContent = newQtyDone;
+        productRow.dataset.quantityDone = newQtyDone;
 
-    function clearCheckboxState(orderNumber) {
-        const storageKey = `cutting_order_${orderNumber}`;
-        localStorage.removeItem(storageKey);
-        console.log(`[Cutting] Cleared checkbox state for ${orderNumber}`);
-    }
+        // Update button states
+        updateProductButtonStates(productRow, newQtyDone, qtyTotal);
 
-    function handleCheckboxChange(card, orderNumber) {
-        // Save state to localStorage
-        saveCheckboxState(card, orderNumber);
-
-        // Update complete button state
+        // Update order counter and complete button
+        updateOrderCounter(card);
         updateCompleteButtonState(card);
 
-        // Update checked counter in UI
-        updateCheckedCounter(card);
+        // Send to API with rate limiting
+        await sendQuantityUpdate(productId, action, productRow, qtyDone, card);
     }
 
-    function updateCheckedCounter(card) {
-        const orderNumber = card.dataset.orderNumber;
-        const totalProducts = parseInt(card.dataset.totalProducts) || 0;
-        const checkedCount = card.querySelectorAll('.product-check:checked').length;
-
-        const counterElement = document.querySelector(`.products-checked[data-order="${orderNumber}"]`);
-        if (counterElement) {
-            counterElement.textContent = checkedCount;
+    async function sendQuantityUpdate(productId, action, productRow, previousValue, card) {
+        // Rate limiting - cancel pending request for this product
+        if (state.pendingRequests.has(productId)) {
+            clearTimeout(state.pendingRequests.get(productId));
         }
 
-        console.log(`[Cutting] Updated counter for ${orderNumber}: ${checkedCount}/${totalProducts}`);
+        // Check if we need to wait
+        const lastRequest = state.lastRequestTime.get(productId) || 0;
+        const timeSinceLastRequest = Date.now() - lastRequest;
+        const delay = Math.max(0, RATE_LIMIT_MS - timeSinceLastRequest);
+
+        const timeoutId = setTimeout(async () => {
+            state.pendingRequests.delete(productId);
+            state.lastRequestTime.set(productId, Date.now());
+
+            try {
+                const response = await fetch('/production/api/update-quantity-done', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        product_id: productId,
+                        station: 'cutting',
+                        action: action
+                    })
+                });
+
+                if (!response.ok) {
+                    const errorData = await response.json().catch(() => ({}));
+                    throw new Error(errorData.error || `HTTP ${response.status}`);
+                }
+
+                const result = await response.json();
+                console.log(`[Cutting] Product ${productId} quantity updated:`, result);
+
+                // Update UI with server response
+                const qtyDoneEl = productRow.querySelector('.qty-done');
+                if (qtyDoneEl && result.quantity_done !== undefined) {
+                    qtyDoneEl.textContent = result.quantity_done;
+                    productRow.dataset.quantityDone = result.quantity_done;
+                    updateProductButtonStates(productRow, result.quantity_done, result.quantity);
+                    updateOrderCounter(card);
+                    updateCompleteButtonState(card);
+                }
+
+            } catch (error) {
+                console.error('[Cutting] Failed to update quantity:', error);
+
+                // Revert UI on error
+                const qtyDoneEl = productRow.querySelector('.qty-done');
+                if (qtyDoneEl) {
+                    qtyDoneEl.textContent = previousValue;
+                    productRow.dataset.quantityDone = previousValue;
+                    const qtyTotal = parseInt(productRow.querySelector('.qty-total').textContent) || 0;
+                    updateProductButtonStates(productRow, previousValue, qtyTotal);
+                    updateOrderCounter(card);
+                    updateCompleteButtonState(card);
+                }
+
+                showToast('error', `Błąd zapisu: ${error.message}`);
+            }
+        }, delay);
+
+        state.pendingRequests.set(productId, timeoutId);
+    }
+
+    function updateProductButtonStates(productRow, qtyDone, qtyTotal) {
+        const btnMinus = productRow.querySelector('.btn-minus');
+        const btnPlus = productRow.querySelector('.btn-plus');
+        const btnMinus10 = productRow.querySelector('.btn-minus-10');
+        const btnPlus10 = productRow.querySelector('.btn-plus-10');
+
+        if (btnMinus) {
+            btnMinus.disabled = qtyDone <= 0;
+        }
+        if (btnPlus) {
+            btnPlus.disabled = qtyDone >= qtyTotal;
+        }
+        if (btnMinus10) {
+            btnMinus10.disabled = qtyDone < 10;
+        }
+        if (btnPlus10) {
+            btnPlus10.disabled = (qtyTotal - qtyDone) < 10;
+        }
+
+        // Update row styling if complete
+        if (qtyDone === qtyTotal) {
+            productRow.classList.add('product-complete');
+        } else {
+            productRow.classList.remove('product-complete');
+        }
+    }
+
+    // ========================================================================
+    // ORDER COUNTER UPDATE
+    // ========================================================================
+
+    function updateOrderCounter(card) {
+        const orderNumber = card.dataset.orderNumber;
+        const productRows = card.querySelectorAll('.product-row');
+
+        let totalDone = 0;
+        let totalQuantity = 0;
+
+        productRows.forEach(row => {
+            const qtyDone = parseInt(row.dataset.quantityDone) || 0;
+            const qtyTotal = parseInt(row.dataset.quantity) || 0;
+            totalDone += qtyDone;
+            totalQuantity += qtyTotal;
+        });
+
+        // Update counter in header
+        const counterElement = document.querySelector(`.products-checked[data-order="${orderNumber}"]`);
+        if (counterElement) {
+            counterElement.textContent = totalDone;
+        }
+
+        console.log(`[Cutting] Updated counter for ${orderNumber}: ${totalDone}/${totalQuantity}`);
     }
 
     // ========================================================================
@@ -328,6 +435,16 @@
         const allCards = document.querySelectorAll('.order-card');
         allCards.forEach(card => {
             updateCompleteButtonState(card);
+
+            // Disable/enable quantity buttons
+            const qtyButtons = card.querySelectorAll('.btn-qty');
+            qtyButtons.forEach(btn => {
+                if (!isOnline) {
+                    btn.classList.add('offline-disabled');
+                } else {
+                    btn.classList.remove('offline-disabled');
+                }
+            });
         });
     }
 
@@ -355,11 +472,22 @@
         completeBtn.classList.remove('offline');
         completeBtn.textContent = 'ZAKOŃCZ WYCIĘCIE';
 
-        const totalProducts = parseInt(card.dataset.totalProducts) || 0;
-        const checkedCount = card.querySelectorAll('.product-check:checked').length;
+        // Check if all products are complete (quantity_done == quantity)
+        const productRows = card.querySelectorAll('.product-row');
+        let allComplete = true;
+        let hasProducts = false;
 
-        // Enable button only if ALL products are checked
-        if (checkedCount === totalProducts && totalProducts > 0) {
+        productRows.forEach(row => {
+            hasProducts = true;
+            const qtyDone = parseInt(row.dataset.quantityDone) || 0;
+            const qtyTotal = parseInt(row.dataset.quantity) || 0;
+            if (qtyDone < qtyTotal) {
+                allComplete = false;
+            }
+        });
+
+        // Enable button only if ALL products are complete
+        if (allComplete && hasProducts) {
             completeBtn.disabled = false;
         } else {
             completeBtn.disabled = true;
@@ -367,7 +495,7 @@
     }
 
     // ========================================================================
-    // POPRAWKA 3: COUNTDOWN 10 SEKUND PRZED ZAKOŃCZENIEM
+    // COUNTDOWN 10 SEKUND PRZED ZAKOŃCZENIEM
     // ========================================================================
 
     function handleCompleteClick(card, orderNumber) {
@@ -380,17 +508,16 @@
             return;
         }
 
-        const checkedProductIds = getCheckedProductIds(card);
+        // Get all product IDs
+        const productIds = [];
+        const productRows = card.querySelectorAll('.product-row');
+        productRows.forEach(row => {
+            productIds.push(row.dataset.productId);
+        });
 
-        if (checkedProductIds.length === 0) {
-            console.warn('[Cutting] No products checked');
-            showToast('warning', 'Zaznacz produkty przed zakończeniem');
-            return;
-        }
-
-        const totalProducts = parseInt(card.dataset.totalProducts) || 0;
-        if (checkedProductIds.length !== totalProducts) {
-            showToast('warning', 'Zaznacz wszystkie produkty przed zakończeniem');
+        if (productIds.length === 0) {
+            console.warn('[Cutting] No products found');
+            showToast('warning', 'Brak produktów w zamówieniu');
             return;
         }
 
@@ -399,7 +526,7 @@
         card.classList.add('processing');
 
         // Start 10-second countdown
-        startCountdown(card, orderNumber, checkedProductIds);
+        startCountdown(card, orderNumber, productIds);
     }
 
     function startCountdown(card, orderNumber, productIds) {
@@ -502,7 +629,6 @@
 
         // BACKUP before removal
         const cardBackup = card.cloneNode(true);
-        const checkboxStateBackup = getCheckedProductIds(card);
 
         // Show processing state
         const actionContainer = card.querySelector('.order-action');
@@ -549,9 +675,6 @@
 
             showToast('success', `Zamówienie ${orderNumber} ukończone`);
 
-            // Clear localStorage
-            clearCheckboxState(orderNumber);
-
             // Update today's m³ statistics
             fetchTodayM3();
 
@@ -576,19 +699,6 @@
 
                 // Re-initialize the restored card
                 initializeOrderCard(cardBackup);
-
-                // Restore checkbox state
-                const checkboxes = cardBackup.querySelectorAll('.product-check');
-                checkboxes.forEach(checkbox => {
-                    const productId = checkbox.dataset.productId;
-                    if (checkboxStateBackup.includes(productId)) {
-                        checkbox.checked = true;
-                    }
-                });
-
-                saveCheckboxState(cardBackup, orderNumber);
-                updateCompleteButtonState(cardBackup);
-                updateCheckedCounter(cardBackup);
             }
 
             let errorMessage = error.message;
@@ -712,8 +822,8 @@
 
             smartMergeOrders(result.data.orders);
 
-            // Update header statistics
-            updateHeaderStats();
+            // Update header statistics from API data (more reliable than DOM)
+            updateHeaderStatsFromAPI(result.data.orders);
 
             // Update today's m³ statistics
             fetchTodayM3();
@@ -721,6 +831,28 @@
         } catch (error) {
             console.error('[Cutting] Auto-refresh failed:', error);
         }
+    }
+
+    function updateHeaderStatsFromAPI(orders) {
+        let totalOrders = orders.length;
+        let totalVolume = 0;
+
+        orders.forEach(order => {
+            totalVolume += order.total_volume || 0;
+        });
+
+        const totalOrdersElement = document.getElementById('total-orders');
+        const totalVolumeElement = document.getElementById('total-volume');
+
+        if (totalOrdersElement) {
+            totalOrdersElement.textContent = totalOrders;
+        }
+
+        if (totalVolumeElement) {
+            totalVolumeElement.textContent = totalVolume.toFixed(4);
+        }
+
+        console.log(`[Cutting] Updated header stats from API: ${totalOrders} orders, ${totalVolume.toFixed(4)} m³`);
     }
 
     function smartMergeOrders(newOrders) {
@@ -745,6 +877,9 @@
             if (!existingOrderNumbers.has(order.order_number)) {
                 console.log(`[Cutting] Adding new order: ${order.order_number}`);
                 addOrderCard(order);
+            } else {
+                // Update existing order's quantity data
+                updateExistingOrderCard(order);
             }
         });
 
@@ -771,6 +906,36 @@
         });
 
         console.log('[Cutting] Smart merge completed');
+    }
+
+    function updateExistingOrderCard(orderData) {
+        const card = document.querySelector(`[data-order-number="${orderData.order_number}"]`);
+        if (!card) return;
+
+        // Skip if card is being processed
+        if (card.dataset.inProgress === 'true') return;
+
+        // Update each product's quantity data
+        orderData.products.forEach(product => {
+            const productRow = card.querySelector(`[data-product-id="${product.id}"]`);
+            if (productRow) {
+                const currentQtyDone = parseInt(productRow.dataset.quantityDone) || 0;
+                const serverQtyDone = product.quantity_done || 0;
+
+                // Only update if server value is different and no pending request
+                if (currentQtyDone !== serverQtyDone && !state.pendingRequests.has(product.id)) {
+                    productRow.dataset.quantityDone = serverQtyDone;
+                    const qtyDoneEl = productRow.querySelector('.qty-done');
+                    if (qtyDoneEl) {
+                        qtyDoneEl.textContent = serverQtyDone;
+                    }
+                    updateProductButtonStates(productRow, serverQtyDone, product.quantity);
+                }
+            }
+        });
+
+        updateOrderCounter(card);
+        updateCompleteButtonState(card);
     }
 
     function checkAndShowEmptyState() {
@@ -825,16 +990,9 @@
 
     function createOrderCardHTML(order) {
         const productsHTML = order.products.map(product => {
-            const attachmentHTML = product.attachment_file_url ? `
-                <div class="attachment-icon-wrapper"
-                     data-attachment-url="${product.attachment_file_url}"
-                     data-attachment-name="${product.attachment_file_name}"
-                     data-attachment-type="${product.attachment_file_name.toLowerCase().endsWith('.pdf') ? 'pdf' : 'image'}">
-                    <svg class="attachment-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path>
-                    </svg>
-                </div>
-            ` : '';
+            const quantity = product.quantity || 1;
+            const quantityDone = product.quantity_done || 0;
+            const hasLargeQty = quantity >= 10;
 
             // Małe badges z parametrami
             const paramsHTML = `
@@ -843,67 +1001,129 @@
                 ${product.wood_class ? `<span class="badge badge-class">${product.wood_class}</span>` : ''}
             `;
 
-            // Duży badge z wymiarami lub nazwą + ikona załącznika
-            let dimensionsRowHTML = '';
+            // Dimensions row - badge format matching HTML template
+            let dimensionsBadge = '';
             if (product.dimensions) {
                 const formattedDimensions = product.dimensions.replace(/x/g, ' x ').replace(/×/g, ' × ');
-                dimensionsRowHTML = `<div class="product-dimensions">${formattedDimensions}</div>`;
+                dimensionsBadge = `<span class="badge badge-dimensions">${formattedDimensions}</span>`;
             } else if (product.original_name) {
-                dimensionsRowHTML = `<div class="product-dimensions product-name-label">${product.original_name}</div>`;
+                dimensionsBadge = `<span class="badge badge-dimensions">${product.original_name}</span>`;
             } else if (product.attachment_file_url) {
-                dimensionsRowHTML = `<div class="product-dimensions product-attachment-label">Zgodnie z załącznikiem</div>`;
+                dimensionsBadge = `<span class="badge badge-dimensions">Zgodnie z załącznikiem</span>`;
             }
 
-            const dimensionsHTML = `
-                <div class="product-dimensions-row">
-                    ${attachmentHTML}
-                    ${dimensionsRowHTML}
-                </div>
+            // Quantity buttons
+            const minusDisabled = quantityDone <= 0 ? 'disabled' : '';
+            const plusDisabled = quantityDone >= quantity ? 'disabled' : '';
+            const minus10Disabled = quantityDone < 10 ? 'disabled' : '';
+            const plus10Disabled = (quantity - quantityDone) < 10 ? 'disabled' : '';
+
+            // Grid layout class for >=10 items
+            const gridClass = hasLargeQty ? ' grid-layout' : '';
+
+            const quantityButtonsHTML = hasLargeQty ? `
+                <button class="btn-qty btn-minus" data-product-id="${product.id}" data-action="decrement" ${minusDisabled}>−</button>
+                <button class="btn-qty btn-minus-10" data-product-id="${product.id}" data-action="decrement10" ${minus10Disabled}>−10</button>
+                <button class="btn-qty btn-plus-10" data-product-id="${product.id}" data-action="increment10" ${plus10Disabled}>+10</button>
+                <button class="btn-qty btn-plus" data-product-id="${product.id}" data-action="increment" ${plusDisabled}>+</button>
+            ` : `
+                <button class="btn-qty btn-minus" data-product-id="${product.id}" data-action="decrement" ${minusDisabled}>−</button>
+                <button class="btn-qty btn-plus" data-product-id="${product.id}" data-action="increment" ${plusDisabled}>+</button>
             `;
 
+            const completeClass = quantityDone === quantity ? 'product-complete' : '';
+
             return `
-                <div class="product-row"
+                <div class="product-row ${completeClass}"
                      data-product-id="${product.id}"
+                     data-quantity="${quantity}"
+                     data-quantity-done="${quantityDone}"
                      data-status="${product.current_status}"
                      data-species="${product.wood_species || ''}"
                      data-technology="${product.technology || ''}"
                      data-wood-class="${product.wood_class || ''}">
                     <div class="product-left-col">
-                        <div class="product-checkbox">
-                            <input type="checkbox"
-                                   class="product-check"
-                                   id="check-${product.id}"
-                                   data-product-id="${product.id}">
-                            <label for="check-${product.id}"></label>
-                        </div>
-                        <div class="product-id-wrapper">
-                            <span class="product-id">${product.id}</span>
-                        </div>
-                    </div>
-                    <div class="product-info">
                         <div class="product-params">${paramsHTML}</div>
-                        ${dimensionsHTML}
+                        <div class="product-dimensions-row">${dimensionsBadge}</div>
+                    </div>
+                    <div class="quantity-controls">
+                        <div class="quantity-counter">
+                            <span class="qty-done">${quantityDone}</span>
+                            <span class="qty-separator">/</span>
+                            <span class="qty-total">${quantity}</span>
+                        </div>
+                        <div class="quantity-buttons${gridClass}">
+                            ${quantityButtonsHTML}
+                        </div>
                     </div>
                 </div>
             `;
         }).join('');
 
+        // Build header icons HTML
+        const firstProduct = order.products[0];
+        let iconsHTML = '';
+
+        if (firstProduct) {
+            if (firstProduct.attachment_file_url) {
+                const attachmentType = firstProduct.attachment_file_name && firstProduct.attachment_file_name.toLowerCase().endsWith('.pdf') ? 'pdf' : 'image';
+                iconsHTML += `
+                    <div class="header-icon-wrapper attachment-icon-wrapper"
+                         data-attachment-url="${firstProduct.attachment_file_url}"
+                         data-attachment-name="${firstProduct.attachment_file_name || ''}"
+                         data-attachment-type="${attachmentType}">
+                        <svg class="header-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path>
+                        </svg>
+                    </div>
+                `;
+            }
+            if (firstProduct.order_notes) {
+                const truncatedNotes = firstProduct.order_notes.length > 100
+                    ? firstProduct.order_notes.substring(0, 100) + '...'
+                    : firstProduct.order_notes;
+                iconsHTML += `
+                    <div class="header-icon-wrapper notes-icon-wrapper"
+                         data-notes="${firstProduct.order_notes.replace(/"/g, '&quot;')}"
+                         title="${truncatedNotes.replace(/"/g, '&quot;')}">
+                        <svg class="header-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+                        </svg>
+                    </div>
+                `;
+            }
+        }
+
+        const clientOrderBadge = order.client_order_number ? `<span class="order-client-number">${order.client_order_number}</span>` : '';
         const blBadge = order.baselinker_order_id ? `<span class="order-baselinker">BL-${order.baselinker_order_id}</span>` : '';
+
+        // Calculate total done
+        let totalDone = 0;
+        let totalQty = 0;
+        order.products.forEach(p => {
+            totalDone += (p.quantity_done || 0);
+            totalQty += (p.quantity || 1);
+        });
 
         return `
             <div class="order-card"
                  data-order-number="${order.order_number}"
                  data-priority-rank="${order.best_priority_rank}"
                  data-total-products="${order.total_products}"
+                 data-total-quantity="${totalQty}"
                  data-total-volume="${order.total_volume}"
                  data-in-progress="false">
                 <div class="order-header">
-                    <div class="order-ids">
+                    <div class="order-header-row order-ids-row">
                         <span class="order-number">${order.order_number}</span>
+                        ${clientOrderBadge}
                         ${blBadge}
                     </div>
-                    <div class="order-stats">
-                        <span class="products-checked" data-order="${order.order_number}">0</span>/${order.total_products} ${order.total_products === 1 ? 'produkt' : order.total_products < 5 ? 'produkty' : 'produktów'} • ${order.total_volume.toFixed(4)} m³
+                    <div class="order-header-row order-stats-row">
+                        <div class="order-stats">
+                            <span class="products-checked" data-order="${order.order_number}">${totalDone}</span>/<span class="products-total" data-order="${order.order_number}">${totalQty}</span> szt. • ${order.total_volume.toFixed(4)} m³
+                        </div>
+                        <div class="order-icons">${iconsHTML}</div>
                     </div>
                 </div>
                 <div class="products-list">
@@ -1005,8 +1225,13 @@
                 console.log(`[Cutting] Cleared countdown for ${orderNumber}`);
             }
         });
+
+        // Clear pending requests
+        state.pendingRequests.forEach((timeoutId) => {
+            clearTimeout(timeoutId);
+        });
     });
 
-    console.log('[Cutting] Module loaded v2.0 (order-based with countdown)');
+    console.log('[Cutting] Module loaded v3.0 (quantity-based with +/- buttons)');
 
 })();

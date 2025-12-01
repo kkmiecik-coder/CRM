@@ -1,60 +1,1184 @@
-// station-packaging.js - Dedykowana logika dla stanowiska pakowania
-// Wersja 2.0 - Na bazie cutting/assembly z logiką checkboxów
-
 /**
- * LocalStorage key prefix for checkbox states
+ * ============================================================================
+ * STATION PACKAGING - QUANTITY-BASED VERSION
+ * ============================================================================
+ *
+ * Wersja z quantity buttons (+/-) zamiast checkboxów
+ *
+ * Funkcjonalność:
+ * - Przyciski +/- do zmiany quantity_done
+ * - Przyciski +10/-10 dla ilości >= 10
+ * - Natychmiastowy zapis do API (rate limiting 200ms)
+ * - Bulk completion całych zamówień z countdown 10s
+ * - Optimistic UI z error recovery
+ * - Smart merge podczas auto-refresh
+ * - Zegar odświeżany co sekundę
+ * - Auto-refresh co 60s (z konfiguracji)
+ *
+ * @author: Konrad Kmiecik
+ * @date: 2025-11
+ * @version: 3.0
  */
-const STORAGE_PREFIX = 'packaging_order_';
 
-/**
- * Initialize Packaging Station
- */
-function initPackagingStation() {
-    console.log('[Packaging] Initializing station v2.0...');
+(function() {
+    'use strict';
 
-    // Load config
-    const config = window.StationCommon.loadStationConfig();
+    // ========================================================================
+    // STATE
+    // ========================================================================
 
-    if (!config) {
-        console.error('[Packaging] Failed to load config');
-        window.StationCommon.showError('Błąd konfiguracji stanowiska');
-        return;
+    const state = {
+        config: null,
+        refreshTimer: null,
+        countdownTimer: null,
+        activeCountdowns: new Map(), // orderNumber -> { timerId, secondsLeft }
+        pendingRequests: new Map(),  // productId -> timeoutId (rate limiting)
+        lastRequestTime: new Map()   // productId -> timestamp
+    };
+
+    const RATE_LIMIT_MS = 200; // Minimalny odstęp między requestami dla tego samego produktu
+
+    // ========================================================================
+    // INITIALIZATION
+    // ========================================================================
+
+    document.addEventListener('DOMContentLoaded', function() {
+        console.log('[Packaging] Initializing QUANTITY-BASED station v3.0...');
+        initializePackagingStation();
+    });
+
+    function initializePackagingStation() {
+        const config = window.STATION_CONFIG;
+
+        if (!config || config.stationCode !== 'packaging') {
+            console.error('[Packaging] Invalid station config');
+            return;
+        }
+
+        state.config = config;
+        console.log('[Packaging] Station config loaded:', config);
+
+        // Attach event listeners to existing order cards
+        const existingCards = document.querySelectorAll('.order-card');
+        console.log(`[Packaging] Found ${existingCards.length} order cards`);
+
+        existingCards.forEach(card => {
+            initializeOrderCard(card);
+        });
+
+        // Fetch today's m³
+        fetchTodayM3();
+
+        // Start datetime clock (updates every second)
+        setInterval(updateCurrentDatetime, 1000);
+        updateCurrentDatetime();
+
+        // Start auto-refresh with countdown
+        if (config.refreshInterval && config.refreshInterval > 0) {
+            startAutoRefresh(config.refreshInterval);
+            startRefreshCountdown(config.refreshInterval);
+        }
+
+        // Theme toggle
+        setupThemeToggle();
+
+        // Initialize connection monitor
+        if (window.StationCommon && window.StationCommon.initConnectionMonitor) {
+            window.StationCommon.initConnectionMonitor();
+            console.log('[Packaging] Connection monitor initialized');
+
+            // Register listener for connection changes
+            if (window.StationCommon.onConnectionChange) {
+                window.StationCommon.onConnectionChange(handleConnectionChange);
+                console.log('[Packaging] Connection change listener registered');
+            }
+        }
+
+        console.log('[Packaging] Station initialized successfully');
     }
 
-    // Attach event listeners to existing order cards
-    const existingCards = document.querySelectorAll('.order-card');
-    console.log(`[Packaging] Found ${existingCards.length} existing cards`);
+    // ========================================================================
+    // DATETIME UPDATES
+    // ========================================================================
 
-    existingCards.forEach(card => {
-        attachOrderCardListeners(card);
-    });
+    function updateCurrentDatetime() {
+        const datetimeElement = document.getElementById('current-datetime');
+        if (!datetimeElement) return;
 
-    // Start auto-refresh
-    if (config.autoRefreshEnabled) {
-        window.StationCommon.startAutoRefresh(autoRefreshCallback);
-        console.log(`[Packaging] Auto-refresh started (${config.refreshInterval}s)`);
+        const now = new Date();
+        const days = ['Niedziela', 'Poniedziałek', 'Wtorek', 'Środa', 'Czwartek', 'Piątek', 'Sobota'];
+        const dayName = days[now.getDay()];
+
+        const date = now.toLocaleDateString('pl-PL', {
+            day: '2-digit',
+            month: '2-digit',
+            year: 'numeric'
+        });
+
+        const time = now.toLocaleTimeString('pl-PL', {
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit'
+        });
+
+        datetimeElement.textContent = `${date} • ${time}`;
+
+        // Update day label
+        const labelElement = datetimeElement.previousElementSibling;
+        if (labelElement && labelElement.classList.contains('stat-label')) {
+            labelElement.textContent = dayName;
+        }
     }
 
-    // Initialize Connection Monitor
-    window.StationCommon.initConnectionMonitor();
+    // ========================================================================
+    // REFRESH COUNTDOWN
+    // ========================================================================
 
-    // Register connection change handler
-    window.StationCommon.onConnectionChange((isOnline) => {
-        handleConnectionChange(isOnline);
-    });
+    function startRefreshCountdown(intervalSeconds) {
+        if (state.countdownTimer) {
+            clearInterval(state.countdownTimer);
+        }
 
-    // Fetch today's m3
-    window.StationCommon.fetchTodayM3('packaging').catch(err => {
-        console.error('[Packaging] Failed to load today m3:', err);
-    });
+        let secondsLeft = intervalSeconds;
+        const countdownElement = document.getElementById('refresh-countdown');
+        const refreshIcon = document.querySelector('.refresh-icon');
 
-    // Setup keyboard shortcuts
-    setupKeyboardShortcuts();
+        const updateCountdown = () => {
+            if (countdownElement) {
+                countdownElement.textContent = `${secondsLeft}s`;
 
-    // Theme toggle
-    const themeToggle = document.getElementById('theme-toggle');
-    if (themeToggle) {
-        themeToggle.addEventListener('click', () => {
+                // Add warning class when < 10s
+                if (secondsLeft <= 10) {
+                    countdownElement.classList.add('warning');
+                } else {
+                    countdownElement.classList.remove('warning');
+                }
+
+                // Spin icon when <= 5s
+                if (secondsLeft <= 5) {
+                    if (refreshIcon) refreshIcon.classList.add('spinning');
+                } else {
+                    if (refreshIcon) refreshIcon.classList.remove('spinning');
+                }
+            }
+        };
+
+        updateCountdown();
+
+        state.countdownTimer = setInterval(() => {
+            secondsLeft--;
+
+            if (secondsLeft <= 0) {
+                secondsLeft = intervalSeconds;
+            }
+
+            updateCountdown();
+        }, 1000);
+
+        console.log(`[Packaging] Refresh countdown started: ${intervalSeconds}s`);
+    }
+
+    // ========================================================================
+    // ORDER CARD INITIALIZATION
+    // ========================================================================
+
+    function initializeOrderCard(card) {
+        const orderNumber = card.dataset.orderNumber;
+
+        if (!orderNumber) {
+            console.warn('[Packaging] Order card missing order number');
+            return;
+        }
+
+        console.log(`[Packaging] Initializing order card: ${orderNumber}`);
+
+        // Hide empty product-params containers
+        hideEmptyProductParams(card);
+
+        // Attach quantity button listeners
+        const quantityButtons = card.querySelectorAll('.btn-qty');
+        quantityButtons.forEach(button => {
+            button.addEventListener('click', function(e) {
+                e.preventDefault();
+                handleQuantityButtonClick(card, orderNumber, this);
+            });
+        });
+
+        // Attach complete button listener
+        const completeBtn = card.querySelector('.btn-complete');
+        if (completeBtn) {
+            completeBtn.addEventListener('click', function() {
+                handleCompleteClick(card, orderNumber);
+            });
+        }
+
+        // Initial button state update
+        updateCompleteButtonState(card);
+        updateOrderCounter(card);
+    }
+
+    // ========================================================================
+    // HIDE EMPTY PRODUCT PARAMS
+    // ========================================================================
+
+    function hideEmptyProductParams(card) {
+        const productRows = card.querySelectorAll('.product-row');
+
+        productRows.forEach(row => {
+            const paramsContainer = row.querySelector('.product-params');
+            if (!paramsContainer) return;
+
+            // Check if there are any badges inside
+            const badges = paramsContainer.querySelectorAll('.badge');
+
+            // If no badges exist, hide the container
+            if (badges.length === 0) {
+                paramsContainer.style.display = 'none';
+            }
+        });
+    }
+
+    // ========================================================================
+    // QUANTITY BUTTON HANDLING
+    // ========================================================================
+
+    async function handleQuantityButtonClick(card, orderNumber, button) {
+        const productId = button.dataset.productId;
+        const action = button.dataset.action;
+        const productRow = button.closest('.product-row');
+
+        if (!productId || !action || !productRow) {
+            console.warn('[Packaging] Invalid button data');
+            return;
+        }
+
+        // Check online status
+        const isOnline = window.StationCommon && window.StationCommon.isOnline ? window.StationCommon.isOnline() : true;
+        if (!isOnline) {
+            showToast('warning', 'Brak połączenia - nie można zapisać zmiany');
+            return;
+        }
+
+        // Get current values
+        const qtyDoneEl = productRow.querySelector('.qty-done');
+        const qtyTotalEl = productRow.querySelector('.qty-total');
+
+        if (!qtyDoneEl || !qtyTotalEl) return;
+
+        let qtyDone = parseInt(qtyDoneEl.textContent) || 0;
+        const qtyTotal = parseInt(qtyTotalEl.textContent) || 0;
+
+        // Calculate new value based on action
+        let newQtyDone = qtyDone;
+        switch (action) {
+            case 'increment':
+                newQtyDone = Math.min(qtyDone + 1, qtyTotal);
+                break;
+            case 'decrement':
+                newQtyDone = Math.max(qtyDone - 1, 0);
+                break;
+            case 'increment10':
+                newQtyDone = Math.min(qtyDone + 10, qtyTotal);
+                break;
+            case 'decrement10':
+                newQtyDone = Math.max(qtyDone - 10, 0);
+                break;
+        }
+
+        // Skip if no change
+        if (newQtyDone === qtyDone) {
+            return;
+        }
+
+        // Optimistic UI update
+        qtyDoneEl.textContent = newQtyDone;
+        productRow.dataset.quantityDone = newQtyDone;
+
+        // Update button states
+        updateProductButtonStates(productRow, newQtyDone, qtyTotal);
+
+        // Update order counter and complete button
+        updateOrderCounter(card);
+        updateCompleteButtonState(card);
+
+        // Send to API with rate limiting
+        await sendQuantityUpdate(productId, action, productRow, qtyDone, card);
+    }
+
+    async function sendQuantityUpdate(productId, action, productRow, previousValue, card) {
+        // Rate limiting - cancel pending request for this product
+        if (state.pendingRequests.has(productId)) {
+            clearTimeout(state.pendingRequests.get(productId));
+        }
+
+        // Check if we need to wait
+        const lastRequest = state.lastRequestTime.get(productId) || 0;
+        const timeSinceLastRequest = Date.now() - lastRequest;
+        const delay = Math.max(0, RATE_LIMIT_MS - timeSinceLastRequest);
+
+        const timeoutId = setTimeout(async () => {
+            state.pendingRequests.delete(productId);
+            state.lastRequestTime.set(productId, Date.now());
+
+            try {
+                const response = await fetch('/production/api/update-quantity-done', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        product_id: productId,
+                        station: 'packaging',
+                        action: action
+                    })
+                });
+
+                if (!response.ok) {
+                    const errorData = await response.json().catch(() => ({}));
+                    throw new Error(errorData.error || `HTTP ${response.status}`);
+                }
+
+                const result = await response.json();
+                console.log(`[Packaging] Product ${productId} quantity updated:`, result);
+
+                // Update UI with server response
+                const qtyDoneEl = productRow.querySelector('.qty-done');
+                if (qtyDoneEl && result.quantity_done !== undefined) {
+                    qtyDoneEl.textContent = result.quantity_done;
+                    productRow.dataset.quantityDone = result.quantity_done;
+                    updateProductButtonStates(productRow, result.quantity_done, result.quantity);
+                    updateOrderCounter(card);
+                    updateCompleteButtonState(card);
+                }
+
+            } catch (error) {
+                console.error('[Packaging] Failed to update quantity:', error);
+
+                // Revert UI on error
+                const qtyDoneEl = productRow.querySelector('.qty-done');
+                if (qtyDoneEl) {
+                    qtyDoneEl.textContent = previousValue;
+                    productRow.dataset.quantityDone = previousValue;
+                    const qtyTotal = parseInt(productRow.querySelector('.qty-total').textContent) || 0;
+                    updateProductButtonStates(productRow, previousValue, qtyTotal);
+                    updateOrderCounter(card);
+                    updateCompleteButtonState(card);
+                }
+
+                showToast('error', `Błąd zapisu: ${error.message}`);
+            }
+        }, delay);
+
+        state.pendingRequests.set(productId, timeoutId);
+    }
+
+    function updateProductButtonStates(productRow, qtyDone, qtyTotal) {
+        const btnMinus = productRow.querySelector('.btn-minus');
+        const btnPlus = productRow.querySelector('.btn-plus');
+        const btnMinus10 = productRow.querySelector('.btn-minus-10');
+        const btnPlus10 = productRow.querySelector('.btn-plus-10');
+
+        if (btnMinus) {
+            btnMinus.disabled = qtyDone <= 0;
+        }
+        if (btnPlus) {
+            btnPlus.disabled = qtyDone >= qtyTotal;
+        }
+        if (btnMinus10) {
+            btnMinus10.disabled = qtyDone < 10;
+        }
+        if (btnPlus10) {
+            btnPlus10.disabled = (qtyTotal - qtyDone) < 10;
+        }
+
+        // Update row styling if complete
+        if (qtyDone === qtyTotal) {
+            productRow.classList.add('product-complete');
+        } else {
+            productRow.classList.remove('product-complete');
+        }
+    }
+
+    // ========================================================================
+    // ORDER COUNTER UPDATE
+    // ========================================================================
+
+    function updateOrderCounter(card) {
+        const orderNumber = card.dataset.orderNumber;
+        const productRows = card.querySelectorAll('.product-row');
+
+        let totalDone = 0;
+        let totalQuantity = 0;
+
+        productRows.forEach(row => {
+            const qtyDone = parseInt(row.dataset.quantityDone) || 0;
+            const qtyTotal = parseInt(row.dataset.quantity) || 0;
+            totalDone += qtyDone;
+            totalQuantity += qtyTotal;
+        });
+
+        // Update counter in header
+        const counterElement = document.querySelector(`.products-checked[data-order="${orderNumber}"]`);
+        if (counterElement) {
+            counterElement.textContent = totalDone;
+        }
+
+        console.log(`[Packaging] Updated counter for ${orderNumber}: ${totalDone}/${totalQuantity}`);
+    }
+
+    // ========================================================================
+    // CONNECTION STATUS HANDLING
+    // ========================================================================
+
+    function handleConnectionChange(isOnline) {
+        console.log(`[Packaging] Connection status changed: ${isOnline ? 'ONLINE' : 'OFFLINE'}`);
+
+        // Update all complete buttons
+        const allCards = document.querySelectorAll('.order-card');
+        allCards.forEach(card => {
+            updateCompleteButtonState(card);
+
+            // Disable/enable quantity buttons
+            const qtyButtons = card.querySelectorAll('.btn-qty');
+            qtyButtons.forEach(btn => {
+                if (!isOnline) {
+                    btn.classList.add('offline-disabled');
+                } else {
+                    btn.classList.remove('offline-disabled');
+                }
+            });
+        });
+    }
+
+    // ========================================================================
+    // COMPLETE BUTTON STATE
+    // ========================================================================
+
+    function updateCompleteButtonState(card) {
+        const completeBtn = card.querySelector('.btn-complete');
+        if (!completeBtn) {
+            return;
+        }
+
+        // Check if offline first
+        const isOnline = window.StationCommon && window.StationCommon.isOnline ? window.StationCommon.isOnline() : true;
+
+        if (!isOnline) {
+            completeBtn.disabled = true;
+            completeBtn.textContent = 'Jesteś offline';
+            completeBtn.classList.add('offline');
+            return;
+        }
+
+        // Remove offline styling if previously set
+        completeBtn.classList.remove('offline');
+        completeBtn.textContent = 'ZAKOŃCZ PAKOWANIE';
+
+        // Check if all products are complete (quantity_done == quantity)
+        const productRows = card.querySelectorAll('.product-row');
+        let allComplete = true;
+        let hasProducts = false;
+
+        productRows.forEach(row => {
+            hasProducts = true;
+            const qtyDone = parseInt(row.dataset.quantityDone) || 0;
+            const qtyTotal = parseInt(row.dataset.quantity) || 0;
+            if (qtyDone < qtyTotal) {
+                allComplete = false;
+            }
+        });
+
+        // Enable button only if ALL products are complete
+        if (allComplete && hasProducts) {
+            completeBtn.disabled = false;
+        } else {
+            completeBtn.disabled = true;
+        }
+    }
+
+    // ========================================================================
+    // COUNTDOWN 10 SEKUND PRZED ZAKOŃCZENIEM
+    // ========================================================================
+
+    function handleCompleteClick(card, orderNumber) {
+        console.log(`[Packaging] Complete button clicked for order: ${orderNumber}`);
+
+        // Check online status first
+        if (!window.StationCommon.isOnline()) {
+            console.warn('[Packaging] Offline - cannot complete orders');
+            showToast('warning', 'Brak połączenia - nie możesz zakończyć zamówienia');
+            return;
+        }
+
+        // Get all product IDs
+        const productIds = [];
+        const productRows = card.querySelectorAll('.product-row');
+        productRows.forEach(row => {
+            productIds.push(row.dataset.productId);
+        });
+
+        if (productIds.length === 0) {
+            console.warn('[Packaging] No products found');
+            showToast('warning', 'Brak produktów w zamówieniu');
+            return;
+        }
+
+        // Mark card as in-progress
+        card.dataset.inProgress = 'true';
+        card.classList.add('processing');
+
+        // Start 10-second countdown
+        startCountdown(card, orderNumber, productIds);
+    }
+
+    function startCountdown(card, orderNumber, productIds) {
+        console.log(`[Packaging] Starting 10-second countdown for ${orderNumber}`);
+
+        const actionContainer = card.querySelector('.order-action');
+        if (!actionContainer) {
+            console.error('[Packaging] No action container found');
+            return;
+        }
+
+        // Replace button with countdown UI
+        actionContainer.innerHTML = `
+            <div class="action-countdown">
+                <button class="btn-complete processing">
+                    <span class="spinner"></span>
+                    <span class="countdown-text">Zapisuje... 10s</span>
+                </button>
+                <button class="btn-cancel">ANULUJ</button>
+            </div>
+        `;
+
+        const processingBtn = actionContainer.querySelector('.btn-complete');
+        const cancelBtn = actionContainer.querySelector('.btn-cancel');
+        const countdownText = processingBtn.querySelector('.countdown-text');
+
+        let secondsLeft = 10;
+
+        const updateCountdownText = () => {
+            if (countdownText) {
+                countdownText.textContent = `Zapisuje... ${secondsLeft}s`;
+            }
+        };
+
+        const timerId = setInterval(() => {
+            secondsLeft--;
+
+            if (secondsLeft > 0) {
+                updateCountdownText();
+            } else {
+                // Countdown complete - execute bulk completion
+                clearInterval(timerId);
+                state.activeCountdowns.delete(orderNumber);
+                completeOrder(card, orderNumber, productIds);
+            }
+        }, 1000);
+
+        // Store timer ID
+        state.activeCountdowns.set(orderNumber, { timerId, secondsLeft });
+
+        // Cancel button listener
+        cancelBtn.addEventListener('click', function(event) {
+            event.preventDefault();
+            event.stopPropagation();
+            cancelCountdown(card, orderNumber, timerId);
+        });
+
+        console.log(`[Packaging] Countdown started for ${orderNumber}`);
+    }
+
+    function cancelCountdown(card, orderNumber, timerId) {
+        console.log(`[Packaging] Countdown cancelled for ${orderNumber}`);
+
+        // Clear timer
+        if (timerId) {
+            clearInterval(timerId);
+            state.activeCountdowns.delete(orderNumber);
+        }
+
+        // Reset card state
+        card.dataset.inProgress = 'false';
+        card.classList.remove('processing');
+
+        // Restore original button
+        const actionContainer = card.querySelector('.order-action');
+        if (actionContainer) {
+            actionContainer.innerHTML = '<button class="btn-complete" data-action="complete" disabled>ZAKOŃCZ PAKOWANIE</button>';
+
+            // Re-attach listener
+            const completeBtn = actionContainer.querySelector('.btn-complete');
+            if (completeBtn) {
+                completeBtn.addEventListener('click', function() {
+                    handleCompleteClick(card, orderNumber);
+                });
+
+                // Update button state
+                updateCompleteButtonState(card);
+            }
+        }
+
+        showToast('info', 'Anulowano pakowanie zamówienia');
+    }
+
+    // ========================================================================
+    // BULK COMPLETION - Optimistic UI
+    // ========================================================================
+
+    async function completeOrder(card, orderNumber, productIds) {
+        console.log(`[Packaging] Starting bulk completion for ${orderNumber}`, productIds);
+
+        // BACKUP before removal
+        const cardBackup = card.cloneNode(true);
+
+        // Show processing state
+        const actionContainer = card.querySelector('.order-action');
+        if (actionContainer) {
+            actionContainer.innerHTML = `
+                <button class="btn-complete saving">
+                    <span class="spinner"></span>
+                    <span>Zapisuje</span>
+                </button>
+            `;
+        }
+
+        try {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 10000); // 10s timeout
+
+            const response = await fetch('/production/stations/complete-order', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    order_number: orderNumber,
+                    product_ids: productIds,
+                    station: 'packaging',
+                    action: 'complete'
+                }),
+                signal: controller.signal
+            });
+
+            clearTimeout(timeoutId);
+
+            if (!response.ok) {
+                const errorText = await response.text();
+                throw new Error(errorText || `HTTP ${response.status}`);
+            }
+
+            const result = await response.json();
+
+            console.log('[Packaging] Order completed successfully:', result);
+
+            // SUCCESS - show success state
+            if (actionContainer) {
+                actionContainer.innerHTML = '<button class="btn-complete success">Zapisano</button>';
+            }
+
+            showToast('success', `Zamówienie ${orderNumber} ukończone`);
+
+            // Update today's m³ statistics
+            fetchTodayM3();
+
+            // Wait 1 second, then remove card with animation
+            setTimeout(() => {
+                card.classList.add('removing');
+                setTimeout(() => {
+                    card.remove();
+                    updateStatsAfterRemoval();
+                }, 300);
+            }, 1000);
+
+        } catch (error) {
+            // ERROR - restore card
+            console.error('[Packaging] Failed to complete order:', error);
+
+            const ordersList = document.getElementById('orders-list');
+
+            if (ordersList) {
+                // Re-insert card
+                ordersList.insertBefore(cardBackup, ordersList.firstChild);
+
+                // Re-initialize the restored card
+                initializeOrderCard(cardBackup);
+            }
+
+            let errorMessage = error.message;
+            if (error.name === 'AbortError') {
+                errorMessage = 'Timeout - przekroczono 10 sekund';
+            }
+
+            showToast('error', `Błąd ukończenia: ${errorMessage}`);
+        }
+    }
+
+    // ========================================================================
+    // STATS UPDATE
+    // ========================================================================
+
+    function updateStatsAfterRemoval() {
+        // Check if empty state should be shown
+        const remainingCards = document.querySelectorAll('.order-card').length;
+
+        if (remainingCards === 0) {
+            showEmptyState();
+        }
+
+        // Update header statistics
+        updateHeaderStats();
+
+        console.log(`[Packaging] Remaining cards: ${remainingCards}`);
+    }
+
+    function updateHeaderStats() {
+        const allCards = document.querySelectorAll('.order-card');
+
+        let totalProducts = 0;
+        let totalVolume = 0;
+
+        allCards.forEach(card => {
+            const cardTotalProducts = parseInt(card.dataset.totalProducts) || 0;
+            const cardTotalVolume = parseFloat(card.dataset.totalVolume) || 0;
+
+            totalProducts += cardTotalProducts;
+            totalVolume += cardTotalVolume;
+        });
+
+        // Update DOM
+        const totalProductsElement = document.getElementById('total-products');
+        const totalVolumeElement = document.getElementById('total-volume');
+
+        if (totalProductsElement) {
+            totalProductsElement.textContent = totalProducts;
+        }
+
+        if (totalVolumeElement) {
+            totalVolumeElement.textContent = totalVolume.toFixed(4);
+        }
+
+        console.log(`[Packaging] Updated header stats: ${totalProducts} products, ${totalVolume.toFixed(4)} m³`);
+    }
+
+    function showEmptyState() {
+        const ordersList = document.getElementById('orders-list');
+
+        if (!ordersList) {
+            return;
+        }
+
+        ordersList.innerHTML = `
+            <div class="empty-state">
+                <div class="empty-state-icon">✅</div>
+                <h2>Brak zamówień do pakowania</h2>
+                <p>Świetna robota! Wszystkie zamówienia zostały spakowane.</p>
+            </div>
+        `;
+
+        console.log('[Packaging] Showing empty state');
+    }
+
+    // ========================================================================
+    // TOAST NOTIFICATIONS
+    // ========================================================================
+
+    function showToast(type, message) {
+        const prefix = type === 'success' ? '✅' : type === 'error' ? '❌' : type === 'warning' ? '⚠️' : 'ℹ️';
+        console.log(`[Packaging] ${prefix} ${message}`);
+
+        // TODO: Implement visual toast notifications if needed
+    }
+
+    // ========================================================================
+    // AUTO-REFRESH WITH SMART MERGE
+    // ========================================================================
+
+    function startAutoRefresh(intervalSeconds) {
+        if (state.refreshTimer) {
+            clearInterval(state.refreshTimer);
+        }
+
+        console.log(`[Packaging] Starting auto-refresh every ${intervalSeconds}s`);
+
+        state.refreshTimer = setInterval(async () => {
+            await performAutoRefresh();
+        }, intervalSeconds * 1000);
+    }
+
+    async function performAutoRefresh() {
+        console.log('[Packaging] Performing auto-refresh...');
+
+        try {
+            const response = await fetch('/production/stations/ajax/orders/packaging?sort=priority');
+
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}`);
+            }
+
+            const result = await response.json();
+
+            if (!result.success || !result.data || !result.data.orders) {
+                throw new Error('Invalid response format');
+            }
+
+            console.log(`[Packaging] Fetched ${result.data.orders.length} orders`);
+
+            smartMergeOrders(result.data.orders);
+
+            // Update header statistics from API data (more reliable than DOM)
+            updateHeaderStatsFromAPI(result.data.orders);
+
+            // Update today's m³ statistics
+            fetchTodayM3();
+
+        } catch (error) {
+            console.error('[Packaging] Auto-refresh failed:', error);
+        }
+    }
+
+    function updateHeaderStatsFromAPI(orders) {
+        let totalOrders = orders.length;
+        let totalVolume = 0;
+
+        orders.forEach(order => {
+            totalVolume += order.total_volume || 0;
+        });
+
+        const totalOrdersElement = document.getElementById('total-orders');
+        const totalVolumeElement = document.getElementById('total-volume');
+
+        if (totalOrdersElement) {
+            totalOrdersElement.textContent = totalOrders;
+        }
+
+        if (totalVolumeElement) {
+            totalVolumeElement.textContent = totalVolume.toFixed(4);
+        }
+
+        console.log(`[Packaging] Updated header stats from API: ${totalOrders} orders, ${totalVolume.toFixed(4)} m³`);
+    }
+
+    function smartMergeOrders(newOrders) {
+        const ordersList = document.getElementById('orders-list');
+
+        if (!ordersList) {
+            return;
+        }
+
+        const existingCards = ordersList.querySelectorAll('.order-card');
+        const existingOrderNumbers = new Set();
+
+        existingCards.forEach(card => {
+            existingOrderNumbers.add(card.dataset.orderNumber);
+        });
+
+        // Stwórz zbiór numerów zamówień z API
+        const apiOrderNumbers = new Set(newOrders.map(order => order.order_number));
+
+        // Add only NEW orders (that don't exist yet)
+        newOrders.forEach(order => {
+            if (!existingOrderNumbers.has(order.order_number)) {
+                console.log(`[Packaging] Adding new order: ${order.order_number}`);
+                addOrderCard(order);
+            } else {
+                // Update existing order's quantity data
+                updateExistingOrderCard(order);
+            }
+        });
+
+        // Remove cards that are no longer in API response (but not if user is working on them)
+        existingCards.forEach(card => {
+            const orderNumber = card.dataset.orderNumber;
+            if (!apiOrderNumbers.has(orderNumber)) {
+                // Sprawdź czy karta nie jest w trakcie przetwarzania (countdown aktywny)
+                const hasActiveCountdown = state.activeCountdowns.has(orderNumber);
+                const isProcessing = card.classList.contains('processing');
+
+                if (!hasActiveCountdown && !isProcessing) {
+                    console.log(`[Packaging] Removing order no longer on station: ${orderNumber}`);
+                    card.classList.add('removing');
+                    setTimeout(() => {
+                        card.remove();
+                        // Jeśli nie ma już żadnych kart, pokaż empty state
+                        checkAndShowEmptyState();
+                    }, 300);
+                } else {
+                    console.log(`[Packaging] Keeping order ${orderNumber} - user is working on it`);
+                }
+            }
+        });
+
+        console.log('[Packaging] Smart merge completed');
+    }
+
+    function updateExistingOrderCard(orderData) {
+        const card = document.querySelector(`[data-order-number="${orderData.order_number}"]`);
+        if (!card) return;
+
+        // Skip if card is being processed
+        if (card.dataset.inProgress === 'true') return;
+
+        // Update each product's quantity data
+        orderData.products.forEach(product => {
+            const productRow = card.querySelector(`[data-product-id="${product.id}"]`);
+            if (productRow) {
+                const currentQtyDone = parseInt(productRow.dataset.quantityDone) || 0;
+                const serverQtyDone = product.quantity_done || 0;
+
+                // Only update if server value is different and no pending request
+                if (currentQtyDone !== serverQtyDone && !state.pendingRequests.has(product.id)) {
+                    productRow.dataset.quantityDone = serverQtyDone;
+                    const qtyDoneEl = productRow.querySelector('.qty-done');
+                    if (qtyDoneEl) {
+                        qtyDoneEl.textContent = serverQtyDone;
+                    }
+                    updateProductButtonStates(productRow, serverQtyDone, product.quantity);
+                }
+            }
+        });
+
+        updateOrderCounter(card);
+        updateCompleteButtonState(card);
+    }
+
+    function checkAndShowEmptyState() {
+        const ordersList = document.getElementById('orders-list');
+        if (!ordersList) return;
+
+        const remainingCards = ordersList.querySelectorAll('.order-card:not(.removing)');
+        if (remainingCards.length === 0) {
+            const emptyState = ordersList.querySelector('.empty-state');
+            if (!emptyState) {
+                ordersList.innerHTML = `
+                    <div class="empty-state">
+                        <div class="empty-state-icon">✅</div>
+                        <h2>Brak zamówień do pakowania</h2>
+                        <p>Świetna robota! Wszystkie zamówienia zostały spakowane.</p>
+                    </div>
+                `;
+            }
+        }
+    }
+
+    function addOrderCard(orderData) {
+        const ordersList = document.getElementById('orders-list');
+
+        if (!ordersList) {
+            return;
+        }
+
+        // Remove empty state if present
+        const emptyState = ordersList.querySelector('.empty-state');
+        if (emptyState) {
+            emptyState.remove();
+        }
+
+        // Create card HTML
+        const cardHTML = createOrderCardHTML(orderData);
+
+        // Insert at the beginning (highest priority)
+        ordersList.insertAdjacentHTML('afterbegin', cardHTML);
+
+        // Initialize the new card
+        const newCard = ordersList.querySelector(`[data-order-number="${orderData.order_number}"]`);
+        if (newCard) {
+            initializeOrderCard(newCard);
+
+            // Re-initialize attachment handlers for the new card
+            if (typeof window.reinitializeAttachmentHandlers === 'function') {
+                window.reinitializeAttachmentHandlers();
+            }
+        }
+    }
+
+    function createOrderCardHTML(order) {
+        const productsHTML = order.products.map(product => {
+            const quantity = product.quantity || 1;
+            const quantityDone = product.quantity_done || 0;
+            const hasLargeQty = quantity >= 10;
+            const isNotReady = product.current_status !== 'czeka_na_pakowanie';
+
+            // Małe badges z parametrami
+            const paramsHTML = `
+                ${product.wood_species ? `<span class="badge badge-species">${product.wood_species}</span>` : ''}
+                ${product.technology ? `<span class="badge badge-technology">${product.technology}</span>` : ''}
+                ${product.wood_class ? `<span class="badge badge-class">${product.wood_class}</span>` : ''}
+                ${product.finish_state ? `<span class="badge badge-finish">${product.finish_state}</span>` : ''}
+            `;
+
+            // Dimensions row - badge format matching HTML template
+            let dimensionsBadge = '';
+            if (product.dimensions) {
+                dimensionsBadge = `<span class="badge badge-dimensions">${product.dimensions}</span>`;
+            } else if (product.original_name) {
+                dimensionsBadge = `<span class="badge badge-dimensions">${product.original_name}</span>`;
+            }
+
+            // Quantity buttons - disabled if not ready for packaging
+            const notReadyDisabled = isNotReady ? 'disabled' : '';
+            const minusDisabled = (quantityDone <= 0 || isNotReady) ? 'disabled' : '';
+            const plusDisabled = (quantityDone >= quantity || isNotReady) ? 'disabled' : '';
+            const minus10Disabled = (quantityDone < 10 || isNotReady) ? 'disabled' : '';
+            const plus10Disabled = ((quantity - quantityDone) < 10 || isNotReady) ? 'disabled' : '';
+
+            // Grid layout class for >=10 items
+            const gridClass = hasLargeQty ? ' grid-layout' : '';
+
+            const quantityButtonsHTML = hasLargeQty ? `
+                <button class="btn-qty btn-minus" data-product-id="${product.id}" data-action="decrement" ${minusDisabled}>−</button>
+                <button class="btn-qty btn-minus-10" data-product-id="${product.id}" data-action="decrement10" ${minus10Disabled}>−10</button>
+                <button class="btn-qty btn-plus-10" data-product-id="${product.id}" data-action="increment10" ${plus10Disabled}>+10</button>
+                <button class="btn-qty btn-plus" data-product-id="${product.id}" data-action="increment" ${plusDisabled}>+</button>
+            ` : `
+                <button class="btn-qty btn-minus" data-product-id="${product.id}" data-action="decrement" ${minusDisabled}>−</button>
+                <button class="btn-qty btn-plus" data-product-id="${product.id}" data-action="increment" ${plusDisabled}>+</button>
+            `;
+
+            const completeClass = quantityDone === quantity ? 'product-complete' : '';
+            const notReadyClass = isNotReady ? 'product-not-ready' : '';
+
+            return `
+                <div class="product-row ${completeClass} ${notReadyClass}"
+                     data-product-id="${product.id}"
+                     data-quantity="${quantity}"
+                     data-quantity-done="${quantityDone}"
+                     data-status="${product.current_status}"
+                     data-species="${product.wood_species || ''}"
+                     data-technology="${product.technology || ''}"
+                     data-wood-class="${product.wood_class || ''}">
+                    <div class="product-left-col">
+                        <div class="product-params">${paramsHTML}</div>
+                        <div class="product-dimensions-row">${dimensionsBadge}</div>
+                    </div>
+                    <div class="quantity-controls">
+                        <div class="quantity-counter">
+                            <span class="qty-done">${quantityDone}</span>
+                            <span class="qty-separator">/</span>
+                            <span class="qty-total">${quantity}</span>
+                        </div>
+                        <div class="quantity-buttons${gridClass}">
+                            ${quantityButtonsHTML}
+                        </div>
+                    </div>
+                </div>
+            `;
+        }).join('');
+
+        // Build header icons HTML
+        const firstProduct = order.products[0];
+        let iconsHTML = '';
+
+        if (firstProduct) {
+            if (firstProduct.attachment_file_url) {
+                const attachmentType = firstProduct.attachment_file_name && firstProduct.attachment_file_name.toLowerCase().endsWith('.pdf') ? 'pdf' : 'image';
+                iconsHTML += `
+                    <div class="header-icon-wrapper attachment-icon-wrapper"
+                         data-attachment-url="${firstProduct.attachment_file_url}"
+                         data-attachment-name="${firstProduct.attachment_file_name || ''}"
+                         data-attachment-type="${attachmentType}">
+                        <svg class="header-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path>
+                        </svg>
+                    </div>
+                `;
+            }
+            if (firstProduct.order_notes) {
+                const truncatedNotes = firstProduct.order_notes.length > 100
+                    ? firstProduct.order_notes.substring(0, 100) + '...'
+                    : firstProduct.order_notes;
+                iconsHTML += `
+                    <div class="header-icon-wrapper notes-icon-wrapper"
+                         data-notes="${firstProduct.order_notes.replace(/"/g, '&quot;')}"
+                         title="${truncatedNotes.replace(/"/g, '&quot;')}">
+                        <svg class="header-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+                        </svg>
+                    </div>
+                `;
+            }
+        }
+
+        const clientOrderBadge = order.client_order_number ? `<span class="order-client-number">${order.client_order_number}</span>` : '';
+        const blBadge = order.baselinker_order_id ? `<span class="order-baselinker">BL-${order.baselinker_order_id}</span>` : '';
+        const deadlineBadge = order.display_deadline ? `<span class="deadline-info">${order.display_deadline}</span>` : '';
+
+        // Calculate total done
+        let totalDone = 0;
+        let totalQty = 0;
+        order.products.forEach(p => {
+            totalDone += (p.quantity_done || 0);
+            totalQty += (p.quantity || 1);
+        });
+
+        return `
+            <div class="order-card"
+                 data-order-number="${order.order_number}"
+                 data-priority-rank="${order.best_priority_rank}"
+                 data-total-products="${order.total_products}"
+                 data-total-quantity="${totalQty}"
+                 data-total-volume="${order.total_volume}"
+                 data-in-progress="false">
+                <div class="order-header">
+                    <div class="order-header-row order-ids-row">
+                        <span class="order-number">${order.order_number}</span>
+                        ${clientOrderBadge}
+                        ${blBadge}
+                        ${deadlineBadge}
+                    </div>
+                    <div class="order-header-row order-stats-row">
+                        <div class="order-stats">
+                            <span class="products-checked" data-order="${order.order_number}">${totalDone}</span>/<span class="products-total" data-order="${order.order_number}">${totalQty}</span> szt. • ${order.total_volume.toFixed(4)} m³
+                        </div>
+                        <div class="order-icons">${iconsHTML}</div>
+                    </div>
+                </div>
+                <div class="products-list">
+                    ${productsHTML}
+                </div>
+                <div class="order-action">
+                    <button class="btn-complete" data-action="complete" disabled>ZAKOŃCZ PAKOWANIE</button>
+                </div>
+            </div>
+        `;
+    }
+
+    // ========================================================================
+    // FETCH TODAY'S M³
+    // ========================================================================
+
+    async function fetchTodayM3() {
+        try {
+            const response = await fetch('/production/stations/ajax/station-today-m3/packaging');
+
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}`);
+            }
+
+            const result = await response.json();
+
+            if (result.success && result.data) {
+                const todayM3Element = document.getElementById('today-m3');
+                if (todayM3Element) {
+                    todayM3Element.textContent = result.data.today_m3.toFixed(4);
+                }
+
+                console.log(`[Packaging] Today's m³: ${result.data.today_m3}`);
+            }
+
+        } catch (error) {
+            console.error('[Packaging] Failed to fetch today m³:', error);
+        }
+    }
+
+    // ========================================================================
+    // THEME TOGGLE
+    // ========================================================================
+
+    function setupThemeToggle() {
+        const themeToggle = document.getElementById('theme-toggle');
+
+        if (!themeToggle) {
+            return;
+        }
+
+        themeToggle.addEventListener('click', function() {
             document.body.classList.toggle('light-mode');
             const isLight = document.body.classList.contains('light-mode');
 
@@ -82,1002 +1206,35 @@ function initPackagingStation() {
         }
     }
 
-    console.log('[Packaging] Station initialized successfully');
-}
+    // ========================================================================
+    // CLEANUP
+    // ========================================================================
 
-/**
- * Auto-refresh callback
- */
-async function autoRefreshCallback() {
-    if (window.STATION_STATE.isRefreshing) {
-        console.log('[Packaging] Refresh already in progress, skipping');
-        return;
-    }
+    window.addEventListener('beforeunload', function() {
+        if (state.refreshTimer) {
+            clearInterval(state.refreshTimer);
+            console.log('[Packaging] Cleared auto-refresh interval');
+        }
 
-    if (!window.StationCommon.isOnline()) {
-        console.warn('[Packaging] Offline - skipping refresh');
-        window.StationCommon.showWarning('Brak połączenia - pominięto odświeżanie');
-        return;
-    }
+        if (state.countdownTimer) {
+            clearInterval(state.countdownTimer);
+            console.log('[Packaging] Cleared countdown timer');
+        }
 
-    window.STATION_STATE.isRefreshing = true;
-
-    try {
-        const stationCode = window.STATION_STATE.config.stationCode;
-        console.log(`[Packaging] Fetching orders for station: ${stationCode}`);
-
-        // Note: Pakowanie używa dedykowanego endpointa /ajax/orders/packaging
-        // który zwraca zgrupowane zamówienia
-        const config = window.STATION_STATE.config;
-        const url = `${config.ajaxBaseUrl}/orders/packaging?sort=priority`;
-
-        const response = await fetch(url, {
-            method: 'GET',
-            headers: {
-                'Content-Type': 'application/json'
+        // Clear all active order countdowns
+        state.activeCountdowns.forEach((countdown, orderNumber) => {
+            if (countdown.timerId) {
+                clearInterval(countdown.timerId);
+                console.log(`[Packaging] Cleared countdown for ${orderNumber}`);
             }
         });
 
-        if (!response.ok) {
-            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-        }
-
-        const result = await response.json();
-
-        if (!result.success) {
-            throw new Error(result.error || 'Unknown error');
-        }
-
-        const data = result.data;
-
-        if (!data || !data.orders) {
-            throw new Error('Invalid response data');
-        }
-
-        console.log(`[Packaging] Received ${data.orders.length} orders`);
-
-        // Smart merge orders
-        smartMergeOrders(data.orders);
-
-        // Update stats
-        if (data.stats) {
-            window.StationCommon.updateStatsBar(data.stats);
-        }
-
-        // Refresh today m3
-        window.StationCommon.fetchTodayM3('packaging').catch(err => {
-            console.error('[Packaging] Failed to refresh today m3:', err);
-        });
-
-        console.log('[Packaging] Auto-refresh completed successfully');
-    } catch (error) {
-        console.error('[Packaging] Auto-refresh failed:', error);
-        window.StationCommon.showError(`Błąd odświeżania: ${error.message}`);
-    } finally {
-        window.STATION_STATE.isRefreshing = false;
-
-        if (typeof window.StationCommon.startRefreshCountdown === 'function') {
-            window.StationCommon.startRefreshCountdown();
-        }
-    }
-}
-
-/**
- * Check and show empty state if no orders remain
- */
-function checkAndShowEmptyState() {
-    const ordersList = document.getElementById('orders-list');
-    if (!ordersList) return;
-
-    const remainingCards = ordersList.querySelectorAll('.order-card:not(.removing)');
-    if (remainingCards.length === 0) {
-        const emptyState = ordersList.querySelector('.empty-state');
-        if (!emptyState) {
-            ordersList.innerHTML = `
-                <div class="empty-state">
-                    <div class="empty-state-icon">✅</div>
-                    <h2>Brak zamówień do spakowania</h2>
-                    <p>Świetna robota! Wszystkie zamówienia zostały spakowane.</p>
-                </div>
-            `;
-        }
-    }
-}
-
-/**
- * Smart merge orders - add new, update existing, preserve in-progress
- */
-function smartMergeOrders(newOrders) {
-    const ordersList = document.getElementById('orders-list');
-
-    if (!ordersList) {
-        console.warn('[Packaging] Orders list not found in DOM');
-        return;
-    }
-
-    const existingCards = Array.from(ordersList.querySelectorAll('.order-card'));
-    const existingOrderNumbers = existingCards.map(card => card.dataset.orderNumber);
-
-    console.log(`[Packaging] Smart merge: ${existingCards.length} existing, ${newOrders.length} new`);
-
-    // Hide empty state if adding orders
-    const emptyState = ordersList.querySelector('.empty-state');
-    if (newOrders.length > 0 && emptyState) {
-        emptyState.style.display = 'none';
-    }
-
-    // Find NEW orders
-    const toAdd = newOrders.filter(order => !existingOrderNumbers.includes(order.order_number));
-
-    // Add new order cards
-    toAdd.forEach(order => {
-        const cardHTML = createOrderCard(order);
-        ordersList.insertAdjacentHTML('beforeend', cardHTML);
-
-        const newCard = ordersList.querySelector(`[data-order-number="${order.order_number}"]`);
-        if (newCard) {
-            attachOrderCardListeners(newCard);
-            console.log(`[Packaging] Added new order: ${order.order_number}`);
-        }
-    });
-
-    // Update existing orders (skip in-progress)
-    let updatedCount = 0;
-    newOrders.forEach(newOrder => {
-        const existingCard = ordersList.querySelector(`[data-order-number="${newOrder.order_number}"]`);
-
-        if (!existingCard || existingCard.dataset.inProgress === 'true') {
-            return;
-        }
-
-        // Check if card is missing finish_state badges
-        const hasFinishBadge = existingCard.querySelector('.badge-finish');
-        const orderHasFinishData = newOrder.products.some(p => p.finish_state);
-
-        if (!hasFinishBadge && orderHasFinishData) {
-            console.log(`[Packaging] Order ${newOrder.order_number} missing finish badges, recreating...`);
-            // Remove and recreate the card to include finish badges
-            existingCard.remove();
-            const cardHTML = createOrderCard(newOrder);
-            ordersList.insertAdjacentHTML('beforeend', cardHTML);
-            const newCard = ordersList.querySelector(`[data-order-number="${newOrder.order_number}"]`);
-            if (newCard) {
-                attachOrderCardListeners(newCard);
-                updatedCount++;
-            }
-        } else {
-            // Update products and priority if needed
-            updateOrderProducts(existingCard, newOrder);
-        }
-    });
-
-    if (updatedCount > 0) {
-        console.log(`[Packaging] Updated ${updatedCount} orders with finish badges`);
-    }
-
-    // Remove orders that no longer exist
-    const newOrderNumbers = newOrders.map(o => o.order_number);
-    let removedCount = 0;
-    existingCards.forEach(card => {
-        if (card.dataset.inProgress !== 'true' && !newOrderNumbers.includes(card.dataset.orderNumber)) {
-            console.log(`[Packaging] Removing order: ${card.dataset.orderNumber}`);
-            card.classList.add('removing');
-            setTimeout(() => {
-                card.remove();
-                checkAndShowEmptyState();
-            }, 300);
-            removedCount++;
-        }
-    });
-
-    if (removedCount > 0) {
-        console.log(`[Packaging] Removed ${removedCount} orders no longer on station`);
-    }
-
-    // Show empty state if no orders
-    if (newOrders.length === 0 && !emptyState) {
-        ordersList.innerHTML = `
-            <div class="empty-state">
-                <div class="empty-state-icon">✅</div>
-                <h2>Brak zamówień do spakowania</h2>
-                <p>Świetna robota! Wszystkie zamówienia zostały spakowane.</p>
-            </div>
-        `;
-    }
-
-    if (toAdd.length > 0) {
-        window.StationCommon.showInfo(`Dodano ${toAdd.length} ${toAdd.length === 1 ? 'nowe zamówienie' : 'nowych zamówień'}`);
-    }
-
-    // Reinicjalizuj handlery załączników po aktualizacji DOM
-    if (typeof window.reinitializeAttachmentHandlers === 'function') {
-        window.reinitializeAttachmentHandlers();
-    }
-}
-
-/**
- * Create HTML for order card
- */
-function createOrderCard(order) {
-    // SORTUJ PRODUKTY PO ID (od najmniejszej do największej)
-    const sortedProducts = [...order.products].sort((a, b) => {
-        const idA = a.id || '';
-        const idB = b.id || '';
-        return idA.localeCompare(idB, undefined, { numeric: true });
-    });
-
-    const productsHTML = sortedProducts.map(product => {
-        const isNotReady = product.current_status !== 'czeka_na_pakowanie';
-        const disabledAttr = isNotReady ? 'disabled' : '';
-        const notReadyClass = isNotReady ? 'product-not-ready' : '';
-
-        // Escape HTML
-        const escapeHtml = (str) => {
-            if (!str) return '';
-            const div = document.createElement('div');
-            div.textContent = str;
-            return div.innerHTML;
-        };
-
-        // Badges HTML
-        const speciesBadge = product.wood_species
-            ? `<span class="badge badge-species">${escapeHtml(product.wood_species)}</span>`
-            : '';
-        const techBadge = product.technology
-            ? `<span class="badge badge-technology">${escapeHtml(product.technology)}</span>`
-            : '';
-        const classBadge = product.wood_class
-            ? `<span class="badge badge-class">${escapeHtml(product.wood_class)}</span>`
-            : '';
-        const finishBadge = product.finish_state
-            ? `<span class="badge badge-finish">${escapeHtml(product.finish_state)}</span>`
-            : '';
-        const dimensionsBadge = product.dimensions
-            ? `<span class="badge badge-dimensions">${escapeHtml(product.dimensions)}</span>`
-            : '';
-
-        // Data attributes for CSS styling
-        const dataSpecies = product.wood_species ? `data-species="${escapeHtml(product.wood_species)}"` : '';
-        const dataTechnology = product.technology ? `data-technology="${escapeHtml(product.technology)}"` : '';
-        const dataWoodClass = product.wood_class ? `data-wood-class="${escapeHtml(product.wood_class)}"` : '';
-
-        // Attachment icon HTML
-        const attachmentHTML = product.attachment_file_url ? `
-            <div class="attachment-icon-wrapper"
-                 data-attachment-url="${escapeHtml(product.attachment_file_url)}"
-                 data-attachment-name="${escapeHtml(product.attachment_file_name || '')}"
-                 data-attachment-type="${(product.attachment_file_name || '').toLowerCase().endsWith('.pdf') ? 'pdf' : 'image'}">
-                <svg class="attachment-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path>
-                </svg>
-            </div>
-        ` : '';
-
-        return `
-            <div class="product-row ${notReadyClass}"
-                 data-product-id="${product.id}"
-                 data-status="${product.current_status}"
-                 ${dataSpecies}
-                 ${dataTechnology}
-                 ${dataWoodClass}>
-
-                <div class="product-checkbox">
-                    <input type="checkbox"
-                           class="product-check"
-                           id="check-${product.id}"
-                           data-product-id="${product.id}"
-                           ${disabledAttr}>
-                    <label for="check-${product.id}"></label>
-                </div>
-
-                <div class="product-id-wrapper">
-                    <span class="product-id">${product.id}</span>
-                    ${attachmentHTML}
-                </div>
-
-                <div class="product-details">
-                    <div class="product-badges">
-                        ${speciesBadge}
-                        ${techBadge}
-                        ${classBadge}
-                        ${finishBadge}
-                        ${dimensionsBadge}
-                    </div>
-
-                    <span class="product-name">${escapeHtml(product.original_name || 'Brak nazwy')}</span>
-                </div>
-
-                <span class="product-volume">${product.volume_m3.toFixed(4)} m³</span>
-            </div>
-        `;
-    }).join('');
-
-    // Policz zaznaczone checkboxy (dla nowych kart zawsze 0)
-    const checkedCount = 0;
-
-    return `
-        <div class="order-card"
-             data-order-number="${order.order_number}"
-             data-priority-rank="${order.best_priority_rank}"
-             data-total-products="${order.total_products}"
-             data-in-progress="false">
-
-            <div class="order-header">
-                <div class="order-title">
-                    <span class="order-number">${order.order_number}</span>
-                    ${order.baselinker_order_id ? `<span class="order-baselinker">BL-${order.baselinker_order_id}</span>` : ''}
-                </div>
-                <div class="order-summary">
-                    <span class="deadline-info">📅 ${order.display_deadline}</span>
-                    <span class="summary-stats">
-                        <span class="products-checked" data-order="${order.order_number}">${checkedCount}</span>/${order.total_products} ${order.total_products === 1 ? 'produkt' : order.total_products < 5 ? 'produkty' : 'produktów'} • ${order.total_volume.toFixed(4)} m³
-                    </span>
-                </div>
-            </div>
-
-            <div class="products-list">
-                ${productsHTML}
-            </div>
-
-            <div class="order-action">
-                <button class="btn-complete" data-action="package" disabled>SPAKOWANE</button>
-            </div>
-        </div>
-    `;
-}
-
-/**
- * Update products in existing order card
- */
-function updateOrderProducts(card, order) {
-    const productsList = card.querySelector('.products-list');
-    if (!productsList) return;
-
-    order.products.forEach(newProduct => {
-        const existingRow = productsList.querySelector(`[data-product-id="${newProduct.id}"]`);
-
-        if (existingRow) {
-            const checkbox = existingRow.querySelector('.product-check');
-            if (checkbox && newProduct.current_status !== 'czeka_na_pakowanie') {
-                existingRow.classList.add('product-not-ready');
-                checkbox.setAttribute('disabled', 'disabled');
-                checkbox.disabled = true;
-                checkbox.checked = false;
-            }
-        }
-    });
-
-    // Recalculate button state
-    const checkboxes = card.querySelectorAll('.product-check');
-    const packageBtn = card.querySelector('.btn-complete');
-    if (packageBtn) {
-        updatePackageButtonState(card, checkboxes, packageBtn);
-    }
-}
-
-/**
- * Attach event listeners to order card
- */
-function attachOrderCardListeners(card) {
-    if (!card) {
-        console.warn('[Packaging] Cannot attach listeners to null card');
-        return;
-    }
-
-    const orderNumber = card.dataset.orderNumber;
-    console.log(`[Packaging] Attaching listeners to order: ${orderNumber}`);
-
-    const checkboxes = card.querySelectorAll('.product-check');
-    const packageBtn = card.querySelector('.btn-complete');
-
-    if (!packageBtn) {
-        console.warn(`[Packaging] No package button found for ${orderNumber}`);
-        return;
-    }
-
-    // Load saved checkbox states FIRST
-    loadCheckboxStates(card, orderNumber);
-
-    // Checkbox change listeners
-    checkboxes.forEach(checkbox => {
-        checkbox.addEventListener('change', function () {
-            console.log(`[Packaging] Checkbox changed: ${this.dataset.productId}, checked: ${this.checked}`);
-
-            saveCheckboxState(orderNumber, this.dataset.productId, this.checked);
-            updatePackageButtonState(card, checkboxes, packageBtn);
-            updateCheckedCount(card, checkboxes, orderNumber); // ✅ DODANE
+        // Clear pending requests
+        state.pendingRequests.forEach((timeoutId) => {
+            clearTimeout(timeoutId);
         });
     });
 
-    // Package button listener
-    packageBtn.addEventListener('click', function (event) {
-        event.preventDefault();
-        event.stopPropagation();
+    console.log('[Packaging] Module loaded v3.0 (quantity-based with +/- buttons)');
 
-        if (this.disabled) {
-            console.log('[Packaging] Button disabled, ignoring click');
-            return;
-        }
-
-        handlePackageClick(card, orderNumber);
-    });
-
-    packageBtn.addEventListener('keydown', function (event) {
-        if (event.key === 'Enter' || event.key === ' ') {
-            event.preventDefault();
-            if (!this.disabled) {
-                handlePackageClick(card, orderNumber);
-            }
-        }
-    });
-
-    // Update button state AFTER loading checkboxes
-    updatePackageButtonState(card, checkboxes, packageBtn);
-    updateCheckedCount(card, checkboxes, orderNumber); // ✅ DODANE - aktualizuj licznik po załadowaniu
-
-    console.log(`[Packaging] Listeners attached and button state updated for ${orderNumber}`);
-}
-
-/**
- * Load checkbox states from localStorage
- */
-function loadCheckboxStates(card, orderNumber) {
-    const storageKey = STORAGE_PREFIX + orderNumber;
-    const savedStates = JSON.parse(localStorage.getItem(storageKey) || '{}');
-
-    console.log(`[Packaging] Loading checkbox states for ${orderNumber}:`, savedStates);
-
-    Object.keys(savedStates).forEach(productId => {
-        const checkbox = card.querySelector(`.product-check[data-product-id="${productId}"]`);
-        if (checkbox && !checkbox.disabled) {
-            checkbox.checked = savedStates[productId];
-            console.log(`[Packaging] Restored checkbox ${productId}: ${savedStates[productId]}`);
-        }
-    });
-}
-
-/**
- * Save checkbox state to localStorage
- */
-function saveCheckboxState(orderNumber, productId, checked) {
-    const storageKey = STORAGE_PREFIX + orderNumber;
-    const savedStates = JSON.parse(localStorage.getItem(storageKey) || '{}');
-
-    savedStates[productId] = checked;
-    localStorage.setItem(storageKey, JSON.stringify(savedStates));
-}
-
-/**
- * Update package button state based on checkboxes
- */
-function updatePackageButtonState(card, checkboxes, packageBtn) {
-    const enabledCheckboxes = Array.from(checkboxes).filter(cb => !cb.disabled);
-    const hasNotReady = Array.from(checkboxes).some(cb => cb.disabled);
-    const allEnabledChecked = enabledCheckboxes.length > 0 && enabledCheckboxes.every(cb => cb.checked);
-
-    const shouldEnable = !hasNotReady && allEnabledChecked;
-
-    if (shouldEnable) {
-        packageBtn.removeAttribute('disabled');
-        packageBtn.disabled = false;
-    } else {
-        packageBtn.setAttribute('disabled', 'disabled');
-        packageBtn.disabled = true;
-    }
-
-    console.log(`[Packaging] Button state: hasNotReady=${hasNotReady}, allChecked=${allEnabledChecked}, enabled=${shouldEnable}`);
-}
-
-/**
- * Update checked count display (Y/X produktów)
- */
-function updateCheckedCount(card, checkboxes, orderNumber) {
-    const checkedCount = Array.from(checkboxes).filter(cb => cb.checked && !cb.disabled).length;
-    const counterElement = card.querySelector(`.products-checked[data-order="${orderNumber}"]`);
-
-    if (counterElement) {
-        counterElement.textContent = checkedCount;
-        console.log(`[Packaging] Updated checked count for ${orderNumber}: ${checkedCount}`);
-    }
-}
-
-/**
- * Handle package button click
- */
-function handlePackageClick(card, orderNumber) {
-    console.log(`[Packaging] Package clicked: ${orderNumber}`);
-
-    // Check if online
-    if (!window.StationCommon.isOnline()) {
-        console.warn('[Packaging] Cannot package - offline');
-        window.StationCommon.showWarning('Brak połączenia - poczekaj na powrót internetu');
-        return;
-    }
-
-    if (card.dataset.inProgress === 'true') {
-        console.warn(`[Packaging] Order already in progress: ${orderNumber}`);
-        return;
-    }
-
-    if (!card || !card.parentElement) {
-        console.error(`[Packaging] Invalid card state: ${orderNumber}`);
-        return;
-    }
-
-    card.dataset.inProgress = 'true';
-    card.classList.add('processing');
-
-    startPackageCountdown(card, orderNumber);
-}
-
-/**
- * Start 10-second countdown before packaging
- */
-function startPackageCountdown(card, orderNumber) {
-    const packageBtn = card.querySelector('.btn-complete');
-    const actionContainer = card.querySelector('.order-action');
-
-    if (!packageBtn || !actionContainer) {
-        console.error(`[Packaging] Missing button/container for ${orderNumber}`);
-        return;
-    }
-
-    // Change button to processing state
-    setButtonProcessing(packageBtn);
-
-    // Create countdown container
-    const countdownHTML = document.createElement('div');
-    countdownHTML.className = 'action-countdown';
-    countdownHTML.innerHTML = `
-        <button class="btn-complete processing">
-            <span class="spinner"></span>
-            <span>PAKOWANIE... 10s</span>
-        </button>
-        <button class="btn-cancel" data-action="cancel">ANULUJ</button>
-    `;
-
-    // Replace button with countdown
-    actionContainer.innerHTML = '';
-    actionContainer.appendChild(countdownHTML);
-
-    const processingBtn = countdownHTML.querySelector('.btn-complete');
-    const cancelBtn = countdownHTML.querySelector('.btn-cancel');
-
-    let secondsLeft = 10;
-    let timerId = null;
-
-    const updateCountdown = () => {
-        if (!processingBtn || !processingBtn.parentElement) {
-            console.warn(`[Packaging] Button removed during countdown: ${orderNumber}`);
-            if (timerId) clearInterval(timerId);
-            return;
-        }
-
-        const textSpan = processingBtn.querySelector('span:last-child');
-        if (textSpan) {
-            textSpan.textContent = `PAKOWANIE... ${secondsLeft}s`;
-        }
-    };
-
-    timerId = setInterval(() => {
-        secondsLeft--;
-
-        if (secondsLeft > 0) {
-            updateCountdown();
-        } else {
-            clearInterval(timerId);
-            window.STATION_STATE.countdownTimers.delete(orderNumber);
-            onCountdownComplete(card, orderNumber);
-        }
-    }, 1000);
-
-    window.STATION_STATE.countdownTimers.set(orderNumber, timerId);
-
-    // Cancel button listener
-    const cancelHandler = (event) => {
-        event.preventDefault();
-        event.stopPropagation();
-        console.log(`[Packaging] Cancel clicked for ${orderNumber}`);
-        cancelCountdown(card, orderNumber, timerId);
-    };
-
-    cancelBtn.addEventListener('click', cancelHandler);
-    cancelBtn.addEventListener('touchstart', cancelHandler, { passive: false });
-
-    cancelBtn.addEventListener('keydown', (event) => {
-        if (event.key === 'Enter' || event.key === ' ') {
-            event.preventDefault();
-            cancelCountdown(card, orderNumber, timerId);
-        }
-    });
-
-    console.log(`[Packaging] Countdown started for ${orderNumber} (10s)`);
-}
-
-/**
- * Cancel countdown and reset card
- */
-function cancelCountdown(card, orderNumber, timerId) {
-    console.log(`[Packaging] Countdown cancelled: ${orderNumber}`);
-
-    if (timerId) {
-        clearInterval(timerId);
-        window.STATION_STATE.countdownTimers.delete(orderNumber);
-    }
-
-    if (!card || !card.parentElement) {
-        console.warn(`[Packaging] Card no longer exists: ${orderNumber}`);
-        return;
-    }
-
-    card.dataset.inProgress = 'false';
-    card.classList.remove('processing');
-
-    const actionContainer = card.querySelector('.order-action');
-    if (actionContainer) {
-        actionContainer.innerHTML = '<button class="btn-complete" data-action="package">SPAKOWANE</button>';
-
-        const newPackageBtn = actionContainer.querySelector('.btn-complete');
-        if (newPackageBtn) {
-            if (!window.StationCommon.isOnline()) {
-                newPackageBtn.classList.add('disabled-offline');
-                newPackageBtn.disabled = true;
-            }
-
-            // Re-attach listeners
-            attachOrderCardListeners(card);
-        }
-    }
-
-    window.StationCommon.showInfo('Anulowano pakowanie zamówienia');
-}
-
-/**
- * Execute packaging after countdown
- */
-async function onCountdownComplete(card, orderNumber) {
-    console.log(`[Packaging] Completing packaging: ${orderNumber}`);
-
-    const actionContainer = card.querySelector('.order-action');
-
-    if (!card || !card.parentElement) {
-        console.error(`[Packaging] Card removed during countdown: ${orderNumber}`);
-        return;
-    }
-
-    // Get checked products and total volume BEFORE removing card
-    const checkboxes = card.querySelectorAll('.product-check:checked:not(:disabled)');
-    const completedProducts = Array.from(checkboxes).map(cb => cb.dataset.productId);
-
-    let totalVolume = 0;
-    const productRows = card.querySelectorAll('.product-row');
-    productRows.forEach(row => {
-        const volumeText = row.querySelector('.product-volume').textContent;
-        const match = volumeText.match(/[\d.]+/);
-        if (match) {
-            totalVolume += parseFloat(match[0]);
-        }
-    });
-
-    try {
-        if (actionContainer) {
-            actionContainer.innerHTML = `
-                <button class="btn-complete processing">
-                    <span class="spinner"></span>
-                    <span>ZAPISYWANIE...</span>
-                </button>
-            `;
-        }
-
-        // Call API
-        const response = await completePackaging(orderNumber, completedProducts);
-
-        console.log(`[Packaging] Order completed successfully: ${orderNumber}`, response);
-
-        // Increment today m3
-        if (totalVolume > 0) {
-            window.StationCommon.incrementTodayM3(totalVolume);
-        }
-
-        // Show success state
-        if (actionContainer) {
-            actionContainer.innerHTML = '<button class="btn-complete success">SPAKOWANO ✓</button>';
-        }
-
-        window.StationCommon.showSuccess(`Zamówienie ${orderNumber} spakowane`);
-
-        // Clear localStorage
-        const storageKey = STORAGE_PREFIX + orderNumber;
-        localStorage.removeItem(storageKey);
-
-        // Wait 1 second, then remove card
-        setTimeout(() => {
-            if (card && card.parentElement) {
-                card.classList.add('removing');
-                setTimeout(() => {
-                    card.remove();
-                    console.log(`[Packaging] Removed card: ${orderNumber}`);
-
-                    updateStatsAfterCompletion();
-
-                    const remainingCards = document.querySelectorAll('.order-card');
-                    if (remainingCards.length === 0) {
-                        console.log('[Packaging] No more orders - showing empty state');
-                        const ordersList = document.getElementById('orders-list');
-                        if (ordersList) {
-                            ordersList.innerHTML = `
-                                <div class="empty-state">
-                                    <div class="empty-state-icon">✅</div>
-                                    <h2>Brak zamówień do spakowania</h2>
-                                    <p>Świetna robota! Wszystkie zamówienia zostały spakowane.</p>
-                                </div>
-                            `;
-                        }
-                    }
-                }, 300);
-            }
-        }, 1000);
-
-    } catch (error) {
-        console.error(`[Packaging] Failed to complete order: ${orderNumber}`, error);
-        window.StationCommon.showError(`Nie udało się spakować: ${error.message}`);
-
-        if (card && card.parentElement) {
-            card.dataset.inProgress = 'false';
-            card.classList.remove('processing');
-
-            if (actionContainer) {
-                actionContainer.innerHTML = '<button class="btn-complete" data-action="package">SPAKOWANE</button>';
-                attachOrderCardListeners(card);
-            }
-        }
-    }
-}
-
-/**
- * API call to complete packaging
- */
-async function completePackaging(orderNumber, productIds) {
-    // Przekształć product_ids na format wymagany przez backend
-    const completedProducts = productIds.map(productId => ({
-        product_id: productId,
-        confirmed: true
-    }));
-
-    const response = await fetch('/production/api/complete-packaging', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-            internal_order_number: orderNumber,
-            completed_products: completedProducts  // ✅ POPRAWKA: backend wymaga 'completed_products' z objektami {product_id, confirmed}
-        })
-    });
-
-    if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.error || `HTTP ${response.status}`);
-    }
-
-    return await response.json();
-}
-
-/**
- * Update stats bar
- */
-function updateStatsBar(stats) {
-    const elements = {
-        'total-orders': stats.total_orders || 0,
-        'high-priority': stats.high_priority_count || 0,
-        'overdue-count': stats.overdue_count || 0
-    };
-
-    Object.keys(elements).forEach(id => {
-        const el = document.getElementById(id);
-        if (el) {
-            el.textContent = elements[id];
-        }
-    });
-}
-
-/**
- * Update stats after completion
- */
-function updateStatsAfterCompletion() {
-    const totalElement = document.getElementById('total-products');
-    if (totalElement) {
-        const current = parseInt(totalElement.textContent) || 0;
-        if (current > 0) {
-            totalElement.textContent = current - 1;
-        }
-    }
-
-    const volumeElement = document.getElementById('total-volume');
-    if (volumeElement) {
-        const cards = document.querySelectorAll('.order-card');
-        let totalVolume = 0;
-
-        cards.forEach(card => {
-            const summaryStats = card.querySelector('.summary-stats');
-            if (summaryStats) {
-                const match = summaryStats.textContent.match(/[\d.]+(?= m³)/);
-                if (match) {
-                    totalVolume += parseFloat(match[0]);
-                }
-            }
-        });
-
-        volumeElement.textContent = totalVolume.toFixed(4);
-    }
-}
-
-/**
- * Set button to processing state
- */
-function setButtonProcessing(button) {
-    if (!button) return;
-    button.classList.add('processing');
-    button.classList.remove('success');
-    button.disabled = true;
-}
-
-/**
- * Handle connection state changes
- */
-function handleConnectionChange(isOnline) {
-    console.log(`[Packaging] Connection changed: ${isOnline ? 'ONLINE' : 'OFFLINE'}`);
-
-    const completeButtons = document.querySelectorAll('.btn-complete');
-    const refreshCountdownElement = document.getElementById('refresh-countdown');
-
-    if (isOnline) {
-        completeButtons.forEach(btn => {
-            btn.classList.remove('disabled-offline');
-            // Re-evaluate if button should be enabled based on checkboxes
-            const card = btn.closest('.order-card');
-            if (card) {
-                const checkboxes = card.querySelectorAll('.product-check');
-                updatePackageButtonState(card, checkboxes, btn);
-            }
-        });
-        console.log('[Packaging] All buttons re-evaluated');
-
-        if (window.STATION_STATE.countdownTimer) {
-            console.log('[Packaging] Refresh countdown already running');
-        } else {
-            console.log('[Packaging] Restarting refresh countdown');
-            window.StationCommon.startRefreshCountdown();
-        }
-
-        if (refreshCountdownElement) {
-            refreshCountdownElement.classList.remove('warning');
-        }
-
-    } else {
-        completeButtons.forEach(btn => {
-            btn.classList.add('disabled-offline');
-            btn.disabled = true;
-        });
-
-        const activeTimers = window.STATION_STATE.countdownTimers;
-        if (activeTimers.size > 0) {
-            console.log(`[Packaging] Cancelling ${activeTimers.size} active countdowns due to offline`);
-            activeTimers.forEach((timerId, orderNumber) => {
-                const card = document.querySelector(`[data-order-number="${orderNumber}"]`);
-                if (card) {
-                    cancelCountdown(card, orderNumber, timerId);
-                }
-            });
-            window.StationCommon.showWarning('Aktywne zadania anulowane - brak połączenia');
-        }
-
-        if (window.STATION_STATE.countdownTimer) {
-            clearInterval(window.STATION_STATE.countdownTimer);
-            window.STATION_STATE.countdownTimer = null;
-            console.log('[Packaging] Refresh countdown stopped');
-        }
-
-        if (refreshCountdownElement) {
-            refreshCountdownElement.textContent = 'OFFLINE';
-            refreshCountdownElement.classList.add('warning');
-        }
-
-        console.log('[Packaging] All buttons disabled');
-    }
-}
-
-/**
- * Setup keyboard shortcuts
- */
-function setupKeyboardShortcuts() {
-    document.addEventListener('keydown', (event) => {
-        // Escape - cancel all countdowns
-        if (event.key === 'Escape') {
-            const activeTimers = window.STATION_STATE.countdownTimers;
-            if (activeTimers.size > 0) {
-                console.log(`[Packaging] Escape pressed - cancelling ${activeTimers.size} countdowns`);
-                activeTimers.forEach((timerId, orderNumber) => {
-                    const card = document.querySelector(`[data-order-number="${orderNumber}"]`);
-                    if (card) {
-                        cancelCountdown(card, orderNumber, timerId);
-                    }
-                });
-            }
-        }
-
-        // F5 or Ctrl+R - manual refresh
-        if (event.key === 'F5' || (event.ctrlKey && event.key === 'r')) {
-            console.log('[Packaging] Manual refresh triggered');
-        }
-    });
-}
-
-/**
- * Toggle debug mode
- */
-function toggleDebugMode() {
-    document.body.classList.toggle('debug-mode');
-    console.log('[Packaging] Debug mode toggled');
-    console.log('State:', window.STATION_STATE);
-    window.StationCommon.showInfo('Debug mode toggled (check console)');
-}
-
-/**
- * Initialize on DOM ready
- */
-if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', initPackagingStation);
-} else {
-    initPackagingStation();
-}
-
-/**
- * Cleanup on page unload
- */
-window.addEventListener('beforeunload', () => {
-    console.log('[Packaging] Cleaning up...');
-    window.StationCommon.stopAutoRefresh();
-
-    window.STATION_STATE.countdownTimers.forEach((timerId, orderNumber) => {
-        clearInterval(timerId);
-        console.log(`[Packaging] Cleared timer for ${orderNumber}`);
-    });
-    window.STATION_STATE.countdownTimers.clear();
-});
-
-/**
- * Debug helpers
- */
-window.PackagingDebug = {
-    getState: () => window.STATION_STATE,
-    getConfig: () => window.STATION_STATE.config,
-    triggerRefresh: autoRefreshCallback,
-    cancelAll: () => {
-        window.STATION_STATE.countdownTimers.forEach((timerId, orderNumber) => {
-            const card = document.querySelector(`[data-order-number="${orderNumber}"]`);
-            if (card) cancelCountdown(card, orderNumber, timerId);
-        });
-    },
-    listOrders: () => {
-        const cards = document.querySelectorAll('.order-card');
-        console.table(Array.from(cards).map(c => ({
-            order: c.dataset.orderNumber,
-            priority: c.dataset.priorityRank,
-            products: c.dataset.totalProducts,
-            inProgress: c.dataset.inProgress
-        })));
-    },
-    getCheckboxStates: (orderNumber) => {
-        const key = STORAGE_PREFIX + orderNumber;
-        return JSON.parse(localStorage.getItem(key) || '{}');
-    }
-};
-
-const debugBtn = document.getElementById('debug-toggle');
-if (debugBtn) {
-    debugBtn.addEventListener('click', toggleDebugMode);
-}
-
-console.log('[Packaging] Station module loaded v2.0');
-console.log('[Packaging] Debug commands available via window.PackagingDebug');
+})();

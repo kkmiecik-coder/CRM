@@ -122,6 +122,12 @@ class ProductionItem(db.Model):
     attachment_file_url = Column(Text, nullable=True,
                                 comment='URL do pliku załącznika z CDN Baselinker')
 
+    # DODATKOWE POLA Z BASELINKER (2025-11)
+    client_order_number = Column(String(200), nullable=True,
+                                comment='Wewnętrzny numer zamówienia klienta z extra_field_1 (np. 1617/2025)')
+    order_notes = Column(Text, nullable=True,
+                        comment='Uwagi do zamówienia z admin_comments w Baselinker')
+
     # DANE KLIENTA
     client_name = Column(String(255), index=True)
     client_email = Column(String(255))
@@ -150,55 +156,55 @@ class ProductionItem(db.Model):
     # ============================================================================
     # NOWY SYSTEM PRIORYTETÓW - ENHANCED VERSION 2.0
     # ============================================================================
-    
+
     # NOWE KOLUMNY DLA ALGORYTMU OPARTEGO NA DACIE OPŁACENIA
-    priority_rank = Column(Integer, nullable=True, index=True, 
+    priority_rank = Column(Integer, nullable=True, index=True,
                           comment='Wizualna numeracja priorytetów 1,2,3,4... (NULL = automatyczne obliczanie)')
-    
+
     payment_date = Column(DateTime, nullable=True, index=True,
                          comment='Data opłacenia zamówienia (status change na 155824 "Nowe - opłacone")')
-    
+
     priority_manual_override = Column(Boolean, default=False, index=True,
                                     comment='Czy priorytet został zmieniony ręcznie przez administratora')
-    
+
     thickness_group = Column(String(10), nullable=True, index=True,
                            comment='Grupa grubości dla algorytmu priorytetów: 0-2.5, 2.6-3.5, 3.6-4.5, 4.6+')
-    
-    # ŚLEDZENIE CZASU WYKONANIA - WYCINANIE
-    cutting_started_at = Column(DateTime)
-    cutting_completed_at = Column(DateTime, index=True)
-    cutting_duration_minutes = Column(Integer)
-    cutting_assigned_worker_id = Column(Integer, ForeignKey('users.id'))
-    
-    # ŚLEDZENIE CZASU WYKONANIA - SKŁADANIE
-    assembly_started_at = Column(DateTime)
-    assembly_completed_at = Column(DateTime, index=True)
-    assembly_duration_minutes = Column(Integer)
-    assembly_assigned_worker_id = Column(Integer, ForeignKey('users.id'))
 
-    # ŚLEDZENIE CZASU WYKONANIA - SKLEJANIE
-    gluing_started_at = Column(DateTime)
-    gluing_completed_at = Column(DateTime, index=True)
-    gluing_duration_minutes = Column(Integer)
-    gluing_assigned_worker_id = Column(Integer, ForeignKey('users.id'))
+    # ============================================================================
+    # ILOŚĆ PRODUKTÓW (2025-11)
+    # ============================================================================
+    quantity = Column(Integer, default=1, nullable=False,
+                     comment='Ilość sztuk produktu z zamówienia')
 
-    # ŚLEDZENIE CZASU WYKONANIA - FORMATOWANIE
-    formatting_started_at = Column(DateTime)
-    formatting_completed_at = Column(DateTime, index=True)
-    formatting_duration_minutes = Column(Integer)
-    formatting_assigned_worker_id = Column(Integer, ForeignKey('users.id'))
+    # LICZNIKI WYKONANYCH SZTUK PER STANOWISKO
+    quantity_done_cutting = Column(Integer, default=0, nullable=False,
+                                   comment='Ile sztuk wykonano na stanowisku wycinania')
+    quantity_done_assembly = Column(Integer, default=0, nullable=False,
+                                    comment='Ile sztuk wykonano na stanowisku składania')
+    quantity_done_gluing = Column(Integer, default=0, nullable=False,
+                                  comment='Ile sztuk wykonano na stanowisku sklejania')
+    quantity_done_formatting = Column(Integer, default=0, nullable=False,
+                                      comment='Ile sztuk wykonano na stanowisku formatowania')
+    quantity_done_finishing = Column(Integer, default=0, nullable=False,
+                                     comment='Ile sztuk wykonano na stanowisku wykańczania')
+    quantity_done_packaging = Column(Integer, default=0, nullable=False,
+                                     comment='Ile sztuk wykonano na stanowisku pakowania')
 
-    # ŚLEDZENIE CZASU WYKONANIA - WYKAŃCZANIE
-    finishing_started_at = Column(DateTime)
-    finishing_completed_at = Column(DateTime, index=True)
-    finishing_duration_minutes = Column(Integer)
-    finishing_assigned_worker_id = Column(Integer, ForeignKey('users.id'))
-
-    # ŚLEDZENIE CZASU WYKONANIA - PAKOWANIE
-    packaging_started_at = Column(DateTime)
-    packaging_completed_at = Column(DateTime, index=True)
-    packaging_duration_minutes = Column(Integer)
-    packaging_assigned_worker_id = Column(Integer, ForeignKey('users.id'))
+    # ============================================================================
+    # ŚLEDZENIE CZASU UKOŃCZENIA PER STANOWISKO (uproszczone)
+    # ============================================================================
+    cutting_completed_at = Column(DateTime, index=True,
+                                  comment='Timestamp ukończenia wszystkich sztuk na wycinaniu')
+    assembly_completed_at = Column(DateTime, index=True,
+                                   comment='Timestamp ukończenia wszystkich sztuk na składaniu')
+    gluing_completed_at = Column(DateTime, index=True,
+                                 comment='Timestamp ukończenia wszystkich sztuk na sklejaniu')
+    formatting_completed_at = Column(DateTime, index=True,
+                                     comment='Timestamp ukończenia wszystkich sztuk na formatowaniu')
+    finishing_completed_at = Column(DateTime, index=True,
+                                    comment='Timestamp ukończenia wszystkich sztuk na wykańczaniu')
+    packaging_completed_at = Column(DateTime, index=True,
+                                    comment='Timestamp ukończenia wszystkich sztuk na pakowaniu')
     
     # UWAGI I PROBLEMY
     production_notes = Column(Text)
@@ -210,10 +216,6 @@ class ProductionItem(db.Model):
     sync_source = Column(Enum('baselinker_auto', 'manual_entry', name='sync_source'), 
                         default='baselinker_auto')
     
-    # RELACJE
-    cutting_worker = relationship("User", foreign_keys=[cutting_assigned_worker_id])
-    assembly_worker = relationship("User", foreign_keys=[assembly_assigned_worker_id])  
-    packaging_worker = relationship("User", foreign_keys=[packaging_assigned_worker_id])
     
     def __repr__(self):
         return f'<ProductionItem {self.short_product_id}: {self.current_status}, priority_rank={self.priority_rank}>'
@@ -294,6 +296,16 @@ class ProductionItem(db.Model):
     def is_attachment_pdf(self):
         """Sprawdza czy załącznik jest PDF"""
         return self.attachment_file_extension == 'pdf' if self.attachment_file_extension else False
+
+    @property
+    def has_order_notes(self):
+        """Sprawdza czy zamówienie ma uwagi"""
+        return bool(self.order_notes and self.order_notes.strip())
+
+    @property
+    def has_client_order_number(self):
+        """Sprawdza czy zamówienie ma wewnętrzny numer klienta"""
+        return bool(self.client_order_number and self.client_order_number.strip())
 
     # ============================================================================
     # NOWE METODY DLA ENHANCED PRIORITY SYSTEM 2.0
@@ -417,96 +429,99 @@ class ProductionItem(db.Model):
         return is_valid, missing_fields
     
     # ============================================================================
-    # METODY ZACHOWANE DLA KOMPATYBILNOŚCI
+    # METODY QUANTITY - NOWY SYSTEM (2025-11)
     # ============================================================================
-    
-    def start_task(self, station_code, worker_id=None):
-        """Rozpoczęcie pracy na stanowisku - ZACHOWANE"""
+
+    def get_quantity_done(self, station_code):
+        """Pobiera liczbę wykonanych sztuk na danym stanowisku"""
+        attr_name = f'quantity_done_{station_code}'
+        return getattr(self, attr_name, 0)
+
+    def set_quantity_done(self, station_code, value):
+        """Ustawia liczbę wykonanych sztuk na danym stanowisku"""
+        attr_name = f'quantity_done_{station_code}'
+        # Ograniczenie do zakresu 0 - quantity
+        value = max(0, min(value, self.quantity))
+        setattr(self, attr_name, value)
+
         now = get_local_now()
-        
-        if station_code == 'cutting':
-            self.cutting_started_at = now
-            self.cutting_assigned_worker_id = worker_id
-            self.current_status = 'czeka_na_wyciecie'
-            
-        elif station_code == 'assembly':
-            self.assembly_started_at = now
-            self.assembly_assigned_worker_id = worker_id
-            self.current_status = 'czeka_na_skladanie'
-            
-        elif station_code == 'packaging':
-            self.packaging_started_at = now
-            self.packaging_assigned_worker_id = worker_id
-            self.current_status = 'czeka_na_pakowanie'
-        
+
+        # Jeśli wszystkie sztuki wykonane - ustaw completed_at
+        if value == self.quantity:
+            completed_attr = f'{station_code}_completed_at'
+            if getattr(self, completed_attr) is None:
+                setattr(self, completed_attr, now)
+        else:
+            # Jeśli cofnięto - wyczyść completed_at
+            completed_attr = f'{station_code}_completed_at'
+            setattr(self, completed_attr, None)
+
         self.updated_at = now
-        
-        logger.info("Rozpoczęto zadanie", extra={
+        return value
+
+    def increment_quantity_done(self, station_code, amount=1):
+        """Zwiększa liczbę wykonanych sztuk"""
+        current = self.get_quantity_done(station_code)
+        new_value = self.set_quantity_done(station_code, current + amount)
+
+        logger.info("Zwiększono quantity_done", extra={
             'product_id': self.short_product_id,
             'station': station_code,
-            'worker_id': worker_id,
-            'new_status': self.current_status
+            'old_value': current,
+            'new_value': new_value,
+            'quantity': self.quantity
         })
-    
+        return new_value
+
+    def decrement_quantity_done(self, station_code, amount=1):
+        """Zmniejsza liczbę wykonanych sztuk"""
+        current = self.get_quantity_done(station_code)
+        new_value = self.set_quantity_done(station_code, current - amount)
+
+        logger.info("Zmniejszono quantity_done", extra={
+            'product_id': self.short_product_id,
+            'station': station_code,
+            'old_value': current,
+            'new_value': new_value,
+            'quantity': self.quantity
+        })
+        return new_value
+
+    def is_station_complete(self, station_code):
+        """Sprawdza czy wszystkie sztuki wykonano na danym stanowisku"""
+        return self.get_quantity_done(station_code) == self.quantity
+
     def complete_task(self, station_code):
-        """Ukończenie pracy na stanowisku - ROZSZERZONY O NOWE STANOWISKA"""
+        """
+        Ukończenie pracy na stanowisku - przejście do następnego statusu
+        Wywoływane gdy wszystkie produkty w zamówieniu mają quantity_done == quantity
+        """
         now = get_local_now()
 
-        if station_code == 'cutting':
-            self.cutting_completed_at = now
-            if self.cutting_started_at:
-                self.cutting_duration_minutes = int(
-                    (now - self.cutting_started_at).total_seconds() / 60
-                )
-            self.current_status = 'czeka_na_skladanie'
+        # Mapowanie stanowisko -> następny status
+        next_status_map = {
+            'cutting': 'czeka_na_skladanie',
+            'assembly': 'czeka_na_sklejanie',
+            'gluing': 'czeka_na_formatowanie',
+            'formatting': 'czeka_na_wykanczanie',
+            'finishing': 'czeka_na_pakowanie',
+            'packaging': 'spakowane'
+        }
 
-        elif station_code == 'assembly':
-            self.assembly_completed_at = now
-            if self.assembly_started_at:
-                self.assembly_duration_minutes = int(
-                    (now - self.assembly_started_at).total_seconds() / 60
-                )
-            self.current_status = 'czeka_na_sklejanie'  # ZMIENIONE: było czeka_na_pakowanie
+        if station_code in next_status_map:
+            self.current_status = next_status_map[station_code]
 
-        elif station_code == 'gluing':
-            self.gluing_completed_at = now
-            if self.gluing_started_at:
-                self.gluing_duration_minutes = int(
-                    (now - self.gluing_started_at).total_seconds() / 60
-                )
-            self.current_status = 'czeka_na_formatowanie'
-
-        elif station_code == 'formatting':
-            self.formatting_completed_at = now
-            if self.formatting_started_at:
-                self.formatting_duration_minutes = int(
-                    (now - self.formatting_started_at).total_seconds() / 60
-                )
-            self.current_status = 'czeka_na_wykanczanie'
-
-        elif station_code == 'finishing':
-            self.finishing_completed_at = now
-            if self.finishing_started_at:
-                self.finishing_duration_minutes = int(
-                    (now - self.finishing_started_at).total_seconds() / 60
-                )
-            self.current_status = 'czeka_na_pakowanie'
-
-        elif station_code == 'packaging':
-            self.packaging_completed_at = now
-            if self.packaging_started_at:
-                self.packaging_duration_minutes = int(
-                    (now - self.packaging_started_at).total_seconds() / 60
-                )
-            self.current_status = 'spakowane'
+            # Upewnij się że completed_at jest ustawione
+            completed_attr = f'{station_code}_completed_at'
+            if getattr(self, completed_attr) is None:
+                setattr(self, completed_attr, now)
 
         self.updated_at = now
 
-        logger.info("Ukończono zadanie", extra={
+        logger.info("Ukończono zadanie na stanowisku", extra={
             'product_id': self.short_product_id,
             'station': station_code,
-            'new_status': self.current_status,
-            'duration_minutes': getattr(self, f'{station_code}_duration_minutes', None)
+            'new_status': self.current_status
         })
 
 class ProductionPriorityConfig(db.Model):

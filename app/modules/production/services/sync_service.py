@@ -403,25 +403,26 @@ class BaselinkerSyncService:
                     logger.warning("Zamówienie bez produktów", extra={'order_id': order_id})
                     continue
 
-                total_pieces = sum(int(product.get('quantity', 1)) for product in products)
+                # NOWA LOGIKA: liczymy pozycje zamówienia, nie sztuki
+                total_positions = len(products)
 
                 try:
                     from ..services.id_generator import ProductIDGenerator
                     id_generation_result = ProductIDGenerator.generate_product_id_for_order(
                         baselinker_order_id=order_id,
-                        total_products_count=total_pieces
+                        total_products_count=total_positions
                     )
     
                     logger.debug("Wygenerowano ID dla zamówienia", extra={
                         'order_id': order_id,
-                        'total_pieces': total_pieces,
+                        'total_positions': total_positions,
                         'generated_ids_count': len(id_generation_result['product_ids'])
                     })
     
                 except Exception as id_error:
                     logger.error("Błąd generowania ID dla zamówienia", extra={
                         'order_id': order_id,
-                        'total_pieces': total_pieces,
+                        'total_positions': total_positions,
                         'error': str(id_error)
                     })
                     processing_stats['errors_count'] += 1
@@ -434,70 +435,71 @@ class BaselinkerSyncService:
                 for product_data in products:
                     try:
                         quantity = int(product_data.get('quantity', 1))
-        
+
                         logger.debug("Przetwarzanie produktu", extra={
                             'order_id': order_id,
                             'product_name': product_data.get('name', 'unknown')[:50],
                             'quantity': quantity,
-                            'starting_sequence': current_sequence
+                            'sequence': current_sequence
                         })
-        
-                        for qty_index in range(quantity):
-                            try:
-                                production_item = self._create_product_from_order_data(
-                                    order_data=order_data,
-                                    product_data=product_data,
-                                    payment_date=payment_date,
-                                    sequence_number=current_sequence,
-                                    id_generation_result=id_generation_result,
-                                    sync_source=sync_source
-                                )
-                
-                                if production_item:
-                                    db.session.add(production_item)
-                                    order_products_created += 1
-                                    processing_stats['products_created'] += 1
-                    
-                                    logger.debug("Sztuka utworzona", extra={
-                                        'order_id': order_id,
-                                        'product_id': production_item.short_product_id,
-                                        'sequence': current_sequence
-                                    })
-                                else:
-                                    order_errors += 1
-                                    processing_stats['products_skipped'] += 1
-                
-                                current_sequence += 1
-                
-                            except Exception as piece_error:
-                                logger.error("Błąd tworzenia sztuki", extra={
+
+                        # NOWA LOGIKA: jeden rekord z quantity zamiast pętli
+                        try:
+                            production_item = self._create_product_from_order_data(
+                                order_data=order_data,
+                                product_data=product_data,
+                                payment_date=payment_date,
+                                sequence_number=current_sequence,
+                                id_generation_result=id_generation_result,
+                                sync_source=sync_source,
+                                quantity=quantity  # NOWY PARAMETR
+                            )
+
+                            if production_item:
+                                db.session.add(production_item)
+                                order_products_created += 1
+                                processing_stats['products_created'] += 1
+
+                                logger.debug("Pozycja utworzona", extra={
                                     'order_id': order_id,
+                                    'product_id': production_item.short_product_id,
                                     'sequence': current_sequence,
-                                    'error': str(piece_error)
+                                    'quantity': quantity
                                 })
-                
+                            else:
                                 order_errors += 1
                                 processing_stats['products_skipped'] += 1
-                                current_sequence += 1
-                
-                                error_details.append({
-                                    'order_id': order_id,
-                                    'product_name': product_data.get('name', 'unknown'),
-                                    'sequence': current_sequence - 1,
-                                    'error_type': 'piece_creation_failed',
-                                    'error_message': str(piece_error)
-                                })
-                        
+
+                            current_sequence += 1
+
+                        except Exception as item_error:
+                            logger.error("Błąd tworzenia pozycji", extra={
+                                'order_id': order_id,
+                                'sequence': current_sequence,
+                                'error': str(item_error)
+                            })
+
+                            order_errors += 1
+                            processing_stats['products_skipped'] += 1
+                            current_sequence += 1
+
+                            error_details.append({
+                                'order_id': order_id,
+                                'product_name': product_data.get('name', 'unknown'),
+                                'sequence': current_sequence - 1,
+                                'error_type': 'item_creation_failed',
+                                'error_message': str(item_error)
+                            })
+
                     except Exception as product_error:
                         logger.error("Błąd przetwarzania produktu", extra={
                             'order_id': order_id,
                             'error': str(product_error)
                         })
-        
-                        quantity = int(product_data.get('quantity', 1))
-                        order_errors += quantity
-                        processing_stats['products_skipped'] += quantity
-                        current_sequence += quantity
+
+                        order_errors += 1
+                        processing_stats['products_skipped'] += 1
+                        current_sequence += 1
             
                 if order_products_created > 0:
                     try:
@@ -598,7 +600,7 @@ class BaselinkerSyncService:
         logger.info("Zakończono przetwarzanie zamówień", extra=final_result)
         return final_result
 
-    def _create_product_from_order_data(self, order_data: Dict[str, Any], product_data: Dict[str, Any], payment_date: Optional[datetime] = None, sequence_number: int = 1, id_generation_result: Dict[str, Any] = None, sync_source: str = 'baselinker_auto') -> Optional['ProductionItem']:
+    def _create_product_from_order_data(self, order_data: Dict[str, Any], product_data: Dict[str, Any], payment_date: Optional[datetime] = None, sequence_number: int = 1, id_generation_result: Dict[str, Any] = None, sync_source: str = 'baselinker_auto', quantity: int = 1) -> Optional['ProductionItem']:
         try:
             from ..models import ProductionItem
             from ..services.parser_service import ProductNameParser
@@ -660,7 +662,8 @@ class BaselinkerSyncService:
                 order_product_id=product_data.get('order_product_id'),
                 sequence_number=sequence_number,
                 payment_date=payment_date,
-                sync_source=sync_source
+                sync_source=sync_source,
+                quantity=quantity  # NOWY PARAMETR
             )
         
             production_item = ProductionItem(**product_data_dict)
@@ -1065,7 +1068,8 @@ class BaselinkerSyncService:
                              parsed_data: Dict[str, Any], client_data: Dict[str, str],
                              deadline_date: date, order_product_id: Any,
                              sequence_number: int, payment_date: Optional[datetime],
-                             sync_source: str = 'baselinker_auto') -> Dict[str, Any]:
+                             sync_source: str = 'baselinker_auto',
+                             quantity: int = 1) -> Dict[str, Any]:
 
         product_data = {
             'short_product_id': product_id,
@@ -1082,7 +1086,8 @@ class BaselinkerSyncService:
             'delivery_address': client_data.get('delivery_address', ''),
             'deadline_date': deadline_date,
             'current_status': 'czeka_na_wyciecie',
-            'sync_source': sync_source  # Przekazany z parametru funkcji
+            'sync_source': sync_source,
+            'quantity': quantity  # NOWE: ilość sztuk z zamówienia
         }
 
         # Ekstrakcja załącznika z zamówienia
@@ -1093,6 +1098,25 @@ class BaselinkerSyncService:
             logger.debug("Dodano załącznik do produktu", extra={
                 'product_id': product_id,
                 'attachment_name': attachment_info['title']
+            })
+
+        # Ekstrakcja dodatkowych pól z Baselinker (2025-11)
+        # extra_field_1 = wewnętrzny numer zamówienia klienta
+        client_order_number = order.get('extra_field_1', '').strip() if order.get('extra_field_1') else None
+        if client_order_number:
+            product_data['client_order_number'] = client_order_number
+            logger.debug("Dodano client_order_number", extra={
+                'product_id': product_id,
+                'client_order_number': client_order_number
+            })
+
+        # admin_comments = uwagi do zamówienia
+        order_notes = order.get('admin_comments', '').strip() if order.get('admin_comments') else None
+        if order_notes:
+            product_data['order_notes'] = order_notes
+            logger.debug("Dodano order_notes", extra={
+                'product_id': product_id,
+                'order_notes_length': len(order_notes)
             })
     
         if deadline_date:
@@ -1675,9 +1699,473 @@ class BaselinkerSyncService:
         logger.info("Pobrano wszystkie zamówienia z Baselinker", extra={
             'total_orders': len(all_orders)
         })
-        
+
         return all_orders
-    
+
+    def get_order_from_baselinker(self, order_id: int) -> Optional[Dict[str, Any]]:
+        """
+        Pobiera pojedyncze zamówienie z Baselinker po ID
+
+        Args:
+            order_id: ID zamówienia w Baselinker
+
+        Returns:
+            Dict z danymi zamówienia lub None jeśli nie znaleziono
+        """
+        try:
+            logger.info("Pobieranie zamówienia z Baselinker", extra={'order_id': order_id})
+
+            request_data = {
+                'token': self.api_key,
+                'method': 'getOrders',
+                'parameters': json.dumps({
+                    'order_id': order_id
+                })
+            }
+
+            response_data = self._make_api_request(request_data)
+
+            if response_data.get('status') == 'SUCCESS':
+                orders = response_data.get('orders', [])
+                if orders:
+                    order = orders[0]
+                    logger.info("Pobrano zamówienie z Baselinker", extra={
+                        'order_id': order_id,
+                        'products_count': len(order.get('products', []))
+                    })
+                    return order
+                else:
+                    logger.warning("Zamówienie nie znalezione w Baselinker", extra={'order_id': order_id})
+                    return None
+            else:
+                error_msg = response_data.get('error_message', 'Unknown error')
+                logger.error("Błąd API Baselinker", extra={
+                    'order_id': order_id,
+                    'error': error_msg
+                })
+                return None
+
+        except Exception as e:
+            logger.error("Błąd pobierania zamówienia z Baselinker", extra={
+                'order_id': order_id,
+                'error': str(e)
+            })
+            return None
+
+    def compare_order_with_baselinker(self, baselinker_order_id: int) -> Dict[str, Any]:
+        """
+        Porównuje zamówienie w bazie z danymi z Baselinkera.
+
+        Zwraca strukturę zmian:
+        {
+            'success': True/False,
+            'order_id': baselinker_order_id,
+            'order_number': '...',  # wewnętrzny numer zamówienia
+            'has_changes': True/False,
+            'changes': {
+                'products_to_add': [...],     # nowe produkty do dodania
+                'products_to_remove': [...],  # produkty do usunięcia
+                'products_to_update': [...]   # produkty ze zmianami
+            },
+            'current_products': [...],  # aktualne produkty w bazie
+            'baselinker_products': [...],  # produkty z Baselinker
+            'error': None lub string
+        }
+        """
+        from ..models import ProductionItem
+
+        result = {
+            'success': False,
+            'order_id': baselinker_order_id,
+            'order_number': None,
+            'has_changes': False,
+            'changes': {
+                'products_to_add': [],
+                'products_to_remove': [],
+                'products_to_update': []
+            },
+            'current_products': [],
+            'baselinker_products': [],
+            'error': None
+        }
+
+        try:
+            # 1. Pobierz zamówienie z Baselinker
+            bl_order = self.get_order_from_baselinker(baselinker_order_id)
+            if not bl_order:
+                result['error'] = f'Zamówienie {baselinker_order_id} nie znalezione w Baselinker'
+                return result
+
+            # 2. Pobierz aktualne produkty z bazy
+            current_products = ProductionItem.query.filter_by(
+                baselinker_order_id=baselinker_order_id
+            ).all()
+
+            if not current_products:
+                result['error'] = f'Brak produktów dla zamówienia {baselinker_order_id} w bazie danych'
+                return result
+
+            result['order_number'] = current_products[0].internal_order_number if current_products else None
+
+            # 3. Przygotuj mapę aktualnych produktów (po baselinker_product_id)
+            current_products_map = {}
+            for p in current_products:
+                bp_id = str(p.baselinker_product_id) if p.baselinker_product_id else None
+                if bp_id:
+                    current_products_map[bp_id] = p
+                result['current_products'].append({
+                    'id': p.id,
+                    'short_product_id': p.short_product_id,
+                    'baselinker_product_id': p.baselinker_product_id,
+                    'original_product_name': p.original_product_name,
+                    'quantity': p.quantity or 1,
+                    'current_status': p.current_status,
+                    'wood_species': getattr(p, 'wood_species', None),
+                    'dimensions': getattr(p, 'dimensions', None),
+                    'technology': getattr(p, 'technology', None)
+                })
+
+            # 4. Przygotuj mapę produktów z Baselinker
+            bl_products = bl_order.get('products', [])
+            bl_products_map = {}
+
+            for bp in bl_products:
+                bp_id = str(bp.get('order_product_id', ''))
+                if bp_id:
+                    bl_products_map[bp_id] = bp
+
+                    # Parsuj dane produktu
+                    from .parser_service import ProductNameParser
+                    parser = ProductNameParser()
+                    parsed = parser.parse_product_name(bp.get('name', ''))
+
+                    result['baselinker_products'].append({
+                        'order_product_id': bp_id,
+                        'name': bp.get('name', ''),
+                        'quantity': bp.get('quantity', 1),
+                        'sku': bp.get('sku', ''),
+                        'price_brutto': bp.get('price_brutto', 0),
+                        'parsed': parsed
+                    })
+
+            # 5. Znajdź zmiany
+            current_bp_ids = set(current_products_map.keys())
+            bl_bp_ids = set(bl_products_map.keys())
+
+            # Produkty do usunięcia (są w bazie, nie ma w BL)
+            products_to_remove = current_bp_ids - bl_bp_ids
+            for bp_id in products_to_remove:
+                p = current_products_map[bp_id]
+                result['changes']['products_to_remove'].append({
+                    'id': p.id,
+                    'short_product_id': p.short_product_id,
+                    'baselinker_product_id': bp_id,
+                    'original_product_name': p.original_product_name,
+                    'quantity': p.quantity or 1
+                })
+
+            # Produkty do dodania (są w BL, nie ma w bazie)
+            products_to_add = bl_bp_ids - current_bp_ids
+            for bp_id in products_to_add:
+                bp = bl_products_map[bp_id]
+                from .parser_service import ProductNameParser
+                parser = ProductNameParser()
+                parsed = parser.parse_product_name(bp.get('name', ''))
+
+                result['changes']['products_to_add'].append({
+                    'order_product_id': bp_id,
+                    'name': bp.get('name', ''),
+                    'quantity': bp.get('quantity', 1),
+                    'parsed': parsed
+                })
+
+            # Produkty ze zmianami (są w obu, porównaj dane)
+            products_to_compare = current_bp_ids & bl_bp_ids
+            for bp_id in products_to_compare:
+                p = current_products_map[bp_id]
+                bp = bl_products_map[bp_id]
+
+                changes = []
+
+                # Porównaj quantity
+                current_qty = p.quantity or 1
+                bl_qty = bp.get('quantity', 1)
+                if current_qty != bl_qty:
+                    changes.append({
+                        'field': 'quantity',
+                        'label': 'Ilość',
+                        'old_value': current_qty,
+                        'new_value': bl_qty
+                    })
+
+                # Porównaj nazwę produktu
+                if p.original_product_name != bp.get('name', ''):
+                    changes.append({
+                        'field': 'original_product_name',
+                        'label': 'Nazwa produktu',
+                        'old_value': p.original_product_name,
+                        'new_value': bp.get('name', '')
+                    })
+
+                if changes:
+                    result['changes']['products_to_update'].append({
+                        'id': p.id,
+                        'short_product_id': p.short_product_id,
+                        'baselinker_product_id': bp_id,
+                        'changes': changes
+                    })
+
+            # Porównaj też dane na poziomie zamówienia
+            order_level_changes = []
+
+            # client_order_number (extra_field_1)
+            bl_client_order = bl_order.get('extra_field_1', '').strip() if bl_order.get('extra_field_1') else None
+            current_client_order = current_products[0].client_order_number if current_products else None
+            if bl_client_order != current_client_order:
+                order_level_changes.append({
+                    'field': 'client_order_number',
+                    'label': 'Nr zamówienia klienta',
+                    'old_value': current_client_order,
+                    'new_value': bl_client_order
+                })
+
+            # order_notes (admin_comments)
+            bl_notes = bl_order.get('admin_comments', '').strip() if bl_order.get('admin_comments') else None
+            current_notes = current_products[0].order_notes if current_products else None
+            if bl_notes != current_notes:
+                order_level_changes.append({
+                    'field': 'order_notes',
+                    'label': 'Uwagi do zamówienia',
+                    'old_value': current_notes[:100] + '...' if current_notes and len(current_notes) > 100 else current_notes,
+                    'new_value': bl_notes[:100] + '...' if bl_notes and len(bl_notes) > 100 else bl_notes
+                })
+
+            if order_level_changes:
+                result['changes']['order_level'] = order_level_changes
+
+            # 6. Określ czy są zmiany
+            has_changes = (
+                len(result['changes']['products_to_add']) > 0 or
+                len(result['changes']['products_to_remove']) > 0 or
+                len(result['changes']['products_to_update']) > 0 or
+                len(order_level_changes) > 0
+            )
+
+            result['has_changes'] = has_changes
+            result['success'] = True
+
+            logger.info("Porównanie zamówienia zakończone", extra={
+                'order_id': baselinker_order_id,
+                'has_changes': has_changes,
+                'to_add': len(result['changes']['products_to_add']),
+                'to_remove': len(result['changes']['products_to_remove']),
+                'to_update': len(result['changes']['products_to_update'])
+            })
+
+            return result
+
+        except Exception as e:
+            logger.error("Błąd porównania zamówienia", extra={
+                'order_id': baselinker_order_id,
+                'error': str(e)
+            })
+            result['error'] = f'Błąd porównania: {str(e)}'
+            return result
+
+    def apply_baselinker_changes(self, baselinker_order_id: int, changes: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Aplikuje zmiany z porównania do bazy danych.
+
+        Args:
+            baselinker_order_id: ID zamówienia
+            changes: Struktura zmian z compare_order_with_baselinker
+
+        Returns:
+            Dict z wynikiem operacji
+        """
+        from ..models import ProductionItem
+        from .parser_service import ProductNameParser
+
+        result = {
+            'success': False,
+            'added': 0,
+            'removed': 0,
+            'updated': 0,
+            'errors': [],
+            'error': None
+        }
+
+        try:
+            parser = ProductNameParser()
+
+            # 1. Usuń produkty
+            for product_to_remove in changes.get('products_to_remove', []):
+                try:
+                    product = ProductionItem.query.get(product_to_remove['id'])
+                    if product:
+                        db.session.delete(product)
+                        result['removed'] += 1
+                        logger.info("Usunięto produkt", extra={
+                            'product_id': product_to_remove['short_product_id'],
+                            'order_id': baselinker_order_id
+                        })
+                except Exception as e:
+                    result['errors'].append(f"Błąd usuwania {product_to_remove['short_product_id']}: {str(e)}")
+
+            # 2. Aktualizuj produkty
+            for product_to_update in changes.get('products_to_update', []):
+                try:
+                    product = ProductionItem.query.get(product_to_update['id'])
+                    if product:
+                        for change in product_to_update['changes']:
+                            field = change['field']
+                            new_value = change['new_value']
+
+                            if field == 'quantity':
+                                product.quantity = new_value
+                            elif field == 'original_product_name':
+                                product.original_product_name = new_value
+                                # Re-parsuj dane produktu
+                                parsed = parser.parse_product_name(new_value)
+                                if parsed:
+                                    product.wood_species = parsed.get('wood_species')
+                                    product.wood_class = parsed.get('wood_class')
+                                    product.dimensions = parsed.get('dimensions')
+                                    product.technology = parsed.get('technology')
+                                    product.length_cm = parsed.get('length_cm')
+                                    product.width_cm = parsed.get('width_cm')
+                                    product.thickness_cm = parsed.get('thickness_cm')
+                                    product.volume_m3 = parsed.get('volume_m3')
+
+                        result['updated'] += 1
+                        logger.info("Zaktualizowano produkt", extra={
+                            'product_id': product_to_update['short_product_id'],
+                            'changes_count': len(product_to_update['changes'])
+                        })
+                except Exception as e:
+                    result['errors'].append(f"Błąd aktualizacji {product_to_update['short_product_id']}: {str(e)}")
+
+            # 3. Dodaj nowe produkty
+            if changes.get('products_to_add'):
+                # Pobierz zamówienie z BL dla pełnych danych
+                bl_order = self.get_order_from_baselinker(baselinker_order_id)
+                if bl_order:
+                    # Pobierz istniejący produkt z tego zamówienia dla kontekstu
+                    existing_product = ProductionItem.query.filter_by(
+                        baselinker_order_id=baselinker_order_id
+                    ).first()
+
+                    if existing_product:
+                        # Znajdź najwyższy numer sekwencji
+                        max_seq = db.session.query(db.func.max(ProductionItem.product_sequence_in_order))\
+                            .filter_by(baselinker_order_id=baselinker_order_id).scalar() or 0
+
+                        for idx, product_to_add in enumerate(changes['products_to_add']):
+                            try:
+                                seq_num = max_seq + idx + 1
+                                bp_id = product_to_add['order_product_id']
+
+                                # Znajdź dane produktu z BL
+                                bl_product = None
+                                for p in bl_order.get('products', []):
+                                    if str(p.get('order_product_id', '')) == bp_id:
+                                        bl_product = p
+                                        break
+
+                                if not bl_product:
+                                    continue
+
+                                # Generuj ID produktu
+                                year_suffix = str(datetime.now().year)[2:]
+                                order_num = existing_product.internal_order_number
+                                short_product_id = f"{year_suffix}_{order_num}_{seq_num}"
+
+                                # Parsuj dane produktu
+                                parsed = parser.parse_product_name(bl_product.get('name', ''))
+
+                                new_product = ProductionItem(
+                                    short_product_id=short_product_id,
+                                    internal_order_number=order_num,
+                                    product_sequence_in_order=seq_num,
+                                    baselinker_order_id=baselinker_order_id,
+                                    baselinker_product_id=bp_id,
+                                    original_product_name=bl_product.get('name', ''),
+                                    quantity=bl_product.get('quantity', 1),
+                                    current_status='czeka_na_wyciecie',
+                                    sync_source='admin_update',
+                                    client_name=existing_product.client_name,
+                                    client_email=existing_product.client_email,
+                                    client_phone=existing_product.client_phone,
+                                    delivery_address=existing_product.delivery_address,
+                                    deadline_date=existing_product.deadline_date,
+                                    payment_date=existing_product.payment_date,
+                                    client_order_number=existing_product.client_order_number,
+                                    order_notes=existing_product.order_notes,
+                                    attachment_file_name=existing_product.attachment_file_name,
+                                    attachment_file_url=existing_product.attachment_file_url
+                                )
+
+                                # Dodaj sparsowane dane
+                                if parsed:
+                                    new_product.wood_species = parsed.get('wood_species')
+                                    new_product.wood_class = parsed.get('wood_class')
+                                    new_product.dimensions = parsed.get('dimensions')
+                                    new_product.technology = parsed.get('technology')
+                                    new_product.length_cm = parsed.get('length_cm')
+                                    new_product.width_cm = parsed.get('width_cm')
+                                    new_product.thickness_cm = parsed.get('thickness_cm')
+                                    new_product.volume_m3 = parsed.get('volume_m3')
+
+                                db.session.add(new_product)
+                                result['added'] += 1
+
+                                logger.info("Dodano nowy produkt", extra={
+                                    'product_id': short_product_id,
+                                    'order_id': baselinker_order_id
+                                })
+
+                            except Exception as e:
+                                result['errors'].append(f"Błąd dodawania produktu: {str(e)}")
+
+            # 4. Aktualizuj dane na poziomie zamówienia
+            if changes.get('order_level'):
+                products_to_update_order = ProductionItem.query.filter_by(
+                    baselinker_order_id=baselinker_order_id
+                ).all()
+
+                for change in changes['order_level']:
+                    field = change['field']
+                    new_value = change['new_value']
+
+                    for p in products_to_update_order:
+                        setattr(p, field, new_value)
+
+                logger.info("Zaktualizowano dane zamówienia", extra={
+                    'order_id': baselinker_order_id,
+                    'fields_updated': [c['field'] for c in changes['order_level']]
+                })
+
+            db.session.commit()
+            result['success'] = True
+
+            logger.info("Zastosowano zmiany z Baselinker", extra={
+                'order_id': baselinker_order_id,
+                'added': result['added'],
+                'removed': result['removed'],
+                'updated': result['updated']
+            })
+
+            return result
+
+        except Exception as e:
+            db.session.rollback()
+            logger.error("Błąd aplikowania zmian", extra={
+                'order_id': baselinker_order_id,
+                'error': str(e)
+            })
+            result['error'] = f'Błąd aplikowania zmian: {str(e)}'
+            return result
+
     def _make_api_request(self, request_data: Dict[str, Any]) -> Dict[str, Any]:
         last_error = None
         
@@ -2082,52 +2570,52 @@ class BaselinkerSyncService:
             
             client_data = self.extract_client_data(order)
             deadline_date = self._calculate_deadline_date(order)
-            
-            total_products_count = sum(self._coerce_quantity(p.get('quantity', 1)) for p in products)
-            
+
+            # NOWA LOGIKA: liczymy pozycje, nie sztuki
+            total_positions = len(products)
+
             id_result = ProductIDGenerator.generate_product_id_for_order(
-                baselinker_order_id, total_products_count
+                baselinker_order_id, total_positions
             )
-            
-            current_id_index = 0
+
             parser = get_parser_service()
             prepared_items = []
-            
+
             for product_index, product in enumerate(products):
                 try:
                     product_name = product.get('name', '')
                     quantity = self._coerce_quantity(product.get('quantity', 1))
                     order_product_id = product.get('order_product_id')
-                    
+
                     parsed_data = parser.parse_product_name(product_name)
-                    
-                    for qty_index in range(quantity):
-                        if current_id_index >= len(id_result['product_ids']):
-                            raise Exception(f"Brak ID dla pozycji {current_id_index}")
-                        
-                        product_id = id_result['product_ids'][current_id_index]
-                        current_id_index += 1
-                        
-                        product_data = self._prepare_product_data_enhanced(
-                            order=order,
-                            product=product,
-                            product_id=product_id,
-                            id_result=id_result,
-                            parsed_data=parsed_data,
-                            client_data=client_data,
-                            deadline_date=deadline_date,
-                            order_product_id=order_product_id,
-                            sequence_number=current_id_index,
-                            payment_date=payment_date,
-                            sync_source=sync_source
-                        )
-                        
-                        production_item = ProductionItem(**product_data)
-                        production_item.update_thickness_group()
-                        
-                        prepared_items.append(production_item)
-                        results['created'] += 1
-                        
+
+                    if product_index >= len(id_result['product_ids']):
+                        raise Exception(f"Brak ID dla pozycji {product_index}")
+
+                    product_id = id_result['product_ids'][product_index]
+
+                    # NOWA LOGIKA: jeden rekord z quantity
+                    product_data = self._prepare_product_data_enhanced(
+                        order=order,
+                        product=product,
+                        product_id=product_id,
+                        id_result=id_result,
+                        parsed_data=parsed_data,
+                        client_data=client_data,
+                        deadline_date=deadline_date,
+                        order_product_id=order_product_id,
+                        sequence_number=product_index + 1,
+                        payment_date=payment_date,
+                        sync_source=sync_source,
+                        quantity=quantity
+                    )
+
+                    production_item = ProductionItem(**product_data)
+                    production_item.update_thickness_group()
+
+                    prepared_items.append(production_item)
+                    results['created'] += 1
+
                 except Exception as e:
                     results['errors'] += 1
                     results['error_details'].append({

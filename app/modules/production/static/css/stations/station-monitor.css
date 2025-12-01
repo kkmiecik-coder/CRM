@@ -87,22 +87,26 @@ body {
 }
 
 .header-content {
-    padding: 12px 24px;
+    max-width: 1920px;
+    padding: 10px 30px;
+    margin: 0 auto;
     display: flex;
-    justify-content: center;
+    justify-content: space-between;
     align-items: center;
     position: relative;
 }
 
 .header-left {
-    position: absolute;
-    left: 24px;
     display: flex;
     align-items: center;
-    gap: 16px;
+    gap: 20px;
+    flex: 1;
 }
 
 .header-center {
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -119,15 +123,15 @@ body {
     font-weight: 700;
     color: var(--text-primary);
     letter-spacing: -0.5px;
-    text-align: center;
+    white-space: nowrap;
 }
 
 .header-right {
-    position: absolute;
-    right: 24px;
     display: flex;
     align-items: center;
     gap: 16px;
+    flex: 1;
+    justify-content: flex-end;
 }
 
 /* Connection Status */
@@ -248,6 +252,8 @@ body {
    ============================================================================ */
 .monitor-content {
     padding: 16px 24px;
+    /* Pełna wysokość ekranu pomniejszona o header (sticky header, więc treść pod nim) */
+    min-height: calc(100vh - 140px);
 }
 
 /* ============================================================================
@@ -255,7 +261,7 @@ body {
    ============================================================================ */
 .orders-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(365px, 1fr));
     gap: 12px;
 }
 
@@ -563,13 +569,13 @@ body {
    ============================================================================ */
 @media (min-width: 1600px) {
     .orders-grid {
-        grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+        grid-template-columns: repeat(auto-fill, minmax(330px, 1fr));
     }
 }
 
 @media (min-width: 2000px) {
     .orders-grid {
-        grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+        grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
     }
 
     html {
@@ -579,7 +585,7 @@ body {
 
 @media (min-width: 2560px) {
     .orders-grid {
-        grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+        grid-template-columns: repeat(auto-fill, minmax(365px, 1fr));
         gap: 16px;
     }
 
@@ -590,13 +596,84 @@ body {
 
 @media (min-width: 3840px) {
     .orders-grid {
-        grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+        grid-template-columns: repeat(auto-fill, minmax(375px, 1fr));
         gap: 20px;
     }
 
     html {
         font-size: 22px;
     }
+}
+
+/* ============================================================================
+   INFINITY SCROLL - Smooth row-based scrolling
+   ============================================================================ */
+
+/* Kontener główny musi mieć overflow hidden żeby karty znikały pod headerem */
+.monitor-content {
+    overflow: hidden;
+    position: relative;
+}
+
+/* Grid z transformem dla płynnego scrollowania */
+.orders-grid {
+    position: relative;
+    will-change: transform;
+    /* Płynna animacja transform */
+    backface-visibility: hidden;
+    -webkit-backface-visibility: hidden;
+}
+
+/* Auto-scroll indicator */
+.auto-scroll-indicator {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 14px;
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    font-family: 'Inter', sans-serif;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--text-secondary);
+    z-index: 50;
+    transition: var(--transition-base);
+}
+
+.auto-scroll-indicator.paused {
+    background: rgba(234, 179, 8, 0.15);
+    border-color: rgba(234, 179, 8, 0.3);
+    color: #eab308;
+}
+
+.auto-scroll-indicator.paused .scroll-icon {
+    animation: none;
+}
+
+.scroll-icon {
+    width: 16px;
+    height: 16px;
+    color: var(--accent-orange);
+}
+
+.scroll-icon.animated {
+    animation: scrollIconPulse 2s ease-in-out infinite;
+}
+
+@keyframes scrollIconPulse {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(3px); }
+}
+
+.pause-countdown {
+    font-weight: 700;
+    color: var(--accent-orange);
+    min-width: 20px;
+    text-align: center;
 }
 
 /* Smaller screens */
@@ -607,9 +684,15 @@ body {
         padding: 12px 16px;
     }
 
+    .header-center {
+        position: static;
+        transform: none;
+    }
+
     .header-left,
     .header-right {
-        position: static;
+        flex: none;
+        justify-content: center;
     }
 
     .stats-bar {

@@ -28,7 +28,7 @@ from functools import wraps
 from modules.logging import get_structured_logger
 from typing import Dict, Any
 from extensions import db
-from sqlalchemy import and_, or_, text, func, distinct
+from sqlalchemy import and_, or_, text, func, distinct, cast, String
 import traceback
 import pytz
 
@@ -760,6 +760,238 @@ def complete_task():
             'error': str(e)
         })
         
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+# ============================================================================
+# API ROUTERS - Toggle Product Marked Done (Checkbox na stanowiskach)
+# ============================================================================
+
+@api_bp.route('/toggle-product-done', methods=['POST'])
+@ip_validation_required
+def toggle_product_done():
+    """
+    POST /api/toggle-product-done - Zmiana stanu checkboxa produktu na stanowisku
+
+    Body JSON:
+    {
+        "product_id": "25_05248_1",
+        "station": "cutting",
+        "is_done": true
+    }
+
+    Akcje:
+    1. Waliduje station (cutting, assembly, gluing, formatting, finishing, packaging)
+    2. Znajduje produkt po short_product_id
+    3. Ustawia {station}_marked_done = is_done
+    4. Zapisuje do bazy
+
+    Autoryzacja: Walidacja IP (stanowiska)
+    Returns: JSON status operacji
+    """
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({'success': False, 'error': 'Brak danych JSON'}), 400
+
+        product_id = data.get('product_id')
+        station = data.get('station')
+        is_done = data.get('is_done')
+
+        # Walidacja wymaganych pól
+        if not product_id or not station or is_done is None:
+            return jsonify({
+                'success': False,
+                'error': 'Wymagane pola: product_id, station, is_done'
+            }), 400
+
+        # Walidacja station
+        valid_stations = ['cutting', 'assembly', 'gluing', 'formatting', 'finishing', 'packaging']
+        if station not in valid_stations:
+            return jsonify({
+                'success': False,
+                'error': f'Nieprawidłowy station. Dozwolone: {valid_stations}'
+            }), 400
+
+        # Konwersja is_done na boolean
+        is_done = bool(is_done)
+
+        logger.debug("API: Toggle product done", extra={
+            'product_id': product_id,
+            'station': station,
+            'is_done': is_done,
+            'client_ip': request.remote_addr
+        })
+
+        from ..models import ProductionItem
+
+        # Znajdź produkt
+        product = ProductionItem.query.filter_by(short_product_id=product_id).first()
+        if not product:
+            return jsonify({
+                'success': False,
+                'error': f'Produkt {product_id} nie znaleziony'
+            }), 404
+
+        # Ustaw odpowiednią kolumnę marked_done
+        marked_done_field = f'{station}_marked_done'
+        setattr(product, marked_done_field, is_done)
+        product.updated_at = get_local_now()
+
+        db.session.commit()
+
+        logger.info("API: Product marked done toggled", extra={
+            'product_id': product_id,
+            'station': station,
+            'is_done': is_done,
+            'client_ip': request.remote_addr
+        })
+
+        return jsonify({
+            'success': True,
+            'product_id': product_id,
+            'station': station,
+            'is_done': is_done
+        }), 200
+
+    except Exception as e:
+        db.session.rollback()
+        logger.error("API: Błąd toggle product done", extra={
+            'product_id': data.get('product_id') if 'data' in locals() else None,
+            'station': data.get('station') if 'data' in locals() else None,
+            'client_ip': request.remote_addr,
+            'error': str(e)
+        })
+
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+# ============================================================================
+# API ROUTERS - Update Quantity Done (Przyciski +/- na stanowiskach) - NOWY 2025-11
+# ============================================================================
+
+@api_bp.route('/update-quantity-done', methods=['POST'])
+@ip_validation_required
+def update_quantity_done():
+    """
+    POST /api/update-quantity-done - Zmiana ilości wykonanych sztuk na stanowisku
+
+    Body JSON:
+    {
+        "product_id": "25_05248_1",
+        "station": "cutting",
+        "action": "increment" | "decrement" | "increment10" | "decrement10"
+    }
+
+    Akcje:
+    - increment: quantity_done += 1 (max = quantity)
+    - decrement: quantity_done -= 1 (min = 0)
+    - increment10: quantity_done += 10 (max = quantity)
+    - decrement10: quantity_done -= 10 (min = 0)
+
+    Gdy quantity_done == quantity → ustawia {station}_completed_at
+    Gdy quantity_done < quantity i było complete → czyści {station}_completed_at
+
+    Autoryzacja: Walidacja IP (stanowiska)
+    Returns: JSON ze zaktualizowanymi wartościami
+    """
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({'success': False, 'error': 'Brak danych JSON'}), 400
+
+        product_id = data.get('product_id')
+        station = data.get('station')
+        action = data.get('action')
+
+        # Walidacja wymaganych pól
+        if not product_id or not station or not action:
+            return jsonify({
+                'success': False,
+                'error': 'Wymagane pola: product_id, station, action'
+            }), 400
+
+        # Walidacja station
+        valid_stations = ['cutting', 'assembly', 'gluing', 'formatting', 'finishing', 'packaging']
+        if station not in valid_stations:
+            return jsonify({
+                'success': False,
+                'error': f'Nieprawidłowy station. Dozwolone: {valid_stations}'
+            }), 400
+
+        # Walidacja action
+        valid_actions = ['increment', 'decrement', 'increment10', 'decrement10']
+        if action not in valid_actions:
+            return jsonify({
+                'success': False,
+                'error': f'Nieprawidłowa akcja. Dozwolone: {valid_actions}'
+            }), 400
+
+        logger.debug("API: Update quantity done", extra={
+            'product_id': product_id,
+            'station': station,
+            'action': action,
+            'client_ip': request.remote_addr
+        })
+
+        from ..models import ProductionItem
+
+        # Znajdź produkt
+        product = ProductionItem.query.filter_by(short_product_id=product_id).first()
+        if not product:
+            return jsonify({
+                'success': False,
+                'error': f'Produkt {product_id} nie znaleziony'
+            }), 404
+
+        # Wykonaj akcję
+        if action == 'increment':
+            new_value = product.increment_quantity_done(station, 1)
+        elif action == 'decrement':
+            new_value = product.decrement_quantity_done(station, 1)
+        elif action == 'increment10':
+            new_value = product.increment_quantity_done(station, 10)
+        elif action == 'decrement10':
+            new_value = product.decrement_quantity_done(station, 10)
+
+        db.session.commit()
+
+        is_complete = (new_value == product.quantity)
+
+        logger.info("API: Quantity done updated", extra={
+            'product_id': product_id,
+            'station': station,
+            'action': action,
+            'quantity_done': new_value,
+            'quantity': product.quantity,
+            'is_complete': is_complete,
+            'client_ip': request.remote_addr
+        })
+
+        return jsonify({
+            'success': True,
+            'product_id': product_id,
+            'station': station,
+            'quantity_done': new_value,
+            'quantity': product.quantity,
+            'is_complete': is_complete
+        }), 200
+
+    except Exception as e:
+        db.session.rollback()
+        logger.error("API: Błąd update quantity done", extra={
+            'product_id': data.get('product_id') if 'data' in locals() else None,
+            'station': data.get('station') if 'data' in locals() else None,
+            'client_ip': request.remote_addr,
+            'error': str(e)
+        })
+
         return jsonify({
             'success': False,
             'error': str(e)
@@ -2228,10 +2460,16 @@ def products_tab_content():
                 search_conditions.append(ProductionItem.short_product_id.ilike(search_pattern))
             if hasattr(ProductionItem, 'client_name'):
                 search_conditions.append(ProductionItem.client_name.ilike(search_pattern))
-                
+            if hasattr(ProductionItem, 'internal_order_number'):
+                search_conditions.append(ProductionItem.internal_order_number.ilike(search_pattern))
+            if hasattr(ProductionItem, 'client_order_number'):
+                search_conditions.append(ProductionItem.client_order_number.ilike(search_pattern))
+            if hasattr(ProductionItem, 'baselinker_order_id'):
+                search_conditions.append(cast(ProductionItem.baselinker_order_id, String).ilike(search_pattern))
+
             if search_conditions:
                 products_query = products_query.filter(or_(*search_conditions))
-        
+
         # Obsługa parametrów sortowania
         sort_by = request.args.get('sort_by', 'priority_rank')  # ZMIANA: domyślnie priority_rank
         sort_order = request.args.get('sort_order', 'asc' if sort_by == 'priority_rank' else 'desc')
@@ -2391,6 +2629,19 @@ def products_tab_content():
                 'attachment_file_name': get_attr(product, 'attachment_file_name', None),
                 'attachment_file_url': get_attr(product, 'attachment_file_url', None),
 
+                # NOWE: Quantity fields (2025-11)
+                'quantity': get_attr(product, 'quantity', 1),
+                'quantity_done_cutting': get_attr(product, 'quantity_done_cutting', 0),
+                'quantity_done_assembly': get_attr(product, 'quantity_done_assembly', 0),
+                'quantity_done_gluing': get_attr(product, 'quantity_done_gluing', 0),
+                'quantity_done_formatting': get_attr(product, 'quantity_done_formatting', 0),
+                'quantity_done_finishing': get_attr(product, 'quantity_done_finishing', 0),
+                'quantity_done_packaging': get_attr(product, 'quantity_done_packaging', 0),
+
+                # Dodatkowe pola z zamówienia
+                'client_order_number': get_attr(product, 'client_order_number', None),
+                'order_notes': get_attr(product, 'order_notes', None),
+
                 # Unique identifier dla frontend
                 'unique_id': f"{get_attr(product, 'short_product_id', '')}-{product.id}"
             }
@@ -2399,21 +2650,23 @@ def products_tab_content():
         # Przygotuj statystyki
         total_volume = sum(p['volume_m3'] for p in products_data)
         total_value = sum(p['total_value_net'] for p in products_data)
-        
+        total_quantity = sum(p['quantity'] for p in products_data)  # NOWE: łączna ilość sztuk
+
         # Oblicz pilne produkty (deadline <= 3 dni)
         urgent_count = 0
         for p in products_data:
             if p['days_until_deadline'] is not None and p['days_until_deadline'] <= 3:
                 urgent_count += 1
-        
+
         # Breakdown statusów
         status_breakdown = {}
         for p in products_data:
             status = p['current_status']
             status_breakdown[status] = status_breakdown.get(status, 0) + 1
-        
+
         stats_data = {
             'total_count': len(products_data),
+            'total_quantity': total_quantity,  # NOWE: łączna ilość sztuk
             'total_volume': round(total_volume, 3),
             'total_value': round(total_value, 2),
             'urgent_count': urgent_count,
@@ -2499,15 +2752,23 @@ def products_paginated():
         if search_query:
             search_pattern = f"%{search_query}%"
             search_conditions = []
-            
+
             if hasattr(ProductionItem, 'original_product_name'):
                 search_conditions.append(ProductionItem.original_product_name.ilike(search_pattern))
             if hasattr(ProductionItem, 'short_product_id'):
                 search_conditions.append(ProductionItem.short_product_id.ilike(search_pattern))
-                
+            if hasattr(ProductionItem, 'client_name'):
+                search_conditions.append(ProductionItem.client_name.ilike(search_pattern))
+            if hasattr(ProductionItem, 'internal_order_number'):
+                search_conditions.append(ProductionItem.internal_order_number.ilike(search_pattern))
+            if hasattr(ProductionItem, 'client_order_number'):
+                search_conditions.append(ProductionItem.client_order_number.ilike(search_pattern))
+            if hasattr(ProductionItem, 'baselinker_order_id'):
+                search_conditions.append(cast(ProductionItem.baselinker_order_id, String).ilike(search_pattern))
+
             if search_conditions:
                 products_query = products_query.filter(or_(*search_conditions))
-        
+
         # Sortowanie
         if hasattr(ProductionItem, 'priority_score'):
             products_query = products_query.order_by(ProductionItem.priority_score.desc())
@@ -2550,6 +2811,297 @@ def products_paginated():
     except Exception as e:
         logger.error(f"Błąd endpoint products-paginated: {str(e)}")
         return jsonify({'success': False, 'error': str(e)}), 500
+
+
+# ============================================================================
+# API ADMIN - Update Quantity Done (Panel admina - bez restrykcji IP)
+# ============================================================================
+
+@api_bp.route('/admin/update-quantity-done', methods=['POST'])
+@login_required
+def admin_update_quantity_done():
+    """
+    POST /api/admin/update-quantity-done - Zmiana ilości wykonanych sztuk z panelu admina
+
+    Body JSON:
+    {
+        "product_id": "25_05248_1",
+        "station": "cutting",
+        "action": "increment" | "decrement" | "increment10" | "decrement10" | "set",
+        "value": 5  // tylko dla action="set"
+    }
+
+    Akcje:
+    - increment: quantity_done += 1 (max = quantity)
+    - decrement: quantity_done -= 1 (min = 0)
+    - increment10: quantity_done += 10 (max = quantity)
+    - decrement10: quantity_done -= 10 (min = 0)
+    - set: quantity_done = value (0 <= value <= quantity)
+
+    Autoryzacja: login_required (panel admina)
+    Returns: JSON ze zaktualizowanymi wartościami
+    """
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({'success': False, 'error': 'Brak danych JSON'}), 400
+
+        product_id = data.get('product_id')
+        station = data.get('station')
+        action = data.get('action')
+        value = data.get('value')
+
+        # Walidacja wymaganych pól
+        if not product_id or not station or not action:
+            return jsonify({
+                'success': False,
+                'error': 'Wymagane pola: product_id, station, action'
+            }), 400
+
+        # Walidacja station
+        valid_stations = ['cutting', 'assembly', 'gluing', 'formatting', 'finishing', 'packaging']
+        if station not in valid_stations:
+            return jsonify({
+                'success': False,
+                'error': f'Nieprawidłowy station. Dozwolone: {valid_stations}'
+            }), 400
+
+        # Walidacja action
+        valid_actions = ['increment', 'decrement', 'increment10', 'decrement10', 'set']
+        if action not in valid_actions:
+            return jsonify({
+                'success': False,
+                'error': f'Nieprawidłowa akcja. Dozwolone: {valid_actions}'
+            }), 400
+
+        logger.info("API Admin: Update quantity done", extra={
+            'product_id': product_id,
+            'station': station,
+            'action': action,
+            'value': value,
+            'user_id': current_user.id,
+            'user_email': current_user.email
+        })
+
+        from ..models import ProductionItem
+
+        # Znajdź produkt
+        product = ProductionItem.query.filter_by(short_product_id=product_id).first()
+        if not product:
+            return jsonify({
+                'success': False,
+                'error': f'Produkt {product_id} nie znaleziony'
+            }), 404
+
+        # Wykonaj akcję
+        if action == 'increment':
+            new_value = product.increment_quantity_done(station, 1)
+        elif action == 'decrement':
+            new_value = product.decrement_quantity_done(station, 1)
+        elif action == 'increment10':
+            new_value = product.increment_quantity_done(station, 10)
+        elif action == 'decrement10':
+            new_value = product.decrement_quantity_done(station, 10)
+        elif action == 'set':
+            # Ustaw konkretną wartość
+            if value is None:
+                return jsonify({
+                    'success': False,
+                    'error': 'Akcja "set" wymaga pola "value"'
+                }), 400
+            value = int(value)
+            if value < 0 or value > product.quantity:
+                return jsonify({
+                    'success': False,
+                    'error': f'Wartość musi być między 0 a {product.quantity}'
+                }), 400
+            field_name = f'quantity_done_{station}'
+            setattr(product, field_name, value)
+            new_value = value
+            # Aktualizuj timestamp zakończenia
+            completed_field = f'{station}_completed_at'
+            if new_value >= product.quantity:
+                setattr(product, completed_field, datetime.utcnow())
+            else:
+                setattr(product, completed_field, None)
+
+        db.session.commit()
+
+        is_complete = (new_value == product.quantity)
+
+        # Zbierz wszystkie wartości quantity_done
+        all_quantity_done = {
+            'quantity_done_cutting': product.quantity_done_cutting or 0,
+            'quantity_done_assembly': product.quantity_done_assembly or 0,
+            'quantity_done_gluing': product.quantity_done_gluing or 0,
+            'quantity_done_formatting': product.quantity_done_formatting or 0,
+            'quantity_done_finishing': product.quantity_done_finishing or 0,
+            'quantity_done_packaging': product.quantity_done_packaging or 0
+        }
+
+        logger.info("API Admin: Quantity done updated", extra={
+            'product_id': product_id,
+            'station': station,
+            'action': action,
+            'quantity_done': new_value,
+            'quantity': product.quantity,
+            'is_complete': is_complete
+        })
+
+        return jsonify({
+            'success': True,
+            'product_id': product_id,
+            'station': station,
+            'quantity_done': new_value,
+            'quantity': product.quantity,
+            'is_complete': is_complete,
+            'all_quantity_done': all_quantity_done
+        }), 200
+
+    except Exception as e:
+        db.session.rollback()
+        logger.error("API Admin: Błąd update quantity done", extra={
+            'product_id': data.get('product_id') if 'data' in locals() else None,
+            'station': data.get('station') if 'data' in locals() else None,
+            'error': str(e)
+        })
+        return jsonify({
+            'success': False,
+            'error': f'Błąd serwera: {str(e)}'
+        }), 500
+
+
+# ============================================================================
+# API ADMIN - Baselinker Order Comparison & Update
+# ============================================================================
+
+@api_bp.route('/admin/compare-baselinker-order', methods=['POST'])
+@login_required
+def admin_compare_baselinker_order():
+    """
+    POST /api/admin/compare-baselinker-order - Porównuje zamówienie z danymi z Baselinker
+
+    Body JSON:
+    {
+        "baselinker_order_id": 25208907
+    }
+
+    Returns: JSON ze strukturą zmian do przeglądu
+    """
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({'success': False, 'error': 'Brak danych JSON'}), 400
+
+        baselinker_order_id = data.get('baselinker_order_id')
+        if not baselinker_order_id:
+            return jsonify({
+                'success': False,
+                'error': 'Wymagane pole: baselinker_order_id'
+            }), 400
+
+        # Konwertuj na int
+        try:
+            baselinker_order_id = int(baselinker_order_id)
+        except (ValueError, TypeError):
+            return jsonify({
+                'success': False,
+                'error': 'baselinker_order_id musi być liczbą'
+            }), 400
+
+        logger.info("API Admin: Porównanie z Baselinker", extra={
+            'baselinker_order_id': baselinker_order_id,
+            'user_id': current_user.id
+        })
+
+        from ..services.sync_service import BaselinkerSyncService
+
+        sync_service = BaselinkerSyncService()
+        result = sync_service.compare_order_with_baselinker(baselinker_order_id)
+
+        return jsonify(result), 200
+
+    except Exception as e:
+        logger.error("API Admin: Błąd porównania z Baselinker", extra={
+            'baselinker_order_id': data.get('baselinker_order_id') if 'data' in locals() else None,
+            'error': str(e)
+        })
+        return jsonify({
+            'success': False,
+            'error': f'Błąd serwera: {str(e)}'
+        }), 500
+
+
+@api_bp.route('/admin/apply-baselinker-changes', methods=['POST'])
+@login_required
+def admin_apply_baselinker_changes():
+    """
+    POST /api/admin/apply-baselinker-changes - Aplikuje zmiany z Baselinker do bazy
+
+    Body JSON:
+    {
+        "baselinker_order_id": 25208907,
+        "changes": {
+            "products_to_add": [...],
+            "products_to_remove": [...],
+            "products_to_update": [...],
+            "order_level": [...]
+        }
+    }
+
+    Returns: JSON z wynikiem operacji
+    """
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({'success': False, 'error': 'Brak danych JSON'}), 400
+
+        baselinker_order_id = data.get('baselinker_order_id')
+        changes = data.get('changes')
+
+        if not baselinker_order_id or not changes:
+            return jsonify({
+                'success': False,
+                'error': 'Wymagane pola: baselinker_order_id, changes'
+            }), 400
+
+        # Konwertuj na int
+        try:
+            baselinker_order_id = int(baselinker_order_id)
+        except (ValueError, TypeError):
+            return jsonify({
+                'success': False,
+                'error': 'baselinker_order_id musi być liczbą'
+            }), 400
+
+        logger.info("API Admin: Aplikowanie zmian z Baselinker", extra={
+            'baselinker_order_id': baselinker_order_id,
+            'user_id': current_user.id,
+            'changes_summary': {
+                'to_add': len(changes.get('products_to_add', [])),
+                'to_remove': len(changes.get('products_to_remove', [])),
+                'to_update': len(changes.get('products_to_update', []))
+            }
+        })
+
+        from ..services.sync_service import BaselinkerSyncService
+
+        sync_service = BaselinkerSyncService()
+        result = sync_service.apply_baselinker_changes(baselinker_order_id, changes)
+
+        return jsonify(result), 200
+
+    except Exception as e:
+        db.session.rollback()
+        logger.error("API Admin: Błąd aplikowania zmian z Baselinker", extra={
+            'baselinker_order_id': data.get('baselinker_order_id') if 'data' in locals() else None,
+            'error': str(e)
+        })
+        return jsonify({
+            'success': False,
+            'error': f'Błąd serwera: {str(e)}'
+        }), 500
+
 
 @api_bp.route('/reports-tab-content')
 @login_required
@@ -3461,7 +4013,14 @@ def products_filtered():
                 search_conditions.append(ProductionItem.internal_order_number.ilike(search_pattern))
             if hasattr(ProductionItem, 'client_name'):
                 search_conditions.append(ProductionItem.client_name.ilike(search_pattern))
-            
+            # Wyszukiwanie po numerze zamówienia klienta (np. "1617/2025")
+            if hasattr(ProductionItem, 'client_order_number'):
+                search_conditions.append(ProductionItem.client_order_number.ilike(search_pattern))
+            # Wyszukiwanie po numerze Baselinker
+            if hasattr(ProductionItem, 'baselinker_order_id'):
+                # baselinker_order_id jest Integer, więc konwertujemy na string do porównania
+                search_conditions.append(cast(ProductionItem.baselinker_order_id, String).ilike(search_pattern))
+
             if search_conditions:
                 query = query.filter(or_(*search_conditions))
         
@@ -3576,7 +4135,19 @@ def products_filtered():
                 # Pakowanie
                 'packaging_started_at': getattr(item, 'packaging_started_at', None),
                 'packaging_completed_at': getattr(item, 'packaging_completed_at', None),
-                'packaging_duration_minutes': getattr(item, 'packaging_duration_minutes', None)
+                'packaging_duration_minutes': getattr(item, 'packaging_duration_minutes', None),
+
+                # NOWE: Ilość i liczniki quantity_done per stanowisko
+                'quantity': getattr(item, 'quantity', 1),
+                'quantity_done_cutting': getattr(item, 'quantity_done_cutting', 0),
+                'quantity_done_assembly': getattr(item, 'quantity_done_assembly', 0),
+                'quantity_done_gluing': getattr(item, 'quantity_done_gluing', 0),
+                'quantity_done_formatting': getattr(item, 'quantity_done_formatting', 0),
+                'quantity_done_finishing': getattr(item, 'quantity_done_finishing', 0),
+                'quantity_done_packaging': getattr(item, 'quantity_done_packaging', 0),
+
+                # Numer zamówienia klienta
+                'client_order_number': getattr(item, 'client_order_number', None)
             }
             
             # Konwertuj daty na ISO string

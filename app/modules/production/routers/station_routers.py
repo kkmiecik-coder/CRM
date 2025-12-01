@@ -160,10 +160,10 @@ def get_products_for_station(station_code, limit=50, sort_by='priority'):
                 deadline_color = 'unknown'
                 deadline_class = 'deadline-unknown'
             
-            # Formatowanie wymiarów w MM
+            # Formatowanie wymiarów w CM
             dimensions_text = ''
             if all([product.parsed_length_cm, product.parsed_width_cm, product.parsed_thickness_cm]):
-                dimensions_text = f"{int(product.parsed_length_cm * 10)} × {int(product.parsed_width_cm * 10)} × {int(product.parsed_thickness_cm * 10)} mm"
+                dimensions_text = f"{_format_dimension(product.parsed_length_cm)} × {_format_dimension(product.parsed_width_cm)} × {_format_dimension(product.parsed_thickness_cm)} cm"
             
             # POPRAWKA: Bezpieczne pobieranie volume_m3
             try:
@@ -220,6 +220,11 @@ def get_products_for_station(station_code, limit=50, sort_by='priority'):
                 'attachment_file_name': product.attachment_file_name,
                 'attachment_file_url': product.attachment_file_url,
 
+                # Ilość - nowy system quantity (2025-11)
+                'quantity': product.quantity,
+                'quantity_done': getattr(product, f'quantity_done_{station_code}', 0),
+                'is_complete': getattr(product, f'quantity_done_{station_code}', 0) == product.quantity,
+
                 # Formatowane teksty dla UI
                 'display_name': _format_product_display_name(product),
                 'display_priority': f"#{priority_rank} - {priority_label}",
@@ -227,9 +232,9 @@ def get_products_for_station(station_code, limit=50, sort_by='priority'):
                 'display_value': f"{total_value:.2f} PLN" if total_value > 0 else "—",
                 'display_volume': f"{volume_m3:.3f} m³" if volume_m3 > 0 else "—"
             }
-            
+
             products_data.append(product_data)
-        
+
         logger.debug("Pobrano produkty dla stanowiska", extra={
             'station_code': station_code,
             'products_count': len(products_data),
@@ -246,13 +251,19 @@ def get_products_for_station(station_code, limit=50, sort_by='priority'):
         })
         return []
 
+def _format_dimension(value):
+    """Formatuje wymiar - zawsze z jednym miejscem po przecinku (np. 160.0, 5.5, 3.5)"""
+    if value is None:
+        return None
+    return f"{float(value):.1f}"
+
 def _format_product_display_name(product):
     """
     Formatuje nazwę produktu do wyświetlenia
-    
+
     Args:
         product: Obiekt ProductionItem
-        
+
     Returns:
         str: Sformatowana nazwa
     """
@@ -444,7 +455,7 @@ def station_select():
         ), 500
 
 # ============================================================================
-# ROUTERS - STANOWISKO WYCINANIA
+# ROUTERS - STANOWISKO WYCINANIA (CUTTING)
 # ============================================================================
 
 @station_bp.route('/cutting')
@@ -505,15 +516,15 @@ def cutting_station():
             for product in products_db:
                 priority_rank = product.priority_rank if product.priority_rank else 999
 
-                # Wymiary w MM (mnożymy przez 10)
+                # Wymiary w CM
                 dimensions_parts = []
                 if product.parsed_length_cm:
-                    dimensions_parts.append(str(int(product.parsed_length_cm * 10)))
+                    dimensions_parts.append(_format_dimension(product.parsed_length_cm))
                 if product.parsed_width_cm:
-                    dimensions_parts.append(str(int(product.parsed_width_cm * 10)))
+                    dimensions_parts.append(_format_dimension(product.parsed_width_cm))
                 if product.parsed_thickness_cm:
-                    dimensions_parts.append(str(int(product.parsed_thickness_cm * 10)))
-                dimensions_text = '×'.join(dimensions_parts) + ' mm' if dimensions_parts else None
+                    dimensions_parts.append(_format_dimension(product.parsed_thickness_cm))
+                dimensions_text = '×'.join(dimensions_parts) + ' cm' if dimensions_parts else None
 
                 volume_m3 = float(product.volume_m3) if product.volume_m3 else 0.0
 
@@ -533,7 +544,12 @@ def cutting_station():
                     'dimensions': dimensions_text,
                     'attachment_file_name': product.attachment_file_name,
                     'attachment_file_url': product.attachment_file_url,
-                    'product_sequence_in_order': product.product_sequence_in_order
+                    'product_sequence_in_order': product.product_sequence_in_order,
+                    'quantity': product.quantity,
+                    'quantity_done': product.quantity_done_cutting,
+                    'is_complete': product.quantity_done_cutting == product.quantity,
+                    'order_notes': product.order_notes,
+                    'client_order_number': product.client_order_number
                 }
 
                 products.append(product_data)
@@ -546,8 +562,11 @@ def cutting_station():
                 orders_grouped[order_number] = {
                     'order_number': order_number,
                     'baselinker_order_id': product.get('baselinker_order_id'),
+                    'client_order_number': product.get('client_order_number'),
                     'products': [],
                     'total_products': 0,
+                    'total_quantity': 0,
+                    'total_quantity_done': 0,
                     'total_volume': 0,
                     'best_priority_rank': 999,
                     'worst_deadline': None
@@ -556,6 +575,8 @@ def cutting_station():
             order = orders_grouped[order_number]
             order['products'].append(product)
             order['total_products'] += 1
+            order['total_quantity'] += product.get('quantity', 1) or 1
+            order['total_quantity_done'] += product.get('quantity_done', 0) or 0
             order['total_volume'] += product['volume_m3'] or 0
 
             # Najlepszy priorytet z zamówienia
@@ -598,8 +619,8 @@ def cutting_station():
         # Konfiguracja interfejsu
         config = get_station_config()
 
-        # Statystyki stanowiska
-        total_products = sum(order['total_products'] for order in orders_list)
+        # Statystyki stanowiska - liczba sztuk (total_quantity), nie pozycji
+        total_products = sum(order['total_quantity'] for order in orders_list)
         high_priority_count = sum(1 for order in orders_list if order['best_priority_rank'] <= 50)
 
         station_stats = {
@@ -699,15 +720,15 @@ def assembly_station():
             for product in products_db:
                 priority_rank = product.priority_rank if product.priority_rank else 999
 
-                # Wymiary w MM (mnożymy przez 10)
+                # Wymiary w CM
                 dimensions_parts = []
                 if product.parsed_length_cm:
-                    dimensions_parts.append(str(int(product.parsed_length_cm * 10)))
+                    dimensions_parts.append(_format_dimension(product.parsed_length_cm))
                 if product.parsed_width_cm:
-                    dimensions_parts.append(str(int(product.parsed_width_cm * 10)))
+                    dimensions_parts.append(_format_dimension(product.parsed_width_cm))
                 if product.parsed_thickness_cm:
-                    dimensions_parts.append(str(int(product.parsed_thickness_cm * 10)))
-                dimensions_text = '×'.join(dimensions_parts) + ' mm' if dimensions_parts else None
+                    dimensions_parts.append(_format_dimension(product.parsed_thickness_cm))
+                dimensions_text = '×'.join(dimensions_parts) + ' cm' if dimensions_parts else None
 
                 volume_m3 = float(product.volume_m3) if product.volume_m3 else 0.0
 
@@ -727,7 +748,12 @@ def assembly_station():
                     'dimensions': dimensions_text,
                     'attachment_file_name': product.attachment_file_name,
                     'attachment_file_url': product.attachment_file_url,
-                    'product_sequence_in_order': product.product_sequence_in_order
+                    'product_sequence_in_order': product.product_sequence_in_order,
+                    'quantity': product.quantity,
+                    'quantity_done': product.quantity_done_assembly,
+                    'is_complete': product.quantity_done_assembly == product.quantity,
+                    'order_notes': product.order_notes,
+                    'client_order_number': product.client_order_number
                 }
 
                 products.append(product_data)
@@ -740,8 +766,11 @@ def assembly_station():
                 orders_grouped[order_number] = {
                     'order_number': order_number,
                     'baselinker_order_id': product.get('baselinker_order_id'),
+                    'client_order_number': product.get('client_order_number'),
                     'products': [],
                     'total_products': 0,
+                    'total_quantity': 0,
+                    'total_quantity_done': 0,
                     'total_volume': 0,
                     'best_priority_rank': 999,
                     'worst_deadline': None
@@ -750,6 +779,8 @@ def assembly_station():
             order = orders_grouped[order_number]
             order['products'].append(product)
             order['total_products'] += 1
+            order['total_quantity'] += product.get('quantity', 1) or 1
+            order['total_quantity_done'] += product.get('quantity_done', 0) or 0
             order['total_volume'] += product['volume_m3'] or 0
 
             # Najlepszy priorytet z zamówienia
@@ -792,8 +823,8 @@ def assembly_station():
         # Konfiguracja interfejsu
         config = get_station_config()
 
-        # Statystyki stanowiska
-        total_products = sum(order['total_products'] for order in orders_list)
+        # Statystyki stanowiska - liczba sztuk (total_quantity), nie pozycji
+        total_products = sum(order['total_quantity'] for order in orders_list)
         high_priority_count = sum(1 for order in orders_list if order['best_priority_rank'] <= 50)
 
         station_stats = {
@@ -893,15 +924,15 @@ def gluing_station():
             for product in products_db:
                 priority_rank = product.priority_rank if product.priority_rank else 999
 
-                # Wymiary w MM (mnożymy przez 10)
+                # Wymiary w CM
                 dimensions_parts = []
                 if product.parsed_length_cm:
-                    dimensions_parts.append(str(int(product.parsed_length_cm * 10)))
+                    dimensions_parts.append(_format_dimension(product.parsed_length_cm))
                 if product.parsed_width_cm:
-                    dimensions_parts.append(str(int(product.parsed_width_cm * 10)))
+                    dimensions_parts.append(_format_dimension(product.parsed_width_cm))
                 if product.parsed_thickness_cm:
-                    dimensions_parts.append(str(int(product.parsed_thickness_cm * 10)))
-                dimensions_text = '×'.join(dimensions_parts) + ' mm' if dimensions_parts else None
+                    dimensions_parts.append(_format_dimension(product.parsed_thickness_cm))
+                dimensions_text = '×'.join(dimensions_parts) + ' cm' if dimensions_parts else None
 
                 volume_m3 = float(product.volume_m3) if product.volume_m3 else 0.0
 
@@ -921,7 +952,12 @@ def gluing_station():
                     'dimensions': dimensions_text,
                     'attachment_file_name': product.attachment_file_name,
                     'attachment_file_url': product.attachment_file_url,
-                    'product_sequence_in_order': product.product_sequence_in_order
+                    'product_sequence_in_order': product.product_sequence_in_order,
+                    'quantity': product.quantity,
+                    'quantity_done': product.quantity_done_gluing,
+                    'is_complete': product.quantity_done_gluing == product.quantity,
+                    'order_notes': product.order_notes,
+                    'client_order_number': product.client_order_number
                 }
 
                 products.append(product_data)
@@ -934,8 +970,11 @@ def gluing_station():
                 orders_grouped[order_number] = {
                     'order_number': order_number,
                     'baselinker_order_id': product.get('baselinker_order_id'),
+                    'client_order_number': product.get('client_order_number'),
                     'products': [],
                     'total_products': 0,
+                    'total_quantity': 0,
+                    'total_quantity_done': 0,
                     'total_volume': 0,
                     'best_priority_rank': 999,
                     'worst_deadline': None
@@ -944,6 +983,8 @@ def gluing_station():
             order = orders_grouped[order_number]
             order['products'].append(product)
             order['total_products'] += 1
+            order['total_quantity'] += product.get('quantity', 1) or 1
+            order['total_quantity_done'] += product.get('quantity_done', 0) or 0
             order['total_volume'] += product['volume_m3'] or 0
 
             # Najlepszy priorytet z zamówienia
@@ -986,8 +1027,8 @@ def gluing_station():
         # Konfiguracja interfejsu
         config = get_station_config()
 
-        # Statystyki stanowiska
-        total_products = sum(order['total_products'] for order in orders_list)
+        # Statystyki stanowiska - liczba sztuk (total_quantity), nie pozycji
+        total_products = sum(order['total_quantity'] for order in orders_list)
         high_priority_count = sum(1 for order in orders_list if order['best_priority_rank'] <= 50)
 
         station_stats = {
@@ -1084,15 +1125,15 @@ def formatting_station():
             for product in products_db:
                 priority_rank = product.priority_rank if product.priority_rank else 999
 
-                # Wymiary w MM (mnożymy przez 10)
+                # Wymiary w CM
                 dimensions_parts = []
                 if product.parsed_length_cm:
-                    dimensions_parts.append(str(int(product.parsed_length_cm * 10)))
+                    dimensions_parts.append(_format_dimension(product.parsed_length_cm))
                 if product.parsed_width_cm:
-                    dimensions_parts.append(str(int(product.parsed_width_cm * 10)))
+                    dimensions_parts.append(_format_dimension(product.parsed_width_cm))
                 if product.parsed_thickness_cm:
-                    dimensions_parts.append(str(int(product.parsed_thickness_cm * 10)))
-                dimensions_text = '×'.join(dimensions_parts) + ' mm' if dimensions_parts else None
+                    dimensions_parts.append(_format_dimension(product.parsed_thickness_cm))
+                dimensions_text = '×'.join(dimensions_parts) + ' cm' if dimensions_parts else None
 
                 volume_m3 = float(product.volume_m3) if product.volume_m3 else 0.0
 
@@ -1112,7 +1153,12 @@ def formatting_station():
                     'dimensions': dimensions_text,
                     'attachment_file_name': product.attachment_file_name,
                     'attachment_file_url': product.attachment_file_url,
-                    'product_sequence_in_order': product.product_sequence_in_order
+                    'product_sequence_in_order': product.product_sequence_in_order,
+                    'quantity': product.quantity,
+                    'quantity_done': product.quantity_done_formatting,
+                    'is_complete': product.quantity_done_formatting == product.quantity,
+                    'order_notes': product.order_notes,
+                    'client_order_number': product.client_order_number
                 }
 
                 products.append(product_data)
@@ -1125,8 +1171,11 @@ def formatting_station():
                 orders_grouped[order_number] = {
                     'order_number': order_number,
                     'baselinker_order_id': product.get('baselinker_order_id'),
+                    'client_order_number': product.get('client_order_number'),
                     'products': [],
                     'total_products': 0,
+                    'total_quantity': 0,
+                    'total_quantity_done': 0,
                     'total_volume': 0,
                     'best_priority_rank': 999,
                     'worst_deadline': None
@@ -1135,6 +1184,8 @@ def formatting_station():
             order = orders_grouped[order_number]
             order['products'].append(product)
             order['total_products'] += 1
+            order['total_quantity'] += product.get('quantity', 1) or 1
+            order['total_quantity_done'] += product.get('quantity_done', 0) or 0
             order['total_volume'] += product['volume_m3'] or 0
 
             # Najlepszy priorytet z zamówienia
@@ -1177,8 +1228,8 @@ def formatting_station():
         # Konfiguracja interfejsu
         config = get_station_config()
 
-        # Statystyki stanowiska
-        total_products = sum(order['total_products'] for order in orders_list)
+        # Statystyki stanowiska - liczba sztuk (total_quantity), nie pozycji
+        total_products = sum(order['total_quantity'] for order in orders_list)
         high_priority_count = sum(1 for order in orders_list if order['best_priority_rank'] <= 50)
 
         station_stats = {
@@ -1275,15 +1326,15 @@ def finishing_station():
             for product in products_db:
                 priority_rank = product.priority_rank if product.priority_rank else 999
 
-                # Wymiary w MM (mnożymy przez 10)
+                # Wymiary w CM
                 dimensions_parts = []
                 if product.parsed_length_cm:
-                    dimensions_parts.append(str(int(product.parsed_length_cm * 10)))
+                    dimensions_parts.append(_format_dimension(product.parsed_length_cm))
                 if product.parsed_width_cm:
-                    dimensions_parts.append(str(int(product.parsed_width_cm * 10)))
+                    dimensions_parts.append(_format_dimension(product.parsed_width_cm))
                 if product.parsed_thickness_cm:
-                    dimensions_parts.append(str(int(product.parsed_thickness_cm * 10)))
-                dimensions_text = '×'.join(dimensions_parts) + ' mm' if dimensions_parts else None
+                    dimensions_parts.append(_format_dimension(product.parsed_thickness_cm))
+                dimensions_text = '×'.join(dimensions_parts) + ' cm' if dimensions_parts else None
 
                 volume_m3 = float(product.volume_m3) if product.volume_m3 else 0.0
 
@@ -1303,7 +1354,12 @@ def finishing_station():
                     'dimensions': dimensions_text,
                     'attachment_file_name': product.attachment_file_name,
                     'attachment_file_url': product.attachment_file_url,
-                    'product_sequence_in_order': product.product_sequence_in_order
+                    'product_sequence_in_order': product.product_sequence_in_order,
+                    'quantity': product.quantity,
+                    'quantity_done': product.quantity_done_finishing,
+                    'is_complete': product.quantity_done_finishing == product.quantity,
+                    'order_notes': product.order_notes,
+                    'client_order_number': product.client_order_number
                 }
 
                 products.append(product_data)
@@ -1316,8 +1372,11 @@ def finishing_station():
                 orders_grouped[order_number] = {
                     'order_number': order_number,
                     'baselinker_order_id': product.get('baselinker_order_id'),
+                    'client_order_number': product.get('client_order_number'),
                     'products': [],
                     'total_products': 0,
+                    'total_quantity': 0,
+                    'total_quantity_done': 0,
                     'total_volume': 0,
                     'best_priority_rank': 999,
                     'worst_deadline': None
@@ -1326,6 +1385,8 @@ def finishing_station():
             order = orders_grouped[order_number]
             order['products'].append(product)
             order['total_products'] += 1
+            order['total_quantity'] += product.get('quantity', 1) or 1
+            order['total_quantity_done'] += product.get('quantity_done', 0) or 0
             order['total_volume'] += product['volume_m3'] or 0
 
             # Najlepszy priorytet z zamówienia
@@ -1368,8 +1429,8 @@ def finishing_station():
         # Konfiguracja interfejsu
         config = get_station_config()
 
-        # Statystyki stanowiska
-        total_products = sum(order['total_products'] for order in orders_list)
+        # Statystyki stanowiska - liczba sztuk (total_quantity), nie pozycji
+        total_products = sum(order['total_quantity'] for order in orders_list)
         high_priority_count = sum(1 for order in orders_list if order['best_priority_rank'] <= 50)
 
         station_stats = {
@@ -1520,15 +1581,15 @@ def packaging_station():
                     deadline_color = '#6c757d'
                     deadline_class = 'deadline-none'
                 
-                # Wymiary w MM (mnożymy przez 10)
+                # Wymiary w CM
                 dimensions_parts = []
                 if product.parsed_length_cm:
-                    dimensions_parts.append(str(int(product.parsed_length_cm * 10)))  # ×10
+                    dimensions_parts.append(_format_dimension(product.parsed_length_cm))
                 if product.parsed_width_cm:
-                    dimensions_parts.append(str(int(product.parsed_width_cm * 10)))   # ×10
+                    dimensions_parts.append(_format_dimension(product.parsed_width_cm))
                 if product.parsed_thickness_cm:
-                    dimensions_parts.append(str(int(product.parsed_thickness_cm * 10))) # ×10
-                dimensions_text = '×'.join(dimensions_parts) + ' mm' if dimensions_parts else 'Brak wymiarów'
+                    dimensions_parts.append(_format_dimension(product.parsed_thickness_cm))
+                dimensions_text = '×'.join(dimensions_parts) + ' cm' if dimensions_parts else 'Brak wymiarów'
                 
                 volume_m3 = float(product.volume_m3) if product.volume_m3 else 0.0
                 total_value = float(product.total_value_net) if product.total_value_net else 0.0
@@ -1560,11 +1621,16 @@ def packaging_station():
                     'thickness_group': product.thickness_group,
                     'client_name': product.client_name,
                     'display_deadline': display_deadline,
+                    'quantity': product.quantity,
+                    'quantity_done': product.quantity_done_packaging,
+                    'is_complete': product.quantity_done_packaging == product.quantity,
+                    'order_notes': product.order_notes,
+                    'client_order_number': product.client_order_number
                 }
-                
+
                 products.append(product_data)
-        
-        # Grupowanie produktów po zamówieniach
+
+        # Grupowanie produktów po zamówieniach (PACKAGING)
         orders_grouped = {}
         for product in products:
             order_number = product['internal_order']
@@ -1572,8 +1638,11 @@ def packaging_station():
                 orders_grouped[order_number] = {
                     'order_number': order_number,
                     'baselinker_order_id': product.get('baselinker_order_id'),
+                    'client_order_number': product.get('client_order_number'),
                     'products': [],
                     'total_products': 0,
+                    'total_quantity': 0,
+                    'total_quantity_done': 0,
                     'total_volume': 0,
                     'total_value': 0,
                     'best_priority_rank': 999,
@@ -1583,46 +1652,48 @@ def packaging_station():
                     'priority_class': 'priority-low',
                     'display_deadline': 'Brak'
                 }
-            
+
             order = orders_grouped[order_number]
             order['products'].append(product)
             order['total_products'] += 1
+            order['total_quantity'] += product.get('quantity', 1) or 1
+            order['total_quantity_done'] += product.get('quantity_done', 0) or 0
             order['total_volume'] += product['volume_m3'] or 0
             order['total_value'] += product['total_value_net'] or 0
-            
+
             # Najlepszy priorytet z zamówienia
             if product['priority_rank'] < order['best_priority_rank']:
                 order['best_priority_rank'] = product['priority_rank']
                 order['priority_label'] = product['priority_label']
                 order['priority_class'] = product['priority_class']
-            
+
             # Najwcześniejszy deadline
             if product['deadline_date']:
                 if order['earliest_deadline'] is None or product['deadline_date'] < order['earliest_deadline']:
                     order['earliest_deadline'] = product['deadline_date']
                     order['display_deadline'] = product['display_deadline']
-            
+
             if product['is_overdue']:
                 order['has_overdue'] = True
-        
+
         # Sortowanie grup zamówień
         if sort_by == 'priority':
             orders_list = sorted(orders_grouped.values(), key=lambda x: x['best_priority_rank'])
         elif sort_by == 'deadline':
-            orders_list = sorted(orders_grouped.values(), 
+            orders_list = sorted(orders_grouped.values(),
                                key=lambda x: x['earliest_deadline'] or date.max)
         else:
             orders_list = list(orders_grouped.values())
-        
+
         # Konfiguracja interfejsu
         config = get_station_config()
-        
-        # Statystyki stanowiska
-        total_products = len(products)
+
+        # Statystyki stanowiska - liczba sztuk (total_quantity), nie pozycji
+        total_products = sum(order['total_quantity'] for order in orders_list)
         total_orders = len(orders_grouped)
         high_priority_count = sum(1 for p in products if p['priority_rank'] <= 50)
         overdue_count = sum(1 for p in products if p['is_overdue'])
-        
+
         station_stats = {
             'total_products': total_products,
             'total_orders': total_orders,
@@ -1660,6 +1731,161 @@ def packaging_station():
             error_details=str(e),
             back_url=url_for('production.production_stations.station_select')
         ), 500
+
+
+# ============================================================================
+# MONITOR PRODUKCJI
+# ============================================================================
+
+@station_bp.route('/monitor')
+def production_monitor():
+    """
+    Monitor produkcji - widok wszystkich zamówień z postępem na bieżącym stanowisku
+
+    Wyświetla zamówienia z:
+    - Postępem (X/Y) bazującym na quantity_done dla bieżącego stanowiska
+    - Statusem zamówienia
+    - Objętością
+
+    Returns:
+        HTML: Interfejs monitora produkcji
+    """
+    try:
+        from ..models import ProductionItem
+        from sqlalchemy import func, case, and_
+
+        logger.info("Dostęp do monitora produkcji", extra={
+            'client_ip': request.remote_addr
+        })
+
+        # Mapowanie statusu na stanowisko i kolumnę quantity_done
+        status_to_station = {
+            'czeka_na_wyciecie': ('cutting', 'quantity_done_cutting'),
+            'czeka_na_skladanie': ('assembly', 'quantity_done_assembly'),
+            'czeka_na_sklejanie': ('gluing', 'quantity_done_gluing'),
+            'czeka_na_formatowanie': ('formatting', 'quantity_done_formatting'),
+            'czeka_na_wykanczanie': ('finishing', 'quantity_done_finishing'),
+            'czeka_na_pakowanie': ('packaging', 'quantity_done_packaging'),
+        }
+
+        status_labels = {
+            'czeka_na_wyciecie': 'Wycinanie',
+            'czeka_na_skladanie': 'Składanie',
+            'czeka_na_sklejanie': 'Sklejanie',
+            'czeka_na_formatowanie': 'Formatowanie',
+            'czeka_na_wykanczanie': 'Wykańczanie',
+            'czeka_na_pakowanie': 'Pakowanie',
+            'spakowane': 'Spakowane',
+        }
+
+        status_class_map = {
+            'czeka_na_wyciecie': 'status-cutting',
+            'czeka_na_skladanie': 'status-assembly',
+            'czeka_na_sklejanie': 'status-gluing',
+            'czeka_na_formatowanie': 'status-formatting',
+            'czeka_na_wykanczanie': 'status-finishing',
+            'czeka_na_pakowanie': 'status-packaging',
+            'spakowane': 'status-completed',
+        }
+
+        # Pobierz wszystkie aktywne zamówienia (nie spakowane)
+        active_orders = db.session.query(
+            ProductionItem.internal_order_number,
+            ProductionItem.baselinker_order_id,
+            ProductionItem.client_order_number
+        ).filter(
+            ProductionItem.current_status != 'spakowane',
+            ProductionItem.internal_order_number.isnot(None)
+        ).distinct().all()
+
+        orders = []
+
+        for order_row in active_orders:
+            order_number = order_row[0]
+            baselinker_id = order_row[1]
+            client_order_number = order_row[2]
+
+            # Pobierz wszystkie produkty tego zamówienia
+            products = ProductionItem.query.filter(
+                ProductionItem.internal_order_number == order_number
+            ).all()
+
+            if not products:
+                continue
+
+            # Oblicz statystyki zamówienia - NOWA LOGIKA Z QUANTITY
+            total_products = sum(p.quantity for p in products)  # Suma wszystkich sztuk
+            total_volume = sum((p.volume_m3 or 0) * p.quantity for p in products)  # Objętość * ilość
+
+            # Znajdź dominujący status (status z największą liczbą produktów)
+            status_counts = {}
+            for p in products:
+                status = p.current_status or 'unknown'
+                status_counts[status] = status_counts.get(status, 0) + p.quantity
+
+            # Dominujący status = ten z największą liczbą produktów
+            dominant_status = max(status_counts, key=status_counts.get)
+
+            # Oblicz completed_products na podstawie quantity_done dla dominującego stanowiska
+            completed_products = 0
+            if dominant_status in status_to_station:
+                station_code, quantity_done_col = status_to_station[dominant_status]
+                # Suma quantity_done dla wszystkich pozycji na tym stanowisku
+                for p in products:
+                    completed_products += getattr(p, quantity_done_col, 0)
+            elif dominant_status == 'spakowane':
+                # Wszystkie produkty są gotowe
+                completed_products = total_products
+
+            orders.append({
+                'order_number': order_number,
+                'baselinker_order_id': baselinker_id,
+                'client_order_number': client_order_number,
+                'total_products': total_products,
+                'completed_products': completed_products,
+                'total_volume': total_volume,
+                'status_label': status_labels.get(dominant_status, dominant_status),
+                'status_class': status_class_map.get(dominant_status, 'status-unknown'),
+                'dominant_status': dominant_status
+            })
+
+        # Sortuj zamówienia (najpierw te z najwyższym postępem, potem alfabetycznie)
+        orders.sort(key=lambda x: (-x['completed_products'] / max(x['total_products'], 1), x['order_number']))
+
+        # Statystyki monitora
+        monitor_stats = {
+            'total_orders': len(orders),
+            'completed_orders': sum(1 for o in orders if o['dominant_status'] == 'spakowane'),
+            'total_products': sum(o['total_products'] for o in orders),
+            'total_volume': sum(o['total_volume'] for o in orders)
+        }
+
+        config = get_station_config()
+        now = datetime.utcnow()
+
+        return render_template(
+            'stations/monitor.html',
+            orders=orders,
+            monitor_stats=monitor_stats,
+            config=config,
+            now=now,
+            page_title="Monitor Produkcji"
+        )
+
+    except Exception as e:
+        logger.error("Błąd monitora produkcji", extra={
+            'client_ip': request.remote_addr,
+            'error': str(e),
+            'traceback': traceback.format_exc()
+        })
+
+        return render_template(
+            'stations/error.html',
+            error_message="Błąd ładowania monitora produkcji",
+            error_details=str(e),
+            back_url=url_for('production.production_stations.station_select')
+        ), 500
+
 
 # ============================================================================
 # AJAX ENDPOINTS DLA INTERFEJSÓW STANOWISK
@@ -1870,7 +2096,10 @@ def ajax_get_orders_packaging():
                 'volume_m3': float(product.volume_m3 or 0),
                 'current_status': product.current_status,
                 'priority_rank': product.priority_rank or 999,
-                'deadline_date': product.deadline_date.isoformat() if product.deadline_date else None
+                'deadline_date': product.deadline_date.isoformat() if product.deadline_date else None,
+                'quantity': product.quantity,
+                'quantity_done': product.quantity_done_packaging,
+                'is_complete': product.quantity_done_packaging == product.quantity
             }
             
             orders_grouped[order_num]['products'].append(product_data)
@@ -2010,7 +2239,7 @@ def ajax_get_orders_cutting():
             'client_ip': request.remote_addr
         })
 
-        # KROK 1: Znajdź zamówienia które mają choć 1 produkt do wycięcia
+        # KROK 1: Znajdź zamówienia które mają choć 1 produkt do wycięcia (AJAX CUTTING)
         orders_with_cutting = db.session.query(
             ProductionItem.internal_order_number
         ).filter(
@@ -2049,7 +2278,7 @@ def ajax_get_orders_cutting():
 
         products = query.all()
 
-        # KROK 3: Grupowanie produktów po zamówieniach
+        # KROK 3: Grupowanie produktów po zamówieniach (AJAX)
         orders_grouped = {}
         today = date.today()
 
@@ -2083,12 +2312,15 @@ def ajax_get_orders_cutting():
                 'priority_rank': product.priority_rank or 999,
                 'deadline_date': product.deadline_date.isoformat() if product.deadline_date else None,
                 'attachment_file_name': product.attachment_file_name,
-                'attachment_file_url': product.attachment_file_url
+                'attachment_file_url': product.attachment_file_url,
+                'quantity': product.quantity,
+                'quantity_done': product.quantity_done_cutting,
+                'is_complete': product.quantity_done_cutting == product.quantity
             }
 
-            # Oblicz wymiary z parsowanych pól (w MM z jednostką)
+            # Oblicz wymiary z parsowanych pól (w CM z jednostką)
             if product.parsed_length_cm and product.parsed_width_cm and product.parsed_thickness_cm:
-                product_data['dimensions'] = f"{int(product.parsed_length_cm * 10)} × {int(product.parsed_width_cm * 10)} × {int(product.parsed_thickness_cm * 10)} mm"
+                product_data['dimensions'] = f"{_format_dimension(product.parsed_length_cm)} × {_format_dimension(product.parsed_width_cm)} × {_format_dimension(product.parsed_thickness_cm)} cm"
 
             orders_grouped[order_num]['products'].append(product_data)
             orders_grouped[order_num]['total_products'] += 1
@@ -2302,12 +2534,15 @@ def ajax_get_orders_assembly():
                 'priority_rank': product.priority_rank or 999,
                 'deadline_date': product.deadline_date.isoformat() if product.deadline_date else None,
                 'attachment_file_name': product.attachment_file_name,
-                'attachment_file_url': product.attachment_file_url
+                'attachment_file_url': product.attachment_file_url,
+                'quantity': product.quantity,
+                'quantity_done': product.quantity_done_assembly,
+                'is_complete': product.quantity_done_assembly == product.quantity
             }
 
             # Oblicz wymiary z parsowanych pól (w MM z jednostką)
             if product.parsed_length_cm and product.parsed_width_cm and product.parsed_thickness_cm:
-                product_data['dimensions'] = f"{int(product.parsed_length_cm * 10)} × {int(product.parsed_width_cm * 10)} × {int(product.parsed_thickness_cm * 10)} mm"
+                product_data['dimensions'] = f"{_format_dimension(product.parsed_length_cm)} × {_format_dimension(product.parsed_width_cm)} × {_format_dimension(product.parsed_thickness_cm)} cm"
 
             orders_grouped[order_num]['products'].append(product_data)
             orders_grouped[order_num]['total_products'] += 1
@@ -2519,12 +2754,15 @@ def ajax_get_orders_gluing():
                 'priority_rank': product.priority_rank or 999,
                 'deadline_date': product.deadline_date.isoformat() if product.deadline_date else None,
                 'attachment_file_name': product.attachment_file_name,
-                'attachment_file_url': product.attachment_file_url
+                'attachment_file_url': product.attachment_file_url,
+                'quantity': product.quantity,
+                'quantity_done': product.quantity_done_gluing,
+                'is_complete': product.quantity_done_gluing == product.quantity
             }
 
             # Oblicz wymiary z parsowanych pól (w MM z jednostką)
             if product.parsed_length_cm and product.parsed_width_cm and product.parsed_thickness_cm:
-                product_data['dimensions'] = f"{int(product.parsed_length_cm * 10)} × {int(product.parsed_width_cm * 10)} × {int(product.parsed_thickness_cm * 10)} mm"
+                product_data['dimensions'] = f"{_format_dimension(product.parsed_length_cm)} × {_format_dimension(product.parsed_width_cm)} × {_format_dimension(product.parsed_thickness_cm)} cm"
 
             orders_grouped[order_num]['products'].append(product_data)
             orders_grouped[order_num]['total_products'] += 1
@@ -2725,12 +2963,15 @@ def ajax_get_orders_formatting():
                 'priority_rank': product.priority_rank or 999,
                 'deadline_date': product.deadline_date.isoformat() if product.deadline_date else None,
                 'attachment_file_name': product.attachment_file_name,
-                'attachment_file_url': product.attachment_file_url
+                'attachment_file_url': product.attachment_file_url,
+                'quantity': product.quantity,
+                'quantity_done': product.quantity_done_formatting,
+                'is_complete': product.quantity_done_formatting == product.quantity
             }
 
             # Oblicz wymiary z parsowanych pól (w MM z jednostką)
             if product.parsed_length_cm and product.parsed_width_cm and product.parsed_thickness_cm:
-                product_data['dimensions'] = f"{int(product.parsed_length_cm * 10)} × {int(product.parsed_width_cm * 10)} × {int(product.parsed_thickness_cm * 10)} mm"
+                product_data['dimensions'] = f"{_format_dimension(product.parsed_length_cm)} × {_format_dimension(product.parsed_width_cm)} × {_format_dimension(product.parsed_thickness_cm)} cm"
 
             orders_grouped[order_num]['products'].append(product_data)
             orders_grouped[order_num]['total_products'] += 1
@@ -2931,12 +3172,15 @@ def ajax_get_orders_finishing():
                 'priority_rank': product.priority_rank or 999,
                 'deadline_date': product.deadline_date.isoformat() if product.deadline_date else None,
                 'attachment_file_name': product.attachment_file_name,
-                'attachment_file_url': product.attachment_file_url
+                'attachment_file_url': product.attachment_file_url,
+                'quantity': product.quantity,
+                'quantity_done': product.quantity_done_finishing,
+                'is_complete': product.quantity_done_finishing == product.quantity
             }
 
             # Oblicz wymiary z parsowanych pól (w MM z jednostką)
             if product.parsed_length_cm and product.parsed_width_cm and product.parsed_thickness_cm:
-                product_data['dimensions'] = f"{int(product.parsed_length_cm * 10)} × {int(product.parsed_width_cm * 10)} × {int(product.parsed_thickness_cm * 10)} mm"
+                product_data['dimensions'] = f"{_format_dimension(product.parsed_length_cm)} × {_format_dimension(product.parsed_width_cm)} × {_format_dimension(product.parsed_thickness_cm)} cm"
 
             orders_grouped[order_num]['products'].append(product_data)
             orders_grouped[order_num]['total_products'] += 1
@@ -3129,6 +3373,141 @@ def ajax_station_today_m3(station_code):
             'success': False,
             'error': f'Błąd pobierania danych: {str(e)}'
         }), 500
+
+
+@station_bp.route('/ajax/monitor')
+def ajax_monitor_data():
+    """
+    AJAX endpoint dla monitora produkcji
+
+    Zwraca listę zamówień z postępem (quantity_done) dla bieżącego stanowiska.
+
+    Returns:
+        JSON: {
+            success: bool,
+            orders: [...],
+            stats: {...}
+        }
+    """
+    try:
+        from ..models import ProductionItem
+
+        logger.debug("AJAX monitor - pobieranie danych")
+
+        # Mapowanie statusu na kolumnę quantity_done
+        status_to_station = {
+            'czeka_na_wyciecie': ('cutting', 'quantity_done_cutting'),
+            'czeka_na_skladanie': ('assembly', 'quantity_done_assembly'),
+            'czeka_na_sklejanie': ('gluing', 'quantity_done_gluing'),
+            'czeka_na_formatowanie': ('formatting', 'quantity_done_formatting'),
+            'czeka_na_wykanczanie': ('finishing', 'quantity_done_finishing'),
+            'czeka_na_pakowanie': ('packaging', 'quantity_done_packaging'),
+        }
+
+        status_labels = {
+            'czeka_na_wyciecie': 'Wycinanie',
+            'czeka_na_skladanie': 'Skladanie',
+            'czeka_na_sklejanie': 'Sklejanie',
+            'czeka_na_formatowanie': 'Formatowanie',
+            'czeka_na_wykanczanie': 'Wykonczanie',
+            'czeka_na_pakowanie': 'Pakowanie',
+            'spakowane': 'Spakowane',
+        }
+
+        status_class_map = {
+            'czeka_na_wyciecie': 'status-cutting',
+            'czeka_na_skladanie': 'status-assembly',
+            'czeka_na_sklejanie': 'status-gluing',
+            'czeka_na_formatowanie': 'status-formatting',
+            'czeka_na_wykanczanie': 'status-finishing',
+            'czeka_na_pakowanie': 'status-packaging',
+            'spakowane': 'status-completed',
+        }
+
+        # Pobierz wszystkie aktywne zamówienia (nie spakowane)
+        active_orders = db.session.query(
+            ProductionItem.internal_order_number,
+            ProductionItem.baselinker_order_id
+        ).filter(
+            ProductionItem.current_status != 'spakowane',
+            ProductionItem.internal_order_number.isnot(None)
+        ).distinct().all()
+
+        orders = []
+
+        for order_row in active_orders:
+            order_number = order_row[0]
+            baselinker_id = order_row[1]
+
+            # Pobierz wszystkie produkty tego zamówienia
+            products = ProductionItem.query.filter(
+                ProductionItem.internal_order_number == order_number
+            ).all()
+
+            if not products:
+                continue
+
+            # Oblicz statystyki zamówienia - NOWA LOGIKA Z QUANTITY
+            total_products = sum(p.quantity for p in products)  # Suma wszystkich sztuk
+            total_volume = sum((p.volume_m3 or 0) * p.quantity for p in products)
+
+            # Znajdź dominujący status
+            status_counts = {}
+            for p in products:
+                status = p.current_status or 'unknown'
+                status_counts[status] = status_counts.get(status, 0) + p.quantity
+
+            dominant_status = max(status_counts, key=status_counts.get)
+
+            # Oblicz completed_products na podstawie quantity_done
+            completed_products = 0
+            if dominant_status in status_to_station:
+                station_code, quantity_done_col = status_to_station[dominant_status]
+                for p in products:
+                    completed_products += getattr(p, quantity_done_col, 0)
+            elif dominant_status == 'spakowane':
+                completed_products = total_products
+
+            orders.append({
+                'order_number': order_number,
+                'baselinker_order_id': baselinker_id,
+                'total_products': total_products,
+                'completed_products': completed_products,
+                'total_volume': total_volume,
+                'status_label': status_labels.get(dominant_status, dominant_status),
+                'status_class': status_class_map.get(dominant_status, 'status-unknown'),
+                'dominant_status': dominant_status
+            })
+
+        # Sortuj zamówienia
+        orders.sort(key=lambda x: (-x['completed_products'] / max(x['total_products'], 1), x['order_number']))
+
+        # Statystyki
+        stats = {
+            'total_orders': len(orders),
+            'completed_orders': sum(1 for o in orders if o['dominant_status'] == 'spakowane'),
+            'total_products': sum(o['total_products'] for o in orders),
+            'total_volume': sum(o['total_volume'] for o in orders)
+        }
+
+        return jsonify({
+            'success': True,
+            'orders': orders,
+            'stats': stats,
+            'last_updated': datetime.utcnow().isoformat()
+        })
+
+    except Exception as e:
+        logger.error("Błąd AJAX monitor", extra={
+            'error': str(e),
+            'traceback': traceback.format_exc()
+        })
+
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
 
 # ============================================================================
 # BULK COMPLETION ENDPOINT - Order-based stations (all 6 stations)

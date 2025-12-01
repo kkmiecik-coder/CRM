@@ -481,10 +481,10 @@ function showEmptyState() {
  * @param {Object} stats - Stats object
  */
 function updateStatsBar(stats) {
-    // Products count
-    const totalElement = document.getElementById('total-products');
-    if (totalElement) {
-        totalElement.textContent = stats.total_products || 0;
+    // Orders count
+    const totalOrdersElement = document.getElementById('total-orders');
+    if (totalOrdersElement) {
+        totalOrdersElement.textContent = stats.total_orders || 0;
     }
 
     // High priority count
@@ -849,3 +849,81 @@ window.StationCommon = {
 };
 
 console.log('[Station] Common utilities loaded (v2.0)');
+
+/* ============================================================================
+   NOTES MODAL - Popup z uwagami do zamówienia
+   ============================================================================ */
+
+/**
+ * Otwiera modal z uwagami
+ * @param {string} notesContent - Treść uwag
+ */
+function openNotesModal(notesContent) {
+    const modal = document.getElementById('notesModal');
+    const contentDiv = document.getElementById('notesModalContent');
+
+    if (!modal || !contentDiv) {
+        console.warn('[Notes] Modal elements not found');
+        return;
+    }
+
+    contentDiv.textContent = notesContent;
+    modal.classList.add('active');
+
+    // Zamknij przy kliknięciu w tło
+    modal.onclick = function(e) {
+        if (e.target === modal) {
+            closeNotesModal();
+        }
+    };
+
+    // Zamknij przy ESC
+    document.addEventListener('keydown', handleNotesModalEsc);
+}
+
+/**
+ * Zamyka modal z uwagami
+ */
+function closeNotesModal() {
+    const modal = document.getElementById('notesModal');
+    if (modal) {
+        modal.classList.remove('active');
+    }
+    document.removeEventListener('keydown', handleNotesModalEsc);
+}
+
+/**
+ * Handler dla ESC w modalu uwag
+ */
+function handleNotesModalEsc(e) {
+    if (e.key === 'Escape') {
+        closeNotesModal();
+    }
+}
+
+/**
+ * Inicjalizuje event listenery dla ikon uwag
+ */
+function initNotesIcons() {
+    document.querySelectorAll('.notes-icon-wrapper').forEach(wrapper => {
+        wrapper.addEventListener('click', function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            const notes = this.dataset.notes;
+            if (notes) {
+                openNotesModal(notes);
+            }
+        });
+    });
+    console.log('[Notes] Icons initialized');
+}
+
+// Eksportuj do globalnego scope
+window.openNotesModal = openNotesModal;
+window.closeNotesModal = closeNotesModal;
+window.initNotesIcons = initNotesIcons;
+
+// Auto-init przy załadowaniu DOM
+document.addEventListener('DOMContentLoaded', function() {
+    initNotesIcons();
+});

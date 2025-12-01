@@ -21,7 +21,7 @@
             <div class="col-md-3">
                 <div class="stat-card stat-card-sm">
                     <div class="stat-value" id="stats-total-count">0</div>
-                    <div class="stat-label">Produktów</div>
+                    <div class="stat-label">Pozycji</div>
                 </div>
             </div>
             <div class="col-md-3">
@@ -57,7 +57,7 @@
                     <input type="text"
                            id="products-text-search"
                            class="form-control"
-                           placeholder="Numer, nazwa produktu, klient..."
+                           placeholder="Numer zamówienia, ID produktu, klient..."
                            autocomplete="off">
                     <span class="input-group-text search-spinner d-none">
                         <i class="fas fa-spinner fa-spin"></i>
@@ -228,35 +228,45 @@
 
         <!-- NAGŁÓWEK LISTY PRODUKTÓW -->
         <div class="prod_list-header">
+            <!-- 1. Checkbox -->
             <div class="prod_list-header-cell">
                 <input type="checkbox" id="select-all-products" class="form-check-input">
                 <span class="sr-only">Zaznacz wszystkie produkty</span>
             </div>
+            <!-- 2. Drag handle -->
             <div class="prod_list-header-cell">
                 <i class="fas fa-arrows-alt text-muted" title="Przeciągnij aby zmienić priorytet"></i>
                 <span class="sr-only">Drag handle</span>
             </div>
+            <!-- 3. Priorytet -->
             <div class="prod_list-header-cell prod_list-sortable-header sortable-header" data-sort="priority_rank" tabindex="0">
                 Priorytet <i class="fas fa-sort"></i>
             </div>
+            <!-- 4. Klient -->
+            <div class="prod_list-header-cell prod_list-sortable-header sortable-header" data-sort="client_name" tabindex="0">
+                Klient <i class="fas fa-sort"></i>
+            </div>
+            <!-- 5. Produkt -->
             <div class="prod_list-header-cell prod_list-sortable-header sortable-header" data-sort="original_product_name" tabindex="0">
                 Produkt <i class="fas fa-sort"></i>
             </div>
-            <div class="prod_list-header-cell prod_list-sortable-header sortable-header" data-sort="parsed_wood_species" tabindex="0">
-                Tagi <i class="fas fa-sort"></i>
+            <!-- 6. Ilość -->
+            <div class="prod_list-header-cell prod_list-sortable-header sortable-header" data-sort="quantity" tabindex="0">
+                Ilość <i class="fas fa-sort"></i>
             </div>
+            <!-- 7. Objętość -->
             <div class="prod_list-header-cell prod_list-sortable-header sortable-header" data-sort="volume_m3" tabindex="0">
                 Objętość <i class="fas fa-sort"></i>
             </div>
-            <div class="prod_list-header-cell prod_list-sortable-header sortable-header" data-sort="total_value_net" tabindex="0">
-                Wartość <i class="fas fa-sort"></i>
-            </div>
+            <!-- 8. Status -->
             <div class="prod_list-header-cell prod_list-sortable-header sortable-header" data-sort="current_status" tabindex="0">
                 Status <i class="fas fa-sort"></i>
             </div>
+            <!-- 9. Deadline -->
             <div class="prod_list-header-cell prod_list-sortable-header sortable-header" data-sort="deadline_date" tabindex="0">
                 Deadline <i class="fas fa-sort"></i>
             </div>
+            <!-- 10. Akcje -->
             <div class="prod_list-header-cell">
                 Akcje
             </div>
@@ -337,38 +347,48 @@
 <!-- TEMPLATE: WIERSZ PRODUKTU -->
 <template id="product-row-template">
     <div class="prod_list-product-row" data-product-id="" data-priority="" data-status="">
+        <!-- 1. Checkbox -->
         <div class="prod_list-checkbox-cell">
             <input type="checkbox" class="form-check-input prod_list-product-checkbox" />
         </div>
+        <!-- 2. Chwytak (drag) -->
         <div class="prod_list-drag-cell" draggable="true">
             <i class="fas fa-grip-vertical"></i>
         </div>
+        <!-- 3. Priorytet -->
         <div class="prod_list-priority-cell">
             <div class="prod_list-priority-rank">0</div>
         </div>
-        <div class="prod_list-product-info">
-            <div class="prod_list-product-name"></div>
-            <div class="prod_list-product-details">
-                <div class="prod_list-product-id"></div>
-                <div class="prod_list-baselinker-order"></div>
+        <!-- 4. Klient (nazwa + numery zamówień) -->
+        <div class="prod_list-client-cell">
+            <div class="prod_list-client-name"></div>
+            <div class="prod_list-order-numbers">
+                <span class="prod_list-client-order-number"></span>
+                <span class="prod_list-bl-order-number"></span>
             </div>
         </div>
-        <div class="prod_list-tags-cell">
-            <!-- Tags będą dodawane przez JS -->
+        <!-- 5. Produkt (nazwa + ID systemowy) -->
+        <div class="prod_list-product-info">
+            <div class="prod_list-product-name"></div>
+            <div class="prod_list-product-id"></div>
         </div>
+        <!-- 6. Ilość -->
+        <div class="prod_list-quantity-cell">
+            <div class="prod_list-quantity-value"></div>
+        </div>
+        <!-- 7. Objętość -->
         <div class="prod_list-volume-cell">
             <div class="prod_list-volume-value"></div>
         </div>
-        <div class="prod_list-value-cell">
-            <div class="prod_list-currency-value"></div>
-        </div>
+        <!-- 8. Status -->
         <div class="prod_list-status-cell">
             <span class="prod_list-status-badge"></span>
         </div>
+        <!-- 9. Deadline -->
         <div class="prod_list-deadline-cell">
-            <div class="prod_list-deadline-badge"></div>
-            <div class="prod_list-deadline-date"></div>
+            <span class="prod_list-deadline-value"></span>
         </div>
+        <!-- 10. Akcje -->
         <div class="prod_list-actions-cell">
             <span class="prod_list-attachment-icon" title="Produkt ma załącznik" style="display: none;">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -714,11 +734,14 @@
                         
                         <!-- Timeline produkcji -->
                         <div class="mb-4">
-                            <h6 class="mb-3">
-                                <i class="fas fa-route me-2"></i>
-                                Przepływ produkcji
+                            <h6 class="mb-3 d-flex align-items-center justify-content-between">
+                                <span>
+                                    <i class="fas fa-route me-2"></i>
+                                    Przepływ produkcji
+                                </span>
+                                <span class="badge bg-primary" id="quantityBadge" style="font-size: 0.75rem;">0/0 szt.</span>
                             </h6>
-                            
+
                             <div class="production-timeline" id="productionTimeline">
                                 <!-- Timeline will be populated by JavaScript -->
                             </div>
@@ -735,6 +758,10 @@
                                     <img src="/static/icons/baselinker.svg" style="width: 16px; height: 16px;" class="me-2">
                                     Otwórz w Baselinker
                                 </a>
+                                <button class="btn-action btn-primary-custom" id="refreshFromBaselinkerBtn" data-baselinker-order-id="">
+                                    <i class="fas fa-sync-alt me-2"></i>
+                                    Odśwież z Baselinker
+                                </button>
                             </div>
                         </div>
 
@@ -793,6 +820,100 @@
     </div>
 </template>
 
+<!-- ============================================================================
+     MODAL PORÓWNANIA BASELINKER
+     ============================================================================ -->
+<div class="modal fade" id="baselinkerCompareModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">
+                    <i class="fas fa-sync-alt me-2"></i>
+                    Porównanie z Baselinker
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Zamknij"></button>
+            </div>
+            <div class="modal-body">
+                <!-- Loading state -->
+                <div id="blCompareLoading" class="text-center py-5">
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="visually-hidden">Ładowanie...</span>
+                    </div>
+                    <p class="mt-3 text-muted">Pobieranie danych z Baselinker...</p>
+                </div>
+
+                <!-- Error state -->
+                <div id="blCompareError" class="alert alert-danger" style="display: none;">
+                    <i class="fas fa-exclamation-triangle me-2"></i>
+                    <span id="blCompareErrorText"></span>
+                </div>
+
+                <!-- No changes state -->
+                <div id="blCompareNoChanges" class="text-center py-5" style="display: none;">
+                    <div class="display-1 text-success mb-3">✓</div>
+                    <h4>Brak zmian</h4>
+                    <p class="text-muted">Zamówienie jest zsynchronizowane z Baselinker. Nie wykryto żadnych różnic.</p>
+                </div>
+
+                <!-- Changes content -->
+                <div id="blCompareContent" style="display: none;">
+                    <div class="alert alert-info mb-4">
+                        <i class="fas fa-info-circle me-2"></i>
+                        Wykryto zmiany w zamówieniu <strong id="blCompareOrderNumber"></strong>.
+                        Przejrzyj poniższe zmiany i zatwierdź aktualizację.
+                    </div>
+
+                    <!-- Produkty do usunięcia -->
+                    <div id="blProductsToRemove" class="mb-4" style="display: none;">
+                        <h6 class="text-danger mb-3">
+                            <i class="fas fa-trash-alt me-2"></i>
+                            Produkty do usunięcia
+                            <span class="badge bg-danger ms-2" id="blRemoveCount">0</span>
+                        </h6>
+                        <div class="bl-changes-list" id="blRemoveList"></div>
+                    </div>
+
+                    <!-- Produkty do dodania -->
+                    <div id="blProductsToAdd" class="mb-4" style="display: none;">
+                        <h6 class="text-success mb-3">
+                            <i class="fas fa-plus-circle me-2"></i>
+                            Produkty do dodania
+                            <span class="badge bg-success ms-2" id="blAddCount">0</span>
+                        </h6>
+                        <div class="bl-changes-list" id="blAddList"></div>
+                    </div>
+
+                    <!-- Produkty do aktualizacji -->
+                    <div id="blProductsToUpdate" class="mb-4" style="display: none;">
+                        <h6 class="text-warning mb-3">
+                            <i class="fas fa-edit me-2"></i>
+                            Produkty ze zmianami
+                            <span class="badge bg-warning text-dark ms-2" id="blUpdateCount">0</span>
+                        </h6>
+                        <div class="bl-changes-list" id="blUpdateList"></div>
+                    </div>
+
+                    <!-- Zmiany na poziomie zamówienia -->
+                    <div id="blOrderLevelChanges" class="mb-4" style="display: none;">
+                        <h6 class="text-info mb-3">
+                            <i class="fas fa-clipboard-list me-2"></i>
+                            Zmiany danych zamówienia
+                        </h6>
+                        <div class="bl-changes-list" id="blOrderLevelList"></div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+                    <i class="fas fa-times me-2"></i>Anuluj
+                </button>
+                <button type="button" class="btn btn-primary" id="blApplyChangesBtn" disabled>
+                    <i class="fas fa-check me-2"></i>Zastosuj wszystkie zmiany
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
 
 <!-- ============================================================================
      INICJALIZACJA JAVASCRIPT - PLACEHOLDER

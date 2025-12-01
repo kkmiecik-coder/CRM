@@ -1,21 +1,38 @@
 /* ============================================================================
-   STATION PACKAGING CSS - Dedykowane style dla stanowiska pakowania
-   Bazuje na cutting/assembly, ale z layoutem order cards
+   STATION PACKAGING CSS - Order-based layout z Masonry
    ============================================================================ */
 
 /* ============================================================================
-   ORDERS LIST (grid 2 kolumny)
+   ORDERS LIST - MASONRY LAYOUT (zgodnie z PRD Section 3.3)
    ============================================================================ */
 .orders-list {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 24px;
+    column-count: 1;
+    column-gap: 20px;
 }
 
-/* Responsive - 1 kolumna na telefonie */
+.order-card {
+    break-inside: avoid;
+    margin-bottom: 20px;
+}
+
+/* Telefon (portrait) - 1 kolumna */
 @media (max-width: 767px) {
     .orders-list {
-        grid-template-columns: 1fr;
+        column-count: 1;
+    }
+}
+
+/* Tablet (portrait) - 2 kolumny */
+@media (min-width: 768px) {
+    .orders-list {
+        column-count: 2;
+    }
+}
+
+/* Desktop/Tablet (landscape) - 3 kolumny */
+@media (min-width: 1024px) {
+    .orders-list {
+        column-count: 3;
     }
 }
 
@@ -24,9 +41,9 @@
    ============================================================================ */
 .order-card {
     background: var(--bg-card);
-    border: 1px solid var(--border-color);
+    border: 2px solid var(--border-color);
     border-radius: 12px;
-    overflow: hidden;
+    overflow: visible; /* ZMIENIONE: było hidden - obcinało tooltips */
     transition: var(--transition-base);
     box-shadow: var(--shadow-sm);
     display: flex;
@@ -58,61 +75,88 @@
 }
 
 /* ============================================================================
-   ORDER HEADER
+   ORDER HEADER - 2 ROWS LAYOUT
    ============================================================================ */
 .order-header {
-    padding: 16px 20px;
     background: var(--bg-header);
     border-bottom: 1px solid var(--border-color);
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    border-radius: 12px 12px 0 0;
 }
 
-.order-title {
+/* Row styles */
+.order-header-row {
     display: flex;
     align-items: center;
-    gap: 16px;
-    flex-wrap: wrap;
+    width: 100%;
+}
+
+/* Row 1: Order IDs with space-between */
+.order-ids-row {
+    justify-content: space-between;
+    gap: 12px;
+    padding: 8px 20px;
+}
+
+/* Row 2: Stats left, Icons right */
+.order-stats-row {
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 20px;
+    border-top: 1px solid var(--border-color-light);
 }
 
 .order-number {
-    font-size: 16px;
-    font-weight: bold;
+    font-size: 15px;
+    font-weight: 700;
     color: var(--accent-orange);
-    font-family: 'Courier New', monospace;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
 }
 
 .order-baselinker {
-    font-size: 16px;
-    font-weight: bold;
+    font-size: 14px;
+    font-weight: 600;
     color: var(--accent-blue);
-    font-family: 'Courier New', monospace;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
 }
 
-.order-summary {
-    display: flex;
-    align-items: center;
-    gap: 20px;
-    flex-wrap: wrap;
-}
-
-.deadline-info {
+.order-client-number {
     font-size: 14px;
     font-weight: 600;
-    color: var(--text-secondary);
+    color: #ffffff;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
 }
 
-.summary-stats {
-    font-size: 14px;
+body.light-mode .order-client-number {
+    color: #212529;
+}
+
+.order-stats {
+    color: var(--text-primary);
     font-weight: 600;
-    color: var(--text-secondary);
-    font-family: 'Courier New', monospace;
+    font-size: 14px;
+    white-space: nowrap;
 }
 
 .products-checked {
-    color: var(--accent-orange);
+    color: var(--accent-green);
     font-weight: bold;
+}
+
+/* Icons container */
+.order-icons {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+/* Deadline info (used in packaging) */
+.deadline-info {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
 }
 
 /* ============================================================================
@@ -122,18 +166,24 @@
     display: flex;
     flex-direction: column;
     background: var(--bg-card);
+    max-height: 600px;
+    overflow-y: auto;
+    overflow-x: visible; /* DODANE: pozwól tooltipom wychodzić poza kontener */
 }
 
 /* ============================================================================
    PRODUCT ROW
    ============================================================================ */
 .product-row {
-    display: flex;
+    display: grid;
+    grid-template-columns: 1fr auto;
     align-items: center;
     gap: 16px;
     padding: 14px 20px;
     border-bottom: 1px solid var(--border-color-light);
     transition: background var(--transition-fast);
+    position: relative;
+    overflow: visible;
 }
 
     .product-row:last-child {
@@ -153,107 +203,329 @@ body.light-mode .product-row.product-not-ready {
     background: rgba(220, 53, 69, 0.05);
 }
 
+/* LEFT COLUMN: Product Info (badges stack vertically) */
+.product-left-col {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    flex: 1;
+    min-width: 0;
+    width: 100%;
+}
+
 /* ============================================================================
-   CHECKBOX STYLING
+   QUANTITY CONTROLS - Przyciski +/- zamiast checkboxów
    ============================================================================ */
-.product-checkbox {
+
+/* Domyślny układ: pionowy (licznik nad przyciskami) dla małych ilości */
+.quantity-controls {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+    position: relative;
+    z-index: 1;
+}
+
+/* Układ poziomy dla dużych ilości (>=10) */
+.quantity-controls:has(.grid-layout) {
+    flex-direction: row;
+    gap: 12px;
+}
+
+/* Licznik ilości */
+.quantity-counter {
     display: flex;
     align-items: center;
     justify-content: center;
-    flex-shrink: 0;
+    gap: 4px;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    font-size: 20px;
+    font-weight: 700;
+    color: var(--text-primary);
+    min-width: 60px;
+}
+
+.qty-done {
+    color: var(--accent-orange);
+    min-width: 24px;
+    text-align: right;
+}
+
+.qty-separator {
+    color: var(--text-tertiary);
+}
+
+.qty-total {
+    color: var(--text-secondary);
+    min-width: 24px;
+    text-align: left;
+}
+
+/* Kontener przycisków - domyślnie flex poziomy */
+.quantity-buttons {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+/* Grid 2x2 dla dużych ilości (>=10 szt) */
+.quantity-buttons.grid-layout {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    grid-template-rows: 1fr 1fr;
+    gap: 4px;
+}
+
+/* Kolejność w grid: -, + na górze; -10, +10 na dole */
+.quantity-buttons.grid-layout .btn-minus { order: 1; }
+.quantity-buttons.grid-layout .btn-plus { order: 2; }
+.quantity-buttons.grid-layout .btn-minus-10 { order: 3; }
+.quantity-buttons.grid-layout .btn-plus-10 { order: 4; }
+
+/* Przyciski +/- */
+.btn-qty {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 44px;
+    height: 44px;
+    border: 2px solid var(--border-color);
+    border-radius: 8px;
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+    font-size: 24px;
+    font-weight: bold;
+    cursor: pointer;
+    transition: all var(--transition-fast);
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
+}
+
+.btn-qty:hover:not(:disabled) {
+    border-color: var(--accent-orange);
+    background: var(--bg-tertiary);
+    transform: scale(1.05);
+}
+
+.btn-qty:active:not(:disabled) {
+    transform: scale(0.95);
+}
+
+.btn-qty:disabled {
+    opacity: 0.3;
+    cursor: not-allowed;
+    background: var(--bg-primary);
+}
+
+/* Przycisk minus - czerwonawy akcent */
+.btn-minus {
+    border-color: rgba(220, 53, 69, 0.4);
+    color: #dc3545;
+}
+
+.btn-minus:hover:not(:disabled) {
+    border-color: #dc3545;
+    background: rgba(220, 53, 69, 0.15);
+}
+
+/* Przycisk plus - zielony akcent */
+.btn-plus {
+    border-color: rgba(40, 167, 69, 0.4);
+    color: #28a745;
+}
+
+.btn-plus:hover:not(:disabled) {
+    border-color: #28a745;
+    background: rgba(40, 167, 69, 0.15);
+}
+
+/* Przyciski ±10 - mniejsze, z tekstem */
+.btn-minus-10,
+.btn-plus-10 {
+    width: 48px;
+    font-size: 14px;
+    font-weight: 600;
+}
+
+.btn-minus-10 {
+    border-color: rgba(220, 53, 69, 0.3);
+    color: #dc3545;
+}
+
+.btn-minus-10:hover:not(:disabled) {
+    border-color: #dc3545;
+    background: rgba(220, 53, 69, 0.1);
+}
+
+.btn-plus-10 {
+    border-color: rgba(40, 167, 69, 0.3);
+    color: #28a745;
+}
+
+.btn-plus-10:hover:not(:disabled) {
+    border-color: #28a745;
+    background: rgba(40, 167, 69, 0.1);
+}
+
+/* Light mode adjustments */
+body.light-mode .btn-qty {
+    background: var(--bg-card);
+}
+
+body.light-mode .btn-qty:hover:not(:disabled) {
+    background: var(--bg-tertiary);
+}
+
+body.light-mode .btn-minus {
+    border-color: rgba(220, 53, 69, 0.5);
+}
+
+body.light-mode .btn-plus {
+    border-color: rgba(40, 167, 69, 0.5);
+}
+
+/* Produkt ukończony - podświetlenie */
+.product-row.product-complete {
+    background: rgba(40, 167, 69, 0.08);
+    border-left: 3px solid #28a745;
+}
+
+.product-row.product-complete .qty-done {
+    color: #28a745;
+}
+
+body.light-mode .product-row.product-complete {
+    background: rgba(40, 167, 69, 0.1);
+}
+
+/* Animacja aktualizacji licznika */
+@keyframes quantity-pulse {
+    0% {
+        transform: scale(1);
+    }
+    50% {
+        transform: scale(1.15);
+    }
+    100% {
+        transform: scale(1);
+    }
+}
+
+.qty-done.updating {
+    animation: quantity-pulse 0.2s ease-out;
+}
+
+/* Disabled podczas offline */
+.btn-qty.offline-disabled {
+    opacity: 0.3;
+    cursor: not-allowed;
+    pointer-events: none;
+}
+
+/* LEGACY - zachowane dla kompatybilności wstecznej */
+.product-checkbox {
+    display: none;
 }
 
 .product-check {
-    appearance: none;
-    width: 28px;
-    height: 28px;
-    border: 2px solid var(--border-color);
-    border-radius: 6px;
-    background: var(--bg-primary);
-    cursor: pointer;
-    position: relative;
-    transition: all var(--transition-fast);
-}
-
-    .product-check:hover:not(:disabled) {
-        border-color: var(--accent-orange);
-    }
-
-    .product-check:checked {
-        background: var(--accent-orange);
-        border-color: var(--accent-orange);
-    }
-
-        .product-check:checked::after {
-            content: '✓';
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            color: white;
-            font-size: 18px;
-            font-weight: bold;
-        }
-
-    .product-check:disabled {
-        opacity: 0.4;
-        cursor: not-allowed;
-    }
-
-.product-checkbox label {
     display: none;
 }
 
 /* ============================================================================
-   PRODUCT INFO
+   PRODUCT ID + ATTACHMENT
    ============================================================================ */
-.product-info {
-    flex: 1;
-    min-width: 0;
+.product-id-wrapper {
     display: flex;
-    flex-direction: column;
+    align-items: center;
     gap: 8px;
+    min-width: 0;
 }
 
 .product-id {
-    font-family: var(--font-family-mono);
-    font-size: var(--font-size-sm);
-    font-weight: var(--font-weight-bold);
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    font-size: 13px;
+    font-weight: 600;
     color: var(--accent-orange);
-    padding: var(--spacing-xs) var(--spacing-sm);
-    background: var(--bg-secondary);
-    border-radius: var(--border-radius-sm);
-    min-width: 100px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
-/* PRODUCT DETAILS - kontener na badges i nazwę */
-.product-details {
-    flex: 1;
-    min-width: 0;
+/* ============================================================================
+   PRODUCT INFO CONTAINER
+   ============================================================================ */
+.product-info {
     display: flex;
     flex-direction: column;
-    gap: 6px;
+    gap: 10px;
+    width: 100%;
+    min-width: 0;
 }
 
-/* BADGES */
-.product-badges {
+/* Usuń gap gdy product-params jest ukryty */
+.product-info:has(.product-params[style*="display: none"]) {
+    gap: 0;
+}
+
+/* Małe badges z parametrami (wood_species, technology, wood_class) */
+.product-params {
     display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
-    margin: 4px 0;
-    align-items: flex-start;
+    flex-wrap: nowrap;
+    gap: 8px;
+    width: 100%;
+}
+
+.product-params .badge {
+    flex: 1;
+    min-width: 0;
+    text-align: center;
 }
 
 .badge {
-    padding: 4px 8px;
-    border-radius: 6px;
-    font-size: 12px;
-    font-weight: bold;
+    padding: 6px 12px;
+    border-radius: 8px;
+    font-size: 14px;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.3px;
     border: 2px solid;
     white-space: nowrap;
-    flex-shrink: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* Wiersz z wymiarami */
+.product-dimensions-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+}
+
+/* Badge wymiarów w product-dimensions-row */
+.product-dimensions-row .badge-dimensions {
+    flex: 1;
+    padding: 8px 16px;
+    border-radius: 8px;
+    font-size: 18px;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    font-weight: 600;
+    background: var(--bg-tertiary);
+    border: 2px solid var(--border-color);
+    color: var(--text-primary);
+    text-align: center;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+body.light-mode .product-dimensions-row .badge-dimensions {
+    background: #e9ecef;
+    border-color: #ced4da;
+    color: #495057;
 }
 
 /* Gatunek drewna - BUK (domyślny brązowy) */
@@ -406,7 +678,7 @@ body.light-mode .badge-finish {
     background: var(--bg-tertiary);
     border-color: var(--border-color);
     color: var(--text-primary);
-    font-family: var(--font-family-mono);
+    font-family: 'Courier New', monospace;
 }
 
 body.light-mode .badge-dimensions {
@@ -415,161 +687,295 @@ body.light-mode .badge-dimensions {
     color: #495057;
 }
 
-.product-name {
-    font-size: 13px;
-    color: var(--text-primary);
-    line-height: 1.4;
-    word-wrap: break-word;
-    overflow-wrap: break-word;
-    white-space: normal;
-}
-
 /* ============================================================================
-   PRODUCT VOLUME
-   ============================================================================ */
-.product-volume {
-    font-family: var(--font-family-mono);
-    font-size: 13px;
-    font-weight: bold;
-    color: var(--text-secondary);
-    flex-shrink: 0;
-    margin-left: auto;
-}
-
-/* ============================================================================
-   ORDER ACTION (przycisk na dole)
+   ORDER ACTION (button)
    ============================================================================ */
 .order-action {
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-    align-items: stretch;
+    border-top: 1px solid var(--border-color);
+    background: var(--bg-card);
+    border-radius: 0 0 12px 12px;
 }
 
-.action-countdown {
-    display: flex;
-    flex-direction: row;
-    gap: 10px;
-    align-items: center;
-    width: 100%;
-}
-
-/* Przycisk SPAKOWANE (używa tych samych klas co btn-complete) */
 .btn-complete {
     width: 100%;
-    padding: 16px;
-    background: var(--btn-primary);
-    color: white;
-    border: none;
-    border-radius: 10px;
+    padding: 14px 24px;
     font-size: 16px;
     font-weight: bold;
+    border-radius: 8px;
+    border: none;
     cursor: pointer;
-    transition: var(--transition-fast);
+    transition: all var(--transition-fast);
     text-transform: uppercase;
     letter-spacing: 1px;
+    background: var(--accent-orange);
+    color: white;
 }
 
-    .btn-complete:hover:not(:disabled) {
-        background: var(--btn-primary-hover);
+    .btn-complete:hover:not(:disabled):not(.processing):not(.saving):not(.success) {
+        background: #ff8833;
+        box-shadow: var(--shadow-md);
+    }
+
+    .btn-complete:active:not(:disabled):not(.processing):not(.saving):not(.success) {
+        transform: translateY(0);
     }
 
     .btn-complete:disabled {
-        background: var(--border-color);
-        color: var(--text-tertiary);
+        opacity: 0.4;
         cursor: not-allowed;
-        opacity: 0.5;
+        background: var(--bg-tertiary);
+        color: var(--text-disabled);
     }
 
     .btn-complete.processing {
-        background: var(--btn-processing);
-        cursor: not-allowed;
-        flex: 1;
-        width: auto;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        gap: 8px;
-        font-size: 15px;
+        background: var(--accent-orange);
+        cursor: default;
+        pointer-events: none;
+    }
+
+    .btn-complete.saving {
+        background: var(--accent-blue);
+        cursor: wait;
+        pointer-events: none;
     }
 
     .btn-complete.success {
-        background: var(--btn-success);
+        background: var(--accent-green);
+        cursor: default;
+        pointer-events: none;
     }
 
 /* ============================================================================
    RESPONSIVE
    ============================================================================ */
+
+/* Tablet (768px - 1023px) - 2 kolumny */
+@media (min-width: 768px) and (max-width: 1023px) {
+    .product-left-col {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 8px;
+    }
+
+    .product-id-wrapper {
+        margin-left: 0;
+    }
+
+    /* Quantity controls - mniejsze na tablecie */
+    .quantity-counter {
+        font-size: 18px;
+    }
+
+    .btn-qty {
+        width: 40px;
+        height: 40px;
+        font-size: 20px;
+    }
+
+    .btn-minus-10,
+    .btn-plus-10 {
+        width: 44px;
+        font-size: 12px;
+    }
+}
+
+/* Mobile (max-width: 767px) */
 @media (max-width: 767px) {
-    .order-header {
-        padding: 14px 16px;
-    }
-
-    .order-title {
-        flex-direction: column;
-        align-items: flex-start;
-        gap: 8px;
-    }
-
-    .order-summary {
-        flex-direction: column;
-        align-items: flex-start;
-        gap: 8px;
-    }
-
     .product-row {
+        grid-template-columns: 1fr auto;
+        gap: 12px;
         padding: 12px 16px;
     }
 
-    .product-info {
-        flex-direction: column;
-        align-items: flex-start;
-        gap: 8px;
+    /* Quantity controls - kompaktowe na mobile */
+    .quantity-controls {
+        gap: 6px;
     }
 
-    .product-volume {
-        margin-left: 0;
+    .quantity-counter {
+        font-size: 16px;
+        min-width: 60px;
+    }
+
+    .qty-done,
+    .qty-total {
+        min-width: 20px;
+    }
+
+    .quantity-buttons {
+        gap: 4px;
+    }
+
+    .btn-qty {
+        width: 36px;
+        height: 36px;
+        font-size: 18px;
+    }
+
+    .btn-minus-10,
+    .btn-plus-10 {
+        width: 40px;
+        font-size: 11px;
     }
 }
 
 /* ============================================================================
-   SKELETON LOADING
+   NOTES ICON & MODAL - Ikona uwag i popup
    ============================================================================ */
-.loading-skeleton {
+
+/* Ikona uwag - podobna do załącznika */
+.notes-icon-wrapper {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    border-radius: 6px;
+    background: rgba(255, 193, 7, 0.15);
+    border: 1px solid rgba(255, 193, 7, 0.3);
+    cursor: pointer;
+    transition: all var(--transition-fast);
+    position: relative;
+    flex-shrink: 0;
+}
+
+.notes-icon-wrapper:hover {
+    background: rgba(255, 193, 7, 0.25);
+    border-color: rgba(255, 193, 7, 0.5);
+    transform: scale(1.05);
+}
+
+.notes-icon {
+    color: #ffc107;
+    transition: color var(--transition-fast);
+}
+
+.notes-icon-wrapper:hover .notes-icon {
+    color: #ffca2c;
+}
+
+body.light-mode .notes-icon-wrapper {
+    background: rgba(255, 193, 7, 0.2);
+    border-color: rgba(255, 193, 7, 0.4);
+}
+
+body.light-mode .notes-icon {
+    color: #d39e00;
+}
+
+/* Tooltip na hover */
+.notes-icon-wrapper::after {
+    content: attr(title);
+    position: absolute;
+    bottom: calc(100% + 8px);
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+    padding: 8px 12px;
+    border-radius: 6px;
+    font-size: 12px;
+    white-space: nowrap;
+    max-width: 300px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    box-shadow: var(--shadow-md);
+    border: 1px solid var(--border-color);
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 0.2s ease, visibility 0.2s ease;
+    z-index: 1000;
+    pointer-events: none;
+}
+
+.notes-icon-wrapper:hover::after {
+    opacity: 1;
+    visibility: visible;
+}
+
+/* Notes Modal */
+.notes-modal {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.7);
+    z-index: 2000;
+    justify-content: center;
+    align-items: center;
+    padding: 20px;
+}
+
+.notes-modal.active {
+    display: flex;
+}
+
+.notes-modal-content {
+    background: var(--bg-card);
+    border-radius: 16px;
+    max-width: 600px;
+    width: 100%;
+    max-height: 80vh;
+    overflow: hidden;
+    box-shadow: var(--shadow-md);
+    border: 1px solid var(--border-color);
     display: flex;
     flex-direction: column;
-    gap: 24px;
 }
 
-.skeleton-card {
-    background: var(--bg-card);
-    border: 1px solid var(--border-color);
-    border-radius: 12px;
-    overflow: hidden;
-    height: 300px;
+.notes-modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 16px 20px;
+    background: var(--bg-secondary);
+    border-bottom: 1px solid var(--border-color);
 }
 
-.skeleton-header {
-    height: 80px;
-    background: linear-gradient(90deg, var(--bg-secondary) 0%, var(--bg-primary) 50%, var(--bg-secondary) 100%);
-    background-size: 200% 100%;
-    animation: shimmer 1.5s infinite;
+.notes-modal-header h3 {
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin: 0;
 }
 
-.skeleton-body {
-    height: 220px;
-    background: linear-gradient(90deg, var(--bg-secondary) 0%, var(--bg-primary) 50%, var(--bg-secondary) 100%);
-    background-size: 200% 100%;
-    animation: shimmer 1.5s infinite;
-    animation-delay: 0.2s;
+.notes-modal-close {
+    width: 36px;
+    height: 36px;
+    border: none;
+    background: transparent;
+    color: var(--text-secondary);
+    font-size: 24px;
+    cursor: pointer;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all var(--transition-fast);
 }
 
-@keyframes shimmer {
-    0% {
-        background-position: 200% 0;
-    }
+.notes-modal-close:hover {
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+}
 
-    100% {
-        background-position: -200% 0;
-    }
+.notes-modal-body {
+    padding: 20px;
+    overflow-y: auto;
+    color: var(--text-primary);
+    font-size: 15px;
+    line-height: 1.6;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+}
+
+/* Light mode */
+body.light-mode .notes-modal-content {
+    background: #ffffff;
+}
+
+body.light-mode .notes-modal-header {
+    background: #f8f9fa;
 }

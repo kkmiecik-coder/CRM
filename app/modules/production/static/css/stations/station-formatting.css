@@ -1,5 +1,5 @@
 /* ============================================================================
-   STATION ASSEMBLY CSS - Order-based layout z Masonry
+   STATION FORMATTING CSS - Order-based layout z Masonry
    ============================================================================ */
 
 /* ============================================================================
@@ -43,7 +43,7 @@
     background: var(--bg-card);
     border: 2px solid var(--border-color);
     border-radius: 12px;
-    overflow: visible; /* ZMIENIONE: było hidden - obcinało tooltips */
+    overflow: visible; /* ZMIENIONE: bylo hidden - obcinalo tooltips */
     transition: var(--transition-base);
     box-shadow: var(--shadow-sm);
     display: flex;
@@ -75,28 +75,41 @@
 }
 
 /* ============================================================================
-   ORDER HEADER - NOWY LAYOUT: jedna linia z space-between
+   ORDER HEADER - 2 ROWS LAYOUT
    ============================================================================ */
 .order-header {
-    padding: 12px 20px;
     background: var(--bg-header);
     border-bottom: 1px solid var(--border-color);
     display: flex;
-    justify-content: space-between;
-    align-items: center;
-    gap: 16px;
+    flex-direction: column;
     border-radius: 12px 12px 0 0;
 }
 
-.order-ids {
+/* Row styles */
+.order-header-row {
     display: flex;
     align-items: center;
+    width: 100%;
+}
+
+/* Row 1: Order IDs with space-between */
+.order-ids-row {
+    justify-content: space-between;
     gap: 12px;
+    padding: 8px 20px;
+}
+
+/* Row 2: Stats left, Icons right */
+.order-stats-row {
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 20px;
+    border-top: 1px solid var(--border-color-light);
 }
 
 .order-number {
-    font-size: 14px;
-    font-weight: 600;
+    font-size: 15px;
+    font-weight: 700;
     color: var(--accent-orange);
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
 }
@@ -106,6 +119,17 @@
     font-weight: 600;
     color: var(--accent-blue);
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+
+.order-client-number {
+    font-size: 14px;
+    font-weight: 600;
+    color: #ffffff;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+
+body.light-mode .order-client-number {
+    color: #212529;
 }
 
 .order-stats {
@@ -120,6 +144,21 @@
     font-weight: bold;
 }
 
+/* Icons container */
+.order-icons {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+/* Deadline info (used in packaging) */
+.deadline-info {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+
 /* ============================================================================
    PRODUCTS LIST
    ============================================================================ */
@@ -129,7 +168,7 @@
     background: var(--bg-card);
     max-height: 600px;
     overflow-y: auto;
-    overflow-x: visible; /* DODANE: pozwól tooltipom wychodzić poza kontener */
+    overflow-x: visible; /* DODANE: pozwol tooltipom wychodzic poza kontener */
 }
 
 /* ============================================================================
@@ -137,7 +176,7 @@
    ============================================================================ */
 .product-row {
     display: grid;
-    grid-template-columns: auto 1fr;
+    grid-template-columns: 1fr auto;
     align-items: center;
     gap: 16px;
     padding: 14px 20px;
@@ -155,61 +194,233 @@
         background: var(--bg-secondary);
     }
 
-/* LEFT COLUMN: Checkbox + Product ID (horizontal on desktop, vertical on tablet) */
+/* LEFT COLUMN: Product Info (badges stack vertically) */
 .product-left-col {
     display: flex;
-    align-items: center;
-    gap: 16px;
+    flex-direction: column;
+    gap: 8px;
+    flex: 1;
+    min-width: 0;
+    width: 100%;
 }
 
 /* ============================================================================
-   CHECKBOX STYLING
+   QUANTITY CONTROLS - Przyciski +/- zamiast checkboxow
    ============================================================================ */
-.product-checkbox {
+
+/* Domyslny uklad: pionowy (licznik nad przyciskami) dla malych ilosci */
+.quantity-controls {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+    position: relative;
+    z-index: 1;
+}
+
+/* Uklad poziomy dla duzych ilosci (>=10) */
+.quantity-controls:has(.grid-layout) {
+    flex-direction: row;
+    gap: 12px;
+}
+
+/* Licznik ilosci */
+.quantity-counter {
     display: flex;
     align-items: center;
     justify-content: center;
-    flex-shrink: 0;
+    gap: 4px;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    font-size: 20px;
+    font-weight: 700;
+    color: var(--text-primary);
+    min-width: 60px;
+}
+
+.qty-done {
+    color: var(--accent-orange);
+    min-width: 24px;
+    text-align: right;
+}
+
+.qty-separator {
+    color: var(--text-tertiary);
+}
+
+.qty-total {
+    color: var(--text-secondary);
+    min-width: 24px;
+    text-align: left;
+}
+
+/* Kontener przyciskow - domyslnie flex poziomy */
+.quantity-buttons {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+/* Grid 2x2 dla duzych ilosci (>=10 szt) */
+.quantity-buttons.grid-layout {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    grid-template-rows: 1fr 1fr;
+    gap: 4px;
+}
+
+/* Kolejnosc w grid: -, + na gorze; -10, +10 na dole */
+.quantity-buttons.grid-layout .btn-minus { order: 1; }
+.quantity-buttons.grid-layout .btn-plus { order: 2; }
+.quantity-buttons.grid-layout .btn-minus-10 { order: 3; }
+.quantity-buttons.grid-layout .btn-plus-10 { order: 4; }
+
+/* Przyciski +/- */
+.btn-qty {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 44px;
+    height: 44px;
+    border: 2px solid var(--border-color);
+    border-radius: 8px;
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+    font-size: 24px;
+    font-weight: bold;
+    cursor: pointer;
+    transition: all var(--transition-fast);
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
+}
+
+.btn-qty:hover:not(:disabled) {
+    border-color: var(--accent-orange);
+    background: var(--bg-tertiary);
+    transform: scale(1.05);
+}
+
+.btn-qty:active:not(:disabled) {
+    transform: scale(0.95);
+}
+
+.btn-qty:disabled {
+    opacity: 0.3;
+    cursor: not-allowed;
+    background: var(--bg-primary);
+}
+
+/* Przycisk minus - czerwonawy akcent */
+.btn-minus {
+    border-color: rgba(220, 53, 69, 0.4);
+    color: #dc3545;
+}
+
+.btn-minus:hover:not(:disabled) {
+    border-color: #dc3545;
+    background: rgba(220, 53, 69, 0.15);
+}
+
+/* Przycisk plus - zielony akcent */
+.btn-plus {
+    border-color: rgba(40, 167, 69, 0.4);
+    color: #28a745;
+}
+
+.btn-plus:hover:not(:disabled) {
+    border-color: #28a745;
+    background: rgba(40, 167, 69, 0.15);
+}
+
+/* Przyciski +-10 - mniejsze, z tekstem */
+.btn-minus-10,
+.btn-plus-10 {
+    width: 48px;
+    font-size: 14px;
+    font-weight: 600;
+}
+
+.btn-minus-10 {
+    border-color: rgba(220, 53, 69, 0.3);
+    color: #dc3545;
+}
+
+.btn-minus-10:hover:not(:disabled) {
+    border-color: #dc3545;
+    background: rgba(220, 53, 69, 0.1);
+}
+
+.btn-plus-10 {
+    border-color: rgba(40, 167, 69, 0.3);
+    color: #28a745;
+}
+
+.btn-plus-10:hover:not(:disabled) {
+    border-color: #28a745;
+    background: rgba(40, 167, 69, 0.1);
+}
+
+/* Light mode adjustments */
+body.light-mode .btn-qty {
+    background: var(--bg-card);
+}
+
+body.light-mode .btn-qty:hover:not(:disabled) {
+    background: var(--bg-tertiary);
+}
+
+body.light-mode .btn-minus {
+    border-color: rgba(220, 53, 69, 0.5);
+}
+
+body.light-mode .btn-plus {
+    border-color: rgba(40, 167, 69, 0.5);
+}
+
+/* Produkt ukonczony - podswietlenie */
+.product-row.product-complete {
+    background: rgba(40, 167, 69, 0.08);
+    border-left: 3px solid #28a745;
+}
+
+.product-row.product-complete .qty-done {
+    color: #28a745;
+}
+
+body.light-mode .product-row.product-complete {
+    background: rgba(40, 167, 69, 0.1);
+}
+
+/* Animacja aktualizacji licznika */
+@keyframes quantity-pulse {
+    0% {
+        transform: scale(1);
+    }
+    50% {
+        transform: scale(1.15);
+    }
+    100% {
+        transform: scale(1);
+    }
+}
+
+.qty-done.updating {
+    animation: quantity-pulse 0.2s ease-out;
+}
+
+/* Disabled podczas offline */
+.btn-qty.offline-disabled {
+    opacity: 0.3;
+    cursor: not-allowed;
+    pointer-events: none;
+}
+
+/* LEGACY - zachowane dla kompatybilnosci wstecznej */
+.product-checkbox {
+    display: none;
 }
 
 .product-check {
-    appearance: none;
-    width: 36px;
-    height: 36px;
-    border: 2px solid var(--border-color);
-    border-radius: 6px;
-    background: var(--bg-primary);
-    cursor: pointer;
-    position: relative;
-    transition: all var(--transition-fast);
-}
-
-    .product-check:hover:not(:disabled) {
-        border-color: var(--accent-orange);
-    }
-
-    .product-check:checked {
-        background: var(--accent-orange);
-        border-color: var(--accent-orange);
-    }
-
-        .product-check:checked::after {
-            content: '✓';
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            color: white;
-            font-size: 22px;
-            font-weight: bold;
-        }
-
-    .product-check:disabled {
-        opacity: 0.4;
-        cursor: not-allowed;
-    }
-
-.product-checkbox label {
     display: none;
 }
 
@@ -244,74 +455,71 @@
     min-width: 0;
 }
 
-/* Usuń gap gdy product-params jest ukryty */
+/* Usun gap gdy product-params jest ukryty */
 .product-info:has(.product-params[style*="display: none"]) {
     gap: 0;
 }
 
-/* Małe badges z parametrami (wood_species, technology, wood_class) */
+/* Male badges z parametrami (wood_species, technology, wood_class) */
 .product-params {
     display: flex;
-    flex-wrap: wrap;
-    justify-content: flex-start;
+    flex-wrap: nowrap;
     gap: 8px;
+    width: 100%;
+}
+
+.product-params .badge {
+    flex: 1;
+    min-width: 0;
+    text-align: center;
 }
 
 .badge {
-    padding: 4px 20px;
-    border-radius: 6px;
-    font-size: 16px;
+    padding: 6px 12px;
+    border-radius: 8px;
+    font-size: 14px;
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.3px;
     border: 2px solid;
     white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
-/* Wiersz z wymiarami + ikona załącznika */
+/* Wiersz z wymiarami */
 .product-dimensions-row {
     display: flex;
     align-items: center;
-    gap: 12px;
+    gap: 8px;
+    width: 100%;
 }
 
-/* Duży badge z wymiarami */
-.product-dimensions {
+/* Badge wymiarow w product-dimensions-row */
+.product-dimensions-row .badge-dimensions {
+    flex: 1;
     padding: 8px 16px;
     border-radius: 8px;
-    font-size: 20px;
+    font-size: 18px;
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-    font-weight: 500;
+    font-weight: 600;
     background: var(--bg-tertiary);
     border: 2px solid var(--border-color);
     color: var(--text-primary);
     text-align: center;
-    word-wrap: break-word;
-    overflow-wrap: break-word;
-    white-space: normal;
-    flex: 1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
-body.light-mode .product-dimensions {
+body.light-mode .product-dimensions-row .badge-dimensions {
     background: #e9ecef;
     border-color: #ced4da;
     color: #495057;
 }
 
-/* Specjalne style dla "Zgodnie z załącznikiem" */
-.product-attachment-label {
-    font-size: 18px;
-}
-
-/* Specjalne style dla nazwy produktu */
-.product-name-label {
-    font-size: 18px;  /* 20px - 2px = 18px */
-    font-style: italic;
-    color: var(--text-secondary);
-}
-
-/* Gatunek drewna - BUK (domyślny brązowy) */
+/* Gatunek drewna - BUK (domyslny brazowy) */
 .badge-species {
     background: #4a3000;
     border-color: #806000;
@@ -324,9 +532,9 @@ body.light-mode .badge-species {
     color: #856404;
 }
 
-/* DĄB - ciemny brązowy */
-[data-species*="dąb"] .badge-species,
-[data-species*="DĄB"] .badge-species,
+/* DAB - ciemny brazowy */
+[data-species*="dab"] .badge-species,
+[data-species*="DAB"] .badge-species,
 [data-species*="dab"] .badge-species,
 [data-species*="DAB"] .badge-species {
     background: #2d1f00;
@@ -334,15 +542,15 @@ body.light-mode .badge-species {
     color: #ffcc80;
 }
 
-body.light-mode [data-species*="dąb"] .badge-species,
-body.light-mode [data-species*="DĄB"] .badge-species,
+body.light-mode [data-species*="dab"] .badge-species,
+body.light-mode [data-species*="DAB"] .badge-species,
 body.light-mode [data-species*="dab"] .badge-species {
     background: #ffe5b4;
     border-color: #d4a574;
     color: #6b4423;
 }
 
-/* JESION - żółty */
+/* JESION - zolty */
 [data-species*="jesion"] .badge-species,
 [data-species*="JESION"] .badge-species {
     background: #3a3000;
@@ -357,7 +565,7 @@ body.light-mode [data-species*="JESION"] .badge-species {
     color: #7a7700;
 }
 
-/* Technologia - LITY (domyślny zielony) */
+/* Technologia - LITY (domyslny zielony) */
 .badge-technology {
     background: #1a3a1f;
     border-color: #2d5f31;
@@ -385,7 +593,7 @@ body.light-mode [data-technology*="MIKROWCZEP"] .badge-technology {
     color: #004085;
 }
 
-/* KLEJONY - pomarańczowy */
+/* KLEJONY - pomaranczowy */
 [data-technology*="klejony"] .badge-technology,
 [data-technology*="KLEJONY"] .badge-technology {
     background: #3d1f00;
@@ -400,7 +608,7 @@ body.light-mode [data-technology*="KLEJONY"] .badge-technology {
     color: #e65100;
 }
 
-/* Klasa drewna - A/B (domyślny żółty) */
+/* Klasa drewna - A/B (domyslny zolty) */
 .badge-class {
     background: #4a4a00;
     border-color: #7d7d00;
@@ -519,7 +727,7 @@ body.light-mode .badge-dimensions {
    RESPONSIVE
    ============================================================================ */
 
-/* Tablet (768px - 1023px) - 2 kolumny, numer produktu pod checkboxem */
+/* Tablet (768px - 1023px) - 2 kolumny */
 @media (min-width: 768px) and (max-width: 1023px) {
     .product-left-col {
         flex-direction: column;
@@ -530,6 +738,222 @@ body.light-mode .badge-dimensions {
     .product-id-wrapper {
         margin-left: 0;
     }
+
+    /* Quantity controls - mniejsze na tablecie */
+    .quantity-counter {
+        font-size: 18px;
+    }
+
+    .btn-qty {
+        width: 40px;
+        height: 40px;
+        font-size: 20px;
+    }
+
+    .btn-minus-10,
+    .btn-plus-10 {
+        width: 44px;
+        font-size: 12px;
+    }
 }
 
-/* Mobile styles are inherited from station-shared.css */
+/* Mobile (max-width: 767px) */
+@media (max-width: 767px) {
+    .product-row {
+        grid-template-columns: 1fr auto;
+        gap: 12px;
+        padding: 12px 16px;
+    }
+
+    /* Quantity controls - kompaktowe na mobile */
+    .quantity-controls {
+        gap: 6px;
+    }
+
+    .quantity-counter {
+        font-size: 16px;
+        min-width: 60px;
+    }
+
+    .qty-done,
+    .qty-total {
+        min-width: 20px;
+    }
+
+    .quantity-buttons {
+        gap: 4px;
+    }
+
+    .btn-qty {
+        width: 36px;
+        height: 36px;
+        font-size: 18px;
+    }
+
+    .btn-minus-10,
+    .btn-plus-10 {
+        width: 40px;
+        font-size: 11px;
+    }
+}
+
+/* ============================================================================
+   NOTES ICON & MODAL - Ikona uwag i popup
+   ============================================================================ */
+
+/* Ikona uwag - podobna do zalacznika */
+.notes-icon-wrapper {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    border-radius: 6px;
+    background: rgba(255, 193, 7, 0.15);
+    border: 1px solid rgba(255, 193, 7, 0.3);
+    cursor: pointer;
+    transition: all var(--transition-fast);
+    position: relative;
+    flex-shrink: 0;
+}
+
+.notes-icon-wrapper:hover {
+    background: rgba(255, 193, 7, 0.25);
+    border-color: rgba(255, 193, 7, 0.5);
+    transform: scale(1.05);
+}
+
+.notes-icon {
+    color: #ffc107;
+    transition: color var(--transition-fast);
+}
+
+.notes-icon-wrapper:hover .notes-icon {
+    color: #ffca2c;
+}
+
+body.light-mode .notes-icon-wrapper {
+    background: rgba(255, 193, 7, 0.2);
+    border-color: rgba(255, 193, 7, 0.4);
+}
+
+body.light-mode .notes-icon {
+    color: #d39e00;
+}
+
+/* Tooltip na hover */
+.notes-icon-wrapper::after {
+    content: attr(title);
+    position: absolute;
+    bottom: calc(100% + 8px);
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+    padding: 8px 12px;
+    border-radius: 6px;
+    font-size: 12px;
+    white-space: nowrap;
+    max-width: 300px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    box-shadow: var(--shadow-md);
+    border: 1px solid var(--border-color);
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 0.2s ease, visibility 0.2s ease;
+    z-index: 1000;
+    pointer-events: none;
+}
+
+.notes-icon-wrapper:hover::after {
+    opacity: 1;
+    visibility: visible;
+}
+
+/* Notes Modal */
+.notes-modal {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.7);
+    z-index: 2000;
+    justify-content: center;
+    align-items: center;
+    padding: 20px;
+}
+
+.notes-modal.active {
+    display: flex;
+}
+
+.notes-modal-content {
+    background: var(--bg-card);
+    border-radius: 16px;
+    max-width: 600px;
+    width: 100%;
+    max-height: 80vh;
+    overflow: hidden;
+    box-shadow: var(--shadow-md);
+    border: 1px solid var(--border-color);
+    display: flex;
+    flex-direction: column;
+}
+
+.notes-modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 16px 20px;
+    background: var(--bg-secondary);
+    border-bottom: 1px solid var(--border-color);
+}
+
+.notes-modal-header h3 {
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin: 0;
+}
+
+.notes-modal-close {
+    width: 36px;
+    height: 36px;
+    border: none;
+    background: transparent;
+    color: var(--text-secondary);
+    font-size: 24px;
+    cursor: pointer;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all var(--transition-fast);
+}
+
+.notes-modal-close:hover {
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+}
+
+.notes-modal-body {
+    padding: 20px;
+    overflow-y: auto;
+    color: var(--text-primary);
+    font-size: 15px;
+    line-height: 1.6;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+}
+
+/* Light mode */
+body.light-mode .notes-modal-content {
+    background: #ffffff;
+}
+
+body.light-mode .notes-modal-header {
+    background: #f8f9fa;
+}

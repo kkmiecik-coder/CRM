@@ -1314,98 +1314,104 @@ class ProductsModule {
 
     populateProductRow(rowElement, product) {
         try {
-            // Checkbox - NOWA KLASA
+            // 1. Checkbox
             const checkbox = rowElement.querySelector('.prod_list-product-checkbox');
             if (checkbox) {
                 checkbox.checked = this.state.selectedProducts.has(product.id);
                 checkbox.setAttribute('data-product-id', product.id);
             }
 
-            // Priority rank (nie priority_score!) - NOWA KLASA
+            // 2. Priority rank
             const priorityElement = rowElement.querySelector('.prod_list-priority-rank');
             if (priorityElement) {
-                // ZMIANA: używamy priority_rank zamiast priority_score
                 const priority = parseInt(product.priority_rank) || parseInt(product.priority_score) || 100;
                 priorityElement.textContent = priority;
             }
 
-            // Product Name - NOWA KLASA
+            // 3. Klient (nazwa + numery zamówień)
+            const clientNameElement = rowElement.querySelector('.prod_list-client-name');
+            if (clientNameElement) {
+                clientNameElement.textContent = product.client_name || 'Brak klienta';
+            }
+
+            // Numer wewnętrzny zamówienia
+            const clientOrderElement = rowElement.querySelector('.prod_list-client-order-number');
+            if (clientOrderElement) {
+                clientOrderElement.textContent = product.client_order_number || '';
+            }
+
+            // Numer Baselinker
+            const blOrderElement = rowElement.querySelector('.prod_list-bl-order-number');
+            if (blOrderElement) {
+                blOrderElement.textContent = product.baselinker_order_id ? `BL-${product.baselinker_order_id}` : '';
+            }
+
+            // 4. Produkt (nazwa + ID systemowy)
             const nameElement = rowElement.querySelector('.prod_list-product-name');
             if (nameElement) {
                 nameElement.textContent = product.original_product_name || 'Brak nazwy';
             }
 
-            // Product ID - NOWA KLASA
             const idElement = rowElement.querySelector('.prod_list-product-id');
             if (idElement) {
-                idElement.textContent = `ID: ${product.short_product_id || product.id}`;
+                idElement.textContent = product.short_product_id || product.id;
             }
 
-            // Baselinker Order - NOWA KLASA
-            const baselinkerElement = rowElement.querySelector('.prod_list-baselinker-order');
-            if (baselinkerElement) {
-                baselinkerElement.textContent = product.baselinker_order_id ?
-                    `Baselinker: ${product.baselinker_order_id}` : '';
+            // 5. Ilość
+            const quantityElement = rowElement.querySelector('.prod_list-quantity-value');
+            if (quantityElement) {
+                const quantity = product.quantity || 1;
+                quantityElement.textContent = `${quantity} szt.`;
             }
 
-            // Tags/Specs - NOWA KLASA
-            const tagsElement = rowElement.querySelector('.prod_list-tags-cell');
-            if (tagsElement) {
-                tagsElement.innerHTML = this.generateProductTags(product);
-            }
-
-            // Volume - NOWA KLASA
+            // 6. Objętość (volume * quantity)
             const volumeElement = rowElement.querySelector('.prod_list-volume-value');
             if (volumeElement) {
                 const volume = parseFloat(product.volume_m3) || 0;
-                volumeElement.textContent = `${volume.toFixed(3)} m³`;
+                const quantity = product.quantity || 1;
+                const totalVolume = volume * quantity;
+                volumeElement.textContent = `${totalVolume.toFixed(4)} m³`;
             }
 
-            // Value - NOWA KLASA
-            const valueElement = rowElement.querySelector('.prod_list-currency-value');
-            if (valueElement) {
-                const value = parseFloat(product.total_value_net) || 0;
-                valueElement.textContent = value.toLocaleString('pl-PL', {
-                    style: 'currency',
-                    currency: 'PLN',
-                    minimumFractionDigits: 2
-                });
-            }
-
-            // Status - NOWA KLASA
+            // 7. Status
             const statusElement = rowElement.querySelector('.prod_list-status-badge');
             if (statusElement) {
                 const statusConfig = this.getStatusConfig(product.current_status);
                 statusElement.textContent = statusConfig.displayName;
-
-                // ZMIANA: Używaj mapowania statusów na klasy CSS
                 const statusClass = this.getStatusCSSClass(product.current_status);
                 statusElement.className = `prod_list-status-badge ${statusClass}`;
             }
 
-            // Deadline - NOWE KLASY
-            const deadlineBadge = rowElement.querySelector('.prod_list-deadline-badge');
-            const deadlineDate = rowElement.querySelector('.prod_list-deadline-date');
+            // 8. Deadline
+            const deadlineElement = rowElement.querySelector('.prod_list-deadline-value');
+            if (deadlineElement) {
+                if (product.deadline_date) {
+                    const deadlineDate = new Date(product.deadline_date);
+                    const today = new Date();
+                    today.setHours(0, 0, 0, 0);
+                    const diffDays = Math.ceil((deadlineDate - today) / (1000 * 60 * 60 * 24));
 
-            if (deadlineBadge && deadlineDate) {
-                const daysUntil = this.calculateDaysUntilDeadline(product.deadline_date);
-                if (daysUntil !== null) {
-                    deadlineBadge.textContent = this.getDeadlineLabel(daysUntil);
+                    // Format daty
+                    const formattedDate = deadlineDate.toLocaleDateString('pl-PL', {
+                        day: '2-digit',
+                        month: '2-digit'
+                    });
+                    deadlineElement.textContent = formattedDate;
 
-                    // POPRAWKA: Używaj tylko klasy z prod_list- prefiksem
-                    const deadlineClass = this.getDeadlineClass(daysUntil);
-                    deadlineBadge.className = `prod_list-deadline-badge ${deadlineClass}`;
-
-                    const deadlineFormatted = new Date(product.deadline_date).toLocaleDateString('pl-PL');
-                    deadlineDate.textContent = deadlineFormatted;
+                    // Dodaj klasę w zależności od pilności
+                    deadlineElement.classList.remove('deadline-urgent', 'deadline-soon');
+                    if (diffDays < 0) {
+                        deadlineElement.classList.add('deadline-urgent');
+                        deadlineElement.textContent = `${formattedDate} ❗`;
+                    } else if (diffDays <= 2) {
+                        deadlineElement.classList.add('deadline-soon');
+                    }
                 } else {
-                    deadlineBadge.textContent = 'Brak';
-                    deadlineBadge.className = 'prod_list-deadline-badge normal';
-                    deadlineDate.textContent = '';
+                    deadlineElement.textContent = '—';
                 }
             }
 
-            // Hook dla załączników - wywołaj jeśli funkcja istnieje
+            // Hook dla załączników
             if (typeof window.handleProductAttachmentRender === 'function') {
                 window.handleProductAttachmentRender(rowElement, product);
             }
@@ -2310,10 +2316,11 @@ class ProductsModule {
 
     updateStats() {
         const products = this.state.filteredProducts;
-        
+
         this.state.stats = {
             totalCount: this.state.products.length,
             filteredCount: products.length,
+            totalQuantity: products.reduce((sum, p) => sum + (parseInt(p.quantity) || 1), 0),
             totalVolume: products.reduce((sum, p) => sum + (parseFloat(p.volume_m3) || 0), 0),
             totalValue: products.reduce((sum, p) => sum + (parseFloat(p.total_value_net) || 0), 0),
             statusBreakdown: this.calculateStatusBreakdown(products)
@@ -2339,7 +2346,16 @@ class ProductsModule {
         const valueEl = document.getElementById('stats-total-value');
         const urgentEl = document.getElementById('stats-urgent-count');
 
-        if (totalCountEl) totalCountEl.textContent = this.state.stats.filteredCount;
+        // ZMIANA: Wyświetl pozycje / sztuki gdy różne
+        if (totalCountEl) {
+            const positions = this.state.stats.filteredCount;
+            const quantity = this.state.stats.totalQuantity;
+            if (quantity > positions) {
+                totalCountEl.innerHTML = `${positions} <small style="opacity:0.7">/ ${quantity} szt.</small>`;
+            } else {
+                totalCountEl.textContent = positions;
+            }
+        }
         if (volumeEl) volumeEl.textContent = this.state.stats.totalVolume.toFixed(3);
         if (valueEl) {
             valueEl.textContent = this.state.stats.totalValue.toLocaleString('pl-PL', {
@@ -2561,6 +2577,9 @@ class ProductsModule {
             // === TIMELINE ===
             this.generateProductionTimeline(modalElement, product);
 
+            // === POSTĘP PRODUKCJI (quantity) ===
+            this.generateQuantityProgress(modalElement, product);
+
             // === AKCJE ===
             this.setupModalActions(modalElement, product);
 
@@ -2769,18 +2788,32 @@ class ProductsModule {
         ];
 
         let html = '';
-        
+        const quantity = product.quantity || 1;
+
         stations.forEach(station => {
             const timelineState = this.getTimelineState(station, product);
             const details = this.getTimelineDetails(station, product);
-            
+
+            // Ilość wykonana na tym stanowisku
+            // Fallback: jeśli stanowisko jest zakończone (ma completed_at), ale quantity_done = 0,
+            // to znaczy że dane są ze starego systemu - pokazujemy quantity jako done
+            let quantityDone = product[`quantity_done_${station.code}`] || 0;
+            const completedAt = product[station.endField];
+            if (completedAt && quantityDone === 0) {
+                quantityDone = quantity; // Stanowisko zakończone = wszystkie sztuki wykonane
+            }
+            const quantityInfo = `${quantityDone}/${quantity} szt.`;
+
             html += `
                 <div class="timeline-item ${timelineState.cssClass}">
                     <div class="timeline-icon ${station.color}">
                         <i class="${station.icon}"></i>
                     </div>
                     <div class="timeline-content">
-                        <h6 class="timeline-title ${station.color}">${station.name}</h6>
+                        <div class="timeline-header">
+                            <h6 class="timeline-title ${station.color}">${station.name}</h6>
+                            <span class="timeline-quantity">${quantityInfo}</span>
+                        </div>
                         <p class="timeline-details">${details.text}</p>
                         <span class="timeline-status">${timelineState.statusText}</span>
                     </div>
@@ -2789,6 +2822,46 @@ class ProductsModule {
         });
 
         timelineContainer.innerHTML = html;
+    }
+
+    /**
+     * Aktualizuje badge ilości w nagłówku timeline
+     */
+    generateQuantityProgress(modalElement, product) {
+        const badge = modalElement.querySelector('#quantityBadge');
+        if (!badge) return;
+
+        const quantity = product.quantity || 1;
+
+        // Mapowanie station code -> completed_at field
+        const stationEndFields = {
+            'cutting': 'cutting_completed_at',
+            'assembly': 'assembly_completed_at',
+            'gluing': 'gluing_completed_at',
+            'formatting': 'formatting_completed_at',
+            'finishing': 'finishing_completed_at',
+            'packaging': 'packaging_completed_at'
+        };
+
+        // Oblicz całkowity postęp
+        const stations = ['cutting', 'assembly', 'gluing', 'formatting', 'finishing', 'packaging'];
+
+        // Oblicz sumaryczny postęp z fallbackiem dla starych danych
+        let totalDone = 0;
+        let totalMax = quantity * stations.length;
+        stations.forEach(station => {
+            let done = product[`quantity_done_${station}`] || 0;
+            // Fallback: jeśli stanowisko zakończone ale quantity_done = 0
+            const completedAt = product[stationEndFields[station]];
+            if (completedAt && done === 0) {
+                done = quantity;
+            }
+            totalDone += done;
+        });
+        const totalPercent = Math.round((totalDone / totalMax) * 100);
+
+        // Badge z całkowitym postępem i ilością
+        badge.textContent = `${quantity} szt. • ${totalPercent}%`;
     }
 
     /**
@@ -3364,6 +3437,282 @@ class ProductsModule {
         } else if (baselinkerBtn) {
             baselinkerBtn.style.display = 'none';
         }
+
+        // Przycisk odświeżania z Baselinker
+        const refreshBtn = modalElement.querySelector('#refreshFromBaselinkerBtn');
+        if (refreshBtn && product.baselinker_order_id) {
+            refreshBtn.dataset.baselinkerOrderId = product.baselinker_order_id;
+            refreshBtn.style.display = '';
+            refreshBtn.onclick = () => this.openBaselinkerCompareModal(product.baselinker_order_id);
+        } else if (refreshBtn) {
+            refreshBtn.style.display = 'none';
+        }
+    }
+
+    /**
+     * Otwiera modal porównania z Baselinker
+     */
+    async openBaselinkerCompareModal(baselinkerOrderId) {
+        const modal = document.getElementById('baselinkerCompareModal');
+        if (!modal) {
+            console.error('[ProductsModule] Modal baselinkerCompareModal nie znaleziony');
+            return;
+        }
+
+        // Reset stanu modala
+        const loading = modal.querySelector('#blCompareLoading');
+        const error = modal.querySelector('#blCompareError');
+        const noChanges = modal.querySelector('#blCompareNoChanges');
+        const content = modal.querySelector('#blCompareContent');
+        const applyBtn = modal.querySelector('#blApplyChangesBtn');
+
+        loading.style.display = 'block';
+        error.style.display = 'none';
+        noChanges.style.display = 'none';
+        content.style.display = 'none';
+        applyBtn.disabled = true;
+
+        // Otwórz modal
+        const bsModal = new bootstrap.Modal(modal);
+        bsModal.show();
+
+        try {
+            // Pobierz porównanie z API
+            const response = await fetch('/production/api/admin/compare-baselinker-order', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    baselinker_order_id: baselinkerOrderId
+                })
+            });
+
+            const data = await response.json();
+            loading.style.display = 'none';
+
+            if (!data.success) {
+                error.style.display = 'block';
+                modal.querySelector('#blCompareErrorText').textContent = data.error || 'Nieznany błąd';
+                return;
+            }
+
+            if (!data.has_changes) {
+                noChanges.style.display = 'block';
+                return;
+            }
+
+            // Wyświetl zmiany
+            this.renderBaselinkerChanges(modal, data);
+            content.style.display = 'block';
+            applyBtn.disabled = false;
+
+            // Zapisz dane zmian dla przycisku zastosuj
+            applyBtn.onclick = () => this.applyBaselinkerChanges(baselinkerOrderId, data.changes, bsModal);
+
+        } catch (err) {
+            console.error('[ProductsModule] Błąd porównania z Baselinker:', err);
+            loading.style.display = 'none';
+            error.style.display = 'block';
+            modal.querySelector('#blCompareErrorText').textContent = 'Błąd połączenia z serwerem';
+        }
+    }
+
+    /**
+     * Renderuje zmiany z Baselinker w modalu
+     */
+    renderBaselinkerChanges(modal, data) {
+        const orderNumberEl = modal.querySelector('#blCompareOrderNumber');
+        if (orderNumberEl) {
+            orderNumberEl.textContent = data.order_number || data.order_id;
+        }
+
+        // Produkty do usunięcia
+        const removeSection = modal.querySelector('#blProductsToRemove');
+        const removeList = modal.querySelector('#blRemoveList');
+        const removeCount = modal.querySelector('#blRemoveCount');
+        const toRemove = data.changes.products_to_remove || [];
+
+        if (toRemove.length > 0) {
+            removeSection.style.display = 'block';
+            removeCount.textContent = toRemove.length;
+            removeList.innerHTML = toRemove.map(p => `
+                <div class="bl-change-item bl-change-remove">
+                    <div class="bl-change-id">${p.short_product_id}</div>
+                    <div class="bl-change-name">${p.original_product_name}</div>
+                    <div class="bl-change-qty">× ${p.quantity} szt.</div>
+                </div>
+            `).join('');
+        } else {
+            removeSection.style.display = 'none';
+        }
+
+        // Produkty do dodania
+        const addSection = modal.querySelector('#blProductsToAdd');
+        const addList = modal.querySelector('#blAddList');
+        const addCount = modal.querySelector('#blAddCount');
+        const toAdd = data.changes.products_to_add || [];
+
+        if (toAdd.length > 0) {
+            addSection.style.display = 'block';
+            addCount.textContent = toAdd.length;
+            addList.innerHTML = toAdd.map(p => `
+                <div class="bl-change-item bl-change-add">
+                    <div class="bl-change-id">NOWY</div>
+                    <div class="bl-change-name">${p.name}</div>
+                    <div class="bl-change-qty">× ${p.quantity} szt.</div>
+                </div>
+            `).join('');
+        } else {
+            addSection.style.display = 'none';
+        }
+
+        // Produkty do aktualizacji
+        const updateSection = modal.querySelector('#blProductsToUpdate');
+        const updateList = modal.querySelector('#blUpdateList');
+        const updateCount = modal.querySelector('#blUpdateCount');
+        const toUpdate = data.changes.products_to_update || [];
+
+        if (toUpdate.length > 0) {
+            updateSection.style.display = 'block';
+            updateCount.textContent = toUpdate.length;
+            updateList.innerHTML = toUpdate.map(p => `
+                <div class="bl-change-item bl-change-update">
+                    <div class="bl-change-id">${p.short_product_id}</div>
+                    <div class="bl-change-details">
+                        ${p.changes.map(c => `
+                            <div class="bl-field-change">
+                                <span class="bl-field-label">${c.label}:</span>
+                                <span class="bl-old-value">${c.old_value}</span>
+                                <i class="fas fa-arrow-right mx-2"></i>
+                                <span class="bl-new-value">${c.new_value}</span>
+                            </div>
+                        `).join('')}
+                    </div>
+                </div>
+            `).join('');
+        } else {
+            updateSection.style.display = 'none';
+        }
+
+        // Zmiany na poziomie zamówienia
+        const orderLevelSection = modal.querySelector('#blOrderLevelChanges');
+        const orderLevelList = modal.querySelector('#blOrderLevelList');
+        const orderLevelChanges = data.changes.order_level || [];
+
+        if (orderLevelChanges.length > 0) {
+            orderLevelSection.style.display = 'block';
+            orderLevelList.innerHTML = orderLevelChanges.map(c => `
+                <div class="bl-change-item bl-change-order">
+                    <div class="bl-field-change">
+                        <span class="bl-field-label">${c.label}:</span>
+                        <span class="bl-old-value">${c.old_value || '(brak)'}</span>
+                        <i class="fas fa-arrow-right mx-2"></i>
+                        <span class="bl-new-value">${c.new_value || '(brak)'}</span>
+                    </div>
+                </div>
+            `).join('');
+        } else {
+            orderLevelSection.style.display = 'none';
+        }
+    }
+
+    /**
+     * Aplikuje zmiany z Baselinker
+     */
+    async applyBaselinkerChanges(baselinkerOrderId, changes, bsModal) {
+        const applyBtn = document.querySelector('#blApplyChangesBtn');
+        const originalText = applyBtn.innerHTML;
+
+        try {
+            applyBtn.disabled = true;
+            applyBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Zapisywanie...';
+
+            const response = await fetch('/production/api/admin/apply-baselinker-changes', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    baselinker_order_id: baselinkerOrderId,
+                    changes: changes
+                })
+            });
+
+            const data = await response.json();
+
+            if (data.success) {
+                // Sukces - zamknij modal i odśwież listę
+                bsModal.hide();
+
+                // Pokaż powiadomienie
+                this.showNotification('success',
+                    `Zaktualizowano: dodano ${data.added}, usunięto ${data.removed}, zmodyfikowano ${data.updated} produktów`
+                );
+
+                // Odśwież listę produktów
+                this.loadProducts(true);
+
+                // Zamknij też modal szczegółów produktu
+                const detailModal = document.getElementById('productModal');
+                if (detailModal) {
+                    const detailBsModal = bootstrap.Modal.getInstance(detailModal);
+                    if (detailBsModal) {
+                        detailBsModal.hide();
+                    }
+                }
+            } else {
+                alert(`Błąd: ${data.error}`);
+                applyBtn.disabled = false;
+                applyBtn.innerHTML = originalText;
+            }
+
+        } catch (err) {
+            console.error('[ProductsModule] Błąd aplikowania zmian:', err);
+            alert('Błąd połączenia z serwerem');
+            applyBtn.disabled = false;
+            applyBtn.innerHTML = originalText;
+        }
+    }
+
+    /**
+     * Wyświetla powiadomienie toast
+     */
+    showNotification(type, message) {
+        // Sprawdź czy istnieje kontener na toasty
+        let toastContainer = document.querySelector('.toast-container');
+        if (!toastContainer) {
+            toastContainer = document.createElement('div');
+            toastContainer.className = 'toast-container position-fixed bottom-0 end-0 p-3';
+            toastContainer.style.zIndex = '9999';
+            document.body.appendChild(toastContainer);
+        }
+
+        const toastId = 'toast-' + Date.now();
+        const bgClass = type === 'success' ? 'bg-success' : (type === 'error' ? 'bg-danger' : 'bg-info');
+        const icon = type === 'success' ? 'fa-check-circle' : (type === 'error' ? 'fa-exclamation-circle' : 'fa-info-circle');
+
+        const toastHtml = `
+            <div id="${toastId}" class="toast align-items-center text-white ${bgClass} border-0" role="alert">
+                <div class="d-flex">
+                    <div class="toast-body">
+                        <i class="fas ${icon} me-2"></i>
+                        ${message}
+                    </div>
+                    <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button>
+                </div>
+            </div>
+        `;
+
+        toastContainer.insertAdjacentHTML('beforeend', toastHtml);
+
+        const toastEl = document.getElementById(toastId);
+        const toast = new bootstrap.Toast(toastEl, { delay: 5000 });
+        toast.show();
+
+        toastEl.addEventListener('hidden.bs.toast', () => {
+            toastEl.remove();
+        });
     }
 
     // ========================================================================

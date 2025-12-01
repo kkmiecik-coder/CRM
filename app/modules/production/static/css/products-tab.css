@@ -2194,10 +2194,37 @@
     margin-left: var(--spacing-lg);
 }
 
+.timeline-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 4px;
+}
+
 .timeline-title {
     font-weight: 600;
-    margin: 0 0 4px 0;
+    margin: 0;
     font-size: var(--font-size-lg);
+}
+
+.timeline-quantity {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: #64748b;
+    background: #f1f5f9;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-family: monospace;
+}
+
+.timeline-completed .timeline-quantity {
+    background: #dcfce7;
+    color: #16a34a;
+}
+
+.timeline-active .timeline-quantity {
+    background: #fef3c7;
+    color: #d97706;
 }
 
 .timeline-details {
@@ -2252,7 +2279,8 @@
 /* Akcje i buttony */
 .action-buttons {
     display: flex;
-    flex-direction: column;
+    flex-direction: row;
+    flex-wrap: wrap;
     gap: var(--spacing-sm);
     margin-top: var(--spacing-lg);
 }
@@ -2260,14 +2288,17 @@
 .btn-action {
     display: flex;
     align-items: center;
+    justify-content: center;
     gap: var(--spacing-sm);
-    padding: 12px 16px;
+    padding: 10px 16px;
     border: none;
     border-radius: var(--border-radius);
     font-weight: 500;
     text-decoration: none;
     transition: all 0.2s ease;
     font-size: var(--font-size-sm);
+    flex: 1;
+    min-width: 140px;
 }
 
 .btn-action:hover {
@@ -2492,8 +2523,9 @@
 
 .prod_list-header {
     display: grid;
-    grid-template-columns: 50px 30px 75px 1fr 140px 100px 100px 120px 100px 120px;
-    gap: 16px;
+    /* checkbox, drag, priorytet, klient, produkt, ilość, objętość, status, deadline, akcje */
+    grid-template-columns: 40px 35px 60px 180px 1fr 70px 90px 130px 100px 110px;
+    gap: 12px;
     padding: 12px 16px;
     padding-left: 35px;
     background: #f1f5f9;
@@ -2539,9 +2571,10 @@
 
 .prod_list-product-row {
     display: grid;
-    grid-template-columns: 50px 40px 80px 1fr 350px 100px 100px 120px 100px 120px;
-    gap: 16px;
-    padding: 16px;
+    /* checkbox, drag, priorytet, klient, produkt, ilość, objętość, status, deadline, akcje */
+    grid-template-columns: 40px 35px 60px 180px 1fr 70px 90px 130px 100px 110px;
+    gap: 12px;
+    padding: 12px 16px;
     background: white;
     border: 1px solid #e2e8f0;
     border-left: 4px solid #3b82f6;
@@ -2619,37 +2652,102 @@
     box-shadow: 0 3px 6px rgba(237, 107, 36, 0.4);
 }
 
-/* Product info cell - rozciąga się na pełną dostępną przestrzeń */
+/* Client cell */
+.prod_list-client-cell {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.prod_list-client-name {
+    font-weight: 600;
+    font-size: 0.85rem;
+    color: #1e293b;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.prod_list-order-numbers {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    font-size: 0.75rem;
+    color: #64748b;
+    font-family: monospace;
+}
+
+.prod_list-client-order-number {
+    color: #475569;
+}
+
+.prod_list-bl-order-number {
+    color: #06b6d4;
+    font-size: 0.7rem;
+}
+
+/* Deadline cell */
+.prod_list-deadline-cell {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.prod_list-deadline-value {
+    font-size: 0.8rem;
+    color: #475569;
+    white-space: nowrap;
+}
+
+.prod_list-deadline-value.deadline-urgent {
+    color: #dc2626;
+    font-weight: 600;
+}
+
+.prod_list-deadline-value.deadline-soon {
+    color: #f59e0b;
+    font-weight: 500;
+}
+
+/* Product info cell */
 .prod_list-product-info {
     min-width: 0;
     width: 100%;
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: 2px;
 }
 
 .prod_list-product-name {
     font-weight: 600;
     color: #0f172a;
-    font-size: 0.9rem;
+    font-size: 0.85rem;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
     width: 100%;
-    line-height: 1.4;
+    line-height: 1.3;
 }
 
-.prod_list-product-details {
-    display: flex;
-    gap: 12px;
-    align-items: center;
-}
-
-.prod_list-baselinker-order,
 .prod_list-product-id {
-    font-size: 13px;
-    color: #94a3b8;
-    font-weight: 500;
+    font-size: 0.75rem;
+    color: #64748b;
+    font-family: monospace;
+}
+
+/* Quantity cell */
+.prod_list-quantity-cell {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.prod_list-quantity-value {
+    font-weight: 700;
+    font-size: 0.9rem;
+    color: #1e293b;
+    text-align: center;
 }
 
 /* Tags cell */
@@ -2743,6 +2841,37 @@
     background: #f0f9ff;
     color: #0369a1;
     border: 1px solid #0ea5e9;
+}
+
+/* ============================================================================
+   QUANTITY BADGE - Badge wyświetlający ilość sztuk przy nazwie produktu
+   ============================================================================ */
+.prod_list-quantity-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 2px 8px;
+    margin-left: 8px;
+    border-radius: 12px;
+    font-size: 0.75rem;
+    font-weight: 700;
+    background: linear-gradient(135deg, #6366f1, #8b5cf6);
+    color: white;
+    white-space: nowrap;
+    box-shadow: 0 2px 4px rgba(99, 102, 241, 0.3);
+    vertical-align: middle;
+}
+
+.prod_list-quantity-badge::before {
+    content: "×";
+    margin-right: 2px;
+    font-weight: 400;
+}
+
+/* Dark mode */
+.dark-mode .prod_list-quantity-badge {
+    background: linear-gradient(135deg, #818cf8, #a78bfa);
+    box-shadow: 0 2px 4px rgba(129, 140, 248, 0.4);
 }
 
 /* Volume cell */
@@ -2947,59 +3076,80 @@
 @media (max-width: 1200px) {
     .prod_list-header,
     .prod_list-product-row {
-        grid-template-columns: 40px 30px 70px 1fr 120px 80px 80px 100px 80px 100px;
-        gap: 12px;
+        /* checkbox, drag, priorytet, klient, produkt, ilość, objętość, status, deadline, akcje */
+        grid-template-columns: 35px 30px 50px 150px 1fr 60px 80px 110px 90px 90px;
+        gap: 10px;
         font-size: 0.85rem;
     }
-    
+
     .prod_list-priority-rank {
         width: 32px;
         height: 32px;
         font-size: 0.8rem;
+    }
+
+    .prod_list-client-name {
+        font-size: 0.8rem;
+    }
+
+    .prod_list-order-numbers {
+        font-size: 0.7rem;
     }
 }
 
 @media (max-width: 900px) {
     .prod_list-header,
     .prod_list-product-row {
-        grid-template-columns: 30px 25px 60px 1fr 100px 70px 70px 80px 70px 80px;
+        /* checkbox, drag, priorytet, klient, produkt, ilość, objętość, status, deadline, akcje */
+        grid-template-columns: 30px 25px 45px 130px 1fr 50px 70px 90px 80px 80px;
         gap: 8px;
         font-size: 0.8rem;
     }
-    
+
     .prod_list-priority-rank {
         width: 28px;
         height: 28px;
         font-size: 0.75rem;
     }
-    
+
     .prod_list-tag {
         font-size: 0.65rem;
         padding: 2px 6px;
     }
-    
-    .prod_list-product-details {
-        flex-direction: column;
-        gap: 2px;
+
+    .prod_list-client-name {
+        font-size: 0.75rem;
+    }
+
+    .prod_list-order-numbers {
+        font-size: 0.65rem;
     }
 }
 
 @media (max-width: 768px) {
     .prod_list-header,
     .prod_list-product-row {
-        grid-template-columns: 25px 20px 50px 1fr 80px 60px 60px 70px 60px 70px;
+        /* checkbox, drag, priorytet, klient, produkt, ilość, objętość, status, deadline, akcje */
+        grid-template-columns: 25px 20px 40px 110px 1fr 45px 60px 70px 70px 70px;
         gap: 6px;
         font-size: 0.75rem;
         padding: 12px;
     }
-    
+
     .prod_list-product-name {
         font-size: 0.85rem;
     }
-    
-    .prod_list-product-id,
-    .prod_list-baselinker-order {
+
+    .prod_list-product-id {
         font-size: 0.7rem;
+    }
+
+    .prod_list-client-name {
+        font-size: 0.7rem;
+    }
+
+    .prod_list-order-numbers {
+        font-size: 0.6rem;
     }
 }
 
@@ -3133,4 +3283,509 @@
     height: 90vh;
     border: none;
     border-radius: 8px;
+}
+
+/* ============================================================================
+   QUANTITY PROGRESS - Postęp produkcji per stanowisko
+   ============================================================================ */
+
+.quantity-progress-container {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.quantity-progress-item {
+    background: #f8fafc;
+    border-radius: 10px;
+    padding: 12px 16px;
+    border: 1px solid #e2e8f0;
+    transition: all 0.2s ease;
+}
+
+.quantity-progress-item:hover {
+    border-color: #cbd5e1;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+}
+
+.quantity-progress-item.completed {
+    background: linear-gradient(135deg, #ecfdf5 0%, #d1fae5 100%);
+    border-color: #a7f3d0;
+}
+
+.quantity-progress-item.in-progress {
+    background: linear-gradient(135deg, #fef9c3 0%, #fef08a 100%);
+    border-color: #fde047;
+}
+
+.quantity-progress-item.pending {
+    background: #f1f5f9;
+    border-color: #e2e8f0;
+}
+
+.progress-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+}
+
+.progress-station {
+    font-weight: 600;
+    font-size: 0.9rem;
+    color: #1e293b;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.progress-station i {
+    font-size: 1rem;
+    opacity: 0.7;
+}
+
+.progress-count {
+    font-size: 0.85rem;
+    font-weight: 700;
+    padding: 4px 10px;
+    border-radius: 20px;
+    background: #e2e8f0;
+    color: #475569;
+}
+
+.quantity-progress-item.completed .progress-count {
+    background: #10b981;
+    color: white;
+}
+
+.quantity-progress-item.in-progress .progress-count {
+    background: #f59e0b;
+    color: white;
+}
+
+.progress-bar-container {
+    background: rgba(0, 0, 0, 0.1);
+    border-radius: 6px;
+    height: 10px;
+    overflow: hidden;
+}
+
+.progress-bar-fill {
+    height: 100%;
+    border-radius: 6px;
+    transition: width 0.5s ease-out;
+    background: linear-gradient(90deg, #6366f1 0%, #8b5cf6 100%);
+}
+
+.quantity-progress-item.completed .progress-bar-fill {
+    background: linear-gradient(90deg, #10b981 0%, #059669 100%);
+}
+
+.quantity-progress-item.in-progress .progress-bar-fill {
+    background: linear-gradient(90deg, #f59e0b 0%, #d97706 100%);
+}
+
+/* Dark mode */
+.dark-mode .quantity-progress-item {
+    background: #1e293b;
+    border-color: #334155;
+}
+
+.dark-mode .quantity-progress-item:hover {
+    border-color: #475569;
+}
+
+.dark-mode .quantity-progress-item.completed {
+    background: linear-gradient(135deg, #064e3b 0%, #065f46 100%);
+    border-color: #10b981;
+}
+
+.dark-mode .quantity-progress-item.in-progress {
+    background: linear-gradient(135deg, #78350f 0%, #92400e 100%);
+    border-color: #f59e0b;
+}
+
+.dark-mode .quantity-progress-item.pending {
+    background: #0f172a;
+    border-color: #1e293b;
+}
+
+.dark-mode .progress-station {
+    color: #e2e8f0;
+}
+
+.dark-mode .progress-count {
+    background: #334155;
+    color: #94a3b8;
+}
+
+.dark-mode .quantity-progress-item.completed .progress-count {
+    background: #10b981;
+    color: white;
+}
+
+.dark-mode .quantity-progress-item.in-progress .progress-count {
+    background: #f59e0b;
+    color: white;
+}
+
+.dark-mode .progress-bar-container {
+    background: rgba(255, 255, 255, 0.1);
+}
+
+/* Quantity edit buttons */
+.progress-controls {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.quantity-edit-buttons {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.btn-qty-edit {
+    width: 32px;
+    height: 32px;
+    border: none;
+    border-radius: 6px;
+    background: #e2e8f0;
+    color: #475569;
+    font-size: 1rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.btn-qty-edit:hover:not(:disabled) {
+    background: #cbd5e1;
+    transform: scale(1.05);
+}
+
+.btn-qty-edit:active:not(:disabled) {
+    transform: scale(0.95);
+}
+
+.btn-qty-edit:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+.btn-qty-edit.btn-minus,
+.btn-qty-edit.btn-minus-10 {
+    background: #fee2e2;
+    color: #dc2626;
+}
+
+.btn-qty-edit.btn-minus:hover:not(:disabled),
+.btn-qty-edit.btn-minus-10:hover:not(:disabled) {
+    background: #fecaca;
+}
+
+.btn-qty-edit.btn-plus,
+.btn-qty-edit.btn-plus-10 {
+    background: #dcfce7;
+    color: #16a34a;
+}
+
+.btn-qty-edit.btn-plus:hover:not(:disabled),
+.btn-qty-edit.btn-plus-10:hover:not(:disabled) {
+    background: #bbf7d0;
+}
+
+.btn-qty-edit.btn-minus-10,
+.btn-qty-edit.btn-plus-10 {
+    width: 40px;
+    font-size: 0.85rem;
+}
+
+.btn-qty-edit.loading {
+    pointer-events: none;
+    opacity: 0.7;
+}
+
+.btn-qty-edit.loading::after {
+    content: '';
+    width: 12px;
+    height: 12px;
+    border: 2px solid transparent;
+    border-top-color: currentColor;
+    border-radius: 50%;
+    animation: spin 0.6s linear infinite;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
+/* Progress count in edit mode */
+.quantity-edit-buttons .progress-count {
+    min-width: 60px;
+    text-align: center;
+    font-size: 0.9rem;
+    font-weight: 700;
+    padding: 4px 8px;
+    background: transparent;
+    border-radius: 0;
+    box-shadow: none;
+}
+
+/* Dark mode for edit buttons */
+.dark-mode .btn-qty-edit {
+    background: #334155;
+    color: #94a3b8;
+}
+
+.dark-mode .btn-qty-edit:hover:not(:disabled) {
+    background: #475569;
+}
+
+.dark-mode .btn-qty-edit.btn-minus,
+.dark-mode .btn-qty-edit.btn-minus-10 {
+    background: #450a0a;
+    color: #fca5a5;
+}
+
+.dark-mode .btn-qty-edit.btn-minus:hover:not(:disabled),
+.dark-mode .btn-qty-edit.btn-minus-10:hover:not(:disabled) {
+    background: #7f1d1d;
+}
+
+.dark-mode .btn-qty-edit.btn-plus,
+.dark-mode .btn-qty-edit.btn-plus-10 {
+    background: #052e16;
+    color: #86efac;
+}
+
+.dark-mode .btn-qty-edit.btn-plus:hover:not(:disabled),
+.dark-mode .btn-qty-edit.btn-plus-10:hover:not(:disabled) {
+    background: #14532d;
+}
+
+.dark-mode .quantity-edit-buttons .progress-count {
+    color: #e2e8f0;
+}
+
+/* ============================================================================
+   BASELINKER COMPARE MODAL
+   ============================================================================ */
+
+.bl-changes-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.bl-change-item {
+    display: flex;
+    align-items: center;
+    padding: 12px 16px;
+    border-radius: 8px;
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    gap: 16px;
+}
+
+.bl-change-item.bl-change-remove {
+    background: #fef2f2;
+    border-color: #fecaca;
+}
+
+.bl-change-item.bl-change-add {
+    background: #f0fdf4;
+    border-color: #bbf7d0;
+}
+
+.bl-change-item.bl-change-update {
+    background: #fefce8;
+    border-color: #fef08a;
+}
+
+.bl-change-item.bl-change-order {
+    background: #eff6ff;
+    border-color: #bfdbfe;
+}
+
+.bl-change-id {
+    font-weight: 700;
+    font-size: 0.85rem;
+    color: #475569;
+    min-width: 100px;
+    font-family: monospace;
+}
+
+.bl-change-remove .bl-change-id {
+    color: #dc2626;
+}
+
+.bl-change-add .bl-change-id {
+    color: #16a34a;
+    background: #dcfce7;
+    padding: 2px 8px;
+    border-radius: 4px;
+}
+
+.bl-change-name {
+    flex: 1;
+    font-size: 0.9rem;
+    color: #1e293b;
+}
+
+.bl-change-qty {
+    font-weight: 600;
+    font-size: 0.85rem;
+    color: #64748b;
+    white-space: nowrap;
+}
+
+.bl-change-details {
+    flex: 1;
+}
+
+.bl-field-change {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin-bottom: 4px;
+}
+
+.bl-field-change:last-child {
+    margin-bottom: 0;
+}
+
+.bl-field-label {
+    font-weight: 600;
+    color: #475569;
+    font-size: 0.85rem;
+}
+
+.bl-old-value {
+    color: #dc2626;
+    background: #fee2e2;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 0.85rem;
+    text-decoration: line-through;
+}
+
+.bl-new-value {
+    color: #16a34a;
+    background: #dcfce7;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 0.85rem;
+}
+
+/* Przycisk akcji Baselinker w modalu produktu */
+.btn-action.btn-primary-custom {
+    background: linear-gradient(135deg, #6366f1, #8b5cf6);
+    color: white;
+    border: none;
+}
+
+.btn-action.btn-primary-custom:hover {
+    background: linear-gradient(135deg, #4f46e5, #7c3aed);
+    transform: translateY(-1px);
+}
+
+/* Dark mode */
+.dark-mode .bl-change-item {
+    background: #1e293b;
+    border-color: #334155;
+}
+
+.dark-mode .bl-change-item.bl-change-remove {
+    background: #450a0a;
+    border-color: #7f1d1d;
+}
+
+.dark-mode .bl-change-item.bl-change-add {
+    background: #052e16;
+    border-color: #14532d;
+}
+
+.dark-mode .bl-change-item.bl-change-update {
+    background: #422006;
+    border-color: #854d0e;
+}
+
+.dark-mode .bl-change-item.bl-change-order {
+    background: #172554;
+    border-color: #1e40af;
+}
+
+.dark-mode .bl-change-id {
+    color: #94a3b8;
+}
+
+.dark-mode .bl-change-remove .bl-change-id {
+    color: #fca5a5;
+}
+
+.dark-mode .bl-change-add .bl-change-id {
+    color: #86efac;
+    background: #052e16;
+}
+
+.dark-mode .bl-change-name {
+    color: #e2e8f0;
+}
+
+.dark-mode .bl-change-qty {
+    color: #94a3b8;
+}
+
+.dark-mode .bl-field-label {
+    color: #94a3b8;
+}
+
+.dark-mode .bl-old-value {
+    color: #fca5a5;
+    background: #450a0a;
+}
+
+.dark-mode .bl-new-value {
+    color: #86efac;
+    background: #052e16;
+}
+
+/* Modal Baselinker dark mode */
+.dark-mode #baselinkerCompareModal .modal-content {
+    background: #0f172a;
+    border-color: #334155;
+}
+
+.dark-mode #baselinkerCompareModal .modal-header {
+    background: #1e293b;
+    border-color: #334155;
+}
+
+.dark-mode #baselinkerCompareModal .modal-title {
+    color: #e2e8f0;
+}
+
+.dark-mode #baselinkerCompareModal .modal-footer {
+    background: #1e293b;
+    border-color: #334155;
+}
+
+.dark-mode #baselinkerCompareModal .alert-info {
+    background: #172554;
+    border-color: #1e40af;
+    color: #93c5fd;
+}
+
+/* Z-index fix - modal Baselinker nad modalem produktu */
+#baselinkerCompareModal {
+    z-index: 1060 !important;
+}
+
+#baselinkerCompareModal .modal-backdrop {
+    z-index: 1055 !important;
 }
