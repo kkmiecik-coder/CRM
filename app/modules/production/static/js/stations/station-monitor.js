@@ -1,11 +1,5 @@
-<<<<<<< Updated upstream
 // station-monitor.js - MONITOR PRODUKCJI
 // Wersja 2.4 - Szybsza inicjalizacja auto-scroll (2s zamiast 5s)
-=======
-// station-monitor.js - Monitor Produkcji
-// Wyswietlanie statusow zamowien na telewizorze
-// Wersja 1.0
->>>>>>> Stashed changes
 
 /**
  * Global state dla monitora
@@ -14,7 +8,6 @@ window.MONITOR_STATE = {
     config: null,
     refreshTimer: null,
     countdownTimer: null,
-<<<<<<< Updated upstream
     isRefreshing: false,
     lastRefreshTime: Date.now(),
     lastTickTime: Date.now(),
@@ -47,17 +40,12 @@ window.MONITOR_STATE = {
         // Cache aktualnych zamówień (dla inkrementalnego update)
         currentOrders: new Map()   // order_number -> order data
     }
-=======
-    isOnline: true,
-    lastRefreshTime: Date.now()
->>>>>>> Stashed changes
 };
 
 /* ============================================================================
    INITIALIZATION
    ============================================================================ */
 
-<<<<<<< Updated upstream
 document.addEventListener('DOMContentLoaded', function() {
     console.log('[Monitor] Initializing v2.4...');
 
@@ -111,53 +99,6 @@ document.addEventListener('DOMContentLoaded', function() {
 
 /* ============================================================================
    DATETIME & REFRESH
-=======
-/**
- * Initialize monitor on page load
- */
-document.addEventListener('DOMContentLoaded', function() {
-    console.log('[Monitor] Initializing...');
-
-    // Load config
-    loadMonitorConfig();
-
-    // Start datetime updater
-    updateCurrentDatetime();
-    setInterval(updateCurrentDatetime, 1000);
-
-    // Start auto-refresh
-    startAutoRefresh();
-
-    // Start countdown
-    startRefreshCountdown();
-
-    console.log('[Monitor] Initialized successfully');
-});
-
-/**
- * Load monitor config from window.MONITOR_CONFIG
- */
-function loadMonitorConfig() {
-    if (!window.MONITOR_CONFIG) {
-        console.error('[Monitor] MONITOR_CONFIG not found');
-        window.MONITOR_STATE.config = {
-            refreshInterval: 30,
-            debugMode: false
-        };
-        return;
-    }
-
-    window.MONITOR_STATE.config = {
-        refreshInterval: window.MONITOR_CONFIG.refreshInterval || 30,
-        debugMode: window.MONITOR_CONFIG.debugMode || false
-    };
-
-    console.log('[Monitor] Config loaded:', window.MONITOR_STATE.config);
-}
-
-/* ============================================================================
-   DATETIME & COUNTDOWN
->>>>>>> Stashed changes
    ============================================================================ */
 
 /**
@@ -185,15 +126,9 @@ function updateCurrentDatetime() {
 
     datetimeElement.textContent = `${date} ${time}`;
 
-<<<<<<< Updated upstream
     // Update day label if exists
     const labelElement = datetimeElement.previousElementSibling;
     if (labelElement && labelElement.classList.contains('stat-label')) {
-=======
-    // Update day label
-    const labelElement = datetimeElement.closest('.stat-content')?.querySelector('.stat-label');
-    if (labelElement) {
->>>>>>> Stashed changes
         labelElement.textContent = dayName;
     }
 }
@@ -210,16 +145,11 @@ function startRefreshCountdown() {
         clearInterval(window.MONITOR_STATE.countdownTimer);
     }
 
-<<<<<<< Updated upstream
     window.MONITOR_STATE.secondsLeft = config.refreshInterval;
-=======
-    let secondsLeft = config.refreshInterval;
->>>>>>> Stashed changes
     const countdownElement = document.getElementById('refresh-countdown');
     const refreshIcon = document.querySelector('.refresh-icon');
 
     const updateCountdown = () => {
-<<<<<<< Updated upstream
         // Zapisz czas ostatniego ticka
         window.MONITOR_STATE.lastTickTime = Date.now();
 
@@ -518,87 +448,10 @@ function updateElement(id, value) {
     const element = document.getElementById(id);
     if (element) {
         element.innerHTML = value;
-=======
-        if (countdownElement) {
-            countdownElement.textContent = `${secondsLeft}s`;
-        }
-
-        // Spin icon when refreshing soon
-        if (secondsLeft <= 3 && refreshIcon) {
-            refreshIcon.classList.add('spinning');
-        } else if (refreshIcon) {
-            refreshIcon.classList.remove('spinning');
-        }
-    };
-
-    updateCountdown();
-
-    window.MONITOR_STATE.countdownTimer = setInterval(() => {
-        secondsLeft--;
-
-        if (secondsLeft <= 0) {
-            secondsLeft = config.refreshInterval;
-        }
-
-        updateCountdown();
-    }, 1000);
-}
-
-/* ============================================================================
-   AUTO-REFRESH
-   ============================================================================ */
-
-/**
- * Start auto-refresh timer
- */
-function startAutoRefresh() {
-    const config = window.MONITOR_STATE.config;
-    if (!config) return;
-
-    console.log(`[Monitor] Starting auto-refresh (${config.refreshInterval}s)`);
-
-    // Clear existing timer
-    if (window.MONITOR_STATE.refreshTimer) {
-        clearInterval(window.MONITOR_STATE.refreshTimer);
-    }
-
-    // Start refresh timer
-    window.MONITOR_STATE.refreshTimer = setInterval(() => {
-        refreshMonitorData();
-    }, config.refreshInterval * 1000);
-}
-
-/**
- * Refresh monitor data from server
- */
-async function refreshMonitorData() {
-    console.log('[Monitor] Refreshing data...');
-
-    try {
-        // Simple page reload for now - most reliable approach
-        const response = await fetch(window.location.href, {
-            method: 'GET',
-            headers: {
-                'X-Requested-With': 'XMLHttpRequest'
-            }
-        });
-
-        if (response.ok) {
-            // Reload page to get fresh data
-            window.location.reload();
-        } else {
-            throw new Error(`HTTP ${response.status}`);
-        }
-
-    } catch (error) {
-        console.error('[Monitor] Refresh failed:', error);
-        setOfflineStatus();
->>>>>>> Stashed changes
     }
 }
 
 /* ============================================================================
-<<<<<<< Updated upstream
    INFINITY SCROLL - Smooth row-based scrolling
    ============================================================================ */
 
@@ -1036,88 +889,10 @@ function setConnectionStatus(isOnline) {
 
     if (offlineBanner) {
         offlineBanner.style.display = isOnline ? 'none' : 'block';
-=======
-   CONNECTION STATUS
-   ============================================================================ */
-
-/**
- * Set online status
- */
-function setOnlineStatus() {
-    if (window.MONITOR_STATE.isOnline) return;
-
-    window.MONITOR_STATE.isOnline = true;
-
-    const statusElement = document.getElementById('connection-status');
-    const offlineBanner = document.getElementById('offline-banner');
-
-    if (statusElement) {
-        statusElement.classList.remove('offline');
-        statusElement.classList.add('online');
-        statusElement.querySelector('.status-text').textContent = 'ONLINE';
-    }
-
-    if (offlineBanner) {
-        offlineBanner.style.display = 'none';
-    }
-
-    console.log('[Monitor] Status: ONLINE');
-}
-
-/**
- * Set offline status
- */
-function setOfflineStatus() {
-    if (!window.MONITOR_STATE.isOnline) return;
-
-    window.MONITOR_STATE.isOnline = false;
-
-    const statusElement = document.getElementById('connection-status');
-    const offlineBanner = document.getElementById('offline-banner');
-
-    if (statusElement) {
-        statusElement.classList.remove('online');
-        statusElement.classList.add('offline');
-        statusElement.querySelector('.status-text').textContent = 'OFFLINE';
-    }
-
-    if (offlineBanner) {
-        offlineBanner.style.display = 'block';
-    }
-
-    console.log('[Monitor] Status: OFFLINE');
-
-    // Try to reconnect after 10 seconds
-    setTimeout(() => {
-        checkConnection();
-    }, 10000);
-}
-
-/**
- * Check connection to server
- */
-async function checkConnection() {
-    try {
-        const response = await fetch('/production/api/health', {
-            method: 'GET',
-            cache: 'no-cache'
-        });
-
-        if (response.ok) {
-            setOnlineStatus();
-            // Reload to get fresh data
-            window.location.reload();
-        } else {
-            setOfflineStatus();
-        }
-    } catch (error) {
-        setOfflineStatus();
->>>>>>> Stashed changes
     }
 }
 
 /* ============================================================================
-<<<<<<< Updated upstream
    TV BOX / EMBEDDED BROWSER SUPPORT
    ============================================================================ */
 
@@ -1219,39 +994,3 @@ window.addEventListener('resize', function() {
 });
 
 console.log('[Monitor] Module loaded v2.4');
-=======
-   VISIBILITY API - Pause refresh when tab not visible
-   ============================================================================ */
-
-document.addEventListener('visibilitychange', function() {
-    if (document.hidden) {
-        console.log('[Monitor] Tab hidden - pausing refresh');
-        if (window.MONITOR_STATE.refreshTimer) {
-            clearInterval(window.MONITOR_STATE.refreshTimer);
-        }
-        if (window.MONITOR_STATE.countdownTimer) {
-            clearInterval(window.MONITOR_STATE.countdownTimer);
-        }
-    } else {
-        console.log('[Monitor] Tab visible - resuming refresh');
-        // Refresh immediately when tab becomes visible
-        refreshMonitorData();
-        startRefreshCountdown();
-        startAutoRefresh();
-    }
-});
-
-/* ============================================================================
-   DEBUG
-   ============================================================================ */
-
-if (window.MONITOR_CONFIG?.debugMode) {
-    window.monitorDebug = {
-        getState: () => window.MONITOR_STATE,
-        refresh: () => refreshMonitorData(),
-        setOffline: () => setOfflineStatus(),
-        setOnline: () => setOnlineStatus()
-    };
-    console.log('[Monitor] Debug mode enabled - use window.monitorDebug');
-}
->>>>>>> Stashed changes
