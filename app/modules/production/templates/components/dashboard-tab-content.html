@@ -207,23 +207,18 @@
                 {% if dashboard_stats.deadline_alerts %}
                 {% for alert in dashboard_stats.deadline_alerts %}
                 <div class="alert-item {% if alert.days_remaining <= 0 %}alert-overdue{% elif alert.days_remaining <= 1 %}alert-critical{% elif alert.days_remaining <= 2 %}alert-warning{% else %}alert-normal{% endif %}">
-                    <div class="alert-icon">
-                        {% if alert.days_remaining <= 0 %}🚨
-                        {% elif alert.days_remaining <= 1 %}⚠️
-                        {% elif alert.days_remaining <= 2 %}⏳
-                        {% else %}⏰{% endif %}
-                    </div>
+                    <div class="alert-icon">{% if alert.days_remaining <= 0 %}🚨{% elif alert.days_remaining <= 1 %}⚠️{% elif alert.days_remaining <= 2 %}⏳{% else %}⏰{% endif %}</div>
                     <div class="alert-content">
-                        <div class="alert-header">
-                            <span class="alert-product-id">{{ alert.short_product_id }}</span>
+                        <div class="alert-row-main">
+                            <span class="alert-client-name">{{ alert.client_name or 'Brak danych' }}</span>
                             <span class="alert-days">{{ alert.days_remaining }} dni</span>
                         </div>
-                        <div class="alert-details">
-                            <span class="alert-station">{{ alert.current_station }}</span>
-                            {% if alert.deadline_date %}
-                            <span class="alert-deadline">{{ alert.deadline_date }}</span>
-                            {% endif %}
+                        <div class="alert-row-ids">
+                            {% if alert.baselinker_order_id %}<span class="alert-id baselinker">BL-{{ alert.baselinker_order_id }}</span>{% endif %}
+                            {% if alert.short_product_id %}<span class="alert-id system">{{ alert.short_product_id }}</span>{% endif %}
+                            {% if alert.client_order_number %}<span class="alert-id internal">{{ alert.client_order_number }}</span>{% endif %}
                         </div>
+                        {% if alert.product_name %}<div class="alert-row-product" title="{{ alert.product_name }}">{{ alert.product_name }}{% if alert.quantity and alert.quantity > 1 %} - <strong>{{ alert.quantity }} szt.</strong>{% endif %}</div>{% endif %}
                     </div>
                 </div>
                 {% endfor %}

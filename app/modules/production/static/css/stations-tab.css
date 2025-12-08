@@ -19,10 +19,15 @@
    CONTAINER
    ============================================================================ */
 
+#stations-tab-wrapper {
+    padding: 20px;
+}
+
 .stations-container {
     display: flex;
     flex-direction: column;
     gap: 24px;
+    max-width: 100%;
 }
 
 /* ============================================================================

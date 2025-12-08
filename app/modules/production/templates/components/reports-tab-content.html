@@ -1,6 +1,207 @@
 <!-- reports-tab-content.html -->
 <!-- Komponent zawartości taba Raporty -->
 
+<style>
+/* Główny kontener raportów */
+#reports-tab-wrapper {
+    padding: 20px;
+}
+
+/* Podsumowanie tygodniowe */
+.reports-summary {
+    margin-bottom: 24px;
+}
+
+.summary-card {
+    background: white;
+    border-radius: 12px;
+    padding: 20px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    height: 100%;
+}
+
+.summary-icon {
+    font-size: 2.5rem;
+}
+
+.summary-data {
+    flex: 1;
+}
+
+.summary-value {
+    font-size: 1.8rem;
+    font-weight: 700;
+    color: #212529;
+    line-height: 1.2;
+}
+
+.summary-label {
+    font-size: 0.85rem;
+    color: #6c757d;
+    margin-top: 4px;
+}
+
+/* Widgety wykresów */
+.performance-widget,
+.status-breakdown-widget,
+.analytics-widget,
+.sync-history-widget {
+    background: white;
+    border-radius: 12px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+    overflow: hidden;
+}
+
+.performance-widget .widget-header,
+.status-breakdown-widget .widget-header,
+.analytics-widget .widget-header,
+.sync-history-widget .widget-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 16px 20px;
+    border-bottom: 1px solid #e9ecef;
+    background: linear-gradient(135deg, #fafafa 0%, #f5f5f5 100%);
+}
+
+.performance-widget .widget-header h4,
+.status-breakdown-widget .widget-header h4,
+.analytics-widget .widget-header h4,
+.sync-history-widget .widget-header h4 {
+    margin: 0;
+    font-size: 1.1rem;
+    font-weight: 600;
+    color: #212529;
+}
+
+.performance-widget .widget-content,
+.status-breakdown-widget .widget-content,
+.analytics-widget .widget-content,
+.sync-history-widget .widget-content {
+    padding: 20px;
+}
+
+/* Wrapper dla wykresów - upewnij się że ma wysokość */
+.chart-wrapper {
+    position: relative;
+    min-height: 250px;
+}
+
+/* Widget wydajności dziennej - wyróżniony */
+.performance-widget {
+    margin-bottom: 24px;
+}
+
+.performance-widget .widget-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 12px;
+}
+
+.performance-widget .widget-header h4 {
+    display: flex;
+    align-items: center;
+    margin: 0;
+    font-size: 1.1rem;
+}
+
+.performance-widget .chart-controls {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.performance-widget .chart-controls .form-select {
+    width: auto;
+    min-width: 120px;
+}
+
+.performance-widget .chart-wrapper {
+    height: 350px;
+    min-height: 350px;
+    position: relative;
+}
+
+.performance-widget .chart-wrapper canvas {
+    width: 100% !important;
+    height: 100% !important;
+}
+
+.performance-widget .chart-loader {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(255, 255, 255, 0.9);
+    padding: 20px;
+    border-radius: 8px;
+    z-index: 10;
+}
+
+/* Style dla wykresów analitycznych */
+.chart-legend {
+    max-height: 180px;
+    overflow-y: auto;
+}
+
+.legend-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 2px 0;
+    color: #333 !important;
+}
+
+.legend-color {
+    width: 12px;
+    height: 12px;
+    border-radius: 2px;
+    flex-shrink: 0;
+}
+
+.analytics-widget h6 {
+    color: #6c757d;
+    font-weight: 600;
+}
+
+.analytics-widget .chart-legend {
+    color: #333;
+}
+
+.analytics-widget .legend-item {
+    color: #333 !important;
+}
+
+.analytics-widget .legend-item strong {
+    color: #000;
+}
+
+/* Akcje raportów */
+.reports-actions .card {
+    border-radius: 12px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+}
+
+.reports-actions .card-header {
+    background: linear-gradient(135deg, #fafafa 0%, #f5f5f5 100%);
+    border-bottom: 1px solid #e9ecef;
+    padding: 16px 20px;
+}
+
+.reports-actions .card-header h5 {
+    margin: 0;
+    font-weight: 600;
+}
+</style>
+
 <!-- Podsumowanie tygodniowe -->
 <div class="reports-summary">
     <div class="row g-3 mb-4">
@@ -8,7 +209,7 @@
             <div class="summary-card">
                 <div class="summary-icon">📈</div>
                 <div class="summary-data">
-                    <div class="summary-value">{{ reports_data.summary.week_completed }}</div>
+                    <div class="summary-value">{{ reports_data['summary']['week_completed'] }}</div>
                     <div class="summary-label">Ukończone w tygodniu</div>
                 </div>
             </div>
@@ -17,7 +218,7 @@
             <div class="summary-card">
                 <div class="summary-icon">📊</div>
                 <div class="summary-data">
-                    <div class="summary-value">{{ "%.2f"|format(reports_data.summary.week_volume) }}</div>
+                    <div class="summary-value">{{ "%.2f"|format(reports_data['summary']['week_volume']) }}</div>
                     <div class="summary-label">m³ w tygodniu</div>
                 </div>
             </div>
@@ -26,7 +227,7 @@
             <div class="summary-card">
                 <div class="summary-icon">🏭</div>
                 <div class="summary-data">
-                    <div class="summary-value">{{ reports_data.summary.total_in_system }}</div>
+                    <div class="summary-value">{{ reports_data['summary']['total_in_system'] }}</div>
                     <div class="summary-label">Produktów w systemie</div>
                 </div>
             </div>
@@ -34,20 +235,33 @@
     </div>
 </div>
 
-<!-- Wykres wydajności dziennej -->
+<!-- Wykres wydajności dziennej per stanowisko (identyczny jak na Dashboard) -->
 <div class="widget performance-widget">
     <div class="widget-header">
-        <h4>Wydajność dzienna (ostatnie 7 dni)</h4>
+        <h4>
+            <i class="fas fa-chart-line me-2"></i>
+            Wydajność dzienna
+        </h4>
         <div class="chart-controls">
-            <div class="btn-group btn-group-sm">
-                <button class="btn btn-outline-primary active" onclick="changeReportPeriod(7)">7 dni</button>
-                <button class="btn btn-outline-primary" onclick="changeReportPeriod(14)">14 dni</button>
-                <button class="btn btn-outline-primary" onclick="changeReportPeriod(30)">30 dni</button>
-            </div>
+            <select id="reports-chart-period-select" class="form-select form-select-sm">
+                <option value="30" selected>30 dni</option>
+                <option value="90">3 miesiące</option>
+                <option value="180">6 miesięcy</option>
+                <option value="365">12 miesięcy</option>
+            </select>
+            <button id="reports-chart-refresh-btn" class="btn btn-outline-primary btn-sm" title="Odśwież wykres">
+                <i class="fas fa-sync-alt"></i>
+            </button>
         </div>
     </div>
     <div class="widget-content">
-        <canvas id="daily-performance-chart" width="400" height="200"></canvas>
+        <div class="chart-wrapper" style="position: relative; height: 350px; width: 100%;">
+            <canvas id="reports-performance-chart"></canvas>
+        </div>
+        <div class="chart-loader" id="reports-chart-loader" style="display: none;">
+            <div class="spinner-border text-primary" role="status"></div>
+            <span class="ms-2">Ładowanie danych wykresu...</span>
+        </div>
     </div>
 </div>
 
@@ -70,17 +284,17 @@
                             </tr>
                         </thead>
                         <tbody>
-                            {% for item in reports_data.status_breakdown %}
+                            {% for item in reports_data['status_breakdown'] %}
                             <tr>
                                 <td>
-                                    <span class="status-badge status-{{ item.status.replace('czeka_na_', '').replace('_', '-') }}">
-                                        {{ item.status.replace('czeka_na_', '').replace('_', ' ').title() }}
+                                    <span class="status-badge status-{{ item['status'].replace('czeka_na_', '').replace('_', '-') }}">
+                                        {{ item['status'].replace('czeka_na_', '').replace('_', ' ').title() }}
                                     </span>
                                 </td>
-                                <td><strong>{{ item.count }}</strong></td>
-                                <td>{{ "%.3f"|format(item.volume) }}</td>
+                                <td><strong>{{ item['count'] }}</strong></td>
+                                <td>{{ "%.3f"|format(item['volume']) }}</td>
                                 <td>
-                                    {% set percentage = (item.count / reports_data.summary.total_in_system * 100) if reports_data.summary.total_in_system > 0 else 0 %}
+                                    {% set percentage = (item['count'] / reports_data['summary']['total_in_system'] * 100) if reports_data['summary']['total_in_system'] > 0 else 0 %}
                                     {{ "%.1f"|format(percentage) }}%
                                 </td>
                             </tr>
@@ -90,7 +304,80 @@
                 </div>
             </div>
             <div class="col-md-4">
-                <canvas id="status-breakdown-chart" width="300" height="300"></canvas>
+                <div class="chart-wrapper" style="position: relative; height: 250px;">
+                    <canvas id="status-breakdown-chart"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Wykresy analityczne - Gatunki, Grubości, Technologie, Klasy -->
+<div class="widget analytics-widget mt-4">
+    <div class="widget-header">
+        <h4>Analiza produktów</h4>
+    </div>
+    <div class="widget-content">
+        <div class="row">
+            <!-- Wykres gatunków drewna -->
+            <div class="col-xl-3 col-md-6 col-12 mb-4">
+                <h6 class="text-center mb-3">Gatunki drewna</h6>
+                <div class="chart-wrapper" style="position: relative; height: 200px;">
+                    <canvas id="species-chart"></canvas>
+                </div>
+                <div class="chart-legend mt-2">
+                    {% for item in reports_data['species_breakdown'] %}
+                    <div class="legend-item small">
+                        <span class="legend-color" style="background-color: {{ ['#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0', '#9966FF', '#FF9F40', '#C9CBCF', '#7BC043'][loop.index0 % 8] }}"></span>
+                        {{ item['name'] }}: <strong>{{ item['count'] }}</strong> ({{ "%.3f"|format(item['volume']) }} m³)
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+            <!-- Wykres grubości -->
+            <div class="col-xl-3 col-md-6 col-12 mb-4">
+                <h6 class="text-center mb-3">Grubości (cm)</h6>
+                <div class="chart-wrapper" style="position: relative; height: 200px;">
+                    <canvas id="thickness-chart"></canvas>
+                </div>
+                <div class="chart-legend mt-2">
+                    {% for item in reports_data['thickness_breakdown'] %}
+                    <div class="legend-item small">
+                        <span class="legend-color" style="background-color: {{ ['#36A2EB', '#4BC0C0', '#9966FF', '#FF6384', '#FFCE56', '#FF9F40', '#C9CBCF', '#7BC043'][loop.index0 % 8] }}"></span>
+                        {{ "%.1f"|format(item['thickness']) }} cm: <strong>{{ item['count'] }}</strong>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+            <!-- Wykres technologii -->
+            <div class="col-xl-3 col-md-6 col-12 mb-4">
+                <h6 class="text-center mb-3">Technologie</h6>
+                <div class="chart-wrapper" style="position: relative; height: 200px;">
+                    <canvas id="technology-chart"></canvas>
+                </div>
+                <div class="chart-legend mt-2">
+                    {% for item in reports_data['technology_breakdown'] %}
+                    <div class="legend-item small">
+                        <span class="legend-color" style="background-color: {{ ['#FFCE56', '#FF6384', '#36A2EB', '#4BC0C0', '#9966FF', '#FF9F40', '#C9CBCF', '#7BC043'][loop.index0 % 8] }}"></span>
+                        {{ item['name'] }}: <strong>{{ item['count'] }}</strong> ({{ "%.3f"|format(item['volume']) }} m³)
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+            <!-- Wykres klas drewna -->
+            <div class="col-xl-3 col-md-6 col-12 mb-4">
+                <h6 class="text-center mb-3">Klasy drewna</h6>
+                <div class="chart-wrapper" style="position: relative; height: 200px;">
+                    <canvas id="wood-class-chart"></canvas>
+                </div>
+                <div class="chart-legend mt-2">
+                    {% for item in reports_data['wood_class_breakdown'] %}
+                    <div class="legend-item small">
+                        <span class="legend-color" style="background-color: {{ ['#8B4513', '#D2691E', '#CD853F', '#DEB887', '#F4A460', '#D2B48C', '#BC8F8F', '#A0522D'][loop.index0 % 8] }}"></span>
+                        {{ item['name'] }}: <strong>{{ item['count'] }}</strong> ({{ "%.3f"|format(item['volume']) }} m³)
+                    </div>
+                    {% endfor %}
+                </div>
             </div>
         </div>
     </div>
@@ -99,7 +386,7 @@
 <!-- Historia synchronizacji -->
 <div class="widget sync-history-widget mt-4">
     <div class="widget-header">
-        <h4>Historia synchronizacji (ostatnie 20)</h4>
+        <h4>Historia synchronizacji (ostatnie 10)</h4>
         <button class="btn btn-outline-primary btn-sm" onclick="refreshSyncHistory()">
             <i class="fas fa-sync-alt me-1"></i>Odśwież
         </button>
@@ -116,19 +403,19 @@
                     </tr>
                 </thead>
                 <tbody>
-                    {% for sync in reports_data.sync_history %}
+                    {% for sync in reports_data['sync_history'] %}
                     <tr>
                         <td>
-                            {% set sync_date = sync.date[:19] %}
+                            {% set sync_date = sync['date'][:19] %}
                             {{ sync_date.replace('T', ' ') }}
                         </td>
                         <td>
-                            <span class="badge {% if sync.status == 'completed' %}bg-success{% elif sync.status == 'error' %}bg-danger{% else %}bg-warning{% endif %}">
-                                {{ sync.status.title() }}
+                            <span class="badge {% if sync['status'] == 'completed' %}bg-success{% elif sync['status'] == 'error' %}bg-danger{% else %}bg-warning{% endif %}">
+                                {{ sync['status'].title() }}
                             </span>
                         </td>
-                        <td>{{ sync.items_processed }} elementów</td>
-                        <td>{{ sync.duration_seconds }}s</td>
+                        <td>{{ sync['items_processed'] }} elementów</td>
+                        <td>{{ sync['duration_seconds'] }}s</td>
                     </tr>
                     {% endfor %}
                 </tbody>
@@ -166,98 +453,434 @@
 // JavaScript dla taba raportów
 let dailyChart = null;
 let statusChart = null;
+let woodClassChart = null;
+let speciesChart = null;
+let thicknessChart = null;
+let technologyChart = null;
 
 function initReportsTab() {
     console.log('[Reports Tab] Inicjalizacja');
-    
+
     // Inicjalizuj wykresy
     initializeDailyChart();
     initializeStatusChart();
+    initializeSpeciesChart();
+    initializeThicknessChart();
+    initializeTechnologyChart();
+    initializeWoodClassChart();
 }
 
-function initializeDailyChart() {
-    const ctx = document.getElementById('daily-performance-chart').getContext('2d');
-    
-    const dailyData = {{ reports_data.daily_performance|tojson }};
-    
-    dailyChart = new Chart(ctx, {
-        type: 'bar',
-        data: {
-            labels: dailyData.map(item => {
-                const date = new Date(item.date);
-                return date.toLocaleDateString('pl-PL', { month: 'short', day: 'numeric' });
-            }),
-            datasets: [{
-                label: 'Ukończone zamówienia',
-                data: dailyData.map(item => item.completed_orders),
-                backgroundColor: 'rgba(54, 162, 235, 0.8)',
-                borderColor: 'rgba(54, 162, 235, 1)',
-                borderWidth: 1
-            }, {
-                label: 'Objętość (m³)',
-                data: dailyData.map(item => item.total_volume),
-                type: 'line',
-                backgroundColor: 'rgba(255, 99, 132, 0.2)',
-                borderColor: 'rgba(255, 99, 132, 1)',
-                yAxisID: 'y1'
-            }]
-        },
-        options: {
-            responsive: true,
-            scales: {
-                y: {
-                    beginAtZero: true,
-                    position: 'left'
+// Inicjalizacja wykresu wydajności per stanowisko (identyczny jak na Dashboard)
+async function initializeDailyChart() {
+    console.log('[Reports Tab] Initializing daily performance chart...');
+
+    // Ustaw event listenery dla kontrolek
+    const periodSelect = document.getElementById('reports-chart-period-select');
+    const refreshBtn = document.getElementById('reports-chart-refresh-btn');
+
+    if (periodSelect) {
+        periodSelect.addEventListener('change', (e) => {
+            const period = parseInt(e.target.value);
+            console.log('[Reports Tab] Period changed to:', period);
+            loadReportsChartData(period);
+        });
+    }
+
+    if (refreshBtn) {
+        refreshBtn.addEventListener('click', () => {
+            const period = periodSelect ? parseInt(periodSelect.value) : 30;
+            console.log('[Reports Tab] Refresh clicked, period:', period);
+            loadReportsChartData(period);
+        });
+    }
+
+    // Załaduj dane dla domyślnego okresu (30 dni)
+    await loadReportsChartData(30);
+}
+
+async function loadReportsChartData(period) {
+    const loader = document.getElementById('reports-chart-loader');
+    const canvas = document.getElementById('reports-performance-chart');
+
+    // Pokaż loader
+    if (loader) loader.style.display = 'flex';
+    if (canvas) canvas.style.opacity = '0.35';
+
+    try {
+        // Użyj tego samego API co Dashboard
+        const response = await fetch(`/production/api/chart-data?period=${period}`);
+        const data = await response.json();
+
+        if (data.success) {
+            createReportsPerformanceChart(data.chart_data, period);
+        } else {
+            console.error('[Reports Tab] Chart data error:', data.error);
+            showReportsChartError('Błąd ładowania danych: ' + (data.error || 'Nieznany błąd'));
+        }
+    } catch (error) {
+        console.error('[Reports Tab] Failed to load chart data:', error);
+        showReportsChartError('Błąd połączenia z serwerem');
+    } finally {
+        // Ukryj loader
+        if (loader) loader.style.display = 'none';
+        if (canvas) canvas.style.opacity = '1';
+    }
+}
+
+function createReportsPerformanceChart(chartData, period) {
+    const canvas = document.getElementById('reports-performance-chart');
+    if (!canvas) {
+        console.error('[Reports Tab] Canvas reports-performance-chart not found!');
+        return;
+    }
+
+    if (typeof Chart === 'undefined') {
+        console.warn('[Reports Tab] Chart.js not loaded yet, waiting...');
+        setTimeout(() => createReportsPerformanceChart(chartData, period), 100);
+        return;
+    }
+
+    // Zniszcz istniejący wykres
+    if (dailyChart) {
+        dailyChart.destroy();
+        dailyChart = null;
+    }
+
+    const ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    // Określ tytuł na podstawie okresu
+    let chartTitle = 'Wydajność produkcji';
+    let xAxisLabel = 'Data';
+
+    if (period <= 30) {
+        chartTitle += ` (${period} dni)`;
+        xAxisLabel = 'Dzień';
+    } else if (period === 90) {
+        chartTitle += ' (3 miesiące - agregacja tygodniowa)';
+        xAxisLabel = 'Tydzień';
+    } else if (period === 180) {
+        chartTitle += ' (6 miesięcy - agregacja miesięczna)';
+        xAxisLabel = 'Miesiąc';
+    } else if (period === 365) {
+        chartTitle += ' (12 miesięcy - agregacja miesięczna)';
+        xAxisLabel = 'Miesiąc';
+    }
+
+    try {
+        dailyChart = new Chart(ctx, {
+            type: 'line',
+            data: chartData,
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                interaction: {
+                    mode: 'index',
+                    intersect: false
                 },
-                y1: {
-                    type: 'linear',
-                    display: true,
-                    position: 'right',
-                    beginAtZero: true,
-                    grid: {
-                        drawOnChartArea: false,
+                plugins: {
+                    title: {
+                        display: true,
+                        text: chartTitle,
+                        font: { size: 14, weight: 'bold' },
+                        padding: { top: 10, bottom: 20 }
+                    },
+                    legend: {
+                        display: true,
+                        position: 'top',
+                        labels: {
+                            usePointStyle: true,
+                            padding: 15,
+                            font: { size: 12 }
+                        }
+                    },
+                    tooltip: {
+                        backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                        padding: 12,
+                        titleFont: { size: 13, weight: 'bold' },
+                        bodyFont: { size: 12 },
+                        callbacks: {
+                            label: function(context) {
+                                let label = context.dataset.label || '';
+                                if (label) label += ': ';
+                                label += context.parsed.y.toFixed(2) + ' m³';
+                                return label;
+                            },
+                            footer: function(tooltipItems) {
+                                let sum = 0;
+                                tooltipItems.forEach(item => sum += item.parsed.y);
+                                return 'Suma: ' + sum.toFixed(2) + ' m³';
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    x: {
+                        title: {
+                            display: true,
+                            text: xAxisLabel,
+                            font: { size: 12, weight: 'bold' }
+                        },
+                        ticks: {
+                            maxRotation: 45,
+                            minRotation: 0,
+                            autoSkip: true,
+                            maxTicksLimit: period > 90 ? 12 : 15
+                        },
+                        grid: {
+                            display: true,
+                            drawBorder: true
+                        }
+                    },
+                    y: {
+                        title: {
+                            display: true,
+                            text: 'Objętość (m³)',
+                            font: { size: 12, weight: 'bold' }
+                        },
+                        beginAtZero: true,
+                        ticks: {
+                            callback: function(value) {
+                                return value.toFixed(1) + ' m³';
+                            }
+                        },
+                        grid: {
+                            display: true,
+                            drawBorder: true
+                        }
                     }
                 }
             }
-        }
-    });
+        });
+
+        console.log('[Reports Tab] Performance chart created successfully');
+    } catch (error) {
+        console.error('[Reports Tab] Error creating performance chart:', error);
+        showReportsChartError('Błąd tworzenia wykresu: ' + error.message);
+    }
+}
+
+function showReportsChartError(message) {
+    const wrapper = document.querySelector('.performance-widget .chart-wrapper');
+    if (wrapper) {
+        wrapper.innerHTML = `
+            <div class="alert alert-danger m-3">
+                <i class="fas fa-exclamation-triangle me-2"></i>
+                <strong>Błąd wykresu:</strong> ${message}
+            </div>
+        `;
+    }
 }
 
 function initializeStatusChart() {
-    const ctx = document.getElementById('status-breakdown-chart').getContext('2d');
-    
-    const statusData = {{ reports_data.status_breakdown|tojson }};
-    
-    statusChart = new Chart(ctx, {
-        type: 'doughnut',
-        data: {
-            labels: statusData.map(item => item.status.replace('czeka_na_', '').replace('_', ' ').charAt(0).toUpperCase() + item.status.replace('czeka_na_', '').replace('_', ' ').slice(1)),
-            datasets: [{
-                data: statusData.map(item => item.count),
-                backgroundColor: [
-                    '#FF6384',
-                    '#36A2EB',
-                    '#FFCE56',
-                    '#4BC0C0',
-                    '#9966FF'
-                ]
-            }]
-        },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false
-        }
-    });
+    const canvas = document.getElementById('status-breakdown-chart');
+    if (!canvas) {
+        console.error('[Reports Tab] Canvas status-breakdown-chart not found!');
+        return;
+    }
+
+    if (typeof Chart === 'undefined') {
+        setTimeout(initializeStatusChart, 100);
+        return;
+    }
+
+    const ctx = canvas.getContext('2d');
+    const statusData = {{ reports_data['status_breakdown']|tojson }};
+
+    if (statusChart) {
+        statusChart.destroy();
+        statusChart = null;
+    }
+
+    try {
+        statusChart = new Chart(ctx, {
+            type: 'doughnut',
+            data: {
+                labels: statusData.map(item => item.status.replace('czeka_na_', '').replace('_', ' ').charAt(0).toUpperCase() + item.status.replace('czeka_na_', '').replace('_', ' ').slice(1)),
+                datasets: [{
+                    data: statusData.map(item => item.count),
+                    backgroundColor: [
+                        '#FF6384',
+                        '#36A2EB',
+                        '#FFCE56',
+                        '#4BC0C0',
+                        '#9966FF'
+                    ]
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false
+            }
+        });
+        console.log('[Reports Tab] Status chart initialized');
+    } catch (error) {
+        console.error('[Reports Tab] Error creating status chart:', error);
+    }
 }
 
-function changeReportPeriod(days) {
-    console.log('[Reports Tab] Zmiana okresu na:', days, 'dni');
-    
-    // Aktualizuj aktywny przycisk
-    document.querySelectorAll('.chart-controls .btn').forEach(btn => btn.classList.remove('active'));
-    event.target.classList.add('active');
-    
-    // TODO: Przeładuj dane dla nowego okresu
+function initializeSpeciesChart() {
+    const canvas = document.getElementById('species-chart');
+    if (!canvas) return;
+
+    if (typeof Chart === 'undefined') {
+        setTimeout(initializeSpeciesChart, 100);
+        return;
+    }
+
+    const ctx = canvas.getContext('2d');
+    const speciesData = {{ reports_data['species_breakdown']|tojson }};
+
+    if (speciesChart) {
+        speciesChart.destroy();
+        speciesChart = null;
+    }
+
+    try {
+        speciesChart = new Chart(ctx, {
+            type: 'doughnut',
+            data: {
+                labels: speciesData.map(item => item.name),
+                datasets: [{
+                    data: speciesData.map(item => item.count),
+                    backgroundColor: ['#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0', '#9966FF', '#FF9F40', '#C9CBCF', '#7BC043']
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { display: false }
+                }
+            }
+        });
+        console.log('[Reports Tab] Species chart initialized');
+    } catch (error) {
+        console.error('[Reports Tab] Error creating species chart:', error);
+    }
+}
+
+function initializeThicknessChart() {
+    const canvas = document.getElementById('thickness-chart');
+    if (!canvas) return;
+
+    if (typeof Chart === 'undefined') {
+        setTimeout(initializeThicknessChart, 100);
+        return;
+    }
+
+    const ctx = canvas.getContext('2d');
+    const thicknessData = {{ reports_data['thickness_breakdown']|tojson }};
+
+    if (thicknessChart) {
+        thicknessChart.destroy();
+        thicknessChart = null;
+    }
+
+    try {
+        thicknessChart = new Chart(ctx, {
+            type: 'doughnut',
+            data: {
+                labels: thicknessData.map(item => item.thickness + ' cm'),
+                datasets: [{
+                    data: thicknessData.map(item => item.count),
+                    backgroundColor: ['#36A2EB', '#4BC0C0', '#9966FF', '#FF6384', '#FFCE56', '#FF9F40', '#C9CBCF', '#7BC043']
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { display: false }
+                }
+            }
+        });
+        console.log('[Reports Tab] Thickness chart initialized');
+    } catch (error) {
+        console.error('[Reports Tab] Error creating thickness chart:', error);
+    }
+}
+
+function initializeTechnologyChart() {
+    const canvas = document.getElementById('technology-chart');
+    if (!canvas) return;
+
+    if (typeof Chart === 'undefined') {
+        setTimeout(initializeTechnologyChart, 100);
+        return;
+    }
+
+    const ctx = canvas.getContext('2d');
+    const technologyData = {{ reports_data['technology_breakdown']|tojson }};
+
+    if (technologyChart) {
+        technologyChart.destroy();
+        technologyChart = null;
+    }
+
+    try {
+        technologyChart = new Chart(ctx, {
+            type: 'doughnut',
+            data: {
+                labels: technologyData.map(item => item.name),
+                datasets: [{
+                    data: technologyData.map(item => item.count),
+                    backgroundColor: ['#FFCE56', '#FF6384', '#36A2EB', '#4BC0C0', '#9966FF', '#FF9F40', '#C9CBCF', '#7BC043']
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { display: false }
+                }
+            }
+        });
+        console.log('[Reports Tab] Technology chart initialized');
+    } catch (error) {
+        console.error('[Reports Tab] Error creating technology chart:', error);
+    }
+}
+
+function initializeWoodClassChart() {
+    const canvas = document.getElementById('wood-class-chart');
+    if (!canvas) return;
+
+    if (typeof Chart === 'undefined') {
+        setTimeout(initializeWoodClassChart, 100);
+        return;
+    }
+
+    const ctx = canvas.getContext('2d');
+    const woodClassData = {{ reports_data['wood_class_breakdown']|tojson }};
+
+    if (woodClassChart) {
+        woodClassChart.destroy();
+        woodClassChart = null;
+    }
+
+    try {
+        woodClassChart = new Chart(ctx, {
+            type: 'doughnut',
+            data: {
+                labels: woodClassData.map(item => item.name),
+                datasets: [{
+                    data: woodClassData.map(item => item.count),
+                    backgroundColor: ['#8B4513', '#D2691E', '#CD853F', '#DEB887', '#F4A460', '#D2B48C', '#BC8F8F', '#A0522D']
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { display: false }
+                }
+            }
+        });
+        console.log('[Reports Tab] Wood class chart initialized');
+    } catch (error) {
+        console.error('[Reports Tab] Error creating wood class chart:', error);
+    }
 }
 
 function refreshSyncHistory() {
@@ -276,10 +899,6 @@ function exportToPDF() {
     alert('Funkcja eksportu do PDF będzie wkrótce dostępna!');
 }
 
-// Auto-inicjalizacja
-if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', initReportsTab);
-} else {
-    initReportsTab();
-}
+// Nie używamy auto-inicjalizacji - production-app-loader.js wywołuje initReportsTab() po załadowaniu HTML
+console.log('[Reports Tab] Script loaded, waiting for initReportsTab() call...');
 </script>

@@ -2383,7 +2383,12 @@ def dashboard_tab_content():
                 'short_product_id': alert.short_product_id,
                 'deadline_date': alert.deadline_date.isoformat() if alert.deadline_date else None,
                 'days_remaining': (alert.deadline_date - today).days if alert.deadline_date else 0,
-                'current_station': alert.current_status.replace('czeka_na_', '') if alert.current_status else 'unknown'
+                'current_station': alert.current_status.replace('czeka_na_', '') if alert.current_status else 'unknown',
+                'client_name': alert.client_name or 'Brak danych',
+                'client_order_number': alert.client_order_number or '',
+                'baselinker_order_id': alert.baselinker_order_id,
+                'product_name': alert.original_product_name or '',
+                'quantity': alert.quantity or 1
             }
             for alert in deadline_alerts
         ]
@@ -3161,14 +3166,98 @@ def reports_tab_content():
                 'volume': float(volume)
             })
         
-        # Historia synchronizacji
+        # Historia synchronizacji (ostatnie 10)
         sync_history = ProductionSyncLog.query\
                                        .order_by(ProductionSyncLog.sync_started_at.desc())\
-                                       .limit(20).all()
-        
-        reports_data = {
+                                       .limit(10).all()
+
+        # Rozkład według gatunków drewna
+        species_stats = db.session.query(
+            ProductionItem.parsed_wood_species,
+            func.count(ProductionItem.id).label('count'),
+            func.sum(ProductionItem.volume_m3).label('volume')
+        ).filter(
+            ProductionItem.parsed_wood_species.isnot(None),
+            ProductionItem.current_status != 'anulowane'
+        ).group_by(ProductionItem.parsed_wood_species).all()
+
+        species_breakdown = [
+            {
+                'name': row[0] or 'Nieokreślony',
+                'count': row[1],
+                'volume': float(row[2] or 0)
+            }
+            for row in species_stats
+        ]
+
+        # Rozkład według grubości
+        thickness_stats = db.session.query(
+            ProductionItem.parsed_thickness_cm,
+            func.count(ProductionItem.id).label('count'),
+            func.sum(ProductionItem.volume_m3).label('volume')
+        ).filter(
+            ProductionItem.parsed_thickness_cm.isnot(None),
+            ProductionItem.current_status != 'anulowane'
+        ).group_by(ProductionItem.parsed_thickness_cm).all()
+
+        thickness_breakdown = [
+            {
+                'thickness': float(row[0]) if row[0] else 0,
+                'count': row[1],
+                'volume': float(row[2] or 0)
+            }
+            for row in thickness_stats
+        ]
+        # Sortowanie po grubości
+        thickness_breakdown.sort(key=lambda x: x['thickness'])
+
+        # Rozkład według technologii
+        technology_stats = db.session.query(
+            ProductionItem.parsed_technology,
+            func.count(ProductionItem.id).label('count'),
+            func.sum(ProductionItem.volume_m3).label('volume')
+        ).filter(
+            ProductionItem.parsed_technology.isnot(None),
+            ProductionItem.current_status != 'anulowane'
+        ).group_by(ProductionItem.parsed_technology).all()
+
+        technology_breakdown = [
+            {
+                'name': row[0] or 'Nieokreślona',
+                'count': row[1],
+                'volume': float(row[2] or 0)
+            }
+            for row in technology_stats
+        ]
+
+        # Rozkład według klasy drewna
+        wood_class_stats = db.session.query(
+            ProductionItem.parsed_wood_class,
+            func.count(ProductionItem.id).label('count'),
+            func.sum(ProductionItem.volume_m3).label('volume')
+        ).filter(
+            ProductionItem.parsed_wood_class.isnot(None),
+            ProductionItem.parsed_wood_class != '',
+            ProductionItem.current_status != 'anulowane'
+        ).group_by(ProductionItem.parsed_wood_class).all()
+
+        wood_class_breakdown = [
+            {
+                'name': row[0] or 'Nieokreślona',
+                'count': row[1],
+                'volume': float(row[2] or 0)
+            }
+            for row in wood_class_stats
+        ]
+
+        # Przygotuj dane jako dict dla JSON response
+        reports_data_dict = {
             'daily_performance': daily_stats,
             'status_breakdown': status_report,
+            'species_breakdown': species_breakdown,
+            'thickness_breakdown': thickness_breakdown,
+            'technology_breakdown': technology_breakdown,
+            'wood_class_breakdown': wood_class_breakdown,
             'sync_history': [
                 {
                     'date': sync.sync_started_at.isoformat(),
@@ -3184,15 +3273,15 @@ def reports_tab_content():
                 'total_in_system': sum(item['count'] for item in status_report)
             }
         }
-        
-        # Renderuj komponent
+
+        # Renderuj komponent - używamy dict z bracket notation w Jinja
         rendered_html = render_template('components/reports-tab-content.html',
-                              reports_data=reports_data)
+                              reports_data=reports_data_dict)
         
         return jsonify({
             'success': True,
             'html': rendered_html,
-            'data': reports_data,
+            'data': reports_data_dict,  # Zwracamy dict dla JSON
             'last_updated': get_local_now().isoformat()
         })
         
@@ -5059,11 +5148,16 @@ def dashboard_data():
                 'short_product_id': alert.short_product_id,
                 'deadline_date': alert.deadline_date.isoformat() if alert.deadline_date else None,
                 'days_remaining': (alert.deadline_date - today).days if alert.deadline_date else 0,
-                'current_station': alert.current_status.replace('czeka_na_', '') if alert.current_status else 'unknown'
+                'current_station': alert.current_status.replace('czeka_na_', '') if alert.current_status else 'unknown',
+                'client_name': alert.client_name or 'Brak danych',
+                'client_order_number': alert.client_order_number or '',
+                'baselinker_order_id': alert.baselinker_order_id,
+                'product_name': alert.original_product_name or '',
+                'quantity': alert.quantity or 1
             }
             for alert in deadline_alerts
         ]
-        
+
         # Zwróć dane w formacie JSON
         response_data = {
             'stations': stations_data,

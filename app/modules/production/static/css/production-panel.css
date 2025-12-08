@@ -424,78 +424,151 @@ body {
 }
 
 /* ============================================================================
-   DEADLINE ALERTS WIDGET
+   DEADLINE ALERTS WIDGET - Kompaktowy layout 2-liniowy
    ============================================================================ */
 .alerts-list {
-    max-height: 300px;
+    max-height: 350px;
     overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
 }
 
 .alert-item {
     display: flex;
     align-items: center;
-    padding: var(--spacing-md);
-    border-radius: var(--border-radius);
-    margin-bottom: var(--spacing-sm);
-    border-left: 4px solid var(--status-danger);
+    padding: 10px 12px;
+    border-radius: 8px;
+    border-left: 3px solid var(--status-danger);
     background: #fff5f5;
+    transition: background 0.15s ease;
+}
+
+.alert-item:hover {
+    background: rgba(0,0,0,0.02);
 }
 
 .alert-item.alert-overdue {
-    border-left-color: var(--status-danger);
-    background: rgba(220, 53, 69, 0.05);
+    border-left-color: #dc3545;
+    background: rgba(220, 53, 69, 0.06);
+}
+.alert-item.alert-overdue .alert-days {
+    background: #dc3545;
+    color: white;
 }
 
 .alert-item.alert-critical {
     border-left-color: #fd7e14;
-    background: rgba(253, 126, 20, 0.05);
+    background: rgba(253, 126, 20, 0.06);
+}
+.alert-item.alert-critical .alert-days {
+    background: #fd7e14;
+    color: white;
 }
 
 .alert-item.alert-warning {
-    border-left-color: var(--status-warning);
-    background: rgba(255, 193, 7, 0.05);
+    border-left-color: #ffc107;
+    background: rgba(255, 193, 7, 0.08);
+}
+.alert-item.alert-warning .alert-days {
+    background: #ffc107;
+    color: #212529;
 }
 
 .alert-item.alert-normal {
-    border-left-color: #007bff;
-    background: rgba(0, 123, 255, 0.05);
+    border-left-color: #0d6efd;
+    background: rgba(13, 110, 253, 0.04);
+}
+.alert-item.alert-normal .alert-days {
+    background: #0d6efd;
+    color: white;
 }
 
+/* Ikona po lewej */
 .alert-icon {
-    font-size: 1.2em;
-    margin-right: 12px;
-    min-width: 24px;
+    font-size: 1.1em;
+    margin-right: 10px;
+    min-width: 20px;
+    text-align: center;
 }
 
+/* Główna treść - flex column */
 .alert-content {
     flex: 1;
-}
-
-.alert-header {
+    min-width: 0;
     display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 4px;
+    flex-direction: column;
+    gap: 3px;
 }
 
-.alert-product-id {
+/* Linia 1: Klient + badge dni */
+.alert-row-main {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.alert-client-name {
     font-weight: 600;
-    color: #495057;
+    font-size: 13px;
+    color: #212529;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .alert-days {
-    font-size: 12px;
-    font-weight: 500;
-    padding: 2px 6px;
-    border-radius: 12px;
-    background: #e9ecef;
+    font-size: 10px;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 10px;
+    background: #6c757d;
+    color: white;
+    white-space: nowrap;
+    flex-shrink: 0;
 }
 
-.alert-details {
+/* Linia 2: Numery zamówień */
+.alert-row-ids {
     display: flex;
-    gap: 12px;
-    font-size: 12px;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.alert-id {
+    font-size: 10px;
+    font-weight: 500;
+    padding: 1px 6px;
+    border-radius: 3px;
+    font-family: 'SF Mono', 'Monaco', 'Consolas', monospace;
+    white-space: nowrap;
+}
+
+.alert-id.baselinker {
+    background: #cce5ff;
+    color: #004085;
+}
+
+.alert-id.system {
+    background: #e2e3e5;
+    color: #383d41;
+}
+
+.alert-id.internal {
+    background: #d4edda;
+    color: #155724;
+}
+
+/* Linia 3: Nazwa produktu */
+.alert-row-product {
+    font-size: 11px;
     color: #6c757d;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    margin-top: 2px;
 }
 
 .no-alerts-state {

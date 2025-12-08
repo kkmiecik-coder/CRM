@@ -326,18 +326,26 @@ class ProductsModule {
 
                 const threshold = options.threshold || 3; // max distance
                 const fields = options.fields || ['original_product_name', 'short_product_id', 'client_name'];
+                const queryLower = query.toLowerCase().trim();
+
+                // Pola które używają exact match (numery zamówień)
+                const exactMatchFields = ['baselinker_order_id', 'client_order_number'];
 
                 return items.filter(item => {
                     return fields.some(field => {
                         const value = item[field];
-                        if (!value) return false;
-                        
-                        const distance = this.calculateLevenshteinDistance(
-                            query.toLowerCase(),
-                            value.toString().toLowerCase()
-                        );
-                        
-                        return distance <= threshold || value.toString().toLowerCase().includes(query.toLowerCase());
+                        if (value === null || value === undefined || value === '') return false;
+
+                        const valueStr = String(value).toLowerCase();
+
+                        // Dla numerów zamówień używamy prostego includes (exact match)
+                        if (exactMatchFields.includes(field)) {
+                            return valueStr.includes(queryLower);
+                        }
+
+                        // Dla innych pól używamy fuzzy search
+                        const distance = this.calculateLevenshteinDistance(queryLower, valueStr);
+                        return distance <= threshold || valueStr.includes(queryLower);
                     });
                 });
             }
@@ -1690,7 +1698,7 @@ class ProductsModule {
                     this.state.currentFilters.textSearch,
                     filtered,
                     {
-                        fields: ['original_product_name', 'short_product_id', 'client_name'],
+                        fields: ['original_product_name', 'short_product_id', 'client_name', 'baselinker_order_id', 'client_order_number'],
                         threshold: 2
                     }
                 );
@@ -1773,6 +1781,23 @@ class ProductsModule {
         this.applyAllFilters();
         this.renderProductsList();
         this.updateStats();
+    }
+
+    /**
+     * Sprawdza czy są aktywne jakiekolwiek filtry
+     * @returns {boolean}
+     */
+    hasActiveFilters() {
+        const filters = this.state.currentFilters;
+
+        return !!(
+            filters.textSearch ||
+            (filters.woodSpecies && filters.woodSpecies.length > 0) ||
+            (filters.technologies && filters.technologies.length > 0) ||
+            (filters.woodClasses && filters.woodClasses.length > 0) ||
+            (filters.thicknesses && filters.thicknesses.length > 0) ||
+            (filters.statuses && filters.statuses.length > 0)
+        );
     }
 
     // ========================================================================

@@ -538,6 +538,7 @@ def get_order_modal_data(quote_id):
         client_data = {}
         if quote.client:
             client_data = {
+                'client_number': quote.client.client_number or '',  # Nazwa klienta/firmy
                 'name': quote.client.client_name,
                 'delivery_name': quote.client.delivery_name or quote.client.client_name,
                 'email': quote.client.email,

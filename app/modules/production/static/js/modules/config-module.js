@@ -113,12 +113,12 @@ class ConfigModule {
                 'sync_enabled': 'SYNC_ENABLED',
                 'max_sync_items': 'MAX_SYNC_ITEMS_PER_BATCH',
                 'baselinker_completed': 'BASELINKER_TARGET_STATUS_COMPLETED',
-                // 'baselinker_paid': 'BASELINKER_SOURCE_STATUS_PAID', // NIE ISTNIEJE W HTML
-                // 'baselinker_production': 'BASELINKER_TARGET_STATUS_PRODUCTION', // NIE ISTNIEJE W HTML
+                'baselinker_paid': 'BASELINKER_SOURCE_STATUS_PAID',
+                'baselinker_production': 'BASELINKER_TARGET_STATUS_PRODUCTION',
                 'sync_retry': 'SYNC_RETRY_COUNT',
                 'refresh_interval': 'REFRESH_INTERVAL_SECONDS',
                 'station_auto_refresh': 'STATION_AUTO_REFRESH_ENABLED',
-                // 'station_show_details': 'STATION_SHOW_DETAILED_INFO', // NIE ISTNIEJE W HTML
+                'station_show_details': 'STATION_SHOW_DETAILED_INFO',
                 'station_max_products': 'STATION_MAX_PRODUCTS_DISPLAY',
                 'deadline_days': 'DEADLINE_DEFAULT_DAYS',
                 'priority_recalc': 'PRIORITY_RECALC_INTERVAL_HOURS',
@@ -550,18 +550,23 @@ class ConfigModule {
             'ADMIN_EMAIL_NOTIFICATIONS': 'admin_email',
             'ERROR_NOTIFICATION_THRESHOLD': 'error_threshold',
             'BASELINKER_STATUSES_CACHE': 'baselinker_cache',
-            'MAX_PRODUCTS_PER_ORDER': 'max_products_order'
+            'MAX_PRODUCTS_PER_ORDER': 'max_products_order',
+            'STATION_ALLOWED_IPS': 'ip-list-items'
         };
 
         const fieldId = fieldMappings[key];
-        const field = document.getElementById(fieldId);
 
+        // Specjalna obsługa dla IP
+        if (key === 'STATION_ALLOWED_IPS') {
+            this.resetIPList(value);
+            return;
+        }
+
+        const field = document.getElementById(fieldId);
         if (field) {
             if (field.type === 'checkbox') {
                 field.checked = Boolean(value);
                 this.updateSwitchLabel(field);
-            } else if (key === 'STATION_ALLOWED_IPS') {
-                this.resetIPList(value);
             } else {
                 field.value = value;
                 if (field.classList.contains('json-editor')) {
@@ -643,9 +648,12 @@ class ConfigModule {
             'SYNC_ENABLED': 'sync_enabled',
             'MAX_SYNC_ITEMS_PER_BATCH': 'max_sync_items',
             'BASELINKER_TARGET_STATUS_COMPLETED': 'baselinker_completed',
+            'BASELINKER_SOURCE_STATUS_PAID': 'baselinker_paid',
+            'BASELINKER_TARGET_STATUS_PRODUCTION': 'baselinker_production',
             'SYNC_RETRY_COUNT': 'sync_retry',
             'REFRESH_INTERVAL_SECONDS': 'refresh_interval',
             'STATION_AUTO_REFRESH_ENABLED': 'station_auto_refresh',
+            'STATION_SHOW_DETAILED_INFO': 'station_show_details',
             'STATION_MAX_PRODUCTS_DISPLAY': 'station_max_products',
             'DEADLINE_DEFAULT_DAYS': 'deadline_days',
             'PRIORITY_RECALC_INTERVAL_HOURS': 'priority_recalc',
@@ -657,7 +665,7 @@ class ConfigModule {
             'ERROR_NOTIFICATION_THRESHOLD': 'error_threshold',
             'BASELINKER_STATUSES_CACHE': 'baselinker_cache',
             'MAX_PRODUCTS_PER_ORDER': 'max_products_order',
-            'STATION_ALLOWED_IPS': 'ip-list-items' // specjalny case
+            'STATION_ALLOWED_IPS': 'ip-list-items'
         };
 
         return reverseMapping[configKey];

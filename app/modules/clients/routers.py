@@ -133,6 +133,11 @@ def update_client(client_id):
         client_delivery_name = data.get("client_delivery_name", "").strip()  # To jest "Imię i nazwisko"
         email = data.get("email", "").strip()
 
+        # Fallback: jeśli brak client_name, użyj delivery.name lub client_delivery_name
+        if not client_name:
+            delivery_data = data.get("delivery", {})
+            client_name = delivery_data.get("name", "").strip() or client_delivery_name
+
         if not client_name:
             return jsonify({"error": "Nazwa klienta jest wymagana"}), 400
 
@@ -146,7 +151,15 @@ def update_client(client_id):
                 ).first()
 
                 if existing_client:
-                    return jsonify({"error": f"Email {email} jest już przypisany do innego klienta"}), 400
+                    return jsonify({
+                        "error": f"Email {email} jest już przypisany do innego klienta",
+                        "error_code": "EMAIL_EXISTS",
+                        "existing_client": {
+                            "id": existing_client.id,
+                            "name": existing_client.client_name or existing_client.delivery_name or existing_client.client_number or "Nieznany",
+                            "email": existing_client.email
+                        }
+                    }), 409  # 409 Conflict - lepszy kod dla tego przypadku
 
         # Aktualizuj dane klienta
         # MAPOWANIE:

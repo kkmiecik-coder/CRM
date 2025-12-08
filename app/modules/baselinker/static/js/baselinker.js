@@ -163,49 +163,72 @@ class BaselinkerModal {
     async updateClientDataInDatabase(clientData) {
         try {
             console.log('[Baselinker] Zapisywanie danych klienta do bazy:', clientData);
-            
+
             // POPRAWKA: Użyj client_id z quote zamiast client.id
             const clientId = this.modalData.quote?.client_id || this.modalData.client?.id;
-            
+
             if (!clientId) {
                 console.error('[Baselinker] ❌ Brak ID klienta w modalData');
                 this.showAlert('Błąd: Nie można określić ID klienta', 'error');
                 return false;
             }
-            
+
             console.log(`[Baselinker] Używam client_id: ${clientId}`);
-            
+
+            const requestBody = {
+                client_name: clientData.client_number || clientData.delivery_name,
+                client_delivery_name: clientData.delivery_name,
+                email: clientData.email,
+                phone: clientData.phone,
+                delivery: {
+                    name: clientData.delivery_name,
+                    company: clientData.delivery_company,
+                    address: clientData.delivery_address,
+                    zip: clientData.delivery_postcode,
+                    city: clientData.delivery_city,
+                    region: clientData.delivery_region,
+                    country: 'Polska'
+                },
+                invoice: {
+                    name: clientData.invoice_name,
+                    company: clientData.invoice_company,
+                    address: clientData.invoice_address,
+                    zip: clientData.invoice_postcode,
+                    city: clientData.invoice_city,
+                    nip: clientData.invoice_nip
+                }
+            };
+
             const response = await fetch(`/clients/${clientId}`, {
                 method: 'PATCH',
                 headers: {
                     'Content-Type': 'application/json',
                 },
-                body: JSON.stringify({
-                    client_name: clientData.delivery_name,
-                    email: clientData.email,
-                    phone: clientData.phone,
-                    delivery: {
-                        name: clientData.delivery_name,
-                        company: clientData.delivery_company,
-                        address: clientData.delivery_address,
-                        zip: clientData.delivery_postcode,
-                        city: clientData.delivery_city,
-                        region: clientData.delivery_region,
-                        country: 'Polska'
-                    },
-                    invoice: {
-                        name: clientData.invoice_name,
-                        company: clientData.invoice_company,
-                        address: clientData.invoice_address,
-                        zip: clientData.invoice_postcode,
-                        city: clientData.invoice_city,
-                        nip: clientData.invoice_nip
-                    }
-                })
+                body: JSON.stringify(requestBody)
             });
 
+            // Obsługa konfliktu emaila (409)
+            if (response.status === 409) {
+                const errorData = await response.json();
+                if (errorData.error_code === 'EMAIL_EXISTS' && errorData.existing_client) {
+                    console.log('[Baselinker] Konflikt emaila - pokazuję dialog wyboru');
+                    const userChoice = await this.showEmailConflictDialog(errorData.existing_client, clientData.email);
+
+                    if (userChoice === 'change_email') {
+                        // Użytkownik chce zmienić email - wróć do formularza
+                        return 'CHANGE_EMAIL';
+                    } else if (userChoice === 'reassign') {
+                        // Przepnij wycenę pod istniejącego klienta
+                        return await this.reassignQuoteToClient(errorData.existing_client.id, requestBody);
+                    }
+                    return false;
+                }
+            }
+
             if (!response.ok) {
-                throw new Error(`HTTP ${response.status}`);
+                const errorData = await response.json().catch(() => ({}));
+                console.error('[Baselinker] ❌ Odpowiedź serwera:', errorData);
+                throw new Error(errorData.error || `HTTP ${response.status}`);
             }
 
             const result = await response.json();
@@ -215,6 +238,190 @@ class BaselinkerModal {
         } catch (error) {
             console.error('[Baselinker] ❌ Błąd podczas aktualizacji danych klienta:', error);
             this.showAlert(`Błąd podczas zapisywania danych klienta: ${error.message}`, 'error');
+            return false;
+        }
+    }
+
+    // Dialog wyboru przy konflikcie emaila
+    async showEmailConflictDialog(existingClient, email) {
+        return new Promise((resolve) => {
+            const dialogHtml = `
+                <div class="bl-email-conflict-overlay" id="emailConflictDialog">
+                    <div class="bl-email-conflict-modal">
+                        <div class="bl-email-conflict-header">
+                            <span class="bl-email-conflict-icon">⚠️</span>
+                            <h3>Email już istnieje w systemie</h3>
+                        </div>
+                        <div class="bl-email-conflict-body">
+                            <p>Email <strong>${email}</strong> jest już przypisany do klienta:</p>
+                            <div class="bl-existing-client-info">
+                                <strong>${existingClient.name}</strong>
+                            </div>
+                            <p>Co chcesz zrobić?</p>
+                        </div>
+                        <div class="bl-email-conflict-actions">
+                            <button type="button" class="bl-btn bl-btn-secondary" id="btnChangeEmail">
+                                ✏️ Użyj innego emaila
+                            </button>
+                            <button type="button" class="bl-btn bl-btn-primary" id="btnReassignClient">
+                                🔄 Przepnij do istniejącego klienta
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            // Dodaj style jeśli nie istnieją
+            if (!document.getElementById('emailConflictStyles')) {
+                const styles = document.createElement('style');
+                styles.id = 'emailConflictStyles';
+                styles.textContent = `
+                    .bl-email-conflict-overlay {
+                        position: fixed;
+                        top: 0;
+                        left: 0;
+                        right: 0;
+                        bottom: 0;
+                        background: rgba(0, 0, 0, 0.6);
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+                        z-index: 10001;
+                    }
+                    .bl-email-conflict-modal {
+                        background: white;
+                        border-radius: 12px;
+                        padding: 24px;
+                        max-width: 450px;
+                        width: 90%;
+                        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+                    }
+                    .bl-email-conflict-header {
+                        display: flex;
+                        align-items: center;
+                        gap: 12px;
+                        margin-bottom: 16px;
+                    }
+                    .bl-email-conflict-icon {
+                        font-size: 28px;
+                    }
+                    .bl-email-conflict-header h3 {
+                        margin: 0;
+                        font-size: 18px;
+                        color: #333;
+                    }
+                    .bl-email-conflict-body {
+                        margin-bottom: 20px;
+                        color: #555;
+                    }
+                    .bl-email-conflict-body p {
+                        margin: 8px 0;
+                    }
+                    .bl-existing-client-info {
+                        background: #f5f5f5;
+                        padding: 12px 16px;
+                        border-radius: 8px;
+                        margin: 12px 0;
+                        border-left: 4px solid #2196F3;
+                    }
+                    .bl-email-conflict-actions {
+                        display: flex;
+                        gap: 12px;
+                        flex-wrap: wrap;
+                    }
+                    .bl-email-conflict-actions .bl-btn {
+                        flex: 1;
+                        min-width: 150px;
+                        padding: 12px 16px;
+                        border: none;
+                        border-radius: 8px;
+                        cursor: pointer;
+                        font-size: 14px;
+                        font-weight: 500;
+                        transition: all 0.2s;
+                    }
+                    .bl-email-conflict-actions .bl-btn-secondary {
+                        background: #e0e0e0;
+                        color: #333;
+                    }
+                    .bl-email-conflict-actions .bl-btn-secondary:hover {
+                        background: #d0d0d0;
+                    }
+                    .bl-email-conflict-actions .bl-btn-primary {
+                        background: #2196F3;
+                        color: white;
+                    }
+                    .bl-email-conflict-actions .bl-btn-primary:hover {
+                        background: #1976D2;
+                    }
+                `;
+                document.head.appendChild(styles);
+            }
+
+            // Wstaw dialog do DOM
+            const container = document.createElement('div');
+            container.innerHTML = dialogHtml;
+            document.body.appendChild(container.firstElementChild);
+
+            const dialog = document.getElementById('emailConflictDialog');
+            const btnChangeEmail = document.getElementById('btnChangeEmail');
+            const btnReassignClient = document.getElementById('btnReassignClient');
+
+            const cleanup = () => {
+                dialog.remove();
+            };
+
+            btnChangeEmail.addEventListener('click', () => {
+                cleanup();
+                resolve('change_email');
+            });
+
+            btnReassignClient.addEventListener('click', () => {
+                cleanup();
+                resolve('reassign');
+            });
+        });
+    }
+
+    // Przepięcie wyceny do innego klienta
+    async reassignQuoteToClient(newClientId, clientData) {
+        try {
+            const quoteId = this.modalData.quote?.id;
+            if (!quoteId) {
+                throw new Error('Brak ID wyceny');
+            }
+
+            console.log(`[Baselinker] Przepinanie wyceny ${quoteId} do klienta ${newClientId}`);
+
+            const response = await fetch(`/quotes/api/quotes/${quoteId}/reassign-client`, {
+                method: 'PATCH',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    new_client_id: newClientId,
+                    client_data: clientData
+                })
+            });
+
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({}));
+                throw new Error(errorData.error || `HTTP ${response.status}`);
+            }
+
+            const result = await response.json();
+            console.log('[Baselinker] ✅ Wycena przepięta pomyślnie:', result);
+
+            // Zaktualizuj modalData z nowym client_id
+            this.modalData.quote.client_id = newClientId;
+            this.modalData.client = { ...this.modalData.client, id: newClientId };
+
+            this.showAlert(result.message || 'Wycena została przepięta do istniejącego klienta', 'success');
+            return true;
+
+        } catch (error) {
+            console.error('[Baselinker] ❌ Błąd podczas przepinania wyceny:', error);
+            this.showAlert(`Błąd: ${error.message}`, 'error');
             return false;
         }
     }
@@ -270,6 +477,7 @@ class BaselinkerModal {
     // NOWA FUNKCJA: Klonuje dane klienta
     cloneClientData(clientData) {
         return {
+            client_number: clientData.client_number || '',  // Nazwa klienta/firmy
             delivery_name: clientData.delivery_name || clientData.number || '',
             delivery_company: clientData.delivery_company || clientData.company || '',
             delivery_address: clientData.delivery_address || '',
@@ -292,6 +500,7 @@ class BaselinkerModal {
     // NOWA FUNKCJA: Pobiera aktualne dane z formularza
     getCurrentClientData() {
         return {
+            client_number: this.originalClientData?.client_number || '',  // Zachowaj z oryginalnych danych
             delivery_name: this.getInputValue('delivery-fullname'),
             delivery_company: this.getInputValue('delivery-company'),
             delivery_address: this.getInputValue('delivery-address'),
@@ -987,9 +1196,19 @@ class BaselinkerModal {
                     if (shouldUpdate) {
                         // NOWE: Faktycznie zapisz dane klienta
                         const currentData = this.getCurrentClientData();
-                        const updateSuccess = await this.updateClientDataInDatabase(currentData);
-                        
-                        if (updateSuccess) {
+                        const updateResult = await this.updateClientDataInDatabase(currentData);
+
+                        if (updateResult === 'CHANGE_EMAIL') {
+                            // Użytkownik wybrał zmianę emaila - zostań na tym kroku
+                            this.showAlert('Zmień adres email i spróbuj ponownie', 'info');
+                            // Ustaw focus na polu email
+                            const emailInput = document.getElementById('client-email');
+                            if (emailInput) {
+                                emailInput.focus();
+                                emailInput.select();
+                            }
+                            return;
+                        } else if (updateResult === true) {
                             this.showAlert('Dane klienta zostały zaktualizowane w bazie danych', 'success');
                             // Zaktualizuj oryginalne dane aby uniknąć ponownej walidacji
                             this.originalClientData = this.cloneClientData(currentData);

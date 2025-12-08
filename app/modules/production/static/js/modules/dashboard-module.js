@@ -122,10 +122,8 @@ class DashboardModule {
             // Setup auto-refresh
             this.setupAutoRefresh();
 
-            // Initialize charts for admins
-            if (this.config.user?.isAdmin) {
-                await this.initializePerformanceChart();
-            }
+            // Initialize charts for all users
+            await this.initializePerformanceChart();
 
             // Initialize production status
             await this.initializeProductionStatus();
@@ -302,68 +300,6 @@ class DashboardModule {
             document.getElementById('today-completed'),
             statsData.completed_today || 0
         );
-    }
-
-    updateAlertsWidget(alertsData) {
-        console.log('[Dashboard Module] Updating alerts widget...', alertsData);
-
-        const alertsList = document.getElementById('alerts-list');
-        const alertsCount = document.getElementById('alerts-count');
-
-        // Aktualizuj licznik alertów
-        if (alertsCount) {
-            alertsCount.textContent = alertsData ? alertsData.length : 0;
-        }
-
-        if (!alertsData || alertsData.length === 0) {
-            if (alertsList) {
-                alertsList.innerHTML = `
-                    <div class="no-alerts-state" id="alerts-empty">
-                        <div class="no-alerts-icon">✅</div>
-                        <p class="no-alerts-text">Brak pilnych alertów</p>
-                        <small class="text-muted">Wszystkie produkty zgodne z terminem</small>
-                    </div>
-                `;
-            }
-        } else {
-            if (alertsList) {
-                // NOWA LOGIKA - obsługuje format z API dashboard-data
-                alertsList.innerHTML = alertsData.map(alert => {
-                    // Format z API: {type, icon, message, time}
-                    const alertType = alert.type || 'info';
-                    const alertIcon = this.getAlertIcon(alert.icon);
-                    const message = alert.message || 'Brak opisu';
-                    const time = alert.time || 'nieznany czas';
-                    
-                    return `
-                        <div class="alert-item alert-${alertType}">
-                            <div class="alert-icon">${alertIcon}</div>
-                            <div class="alert-content">
-                                <div class="alert-header">
-                                    <span class="alert-message">${message}</span>
-                                </div>
-                                <div class="alert-details">
-                                    <span class="alert-time">${time}</span>
-                                </div>
-                            </div>
-                        </div>
-                    `;
-                }).join('');
-            }
-        }
-    }
-
-    // DODAJ NOWĄ FUNKCJĘ POMOCNICZĄ:
-    getAlertIcon(iconName) {
-        const iconMap = {
-            'clock': '⏰',
-            'warning': '⚠️',
-            'error': '🚨',
-            'info': 'ℹ️',
-            'exclamation-triangle': '⚠️'
-        };
-        
-        return iconMap[iconName] || '⚠️';
     }
 
     updateProductionStatusWidget(statusData) {
@@ -698,12 +634,12 @@ class DashboardModule {
     }
 
     // ============================================================================
-    // PERFORMANCE CHART - For Admins
+    // PERFORMANCE CHART - For All Users
     // ============================================================================
 
     async initializePerformanceChart() {
-        if (!this.config.user?.isAdmin || typeof Chart === 'undefined') {
-            console.log('[Dashboard Module] Performance chart not available');
+        if (typeof Chart === 'undefined') {
+            console.log('[Dashboard Module] Chart.js not available');
             return;
         }
 
@@ -2362,17 +2298,28 @@ class DashboardModule {
             alert.days_remaining <= 1 ? '⚠️' :
                 alert.days_remaining <= 2 ? '⏳' : '⏰';
 
+        // Budowanie numerów zamówień w kolejności: BL, systemowy, wewnętrzny
+        let idsHtml = '';
+        if (alert.baselinker_order_id) {
+            idsHtml += `<span class="alert-id baselinker">BL-${alert.baselinker_order_id}</span>`;
+        }
+        if (alert.short_product_id) {
+            idsHtml += `<span class="alert-id system">${alert.short_product_id}</span>`;
+        }
+        if (alert.client_order_number) {
+            idsHtml += `<span class="alert-id internal">${alert.client_order_number}</span>`;
+        }
+
         return `
             <div class="alert-item ${urgencyClass}">
                 <div class="alert-icon">${urgencyIcon}</div>
                 <div class="alert-content">
-                    <div class="alert-header">
-                        <span class="alert-product-id">${alert.short_product_id}</span>
+                    <div class="alert-row-main">
+                        <span class="alert-client-name">${alert.client_name || 'Brak danych'}</span>
                         <span class="alert-days">${alert.days_remaining} dni</span>
                     </div>
-                    <div class="alert-details">
-                        <span class="alert-deadline">Termin: ${alert.deadline_date}</span>
-                    </div>
+                    <div class="alert-row-ids">${idsHtml}</div>
+                    ${alert.product_name ? `<div class="alert-row-product" title="${alert.product_name}">${alert.product_name}${alert.quantity > 1 ? ` - <strong>${alert.quantity} szt.</strong>` : ''}</div>` : ''}
                 </div>
             </div>
         `;

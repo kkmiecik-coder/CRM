@@ -1396,6 +1396,83 @@ def update_quote_note(quote_id):
         }), 500
 
 
+@quotes_bp.route('/api/quotes/<int:quote_id>/reassign-client', methods=['PATCH'])
+@require_module_access('quotes')
+def reassign_quote_client(quote_id):
+    """
+    Przepina wycenę pod innego klienta i aktualizuje jego dane.
+    Używane gdy użytkownik wpisuje email istniejącego klienta w formularzu Baselinker.
+    """
+    try:
+        quote = Quote.query.get_or_404(quote_id)
+        data = request.get_json()
+
+        new_client_id = data.get('new_client_id')
+        client_data = data.get('client_data', {})
+
+        if not new_client_id:
+            return jsonify({"error": "Brak ID nowego klienta"}), 400
+
+        new_client = Client.query.get_or_404(new_client_id)
+        old_client_id = quote.client_id
+
+        # Przepnij wycenę pod nowego klienta
+        quote.client_id = new_client_id
+
+        # Zaktualizuj dane klienta na podstawie formularza
+        if client_data:
+            # Nazwa klienta/firmy - NIE nadpisujemy client_number, bo jest unikalny i już istnieje
+            # Tylko aktualizujemy jeśli klient go nie ma (co nie powinno się zdarzyć)
+
+            # Imię i nazwisko (client_name w bazie = imię i nazwisko osoby kontaktowej)
+            client_delivery_name = client_data.get('client_delivery_name', '').strip()
+            if client_delivery_name:
+                new_client.client_name = client_delivery_name
+
+            # Kontakt
+            new_client.phone = client_data.get('phone', '').strip()
+            # Email nie zmieniamy - to właśnie po nim znaleźliśmy tego klienta
+
+            # Dane dostawy
+            delivery = client_data.get('delivery', {})
+            new_client.delivery_name = delivery.get('name', '').strip()
+            new_client.delivery_company = delivery.get('company', '').strip()
+            new_client.delivery_address = delivery.get('address', '').strip()
+            new_client.delivery_zip = delivery.get('zip', '').strip()
+            new_client.delivery_city = delivery.get('city', '').strip()
+            new_client.delivery_region = delivery.get('region', '').strip()
+            new_client.delivery_country = delivery.get('country', '').strip()
+
+            # Dane do faktury
+            invoice = client_data.get('invoice', {})
+            new_client.invoice_name = invoice.get('name', '').strip()
+            new_client.invoice_company = invoice.get('company', '').strip()
+            new_client.invoice_address = invoice.get('address', '').strip()
+            new_client.invoice_zip = invoice.get('zip', '').strip()
+            new_client.invoice_city = invoice.get('city', '').strip()
+            new_client.invoice_nip = invoice.get('nip', '').strip()
+
+        db.session.commit()
+
+        print(f"[reassign_quote_client] Przepięto wycenę {quote_id} z klienta {old_client_id} na {new_client_id}", file=sys.stderr)
+
+        return jsonify({
+            "success": True,
+            "message": f"Wycena została przepięta do klienta: {new_client.client_name or new_client.client_number}",
+            "new_client_id": new_client_id
+        })
+
+    except Exception as e:
+        db.session.rollback()
+        import traceback
+        print(f"[reassign_quote_client] Błąd: {e}", file=sys.stderr)
+        print(f"[reassign_quote_client] Traceback: {traceback.format_exc()}", file=sys.stderr)
+        return jsonify({
+            "error": "Błąd podczas przepinania klienta",
+            "message": str(e)
+        }), 500
+
+
 @quotes_bp.route('/api/quotes/<int:quote_id>/user-accept', methods=['POST'])
 @require_module_access('quotes')
 def user_accept_quote(quote_id):

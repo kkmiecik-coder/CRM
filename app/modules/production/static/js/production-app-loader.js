@@ -357,15 +357,28 @@ class ProductionApp {
             if (response.success) {
                 const wrapper = document.getElementById('reports-tab-wrapper');
                 const loading = document.getElementById('reports-tab-loading');
-                
+
                 if (wrapper) {
                     wrapper.innerHTML = response.html;
                     wrapper.style.display = 'block';
+
+                    // Wykonaj skrypty inline z załadowanego HTML
+                    this.executeInlineScripts(wrapper);
                 }
-                
+
                 if (loading) {
                     loading.style.display = 'none';
                 }
+
+                // Poczekaj chwilę na wykonanie skryptów, potem zainicjalizuj wykresy
+                setTimeout(() => {
+                    if (typeof initReportsTab === 'function') {
+                        console.log('[ProductionApp] Initializing reports charts...');
+                        initReportsTab();
+                    } else {
+                        console.error('[ProductionApp] initReportsTab function not found after script execution!');
+                    }
+                }, 50);
             } else {
                 throw new Error(response.error || 'Failed to load reports');
             }
@@ -407,10 +420,7 @@ class ProductionApp {
     async loadConfigTab() {
         console.log('[ProductionApp] Loading config tab...');
 
-        if (!this.config.user || !this.config.user.isAdmin) {
-            throw new Error('Brak uprawnień administratora');
-        }
-
+        // Konfiguracja dostępna dla wszystkich użytkowników z dostępem do modułu production
         try {
             const response = await this.shared.apiClient.getConfigTabContent();
 
@@ -511,6 +521,30 @@ class ProductionApp {
     hideTabError(tabName) {
         const errorElement = document.getElementById(`${tabName}-error`);
         if (errorElement) errorElement.style.display = 'none';
+    }
+
+    /**
+     * Wykonuje skrypty inline z dynamicznie załadowanego HTML
+     * innerHTML nie wykonuje tagów <script>, trzeba je ręcznie przetworzyć
+     */
+    executeInlineScripts(container) {
+        const scripts = container.querySelectorAll('script');
+        scripts.forEach(oldScript => {
+            const newScript = document.createElement('script');
+
+            // Kopiuj atrybuty
+            Array.from(oldScript.attributes).forEach(attr => {
+                newScript.setAttribute(attr.name, attr.value);
+            });
+
+            // Kopiuj zawartość
+            newScript.textContent = oldScript.textContent;
+
+            // Zamień stary skrypt na nowy (to spowoduje wykonanie)
+            oldScript.parentNode.replaceChild(newScript, oldScript);
+        });
+
+        console.log(`[ProductionApp] Executed ${scripts.length} inline scripts`);
     }
 
     // ========================================================================
