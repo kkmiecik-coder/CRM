@@ -37,6 +37,7 @@ from modules.sales.models import SalesApplication
 from modules.users import users_bp
 from modules.help import help_bp
 from modules.issues import issues_bp
+from modules.ai_assistant import ai_assistant_bp
 
 from flask_login import login_user, logout_user  # DODANE importy
 from sqlalchemy.exc import ResourceClosedError, OperationalError
@@ -247,6 +248,7 @@ def create_app():
         app.register_blueprint(users_bp)
         app.register_blueprint(help_bp)
         app.register_blueprint(issues_bp)
+        app.register_blueprint(ai_assistant_bp)
 
         print("✅ Wszystkie blueprinty zarejestrowane", file=sys.stderr)
 

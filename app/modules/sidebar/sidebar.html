@@ -264,4 +264,10 @@
 
     <script src="{{ url_for('static', filename='js/tracking.js') }}"></script>
     <script src="{{ url_for('static', filename='js/sidebar.js') }}"></script>
+
+    <!-- AI Chat Assistant Widget (tylko dla adminów) -->
+    {% if current_user.is_authenticated and current_user.role in ['admin', 'administrator'] %}
+    <link rel="stylesheet" href="{{ url_for('ai_assistant.static', filename='css/ai-chat.css') }}">
+    <script src="{{ url_for('ai_assistant.static', filename='js/ai-chat.js') }}"></script>
+    {% endif %}
 </div>

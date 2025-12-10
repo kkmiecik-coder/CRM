@@ -3754,49 +3754,47 @@ def bulk_action():
 def export_products():
     """
     POST /production/api/products/export
-    
-    Generuje export produktów w różnych formatach
-    
+
+    Generuje export produktów w różnych formatach (Excel, CSV, PDF)
+
     Body (JSON):
     {
         "format": "excel|csv|pdf",
         "product_ids": [1, 2, 3] | "all" | "filtered",
-        "filters": {...},  // Jeśli product_ids == "filtered"
-        "columns": ["id", "name", "status", ...]
+        "filters": {...},
+        "report_type": "full|summary"  // dla PDF
     }
-    
-    Returns: JSON z URL do pobrania pliku
+
+    Returns: Plik do pobrania
     """
     try:
         import io
         import csv
         from datetime import datetime
         from flask import send_file, make_response
-        
+
         data = request.get_json()
         if not data:
             return jsonify({'success': False, 'error': 'Brak danych JSON'}), 400
-        
+
         export_format = data.get('format', 'excel').lower()
         product_selection = data.get('product_ids', 'all')
-        selected_columns = data.get('columns', [])
         filters = data.get('filters', {})
-        
+        report_type = data.get('report_type', 'full')
+
         # Walidacja formatu
         valid_formats = ['excel', 'csv', 'pdf']
         if export_format not in valid_formats:
             return jsonify({'success': False, 'error': f'Nieprawidłowy format. Dostępne: {valid_formats}'}), 400
-        
+
         from ..models import ProductionItem
-        
+
         # Buduj query na podstawie selekcji
         query = ProductionItem.query
-        
+
         if isinstance(product_selection, list):
-            # Konkretne IDs
             query = query.filter(ProductionItem.id.in_(product_selection))
         elif product_selection == "filtered":
-            # Zastosuj filtry
             if filters.get('status'):
                 query = query.filter(ProductionItem.current_status == filters['status'])
             if filters.get('search'):
@@ -3807,94 +3805,782 @@ def export_products():
                         ProductionItem.original_product_name.ilike(search_term)
                     )
                 )
-        # "all" - bez dodatkowych filtrów
-        
+
+        # Sortuj po priorytecie (MariaDB nie obsługuje NULLS LAST)
+        # NULL-e na końcu: COALESCE(priority_rank, 999999)
+        query = query.order_by(
+            func.coalesce(ProductionItem.priority_rank, 999999).asc(),
+            ProductionItem.created_at.desc()
+        )
         products = query.all()
-        
+
         if not products:
             return jsonify({'success': False, 'error': 'Brak produktów do eksportu'}), 404
-        
-        # Przygotuj dane do eksportu
-        export_data = []
-        for product in products:
-            row = {
-                'ID Produktu': product.short_product_id,
-                'Zamówienie': product.internal_order_number,
-                'Baselinker ID': product.baselinker_order_id,
-                'Nazwa Produktu': product.original_product_name,
-                'Status': product.current_status,
-                'Priorytet': product.priority_score,
-                'Deadline': product.deadline_date.strftime('%Y-%m-%d') if product.deadline_date else '',
-                'Gatunek': product.parsed_wood_species or '',
-                'Technologia': product.parsed_technology or '',
-                'Klasa': product.parsed_wood_class or '',
-                'Wymiary': f"{product.parsed_length_cm or 0}×{product.parsed_width_cm or 0}×{product.parsed_thickness_cm or 0}cm",
-                'Objętość m³': product.volume_m3 or 0,
-                'Cena netto': product.unit_price_net or 0,
-                'Wartość całkowita': product.total_value_net or 0,
-                'Data utworzenia': product.created_at.strftime('%Y-%m-%d %H:%M') if product.created_at else ''
-            }
-            
-            # Filtruj kolumny jeśli określone
-            if selected_columns:
-                row = {k: v for k, v in row.items() if k in selected_columns}
-            
-            export_data.append(row)
-        
-        # Generuj plik na podstawie formatu
+
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        
+
+        # =====================================================================
+        # EXPORT CSV
+        # =====================================================================
         if export_format == 'csv':
-            output = io.StringIO()
-            if export_data:
-                writer = csv.DictWriter(output, fieldnames=export_data[0].keys())
-                writer.writeheader()
-                writer.writerows(export_data)
-            
-            response = make_response(output.getvalue())
-            response.headers['Content-Type'] = 'text/csv; charset=utf-8'
-            response.headers['Content-Disposition'] = f'attachment; filename=produkty_{timestamp}.csv'
-            
-            logger.info("Export CSV wygenerowany", extra={
-                'user_id': current_user.id,
-                'products_count': len(products),
-                'format': export_format
-            })
-            
-            return response
-        
+            return _export_csv(products, timestamp)
+
+        # =====================================================================
+        # EXPORT EXCEL (z openpyxl)
+        # =====================================================================
         elif export_format == 'excel':
-            # Dla Excel będziemy potrzebować pandas/openpyxl
-            # Na razie zwrócimy CSV z odpowiednim Content-Type
-            output = io.StringIO()
-            if export_data:
-                writer = csv.DictWriter(output, fieldnames=export_data[0].keys())
-                writer.writeheader()
-                writer.writerows(export_data)
-            
-            response = make_response(output.getvalue())
-            response.headers['Content-Type'] = 'application/vnd.ms-excel'
-            response.headers['Content-Disposition'] = f'attachment; filename=produkty_{timestamp}.xls'
-            
-            return response
-        
+            return _export_excel(products, timestamp)
+
+        # =====================================================================
+        # EXPORT PDF (z reportlab)
+        # =====================================================================
         elif export_format == 'pdf':
-            # PDF export będzie wymagał reportlab lub podobnej biblioteki
-            # Na razie zwracamy błąd z informacją
-            return jsonify({
-                'success': False,
-                'error': 'Export PDF będzie dostępny w przyszłej wersji'
-            }), 501
-        
+            return _export_pdf(products, timestamp, report_type)
+
     except Exception as e:
         logger.error("Błąd eksportu produktów", extra={
             'user_id': current_user.id if current_user.is_authenticated else None,
-            'error': str(e)
+            'error': str(e),
+            'traceback': traceback.format_exc()
         })
         return jsonify({
             'success': False,
             'error': f'Błąd eksportu: {str(e)}'
         }), 500
+
+
+def _export_csv(products, timestamp):
+    """Eksport do CSV"""
+    import io
+    import csv
+    from flask import make_response
+
+    output = io.StringIO()
+
+    fieldnames = ['ID', 'Zamówienie', 'Nr klienta', 'Nazwa', 'Status', 'Priorytet',
+                  'Ilość', 'Gatunek', 'Technologia', 'Klasa', 'Wymiary',
+                  'Objętość m³', 'Klient', 'Data utworzenia']
+
+    writer = csv.DictWriter(output, fieldnames=fieldnames)
+    writer.writeheader()
+
+    for p in products:
+        writer.writerow({
+            'ID': p.short_product_id,
+            'Zamówienie': p.internal_order_number,
+            'Nr klienta': p.client_order_number or '',
+            'Nazwa': p.original_product_name,
+            'Status': _format_status(p.current_status),
+            'Priorytet': p.priority_rank or '-',
+            'Ilość': p.quantity,
+            'Gatunek': p.parsed_wood_species or '',
+            'Technologia': p.parsed_technology or '',
+            'Klasa': p.parsed_wood_class or '',
+            'Wymiary': f"{p.parsed_length_cm or 0}×{p.parsed_width_cm or 0}×{p.parsed_thickness_cm or 0}",
+            'Objętość m³': float(p.volume_m3) if p.volume_m3 else 0,
+            'Klient': p.client_name or '',
+            'Data utworzenia': p.created_at.strftime('%Y-%m-%d %H:%M') if p.created_at else ''
+        })
+
+    response = make_response(output.getvalue())
+    response.headers['Content-Type'] = 'text/csv; charset=utf-8'
+    response.headers['Content-Disposition'] = f'attachment; filename=raport_produkcji_{timestamp}.csv'
+
+    logger.info("Export CSV wygenerowany", extra={
+        'user_id': current_user.id,
+        'products_count': len(products)
+    })
+
+    return response
+
+
+def _export_excel(products, timestamp):
+    """Eksport do Excel z pełnymi danymi analitycznymi w wielu arkuszach"""
+    import io
+    from collections import defaultdict
+
+    try:
+        from openpyxl import Workbook
+        from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+        from openpyxl.utils import get_column_letter
+        from openpyxl.chart import PieChart, BarChart, Reference
+        from openpyxl.chart.label import DataLabelList
+    except ImportError:
+        logger.warning("openpyxl niedostępne, używam CSV jako fallback")
+        return _export_csv(products, timestamp)
+
+    wb = Workbook()
+
+    # =========================================================================
+    # STYLE WSPÓLNE
+    # =========================================================================
+    header_font = Font(bold=True, color="FFFFFF", size=11)
+    header_fill = PatternFill(start_color="2E7D32", end_color="2E7D32", fill_type="solid")
+    header_fill_blue = PatternFill(start_color="1565C0", end_color="1565C0", fill_type="solid")
+    header_alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    cell_alignment = Alignment(horizontal="left", vertical="center")
+    number_alignment = Alignment(horizontal="right", vertical="center")
+    thin_border = Border(
+        left=Side(style='thin', color='CCCCCC'),
+        right=Side(style='thin', color='CCCCCC'),
+        top=Side(style='thin', color='CCCCCC'),
+        bottom=Side(style='thin', color='CCCCCC')
+    )
+
+    status_colors = {
+        'czeka_na_wyciecie': 'FFF3E0',
+        'czeka_na_skladanie': 'E3F2FD',
+        'czeka_na_sklejanie': 'F3E5F5',
+        'czeka_na_formatowanie': 'E8F5E9',
+        'czeka_na_wykanczanie': 'FFF8E1',
+        'czeka_na_pakowanie': 'E0F7FA',
+        'spakowane': 'C8E6C9',
+        'anulowane': 'FFCDD2',
+        'wstrzymane': 'CFD8DC'
+    }
+
+    # =========================================================================
+    # PRZYGOTOWANIE DANYCH ANALITYCZNYCH
+    # =========================================================================
+    total_volume = sum(float(p.volume_m3 or 0) for p in products)
+    total_qty = sum(p.quantity for p in products)
+
+    # Agregacje
+    status_stats = defaultdict(lambda: {'count': 0, 'qty': 0, 'volume': 0.0})
+    species_stats = defaultdict(lambda: {'count': 0, 'qty': 0, 'volume': 0.0})
+    technology_stats = defaultdict(lambda: {'count': 0, 'qty': 0, 'volume': 0.0})
+    wood_class_stats = defaultdict(lambda: {'count': 0, 'qty': 0, 'volume': 0.0})
+    thickness_stats = defaultdict(lambda: {'count': 0, 'qty': 0, 'volume': 0.0})
+
+    for p in products:
+        vol = float(p.volume_m3 or 0)
+        qty = p.quantity or 1
+
+        status_stats[p.current_status]['count'] += 1
+        status_stats[p.current_status]['qty'] += qty
+        status_stats[p.current_status]['volume'] += vol
+
+        species = p.parsed_wood_species or 'Nieokreślony'
+        species_stats[species]['count'] += 1
+        species_stats[species]['qty'] += qty
+        species_stats[species]['volume'] += vol
+
+        tech = p.parsed_technology or 'Nieokreślona'
+        technology_stats[tech]['count'] += 1
+        technology_stats[tech]['qty'] += qty
+        technology_stats[tech]['volume'] += vol
+
+        wood_class = p.parsed_wood_class or 'Nieokreślona'
+        wood_class_stats[wood_class]['count'] += 1
+        wood_class_stats[wood_class]['qty'] += qty
+        wood_class_stats[wood_class]['volume'] += vol
+
+        thickness = f"{float(p.parsed_thickness_cm):.1f} cm" if p.parsed_thickness_cm else 'Nieokreślona'
+        thickness_stats[thickness]['count'] += 1
+        thickness_stats[thickness]['qty'] += qty
+        thickness_stats[thickness]['volume'] += vol
+
+    # =========================================================================
+    # ARKUSZ 1: PODSUMOWANIE
+    # =========================================================================
+    ws_summary = wb.active
+    ws_summary.title = "Podsumowanie"
+
+    # Tytuł
+    ws_summary.merge_cells('A1:F1')
+    ws_summary['A1'] = f"RAPORT PRODUKCJI - {datetime.now().strftime('%d.%m.%Y %H:%M')}"
+    ws_summary['A1'].font = Font(bold=True, size=18, color="2E7D32")
+    ws_summary['A1'].alignment = Alignment(horizontal="center")
+    ws_summary.row_dimensions[1].height = 40
+
+    # Główne podsumowanie
+    ws_summary['A3'] = "PODSUMOWANIE OGÓLNE"
+    ws_summary['A3'].font = Font(bold=True, size=14, color="1565C0")
+
+    summary_data = [
+        ['Parametr', 'Wartość'],
+        ['Liczba pozycji', len(products)],
+        ['Łączna ilość sztuk', total_qty],
+        ['Łączna objętość (m³)', round(total_volume, 3)],
+    ]
+
+    for row_idx, row_data in enumerate(summary_data, 5):
+        for col_idx, value in enumerate(row_data, 1):
+            cell = ws_summary.cell(row=row_idx, column=col_idx, value=value)
+            cell.border = thin_border
+            if row_idx == 5:
+                cell.font = header_font
+                cell.fill = header_fill
+            cell.alignment = number_alignment if col_idx == 2 and row_idx > 5 else cell_alignment
+
+    # Rozkład statusów
+    ws_summary['A11'] = "ROZKŁAD WEDŁUG STATUSÓW"
+    ws_summary['A11'].font = Font(bold=True, size=14, color="1565C0")
+
+    status_headers = ['Status', 'Pozycje', 'Sztuki', 'Objętość (m³)', '% pozycji']
+    for col_idx, header in enumerate(status_headers, 1):
+        cell = ws_summary.cell(row=13, column=col_idx, value=header)
+        cell.font = header_font
+        cell.fill = header_fill_blue
+        cell.border = thin_border
+        cell.alignment = header_alignment
+
+    row_idx = 14
+    for status, data in sorted(status_stats.items(), key=lambda x: x[1]['count'], reverse=True):
+        pct = (data['count'] / len(products) * 100) if products else 0
+        row_data = [_format_status(status), data['count'], data['qty'], round(data['volume'], 3), round(pct, 1)]
+        status_color = status_colors.get(status, 'FFFFFF')
+        row_fill = PatternFill(start_color=status_color, end_color=status_color, fill_type="solid")
+
+        for col_idx, value in enumerate(row_data, 1):
+            cell = ws_summary.cell(row=row_idx, column=col_idx, value=value)
+            cell.border = thin_border
+            cell.fill = row_fill
+            cell.alignment = number_alignment if col_idx > 1 else cell_alignment
+        row_idx += 1
+
+    # Szerokości kolumn
+    ws_summary.column_dimensions['A'].width = 25
+    ws_summary.column_dimensions['B'].width = 12
+    ws_summary.column_dimensions['C'].width = 12
+    ws_summary.column_dimensions['D'].width = 15
+    ws_summary.column_dimensions['E'].width = 12
+
+    # =========================================================================
+    # ARKUSZ 2: ANALIZA GATUNKÓW
+    # =========================================================================
+    ws_species = wb.create_sheet("Gatunki drewna")
+    ws_species['A1'] = "ANALIZA WEDŁUG GATUNKÓW DREWNA"
+    ws_species['A1'].font = Font(bold=True, size=14, color="2E7D32")
+
+    species_headers = ['Gatunek', 'Pozycje', 'Sztuki', 'Objętość (m³)', '% objętości']
+    for col_idx, header in enumerate(species_headers, 1):
+        cell = ws_species.cell(row=3, column=col_idx, value=header)
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.border = thin_border
+
+    row_idx = 4
+    for species, data in sorted(species_stats.items(), key=lambda x: x[1]['volume'], reverse=True):
+        pct = (data['volume'] / total_volume * 100) if total_volume else 0
+        row_data = [species, data['count'], data['qty'], round(data['volume'], 3), round(pct, 1)]
+        for col_idx, value in enumerate(row_data, 1):
+            cell = ws_species.cell(row=row_idx, column=col_idx, value=value)
+            cell.border = thin_border
+            cell.alignment = number_alignment if col_idx > 1 else cell_alignment
+        row_idx += 1
+
+    for col in ['A', 'B', 'C', 'D', 'E']:
+        ws_species.column_dimensions[col].width = 18
+
+    # =========================================================================
+    # ARKUSZ 3: ANALIZA TECHNOLOGII
+    # =========================================================================
+    ws_tech = wb.create_sheet("Technologie")
+    ws_tech['A1'] = "ANALIZA WEDŁUG TECHNOLOGII"
+    ws_tech['A1'].font = Font(bold=True, size=14, color="2E7D32")
+
+    tech_headers = ['Technologia', 'Pozycje', 'Sztuki', 'Objętość (m³)', '% objętości']
+    for col_idx, header in enumerate(tech_headers, 1):
+        cell = ws_tech.cell(row=3, column=col_idx, value=header)
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.border = thin_border
+
+    row_idx = 4
+    for tech, data in sorted(technology_stats.items(), key=lambda x: x[1]['volume'], reverse=True):
+        pct = (data['volume'] / total_volume * 100) if total_volume else 0
+        row_data = [tech, data['count'], data['qty'], round(data['volume'], 3), round(pct, 1)]
+        for col_idx, value in enumerate(row_data, 1):
+            cell = ws_tech.cell(row=row_idx, column=col_idx, value=value)
+            cell.border = thin_border
+            cell.alignment = number_alignment if col_idx > 1 else cell_alignment
+        row_idx += 1
+
+    for col in ['A', 'B', 'C', 'D', 'E']:
+        ws_tech.column_dimensions[col].width = 18
+
+    # =========================================================================
+    # ARKUSZ 4: ANALIZA KLAS DREWNA
+    # =========================================================================
+    ws_class = wb.create_sheet("Klasy drewna")
+    ws_class['A1'] = "ANALIZA WEDŁUG KLAS DREWNA"
+    ws_class['A1'].font = Font(bold=True, size=14, color="2E7D32")
+
+    class_headers = ['Klasa', 'Pozycje', 'Sztuki', 'Objętość (m³)', '% objętości']
+    for col_idx, header in enumerate(class_headers, 1):
+        cell = ws_class.cell(row=3, column=col_idx, value=header)
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.border = thin_border
+
+    row_idx = 4
+    for wood_class, data in sorted(wood_class_stats.items(), key=lambda x: x[1]['volume'], reverse=True):
+        pct = (data['volume'] / total_volume * 100) if total_volume else 0
+        row_data = [wood_class, data['count'], data['qty'], round(data['volume'], 3), round(pct, 1)]
+        for col_idx, value in enumerate(row_data, 1):
+            cell = ws_class.cell(row=row_idx, column=col_idx, value=value)
+            cell.border = thin_border
+            cell.alignment = number_alignment if col_idx > 1 else cell_alignment
+        row_idx += 1
+
+    for col in ['A', 'B', 'C', 'D', 'E']:
+        ws_class.column_dimensions[col].width = 18
+
+    # =========================================================================
+    # ARKUSZ 5: ANALIZA GRUBOŚCI
+    # =========================================================================
+    ws_thick = wb.create_sheet("Grubości")
+    ws_thick['A1'] = "ANALIZA WEDŁUG GRUBOŚCI"
+    ws_thick['A1'].font = Font(bold=True, size=14, color="2E7D32")
+
+    thick_headers = ['Grubość', 'Pozycje', 'Sztuki', 'Objętość (m³)', '% objętości']
+    for col_idx, header in enumerate(thick_headers, 1):
+        cell = ws_thick.cell(row=3, column=col_idx, value=header)
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.border = thin_border
+
+    row_idx = 4
+    # Sortuj po grubości numerycznie
+    sorted_thickness = sorted(thickness_stats.items(),
+                              key=lambda x: float(x[0].replace(' cm', '').replace('Nieokreślona', '0')))
+    for thickness, data in sorted_thickness:
+        pct = (data['volume'] / total_volume * 100) if total_volume else 0
+        row_data = [thickness, data['count'], data['qty'], round(data['volume'], 3), round(pct, 1)]
+        for col_idx, value in enumerate(row_data, 1):
+            cell = ws_thick.cell(row=row_idx, column=col_idx, value=value)
+            cell.border = thin_border
+            cell.alignment = number_alignment if col_idx > 1 else cell_alignment
+        row_idx += 1
+
+    for col in ['A', 'B', 'C', 'D', 'E']:
+        ws_thick.column_dimensions[col].width = 18
+
+    # =========================================================================
+    # ARKUSZ 6: LISTA PRODUKTÓW (szczegółowa)
+    # =========================================================================
+    ws_products = wb.create_sheet("Lista produktów")
+
+    ws_products.merge_cells('A1:N1')
+    ws_products['A1'] = f"SZCZEGÓŁOWA LISTA PRODUKTÓW - {len(products)} pozycji"
+    ws_products['A1'].font = Font(bold=True, size=14, color="2E7D32")
+    ws_products['A1'].alignment = Alignment(horizontal="center")
+
+    headers = ['Lp.', 'ID Produktu', 'Zamówienie', 'Nr klienta', 'Nazwa produktu',
+               'Status', 'Priorytet', 'Ilość', 'Gatunek', 'Technologia',
+               'Klasa', 'Wymiary (cm)', 'Objętość (m³)', 'Klient']
+
+    for col, header in enumerate(headers, 1):
+        cell = ws_products.cell(row=3, column=col, value=header)
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = header_alignment
+        cell.border = thin_border
+
+    for idx, product in enumerate(products, 1):
+        row = 3 + idx
+        status_color = status_colors.get(product.current_status, 'FFFFFF')
+        row_fill = PatternFill(start_color=status_color, end_color=status_color, fill_type="solid")
+
+        data = [
+            idx,
+            product.short_product_id,
+            product.internal_order_number,
+            product.client_order_number or '',
+            (product.original_product_name[:50] + '...') if len(product.original_product_name or '') > 50 else (product.original_product_name or ''),
+            _format_status(product.current_status),
+            product.priority_rank or '-',
+            product.quantity,
+            product.parsed_wood_species or '',
+            product.parsed_technology or '',
+            product.parsed_wood_class or '',
+            f"{product.parsed_length_cm or 0}×{product.parsed_width_cm or 0}×{product.parsed_thickness_cm or 0}",
+            float(product.volume_m3) if product.volume_m3 else 0,
+            product.client_name or ''
+        ]
+
+        for col, value in enumerate(data, 1):
+            cell = ws_products.cell(row=row, column=col, value=value)
+            cell.border = thin_border
+            cell.fill = row_fill
+            if col in [1, 7, 8, 13]:
+                cell.alignment = number_alignment
+                if col == 13:
+                    cell.number_format = '0.000'
+            else:
+                cell.alignment = cell_alignment
+
+    column_widths = [5, 14, 12, 14, 40, 18, 10, 8, 12, 14, 8, 18, 12, 25]
+    for col, width in enumerate(column_widths, 1):
+        ws_products.column_dimensions[get_column_letter(col)].width = width
+
+    # =========================================================================
+    # ZAPISZ I ZWRÓĆ
+    # =========================================================================
+    output = io.BytesIO()
+    wb.save(output)
+    output.seek(0)
+
+    logger.info("Export Excel wygenerowany (pełny raport)", extra={
+        'user_id': current_user.id,
+        'products_count': len(products),
+        'sheets': ['Podsumowanie', 'Gatunki', 'Technologie', 'Klasy', 'Grubości', 'Lista produktów']
+    })
+
+    from flask import Response
+    response = Response(
+        output.getvalue(),
+        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    )
+    response.headers['Content-Disposition'] = f'attachment; filename=raport_produkcji_{timestamp}.xlsx'
+    return response
+
+
+def _export_pdf(products, timestamp, report_type='full'):
+    """Eksport do PDF z pełnymi danymi analitycznymi"""
+    import io
+    import os
+    from collections import defaultdict
+
+    try:
+        from reportlab.lib import colors
+        from reportlab.lib.pagesizes import A4, landscape
+        from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+        from reportlab.lib.units import cm, mm
+        from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, PageBreak
+        from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
+        from reportlab.pdfbase import pdfmetrics
+        from reportlab.pdfbase.ttfonts import TTFont
+    except ImportError:
+        logger.error("reportlab niedostępne")
+        return jsonify({'success': False, 'error': 'Biblioteka PDF niedostępna. Zainstaluj: pip install reportlab'}), 501
+
+    # Rejestracja fontu z polskimi znakami
+    font_registered = False
+    font_name = 'Helvetica'
+
+    font_paths = [
+        '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',
+        '/usr/share/fonts/dejavu/DejaVuSans.ttf',
+        '/usr/share/fonts/TTF/DejaVuSans.ttf',
+        'C:/Windows/Fonts/arial.ttf',
+    ]
+
+    for font_path in font_paths:
+        if os.path.exists(font_path):
+            try:
+                pdfmetrics.registerFont(TTFont('DejaVuSans', font_path))
+                font_name = 'DejaVuSans'
+                font_registered = True
+                break
+            except Exception as e:
+                pass
+
+    output = io.BytesIO()
+
+    doc = SimpleDocTemplate(
+        output,
+        pagesize=landscape(A4),
+        rightMargin=1*cm,
+        leftMargin=1*cm,
+        topMargin=1.5*cm,
+        bottomMargin=1.5*cm
+    )
+
+    # Style
+    styles = getSampleStyleSheet()
+
+    title_style = ParagraphStyle(
+        'CustomTitle', parent=styles['Heading1'], fontName=font_name,
+        fontSize=20, textColor=colors.HexColor('#2E7D32'), alignment=TA_CENTER, spaceAfter=6
+    )
+    subtitle_style = ParagraphStyle(
+        'CustomSubtitle', parent=styles['Normal'], fontName=font_name,
+        fontSize=10, textColor=colors.HexColor('#666666'), alignment=TA_CENTER, spaceAfter=12
+    )
+    section_style = ParagraphStyle(
+        'SectionHeader', parent=styles['Heading2'], fontName=font_name,
+        fontSize=13, textColor=colors.HexColor('#1565C0'), spaceBefore=15, spaceAfter=8
+    )
+    footer_style = ParagraphStyle(
+        'Footer', parent=styles['Normal'], fontName=font_name,
+        fontSize=8, textColor=colors.HexColor('#999999'), alignment=TA_RIGHT
+    )
+
+    # =========================================================================
+    # PRZYGOTOWANIE DANYCH ANALITYCZNYCH
+    # =========================================================================
+    total_volume = sum(float(p.volume_m3 or 0) for p in products)
+    total_qty = sum(p.quantity for p in products)
+
+    status_stats = defaultdict(lambda: {'count': 0, 'qty': 0, 'volume': 0.0})
+    species_stats = defaultdict(lambda: {'count': 0, 'qty': 0, 'volume': 0.0})
+    technology_stats = defaultdict(lambda: {'count': 0, 'qty': 0, 'volume': 0.0})
+    wood_class_stats = defaultdict(lambda: {'count': 0, 'qty': 0, 'volume': 0.0})
+    thickness_stats = defaultdict(lambda: {'count': 0, 'qty': 0, 'volume': 0.0})
+
+    for p in products:
+        vol = float(p.volume_m3 or 0)
+        qty = p.quantity or 1
+
+        status_stats[p.current_status]['count'] += 1
+        status_stats[p.current_status]['qty'] += qty
+        status_stats[p.current_status]['volume'] += vol
+
+        species = p.parsed_wood_species or 'Nieokreslony'
+        species_stats[species]['count'] += 1
+        species_stats[species]['qty'] += qty
+        species_stats[species]['volume'] += vol
+
+        tech = p.parsed_technology or 'Nieokreslona'
+        technology_stats[tech]['count'] += 1
+        technology_stats[tech]['qty'] += qty
+        technology_stats[tech]['volume'] += vol
+
+        wood_class = p.parsed_wood_class or 'Nieokreslona'
+        wood_class_stats[wood_class]['count'] += 1
+        wood_class_stats[wood_class]['qty'] += qty
+        wood_class_stats[wood_class]['volume'] += vol
+
+        thickness = f"{float(p.parsed_thickness_cm):.1f} cm" if p.parsed_thickness_cm else 'Nieokreslona'
+        thickness_stats[thickness]['count'] += 1
+        thickness_stats[thickness]['qty'] += qty
+        thickness_stats[thickness]['volume'] += vol
+
+    status_colors_map = {
+        'czeka_na_wyciecie': '#FFF3E0', 'czeka_na_skladanie': '#E3F2FD',
+        'czeka_na_sklejanie': '#F3E5F5', 'czeka_na_formatowanie': '#E8F5E9',
+        'czeka_na_wykanczanie': '#FFF8E1', 'czeka_na_pakowanie': '#E0F7FA',
+        'spakowane': '#C8E6C9', 'anulowane': '#FFCDD2', 'wstrzymane': '#CFD8DC'
+    }
+
+    elements = []
+
+    # =========================================================================
+    # STRONA 1: PODSUMOWANIE
+    # =========================================================================
+    elements.append(Paragraph("RAPORT PRODUKCJI", title_style))
+    elements.append(Paragraph(
+        f"Wygenerowano: {datetime.now().strftime('%d.%m.%Y %H:%M')} | Liczba pozycji: {len(products)} | {total_qty} szt. | {total_volume:.3f} m3",
+        subtitle_style
+    ))
+
+    # Podsumowanie ogólne
+    elements.append(Paragraph("Podsumowanie ogolne", section_style))
+    summary_data = [
+        ['Parametr', 'Wartosc'],
+        ['Liczba pozycji', str(len(products))],
+        ['Laczna ilosc sztuk', str(total_qty)],
+        ['Laczna objetosc', f"{total_volume:.3f} m3"],
+    ]
+    summary_table = Table(summary_data, colWidths=[7*cm, 5*cm])
+    summary_table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#2E7D32')),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+        ('FONTNAME', (0, 0), (-1, -1), font_name),
+        ('FONTSIZE', (0, 0), (-1, -1), 10),
+        ('ALIGN', (1, 0), (1, -1), 'RIGHT'),
+        ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#CCCCCC')),
+        ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#F5F5F5')]),
+        ('TOPPADDING', (0, 0), (-1, -1), 6),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
+    ]))
+    elements.append(summary_table)
+    elements.append(Spacer(1, 0.5*cm))
+
+    # Rozkład statusów
+    elements.append(Paragraph("Rozklad wedlug statusow", section_style))
+    status_data = [['Status', 'Pozycje', 'Sztuki', 'Objetosc (m3)', '% pozycji']]
+    for status, data in sorted(status_stats.items(), key=lambda x: x[1]['count'], reverse=True):
+        pct = (data['count'] / len(products) * 100) if products else 0
+        status_data.append([
+            _format_status(status), str(data['count']), str(data['qty']),
+            f"{data['volume']:.3f}", f"{pct:.1f}%"
+        ])
+
+    status_table = Table(status_data, colWidths=[5.5*cm, 2.5*cm, 2.5*cm, 3.5*cm, 2.5*cm])
+    status_table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1565C0')),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+        ('FONTNAME', (0, 0), (-1, -1), font_name),
+        ('FONTSIZE', (0, 0), (-1, -1), 9),
+        ('ALIGN', (1, 0), (-1, -1), 'RIGHT'),
+        ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#CCCCCC')),
+        ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#F5F5F5')]),
+        ('TOPPADDING', (0, 0), (-1, -1), 5),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 5),
+    ]))
+    elements.append(status_table)
+    elements.append(Spacer(1, 0.5*cm))
+
+    # =========================================================================
+    # TABELE ANALITYCZNE (2 kolumny obok siebie)
+    # =========================================================================
+
+    # Helper do tworzenia małych tabel analitycznych
+    def create_analysis_table(title, data_dict, total_vol, label='Kategoria'):
+        rows = [[label, 'Poz.', 'Szt.', 'Obj. m3', '%']]
+        for name, data in sorted(data_dict.items(), key=lambda x: x[1]['volume'], reverse=True)[:8]:
+            pct = (data['volume'] / total_vol * 100) if total_vol else 0
+            rows.append([name[:20], str(data['count']), str(data['qty']), f"{data['volume']:.2f}", f"{pct:.0f}%"])
+        return rows
+
+    # Gatunki drewna
+    elements.append(Paragraph("Analiza wedlug gatunkow drewna", section_style))
+    species_rows = create_analysis_table('Gatunki', species_stats, total_volume, 'Gatunek')
+    species_table = Table(species_rows, colWidths=[5*cm, 2*cm, 2*cm, 3*cm, 2*cm])
+    species_table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#4CAF50')),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+        ('FONTNAME', (0, 0), (-1, -1), font_name),
+        ('FONTSIZE', (0, 0), (-1, -1), 8),
+        ('ALIGN', (1, 0), (-1, -1), 'RIGHT'),
+        ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#CCCCCC')),
+        ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#F5F5F5')]),
+        ('TOPPADDING', (0, 0), (-1, -1), 4),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+    ]))
+    elements.append(species_table)
+    elements.append(Spacer(1, 0.4*cm))
+
+    # Technologie
+    elements.append(Paragraph("Analiza wedlug technologii", section_style))
+    tech_rows = create_analysis_table('Technologie', technology_stats, total_volume, 'Technologia')
+    tech_table = Table(tech_rows, colWidths=[5*cm, 2*cm, 2*cm, 3*cm, 2*cm])
+    tech_table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#FF9800')),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+        ('FONTNAME', (0, 0), (-1, -1), font_name),
+        ('FONTSIZE', (0, 0), (-1, -1), 8),
+        ('ALIGN', (1, 0), (-1, -1), 'RIGHT'),
+        ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#CCCCCC')),
+        ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#F5F5F5')]),
+        ('TOPPADDING', (0, 0), (-1, -1), 4),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+    ]))
+    elements.append(tech_table)
+    elements.append(Spacer(1, 0.4*cm))
+
+    # Klasy drewna
+    elements.append(Paragraph("Analiza wedlug klas drewna", section_style))
+    class_rows = create_analysis_table('Klasy', wood_class_stats, total_volume, 'Klasa')
+    class_table = Table(class_rows, colWidths=[5*cm, 2*cm, 2*cm, 3*cm, 2*cm])
+    class_table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#795548')),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+        ('FONTNAME', (0, 0), (-1, -1), font_name),
+        ('FONTSIZE', (0, 0), (-1, -1), 8),
+        ('ALIGN', (1, 0), (-1, -1), 'RIGHT'),
+        ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#CCCCCC')),
+        ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#F5F5F5')]),
+        ('TOPPADDING', (0, 0), (-1, -1), 4),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+    ]))
+    elements.append(class_table)
+    elements.append(Spacer(1, 0.4*cm))
+
+    # Grubości
+    elements.append(Paragraph("Analiza wedlug grubosci", section_style))
+    thick_rows = create_analysis_table('Grubosci', thickness_stats, total_volume, 'Grubosc')
+    thick_table = Table(thick_rows, colWidths=[5*cm, 2*cm, 2*cm, 3*cm, 2*cm])
+    thick_table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#607D8B')),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+        ('FONTNAME', (0, 0), (-1, -1), font_name),
+        ('FONTSIZE', (0, 0), (-1, -1), 8),
+        ('ALIGN', (1, 0), (-1, -1), 'RIGHT'),
+        ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#CCCCCC')),
+        ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#F5F5F5')]),
+        ('TOPPADDING', (0, 0), (-1, -1), 4),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+    ]))
+    elements.append(thick_table)
+
+    # =========================================================================
+    # STRONA 2+: LISTA PRODUKTÓW
+    # =========================================================================
+    elements.append(PageBreak())
+    elements.append(Paragraph("Szczegolowa lista produktow", section_style))
+
+    # Nagłówki
+    table_data = [['Lp.', 'ID Produktu', 'Zamowienie', 'Nazwa produktu', 'Status',
+                   'Prio.', 'Szt.', 'Gatunek', 'Wymiary', 'Obj. m3']]
+
+    for idx, p in enumerate(products, 1):
+        name = p.original_product_name or ''
+        if len(name) > 30:
+            name = name[:30] + '...'
+
+        table_data.append([
+            str(idx),
+            p.short_product_id,
+            p.internal_order_number or '',
+            name,
+            _format_status(p.current_status),
+            str(p.priority_rank) if p.priority_rank else '-',
+            str(p.quantity),
+            (p.parsed_wood_species or '')[:10],
+            f"{p.parsed_length_cm or 0}x{p.parsed_width_cm or 0}x{p.parsed_thickness_cm or 0}",
+            f"{float(p.volume_m3):.3f}" if p.volume_m3 else '0.000'
+        ])
+
+    col_widths = [1*cm, 2.3*cm, 2*cm, 5.5*cm, 3*cm, 1*cm, 1*cm, 2.2*cm, 3.5*cm, 2*cm]
+
+    main_table = Table(table_data, colWidths=col_widths, repeatRows=1)
+    main_table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#2E7D32')),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+        ('FONTNAME', (0, 0), (-1, -1), font_name),
+        ('FONTSIZE', (0, 0), (-1, 0), 8),
+        ('FONTSIZE', (0, 1), (-1, -1), 7),
+        ('ALIGN', (0, 0), (0, -1), 'CENTER'),
+        ('ALIGN', (5, 0), (6, -1), 'CENTER'),
+        ('ALIGN', (-1, 0), (-1, -1), 'RIGHT'),
+        ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#CCCCCC')),
+        ('TOPPADDING', (0, 0), (-1, -1), 3),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 3),
+        ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#FAFAFA')]),
+    ]))
+    elements.append(main_table)
+
+    # Stopka
+    elements.append(Spacer(1, 1*cm))
+    elements.append(Paragraph(
+        f"System CRM Produkcja | Raport wygenerowany automatycznie | {datetime.now().strftime('%d.%m.%Y %H:%M:%S')}",
+        footer_style
+    ))
+
+    # Generuj PDF
+    doc.build(elements)
+    output.seek(0)
+
+    logger.info("Export PDF wygenerowany (pelny raport)", extra={
+        'user_id': current_user.id,
+        'products_count': len(products)
+    })
+
+    from flask import Response
+    response = Response(output.getvalue(), mimetype='application/pdf')
+    response.headers['Content-Disposition'] = f'attachment; filename=raport_produkcji_{timestamp}.pdf'
+    return response
+
+
+def _format_status(status):
+    """Formatuje status do czytelnej postaci"""
+    status_names = {
+        'czeka_na_wyciecie': 'Czeka na wycięcie',
+        'czeka_na_skladanie': 'Czeka na składanie',
+        'czeka_na_sklejanie': 'Czeka na sklejanie',
+        'czeka_na_formatowanie': 'Czeka na formatowanie',
+        'czeka_na_wykanczanie': 'Czeka na wykańczanie',
+        'czeka_na_pakowanie': 'Czeka na pakowanie',
+        'spakowane': 'Spakowane',
+        'anulowane': 'Anulowane',
+        'wstrzymane': 'Wstrzymane',
+        'w_realizacji': 'W realizacji'
+    }
+    return status_names.get(status, status)
 
 
 # 4. DANE FILTRÓW ENDPOINT

@@ -889,14 +889,115 @@ function refreshSyncHistory() {
     window.loadTabContent('reports-tab');
 }
 
-function exportToExcel() {
-    console.log('[Reports Tab] TODO: Eksport do Excel');
-    alert('Funkcja eksportu do Excel będzie wkrótce dostępna!');
+async function exportToExcel() {
+    console.log('[Reports Tab] Eksport do Excel...');
+
+    const btn = event.target.closest('button');
+    const originalHtml = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Generowanie...';
+
+    try {
+        const response = await fetch('/production/api/products/export', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                format: 'excel',
+                product_ids: 'all'
+            })
+        });
+
+        if (!response.ok) {
+            const errorData = await response.json().catch(() => ({}));
+            throw new Error(errorData.error || `Błąd HTTP: ${response.status}`);
+        }
+
+        // Pobierz plik
+        const blob = await response.blob();
+        const contentDisposition = response.headers.get('Content-Disposition');
+        let filename = 'raport_produkcji.xlsx';
+        if (contentDisposition) {
+            const match = contentDisposition.match(/filename=([^;]+)/);
+            if (match) filename = match[1].trim();
+        }
+
+        // Stwórz link do pobrania
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(url);
+        a.remove();
+
+        console.log('[Reports Tab] Excel pobrany:', filename);
+
+    } catch (error) {
+        console.error('[Reports Tab] Błąd eksportu Excel:', error);
+        alert('Błąd eksportu do Excel: ' + error.message);
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = originalHtml;
+    }
 }
 
-function exportToPDF() {
-    console.log('[Reports Tab] TODO: Eksport do PDF');
-    alert('Funkcja eksportu do PDF będzie wkrótce dostępna!');
+async function exportToPDF() {
+    console.log('[Reports Tab] Eksport do PDF...');
+
+    const btn = event.target.closest('button');
+    const originalHtml = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Generowanie...';
+
+    try {
+        const response = await fetch('/production/api/products/export', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                format: 'pdf',
+                product_ids: 'all',
+                report_type: 'full'
+            })
+        });
+
+        if (!response.ok) {
+            const errorData = await response.json().catch(() => ({}));
+            throw new Error(errorData.error || `Błąd HTTP: ${response.status}`);
+        }
+
+        // Pobierz plik
+        const blob = await response.blob();
+        const contentDisposition = response.headers.get('Content-Disposition');
+        let filename = 'raport_produkcji.pdf';
+        if (contentDisposition) {
+            const match = contentDisposition.match(/filename=([^;]+)/);
+            if (match) filename = match[1].trim();
+        }
+
+        // Stwórz link do pobrania
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(url);
+        a.remove();
+
+        console.log('[Reports Tab] PDF pobrany:', filename);
+
+    } catch (error) {
+        console.error('[Reports Tab] Błąd eksportu PDF:', error);
+        alert('Błąd eksportu do PDF: ' + error.message);
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = originalHtml;
+    }
 }
 
 // Nie używamy auto-inicjalizacji - production-app-loader.js wywołuje initReportsTab() po załadowaniu HTML
