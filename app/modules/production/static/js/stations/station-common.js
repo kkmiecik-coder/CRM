@@ -927,3 +927,691 @@ window.initNotesIcons = initNotesIcons;
 document.addEventListener('DOMContentLoaded', function() {
     initNotesIcons();
 });
+
+/* ============================================================================
+   FULLSCREEN ORDER MODE - Powiększony widok zamówienia
+   ============================================================================ */
+
+/**
+ * Stan fullscreen mode
+ */
+const FULLSCREEN_STATE = {
+    isActive: false,
+    sourceCard: null,
+    sourceOrderNumber: null,
+    overlay: null,
+    container: null
+};
+
+/**
+ * SVG ikona powiększenia (strzałki rozchodzące się do rogów)
+ */
+const EXPAND_ICON_SVG = `
+<svg class="header-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <polyline points="15 3 21 3 21 9"></polyline>
+    <polyline points="9 21 3 21 3 15"></polyline>
+    <line x1="21" y1="3" x2="14" y2="10"></line>
+    <line x1="3" y1="21" x2="10" y2="14"></line>
+</svg>`;
+
+/**
+ * SVG ikona pomniejszenia (strzałki zbiegające się do środka)
+ */
+const COLLAPSE_ICON_SVG = `
+<svg class="header-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <polyline points="4 14 10 14 10 20"></polyline>
+    <polyline points="20 10 14 10 14 4"></polyline>
+    <line x1="14" y1="10" x2="21" y2="3"></line>
+    <line x1="3" y1="21" x2="10" y2="14"></line>
+</svg>`;
+
+/**
+ * Otwiera zamówienie w trybie fullscreen
+ * @param {HTMLElement} sourceCard - Oryginalna karta zamówienia
+ */
+function openFullscreenOrder(sourceCard) {
+    if (FULLSCREEN_STATE.isActive) {
+        console.warn('[Fullscreen] Already active');
+        return;
+    }
+
+    const orderNumber = sourceCard.dataset.orderNumber;
+    console.log(`[Fullscreen] Opening order: ${orderNumber}`);
+
+    // Zapisz stan
+    FULLSCREEN_STATE.isActive = true;
+    FULLSCREEN_STATE.sourceCard = sourceCard;
+    FULLSCREEN_STATE.sourceOrderNumber = orderNumber;
+
+    // Przyciemnij oryginalną kartę
+    sourceCard.classList.add('fullscreen-source');
+
+    // Stwórz overlay
+    const overlay = document.createElement('div');
+    overlay.className = 'fullscreen-overlay';
+    document.body.appendChild(overlay);
+    FULLSCREEN_STATE.overlay = overlay;
+
+    // Stwórz kontener dla powiększonej karty
+    const container = document.createElement('div');
+    container.className = 'fullscreen-order-container';
+    document.body.appendChild(container);
+    FULLSCREEN_STATE.container = container;
+
+    // Sklonuj kartę
+    const clonedCard = sourceCard.cloneNode(true);
+    clonedCard.classList.remove('fullscreen-source');
+    clonedCard.dataset.fullscreenClone = 'true';
+    container.appendChild(clonedCard);
+
+    // Zamień ikonę powiększenia na pomniejszenie
+    const expandIcon = clonedCard.querySelector('.expand-icon-wrapper');
+    if (expandIcon) {
+        expandIcon.innerHTML = COLLAPSE_ICON_SVG;
+        expandIcon.onclick = function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            closeFullscreenOrder();
+        };
+    }
+
+    // Ponownie podepnij event listenery do sklonowanej karty
+    reinitializeClonedCard(clonedCard, sourceCard);
+
+    console.log(`[Fullscreen] Order ${orderNumber} opened`);
+}
+
+/**
+ * Zamyka tryb fullscreen
+ */
+function closeFullscreenOrder() {
+    if (!FULLSCREEN_STATE.isActive) {
+        return;
+    }
+
+    console.log(`[Fullscreen] Closing order: ${FULLSCREEN_STATE.sourceOrderNumber}`);
+
+    // Usuń klasę przyciemnienia z oryginalnej karty
+    if (FULLSCREEN_STATE.sourceCard) {
+        FULLSCREEN_STATE.sourceCard.classList.remove('fullscreen-source');
+    }
+
+    // Usuń overlay
+    if (FULLSCREEN_STATE.overlay) {
+        FULLSCREEN_STATE.overlay.remove();
+    }
+
+    // Usuń kontener z powiększoną kartą
+    if (FULLSCREEN_STATE.container) {
+        FULLSCREEN_STATE.container.remove();
+    }
+
+    // Resetuj stan
+    FULLSCREEN_STATE.isActive = false;
+    FULLSCREEN_STATE.sourceCard = null;
+    FULLSCREEN_STATE.sourceOrderNumber = null;
+    FULLSCREEN_STATE.overlay = null;
+    FULLSCREEN_STATE.container = null;
+
+    console.log('[Fullscreen] Closed');
+}
+
+/**
+ * Zamyka fullscreen po pomyślnym zakończeniu zamówienia
+ * @param {string} orderNumber - Numer zamówienia
+ */
+function closeFullscreenIfActive(orderNumber) {
+    if (FULLSCREEN_STATE.isActive && FULLSCREEN_STATE.sourceOrderNumber === orderNumber) {
+        closeFullscreenOrder();
+    }
+}
+
+/**
+ * Synchronizuje stan między sklonowaną a oryginalną kartą
+ * @param {HTMLElement} clonedCard - Sklonowana karta
+ * @param {HTMLElement} sourceCard - Oryginalna karta
+ */
+function reinitializeClonedCard(clonedCard, sourceCard) {
+    // Przyciski quantity (+/-)
+    const qtyButtons = clonedCard.querySelectorAll('.btn-qty');
+    qtyButtons.forEach(btn => {
+        btn.addEventListener('click', function(e) {
+            e.preventDefault();
+            const productId = this.dataset.productId;
+            const action = this.dataset.action;
+
+            // Znajdź odpowiedni przycisk w oryginalnej karcie i wywołaj jego kliknięcie
+            const originalBtn = sourceCard.querySelector(`.btn-qty[data-product-id="${productId}"][data-action="${action}"]`);
+            if (originalBtn) {
+                originalBtn.click();
+
+                // Synchronizuj UI po krótkim opóźnieniu
+                setTimeout(() => {
+                    syncClonedCardUI(clonedCard, sourceCard);
+                }, 50);
+            }
+        });
+    });
+
+    // Przycisk complete
+    const completeBtn = clonedCard.querySelector('.btn-complete[data-action="complete"]');
+    if (completeBtn) {
+        completeBtn.addEventListener('click', function(e) {
+            e.preventDefault();
+
+            // Wywołaj kliknięcie na oryginalnym przycisku
+            const originalCompleteBtn = sourceCard.querySelector('.btn-complete[data-action="complete"]');
+            if (originalCompleteBtn && !originalCompleteBtn.disabled) {
+                originalCompleteBtn.click();
+            }
+        });
+    }
+
+    // Ikony załączników
+    const attachmentIcons = clonedCard.querySelectorAll('.attachment-icon-wrapper');
+    attachmentIcons.forEach(icon => {
+        icon.addEventListener('click', function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            if (typeof window.openAttachmentModal === 'function') {
+                const url = this.dataset.attachmentUrl;
+                const name = this.dataset.attachmentName;
+                const type = this.dataset.attachmentType;
+                window.openAttachmentModal(url, name, type);
+            }
+        });
+    });
+
+    // Ikony notatek
+    const notesIcons = clonedCard.querySelectorAll('.notes-icon-wrapper');
+    notesIcons.forEach(icon => {
+        icon.addEventListener('click', function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            const notes = this.dataset.notes;
+            if (notes && typeof window.openNotesModal === 'function') {
+                window.openNotesModal(notes);
+            }
+        });
+    });
+}
+
+/**
+ * Synchronizuje UI sklonowanej karty z oryginalną
+ * @param {HTMLElement} clonedCard - Sklonowana karta
+ * @param {HTMLElement} sourceCard - Oryginalna karta
+ */
+function syncClonedCardUI(clonedCard, sourceCard) {
+    // Synchronizuj quantity counters
+    const sourceRows = sourceCard.querySelectorAll('.product-row');
+    sourceRows.forEach(sourceRow => {
+        const productId = sourceRow.dataset.productId;
+        const clonedRow = clonedCard.querySelector(`[data-product-id="${productId}"]`);
+
+        if (clonedRow) {
+            // Synchronizuj quantity done
+            const sourceQtyDone = sourceRow.querySelector('.qty-done');
+            const clonedQtyDone = clonedRow.querySelector('.qty-done');
+            if (sourceQtyDone && clonedQtyDone) {
+                clonedQtyDone.textContent = sourceQtyDone.textContent;
+            }
+
+            // Synchronizuj data attribute
+            clonedRow.dataset.quantityDone = sourceRow.dataset.quantityDone;
+
+            // Synchronizuj klasy (product-complete)
+            if (sourceRow.classList.contains('product-complete')) {
+                clonedRow.classList.add('product-complete');
+            } else {
+                clonedRow.classList.remove('product-complete');
+            }
+
+            // Synchronizuj stany przycisków
+            const sourceButtons = sourceRow.querySelectorAll('.btn-qty');
+            sourceButtons.forEach(sourceBtn => {
+                const action = sourceBtn.dataset.action;
+                const clonedBtn = clonedRow.querySelector(`.btn-qty[data-action="${action}"]`);
+                if (clonedBtn) {
+                    clonedBtn.disabled = sourceBtn.disabled;
+                }
+            });
+        }
+    });
+
+    // Synchronizuj header counter
+    const sourceCounter = sourceCard.querySelector('.products-checked');
+    const clonedCounter = clonedCard.querySelector('.products-checked');
+    if (sourceCounter && clonedCounter) {
+        clonedCounter.textContent = sourceCounter.textContent;
+    }
+
+    // Synchronizuj przycisk complete
+    const sourceCompleteBtn = sourceCard.querySelector('.btn-complete');
+    const clonedCompleteBtn = clonedCard.querySelector('.btn-complete');
+    if (sourceCompleteBtn && clonedCompleteBtn) {
+        clonedCompleteBtn.disabled = sourceCompleteBtn.disabled;
+        clonedCompleteBtn.textContent = sourceCompleteBtn.textContent;
+        clonedCompleteBtn.className = sourceCompleteBtn.className;
+    }
+}
+
+/**
+ * Inicjalizuje ikony expand dla wszystkich kart zamówień
+ */
+function initExpandIcons() {
+    const expandIcons = document.querySelectorAll('.expand-icon-wrapper');
+    expandIcons.forEach(icon => {
+        // Usuń stare listenery
+        icon.replaceWith(icon.cloneNode(true));
+    });
+
+    // Dodaj nowe listenery
+    document.querySelectorAll('.expand-icon-wrapper').forEach(icon => {
+        icon.addEventListener('click', function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+
+            const orderCard = this.closest('.order-card');
+            if (orderCard && !orderCard.dataset.fullscreenClone) {
+                openFullscreenOrder(orderCard);
+            }
+        });
+    });
+
+    console.log('[Fullscreen] Expand icons initialized');
+}
+
+// Eksportuj do globalnego scope
+window.openFullscreenOrder = openFullscreenOrder;
+window.closeFullscreenOrder = closeFullscreenOrder;
+window.closeFullscreenIfActive = closeFullscreenIfActive;
+window.syncClonedCardUI = syncClonedCardUI;
+window.initExpandIcons = initExpandIcons;
+window.EXPAND_ICON_SVG = EXPAND_ICON_SVG;
+window.COLLAPSE_ICON_SVG = COLLAPSE_ICON_SVG;
+window.FULLSCREEN_STATE = FULLSCREEN_STATE;
+
+/* ============================================================================
+   ORDER SEARCH MODAL - Wyszukiwanie zamówień
+   ============================================================================ */
+
+/**
+ * Stan modalu wyszukiwania
+ */
+const ORDER_SEARCH_STATE = {
+    isOpen: false,
+    modal: null
+};
+
+/**
+ * SVG ikona lupy
+ */
+const SEARCH_ICON_SVG = `
+<svg class="search-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="11" cy="11" r="8"></circle>
+    <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+</svg>`;
+
+/**
+ * Otwiera modal wyszukiwania zamówień
+ */
+function openOrderSearchModal() {
+    if (ORDER_SEARCH_STATE.isOpen) {
+        return;
+    }
+
+    console.log('[OrderSearch] Opening modal');
+
+    // Pobierz wszystkie zamówienia z DOM
+    const orderCards = document.querySelectorAll('.order-card:not([data-fullscreen-clone="true"])');
+    const orders = [];
+
+    orderCards.forEach(card => {
+        const orderNumber = card.dataset.orderNumber || '';
+        const clientNumber = card.querySelector('.order-client-number')?.textContent || '';
+        const baselinkerText = card.querySelector('.order-baselinker')?.textContent || '';
+
+        // Wyciągnij numer BL do sortowania
+        const blMatch = baselinkerText.match(/BL-(\d+)/);
+        const blNumber = blMatch ? parseInt(blMatch[1], 10) : 0;
+
+        orders.push({
+            orderNumber,
+            clientNumber,
+            baselinkerText,
+            blNumber,
+            card
+        });
+    });
+
+    // Sortuj po numerze BL (malejąco)
+    orders.sort((a, b) => b.blNumber - a.blNumber);
+
+    // Stwórz modal
+    const modal = document.createElement('div');
+    modal.className = 'order-search-modal active';
+    modal.id = 'orderSearchModal';
+
+    let ordersHTML = '';
+    if (orders.length === 0) {
+        ordersHTML = `
+            <div class="order-search-empty">
+                <div class="order-search-empty-icon">🔍</div>
+                <h4>Brak zamówień</h4>
+                <p>Nie ma żadnych zamówień do wyświetlenia.</p>
+            </div>
+        `;
+    } else {
+        orders.forEach((order, index) => {
+            ordersHTML += `
+                <button class="order-search-btn" data-order-index="${index}">
+                    <span class="order-number">${order.orderNumber}</span>
+                    ${order.clientNumber ? `<span class="order-client-number">${order.clientNumber}</span>` : ''}
+                    ${order.baselinkerText ? `<span class="order-baselinker">${order.baselinkerText}</span>` : ''}
+                </button>
+            `;
+        });
+    }
+
+    modal.innerHTML = `
+        <div class="order-search-modal-content">
+            <div class="order-search-modal-header">
+                <h3>Wyszukaj zamówienie</h3>
+                <button class="order-search-modal-close">&times;</button>
+            </div>
+            <div class="order-search-modal-body">
+                ${ordersHTML}
+            </div>
+        </div>
+    `;
+
+    document.body.appendChild(modal);
+    ORDER_SEARCH_STATE.modal = modal;
+    ORDER_SEARCH_STATE.isOpen = true;
+
+    // Event listener dla zamknięcia
+    modal.querySelector('.order-search-modal-close').addEventListener('click', closeOrderSearchModal);
+
+    // Event listenery dla przycisków zamówień
+    modal.querySelectorAll('.order-search-btn').forEach((btn, index) => {
+        btn.addEventListener('click', function() {
+            const order = orders[index];
+            if (order && order.card) {
+                closeOrderSearchModal();
+                // Otwórz zamówienie w fullscreen
+                openFullscreenOrder(order.card);
+            }
+        });
+    });
+
+    console.log(`[OrderSearch] Modal opened with ${orders.length} orders`);
+}
+
+/**
+ * Zamyka modal wyszukiwania zamówień
+ */
+function closeOrderSearchModal() {
+    if (!ORDER_SEARCH_STATE.isOpen) {
+        return;
+    }
+
+    console.log('[OrderSearch] Closing modal');
+
+    if (ORDER_SEARCH_STATE.modal) {
+        ORDER_SEARCH_STATE.modal.remove();
+    }
+
+    ORDER_SEARCH_STATE.modal = null;
+    ORDER_SEARCH_STATE.isOpen = false;
+}
+
+/**
+ * Inicjalizuje przycisk wyszukiwania
+ */
+function initOrderSearchButton() {
+    const searchBtn = document.getElementById('search-orders-btn');
+    if (searchBtn) {
+        searchBtn.addEventListener('click', function(e) {
+            e.preventDefault();
+            openOrderSearchModal();
+        });
+        console.log('[OrderSearch] Search button initialized');
+    }
+}
+
+// Eksportuj do globalnego scope
+window.openOrderSearchModal = openOrderSearchModal;
+window.closeOrderSearchModal = closeOrderSearchModal;
+window.initOrderSearchButton = initOrderSearchButton;
+window.SEARCH_ICON_SVG = SEARCH_ICON_SVG;
+
+/* ============================================================================
+   STATION TOAST NOTIFICATIONS - Powiadomienia nad headerem
+   ============================================================================ */
+
+/**
+ * Stan systemu toastów
+ */
+const TOAST_STATE = {
+    container: null,
+    activeToasts: [],
+    defaultDuration: 5000 // 5 sekund domyślnie
+};
+
+/**
+ * Typy toastów z ikonami
+ */
+const TOAST_TYPES = {
+    info: { icon: 'ℹ️', className: 'toast-info' },
+    success: { icon: '✅', className: 'toast-success' },
+    warning: { icon: '⚠️', className: 'toast-warning' },
+    error: { icon: '❌', className: 'toast-error' },
+    'new-orders': { icon: '📦', className: 'toast-new-orders' },
+    priority: { icon: '🔥', className: 'toast-priority' }
+};
+
+/**
+ * Inicjalizuje kontener na toasty
+ */
+function initToastContainer() {
+    if (TOAST_STATE.container) return TOAST_STATE.container;
+
+    const container = document.createElement('div');
+    container.className = 'station-toast-container';
+    container.id = 'stationToastContainer';
+    document.body.appendChild(container);
+
+    TOAST_STATE.container = container;
+    console.log('[Toast] Container initialized');
+
+    return container;
+}
+
+/**
+ * Wyświetla toast notification
+ * @param {string} message - Treść powiadomienia
+ * @param {string} type - Typ toasta: 'info', 'success', 'warning', 'error', 'new-orders', 'priority'
+ * @param {Object} options - Opcje dodatkowe
+ * @param {number} options.duration - Czas wyświetlania w ms (0 = bez auto-hide)
+ * @param {boolean} options.closable - Czy pokazać przycisk zamknięcia
+ * @param {string} options.icon - Własna ikona (nadpisuje domyślną)
+ * @returns {HTMLElement} Element toasta
+ */
+function showStationToast(message, type = 'info', options = {}) {
+    const container = initToastContainer();
+
+    const {
+        duration = TOAST_STATE.defaultDuration,
+        closable = true,
+        icon = null
+    } = options;
+
+    const toastConfig = TOAST_TYPES[type] || TOAST_TYPES.info;
+    const toastIcon = icon || toastConfig.icon;
+
+    // Stwórz element toasta
+    const toast = document.createElement('div');
+    toast.className = `station-toast ${toastConfig.className}`;
+
+    toast.innerHTML = `
+        <span class="station-toast-icon">${toastIcon}</span>
+        <span class="station-toast-message">${message}</span>
+        ${closable ? '<button class="station-toast-close">&times;</button>' : ''}
+    `;
+
+    // Dodaj do kontenera
+    container.appendChild(toast);
+    TOAST_STATE.activeToasts.push(toast);
+
+    // Animacja wejścia
+    requestAnimationFrame(() => {
+        toast.classList.add('show');
+    });
+
+    // Event listener dla zamknięcia
+    if (closable) {
+        const closeBtn = toast.querySelector('.station-toast-close');
+        if (closeBtn) {
+            closeBtn.addEventListener('click', () => hideStationToast(toast));
+        }
+    }
+
+    // Auto-hide po określonym czasie
+    if (duration > 0) {
+        setTimeout(() => {
+            hideStationToast(toast);
+        }, duration);
+    }
+
+    console.log(`[Toast] Shown: "${message}" (type: ${type})`);
+
+    return toast;
+}
+
+/**
+ * Ukrywa i usuwa toast
+ * @param {HTMLElement} toast - Element toasta do usunięcia
+ */
+function hideStationToast(toast) {
+    if (!toast || toast.classList.contains('hiding')) return;
+
+    toast.classList.add('hiding');
+    toast.classList.remove('show');
+
+    // Usuń po zakończeniu animacji
+    setTimeout(() => {
+        if (toast.parentNode) {
+            toast.parentNode.removeChild(toast);
+        }
+
+        // Usuń z listy aktywnych
+        const index = TOAST_STATE.activeToasts.indexOf(toast);
+        if (index > -1) {
+            TOAST_STATE.activeToasts.splice(index, 1);
+        }
+    }, 300);
+}
+
+/**
+ * Ukrywa wszystkie aktywne toasty
+ */
+function hideAllStationToasts() {
+    TOAST_STATE.activeToasts.forEach(toast => {
+        hideStationToast(toast);
+    });
+}
+
+/* ============================================================================
+   HELPER FUNCTIONS - Skróty dla częstych typów powiadomień
+   ============================================================================ */
+
+/**
+ * Wyświetla toast o nowych zamówieniach
+ * @param {number} count - Liczba nowych zamówień
+ * @param {Object} options - Opcje dodatkowe
+ */
+function showNewOrdersToast(count, options = {}) {
+    const message = count === 1
+        ? 'DODANO 1 NOWE ZAMÓWIENIE'
+        : `DODANO ${count} NOWYCH ZAMÓWIEŃ`;
+
+    return showStationToast(message, 'new-orders', {
+        duration: 6000,
+        ...options
+    });
+}
+
+/**
+ * Wyświetla toast o pilnym zamówieniu
+ * @param {string} orderNumber - Numer zamówienia
+ * @param {Object} options - Opcje dodatkowe
+ */
+function showPriorityOrderToast(orderNumber, options = {}) {
+    const message = `PILNE ZAMÓWIENIE: ${orderNumber}`;
+
+    return showStationToast(message, 'priority', {
+        duration: 8000,
+        ...options
+    });
+}
+
+/**
+ * Wyświetla toast o pomyślnym zakończeniu
+ * @param {string} message - Treść komunikatu
+ * @param {Object} options - Opcje dodatkowe
+ */
+function showSuccessToast(message, options = {}) {
+    return showStationToast(message, 'success', {
+        duration: 4000,
+        ...options
+    });
+}
+
+/**
+ * Wyświetla toast o błędzie
+ * @param {string} message - Treść komunikatu
+ * @param {Object} options - Opcje dodatkowe
+ */
+function showErrorToast(message, options = {}) {
+    return showStationToast(message, 'error', {
+        duration: 6000,
+        ...options
+    });
+}
+
+/**
+ * Wyświetla toast ostrzegawczy
+ * @param {string} message - Treść komunikatu
+ * @param {Object} options - Opcje dodatkowe
+ */
+function showWarningToast(message, options = {}) {
+    return showStationToast(message, 'warning', {
+        duration: 5000,
+        ...options
+    });
+}
+
+/**
+ * Wyświetla toast informacyjny
+ * @param {string} message - Treść komunikatu
+ * @param {Object} options - Opcje dodatkowe
+ */
+function showInfoToast(message, options = {}) {
+    return showStationToast(message, 'info', {
+        duration: 4000,
+        ...options
+    });
+}
+
+// Eksportuj do globalnego scope
+window.initToastContainer = initToastContainer;
+window.showStationToast = showStationToast;
+window.hideStationToast = hideStationToast;
+window.hideAllStationToasts = hideAllStationToasts;
+window.showNewOrdersToast = showNewOrdersToast;
+window.showPriorityOrderToast = showPriorityOrderToast;
+window.showSuccessToast = showSuccessToast;
+window.showErrorToast = showErrorToast;
+window.showWarningToast = showWarningToast;
+window.showInfoToast = showInfoToast;
+window.TOAST_TYPES = TOAST_TYPES;

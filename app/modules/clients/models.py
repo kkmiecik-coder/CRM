@@ -8,7 +8,7 @@ class Client(db.Model):
     client_name = db.Column(db.String(255), nullable=False)
     email = db.Column(db.String(120), nullable=True)  # Email opcjonalny, ale unikalny jeśli podany
     phone = db.Column(db.String(20), nullable=True)
-    
+
     # Adres dostawy
     delivery_name = db.Column(db.String(255))
     delivery_company = db.Column(db.String(255))
@@ -29,7 +29,10 @@ class Client(db.Model):
     
     # Źródło pochodzenia
     source = db.Column(db.String(100))
-    
+
+    # Notatka o kliencie
+    notes = db.Column(db.Text, nullable=True)
+
     # ✅ NOWE: Właściciel klienta (kto go utworzył)
     created_by_user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
     

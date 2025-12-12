@@ -71,6 +71,18 @@
             }
         }
 
+        // Initialize expand icons for fullscreen mode
+        if (typeof window.initExpandIcons === 'function') {
+            window.initExpandIcons();
+            console.log('[Finishing] Expand icons initialized');
+        }
+
+        // Initialize order search button
+        if (typeof window.initOrderSearchButton === 'function') {
+            window.initOrderSearchButton();
+            console.log('[Finishing] Order search button initialized');
+        }
+
         console.log('[Finishing] Station initialized successfully');
     }
 
@@ -454,6 +466,11 @@
             showToast('success', `Zamówienie ${orderNumber} ukończone`);
             fetchTodayM3();
 
+            // Close fullscreen if active
+            if (typeof window.closeFullscreenIfActive === 'function') {
+                window.closeFullscreenIfActive(orderNumber);
+            }
+
             setTimeout(() => {
                 card.classList.add('removing');
                 setTimeout(() => {
@@ -603,8 +620,33 @@
                     if (qtyDoneEl) qtyDoneEl.textContent = serverQtyDone;
                     updateProductButtonStates(productRow, serverQtyDone, product.quantity);
                 }
+
+                // Update priority status
+                const currentPriority = productRow.dataset.isPriority === 'true';
+                const serverPriority = product.is_priority || false;
+                if (currentPriority !== serverPriority) {
+                    productRow.dataset.isPriority = serverPriority ? 'true' : 'false';
+                    if (serverPriority) {
+                        productRow.classList.add('priority-product');
+                    } else {
+                        productRow.classList.remove('priority-product');
+                    }
+                }
             }
         });
+
+        // Update order-level priority classes
+        const allProductsPriority = orderData.products.length > 0 && orderData.products.every(p => p.is_priority);
+        const anyProductPriority = orderData.products.some(p => p.is_priority);
+
+        card.dataset.allPriority = allProductsPriority ? 'true' : 'false';
+        card.dataset.anyPriority = anyProductPriority ? 'true' : 'false';
+
+        if (allProductsPriority) {
+            card.classList.add('priority-order');
+        } else {
+            card.classList.remove('priority-order');
+        }
 
         updateOrderCounter(card);
         updateCompleteButtonState(card);
@@ -636,6 +678,10 @@
             initializeOrderCard(newCard);
             if (typeof window.reinitializeAttachmentHandlers === 'function') {
                 window.reinitializeAttachmentHandlers();
+            }
+            // Re-initialize expand icons for the new card
+            if (typeof window.initExpandIcons === 'function') {
+                window.initExpandIcons();
             }
         }
     }
@@ -691,16 +737,18 @@
             `;
 
             const completeClass = quantityDone === quantity ? 'product-complete' : '';
+            const priorityClass = product.is_priority ? ' priority-product' : '';
 
             return `
-                <div class="product-row ${completeClass}"
+                <div class="product-row ${completeClass}${priorityClass}"
                      data-product-id="${product.id}"
                      data-quantity="${quantity}"
                      data-quantity-done="${quantityDone}"
                      data-status="${product.current_status}"
                      data-species="${product.wood_species || ''}"
                      data-technology="${product.technology || ''}"
-                     data-wood-class="${product.wood_class || ''}">
+                     data-wood-class="${product.wood_class || ''}"
+                     data-is-priority="${product.is_priority ? 'true' : 'false'}">
                     <div class="product-left-col">
                         <div class="product-id-line"><span class="product-id">${product.id}</span></div>
                         <div class="product-params">${paramsHTML}</div>
@@ -720,6 +768,18 @@
 
         const blBadge = order.baselinker_order_id ? `<span class="order-baselinker">BL-${order.baselinker_order_id}</span>` : '';
 
+        // Ikona powiększenia
+        const expandIcon = `
+            <div class="header-icon-wrapper expand-icon-wrapper" title="Powiększ zamówienie">
+                <svg class="header-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="15 3 21 3 21 9"></polyline>
+                    <polyline points="9 21 3 21 3 15"></polyline>
+                    <line x1="21" y1="3" x2="14" y2="10"></line>
+                    <line x1="3" y1="21" x2="10" y2="14"></line>
+                </svg>
+            </div>
+        `;
+
         let totalDone = 0;
         let totalQty = 0;
         order.products.forEach(p => {
@@ -727,13 +787,20 @@
             totalQty += (p.quantity || 1);
         });
 
+        // Calculate priority flags for order card
+        const allProductsPriority = order.products.length > 0 && order.products.every(p => p.is_priority);
+        const anyProductPriority = order.products.some(p => p.is_priority);
+        const orderPriorityClass = allProductsPriority ? ' priority-order' : '';
+
         return `
-            <div class="order-card"
+            <div class="order-card${orderPriorityClass}"
                  data-order-number="${order.order_number}"
                  data-priority-rank="${order.best_priority_rank}"
                  data-total-products="${order.total_products}"
                  data-total-volume="${order.total_volume}"
-                 data-in-progress="false">
+                 data-in-progress="false"
+                 data-all-priority="${allProductsPriority ? 'true' : 'false'}"
+                 data-any-priority="${anyProductPriority ? 'true' : 'false'}">
                 <div class="order-header">
                     <div class="order-ids">
                         <span class="order-number">${order.order_number}</span>
@@ -742,6 +809,7 @@
                     <div class="order-stats">
                         <span class="products-checked" data-order="${order.order_number}">${totalDone}</span>/${totalQty} szt. • ${order.total_volume.toFixed(4)} m³
                     </div>
+                    <div class="order-icons">${expandIcon}</div>
                 </div>
                 <div class="products-list">${productsHTML}</div>
                 <div class="order-action">

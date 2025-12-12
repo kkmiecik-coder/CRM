@@ -1158,9 +1158,10 @@ class BaselinkerSyncService:
                 unit_price_net = price_brutto
             else:
                 unit_price_net = price_brutto / (1 + tax_rate/100)
-    
-            total_value_net = unit_price_net
-    
+
+            # total_value_net = unit_price_net * quantity
+            total_value_net = unit_price_net * quantity
+
             product_data.update({
                 'unit_price_net': round(unit_price_net, 2),
                 'total_value_net': round(total_value_net, 2)

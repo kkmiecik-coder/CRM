@@ -224,6 +224,7 @@ def get_products_for_station(station_code, limit=50, sort_by='priority'):
                 'quantity': product.quantity,
                 'quantity_done': getattr(product, f'quantity_done_{station_code}', 0),
                 'is_complete': getattr(product, f'quantity_done_{station_code}', 0) == product.quantity,
+                'is_priority': product.is_priority,
 
                 # Formatowane teksty dla UI
                 'display_name': _format_product_display_name(product),
@@ -548,6 +549,7 @@ def cutting_station():
                     'quantity': product.quantity,
                     'quantity_done': product.quantity_done_cutting,
                     'is_complete': product.quantity_done_cutting == product.quantity,
+                    'is_priority': product.is_priority,
                     'order_notes': product.order_notes,
                     'client_order_number': product.client_order_number
                 }
@@ -752,6 +754,7 @@ def assembly_station():
                     'quantity': product.quantity,
                     'quantity_done': product.quantity_done_assembly,
                     'is_complete': product.quantity_done_assembly == product.quantity,
+                    'is_priority': product.is_priority,
                     'order_notes': product.order_notes,
                     'client_order_number': product.client_order_number
                 }
@@ -956,6 +959,7 @@ def gluing_station():
                     'quantity': product.quantity,
                     'quantity_done': product.quantity_done_gluing,
                     'is_complete': product.quantity_done_gluing == product.quantity,
+                    'is_priority': product.is_priority,
                     'order_notes': product.order_notes,
                     'client_order_number': product.client_order_number
                 }
@@ -1157,6 +1161,7 @@ def formatting_station():
                     'quantity': product.quantity,
                     'quantity_done': product.quantity_done_formatting,
                     'is_complete': product.quantity_done_formatting == product.quantity,
+                    'is_priority': product.is_priority,
                     'order_notes': product.order_notes,
                     'client_order_number': product.client_order_number
                 }
@@ -1358,6 +1363,7 @@ def finishing_station():
                     'quantity': product.quantity,
                     'quantity_done': product.quantity_done_finishing,
                     'is_complete': product.quantity_done_finishing == product.quantity,
+                    'is_priority': product.is_priority,
                     'order_notes': product.order_notes,
                     'client_order_number': product.client_order_number
                 }
@@ -1624,6 +1630,7 @@ def packaging_station():
                     'quantity': product.quantity,
                     'quantity_done': product.quantity_done_packaging,
                     'is_complete': product.quantity_done_packaging == product.quantity,
+                    'is_priority': product.is_priority,
                     'order_notes': product.order_notes,
                     'client_order_number': product.client_order_number
                 }
@@ -2099,9 +2106,10 @@ def ajax_get_orders_packaging():
                 'deadline_date': product.deadline_date.isoformat() if product.deadline_date else None,
                 'quantity': product.quantity,
                 'quantity_done': product.quantity_done_packaging,
-                'is_complete': product.quantity_done_packaging == product.quantity
+                'is_complete': product.quantity_done_packaging == product.quantity,
+                'is_priority': product.is_priority
             }
-            
+
             orders_grouped[order_num]['products'].append(product_data)
             orders_grouped[order_num]['total_products'] += 1
             orders_grouped[order_num]['total_volume'] += float(product.volume_m3 or 0)
@@ -2315,7 +2323,8 @@ def ajax_get_orders_cutting():
                 'attachment_file_url': product.attachment_file_url,
                 'quantity': product.quantity,
                 'quantity_done': product.quantity_done_cutting,
-                'is_complete': product.quantity_done_cutting == product.quantity
+                'is_complete': product.quantity_done_cutting == product.quantity,
+                'is_priority': product.is_priority
             }
 
             # Oblicz wymiary z parsowanych pól (w CM z jednostką)
@@ -2537,7 +2546,8 @@ def ajax_get_orders_assembly():
                 'attachment_file_url': product.attachment_file_url,
                 'quantity': product.quantity,
                 'quantity_done': product.quantity_done_assembly,
-                'is_complete': product.quantity_done_assembly == product.quantity
+                'is_complete': product.quantity_done_assembly == product.quantity,
+                'is_priority': product.is_priority
             }
 
             # Oblicz wymiary z parsowanych pól (w MM z jednostką)
@@ -2757,7 +2767,8 @@ def ajax_get_orders_gluing():
                 'attachment_file_url': product.attachment_file_url,
                 'quantity': product.quantity,
                 'quantity_done': product.quantity_done_gluing,
-                'is_complete': product.quantity_done_gluing == product.quantity
+                'is_complete': product.quantity_done_gluing == product.quantity,
+                'is_priority': product.is_priority
             }
 
             # Oblicz wymiary z parsowanych pól (w MM z jednostką)
@@ -2966,7 +2977,8 @@ def ajax_get_orders_formatting():
                 'attachment_file_url': product.attachment_file_url,
                 'quantity': product.quantity,
                 'quantity_done': product.quantity_done_formatting,
-                'is_complete': product.quantity_done_formatting == product.quantity
+                'is_complete': product.quantity_done_formatting == product.quantity,
+                'is_priority': product.is_priority
             }
 
             # Oblicz wymiary z parsowanych pól (w MM z jednostką)
@@ -3175,7 +3187,8 @@ def ajax_get_orders_finishing():
                 'attachment_file_url': product.attachment_file_url,
                 'quantity': product.quantity,
                 'quantity_done': product.quantity_done_finishing,
-                'is_complete': product.quantity_done_finishing == product.quantity
+                'is_complete': product.quantity_done_finishing == product.quantity,
+                'is_priority': product.is_priority
             }
 
             # Oblicz wymiary z parsowanych pól (w MM z jednostką)

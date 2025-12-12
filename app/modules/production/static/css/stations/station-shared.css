@@ -1362,3 +1362,627 @@ body.light-mode .notes-modal-content {
 body.light-mode .notes-modal-header {
     background: #f8f9fa;
 }
+
+/* ============================================================================
+   FULLSCREEN ORDER MODAL - Powiększony widok zamówienia
+   ============================================================================ */
+
+/* Overlay z przyciemnieniem i rozmyciem */
+.fullscreen-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    background: rgba(0, 0, 0, 0.7);
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
+    z-index: 9998;
+}
+
+/* Kontener dla powiększonego zamówienia */
+.fullscreen-order-container {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 9999;
+    padding: 5vh 5vw;
+    box-sizing: border-box;
+}
+
+/* Powiększona karta zamówienia */
+.fullscreen-order-container .order-card {
+    max-width: 90vw;
+    max-height: 90vh;
+    width: 100%;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 25px 80px rgba(0, 0, 0, 0.5);
+    border: 2px solid var(--accent-blue);
+}
+
+.fullscreen-order-container .order-card .products-list {
+    flex: 1;
+    max-height: none;
+    overflow-y: auto;
+}
+
+/* Oryginalna karta przyciemniona gdy modal jest aktywny */
+.order-card.fullscreen-source {
+    opacity: 0.3;
+    pointer-events: none;
+}
+
+/* ============================================================================
+   EXPAND/COLLAPSE ICON - Ikona powiększenia/pomniejszenia
+   ============================================================================ */
+
+.header-icon-wrapper.expand-icon-wrapper {
+    background: rgba(39, 158, 255, 0.15);
+    border: 1px solid rgba(39, 158, 255, 0.3);
+}
+
+.header-icon-wrapper.expand-icon-wrapper:hover {
+    background: rgba(39, 158, 255, 0.25);
+    border-color: rgba(39, 158, 255, 0.5);
+    transform: scale(1.05);
+}
+
+.header-icon-wrapper.expand-icon-wrapper .header-icon {
+    stroke: var(--accent-blue);
+}
+
+body.light-mode .header-icon-wrapper.expand-icon-wrapper {
+    background: rgba(39, 158, 255, 0.1);
+    border-color: rgba(39, 158, 255, 0.4);
+}
+
+body.light-mode .header-icon-wrapper.expand-icon-wrapper .header-icon {
+    stroke: #0d6efd;
+}
+
+/* ============================================================================
+   ORDER SEARCH MODAL - Wyszukiwanie zamówień
+   ============================================================================ */
+
+/* Przycisk wyszukiwania w headerze */
+.search-orders-btn {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 24px;
+    background: rgba(255, 255, 255, 0.1);
+    border: 2px solid rgba(255, 255, 255, 0.2);
+    border-radius: 10px;
+    color: var(--text-primary);
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.3s ease;
+}
+
+.search-orders-btn:hover {
+    background: rgba(255, 255, 255, 0.15);
+    transform: translateY(-2px);
+}
+
+body.light-mode .search-orders-btn {
+    background: var(--bg-tertiary);
+    border-color: var(--border-color-light);
+}
+
+body.light-mode .search-orders-btn:hover {
+    background: #e9ecef;
+}
+
+.search-orders-btn .search-icon {
+    flex-shrink: 0;
+}
+
+/* Modal wyszukiwania */
+.order-search-modal {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.7);
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
+    z-index: 10000;
+    justify-content: center;
+    align-items: center;
+    padding: 20px;
+}
+
+.order-search-modal.active {
+    display: flex;
+}
+
+.order-search-modal-content {
+    background: var(--bg-card);
+    border-radius: 16px;
+    max-width: 800px;
+    width: 100%;
+    max-height: 80vh;
+    overflow: hidden;
+    box-shadow: var(--shadow-md);
+    border: 1px solid var(--border-color);
+    display: flex;
+    flex-direction: column;
+}
+
+.order-search-modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 16px 20px;
+    background: var(--bg-secondary);
+    border-bottom: 1px solid var(--border-color);
+}
+
+.order-search-modal-header h3 {
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin: 0;
+}
+
+.order-search-modal-close {
+    width: 36px;
+    height: 36px;
+    border: none;
+    background: transparent;
+    color: var(--text-secondary);
+    font-size: 24px;
+    cursor: pointer;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s ease;
+}
+
+.order-search-modal-close:hover {
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+}
+
+.order-search-modal-body {
+    padding: 20px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+/* Przycisk zamówienia w modalu wyszukiwania */
+.order-search-btn {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 14px 18px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    width: 100%;
+    text-align: left;
+}
+
+.order-search-btn:hover {
+    background: var(--bg-tertiary);
+    border-color: var(--accent-blue);
+    transform: translateX(4px);
+}
+
+.order-search-btn .order-number {
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--accent-orange);
+    font-family: 'Courier New', monospace;
+}
+
+.order-search-btn .order-client-number {
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.order-search-btn .order-baselinker {
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--accent-blue);
+    font-family: 'Courier New', monospace;
+}
+
+/* Pusta lista zamówień */
+.order-search-empty {
+    text-align: center;
+    padding: 40px 20px;
+    color: var(--text-secondary);
+}
+
+.order-search-empty-icon {
+    font-size: 48px;
+    margin-bottom: 16px;
+}
+
+.order-search-empty h4 {
+    font-size: 18px;
+    color: var(--text-primary);
+    margin: 0 0 8px 0;
+}
+
+.order-search-empty p {
+    font-size: 14px;
+    margin: 0;
+}
+
+/* Light mode */
+body.light-mode .order-search-modal-content {
+    background: #ffffff;
+}
+
+body.light-mode .order-search-modal-header {
+    background: #f8f9fa;
+}
+
+body.light-mode .order-search-btn {
+    background: #f8f9fa;
+}
+
+body.light-mode .order-search-btn:hover {
+    background: #e9ecef;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+    .search-orders-btn {
+        padding: 6px 12px;
+        font-size: 8px;
+    }
+
+    .search-orders-btn .search-text {
+        display: none;
+    }
+
+    .order-search-modal-content {
+        max-height: 90vh;
+    }
+
+    .order-search-btn {
+        flex-wrap: wrap;
+        gap: 8px;
+    }
+
+    .order-search-btn .order-number,
+    .order-search-btn .order-client-number,
+    .order-search-btn .order-baselinker {
+        font-size: 12px;
+    }
+}
+
+@media (max-width: 1080px) {
+    .search-orders-btn {
+        padding: 6px 12px;
+        font-size: 12px;
+    }
+}
+
+/* ============================================================================
+   STATION TOAST NOTIFICATIONS - Powiadomienia nad headerem
+   ============================================================================ */
+
+/* Kontener na toasty - nad headerem */
+.station-toast-container {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 10001;
+    display: flex;
+    flex-direction: column;
+    pointer-events: none;
+}
+
+/* Pojedynczy toast */
+.station-toast {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    padding: 14px 24px;
+    font-size: 16px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    pointer-events: auto;
+    transform: translateY(-100%);
+    opacity: 0;
+    transition: transform 0.3s ease, opacity 0.3s ease;
+}
+
+.station-toast.show {
+    transform: translateY(0);
+    opacity: 1;
+}
+
+.station-toast.hiding {
+    transform: translateY(-100%);
+    opacity: 0;
+}
+
+/* Ikona toasta */
+.station-toast-icon {
+    font-size: 20px;
+    flex-shrink: 0;
+}
+
+/* Tekst toasta */
+.station-toast-message {
+    flex: 1;
+    text-align: center;
+}
+
+/* Przycisk zamknięcia (opcjonalny) */
+.station-toast-close {
+    background: transparent;
+    border: none;
+    color: inherit;
+    font-size: 20px;
+    cursor: pointer;
+    padding: 0 4px;
+    opacity: 0.7;
+    transition: opacity 0.2s ease;
+}
+
+.station-toast-close:hover {
+    opacity: 1;
+}
+
+/* === TYPY TOASTÓW === */
+
+/* Info - niebieski */
+.station-toast.toast-info {
+    background: linear-gradient(135deg, #1a73e8 0%, #0d47a1 100%);
+    color: #ffffff;
+    border-bottom: 3px solid #0d47a1;
+}
+
+/* Success - zielony */
+.station-toast.toast-success {
+    background: linear-gradient(135deg, #28a745 0%, #1e7e34 100%);
+    color: #ffffff;
+    border-bottom: 3px solid #1e7e34;
+}
+
+/* Warning - pomarańczowy */
+.station-toast.toast-warning {
+    background: linear-gradient(135deg, #fd7e14 0%, #e65100 100%);
+    color: #ffffff;
+    border-bottom: 3px solid #e65100;
+}
+
+/* Error - czerwony */
+.station-toast.toast-error {
+    background: linear-gradient(135deg, #dc3545 0%, #c82333 100%);
+    color: #ffffff;
+    border-bottom: 3px solid #c82333;
+}
+
+/* New orders - specjalny typ dla nowych zamówień (niebieski z akcentem) */
+.station-toast.toast-new-orders {
+    background: linear-gradient(135deg, #279EFF 0%, #1565c0 100%);
+    color: #ffffff;
+    border-bottom: 3px solid #1565c0;
+}
+
+/* Priority - pilne (czerwono-pomarańczowy) */
+.station-toast.toast-priority {
+    background: linear-gradient(135deg, #ff5722 0%, #d32f2f 100%);
+    color: #ffffff;
+    border-bottom: 3px solid #d32f2f;
+    animation: toast-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes toast-pulse {
+    0%, 100% {
+        box-shadow: 0 4px 12px rgba(255, 87, 34, 0.3);
+    }
+    50% {
+        box-shadow: 0 4px 20px rgba(255, 87, 34, 0.6);
+    }
+}
+
+/* Light mode adjustments */
+body.light-mode .station-toast.toast-info {
+    background: linear-gradient(135deg, #2196f3 0%, #1976d2 100%);
+}
+
+body.light-mode .station-toast.toast-success {
+    background: linear-gradient(135deg, #4caf50 0%, #388e3c 100%);
+}
+
+body.light-mode .station-toast.toast-warning {
+    background: linear-gradient(135deg, #ff9800 0%, #f57c00 100%);
+}
+
+body.light-mode .station-toast.toast-new-orders {
+    background: linear-gradient(135deg, #42a5f5 0%, #1e88e5 100%);
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+    .station-toast {
+        padding: 10px 16px;
+        font-size: 13px;
+        gap: 8px;
+    }
+
+    .station-toast-icon {
+        font-size: 16px;
+    }
+}
+
+@media (max-width: 480px) {
+    .station-toast {
+        padding: 8px 12px;
+        font-size: 12px;
+    }
+}
+
+/* ============================================================================
+   PRIORITY STYLING - Kolorowanie priorytetowych produktów i zamówień
+   ============================================================================ */
+
+/* --- PRODUKT PRIORYTETOWY (pomarańczowy) --- */
+/* Dark mode */
+.product-row.priority-product {
+    background: linear-gradient(135deg, rgba(249, 115, 22, 0.15) 0%, rgba(234, 88, 12, 0.1) 100%) !important;
+    border-color: rgba(249, 115, 22, 0.4) !important;
+    border-left: 4px solid #f97316 !important;
+}
+
+/* Light mode - produkt priorytetowy (ciemniejszy pomarańczowy) */
+body.light-mode .product-row.priority-product {
+    background: linear-gradient(135deg, #fff7ed 0%, #ffedd5 100%) !important;
+    border-color: #fdba74 !important;
+    border-left: 4px solid #ea580c !important;
+}
+
+/* --- PRODUKT PRIORYTETOWY UKOŃCZONY (zielony z pomarańczowym akcentem) --- */
+/* Gdy produkt jest priorytetowy I ukończony - zielone tło ma wyższy priorytet */
+/* Dark mode */
+.product-row.priority-product.product-complete {
+    background: rgba(40, 167, 69, 0.12) !important;
+    border-color: rgba(40, 167, 69, 0.4) !important;
+    border-left: 4px solid #28a745 !important;
+}
+
+.product-row.priority-product.product-complete .qty-done {
+    color: #28a745 !important;
+}
+
+/* Light mode */
+body.light-mode .product-row.priority-product.product-complete {
+    background: rgba(40, 167, 69, 0.15) !important;
+    border-color: rgba(40, 167, 69, 0.5) !important;
+    border-left: 4px solid #1e7e34 !important;
+}
+
+body.light-mode .product-row.priority-product.product-complete .qty-done {
+    color: #1e7e34 !important;
+}
+
+/* --- ZAMÓWIENIE PRIORYTETOWE (pomarańczowe) - gdy wszystkie produkty są priorytetowe --- */
+/* Dark mode */
+.order-card.priority-order {
+    background: linear-gradient(135deg, rgba(249, 115, 22, 0.15) 0%, rgba(234, 88, 12, 0.1) 100%) !important;
+    border: 2px solid rgba(249, 115, 22, 0.5) !important;
+    box-shadow: 0 0 20px rgba(249, 115, 22, 0.2), inset 0 0 30px rgba(249, 115, 22, 0.05);
+}
+
+.order-card.priority-order .order-header {
+    background: linear-gradient(135deg, rgba(249, 115, 22, 0.18) 0%, rgba(234, 88, 12, 0.12) 100%);
+    border-bottom-color: rgba(249, 115, 22, 0.4);
+}
+
+.order-card.priority-order .order-number {
+    color: #fb923c !important;
+    text-shadow: 0 0 8px rgba(251, 146, 60, 0.5);
+}
+
+.order-card.priority-order .order-action .btn-complete:not(:disabled) {
+    background: linear-gradient(135deg, #f97316 0%, #ea580c 100%);
+    border-color: #ea580c;
+}
+
+.order-card.priority-order .order-action .btn-complete:not(:disabled):hover {
+    background: linear-gradient(135deg, #ea580c 0%, #c2410c 100%);
+}
+
+/* Pulsująca animacja dla pilnego zamówienia */
+.order-card.priority-order::before {
+    content: '';
+    position: absolute;
+    top: -2px;
+    left: -2px;
+    right: -2px;
+    bottom: -2px;
+    border-radius: inherit;
+    background: linear-gradient(45deg, rgba(249, 115, 22, 0.3), transparent, rgba(249, 115, 22, 0.3));
+    z-index: -1;
+    animation: priority-pulse 2s ease-in-out infinite;
+}
+
+@keyframes priority-pulse {
+    0%, 100% {
+        opacity: 0.5;
+    }
+    50% {
+        opacity: 1;
+    }
+}
+
+/* Light mode - zamówienie priorytetowe */
+body.light-mode .order-card.priority-order {
+    background: linear-gradient(135deg, #fff7ed 0%, #ffedd5 100%) !important;
+    border: 2px solid #fdba74 !important;
+    box-shadow: 0 4px 15px rgba(249, 115, 22, 0.15);
+}
+
+body.light-mode .order-card.priority-order .order-header {
+    background: linear-gradient(135deg, #ffedd5 0%, #fed7aa 100%);
+    border-bottom-color: #fdba74;
+}
+
+body.light-mode .order-card.priority-order .order-number {
+    color: #ea580c !important;
+    text-shadow: none;
+}
+
+body.light-mode .order-card.priority-order::before {
+    background: linear-gradient(45deg, rgba(249, 115, 22, 0.15), transparent, rgba(249, 115, 22, 0.15));
+}
+
+/* --- IKONA GWIAZDKI NA STANOWISKACH --- */
+.priority-star-indicator {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    margin-left: 8px;
+    color: #f59e0b;
+    font-size: 14px;
+    animation: star-glow 1.5s ease-in-out infinite;
+}
+
+@keyframes star-glow {
+    0%, 100% {
+        text-shadow: 0 0 4px rgba(245, 158, 11, 0.5);
+    }
+    50% {
+        text-shadow: 0 0 12px rgba(245, 158, 11, 0.8);
+    }
+}
+
+body.light-mode .priority-star-indicator {
+    color: #d97706;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+    .order-card.priority-order::before {
+        animation: none;
+        opacity: 0.7;
+    }
+}

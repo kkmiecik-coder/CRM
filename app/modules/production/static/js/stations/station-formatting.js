@@ -94,6 +94,18 @@
             }
         }
 
+        // Initialize expand icons for fullscreen mode
+        if (typeof window.initExpandIcons === 'function') {
+            window.initExpandIcons();
+            console.log('[Formatting] Expand icons initialized');
+        }
+
+        // Initialize order search button
+        if (typeof window.initOrderSearchButton === 'function') {
+            window.initOrderSearchButton();
+            console.log('[Formatting] Order search button initialized');
+        }
+
         console.log('[Formatting] Station initialized successfully');
     }
 
@@ -678,6 +690,11 @@
             // Update today's m³ statistics
             fetchTodayM3();
 
+            // Close fullscreen if active
+            if (typeof window.closeFullscreenIfActive === 'function') {
+                window.closeFullscreenIfActive(orderNumber);
+            }
+
             // Wait 1 second, then remove card with animation
             setTimeout(() => {
                 card.classList.add('removing');
@@ -915,7 +932,7 @@
         // Skip if card is being processed
         if (card.dataset.inProgress === 'true') return;
 
-        // Update each product's quantity data
+        // Update each product's quantity data and priority
         orderData.products.forEach(product => {
             const productRow = card.querySelector(`[data-product-id="${product.id}"]`);
             if (productRow) {
@@ -931,8 +948,33 @@
                     }
                     updateProductButtonStates(productRow, serverQtyDone, product.quantity);
                 }
+
+                // Update priority status
+                const currentPriority = productRow.dataset.isPriority === 'true';
+                const serverPriority = product.is_priority || false;
+                if (currentPriority !== serverPriority) {
+                    productRow.dataset.isPriority = serverPriority ? 'true' : 'false';
+                    if (serverPriority) {
+                        productRow.classList.add('priority-product');
+                    } else {
+                        productRow.classList.remove('priority-product');
+                    }
+                }
             }
         });
+
+        // Update order-level priority classes
+        const allProductsPriority = orderData.products.length > 0 && orderData.products.every(p => p.is_priority);
+        const anyProductPriority = orderData.products.some(p => p.is_priority);
+
+        card.dataset.allPriority = allProductsPriority ? 'true' : 'false';
+        card.dataset.anyPriority = anyProductPriority ? 'true' : 'false';
+
+        if (allProductsPriority) {
+            card.classList.add('priority-order');
+        } else {
+            card.classList.remove('priority-order');
+        }
 
         updateOrderCounter(card);
         updateCompleteButtonState(card);
@@ -985,6 +1027,11 @@
             if (typeof window.reinitializeAttachmentHandlers === 'function') {
                 window.reinitializeAttachmentHandlers();
             }
+
+            // Re-initialize expand icons for the new card
+            if (typeof window.initExpandIcons === 'function') {
+                window.initExpandIcons();
+            }
         }
     }
 
@@ -1032,16 +1079,18 @@
             `;
 
             const completeClass = quantityDone === quantity ? 'product-complete' : '';
+            const priorityClass = product.is_priority ? ' priority-product' : '';
 
             return `
-                <div class="product-row ${completeClass}"
+                <div class="product-row ${completeClass}${priorityClass}"
                      data-product-id="${product.id}"
                      data-quantity="${quantity}"
                      data-quantity-done="${quantityDone}"
                      data-status="${product.current_status}"
                      data-species="${product.wood_species || ''}"
                      data-technology="${product.technology || ''}"
-                     data-wood-class="${product.wood_class || ''}">
+                     data-wood-class="${product.wood_class || ''}"
+                     data-is-priority="${product.is_priority ? 'true' : 'false'}">
                     <div class="product-left-col">
                         <div class="product-params">${paramsHTML}</div>
                         <div class="product-dimensions-row">${dimensionsBadge}</div>
@@ -1094,6 +1143,18 @@
             }
         }
 
+        // Ikona powiększenia (zawsze)
+        iconsHTML += `
+            <div class="header-icon-wrapper expand-icon-wrapper" title="Powiększ zamówienie">
+                <svg class="header-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="15 3 21 3 21 9"></polyline>
+                    <polyline points="9 21 3 21 3 15"></polyline>
+                    <line x1="21" y1="3" x2="14" y2="10"></line>
+                    <line x1="3" y1="21" x2="10" y2="14"></line>
+                </svg>
+            </div>
+        `;
+
         const clientOrderBadge = order.client_order_number ? `<span class="order-client-number">${order.client_order_number}</span>` : '';
         const blBadge = order.baselinker_order_id ? `<span class="order-baselinker">BL-${order.baselinker_order_id}</span>` : '';
 
@@ -1105,14 +1166,21 @@
             totalQty += (p.quantity || 1);
         });
 
+        // Calculate priority flags for order card
+        const allProductsPriority = order.products.length > 0 && order.products.every(p => p.is_priority);
+        const anyProductPriority = order.products.some(p => p.is_priority);
+        const orderPriorityClass = allProductsPriority ? ' priority-order' : '';
+
         return `
-            <div class="order-card"
+            <div class="order-card${orderPriorityClass}"
                  data-order-number="${order.order_number}"
                  data-priority-rank="${order.best_priority_rank}"
                  data-total-products="${order.total_products}"
                  data-total-quantity="${totalQty}"
                  data-total-volume="${order.total_volume}"
-                 data-in-progress="false">
+                 data-in-progress="false"
+                 data-all-priority="${allProductsPriority ? 'true' : 'false'}"
+                 data-any-priority="${anyProductPriority ? 'true' : 'false'}">
                 <div class="order-header">
                     <div class="order-header-row order-ids-row">
                         <span class="order-number">${order.order_number}</span>

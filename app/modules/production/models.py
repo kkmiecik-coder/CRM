@@ -191,6 +191,12 @@ class ProductionItem(db.Model):
                                      comment='Ile sztuk wykonano na stanowisku pakowania')
 
     # ============================================================================
+    # RĘCZNE OZNACZENIE PRIORYTETU (GWIAZDKA)
+    # ============================================================================
+    is_priority = Column(Boolean, default=False, nullable=False, index=True,
+                        comment='Ręczne oznaczenie produktu jako priorytetowy (gwiazdka w panelu admin)')
+
+    # ============================================================================
     # ŚLEDZENIE CZASU UKOŃCZENIA PER STANOWISKO (uproszczone)
     # ============================================================================
     cutting_completed_at = Column(DateTime, index=True,

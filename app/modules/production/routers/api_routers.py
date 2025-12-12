@@ -350,37 +350,50 @@ def dashboard_stats():
 def chart_data():
     """
     AJAX endpoint dla danych wykresów wydajności dziennej (tylko admin)
-    
+
     Query params:
         period: int - liczba dni do pobrania (7, 14, 30, 90, 180, 365)
-        
+        station: str - opcjonalnie konkretne stanowisko (cutting, assembly, etc.)
+                       Gdy podane, zwraca 2 datasety: objętość i ilość sztuk
+                       Gdy 'all' lub puste - zwraca 6 datasetów tylko z objętością
+
     Returns:
         JSON: Dane wydajności per stanowisko i okres dla Chart.js
     """
     try:
         period = request.args.get('period', 7, type=int)
-        
+        station_filter = request.args.get('station', 'all', type=str)
+
         # Walidacja okresu - ROZSZERZONA
         if period not in [7, 14, 30, 90, 180, 365]:
             return jsonify({
                 'success': False,
                 'error': 'Nieprawidłowy okres. Dozwolone: 7, 14, 30, 90, 180, 365 dni'
             }), 400
-            
-        logger.info(f"AJAX: Pobieranie danych wykresów dla {period} dni", extra={
+
+        # Walidacja stanowiska
+        valid_stations = ['all', 'cutting', 'assembly', 'gluing', 'formatting', 'finishing', 'packaging']
+        if station_filter not in valid_stations:
+            return jsonify({
+                'success': False,
+                'error': f'Nieprawidłowe stanowisko. Dozwolone: {valid_stations}'
+            }), 400
+
+        logger.info(f"AJAX: Pobieranie danych wykresów dla {period} dni, stanowisko: {station_filter}", extra={
             'user_id': current_user.id,
-            'period': period
+            'period': period,
+            'station': station_filter
         })
-        
+
         from ..models import ProductionItem
         from sqlalchemy import and_, func
         from datetime import datetime, timedelta, date
-        
+
         # Oblicz zakres dat
         end_date = date.today()
         start_date = end_date - timedelta(days=period - 1)
-        
-        # Mapowanie statusów na stanowiska dla zakończonych zadań
+
+        # Mapowanie stanowisk
         station_completion_mapping = {
             'cutting': 'cutting_completed_at',
             'assembly': 'assembly_completed_at',
@@ -389,7 +402,213 @@ def chart_data():
             'finishing': 'finishing_completed_at',
             'packaging': 'packaging_completed_at'
         }
-        
+
+        station_quantity_mapping = {
+            'cutting': 'quantity_done_cutting',
+            'assembly': 'quantity_done_assembly',
+            'gluing': 'quantity_done_gluing',
+            'formatting': 'quantity_done_formatting',
+            'finishing': 'quantity_done_finishing',
+            'packaging': 'quantity_done_packaging'
+        }
+
+        station_labels = {
+            'cutting': 'Wycinanie',
+            'assembly': 'Składanie',
+            'gluing': 'Sklejanie',
+            'formatting': 'Formatowanie',
+            'finishing': 'Wykańczanie',
+            'packaging': 'Pakowanie'
+        }
+
+        station_colors = {
+            'cutting': {'border': '#fd7e14', 'bg': 'rgba(253, 126, 20, 0.1)'},
+            'assembly': {'border': '#007bff', 'bg': 'rgba(0, 123, 255, 0.1)'},
+            'gluing': {'border': '#9c27b0', 'bg': 'rgba(156, 39, 176, 0.1)'},
+            'formatting': {'border': '#ff5722', 'bg': 'rgba(255, 87, 34, 0.1)'},
+            'finishing': {'border': '#00bcd4', 'bg': 'rgba(0, 188, 212, 0.1)'},
+            'packaging': {'border': '#28a745', 'bg': 'rgba(40, 167, 69, 0.1)'}
+        }
+
+        # NOWE: Określ typ agregacji na podstawie okresu
+        if period <= 30:
+            aggregation_type = 'daily'
+        elif period == 90:
+            aggregation_type = 'weekly'
+        else:  # 180, 365
+            aggregation_type = 'monthly'
+
+        # =====================================================================
+        # TRYB: Pojedyncze stanowisko (3 krzywe: objętość + ilość + wartość netto)
+        # =====================================================================
+        if station_filter != 'all':
+            completion_field = station_completion_mapping[station_filter]
+            quantity_field = station_quantity_mapping[station_filter]
+            station_label = station_labels[station_filter]
+            station_color = station_colors[station_filter]
+
+            # Sprawdź czy pola istnieją
+            try:
+                completion_attr = getattr(ProductionItem, completion_field)
+                quantity_attr = getattr(ProductionItem, quantity_field)
+            except AttributeError:
+                return jsonify({
+                    'success': False,
+                    'error': f'Stanowisko {station_filter} nie ma jeszcze zaimplementowanych pól w bazie'
+                }), 400
+
+            # Zapytanie o sumę objętości, ilości i wartości netto per dzień
+            daily_stats = db.session.query(
+                func.date(completion_attr).label('completion_date'),
+                func.sum(ProductionItem.volume_m3).label('total_volume'),
+                func.sum(quantity_attr).label('total_quantity'),
+                func.sum(ProductionItem.total_value_net).label('total_value')
+            ).filter(
+                and_(
+                    completion_attr.isnot(None),
+                    func.date(completion_attr) >= start_date,
+                    func.date(completion_attr) <= end_date
+                )
+            ).group_by(
+                func.date(completion_attr)
+            ).all()
+
+            # Wypełnij dane
+            daily_data = {}
+            for completion_date, total_volume, total_quantity, total_value in daily_stats:
+                daily_data[completion_date] = {
+                    'volume': float(total_volume or 0),
+                    'quantity': int(total_quantity or 0),
+                    'value': float(total_value or 0)
+                }
+
+            # Przygotuj chart_data dla pojedynczego stanowiska
+            # Kolory: niebieski dla objętości, pomarańczowy dla ilości, zielony dla wartości
+            chart_data = {
+                'labels': [],
+                'datasets': [
+                    {
+                        'label': f'{station_label} - Objętość (m³)',
+                        'data': [],
+                        'borderColor': '#007bff',
+                        'backgroundColor': 'rgba(0, 123, 255, 0.1)',
+                        'tension': 0.4,
+                        'fill': True,
+                        'yAxisID': 'y'
+                    },
+                    {
+                        'label': f'{station_label} - Ilość (szt.)',
+                        'data': [],
+                        'borderColor': '#fd7e14',
+                        'backgroundColor': 'rgba(253, 126, 20, 0.1)',
+                        'tension': 0.4,
+                        'fill': True,
+                        'yAxisID': 'y1',
+                        'borderDash': [5, 5]
+                    },
+                    {
+                        'label': f'{station_label} - Wartość netto (PLN)',
+                        'data': [],
+                        'borderColor': '#28a745',
+                        'backgroundColor': 'rgba(40, 167, 69, 0.1)',
+                        'tension': 0.4,
+                        'fill': True,
+                        'yAxisID': 'y2',
+                        'borderDash': [2, 2]
+                    }
+                ]
+            }
+
+            # Agregacja danych
+            if aggregation_type == 'daily':
+                current_date = start_date
+                while current_date <= end_date:
+                    label = current_date.strftime('%Y-%m-%d')
+                    chart_data['labels'].append(label)
+                    data = daily_data.get(current_date, {'volume': 0.0, 'quantity': 0, 'value': 0.0})
+                    chart_data['datasets'][0]['data'].append(data['volume'])
+                    chart_data['datasets'][1]['data'].append(data['quantity'])
+                    chart_data['datasets'][2]['data'].append(data['value'])
+                    current_date += timedelta(days=1)
+
+            elif aggregation_type == 'weekly':
+                from collections import defaultdict
+                weekly_data = defaultdict(lambda: {'volume': 0.0, 'quantity': 0, 'value': 0.0})
+                for day_date, data in daily_data.items():
+                    week_start = day_date - timedelta(days=day_date.weekday())
+                    weekly_data[week_start]['volume'] += data['volume']
+                    weekly_data[week_start]['quantity'] += data['quantity']
+                    weekly_data[week_start]['value'] += data['value']
+
+                current_date = start_date - timedelta(days=start_date.weekday())
+                while current_date <= end_date:
+                    week_label = current_date.strftime('%Y-%m-%d')
+                    chart_data['labels'].append(week_label)
+                    chart_data['datasets'][0]['data'].append(weekly_data[current_date]['volume'])
+                    chart_data['datasets'][1]['data'].append(weekly_data[current_date]['quantity'])
+                    chart_data['datasets'][2]['data'].append(weekly_data[current_date]['value'])
+                    current_date += timedelta(weeks=1)
+
+            elif aggregation_type == 'monthly':
+                from collections import defaultdict
+                monthly_data = defaultdict(lambda: {'volume': 0.0, 'quantity': 0, 'value': 0.0})
+                for day_date, data in daily_data.items():
+                    month_start = date(day_date.year, day_date.month, 1)
+                    monthly_data[month_start]['volume'] += data['volume']
+                    monthly_data[month_start]['quantity'] += data['quantity']
+                    monthly_data[month_start]['value'] += data['value']
+
+                current_month = date(start_date.year, start_date.month, 1)
+                end_month = date(end_date.year, end_date.month, 1)
+                while current_month <= end_month:
+                    month_label = current_month.strftime('%Y-%m-01')
+                    chart_data['labels'].append(month_label)
+                    chart_data['datasets'][0]['data'].append(monthly_data[current_month]['volume'])
+                    chart_data['datasets'][1]['data'].append(monthly_data[current_month]['quantity'])
+                    chart_data['datasets'][2]['data'].append(monthly_data[current_month]['value'])
+                    if current_month.month == 12:
+                        current_month = date(current_month.year + 1, 1, 1)
+                    else:
+                        current_month = date(current_month.year, current_month.month + 1, 1)
+
+            # Statystyki dla pojedynczego stanowiska
+            total_volume = sum(chart_data['datasets'][0]['data'])
+            total_quantity = sum(chart_data['datasets'][1]['data'])
+            total_value = sum(chart_data['datasets'][2]['data'])
+            num_periods = len(chart_data['labels']) if chart_data['labels'] else 1
+
+            summary = {
+                'period_days': period,
+                'aggregation_type': aggregation_type,
+                'station': station_filter,
+                'station_label': station_label,
+                'total_volume': round(total_volume, 2),
+                'total_quantity': total_quantity,
+                'total_value': round(total_value, 2),
+                'avg_volume_per_period': round(total_volume / num_periods, 2),
+                'avg_quantity_per_period': round(total_quantity / num_periods, 1),
+                'avg_value_per_period': round(total_value / num_periods, 2)
+            }
+
+            response_data = {
+                'success': True,
+                'chart_data': chart_data,
+                'summary': summary,
+                'period': period,
+                'station': station_filter,
+                'mode': 'single_station',
+                'date_range': {
+                    'start': start_date.isoformat(),
+                    'end': end_date.isoformat()
+                },
+                'generated_at': get_local_now().isoformat()
+            }
+
+            return jsonify(response_data)
+
+        # =====================================================================
+        # TRYB: Wszystkie stanowiska (6 krzywych, tylko objętość)
+        # =====================================================================
         chart_data = {
             'labels': [],
             'datasets': [
@@ -443,15 +662,7 @@ def chart_data():
                 }
             ]
         }
-        
-        # NOWE: Określ typ agregacji na podstawie okresu
-        if period <= 30:
-            aggregation_type = 'daily'
-        elif period == 90:
-            aggregation_type = 'weekly'
-        else:  # 180, 365
-            aggregation_type = 'monthly'
-        
+
         # Pobierz dane wydajności dla każdego stanowiska
         daily_data = {}
 
@@ -2646,6 +2857,9 @@ def products_tab_content():
                 # Dodatkowe pola z zamówienia
                 'client_order_number': get_attr(product, 'client_order_number', None),
                 'order_notes': get_attr(product, 'order_notes', None),
+
+                # Priorytet ręczny (gwiazdka)
+                'is_priority': get_attr(product, 'is_priority', False),
 
                 # Unique identifier dla frontend
                 'unique_id': f"{get_attr(product, 'short_product_id', '')}-{product.id}"
@@ -7141,7 +7355,163 @@ def get_config_info(config_key: str):
             'config_key': config_key,
             'error': str(e)
         })
-        
+
+        return jsonify({
+            'success': False,
+            'error': f'Błąd serwera: {str(e)}'
+        }), 500
+
+
+# ============================================================================
+# PRIORITY STAR ENDPOINTS - Gwiazdka priorytetu dla produktów
+# ============================================================================
+
+@api_bp.route('/set-priority', methods=['POST'])
+@admin_required
+def set_product_priority():
+    """
+    POST /production/api/set-priority
+
+    Ustawia lub usuwa flagę is_priority dla produktu/produktów.
+
+    Request JSON:
+        {
+            "product_id": int,           # ID produktu (wymagane jeśli nie ma order_number)
+            "order_number": str,         # Numer zamówienia (opcjonalne - dla całego zamówienia)
+            "is_priority": bool,         # True = włącz, False = wyłącz
+            "mode": "product" | "order"  # Tryb: pojedynczy produkt lub całe zamówienie
+        }
+
+    Returns:
+        JSON: Status operacji i lista zaktualizowanych produktów
+    """
+    try:
+        data = request.get_json()
+
+        if not data:
+            return jsonify({
+                'success': False,
+                'error': 'Brak danych w żądaniu'
+            }), 400
+
+        is_priority = data.get('is_priority', True)
+        mode = data.get('mode', 'product')
+        product_id = data.get('product_id')
+        order_number = data.get('order_number')
+
+        updated_products = []
+
+        if mode == 'order' and order_number:
+            # Aktualizuj wszystkie produkty w zamówieniu
+            products = ProductionItem.query.filter_by(
+                internal_order_number=order_number
+            ).all()
+
+            if not products:
+                return jsonify({
+                    'success': False,
+                    'error': f'Nie znaleziono produktów dla zamówienia {order_number}'
+                }), 404
+
+            for product in products:
+                product.is_priority = is_priority
+                product.updated_at = get_local_now()
+                updated_products.append({
+                    'id': product.id,
+                    'short_product_id': product.short_product_id,
+                    'is_priority': product.is_priority
+                })
+
+            db.session.commit()
+
+            logger.info("Ustawiono priorytet dla zamówienia", extra={
+                'order_number': order_number,
+                'is_priority': is_priority,
+                'products_count': len(products),
+                'user_id': current_user.id
+            })
+
+        elif product_id:
+            # Aktualizuj pojedynczy produkt
+            product = ProductionItem.query.get(product_id)
+
+            if not product:
+                return jsonify({
+                    'success': False,
+                    'error': f'Nie znaleziono produktu o ID {product_id}'
+                }), 404
+
+            product.is_priority = is_priority
+            product.updated_at = get_local_now()
+
+            db.session.commit()
+
+            updated_products.append({
+                'id': product.id,
+                'short_product_id': product.short_product_id,
+                'is_priority': product.is_priority
+            })
+
+            logger.info("Ustawiono priorytet dla produktu", extra={
+                'product_id': product_id,
+                'short_product_id': product.short_product_id,
+                'is_priority': is_priority,
+                'user_id': current_user.id
+            })
+        else:
+            return jsonify({
+                'success': False,
+                'error': 'Wymagane jest product_id lub order_number z mode=order'
+            }), 400
+
+        return jsonify({
+            'success': True,
+            'message': f'Zaktualizowano priorytet dla {len(updated_products)} produktów',
+            'updated_products': updated_products,
+            'is_priority': is_priority
+        })
+
+    except Exception as e:
+        db.session.rollback()
+        logger.error("Błąd ustawiania priorytetu", extra={
+            'error': str(e),
+            'traceback': traceback.format_exc()
+        })
+
+        return jsonify({
+            'success': False,
+            'error': f'Błąd serwera: {str(e)}'
+        }), 500
+
+
+@api_bp.route('/get-order-products-count/<order_number>')
+@login_required
+def get_order_products_count(order_number: str):
+    """
+    GET /production/api/get-order-products-count/<order_number>
+
+    Pobiera liczbę produktów w zamówieniu (używane do decyzji o wyświetlaniu tooltipa).
+
+    Returns:
+        JSON: Liczba produktów w zamówieniu
+    """
+    try:
+        count = ProductionItem.query.filter_by(
+            internal_order_number=order_number
+        ).count()
+
+        return jsonify({
+            'success': True,
+            'order_number': order_number,
+            'products_count': count
+        })
+
+    except Exception as e:
+        logger.error("Błąd pobierania liczby produktów", extra={
+            'order_number': order_number,
+            'error': str(e)
+        })
+
         return jsonify({
             'success': False,
             'error': f'Błąd serwera: {str(e)}'

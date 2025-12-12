@@ -3,6 +3,9 @@
 let clients = [];
 let currentPage = 1;
 let rowsPerPage = 20;
+let totalPages = 1;
+let totalCount = 0;
+let currentSearchTerm = '';
 let currentSortKey = 'client_name';
 let currentSortAsc = true;
 let quotesPerPage = 10;
@@ -10,43 +13,179 @@ let currentQuotePage = 1;
 let allQuotes = [];
 let editedClientId = null;
 
+// ========== FUNKCJE WALIDACJI ========== //
+
+/**
+ * Walidacja email - wymaga "@" oraz "." w domenie
+ */
+function validateEmail(email) {
+    if (!email) return { valid: true, message: '' }; // Pole opcjonalne
+    const atIndex = email.indexOf('@');
+    if (atIndex === -1) {
+        return { valid: false, message: 'Email musi zawierać znak @' };
+    }
+    const domain = email.substring(atIndex + 1);
+    if (!domain.includes('.')) {
+        return { valid: false, message: 'Domena email musi zawierać kropkę' };
+    }
+    if (domain.indexOf('.') === 0 || domain.endsWith('.')) {
+        return { valid: false, message: 'Nieprawidłowy format domeny' };
+    }
+    return { valid: true, message: '' };
+}
+
+/**
+ * Walidacja telefonu - min 9 cyfr, dozwolone: cyfry, +, (, ), spacja
+ */
+function validatePhone(phone) {
+    if (!phone) return { valid: true, message: '' }; // Pole opcjonalne
+    // Sprawdź dozwolone znaki
+    if (!/^[0-9+().\s-]+$/.test(phone)) {
+        return { valid: false, message: 'Dozwolone znaki: cyfry, +, (, ), spacja, myślnik' };
+    }
+    // Policz same cyfry
+    const digitsOnly = phone.replace(/\D/g, '');
+    if (digitsOnly.length < 9) {
+        return { valid: false, message: 'Telefon musi mieć minimum 9 cyfr' };
+    }
+    return { valid: true, message: '' };
+}
+
+/**
+ * Walidacja NIP - dokładnie 10 cyfr
+ */
+function validateNIP(nip) {
+    if (!nip) return { valid: true, message: '' }; // Pole opcjonalne
+    const digitsOnly = nip.replace(/\D/g, '');
+    if (digitsOnly.length !== 10) {
+        return { valid: false, message: 'NIP musi mieć dokładnie 10 cyfr' };
+    }
+    return { valid: true, message: '' };
+}
+
+/**
+ * Walidacja kodu pocztowego - dla Polski: XX-XXX
+ */
+function validatePostalCode(zip, country) {
+    if (!zip) return { valid: true, message: '' }; // Pole opcjonalne
+
+    // Dla Polski wymagamy formatu XX-XXX
+    if (!country || country === 'Polska') {
+        if (!/^\d{2}-\d{3}$/.test(zip)) {
+            return { valid: false, message: 'Kod pocztowy musi mieć format XX-XXX' };
+        }
+    }
+    return { valid: true, message: '' };
+}
+
+/**
+ * Formatowanie kodu pocztowego - auto-wstawia "-" po 2 cyfrach
+ */
+function formatPostalCode(input, country) {
+    // Tylko dla Polski stosujemy automatyczne formatowanie
+    if (country && country !== 'Polska') {
+        return; // Nie formatuj dla innych krajów
+    }
+
+    let value = input.value;
+
+    // Usuń wszystko poza cyframi
+    let digitsOnly = value.replace(/\D/g, '');
+
+    // Ogranicz do 5 cyfr
+    digitsOnly = digitsOnly.substring(0, 5);
+
+    // Wstaw myślnik po 2 cyfrach
+    if (digitsOnly.length > 2) {
+        input.value = digitsOnly.substring(0, 2) + '-' + digitsOnly.substring(2);
+    } else {
+        input.value = digitsOnly;
+    }
+}
+
+/**
+ * Wyświetl błąd walidacji dla pola
+ */
+function showFieldError(inputId, errorId, message) {
+    const input = document.getElementById(inputId);
+    const errorEl = document.getElementById(errorId);
+    if (input) {
+        input.classList.remove('input-success-border');
+        input.classList.add('input-error-border');
+    }
+    if (errorEl) {
+        errorEl.textContent = message;
+    }
+}
+
+/**
+ * Ukryj błąd walidacji dla pola
+ */
+function clearFieldError(inputId, errorId) {
+    const input = document.getElementById(inputId);
+    const errorEl = document.getElementById(errorId);
+    if (input) {
+        input.classList.remove('input-error-border');
+    }
+    if (errorEl) {
+        errorEl.textContent = '';
+    }
+}
+
+/**
+ * Obsługa zmiany kraju - włącz/wyłącz województwo
+ */
+function handleCountryChange(countrySelect, regionSelect) {
+    const isPoland = countrySelect.value === 'Polska';
+    regionSelect.disabled = !isPoland;
+    if (!isPoland) {
+        regionSelect.value = '';
+        regionSelect.classList.add('disabled-select');
+    } else {
+        regionSelect.classList.remove('disabled-select');
+    }
+}
+
 const tableBody = document.getElementById('clients-table-body');
 const searchInput = document.getElementById('search-input');
+const searchBtn = document.getElementById('searchBtn');
 const rowsSelect = document.getElementById('rows-per-page');
 const paginationControls = document.getElementById('pagination-controls');
 
 function fetchClients() {
-    fetch('/clients/api/clients')
+    const params = new URLSearchParams({
+        page: currentPage,
+        per_page: rowsPerPage,
+        search: currentSearchTerm
+    });
+
+    fetch(`/clients/api/clients?${params}`)
         .then(res => res.json())
         .then(data => {
-            clients = data;
+            clients = data.clients;
+            totalPages = data.pagination.total_pages;
+            totalCount = data.pagination.total_count;
+            currentPage = data.pagination.page;
             renderTable();
+        })
+        .catch(err => {
+            console.error('Błąd podczas pobierania klientów:', err);
+            showToast('Błąd podczas pobierania klientów', false);
         });
 }
 
 function renderTable() {
-    const filtered = clients.filter(c => {
-        const query = searchInput.value.toLowerCase();
-        return (
-            (c.client_number || '').toLowerCase().includes(query) ||
-            (c.client_name || '').toLowerCase().includes(query) ||
-            (c.email || '').toLowerCase().includes(query) ||
-            (c.phone || '').toLowerCase().includes(query)
-        );
-    });
-
-    filtered.sort((a, b) => {
-        const valA = a[currentSortKey] || '';
-        const valB = b[currentSortKey] || '';
-        return currentSortAsc ? valA.localeCompare(valB) : valB.localeCompare(valA);
-    });
-
-    const start = (currentPage - 1) * rowsPerPage;
-    const end = start + rowsPerPage;
-    const pageItems = filtered.slice(start, end);
-
     tableBody.innerHTML = '';
-    pageItems.forEach(client => {
+
+    if (clients.length === 0) {
+        const row = document.createElement('tr');
+        row.innerHTML = `<td colspan="5" style="text-align: center; padding: 20px; color: #666;">Brak klientów do wyświetlenia</td>`;
+        tableBody.appendChild(row);
+        renderPagination();
+        return;
+    }
+
+    clients.forEach(client => {
         const row = document.createElement('tr');
         row.innerHTML = `
             <td>${client.client_number || '-'}</td>
@@ -68,29 +207,117 @@ function renderTable() {
         tableBody.appendChild(row);
     });
 
-    renderPagination(filtered.length);
+    renderPagination();
 }
 
-function renderPagination(total) {
-    const pageCount = Math.ceil(total / rowsPerPage);
+function renderPagination() {
     paginationControls.innerHTML = '';
-    for (let i = 1; i <= pageCount; i++) {
+
+    if (totalPages <= 1) return;
+
+    // Przycisk "Poprzednia"
+    if (currentPage > 1) {
+        const prevBtn = document.createElement('button');
+        prevBtn.textContent = '←';
+        prevBtn.title = 'Poprzednia strona';
+        prevBtn.addEventListener('click', () => {
+            currentPage--;
+            fetchClients();
+        });
+        paginationControls.appendChild(prevBtn);
+    }
+
+    // Numerki stron
+    const maxVisiblePages = 5;
+    let startPage = Math.max(1, currentPage - Math.floor(maxVisiblePages / 2));
+    let endPage = Math.min(totalPages, startPage + maxVisiblePages - 1);
+
+    if (endPage - startPage + 1 < maxVisiblePages) {
+        startPage = Math.max(1, endPage - maxVisiblePages + 1);
+    }
+
+    if (startPage > 1) {
+        const firstBtn = document.createElement('button');
+        firstBtn.textContent = '1';
+        firstBtn.addEventListener('click', () => {
+            currentPage = 1;
+            fetchClients();
+        });
+        paginationControls.appendChild(firstBtn);
+
+        if (startPage > 2) {
+            const dots = document.createElement('span');
+            dots.textContent = '...';
+            dots.className = 'pagination-dots';
+            paginationControls.appendChild(dots);
+        }
+    }
+
+    for (let i = startPage; i <= endPage; i++) {
         const btn = document.createElement('button');
         btn.textContent = i;
         if (i === currentPage) btn.classList.add('active');
         btn.addEventListener('click', () => {
             currentPage = i;
-            renderTable();
+            fetchClients();
         });
         paginationControls.appendChild(btn);
     }
+
+    if (endPage < totalPages) {
+        if (endPage < totalPages - 1) {
+            const dots = document.createElement('span');
+            dots.textContent = '...';
+            dots.className = 'pagination-dots';
+            paginationControls.appendChild(dots);
+        }
+
+        const lastBtn = document.createElement('button');
+        lastBtn.textContent = totalPages;
+        lastBtn.addEventListener('click', () => {
+            currentPage = totalPages;
+            fetchClients();
+        });
+        paginationControls.appendChild(lastBtn);
+    }
+
+    // Przycisk "Następna"
+    if (currentPage < totalPages) {
+        const nextBtn = document.createElement('button');
+        nextBtn.textContent = '→';
+        nextBtn.title = 'Następna strona';
+        nextBtn.addEventListener('click', () => {
+            currentPage++;
+            fetchClients();
+        });
+        paginationControls.appendChild(nextBtn);
+    }
+
+    // Info o stronach
+    const pageInfo = document.createElement('span');
+    pageInfo.className = 'pagination-info';
+    pageInfo.textContent = ` Strona ${currentPage} z ${totalPages} (${totalCount} klientów)`;
+    paginationControls.appendChild(pageInfo);
 }
 
-searchInput.addEventListener('input', renderTable);
+// Wyszukiwanie po kliknięciu przycisku lub Enter
+function performSearch() {
+    currentSearchTerm = searchInput.value.trim();
+    currentPage = 1;
+    fetchClients();
+}
+
+searchBtn.addEventListener('click', performSearch);
+searchInput.addEventListener('keypress', (e) => {
+    if (e.key === 'Enter') {
+        performSearch();
+    }
+});
+
 rowsSelect.addEventListener('change', () => {
     rowsPerPage = parseInt(rowsSelect.value);
     currentPage = 1;
-    renderTable();
+    fetchClients();
 });
 
 function showClientDetails(clientId) {
@@ -115,6 +342,7 @@ function showClientDetails(clientId) {
             document.getElementById('detailClientDeliveryName').textContent = client.client_name || '---';
             document.getElementById('detailClientEmail').textContent = client.email || '---';
             document.getElementById('detailClientPhone').textContent = client.phone || '---';
+            document.getElementById('detailClientNotes').textContent = client.notes || '---';
 
             loadClientQuotes(clientId);
 
@@ -206,11 +434,166 @@ function renderQuotesPagination() {
 document.addEventListener('DOMContentLoaded', () => {
     fetchClients();
 
+    // ========== SYSTEM ZAKŁADEK ========== //
+    const tabButtons = document.querySelectorAll('.tab-btn');
+    const tabPanes = document.querySelectorAll('.tab-pane');
+
+    tabButtons.forEach(btn => {
+        btn.addEventListener('click', () => {
+            const targetTab = btn.dataset.tab;
+
+            // Usuń active ze wszystkich
+            tabButtons.forEach(b => b.classList.remove('active'));
+            tabPanes.forEach(p => p.classList.remove('active'));
+
+            // Dodaj active do klikniętego
+            btn.classList.add('active');
+            document.getElementById(targetTab).classList.add('active');
+        });
+    });
+
+    // Funkcja resetująca zakładki do pierwszej
+    function resetTabs() {
+        tabButtons.forEach(b => b.classList.remove('active'));
+        tabPanes.forEach(p => p.classList.remove('active'));
+        if (tabButtons.length > 0) tabButtons[0].classList.add('active');
+        if (tabPanes.length > 0) tabPanes[0].classList.add('active');
+    }
+
+    // ========== WALIDACJA - EVENT LISTENERS ========== //
+
+    // Auto-formatowanie kodu pocztowego (dostawa)
+    const addDeliveryZip = document.getElementById('addDeliveryZip');
+    const addDeliveryCountry = document.getElementById('addDeliveryCountry');
+    if (addDeliveryZip) {
+        addDeliveryZip.addEventListener('input', () => {
+            const country = addDeliveryCountry ? addDeliveryCountry.value : 'Polska';
+            formatPostalCode(addDeliveryZip, country);
+        });
+    }
+
+    // Auto-formatowanie kodu pocztowego (faktura)
+    const addInvoiceZip = document.getElementById('addInvoiceZip');
+    if (addInvoiceZip) {
+        addInvoiceZip.addEventListener('input', () => {
+            // Faktura zawsze Polski format
+            formatPostalCode(addInvoiceZip, 'Polska');
+        });
+    }
+
+    // Zmiana kraju - włącz/wyłącz województwo
+    const addDeliveryRegion = document.getElementById('addDeliveryRegion');
+    if (addDeliveryCountry && addDeliveryRegion) {
+        addDeliveryCountry.addEventListener('change', () => {
+            handleCountryChange(addDeliveryCountry, addDeliveryRegion);
+
+            // Jeśli kraj nie jest Polska, wyczyść formatowanie kodu pocztowego
+            if (addDeliveryCountry.value !== 'Polska' && addDeliveryZip) {
+                // Pozwól na dowolny format dla innych krajów
+                addDeliveryZip.removeAttribute('maxlength');
+            } else if (addDeliveryZip) {
+                addDeliveryZip.setAttribute('maxlength', '6');
+            }
+        });
+    }
+
+    // Walidacja email na blur
+    const addClientEmail = document.getElementById('addClientEmail');
+    if (addClientEmail) {
+        addClientEmail.addEventListener('blur', () => {
+            const result = validateEmail(addClientEmail.value.trim());
+            if (!result.valid) {
+                showFieldError('addClientEmail', 'error-addClientEmail', result.message);
+            } else {
+                clearFieldError('addClientEmail', 'error-addClientEmail');
+                if (addClientEmail.value.trim()) {
+                    addClientEmail.classList.add('input-success-border');
+                }
+            }
+        });
+    }
+
+    // Walidacja telefonu na blur
+    const addClientPhone = document.getElementById('addClientPhone');
+    if (addClientPhone) {
+        addClientPhone.addEventListener('blur', () => {
+            const result = validatePhone(addClientPhone.value.trim());
+            if (!result.valid) {
+                showFieldError('addClientPhone', 'error-addClientPhone', result.message);
+            } else {
+                clearFieldError('addClientPhone', 'error-addClientPhone');
+                if (addClientPhone.value.trim()) {
+                    addClientPhone.classList.add('input-success-border');
+                }
+            }
+        });
+    }
+
+    // Walidacja NIP na blur
+    const addInvoiceNIP = document.getElementById('addInvoiceNIP');
+    if (addInvoiceNIP) {
+        addInvoiceNIP.addEventListener('blur', () => {
+            const result = validateNIP(addInvoiceNIP.value.trim());
+            if (!result.valid) {
+                showFieldError('addInvoiceNIP', 'error-addInvoiceNIP', result.message);
+            } else {
+                clearFieldError('addInvoiceNIP', 'error-addInvoiceNIP');
+                if (addInvoiceNIP.value.trim()) {
+                    addInvoiceNIP.classList.add('input-success-border');
+                }
+            }
+        });
+
+        // Przy wpisywaniu NIP - tylko cyfry
+        addInvoiceNIP.addEventListener('input', () => {
+            addInvoiceNIP.value = addInvoiceNIP.value.replace(/\D/g, '').substring(0, 10);
+        });
+    }
+
+    // Walidacja kodu pocztowego (dostawa) na blur
+    if (addDeliveryZip) {
+        addDeliveryZip.addEventListener('blur', () => {
+            const country = addDeliveryCountry ? addDeliveryCountry.value : 'Polska';
+            const result = validatePostalCode(addDeliveryZip.value.trim(), country);
+            if (!result.valid) {
+                showFieldError('addDeliveryZip', 'error-addDeliveryZip', result.message);
+            } else {
+                clearFieldError('addDeliveryZip', 'error-addDeliveryZip');
+                if (addDeliveryZip.value.trim()) {
+                    addDeliveryZip.classList.add('input-success-border');
+                }
+            }
+        });
+    }
+
+    // Walidacja kodu pocztowego (faktura) na blur
+    if (addInvoiceZip) {
+        addInvoiceZip.addEventListener('blur', () => {
+            const result = validatePostalCode(addInvoiceZip.value.trim(), 'Polska');
+            if (!result.valid) {
+                showFieldError('addInvoiceZip', 'error-addInvoiceZip', result.message);
+            } else {
+                clearFieldError('addInvoiceZip', 'error-addInvoiceZip');
+                if (addInvoiceZip.value.trim()) {
+                    addInvoiceZip.classList.add('input-success-border');
+                }
+            }
+        });
+    }
+
     const addBtn = document.getElementById('addClientBtn');
     const addModal = document.getElementById('clients-add-modal');
 
     if (addBtn && addModal) {
         addBtn.addEventListener('click', () => {
+            resetTabs(); // Reset do pierwszej zakładki
+            // Reset kraju i województwa przy otwarciu
+            if (addDeliveryCountry) addDeliveryCountry.value = 'Polska';
+            if (addDeliveryRegion) {
+                addDeliveryRegion.value = '';
+                addDeliveryRegion.disabled = false;
+                addDeliveryRegion.classList.remove('disabled-select');
+            }
             addModal.style.display = 'flex';
         });
     }
@@ -219,49 +602,73 @@ document.addEventListener('DOMContentLoaded', () => {
     if (cancelAddBtn && addModal) {
         cancelAddBtn.addEventListener('click', () => {
             addModal.style.display = 'none';
+            resetTabs(); // Reset przy zamknięciu
         });
     }
 
     const saveAddBtn = document.getElementById('clientsAddSaveBtn');
+    console.log('[clients.js] saveAddBtn element:', saveAddBtn);
+    console.log('[clients.js] addModal element:', addModal);
+
     if (saveAddBtn && addModal) {
+        console.log('[clients.js] Rejestruję event listener na przycisk Zapisz');
         saveAddBtn.addEventListener('click', () => {
-            const inputs = document.querySelectorAll('.clients-input');
+            console.log('[clients.js] Kliknięto przycisk Zapisz Klienta');
+            // Wyczyść poprzednie błędy
+            const inputs = document.querySelectorAll('#clients-add-modal .clients-input');
             inputs.forEach(input => input.classList.remove('input-error-border', 'input-success-border'));
+            document.querySelectorAll('#clients-add-modal .input-error').forEach(el => el.textContent = '');
 
             const name = document.getElementById('addClientName');
             const email = document.getElementById('addClientEmail');
             const phone = document.getElementById('addClientPhone');
-            const zip = document.getElementById('addInvoiceZip');
+            const deliveryZip = document.getElementById('addDeliveryZip');
+            const deliveryCountry = document.getElementById('addDeliveryCountry');
+            const invoiceZip = document.getElementById('addInvoiceZip');
             const nip = document.getElementById('addInvoiceNIP');
 
             let valid = true;
 
+            // Walidacja nazwy klienta (wymagana)
             if (!name.value.trim()) {
-                name.classList.add('input-error-border');
+                showFieldError('addClientName', 'error-addClientName', 'Nazwa klienta jest wymagana');
                 valid = false;
             }
 
-            if (email.value.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.value)) {
-                email.classList.add('input-error-border');
+            // Walidacja email
+            const emailResult = validateEmail(email.value.trim());
+            if (!emailResult.valid) {
+                showFieldError('addClientEmail', 'error-addClientEmail', emailResult.message);
                 valid = false;
             }
 
-            if (phone.value.trim() && !/^[0-9+\s]+$/.test(phone.value)) {
-                phone.classList.add('input-error-border');
+            // Walidacja telefonu
+            const phoneResult = validatePhone(phone.value.trim());
+            if (!phoneResult.valid) {
+                showFieldError('addClientPhone', 'error-addClientPhone', phoneResult.message);
                 valid = false;
             }
 
-            if (zip.value.trim() && !/^(\d{2}-\d{3}|\d{5})$/.test(zip.value)) {
-                zip.classList.add('input-error-border');
+            // Walidacja kodu pocztowego (dostawa)
+            const deliveryCountryVal = deliveryCountry ? deliveryCountry.value : 'Polska';
+            const deliveryZipResult = validatePostalCode(deliveryZip.value.trim(), deliveryCountryVal);
+            if (!deliveryZipResult.valid) {
+                showFieldError('addDeliveryZip', 'error-addDeliveryZip', deliveryZipResult.message);
                 valid = false;
             }
 
-            if (nip.value.trim() && !/^\d+$/.test(nip.value)) {
-                nip.classList.add('input-error-border');
-                document.getElementById('error-addInvoiceNIP').textContent = "Nieprawidłowy NIP";
+            // Walidacja kodu pocztowego (faktura)
+            const invoiceZipResult = validatePostalCode(invoiceZip.value.trim(), 'Polska');
+            if (!invoiceZipResult.valid) {
+                showFieldError('addInvoiceZip', 'error-addInvoiceZip', invoiceZipResult.message);
                 valid = false;
-            } else {
-                document.getElementById('error-addInvoiceNIP').textContent = "";
+            }
+
+            // Walidacja NIP
+            const nipResult = validateNIP(nip.value.trim());
+            if (!nipResult.valid) {
+                showFieldError('addInvoiceNIP', 'error-addInvoiceNIP', nipResult.message);
+                valid = false;
             }
 
             if (!valid) return;
@@ -271,6 +678,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 client_delivery_name: document.getElementById('addClientDeliveryName').value,
                 email: email.value.trim(),
                 phone: phone.value.trim(),
+                notes: document.getElementById('addClientNotes').value.trim(),
                 delivery: {
                     name: document.getElementById('addDeliveryName').value,
                     company: document.getElementById('addDeliveryCompany').value,
@@ -284,7 +692,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     name: document.getElementById('addInvoiceName').value,
                     company: document.getElementById('addInvoiceCompany').value,
                     address: document.getElementById('addInvoiceAddress').value,
-                    zip: zip.value.trim(),
+                    zip: invoiceZip.value.trim(),
                     city: document.getElementById('addInvoiceCity').value,
                     nip: nip.value.trim()
                 }
@@ -296,14 +704,37 @@ document.addEventListener('DOMContentLoaded', () => {
                 body: JSON.stringify(payload)
             })
                 .then(res => {
-                    if (!res.ok) throw new Error('Błąd zapisu klienta');
+                    if (!res.ok) {
+                        return res.json().then(data => {
+                            throw new Error(data.error || 'Błąd zapisu klienta');
+                        });
+                    }
+                    return res.json();
+                })
+                .then(data => {
                     addModal.style.display = 'none';
-                    showToast("Dodano nowego klienta", "success");
+
+                    // Pokaż modal sukcesu
+                    const successModal = document.getElementById('clients-success-modal');
+                    const successMessage = document.getElementById('successClientName');
+                    successMessage.textContent = `Klient "${payload.client_name}" został pomyślnie dodany do bazy.`;
+                    successModal.style.display = 'flex';
+
                     fetchClients();
+
+                    // Wyczyść formularz - inputy
+                    document.querySelectorAll('#clients-add-modal .clients-input:not(select)').forEach(input => {
+                        input.value = '';
+                        input.classList.remove('input-error-border', 'input-success-border');
+                    });
+
+                    // Reset selectów do domyślnych wartości
+                    document.getElementById('addDeliveryRegion').value = '';
+                    document.getElementById('addDeliveryCountry').value = 'Polska';
                 })
                 .catch(err => {
-                    console.error(err);
-                    showToast("Wystąpił błąd podczas zapisu klienta", "error");
+                    console.error('[add_client] Błąd:', err);
+                    showToast(err.message || "Wystąpił błąd podczas zapisu klienta", "error");
                 });
         });
 
@@ -495,6 +926,7 @@ function loadClientDataForEdit(clientId) {
             document.getElementById('editClientDeliveryName').value = client.client_name || '';
             document.getElementById('editClientEmail').value = client.email || '';
             document.getElementById('editClientPhone').value = client.phone || '';
+            document.getElementById('editClientNotes').value = client.notes || '';
 
             console.log('✅ Wypełniono pola podstawowe');
 
@@ -543,12 +975,27 @@ function loadClientDataForEdit(clientId) {
 // ========== EVENT LISTENERS DLA NOWEGO MODALA ========== //
 
 document.addEventListener('DOMContentLoaded', () => {
+    // Przycisk OK w modalu sukcesu
+    const successModalOkBtn = document.getElementById('successModalOkBtn');
+    const successModal = document.getElementById('clients-success-modal');
+    if (successModalOkBtn && successModal) {
+        successModalOkBtn.addEventListener('click', () => {
+            successModal.style.display = 'none';
+        });
+        // Zamknij też po kliknięciu w tło
+        successModal.addEventListener('click', (e) => {
+            if (e.target === successModal) {
+                successModal.style.display = 'none';
+            }
+        });
+    }
+
     // Przycisk Anuluj w trybie edycji
     const cancelEditBtn = document.getElementById('cancelEditBtn');
     if (cancelEditBtn) {
         cancelEditBtn.addEventListener('click', disableEditMode);
     }
-    
+
     // Drugi przycisk Zamknij (w trybie wyświetlania)
     const closeBtn2 = document.getElementById('clientsDetailsCloseBtn2');
     if (closeBtn2) {
@@ -556,7 +1003,7 @@ document.addEventListener('DOMContentLoaded', () => {
             document.getElementById('clients-details-modal').style.display = 'none';
         });
     }
-    
+
     // Przycisk Zapisz zmiany
     const saveEditBtn = document.getElementById('saveEditBtn');
     if (saveEditBtn) {
@@ -660,6 +1107,7 @@ function saveClientChanges() {
         client_delivery_name: document.getElementById('editClientDeliveryName').value.trim(),
         email: email,
         phone: document.getElementById('editClientPhone').value.trim(),
+        notes: document.getElementById('editClientNotes').value.trim(),
         delivery: {
             name: document.getElementById('editDeliveryName').value.trim(),
             company: document.getElementById('editDeliveryCompany').value.trim(),
