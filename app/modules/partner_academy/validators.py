@@ -227,41 +227,63 @@ def _validate_nip_checksum(nip):
     return checksum == int(nip[9])
 
 
-def validate_file(file):
+def validate_files(files):
     """
-    Walidacja pliku NDA
-    
+    Walidacja listy plików NDA (min 1, max 2)
+
     Args:
-        file (FileStorage): Plik z formularza
-        
+        files (list): Lista plików FileStorage z formularza
+
     Returns:
         tuple: (is_valid: bool, error: str or None)
     """
-    if not file or not isinstance(file, FileStorage):
-        return False, 'Plik NDA jest wymagany'
-    
-    if file.filename == '':
-        return False, 'Nie wybrano pliku'
-    
-    # Sprawdź rozszerzenie
+    # Filtruj puste pliki
+    valid_files = [f for f in files if f and isinstance(f, FileStorage) and f.filename != '']
+
+    # Sprawdź czy lista nie jest pusta
+    if not valid_files or len(valid_files) == 0:
+        return False, 'Minimum jeden plik NDA jest wymagany'
+
+    # Sprawdź maksymalną liczbę plików
+    if len(valid_files) > 2:
+        return False, 'Maksymalnie można przesłać 2 pliki NDA'
+
+    # Waliduj każdy plik osobno
     allowed_extensions = {'pdf', 'jpg', 'jpeg', 'png', 'docx', 'odt'}
-    filename = file.filename.lower()
-    
-    if '.' not in filename:
-        return False, 'Plik musi mieć rozszerzenie'
-    
-    extension = filename.rsplit('.', 1)[1]
-    if extension not in allowed_extensions:
-        return False, f'Dozwolone formaty: {", ".join(allowed_extensions).upper()}'
-    
-    # Sprawdź rozmiar (5MB max)
-    file.seek(0, 2)  # Przejdź na koniec pliku
-    file_size = file.tell()
-    file.seek(0)  # Wróć na początek
-    
-    max_size = 5 * 1024 * 1024  # 5MB
-    if file_size > max_size:
-        size_mb = file_size / (1024 * 1024)
-        return False, f'Plik jest za duży ({size_mb:.1f}MB). Maksymalny rozmiar to 5MB'
-    
+    max_size = 5 * 1024 * 1024  # 5MB per plik
+
+    for i, file in enumerate(valid_files, 1):
+        # Sprawdź rozszerzenie
+        filename = file.filename.lower()
+        if '.' not in filename:
+            return False, f'Plik {i} musi mieć rozszerzenie'
+
+        extension = filename.rsplit('.', 1)[1]
+        if extension not in allowed_extensions:
+            return False, f'Plik {i}: dozwolone formaty to {", ".join(allowed_extensions).upper()}'
+
+        # Sprawdź rozmiar
+        file.seek(0, 2)
+        file_size = file.tell()
+        file.seek(0)
+
+        if file_size > max_size:
+            size_mb = file_size / (1024 * 1024)
+            return False, f'Plik {i} jest za duży ({size_mb:.1f}MB). Maksymalny rozmiar to 5MB'
+
     return True, None
+
+
+def validate_file(file):
+    """
+    Walidacja pojedynczego pliku NDA (dla kompatybilności wstecznej)
+
+    Args:
+        file (FileStorage): Plik z formularza
+
+    Returns:
+        tuple: (is_valid: bool, error: str or None)
+    """
+    if file:
+        return validate_files([file])
+    return False, 'Plik NDA jest wymagany'

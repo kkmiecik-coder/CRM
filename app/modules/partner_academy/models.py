@@ -72,12 +72,20 @@ class PartnerApplication(db.Model):
     )
     
     # ============================================================================
-    # PLIK NDA
+    # PLIK NDA 1
     # ============================================================================
-    nda_filename = db.Column(db.String(255), comment='Nazwa pliku NDA')
-    nda_filepath = db.Column(db.String(500), comment='Ścieżka do pliku NDA')
-    nda_filesize = db.Column(db.Integer, comment='Rozmiar pliku w bajtach')
-    nda_mime_type = db.Column(db.String(100), comment='Typ MIME pliku')
+    nda_filename = db.Column(db.String(255), comment='Nazwa pliku NDA 1')
+    nda_filepath = db.Column(db.String(500), comment='Ścieżka do pliku NDA 1')
+    nda_filesize = db.Column(db.Integer, comment='Rozmiar pliku NDA 1 w bajtach')
+    nda_mime_type = db.Column(db.String(100), comment='Typ MIME pliku NDA 1')
+
+    # ============================================================================
+    # PLIK NDA 2 (OPCJONALNY)
+    # ============================================================================
+    nda_filename_2 = db.Column(db.String(255), comment='Nazwa pliku NDA 2 (opcjonalny)')
+    nda_filepath_2 = db.Column(db.String(500), comment='Ścieżka do pliku NDA 2')
+    nda_filesize_2 = db.Column(db.Integer, comment='Rozmiar pliku NDA 2 w bajtach')
+    nda_mime_type_2 = db.Column(db.String(100), comment='Typ MIME pliku NDA 2')
     
     # ============================================================================
     # NOTATKI ADMINA
@@ -134,6 +142,7 @@ class PartnerApplication(db.Model):
             'is_b2b': self.is_b2b,
             'status': self.status,
             'has_nda_file': bool(self.nda_filepath),
+            'has_nda_file_2': bool(self.nda_filepath_2),
             'notes': self.notes or [],
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None

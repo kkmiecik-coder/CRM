@@ -1305,6 +1305,8 @@ class ProductsModule {
             rowElement.setAttribute('data-priority', product.priority_rank || product.priority_score || 0);
             rowElement.setAttribute('data-status', product.current_status || '');
             rowElement.setAttribute('data-index', index);
+            rowElement.setAttribute('data-is-priority', product.is_priority ? 'true' : 'false');
+            rowElement.setAttribute('data-order-number', product.internal_order_number || '');
 
             // Wypełnij dane produktu
             this.populateProductRow(rowElement, product);
@@ -1329,7 +1331,17 @@ class ProductsModule {
                 checkbox.setAttribute('data-product-id', product.id);
             }
 
-            // 2. Priority rank
+            // 2. Gwiazdka priorytetu
+            const starBtn = rowElement.querySelector('.prod_list-star-btn');
+            if (starBtn) {
+                starBtn.setAttribute('data-product-id', product.id);
+                starBtn.setAttribute('data-order-number', product.internal_order_number || '');
+                if (product.is_priority) {
+                    starBtn.classList.add('active');
+                }
+            }
+
+            // 3. Priority rank
             const priorityElement = rowElement.querySelector('.prod_list-priority-rank');
             if (priorityElement) {
                 const priority = parseInt(product.priority_rank) || parseInt(product.priority_score) || 100;
@@ -1642,6 +1654,15 @@ class ProductsModule {
                 });
             }
 
+            // Star button (gwiazdka priorytetu)
+            const starBtn = rowElement.querySelector('.prod_list-star-btn');
+            if (starBtn) {
+                starBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    this.handleStarClick(starBtn, product);
+                });
+            }
+
             // Priority element - klikalne
             const priorityElement = rowElement.querySelector('.prod_list-priority-rank');
             if (priorityElement) {
@@ -1664,6 +1685,201 @@ class ProductsModule {
         } catch (error) {
             console.error('[ProductsModule] Error attaching row listeners:', error);
         }
+    }
+
+    // ========================================================================
+    // PRIORITY STAR METHODS - Obsługa gwiazdki priorytetu
+    // ========================================================================
+
+    /**
+     * Obsługuje kliknięcie w gwiazdkę priorytetu
+     */
+    async handleStarClick(starBtn, product) {
+        const orderNumber = product.internal_order_number;
+        const productId = product.id;
+        const currentPriority = product.is_priority;
+        const newPriority = !currentPriority;
+
+        // Sprawdź ile produktów jest w zamówieniu
+        const productsInOrder = this.state.products.filter(
+            p => p.internal_order_number === orderNumber
+        );
+
+        if (productsInOrder.length > 1 && !currentPriority) {
+            // Więcej niż 1 produkt - pokaż tooltip z wyborem
+            this.showStarTooltip(starBtn, product, newPriority);
+        } else {
+            // Jeden produkt lub wyłączanie gwiazdki - bezpośrednia akcja
+            await this.setPriority(productId, null, 'product', newPriority);
+        }
+    }
+
+    /**
+     * Pokazuje tooltip z wyborem: całe zamówienie vs pojedynczy produkt
+     */
+    showStarTooltip(starBtn, product, newPriority) {
+        // Zamknij istniejące tooltipe
+        this.closeAllStarTooltips();
+
+        const template = document.getElementById('star-tooltip-template');
+        if (!template) {
+            console.error('[ProductsModule] Star tooltip template not found');
+            return;
+        }
+
+        const tooltip = template.content.cloneNode(true).querySelector('.prod_list-star-tooltip');
+        tooltip.setAttribute('data-order-number', product.internal_order_number);
+        tooltip.setAttribute('data-product-id', product.id);
+
+        // Event: Całe zamówienie
+        const orderBtn = tooltip.querySelector('.star-tooltip-order');
+        orderBtn.addEventListener('click', async (e) => {
+            e.stopPropagation();
+            this.closeAllStarTooltips();
+            await this.setPriority(null, product.internal_order_number, 'order', newPriority);
+        });
+
+        // Event: Tylko ten produkt
+        const productBtn = tooltip.querySelector('.star-tooltip-product');
+        productBtn.addEventListener('click', async (e) => {
+            e.stopPropagation();
+            this.closeAllStarTooltips();
+            await this.setPriority(product.id, null, 'product', newPriority);
+        });
+
+        // Dodaj tooltip do komórki gwiazdki
+        const starCell = starBtn.closest('.prod_list-star-cell');
+        if (starCell) {
+            starCell.appendChild(tooltip);
+        }
+
+        // Zamknij tooltip po kliknięciu poza nim
+        setTimeout(() => {
+            document.addEventListener('click', this.handleOutsideTooltipClick.bind(this), { once: true });
+        }, 10);
+    }
+
+    /**
+     * Zamyka tooltip po kliknięciu poza nim
+     */
+    handleOutsideTooltipClick(e) {
+        if (!e.target.closest('.prod_list-star-tooltip') && !e.target.closest('.prod_list-star-btn')) {
+            this.closeAllStarTooltips();
+        }
+    }
+
+    /**
+     * Zamyka wszystkie otwarte tooltipe gwiazdek
+     */
+    closeAllStarTooltips() {
+        document.querySelectorAll('.prod_list-star-tooltip').forEach(t => t.remove());
+    }
+
+    /**
+     * Wywołuje API do ustawienia priorytetu
+     */
+    async setPriority(productId, orderNumber, mode, isPriority) {
+        try {
+            // Znajdź przyciski do załadowania
+            let affectedButtons = [];
+            if (mode === 'order' && orderNumber) {
+                affectedButtons = document.querySelectorAll(
+                    `.prod_list-star-btn[data-order-number="${orderNumber}"]`
+                );
+            } else if (productId) {
+                affectedButtons = document.querySelectorAll(
+                    `.prod_list-star-btn[data-product-id="${productId}"]`
+                );
+            }
+
+            // Pokaż loading state
+            affectedButtons.forEach(btn => btn.classList.add('loading'));
+
+            const response = await fetch('/production/api/set-priority', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    product_id: productId,
+                    order_number: orderNumber,
+                    mode: mode,
+                    is_priority: isPriority
+                })
+            });
+
+            const data = await response.json();
+
+            if (data.success) {
+                // Aktualizuj lokalne dane
+                if (data.updated_products) {
+                    data.updated_products.forEach(updated => {
+                        const localProduct = this.state.products.find(p => p.id === updated.id);
+                        if (localProduct) {
+                            localProduct.is_priority = updated.is_priority;
+                        }
+                        const filteredProduct = this.state.filteredProducts.find(p => p.id === updated.id);
+                        if (filteredProduct) {
+                            filteredProduct.is_priority = updated.is_priority;
+                        }
+                    });
+                }
+
+                // Aktualizuj UI
+                this.updateStarButtonsUI(data.updated_products, isPriority);
+
+                // Toast
+                if (this.shared?.toastSystem) {
+                    const count = data.updated_products?.length || 1;
+                    const msg = isPriority
+                        ? `Oznaczono ${count} produkt(ów) jako priorytetowe`
+                        : `Usunięto priorytet dla ${count} produktu(ów)`;
+                    this.shared.toastSystem.show(msg, 'success', 3000);
+                }
+
+            } else {
+                throw new Error(data.error || 'Nieznany błąd');
+            }
+
+        } catch (error) {
+            console.error('[ProductsModule] Error setting priority:', error);
+            if (this.shared?.toastSystem) {
+                this.shared.toastSystem.show(`Błąd: ${error.message}`, 'error', 5000);
+            } else {
+                alert(`Błąd: ${error.message}`);
+            }
+        } finally {
+            // Usuń loading state
+            document.querySelectorAll('.prod_list-star-btn.loading').forEach(btn => {
+                btn.classList.remove('loading');
+            });
+        }
+    }
+
+    /**
+     * Aktualizuje UI przycisków gwiazdek po zmianie priorytetu
+     */
+    updateStarButtonsUI(updatedProducts, isPriority) {
+        if (!updatedProducts) return;
+
+        updatedProducts.forEach(updated => {
+            // Znajdź wiersz produktu
+            const row = document.querySelector(`.prod_list-product-row[data-product-id="${updated.id}"]`);
+            if (row) {
+                // Zaktualizuj data-is-priority
+                row.setAttribute('data-is-priority', updated.is_priority ? 'true' : 'false');
+
+                // Zaktualizuj klasę przycisku gwiazdki
+                const starBtn = row.querySelector('.prod_list-star-btn');
+                if (starBtn) {
+                    if (updated.is_priority) {
+                        starBtn.classList.add('active');
+                    } else {
+                        starBtn.classList.remove('active');
+                    }
+                }
+            }
+        });
     }
 
     showProductEditModal(productId) {
@@ -2905,6 +3121,20 @@ class ProductsModule {
         const expectedStatus = statusMap[station.code];
         const currentStatus = product.current_status;
 
+        // Specjalna logika dla cutting: "Pominięto" gdy brak cutting_completed_at ale jest assembly_completed_at
+        if (station.code === 'cutting') {
+            const cuttingCompleted = product['cutting_completed_at'];
+            const assemblyCompleted = product['assembly_completed_at'];
+
+            if (!cuttingCompleted && assemblyCompleted) {
+                // Wycinanie zostało pominięte - produkt poszedł bezpośrednio na składanie
+                return {
+                    cssClass: 'timeline-skipped',
+                    statusText: 'Pominięto'
+                };
+            }
+        }
+
         if (product[station.endField]) {
             return {
                 cssClass: 'timeline-completed',
@@ -2930,6 +3160,18 @@ class ProductsModule {
         const startDate = product[station.startField];
         const endDate = product[station.endField];
         const duration = product[station.durationField];
+
+        // Specjalna logika dla cutting: "Pominięto" gdy brak cutting_completed_at ale jest assembly_completed_at
+        if (station.code === 'cutting') {
+            const cuttingCompleted = product['cutting_completed_at'];
+            const assemblyCompleted = product['assembly_completed_at'];
+
+            if (!cuttingCompleted && assemblyCompleted) {
+                return {
+                    text: 'Produkt złożony bez wycinania'
+                };
+            }
+        }
 
         if (endDate) {
             const endFormatted = new Date(endDate).toLocaleString('pl-PL');

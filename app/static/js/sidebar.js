@@ -49,12 +49,15 @@ document.addEventListener('DOMContentLoaded', function () {
         })
         .then(data => {
             console.log('[SIDEBAR] Otrzymane dane:', data);
-            const betaTag = document.querySelector('.beta-tag');
-            console.log('[SIDEBAR] Beta tag element:', betaTag);
+            // Aktualizuj wszystkie beta tagi (desktop i mobile)
+            const betaTags = document.querySelectorAll('.beta-tag');
+            console.log('[SIDEBAR] Beta tag elements found:', betaTags.length);
 
-            if (betaTag && data.version) {
+            if (betaTags.length > 0 && data.version) {
                 console.log('[SIDEBAR] Aktualizuję wersję na:', data.version);
-                betaTag.textContent = `BETA ${data.version}`;
+                betaTags.forEach(tag => {
+                    tag.textContent = `BETA ${data.version}`;
+                });
             } else {
                 console.log('[SIDEBAR] Brak beta-tag lub wersji w danych');
             }
@@ -198,135 +201,125 @@ function handleMouseLeave(event) {
 window.toggleSidebar = toggleSidebar;
 
 // ============================================
-// MOBILE MENU FUNCTIONALITY
+// MOBILE TOPBAR MENU FUNCTIONALITY
 // ============================================
 
 (function() {
     'use strict';
-    
+
+    // Zabezpieczenie przed podwójną inicjalizacją
+    if (window._mobileTopbarInitialized) {
+        console.log('[Mobile Topbar] Already initialized, skipping');
+        return;
+    }
+    window._mobileTopbarInitialized = true;
+
     // Sprawdź czy jesteśmy na mobile
     function isMobile() {
         return window.innerWidth <= 768;
     }
-    
-    // Inicjalizacja mobile menu
-    function initMobileMenu() {
-        // Sprawdź czy elementy już istnieją
-        if (document.querySelector('.mobile-menu-toggle')) {
+
+    // Inicjalizacja mobile topbar menu
+    function initMobileTopbarMenu() {
+        const topbarToggle = document.getElementById('mobileTopbarToggle');
+        const mobileMenu = document.getElementById('mobileMenu');
+        const mobileOverlay = document.getElementById('mobileMenuOverlay');
+
+        if (!topbarToggle || !mobileMenu || !mobileOverlay) {
+            console.log('[Mobile Topbar] Elements not found, skipping initialization');
             return;
         }
-        
-        // Utwórz hamburger button
-        const mobileToggle = document.createElement('button');
-        mobileToggle.className = 'mobile-menu-toggle';
-        mobileToggle.setAttribute('aria-label', 'Toggle menu');
-        mobileToggle.innerHTML = `
-            <div class="hamburger-icon">
-                <span></span>
-                <span></span>
-                <span></span>
-            </div>
-        `;
-        
-        // Utwórz overlay
-        const mobileOverlay = document.createElement('div');
-        mobileOverlay.className = 'mobile-overlay';
-        mobileOverlay.setAttribute('aria-hidden', 'true');
-        
-        // Dodaj do body
-        document.body.appendChild(mobileToggle);
-        document.body.appendChild(mobileOverlay);
-        
-        // Ukryj elementy na desktop
-        if (!isMobile()) {
-            mobileToggle.style.display = 'none';
-        }
-        
-        const sidebar = document.querySelector('.sidebar');
-        
+
         // Toggle menu function
         function toggleMobileMenu(event) {
             if (event) {
                 event.preventDefault();
                 event.stopPropagation();
             }
-            
-            const isOpen = sidebar.classList.contains('mobile-open');
-            
+
+            const isOpen = mobileMenu.classList.contains('open');
+
             if (isOpen) {
                 // Zamknij menu
-                sidebar.classList.remove('mobile-open');
-                mobileToggle.classList.remove('active');
+                mobileMenu.classList.remove('open');
+                topbarToggle.classList.remove('active');
                 mobileOverlay.classList.remove('active');
                 document.body.style.overflow = '';
-                
-                console.log('[Mobile Menu] Menu zamknięte');
+
+                console.log('[Mobile Topbar] Menu zamknięte');
             } else {
                 // Otwórz menu
-                sidebar.classList.add('mobile-open');
-                mobileToggle.classList.add('active');
+                mobileMenu.classList.add('open');
+                topbarToggle.classList.add('active');
                 mobileOverlay.classList.add('active');
                 document.body.style.overflow = 'hidden';
-                
-                console.log('[Mobile Menu] Menu otwarte');
+
+                console.log('[Mobile Topbar] Menu otwarte');
             }
         }
-        
-        // Event listeners
-        mobileToggle.addEventListener('click', toggleMobileMenu);
-        mobileToggle.addEventListener('touchstart', function(e) {
+
+        // Event listeners dla przycisku toggle
+        let touchHandled = false;
+
+        topbarToggle.addEventListener('touchend', function(e) {
             e.preventDefault();
+            touchHandled = true;
             toggleMobileMenu();
+            // Reset po krótkim czasie
+            setTimeout(() => { touchHandled = false; }, 300);
         }, { passive: false });
-        
+
+        topbarToggle.addEventListener('click', function(e) {
+            if (!touchHandled) {
+                toggleMobileMenu(e);
+            }
+        });
+
+        // Zamknij menu po kliknięciu w overlay
         mobileOverlay.addEventListener('click', toggleMobileMenu);
-        
+
         // Zamknij menu po kliknięciu w link
-        const menuLinks = sidebar.querySelectorAll('.menu-options a, .shorts-link, .footer-menu-item');
+        const menuLinks = mobileMenu.querySelectorAll('.mobile-menu-item a');
         menuLinks.forEach(link => {
             link.addEventListener('click', function() {
-                if (isMobile() && sidebar.classList.contains('mobile-open')) {
+                if (isMobile() && mobileMenu.classList.contains('open')) {
                     setTimeout(() => {
                         toggleMobileMenu();
-                    }, 200);
+                    }, 150);
                 }
             });
         });
-        
-        // Handle resize
+
+        // Handle resize - zamknij menu przy zmianie rozmiaru
         let resizeTimer;
         window.addEventListener('resize', function() {
             clearTimeout(resizeTimer);
             resizeTimer = setTimeout(function() {
                 if (!isMobile()) {
-                    // Desktop mode
-                    sidebar.classList.remove('mobile-open');
-                    mobileToggle.classList.remove('active');
+                    // Desktop mode - zamknij menu
+                    mobileMenu.classList.remove('open');
+                    topbarToggle.classList.remove('active');
                     mobileOverlay.classList.remove('active');
                     document.body.style.overflow = '';
-                    mobileToggle.style.display = 'none';
-                } else {
-                    // Mobile mode
-                    mobileToggle.style.display = 'flex';
                 }
             }, 250);
         });
-        
-        // Zapobiegnij scrollowaniu sidebara gdy jest otwarty
-        sidebar.addEventListener('touchmove', function(e) {
-            if (sidebar.classList.contains('mobile-open')) {
-                e.stopPropagation();
+
+        // Zamknij menu klawiszem Escape
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape' && mobileMenu.classList.contains('open')) {
+                toggleMobileMenu();
             }
-        }, { passive: true });
-        
-        console.log('[Mobile Menu] Initialized');
+        });
+
+        console.log('[Mobile Topbar] Initialized');
     }
-    
+
     // Inicjalizuj po załadowaniu DOM
     if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', initMobileMenu);
+        document.addEventListener('DOMContentLoaded', initMobileTopbarMenu);
     } else {
-        initMobileMenu();
+        initMobileTopbarMenu();
     }
-    
+
 })();

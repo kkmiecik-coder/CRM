@@ -1740,7 +1740,6 @@ select.select-input {
 .clients-section-body {
     display: flex;
     flex-direction: column;
-    gap: 12px;
 }
 
 .grid-2-cols {
@@ -1776,13 +1775,6 @@ select.select-input {
 
 .full-width {
     grid-column: span 2;
-}
-
-.clients-modal-actions {
-    display: flex;
-    justify-content: flex-end;
-    gap: 12px;
-    margin-top: 24px;
 }
 
 .checkbox-row label {
@@ -2293,37 +2285,59 @@ select.select-input {
 }
 
 /* ============================================
-   MOBILE RESPONSIVE - HAMBURGER MENU (TOP SLIDE-DOWN)
+   MOBILE RESPONSIVE - STICKY TOPBAR + SLIDE-OUT MENU
    ============================================ */
 
+/* === DESKTOP: Ukryj elementy mobile === */
+.mobile-topbar,
+.mobile-menu,
+.mobile-menu-overlay {
+    display: none;
+}
+
 @media (max-width: 768px) {
-    /* === HAMBURGER BUTTON === */
-    .mobile-menu-toggle {
+    /* === MOBILE TOPBAR - STICKY NA GÓRZE === */
+    .mobile-topbar {
+        display: flex;
         position: fixed;
-        top: 20px;
-        left: 20px;
-        z-index: 10001;
-        width: 48px;
-        height: 48px;
+        top: 0;
+        left: 0;
+        right: 0;
+        height: 60px;
+        background: #FFF;
+        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        z-index: 10000;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0 16px;
+    }
+
+    .mobile-topbar-toggle {
+        width: 44px;
+        height: 44px;
         background: #ED6B24;
         border: none;
-        border-radius: 12px;
+        border-radius: 10px;
         display: flex;
         align-items: center;
         justify-content: center;
         cursor: pointer;
-        box-shadow: 0 4px 12px rgba(237, 107, 36, 0.3);
+        box-shadow: 0 2px 8px rgba(237, 107, 36, 0.3);
         transition: all 0.3s ease;
     }
 
-    .mobile-menu-toggle:active {
+    .mobile-topbar-toggle:active {
         transform: scale(0.95);
+    }
+
+    .mobile-topbar-toggle.active {
+        background: #333;
     }
 
     /* Hamburger Icon Animation */
     .hamburger-icon {
-        width: 24px;
-        height: 18px;
+        width: 22px;
+        height: 16px;
         position: relative;
         display: flex;
         flex-direction: column;
@@ -2332,7 +2346,7 @@ select.select-input {
 
     .hamburger-icon span {
         display: block;
-        height: 3px;
+        height: 2.5px;
         width: 100%;
         background: white;
         border-radius: 3px;
@@ -2341,240 +2355,191 @@ select.select-input {
     }
 
     /* Animacja do X przy otwarciu */
-    .mobile-menu-toggle.active .hamburger-icon span:nth-child(1) {
-        transform: translateY(7.5px) rotate(45deg);
+    .mobile-topbar-toggle.active .hamburger-icon span:nth-child(1) {
+        transform: translateY(6.75px) rotate(45deg);
     }
 
-    .mobile-menu-toggle.active .hamburger-icon span:nth-child(2) {
+    .mobile-topbar-toggle.active .hamburger-icon span:nth-child(2) {
         opacity: 0;
         transform: scaleX(0);
     }
 
-    .mobile-menu-toggle.active .hamburger-icon span:nth-child(3) {
-        transform: translateY(-7.5px) rotate(-45deg);
+    .mobile-topbar-toggle.active .hamburger-icon span:nth-child(3) {
+        transform: translateY(-6.75px) rotate(-45deg);
     }
 
-    /* === MOBILE OVERLAY === */
-    .mobile-overlay {
+    .mobile-topbar-logo {
+        flex: 1;
+        display: flex;
+        justify-content: center;
+    }
+
+    .mobile-topbar-logo img {
+        height: 32px;
+        width: auto;
+    }
+
+    .mobile-topbar-spacer {
+        width: 44px;
+    }
+
+    /* === MOBILE MENU OVERLAY === */
+    .mobile-menu-overlay {
         display: none;
         position: fixed;
-        top: 0;
+        top: 60px;
         left: 0;
         width: 100%;
-        height: 100%;
-        background: rgba(0, 0, 0, 0.7);
+        height: calc(100vh - 60px);
+        background: rgba(0, 0, 0, 0.5);
         z-index: 9998;
         opacity: 0;
-        transition: opacity 0.4s ease;
+        transition: opacity 0.3s ease;
     }
 
-    .mobile-overlay.active {
+    .mobile-menu-overlay.active {
         display: block;
         opacity: 1;
     }
 
-    /* === SIDEBAR NA MOBILE - WYSUWA SIĘ Z GÓRY === */
-    .sidebar {
+    /* === MOBILE MENU - PEŁNA SZEROKOŚĆ === */
+    .mobile-menu {
+        display: flex;
+        flex-direction: column;
         position: fixed;
-        top: -100vh;
+        top: 60px;
         left: 0;
+        right: 0;
         width: 100%;
-        height: 100vh;
-        transition: top 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+        height: calc(100vh - 60px);
+        background: #FFF;
         z-index: 9999;
-        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+        transform: translateY(-100%);
+        transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
         overflow-y: auto;
         overflow-x: hidden;
     }
 
-    .sidebar.mobile-open {
-        top: 0;
+    .mobile-menu.open {
+        transform: translateY(0);
     }
 
-    /* Ukryj desktop toggle button */
-    .sidebar-toggle {
-        display: none !important;
-    }
-
-    /* Sidebar zawsze rozwięty na mobile */
-    .sidebar.collapsed {
-        width: 100%;
-    }
-
-    /* === LOGO SECTION - WYCENTROWANE === */
-    .logo-section {
-        padding: 32px 20px 24px;
-        align-items: center;
-        text-align: center;
-    }
-
-    .logo {
-        align-items: center;
-    }
-
-    .logo img {
-        max-width: 200px;
-    }
-
-    .sidebar.collapsed .logo-main {
-        display: block !important;
-        width: 200px;
-    }
-
-    .sidebar.collapsed .logo-sygnet {
-        display: none !important;
-    }
-
-    .beta-tag {
-        font-size: 11px;
-        padding: 4px 10px;
-        text-align: center;
-    }
-
-    /* === MAIN MODULES - WYCENTROWANE === */
-    .main-modules {
-        padding: 20px 24px;
-        align-items: center;
-    }
-
-    .menu-options-list {
+    .mobile-menu-header {
         display: flex;
         flex-direction: column;
-        gap: 8px;
-        width: 100%;
-        max-width: 400px;
+        align-items: center;
+        padding: 20px 16px;
+        border-bottom: 1px solid #E3E3E3;
+        gap: 10px;
     }
 
-    .menu-options {
-        width: 100%;
-        min-height: 56px;
-        padding: 14px 20px;
-        justify-content: center;
-        transition: all 0.3s ease;
+    .mobile-menu-header img {
+        height: 36px;
+        width: auto;
     }
 
-    .menu-options a {
+    .mobile-beta-tag {
+        font-size: 10px;
+        padding: 3px 8px;
+    }
+
+    .mobile-beta-wrapper {
+        display: flex;
         justify-content: center;
+        padding: 16px 16px 8px 16px;
+    }
+
+    .mobile-menu-content {
+        flex: 1;
+        padding: 12px 0;
+        overflow-y: auto;
+    }
+
+    .mobile-menu-list {
+        list-style: none;
+        margin: 0;
+        padding: 0 12px;
+    }
+
+    .mobile-menu-item {
+        margin-bottom: 4px;
+    }
+
+    .mobile-menu-item a {
+        display: flex;
         align-items: center;
         gap: 12px;
-    }
-
-    .sidebar-icon {
-        flex-shrink: 0;
-    }
-
-    .option-txt {
-        font-size: 15px;
-        font-weight: 600;
-    }
-
-    .sidebar.collapsed .option-txt {
-        display: block !important;
-        opacity: 1 !important;
-    }
-
-    .sidebar.collapsed .menu-options {
-        width: 100%;
-        justify-content: center;
-        padding: 14px 20px;
-    }
-
-    .sidebar.collapsed .menu-options a {
-        justify-content: center;
-    }
-
-    /* === EXTRA MODULES - WYCENTROWANE === */
-    .extra-modules {
-        padding: 20px 24px;
-        align-items: center;
-        border-top: 1px solid #E3E3E3;
-    }
-
-    /* === SHORTS - WYCENTROWANE === */
-    .shorts {
-        padding: 24px 24px 20px;
-        align-items: center;
-    }
-
-    .shorts-title {
-        font-size: 13px;
-        font-weight: 600;
-        text-align: center;
-        margin-bottom: 12px;
-    }
-
-    .shorts-options-list {
-        display: flex;
-        flex-direction: column;
-        gap: 8px;
-        width: 100%;
-        max-width: 400px;
-    }
-
-    .shorts-options {
-        width: 100%;
-        padding: 0;
-    }
-
-    .shorts-link {
-        min-height: 52px;
-        padding: 12px 20px;
-        justify-content: space-between;
-    }
-
-    .short-txt {
+        padding: 12px 16px;
+        border-radius: 12px;
+        text-decoration: none;
+        color: #7E7E7E;
         font-size: 14px;
+        font-weight: 500;
+        transition: all 0.2s ease;
     }
 
-    .sidebar.collapsed .short-txt,
-    .sidebar.collapsed .link-icon {
-        display: block !important;
-        opacity: 1 !important;
+    .mobile-menu-item a svg {
+        width: 22px;
+        height: 22px;
+        flex-shrink: 0;
+        fill: currentColor;
     }
 
-    .sidebar.collapsed .shorts-options {
-        width: 100%;
+    .mobile-menu-item a:hover {
+        background: #F2F2F2;
+        color: #333;
     }
 
-    /* === FOOTER - WYCENTROWANE === */
-    .footer {
-        padding: 16px 24px 24px;
-        justify-content: center;
-        border-top: 1px solid #E3E3E3;
+    .mobile-menu-item.active a {
+        background: #FFE6D9;
+        color: #ED6B24;
     }
 
-    .footer-menu {
-        display: flex;
-        flex-direction: column;
-        gap: 8px;
-        width: 100%;
-        max-width: 400px;
-        align-items: center;
+    .mobile-menu-item.mobile-menu-logout a {
+        color: #E00000;
     }
 
-    .footer-menu-item {
-        width: 100%;
-        min-height: 52px;
-        padding: 14px 20px;
-        justify-content: center;
-        gap: 12px;
+    .mobile-menu-item.mobile-menu-logout a:hover {
+        background: #FFE5E5;
     }
 
-    .footer-menu-text {
-        font-size: 15px;
-        font-weight: 600;
+    .mobile-menu-divider {
+        height: 1px;
+        background: #E3E3E3;
+        margin: 12px 16px;
     }
 
-    .sidebar.collapsed .footer-menu-text {
-        display: block !important;
-        opacity: 1 !important;
+    .mobile-menu-secondary .mobile-menu-item a {
+        font-size: 13px;
+        padding: 10px 16px;
     }
 
-    /* === MAIN CONTENT === */
+    .mobile-menu-footer {
+        margin-top: auto;
+        padding-bottom: 20px;
+    }
+
+    /* === UKRYJ STARY SIDEBAR NA MOBILE === */
+    .sidebar {
+        display: none !important;
+    }
+
+    /* === UKRYJ STARY HAMBURGER TOGGLE === */
+    .mobile-menu-toggle {
+        display: none !important;
+    }
+
+    .mobile-overlay {
+        display: none !important;
+    }
+
+    /* === MAIN CONTENT Z MARGIN-TOP DLA TOPBAR === */
     .main-content {
         margin-left: 0 !important;
+        margin-top: 60px !important;
         width: 100%;
-        padding: 80px 20px 20px 20px;
+        padding: 20px 16px;
+        min-height: calc(100vh - 60px);
     }
 
     .main-content.sidebar-collapsed {
@@ -2608,50 +2573,50 @@ select.select-input {
 
 /* Small mobile */
 @media (max-width: 480px) {
-    .sidebar {
-        width: 100%;
+    .mobile-topbar {
+        height: 56px;
+        padding: 0 12px;
     }
 
-    .sidebar.mobile-open {
-        top: 0;
+    .mobile-topbar-toggle {
+        width: 40px;
+        height: 40px;
+    }
+
+    .mobile-topbar-logo img {
+        height: 28px;
+    }
+
+    .mobile-topbar-spacer {
+        width: 40px;
+    }
+
+    .mobile-menu {
+        top: 56px;
+        height: calc(100vh - 56px);
+    }
+
+    .mobile-menu-overlay {
+        top: 56px;
+        height: calc(100vh - 56px);
     }
 
     .main-content {
-        padding: 70px 16px 16px 16px;
+        margin-top: 56px !important;
+        padding: 16px 12px;
+        min-height: calc(100vh - 56px);
     }
 
-    .mobile-menu-toggle {
-        top: 16px;
-        left: 16px;
-        width: 44px;
-        height: 44px;
+    .mobile-menu-item a {
+        padding: 10px 14px;
+        font-size: 13px;
     }
 
-    /* Większe elementy na małych ekranach */
-    .menu-options {
-        min-height: 60px;
-        padding: 16px 20px;
+    .mobile-menu-header {
+        padding: 16px 12px;
     }
 
-    .footer-menu-item {
-        min-height: 56px;
-        padding: 16px 20px;
-    }
-
-    .shorts-link {
-        min-height: 56px;
-        padding: 14px 20px;
-    }
-
-    /* Zmniejsz max-width dla lepszego wyświetlania */
-    .menu-options-list,
-    .shorts-options-list,
-    .footer-menu {
-        max-width: 100%;
-        padding: 0 16px;
-    }
-
-    .logo img {
-        max-width: 180px;
+    .mobile-menu-header img {
+        height: 30px;
     }
 }

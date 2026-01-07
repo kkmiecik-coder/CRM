@@ -15,13 +15,9 @@ from sqlalchemy import and_, or_
 from sqlalchemy.exc import IntegrityError
 from extensions import db
 from modules.logging import get_structured_logger
-import pytz
+from ..models import get_local_now
 
 logger = get_structured_logger('production.sync.v2')
-
-def get_local_now():
-    poland_tz = pytz.timezone('Europe/Warsaw')
-    return datetime.now(poland_tz).replace(tzinfo=None)
 
 class SyncError(Exception):
     pass
@@ -1084,6 +1080,13 @@ class BaselinkerSyncService:
             'client_email': client_data.get('client_email', ''),
             'client_phone': client_data.get('client_phone', ''),
             'delivery_address': client_data.get('delivery_address', ''),
+            # DANE DOSTAWY - ROZSZERZONE (2025-12)
+            'delivery_method': client_data.get('delivery_method'),
+            'delivery_fullname': client_data.get('delivery_fullname'),
+            'delivery_company': client_data.get('delivery_company'),
+            'delivery_city': client_data.get('delivery_city'),
+            'delivery_postcode': client_data.get('delivery_postcode'),
+            'delivery_country_code': client_data.get('delivery_country_code'),
             'deadline_date': deadline_date,
             'current_status': 'czeka_na_wyciecie',
             'sync_source': sync_source,
@@ -1158,9 +1161,10 @@ class BaselinkerSyncService:
                 unit_price_net = price_brutto
             else:
                 unit_price_net = price_brutto / (1 + tax_rate/100)
-    
-            total_value_net = unit_price_net
-    
+
+            # total_value_net = unit_price_net * quantity
+            total_value_net = unit_price_net * quantity
+
             product_data.update({
                 'unit_price_net': round(unit_price_net, 2),
                 'total_value_net': round(total_value_net, 2)
@@ -2463,26 +2467,21 @@ class BaselinkerSyncService:
         client_email = order.get('email', '').strip()
         client_phone = order.get('phone', '').strip()
 
-        address_parts = []
-
-        if order.get('delivery_address') and order['delivery_address'].strip():
-            address_parts.append(order['delivery_address'].strip())
-
-        if order.get('delivery_postcode') and order['delivery_postcode'].strip():
-            if order.get('delivery_city') and order['delivery_city'].strip():
-                address_parts.append(f"{order['delivery_postcode'].strip()} {order['delivery_city'].strip()}")
-            else:
-                address_parts.append(order['delivery_postcode'].strip())
-        elif order.get('delivery_city') and order['delivery_city'].strip():
-            address_parts.append(order['delivery_city'].strip())
-
-        delivery_address = ', '.join(address_parts)
+        # delivery_address = tylko ulica (bez kodu i miasta)
+        delivery_address = order.get('delivery_address', '').strip() if order.get('delivery_address') else None
 
         return {
             'client_name': client_name,
             'client_email': client_email,
             'client_phone': client_phone,
-            'delivery_address': delivery_address
+            'delivery_address': delivery_address,
+            # DANE DOSTAWY - ROZSZERZONE (2025-12)
+            'delivery_method': order.get('delivery_method', '').strip() if order.get('delivery_method') else None,
+            'delivery_fullname': order.get('delivery_fullname', '').strip() if order.get('delivery_fullname') else None,
+            'delivery_company': order.get('delivery_company', '').strip() if order.get('delivery_company') else None,
+            'delivery_city': order.get('delivery_city', '').strip() if order.get('delivery_city') else None,
+            'delivery_postcode': order.get('delivery_postcode', '').strip() if order.get('delivery_postcode') else None,
+            'delivery_country_code': order.get('delivery_country_code', '').strip() if order.get('delivery_country_code') else None,
         }
 
     def _calculate_deadline_date(self, order: Dict[str, Any]) -> date:

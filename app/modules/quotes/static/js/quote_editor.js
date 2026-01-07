@@ -12,6 +12,7 @@ let finishingDataCache = null;
 let calculatorScriptLoaded = false;
 let calculatorInitialized = false;
 let isRecalculating = false; // ✅ NOWE: Flaga zapobiegająca nieskończonej pętli
+let deletedProductIndexes = []; // Lista usuniętych produktów do przekazania do backendu
 
 // Optimized logging - centralized debug control
 const DEBUG_LOGS = {
@@ -69,6 +70,9 @@ function debugIncomingQuoteData(quoteData, context = 'unknown') {
  */
 async function openQuoteEditor(quoteData) {
     log('editor', '===== OTWIERANIE EDYTORA WYCENY =====');
+
+    // ✅ Wyczyść listę usuniętych produktów przy otwieraniu nowej wyceny
+    deletedProductIndexes = [];
 
     // ✅ KRYTYCZNA POPRAWKA: Zrób głęboką kopię quoteData aby zachować oryginalne wartości
     // To zapobiega nadpisywaniu show_on_client_page podczas edycji
@@ -507,6 +511,12 @@ function handleButtonClick(e) {
         return;
     }
 
+    // Obsługa przycisku czyszczenia kuriera
+    if (target.id === 'edit-clear-delivery-btn' || target.closest('#edit-clear-delivery-btn')) {
+        clearEditorDeliverySelection();
+        return;
+    }
+
     // Obsługa zmiany grupy cenowej przez select
     if (target.id === 'edit-clientType') {
         handleClientTypeChange(e);
@@ -781,6 +791,14 @@ function updateFormFields(quoteData) {
             element.value = value;
         }
     });
+
+    // Pokaż/ukryj przycisk czyszczenia kuriera w zależności czy jest kurier
+    const clearBtn = document.getElementById('edit-clear-delivery-btn');
+    if (clearBtn) {
+        // Pokaż X tylko gdy jest prawdziwa nazwa kuriera (nie pusta, nie "-", nie null)
+        const hasCourier = quoteData.courier_name && quoteData.courier_name !== '-' && quoteData.courier_name.trim() !== '';
+        clearBtn.style.display = hasCourier ? 'flex' : 'none';
+    }
 }
 
 /**
@@ -891,8 +909,13 @@ function createProductCard(productItems, productIndex, displayNumber, totalProdu
     if (isActive) {
         isComplete = checkProductCompletenessInEditor();
     } else {
+        // ✅ POPRAWKA: quantity jest w details, nie w items
+        const detailsForCard = currentEditingQuoteData?.details?.find(
+            d => parseInt(d.product_index) === parseInt(productIndex)
+        );
+        const cardQuantity = detailsForCard?.quantity || firstItem.quantity || 1;
         isComplete = firstItem.length_cm > 0 && firstItem.width_cm > 0 && firstItem.thickness_cm > 0 &&
-            firstItem.quantity > 0 && firstItem.variant_code &&
+            cardQuantity > 0 && firstItem.variant_code &&
             firstItem.final_price_netto > 0 && firstItem.final_price_brutto > 0;
     }
 
@@ -981,19 +1004,33 @@ function refreshProductCards() {
  * NOWA FUNKCJA - Kopiuje produkt w edytorze wyceny
  */
 function copyProductInQuote(sourceProductIndex) {
-    log('editor', `Kopiowanie produktu: ${sourceProductIndex}`);
+    log('editor', `Kopiowanie produktu: ${sourceProductIndex}, aktywny: ${activeProductIndex}`);
 
     if (!currentEditingQuoteData || !currentEditingQuoteData.items) {
         log('editor', '❌ Brak danych wyceny');
         return;
     }
 
-    // Zapisz aktywny produkt przed kopiowaniem
-    saveActiveProductFormData();
+    // ✅ POPRAWKA: Zapisz aktywny produkt przed kopiowaniem
+    // Jeśli kopiujemy aktywny produkt, musimy najpierw zapisać jego aktualne dane z formularza
+    const sourceIdx = parseInt(sourceProductIndex);
+    const activeIdx = parseInt(activeProductIndex);
 
-    // Znajdź wszystkie itemy (warianty) źródłowego produktu
+    if (sourceIdx === activeIdx) {
+        log('editor', '📝 Kopiuję aktywny produkt - zapisuję dane z formularza');
+        saveActiveProductFormData();
+
+        // Debug: sprawdź czy ilość się zapisała
+        const savedDetails = currentEditingQuoteData.details?.find(d => parseInt(d.product_index) === sourceIdx);
+        log('editor', `📝 Po zapisie - quantity w details: ${savedDetails?.quantity}`);
+    } else {
+        // Jeśli kopiujemy nieaktywny produkt, najpierw zapisz aktywny (żeby nie stracić zmian)
+        saveActiveProductFormData();
+    }
+
+    // Znajdź wszystkie itemy (warianty) źródłowego produktu (używamy sourceIdx dla spójnego porównania)
     const sourceItems = currentEditingQuoteData.items.filter(
-        item => item.product_index === sourceProductIndex
+        item => parseInt(item.product_index) === sourceIdx
     );
 
     if (sourceItems.length === 0) {
@@ -1002,10 +1039,10 @@ function copyProductInQuote(sourceProductIndex) {
     }
 
     // Znajdź maksymalny product_index i zwiększ o 1
-    const maxProductIndex = Math.max(...currentEditingQuoteData.items.map(item => item.product_index));
+    const maxProductIndex = Math.max(...currentEditingQuoteData.items.map(item => parseInt(item.product_index)));
     const newProductIndex = maxProductIndex + 1;
 
-    log('editor', `Kopiowanie ${sourceItems.length} wariantów z produktu ${sourceProductIndex} do ${newProductIndex}`);
+    log('editor', `Kopiowanie ${sourceItems.length} wariantów z produktu ${sourceIdx} do ${newProductIndex}`);
 
     // Skopiuj wszystkie warianty
     const newItems = sourceItems.map(sourceItem => {
@@ -1036,7 +1073,7 @@ function copyProductInQuote(sourceProductIndex) {
     // Skopiuj wykończenie jeśli istnieje
     if (currentEditingQuoteData.finishing) {
         const sourceFinishing = currentEditingQuoteData.finishing.find(
-            f => f.product_index === sourceProductIndex
+            f => parseInt(f.product_index) === sourceIdx
         );
 
         if (sourceFinishing) {
@@ -1051,6 +1088,29 @@ function copyProductInQuote(sourceProductIndex) {
             }
 
             log('editor', '✅ Skopiowano wykończenie');
+        }
+    }
+
+    // ✅ NOWE: Skopiuj details (quantity, finishing_type itd.)
+    if (currentEditingQuoteData.details) {
+        const sourceDetails = currentEditingQuoteData.details.find(
+            d => parseInt(d.product_index) === sourceIdx
+        );
+
+        if (sourceDetails) {
+            const newDetails = { ...sourceDetails };
+            newDetails.product_index = newProductIndex;
+            delete newDetails.id;
+            currentEditingQuoteData.details.push(newDetails);
+
+            // Dodaj również do originalQuoteData
+            if (window.originalQuoteData && window.originalQuoteData.details) {
+                window.originalQuoteData.details.push({ ...newDetails });
+            }
+
+            log('editor', `✅ Skopiowano details (quantity: ${newDetails.quantity})`);
+        } else {
+            log('editor', `⚠️ Nie znaleziono details dla produktu ${sourceIdx}`);
         }
     }
 
@@ -2343,6 +2403,38 @@ function computeEditorAggregatedData() {
 }
 
 /**
+ * Czyści wybranego kuriera z edytora wyceny
+ */
+function clearEditorDeliverySelection() {
+    console.log('🗑️ clearEditorDeliverySelection() wywołana');
+
+    // Reset WSZYSTKICH możliwych lokalizacji danych wysyłki w currentEditingQuoteData
+    currentEditingQuoteData.shipping_cost_brutto = 0;
+    currentEditingQuoteData.shipping_cost_netto = 0;
+    currentEditingQuoteData.courier_name = '';
+    currentEditingQuoteData.cost_shipping = 0;
+
+    // Zeruj też zagnieżdżoną strukturę costs.shipping jeśli istnieje
+    if (currentEditingQuoteData.costs && currentEditingQuoteData.costs.shipping) {
+        currentEditingQuoteData.costs.shipping.brutto = 0;
+        currentEditingQuoteData.costs.shipping.netto = 0;
+    }
+
+    // Reset wyświetlania
+    const courierEl = document.getElementById('edit-courier-name');
+    if (courierEl) courierEl.textContent = '';
+
+    // Ukryj przycisk X
+    const clearBtn = document.getElementById('edit-clear-delivery-btn');
+    if (clearBtn) clearBtn.style.display = 'none';
+
+    // Przelicz sumy - to zaktualizuje też elementy .edit-delivery-brutto i .edit-delivery-netto
+    updateQuoteSummary();
+
+    console.log('🗑️ Wyczyszczono kuriera - dane wysyłki wyzerowane');
+}
+
+/**
  * ✅ NOWA FUNKCJA: Główna funkcja obliczania wysyłki w edytorze
  */
 async function calculateEditorDelivery() {
@@ -2532,6 +2624,10 @@ function showQuotesDeliveryModal(quotes, packingInfo) {
         document.querySelector('.edit-delivery-brutto').textContent = formatPLN(selectedQuote.grossPrice);
         document.querySelector('.edit-delivery-netto').textContent = formatPLN(selectedQuote.netPrice) + ' netto';
 
+        // Pokaż przycisk czyszczenia kuriera
+        const clearBtn = document.getElementById('edit-clear-delivery-btn');
+        if (clearBtn) clearBtn.style.display = 'flex';
+
         // Przelicz sumy
         updateQuoteSummary();
 
@@ -2680,6 +2776,10 @@ function showQuotesDeliveryModal(quotes, packingInfo) {
             document.querySelector('.edit-delivery-brutto').textContent = formatPLN(finalBrutto);
             document.querySelector('.edit-delivery-netto').textContent = formatPLN(finalNetto) + ' netto';
 
+            // Pokaż przycisk czyszczenia kuriera
+            const clearBtn = document.getElementById('edit-clear-delivery-btn');
+            if (clearBtn) clearBtn.style.display = 'flex';
+
             // Przelicz sumy
             updateQuoteSummary();
 
@@ -2780,6 +2880,10 @@ function showEditorShippingModal(quotes, packingInfo) {
             document.getElementById('edit-courier-name').textContent = selectedQuote.carrierName;
             document.querySelector('.edit-delivery-brutto').textContent = formatPLN(selectedQuote.grossPrice);
             document.querySelector('.edit-delivery-netto').textContent = formatPLN(selectedQuote.netPrice) + ' netto';
+
+            // Pokaż przycisk czyszczenia kuriera
+            const clearBtn = document.getElementById('edit-clear-delivery-btn');
+            if (clearBtn) clearBtn.style.display = 'flex';
 
             // Przelicz sumy
             updateQuoteSummary();
@@ -3613,11 +3717,13 @@ function saveActiveProductFormData() {
         currentEditingQuoteData.details = [];
     }
 
-    let detailsItem = currentEditingQuoteData.details.find(d => d.product_index === activeProductIndex);
+    // ✅ Normalizuj do int dla porównania
+    const activeIdx = parseInt(activeProductIndex);
+    let detailsItem = currentEditingQuoteData.details.find(d => parseInt(d.product_index) === activeIdx);
     if (!detailsItem) {
         // Utwórz nowy rekord details jeśli nie istnieje
         detailsItem = {
-            product_index: activeProductIndex,
+            product_index: activeIdx,
             quantity: 1,
             finishing_type: 'Surowe',
             finishing_variant: null,
@@ -3916,11 +4022,18 @@ function updateProductCardStates(activeIndex) {
  * Zoptymalizowane ładowanie danych produktu
  */
 function loadProductDataToForm(productItem) {
+    // ✅ POPRAWKA: Pobierz quantity z details (gdzie jest przechowywane)
+    const productIdx = parseInt(productItem.product_index);
+    const detailsItem = currentEditingQuoteData?.details?.find(
+        d => parseInt(d.product_index) === productIdx
+    );
+    const quantity = detailsItem?.quantity || productItem.quantity || 1;
+
     const fieldMappings = [
         { field: 'edit-length', value: productItem.length_cm },
         { field: 'edit-width', value: productItem.width_cm },
         { field: 'edit-thickness', value: productItem.thickness_cm },
-        { field: 'edit-quantity', value: productItem.quantity || 1 }
+        { field: 'edit-quantity', value: quantity }
     ];
 
     // Batch field updates
@@ -3928,6 +4041,8 @@ function loadProductDataToForm(productItem) {
         const element = document.getElementById(field);
         if (element) element.value = value || '';
     });
+
+    log('sync', `📝 Załadowano quantity z details: ${quantity} (product_index: ${productIdx})`);
 
     // Załaduj wykończenie dla tego produktu
     loadFinishingDataToForm(productItem);
@@ -4402,6 +4517,9 @@ async function saveQuoteChanges() {
 
         log('editor', '✅ Wycena zapisana pomyślnie:', result);
 
+        // ✅ Wyczyść listę usuniętych produktów po pomyślnym zapisie
+        deletedProductIndexes = [];
+
         // Pokaż sukces
         showToast('Wycena została zaktualizowana', 'success');
 
@@ -4610,7 +4728,8 @@ function collectUpdatedQuoteData() {
         return {
             quote: quoteData,
             products: products,
-            total_products: products.length
+            total_products: products.length,
+            deleted_product_indexes: deletedProductIndexes // Lista produktów do usunięcia z bazy
         };
 
     } catch (error) {
@@ -5090,8 +5209,13 @@ function generateProductDescriptionForQuote(item, productItems) {
         console.log('[generateProductDescriptionForQuote] Aktywny produkt - sprawdzam formularz:', isComplete);
     } else {
         // Dla nieaktywnych produktów - sprawdź dane z bazy (podstawowa walidacja)
+        // ✅ POPRAWKA: quantity jest w details, nie w items
+        const detailsForValidation = currentEditingQuoteData?.details?.find(
+            d => parseInt(d.product_index) === parseInt(item.product_index)
+        );
+        const itemQuantity = detailsForValidation?.quantity || item.quantity || 1;
         isComplete = item.length_cm > 0 && item.width_cm > 0 && item.thickness_cm > 0 &&
-            item.quantity > 0 && item.variant_code &&
+            itemQuantity > 0 && item.variant_code &&
             item.final_price_netto > 0 && item.final_price_brutto > 0;
         console.log('[generateProductDescriptionForQuote] Nieaktywny produkt - sprawdzam dane z bazy:', isComplete);
     }
@@ -5117,7 +5241,11 @@ function generateProductDescriptionForQuote(item, productItems) {
         length = item.length_cm;
         width = item.width_cm;
         thickness = item.thickness_cm;
-        quantity = item.quantity;
+        // ✅ POPRAWKA: quantity jest w details, nie w items
+        const detailsItem = currentEditingQuoteData?.details?.find(
+            d => parseInt(d.product_index) === parseInt(item.product_index)
+        );
+        quantity = detailsItem?.quantity || item.quantity || 1;
         variantCode = item.variant_code;
     }
 
@@ -6103,6 +6231,12 @@ function removeProductFromQuote(productIndex) {
 
     log('editor', `Usuwanie ${itemsToRemove.length} wariantów produktu ${productIndex}`);
 
+    // ✅ NOWE: Dodaj usunięty produkt do listy do usunięcia w backendzie
+    if (!deletedProductIndexes.includes(productIndex)) {
+        deletedProductIndexes.push(productIndex);
+        log('editor', `📝 Dodano produkt ${productIndex} do listy usuwanych`);
+    }
+
     // Usuń itemy z tablicy
     currentEditingQuoteData.items = currentEditingQuoteData.items.filter(
         item => item.product_index !== productIndex
@@ -6114,6 +6248,14 @@ function removeProductFromQuote(productIndex) {
             f => f.product_index !== productIndex
         );
         log('editor', '✅ Usunięto wykończenie produktu');
+    }
+
+    // Usuń też z details jeśli istnieje
+    if (currentEditingQuoteData.details) {
+        currentEditingQuoteData.details = currentEditingQuoteData.details.filter(
+            d => d.product_index !== productIndex
+        );
+        log('editor', '✅ Usunięto details produktu');
     }
 
     log('editor', `✅ Usunięto produkt ${productIndex}`);

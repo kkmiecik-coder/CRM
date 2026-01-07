@@ -43,6 +43,14 @@
                     </svg>
                     <span class="theme-text">Tryb jasny</span>
                 </button>
+                <!-- SEARCH ORDERS BUTTON -->
+                <button class="search-orders-btn" id="search-orders-btn">
+                    <svg class="search-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="11" cy="11" r="8"></circle>
+                        <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                    </svg>
+                    <span class="search-text">Szukaj</span>
+                </button>
                 <!-- CONNECTION STATUS BADGE -->
                 <div id="connection-status" class="connection-status online">
                     🟢 ONLINE
@@ -132,13 +140,17 @@
             {% else %}
             <!-- ORDER CARDS -->
             {% for order in orders_grouped %}
-            <div class="order-card"
+            {% set all_products_priority = order.products|selectattr('is_priority', 'equalto', true)|list|length == order.products|length and order.products|length > 0 %}
+            {% set any_product_priority = order.products|selectattr('is_priority', 'equalto', true)|list|length > 0 %}
+            <div class="order-card{% if all_products_priority %} priority-order{% endif %}"
                  data-order-number="{{ order.order_number }}"
                  data-priority-rank="{{ order.best_priority_rank }}"
                  data-total-products="{{ order.total_products }}"
                  data-total-quantity="{{ order.total_quantity }}"
                  data-total-volume="{{ order.total_volume }}"
-                 data-in-progress="false">
+                 data-in-progress="false"
+                 data-all-priority="{{ 'true' if all_products_priority else 'false' }}"
+                 data-any-priority="{{ 'true' if any_product_priority else 'false' }}">
 
                 <!-- ORDER HEADER - 2 rows layout -->
                 <div class="order-header">
@@ -178,6 +190,15 @@
                                 </svg>
                             </div>
                             {% endif %}
+                            <!-- Ikona powiększenia -->
+                            <div class="header-icon-wrapper expand-icon-wrapper" title="Powiększ zamówienie">
+                                <svg class="header-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <polyline points="15 3 21 3 21 9"></polyline>
+                                    <polyline points="9 21 3 21 3 15"></polyline>
+                                    <line x1="21" y1="3" x2="14" y2="10"></line>
+                                    <line x1="3" y1="21" x2="10" y2="14"></line>
+                                </svg>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -185,19 +206,30 @@
                 <!-- PRODUCTS LIST -->
                 <div class="products-list">
                     {% for product in order.products %}
-                    <div class="product-row"
+                    <div class="product-row{% if product.is_priority %} priority-product{% endif %}{% if product.quantity_done_assembly > 0 %} has-assembly{% endif %}"
                          data-product-id="{{ product.id }}"
                          data-quantity="{{ product.quantity }}"
                          data-quantity-done="{{ product.quantity_done }}"
+                         data-quantity-done-assembly="{{ product.quantity_done_assembly }}"
                          data-status="{{ product.current_status }}"
                          data-species="{{ product.wood_species or '' }}"
                          data-technology="{{ product.technology or '' }}"
-                         data-wood-class="{{ product.wood_class or '' }}">
+                         data-wood-class="{{ product.wood_class or '' }}"
+                         data-is-priority="{{ 'true' if product.is_priority else 'false' }}">
 
                         <!-- LEFT COLUMN: Product Info -->
                         <div class="product-left-col">
                             <!-- Badges z parametrami -->
                             <div class="product-params">
+                                <!-- Badge złożenia (jeśli coś złożono) -->
+                                {% if product.quantity_done_assembly > 0 %}
+                                <span class="badge badge-assembled" title="Złożone: {{ product.quantity_done_assembly }}/{{ product.quantity }}">
+                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                        <path d="M19.439 7.85c-.049.322.059.648.289.878l1.568 1.568c.47.47.706 1.087.706 1.704s-.235 1.233-.706 1.704l-1.611 1.611a.98.98 0 0 1-.837.276c-.47-.07-.802-.48-.968-.925a2.501 2.501 0 1 0-3.214 3.214c.446.166.855.497.925.968a.979.979 0 0 1-.276.837l-1.61 1.61a2.404 2.404 0 0 1-1.705.707 2.402 2.402 0 0 1-1.704-.706l-1.568-1.568a1.026 1.026 0 0 0-.877-.29c-.493.074-.84.504-1.02.968a2.5 2.5 0 1 1-3.237-3.237c.464-.18.894-.527.967-1.02a1.026 1.026 0 0 0-.289-.877l-1.568-1.568A2.402 2.402 0 0 1 1.998 12c0-.617.236-1.234.706-1.704L4.315 8.69a.979.979 0 0 1 .837-.276c.47.07.802.48.968.925a2.501 2.501 0 1 0 3.214-3.214c-.446-.166-.855-.497-.925-.968a.979.979 0 0 1 .276-.837l1.61-1.61a2.404 2.404 0 0 1 1.705-.708c.617 0 1.234.236 1.704.706l1.568 1.568c.23.23.556.338.877.29.493-.074.84-.504 1.02-.968a2.5 2.5 0 1 1 3.237 3.237c-.464.18-.894.527-.967 1.02Z"></path>
+                                    </svg>
+                                    {{ product.quantity_done_assembly }}/{{ product.quantity }}
+                                </span>
+                                {% endif %}
                                 {% if product.wood_species %}
                                 <span class="badge badge-species">{{ product.wood_species }}</span>
                                 {% endif %}

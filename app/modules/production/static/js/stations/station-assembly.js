@@ -94,7 +94,159 @@
             }
         }
 
+        // Initialize expand icons for fullscreen mode
+        if (typeof window.initExpandIcons === 'function') {
+            window.initExpandIcons();
+            console.log('[Assembly] Expand icons initialized');
+        }
+
+        // Initialize order search button
+        if (typeof window.initOrderSearchButton === 'function') {
+            window.initOrderSearchButton();
+            console.log('[Assembly] Order search button initialized');
+        }
+
+        // Start cutting progress polling (synchronizacja z stanowiskiem wycinania)
+        startCuttingProgressPolling();
+
         console.log('[Assembly] Station initialized successfully');
+    }
+
+    // ========================================================================
+    // CUTTING PROGRESS POLLING (synchronizacja z stanowiskiem wycinania)
+    // ========================================================================
+
+    let cuttingPollingInterval = null;
+
+    function startCuttingProgressPolling() {
+        // Odpytuj co 2.5 sekundy
+        const POLLING_INTERVAL_MS = 2500;
+
+        cuttingPollingInterval = setInterval(async () => {
+            await fetchCuttingProgress();
+        }, POLLING_INTERVAL_MS);
+
+        console.log(`[Assembly] Cutting progress polling started (${POLLING_INTERVAL_MS}ms)`);
+
+        // Wykonaj pierwsze odpytanie od razu
+        fetchCuttingProgress();
+    }
+
+    function stopCuttingProgressPolling() {
+        if (cuttingPollingInterval) {
+            clearInterval(cuttingPollingInterval);
+            cuttingPollingInterval = null;
+            console.log('[Assembly] Cutting progress polling stopped');
+        }
+    }
+
+    function getVisibleProductIds() {
+        const productRows = document.querySelectorAll('.product-row[data-product-id]');
+        const ids = [];
+        productRows.forEach(row => {
+            const productId = row.dataset.productId;
+            if (productId) {
+                ids.push(productId);
+            }
+        });
+        return ids;
+    }
+
+    async function fetchCuttingProgress() {
+        const productIds = getVisibleProductIds();
+
+        if (productIds.length === 0) {
+            return;
+        }
+
+        // Sprawdź czy online
+        if (window.StationCommon && !window.StationCommon.isOnline()) {
+            return;
+        }
+
+        try {
+            const response = await fetch('/production/api/get-cutting-progress', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ product_ids: productIds })
+            });
+
+            if (!response.ok) {
+                console.warn('[Assembly] Cutting progress fetch failed:', response.status);
+                return;
+            }
+
+            const data = await response.json();
+
+            if (data.success && data.progress) {
+                updateCuttingCounters(data.progress);
+            }
+        } catch (error) {
+            console.warn('[Assembly] Cutting progress fetch error:', error);
+        }
+    }
+
+    function updateCuttingCounters(progress) {
+        for (const [productId, data] of Object.entries(progress)) {
+            const productRow = document.querySelector(`.product-row[data-product-id="${productId}"]`);
+
+            if (!productRow) continue;
+
+            const currentCuttingDone = parseInt(productRow.dataset.quantityDoneCutting || '0');
+            const newCuttingDone = data.quantity_done_cutting || 0;
+
+            // Jeśli wartość się zmieniła, zaktualizuj UI
+            if (currentCuttingDone !== newCuttingDone) {
+                productRow.dataset.quantityDoneCutting = newCuttingDone;
+
+                // Znajdź badge-cut lub stwórz nowy
+                let badgeCut = productRow.querySelector('.badge-cut');
+                const productParams = productRow.querySelector('.product-params');
+
+                if (newCuttingDone > 0) {
+                    // Dodaj lub zaktualizuj badge
+                    if (!badgeCut && productParams) {
+                        // Stwórz nowy badge
+                        badgeCut = document.createElement('span');
+                        badgeCut.className = 'badge badge-cut';
+                        badgeCut.innerHTML = `
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <circle cx="6" cy="6" r="3"></circle>
+                                <circle cx="6" cy="18" r="3"></circle>
+                                <line x1="20" y1="4" x2="8.12" y2="15.88"></line>
+                                <line x1="14.47" y1="14.48" x2="20" y2="20"></line>
+                                <line x1="8.12" y1="8.12" x2="12" y2="12"></line>
+                            </svg>
+                            <span class="cut-counter">${newCuttingDone}/${data.quantity}</span>
+                        `;
+                        // Wstaw jako pierwszy element w product-params
+                        productParams.insertBefore(badgeCut, productParams.firstChild);
+                        productRow.classList.add('has-cutting');
+                    } else if (badgeCut) {
+                        // Zaktualizuj istniejący badge
+                        const counterSpan = badgeCut.querySelector('.cut-counter');
+                        if (counterSpan) {
+                            counterSpan.textContent = `${newCuttingDone}/${data.quantity}`;
+                        } else {
+                            // Starszy format bez span - zaktualizuj cały tekst
+                            const textNode = Array.from(badgeCut.childNodes).find(n => n.nodeType === Node.TEXT_NODE);
+                            if (textNode) {
+                                textNode.textContent = `${newCuttingDone}/${data.quantity}`;
+                            }
+                        }
+                    }
+                    badgeCut.title = `Wycięte: ${newCuttingDone}/${data.quantity}`;
+                } else if (badgeCut) {
+                    // Usuń badge jeśli cutting = 0
+                    badgeCut.remove();
+                    productRow.classList.remove('has-cutting');
+                }
+
+                console.log(`[Assembly] Updated cutting progress for ${productId}: ${currentCuttingDone} -> ${newCuttingDone}`);
+            }
+        }
     }
 
     // ========================================================================
@@ -678,6 +830,11 @@
             // Update today's m³ statistics
             fetchTodayM3();
 
+            // Close fullscreen if active
+            if (typeof window.closeFullscreenIfActive === 'function') {
+                window.closeFullscreenIfActive(orderNumber);
+            }
+
             // Wait 1 second, then remove card with animation
             setTimeout(() => {
                 card.classList.add('removing');
@@ -915,7 +1072,7 @@
         // Skip if card is being processed
         if (card.dataset.inProgress === 'true') return;
 
-        // Update each product's quantity data
+        // Update each product's quantity data and priority
         orderData.products.forEach(product => {
             const productRow = card.querySelector(`[data-product-id="${product.id}"]`);
             if (productRow) {
@@ -931,8 +1088,33 @@
                     }
                     updateProductButtonStates(productRow, serverQtyDone, product.quantity);
                 }
+
+                // Update priority status
+                const currentPriority = productRow.dataset.isPriority === 'true';
+                const serverPriority = product.is_priority || false;
+                if (currentPriority !== serverPriority) {
+                    productRow.dataset.isPriority = serverPriority ? 'true' : 'false';
+                    if (serverPriority) {
+                        productRow.classList.add('priority-product');
+                    } else {
+                        productRow.classList.remove('priority-product');
+                    }
+                }
             }
         });
+
+        // Update order-level priority classes
+        const allProductsPriority = orderData.products.length > 0 && orderData.products.every(p => p.is_priority);
+        const anyProductPriority = orderData.products.some(p => p.is_priority);
+
+        card.dataset.allPriority = allProductsPriority ? 'true' : 'false';
+        card.dataset.anyPriority = anyProductPriority ? 'true' : 'false';
+
+        if (allProductsPriority) {
+            card.classList.add('priority-order');
+        } else {
+            card.classList.remove('priority-order');
+        }
 
         updateOrderCounter(card);
         updateCompleteButtonState(card);
@@ -985,6 +1167,11 @@
             if (typeof window.reinitializeAttachmentHandlers === 'function') {
                 window.reinitializeAttachmentHandlers();
             }
+
+            // Re-initialize expand icons for the new card
+            if (typeof window.initExpandIcons === 'function') {
+                window.initExpandIcons();
+            }
         }
     }
 
@@ -1032,16 +1219,18 @@
             `;
 
             const completeClass = quantityDone === quantity ? 'product-complete' : '';
+            const priorityClass = product.is_priority ? ' priority-product' : '';
 
             return `
-                <div class="product-row ${completeClass}"
+                <div class="product-row ${completeClass}${priorityClass}"
                      data-product-id="${product.id}"
                      data-quantity="${quantity}"
                      data-quantity-done="${quantityDone}"
                      data-status="${product.current_status}"
                      data-species="${product.wood_species || ''}"
                      data-technology="${product.technology || ''}"
-                     data-wood-class="${product.wood_class || ''}">
+                     data-wood-class="${product.wood_class || ''}"
+                     data-is-priority="${product.is_priority ? 'true' : 'false'}">
                     <div class="product-left-col">
                         <div class="product-params">${paramsHTML}</div>
                         <div class="product-dimensions-row">${dimensionsBadge}</div>
@@ -1094,6 +1283,18 @@
             }
         }
 
+        // Ikona powiększenia (zawsze)
+        iconsHTML += `
+            <div class="header-icon-wrapper expand-icon-wrapper" title="Powiększ zamówienie">
+                <svg class="header-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="15 3 21 3 21 9"></polyline>
+                    <polyline points="9 21 3 21 3 15"></polyline>
+                    <line x1="21" y1="3" x2="14" y2="10"></line>
+                    <line x1="3" y1="21" x2="10" y2="14"></line>
+                </svg>
+            </div>
+        `;
+
         const clientOrderBadge = order.client_order_number ? `<span class="order-client-number">${order.client_order_number}</span>` : '';
         const blBadge = order.baselinker_order_id ? `<span class="order-baselinker">BL-${order.baselinker_order_id}</span>` : '';
 
@@ -1105,14 +1306,21 @@
             totalQty += (p.quantity || 1);
         });
 
+        // Calculate priority flags for order card
+        const allProductsPriority = order.products.length > 0 && order.products.every(p => p.is_priority);
+        const anyProductPriority = order.products.some(p => p.is_priority);
+        const orderPriorityClass = allProductsPriority ? ' priority-order' : '';
+
         return `
-            <div class="order-card"
+            <div class="order-card${orderPriorityClass}"
                  data-order-number="${order.order_number}"
                  data-priority-rank="${order.best_priority_rank}"
                  data-total-products="${order.total_products}"
                  data-total-quantity="${totalQty}"
                  data-total-volume="${order.total_volume}"
-                 data-in-progress="false">
+                 data-in-progress="false"
+                 data-all-priority="${allProductsPriority ? 'true' : 'false'}"
+                 data-any-priority="${anyProductPriority ? 'true' : 'false'}">
                 <div class="order-header">
                     <div class="order-header-row order-ids-row">
                         <span class="order-number">${order.order_number}</span>

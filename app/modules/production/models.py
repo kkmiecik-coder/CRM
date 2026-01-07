@@ -18,6 +18,7 @@ Data: 2025-01-22
 
 from datetime import datetime, date
 from sqlalchemy import Column, Integer, String, Text, DateTime, Date, Numeric, Enum, Boolean, JSON, ForeignKey
+from sqlalchemy.dialects.mysql import LONGTEXT
 from sqlalchemy.orm import relationship, validates
 from sqlalchemy.sql import func
 from extensions import db
@@ -133,7 +134,35 @@ class ProductionItem(db.Model):
     client_email = Column(String(255))
     client_phone = Column(String(50))
     delivery_address = Column(Text)
-    
+
+    # DANE DOSTAWY - ROZSZERZONE (2025-12)
+    delivery_method = Column(String(255), nullable=True,
+                            comment='Metoda dostawy z Baselinker (np. Kurier DPD, Odbiór osobisty)')
+    delivery_fullname = Column(String(255), nullable=True,
+                              comment='Imię i nazwisko odbiorcy z Baselinker')
+    delivery_company = Column(String(255), nullable=True,
+                             comment='Nazwa firmy odbiorcy z Baselinker')
+    delivery_city = Column(String(100), nullable=True,
+                          comment='Miasto dostawy z Baselinker')
+    delivery_postcode = Column(String(20), nullable=True,
+                              comment='Kod pocztowy dostawy z Baselinker')
+    delivery_country_code = Column(String(10), nullable=True,
+                                  comment='Kod kraju dostawy z Baselinker (np. PL, DE)')
+
+    # DANE WYSYŁKI KURIERSKIEJ (2025-12)
+    shipping_package_id = Column(Integer, nullable=True,
+                                comment='ID paczki w Baselinker (z createPackage)')
+    shipping_tracking_number = Column(String(100), nullable=True,
+                                     comment='Numer listu przewozowego / tracking')
+    shipping_courier_name = Column(String(100), nullable=True,
+                                  comment='Nazwa kuriera (np. inPost-Kurier, DPD)')
+    shipping_price = Column(Numeric(10, 2), nullable=True,
+                           comment='Cena wysyłki brutto')
+    shipping_label_base64 = Column(LONGTEXT, nullable=True,
+                                  comment='Etykieta PDF w formacie base64 (LONGTEXT dla dużych etykiet)')
+    shipping_created_at = Column(DateTime, nullable=True,
+                                comment='Data i czas zgłoszenia przesyłki')
+
     # STATUS PRODUKCJI
     current_status = Column(Enum(
         'czeka_na_wyciecie',
@@ -189,6 +218,12 @@ class ProductionItem(db.Model):
                                      comment='Ile sztuk wykonano na stanowisku wykańczania')
     quantity_done_packaging = Column(Integer, default=0, nullable=False,
                                      comment='Ile sztuk wykonano na stanowisku pakowania')
+
+    # ============================================================================
+    # RĘCZNE OZNACZENIE PRIORYTETU (GWIAZDKA)
+    # ============================================================================
+    is_priority = Column(Boolean, default=False, nullable=False, index=True,
+                        comment='Ręczne oznaczenie produktu jako priorytetowy (gwiazdka w panelu admin)')
 
     # ============================================================================
     # ŚLEDZENIE CZASU UKOŃCZENIA PER STANOWISKO (uproszczone)
@@ -307,6 +342,47 @@ class ProductionItem(db.Model):
         """Sprawdza czy zamówienie ma wewnętrzny numer klienta"""
         return bool(self.client_order_number and self.client_order_number.strip())
 
+    @property
+    def is_personal_pickup(self):
+        """
+        Sprawdza czy zamówienie jest do odbioru osobistego.
+
+        Warunki odbioru osobistego:
+        - delivery_method zawiera słowa: odbiór, osobisty, przy odbiorze, pickup (case-insensitive)
+        - LUB brak danych adresowych (puste delivery_address/city/postcode)
+
+        Returns:
+            bool: True jeśli odbiór osobisty, False jeśli kurier
+        """
+        # Sprawdź czy delivery_method wskazuje na odbiór osobisty
+        if self.delivery_method:
+            method_lower = self.delivery_method.lower()
+            pickup_keywords = ['odbiór', 'odbior', 'osobisty', 'przy odbiorze', 'pickup', 'self pickup']
+            for keyword in pickup_keywords:
+                if keyword in method_lower:
+                    return True
+
+        # Sprawdź czy brak danych adresowych (też sugeruje odbiór osobisty)
+        has_address = bool(self.delivery_address and self.delivery_address.strip())
+        has_city = bool(self.delivery_city and self.delivery_city.strip())
+        has_postcode = bool(self.delivery_postcode and self.delivery_postcode.strip())
+
+        # Jeśli brak wszystkich danych adresowych - to odbiór osobisty
+        if not has_address and not has_city and not has_postcode:
+            return True
+
+        return False
+
+    @property
+    def delivery_type(self):
+        """
+        Zwraca typ dostawy jako string.
+
+        Returns:
+            str: 'personal_pickup' lub 'courier'
+        """
+        return 'personal_pickup' if self.is_personal_pickup else 'courier'
+
     # ============================================================================
     # NOWE METODY DLA ENHANCED PRIORITY SYSTEM 2.0
     # ============================================================================
@@ -364,13 +440,11 @@ class ProductionItem(db.Model):
             raise ValueError("Numer priorytetu musi być >= 1")
         
         self.priority_rank = rank
-        # USUŃ TO: self.priority_score = max(1, 1000 - rank)
         self.priority_manual_override = True
-    
+
         logger.info("Zablokowano priorytet produktu", extra={
             'product_id': self.short_product_id,
             'priority_rank': rank,
-            # USUŃ TO: 'priority_score': self.priority_score,
             'manual_override': True
         })
     
@@ -491,12 +565,38 @@ class ProductionItem(db.Model):
         """Sprawdza czy wszystkie sztuki wykonano na danym stanowisku"""
         return self.get_quantity_done(station_code) == self.quantity
 
+    def should_skip_finishing(self):
+        """
+        Sprawdza czy produkt powinien pominąć stanowisko wykańczania.
+        Produkty z wykończeniem "Surowe" nie wymagają wykańczania.
+
+        Returns:
+            bool: True jeśli produkt powinien pominąć stanowisko finishing
+        """
+        if not self.parsed_finish_state:
+            return False
+
+        # Normalizuj do lowercase dla porównania
+        finish_state_lower = self.parsed_finish_state.lower().strip()
+
+        # Produkty surowe pomijają wykańczanie
+        return finish_state_lower == 'surowe'
+
     def complete_task(self, station_code):
         """
         Ukończenie pracy na stanowisku - przejście do następnego statusu
         Wywoływane gdy wszystkie produkty w zamówieniu mają quantity_done == quantity
+
+        UWAGA: Produkty z wykończeniem "Surowe" pomijają stanowisko "finishing"
+        i przechodzą bezpośrednio z "formatting" do "packaging".
+
+        UWAGA: Stanowiska cutting i assembly mają specjalną logikę:
+        - Cutting: kończy wycinanie, produkt przechodzi do czeka_na_skladanie
+        - Assembly: kończy składanie (niezależnie czy było wycięte), przechodzi do czeka_na_sklejanie
+          Jeśli produkt był w czeka_na_wyciecie (pominięto wycinanie), assembly też go przepuszcza
         """
         now = get_local_now()
+        skipped_cutting = False
 
         # Mapowanie stanowisko -> następny status
         next_status_map = {
@@ -509,7 +609,38 @@ class ProductionItem(db.Model):
         }
 
         if station_code in next_status_map:
-            self.current_status = next_status_map[station_code]
+            next_status = next_status_map[station_code]
+
+            # Specjalna logika dla assembly: jeśli produkt jest w czeka_na_wyciecie
+            # (pominięto wycinanie), to assembly przepuszcza go dalej
+            if station_code == 'assembly' and self.current_status == 'czeka_na_wyciecie':
+                # Wycinanie zostało pominięte - nie ustawiamy cutting_completed_at
+                # (pozostaje NULL co oznacza "pominięto")
+                skipped_cutting = True
+                logger.info("Produkt pominął wycinanie - złożony bez wycinania", extra={
+                    'product_id': self.short_product_id,
+                    'quantity_done_cutting': self.quantity_done_cutting
+                })
+
+            # Specjalna logika: produkty "Surowe" pomijają stanowisko wykańczania
+            # Z formatowania przechodzą bezpośrednio do pakowania
+            skipped_finishing = False
+            if station_code == 'formatting' and self.should_skip_finishing():
+                next_status = 'czeka_na_pakowanie'
+                skipped_finishing = True
+
+                # Oznacz stanowisko finishing jako ukończone (pominięte)
+                # żeby zachować spójność danych
+                self.quantity_done_finishing = self.quantity
+                if self.finishing_completed_at is None:
+                    self.finishing_completed_at = now
+
+                logger.info("Produkt 'Surowe' - pomijam stanowisko wykańczania", extra={
+                    'product_id': self.short_product_id,
+                    'finish_state': self.parsed_finish_state
+                })
+
+            self.current_status = next_status
 
             # Upewnij się że completed_at jest ustawione
             completed_attr = f'{station_code}_completed_at'
@@ -521,7 +652,9 @@ class ProductionItem(db.Model):
         logger.info("Ukończono zadanie na stanowisku", extra={
             'product_id': self.short_product_id,
             'station': station_code,
-            'new_status': self.current_status
+            'new_status': self.current_status,
+            'skipped_cutting': skipped_cutting,
+            'skipped_finishing': skipped_finishing if 'skipped_finishing' in locals() else False
         })
 
 class ProductionPriorityConfig(db.Model):

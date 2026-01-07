@@ -41,93 +41,112 @@ class ApplicationService:
     MAX_FILE_SIZE = 5 * 1024 * 1024  # 5MB
     
     @classmethod
-    def create_application(cls, form_data, file, ip_address, user_agent):
+    def create_application(cls, form_data, files, ip_address, user_agent):
         """
-        Utworzenie nowej aplikacji rekrutacyjnej z plikiem NDA
-        
+        Utworzenie nowej aplikacji rekrutacyjnej z plikami NDA
+
         Args:
             form_data (dict): Dane z formularza
-            file (FileStorage): Plik NDA
+            files (list): Lista plików NDA (min 1, max 2)
             ip_address (str): Adres IP użytkownika
             user_agent (str): User agent przeglądarki
-            
+
         Returns:
             SalesApplication: Utworzona aplikacja
-            
+
         Raises:
             ValueError: Błędy walidacji
         """
-        
-        # Zapisz plik na dysku
-        filename = secure_filename(file.filename)
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        unique_filename = f"{timestamp}_{filename}"
-        
+
         # Upewnij się że folder istnieje
         os.makedirs(cls.UPLOAD_FOLDER, exist_ok=True)
-        
-        filepath = os.path.join(cls.UPLOAD_FOLDER, unique_filename)
-        file.save(filepath)
-        
-        # Pobierz info o pliku
-        filesize = os.path.getsize(filepath)
-        mime_type = magic.from_file(filepath, mime=True)
-        
-        # Przygotuj dane podstawowe
-        application_data = {
-            'first_name': form_data['first_name'],
-            'last_name': form_data['last_name'],
-            'email': form_data['email'],
-            'phone': form_data['phone'],
-            'city': form_data['city'],
-            'address': form_data['address'],
-            'postal_code': form_data['postal_code'],
-            'voivodeship': form_data['voivodeship'],
-            'business_location': form_data['business_location'],
-            'about_text': form_data.get('about_text', ''),
-            'data_processing_consent': form_data.get('data_processing_consent', 'off') == 'on',
-            'nda_filename': unique_filename,
-            'nda_filepath': filepath,
-            'nda_filesize': filesize,
-            'nda_mime_type': mime_type,
-            'ip_address': ip_address,
-            'user_agent': user_agent,
-            'status': 'pending'
-        }
-        
-        # Obsługa danych B2B
-        # ZMIENIONE: sprawdzamy cooperation_type zamiast is_b2b
-        is_b2b = form_data.get('cooperation_type') == 'b2b'
-        application_data['is_b2b'] = is_b2b
-        
-        if is_b2b:
-            application_data.update({
-                'company_name': form_data.get('company_name', ''),
-                'nip': form_data.get('nip', ''),
-                'regon': form_data.get('regon', ''),
-                'company_address': form_data.get('company_address', ''),
-                'company_city': form_data.get('company_city', ''),
-                'company_postal_code': form_data.get('company_postal_code', '')
-            })
-        
-        # Utwórz rekord w bazie
-        application = SalesApplication(**application_data)
-        
+
+        # Lista zapisanych plików (do rollbacku w razie błędu)
+        saved_files = []
+        nda_data = {}
+
         try:
+            # Przetwórz pliki NDA (max 2)
+            for i, file in enumerate(files):
+                if not file or not file.filename:
+                    continue
+
+                filename = secure_filename(file.filename)
+                timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+                unique_filename = f"{timestamp}_nda{i+1}_{filename}"
+
+                filepath = os.path.join(cls.UPLOAD_FOLDER, unique_filename)
+                file.save(filepath)
+                saved_files.append(filepath)
+
+                # Pobierz info o pliku
+                filesize = os.path.getsize(filepath)
+                mime_type = magic.from_file(filepath, mime=True)
+
+                if i == 0:
+                    # Pierwszy plik - istniejące kolumny
+                    nda_data['nda_filename'] = unique_filename
+                    nda_data['nda_filepath'] = filepath
+                    nda_data['nda_filesize'] = filesize
+                    nda_data['nda_mime_type'] = mime_type
+                else:
+                    # Drugi plik - nowe kolumny z sufiksem _2
+                    nda_data['nda_filename_2'] = unique_filename
+                    nda_data['nda_filepath_2'] = filepath
+                    nda_data['nda_filesize_2'] = filesize
+                    nda_data['nda_mime_type_2'] = mime_type
+
+            # Przygotuj dane podstawowe
+            application_data = {
+                'first_name': form_data['first_name'],
+                'last_name': form_data['last_name'],
+                'email': form_data['email'],
+                'phone': form_data['phone'],
+                'city': form_data['city'],
+                'address': form_data['address'],
+                'postal_code': form_data['postal_code'],
+                'voivodeship': form_data['voivodeship'],
+                'business_location': form_data['business_location'],
+                'about_text': form_data.get('about_text', ''),
+                'data_processing_consent': form_data.get('data_processing_consent', 'off') == 'on',
+                **nda_data,
+                'ip_address': ip_address,
+                'user_agent': user_agent,
+                'status': 'pending'
+            }
+
+            # Obsługa danych B2B
+            is_b2b = form_data.get('cooperation_type') == 'b2b'
+            application_data['is_b2b'] = is_b2b
+
+            if is_b2b:
+                application_data.update({
+                    'company_name': form_data.get('company_name', ''),
+                    'nip': form_data.get('nip', ''),
+                    'regon': form_data.get('regon', ''),
+                    'company_address': form_data.get('company_address', ''),
+                    'company_city': form_data.get('company_city', ''),
+                    'company_postal_code': form_data.get('company_postal_code', '')
+                })
+
+            # Utwórz rekord w bazie
+            application = SalesApplication(**application_data)
+
             db.session.add(application)
             db.session.commit()
-            
+
             current_app.logger.info(
-                f"Utworzono aplikację: {application.email} (ID: {application.id})"
+                f"Utworzono aplikację: {application.email} (ID: {application.id}) z {len(saved_files)} plikami NDA"
             )
-            
+
             return application
-            
+
         except Exception as e:
             db.session.rollback()
-            # Usuń plik jeśli nie udało się zapisać do bazy
-            if os.path.exists(filepath):
-                os.remove(filepath)
+            # Usuń wszystkie zapisane pliki jeśli nie udało się zapisać do bazy
+            for filepath in saved_files:
+                if os.path.exists(filepath):
+                    os.remove(filepath)
             raise e
     
     @classmethod
@@ -279,15 +298,24 @@ class EmailService:
                 application=application
             )
             
-            # Dodaj załącznik NDA jeśli istnieje
+            # Dodaj załącznik NDA 1 jeśli istnieje
             if application.nda_filepath and os.path.exists(application.nda_filepath):
                 with open(application.nda_filepath, 'rb') as f:
                     msg.attach(
                         application.nda_filename,
-                        "application/pdf",
+                        application.nda_mime_type or "application/pdf",
                         f.read()
                     )
-            
+
+            # Dodaj załącznik NDA 2 jeśli istnieje
+            if application.nda_filepath_2 and os.path.exists(application.nda_filepath_2):
+                with open(application.nda_filepath_2, 'rb') as f:
+                    msg.attach(
+                        application.nda_filename_2,
+                        application.nda_mime_type_2 or "application/pdf",
+                        f.read()
+                    )
+
             mail.send(msg)
             
             current_app.logger.info(

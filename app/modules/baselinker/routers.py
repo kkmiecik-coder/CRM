@@ -753,3 +753,142 @@ def get_sales_documents(order_id):
             'error': 'Błąd serwera podczas pobierania dokumentów',
             'code': 'SERVER_ERROR'
         }), 500
+
+
+# ============================================================================
+# COURIER API - Diagnostyka i tworzenie paczek (2025-12)
+# ============================================================================
+
+@baselinker_bp.route('/api/courier/list')
+@require_module_access('baselinker')
+def get_couriers_list():
+    """
+    Pobiera listę dostępnych kurierów z Baselinker.
+    Użycie w konsoli JS: fetch('/baselinker/api/courier/list').then(r => r.json()).then(console.log)
+    """
+    baselinker_logger.info("Pobieranie listy kurierów z Baselinker API")
+
+    try:
+        service = BaselinkerService()
+        response = service._make_request('getCouriersList', {})
+
+        if response.get('status') == 'SUCCESS':
+            couriers = response.get('couriers', [])
+            baselinker_logger.info("Pobrano listę kurierów", couriers_count=len(couriers))
+            return jsonify({
+                'success': True,
+                'couriers': couriers
+            })
+        else:
+            error_msg = response.get('error_message', 'Nieznany błąd')
+            baselinker_logger.error("Błąd API getCouriersList", error=error_msg)
+            return jsonify({'success': False, 'error': error_msg}), 400
+
+    except Exception as e:
+        baselinker_logger.error("Wyjątek podczas pobierania kurierów", error=str(e))
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@baselinker_bp.route('/api/courier/<string:courier_code>/accounts')
+@require_module_access('baselinker')
+def get_courier_accounts(courier_code):
+    """
+    Pobiera konta kurierskie dla danego kuriera.
+    Użycie w konsoli JS: fetch('/baselinker/api/courier/globkurier/accounts').then(r => r.json()).then(console.log)
+    """
+    baselinker_logger.info("Pobieranie kont kurierskich", courier_code=courier_code)
+
+    try:
+        service = BaselinkerService()
+        response = service._make_request('getCourierAccounts', {'courier_code': courier_code})
+
+        if response.get('status') == 'SUCCESS':
+            accounts = response.get('accounts', [])
+            baselinker_logger.info("Pobrano konta kurierskie",
+                                  courier_code=courier_code,
+                                  accounts_count=len(accounts))
+            return jsonify({
+                'success': True,
+                'courier_code': courier_code,
+                'accounts': accounts
+            })
+        else:
+            error_msg = response.get('error_message', 'Nieznany błąd')
+            baselinker_logger.error("Błąd API getCourierAccounts",
+                                   courier_code=courier_code,
+                                   error=error_msg)
+            return jsonify({'success': False, 'error': error_msg}), 400
+
+    except Exception as e:
+        baselinker_logger.error("Wyjątek podczas pobierania kont", error=str(e))
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@baselinker_bp.route('/api/courier/<string:courier_code>/fields')
+@require_module_access('baselinker')
+def get_courier_fields(courier_code):
+    """
+    Pobiera pola formularza dla danego kuriera.
+    Użycie w konsoli JS: fetch('/baselinker/api/courier/globkurier/fields').then(r => r.json()).then(console.log)
+    """
+    baselinker_logger.info("Pobieranie pól formularza kuriera", courier_code=courier_code)
+
+    try:
+        service = BaselinkerService()
+        response = service._make_request('getCourierFields', {'courier_code': courier_code})
+
+        if response.get('status') == 'SUCCESS':
+            fields = response.get('fields', [])
+            baselinker_logger.info("Pobrano pola formularza",
+                                  courier_code=courier_code,
+                                  fields_count=len(fields))
+            return jsonify({
+                'success': True,
+                'courier_code': courier_code,
+                'fields': fields
+            })
+        else:
+            error_msg = response.get('error_message', 'Nieznany błąd')
+            baselinker_logger.error("Błąd API getCourierFields",
+                                   courier_code=courier_code,
+                                   error=error_msg)
+            return jsonify({'success': False, 'error': error_msg}), 400
+
+    except Exception as e:
+        baselinker_logger.error("Wyjątek podczas pobierania pól", error=str(e))
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@baselinker_bp.route('/api/order/<int:order_id>/packages')
+@require_module_access('baselinker')
+def get_order_packages(order_id):
+    """
+    Pobiera utworzone przesyłki dla zamówienia.
+    Użycie w konsoli JS: fetch('/baselinker/api/order/12345678/packages').then(r => r.json()).then(console.log)
+    """
+    baselinker_logger.info("Pobieranie przesyłek dla zamówienia", order_id=order_id)
+
+    try:
+        service = BaselinkerService()
+        response = service._make_request('getOrderPackages', {'order_id': order_id})
+
+        if response.get('status') == 'SUCCESS':
+            packages = response.get('packages', [])
+            baselinker_logger.info("Pobrano przesyłki",
+                                  order_id=order_id,
+                                  packages_count=len(packages))
+            return jsonify({
+                'success': True,
+                'order_id': order_id,
+                'packages': packages
+            })
+        else:
+            error_msg = response.get('error_message', 'Nieznany błąd')
+            baselinker_logger.error("Błąd API getOrderPackages",
+                                   order_id=order_id,
+                                   error=error_msg)
+            return jsonify({'success': False, 'error': error_msg}), 400
+
+    except Exception as e:
+        baselinker_logger.error("Wyjątek podczas pobierania przesyłek", error=str(e))
+        return jsonify({'success': False, 'error': str(e)}), 500

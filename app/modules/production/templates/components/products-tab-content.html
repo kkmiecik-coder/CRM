@@ -222,40 +222,45 @@
                 <input type="checkbox" id="select-all-products" class="form-check-input">
                 <span class="sr-only">Zaznacz wszystkie produkty</span>
             </div>
-            <!-- 2. Drag handle -->
+            <!-- 2. Gwiazdka priorytetu -->
+            <div class="prod_list-header-cell prod_list-star-header">
+                <i class="fas fa-star text-muted" title="Oznacz jako priorytetowe"></i>
+                <span class="sr-only">Priorytet (gwiazdka)</span>
+            </div>
+            <!-- 3. Drag handle -->
             <div class="prod_list-header-cell">
                 <i class="fas fa-arrows-alt text-muted" title="Przeciągnij aby zmienić priorytet"></i>
                 <span class="sr-only">Drag handle</span>
             </div>
-            <!-- 3. Priorytet -->
+            <!-- 5. Priorytet (numer) -->
             <div class="prod_list-header-cell prod_list-sortable-header sortable-header" data-sort="priority_rank" tabindex="0">
                 Priorytet <i class="fas fa-sort"></i>
             </div>
-            <!-- 4. Klient -->
+            <!-- 6. Klient -->
             <div class="prod_list-header-cell prod_list-sortable-header sortable-header" data-sort="client_name" tabindex="0">
                 Klient <i class="fas fa-sort"></i>
             </div>
-            <!-- 5. Produkt -->
+            <!-- 7. Produkt -->
             <div class="prod_list-header-cell prod_list-sortable-header sortable-header" data-sort="original_product_name" tabindex="0">
                 Produkt <i class="fas fa-sort"></i>
             </div>
-            <!-- 6. Ilość -->
+            <!-- 8. Ilość -->
             <div class="prod_list-header-cell prod_list-sortable-header sortable-header" data-sort="quantity" tabindex="0">
                 Ilość <i class="fas fa-sort"></i>
             </div>
-            <!-- 7. Objętość -->
+            <!-- 9. Objętość -->
             <div class="prod_list-header-cell prod_list-sortable-header sortable-header" data-sort="volume_m3" tabindex="0">
                 Objętość <i class="fas fa-sort"></i>
             </div>
-            <!-- 8. Status -->
+            <!-- 10. Status -->
             <div class="prod_list-header-cell prod_list-sortable-header sortable-header" data-sort="current_status" tabindex="0">
                 Status <i class="fas fa-sort"></i>
             </div>
-            <!-- 9. Deadline -->
+            <!-- 11. Deadline -->
             <div class="prod_list-header-cell prod_list-sortable-header sortable-header" data-sort="deadline_date" tabindex="0">
                 Deadline <i class="fas fa-sort"></i>
             </div>
-            <!-- 10. Akcje -->
+            <!-- 12. Akcje -->
             <div class="prod_list-header-cell">
                 Akcje
             </div>
@@ -335,20 +340,26 @@
      ============================================================================ -->
 <!-- TEMPLATE: WIERSZ PRODUKTU -->
 <template id="product-row-template">
-    <div class="prod_list-product-row" data-product-id="" data-priority="" data-status="">
+    <div class="prod_list-product-row" data-product-id="" data-priority="" data-status="" data-is-priority="false" data-order-number="">
         <!-- 1. Checkbox -->
         <div class="prod_list-checkbox-cell">
             <input type="checkbox" class="form-check-input prod_list-product-checkbox" />
         </div>
-        <!-- 2. Chwytak (drag) -->
+        <!-- 2. Gwiazdka priorytetu -->
+        <div class="prod_list-star-cell">
+            <button class="prod_list-star-btn" title="Oznacz jako priorytetowe">
+                <i class="fas fa-star"></i>
+            </button>
+        </div>
+        <!-- 3. Chwytak (drag) -->
         <div class="prod_list-drag-cell" draggable="true">
             <i class="fas fa-grip-vertical"></i>
         </div>
-        <!-- 3. Priorytet -->
+        <!-- 4. Priorytet (numer) -->
         <div class="prod_list-priority-cell">
             <div class="prod_list-priority-rank">0</div>
         </div>
-        <!-- 4. Klient (nazwa + numery zamówień) -->
+        <!-- 5. Klient (nazwa + numery zamówień) -->
         <div class="prod_list-client-cell">
             <div class="prod_list-client-name"></div>
             <div class="prod_list-order-numbers">
@@ -356,28 +367,28 @@
                 <span class="prod_list-bl-order-number"></span>
             </div>
         </div>
-        <!-- 5. Produkt (nazwa + ID systemowy) -->
+        <!-- 6. Produkt (nazwa + ID systemowy) -->
         <div class="prod_list-product-info">
             <div class="prod_list-product-name"></div>
             <div class="prod_list-product-id"></div>
         </div>
-        <!-- 6. Ilość -->
+        <!-- 7. Ilość -->
         <div class="prod_list-quantity-cell">
             <div class="prod_list-quantity-value"></div>
         </div>
-        <!-- 7. Objętość -->
+        <!-- 8. Objętość -->
         <div class="prod_list-volume-cell">
             <div class="prod_list-volume-value"></div>
         </div>
-        <!-- 8. Status -->
+        <!-- 9. Status -->
         <div class="prod_list-status-cell">
             <span class="prod_list-status-badge"></span>
         </div>
-        <!-- 9. Deadline -->
+        <!-- 10. Deadline -->
         <div class="prod_list-deadline-cell">
             <span class="prod_list-deadline-value"></span>
         </div>
-        <!-- 10. Akcje -->
+        <!-- 11. Akcje -->
         <div class="prod_list-actions-cell">
             <span class="prod_list-attachment-icon" title="Produkt ma załącznik" style="display: none;">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -415,6 +426,21 @@
         <span class="filter-badge-label"></span>
         <i class="fas fa-times remove-filter"></i>
     </span>
+</template>
+
+<!-- TEMPLATE: TOOLTIP WYBORU GWIAZDKI (dla zamówień z wieloma produktami) -->
+<template id="star-tooltip-template">
+    <div class="prod_list-star-tooltip" data-order-number="">
+        <div class="star-tooltip-header">Oznacz jako priorytetowe</div>
+        <div class="star-tooltip-buttons">
+            <button class="star-tooltip-btn star-tooltip-order" type="button">
+                <i class="fas fa-boxes me-1"></i>Całe zamówienie
+            </button>
+            <button class="star-tooltip-btn star-tooltip-product" type="button">
+                <i class="fas fa-cube me-1"></i>Ten produkt
+            </button>
+        </div>
+    </div>
 </template>
 
 <!-- TEMPLATE: MODAL AKCJI GRUPOWYCH -->

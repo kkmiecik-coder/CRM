@@ -11,10 +11,12 @@
     // ================================
     const CONFIG = {
         apiEndpoint: '/ai-assistant/chat',
+        streamEndpoint: '/ai-assistant/chat/stream',
         statusEndpoint: '/ai-assistant/status',
         storageKey: 'woodpower_ai_chat_history',
         maxHistoryMessages: 50,
-        welcomeMessage: 'Cześć! Jestem asystentem WoodPower CRM. Mogę pomóc Ci w kwestiach związanych z produktami, zamówieniami i obsługą systemu. W czym mogę pomóc?'
+        welcomeMessage: 'Cześć! Jestem asystentem WoodPower CRM. Mogę pomóc Ci w kwestiach związanych z produktami, zamówieniami i obsługą systemu. W czym mogę pomóc?',
+        useSSE: true  // Włącz Server-Sent Events dla statusów
     };
 
     // ================================
@@ -217,15 +219,186 @@
 
         console.log('[AI Chat] Wysyłam wiadomość:', message);
 
+        // Przygotuj historię dla API (ostatnie 10 wiadomości)
+        const historyForApi = state.history.slice(-10).map(msg => ({
+            role: msg.role,
+            content: msg.content
+        }));
+
+        if (CONFIG.useSSE) {
+            // Użyj SSE dla statusów w czasie rzeczywistym
+            sendMessageSSE(message, historyForApi);
+        } else {
+            // Fallback na zwykły fetch
+            sendMessageFetch(message, historyForApi);
+        }
+    }
+
+    /**
+     * Wysyła wiadomość używając Server-Sent Events
+     */
+    async function sendMessageSSE(message, historyForApi) {
+        console.log('[AI Chat] Używam SSE endpoint:', CONFIG.streamEndpoint);
+
         try {
-            // Przygotuj historię dla API (ostatnie 10 wiadomości)
-            const historyForApi = state.history.slice(-10).map(msg => ({
-                role: msg.role,
-                content: msg.content
-            }));
+            // SSE wymaga POST, więc musimy użyć fetch + reader zamiast EventSource
+            const response = await fetch(CONFIG.streamEndpoint, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    message: message,
+                    history: historyForApi
+                })
+            });
 
-            console.log('[AI Chat] Wysyłam request do:', CONFIG.apiEndpoint);
+            if (!response.ok) {
+                // Błąd HTTP - spróbuj sparsować jako JSON
+                const errorText = await response.text();
+                let errorMsg = `Błąd serwera: ${response.status}`;
+                try {
+                    const errorData = JSON.parse(errorText);
+                    errorMsg = errorData.error || errorMsg;
+                } catch (e) {}
 
+                hideTypingIndicator();
+                addMessage('error', errorMsg);
+                state.isLoading = false;
+                elements.sendBtn.disabled = false;
+                return;
+            }
+
+            // Odczytuj stream SSE
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = '';
+
+            while (true) {
+                const { done, value } = await reader.read();
+
+                if (done) {
+                    console.log('[AI Chat] SSE stream zakończony');
+                    break;
+                }
+
+                buffer += decoder.decode(value, { stream: true });
+
+                // Przetwórz kompletne eventy (oddzielone \n\n)
+                const events = buffer.split('\n\n');
+                buffer = events.pop(); // Ostatni może być niekompletny
+
+                for (const eventText of events) {
+                    if (!eventText.trim() || eventText.startsWith(':')) {
+                        // Pomiń puste i komentarze (keepalive)
+                        continue;
+                    }
+
+                    // Parsuj event SSE
+                    const lines = eventText.split('\n');
+                    let eventType = 'message';
+                    let eventData = '';
+
+                    for (const line of lines) {
+                        if (line.startsWith('event:')) {
+                            eventType = line.slice(6).trim();
+                        } else if (line.startsWith('data:')) {
+                            eventData = line.slice(5).trim();
+                        }
+                    }
+
+                    if (!eventData) continue;
+
+                    try {
+                        const data = JSON.parse(eventData);
+                        handleSSEEvent(eventType, data);
+
+                        // Zakończ po complete lub error
+                        if (eventType === 'complete' || eventType === 'error') {
+                            return;
+                        }
+                    } catch (e) {
+                        console.error('[AI Chat] Błąd parsowania SSE:', e, eventData);
+                    }
+                }
+            }
+
+        } catch (error) {
+            console.error('[AI Chat] SSE error:', error);
+            hideTypingIndicator();
+            addMessage('error', `Problem z połączeniem: ${error.message}`);
+        } finally {
+            state.isLoading = false;
+            elements.sendBtn.disabled = false;
+            elements.input.focus();
+        }
+    }
+
+    /**
+     * Tłumaczy angielskie komunikaty błędów na polski
+     */
+    function translateErrorMessage(message) {
+        const translations = {
+            'The model is overloaded. Please try again later.': 'Mam za duże obciążenie. Proszę spróbuj zapytać jeszcze raz za chwilę.',
+            'model is overloaded': 'Model AI jest przeciążony. Spróbuj ponownie za chwilę.',
+            'rate limit': 'Osiągnięto limit zapytań.',
+            'timeout': 'Przekroczono czas oczekiwania na odpowiedź.',
+        };
+
+        // Sprawdź dokładne dopasowanie
+        if (translations[message]) {
+            return translations[message];
+        }
+
+        // Sprawdź częściowe dopasowanie (case-insensitive)
+        const messageLower = message.toLowerCase();
+        for (const [eng, pl] of Object.entries(translations)) {
+            if (messageLower.includes(eng.toLowerCase())) {
+                return pl;
+            }
+        }
+
+        return message;
+    }
+
+    /**
+     * Obsługuje zdarzenia SSE
+     */
+    function handleSSEEvent(eventType, data) {
+        console.log('[AI Chat] SSE event:', eventType, data);
+
+        switch (eventType) {
+            case 'status':
+                // Aktualizuj tekst statusu
+                updateTypingStatus(data.message);
+                break;
+
+            case 'complete':
+                // Odpowiedź gotowa
+                hideTypingIndicator();
+                addMessage('assistant', data.response);
+                break;
+
+            case 'error':
+                // Błąd
+                hideTypingIndicator();
+                if (data.retry_after) {
+                    addMessage('error', `⏳ Osiągnięto limit zapytań. Spróbuj ponownie za **${data.retry_after} sekund**.`);
+                } else {
+                    const errorMsg = translateErrorMessage(data.error || 'Wystąpił nieznany błąd');
+                    addMessage('error', errorMsg);
+                }
+                break;
+        }
+    }
+
+    /**
+     * Fallback - wysyła wiadomość używając zwykłego fetch
+     */
+    async function sendMessageFetch(message, historyForApi) {
+        console.log('[AI Chat] Wysyłam request do:', CONFIG.apiEndpoint);
+
+        try {
             const response = await fetch(CONFIG.apiEndpoint, {
                 method: 'POST',
                 headers: {
@@ -265,7 +438,7 @@
                     const retryMsg = `⏳ Osiągnięto limit zapytań. Spróbuj ponownie za **${data.retry_after} sekund**.`;
                     addMessage('error', retryMsg);
                 } else {
-                    const errorMsg = data.error || 'Wystąpił nieznany błąd';
+                    const errorMsg = translateErrorMessage(data.error || 'Wystąpił nieznany błąd');
                     console.error('[AI Chat] Błąd z serwera:', errorMsg);
                     addMessage('error', errorMsg);
                 }
@@ -274,7 +447,7 @@
             console.error('[AI Chat] Fetch error:', error);
             console.error('[AI Chat] Error stack:', error.stack);
             hideTypingIndicator();
-            addMessage('error', `Problem z połączeniem: ${error.message}`);
+            addMessage('error', translateErrorMessage(`Problem z połączeniem: ${error.message}`));
         } finally {
             state.isLoading = false;
             elements.sendBtn.disabled = false;
@@ -398,9 +571,24 @@
         const typing = document.createElement('div');
         typing.className = 'ai-chat-typing';
         typing.id = 'ai-chat-typing';
-        typing.innerHTML = '<span></span><span></span><span></span>';
+        typing.innerHTML = `
+            <div class="ai-chat-typing-icon">
+                <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/>
+                </svg>
+            </div>
+            <span class="ai-chat-typing-text">Przetwarzam...</span>
+        `;
         elements.messages.appendChild(typing);
         scrollToBottom();
+    }
+
+    function updateTypingStatus(message) {
+        const typingText = document.querySelector('#ai-chat-typing .ai-chat-typing-text');
+        if (typingText) {
+            typingText.textContent = message;
+            scrollToBottom();
+        }
     }
 
     function hideTypingIndicator() {

@@ -15,7 +15,9 @@ const stepLabels = [
     'Formularz'
 ];
 
-let uploadedFile = null;
+let uploadedFiles = [];
+const MAX_FILES = 2;
+const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB per plik
 let formData = {};
 
 // ============================================================================
@@ -506,7 +508,10 @@ function setupFileUpload() {
 
     fileInput.addEventListener('change', function (e) {
         if (e.target.files.length > 0) {
-            handleFile(e.target.files[0]);
+            // Obsługa wielu plików naraz
+            for (let i = 0; i < e.target.files.length; i++) {
+                handleFile(e.target.files[i]);
+            }
         }
     });
 
@@ -525,13 +530,15 @@ function setupFileUpload() {
         uploadArea.classList.remove('dragover');
 
         if (e.dataTransfer.files.length > 0) {
-            handleFile(e.dataTransfer.files[0]);
+            // Obsługa wielu plików naraz
+            for (let i = 0; i < e.dataTransfer.files.length; i++) {
+                handleFile(e.dataTransfer.files[i]);
+            }
         }
     });
 }
 
 function handleFile(file) {
-    const maxSize = 5 * 1024 * 1024; // 5MB
     const allowedTypes = [
         'application/pdf',
         'image/jpeg',
@@ -540,47 +547,107 @@ function handleFile(file) {
         'application/vnd.oasis.opendocument.text'
     ];
 
-    if (file.size > maxSize) {
-        alert(`Plik jest za duży (${(file.size / 1024 / 1024).toFixed(1)} MB). Maksymalny rozmiar to 5 MB.`);
+    // Sprawdź limit plików
+    if (uploadedFiles.length >= MAX_FILES) {
+        alert(`Można dodać maksymalnie ${MAX_FILES} pliki NDA`);
         return;
     }
 
+    // Sprawdź rozmiar
+    if (file.size > MAX_FILE_SIZE) {
+        alert(`Plik "${file.name}" jest za duży (${(file.size / 1024 / 1024).toFixed(1)} MB). Maksymalny rozmiar to 5 MB.`);
+        return;
+    }
+
+    // Sprawdź typ
     if (!allowedTypes.includes(file.type)) {
         alert('Niedozwolony typ pliku. Akceptowane formaty: PDF, JPG, PNG, DOCX, ODT');
         return;
     }
 
-    uploadedFile = file;
+    // Sprawdź czy plik o tej nazwie już nie został dodany
+    if (uploadedFiles.some(f => f.name === file.name)) {
+        alert(`Plik "${file.name}" został już dodany`);
+        return;
+    }
 
-    // Pokaż preview
+    uploadedFiles.push(file);
+    renderFilePreviews();
+}
+
+function renderFilePreviews() {
     const uploadArea = document.getElementById('fileUploadArea');
-    const filePreview = document.getElementById('filePreview');
-    const fileName = document.getElementById('fileName');
-    const fileSize = document.getElementById('fileSize');
+    const previewContainer = document.getElementById('filesPreviewContainer');
 
-    if (!uploadArea || !filePreview || !fileName || !fileSize) return;
+    if (!previewContainer) return;
 
-    uploadArea.style.display = 'none';
-    filePreview.style.display = 'block';
-    fileName.textContent = file.name;
-    fileSize.textContent = `(${(file.size / 1024).toFixed(1)} KB)`;
+    // Wyczyść kontener
+    previewContainer.innerHTML = '';
+
+    if (uploadedFiles.length === 0) {
+        // Pokaż obszar uploadu
+        if (uploadArea) uploadArea.style.display = 'block';
+        previewContainer.style.display = 'none';
+        return;
+    }
+
+    previewContainer.style.display = 'block';
+
+    // Renderuj preview każdego pliku
+    uploadedFiles.forEach((file, index) => {
+        const filePreview = document.createElement('div');
+        filePreview.className = 'file-preview-item';
+        filePreview.innerHTML = `
+            <div style="display: flex; align-items: center; justify-content: space-between; padding: 12px; background: #f9f9f9; border-radius: 8px; border: 2px solid var(--accent-orange); margin-bottom: 8px;">
+                <div style="display: flex; align-items: center; gap: 10px;">
+                    <span style="font-size: 24px;">📄</span>
+                    <div>
+                        <p style="font-weight: 600; margin-bottom: 2px; color: var(--text-primary); font-size: 13px;">
+                            Plik ${index + 1}: ${file.name}
+                        </p>
+                        <p style="font-size: 12px; color: #666;">(${(file.size / 1024).toFixed(1)} KB)</p>
+                    </div>
+                </div>
+                <button type="button" onclick="removeFile(${index})" style="background: #ff4444; color: white; border: none; padding: 6px 12px; border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 12px;">
+                    Usuń
+                </button>
+            </div>
+        `;
+        previewContainer.appendChild(filePreview);
+    });
+
+    // Pokaż/ukryj obszar uploadu w zależności od liczby plików
+    if (uploadArea) {
+        uploadArea.style.display = uploadedFiles.length < MAX_FILES ? 'block' : 'none';
+    }
+
+    // Aktualizuj licznik plików
+    const filesCountInfo = document.getElementById('filesCountInfo');
+    const filesCount = document.getElementById('filesCount');
+    if (filesCountInfo && filesCount) {
+        filesCount.textContent = uploadedFiles.length;
+        filesCountInfo.style.display = uploadedFiles.length > 0 ? 'block' : 'none';
+    }
 }
 
 function handleFileSelect(event) {
     if (event.target.files.length > 0) {
-        handleFile(event.target.files[0]);
+        for (let i = 0; i < event.target.files.length; i++) {
+            handleFile(event.target.files[i]);
+        }
     }
+    // Reset inputa, żeby można było ponownie wybrać ten sam plik
+    event.target.value = '';
 }
 
-function removeFile() {
-    uploadedFile = null;
-    const fileInput = document.getElementById('ndaFile');
-    const uploadArea = document.getElementById('fileUploadArea');
-    const filePreview = document.getElementById('filePreview');
+function removeFile(index) {
+    uploadedFiles.splice(index, 1);
 
+    // Reset inputa
+    const fileInput = document.getElementById('ndaFile');
     if (fileInput) fileInput.value = '';
-    if (uploadArea) uploadArea.style.display = 'block';
-    if (filePreview) filePreview.style.display = 'none';
+
+    renderFilePreviews();
 }
 
 // ============================================================================
@@ -722,9 +789,9 @@ async function submitForm() {
         return;
     }
 
-    // Sprawdź czy plik NDA został załączony
-    if (!uploadedFile) {
-        alert('Proszę załączyć podpisaną umowę NDA');
+    // Sprawdź czy przynajmniej 1 plik NDA został załączony
+    if (uploadedFiles.length === 0) {
+        alert('Proszę załączyć przynajmniej jeden plik NDA');
         return;
     }
 
@@ -738,10 +805,6 @@ async function submitForm() {
         return;
     }
 
-    // Przygotuj FormData
-    const formDataToSend = new FormData(form);
-    formDataToSend.append('nda_file', uploadedFile);
-
     // Zapisz oryginalny HTML przycisku
     const originalHTML = submitButton.innerHTML;
 
@@ -749,7 +812,7 @@ async function submitForm() {
     submitButton.innerHTML = `
         <span style="display: inline-flex; align-items: center; gap: 10px;">
             <div style="width: 20px; height: 20px; border: 3px solid rgba(255,255,255,0.3); border-top-color: white; border-radius: 50%; animation: spin 0.8s linear infinite;"></div>
-            Wysyłanie...
+            Sprawdzanie...
         </span>
     `;
     submitButton.disabled = true;
@@ -757,6 +820,63 @@ async function submitForm() {
     submitButton.style.cursor = 'not-allowed';
 
     try {
+        // ====================================================================
+        // KROK 1: Sprawdź czy email już istnieje (bez plików - lekkie żądanie)
+        // ====================================================================
+        const email = form.querySelector('#email').value;
+
+        const checkEmailResponse = await fetch('/partner-academy/api/application/check-email', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ email: email })
+        });
+
+        if (checkEmailResponse.ok) {
+            const checkResult = await checkEmailResponse.json();
+            if (checkResult.exists) {
+                // Email już istnieje - pokaż błąd
+                const emailField = document.getElementById('email');
+                const errorSpan = document.getElementById('error_email');
+                const errorMessage = 'Na podany adres email została już złożona aplikacja. Jeśli chcesz zaktualizować swoje zgłoszenie, skontaktuj się z nami.';
+
+                if (emailField && errorSpan) {
+                    errorSpan.textContent = errorMessage;
+                    errorSpan.style.display = 'block';
+                    emailField.classList.add('error');
+                    emailField.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                } else {
+                    alert(errorMessage);
+                }
+
+                // Przywróć przycisk
+                submitButton.innerHTML = originalHTML;
+                submitButton.disabled = false;
+                submitButton.style.opacity = '1';
+                submitButton.style.cursor = 'pointer';
+                return;
+            }
+        }
+
+        // ====================================================================
+        // KROK 2: Email OK - wysyłamy pełny formularz z plikami
+        // ====================================================================
+        submitButton.innerHTML = `
+            <span style="display: inline-flex; align-items: center; gap: 10px;">
+                <div style="width: 20px; height: 20px; border: 3px solid rgba(255,255,255,0.3); border-top-color: white; border-radius: 50%; animation: spin 0.8s linear infinite;"></div>
+                Wysyłanie...
+            </span>
+        `;
+
+        // Przygotuj FormData
+        const formDataToSend = new FormData(form);
+
+        // Dodaj wszystkie pliki NDA
+        uploadedFiles.forEach((file) => {
+            formDataToSend.append('nda_files', file);
+        });
+
         const response = await fetch('/partner-academy/api/application/submit', {
             method: 'POST',
             body: formDataToSend
@@ -843,7 +963,7 @@ async function submitForm() {
                 alert('Proszę poprawić zaznaczone pola formularza');
             }
             // Duplikat emaila
-            else if (result.error && result.error.includes('email już istnieje')) {
+            else if (result.error && (result.error.includes('email') && result.error.includes('aplikacja'))) {
                 const emailField = document.getElementById('email');
                 const errorSpan = document.getElementById('error_email');
 

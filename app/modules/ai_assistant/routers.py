@@ -3,8 +3,11 @@ AI Assistant API Router
 Obsługuje komunikację z Google Gemini API
 """
 
+import json
+import uuid
 import traceback
-from flask import request, jsonify, current_app, session
+import threading
+from flask import request, jsonify, current_app, session, Response
 from . import ai_assistant_bp
 from functools import wraps
 
@@ -137,6 +140,7 @@ def chat():
 def status():
     """Sprawdza status połączenia z AI"""
     try:
+        from .services import GeminiService
         gemini_service = GeminiService()
         is_configured = gemini_service.is_configured()
 
@@ -150,3 +154,145 @@ def status():
             'success': False,
             'error': str(e)
         }), 500
+
+
+@ai_assistant_bp.route('/chat/stream', methods=['POST'])
+@login_required_api
+def chat_stream():
+    """
+    Endpoint SSE do rozmowy z asystentem AI ze streamingiem statusów.
+
+    Request body:
+    {
+        "message": "Treść wiadomości użytkownika",
+        "history": [...]
+    }
+
+    Response: Server-Sent Events stream
+    - event: status - statusy przetwarzania
+    - event: complete - finalna odpowiedź
+    - event: error - błędy
+    """
+    current_app.logger.info("[AI Assistant] Otrzymano żądanie /chat/stream (SSE)")
+
+    try:
+        from .services import GeminiService
+        from .status_emitter import StatusEmitter, set_current_emitter
+    except ImportError as e:
+        current_app.logger.error(f"[AI Assistant] Błąd importu: {str(e)}")
+        return jsonify({
+            'success': False,
+            'error': f'Błąd konfiguracji modułu: {str(e)}'
+        }), 500
+
+    data = request.get_json()
+
+    if not data or 'message' not in data:
+        return jsonify({
+            'success': False,
+            'error': 'Brak wiadomości w żądaniu'
+        }), 400
+
+    user_message = data.get('message', '').strip()
+    history = data.get('history', [])
+
+    if not user_message:
+        return jsonify({
+            'success': False,
+            'error': 'Wiadomość nie może być pusta'
+        }), 400
+
+    if len(user_message) > 2000:
+        return jsonify({
+            'success': False,
+            'error': 'Wiadomość jest zbyt długa (max 2000 znaków)'
+        }), 400
+
+    # Generuj unikalny request_id
+    request_id = str(uuid.uuid4())
+    current_app.logger.info(f"[AI Assistant] SSE request_id: {request_id}")
+
+    # Pobierz user_id z sesji PRZED utworzeniem wątku
+    user_id = session.get('user_id')
+
+    # Utwórz emitter
+    emitter = StatusEmitter(request_id)
+
+    # Potrzebujemy app context dla wątku
+    app = current_app._get_current_object()
+
+    def process_chat():
+        """Funkcja przetwarzająca w osobnym wątku"""
+        with app.app_context():
+            try:
+                # Ustaw emitter dla bieżącego wątku
+                set_current_emitter(emitter)
+
+                # Ustaw user_id dla wątku (do użycia przez KnowledgeBase)
+                from .baselinker_ai_service import set_thread_user_id
+                set_thread_user_id(user_id)
+
+                gemini_service = GeminiService()
+
+                if not gemini_service.is_configured():
+                    emitter.emit_error('API nie jest skonfigurowane. Wklej klucz API Gemini w config/core.json')
+                    return
+
+                response = gemini_service.chat(user_message, history)
+
+                if response['success']:
+                    emitter.emit_complete(response['response'])
+                else:
+                    emitter.emit_error(
+                        response.get('error', 'Błąd komunikacji z AI'),
+                        response.get('retry_after')
+                    )
+
+            except Exception as e:
+                current_app.logger.error(f"[AI Assistant] SSE thread error: {str(e)}")
+                current_app.logger.error(traceback.format_exc())
+                emitter.emit_error(f'Wystąpił błąd serwera: {str(e)}')
+            finally:
+                set_current_emitter(None)
+                # Wyczyść thread-local user_id
+                from .baselinker_ai_service import set_thread_user_id
+                set_thread_user_id(None)
+
+    # Uruchom przetwarzanie w osobnym wątku
+    thread = threading.Thread(target=process_chat)
+    thread.start()
+
+    def generate_sse():
+        """Generator zdarzeń SSE"""
+        try:
+            while True:
+                event = emitter.get_event(timeout=60.0)
+
+                if event is None:
+                    # Timeout - wyślij keepalive
+                    yield ': keepalive\n\n'
+                    continue
+
+                event_type = event.get('type', 'status')
+                event_data = json.dumps(event, ensure_ascii=False)
+
+                yield f'event: {event_type}\ndata: {event_data}\n\n'
+
+                # Zakończ stream po complete lub error
+                if event_type in ('complete', 'error'):
+                    break
+
+        except GeneratorExit:
+            current_app.logger.info(f"[AI Assistant] SSE client disconnected: {request_id}")
+        finally:
+            emitter.close()
+
+    return Response(
+        generate_sse(),
+        mimetype='text/event-stream',
+        headers={
+            'Cache-Control': 'no-cache',
+            'Connection': 'keep-alive',
+            'X-Accel-Buffering': 'no'  # Dla nginx
+        }
+    )

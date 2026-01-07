@@ -221,6 +221,50 @@ function stopRotatingMessages() {
     messageTimeouts = [];
 }
 
+// ========== CACHE WYSYŁKI W LOCALSTORAGE ==========
+const SHIPPING_CACHE_KEY = 'calculator_shipping_cache';
+const SHIPPING_CACHE_TTL = 24 * 60 * 60 * 1000; // 24h w ms
+
+function getShippingParamsHash(params) {
+    // Prosty hash: length_width_height_weight (zaokrąglone)
+    return `${Math.round(params.length)}_${Math.round(params.width)}_${Math.round(params.height)}_${Math.round(params.weight)}`;
+}
+
+function getShippingCache(paramsHash) {
+    try {
+        const cached = localStorage.getItem(SHIPPING_CACHE_KEY);
+        if (!cached) return null;
+
+        const data = JSON.parse(cached);
+
+        // Sprawdź czy hash się zgadza
+        if (data.paramsHash !== paramsHash) return null;
+
+        // Sprawdź TTL (24h)
+        if (Date.now() - data.timestamp > SHIPPING_CACHE_TTL) {
+            localStorage.removeItem(SHIPPING_CACHE_KEY);
+            return null;
+        }
+
+        return data.quotes;
+    } catch (e) {
+        console.error('Błąd odczytu cache wysyłki:', e);
+        return null;
+    }
+}
+
+function setShippingCache(paramsHash, quotes) {
+    try {
+        localStorage.setItem(SHIPPING_CACHE_KEY, JSON.stringify({
+            paramsHash,
+            quotes,
+            timestamp: Date.now()
+        }));
+    } catch (e) {
+        console.error('Błąd zapisu cache wysyłki:', e);
+    }
+}
+
 // Zmodyfikowana funkcja calculateDelivery
 async function calculateDelivery() {
     dbg("Przycisk 'Oblicz wysyłkę' kliknięty");
@@ -241,6 +285,36 @@ async function calculateDelivery() {
         return;
     }
 
+    // Sprawdź cache
+    const paramsHash = getShippingParamsHash(shippingParams);
+    const cachedQuotes = getShippingCache(paramsHash);
+
+    if (cachedQuotes) {
+        dbg("Używam cache wysyłki:", paramsHash);
+
+        // Zastosuj mnożnik pakowania (tak jak przy normalnej odpowiedzi)
+        const quotes = cachedQuotes.map(option => ({
+            carrierName: option.carrierName,
+            rawGrossPrice: option.grossPrice,
+            rawNetPrice: option.netPrice,
+            grossPrice: option.grossPrice * shippingPackingMultiplier,
+            netPrice: option.netPrice * shippingPackingMultiplier,
+            carrierLogoLink: option.carrierLogoLink || ""
+        }));
+
+        const packingInfo = {
+            multiplier: shippingPackingMultiplier,
+            message: `Do cen wysyłki została doliczona kwota ${Math.round((shippingPackingMultiplier - 1) * 100)}% na pakowanie.`
+        };
+
+        if (overlay) {
+            stopRotatingMessages();
+            overlay.style.display = 'none';
+        }
+        showDeliveryModal(quotes, packingInfo);
+        return;
+    }
+
     try {
         const response = await fetch('/calculator/shipping_quote', {
             method: 'POST',
@@ -252,6 +326,10 @@ async function calculateDelivery() {
             // ✅ ZACHOWANA cała sekcja sukcesu - bez zmian
             const quotesData = await response.json();
             const quotesList = Array.isArray(quotesData) ? quotesData : [quotesData];
+
+            // Zapisz do cache (surowe dane bez mnożnika)
+            setShippingCache(paramsHash, quotesList);
+
             const quotes = quotesList.map(option => {
                 const rawGross = option.grossPrice;
                 const rawNet = option.netPrice;
@@ -1809,6 +1887,27 @@ function updateDeliverySelection(selection) {
     
     // Przelicz całe podsumowanie
     updateGlobalSummary();
+
+    // Pokaż przycisk czyszczenia kuriera
+    const clearBtn = document.querySelector('.clear-delivery');
+    if (clearBtn) clearBtn.style.display = 'flex';
+}
+
+/**
+ * Czyści wybranego kuriera z podsumowania
+ */
+function clearDeliverySelection() {
+    // Reset elementów podsumowania
+    deliverySummaryEls.courier.textContent = '';
+    deliverySummaryEls.brutto.textContent = '0.00 PLN';
+    deliverySummaryEls.netto.textContent = '0.00 PLN';
+
+    // Ukryj przycisk X
+    const clearBtn = document.querySelector('.clear-delivery');
+    if (clearBtn) clearBtn.style.display = 'none';
+
+    // Przelicz podsumowanie
+    updateGlobalSummary();
 }
 
 /**
@@ -1821,6 +1920,12 @@ function attachCalculateDeliveryListener() {
         return;
     }
     calculateDeliveryBtn.addEventListener('click', calculateDelivery);
+
+    // Listener dla przycisku czyszczenia kuriera
+    const clearDeliveryBtn = document.querySelector('.clear-delivery');
+    if (clearDeliveryBtn) {
+        clearDeliveryBtn.addEventListener('click', clearDeliverySelection);
+    }
 }
 
 /**

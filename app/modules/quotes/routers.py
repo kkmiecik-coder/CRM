@@ -2142,6 +2142,25 @@ def save_quote_changes(quote_id):
         if 'shipping_cost_brutto' in quote_data and quote_data['shipping_cost_brutto'] is not None:
             quote.shipping_cost_brutto = quote_data['shipping_cost_brutto']
 
+        # ===== USUWANIE PRODUKTÓW =====
+        deleted_product_indexes = data.get('deleted_product_indexes', [])
+        if deleted_product_indexes:
+            print(f"[BACKEND] Usuwanie produktów: {deleted_product_indexes}", file=sys.stderr)
+            for product_index in deleted_product_indexes:
+                # Usuń wszystkie QuoteItem dla tego produktu
+                deleted_items = QuoteItem.query.filter_by(
+                    quote_id=quote_id,
+                    product_index=product_index
+                ).delete()
+                print(f"[BACKEND] Usunięto {deleted_items} QuoteItem dla produktu {product_index}", file=sys.stderr)
+
+                # Usuń QuoteItemDetails dla tego produktu
+                deleted_details = QuoteItemDetails.query.filter_by(
+                    quote_id=quote_id,
+                    product_index=product_index
+                ).delete()
+                print(f"[BACKEND] Usunięto {deleted_details} QuoteItemDetails dla produktu {product_index}", file=sys.stderr)
+
         # ===== AKTUALIZACJA PRODUKTÓW =====
         products = data.get('products', [])
 

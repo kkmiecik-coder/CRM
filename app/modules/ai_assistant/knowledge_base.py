@@ -3,6 +3,11 @@ Baza wiedzy dla asystenta AI
 Zawiera informacje o produktach, procesach i systemie CRM
 """
 
+import re
+from typing import Optional
+
+from .status_emitter import emit_status
+
 
 class KnowledgeBase:
     """Klasa zarządzająca bazą wiedzy dla AI"""
@@ -627,6 +632,9 @@ Skontaktuj się z **Konradem** (administrator systemu).
         Returns:
             Odpowiedni fragment wiedzy
         """
+        # Emituj status: przeszukuję bazę wiedzy
+        emit_status('knowledge_base')
+
         message_lower = user_message.lower()
         relevant_sections = []
 
@@ -636,11 +644,63 @@ Skontaktuj się z **Konradem** (administrator systemu).
             if any(keyword in message_lower for keyword in keywords):
                 relevant_sections.append(section_data["content"])
 
+        # NOWE: Sprawdź czy pytanie dotyczy zamówień Baselinker
+        order_keywords = [
+            'zamówienie', 'zamowienie', 'order', 'status zamówienia', 'status zamowienia',
+            'opłacone', 'oplacone', 'płatność', 'platnosc', 'zapłacone', 'zaplacone',
+            'baselinker', 'bl ', 'numer zamówienia', 'id zamówienia',
+            'zamówienia klienta', 'zamowienia klienta'
+        ]
+
+        order_id = self._extract_order_id(user_message)
+        client_name = self._extract_client_name(user_message)
+
+        if order_id or client_name or any(kw in message_lower for kw in order_keywords):
+            # Emituj status: pobieram z Baselinker
+            emit_status('baselinker')
+            bl_context = self._get_baselinker_context(user_message, order_id, client_name)
+            if bl_context:
+                relevant_sections.append(bl_context)
+
+        # NOWE: Sprawdź czy pytanie dotyczy wycen lub klientów z CRM
+        crm_keywords = [
+            'wycena', 'wyceny', 'oferta', 'oferty', 'quote',
+            'klient', 'klienci', 'kontrahent',
+            'statystyki', 'statystyka', 'ile wycen', 'ile ofert',
+            'wartość wycen', 'wartosc wycen', 'suma wycen',
+            'ostatnie wyceny', 'moje wyceny', 'lista wycen',
+            'szczegóły wyceny', 'szczegoly wyceny', 'dane wyceny',
+            'szczegóły klienta', 'szczegoly klienta', 'dane klienta'
+        ]
+
+        quote_number = self._extract_quote_number(user_message)
+        crm_client_query = self._extract_crm_client_query(user_message)
+
+        # Logowanie ekstrakcji
+        from flask import current_app
+        current_app.logger.info(f"[KnowledgeBase] Ekstrakcja CRM: quote_number={quote_number}, crm_client_query={crm_client_query}")
+
+        if quote_number or crm_client_query or any(kw in message_lower for kw in crm_keywords):
+            current_app.logger.info(f"[KnowledgeBase] Wykryto zapytanie CRM, wywołuję _get_crm_context")
+            # Emituj status: sprawdzam w CRM (wyceny lub klienci)
+            if quote_number or any(kw in message_lower for kw in ['wycena', 'wyceny', 'oferta', 'oferty']):
+                emit_status('crm_quotes')
+            elif crm_client_query or 'klient' in message_lower:
+                emit_status('crm_clients')
+            else:
+                emit_status('crm_quotes')
+            crm_context = self._get_crm_context(user_message, quote_number, crm_client_query)
+            current_app.logger.info(f"[KnowledgeBase] Kontekst CRM (pierwsze 300 znaków): {crm_context[:300] if crm_context else 'BRAK'}...")
+            if crm_context:
+                relevant_sections.append(crm_context)
+
         # Sprawdź czy pytanie dotyczy szukania produktu w sklepie
         product_keywords = ['mamy', 'macie', 'jest w sklepie', 'szukam', 'klient szuka',
                           'klient chce', 'klient pyta', 'dostępny', 'dostępność',
                           'link do', 'gdzie kupić', 'w ofercie']
         if any(kw in message_lower for kw in product_keywords):
+            # Emituj status: szukam w sklepie
+            emit_status('prestashop')
             # Spróbuj wyszukać produkty w PrestaShop
             shop_results = self._search_shop_products(user_message)
             if shop_results:
@@ -799,3 +859,346 @@ Możemy wyprodukować praktycznie dowolny wymiar na zamówienie."""
         for section_data in self.knowledge.values():
             all_content.append(section_data["content"])
         return "\n\n".join(all_content)
+
+    # =====================================================
+    # INTEGRACJA Z BASELINKER
+    # =====================================================
+
+    def _extract_order_id(self, message: str) -> Optional[int]:
+        """Wyciąga ID zamówienia Baselinker z wiadomości"""
+        # Wzorce: "zamówienie 25208907", "order #25208907", "BL ID: 25208907"
+        patterns = [
+            r'zamówieni[ae]\s*(?:#|nr|numer|id)?[:\s]*(\d{7,10})',
+            r'zamowieni[ae]\s*(?:#|nr|numer|id)?[:\s]*(\d{7,10})',
+            r'order\s*(?:#|id)?[:\s]*(\d{7,10})',
+            r'bl\s*(?:#|id)?[:\s]*(\d{7,10})',
+            r'baselinker\s*(?:#|id)?[:\s]*(\d{7,10})',
+            r'#(\d{7,10})',
+            r'(?:^|\s)(\d{8})(?:\s|$)',  # 8-cyfrowy numer samodzielnie
+        ]
+
+        for pattern in patterns:
+            match = re.search(pattern, message, re.IGNORECASE)
+            if match:
+                return int(match.group(1))
+
+        return None
+
+    def _extract_client_name(self, message: str) -> Optional[str]:
+        """Wyciąga imię/nazwisko klienta z wiadomości"""
+        # Wzorce: "zamówienia Kowalskiego", "klient Jan Nowak", "znajdź Zbyszka"
+        patterns = [
+            r'zamówieni[ae]\s+(?:pana\s+|pani\s+)?([A-ZĄĆĘŁŃÓŚŹŻ][a-ząćęłńóśźż]+(?:\s+[A-ZĄĆĘŁŃÓŚŹŻ][a-ząćęłńóśźż]+)?)',
+            r'zamowieni[ae]\s+(?:pana\s+|pani\s+)?([A-ZĄĆĘŁŃÓŚŹŻ][a-ząćęłńóśźż]+(?:\s+[A-ZĄĆĘŁŃÓŚŹŻ][a-ząćęłńóśźż]+)?)',
+            r'klient[a]?\s+([A-ZĄĆĘŁŃÓŚŹŻ][a-ząćęłńóśźż]+(?:\s+[A-ZĄĆĘŁŃÓŚŹŻ][a-ząćęłńóśźż]+)?)',
+            r'(?:znajd[źz]|szukaj)\s+(?:pana\s+|pani\s+)?([A-ZĄĆĘŁŃÓŚŹŻ][a-ząćęłńóśźż]+)',
+            r'(?:status|sprawdź|sprawdz)\s+(?:pana\s+|pani\s+)?([A-ZĄĆĘŁŃÓŚŹŻ][a-ząćęłńóśźż]+(?:\s+[A-ZĄĆĘŁŃÓŚŹŻ][a-ząćęłńóśźż]+)?)',
+        ]
+
+        for pattern in patterns:
+            match = re.search(pattern, message, re.IGNORECASE)
+            if match:
+                name = match.group(1).strip()
+                # Odfiltruj słowa kluczowe które mogą być fałszywie pozytywne
+                skip_words = ['zamówienie', 'zamowienie', 'status', 'baselinker', 'order']
+                if name.lower() not in skip_words:
+                    return name
+
+        return None
+
+    def _get_baselinker_context(self, message: str, order_id: Optional[int] = None,
+                                client_name: Optional[str] = None) -> str:
+        """
+        Pobiera kontekst z Baselinker na podstawie wykrytych parametrów.
+        """
+        try:
+            from .baselinker_ai_service import BaselinkerAIService
+            from flask import current_app
+
+            service = BaselinkerAIService()
+            user = service._get_current_user()
+
+            if not user:
+                return "**Błąd:** Musisz być zalogowany aby sprawdzić zamówienia."
+
+            # Zapytanie o konkretne zamówienie po ID
+            if order_id:
+                result = service.get_order_by_id(order_id, user)
+                if result['success']:
+                    return f"**Dane zamówienia z Baselinker:**\n\n{service.format_order_response(result['order'])}"
+                else:
+                    return f"**Błąd:** {result['error']}"
+
+            # Zapytanie o klienta
+            if client_name:
+                clients = service.search_clients_by_name(client_name, user)
+
+                if not clients:
+                    # Sprawdź czy to partner i czy klient w ogóle istnieje
+                    if service._is_partner(user):
+                        return f"**Nie mogę udzielić odpowiedzi** - nie znaleziono klienta '{client_name}' wśród Twoich klientów."
+                    else:
+                        return f"**Nie znaleziono klientów** pasujących do: {client_name}"
+
+                if len(clients) == 1:
+                    # Jeden klient - pobierz jego zamówienia
+                    client = clients[0]
+                    result = service.get_orders_for_client(client['id'], user)
+
+                    if result['success']:
+                        if result['orders']:
+                            orders_text = "\n\n---\n\n".join([
+                                service.format_order_response(o) for o in result['orders']
+                            ])
+                            return f"**Zamówienia klienta {client['client_name']}:**\n\n{orders_text}"
+                        else:
+                            return f"**Klient {client['client_name']}** nie ma jeszcze zamówień w systemie."
+                    else:
+                        return f"**Błąd:** {result['error']}"
+
+                else:
+                    # Wielu klientów - poproś o doprecyzowanie
+                    clients_list = "\n".join([
+                        f"- {c['client_name']} ({c.get('city', 'brak miasta')}) - {c.get('email', 'brak email')}"
+                        for c in clients
+                    ])
+                    return f"""**Znaleziono {len(clients)} klientów pasujących do "{client_name}":**
+
+{clients_list}
+
+Proszę doprecyzować, o którego klienta chodzi (podaj pełne imię i nazwisko lub email)."""
+
+            # Ogólne zapytanie o zamówienia - dla partnerów pokaż statystyki
+            if service._is_partner(user):
+                stats = service.get_partner_statistics(user)
+                if stats['success']:
+                    s = stats['stats']
+                    return f"""**Twoje statystyki jako partnera:**
+- Wszystkich wycen: {s['total_quotes']}
+- Złożonych zamówień: {s['total_orders']}
+- Łączna wartość: {s['total_value']:.2f} zł
+- Konwersja: {s['conversion_rate']}%
+
+Jeśli chcesz sprawdzić konkretne zamówienie, podaj jego numer ID lub wyszukaj po kliencie."""
+
+            return """**Pomoc - zapytania o zamówienia Baselinker:**
+
+Mogę sprawdzić dla Ciebie:
+- Status konkretnego zamówienia (podaj ID np. "zamówienie 25208907")
+- Zamówienia klienta (np. "zamówienia Kowalskiego")
+- Czy zamówienie jest opłacone
+
+Podaj więcej szczegółów, a sprawdzę w systemie!"""
+
+        except Exception as e:
+            from flask import current_app
+            current_app.logger.error(f"[KnowledgeBase] Błąd pobierania kontekstu BL: {e}")
+            return f"**Błąd komunikacji z Baselinker:** {str(e)}"
+
+    # =====================================================
+    # INTEGRACJA Z CRM (WYCENY, KLIENCI)
+    # =====================================================
+
+    def _extract_quote_number(self, message: str) -> Optional[str]:
+        """Wyciąga numer wyceny z wiadomości"""
+        # Format numeru wyceny: NN/MM/RR/W
+        # NN = numer (1-3 cyfry), MM = miesiąc (2 cyfry), RR = rok (2 cyfry), W = litera
+        # Przykłady: 123/01/25/W, 45/12/24/W, 1/05/25/W
+        patterns = [
+            # Dokładny format: NN/MM/RR/W (z opcjonalnym słowem "wycena/oferta" przed)
+            r'(?:wycen[aę]|ofert[aę])\s+(\d{1,3}/\d{2}/\d{2}/[A-Z])',
+            r'(\d{1,3}/\d{2}/\d{2}/[A-Z])',
+            # Wariant z myślnikami: NN-MM-RR-W
+            r'(?:wycen[aę]|ofert[aę])\s+(\d{1,3}-\d{2}-\d{2}-[A-Z])',
+            r'(\d{1,3}-\d{2}-\d{2}-[A-Z])',
+            # Ogólny fallback: "wycena nr X" lub "oferta X"
+            r'(?:wycen[aę]|ofert[aę])\s+(?:nr|numer)?[:\s]*(\d{1,3}[/\-]\d{2}[/\-]\d{2}[/\-][A-Z])',
+        ]
+
+        for pattern in patterns:
+            match = re.search(pattern, message, re.IGNORECASE)
+            if match:
+                # Normalizuj format (zamień myślniki na ukośniki)
+                quote_num = match.group(1).replace('-', '/')
+                return quote_num.upper()
+
+        return None
+
+    def _extract_crm_client_query(self, message: str) -> Optional[str]:
+        """Wyciąga zapytanie o klienta dla CRM (różne od Baselinker)"""
+        # Wzorce: "dane klienta Kowalski", "szczegóły klienta 123", "klient Jan Nowak",
+        # "wyceny Pana Henryk Kamiński", "status wyceny Kowalskiego"
+
+        # Lista słów do odfiltrowania (nie są imionami/nazwiskami)
+        skip_words = [
+            'wycena', 'wyceny', 'wycenę', 'oferta', 'oferty', 'ofertę',
+            'dane', 'szczegóły', 'info', 'status', 'jaki', 'jaka', 'jest',
+            'pana', 'pani', 'pan', 'klienta', 'klient',
+            # Dodatkowe słowa które NIE są imionami
+            'znajdź', 'znajdz', 'szukaj', 'pokaż', 'pokaz', 'sprawdź', 'sprawdz',
+            'numerze', 'numer', 'nr', 'po', 'dla', 'tego', 'ten', 'ta', 'to',
+            'proszę', 'prosze', 'podaj', 'daj', 'zobacz',
+        ]
+
+        # WAŻNE: Jeśli wiadomość dotyczy szukania po numerze wyceny, NIE szukaj klienta
+        if re.search(r'(?:po\s+)?numer(?:ze)?\s+\d', message, re.IGNORECASE):
+            return None
+        if re.search(r'\d{1,3}[/\-]\d{2}[/\-]\d{2}[/\-][A-Z]', message, re.IGNORECASE):
+            return None
+
+        patterns = [
+            # "wyceny Pana/Pani [imię] [nazwisko]" - wymaga DWÓCH słów po Pan/Pani
+            r'(?:wycen[ayę]|ofert[ayę]|status)[^a-ząćęłńóśźż]*(?:pana?|pani)\s+([A-ZĄĆĘŁŃÓŚŹŻ][a-ząćęłńóśźż]+\s+[A-ZĄĆĘŁŃÓŚŹŻ][a-ząćęłńóśźż]+)',
+            # "Pana/Pani [imię] [nazwisko]" - wymaga DWÓCH słów
+            r'(?:pana?|pani)\s+([A-ZĄĆĘŁŃÓŚŹŻ][a-ząćęłńóśźż]+\s+[A-ZĄĆĘŁŃÓŚŹŻ][a-ząćęłńóśźż]+)',
+            # "dane klienta Kowalski"
+            r'(?:dane|szczegóły|szczegoly|info)\s+klient[a]?\s+([A-Za-ząćęłńóśźżĄĆĘŁŃÓŚŹŻ0-9\s]+)',
+            # "klient Jan Nowak"
+            r'klient[a]?\s+([A-ZĄĆĘŁŃÓŚŹŻ][a-ząćęłńóśźż]+(?:\s+[A-ZĄĆĘŁŃÓŚŹŻ][a-ząćęłńóśźż]+)?)',
+            # "wyceny dla klienta X"
+            r'(?:wyceny|oferty)\s+(?:dla\s+)?klient[a]?\s+([A-Za-ząćęłńóśźżĄĆĘŁŃÓŚŹŻ\s]+)',
+            # "[imię nazwisko] wyceny/wycena" (odwrotna kolejność)
+            r'([A-ZĄĆĘŁŃÓŚŹŻ][a-ząćęłńóśźż]+\s+[A-ZĄĆĘŁŃÓŚŹŻ][a-ząćęłńóśźż]+)\s+(?:wycen[ayę]|ofert[ayę])',
+        ]
+        # UWAGA: Usunięto fallback "samo imię i nazwisko" - zbyt agresywny
+
+        for pattern in patterns:
+            match = re.search(pattern, message, re.IGNORECASE)
+            if match:
+                name = match.group(1).strip()
+                # Odfiltruj słowa kluczowe - sprawdź każde słowo osobno
+                name_words = name.lower().split()
+                if all(word not in skip_words for word in name_words) and len(name) > 3:
+                    return name
+
+        return None
+
+    def _get_crm_context(self, message: str, quote_number: Optional[str] = None,
+                        client_query: Optional[str] = None) -> str:
+        """
+        Pobiera kontekst z lokalnej bazy CRM.
+        """
+        try:
+            from .crm_query_service import CRMQueryService
+            from flask import current_app
+
+            current_app.logger.info(f"[KnowledgeBase] _get_crm_context: quote_number={quote_number}, client_query={client_query}")
+
+            service = CRMQueryService()
+            user = service._get_current_user()
+
+            if not user:
+                current_app.logger.warning("[KnowledgeBase] Brak zalogowanego użytkownika")
+                return "**Błąd:** Musisz być zalogowany aby sprawdzić dane CRM."
+
+            current_app.logger.info(f"[KnowledgeBase] User: {user.username}, role: {user.role}")
+            message_lower = message.lower()
+
+            # Zapytanie o konkretną wycenę
+            if quote_number:
+                current_app.logger.info(f"[KnowledgeBase] Szukam wyceny: {quote_number}")
+                result = service.get_quote_details(user, quote_number)
+                current_app.logger.info(f"[KnowledgeBase] Wynik wyceny: success={result.get('success')}")
+                if result['success']:
+                    formatted = service.format_quote_response(result['quote'])
+                    current_app.logger.debug(f"[KnowledgeBase] Sformatowana wycena: {formatted[:200]}...")
+                    return f"**Dane wyceny z CRM:**\n\n{formatted}"
+                else:
+                    return f"**Błąd:** {result['error']}"
+
+            # Zapytanie o klienta
+            if client_query:
+                current_app.logger.info(f"[KnowledgeBase] Szukam klienta: {client_query}")
+                # Sprawdź czy to numer klienta czy nazwa
+                result = service.get_client_details(user, client_query)
+                current_app.logger.info(f"[KnowledgeBase] Wynik klienta: success={result.get('success')}")
+
+                if result['success']:
+                    return f"**Dane klienta z CRM:**\n\n{service.format_client_response(result['client'], result.get('recent_quotes', []))}"
+                else:
+                    # Może być kilku klientów - wyszukaj
+                    search_result = service.search_clients(user, client_query)
+                    if search_result['success'] and search_result['clients']:
+                        if len(search_result['clients']) == 1:
+                            # Jeden klient - pobierz szczegóły
+                            client = search_result['clients'][0]
+                            detail_result = service.get_client_details(user, client['client_number'])
+                            if detail_result['success']:
+                                return f"**Dane klienta z CRM:**\n\n{service.format_client_response(detail_result['client'], detail_result.get('recent_quotes', []))}"
+
+                        else:
+                            # Wielu klientów
+                            clients_list = "\n".join([
+                                f"- {c['client_name']} ({c.get('city', 'brak miasta')}) - {c.get('email', 'brak email')}"
+                                for c in search_result['clients']
+                            ])
+                            return f"""**Znaleziono {len(search_result['clients'])} klientów pasujących do "{client_query}":**
+
+{clients_list}
+
+Proszę doprecyzować, o którego klienta chodzi."""
+
+                    return f"**Nie znaleziono klienta:** {client_query}"
+
+            # Zapytanie o statystyki
+            if any(kw in message_lower for kw in ['statystyki', 'statystyka', 'ile wycen', 'suma wycen', 'wartość wycen']):
+                # Sprawdź czy podano okres
+                days = 30
+                if '7 dni' in message_lower or 'tydzień' in message_lower or 'tydzien' in message_lower:
+                    days = 7
+                elif '90 dni' in message_lower or '3 miesiące' in message_lower or '3 miesiac' in message_lower:
+                    days = 90
+                elif 'rok' in message_lower or '365' in message_lower:
+                    days = 365
+
+                result = service.get_quotes_statistics(user, days=days)
+                if result['success']:
+                    return f"**Dane z CRM:**\n\n{service.format_statistics_response(result['statistics'])}"
+                else:
+                    return f"**Błąd:** {result['error']}"
+
+            # Zapytanie o ostatnie wyceny
+            if any(kw in message_lower for kw in ['ostatnie wyceny', 'moje wyceny', 'lista wycen', 'pokaż wyceny', 'pokaz wyceny']):
+                # Sprawdź filtry
+                status_name = None
+                if 'zaakceptowan' in message_lower:
+                    status_name = 'zaakceptowan'
+                elif 'oczekuj' in message_lower or 'wysłan' in message_lower or 'wyslan' in message_lower:
+                    status_name = 'wysłan'
+                elif 'szkic' in message_lower or 'draft' in message_lower:
+                    status_name = 'szkic'
+
+                result = service.search_quotes(user, status_name=status_name, limit=10)
+                if result['success']:
+                    return f"**Dane z CRM:**\n\n{service.format_quotes_list_response(result['quotes'])}"
+                else:
+                    return f"**Błąd:** {result['error']}"
+
+            # Ogólna pomoc o wycenach/klientach
+            if service._is_partner(user):
+                stats = service.get_quotes_statistics(user, days=30)
+                if stats['success']:
+                    s = stats['statistics']
+                    return f"""**Twoje dane w CRM (ostatnie 30 dni):**
+- Wycen: {s['total_quotes']}
+- Łączna wartość: {s['total_value']:.2f} zł
+- Złożonych zamówień: {s['with_orders']}
+
+Mogę pomóc ze szczegółami wyceny (podaj numer) lub klienta (podaj nazwę)."""
+
+            return """**Pomoc - zapytania o CRM:**
+
+Mogę sprawdzić dla Ciebie:
+- Szczegóły wyceny (podaj numer np. "wycena 123/01/25/W")
+- Dane klienta (np. "dane klienta Kowalski")
+- Statystyki wycen (np. "ile wycen w tym miesiącu")
+- Ostatnie wyceny (np. "pokaż ostatnie wyceny")
+
+Podaj więcej szczegółów!"""
+
+        except Exception as e:
+            from flask import current_app
+            import traceback
+            current_app.logger.error(f"[KnowledgeBase] Błąd pobierania kontekstu CRM: {e}")
+            current_app.logger.error(f"[KnowledgeBase] Traceback: {traceback.format_exc()}")
+            return f"**Błąd komunikacji z bazą CRM:** {str(e)}"

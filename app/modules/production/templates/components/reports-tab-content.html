@@ -243,6 +243,15 @@
             Wydajność dzienna
         </h4>
         <div class="chart-controls">
+            <select id="reports-chart-station-select" class="form-select form-select-sm" title="Wybierz stanowisko">
+                <option value="all" selected>Wszystkie stanowiska</option>
+                <option value="cutting">Wycinanie</option>
+                <option value="assembly">Składanie</option>
+                <option value="gluing">Sklejanie</option>
+                <option value="formatting">Formatowanie</option>
+                <option value="finishing">Wykańczanie</option>
+                <option value="packaging">Pakowanie</option>
+            </select>
             <select id="reports-chart-period-select" class="form-select form-select-sm">
                 <option value="30" selected>30 dni</option>
                 <option value="90">3 miesiące</option>
@@ -261,6 +270,32 @@
         <div class="chart-loader" id="reports-chart-loader" style="display: none;">
             <div class="spinner-border text-primary" role="status"></div>
             <span class="ms-2">Ładowanie danych wykresu...</span>
+        </div>
+        <!-- Tabelka podsumowania - widoczna tylko dla pojedynczego stanowiska -->
+        <div id="reports-chart-summary" class="mt-3" style="display: none;">
+            <div class="card">
+                <div class="card-header py-2">
+                    <strong>Podsumowanie dla wybranego okresu</strong>
+                </div>
+                <div class="card-body py-2">
+                    <table class="table table-sm table-borderless mb-0">
+                        <tbody>
+                            <tr>
+                                <td style="width: 50%;"><span style="color: #007bff;">&#9632;</span> Objętość</td>
+                                <td class="text-end"><strong id="summary-volume">-</strong></td>
+                            </tr>
+                            <tr>
+                                <td><span style="color: #fd7e14;">&#9632;</span> Ilość produktów</td>
+                                <td class="text-end"><strong id="summary-quantity">-</strong></td>
+                            </tr>
+                            <tr>
+                                <td><span style="color: #28a745;">&#9632;</span> Wartość netto</td>
+                                <td class="text-end"><strong id="summary-value">-</strong></td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
         </div>
     </div>
 </div>
@@ -476,50 +511,73 @@ async function initializeDailyChart() {
 
     // Ustaw event listenery dla kontrolek
     const periodSelect = document.getElementById('reports-chart-period-select');
+    const stationSelect = document.getElementById('reports-chart-station-select');
     const refreshBtn = document.getElementById('reports-chart-refresh-btn');
 
     if (periodSelect) {
         periodSelect.addEventListener('change', (e) => {
             const period = parseInt(e.target.value);
+            const station = stationSelect ? stationSelect.value : 'all';
             console.log('[Reports Tab] Period changed to:', period);
-            loadReportsChartData(period);
+            loadReportsChartData(period, station);
+        });
+    }
+
+    if (stationSelect) {
+        stationSelect.addEventListener('change', (e) => {
+            const station = e.target.value;
+            const period = periodSelect ? parseInt(periodSelect.value) : 30;
+            console.log('[Reports Tab] Station changed to:', station);
+            loadReportsChartData(period, station);
         });
     }
 
     if (refreshBtn) {
         refreshBtn.addEventListener('click', () => {
             const period = periodSelect ? parseInt(periodSelect.value) : 30;
-            console.log('[Reports Tab] Refresh clicked, period:', period);
-            loadReportsChartData(period);
+            const station = stationSelect ? stationSelect.value : 'all';
+            console.log('[Reports Tab] Refresh clicked, period:', period, 'station:', station);
+            loadReportsChartData(period, station);
         });
     }
 
-    // Załaduj dane dla domyślnego okresu (30 dni)
-    await loadReportsChartData(30);
+    // Załaduj dane dla domyślnego okresu (30 dni) i wszystkich stanowisk
+    await loadReportsChartData(30, 'all');
 }
 
-async function loadReportsChartData(period) {
+async function loadReportsChartData(period, station = 'all') {
     const loader = document.getElementById('reports-chart-loader');
     const canvas = document.getElementById('reports-performance-chart');
+    const summaryDiv = document.getElementById('reports-chart-summary');
 
     // Pokaż loader
     if (loader) loader.style.display = 'flex';
     if (canvas) canvas.style.opacity = '0.35';
 
     try {
-        // Użyj tego samego API co Dashboard
-        const response = await fetch(`/production/api/chart-data?period=${period}`);
+        // Użyj tego samego API co Dashboard z parametrem station
+        const response = await fetch(`/production/api/chart-data?period=${period}&station=${station}`);
         const data = await response.json();
 
         if (data.success) {
-            createReportsPerformanceChart(data.chart_data, period);
+            createReportsPerformanceChart(data.chart_data, period, data.mode, data.station);
+
+            // Aktualizuj tabelkę podsumowania (tylko dla pojedynczego stanowiska)
+            if (data.mode === 'single_station' && data.summary) {
+                updateChartSummary(data.summary);
+                if (summaryDiv) summaryDiv.style.display = 'block';
+            } else {
+                if (summaryDiv) summaryDiv.style.display = 'none';
+            }
         } else {
             console.error('[Reports Tab] Chart data error:', data.error);
             showReportsChartError('Błąd ładowania danych: ' + (data.error || 'Nieznany błąd'));
+            if (summaryDiv) summaryDiv.style.display = 'none';
         }
     } catch (error) {
         console.error('[Reports Tab] Failed to load chart data:', error);
         showReportsChartError('Błąd połączenia z serwerem');
+        if (summaryDiv) summaryDiv.style.display = 'none';
     } finally {
         // Ukryj loader
         if (loader) loader.style.display = 'none';
@@ -527,7 +585,7 @@ async function loadReportsChartData(period) {
     }
 }
 
-function createReportsPerformanceChart(chartData, period) {
+function createReportsPerformanceChart(chartData, period, mode = 'all_stations', station = 'all') {
     const canvas = document.getElementById('reports-performance-chart');
     if (!canvas) {
         console.error('[Reports Tab] Canvas reports-performance-chart not found!');
@@ -536,7 +594,7 @@ function createReportsPerformanceChart(chartData, period) {
 
     if (typeof Chart === 'undefined') {
         console.warn('[Reports Tab] Chart.js not loaded yet, waiting...');
-        setTimeout(() => createReportsPerformanceChart(chartData, period), 100);
+        setTimeout(() => createReportsPerformanceChart(chartData, period, mode, station), 100);
         return;
     }
 
@@ -565,6 +623,172 @@ function createReportsPerformanceChart(chartData, period) {
     } else if (period === 365) {
         chartTitle += ' (12 miesięcy - agregacja miesięczna)';
         xAxisLabel = 'Miesiąc';
+    }
+
+    // Konfiguracja skal - różna dla trybu pojedynczego stanowiska vs wszystkich
+    let scales;
+    let tooltipCallbacks;
+
+    if (mode === 'single_station') {
+        // Tryb pojedynczego stanowiska - trzy osie Y
+        // Kolory: niebieski (#007bff) dla objętości, pomarańczowy (#fd7e14) dla ilości, zielony (#28a745) dla wartości
+        scales = {
+            x: {
+                title: {
+                    display: true,
+                    text: xAxisLabel,
+                    font: { size: 12, weight: 'bold' }
+                },
+                ticks: {
+                    maxRotation: 45,
+                    minRotation: 0,
+                    autoSkip: true,
+                    maxTicksLimit: period > 90 ? 12 : 15
+                },
+                grid: {
+                    display: true,
+                    drawBorder: true
+                }
+            },
+            y: {
+                type: 'linear',
+                display: true,
+                position: 'left',
+                title: {
+                    display: true,
+                    text: 'Objętość (m³)',
+                    font: { size: 11, weight: 'bold' },
+                    color: '#007bff'
+                },
+                beginAtZero: true,
+                ticks: {
+                    callback: function(value) {
+                        return value.toFixed(2);
+                    },
+                    color: '#007bff',
+                    font: { size: 10 }
+                },
+                grid: {
+                    display: true,
+                    drawBorder: true
+                }
+            },
+            y1: {
+                type: 'linear',
+                display: true,
+                position: 'right',
+                title: {
+                    display: true,
+                    text: 'Ilość (szt.)',
+                    font: { size: 11, weight: 'bold' },
+                    color: '#fd7e14'
+                },
+                beginAtZero: true,
+                ticks: {
+                    callback: function(value) {
+                        return Math.round(value);
+                    },
+                    color: '#fd7e14',
+                    font: { size: 10 }
+                },
+                grid: {
+                    drawOnChartArea: false
+                }
+            },
+            y2: {
+                type: 'linear',
+                display: true,
+                position: 'right',
+                title: {
+                    display: true,
+                    text: 'Wartość (PLN)',
+                    font: { size: 11, weight: 'bold' },
+                    color: '#28a745'
+                },
+                beginAtZero: true,
+                ticks: {
+                    callback: function(value) {
+                        return value.toLocaleString('pl-PL', {maximumFractionDigits: 0});
+                    },
+                    color: '#28a745',
+                    font: { size: 10 }
+                },
+                grid: {
+                    drawOnChartArea: false
+                },
+                // Przesuń oś y2 trochę w prawo od y1
+                afterFit: function(scaleInstance) {
+                    scaleInstance.paddingLeft = 10;
+                }
+            }
+        };
+
+        tooltipCallbacks = {
+            label: function(context) {
+                let label = context.dataset.label || '';
+                if (label) label += ': ';
+                if (context.dataset.yAxisID === 'y1') {
+                    label += Math.round(context.parsed.y) + ' szt.';
+                } else if (context.dataset.yAxisID === 'y2') {
+                    label += context.parsed.y.toLocaleString('pl-PL', {minimumFractionDigits: 2, maximumFractionDigits: 2}) + ' PLN';
+                } else {
+                    label += context.parsed.y.toFixed(2) + ' m³';
+                }
+                return label;
+            }
+        };
+    } else {
+        // Tryb wszystkich stanowisk - jedna oś Y (objętość)
+        scales = {
+            x: {
+                title: {
+                    display: true,
+                    text: xAxisLabel,
+                    font: { size: 12, weight: 'bold' }
+                },
+                ticks: {
+                    maxRotation: 45,
+                    minRotation: 0,
+                    autoSkip: true,
+                    maxTicksLimit: period > 90 ? 12 : 15
+                },
+                grid: {
+                    display: true,
+                    drawBorder: true
+                }
+            },
+            y: {
+                title: {
+                    display: true,
+                    text: 'Objętość (m³)',
+                    font: { size: 12, weight: 'bold' }
+                },
+                beginAtZero: true,
+                ticks: {
+                    callback: function(value) {
+                        return value.toFixed(1) + ' m³';
+                    }
+                },
+                grid: {
+                    display: true,
+                    drawBorder: true
+                }
+            }
+        };
+
+        tooltipCallbacks = {
+            label: function(context) {
+                let label = context.dataset.label || '';
+                if (label) label += ': ';
+                label += context.parsed.y.toFixed(2) + ' m³';
+                return label;
+            },
+            footer: function(tooltipItems) {
+                let sum = 0;
+                tooltipItems.forEach(item => sum += item.parsed.y);
+                return 'Suma: ' + sum.toFixed(2) + ' m³';
+            }
+        };
     }
 
     try {
@@ -599,61 +823,14 @@ function createReportsPerformanceChart(chartData, period) {
                         padding: 12,
                         titleFont: { size: 13, weight: 'bold' },
                         bodyFont: { size: 12 },
-                        callbacks: {
-                            label: function(context) {
-                                let label = context.dataset.label || '';
-                                if (label) label += ': ';
-                                label += context.parsed.y.toFixed(2) + ' m³';
-                                return label;
-                            },
-                            footer: function(tooltipItems) {
-                                let sum = 0;
-                                tooltipItems.forEach(item => sum += item.parsed.y);
-                                return 'Suma: ' + sum.toFixed(2) + ' m³';
-                            }
-                        }
+                        callbacks: tooltipCallbacks
                     }
                 },
-                scales: {
-                    x: {
-                        title: {
-                            display: true,
-                            text: xAxisLabel,
-                            font: { size: 12, weight: 'bold' }
-                        },
-                        ticks: {
-                            maxRotation: 45,
-                            minRotation: 0,
-                            autoSkip: true,
-                            maxTicksLimit: period > 90 ? 12 : 15
-                        },
-                        grid: {
-                            display: true,
-                            drawBorder: true
-                        }
-                    },
-                    y: {
-                        title: {
-                            display: true,
-                            text: 'Objętość (m³)',
-                            font: { size: 12, weight: 'bold' }
-                        },
-                        beginAtZero: true,
-                        ticks: {
-                            callback: function(value) {
-                                return value.toFixed(1) + ' m³';
-                            }
-                        },
-                        grid: {
-                            display: true,
-                            drawBorder: true
-                        }
-                    }
-                }
+                scales: scales
             }
         });
 
-        console.log('[Reports Tab] Performance chart created successfully');
+        console.log('[Reports Tab] Performance chart created successfully, mode:', mode);
     } catch (error) {
         console.error('[Reports Tab] Error creating performance chart:', error);
         showReportsChartError('Błąd tworzenia wykresu: ' + error.message);
@@ -669,6 +846,23 @@ function showReportsChartError(message) {
                 <strong>Błąd wykresu:</strong> ${message}
             </div>
         `;
+    }
+}
+
+function updateChartSummary(summary) {
+    // Aktualizuj wartości w tabelce podsumowania
+    const volumeEl = document.getElementById('summary-volume');
+    const quantityEl = document.getElementById('summary-quantity');
+    const valueEl = document.getElementById('summary-value');
+
+    if (volumeEl) {
+        volumeEl.textContent = summary.total_volume.toFixed(2) + ' m³';
+    }
+    if (quantityEl) {
+        quantityEl.textContent = summary.total_quantity.toLocaleString('pl-PL') + ' szt.';
+    }
+    if (valueEl) {
+        valueEl.textContent = summary.total_value.toLocaleString('pl-PL', {minimumFractionDigits: 2, maximumFractionDigits: 2}) + ' PLN';
     }
 }
 

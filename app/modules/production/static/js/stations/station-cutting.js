@@ -94,7 +94,155 @@
             }
         }
 
+        // Initialize expand icons for fullscreen mode
+        if (typeof window.initExpandIcons === 'function') {
+            window.initExpandIcons();
+            console.log('[Cutting] Expand icons initialized');
+        }
+
+        // Initialize order search button
+        if (typeof window.initOrderSearchButton === 'function') {
+            window.initOrderSearchButton();
+            console.log('[Cutting] Order search button initialized');
+        }
+
+        // Start assembly progress polling (synchronizacja z stanowiskiem składania)
+        startAssemblyProgressPolling();
+
         console.log('[Cutting] Station initialized successfully');
+    }
+
+    // ========================================================================
+    // ASSEMBLY PROGRESS POLLING (synchronizacja z stanowiskiem składania)
+    // ========================================================================
+
+    let assemblyPollingInterval = null;
+
+    function startAssemblyProgressPolling() {
+        // Odpytuj co 2.5 sekundy
+        const POLLING_INTERVAL_MS = 2500;
+
+        assemblyPollingInterval = setInterval(async () => {
+            await fetchAssemblyProgress();
+        }, POLLING_INTERVAL_MS);
+
+        console.log(`[Cutting] Assembly progress polling started (${POLLING_INTERVAL_MS}ms)`);
+
+        // Wykonaj pierwsze odpytanie od razu
+        fetchAssemblyProgress();
+    }
+
+    function stopAssemblyProgressPolling() {
+        if (assemblyPollingInterval) {
+            clearInterval(assemblyPollingInterval);
+            assemblyPollingInterval = null;
+            console.log('[Cutting] Assembly progress polling stopped');
+        }
+    }
+
+    function getVisibleProductIds() {
+        const productRows = document.querySelectorAll('.product-row[data-product-id]');
+        const ids = [];
+        productRows.forEach(row => {
+            const productId = row.dataset.productId;
+            if (productId) {
+                ids.push(productId);
+            }
+        });
+        return ids;
+    }
+
+    async function fetchAssemblyProgress() {
+        const productIds = getVisibleProductIds();
+
+        if (productIds.length === 0) {
+            return;
+        }
+
+        // Sprawdź czy online
+        if (window.StationCommon && !window.StationCommon.isOnline()) {
+            return;
+        }
+
+        try {
+            const response = await fetch('/production/api/get-assembly-progress', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ product_ids: productIds })
+            });
+
+            if (!response.ok) {
+                console.warn('[Cutting] Assembly progress fetch failed:', response.status);
+                return;
+            }
+
+            const data = await response.json();
+
+            if (data.success && data.progress) {
+                updateAssemblyCounters(data.progress);
+            }
+        } catch (error) {
+            console.warn('[Cutting] Assembly progress fetch error:', error);
+        }
+    }
+
+    function updateAssemblyCounters(progress) {
+        for (const [productId, data] of Object.entries(progress)) {
+            const productRow = document.querySelector(`.product-row[data-product-id="${productId}"]`);
+
+            if (!productRow) continue;
+
+            const currentAssemblyDone = parseInt(productRow.dataset.quantityDoneAssembly || '0');
+            const newAssemblyDone = data.quantity_done_assembly || 0;
+
+            // Jeśli wartość się zmieniła, zaktualizuj UI
+            if (currentAssemblyDone !== newAssemblyDone) {
+                productRow.dataset.quantityDoneAssembly = newAssemblyDone;
+
+                // Znajdź badge-assembled lub stwórz nowy
+                let badgeAssembled = productRow.querySelector('.badge-assembled');
+                const productParams = productRow.querySelector('.product-params');
+
+                if (newAssemblyDone > 0) {
+                    // Dodaj lub zaktualizuj badge
+                    if (!badgeAssembled && productParams) {
+                        // Stwórz nowy badge
+                        badgeAssembled = document.createElement('span');
+                        badgeAssembled.className = 'badge badge-assembled';
+                        badgeAssembled.innerHTML = `
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M19.439 7.85c-.049.322.059.648.289.878l1.568 1.568c.47.47.706 1.087.706 1.704s-.235 1.233-.706 1.704l-1.611 1.611a.98.98 0 0 1-.837.276c-.47-.07-.802-.48-.968-.925a2.501 2.501 0 1 0-3.214 3.214c.446.166.855.497.925.968a.979.979 0 0 1-.276.837l-1.61 1.61a2.404 2.404 0 0 1-1.705.707 2.402 2.402 0 0 1-1.704-.706l-1.568-1.568a1.026 1.026 0 0 0-.877-.29c-.493.074-.84.504-1.02.968a2.5 2.5 0 1 1-3.237-3.237c.464-.18.894-.527.967-1.02a1.026 1.026 0 0 0-.289-.877l-1.568-1.568A2.402 2.402 0 0 1 1.998 12c0-.617.236-1.234.706-1.704L4.315 8.69a.979.979 0 0 1 .837-.276c.47.07.802.48.968.925a2.501 2.501 0 1 0 3.214-3.214c-.446-.166-.855-.497-.925-.968a.979.979 0 0 1 .276-.837l1.61-1.61a2.404 2.404 0 0 1 1.705-.708c.617 0 1.234.236 1.704.706l1.568 1.568c.23.23.556.338.877.29.493-.074.84-.504 1.02-.968a2.5 2.5 0 1 1 3.237 3.237c-.464.18-.894.527-.967 1.02Z"></path>
+                            </svg>
+                            <span class="assembled-counter">${newAssemblyDone}/${data.quantity}</span>
+                        `;
+                        // Wstaw jako pierwszy element w product-params
+                        productParams.insertBefore(badgeAssembled, productParams.firstChild);
+                        productRow.classList.add('has-assembly');
+                    } else if (badgeAssembled) {
+                        // Zaktualizuj istniejący badge
+                        const counterSpan = badgeAssembled.querySelector('.assembled-counter');
+                        if (counterSpan) {
+                            counterSpan.textContent = `${newAssemblyDone}/${data.quantity}`;
+                        } else {
+                            // Starszy format bez span - zaktualizuj cały tekst
+                            const textNode = Array.from(badgeAssembled.childNodes).find(n => n.nodeType === Node.TEXT_NODE);
+                            if (textNode) {
+                                textNode.textContent = `${newAssemblyDone}/${data.quantity}`;
+                            }
+                        }
+                    }
+                    badgeAssembled.title = `Złożone: ${newAssemblyDone}/${data.quantity}`;
+                } else if (badgeAssembled) {
+                    // Usuń badge jeśli assembly = 0
+                    badgeAssembled.remove();
+                    productRow.classList.remove('has-assembly');
+                }
+
+                console.log(`[Cutting] Updated assembly progress for ${productId}: ${currentAssemblyDone} -> ${newAssemblyDone}`);
+            }
+        }
     }
 
     // ========================================================================
@@ -472,22 +620,13 @@
         completeBtn.classList.remove('offline');
         completeBtn.textContent = 'ZAKOŃCZ WYCIĘCIE';
 
-        // Check if all products are complete (quantity_done == quantity)
+        // NOWA LOGIKA: Stanowisko wycinania - przycisk zawsze dostępny
+        // Operator sam decyduje kiedy skończył wycinanie (może być 0/10 jeśli nie było co wycinać)
         const productRows = card.querySelectorAll('.product-row');
-        let allComplete = true;
-        let hasProducts = false;
+        const hasProducts = productRows.length > 0;
 
-        productRows.forEach(row => {
-            hasProducts = true;
-            const qtyDone = parseInt(row.dataset.quantityDone) || 0;
-            const qtyTotal = parseInt(row.dataset.quantity) || 0;
-            if (qtyDone < qtyTotal) {
-                allComplete = false;
-            }
-        });
-
-        // Enable button only if ALL products are complete
-        if (allComplete && hasProducts) {
+        // Przycisk dostępny jeśli są jakiekolwiek produkty i jest online
+        if (hasProducts) {
             completeBtn.disabled = false;
         } else {
             completeBtn.disabled = true;
@@ -677,6 +816,11 @@
 
             // Update today's m³ statistics
             fetchTodayM3();
+
+            // Close fullscreen if active
+            if (typeof window.closeFullscreenIfActive === 'function') {
+                window.closeFullscreenIfActive(orderNumber);
+            }
 
             // Wait 1 second, then remove card with animation
             setTimeout(() => {
@@ -915,7 +1059,7 @@
         // Skip if card is being processed
         if (card.dataset.inProgress === 'true') return;
 
-        // Update each product's quantity data
+        // Update each product's quantity data and priority
         orderData.products.forEach(product => {
             const productRow = card.querySelector(`[data-product-id="${product.id}"]`);
             if (productRow) {
@@ -931,8 +1075,33 @@
                     }
                     updateProductButtonStates(productRow, serverQtyDone, product.quantity);
                 }
+
+                // Update priority status
+                const currentPriority = productRow.dataset.isPriority === 'true';
+                const serverPriority = product.is_priority || false;
+                if (currentPriority !== serverPriority) {
+                    productRow.dataset.isPriority = serverPriority ? 'true' : 'false';
+                    if (serverPriority) {
+                        productRow.classList.add('priority-product');
+                    } else {
+                        productRow.classList.remove('priority-product');
+                    }
+                }
             }
         });
+
+        // Update order-level priority classes
+        const allProductsPriority = orderData.products.length > 0 && orderData.products.every(p => p.is_priority);
+        const anyProductPriority = orderData.products.some(p => p.is_priority);
+
+        card.dataset.allPriority = allProductsPriority ? 'true' : 'false';
+        card.dataset.anyPriority = anyProductPriority ? 'true' : 'false';
+
+        if (allProductsPriority) {
+            card.classList.add('priority-order');
+        } else {
+            card.classList.remove('priority-order');
+        }
 
         updateOrderCounter(card);
         updateCompleteButtonState(card);
@@ -985,6 +1154,11 @@
             if (typeof window.reinitializeAttachmentHandlers === 'function') {
                 window.reinitializeAttachmentHandlers();
             }
+
+            // Re-initialize expand icons for the new card
+            if (typeof window.initExpandIcons === 'function') {
+                window.initExpandIcons();
+            }
         }
     }
 
@@ -1032,16 +1206,18 @@
             `;
 
             const completeClass = quantityDone === quantity ? 'product-complete' : '';
+            const priorityClass = product.is_priority ? ' priority-product' : '';
 
             return `
-                <div class="product-row ${completeClass}"
+                <div class="product-row ${completeClass}${priorityClass}"
                      data-product-id="${product.id}"
                      data-quantity="${quantity}"
                      data-quantity-done="${quantityDone}"
                      data-status="${product.current_status}"
                      data-species="${product.wood_species || ''}"
                      data-technology="${product.technology || ''}"
-                     data-wood-class="${product.wood_class || ''}">
+                     data-wood-class="${product.wood_class || ''}"
+                     data-is-priority="${product.is_priority ? 'true' : 'false'}">
                     <div class="product-left-col">
                         <div class="product-params">${paramsHTML}</div>
                         <div class="product-dimensions-row">${dimensionsBadge}</div>
@@ -1094,6 +1270,18 @@
             }
         }
 
+        // Ikona powiększenia (zawsze)
+        iconsHTML += `
+            <div class="header-icon-wrapper expand-icon-wrapper" title="Powiększ zamówienie">
+                <svg class="header-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="15 3 21 3 21 9"></polyline>
+                    <polyline points="9 21 3 21 3 15"></polyline>
+                    <line x1="21" y1="3" x2="14" y2="10"></line>
+                    <line x1="3" y1="21" x2="10" y2="14"></line>
+                </svg>
+            </div>
+        `;
+
         const clientOrderBadge = order.client_order_number ? `<span class="order-client-number">${order.client_order_number}</span>` : '';
         const blBadge = order.baselinker_order_id ? `<span class="order-baselinker">BL-${order.baselinker_order_id}</span>` : '';
 
@@ -1105,14 +1293,21 @@
             totalQty += (p.quantity || 1);
         });
 
+        // Calculate priority flags for order card
+        const allProductsPriority = order.products.length > 0 && order.products.every(p => p.is_priority);
+        const anyProductPriority = order.products.some(p => p.is_priority);
+        const orderPriorityClass = allProductsPriority ? ' priority-order' : '';
+
         return `
-            <div class="order-card"
+            <div class="order-card${orderPriorityClass}"
                  data-order-number="${order.order_number}"
                  data-priority-rank="${order.best_priority_rank}"
                  data-total-products="${order.total_products}"
                  data-total-quantity="${totalQty}"
                  data-total-volume="${order.total_volume}"
-                 data-in-progress="false">
+                 data-in-progress="false"
+                 data-all-priority="${allProductsPriority ? 'true' : 'false'}"
+                 data-any-priority="${anyProductPriority ? 'true' : 'false'}">
                 <div class="order-header">
                     <div class="order-header-row order-ids-row">
                         <span class="order-number">${order.order_number}</span>

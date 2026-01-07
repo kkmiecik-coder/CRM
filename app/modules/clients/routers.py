@@ -54,20 +54,160 @@ def clients_home():
 @require_module_access('clients')
 def get_all_clients():
     print("[API] /clients/api/clients zostalo wywolane")
-    
+
+    # Parametry paginacji i wyszukiwania
+    page = request.args.get('page', 1, type=int)
+    per_page = request.args.get('per_page', 20, type=int)
+    search = request.args.get('search', '', type=str).strip()
+
+    # Walidacja parametrów
+    if page < 1:
+        page = 1
+    if per_page < 1 or per_page > 200:
+        per_page = 20
+
     # ✅ NOWE: Filtrowanie per rola
     base_query = Client.query
-    clients = get_filtered_clients_query(base_query).all()
-    
-    return jsonify([
-        {
-            "id": c.id,
-            "client_number": c.client_number,
-            "client_name": c.client_name,
-            "email": c.email,
-            "phone": c.phone
-        } for c in clients
-    ])
+    filtered_query = get_filtered_clients_query(base_query)
+
+    # Wyszukiwanie jeśli podano frazę
+    if search:
+        search_filter = (
+            (Client.client_number.ilike(f"%{search}%")) |
+            (Client.client_name.ilike(f"%{search}%")) |
+            (Client.email.ilike(f"%{search}%")) |
+            (Client.phone.ilike(f"%{search}%"))
+        )
+        filtered_query = filtered_query.filter(search_filter)
+
+    # Sortowanie po nazwie klienta
+    filtered_query = filtered_query.order_by(Client.client_number.asc())
+
+    # Policz całkowitą liczbę rekordów
+    total_count = filtered_query.count()
+
+    # Pobierz stronę wyników
+    clients = filtered_query.offset((page - 1) * per_page).limit(per_page).all()
+
+    return jsonify({
+        "clients": [
+            {
+                "id": c.id,
+                "client_number": c.client_number,
+                "client_name": c.client_name,
+                "email": c.email,
+                "phone": c.phone,
+                "notes": c.notes
+            } for c in clients
+        ],
+        "pagination": {
+            "page": page,
+            "per_page": per_page,
+            "total_count": total_count,
+            "total_pages": (total_count + per_page - 1) // per_page
+        }
+    })
+
+
+@clients_bp.route('/api/add_client', methods=['POST'])
+@require_module_access('clients')
+def add_client():
+    """Dodaje nowego klienta do bazy danych."""
+    user_id = session.get('user_id')
+    if not user_id:
+        return jsonify({"error": "Brak autoryzacji"}), 401
+
+    try:
+        data = request.json
+
+        # Walidacja wymaganych pól
+        client_name = data.get("client_name", "").strip()
+        if not client_name:
+            return jsonify({"error": "Nazwa klienta jest wymagana"}), 400
+
+        # Walidacja email (opcjonalny, ale jeśli podany to musi być poprawny)
+        email = data.get("email", "").strip() or None
+        if email:
+            import re
+            if not re.match(r'^[^\s@]+@[^\s@]+\.[^\s@]+$', email):
+                return jsonify({"error": "Nieprawidłowy format email"}), 400
+            # Sprawdź unikalność emaila
+            existing = Client.query.filter_by(email=email).first()
+            if existing:
+                return jsonify({"error": f"Email {email} jest już przypisany do innego klienta"}), 409
+
+        # Generuj nowy numer klienta (client_number)
+        # Format: K-RRRRMMDD-NNN (np. K-20251210-001)
+        today = date.today()
+        prefix = f"K-{today.strftime('%Y%m%d')}-"
+
+        # Znajdź najwyższy numer z dzisiejszego dnia
+        last_client = Client.query.filter(
+            Client.client_number.like(f"{prefix}%")
+        ).order_by(Client.client_number.desc()).first()
+
+        if last_client and last_client.client_number:
+            try:
+                last_num = int(last_client.client_number.split('-')[-1])
+                new_num = last_num + 1
+            except (ValueError, IndexError):
+                new_num = 1
+        else:
+            new_num = 1
+
+        client_number = f"{prefix}{str(new_num).zfill(3)}"
+
+        # Pobierz dane dostawy
+        delivery = data.get("delivery", {})
+        invoice = data.get("invoice", {})
+
+        # Utwórz nowego klienta
+        new_client = Client(
+            client_number=client_number,
+            client_name=data.get("client_delivery_name", "").strip() or client_name,  # Imię i nazwisko
+            email=email,
+            phone=data.get("phone", "").strip() or None,
+            notes=data.get("notes", "").strip() or None,
+            # Adres dostawy
+            delivery_name=delivery.get("name", "").strip() or None,
+            delivery_company=delivery.get("company", "").strip() or None,
+            delivery_address=delivery.get("address", "").strip() or None,
+            delivery_zip=delivery.get("zip", "").strip() or None,
+            delivery_city=delivery.get("city", "").strip() or None,
+            delivery_region=delivery.get("region", "").strip() or None,
+            delivery_country=delivery.get("country", "").strip() or None,
+            # Dane do faktury
+            invoice_name=invoice.get("name", "").strip() or None,
+            invoice_company=invoice.get("company", "").strip() or None,
+            invoice_address=invoice.get("address", "").strip() or None,
+            invoice_zip=invoice.get("zip", "").strip() or None,
+            invoice_city=invoice.get("city", "").strip() or None,
+            invoice_nip=invoice.get("nip", "").strip() or None,
+            # Właściciel
+            created_by_user_id=user_id
+        )
+
+        # UWAGA: Mapowanie pól (tak jak w update_client):
+        # - client_name (z frontu) → to jest "Nazwa klienta" w formularzu
+        # - client_delivery_name (z frontu) → to jest "Imię i nazwisko"
+        # W bazie: client_number = "Nazwa klienta", client_name = "Imię i nazwisko"
+        new_client.client_number = client_name  # "Nazwa klienta" (np. nazwa firmy)
+
+        db.session.add(new_client)
+        db.session.commit()
+
+        logger.info(f"[add_client] Utworzono nowego klienta: {client_number} (ID: {new_client.id}) przez user_id={user_id}")
+
+        return jsonify({
+            "success": True,
+            "client_id": new_client.id,
+            "client_number": new_client.client_number
+        })
+
+    except Exception as e:
+        db.session.rollback()
+        logger.exception("[add_client] Błąd podczas tworzenia klienta")
+        return jsonify({"error": f"Błąd podczas tworzenia klienta: {str(e)}"}), 500
 
 
 @clients_bp.route('/<int:client_id>/data', methods=['GET'])
@@ -90,6 +230,7 @@ def get_client_data(client_id):
         "client_name": client.client_name,
         "email": client.email,
         "phone": client.phone,
+        "notes": client.notes,
         "delivery": {
             "name": client.delivery_name,
             "company": client.delivery_company,
@@ -170,6 +311,7 @@ def update_client(client_id):
         client.client_name = client_delivery_name  # "Imię i nazwisko" (np. "Konrad Kmiecik")
         client.email = email if email else None  # Zapisz NULL jeśli email pusty
         client.phone = data.get("phone", "").strip()
+        client.notes = data.get("notes", "").strip() or None
         client.source = data.get("source", "").strip()
 
         # Aktualizuj adres dostawy

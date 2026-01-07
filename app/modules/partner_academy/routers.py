@@ -28,10 +28,10 @@ Data: 2025-09-30
 Ostatnia aktualizacja: 2025-10-09 - Usunięcie E-learning (Element 2)
 """
 
-from flask import render_template, request, jsonify, current_app, send_file, session, redirect, url_for, flash, make_response
+from flask import render_template, request, jsonify, current_app, send_file, session, redirect, url_for, flash, make_response, Response
 from modules.partner_academy import partner_academy_bp
 from modules.partner_academy.services import ApplicationService, EmailService
-from modules.partner_academy.validators import validate_application_data, validate_file
+from modules.partner_academy.validators import validate_application_data, validate_files
 from modules.partner_academy.utils import rate_limit, generate_nda_pdf
 from modules.users.decorators import require_module_access
 from extensions import db
@@ -48,9 +48,12 @@ from functools import wraps
 
 def json_response(data, status=200):
     """Helper do tworzenia JSON response z właściwym Content-Type"""
-    response = make_response(jsonify(data), status)
-    response.headers['Content-Type'] = 'application/json; charset=utf-8'
-    return response
+    return Response(
+        json.dumps(data, ensure_ascii=False),
+        status=status,
+        mimetype='application/json',
+        content_type='application/json; charset=utf-8'
+    )
 
 
 # ============================================================================
@@ -135,16 +138,22 @@ def submit_application():
     try:
         # Pobierz dane z formularza
         form_data = request.form.to_dict()
-        
-        # Pobierz plik NDA
-        nda_file = request.files.get('nda_file')
-        
-        current_app.logger.info(f"Received application from: {form_data.get('email')}")
-        
+
+        # Pobierz pliki NDA (obsługa wielu plików - max 2)
+        nda_files = request.files.getlist('nda_files')
+
+        # Fallback na starą nazwę dla kompatybilności wstecznej
+        if not nda_files or len(nda_files) == 0 or (len(nda_files) == 1 and nda_files[0].filename == ''):
+            single_file = request.files.get('nda_file')
+            if single_file and single_file.filename:
+                nda_files = [single_file]
+
+        current_app.logger.info(f"Received application from: {form_data.get('email')} with {len(nda_files)} NDA files")
+
         # ========================================================================
         # WALIDACJA DANYCH FORMULARZA
         # ========================================================================
-        
+
         is_valid, errors = validate_application_data(form_data)
 
         if not is_valid:
@@ -153,52 +162,52 @@ def submit_application():
                 'success': False,
                 'errors': errors
             }, 400)
-        
+
         # ========================================================================
-        # WALIDACJA PLIKU NDA
+        # WALIDACJA PLIKÓW NDA (min 1, max 2)
         # ========================================================================
-        
-        file_valid, file_error = validate_file(nda_file)
-        
-        if not file_valid:
-            current_app.logger.warning(f"File validation error: {file_error}")
+
+        files_valid, files_error = validate_files(nda_files)
+
+        if not files_valid:
+            current_app.logger.warning(f"Files validation error: {files_error}")
             return json_response({
                 'success': False,
-                'error': file_error
+                'error': files_error
             }, 400)
-        
+
         # ========================================================================
         # SPRAWDŹ CZY EMAIL JUŻ ISTNIEJE
         # ========================================================================
-        
+
         existing_application = ApplicationService.get_application_by_email(
             form_data['email']
         )
-        
+
         if existing_application:
             current_app.logger.warning(
                 f"Duplicate application attempt: {form_data['email']}"
             )
             return json_response({
                 'success': False,
-                'error': 'Aplikacja z tym adresem email już istnieje'
+                'error': 'Na podany adres email została już złożona aplikacja. Jeśli chcesz zaktualizować swoje zgłoszenie, skontaktuj się z nami.'
             }, 400)
-        
+
         # ========================================================================
         # UTWÓRZ APLIKACJĘ
         # ========================================================================
-        
+
         # Pobierz IP i user agent
         ip_address = request.headers.get('X-Forwarded-For', request.remote_addr)
         if ip_address and ',' in ip_address:
             ip_address = ip_address.split(',')[0].strip()
-        
+
         user_agent = request.headers.get('User-Agent', '')
-        
+
         # Utwórz aplikację w bazie
         application = ApplicationService.create_application(
             form_data=form_data,
-            file=nda_file,
+            files=nda_files,
             ip_address=ip_address,
             user_agent=user_agent
         )
@@ -512,12 +521,19 @@ def get_admin_application_detail(application_id):
             'has_nda_file': bool(app.nda_filepath)
         }
         
-        # Dane NDA
+        # Dane NDA 1
         if app.nda_filepath:
             detail['nda_filename'] = app.nda_filename
             detail['nda_filesize'] = app.nda_filesize
             detail['nda_mime_type'] = app.nda_mime_type
-        
+
+        # Dane NDA 2
+        detail['has_nda_file_2'] = bool(app.nda_filepath_2)
+        if app.nda_filepath_2:
+            detail['nda_filename_2'] = app.nda_filename_2
+            detail['nda_filesize_2'] = app.nda_filesize_2
+            detail['nda_mime_type_2'] = app.nda_mime_type_2
+
         # Dane B2B
         if app.is_b2b:
             detail['company_name'] = app.company_name
@@ -609,21 +625,31 @@ def add_application_note(application_id):
 
 
 @partner_academy_bp.route('/admin/api/application/<int:application_id>/nda')
+@partner_academy_bp.route('/admin/api/application/<int:application_id>/nda/<int:file_number>')
 @require_module_access('partner_academy')
-def download_nda(application_id):
-    """Pobieranie pliku NDA"""
+def download_nda(application_id, file_number=1):
+    """Pobieranie pliku NDA (1 lub 2)"""
     try:
-        filepath = ApplicationService.get_nda_file_path(application_id)
-        
+        application = PartnerApplication.query.get_or_404(application_id)
+
+        if file_number == 1:
+            filepath = application.nda_filepath
+            filename = application.nda_filename
+        elif file_number == 2:
+            filepath = application.nda_filepath_2
+            filename = application.nda_filename_2
+        else:
+            return jsonify({'success': False, 'message': 'Nieprawidłowy numer pliku'}), 400
+
         if not filepath or not os.path.exists(filepath):
-            return jsonify({'success': False, 'message': 'Plik NDA nie istnieje'}), 404
-        
+            return jsonify({'success': False, 'message': f'Plik NDA {file_number} nie istnieje'}), 404
+
         return send_file(
             filepath,
             as_attachment=True,
-            download_name=os.path.basename(filepath)
+            download_name=filename or os.path.basename(filepath)
         )
-        
+
     except Exception as e:
         current_app.logger.error(f"NDA download error: {str(e)}")
         return jsonify({'success': False, 'message': 'Błąd pobierania pliku'}), 500

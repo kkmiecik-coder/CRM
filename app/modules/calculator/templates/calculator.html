@@ -2,6 +2,7 @@
 <html lang="pl">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Kalkulator - Wood Power CRM</title>
     <link rel="icon" href="{{ url_for('static', filename='images/favicon.png') }}" type="image/png">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
@@ -328,7 +329,15 @@
                                         <div class="copy-tooltip-option" data-copy-type="quote">Kopiuj wycenę</div>
                                     </div>
                                 </div>
-                                <button type="button" class="calculate-delivery">Oblicz wysyłkę</button>
+                                <div class="delivery-buttons-group">
+                                    <button type="button" class="calculate-delivery">Oblicz wysyłkę</button>
+                                    <button type="button" class="clear-delivery" title="Wyczyść kuriera" style="display: none;">
+                                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                            <line x1="18" y1="6" x2="6" y2="18"></line>
+                                            <line x1="6" y1="6" x2="18" y2="18"></line>
+                                        </svg>
+                                    </button>
+                                </div>
                                 <button type="button" class="save-quote">Zapisz wycenę</button>
                             </div>
                         </div>

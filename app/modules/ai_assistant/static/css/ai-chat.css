@@ -274,46 +274,56 @@
     margin: 12px 0;
 }
 
-/* Typing indicator */
+/* Typing indicator - Wariant D: ikona + tekst */
 .ai-chat-typing {
     display: flex;
-    gap: 4px;
+    align-items: center;
+    gap: 10px;
     padding: 12px 16px;
     background: var(--ai-chat-assistant-bg);
     border-radius: 16px;
     border-bottom-left-radius: 4px;
     align-self: flex-start;
-    max-width: 60px;
+    max-width: 85%;
 }
 
-.ai-chat-typing span {
-    width: 8px;
-    height: 8px;
-    background: var(--ai-chat-text-secondary);
-    border-radius: 50%;
-    animation: typing 1.4s infinite ease-in-out;
+.ai-chat-typing-icon {
+    width: 24px;
+    height: 24px;
+    flex-shrink: 0;
+    animation: typing-pulse 1.5s ease-in-out infinite;
 }
 
-.ai-chat-typing span:nth-child(1) {
-    animation-delay: 0s;
+.ai-chat-typing-icon svg {
+    width: 100%;
+    height: 100%;
+    fill: var(--ai-chat-primary);
 }
 
-.ai-chat-typing span:nth-child(2) {
-    animation-delay: 0.2s;
+.ai-chat-typing-text {
+    font-size: 14px;
+    color: var(--ai-chat-text-secondary);
+    font-style: italic;
+    animation: typing-fade 2s ease-in-out infinite;
 }
 
-.ai-chat-typing span:nth-child(3) {
-    animation-delay: 0.4s;
-}
-
-@keyframes typing {
-    0%, 60%, 100% {
-        transform: translateY(0);
-        opacity: 0.4;
-    }
-    30% {
-        transform: translateY(-4px);
+@keyframes typing-pulse {
+    0%, 100% {
+        transform: scale(1);
         opacity: 1;
+    }
+    50% {
+        transform: scale(1.1);
+        opacity: 0.7;
+    }
+}
+
+@keyframes typing-fade {
+    0%, 100% {
+        opacity: 1;
+    }
+    50% {
+        opacity: 0.6;
     }
 }
 
