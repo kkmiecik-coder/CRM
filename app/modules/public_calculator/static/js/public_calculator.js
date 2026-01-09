@@ -382,8 +382,203 @@ document.addEventListener("DOMContentLoaded", () => {
 
         // Wstaw oba układy
         container.innerHTML = tableHTML + mobileHTML;
+
+        // Pokaż przyciski "Zapytaj o ofertę"
+        const inquiryBtnWrapper = document.getElementById("inquiryBtnWrapper");
+        const inquiryBtnMobile = document.getElementById("openInquiryModalMobile");
+        if (inquiryBtnWrapper) inquiryBtnWrapper.classList.add("visible");
+        if (inquiryBtnMobile) inquiryBtnMobile.classList.add("visible");
     }
 
     // Inicjalna kalkulacja przy załadowaniu
     calculate();
+
+    // ======= OBSŁUGA MODALA ZAPYTANIA =======
+    const calculatorSource = JSON.parse(document.getElementById("calculator-source")?.textContent || '"retail"');
+
+    const modalOverlay = document.getElementById("inquiryModalOverlay");
+    const openModalBtn = document.getElementById("openInquiryModal");
+    const openModalBtnMobile = document.getElementById("openInquiryModalMobile");
+    const closeModalBtn = document.getElementById("closeInquiryModal");
+    const inquiryForm = document.getElementById("inquiryForm");
+    const inquiryFormContent = document.getElementById("inquiryFormContent");
+    const inquirySuccessContent = document.getElementById("inquirySuccessContent");
+    const inquiryError = document.getElementById("inquiryError");
+    const inquirySubmitBtn = document.getElementById("inquirySubmitBtn");
+
+    function openModal() {
+        if (modalOverlay) {
+            modalOverlay.classList.add("visible");
+            document.body.style.overflow = "hidden";
+        }
+    }
+
+    function closeModal() {
+        if (modalOverlay) {
+            modalOverlay.classList.remove("visible");
+            document.body.style.overflow = "";
+        }
+    }
+
+    function resetModal() {
+        if (inquiryForm) inquiryForm.reset();
+        if (inquiryFormContent) inquiryFormContent.style.display = "block";
+        if (inquirySuccessContent) inquirySuccessContent.style.display = "none";
+        if (inquiryError) {
+            inquiryError.style.display = "none";
+            inquiryError.textContent = "";
+        }
+        if (inquirySubmitBtn) inquirySubmitBtn.disabled = false;
+    }
+
+    openModalBtn?.addEventListener("click", openModal);
+    openModalBtnMobile?.addEventListener("click", openModal);
+    closeModalBtn?.addEventListener("click", () => {
+        closeModal();
+        setTimeout(resetModal, 300);
+    });
+
+    // Zamknij modal po kliknięciu w overlay
+    modalOverlay?.addEventListener("click", (e) => {
+        if (e.target === modalOverlay) {
+            closeModal();
+            setTimeout(resetModal, 300);
+        }
+    });
+
+    // Zamknij modal po naciśnięciu ESC
+    document.addEventListener("keydown", (e) => {
+        if (e.key === "Escape" && modalOverlay?.classList.contains("visible")) {
+            closeModal();
+            setTimeout(resetModal, 300);
+        }
+    });
+
+    // Obsługa wysyłania formularza
+    inquiryForm?.addEventListener("submit", async (e) => {
+        e.preventDefault();
+
+        const nameInput = document.getElementById("inquiryName");
+        const emailInput = document.getElementById("inquiryEmail");
+
+        const customerName = nameInput?.value.trim();
+        const customerEmail = emailInput?.value.trim();
+
+        // Walidacja
+        if (!customerName) {
+            showError("Podaj swoje imię");
+            return;
+        }
+        if (!customerEmail || !isValidEmail(customerEmail)) {
+            showError("Podaj poprawny adres email");
+            return;
+        }
+
+        // Zbierz dane wyceny
+        const dimensions = {
+            length: document.getElementById("length")?.value || "",
+            width: document.getElementById("width")?.value || "",
+            thickness: document.getElementById("thickness")?.value || "",
+            quantity: document.getElementById("quantity")?.value || "1"
+        };
+
+        const finishingType = document.querySelector(".finishing-btn.active[data-finishing-type]")?.dataset.finishingType || "Brak";
+        const finishingVariant = document.querySelector(".finishing-btn.active[data-finishing-variant]")?.dataset.finishingVariant || null;
+        const finishingColor = document.querySelector(".color-btn.active")?.dataset.finishingColor || null;
+
+        // Zbierz wyliczenia z tabeli
+        const calculations = collectCalculations();
+
+        // Wyślij zapytanie
+        inquirySubmitBtn.disabled = true;
+        inquirySubmitBtn.textContent = "Wysyłanie...";
+        hideError();
+
+        try {
+            const response = await fetch("/send_inquiry", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify({
+                    customer_name: customerName,
+                    customer_email: customerEmail,
+                    source: calculatorSource,
+                    dimensions: dimensions,
+                    finishing: finishingType,
+                    finishing_variant: finishingVariant,
+                    finishing_color: finishingColor,
+                    calculations: calculations
+                })
+            });
+
+            const data = await response.json();
+
+            if (response.ok && data.status === "ok") {
+                // Sukces
+                if (inquiryFormContent) inquiryFormContent.style.display = "none";
+                if (inquirySuccessContent) inquirySuccessContent.style.display = "block";
+
+                // Zamknij modal po 3 sekundach
+                setTimeout(() => {
+                    closeModal();
+                    setTimeout(resetModal, 300);
+                }, 3000);
+            } else {
+                showError(data.message || "Wystąpił błąd podczas wysyłania zapytania");
+                inquirySubmitBtn.disabled = false;
+                inquirySubmitBtn.textContent = "Wyślij zapytanie";
+            }
+        } catch (error) {
+            console.error("[inquiry] Błąd:", error);
+            showError("Wystąpił błąd połączenia. Spróbuj ponownie.");
+            inquirySubmitBtn.disabled = false;
+            inquirySubmitBtn.textContent = "Wyślij zapytanie";
+        }
+    });
+
+    function showError(message) {
+        if (inquiryError) {
+            inquiryError.textContent = message;
+            inquiryError.style.display = "block";
+        }
+    }
+
+    function hideError() {
+        if (inquiryError) {
+            inquiryError.style.display = "none";
+            inquiryError.textContent = "";
+        }
+    }
+
+    function isValidEmail(email) {
+        return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+    }
+
+    function collectCalculations() {
+        const calculations = [];
+        const table = document.querySelector(".results-table tbody");
+
+        if (table) {
+            table.querySelectorAll("tr:not(.no-price-row)").forEach(row => {
+                const cells = row.querySelectorAll("td");
+                if (cells.length >= 2) {
+                    const variant = cells[0]?.querySelector(".variant-name-cell")?.textContent || "";
+                    const priceSingle = cells[1]?.querySelector(".price-brutto")?.textContent || "";
+                    const totalCell = cells[cells.length - 1];
+                    const totalPrice = totalCell?.querySelector(".price-brutto")?.textContent || "";
+
+                    if (variant && priceSingle) {
+                        calculations.push({
+                            variant: variant,
+                            price_brutto_single: priceSingle,
+                            total_brutto: totalPrice
+                        });
+                    }
+                }
+            });
+        }
+
+        return calculations;
+    }
 });

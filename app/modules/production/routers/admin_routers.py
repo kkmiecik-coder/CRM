@@ -27,8 +27,8 @@ from flask_login import login_required, current_user
 from functools import wraps
 from modules.logging import get_structured_logger
 from extensions import db
-import pytz
 from modules.users.decorators import require_module_access
+from ..models import get_local_now
 
 # Utworzenie Blueprint dla panelu admin
 admin_bp = Blueprint('production_admin', __name__)
@@ -37,14 +37,6 @@ logger = get_structured_logger('production.admin')
 # ============================================================================
 # DECORATORS I HELPERS
 # ============================================================================
-
-def get_local_now():
-    """
-    Zwraca aktualny czas w strefie czasowej Polski
-    Zastępuje datetime.utcnow() dla poprawnego wyświetlania czasu
-    """
-    poland_tz = pytz.timezone('Europe/Warsaw')
-    return datetime.now(poland_tz).replace(tzinfo=None)  # Remove timezone info for MySQL compatibility
 
 def get_admin_dashboard_data():
     """

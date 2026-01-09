@@ -519,6 +519,41 @@ body.light-mode .product-dimensions-row .badge-dimensions {
     color: #495057;
 }
 
+/* ============================================================================
+   BADGE ZŁOŻENIA (dla stanowiska wycinanie - pokazuje postęp składania)
+   ============================================================================ */
+.badge-assembled {
+    background: #1a3a4a;
+    border-color: #2980b9;
+    color: #5dade2;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    flex: none !important;
+}
+
+.badge-assembled svg {
+    width: 12px;
+    height: 12px;
+    stroke: currentColor;
+    flex-shrink: 0;
+}
+
+body.light-mode .badge-assembled {
+    background: #d4edfc;
+    border-color: #3498db;
+    color: #1a5276;
+}
+
+/* Produkt ze składaniem - subtelne wyróżnienie */
+.product-row.has-assembly {
+    border-left: 3px solid #2980b9;
+}
+
+body.light-mode .product-row.has-assembly {
+    border-left: 3px solid #3498db;
+}
+
 /* Gatunek drewna - BUK (domyślny brązowy) */
 .badge-species {
     background: #4a3000;

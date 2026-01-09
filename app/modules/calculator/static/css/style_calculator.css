@@ -4423,3 +4423,31 @@ select.select-small option {
 .copy-tooltip-option:hover {
     background-color: #404040;
 }
+
+/* ========== DELIVERY BUTTONS GROUP ========== */
+.delivery-buttons-group {
+    display: flex;
+    gap: 4px;
+    align-items: center;
+}
+
+.clear-delivery {
+    padding: 6px;
+    background: #DC3545;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background-color 0.2s ease;
+    color: #FFF;
+}
+
+.clear-delivery:hover {
+    background: #C82333;
+}
+
+.clear-delivery svg {
+    display: block;
+}

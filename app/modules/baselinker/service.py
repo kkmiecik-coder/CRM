@@ -1362,3 +1362,324 @@ class BaselinkerService:
             from datetime import datetime
             quote.baselinker_receipt_last_check = datetime.utcnow()
             return {'exists': False, 'error': str(e)}
+
+    # ============================================
+    # SHIPPING / COURIER METHODS (2025-12)
+    # ============================================
+
+    def create_package(
+        self,
+        order_id: int,
+        courier_code: str = "globkurier",
+        account_id: int = 11364,
+        fields: list = None,
+        packages: list = None
+    ) -> Dict:
+        """
+        Tworzy przesyłkę kurierską przez Baselinker API.
+
+        Args:
+            order_id: ID zamówienia w Baselinker
+            courier_code: Kod kuriera (np. "globkurier", "dpd", "inpost")
+            account_id: ID konta kuriera w Baselinker
+            fields: Pola formularza kuriera (z getCourierFields) jako lista [{id, value}]
+            packages: Lista paczek z wymiarami:
+                - weight: waga w kg
+                - height: wysokość w cm
+                - length: długość w cm
+                - width: szerokość w cm
+
+        Returns:
+            Dict z package_id i courier_package_nr lub błędem
+        """
+        self.logger.info("[Shipping] Tworzenie przesyłki kurierskiej",
+                        order_id=order_id,
+                        courier_code=courier_code,
+                        account_id=account_id)
+
+        if fields is None:
+            fields = []
+        if packages is None:
+            packages = []
+
+        try:
+            # Przygotuj parametry
+            parameters = {
+                'order_id': order_id,
+                'courier_code': courier_code,
+                'account_id': account_id,
+                'fields': fields,
+                'packages': packages
+            }
+
+            self.logger.debug("[Shipping] Parametry createPackage",
+                            order_id=order_id,
+                            courier_code=courier_code,
+                            fields_count=len(fields) if fields else 0,
+                            packages_count=len(packages) if packages else 0)
+
+            # Wywołaj API
+            response = self._make_request('createPackage', parameters)
+
+            # DEBUG: Pokaż pełną odpowiedź API
+            self.logger.info("[Shipping] Pełna odpowiedź createPackage",
+                           response_keys=list(response.keys()) if isinstance(response, dict) else 'N/A',
+                           full_response=str(response)[:500])
+
+            if response.get('status') == 'SUCCESS':
+                package_id = response.get('package_id')
+                package_number = response.get('courier_package_nr', '') or response.get('package_number', '')
+
+                self.logger.info("[Shipping] Przesyłka utworzona pomyślnie",
+                               order_id=order_id,
+                               package_id=package_id,
+                               courier_package_nr=package_number)
+
+                return {
+                    'success': True,
+                    'package_id': package_id,
+                    'courier_package_nr': package_number
+                }
+            else:
+                error_msg = response.get('error_message', 'Nieznany błąd API')
+                self.logger.error("[Shipping] Błąd tworzenia przesyłki",
+                                order_id=order_id,
+                                error_message=error_msg)
+
+                return {
+                    'success': False,
+                    'error': error_msg
+                }
+
+        except Exception as e:
+            self.logger.error("[Shipping] Wyjątek podczas tworzenia przesyłki",
+                            order_id=order_id,
+                            error=str(e),
+                            error_type=type(e).__name__)
+            import traceback
+            self.logger.debug("[Shipping] Stack trace", traceback=traceback.format_exc())
+
+            return {
+                'success': False,
+                'error': str(e)
+            }
+
+    def get_label(
+        self,
+        courier_code: str,
+        package_id: int,
+        package_number: str = None
+    ) -> Dict:
+        """
+        Pobiera etykietę przesyłki (PDF w base64).
+
+        Args:
+            courier_code: Kod kuriera (np. "globkurier")
+            package_id: ID paczki z createPackage
+            package_number: Numer przesyłki kurierskiej (opcjonalnie)
+
+        Returns:
+            Dict z label (base64 PDF) i extension lub błędem
+        """
+        self.logger.info("[Shipping] Pobieranie etykiety przesyłki",
+                        courier_code=courier_code,
+                        package_id=package_id,
+                        package_number=package_number)
+
+        try:
+            # Przygotuj parametry
+            parameters = {
+                'courier_code': courier_code,
+                'package_id': package_id
+            }
+
+            if package_number:
+                parameters['package_number'] = package_number
+
+            # Wywołaj API
+            response = self._make_request('getLabel', parameters)
+
+            if response.get('status') == 'SUCCESS':
+                label = response.get('label', '')
+                extension = response.get('extension', 'pdf')
+
+                self.logger.info("[Shipping] Etykieta pobrana pomyślnie",
+                               package_id=package_id,
+                               label_size=len(label) if label else 0,
+                               extension=extension)
+
+                return {
+                    'success': True,
+                    'label': label,
+                    'extension': extension
+                }
+            else:
+                error_msg = response.get('error_message', 'Nieznany błąd API')
+                self.logger.error("[Shipping] Błąd pobierania etykiety",
+                                package_id=package_id,
+                                error_message=error_msg)
+
+                return {
+                    'success': False,
+                    'error': error_msg
+                }
+
+        except Exception as e:
+            self.logger.error("[Shipping] Wyjątek podczas pobierania etykiety",
+                            package_id=package_id,
+                            error=str(e),
+                            error_type=type(e).__name__)
+            import traceback
+            self.logger.debug("[Shipping] Stack trace", traceback=traceback.format_exc())
+
+            return {
+                'success': False,
+                'error': str(e)
+            }
+
+    def get_courier_fields(self, courier_code: str = "globkurier") -> Dict:
+        """
+        Pobiera pola formularza dla danego kuriera (getCourierFields).
+
+        Args:
+            courier_code: Kod kuriera
+
+        Returns:
+            Dict z polami formularza lub błędem
+        """
+        self.logger.info("[Shipping] Pobieranie pól formularza kuriera",
+                        courier_code=courier_code)
+
+        try:
+            response = self._make_request('getCourierFields', {
+                'courier_code': courier_code
+            })
+
+            if response.get('status') == 'SUCCESS':
+                fields = response.get('fields', [])
+                package_fields = response.get('package_fields', [])
+                self.logger.info("[Shipping] Pobrano pola formularza kuriera",
+                               courier_code=courier_code,
+                               fields_count=len(fields),
+                               package_fields_count=len(package_fields))
+
+                return {
+                    'success': True,
+                    'fields': fields,
+                    'package_fields': package_fields,
+                    'multi_packages': response.get('multi_packages', 0)
+                }
+            else:
+                error_msg = response.get('error_message', 'Nieznany błąd API')
+                self.logger.error("[Shipping] Błąd pobierania pól formularza",
+                                error_message=error_msg)
+
+                return {
+                    'success': False,
+                    'error': error_msg
+                }
+
+        except Exception as e:
+            self.logger.error("[Shipping] Wyjątek podczas pobierania pól formularza",
+                            error=str(e))
+
+            return {
+                'success': False,
+                'error': str(e)
+            }
+
+    def get_order_packages(self, order_id: int) -> Dict:
+        """
+        Pobiera informacje o paczkach zamówienia (getOrderPackages).
+
+        Args:
+            order_id: ID zamówienia w Baselinker
+
+        Returns:
+            Dict z listą paczek zawierającą courier_package_nr (tracking)
+        """
+        self.logger.info("[Shipping] Pobieranie paczek zamówienia",
+                        order_id=order_id)
+
+        try:
+            response = self._make_request('getOrderPackages', {
+                'order_id': order_id
+            })
+
+            if response.get('status') == 'SUCCESS':
+                packages = response.get('packages', [])
+                self.logger.info("[Shipping] Pobrano paczki zamówienia",
+                               order_id=order_id,
+                               packages_count=len(packages))
+
+                return {
+                    'success': True,
+                    'packages': packages
+                }
+            else:
+                error_msg = response.get('error_message', 'Nieznany błąd API')
+                self.logger.error("[Shipping] Błąd pobierania paczek",
+                                order_id=order_id,
+                                error_message=error_msg)
+
+                return {
+                    'success': False,
+                    'error': error_msg
+                }
+
+        except Exception as e:
+            self.logger.error("[Shipping] Wyjątek podczas pobierania paczek",
+                            order_id=order_id,
+                            error=str(e))
+
+            return {
+                'success': False,
+                'error': str(e)
+            }
+
+    def get_courier_services(self, courier_code: str = "globkurier") -> Dict:
+        """
+        Pobiera listę usług kurierskich.
+
+        Args:
+            courier_code: Kod kuriera
+
+        Returns:
+            Dict z listą usług lub błędem
+        """
+        self.logger.info("[Shipping] Pobieranie listy usług kurierskich",
+                        courier_code=courier_code)
+
+        try:
+            response = self._make_request('getCourierServices', {
+                'courier_code': courier_code
+            })
+
+            if response.get('status') == 'SUCCESS':
+                services = response.get('services', [])
+                self.logger.info("[Shipping] Pobrano usługi kurierskie",
+                               courier_code=courier_code,
+                               services_count=len(services))
+
+                return {
+                    'success': True,
+                    'services': services
+                }
+            else:
+                error_msg = response.get('error_message', 'Nieznany błąd API')
+                self.logger.error("[Shipping] Błąd pobierania usług kurierskich",
+                                error_message=error_msg)
+
+                return {
+                    'success': False,
+                    'error': error_msg
+                }
+
+        except Exception as e:
+            self.logger.error("[Shipping] Wyjątek podczas pobierania usług",
+                            error=str(e))
+
+            return {
+                'success': False,
+                'error': str(e)
+            }

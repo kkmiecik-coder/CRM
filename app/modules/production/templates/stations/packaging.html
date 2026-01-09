@@ -144,6 +144,7 @@
             {% set any_product_priority = order.products|selectattr('is_priority', 'equalto', true)|list|length > 0 %}
             <div class="order-card{% if all_products_priority %} priority-order{% endif %}"
                  data-order-number="{{ order.order_number }}"
+                 data-baselinker-id="{{ order.baselinker_order_id or order.order_number }}"
                  data-priority-rank="{{ order.best_priority_rank }}"
                  data-total-products="{{ order.total_products }}"
                  data-total-quantity="{{ order.total_quantity }}"
@@ -167,13 +168,61 @@
                         <span class="deadline-info">{{ order.display_deadline }}</span>
                         {% endif %}
                     </div>
-                    <!-- Row 2: Stats left, Icons right -->
+                    <!-- Row 2: Stats left, Delivery badge, Icons right -->
                     <div class="order-header-row order-stats-row">
                         <div class="order-stats">
                             <span class="products-checked" data-order="{{ order.order_number }}">{{ order.total_quantity_done }}</span>/<span class="products-total" data-order="{{ order.order_number }}">{{ order.total_quantity }}</span> szt. • {{ "%.4f"|format(order.total_volume) }} m³
                         </div>
+
+                        <!-- DELIVERY BADGE (2025-12) -->
+                        <div class="delivery-badge-container">
+                            {% if order.is_personal_pickup %}
+                            <span class="delivery-badge delivery-pickup" title="Odbiór osobisty">
+                                <svg class="delivery-badge-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+                                    <circle cx="12" cy="7" r="4"></circle>
+                                </svg>
+                                Odbiór osobisty
+                            </span>
+                            {% else %}
+                            <span class="delivery-badge delivery-courier" title="Kurier">
+                                <svg class="delivery-badge-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <rect x="1" y="3" width="15" height="13"></rect>
+                                    <polygon points="16 8 20 8 23 11 23 16 16 16 16 8"></polygon>
+                                    <circle cx="5.5" cy="18.5" r="2.5"></circle>
+                                    <circle cx="18.5" cy="18.5" r="2.5"></circle>
+                                </svg>
+                                Kurier
+                            </span>
+                            {% endif %}
+                        </div>
+
                         {% set first_product = order.products[0] if order.products else none %}
                         <div class="order-icons">
+                            <!-- PRZYCISK ADRESU DOSTAWY (tylko dla kuriera) -->
+                            {% if not order.is_personal_pickup %}
+                            <div class="header-icon-wrapper delivery-icon-wrapper"
+                                 data-delivery-fullname="{{ order.delivery_fullname or '' }}"
+                                 data-delivery-company="{{ order.delivery_company or '' }}"
+                                 data-delivery-address="{{ order.delivery_address or '' }}"
+                                 data-delivery-postcode="{{ order.delivery_postcode or '' }}"
+                                 data-delivery-city="{{ order.delivery_city or '' }}"
+                                 data-delivery-country="{{ order.delivery_country_code or 'PL' }}"
+                                 data-shipping-package-id="{{ order.shipping_package_id or '' }}"
+                                 data-shipping-tracking="{{ order.shipping_tracking_number or '' }}"
+                                 data-shipping-courier="{{ order.shipping_courier_name or '' }}"
+                                 data-shipping-price="{{ order.shipping_price or '' }}"
+                                 data-shipping-date="{{ order.shipping_created_at or '' }}"
+                                 data-shipping-label="{{ order.shipping_label_base64 or '' }}"
+                                 title="Pokaż adres dostawy">
+                                <svg class="header-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <rect x="1" y="3" width="15" height="13"></rect>
+                                    <polygon points="16 8 20 8 23 11 23 16 16 16 16 8"></polygon>
+                                    <circle cx="5.5" cy="18.5" r="2.5"></circle>
+                                    <circle cx="18.5" cy="18.5" r="2.5"></circle>
+                                </svg>
+                            </div>
+                            {% endif %}
                             {% if first_product and first_product.get('attachment_file_url') %}
                             <div class="header-icon-wrapper attachment-icon-wrapper"
                                  data-attachment-url="{{ first_product['attachment_file_url'] }}"
@@ -217,7 +266,11 @@
                          data-species="{{ product.wood_species or '' }}"
                          data-technology="{{ product.technology or '' }}"
                          data-wood-class="{{ product.wood_class or '' }}"
-                         data-is-priority="{{ 'true' if product.is_priority else 'false' }}">
+                         data-is-priority="{{ 'true' if product.is_priority else 'false' }}"
+                         data-length="{{ product.parsed_length_cm or 0 }}"
+                         data-width="{{ product.parsed_width_cm or 0 }}"
+                         data-thickness="{{ product.parsed_thickness_cm or 0 }}"
+                         data-volume="{{ product.volume_m3 or 0 }}">
 
                         <div class="product-left-col">
                             <div class="product-params">
@@ -284,6 +337,406 @@
                 <button class="notes-modal-close" onclick="closeNotesModal()">&times;</button>
             </div>
             <div class="notes-modal-body" id="notesModalContent"></div>
+        </div>
+    </div>
+
+    <!-- DELIVERY ADDRESS MODAL (2025-12) -->
+    <div id="deliveryModal" class="delivery-modal">
+        <div class="delivery-modal-content">
+            <div class="delivery-modal-header">
+                <h3>
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <rect x="1" y="3" width="15" height="13"></rect>
+                        <polygon points="16 8 20 8 23 11 23 16 16 16 16 8"></polygon>
+                        <circle cx="5.5" cy="18.5" r="2.5"></circle>
+                        <circle cx="18.5" cy="18.5" r="2.5"></circle>
+                    </svg>
+                    Adres dostawy
+                </h3>
+                <button class="delivery-modal-close" onclick="closeDeliveryModal()">&times;</button>
+            </div>
+            <div class="delivery-modal-body">
+                <div class="delivery-field" id="delivery-fullname-row">
+                    <span class="delivery-label">Odbiorca:</span>
+                    <span class="delivery-value" id="delivery-fullname"></span>
+                </div>
+                <div class="delivery-field" id="delivery-company-row">
+                    <span class="delivery-label">Firma:</span>
+                    <span class="delivery-value" id="delivery-company"></span>
+                </div>
+                <div class="delivery-field" id="delivery-address-row">
+                    <span class="delivery-label">Ulica:</span>
+                    <span class="delivery-value" id="delivery-address"></span>
+                </div>
+                <div class="delivery-field" id="delivery-postcode-row">
+                    <span class="delivery-label">Kod pocztowy:</span>
+                    <span class="delivery-value" id="delivery-postcode"></span>
+                </div>
+                <div class="delivery-field" id="delivery-city-row">
+                    <span class="delivery-label">Miasto:</span>
+                    <span class="delivery-value" id="delivery-city"></span>
+                </div>
+                <div class="delivery-field" id="delivery-country-row">
+                    <span class="delivery-label">Kraj:</span>
+                    <span class="delivery-value" id="delivery-country"></span>
+                </div>
+
+                <!-- PRZYCISK ZGŁOŚ WYSYŁKĘ (2025-12) -->
+                <div id="shippingSection" class="shipping-button-section" style="display: none;">
+                    <button id="openShippingModalBtn" class="btn-submit-shipment">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <rect x="1" y="3" width="15" height="13"></rect>
+                            <polygon points="16 8 20 8 23 11 23 16 16 16 16 8"></polygon>
+                            <circle cx="5.5" cy="18.5" r="2.5"></circle>
+                            <circle cx="18.5" cy="18.5" r="2.5"></circle>
+                        </svg>
+                        Zgłoś wysyłkę
+                    </button>
+                </div>
+
+                <!-- SEKCJA JUŻ ZGŁOSZONEJ PRZESYŁKI (2025-12) -->
+                <div id="shippingInfoSection" class="shipping-info-section" style="display: none;">
+                    <div class="shipping-info-header">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
+                            <polyline points="22 4 12 14.01 9 11.01"></polyline>
+                        </svg>
+                        <span>Przesyłka zgłoszona</span>
+                    </div>
+                    <div class="shipping-info-details">
+                        <div class="shipping-detail-row">
+                            <span class="label">Kurier:</span>
+                            <span class="value" id="shippingInfoCourier"></span>
+                        </div>
+                        <div class="shipping-detail-row">
+                            <span class="label">Nr przesyłki:</span>
+                            <span class="value" id="shippingInfoTracking"></span>
+                        </div>
+                        <div class="shipping-detail-row">
+                            <span class="label">Cena:</span>
+                            <span class="value" id="shippingInfoPrice"></span>
+                        </div>
+                        <div class="shipping-detail-row">
+                            <span class="label">Data zgłoszenia:</span>
+                            <span class="value" id="shippingInfoDate"></span>
+                        </div>
+                    </div>
+                    <div class="shipping-info-actions">
+                        <button id="downloadLabelFromInfoBtn" class="btn-download-label-small">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                                <polyline points="7 10 12 15 17 10"></polyline>
+                                <line x1="12" y1="15" x2="12" y2="3"></line>
+                            </svg>
+                            Pobierz etykietę
+                        </button>
+                    </div>
+                </div>
+
+                <!-- KOMUNIKAT O PRZEKROCZENIU LIMITU -->
+                <div id="overlimitMessage" class="overlimit-message" style="display: none;">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path>
+                        <line x1="12" y1="9" x2="12" y2="13"></line>
+                        <line x1="12" y1="17" x2="12.01" y2="17"></line>
+                    </svg>
+                    <span>Zamówienie przekracza limity kuriera.<br>Skontaktuj się z biurem w celu wystawienia listu przewozowego.</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- SHIPPING DIMENSIONS MODAL (2025-12) -->
+    <div id="shippingDimensionsModal" class="shipping-modal">
+        <div class="shipping-modal-content shipping-dimensions-content">
+            <div class="shipping-modal-header">
+                <h3>
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
+                    </svg>
+                    Wymiary przesyłki
+                </h3>
+                <button class="shipping-modal-close" onclick="closeShippingModals()">&times;</button>
+            </div>
+
+            <div class="shipping-modal-body">
+                <p class="shipping-info-text">Podaj wymiary paczki do wysyłki. Wartości zostały wstępnie obliczone na podstawie produktów w zamówieniu.</p>
+
+                <div class="shipping-dimensions">
+                    <div class="dim-row">
+                        <label for="shipLength">Długość (cm):</label>
+                        <input type="number" id="shipLength" step="1" min="1" value="0">
+                    </div>
+                    <div class="dim-row">
+                        <label for="shipWidth">Szerokość (cm):</label>
+                        <input type="number" id="shipWidth" step="1" min="1" value="0">
+                    </div>
+                    <div class="dim-row">
+                        <label for="shipHeight">Wysokość (cm):</label>
+                        <input type="number" id="shipHeight" step="1" min="1" value="0">
+                    </div>
+                    <div class="dim-row">
+                        <label for="shipWeight">Waga (kg):</label>
+                        <input type="number" id="shipWeight" step="0.1" min="0.1" value="0">
+                    </div>
+                </div>
+
+                <div class="shipping-modal-actions">
+                    <button id="submitShipmentBtn" class="btn-submit-shipment">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <rect x="1" y="3" width="15" height="13"></rect>
+                            <polygon points="16 8 20 8 23 11 23 16 16 16 16 8"></polygon>
+                            <circle cx="5.5" cy="18.5" r="2.5"></circle>
+                            <circle cx="18.5" cy="18.5" r="2.5"></circle>
+                        </svg>
+                        Zgłaszam wysyłkę
+                    </button>
+                    <button class="btn-close-modal" onclick="closeShippingModals()">Anuluj</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- SHIPPING CONFIRM MODAL - Potwierdzenie przed wysyłką (2025-12) -->
+    <div id="shippingConfirmModal" class="shipping-modal">
+        <div class="shipping-modal-content shipping-confirm-content">
+            <div class="shipping-modal-header">
+                <h3>
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
+                        <polyline points="22 4 12 14.01 9 11.01"></polyline>
+                    </svg>
+                    Potwierdź wysyłkę
+                </h3>
+                <button class="shipping-modal-close" onclick="closeShippingModals()">&times;</button>
+            </div>
+
+            <div class="shipping-modal-body">
+                <p class="shipping-confirm-intro">System wybrał najlepszą ofertę dla Twojej przesyłki:</p>
+
+                <!-- Informacja o trybie pakowania -->
+                <div id="packagingModeInfo" class="packaging-mode-info">
+                    <div class="packaging-mode-badge single-package" id="packagingModeBadge">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
+                        </svg>
+                        <span id="packagingModeText">1 paczka</span>
+                    </div>
+                </div>
+
+                <!-- Wybrana oferta -->
+                <div class="selected-quote-box">
+                    <div class="quote-courier">
+                        <span class="quote-label">Kurier:</span>
+                        <span class="quote-value" id="confirmCourierName">-</span>
+                    </div>
+                    <div class="quote-service">
+                        <span class="quote-label">Usługa:</span>
+                        <span class="quote-value" id="confirmServiceName">-</span>
+                    </div>
+                    <div class="quote-price">
+                        <span class="quote-label">Cena:</span>
+                        <span class="quote-value quote-price-value" id="confirmPrice">- zł</span>
+                    </div>
+                </div>
+
+                <!-- Szczegóły paczek (jeśli multi-package) -->
+                <div id="multiPackageDetails" class="multi-package-details" style="display: none;">
+                    <h4>Szczegóły paczek:</h4>
+                    <div id="packagesListContainer" class="packages-list">
+                        <!-- Dynamicznie wypełniane przez JS -->
+                    </div>
+                </div>
+
+                <!-- Wymiary paczki -->
+                <div class="quote-dimensions">
+                    <span class="quote-label">Wymiary:</span>
+                    <span class="quote-value" id="confirmDimensions">- x - x - cm, - kg</span>
+                </div>
+
+                <div class="shipping-modal-actions">
+                    <button id="confirmShipmentBtn" class="btn-confirm-shipment">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <polyline points="20 6 9 17 4 12"></polyline>
+                        </svg>
+                        Potwierdzam - Zgłoś przesyłkę
+                    </button>
+                    <button class="btn-back-to-dimensions" onclick="backToDimensions()">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <line x1="19" y1="12" x2="5" y2="12"></line>
+                            <polyline points="12 19 5 12 12 5"></polyline>
+                        </svg>
+                        Zmień wymiary
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- SHIPPING PROGRESS MODAL (2025-12) -->
+    <div id="shippingProgressModal" class="shipping-modal">
+        <div class="shipping-modal-content shipping-progress-content">
+            <h3 id="shippingProgressTitle">
+                <svg class="spinner-icon" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <line x1="12" y1="2" x2="12" y2="6"></line>
+                    <line x1="12" y1="18" x2="12" y2="22"></line>
+                    <line x1="4.93" y1="4.93" x2="7.76" y2="7.76"></line>
+                    <line x1="16.24" y1="16.24" x2="19.07" y2="19.07"></line>
+                    <line x1="2" y1="12" x2="6" y2="12"></line>
+                    <line x1="18" y1="12" x2="22" y2="12"></line>
+                    <line x1="4.93" y1="19.07" x2="7.76" y2="16.24"></line>
+                    <line x1="16.24" y1="7.76" x2="19.07" y2="4.93"></line>
+                </svg>
+                Przetwarzanie wysyłki
+            </h3>
+
+            <div class="shipping-steps">
+                <div class="step" id="step-dimensions">
+                    <span class="step-icon">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
+                        </svg>
+                    </span>
+                    <span class="step-text">Obliczanie wymiarów paczki</span>
+                    <span class="step-status"></span>
+                </div>
+                <div class="step" id="step-variants">
+                    <span class="step-icon">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <rect x="2" y="7" width="6" height="14" rx="1"></rect>
+                            <rect x="9" y="3" width="6" height="18" rx="1"></rect>
+                            <rect x="16" y="10" width="6" height="11" rx="1"></rect>
+                        </svg>
+                    </span>
+                    <span class="step-text">Generowanie wariantów pakowania</span>
+                    <span class="step-status"></span>
+                </div>
+                <div class="step" id="step-prices">
+                    <span class="step-icon">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <circle cx="11" cy="11" r="8"></circle>
+                            <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                        </svg>
+                    </span>
+                    <span class="step-text">Sprawdzanie cen kurierów</span>
+                    <span class="step-status"></span>
+                </div>
+                <div class="step" id="step-compare">
+                    <span class="step-icon">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+                            <line x1="3" y1="9" x2="21" y2="9"></line>
+                            <line x1="9" y1="21" x2="9" y2="9"></line>
+                        </svg>
+                    </span>
+                    <span class="step-text">Porównywanie ofert</span>
+                    <span class="step-status"></span>
+                </div>
+                <div class="step" id="step-create">
+                    <span class="step-icon">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                            <polyline points="14 2 14 8 20 8"></polyline>
+                            <line x1="12" y1="18" x2="12" y2="12"></line>
+                            <line x1="9" y1="15" x2="15" y2="15"></line>
+                        </svg>
+                    </span>
+                    <span class="step-text">Zgłaszanie paczki do kuriera</span>
+                    <span class="step-status"></span>
+                </div>
+                <div class="step" id="step-label">
+                    <span class="step-icon">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"></path>
+                            <line x1="7" y1="7" x2="7.01" y2="7"></line>
+                        </svg>
+                    </span>
+                    <span class="step-text">Pobieranie etykiety</span>
+                    <span class="step-status"></span>
+                </div>
+            </div>
+
+            <div id="stepDetails" class="step-details"></div>
+        </div>
+    </div>
+
+    <!-- SHIPPING SUCCESS MODAL (2025-12) -->
+    <div id="shippingSuccessModal" class="shipping-modal">
+        <div class="shipping-modal-content shipping-success-content">
+            <div class="success-icon">
+                <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
+                    <polyline points="22 4 12 14.01 9 11.01"></polyline>
+                </svg>
+            </div>
+            <h3>Przesyłka zgłoszona!</h3>
+
+            <div class="shipment-details">
+                <div class="detail-row">
+                    <span class="label">Kurier:</span>
+                    <span class="value" id="successCourierName"></span>
+                </div>
+                <div class="detail-row">
+                    <span class="label">Cena:</span>
+                    <span class="value" id="successPrice"></span>
+                </div>
+                <div class="detail-row">
+                    <span class="label">Numer przesyłki:</span>
+                    <span class="value" id="successTrackingNumber"></span>
+                </div>
+            </div>
+
+            <div class="success-actions">
+                <button id="downloadLabelBtn" class="btn-download-label">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                        <polyline points="7 10 12 15 17 10"></polyline>
+                        <line x1="12" y1="15" x2="12" y2="3"></line>
+                    </svg>
+                    Pobierz etykietę PDF
+                </button>
+                <button class="btn-close-modal" onclick="closeShippingModals()">
+                    Zamknij
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- SHIPPING ERROR MODAL (2025-12) -->
+    <div id="shippingErrorModal" class="shipping-modal">
+        <div class="shipping-modal-content shipping-error-content">
+            <div class="error-icon">
+                <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path>
+                    <line x1="12" y1="9" x2="12" y2="13"></line>
+                    <line x1="12" y1="17" x2="12.01" y2="17"></line>
+                </svg>
+            </div>
+            <h3>Wystąpił błąd</h3>
+
+            <div class="error-details">
+                <div class="error-step">
+                    <span class="label">Krok:</span>
+                    <span class="value" id="errorStep"></span>
+                </div>
+                <div class="error-message">
+                    <span class="label">Błąd:</span>
+                    <pre id="errorMessage"></pre>
+                </div>
+            </div>
+
+            <div class="error-actions">
+                <button class="btn-retry" onclick="retryShipment()">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <polyline points="23 4 23 10 17 10"></polyline>
+                        <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
+                    </svg>
+                    Spróbuj ponownie
+                </button>
+                <button class="btn-close-modal" onclick="closeShippingModals()">
+                    Zamknij
+                </button>
+            </div>
         </div>
     </div>
 

@@ -30,7 +30,6 @@ from typing import Dict, Any
 from extensions import db
 from sqlalchemy import and_, or_, text, func, distinct, cast, String
 import traceback
-import pytz
 
 # Utworzenie Blueprint dla API
 api_bp = Blueprint('production_api', __name__)
@@ -38,21 +37,13 @@ logger = get_structured_logger('production.api')
 
 # Import modeli produkcji
 try:
-    from ..models import ProductionItem, ProductionError, ProductionSyncLog, ProductionConfig, ProductionPriorityConfig
+    from ..models import ProductionItem, ProductionError, ProductionSyncLog, ProductionConfig, ProductionPriorityConfig, get_local_now
 except ImportError:
-    from modules.production.models import ProductionItem, ProductionError, ProductionSyncLog, ProductionConfig, ProductionPriorityConfig
+    from modules.production.models import ProductionItem, ProductionError, ProductionSyncLog, ProductionConfig, ProductionPriorityConfig, get_local_now
 
 # ============================================================================
 # DECORATORS - zabezpieczenia dla różnych typów endpointów
 # ============================================================================
-
-def get_local_now():
-    """
-    Zwraca aktualny czas w strefie czasowej Polski
-    Zastępuje datetime.utcnow() dla poprawnego wyświetlania czasu
-    """
-    poland_tz = pytz.timezone('Europe/Warsaw')
-    return datetime.now(poland_tz).replace(tzinfo=None)  # Remove timezone info for MySQL compatibility
 
 def admin_required(f):
     """
@@ -1199,6 +1190,146 @@ def update_quantity_done():
         logger.error("API: Błąd update quantity done", extra={
             'product_id': data.get('product_id') if 'data' in locals() else None,
             'station': data.get('station') if 'data' in locals() else None,
+            'client_ip': request.remote_addr,
+            'error': str(e)
+        })
+
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@api_bp.route('/get-cutting-progress', methods=['POST'])
+@ip_validation_required
+def get_cutting_progress():
+    """
+    POST /api/get-cutting-progress - Pobiera postęp wycinania dla listy produktów
+
+    Używane przez stanowisko Składanie do synchronizacji live liczników wycinania.
+
+    Body JSON:
+    {
+        "product_ids": ["25_05248_1", "25_05248_2", ...]
+    }
+
+    Returns: JSON z postępem wycinania dla każdego produktu
+    {
+        "success": true,
+        "progress": {
+            "25_05248_1": {
+                "quantity_done_cutting": 5,
+                "quantity": 10,
+                "cutting_completed_at": "2025-12-17T14:30:00" | null
+            },
+            ...
+        }
+    }
+    """
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({'success': False, 'error': 'Brak danych JSON'}), 400
+
+        product_ids = data.get('product_ids', [])
+
+        if not product_ids:
+            return jsonify({'success': True, 'progress': {}}), 200
+
+        if not isinstance(product_ids, list):
+            return jsonify({'success': False, 'error': 'product_ids musi być listą'}), 400
+
+        from ..models import ProductionItem
+
+        products = ProductionItem.query.filter(
+            ProductionItem.short_product_id.in_(product_ids)
+        ).all()
+
+        progress = {}
+        for product in products:
+            progress[product.short_product_id] = {
+                'quantity_done_cutting': product.quantity_done_cutting or 0,
+                'quantity': product.quantity or 1,
+                'cutting_completed_at': product.cutting_completed_at.isoformat() if product.cutting_completed_at else None
+            }
+
+        return jsonify({
+            'success': True,
+            'progress': progress
+        }), 200
+
+    except Exception as e:
+        logger.error("API: Błąd get-cutting-progress", extra={
+            'client_ip': request.remote_addr,
+            'error': str(e)
+        })
+
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@api_bp.route('/get-assembly-progress', methods=['POST'])
+@ip_validation_required
+def get_assembly_progress():
+    """
+    POST /api/get-assembly-progress - Pobiera postęp składania dla listy produktów
+
+    Używane przez stanowisko Wycinanie do synchronizacji live liczników składania.
+
+    Body JSON:
+    {
+        "product_ids": ["25_05248_1", "25_05248_2", ...]
+    }
+
+    Returns: JSON z postępem składania dla każdego produktu
+    {
+        "success": true,
+        "progress": {
+            "25_05248_1": {
+                "quantity_done_assembly": 5,
+                "quantity": 10,
+                "assembly_completed_at": "2025-12-17T14:30:00" | null
+            },
+            ...
+        }
+    }
+    """
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({'success': False, 'error': 'Brak danych JSON'}), 400
+
+        product_ids = data.get('product_ids', [])
+
+        if not product_ids:
+            return jsonify({'success': True, 'progress': {}}), 200
+
+        if not isinstance(product_ids, list):
+            return jsonify({'success': False, 'error': 'product_ids musi być listą'}), 400
+
+        from ..models import ProductionItem
+
+        products = ProductionItem.query.filter(
+            ProductionItem.short_product_id.in_(product_ids)
+        ).all()
+
+        progress = {}
+        for product in products:
+            progress[product.short_product_id] = {
+                'quantity_done_assembly': product.quantity_done_assembly or 0,
+                'quantity': product.quantity or 1,
+                'assembly_completed_at': product.assembly_completed_at.isoformat() if product.assembly_completed_at else None
+            }
+
+        return jsonify({
+            'success': True,
+            'progress': progress
+        }), 200
+
+    except Exception as e:
+        logger.error("API: Błąd get-assembly-progress", extra={
             'client_ip': request.remote_addr,
             'error': str(e)
         })
@@ -2716,7 +2847,7 @@ def products_tab_content():
         # ZMIANA: Pobierz WSZYSTKIE produkty (usuń limit)
         products = products_query.all()
         
-        logger.info(f"[BUGFIX] Pobranych produktów: {len(products)} (bez limitu)")
+        logger.info(f"Pobranych produktów: {len(products)} (bez limitu)")
         
         # Renderuj HTML template
         html_content = render_template('components/products-tab-content.html')
@@ -2908,8 +3039,8 @@ def products_tab_content():
         filters_data['thicknesses'].sort(key=lambda x: float(x.replace('cm', '')))
         filters_data['statuses'].sort()
         
-        logger.info(f"[BUGFIX] Statystyki: {stats_data}")
-        logger.info(f"[BUGFIX] Opcje filtrów: gatunki={len(filters_data['wood_species'])}, technologie={len(filters_data['technologies'])}")
+        logger.info(f"Statystyki: {stats_data}")
+        logger.info(f"Opcje filtrów: gatunki={len(filters_data['wood_species'])}, technologie={len(filters_data['technologies'])}")
         
         return jsonify({
             'success': True,
@@ -6189,10 +6320,7 @@ def dashboard_stats_data():
         today = date.today()
         today_start = datetime.combine(today, datetime.min.time())
         today_end = datetime.combine(today, datetime.max.time())
-        
-        # === DEBUGGING COMPLETED TODAY ===
-        logger.debug("=== DEBUGGING COMPLETED TODAY ===")
-        
+
         # Sprawdź wszystkie statusy
         all_statuses = db.session.query(
             ProductionItem.current_status, 

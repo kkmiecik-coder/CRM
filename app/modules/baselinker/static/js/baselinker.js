@@ -2585,7 +2585,12 @@ class BaselinkerModal {
                     gusBtn.style.background = '';
                 }, 2000);
 
-                this.showAlert('Dane z GUS zostały pobrane pomyślnie', 'success');
+                // Informacja o źródle danych (GUS lub CEIDG)
+                if (data._source === 'CEIDG') {
+                    this.showAlert('✓ Dane pobrane z rejestru CEIDG (jednoosobowa działalność)', 'success');
+                } else {
+                    this.showAlert('Dane z GUS zostały pobrane pomyślnie', 'success');
+                }
 
                 // Animacja wypełnionych pól (włącznie z województwem)
                 const filledFields = ['invoice-fullname', 'invoice-company', 'invoice-address', 'invoice-postcode', 'invoice-city', 'invoice-region'];

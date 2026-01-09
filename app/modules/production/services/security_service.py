@@ -28,14 +28,9 @@ from functools import wraps
 from flask import request, abort, jsonify, current_app
 from modules.logging import get_structured_logger
 from extensions import db
-import pytz
+from ..models import get_local_now
 
 logger = get_structured_logger('production.security')
-
-def get_local_now():
-    """Zwraca aktualny czas w strefie czasowej Polski"""
-    poland_tz = pytz.timezone('Europe/Warsaw')
-    return datetime.now(poland_tz).replace(tzinfo=None)
 
 class SecurityError(Exception):
     """Wyjątek dla błędów zabezpieczeń"""

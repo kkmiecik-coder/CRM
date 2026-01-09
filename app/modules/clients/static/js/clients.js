@@ -806,6 +806,13 @@ document.addEventListener('DOMContentLoaded', () => {
                             document.getElementById('addInvoiceAddress').value = street.trim();
                             document.getElementById('addInvoiceZip').value = zipMatch ? zipMatch[0] : '';
                             document.getElementById('addInvoiceCity').value = city;
+
+                            // Informacja o źródle danych
+                            if (data._source === 'CEIDG') {
+                                nipError.textContent = "✓ Dane pobrane z rejestru CEIDG (jednoosobowa działalność)";
+                                nipError.style.color = "#28a745";
+                                nipError.style.display = "block";
+                            }
                         } else {
                             nipError.textContent = "Nie znaleziono danych dla podanego NIP";
                         }
@@ -1053,6 +1060,13 @@ document.addEventListener('DOMContentLoaded', () => {
                         document.getElementById('editInvoiceAddress').value = street.trim();
                         document.getElementById('editInvoiceZip').value = zipMatch ? zipMatch[0] : '';
                         document.getElementById('editInvoiceCity').value = city;
+
+                        // Informacja o źródle danych
+                        if (data._source === 'CEIDG') {
+                            nipError.textContent = "✓ Dane pobrane z rejestru CEIDG (jednoosobowa działalność)";
+                            nipError.style.color = "#28a745";
+                            nipError.style.display = "block";
+                        }
                     } else {
                         nipError.textContent = "Nie znaleziono danych dla podanego NIP";
                     }

@@ -206,10 +206,11 @@
                 <!-- PRODUCTS LIST -->
                 <div class="products-list">
                     {% for product in order.products %}
-                    <div class="product-row{% if product.is_priority %} priority-product{% endif %}"
+                    <div class="product-row{% if product.is_priority %} priority-product{% endif %}{% if product.quantity_done_cutting > 0 %} has-cutting{% endif %}"
                          data-product-id="{{ product.id }}"
                          data-quantity="{{ product.quantity }}"
                          data-quantity-done="{{ product.quantity_done }}"
+                         data-quantity-done-cutting="{{ product.quantity_done_cutting }}"
                          data-status="{{ product.current_status }}"
                          data-species="{{ product.wood_species or '' }}"
                          data-technology="{{ product.technology or '' }}"
@@ -220,6 +221,19 @@
                         <div class="product-left-col">
                             <!-- Badges z parametrami -->
                             <div class="product-params">
+                                <!-- Badge wycięcia (jeśli coś wycięto) -->
+                                {% if product.quantity_done_cutting > 0 %}
+                                <span class="badge badge-cut" title="Wycięte: {{ product.quantity_done_cutting }}/{{ product.quantity }}">
+                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                        <circle cx="6" cy="6" r="3"></circle>
+                                        <circle cx="6" cy="18" r="3"></circle>
+                                        <line x1="20" y1="4" x2="8.12" y2="15.88"></line>
+                                        <line x1="14.47" y1="14.48" x2="20" y2="20"></line>
+                                        <line x1="8.12" y1="8.12" x2="12" y2="12"></line>
+                                    </svg>
+                                    {{ product.quantity_done_cutting }}/{{ product.quantity }}
+                                </span>
+                                {% endif %}
                                 {% if product.wood_species %}
                                 <span class="badge badge-species">{{ product.wood_species }}</span>
                                 {% endif %}

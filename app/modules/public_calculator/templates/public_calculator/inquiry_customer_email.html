@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1.0" />
+    <title>Potwierdzenie zapytania {{ inquiry_number }} - WoodPower</title>
+    <style type="text/css">
+        body, table, td, p {
+            margin: 0;
+            padding: 0;
+        }
+        img {
+            border: 0;
+            display: block;
+            line-height: 100%;
+        }
+        a {
+            text-decoration: none;
+        }
+    </style>
+</head>
+
+<body style="margin: 0; padding: 0; background-color: #F8F8F8;">
+    <table width="100%"
+           border="0"
+           cellspacing="0"
+           cellpadding="0"
+           align="center"
+           style="border-collapse: collapse; background-color: #F8F8F8;">
+        <tr>
+            <td align="center" style="padding-top: 30px; padding-bottom: 30px;">
+                <table width="604"
+                       border="0"
+                       cellspacing="0"
+                       cellpadding="0"
+                       style="
+                           border-collapse: collapse;
+                           border-radius: 8px;
+                           background: #ffffff;
+                           box-shadow: 0px 50px 14px 0px rgba(237, 107, 36, 0.00),
+                                       0px 32px 13px 0px rgba(237, 107, 36, 0.01),
+                                       0px 18px 11px 0px rgba(0, 0, 0, 0.03),
+                                       0px 8px 8px 0px rgba(0, 0, 0, 0.04),
+                                       0px 2px 4px 0px rgba(0, 0, 0, 0.05);
+                           overflow: hidden;
+                       ">
+                    <!-- Header -->
+                    <tr>
+                        <td style="
+                            background: #ED6B24;
+                            height: 80px;
+                            padding: 0 26px;
+                            vertical-align: middle;
+                        ">
+                            <a href="https://woodpower.pl" target="_blank" style="display: block;">
+                                <img src="https://serwer2100532.home.pl/woodpower/img/cms/mail/logowhite.png"
+                                     alt="WoodPower"
+                                     width="200"
+                                     height="36"
+                                     style="display: block;" />
+                            </a>
+                        </td>
+                    </tr>
+
+                    <!-- Content -->
+                    <tr>
+                        <td style="border-collapse: collapse;">
+                            <table width="100%"
+                                   border="0"
+                                   cellspacing="0"
+                                   cellpadding="0"
+                                   style="border-collapse: collapse;">
+
+                                <!-- Heading -->
+                                <tr>
+                                    <td style="padding: 50px 40px 0;">
+                                        <p style="
+                                            font-family: Poppins, Arial, sans-serif;
+                                            font-size: 24px;
+                                            font-weight: 600;
+                                            color: #1F2020;
+                                            margin: 0;
+                                        ">
+                                            Potwierdzenie zapytania
+                                        </p>
+                                        <div style="
+                                            width: 70px;
+                                            height: 4px;
+                                            background-color: #ED6B24;
+                                            border-radius: 2px;
+                                            margin-top: 6px;
+                                        "></div>
+                                    </td>
+                                </tr>
+
+                                <!-- Powitanie -->
+                                <tr>
+                                    <td style="padding: 30px 40px 0px;">
+                                        <p style="
+                                            font-family: Poppins, Arial, sans-serif;
+                                            font-size: 16px;
+                                            font-weight: 400;
+                                            color: #1F2020;
+                                            margin: 0;
+                                        ">
+                                            Witaj <strong>{{ customer_name }}</strong>!
+                                        </p>
+                                        <p style="
+                                            font-family: Poppins, Arial, sans-serif;
+                                            font-size: 14px;
+                                            font-weight: 400;
+                                            color: #1F2020;
+                                            margin: 15px 0 0;
+                                            line-height: 160%;
+                                        ">
+                                            Dziękujemy za złożenie zapytania ofertowego. Otrzymaliśmy Twoje zgłoszenie dotyczące produktu o wymiarach:
+                                        </p>
+                                    </td>
+                                </tr>
+
+                                <!-- Wymiary produktu -->
+                                <tr>
+                                    <td style="padding: 20px 40px 0px;">
+                                        <table width="100%" border="0" cellspacing="0" cellpadding="0" style="border-collapse: collapse; background: #F8F9FA; border-radius: 6px;">
+                                            <tr>
+                                                <td style="padding: 20px;">
+                                                    <p style="
+                                                        font-family: Poppins, Arial, sans-serif;
+                                                        font-size: 16px;
+                                                        font-weight: 600;
+                                                        color: #ED6B24;
+                                                        margin: 0 0 15px 0;
+                                                    ">
+                                                        Szczegóły zapytania #{{ inquiry_number }}
+                                                    </p>
+                                                    <table width="100%" border="0" cellspacing="0" cellpadding="0" style="border-collapse: collapse;">
+                                                        <tr>
+                                                            <td style="padding: 5px 0;">
+                                                                <p style="font-family: Poppins, Arial, sans-serif; font-size: 14px; color: #333; margin: 0;">
+                                                                    <strong>Wymiary:</strong> {{ dimensions.length }} x {{ dimensions.width }} x {{ dimensions.thickness }} cm
+                                                                </p>
+                                                            </td>
+                                                        </tr>
+                                                        <tr>
+                                                            <td style="padding: 5px 0;">
+                                                                <p style="font-family: Poppins, Arial, sans-serif; font-size: 14px; color: #333; margin: 0;">
+                                                                    <strong>Ilość:</strong> {{ dimensions.quantity }} szt.
+                                                                </p>
+                                                            </td>
+                                                        </tr>
+                                                        <tr>
+                                                            <td style="padding: 5px 0;">
+                                                                <p style="font-family: Poppins, Arial, sans-serif; font-size: 14px; color: #333; margin: 0;">
+                                                                    <strong>Wykończenie:</strong> {% if finishing and finishing != 'Brak' %}{{ finishing }}{% if finishing_variant %} - {{ finishing_variant }}{% endif %}{% if finishing_color %} ({{ finishing_color }}){% endif %}{% else %}Surowe (brak){% endif %}
+                                                                </p>
+                                                            </td>
+                                                        </tr>
+                                                    </table>
+                                                </td>
+                                            </tr>
+                                        </table>
+                                    </td>
+                                </tr>
+
+                                <!-- Informacja o odpowiedzi -->
+                                <tr>
+                                    <td style="padding: 30px 40px 0px;">
+                                        <table width="100%" border="0" cellspacing="0" cellpadding="0" style="border-collapse: collapse; background: #FFF8E1; border-radius: 6px; border-left: 4px solid #FFC107;">
+                                            <tr>
+                                                <td style="padding: 15px;">
+                                                    <p style="
+                                                        font-family: Poppins, Arial, sans-serif;
+                                                        font-size: 14px;
+                                                        font-weight: 600;
+                                                        color: #E65100;
+                                                        margin: 0 0 10px 0;
+                                                    ">
+                                                        Czas oczekiwania na odpowiedź
+                                                    </p>
+                                                    <p style="
+                                                        font-family: Poppins, Arial, sans-serif;
+                                                        font-size: 14px;
+                                                        font-weight: 400;
+                                                        color: #333;
+                                                        margin: 0;
+                                                        line-height: 160%;
+                                                    ">
+                                                        Odpowiemy na Twoje zapytanie <strong>w ciągu 24 godzin</strong>.<br />
+                                                        Jesteśmy czynni od poniedziałku do piątku w godzinach <strong>8:00 - 16:00</strong>.
+                                                    </p>
+                                                </td>
+                                            </tr>
+                                        </table>
+                                    </td>
+                                </tr>
+
+                                <!-- Pozdrowienia -->
+                                <tr>
+                                    <td style="padding: 30px 40px 0px;">
+                                        <p style="
+                                            font-family: Poppins, Arial, sans-serif;
+                                            font-size: 14px;
+                                            font-weight: 400;
+                                            color: #1F2020;
+                                            margin: 0;
+                                            line-height: 160%;
+                                        ">
+                                            Pozdrawiamy,<br />
+                                            <span style="font-style: italic;">Zespół sklepu WoodPower.</span>
+                                        </p>
+                                    </td>
+                                </tr>
+
+                                <!-- Linia -->
+                                <tr>
+                                    <td style="padding: 30px 0 0 0;">
+                                        <div style="
+                                            width: 100%;
+                                            height: 1px;
+                                            background-color: #ED6B24;
+                                        "></div>
+                                    </td>
+                                </tr>
+
+                                <!-- Footer -->
+                                <tr>
+                                    <td style="padding: 30px 40px;">
+                                        <p style="
+                                            font-family: Poppins, Arial, sans-serif;
+                                            font-size: 12px;
+                                            font-weight: 400;
+                                            color: #939393;
+                                            margin: 0;
+                                            line-height: 160%;
+                                        ">
+                                            Wiadomość została wysłana automatycznie, prosimy na nią nie odpowiadać.
+                                        </p>
+                                        <p style="
+                                            font-family: Poppins, Arial, sans-serif;
+                                            font-size: 12px;
+                                            font-weight: 400;
+                                            color: #939393;
+                                            margin: 15px 0 0;
+                                            line-height: 160%;
+                                        ">
+                                            Jeśli masz jakieś pytania, zapraszamy do kontaktu z naszym Biurem Obsługi Klienta telefonicznie pod numerem <a href="tel:+48690002109" style="color: #ED6B24; text-decoration: underline;">+48 690 002 109</a> lub mailowo <a href="mailto:biuro@woodpower.pl" style="color: #ED6B24; text-decoration: underline;">biuro@woodpower.pl</a>. Nasi konsultanci są dostępni od poniedziałku do piątku w godzinach 8:00-16:00.
+                                        </p>
+                                    </td>
+                                </tr>
+                            </table>
+                        </td>
+                    </tr>
+                </table>
+            </td>
+        </tr>
+        <tr>
+            <td align="center">
+                <table width="604"
+                       border="0"
+                       cellspacing="0"
+                       cellpadding="0"
+                       style="border-collapse: collapse;">
+                    <!-- Social icons -->
+                    <tr>
+                        <td align="center" style="padding: 0 40px 20px;">
+                            <table border="0" cellspacing="0" cellpadding="0" style="border-collapse: collapse;">
+                                <tr>
+                                    <td style="vertical-align: middle;">
+                                        <a href="https://www.facebook.com/profile.php?id=100078058417309" target="_blank" style="display: inline-block;">
+                                            <img src="https://serwer2100532.home.pl/woodpower/img/cms/mail/facebook.png"
+                                                 alt="Facebook"
+                                                 width="28"
+                                                 height="28"
+                                                 style="display: block;" />
+                                        </a>
+                                    </td>
+                                    <td style="width: 16px;"></td>
+                                    <td style="vertical-align: middle;">
+                                        <a href="https://instagram.com/__wood_power__" target="_blank" style="display: inline-block;">
+                                            <img src="https://serwer2100532.home.pl/woodpower/img/cms/mail/instagram.png"
+                                                 alt="Instagram"
+                                                 width="28"
+                                                 height="28"
+                                                 style="display: block;" />
+                                        </a>
+                                    </td>
+                                </tr>
+                            </table>
+                        </td>
+                    </tr>
+
+                    <!-- Company info -->
+                    <tr>
+                        <td align="left" style="padding: 0px 40px 40px;">
+                            <p style="
+                                font-family: Poppins, Arial, sans-serif;
+                                font-size: 10px;
+                                font-weight: 400;
+                                color: #939393;
+                                margin: 0;
+                                text-align: justify;
+                            ">
+                                Wood Power Spółka z ograniczoną odpowiedzialnością, Bachórz 14N,
+                                36-068 Bachórz, NIP: 8133787635, Firma zarejestrowana w rejestrze
+                                przedsiębiorców Krajowego Rejestru Sądowego pod numerem
+                                KRS 0000743306 przez Sąd Rejonowy w Rzeszowie, XII Wydział
+                                Gospodarczy Krajowego Rejestru Sądowego.
+                                <a href="https://woodpower.pl/content/8-regulamin-sklepu"
+                                   style="color: #939393; text-decoration: underline;">Tutaj</a> znajdziesz informacje dotyczące przetwarzania Twoich danych osobowych.
+                            </p>
+                        </td>
+                    </tr>
+                </table>
+            </td>
+        </tr>
+    </table>
+</body>
+</html>

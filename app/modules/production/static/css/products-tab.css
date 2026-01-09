@@ -2270,6 +2270,26 @@
     color: #6c757d !important; /* Szary dla oczekujących */
 }
 
+/* Timeline - status "Pominięto" (dla wycinania gdy produkt poszedł bezpośrednio na składanie) */
+.timeline-skipped .timeline-icon {
+    background: #fff3cd;
+    color: #856404;
+}
+
+.timeline-skipped .timeline-title {
+    color: #856404 !important; /* Żółty/bursztynowy dla pominiętych */
+}
+
+.timeline-skipped .timeline-status {
+    background: #fff3cd;
+    color: #856404;
+}
+
+.timeline-skipped .timeline-details {
+    font-style: italic;
+    color: #856404;
+}
+
 @keyframes pulse {
     0% { box-shadow: 0 0 0 0 rgba(253, 126, 20, 0.7); }
     70% { box-shadow: 0 0 0 10px rgba(253, 126, 20, 0); }

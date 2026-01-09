@@ -6652,3 +6652,31 @@
 .quotes-main {
     position: relative;
 }
+
+/* ========== DELIVERY BUTTONS GROUP (Quote Editor) ========== */
+.delivery-buttons-group {
+    display: flex;
+    gap: 4px;
+    align-items: center;
+}
+
+.clear-delivery {
+    padding: 8px;
+    background: #DC3545;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background-color 0.2s ease;
+    color: #FFF;
+}
+
+.clear-delivery:hover {
+    background: #C82333;
+}
+
+.clear-delivery svg {
+    display: block;
+}

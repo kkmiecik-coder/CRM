@@ -484,10 +484,17 @@ def cutting_station():
         })
 
         # NOWA LOGIKA: Znajdź zamówienia które mają choć 1 produkt do wycięcia
+        # Wycinanie widzi: czeka_na_wyciecie ORAZ czeka_na_skladanie (gdzie cutting_completed_at IS NULL)
         orders_with_cutting = db.session.query(
             ProductionItem.internal_order_number
         ).filter(
-            ProductionItem.current_status == 'czeka_na_wyciecie'
+            db.or_(
+                ProductionItem.current_status == 'czeka_na_wyciecie',
+                db.and_(
+                    ProductionItem.current_status == 'czeka_na_skladanie',
+                    ProductionItem.cutting_completed_at.is_(None)
+                )
+            )
         ).distinct().all()
 
         order_numbers = [order[0] for order in orders_with_cutting if order[0]]
@@ -495,9 +502,17 @@ def cutting_station():
         if not order_numbers:
             products = []
         else:
-            # Pobierz WSZYSTKIE produkty z tych zamówień
+            # Pobierz produkty z tych zamówień które pasują do kryteriów wycinania
+            # (czeka_na_wyciecie LUB czeka_na_skladanie z cutting_completed_at IS NULL)
             query = ProductionItem.query.filter(
-                ProductionItem.internal_order_number.in_(order_numbers)
+                ProductionItem.internal_order_number.in_(order_numbers),
+                db.or_(
+                    ProductionItem.current_status == 'czeka_na_wyciecie',
+                    db.and_(
+                        ProductionItem.current_status == 'czeka_na_skladanie',
+                        ProductionItem.cutting_completed_at.is_(None)
+                    )
+                )
             )
 
             # Sortowanie
@@ -548,6 +563,8 @@ def cutting_station():
                     'product_sequence_in_order': product.product_sequence_in_order,
                     'quantity': product.quantity,
                     'quantity_done': product.quantity_done_cutting,
+                    'quantity_done_assembly': product.quantity_done_assembly,
+                    'assembly_completed_at': product.assembly_completed_at,
                     'is_complete': product.quantity_done_cutting == product.quantity,
                     'is_priority': product.is_priority,
                     'order_notes': product.order_notes,
@@ -689,10 +706,14 @@ def assembly_station():
         })
 
         # NOWA LOGIKA: Znajdź zamówienia które mają choć 1 produkt do składania
+        # Składanie widzi: czeka_na_wyciecie ORAZ czeka_na_skladanie (wszystkie)
         orders_with_assembly = db.session.query(
             ProductionItem.internal_order_number
         ).filter(
-            ProductionItem.current_status == 'czeka_na_skladanie'
+            db.or_(
+                ProductionItem.current_status == 'czeka_na_wyciecie',
+                ProductionItem.current_status == 'czeka_na_skladanie'
+            )
         ).distinct().all()
 
         order_numbers = [order[0] for order in orders_with_assembly if order[0]]
@@ -700,9 +721,14 @@ def assembly_station():
         if not order_numbers:
             products = []
         else:
-            # Pobierz WSZYSTKIE produkty z tych zamówień
+            # Pobierz produkty z tych zamówień które pasują do kryteriów składania
+            # (czeka_na_wyciecie LUB czeka_na_skladanie)
             query = ProductionItem.query.filter(
-                ProductionItem.internal_order_number.in_(order_numbers)
+                ProductionItem.internal_order_number.in_(order_numbers),
+                db.or_(
+                    ProductionItem.current_status == 'czeka_na_wyciecie',
+                    ProductionItem.current_status == 'czeka_na_skladanie'
+                )
             )
 
             # Sortowanie
@@ -753,6 +779,8 @@ def assembly_station():
                     'product_sequence_in_order': product.product_sequence_in_order,
                     'quantity': product.quantity,
                     'quantity_done': product.quantity_done_assembly,
+                    'quantity_done_cutting': product.quantity_done_cutting or 0,
+                    'cutting_completed_at': product.cutting_completed_at,
                     'is_complete': product.quantity_done_assembly == product.quantity,
                     'is_priority': product.is_priority,
                     'order_notes': product.order_notes,
@@ -1632,7 +1660,28 @@ def packaging_station():
                     'is_complete': product.quantity_done_packaging == product.quantity,
                     'is_priority': product.is_priority,
                     'order_notes': product.order_notes,
-                    'client_order_number': product.client_order_number
+                    'client_order_number': product.client_order_number,
+                    # WYMIARY SUROWE DO OBLICZEŃ WYSYŁKI (2025-12)
+                    'parsed_length_cm': float(product.parsed_length_cm) if product.parsed_length_cm else 0,
+                    'parsed_width_cm': float(product.parsed_width_cm) if product.parsed_width_cm else 0,
+                    'parsed_thickness_cm': float(product.parsed_thickness_cm) if product.parsed_thickness_cm else 0,
+                    # DANE DOSTAWY (2025-12)
+                    'delivery_method': product.delivery_method,
+                    'delivery_fullname': product.delivery_fullname,
+                    'delivery_company': product.delivery_company,
+                    'delivery_address': product.delivery_address,
+                    'delivery_city': product.delivery_city,
+                    'delivery_postcode': product.delivery_postcode,
+                    'delivery_country_code': product.delivery_country_code,
+                    'is_personal_pickup': product.is_personal_pickup,
+                    'delivery_type': product.delivery_type,
+                    # DANE WYSYŁKI KURIERSKIEJ (2025-12)
+                    'shipping_package_id': product.shipping_package_id,
+                    'shipping_tracking_number': product.shipping_tracking_number,
+                    'shipping_courier_name': product.shipping_courier_name,
+                    'shipping_price': float(product.shipping_price) if product.shipping_price else None,
+                    'shipping_label_base64': product.shipping_label_base64,
+                    'shipping_created_at': product.shipping_created_at.isoformat() if product.shipping_created_at else None,
                 }
 
                 products.append(product_data)
@@ -1657,7 +1706,24 @@ def packaging_station():
                     'has_overdue': False,
                     'priority_label': 'Niski',
                     'priority_class': 'priority-low',
-                    'display_deadline': 'Brak'
+                    'display_deadline': 'Brak',
+                    # DANE DOSTAWY (2025-12) - z pierwszego produktu
+                    'delivery_method': None,
+                    'delivery_fullname': None,
+                    'delivery_company': None,
+                    'delivery_address': None,
+                    'delivery_city': None,
+                    'delivery_postcode': None,
+                    'delivery_country_code': None,
+                    'is_personal_pickup': None,
+                    'delivery_type': None,
+                    # DANE WYSYŁKI KURIERSKIEJ (2025-12)
+                    'shipping_package_id': None,
+                    'shipping_tracking_number': None,
+                    'shipping_courier_name': None,
+                    'shipping_price': None,
+                    'shipping_label_base64': None,
+                    'shipping_created_at': None,
                 }
 
             order = orders_grouped[order_number]
@@ -1682,6 +1748,27 @@ def packaging_station():
 
             if product['is_overdue']:
                 order['has_overdue'] = True
+
+            # Pobierz dane dostawy z pierwszego produktu w zamówieniu (2025-12)
+            if order['delivery_method'] is None:
+                order['delivery_method'] = product.get('delivery_method')
+                order['delivery_fullname'] = product.get('delivery_fullname')
+                order['delivery_company'] = product.get('delivery_company')
+                order['delivery_address'] = product.get('delivery_address')
+                order['delivery_city'] = product.get('delivery_city')
+                order['delivery_postcode'] = product.get('delivery_postcode')
+                order['delivery_country_code'] = product.get('delivery_country_code')
+                order['is_personal_pickup'] = product.get('is_personal_pickup')
+                order['delivery_type'] = product.get('delivery_type')
+
+            # Pobierz dane wysyłki z pierwszego produktu który je ma (2025-12)
+            if order['shipping_package_id'] is None and product.get('shipping_package_id'):
+                order['shipping_package_id'] = product.get('shipping_package_id')
+                order['shipping_tracking_number'] = product.get('shipping_tracking_number')
+                order['shipping_courier_name'] = product.get('shipping_courier_name')
+                order['shipping_price'] = product.get('shipping_price')
+                order['shipping_label_base64'] = product.get('shipping_label_base64')
+                order['shipping_created_at'] = product.get('shipping_created_at')
 
         # Sortowanie grup zamówień
         if sort_by == 'priority':
@@ -2001,51 +2088,46 @@ def ajax_station_summary():
             'success': False,
             'error': str(e)
         }), 500
-    
-@station_bp.route('/ajax/orders/packaging')
-def ajax_get_orders_packaging():
+
+
+# ============================================================================
+# GENERYCZNA FUNKCJA AJAX DLA PROSTYCH STANOWISK
+# ============================================================================
+
+def _ajax_get_orders_simple(station_code: str, status_filter: str, quantity_done_field: str):
     """
-    AJAX endpoint dla odświeżania ZAMÓWIEŃ na stanowisku pakowania
-    
-    RÓŻNICA od ajax_get_products:
-    - Zwraca ZAMÓWIENIA (grouped) zamiast płaskiej listy produktów
-    - Struktura identyczna z initial server-side render
-    
-    Query params:
-        sort: priority|deadline|created_at (default: priority)
-        limit: max liczba produktów (default: 50)
-        
+    Generyczna funkcja AJAX dla stanowisk z prostą logiką (gluing, formatting, finishing).
+
+    Stanowiska z unikalnymi wymaganiami (packaging, cutting, assembly) mają osobne implementacje.
+
+    Args:
+        station_code: Kod stanowiska (gluing, formatting, finishing)
+        status_filter: Status produktów do filtrowania (np. 'czeka_na_sklejanie')
+        quantity_done_field: Nazwa atrybutu quantity_done_* (np. 'quantity_done_gluing')
+
     Returns:
-        JSON: {
-            success: bool,
-            data: {
-                orders: [...],  # Pogrupowane zamówienia
-                stats: {...}    # Statystyki
-            }
-        }
+        Flask Response z JSON
     """
     try:
         from ..models import ProductionItem
-        from sqlalchemy import asc, desc
-        
+        from sqlalchemy import asc
+
         sort_by = request.args.get('sort', 'priority')
-        limit = min(int(request.args.get('limit', 50)), 100)
-        
-        logger.debug("AJAX: Pobieranie zamówień packaging", extra={
+
+        logger.debug(f"AJAX: Pobieranie zamówień {station_code}", extra={
             'sort_by': sort_by,
-            'limit': limit,
             'client_ip': request.remote_addr
         })
-        
-        # KROK 1: Znajdź zamówienia które mają choć 1 produkt do pakowania
-        orders_with_packaging = db.session.query(
+
+        # KROK 1: Znajdź zamówienia które mają choć 1 produkt do przetworzenia
+        orders_with_products = db.session.query(
             ProductionItem.internal_order_number
         ).filter(
-            ProductionItem.current_status == 'czeka_na_pakowanie'
+            ProductionItem.current_status == status_filter
         ).distinct().all()
-        
-        order_numbers = [order[0] for order in orders_with_packaging]
-        
+
+        order_numbers = [order[0] for order in orders_with_products]
+
         if not order_numbers:
             return jsonify({
                 'success': True,
@@ -2060,12 +2142,12 @@ def ajax_get_orders_packaging():
                     }
                 }
             }), 200
-        
+
         # KROK 2: Pobierz WSZYSTKIE produkty z tych zamówień
         query = ProductionItem.query.filter(
             ProductionItem.internal_order_number.in_(order_numbers)
         )
-        
+
         # Sortowanie
         if sort_by == 'priority':
             query = query.order_by(asc(ProductionItem.priority_rank))
@@ -2073,9 +2155,224 @@ def ajax_get_orders_packaging():
             query = query.order_by(asc(ProductionItem.deadline_date))
         elif sort_by == 'created_at':
             query = query.order_by(asc(ProductionItem.created_at))
+
+        products = query.all()
+
+        # KROK 3: Grupowanie produktów po zamówieniach
+        orders_grouped = {}
+        today = date.today()
+
+        for product in products:
+            order_num = product.internal_order_number
+
+            if order_num not in orders_grouped:
+                orders_grouped[order_num] = {
+                    'order_number': order_num,
+                    'baselinker_order_id': None,
+                    'products': [],
+                    'total_products': 0,
+                    'total_volume': 0,
+                    'best_priority_rank': 999,
+                    'worst_deadline': None
+                }
+
+            # Pobierz quantity_done dla tego stanowiska
+            quantity_done = getattr(product, quantity_done_field, 0) or 0
+
+            # Dodaj produkt do zamówienia
+            product_data = {
+                'id': product.short_product_id,
+                'short_product_id': product.short_product_id,
+                'product_sequence_in_order': product.product_sequence_in_order,
+                'original_name': product.original_product_name or 'Brak nazwy',
+                'dimensions': None,
+                'volume_m3': float(product.volume_m3 or 0),
+                'wood_species': product.parsed_wood_species,
+                'technology': product.parsed_technology,
+                'wood_class': product.parsed_wood_class,
+                'finish_state': product.parsed_finish_state,
+                'current_status': product.current_status,
+                'priority_rank': product.priority_rank or 999,
+                'deadline_date': product.deadline_date.isoformat() if product.deadline_date else None,
+                'attachment_file_name': product.attachment_file_name,
+                'attachment_file_url': product.attachment_file_url,
+                'quantity': product.quantity,
+                'quantity_done': quantity_done,
+                'is_complete': quantity_done == product.quantity,
+                'is_priority': product.is_priority
+            }
+
+            # Oblicz wymiary z parsowanych pól
+            if product.parsed_length_cm and product.parsed_width_cm and product.parsed_thickness_cm:
+                product_data['dimensions'] = f"{_format_dimension(product.parsed_length_cm)} × {_format_dimension(product.parsed_width_cm)} × {_format_dimension(product.parsed_thickness_cm)} cm"
+
+            orders_grouped[order_num]['products'].append(product_data)
+            orders_grouped[order_num]['total_products'] += 1
+            orders_grouped[order_num]['total_volume'] += float(product.volume_m3 or 0)
+
+            if not orders_grouped[order_num]['baselinker_order_id'] and product.baselinker_order_id:
+                orders_grouped[order_num]['baselinker_order_id'] = product.baselinker_order_id
+
+            if product.priority_rank and product.priority_rank < orders_grouped[order_num]['best_priority_rank']:
+                orders_grouped[order_num]['best_priority_rank'] = product.priority_rank
+
+            if product.deadline_date:
+                if orders_grouped[order_num]['worst_deadline'] is None:
+                    orders_grouped[order_num]['worst_deadline'] = product.deadline_date
+                elif product.deadline_date > orders_grouped[order_num]['worst_deadline']:
+                    orders_grouped[order_num]['worst_deadline'] = product.deadline_date
+
+        # KROK 4: Sortuj produkty wewnątrz każdego zamówienia
+        for order_num, order_data in orders_grouped.items():
+            order_data['products'].sort(key=lambda p: p['product_sequence_in_order'])
+
+        # KROK 5: Dodaj informacje wyświetlania
+        for order_num, order_data in orders_grouped.items():
+            rank = order_data['best_priority_rank']
+            if rank <= 10:
+                order_data['priority_class'] = 'priority-critical'
+                order_data['priority_label'] = 'KRYTYCZNY'
+            elif rank <= 50:
+                order_data['priority_class'] = 'priority-high'
+                order_data['priority_label'] = 'WYSOKI'
+            elif rank <= 100:
+                order_data['priority_class'] = 'priority-normal'
+                order_data['priority_label'] = 'NORMALNY'
+            else:
+                order_data['priority_class'] = 'priority-low'
+                order_data['priority_label'] = 'NISKI'
+
+            deadline = order_data['worst_deadline']
+            if deadline:
+                days_diff = (deadline - today).days
+                if days_diff < 0:
+                    order_data['display_deadline'] = f"Opóźnione o {abs(days_diff)} dni"
+                elif days_diff == 0:
+                    order_data['display_deadline'] = "Dziś!"
+                elif days_diff == 1:
+                    order_data['display_deadline'] = "Jutro"
+                else:
+                    order_data['display_deadline'] = f"Za {days_diff} dni"
+            else:
+                order_data['display_deadline'] = "Brak terminu"
+
+            if order_data['worst_deadline']:
+                order_data['deadline_date'] = order_data['worst_deadline'].isoformat()
+                order_data['worst_deadline'] = order_data['worst_deadline'].isoformat()
+
+        # KROK 6: Sortowanie zamówień
+        orders_list = list(orders_grouped.values())
+        if sort_by == 'priority':
+            orders_list.sort(key=lambda x: x['best_priority_rank'])
+        elif sort_by == 'deadline':
+            orders_list.sort(key=lambda x: x['worst_deadline'] or '9999-12-31')
+
+        # KROK 7: Statystyki
+        high_priority_count = sum(1 for order in orders_list if order['best_priority_rank'] <= 50)
+        overdue_count = sum(1 for order in orders_list
+                           if order['worst_deadline'] and order['worst_deadline'] < today.isoformat())
+        total_volume = sum(order['total_volume'] for order in orders_list)
+        total_products = sum(order['total_products'] for order in orders_list)
+
+        stats = {
+            'total_orders': len(orders_list),
+            'total_products': total_products,
+            'high_priority_count': high_priority_count,
+            'overdue_count': overdue_count,
+            'total_volume': round(total_volume, 4)
+        }
+
+        return jsonify({
+            'success': True,
+            'data': {
+                'orders': orders_list,
+                'stats': stats
+            }
+        }), 200
+
+    except Exception as e:
+        logger.error(f"Błąd AJAX orders {station_code}", extra={
+            'error': str(e),
+            'traceback': traceback.format_exc()
+        })
+
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@station_bp.route('/ajax/orders/packaging')
+def ajax_get_orders_packaging():
+    """
+    AJAX endpoint dla odświeżania ZAMÓWIEŃ na stanowisku pakowania
+
+    RÓŻNICA od ajax_get_products:
+    - Zwraca ZAMÓWIENIA (grouped) zamiast płaskiej listy produktów
+    - Struktura identyczna z initial server-side render (bez limitu)
+
+    Query params:
+        sort: priority|deadline|created_at (default: priority)
+
+    Returns:
+        JSON: {
+            success: bool,
+            data: {
+                orders: [...],  # Pogrupowane zamówienia
+                stats: {...}    # Statystyki
+            }
+        }
+    """
+    try:
+        from ..models import ProductionItem
+        from sqlalchemy import asc, desc
+
+        sort_by = request.args.get('sort', 'priority')
+
+        logger.debug("AJAX: Pobieranie zamówień packaging", extra={
+            'sort_by': sort_by,
+            'client_ip': request.remote_addr
+        })
         
-        products = query.limit(limit).all()
-        
+        # KROK 1: Znajdź zamówienia które mają choć 1 produkt do pakowania
+        orders_with_packaging = db.session.query(
+            ProductionItem.internal_order_number
+        ).filter(
+            ProductionItem.current_status == 'czeka_na_pakowanie'
+        ).distinct().all()
+
+        order_numbers = [order[0] for order in orders_with_packaging]
+
+        if not order_numbers:
+            return jsonify({
+                'success': True,
+                'data': {
+                    'orders': [],
+                    'stats': {
+                        'total_orders': 0,
+                        'total_products': 0,
+                        'high_priority_count': 0,
+                        'overdue_count': 0,
+                        'total_volume': 0
+                    }
+                }
+            }), 200
+
+        # KROK 2: Pobierz WSZYSTKIE produkty z tych zamówień (bez limitu)
+        query = ProductionItem.query.filter(
+            ProductionItem.internal_order_number.in_(order_numbers)
+        )
+
+        # Sortowanie
+        if sort_by == 'priority':
+            query = query.order_by(asc(ProductionItem.priority_rank))
+        elif sort_by == 'deadline':
+            query = query.order_by(asc(ProductionItem.deadline_date))
+        elif sort_by == 'created_at':
+            query = query.order_by(asc(ProductionItem.created_at))
+
+        products = query.all()
+
         # KROK 3: Grupowanie produktów po zamówieniach
         orders_grouped = {}
         today = date.today()
@@ -2087,15 +2384,45 @@ def ajax_get_orders_packaging():
                 orders_grouped[order_num] = {
                     'order_number': order_num,
                     'baselinker_order_id': None,
+                    'client_order_number': None,
                     'products': [],
                     'total_products': 0,
+                    'total_quantity': 0,
+                    'total_quantity_done': 0,
                     'ready_count': 0,
                     'not_ready_count': 0,
                     'total_volume': 0,
                     'best_priority_rank': 999,
-                    'worst_deadline': None
+                    'worst_deadline': None,
+                    # DANE DOSTAWY (2025-12)
+                    'delivery_method': None,
+                    'delivery_fullname': None,
+                    'delivery_company': None,
+                    'delivery_address': None,
+                    'delivery_city': None,
+                    'delivery_postcode': None,
+                    'delivery_country_code': None,
+                    'is_personal_pickup': None,
+                    'delivery_type': None,
+                    # DANE WYSYŁKI KURIERSKIEJ (2025-12)
+                    'shipping_package_id': None,
+                    'shipping_tracking_number': None,
+                    'shipping_courier_name': None,
+                    'shipping_price': None,
+                    'shipping_label_base64': None,
+                    'shipping_created_at': None,
                 }
-            
+
+            # Wymiary w CM (taka sama logika jak przy początkowym renderowaniu)
+            dimensions_parts = []
+            if product.parsed_length_cm:
+                dimensions_parts.append(_format_dimension(product.parsed_length_cm))
+            if product.parsed_width_cm:
+                dimensions_parts.append(_format_dimension(product.parsed_width_cm))
+            if product.parsed_thickness_cm:
+                dimensions_parts.append(_format_dimension(product.parsed_thickness_cm))
+            dimensions_text = '×'.join(dimensions_parts) + ' cm' if dimensions_parts else None
+
             # Dodaj produkt do zamówienia
             product_data = {
                 'id': product.short_product_id,
@@ -2107,17 +2434,67 @@ def ajax_get_orders_packaging():
                 'quantity': product.quantity,
                 'quantity_done': product.quantity_done_packaging,
                 'is_complete': product.quantity_done_packaging == product.quantity,
-                'is_priority': product.is_priority
+                'is_priority': product.is_priority,
+                # Pola potrzebne do renderowania badges (dodane dla spójności z initial render)
+                'wood_species': product.parsed_wood_species,
+                'technology': product.parsed_technology,
+                'wood_class': product.parsed_wood_class,
+                'finish_state': product.parsed_finish_state,
+                'dimensions': dimensions_text,
+                'attachment_file_url': product.attachment_file_url,
+                'attachment_file_name': product.attachment_file_name,
+                'order_notes': product.order_notes,
+                # WYMIARY SUROWE DO OBLICZEŃ WYSYŁKI (2025-12)
+                'parsed_length_cm': float(product.parsed_length_cm) if product.parsed_length_cm else 0,
+                'parsed_width_cm': float(product.parsed_width_cm) if product.parsed_width_cm else 0,
+                'parsed_thickness_cm': float(product.parsed_thickness_cm) if product.parsed_thickness_cm else 0,
+                # DANE DOSTAWY (2025-12)
+                'delivery_method': product.delivery_method,
+                'delivery_fullname': product.delivery_fullname,
+                'delivery_company': product.delivery_company,
+                'delivery_address': product.delivery_address,
+                'delivery_city': product.delivery_city,
+                'delivery_postcode': product.delivery_postcode,
+                'delivery_country_code': product.delivery_country_code,
+                'is_personal_pickup': product.is_personal_pickup,
+                'delivery_type': product.delivery_type,
             }
 
             orders_grouped[order_num]['products'].append(product_data)
             orders_grouped[order_num]['total_products'] += 1
             orders_grouped[order_num]['total_volume'] += float(product.volume_m3 or 0)
+            orders_grouped[order_num]['total_quantity'] += product.quantity or 1
+            orders_grouped[order_num]['total_quantity_done'] += product.quantity_done_packaging or 0
 
-            # ✅ DODAJ TO: Weź baselinker_order_id z pierwszego produktu który go ma
+            # Weź baselinker_order_id z pierwszego produktu który go ma
             if not orders_grouped[order_num]['baselinker_order_id'] and product.baselinker_order_id:
                 orders_grouped[order_num]['baselinker_order_id'] = product.baselinker_order_id
-            
+
+            # Weź client_order_number z pierwszego produktu który go ma
+            if not orders_grouped[order_num]['client_order_number'] and product.client_order_number:
+                orders_grouped[order_num]['client_order_number'] = product.client_order_number
+
+            # Pobierz dane dostawy z pierwszego produktu (2025-12)
+            if orders_grouped[order_num]['delivery_method'] is None:
+                orders_grouped[order_num]['delivery_method'] = product.delivery_method
+                orders_grouped[order_num]['delivery_fullname'] = product.delivery_fullname
+                orders_grouped[order_num]['delivery_company'] = product.delivery_company
+                orders_grouped[order_num]['delivery_address'] = product.delivery_address
+                orders_grouped[order_num]['delivery_city'] = product.delivery_city
+                orders_grouped[order_num]['delivery_postcode'] = product.delivery_postcode
+                orders_grouped[order_num]['delivery_country_code'] = product.delivery_country_code
+                orders_grouped[order_num]['is_personal_pickup'] = product.is_personal_pickup
+                orders_grouped[order_num]['delivery_type'] = product.delivery_type
+
+            # Pobierz dane wysyłki z pierwszego produktu który je ma (2025-12)
+            if orders_grouped[order_num]['shipping_package_id'] is None and product.shipping_package_id:
+                orders_grouped[order_num]['shipping_package_id'] = product.shipping_package_id
+                orders_grouped[order_num]['shipping_tracking_number'] = product.shipping_tracking_number
+                orders_grouped[order_num]['shipping_courier_name'] = product.shipping_courier_name
+                orders_grouped[order_num]['shipping_price'] = float(product.shipping_price) if product.shipping_price else None
+                orders_grouped[order_num]['shipping_label_base64'] = product.shipping_label_base64
+                orders_grouped[order_num]['shipping_created_at'] = product.shipping_created_at.isoformat() if product.shipping_created_at else None
+
             # Liczniki gotowości
             if product.current_status == 'czeka_na_pakowanie':
                 orders_grouped[order_num]['ready_count'] += 1
@@ -2248,10 +2625,17 @@ def ajax_get_orders_cutting():
         })
 
         # KROK 1: Znajdź zamówienia które mają choć 1 produkt do wycięcia (AJAX CUTTING)
+        # Wycinanie widzi: czeka_na_wyciecie ORAZ czeka_na_skladanie (gdzie cutting_completed_at IS NULL)
         orders_with_cutting = db.session.query(
             ProductionItem.internal_order_number
         ).filter(
-            ProductionItem.current_status == 'czeka_na_wyciecie'
+            db.or_(
+                ProductionItem.current_status == 'czeka_na_wyciecie',
+                db.and_(
+                    ProductionItem.current_status == 'czeka_na_skladanie',
+                    ProductionItem.cutting_completed_at.is_(None)
+                )
+            )
         ).distinct().all()
 
         order_numbers = [order[0] for order in orders_with_cutting]
@@ -2271,9 +2655,17 @@ def ajax_get_orders_cutting():
                 }
             }), 200
 
-        # KROK 2: Pobierz WSZYSTKIE produkty z tych zamówień
+        # KROK 2: Pobierz produkty z tych zamówień które pasują do kryteriów wycinania
+        # (czeka_na_wyciecie LUB czeka_na_skladanie z cutting_completed_at IS NULL)
         query = ProductionItem.query.filter(
-            ProductionItem.internal_order_number.in_(order_numbers)
+            ProductionItem.internal_order_number.in_(order_numbers),
+            db.or_(
+                ProductionItem.current_status == 'czeka_na_wyciecie',
+                db.and_(
+                    ProductionItem.current_status == 'czeka_na_skladanie',
+                    ProductionItem.cutting_completed_at.is_(None)
+                )
+            )
         )
 
         # Sortowanie
@@ -2323,6 +2715,8 @@ def ajax_get_orders_cutting():
                 'attachment_file_url': product.attachment_file_url,
                 'quantity': product.quantity,
                 'quantity_done': product.quantity_done_cutting,
+                'quantity_done_assembly': product.quantity_done_assembly,
+                'assembly_completed_at': product.assembly_completed_at.isoformat() if product.assembly_completed_at else None,
                 'is_complete': product.quantity_done_cutting == product.quantity,
                 'is_priority': product.is_priority
             }
@@ -2442,11 +2836,10 @@ def ajax_get_orders_assembly():
     """
     AJAX endpoint dla odświeżania ZAMÓWIEŃ na stanowisku składania
 
-    IDENTYCZNA LOGIKA jak cutting, ale dla statusu 'czeka_na_skladanie'
+    IDENTYCZNA LOGIKA jak główna strona assembly_station (bez limitu)
 
     Query params:
         sort: priority|deadline|created_at (default: priority)
-        limit: max liczba produktów (default: 50)
 
     Returns:
         JSON: {
@@ -2462,19 +2855,21 @@ def ajax_get_orders_assembly():
         from sqlalchemy import asc, desc
 
         sort_by = request.args.get('sort', 'priority')
-        limit = min(int(request.args.get('limit', 50)), 100)
 
         logger.debug("AJAX: Pobieranie zamówień assembly", extra={
             'sort_by': sort_by,
-            'limit': limit,
             'client_ip': request.remote_addr
         })
 
         # KROK 1: Znajdź zamówienia które mają choć 1 produkt do składania
+        # Składanie widzi: czeka_na_wyciecie ORAZ czeka_na_skladanie (wszystkie)
         orders_with_assembly = db.session.query(
             ProductionItem.internal_order_number
         ).filter(
-            ProductionItem.current_status == 'czeka_na_skladanie'
+            db.or_(
+                ProductionItem.current_status == 'czeka_na_wyciecie',
+                ProductionItem.current_status == 'czeka_na_skladanie'
+            )
         ).distinct().all()
 
         order_numbers = [order[0] for order in orders_with_assembly]
@@ -2494,9 +2889,14 @@ def ajax_get_orders_assembly():
                 }
             }), 200
 
-        # KROK 2: Pobierz WSZYSTKIE produkty z tych zamówień
+        # KROK 2: Pobierz produkty z tych zamówień które pasują do kryteriów składania
+        # (czeka_na_wyciecie LUB czeka_na_skladanie)
         query = ProductionItem.query.filter(
-            ProductionItem.internal_order_number.in_(order_numbers)
+            ProductionItem.internal_order_number.in_(order_numbers),
+            db.or_(
+                ProductionItem.current_status == 'czeka_na_wyciecie',
+                ProductionItem.current_status == 'czeka_na_skladanie'
+            )
         )
 
         # Sortowanie
@@ -2507,7 +2907,7 @@ def ajax_get_orders_assembly():
         elif sort_by == 'created_at':
             query = query.order_by(asc(ProductionItem.created_at))
 
-        products = query.limit(limit).all()
+        products = query.all()
 
         # KROK 3: Grupowanie produktów po zamówieniach
         orders_grouped = {}
@@ -2546,6 +2946,8 @@ def ajax_get_orders_assembly():
                 'attachment_file_url': product.attachment_file_url,
                 'quantity': product.quantity,
                 'quantity_done': product.quantity_done_assembly,
+                'quantity_done_cutting': product.quantity_done_cutting or 0,
+                'cutting_completed_at': product.cutting_completed_at.isoformat() if product.cutting_completed_at else None,
                 'is_complete': product.quantity_done_assembly == product.quantity,
                 'is_priority': product.is_priority
             }
@@ -2662,633 +3064,21 @@ def ajax_get_orders_assembly():
 
 @station_bp.route('/ajax/orders/gluing')
 def ajax_get_orders_gluing():
-    """
-    AJAX endpoint dla odświeżania ZAMÓWIEŃ na stanowisku sklejania
+    """AJAX endpoint dla odświeżania ZAMÓWIEŃ na stanowisku sklejania"""
+    return _ajax_get_orders_simple('gluing', 'czeka_na_sklejanie', 'quantity_done_gluing')
 
-    Query params:
-        sort: priority|deadline|created_at (default: priority)
-        limit: max liczba produktów (default: 50)
-
-    Returns:
-        JSON: {
-            success: bool,
-            data: {
-                orders: [...],  # Pogrupowane zamówienia
-                stats: {...}    # Statystyki
-            }
-        }
-    """
-    try:
-        from ..models import ProductionItem
-        from sqlalchemy import asc, desc
-
-        sort_by = request.args.get('sort', 'priority')
-        limit = min(int(request.args.get('limit', 50)), 100)
-
-        logger.debug("AJAX: Pobieranie zamówień gluing", extra={
-            'sort_by': sort_by,
-            'limit': limit,
-            'client_ip': request.remote_addr
-        })
-
-        # KROK 1: Znajdź zamówienia które mają choć 1 produkt do sklejania
-        orders_with_gluing = db.session.query(
-            ProductionItem.internal_order_number
-        ).filter(
-            ProductionItem.current_status == 'czeka_na_sklejanie'
-        ).distinct().all()
-
-        order_numbers = [order[0] for order in orders_with_gluing]
-
-        if not order_numbers:
-            return jsonify({
-                'success': True,
-                'data': {
-                    'orders': [],
-                    'stats': {
-                        'total_orders': 0,
-                        'total_products': 0,
-                        'high_priority_count': 0,
-                        'overdue_count': 0,
-                        'total_volume': 0
-                    }
-                }
-            }), 200
-
-        # KROK 2: Pobierz WSZYSTKIE produkty z tych zamówień
-        query = ProductionItem.query.filter(
-            ProductionItem.internal_order_number.in_(order_numbers)
-        )
-
-        # Sortowanie
-        if sort_by == 'priority':
-            query = query.order_by(asc(ProductionItem.priority_rank))
-        elif sort_by == 'deadline':
-            query = query.order_by(asc(ProductionItem.deadline_date))
-        elif sort_by == 'created_at':
-            query = query.order_by(asc(ProductionItem.created_at))
-
-        products = query.limit(limit).all()
-
-        # KROK 3: Grupowanie produktów po zamówieniach
-        orders_grouped = {}
-        today = date.today()
-
-        for product in products:
-            order_num = product.internal_order_number
-
-            if order_num not in orders_grouped:
-                orders_grouped[order_num] = {
-                    'order_number': order_num,
-                    'baselinker_order_id': None,
-                    'products': [],
-                    'total_products': 0,
-                    'total_volume': 0,
-                    'best_priority_rank': 999,
-                    'worst_deadline': None
-                }
-
-            # Dodaj produkt do zamówienia
-            product_data = {
-                'id': product.short_product_id,
-                'short_product_id': product.short_product_id,
-                'product_sequence_in_order': product.product_sequence_in_order,
-                'original_name': product.original_product_name or 'Brak nazwy',
-                'dimensions': None,
-                'volume_m3': float(product.volume_m3 or 0),
-                'wood_species': product.parsed_wood_species,
-                'technology': product.parsed_technology,
-                'wood_class': product.parsed_wood_class,
-                'finish_state': product.parsed_finish_state,
-                'current_status': product.current_status,
-                'priority_rank': product.priority_rank or 999,
-                'deadline_date': product.deadline_date.isoformat() if product.deadline_date else None,
-                'attachment_file_name': product.attachment_file_name,
-                'attachment_file_url': product.attachment_file_url,
-                'quantity': product.quantity,
-                'quantity_done': product.quantity_done_gluing,
-                'is_complete': product.quantity_done_gluing == product.quantity,
-                'is_priority': product.is_priority
-            }
-
-            # Oblicz wymiary z parsowanych pól (w MM z jednostką)
-            if product.parsed_length_cm and product.parsed_width_cm and product.parsed_thickness_cm:
-                product_data['dimensions'] = f"{_format_dimension(product.parsed_length_cm)} × {_format_dimension(product.parsed_width_cm)} × {_format_dimension(product.parsed_thickness_cm)} cm"
-
-            orders_grouped[order_num]['products'].append(product_data)
-            orders_grouped[order_num]['total_products'] += 1
-            orders_grouped[order_num]['total_volume'] += float(product.volume_m3 or 0)
-
-            if not orders_grouped[order_num]['baselinker_order_id'] and product.baselinker_order_id:
-                orders_grouped[order_num]['baselinker_order_id'] = product.baselinker_order_id
-
-            if product.priority_rank and product.priority_rank < orders_grouped[order_num]['best_priority_rank']:
-                orders_grouped[order_num]['best_priority_rank'] = product.priority_rank
-
-            if product.deadline_date:
-                if orders_grouped[order_num]['worst_deadline'] is None:
-                    orders_grouped[order_num]['worst_deadline'] = product.deadline_date
-                elif product.deadline_date > orders_grouped[order_num]['worst_deadline']:
-                    orders_grouped[order_num]['worst_deadline'] = product.deadline_date
-
-        # KROK 4: Sortuj produkty wewnątrz każdego zamówienia
-        for order_num, order_data in orders_grouped.items():
-            order_data['products'].sort(key=lambda p: p['product_sequence_in_order'])
-
-        # KROK 5: Dodaj informacje wyświetlania
-        for order_num, order_data in orders_grouped.items():
-            rank = order_data['best_priority_rank']
-            if rank <= 10:
-                order_data['priority_class'] = 'priority-critical'
-                order_data['priority_label'] = 'KRYTYCZNY'
-            elif rank <= 50:
-                order_data['priority_class'] = 'priority-high'
-                order_data['priority_label'] = 'WYSOKI'
-            elif rank <= 100:
-                order_data['priority_class'] = 'priority-normal'
-                order_data['priority_label'] = 'NORMALNY'
-            else:
-                order_data['priority_class'] = 'priority-low'
-                order_data['priority_label'] = 'NISKI'
-
-            deadline = order_data['worst_deadline']
-            if deadline:
-                days_diff = (deadline - today).days
-                if days_diff < 0:
-                    order_data['display_deadline'] = f"Opóźnione o {abs(days_diff)} dni"
-                elif days_diff == 0:
-                    order_data['display_deadline'] = "Dziś!"
-                elif days_diff == 1:
-                    order_data['display_deadline'] = "Jutro"
-                else:
-                    order_data['display_deadline'] = f"Za {days_diff} dni"
-            else:
-                order_data['display_deadline'] = "Brak terminu"
-
-            if order_data['worst_deadline']:
-                order_data['deadline_date'] = order_data['worst_deadline'].isoformat()
-                order_data['worst_deadline'] = order_data['worst_deadline'].isoformat()
-
-        # KROK 6: Sortowanie zamówień
-        orders_list = list(orders_grouped.values())
-        if sort_by == 'priority':
-            orders_list.sort(key=lambda x: x['best_priority_rank'])
-        elif sort_by == 'deadline':
-            orders_list.sort(key=lambda x: x['worst_deadline'] or '9999-12-31')
-
-        # KROK 7: Statystyki
-        high_priority_count = sum(1 for order in orders_list if order['best_priority_rank'] <= 50)
-        overdue_count = sum(1 for order in orders_list
-                           if order['worst_deadline'] and order['worst_deadline'] < today.isoformat())
-        total_volume = sum(order['total_volume'] for order in orders_list)
-        total_products = sum(order['total_products'] for order in orders_list)
-
-        stats = {
-            'total_orders': len(orders_list),
-            'total_products': total_products,
-            'high_priority_count': high_priority_count,
-            'overdue_count': overdue_count,
-            'total_volume': round(total_volume, 4)
-        }
-
-        return jsonify({
-            'success': True,
-            'data': {
-                'orders': orders_list,
-                'stats': stats
-            }
-        }), 200
-
-    except Exception as e:
-        logger.error("Błąd AJAX orders gluing", extra={
-            'error': str(e),
-            'traceback': traceback.format_exc()
-        })
-
-        return jsonify({
-            'success': False,
-            'error': str(e)
-        }), 500
 
 @station_bp.route('/ajax/orders/formatting')
 def ajax_get_orders_formatting():
-    """
-    AJAX endpoint dla odświeżania ZAMÓWIEŃ na stanowisku formatowania
+    """AJAX endpoint dla odświeżania ZAMÓWIEŃ na stanowisku formatowania"""
+    return _ajax_get_orders_simple('formatting', 'czeka_na_formatowanie', 'quantity_done_formatting')
 
-    Query params:
-        sort: priority|deadline|created_at (default: priority)
-        limit: max liczba produktów (default: 50)
-
-    Returns:
-        JSON: {
-            success: bool,
-            data: {
-                orders: [...],  # Pogrupowane zamówienia
-                stats: {...}    # Statystyki
-            }
-        }
-    """
-    try:
-        from ..models import ProductionItem
-        from sqlalchemy import asc, desc
-
-        sort_by = request.args.get('sort', 'priority')
-        limit = min(int(request.args.get('limit', 50)), 100)
-
-        logger.debug("AJAX: Pobieranie zamówień formatting", extra={
-            'sort_by': sort_by,
-            'limit': limit,
-            'client_ip': request.remote_addr
-        })
-
-        # KROK 1: Znajdź zamówienia które mają choć 1 produkt do formatowania
-        orders_with_formatting = db.session.query(
-            ProductionItem.internal_order_number
-        ).filter(
-            ProductionItem.current_status == 'czeka_na_formatowanie'
-        ).distinct().all()
-
-        order_numbers = [order[0] for order in orders_with_formatting]
-
-        if not order_numbers:
-            return jsonify({
-                'success': True,
-                'data': {
-                    'orders': [],
-                    'stats': {
-                        'total_orders': 0,
-                        'total_products': 0,
-                        'high_priority_count': 0,
-                        'overdue_count': 0,
-                        'total_volume': 0
-                    }
-                }
-            }), 200
-
-        # KROK 2: Pobierz WSZYSTKIE produkty z tych zamówień
-        query = ProductionItem.query.filter(
-            ProductionItem.internal_order_number.in_(order_numbers)
-        )
-
-        # Sortowanie
-        if sort_by == 'priority':
-            query = query.order_by(asc(ProductionItem.priority_rank))
-        elif sort_by == 'deadline':
-            query = query.order_by(asc(ProductionItem.deadline_date))
-        elif sort_by == 'created_at':
-            query = query.order_by(asc(ProductionItem.created_at))
-
-        products = query.limit(limit).all()
-
-        # KROK 3: Grupowanie produktów po zamówieniach
-        orders_grouped = {}
-        today = date.today()
-
-        for product in products:
-            order_num = product.internal_order_number
-
-            if order_num not in orders_grouped:
-                orders_grouped[order_num] = {
-                    'order_number': order_num,
-                    'baselinker_order_id': None,
-                    'products': [],
-                    'total_products': 0,
-                    'total_volume': 0,
-                    'best_priority_rank': 999,
-                    'worst_deadline': None
-                }
-
-            # Dodaj produkt do zamówienia
-            product_data = {
-                'id': product.short_product_id,
-                'short_product_id': product.short_product_id,
-                'product_sequence_in_order': product.product_sequence_in_order,
-                'original_name': product.original_product_name or 'Brak nazwy',
-                'dimensions': None,
-                'volume_m3': float(product.volume_m3 or 0),
-                'wood_species': product.parsed_wood_species,
-                'technology': product.parsed_technology,
-                'wood_class': product.parsed_wood_class,
-                'finish_state': product.parsed_finish_state,
-                'current_status': product.current_status,
-                'priority_rank': product.priority_rank or 999,
-                'deadline_date': product.deadline_date.isoformat() if product.deadline_date else None,
-                'attachment_file_name': product.attachment_file_name,
-                'attachment_file_url': product.attachment_file_url,
-                'quantity': product.quantity,
-                'quantity_done': product.quantity_done_formatting,
-                'is_complete': product.quantity_done_formatting == product.quantity,
-                'is_priority': product.is_priority
-            }
-
-            # Oblicz wymiary z parsowanych pól (w MM z jednostką)
-            if product.parsed_length_cm and product.parsed_width_cm and product.parsed_thickness_cm:
-                product_data['dimensions'] = f"{_format_dimension(product.parsed_length_cm)} × {_format_dimension(product.parsed_width_cm)} × {_format_dimension(product.parsed_thickness_cm)} cm"
-
-            orders_grouped[order_num]['products'].append(product_data)
-            orders_grouped[order_num]['total_products'] += 1
-            orders_grouped[order_num]['total_volume'] += float(product.volume_m3 or 0)
-
-            if not orders_grouped[order_num]['baselinker_order_id'] and product.baselinker_order_id:
-                orders_grouped[order_num]['baselinker_order_id'] = product.baselinker_order_id
-
-            if product.priority_rank and product.priority_rank < orders_grouped[order_num]['best_priority_rank']:
-                orders_grouped[order_num]['best_priority_rank'] = product.priority_rank
-
-            if product.deadline_date:
-                if orders_grouped[order_num]['worst_deadline'] is None:
-                    orders_grouped[order_num]['worst_deadline'] = product.deadline_date
-                elif product.deadline_date > orders_grouped[order_num]['worst_deadline']:
-                    orders_grouped[order_num]['worst_deadline'] = product.deadline_date
-
-        # KROK 4: Sortuj produkty wewnątrz każdego zamówienia
-        for order_num, order_data in orders_grouped.items():
-            order_data['products'].sort(key=lambda p: p['product_sequence_in_order'])
-
-        # KROK 5: Dodaj informacje wyświetlania
-        for order_num, order_data in orders_grouped.items():
-            rank = order_data['best_priority_rank']
-            if rank <= 10:
-                order_data['priority_class'] = 'priority-critical'
-                order_data['priority_label'] = 'KRYTYCZNY'
-            elif rank <= 50:
-                order_data['priority_class'] = 'priority-high'
-                order_data['priority_label'] = 'WYSOKI'
-            elif rank <= 100:
-                order_data['priority_class'] = 'priority-normal'
-                order_data['priority_label'] = 'NORMALNY'
-            else:
-                order_data['priority_class'] = 'priority-low'
-                order_data['priority_label'] = 'NISKI'
-
-            deadline = order_data['worst_deadline']
-            if deadline:
-                days_diff = (deadline - today).days
-                if days_diff < 0:
-                    order_data['display_deadline'] = f"Opóźnione o {abs(days_diff)} dni"
-                elif days_diff == 0:
-                    order_data['display_deadline'] = "Dziś!"
-                elif days_diff == 1:
-                    order_data['display_deadline'] = "Jutro"
-                else:
-                    order_data['display_deadline'] = f"Za {days_diff} dni"
-            else:
-                order_data['display_deadline'] = "Brak terminu"
-
-            if order_data['worst_deadline']:
-                order_data['deadline_date'] = order_data['worst_deadline'].isoformat()
-                order_data['worst_deadline'] = order_data['worst_deadline'].isoformat()
-
-        # KROK 6: Sortowanie zamówień
-        orders_list = list(orders_grouped.values())
-        if sort_by == 'priority':
-            orders_list.sort(key=lambda x: x['best_priority_rank'])
-        elif sort_by == 'deadline':
-            orders_list.sort(key=lambda x: x['worst_deadline'] or '9999-12-31')
-
-        # KROK 7: Statystyki
-        high_priority_count = sum(1 for order in orders_list if order['best_priority_rank'] <= 50)
-        overdue_count = sum(1 for order in orders_list
-                           if order['worst_deadline'] and order['worst_deadline'] < today.isoformat())
-        total_volume = sum(order['total_volume'] for order in orders_list)
-        total_products = sum(order['total_products'] for order in orders_list)
-
-        stats = {
-            'total_orders': len(orders_list),
-            'total_products': total_products,
-            'high_priority_count': high_priority_count,
-            'overdue_count': overdue_count,
-            'total_volume': round(total_volume, 4)
-        }
-
-        return jsonify({
-            'success': True,
-            'data': {
-                'orders': orders_list,
-                'stats': stats
-            }
-        }), 200
-
-    except Exception as e:
-        logger.error("Błąd AJAX orders formatting", extra={
-            'error': str(e),
-            'traceback': traceback.format_exc()
-        })
-
-        return jsonify({
-            'success': False,
-            'error': str(e)
-        }), 500
 
 @station_bp.route('/ajax/orders/finishing')
 def ajax_get_orders_finishing():
-    """
-    AJAX endpoint dla odświeżania ZAMÓWIEŃ na stanowisku wykańczania
+    """AJAX endpoint dla odświeżania ZAMÓWIEŃ na stanowisku wykańczania"""
+    return _ajax_get_orders_simple('finishing', 'czeka_na_wykanczanie', 'quantity_done_finishing')
 
-    Query params:
-        sort: priority|deadline|created_at (default: priority)
-        limit: max liczba produktów (default: 50)
-
-    Returns:
-        JSON: {
-            success: bool,
-            data: {
-                orders: [...],  # Pogrupowane zamówienia
-                stats: {...}    # Statystyki
-            }
-        }
-    """
-    try:
-        from ..models import ProductionItem
-        from sqlalchemy import asc, desc
-
-        sort_by = request.args.get('sort', 'priority')
-        limit = min(int(request.args.get('limit', 50)), 100)
-
-        logger.debug("AJAX: Pobieranie zamówień finishing", extra={
-            'sort_by': sort_by,
-            'limit': limit,
-            'client_ip': request.remote_addr
-        })
-
-        # KROK 1: Znajdź zamówienia które mają choć 1 produkt do wykańczania
-        orders_with_finishing = db.session.query(
-            ProductionItem.internal_order_number
-        ).filter(
-            ProductionItem.current_status == 'czeka_na_wykanczanie'
-        ).distinct().all()
-
-        order_numbers = [order[0] for order in orders_with_finishing]
-
-        if not order_numbers:
-            return jsonify({
-                'success': True,
-                'data': {
-                    'orders': [],
-                    'stats': {
-                        'total_orders': 0,
-                        'total_products': 0,
-                        'high_priority_count': 0,
-                        'overdue_count': 0,
-                        'total_volume': 0
-                    }
-                }
-            }), 200
-
-        # KROK 2: Pobierz WSZYSTKIE produkty z tych zamówień
-        query = ProductionItem.query.filter(
-            ProductionItem.internal_order_number.in_(order_numbers)
-        )
-
-        # Sortowanie
-        if sort_by == 'priority':
-            query = query.order_by(asc(ProductionItem.priority_rank))
-        elif sort_by == 'deadline':
-            query = query.order_by(asc(ProductionItem.deadline_date))
-        elif sort_by == 'created_at':
-            query = query.order_by(asc(ProductionItem.created_at))
-
-        products = query.limit(limit).all()
-
-        # KROK 3: Grupowanie produktów po zamówieniach
-        orders_grouped = {}
-        today = date.today()
-
-        for product in products:
-            order_num = product.internal_order_number
-
-            if order_num not in orders_grouped:
-                orders_grouped[order_num] = {
-                    'order_number': order_num,
-                    'baselinker_order_id': None,
-                    'products': [],
-                    'total_products': 0,
-                    'total_volume': 0,
-                    'best_priority_rank': 999,
-                    'worst_deadline': None
-                }
-
-            # Dodaj produkt do zamówienia
-            product_data = {
-                'id': product.short_product_id,
-                'short_product_id': product.short_product_id,
-                'product_sequence_in_order': product.product_sequence_in_order,
-                'original_name': product.original_product_name or 'Brak nazwy',
-                'dimensions': None,
-                'volume_m3': float(product.volume_m3 or 0),
-                'wood_species': product.parsed_wood_species,
-                'technology': product.parsed_technology,
-                'wood_class': product.parsed_wood_class,
-                'finish_state': product.parsed_finish_state,
-                'current_status': product.current_status,
-                'priority_rank': product.priority_rank or 999,
-                'deadline_date': product.deadline_date.isoformat() if product.deadline_date else None,
-                'attachment_file_name': product.attachment_file_name,
-                'attachment_file_url': product.attachment_file_url,
-                'quantity': product.quantity,
-                'quantity_done': product.quantity_done_finishing,
-                'is_complete': product.quantity_done_finishing == product.quantity,
-                'is_priority': product.is_priority
-            }
-
-            # Oblicz wymiary z parsowanych pól (w MM z jednostką)
-            if product.parsed_length_cm and product.parsed_width_cm and product.parsed_thickness_cm:
-                product_data['dimensions'] = f"{_format_dimension(product.parsed_length_cm)} × {_format_dimension(product.parsed_width_cm)} × {_format_dimension(product.parsed_thickness_cm)} cm"
-
-            orders_grouped[order_num]['products'].append(product_data)
-            orders_grouped[order_num]['total_products'] += 1
-            orders_grouped[order_num]['total_volume'] += float(product.volume_m3 or 0)
-
-            if not orders_grouped[order_num]['baselinker_order_id'] and product.baselinker_order_id:
-                orders_grouped[order_num]['baselinker_order_id'] = product.baselinker_order_id
-
-            if product.priority_rank and product.priority_rank < orders_grouped[order_num]['best_priority_rank']:
-                orders_grouped[order_num]['best_priority_rank'] = product.priority_rank
-
-            if product.deadline_date:
-                if orders_grouped[order_num]['worst_deadline'] is None:
-                    orders_grouped[order_num]['worst_deadline'] = product.deadline_date
-                elif product.deadline_date > orders_grouped[order_num]['worst_deadline']:
-                    orders_grouped[order_num]['worst_deadline'] = product.deadline_date
-
-        # KROK 4: Sortuj produkty wewnątrz każdego zamówienia
-        for order_num, order_data in orders_grouped.items():
-            order_data['products'].sort(key=lambda p: p['product_sequence_in_order'])
-
-        # KROK 5: Dodaj informacje wyświetlania
-        for order_num, order_data in orders_grouped.items():
-            rank = order_data['best_priority_rank']
-            if rank <= 10:
-                order_data['priority_class'] = 'priority-critical'
-                order_data['priority_label'] = 'KRYTYCZNY'
-            elif rank <= 50:
-                order_data['priority_class'] = 'priority-high'
-                order_data['priority_label'] = 'WYSOKI'
-            elif rank <= 100:
-                order_data['priority_class'] = 'priority-normal'
-                order_data['priority_label'] = 'NORMALNY'
-            else:
-                order_data['priority_class'] = 'priority-low'
-                order_data['priority_label'] = 'NISKI'
-
-            deadline = order_data['worst_deadline']
-            if deadline:
-                days_diff = (deadline - today).days
-                if days_diff < 0:
-                    order_data['display_deadline'] = f"Opóźnione o {abs(days_diff)} dni"
-                elif days_diff == 0:
-                    order_data['display_deadline'] = "Dziś!"
-                elif days_diff == 1:
-                    order_data['display_deadline'] = "Jutro"
-                else:
-                    order_data['display_deadline'] = f"Za {days_diff} dni"
-            else:
-                order_data['display_deadline'] = "Brak terminu"
-
-            if order_data['worst_deadline']:
-                order_data['deadline_date'] = order_data['worst_deadline'].isoformat()
-                order_data['worst_deadline'] = order_data['worst_deadline'].isoformat()
-
-        # KROK 6: Sortowanie zamówień
-        orders_list = list(orders_grouped.values())
-        if sort_by == 'priority':
-            orders_list.sort(key=lambda x: x['best_priority_rank'])
-        elif sort_by == 'deadline':
-            orders_list.sort(key=lambda x: x['worst_deadline'] or '9999-12-31')
-
-        # KROK 7: Statystyki
-        high_priority_count = sum(1 for order in orders_list if order['best_priority_rank'] <= 50)
-        overdue_count = sum(1 for order in orders_list
-                           if order['worst_deadline'] and order['worst_deadline'] < today.isoformat())
-        total_volume = sum(order['total_volume'] for order in orders_list)
-        total_products = sum(order['total_products'] for order in orders_list)
-
-        stats = {
-            'total_orders': len(orders_list),
-            'total_products': total_products,
-            'high_priority_count': high_priority_count,
-            'overdue_count': overdue_count,
-            'total_volume': round(total_volume, 4)
-        }
-
-        return jsonify({
-            'success': True,
-            'data': {
-                'orders': orders_list,
-                'stats': stats
-            }
-        }), 200
-
-    except Exception as e:
-        logger.error("Błąd AJAX orders finishing", extra={
-            'error': str(e),
-            'traceback': traceback.format_exc()
-        })
-
-        return jsonify({
-            'success': False,
-            'error': str(e)
-        }), 500
 
 @station_bp.route('/ajax/station-today-m3/<station_code>')
 def ajax_station_today_m3(station_code):
@@ -3625,23 +3415,41 @@ def complete_order_bulk():
                 }), 400
 
         # KROK 3: Walidacja statusów
+        # Cutting i Assembly mają specjalną logikę - oba widzą produkty czeka_na_wyciecie i czeka_na_skladanie
         expected_status_map = {
-            'cutting': 'czeka_na_wyciecie',
-            'assembly': 'czeka_na_skladanie',
-            'gluing': 'czeka_na_sklejanie',
-            'formatting': 'czeka_na_formatowanie',
-            'finishing': 'czeka_na_wykanczanie',
-            'packaging': 'czeka_na_pakowanie'
+            'cutting': ['czeka_na_wyciecie', 'czeka_na_skladanie'],  # Cutting widzi oba statusy
+            'assembly': ['czeka_na_wyciecie', 'czeka_na_skladanie'],  # Assembly widzi oba statusy
+            'gluing': ['czeka_na_sklejanie'],
+            'formatting': ['czeka_na_formatowanie'],
+            'finishing': ['czeka_na_wykanczanie'],
+            'packaging': ['czeka_na_pakowanie']
         }
-        expected_status = expected_status_map[station]
+        expected_statuses = expected_status_map[station]
 
         invalid_products = []
         for product in products:
-            if product.current_status != expected_status:
+            is_valid = False
+
+            if station == 'cutting':
+                # Cutting: akceptuje czeka_na_wyciecie LUB czeka_na_skladanie (gdzie cutting_completed_at IS NULL)
+                if product.current_status == 'czeka_na_wyciecie':
+                    is_valid = True
+                elif product.current_status == 'czeka_na_skladanie' and product.cutting_completed_at is None:
+                    is_valid = True
+            elif station == 'assembly':
+                # Assembly: akceptuje czeka_na_wyciecie LUB czeka_na_skladanie
+                if product.current_status in expected_statuses:
+                    is_valid = True
+            else:
+                # Pozostałe stanowiska - standardowa walidacja
+                if product.current_status in expected_statuses:
+                    is_valid = True
+
+            if not is_valid:
                 invalid_products.append({
                     'id': product.short_product_id,
                     'current_status': product.current_status,
-                    'expected_status': expected_status
+                    'expected_statuses': expected_statuses
                 })
 
         if invalid_products:
@@ -4095,6 +3903,742 @@ def debug_station_info():
             'success': False,
             'error': str(e)
         }), 500
+
+# ============================================================================
+# SHIPPING / COURIER API ENDPOINTS (2025-12)
+# ============================================================================
+
+@station_bp.route('/api/packaging/ship/<order_id>', methods=['POST'])
+def create_shipment(order_id):
+    """
+    Tworzy przesyłkę kurierską dla zamówienia.
+
+    Workflow z logowaniem:
+    1. Pobierz produkty zamówienia
+    2. Generuj warianty pakowania (lub użyj przekazanych wymiarów)
+    3. Zapytaj GlobKurier o ceny
+    4. Porównaj i wybierz najtańszą opcję
+    5. Utwórz przesyłkę przez Baselinker
+    6. Pobierz etykietę
+
+    Request Body:
+        {
+            "length": int (cm),
+            "width": int (cm),
+            "height": int (cm),
+            "weight": float (kg)
+        }
+
+    Returns:
+        JSON: {
+            success: bool,
+            courier_name: str,
+            service_name: str,
+            price: float,
+            tracking_number: str,
+            package_id: int,
+            label_base64: str
+        }
+        lub
+        {
+            success: false,
+            failed_step: str,
+            error: str
+        }
+    """
+    logger.info(f"[Shipping] === ENDPOINT START: /api/packaging/ship/{order_id} ===")
+    current_step = 'init'
+
+    try:
+        # Importy wewnątrz try-except żeby złapać błędy importu
+        current_step = 'import'
+        logger.debug("[Shipping] Importowanie modułów...")
+        from ..models import ProductionItem
+        from ..services.shipping_service import ShippingService
+        from modules.baselinker.service import BaselinkerService
+        logger.debug("[Shipping] Importy zakończone pomyślnie")
+
+        current_step = 'dimensions'
+
+        # Pobierz dane z requestu
+        data = request.get_json() or {}
+        dimensions = {
+            'length': int(data.get('length', 0)),
+            'width': int(data.get('width', 0)),
+            'height': int(data.get('height', 0)),
+            'weight': float(data.get('weight', 0))
+        }
+
+        logger.info(f"[Shipping] ===== START: Zamówienie {order_id} =====",
+                   order_id=order_id,
+                   dimensions=str(dimensions))
+
+        logger.info(f"[Shipping] Wymiary: {dimensions['length']}x{dimensions['width']}x{dimensions['height']} cm, {dimensions['weight']} kg")
+
+        # KROK 1: Pobierz produkty zamówienia
+        logger.info(f"[Shipping] Krok: {current_step} - pobieranie produktów")
+
+        products = ProductionItem.query.filter(
+            ProductionItem.baselinker_order_id == str(order_id)
+        ).all()
+
+        if not products:
+            # Spróbuj po internal_order_number
+            products = ProductionItem.query.filter(
+                ProductionItem.internal_order_number == str(order_id)
+            ).all()
+
+        if not products:
+            raise ValueError(f"Nie znaleziono produktów dla zamówienia {order_id}")
+
+        # Pobierz dane dostawy z pierwszego produktu
+        first_product = products[0]
+        receiver_postcode = first_product.delivery_postcode
+        receiver_address = first_product.delivery_address
+        receiver_city = first_product.delivery_city
+        receiver_name = first_product.delivery_fullname
+        receiver_country = first_product.delivery_country_code or 'PL'
+
+        # Pobierz baselinker_order_id dla createPackage
+        baselinker_order_id = first_product.baselinker_order_id
+
+        logger.info(f"[Shipping] Odbiorca: {receiver_name}, {receiver_postcode} {receiver_city}",
+                   receiver_postcode=receiver_postcode,
+                   baselinker_order_id=baselinker_order_id)
+
+        if not receiver_postcode:
+            raise ValueError("Brak kodu pocztowego odbiorcy")
+
+        # KROK 2: Generuj warianty pakowania (informacyjnie)
+        current_step = 'variants'
+        logger.info(f"[Shipping] Krok: {current_step} - generowanie wariantów")
+
+        shipping_service = ShippingService()
+        variants = shipping_service.generate_packaging_variants(products)
+        valid_variants = [v for v in variants if v['valid']]
+
+        logger.info(f"[Shipping] Wygenerowano {len(variants)} wariantów, {len(valid_variants)} prawidłowych")
+
+        # KROK 3: Zapytaj GlobKurier o ceny
+        current_step = 'prices'
+        logger.info(f"[Shipping] Krok: {current_step} - pobieranie cen z GlobKurier")
+
+        # Użyj wymiarów podanych przez użytkownika
+        quotes = shipping_service.get_quotes_for_package(
+            package=dimensions,
+            receiver_postcode=receiver_postcode,
+            sender_postcode='36-068'  # Bachórz
+        )
+
+        logger.info(f"[Shipping] Otrzymano {len(quotes)} ofert od GlobKurier")
+
+        if not quotes:
+            raise ValueError("Nie znaleziono dostępnych ofert kurierskich")
+
+        # KROK 4: Porównaj i wybierz najtańszą
+        current_step = 'compare'
+        logger.info(f"[Shipping] Krok: {current_step} - porównywanie ofert")
+
+        # Już przefiltrowane w get_quotes_for_package (bez automatów)
+        if not quotes:
+            raise ValueError("Brak ofert kurierskich door-to-door (tylko automaty paczkowe)")
+
+        # Sortuj po cenie
+        cheapest = min(quotes, key=lambda x: x.get('price', float('inf')))
+
+        logger.info(f"[Shipping] Najtańsza oferta: {cheapest.get('courier_name')} - {cheapest.get('service_name')} = {cheapest.get('price')} zł")
+
+        # KROK 5: Utwórz przesyłkę przez Baselinker
+        current_step = 'create'
+        logger.info(f"[Shipping] Krok: {current_step} - tworzenie przesyłki w Baselinker")
+
+        # Mapowanie nazw kurierów z GlobKurier API na kody dla Baselinker
+        # Bazowane na getCourierFields -> pole "courier" -> options
+        COURIER_NAME_TO_CODE = {
+            'inpost': 'inpost',
+            'inpost-kurier': 'inpost',
+            'dpd': 'dpd',
+            'dhl': 'dhl',
+            'dhl de': 'dhl-de',
+            'dhl pop': 'dhl pop',
+            'gls': 'gls',
+            'ups': 'ups',
+            'fedex': 'fedex',
+            'poczta polska': 'poczta',
+            'poczta': 'poczta',
+            'ambro': 'ambro',
+            'ambroexpress': 'ambro',
+            'globkurier': 'Globkurier',
+            'geodis': 'GEODIS',
+            'hellmann': 'Hellmann',
+            'cargus': 'cargus',
+            'orlen paczka': 'ruch',
+            'ruch': 'ruch',
+            'postnord': 'PostNord',
+            'spring': 'Spring',
+            'colissimo': 'Colissimo',
+        }
+
+        # Znajdź kod kuriera na podstawie nazwy
+        courier_name_lower = (cheapest.get('courier_name') or '').lower().strip()
+        selected_courier_code = COURIER_NAME_TO_CODE.get(courier_name_lower)
+
+        # Jeśli nie znaleziono bezpośrednio, spróbuj częściowego dopasowania
+        if not selected_courier_code:
+            for name_part, code in COURIER_NAME_TO_CODE.items():
+                if name_part in courier_name_lower or courier_name_lower in name_part:
+                    selected_courier_code = code
+                    break
+
+        if not selected_courier_code:
+            raise ValueError(f"Nie można zmapować kuriera '{cheapest.get('courier_name')}' na kod Baselinker")
+
+        logger.info(f"[Shipping] Zmapowano kuriera: '{cheapest.get('courier_name')}' -> '{selected_courier_code}'")
+
+        # Oblicz łączną wartość netto zamówienia (suma total_value_net wszystkich produktów)
+        total_order_value = sum(
+            float(p.total_value_net or 0) for p in products
+        )
+        logger.info(f"[Shipping] Łączna wartość netto zamówienia: {total_order_value} PLN")
+
+        # Oblicz datę odbioru: dzisiaj jeśli przed 14:00, jutro jeśli po 14:00
+        now = datetime.now()
+        cutoff_hour = 14
+
+        if now.hour < cutoff_hour:
+            pickup_date = now.date()
+        else:
+            pickup_date = (now + timedelta(days=1)).date()
+
+        # Format daty jako timestamp Unix (wymagany przez Baselinker)
+        pickup_timestamp = int(datetime.combine(pickup_date, datetime.min.time()).timestamp())
+        logger.info(f"[Shipping] Data odbioru: {pickup_date} (timestamp: {pickup_timestamp}), godzina zgłoszenia: {now.hour}:{now.minute}")
+
+        package_fields = [
+            {'id': 'courier', 'value': selected_courier_code},  # Kod kuriera z mapowania (np. 'inpost', 'dpd')
+            {'id': 'count_package', 'value': '1'},
+            {'id': 'reference_number', 'value': str(baselinker_order_id)},
+            {'id': 'package_description', 'value': 'Klejonka drewniana'},
+            {'id': 'value_price', 'value': str(round(total_order_value, 2))},
+            {'id': 'pickup_date', 'value': str(pickup_timestamp)},
+        ]
+
+        # Tablica paczek z wymiarami
+        packages_data = [
+            {
+                'weight': float(dimensions['weight']),
+                'height': int(dimensions['height']),
+                'length': int(dimensions['length']),
+                'width': int(dimensions['width'])
+            }
+        ]
+
+        logger.info(f"[Shipping] Pola dla createPackage: {package_fields}")
+        logger.info(f"[Shipping] Paczki: {packages_data}")
+
+        baselinker = BaselinkerService()
+        package_result = baselinker.create_package(
+            order_id=int(baselinker_order_id),
+            courier_code='globkurier',
+            account_id=11364,
+            fields=package_fields,
+            packages=packages_data
+        )
+
+        if not package_result.get('success'):
+            raise ValueError(f"Błąd Baselinker: {package_result.get('error', 'Nieznany błąd')}")
+
+        package_id = package_result.get('package_id')
+        tracking_number = package_result.get('courier_package_nr', '')
+
+        logger.info(f"[Shipping] Utworzono przesyłkę: package_id={package_id}, tracking={tracking_number}")
+
+        # KROK 6: Pobierz etykietę
+        current_step = 'label'
+        logger.info(f"[Shipping] Krok: {current_step} - pobieranie etykiety")
+
+        label_result = baselinker.get_label(
+            courier_code='globkurier',
+            package_id=package_id
+        )
+
+        if not label_result.get('success'):
+            logger.warning(f"[Shipping] Nie udało się pobrać etykiety: {label_result.get('error')}")
+            label_base64 = ''
+        else:
+            label_base64 = label_result.get('label', '')
+
+        logger.info(f"[Shipping] Pobrano etykietę, rozmiar: {len(label_base64)} znaków")
+
+        # KROK 7: Zapisz dane wysyłki w bazie danych
+        current_step = 'save'
+        logger.info(f"[Shipping] Krok: {current_step} - zapisywanie danych wysyłki w bazie")
+
+        shipping_price = cheapest.get('price', 0)
+        courier_name = cheapest.get('courier_name', '')
+
+        # Zapisz dane wysyłki dla wszystkich produktów w zamówieniu
+        for product in products:
+            product.shipping_package_id = package_id
+            product.shipping_tracking_number = tracking_number
+            product.shipping_courier_name = courier_name
+            product.shipping_price = shipping_price
+            product.shipping_label_base64 = label_base64
+            product.shipping_created_at = datetime.now()
+
+        db.session.commit()
+        logger.info(f"[Shipping] Zapisano dane wysyłki dla {len(products)} produktów")
+        logger.info(f"[Shipping] ===== SUKCES: Zamówienie {order_id} =====")
+
+        return jsonify({
+            'success': True,
+            'courier_name': courier_name,
+            'service_name': cheapest.get('service_name'),
+            'price': shipping_price,
+            'tracking_number': tracking_number,
+            'package_id': package_id,
+            'label_base64': label_base64
+        }), 200
+
+    except Exception as e:
+        logger.error(f"[Shipping] BŁĄD w kroku '{current_step}': {str(e)}",
+                    order_id=order_id,
+                    current_step=current_step,
+                    error=str(e),
+                    traceback_info=traceback.format_exc())
+
+        return jsonify({
+            'success': False,
+            'failed_step': current_step,
+            'error': str(e)
+        }), 200  # 200 bo frontend oczekuje JSON z błędem
+
+
+@station_bp.route('/api/packaging/check-shipping/<order_id>')
+def check_shipping_availability(order_id):
+    """
+    Sprawdza czy zamówienie może być wysłane kurierem.
+
+    Returns:
+        JSON: {
+            can_ship: bool,
+            is_personal_pickup: bool,
+            dimensions: {...},
+            within_limits: bool,
+            limit_issues: [...]
+        }
+    """
+    try:
+        from ..models import ProductionItem
+        from ..services.shipping_service import ShippingService
+
+        products = ProductionItem.query.filter(
+            ProductionItem.baselinker_order_id == str(order_id)
+        ).all()
+
+        if not products:
+            products = ProductionItem.query.filter(
+                ProductionItem.internal_order_number == str(order_id)
+            ).all()
+
+        if not products:
+            return jsonify({
+                'success': False,
+                'error': f'Nie znaleziono produktów dla zamówienia {order_id}'
+            }), 404
+
+        first_product = products[0]
+
+        # Sprawdź typ dostawy
+        is_pickup = first_product.is_personal_pickup
+
+        if is_pickup:
+            return jsonify({
+                'success': True,
+                'can_ship': False,
+                'is_personal_pickup': True,
+                'reason': 'Zamówienie przeznaczone do odbioru osobistego'
+            }), 200
+
+        # Oblicz wymiary
+        shipping_service = ShippingService()
+        dimensions = shipping_service.calculate_package_dimensions(products)
+
+        can_ship = dimensions['within_limits']
+
+        return jsonify({
+            'success': True,
+            'can_ship': can_ship,
+            'is_personal_pickup': False,
+            'dimensions': dimensions,
+            'within_limits': dimensions['within_limits'],
+            'limit_issues': dimensions.get('limit_issues', [])
+        }), 200
+
+    except Exception as e:
+        logger.error("[Shipping] Błąd sprawdzania dostępności wysyłki", extra={
+            'order_id': order_id,
+            'error': str(e)
+        })
+
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@station_bp.route('/api/packaging/quote/<order_id>', methods=['POST'])
+def get_shipping_quote(order_id):
+    """
+    Pobiera wycenę przesyłki BEZ jej tworzenia.
+    Zwraca najlepszą opcję (single lub multi-package).
+
+    Request Body:
+        {
+            "length": int (cm),
+            "width": int (cm),
+            "height": int (cm),
+            "weight": float (kg)
+        }
+
+    Returns:
+        JSON: {
+            success: bool,
+            quote: {
+                courier_name: str,
+                service_name: str,
+                price: float,
+                is_multi_package: bool,
+                total_packages: int,
+                packages: [...]  // szczegóły każdej paczki jeśli multi
+            }
+        }
+    """
+    logger.info(f"[Shipping] === GET QUOTE: /api/packaging/quote/{order_id} ===")
+
+    try:
+        from ..models import ProductionItem
+        from ..services.shipping_service import ShippingService
+
+        # Pobierz dane z requestu
+        data = request.get_json() or {}
+        dimensions = {
+            'length': int(data.get('length', 0)),
+            'width': int(data.get('width', 0)),
+            'height': int(data.get('height', 0)),
+            'weight': float(data.get('weight', 0))
+        }
+
+        logger.info(f"[Shipping] Wymiary dla wyceny: {dimensions}")
+
+        # Walidacja wymiarów
+        if dimensions['length'] <= 0 or dimensions['width'] <= 0 or dimensions['height'] <= 0 or dimensions['weight'] <= 0:
+            return jsonify({
+                'success': False,
+                'error': 'Nieprawidłowe wymiary paczki'
+            }), 400
+
+        # Pobierz produkty zamówienia
+        products = ProductionItem.query.filter(
+            ProductionItem.baselinker_order_id == str(order_id)
+        ).all()
+
+        if not products:
+            products = ProductionItem.query.filter(
+                ProductionItem.internal_order_number == str(order_id)
+            ).all()
+
+        if not products:
+            return jsonify({
+                'success': False,
+                'error': f'Nie znaleziono produktów dla zamówienia {order_id}'
+            }), 404
+
+        first_product = products[0]
+        receiver_postcode = first_product.delivery_postcode
+
+        if not receiver_postcode:
+            return jsonify({
+                'success': False,
+                'error': 'Brak kodu pocztowego odbiorcy'
+            }), 400
+
+        # Inicjalizacja ShippingService
+        shipping_service = ShippingService()
+
+        # Pobierz wyceny dla podanych wymiarów (pojedyncza paczka)
+        quotes = shipping_service.get_quotes_for_package(
+            package=dimensions,
+            receiver_postcode=receiver_postcode,
+            sender_postcode='36-068'
+        )
+
+        if not quotes:
+            return jsonify({
+                'success': False,
+                'error': 'Brak dostępnych ofert kurierskich dla tych wymiarów'
+            }), 400
+
+        # Znajdź najtańszą opcję
+        cheapest = min(quotes, key=lambda x: x.get('price', float('inf')))
+
+        logger.info(f"[Shipping] Najtańsza oferta: {cheapest.get('courier_name')} - {cheapest.get('service_name')} = {cheapest.get('price')} zł")
+
+        # Przygotuj odpowiedź
+        quote_response = {
+            'courier_name': cheapest.get('courier_name', 'Nieznany'),
+            'service_name': cheapest.get('service_name', ''),
+            'price': cheapest.get('price', 0),
+            'service_id': cheapest.get('service_id', ''),
+            'is_multi_package': False,
+            'total_packages': 1,
+            'packages': [{
+                'length': dimensions['length'],
+                'width': dimensions['width'],
+                'height': dimensions['height'],
+                'weight': dimensions['weight'],
+                'courier_name': cheapest.get('courier_name'),
+                'price': cheapest.get('price')
+            }]
+        }
+
+        return jsonify({
+            'success': True,
+            'quote': quote_response
+        }), 200
+
+    except Exception as e:
+        logger.error(f"[Shipping] Błąd pobierania wyceny: {str(e)}")
+        import traceback
+        logger.debug(f"[Shipping] Stack trace: {traceback.format_exc()}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@station_bp.route('/api/packaging/refresh-tracking/<order_id>')
+def refresh_tracking_number(order_id):
+    """
+    Pobiera i aktualizuje numer śledzenia z Baselinker (getOrderPackages).
+    GlobKurier może nie zwracać numeru tracking od razu - trzeba odpytać później.
+
+    Returns:
+        JSON: {
+            success: bool,
+            tracking_number: str,
+            tracking_url: str
+        }
+    """
+    try:
+        from ..models import ProductionItem
+        from modules.baselinker.service import BaselinkerService
+
+        logger.info(f"[Shipping] Odświeżanie numeru śledzenia dla zamówienia {order_id}")
+
+        # Znajdź produkty zamówienia
+        products = ProductionItem.query.filter(
+            ProductionItem.baselinker_order_id == str(order_id)
+        ).all()
+
+        if not products:
+            products = ProductionItem.query.filter(
+                ProductionItem.internal_order_number == str(order_id)
+            ).all()
+
+        if not products:
+            return jsonify({
+                'success': False,
+                'error': f'Nie znaleziono produktów dla zamówienia {order_id}'
+            }), 404
+
+        # Pobierz baselinker_order_id
+        baselinker_order_id = products[0].baselinker_order_id
+        if not baselinker_order_id:
+            return jsonify({
+                'success': False,
+                'error': 'Brak baselinker_order_id dla tego zamówienia'
+            }), 400
+
+        # Pobierz paczki z Baselinker
+        baselinker = BaselinkerService()
+        result = baselinker.get_order_packages(int(baselinker_order_id))
+
+        if not result.get('success'):
+            return jsonify({
+                'success': False,
+                'error': result.get('error', 'Błąd pobierania paczek z Baselinker')
+            }), 500
+
+        packages = result.get('packages', [])
+
+        if not packages:
+            return jsonify({
+                'success': True,
+                'tracking_number': '',
+                'tracking_url': '',
+                'message': 'Brak paczek dla tego zamówienia'
+            }), 200
+
+        # Znajdź paczkę z numerem śledzenia (pierwsza z listy)
+        package = packages[0]
+        tracking_number = package.get('courier_package_nr', '')
+        tracking_url = package.get('tracking_url', '')
+
+        logger.info(f"[Shipping] Pobrano numer śledzenia: {tracking_number}")
+
+        # Aktualizuj w bazie danych jeśli jest numer
+        if tracking_number:
+            for product in products:
+                product.shipping_tracking_number = tracking_number
+
+            db.session.commit()
+            logger.info(f"[Shipping] Zaktualizowano numer śledzenia dla {len(products)} produktów")
+
+        return jsonify({
+            'success': True,
+            'tracking_number': tracking_number,
+            'tracking_url': tracking_url,
+            'package_id': package.get('package_id'),
+            'courier_code': package.get('courier_code')
+        }), 200
+
+    except Exception as e:
+        logger.error(f"[Shipping] Błąd odświeżania numeru śledzenia: {str(e)}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@station_bp.route('/api/packaging/refresh-label/<order_id>')
+def refresh_label(order_id):
+    """
+    Ponownie pobiera etykietę z Baselinker i aktualizuje w bazie danych.
+    Używane gdy etykieta została obcięta lub uszkodzona.
+
+    Returns:
+        JSON: {
+            success: bool,
+            label_base64: str,
+            label_size: int
+        }
+    """
+    try:
+        from ..models import ProductionItem
+        from modules.baselinker.service import BaselinkerService
+
+        logger.info(f"[Shipping] Ponowne pobieranie etykiety dla zamówienia {order_id}")
+
+        # Znajdź produkty zamówienia
+        products = ProductionItem.query.filter(
+            ProductionItem.baselinker_order_id == str(order_id)
+        ).all()
+
+        if not products:
+            products = ProductionItem.query.filter(
+                ProductionItem.internal_order_number == str(order_id)
+            ).all()
+
+        if not products:
+            return jsonify({
+                'success': False,
+                'error': f'Nie znaleziono produktów dla zamówienia {order_id}'
+            }), 404
+
+        first_product = products[0]
+
+        # Sprawdź czy mamy package_id
+        package_id = first_product.shipping_package_id
+        if not package_id:
+            return jsonify({
+                'success': False,
+                'error': 'Brak package_id - przesyłka nie została jeszcze zgłoszona'
+            }), 400
+
+        # Pobierz etykietę z Baselinker
+        baselinker = BaselinkerService()
+        label_result = baselinker.get_label(
+            courier_code='globkurier',
+            package_id=package_id
+        )
+
+        if not label_result.get('success'):
+            return jsonify({
+                'success': False,
+                'error': f"Błąd pobierania etykiety: {label_result.get('error')}"
+            }), 500
+
+        label_base64 = label_result.get('label', '')
+        label_size = len(label_base64)
+
+        logger.info(f"[Shipping] Pobrano etykietę, rozmiar: {label_size} znaków")
+
+        # Aktualizuj w bazie danych
+        for product in products:
+            product.shipping_label_base64 = label_base64
+
+        db.session.commit()
+        logger.info(f"[Shipping] Zaktualizowano etykietę dla {len(products)} produktów")
+
+        return jsonify({
+            'success': True,
+            'label_base64': label_base64,
+            'label_size': label_size,
+            'message': f'Etykieta pobrana pomyślnie ({label_size} znaków)'
+        }), 200
+
+    except Exception as e:
+        logger.error(f"[Shipping] Błąd ponownego pobierania etykiety: {str(e)}")
+        import traceback
+        logger.debug(f"[Shipping] Stack trace: {traceback.format_exc()}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@station_bp.route('/api/packaging/debug/courier-fields')
+def debug_courier_fields():
+    """
+    Endpoint debugowy - pobiera pola formularza dla GlobKurier.
+    Użyj w przeglądarce: /production/stations/api/packaging/debug/courier-fields
+    """
+    try:
+        from modules.baselinker.service import BaselinkerService
+
+        baselinker = BaselinkerService()
+        result = baselinker.get_courier_fields('globkurier')
+
+        return jsonify(result), 200
+
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@station_bp.route('/api/packaging/debug/courier-accounts')
+def debug_courier_accounts():
+    """
+    Endpoint debugowy - pobiera konta kurierskie.
+    Użyj w przeglądarce: /production/stations/api/packaging/debug/courier-accounts
+    """
+    try:
+        from modules.baselinker.service import BaselinkerService
+
+        baselinker = BaselinkerService()
+        response = baselinker._make_request('getCourierAccounts', {})
+
+        return jsonify(response), 200
+
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
 
 logger.info("Zainicjalizowano Station routers dla modułu production", extra={
     'blueprint_name': station_bp.name,

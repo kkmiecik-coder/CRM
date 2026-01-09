@@ -227,7 +227,139 @@
         // Initial button state update
         updateCompleteButtonState(card);
         updateOrderCounter(card);
+
+        // Initialize delivery icon click handler (2025-12)
+        initDeliveryIconHandler(card);
     }
+
+    // ========================================================================
+    // DELIVERY MODAL HANDLING (2025-12)
+    // ========================================================================
+
+    function initDeliveryIconHandler(card) {
+        const deliveryIcon = card.querySelector('.delivery-icon-wrapper');
+        if (!deliveryIcon) return;
+
+        deliveryIcon.addEventListener('click', function(e) {
+            e.stopPropagation();
+            openDeliveryModal(this);
+        });
+    }
+
+    function openDeliveryModal(iconElement) {
+        const modal = document.getElementById('deliveryModal');
+        if (!modal) return;
+
+        // Get delivery data from data attributes
+        const fullname = iconElement.dataset.deliveryFullname || '';
+        const company = iconElement.dataset.deliveryCompany || '';
+        const address = iconElement.dataset.deliveryAddress || '';
+        const postcode = iconElement.dataset.deliveryPostcode || '';
+        const city = iconElement.dataset.deliveryCity || '';
+        const country = iconElement.dataset.deliveryCountry || 'PL';
+
+        // Map country codes to names
+        const countryNames = {
+            'PL': 'Polska',
+            'DE': 'Niemcy',
+            'CZ': 'Czechy',
+            'SK': 'Słowacja',
+            'AT': 'Austria',
+            'NL': 'Holandia',
+            'BE': 'Belgia',
+            'FR': 'Francja',
+            'GB': 'Wielka Brytania',
+            'IT': 'Włochy',
+            'ES': 'Hiszpania'
+        };
+        const countryName = countryNames[country] || country;
+
+        // Populate modal fields
+        document.getElementById('delivery-fullname').textContent = fullname;
+        document.getElementById('delivery-company').textContent = company;
+        document.getElementById('delivery-address').textContent = address;
+        document.getElementById('delivery-postcode').textContent = postcode;
+        document.getElementById('delivery-city').textContent = city;
+        document.getElementById('delivery-country').textContent = countryName;
+
+        // Hide empty rows
+        document.getElementById('delivery-fullname-row').style.display = fullname ? 'flex' : 'none';
+        document.getElementById('delivery-company-row').style.display = company ? 'flex' : 'none';
+        document.getElementById('delivery-address-row').style.display = address ? 'flex' : 'none';
+        document.getElementById('delivery-postcode-row').style.display = postcode ? 'flex' : 'none';
+        document.getElementById('delivery-city-row').style.display = city ? 'flex' : 'none';
+        document.getElementById('delivery-country-row').style.display = country ? 'flex' : 'none';
+
+        // Show modal
+        modal.classList.add('active');
+
+        console.log('[Packaging] Delivery modal opened');
+
+        // === INICJALIZACJA SEKCJI WYSYŁKI ===
+        // Znajdź kartę zamówienia (parent)
+        const orderCard = iconElement.closest('.order-card');
+        if (orderCard && typeof initShippingSection === 'function') {
+            const orderId = orderCard.dataset.baselinkerId || orderCard.dataset.orderNumber;
+
+            // Pobierz produkty z karty zamówienia
+            const productRows = orderCard.querySelectorAll('.product-row');
+            const products = [];
+
+            productRows.forEach(row => {
+                products.push({
+                    parsed_length_cm: parseFloat(row.dataset.length) || 0,
+                    parsed_width_cm: parseFloat(row.dataset.width) || 0,
+                    parsed_thickness_cm: parseFloat(row.dataset.thickness) || 0,
+                    volume_m3: parseFloat(row.dataset.volume) || 0,
+                    quantity: parseInt(row.dataset.quantity) || 1
+                });
+            });
+
+            // Dane zamówienia do przekazania
+            const orderData = {
+                order_id: orderId,
+                products: products,
+                is_personal_pickup: false, // Jeśli modal dostawy jest otwarty, to nie jest odbiór osobisty
+                delivery_postcode: postcode,
+                // Dane wysyłki (jeśli już zgłoszona)
+                shipping_package_id: iconElement.dataset.shippingPackageId || '',
+                shipping_tracking_number: iconElement.dataset.shippingTracking || '',
+                shipping_courier_name: iconElement.dataset.shippingCourier || '',
+                shipping_price: iconElement.dataset.shippingPrice || '',
+                shipping_created_at: iconElement.dataset.shippingDate || '',
+                shipping_label_base64: iconElement.dataset.shippingLabel || ''
+            };
+
+            console.log('[Packaging] Inicjalizacja sekcji wysyłki dla zamówienia:', orderId);
+            initShippingSection(orderData);
+        }
+    }
+
+    // Global function for close button
+    window.closeDeliveryModal = function() {
+        const modal = document.getElementById('deliveryModal');
+        if (modal) {
+            modal.classList.remove('active');
+        }
+    };
+
+    // Close modal on overlay click and Escape key
+    document.addEventListener('DOMContentLoaded', function() {
+        const modal = document.getElementById('deliveryModal');
+        if (modal) {
+            modal.addEventListener('click', function(e) {
+                if (e.target === this) {
+                    closeDeliveryModal();
+                }
+            });
+        }
+
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape') {
+                closeDeliveryModal();
+            }
+        });
+    });
 
     // ========================================================================
     // HIDE EMPTY PRODUCT PARAMS
@@ -1091,7 +1223,11 @@
                      data-species="${product.wood_species || ''}"
                      data-technology="${product.technology || ''}"
                      data-wood-class="${product.wood_class || ''}"
-                     data-is-priority="${product.is_priority ? 'true' : 'false'}">
+                     data-is-priority="${product.is_priority ? 'true' : 'false'}"
+                     data-length="${product.parsed_length_cm || 0}"
+                     data-width="${product.parsed_width_cm || 0}"
+                     data-thickness="${product.parsed_thickness_cm || 0}"
+                     data-volume="${product.volume_m3 || 0}">
                     <div class="product-left-col">
                         <div class="product-params">${paramsHTML}</div>
                         <div class="product-dimensions-row">${dimensionsBadge}</div>
@@ -1110,9 +1246,62 @@
             `;
         }).join('');
 
+        // Build delivery badge HTML (2025-12)
+        const isPersonalPickup = order.is_personal_pickup || false;
+        let deliveryBadgeHTML = '';
+
+        if (isPersonalPickup) {
+            deliveryBadgeHTML = `
+                <div class="delivery-badge-container">
+                    <span class="delivery-badge delivery-pickup" title="Odbiór osobisty">
+                        <svg class="delivery-badge-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+                            <circle cx="12" cy="7" r="4"></circle>
+                        </svg>
+                        Odbiór osobisty
+                    </span>
+                </div>
+            `;
+        } else {
+            deliveryBadgeHTML = `
+                <div class="delivery-badge-container">
+                    <span class="delivery-badge delivery-courier" title="Kurier">
+                        <svg class="delivery-badge-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <rect x="1" y="3" width="15" height="13"></rect>
+                            <polygon points="16 8 20 8 23 11 23 16 16 16 16 8"></polygon>
+                            <circle cx="5.5" cy="18.5" r="2.5"></circle>
+                            <circle cx="18.5" cy="18.5" r="2.5"></circle>
+                        </svg>
+                        Kurier
+                    </span>
+                </div>
+            `;
+        }
+
         // Build header icons HTML
         const firstProduct = order.products[0];
         let iconsHTML = '';
+
+        // Delivery icon (only for courier) (2025-12)
+        if (!isPersonalPickup) {
+            iconsHTML += `
+                <div class="header-icon-wrapper delivery-icon-wrapper"
+                     data-delivery-fullname="${(order.delivery_fullname || '').replace(/"/g, '&quot;')}"
+                     data-delivery-company="${(order.delivery_company || '').replace(/"/g, '&quot;')}"
+                     data-delivery-address="${(order.delivery_address || '').replace(/"/g, '&quot;')}"
+                     data-delivery-postcode="${(order.delivery_postcode || '').replace(/"/g, '&quot;')}"
+                     data-delivery-city="${(order.delivery_city || '').replace(/"/g, '&quot;')}"
+                     data-delivery-country="${(order.delivery_country_code || 'PL').replace(/"/g, '&quot;')}"
+                     title="Pokaż adres dostawy">
+                    <svg class="header-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <rect x="1" y="3" width="15" height="13"></rect>
+                        <polygon points="16 8 20 8 23 11 23 16 16 16 16 8"></polygon>
+                        <circle cx="5.5" cy="18.5" r="2.5"></circle>
+                        <circle cx="18.5" cy="18.5" r="2.5"></circle>
+                    </svg>
+                </div>
+            `;
+        }
 
         if (firstProduct) {
             if (firstProduct.attachment_file_url) {
@@ -1194,6 +1383,7 @@
                         <div class="order-stats">
                             <span class="products-checked" data-order="${order.order_number}">${totalDone}</span>/<span class="products-total" data-order="${order.order_number}">${totalQty}</span> szt. • ${order.total_volume.toFixed(4)} m³
                         </div>
+                        ${deliveryBadgeHTML}
                         <div class="order-icons">${iconsHTML}</div>
                     </div>
                 </div>
@@ -1273,6 +1463,729 @@
             themeToggle.click();
         }
     }
+
+    // ========================================================================
+    // SHIPPING MODULE (2025-12)
+    // ========================================================================
+
+    const ShippingModule = {
+        currentOrderId: null,
+        currentOrderData: null,
+        currentLabel: null,
+        lastDimensions: null,
+
+        // Nazwy kroków dla wyświetlania
+        STEP_NAMES: {
+            'dimensions': 'Obliczanie wymiarów paczki',
+            'variants': 'Generowanie wariantów pakowania',
+            'prices': 'Sprawdzanie cen kurierów',
+            'compare': 'Porównywanie ofert',
+            'create': 'Zgłaszanie paczki do kuriera',
+            'label': 'Pobieranie etykiety'
+        },
+
+        // Kolejność kroków
+        STEPS: ['dimensions', 'variants', 'prices', 'compare', 'create', 'label'],
+
+        // Limity kuriera
+        LIMITS: {
+            maxWeight: 31.5,
+            maxDimension: 200
+        }
+    };
+
+    /**
+     * Inicjalizuje sekcję wysyłki w modalu dostawy (tylko przycisk)
+     */
+    function initShippingSection(orderData) {
+        const orderId = orderData.order_id || orderData.baselinker_order_id || orderData.order_number;
+        console.log('[Shipping] Inicjalizacja sekcji wysyłki dla zamówienia:', orderId);
+
+        ShippingModule.currentOrderId = orderId;
+        ShippingModule.currentOrderData = orderData;
+
+        const shippingSection = document.getElementById('shippingSection');
+        const shippingInfoSection = document.getElementById('shippingInfoSection');
+        const overlimitMessage = document.getElementById('overlimitMessage');
+
+        if (!shippingSection || !overlimitMessage) {
+            console.warn('[Shipping] Nie znaleziono elementów sekcji wysyłki');
+            return;
+        }
+
+        // Sprawdź czy to kurier (nie odbiór osobisty)
+        if (orderData.is_personal_pickup) {
+            console.log('[Shipping] Odbiór osobisty - ukrywam sekcję wysyłki');
+            shippingSection.style.display = 'none';
+            if (shippingInfoSection) shippingInfoSection.style.display = 'none';
+            overlimitMessage.style.display = 'none';
+            return;
+        }
+
+        // === SPRAWDŹ CZY PRZESYŁKA JUŻ ZOSTAŁA ZGŁOSZONA ===
+        if (orderData.shipping_package_id && orderData.shipping_package_id !== '') {
+            console.log('[Shipping] Przesyłka już zgłoszona - pokazuję dane wysyłki');
+
+            // Ukryj przycisk zgłoszenia i komunikat limitu
+            shippingSection.style.display = 'none';
+            overlimitMessage.style.display = 'none';
+
+            // Wypełnij dane zgłoszonej przesyłki
+            if (shippingInfoSection) {
+                document.getElementById('shippingInfoCourier').textContent = orderData.shipping_courier_name || '-';
+                document.getElementById('shippingInfoTracking').textContent = orderData.shipping_tracking_number || '-';
+                document.getElementById('shippingInfoPrice').textContent = orderData.shipping_price ? orderData.shipping_price + ' zł' : '-';
+
+                // Formatuj datę
+                let dateText = '-';
+                if (orderData.shipping_created_at) {
+                    try {
+                        const date = new Date(orderData.shipping_created_at);
+                        dateText = date.toLocaleString('pl-PL', {
+                            day: '2-digit',
+                            month: '2-digit',
+                            year: 'numeric',
+                            hour: '2-digit',
+                            minute: '2-digit'
+                        });
+                    } catch (e) {
+                        dateText = orderData.shipping_created_at;
+                    }
+                }
+                document.getElementById('shippingInfoDate').textContent = dateText;
+
+                // Zapisz etykietę do późniejszego pobrania
+                ShippingModule.lastLabelBase64 = orderData.shipping_label_base64 || '';
+
+                // Pokaż sekcję
+                shippingInfoSection.style.display = 'block';
+
+                // Ustaw handler dla przycisku pobierania etykiety
+                const downloadBtn = document.getElementById('downloadLabelFromInfoBtn');
+                if (downloadBtn) {
+                    downloadBtn.onclick = function() {
+                        if (ShippingModule.lastLabelBase64) {
+                            downloadLabelPdf(ShippingModule.lastLabelBase64, orderId);
+                        } else {
+                            alert('Etykieta niedostępna');
+                        }
+                    };
+                }
+            }
+            return;
+        }
+
+        // Przesyłka nie jest zgłoszona - ukryj sekcję info
+        if (shippingInfoSection) shippingInfoSection.style.display = 'none';
+
+        // Oblicz wymiary
+        const dimensions = calculateOrderDimensions(orderData.products || []);
+        ShippingModule.lastDimensions = dimensions;
+
+        console.log('[Shipping] Obliczone wymiary:', dimensions);
+
+        // Sprawdź limity
+        if (dimensions.weight > ShippingModule.LIMITS.maxWeight ||
+            dimensions.maxDimension > ShippingModule.LIMITS.maxDimension) {
+            console.log('[Shipping] Przekroczono limity kuriera - pokazuję komunikat');
+            shippingSection.style.display = 'none';
+            overlimitMessage.style.display = 'flex';
+            return;
+        }
+
+        // Pokaż przycisk "Zgłoś wysyłkę"
+        console.log('[Shipping] Zamówienie w limitach - pokazuję przycisk');
+        shippingSection.style.display = 'block';
+        overlimitMessage.style.display = 'none';
+    }
+
+    /**
+     * Otwiera modal z wymiarami wysyłki
+     */
+    function openShippingDimensionsModal() {
+        console.log('[Shipping] Otwieranie modalu wymiarów');
+
+        // Zamknij modal dostawy
+        closeDeliveryModal();
+
+        // Wypełnij wymiary w formularzu
+        const dimensions = ShippingModule.lastDimensions;
+        if (dimensions) {
+            document.getElementById('shipLength').value = dimensions.length;
+            document.getElementById('shipWidth').value = dimensions.width;
+            document.getElementById('shipHeight').value = dimensions.height;
+            document.getElementById('shipWeight').value = dimensions.weight.toFixed(1);
+        }
+
+        // Otwórz modal wymiarów
+        const modal = document.getElementById('shippingDimensionsModal');
+        if (modal) modal.classList.add('active');
+    }
+
+    /**
+     * Oblicza wymiary paczki dla produktów zamówienia
+     */
+    function calculateOrderDimensions(products) {
+        console.log('[Shipping] Obliczanie wymiarów dla produktów:', products.length);
+
+        let maxLength = 0, maxWidth = 0, totalThickness = 0, totalVolume = 0;
+
+        products.forEach((p, idx) => {
+            const length = parseFloat(p.parsed_length_cm) || 0;
+            const width = parseFloat(p.parsed_width_cm) || 0;
+            const thickness = parseFloat(p.parsed_thickness_cm) || 0;
+            const volume = parseFloat(p.volume_m3) || 0;
+            const qty = parseInt(p.quantity) || 1;
+
+            console.log(`[Shipping] Produkt ${idx + 1}: ${length}x${width}x${thickness}cm, vol=${volume}m³, qty=${qty}`);
+
+            maxLength = Math.max(maxLength, length);
+            maxWidth = Math.max(maxWidth, width);
+            totalThickness += thickness * qty;
+            totalVolume += volume * qty;
+        });
+
+        const MARGIN = 5;
+        const WEIGHT_FACTOR = 800;
+
+        const result = {
+            length: Math.ceil(maxLength + MARGIN),
+            width: Math.ceil(maxWidth + MARGIN),
+            height: Math.ceil(totalThickness + MARGIN),
+            weight: totalVolume * WEIGHT_FACTOR,
+            maxDimension: Math.max(maxLength + MARGIN, maxWidth + MARGIN, totalThickness + MARGIN)
+        };
+
+        console.log('[Shipping] Wynik obliczeń:', result);
+        return result;
+    }
+
+    /**
+     * Otwiera modal postępu wysyłki
+     */
+    function openProgressModal() {
+        console.log('[Shipping] Otwieram modal postępu');
+
+        // Resetuj wszystkie kroki
+        ShippingModule.STEPS.forEach(step => {
+            const stepEl = document.getElementById(`step-${step}`);
+            if (stepEl) {
+                stepEl.classList.remove('active', 'completed', 'error');
+            }
+        });
+
+        const stepDetails = document.getElementById('stepDetails');
+        if (stepDetails) stepDetails.textContent = '';
+
+        const modal = document.getElementById('shippingProgressModal');
+        if (modal) modal.classList.add('active');
+    }
+
+    /**
+     * Aktualizuje status kroku
+     */
+    function updateStep(stepId, status, details = null) {
+        console.log(`[Shipping] Aktualizacja kroku: ${stepId} -> ${status}`, details || '');
+
+        const stepEl = document.getElementById(`step-${stepId}`);
+        if (!stepEl) {
+            console.warn(`[Shipping] Nie znaleziono elementu kroku: step-${stepId}`);
+            return;
+        }
+
+        // Usuń poprzednie klasy statusu
+        stepEl.classList.remove('active', 'completed', 'error');
+
+        // Dodaj nową klasę
+        if (status === 'active' || status === 'completed' || status === 'error') {
+            stepEl.classList.add(status);
+        }
+
+        // Aktualizuj szczegóły
+        if (details) {
+            const stepDetails = document.getElementById('stepDetails');
+            if (stepDetails) stepDetails.textContent = details;
+        }
+    }
+
+    /**
+     * Pokazuje modal sukcesu
+     */
+    function showSuccessModal(data) {
+        console.log('[Shipping] Pokazuję modal sukcesu:', data);
+
+        const progressModal = document.getElementById('shippingProgressModal');
+        if (progressModal) progressModal.classList.remove('active');
+
+        document.getElementById('successCourierName').textContent = data.courier_name || 'Nieznany';
+        document.getElementById('successPrice').textContent = (data.price || 0).toFixed(2) + ' zł';
+        document.getElementById('successTrackingNumber').textContent = data.tracking_number || 'Oczekiwanie...';
+
+        ShippingModule.currentLabel = data.label_base64;
+
+        const successModal = document.getElementById('shippingSuccessModal');
+        if (successModal) successModal.classList.add('active');
+
+        // Jeśli brak numeru śledzenia, odpytaj po kilku sekundach
+        if (!data.tracking_number) {
+            console.log('[Shipping] Brak numeru śledzenia - odpytuję za 5 sekund...');
+            setTimeout(() => {
+                refreshTrackingNumber(ShippingModule.currentOrderId);
+            }, 5000);
+        }
+    }
+
+    /**
+     * Odpytuje o numer śledzenia z Baselinker
+     */
+    function refreshTrackingNumber(orderId, retryCount = 0) {
+        const maxRetries = 3;
+        const retryDelay = 5000; // 5 sekund między próbami
+
+        console.log(`[Shipping] Odpytywanie o numer śledzenia (próba ${retryCount + 1}/${maxRetries + 1})...`);
+
+        fetch(`/production/stations/api/packaging/refresh-tracking/${orderId}`)
+            .then(response => response.json())
+            .then(result => {
+                console.log('[Shipping] Odpowiedź refresh-tracking:', result);
+
+                if (result.success && result.tracking_number) {
+                    // Mamy numer - aktualizuj UI
+                    console.log('[Shipping] Otrzymano numer śledzenia:', result.tracking_number);
+
+                    const trackingEl = document.getElementById('successTrackingNumber');
+                    if (trackingEl) {
+                        trackingEl.textContent = result.tracking_number;
+                    }
+
+                    // Aktualizuj też w sekcji info jeśli jest widoczna
+                    const infoTrackingEl = document.getElementById('shippingInfoTracking');
+                    if (infoTrackingEl) {
+                        infoTrackingEl.textContent = result.tracking_number;
+                    }
+                } else if (retryCount < maxRetries) {
+                    // Brak numeru - spróbuj ponownie za chwilę
+                    console.log(`[Shipping] Brak numeru śledzenia, ponawiam za ${retryDelay/1000}s...`);
+                    setTimeout(() => {
+                        refreshTrackingNumber(orderId, retryCount + 1);
+                    }, retryDelay);
+                } else {
+                    console.log('[Shipping] Nie udało się pobrać numeru śledzenia po wszystkich próbach');
+                    const trackingEl = document.getElementById('successTrackingNumber');
+                    if (trackingEl && trackingEl.textContent === 'Oczekiwanie...') {
+                        trackingEl.textContent = 'Niedostępny (sprawdź później)';
+                    }
+                }
+            })
+            .catch(error => {
+                console.error('[Shipping] Błąd podczas odpytywania o numer śledzenia:', error);
+                if (retryCount < maxRetries) {
+                    setTimeout(() => {
+                        refreshTrackingNumber(orderId, retryCount + 1);
+                    }, retryDelay);
+                }
+            });
+    }
+
+    /**
+     * Pokazuje modal błędu
+     */
+    function showErrorModal(step, errorMessage) {
+        console.error(`[Shipping] Błąd w kroku "${step}":`, errorMessage);
+
+        const progressModal = document.getElementById('shippingProgressModal');
+        if (progressModal) progressModal.classList.remove('active');
+
+        const stepName = ShippingModule.STEP_NAMES[step] || step;
+        document.getElementById('errorStep').textContent = stepName;
+        document.getElementById('errorMessage').textContent = errorMessage;
+
+        const errorModal = document.getElementById('shippingErrorModal');
+        if (errorModal) errorModal.classList.add('active');
+    }
+
+    /**
+     * Zamyka wszystkie modale wysyłki
+     */
+    window.closeShippingModals = function() {
+        console.log('[Shipping] Zamykam wszystkie modale wysyłki');
+
+        const modals = ['shippingDimensionsModal', 'shippingConfirmModal', 'shippingProgressModal', 'shippingSuccessModal', 'shippingErrorModal'];
+        modals.forEach(id => {
+            const modal = document.getElementById(id);
+            if (modal) modal.classList.remove('active');
+        });
+    };
+
+    /**
+     * Ponawia próbę wysyłki - otwiera modal wymiarów
+     */
+    window.retryShipment = function() {
+        console.log('[Shipping] Ponawiam wysyłkę - otwieranie modalu wymiarów');
+        closeShippingModals();
+        // Otwórz modal wymiarów ponownie
+        const dimensionsModal = document.getElementById('shippingDimensionsModal');
+        if (dimensionsModal) dimensionsModal.classList.add('active');
+    };
+
+    /**
+     * Helper - pauza
+     */
+    function sleep(ms) {
+        return new Promise(resolve => setTimeout(resolve, ms));
+    }
+
+    /**
+     * KROK 1: Pobiera wycenę i pokazuje modal potwierdzenia
+     */
+    async function getQuoteAndShowConfirm() {
+        console.log('[Shipping] ========== POBIERAM WYCENĘ ==========');
+        console.log('[Shipping] Order ID:', ShippingModule.currentOrderId);
+
+        const btn = document.getElementById('submitShipmentBtn');
+        if (btn) {
+            btn.disabled = true;
+            btn.innerHTML = '<svg class="spinner-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="2" x2="12" y2="6"></line><line x1="12" y1="18" x2="12" y2="22"></line><line x1="4.93" y1="4.93" x2="7.76" y2="7.76"></line><line x1="16.24" y1="16.24" x2="19.07" y2="19.07"></line></svg> Pobieranie wyceny...';
+        }
+
+        // Pobierz wymiary z formularza
+        const dimensions = {
+            length: parseInt(document.getElementById('shipLength').value) || 0,
+            width: parseInt(document.getElementById('shipWidth').value) || 0,
+            height: parseInt(document.getElementById('shipHeight').value) || 0,
+            weight: parseFloat(document.getElementById('shipWeight').value) || 0
+        };
+
+        console.log('[Shipping] Wymiary do wyceny:', dimensions);
+
+        // Walidacja
+        if (dimensions.length <= 0 || dimensions.width <= 0 ||
+            dimensions.height <= 0 || dimensions.weight <= 0) {
+            alert('Wprowadź prawidłowe wymiary i wagę przesyłki');
+            resetSubmitButton();
+            return;
+        }
+
+        // Zapisz wymiary w module
+        ShippingModule.currentDimensions = dimensions;
+
+        try {
+            // Pobierz wycenę z backendu
+            console.log('[Shipping] Wysyłam żądanie do /api/packaging/quote/...');
+
+            const response = await fetch(`/production/stations/api/packaging/quote/${ShippingModule.currentOrderId}`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(dimensions)
+            });
+
+            console.log('[Shipping] Odpowiedź quote status:', response.status);
+
+            const result = await response.json();
+            console.log('[Shipping] Odpowiedź quote JSON:', result);
+
+            if (result.success && result.quote) {
+                // Zapisz wycenę w module
+                ShippingModule.currentQuote = result.quote;
+
+                // Pokaż modal potwierdzenia
+                showConfirmModal(result.quote, dimensions);
+            } else {
+                alert('Błąd pobierania wyceny: ' + (result.error || 'Nieznany błąd'));
+                resetSubmitButton();
+            }
+
+        } catch (error) {
+            console.error('[Shipping] Wyjątek podczas pobierania wyceny:', error);
+            alert('Błąd połączenia: ' + error.message);
+            resetSubmitButton();
+        }
+    }
+
+    /**
+     * Resetuje przycisk "Zgłaszam wysyłkę" do stanu początkowego
+     */
+    function resetSubmitButton() {
+        const btn = document.getElementById('submitShipmentBtn');
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="3" width="15" height="13"></rect><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"></polygon><circle cx="5.5" cy="18.5" r="2.5"></circle><circle cx="18.5" cy="18.5" r="2.5"></circle></svg> Zgłaszam wysyłkę';
+        }
+    }
+
+    /**
+     * Pokazuje modal potwierdzenia z wybraną ofertą
+     */
+    function showConfirmModal(quote, dimensions) {
+        console.log('[Shipping] Pokazuję modal potwierdzenia:', quote);
+
+        // Zamknij modal wymiarów
+        const dimensionsModal = document.getElementById('shippingDimensionsModal');
+        if (dimensionsModal) dimensionsModal.classList.remove('active');
+
+        // Wypełnij dane w modalu potwierdzenia
+        document.getElementById('confirmCourierName').textContent = quote.courier_name || 'Nieznany';
+        document.getElementById('confirmServiceName').textContent = quote.service_name || '-';
+        document.getElementById('confirmPrice').textContent = (quote.price || 0).toFixed(2) + ' zł';
+        document.getElementById('confirmDimensions').textContent =
+            `${dimensions.length} x ${dimensions.width} x ${dimensions.height} cm, ${dimensions.weight} kg`;
+
+        // Ustaw badge trybu pakowania
+        const badge = document.getElementById('packagingModeBadge');
+        const modeText = document.getElementById('packagingModeText');
+        const multiDetails = document.getElementById('multiPackageDetails');
+
+        if (quote.is_multi_package && quote.total_packages > 1) {
+            // Tryb wielu paczek
+            badge.className = 'packaging-mode-badge multi-package';
+            modeText.textContent = `${quote.total_packages} paczki`;
+
+            // Pokaż szczegóły paczek
+            if (multiDetails) {
+                multiDetails.style.display = 'block';
+                const container = document.getElementById('packagesListContainer');
+                if (container && quote.packages) {
+                    container.innerHTML = quote.packages.map((pkg, idx) => `
+                        <div class="package-item">
+                            <span class="package-num">Paczka ${idx + 1}</span>
+                            <span class="package-dims">${pkg.length}x${pkg.width}x${pkg.height} cm, ${pkg.weight} kg</span>
+                            <span class="package-price">${(pkg.price || 0).toFixed(2)} zł</span>
+                        </div>
+                    `).join('');
+                }
+            }
+        } else {
+            // Tryb pojedynczej paczki
+            badge.className = 'packaging-mode-badge single-package';
+            modeText.textContent = '1 paczka';
+            if (multiDetails) multiDetails.style.display = 'none';
+        }
+
+        // Otwórz modal potwierdzenia
+        const confirmModal = document.getElementById('shippingConfirmModal');
+        if (confirmModal) confirmModal.classList.add('active');
+
+        // Zresetuj przycisk wymiarów
+        resetSubmitButton();
+    }
+
+    /**
+     * Powrót do modalu wymiarów
+     */
+    window.backToDimensions = function() {
+        console.log('[Shipping] Powrót do wymiarów');
+
+        // Zamknij modal potwierdzenia
+        const confirmModal = document.getElementById('shippingConfirmModal');
+        if (confirmModal) confirmModal.classList.remove('active');
+
+        // Otwórz modal wymiarów
+        const dimensionsModal = document.getElementById('shippingDimensionsModal');
+        if (dimensionsModal) dimensionsModal.classList.add('active');
+    };
+
+    /**
+     * KROK 2: Potwierdza i wysyła żądanie utworzenia przesyłki
+     */
+    async function confirmAndSubmitShipment() {
+        console.log('[Shipping] ========== POTWIERDZAM I WYSYŁAM ==========');
+        console.log('[Shipping] Order ID:', ShippingModule.currentOrderId);
+        console.log('[Shipping] Wymiary:', ShippingModule.currentDimensions);
+        console.log('[Shipping] Wycena:', ShippingModule.currentQuote);
+
+        const btn = document.getElementById('confirmShipmentBtn');
+        if (btn) btn.disabled = true;
+
+        // Zamknij modal potwierdzenia i otwórz modal postępu
+        const confirmModal = document.getElementById('shippingConfirmModal');
+        if (confirmModal) confirmModal.classList.remove('active');
+
+        openProgressModal();
+
+        const dimensions = ShippingModule.currentDimensions;
+
+        try {
+            // Krok 1: Obliczanie wymiarów (już mamy - tylko oznaczamy)
+            updateStep('dimensions', 'active', 'Weryfikacja wymiarów paczki...');
+            await sleep(300);
+            updateStep('dimensions', 'completed', `Wymiary: ${dimensions.length}x${dimensions.width}x${dimensions.height} cm, ${dimensions.weight} kg`);
+
+            // Krok 2: Warianty (oznaczamy jako aktywny)
+            updateStep('variants', 'active', 'Analizowanie możliwości pakowania...');
+            await sleep(200);
+            updateStep('variants', 'completed');
+
+            // Krok 3: Ceny
+            updateStep('prices', 'active', 'Wybrana oferta kuriera...');
+            await sleep(200);
+            updateStep('prices', 'completed', `${ShippingModule.currentQuote.courier_name} - ${ShippingModule.currentQuote.price.toFixed(2)} zł`);
+
+            // Krok 4: Porównanie
+            updateStep('compare', 'active', 'Przygotowywanie przesyłki...');
+
+            // Wysyłamy żądanie do backendu
+            console.log('[Shipping] Wysyłam żądanie do /api/packaging/ship/...');
+
+            const response = await fetch(`/production/stations/api/packaging/ship/${ShippingModule.currentOrderId}`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(dimensions)
+            });
+
+            console.log('[Shipping] Odpowiedź status:', response.status);
+
+            const result = await response.json();
+            console.log('[Shipping] Odpowiedź JSON:', result);
+
+            if (result.success) {
+                // Oznacz wszystkie kroki jako ukończone
+                ShippingModule.STEPS.forEach(step => {
+                    updateStep(step, 'completed');
+                });
+                await sleep(500);
+                showSuccessModal(result);
+            } else {
+                // Oznacz krok błędu
+                const failedStep = result.failed_step || 'unknown';
+
+                // Znajdź indeks kroku który się nie powiódł
+                const failedIndex = ShippingModule.STEPS.indexOf(failedStep);
+
+                // Oznacz poprzednie kroki jako ukończone
+                ShippingModule.STEPS.forEach((step, idx) => {
+                    if (idx < failedIndex) {
+                        updateStep(step, 'completed');
+                    } else if (idx === failedIndex) {
+                        updateStep(step, 'error');
+                    }
+                });
+
+                await sleep(300);
+                showErrorModal(failedStep, result.error || 'Nieznany błąd');
+            }
+
+        } catch (error) {
+            console.error('[Shipping] Wyjątek podczas wysyłki:', error);
+            showErrorModal('connection', `Błąd połączenia: ${error.message}`);
+        } finally {
+            if (btn) btn.disabled = false;
+        }
+    }
+
+    /**
+     * Pobiera etykietę PDF z podanego base64 i nazwy
+     */
+    function downloadLabelPdf(base64Data, orderId) {
+        console.log('[Shipping] Pobieranie etykiety PDF dla zamówienia:', orderId);
+        console.log('[Shipping] Rozmiar danych base64:', base64Data ? base64Data.length : 0);
+
+        if (base64Data) {
+            // Wyczyść dane base64 z ewentualnych prefiksów i białych znaków
+            let cleanBase64 = base64Data.trim();
+
+            // Usuń prefiks data:application/pdf;base64, jeśli jest
+            if (cleanBase64.startsWith('data:')) {
+                const commaIndex = cleanBase64.indexOf(',');
+                if (commaIndex > -1) {
+                    cleanBase64 = cleanBase64.substring(commaIndex + 1);
+                }
+            }
+
+            // Usuń ewentualne białe znaki i nowe linie z base64
+            cleanBase64 = cleanBase64.replace(/\s/g, '');
+
+            console.log('[Shipping] Rozmiar po czyszczeniu:', cleanBase64.length);
+            console.log('[Shipping] Pierwsze 50 znaków:', cleanBase64.substring(0, 50));
+
+            // Sprawdź czy base64 wygląda poprawnie (zaczyna się od %PDF w base64 = JVBERi)
+            if (!cleanBase64.startsWith('JVBERi')) {
+                console.warn('[Shipping] UWAGA: Base64 nie wygląda jak PDF (powinien zaczynać się od JVBERi)');
+                console.log('[Shipping] Początek danych:', cleanBase64.substring(0, 100));
+            }
+
+            try {
+                const link = document.createElement('a');
+                link.href = 'data:application/pdf;base64,' + cleanBase64;
+                link.download = `etykieta_${orderId}.pdf`;
+                console.log('[Shipping] Pobieranie pliku:', link.download);
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+            } catch (error) {
+                console.error('[Shipping] Błąd podczas tworzenia linku do pobrania:', error);
+                alert('Błąd podczas pobierania etykiety: ' + error.message);
+            }
+        } else {
+            console.error('[Shipping] Brak etykiety do pobrania!');
+            alert('Brak etykiety do pobrania');
+        }
+    }
+
+    /**
+     * Pobiera etykietę PDF (z modalu sukcesu)
+     */
+    function downloadLabel() {
+        console.log('[Shipping] Pobieranie etykiety PDF');
+
+        if (ShippingModule.currentLabel) {
+            const trackingNum = document.getElementById('successTrackingNumber').textContent || 'unknown';
+            downloadLabelPdf(ShippingModule.currentLabel, trackingNum);
+        } else {
+            console.error('[Shipping] Brak etykiety do pobrania!');
+            alert('Brak etykiety do pobrania');
+        }
+    }
+
+    // Inicjalizacja event listenerów dla shipping
+    document.addEventListener('DOMContentLoaded', function() {
+        console.log('[Shipping] Inicjalizacja event listenerów');
+
+        // Przycisk "Zgłoś wysyłkę" w modalu dostawy - otwiera modal wymiarów
+        const openModalBtn = document.getElementById('openShippingModalBtn');
+        if (openModalBtn) {
+            openModalBtn.addEventListener('click', openShippingDimensionsModal);
+        }
+
+        // Przycisk "Zgłaszam wysyłkę" w modalu wymiarów - pobiera wycenę i pokazuje potwierdzenie
+        const submitBtn = document.getElementById('submitShipmentBtn');
+        if (submitBtn) {
+            submitBtn.addEventListener('click', getQuoteAndShowConfirm);
+        }
+
+        // Przycisk "Potwierdzam - Zgłoś przesyłkę" w modalu potwierdzenia - tworzy przesyłkę
+        const confirmBtn = document.getElementById('confirmShipmentBtn');
+        if (confirmBtn) {
+            confirmBtn.addEventListener('click', confirmAndSubmitShipment);
+        }
+
+        // Przycisk "Pobierz etykietę"
+        const downloadBtn = document.getElementById('downloadLabelBtn');
+        if (downloadBtn) {
+            downloadBtn.addEventListener('click', downloadLabel);
+        }
+
+        // Zamykanie modalu wymiarów przez kliknięcie w overlay
+        const dimensionsModal = document.getElementById('shippingDimensionsModal');
+        if (dimensionsModal) {
+            dimensionsModal.addEventListener('click', function(e) {
+                if (e.target === this) {
+                    closeShippingModals();
+                }
+            });
+        }
+
+        // Zamykanie modalu potwierdzenia przez kliknięcie w overlay
+        const confirmModal = document.getElementById('shippingConfirmModal');
+        if (confirmModal) {
+            confirmModal.addEventListener('click', function(e) {
+                if (e.target === this) {
+                    closeShippingModals();
+                }
+            });
+        }
+    });
+
+    console.log('[Shipping] Module loaded v1.0');
 
     // ========================================================================
     // CLEANUP

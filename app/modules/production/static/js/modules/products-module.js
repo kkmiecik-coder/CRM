@@ -3121,6 +3121,20 @@ class ProductsModule {
         const expectedStatus = statusMap[station.code];
         const currentStatus = product.current_status;
 
+        // Specjalna logika dla cutting: "Pominięto" gdy brak cutting_completed_at ale jest assembly_completed_at
+        if (station.code === 'cutting') {
+            const cuttingCompleted = product['cutting_completed_at'];
+            const assemblyCompleted = product['assembly_completed_at'];
+
+            if (!cuttingCompleted && assemblyCompleted) {
+                // Wycinanie zostało pominięte - produkt poszedł bezpośrednio na składanie
+                return {
+                    cssClass: 'timeline-skipped',
+                    statusText: 'Pominięto'
+                };
+            }
+        }
+
         if (product[station.endField]) {
             return {
                 cssClass: 'timeline-completed',
@@ -3146,6 +3160,18 @@ class ProductsModule {
         const startDate = product[station.startField];
         const endDate = product[station.endField];
         const duration = product[station.durationField];
+
+        // Specjalna logika dla cutting: "Pominięto" gdy brak cutting_completed_at ale jest assembly_completed_at
+        if (station.code === 'cutting') {
+            const cuttingCompleted = product['cutting_completed_at'];
+            const assemblyCompleted = product['assembly_completed_at'];
+
+            if (!cuttingCompleted && assemblyCompleted) {
+                return {
+                    text: 'Produkt złożony bez wycinania'
+                };
+            }
+        }
 
         if (endDate) {
             const endFormatted = new Date(endDate).toLocaleString('pl-PL');

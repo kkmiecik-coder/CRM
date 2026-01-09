@@ -28,14 +28,9 @@ from datetime import datetime, timedelta
 from typing import Dict, Any, Optional, Union, List
 from modules.logging import get_structured_logger
 from extensions import db
-import pytz
+from ..models import get_local_now
 
 logger = get_structured_logger('production.config')
-
-def get_local_now():
-    """Zwraca aktualny czas w strefie czasowej Polski"""
-    poland_tz = pytz.timezone('Europe/Warsaw')
-    return datetime.now(poland_tz).replace(tzinfo=None)
 
 class ConfigError(Exception):
     """Wyjątek dla błędów konfiguracji"""

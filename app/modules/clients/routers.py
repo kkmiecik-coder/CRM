@@ -373,6 +373,121 @@ def get_client_quotes(client_id):
 
 GUS_API_KEY = os.getenv("GUS_API_KEY")
 GUS_BASE_URL = "https://wl-api.mf.gov.pl/api/search/nip/"
+CEIDG_BASE_URL = "https://dane.biznes.gov.pl/api/ceidg/v2/firmy"
+CEIDG_JWT_TOKEN = "eyJraWQiOiJjZWlkZyIsImFsZyI6IkhTNTEyIn0.eyJnaXZlbl9uYW1lIjoiS29ucmFkIiwicGVzZWwiOiI5OTA0MTUwNzgxOCIsImlhdCI6MTc2Nzc5NTMxMiwiZmFtaWx5X25hbWUiOiJLbWllY2lrIiwiY2xpZW50X2lkIjoiVVNFUi05OTA0MTUwNzgxOC1LT05SQUQtS01JRUNJSyJ9.EL9sUGdXmwLsaaNhXRyHrRZ4hYIuPSwfSx5B7izK16k_IQUdiuZbokUYYbo3tkR_vs1EkouSGxtNh7Lk8Yfygg"
+
+def transform_ceidg_to_gus_format(ceidg_data):
+    """
+    Przekształca odpowiedź CEIDG API na format zgodny z GUS API.
+
+    Args:
+        ceidg_data: Odpowiedź z CEIDG API (dict)
+
+    Returns:
+        dict: Dane w formacie zgodnym z GUS API lub None
+    """
+    if not ceidg_data.get("firma") or len(ceidg_data["firma"]) == 0:
+        return None
+
+    firma = ceidg_data["firma"][0]
+    wlasciciel = firma.get("wlasciciel", {})
+    adres = firma.get("adresDzialalnosci", {})
+
+    # Składanie adresu w format GUS (string)
+    adres_parts = []
+    if adres.get("ulica"):
+        adres_parts.append(adres["ulica"])
+        if adres.get("budynek"):
+            adres_parts[-1] += f" {adres['budynek']}"
+        if adres.get("lokal"):
+            adres_parts[-1] += f"/{adres['lokal']}"
+
+    if adres.get("kod") and adres.get("miasto"):
+        adres_parts.append(f"{adres['kod']} {adres['miasto']}")
+
+    working_address = ", ".join(adres_parts) if adres_parts else None
+
+    # Nazwa firmy - priorytet: nazwa > imię+nazwisko
+    name = firma.get("nazwa")
+    if not name and wlasciciel:
+        imie = wlasciciel.get("imie", "")
+        nazwisko = wlasciciel.get("nazwisko", "")
+        name = f"{imie} {nazwisko}".strip()
+
+    # Wyciągnij kod pocztowy i miasto
+    zip_code = adres.get("kod", "")
+    city = adres.get("miasto", "")
+
+    # Określ województwo - CEIDG już zwraca województwo!
+    voivodeship_raw = adres.get("wojewodztwo", "")
+    # Zamień na małe litery dla spójności
+    voivodeship = voivodeship_raw.lower() if voivodeship_raw else None
+
+    return {
+        "name": name,
+        "company": name,
+        "address": working_address,
+        "zip": zip_code,
+        "city": city,
+        "voivodeship": voivodeship,
+        "_source": "CEIDG"
+    }
+
+
+def query_ceidg_api(nip):
+    """
+    Odpytuje CEIDG API o dane firmy po NIP.
+
+    Args:
+        nip: Numer NIP (string, 10 cyfr)
+
+    Returns:
+        dict: Dane firmy w formacie GUS lub None
+    """
+    if not CEIDG_JWT_TOKEN:
+        logger.warning("[CEIDG Lookup] Brak tokenu JWT dla CEIDG API")
+        return None
+
+    try:
+        url = f"{CEIDG_BASE_URL}?nip={nip}"
+        headers = {
+            "Accept": "application/json",
+            "Authorization": f"Bearer {CEIDG_JWT_TOKEN}"
+        }
+
+        logger.info(f"[CEIDG Lookup] Wysyłanie zapytania do CEIDG: {url}")
+        response = requests.get(url, headers=headers, timeout=10)
+
+        if response.status_code == 401:
+            logger.error("[CEIDG Lookup] Błąd autoryzacji - nieprawidłowy token JWT")
+            return None
+
+        if response.status_code == 429:
+            logger.warning("[CEIDG Lookup] Przekroczono limit zapytań do CEIDG API")
+            return None
+
+        if response.status_code == 204:
+            logger.info(f"[CEIDG Lookup] Brak danych dla NIP {nip} (status 204)")
+            return None
+
+        if response.status_code != 200:
+            logger.warning(f"[CEIDG Lookup] Błąd z CEIDG: status {response.status_code}")
+            return None
+
+        data = response.json()
+        logger.info(f"[CEIDG API] Odebrano dane dla NIP {nip}")
+
+        # Transformacja do formatu GUS
+        transformed = transform_ceidg_to_gus_format(data)
+        return transformed
+
+    except requests.exceptions.Timeout:
+        logger.error(f"[CEIDG Lookup] Timeout przy zapytaniu dla NIP {nip}")
+        return None
+    except Exception as e:
+        logger.error(f"[CEIDG Lookup] Wyjątek: {e}")
+        return None
+
 
 def get_voivodeship_from_zipcode(zip_code):
     """
@@ -462,8 +577,24 @@ def gus_lookup():
         data = response.json()
         subject = data.get("result", {}).get("subject")
         if not subject:
-            logger.warning(f"[GUS Lookup] Brak pola 'subject' w odpowiedzi: {data}")
-            return jsonify({"error": "Nie znaleziono danych"}), 404
+            request_id = data.get("result", {}).get("requestId", "brak")
+            logger.warning(
+                f"[GUS Lookup] GUS/MF nie zwróciło danych dla NIP {nip}. "
+                f"RequestId: {request_id}. Próba fallback do CEIDG..."
+            )
+
+            # FALLBACK: Zapytanie do CEIDG
+            ceidg_data = query_ceidg_api(nip)
+
+            if ceidg_data:
+                logger.info(f"[GUS Lookup] Dane pobrane z CEIDG dla NIP {nip}")
+                return jsonify(ceidg_data)
+            else:
+                logger.warning(f"[GUS Lookup] Brak danych również w CEIDG dla NIP {nip}")
+                return jsonify({
+                    "error": "Nie znaleziono firmy o podanym NIP w rejestrze GUS ani CEIDG. "
+                             "NIP może być nieaktywny lub nieprawidłowy."
+                }), 404
 
         logger.info(f"[GUS API] Odebrano dane dla NIP {nip}: {subject}")
 
