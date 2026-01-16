@@ -184,21 +184,21 @@ cython_debug/
 # ===========================================
 
 # Konfiguracja (wrażliwe dane!)
-app/config/core.json
-app/config/core.local.json
+config/core.json
+config/core.local.json
 
 # Logi
-/app/modules/logging/logs
+modules/logging/logs/
 
 # Uploadowane pliki użytkowników
-/app/modules/partner_academy/static/media/documents
-/app/modules/partner_academy/static/media/nda_users
-/app/modules/sales/static/media/nda_users
-/app/modules/preview3d_ar/static/ar-models/temp
-/app/modules/preview3d_ar/static/ar-models/cache
+modules/partner_academy/static/media/documents/
+modules/partner_academy/static/media/nda_users/
+modules/sales/static/media/nda_users/
+modules/preview3d_ar/static/ar-models/temp/
+modules/preview3d_ar/static/ar-models/cache/
 
 # IDE / Edytory
-/app/.claude
+.claude/
 .idea/
 .vscode/
 *.swp
@@ -211,5 +211,12 @@ nul
 
 # Pliki testowe/raporty
 raport_partnerow.html
+stderr.log
 *.tmp
+
+# Virtual environment
+venv/
+__pycache__/
+
+# Local dev script
 run_local.bat
