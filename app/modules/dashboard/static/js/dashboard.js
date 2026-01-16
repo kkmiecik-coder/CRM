@@ -1146,18 +1146,21 @@ function renderFallbackChangelog() {
 
 /**
  * NOWA FUNKCJA: Renderowanie wpisów z bazy danych
+ * Pokazuje pierwsze 3 wpisy, resztę ukrywa za przyciskiem "Załaduj więcej"
  */
 function renderChangelogEntries(entries) {
     const container = document.getElementById('changelog-entries');
     if (!container) return;
-    
+
+    const INITIAL_VISIBLE = 3; // Liczba widocznych wpisów na start
     let html = '';
-    
+
     entries.forEach((entry, index) => {
         const isOpen = index === 0 ? 'open' : '';
-        
+        const isHidden = index >= INITIAL_VISIBLE ? 'changelog-hidden' : '';
+
         html += `
-            <div class="changelog-entry ${isOpen}">
+            <div class="changelog-entry ${isOpen} ${isHidden}" data-changelog-index="${index}">
                 <div class="changelog-date toggle-entry">
                     <span>${formatChangelogDate(entry.created_at)} - v${entry.version}</span>
                     <img src="/static/icons/sidebar-icon/footer-options.svg" alt="Rozwiń" class="changelog-chevron">
@@ -1168,9 +1171,48 @@ function renderChangelogEntries(entries) {
             </div>
         `;
     });
-    
+
+    // Dodaj przycisk "Załaduj więcej" jeśli jest więcej niż INITIAL_VISIBLE wpisów
+    if (entries.length > INITIAL_VISIBLE) {
+        const hiddenCount = entries.length - INITIAL_VISIBLE;
+        html += `
+            <button class="changelog-load-more" id="changelog-load-more">
+                <span class="load-more-icon">📜</span>
+                <span class="load-more-text">Pokaż więcej (${hiddenCount})</span>
+            </button>
+        `;
+    }
+
     container.innerHTML = html;
     initChangelogInteractions();
+    initChangelogLoadMore(entries.length, INITIAL_VISIBLE);
+}
+
+/**
+ * NOWA FUNKCJA: Inicjalizacja przycisku "Załaduj więcej"
+ */
+function initChangelogLoadMore(totalEntries, initialVisible) {
+    const loadMoreBtn = document.getElementById('changelog-load-more');
+    if (!loadMoreBtn) return;
+
+    loadMoreBtn.addEventListener('click', function() {
+        // Pokaż wszystkie ukryte wpisy
+        const hiddenEntries = document.querySelectorAll('.changelog-entry.changelog-hidden');
+
+        hiddenEntries.forEach((entry, index) => {
+            // Animacja pojawiania się z opóźnieniem
+            setTimeout(() => {
+                entry.classList.remove('changelog-hidden');
+                entry.style.animation = 'changelogFadeIn 0.3s ease forwards';
+            }, index * 100);
+        });
+
+        // Ukryj przycisk po kliknięciu
+        this.style.animation = 'changelogFadeOut 0.2s ease forwards';
+        setTimeout(() => {
+            this.remove();
+        }, 200);
+    });
 }
 
 /**

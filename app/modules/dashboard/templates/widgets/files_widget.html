@@ -1,0 +1,108 @@
+<!-- Files Widget - Pliki do pobrania -->
+<div class="widget files-widget">
+    <div class="widget-header-with-action">
+        <h2 class="widget-title">
+            <span class="widget-icon">📁</span>
+            Pliki do pobrania
+        </h2>
+        {% if user and user.role == 'admin' %}
+        <button class="widget-action-btn files-add-btn" id="files-add-btn" title="Dodaj plik">
+            <span class="action-icon">+</span>
+        </button>
+        {% endif %}
+    </div>
+
+    <div class="files-list" id="files-list">
+        <!-- Loader podczas ładowania -->
+        <div class="files-loading">
+            <div class="loader-spinner"></div>
+            <p>Ładowanie plików...</p>
+        </div>
+    </div>
+
+    <!-- Empty state gdy brak plików -->
+    <div class="files-empty" id="files-empty" style="display: none;">
+        <div class="empty-icon">📂</div>
+        <p class="empty-message">Brak plików do pobrania</p>
+        <p class="empty-submessage">Pliki dodane przez administratora pojawią się tutaj</p>
+    </div>
+</div>
+
+<!-- Modal dodawania pliku (tylko dla adminów) -->
+{% if user and user.role == 'admin' %}
+<div class="files-modal-overlay" id="files-modal-overlay">
+    <div class="files-modal">
+        <div class="modal-header">
+            <h3 class="modal-title">Dodaj plik do pobrania</h3>
+            <button class="modal-close" id="files-modal-close">&times;</button>
+        </div>
+
+        <form class="modal-form" id="files-upload-form" enctype="multipart/form-data">
+            <div class="form-group">
+                <label for="display-name">Nazwa wyświetlana <span class="required">*</span></label>
+                <input type="text" id="display-name" name="display_name"
+                       placeholder="np. Cennik produktów 2025" required maxlength="255">
+            </div>
+
+            <div class="form-group">
+                <label>Plik <span class="required">*</span></label>
+                <div class="file-dropzone" id="file-dropzone">
+                    <input type="file" id="file-input" name="file" hidden>
+
+                    <!-- Stan początkowy - wybór pliku -->
+                    <div class="dropzone-content" id="dropzone-content">
+                        <div class="dropzone-icon">📁</div>
+                        <div class="dropzone-text">Kliknij aby wybrać plik</div>
+                        <div class="dropzone-subtext">lub przeciągnij i upuść</div>
+                        <div class="dropzone-hint">Maksymalny rozmiar: 100 MB</div>
+                    </div>
+
+                    <!-- Stan po wybraniu pliku -->
+                    <div class="dropzone-selected" id="dropzone-selected" style="display: none;">
+                        <div class="selected-file">
+                            <span class="selected-icon">✅</span>
+                            <div class="selected-info">
+                                <span class="selected-name" id="selected-filename"></span>
+                                <span class="selected-size" id="selected-filesize"></span>
+                            </div>
+                            <button type="button" class="selected-remove" id="remove-file" title="Usuń plik">✕</button>
+                        </div>
+                    </div>
+
+                    <!-- Stan podczas wysyłania -->
+                    <div class="dropzone-progress" id="dropzone-progress" style="display: none;">
+                        <div class="progress-file-info">
+                            <span class="progress-icon">📄</span>
+                            <span class="progress-filename" id="progress-filename"></span>
+                        </div>
+                        <div class="progress-bar-container">
+                            <div class="progress-bar">
+                                <div class="progress-fill" id="progress-fill"></div>
+                            </div>
+                            <span class="progress-percent" id="progress-percent">0%</span>
+                        </div>
+                        <div class="progress-status" id="progress-status">Wysyłanie...</div>
+                    </div>
+
+                    <!-- Stan sukcesu -->
+                    <div class="dropzone-success" id="dropzone-success" style="display: none;">
+                        <div class="success-icon">✅</div>
+                        <div class="success-text">Plik został dodany!</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="modal-footer">
+                <button type="button" class="btn-cancel" id="files-cancel-btn">Anuluj</button>
+                <button type="submit" class="btn-save" id="files-submit-btn">
+                    <span class="btn-text">Dodaj plik</span>
+                    <span class="btn-loading" style="display: none;">
+                        <span class="spinner-small"></span>
+                        Wysyłanie...
+                    </span>
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endif %}

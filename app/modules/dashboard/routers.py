@@ -1,15 +1,17 @@
-from flask import render_template, session, redirect, url_for, request, flash, jsonify
+from flask import render_template, session, redirect, url_for, request, flash, jsonify, send_file, abort
 from functools import wraps
 from . import dashboard_bp
 from .services.stats_service import get_dashboard_stats
 from .services.weather_service import get_weather_data
 from .services.chart_service import get_quotes_chart_data, get_top_products_data, get_production_overview
 from .services.partner_stats_service import get_partner_dashboard_stats, get_partner_top_products_data
+from .services.file_service import FileService
 from ..calculator.models import User
 import logging
+import os
 from datetime import datetime
 from .services.user_activity_service import UserActivityService
-from .models import UserSession
+from .models import UserSession, DownloadableFile
 from modules.users.decorators import require_module_access
 import traceback
 
@@ -709,3 +711,166 @@ def get_current_user_activity():
             'success': False,
             'error': f'Błąd serwera: {str(e)}'
         }), 500
+
+
+# =============================================================================
+# PLIKI DO POBRANIA - API ENDPOINTS
+# =============================================================================
+
+@dashboard_bp.route('/api/files', methods=['GET'])
+@require_module_access('dashboard')
+def get_files():
+    """
+    API endpoint - pobiera listę wszystkich plików do pobrania
+    Dostęp: wszyscy zalogowani użytkownicy
+    """
+    try:
+        files = FileService.get_all_files()
+        return jsonify({
+            'success': True,
+            'files': [f.to_dict() for f in files]
+        })
+    except Exception as e:
+        logger.exception("[Dashboard] Błąd pobierania listy plików")
+        return jsonify({
+            'success': False,
+            'error': f'Błąd serwera: {str(e)}'
+        }), 500
+
+
+@dashboard_bp.route('/api/files', methods=['POST'])
+@require_module_access('dashboard')
+def upload_file():
+    """
+    API endpoint - upload nowego pliku
+    Dostęp: tylko admin
+    """
+    try:
+        # Sprawdź uprawnienia
+        user_email = session.get('user_email')
+        user = User.query.filter_by(email=user_email).first()
+
+        if not user or user.role != 'admin':
+            return jsonify({
+                'success': False,
+                'error': 'Brak uprawnień. Tylko administrator może dodawać pliki.'
+            }), 403
+
+        # Sprawdź czy plik został wysłany
+        if 'file' not in request.files:
+            return jsonify({
+                'success': False,
+                'error': 'Nie wybrano pliku'
+            }), 400
+
+        file = request.files['file']
+        display_name = request.form.get('display_name', '').strip()
+
+        if not display_name:
+            return jsonify({
+                'success': False,
+                'error': 'Nazwa wyświetlana jest wymagana'
+            }), 400
+
+        # Zapisz plik
+        db_file = FileService.save_file(file, display_name, user.id)
+
+        logger.info(f"[Dashboard] Admin {user.email} dodał plik: {db_file.display_name}")
+
+        return jsonify({
+            'success': True,
+            'file': db_file.to_dict(),
+            'message': 'Plik został dodany pomyślnie'
+        })
+
+    except ValueError as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 400
+    except Exception as e:
+        logger.exception("[Dashboard] Błąd uploadu pliku")
+        return jsonify({
+            'success': False,
+            'error': 'Wystąpił błąd podczas uploadu pliku'
+        }), 500
+
+
+@dashboard_bp.route('/api/files/<int:file_id>', methods=['DELETE'])
+@require_module_access('dashboard')
+def delete_file(file_id):
+    """
+    API endpoint - usuwa plik
+    Dostęp: tylko admin
+    """
+    try:
+        # Sprawdź uprawnienia
+        user_email = session.get('user_email')
+        user = User.query.filter_by(email=user_email).first()
+
+        if not user or user.role != 'admin':
+            return jsonify({
+                'success': False,
+                'error': 'Brak uprawnień'
+            }), 403
+
+        # Pobierz info o pliku przed usunięciem
+        db_file = DownloadableFile.query.get(file_id)
+        if not db_file:
+            return jsonify({
+                'success': False,
+                'error': 'Nie znaleziono pliku'
+            }), 404
+
+        file_name = db_file.display_name
+
+        # Usuń plik (hard delete - fizycznie z dysku)
+        if FileService.delete_file(file_id, hard_delete=True):
+            logger.info(f"[Dashboard] Admin {user.email} usunął plik: {file_name}")
+            return jsonify({
+                'success': True,
+                'message': f'Plik "{file_name}" został usunięty'
+            })
+        else:
+            return jsonify({
+                'success': False,
+                'error': 'Nie udało się usunąć pliku'
+            }), 500
+
+    except Exception as e:
+        logger.exception(f"[Dashboard] Błąd usuwania pliku {file_id}")
+        return jsonify({
+            'success': False,
+            'error': f'Błąd serwera: {str(e)}'
+        }), 500
+
+
+@dashboard_bp.route('/api/files/<int:file_id>/download', methods=['GET'])
+@require_module_access('dashboard')
+def download_file(file_id):
+    """
+    API endpoint - pobiera plik
+    Dostęp: wszyscy zalogowani użytkownicy
+    """
+    try:
+        filepath, original_name = FileService.get_file_path(file_id)
+
+        if not filepath:
+            abort(404)
+
+        # Zwiększ licznik pobrań
+        FileService.increment_download_count(file_id)
+
+        # Loguj pobranie
+        user_email = session.get('user_email')
+        logger.info(f"[Dashboard] Użytkownik {user_email} pobiera plik: {original_name}")
+
+        return send_file(
+            filepath,
+            as_attachment=True,
+            download_name=original_name
+        )
+
+    except Exception as e:
+        logger.exception(f"[Dashboard] Błąd pobierania pliku {file_id}")
+        abort(500)

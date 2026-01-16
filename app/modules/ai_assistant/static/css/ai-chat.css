@@ -125,6 +125,40 @@
 }
 
 /* ================================
+   RESIZE HANDLE
+   ================================ */
+.ai-chat-resize-handle {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 20px;
+    height: 20px;
+    cursor: nwse-resize;
+    z-index: 10;
+}
+
+.ai-chat-resize-handle::before {
+    content: '';
+    position: absolute;
+    top: 10px;
+    left: 10px;
+    width: 8px;
+    height: 8px;
+    border-left: 3px solid rgba(255, 255, 255, 0.7);
+    border-top: 3px solid rgba(255, 255, 255, 0.7);
+    transition: border-color 0.2s;
+}
+
+.ai-chat-resize-handle:hover::before {
+    border-color: rgba(255, 255, 255, 1);
+}
+
+.ai-chat-window.resizing {
+    transition: none;
+    user-select: none;
+}
+
+/* ================================
    CHAT HEADER
    ================================ */
 .ai-chat-header {

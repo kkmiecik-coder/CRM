@@ -1138,7 +1138,7 @@
 }
 
 .quotes-btn-full-screen::after {
-    background-image: url('/static/icons/download.svg');
+    background-image: url('/static/icons/fullscreen.svg');
 }
 
 #total-discount-btn::after {

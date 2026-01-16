@@ -14,6 +14,7 @@
         streamEndpoint: '/ai-assistant/chat/stream',
         statusEndpoint: '/ai-assistant/status',
         storageKey: 'woodpower_ai_chat_history',
+        sizeStorageKey: 'woodpower_ai_chat_size',
         maxHistoryMessages: 50,
         welcomeMessage: 'Cześć! Jestem asystentem WoodPower CRM. Mogę pomóc Ci w kwestiach związanych z produktami, zamówieniami i obsługą systemu. W czym mogę pomóc?',
         useSSE: true  // Włącz Server-Sent Events dla statusów
@@ -26,7 +27,12 @@
         isOpen: false,
         isLoading: false,
         history: [],
-        hasBeenOpened: false
+        hasBeenOpened: false,
+        isResizing: false,
+        resizeStartX: 0,
+        resizeStartY: 0,
+        resizeStartWidth: 0,
+        resizeStartHeight: 0
     };
 
     // ================================
@@ -40,6 +46,7 @@
     function init() {
         createWidget();
         loadHistory();
+        loadSavedSize();
         attachEventListeners();
 
         // Oznacz jako otwarte wcześniej
@@ -74,6 +81,7 @@
         const chatWindow = document.createElement('div');
         chatWindow.className = 'ai-chat-window';
         chatWindow.innerHTML = `
+            <div class="ai-chat-resize-handle" title="Przeciągnij aby zmienić rozmiar"></div>
             <div class="ai-chat-header">
                 <div class="ai-chat-avatar">
                     <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
@@ -119,7 +127,8 @@
             messages: chatWindow.querySelector('#ai-chat-messages'),
             input: chatWindow.querySelector('#ai-chat-input'),
             sendBtn: chatWindow.querySelector('#ai-chat-send'),
-            closeBtn: chatWindow.querySelector('.ai-chat-header-close')
+            closeBtn: chatWindow.querySelector('.ai-chat-header-close'),
+            resizeHandle: chatWindow.querySelector('.ai-chat-resize-handle')
         };
     }
 
@@ -143,9 +152,15 @@
         // Auto-resize textarea
         elements.input.addEventListener('input', autoResizeTextarea);
 
-        // Kliknięcie poza oknem - zamknij
+        // Resize handle - zmiana rozmiaru okna
+        elements.resizeHandle.addEventListener('mousedown', startResize);
+        document.addEventListener('mousemove', doResize);
+        document.addEventListener('mouseup', stopResize);
+
+        // Kliknięcie poza oknem - zamknij (ale nie podczas resize)
         document.addEventListener('click', function(e) {
             if (state.isOpen &&
+                !state.isResizing &&
                 !elements.window.contains(e.target) &&
                 !elements.trigger.contains(e.target)) {
                 closeChat();
@@ -635,6 +650,90 @@
             state.history = [];
             localStorage.removeItem(CONFIG.storageKey);
             renderMessages();
+        }
+    }
+
+    // ================================
+    // RESIZE OKNA
+    // ================================
+    function startResize(e) {
+        e.preventDefault();
+        e.stopPropagation();
+
+        state.isResizing = true;
+        state.resizeStartX = e.clientX;
+        state.resizeStartY = e.clientY;
+        state.resizeStartWidth = elements.window.offsetWidth;
+        state.resizeStartHeight = elements.window.offsetHeight;
+
+        elements.window.classList.add('resizing');
+        document.body.style.cursor = 'nwse-resize';
+        document.body.style.userSelect = 'none';
+    }
+
+    function doResize(e) {
+        if (!state.isResizing) return;
+
+        e.preventDefault();
+
+        // Oblicz różnicę - przeciągamy lewy górny róg, więc odwracamy
+        const deltaX = state.resizeStartX - e.clientX;
+        const deltaY = state.resizeStartY - e.clientY;
+
+        // Nowe wymiary
+        let newWidth = state.resizeStartWidth + deltaX;
+        let newHeight = state.resizeStartHeight + deltaY;
+
+        // Limity minimalne i maksymalne
+        const minWidth = 320;
+        const minHeight = 400;
+        const maxWidth = Math.min(800, window.innerWidth - 48);
+        const maxHeight = Math.min(800, window.innerHeight - 120);
+
+        newWidth = Math.max(minWidth, Math.min(maxWidth, newWidth));
+        newHeight = Math.max(minHeight, Math.min(maxHeight, newHeight));
+
+        // Zastosuj nowe wymiary
+        elements.window.style.width = newWidth + 'px';
+        elements.window.style.height = newHeight + 'px';
+    }
+
+    function stopResize() {
+        if (!state.isResizing) return;
+
+        state.isResizing = false;
+        elements.window.classList.remove('resizing');
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+
+        // Zapisz rozmiar
+        saveSize();
+    }
+
+    function saveSize() {
+        try {
+            const size = {
+                width: elements.window.offsetWidth,
+                height: elements.window.offsetHeight
+            };
+            localStorage.setItem(CONFIG.sizeStorageKey, JSON.stringify(size));
+        } catch (e) {
+            console.error('[AI Chat] Error saving size:', e);
+        }
+    }
+
+    function loadSavedSize() {
+        try {
+            const saved = localStorage.getItem(CONFIG.sizeStorageKey);
+            if (saved) {
+                const size = JSON.parse(saved);
+                if (size.width && size.height) {
+                    elements.window.style.width = size.width + 'px';
+                    elements.window.style.height = size.height + 'px';
+                }
+            }
+        } catch (e) {
+            console.error('[AI Chat] Error loading size:', e);
         }
     }
 

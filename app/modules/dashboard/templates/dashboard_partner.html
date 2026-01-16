@@ -103,6 +103,9 @@
                 <!-- Changelog Widget - Nowości w aplikacji -->
                 {% include 'widgets/changelog_widget.html' %}
 
+                <!-- Files Widget - Pliki do pobrania -->
+                {% include 'widgets/files_widget.html' %}
+
                 <!-- Weather Widget - Pogoda -->
                 {% include 'widgets/weather_widget.html' %}
 
@@ -122,6 +125,9 @@
 
     <!-- DODAJ: Skrypt Issues Widget -->
     <script src="{{ url_for('dashboard.static', filename='js/issues_widget.js') }}"></script>
+
+    <!-- DODAJ: Skrypt Files Widget -->
+    <script src="{{ url_for('dashboard.static', filename='js/files_widget.js') }}"></script>
 
     <script>
         // Przekazujemy dane z backendu do JavaScript

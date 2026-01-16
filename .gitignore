@@ -179,11 +179,37 @@ cython_debug/
 #  refer to https://docs.cursor.com/context/ignore-files
 .cursorignore
 .cursorindexingignore
+# ===========================================
+# CRM WoodPower - Custom Ignores
+# ===========================================
+
+# Konfiguracja (wrażliwe dane!)
 app/config/core.json
+app/config/core.local.json
+
+# Logi
 /app/modules/logging/logs
+
+# Uploadowane pliki użytkowników
 /app/modules/partner_academy/static/media/documents
+/app/modules/partner_academy/static/media/nda_users
+/app/modules/sales/static/media/nda_users
 /app/modules/preview3d_ar/static/ar-models/temp
 /app/modules/preview3d_ar/static/ar-models/cache
-/app/modules/sales/static/media/nda_users
-/app/modules/partner_academy/static/media/nda_users
+
+# IDE / Edytory
 /app/.claude
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Pliki tymczasowe Windows
+Thumbs.db
+Desktop.ini
+nul
+
+# Pliki testowe/raporty
+raport_partnerow.html
+*.tmp
+run_local.bat

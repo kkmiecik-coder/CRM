@@ -3,6 +3,70 @@ from datetime import datetime, timedelta
 from sqlalchemy import func
 from flask import current_app
 
+
+class DownloadableFile(db.Model):
+    """Model plików do pobrania dostępnych dla wszystkich zalogowanych użytkowników"""
+    __tablename__ = 'dashboard_files'
+
+    id = db.Column(db.Integer, primary_key=True)
+    display_name = db.Column(db.String(255), nullable=False)
+    original_filename = db.Column(db.String(255), nullable=False)
+    stored_filename = db.Column(db.String(255), nullable=False)
+    filepath = db.Column(db.String(500), nullable=False)
+    filesize = db.Column(db.Integer, nullable=False)
+    mimetype = db.Column(db.String(100), nullable=True)
+    extension = db.Column(db.String(20), nullable=True)
+
+    uploaded_by_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    uploaded_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    download_count = db.Column(db.Integer, default=0)
+    is_active = db.Column(db.Boolean, default=True)
+
+    # Relacja do użytkownika
+    uploaded_by = db.relationship('User', backref='uploaded_files', foreign_keys=[uploaded_by_id])
+
+    # Ikony dla typów plików
+    FILE_ICONS = {
+        'pdf': '📄',
+        'doc': '📝', 'docx': '📝',
+        'xls': '📊', 'xlsx': '📊',
+        'ppt': '📽️', 'pptx': '📽️',
+        'zip': '📦', 'rar': '📦', '7z': '📦',
+        'jpg': '🖼️', 'jpeg': '🖼️', 'png': '🖼️', 'gif': '🖼️', 'svg': '🖼️', 'webp': '🖼️',
+        'txt': '📋', 'csv': '📋',
+        'default': '📁'
+    }
+
+    def get_icon(self):
+        """Zwraca ikonę emoji dla typu pliku"""
+        return self.FILE_ICONS.get(self.extension.lower() if self.extension else '', self.FILE_ICONS['default'])
+
+    def format_filesize(self):
+        """Formatuje rozmiar pliku do czytelnej postaci"""
+        size = self.filesize
+        for unit in ['B', 'KB', 'MB', 'GB']:
+            if size < 1024:
+                return f"{size:.1f} {unit}" if unit != 'B' else f"{size} {unit}"
+            size /= 1024
+        return f"{size:.1f} TB"
+
+    def to_dict(self):
+        """Konwertuje do słownika dla API"""
+        return {
+            'id': self.id,
+            'display_name': self.display_name,
+            'original_filename': self.original_filename,
+            'filesize': self.filesize,
+            'filesize_formatted': self.format_filesize(),
+            'extension': self.extension.upper() if self.extension else 'FILE',
+            'icon': self.get_icon(),
+            'mimetype': self.mimetype,
+            'uploaded_at': self.uploaded_at.strftime('%d.%m.%Y') if self.uploaded_at else None,
+            'uploaded_by': f"{self.uploaded_by.first_name} {self.uploaded_by.last_name}".strip() if self.uploaded_by else None,
+            'download_count': self.download_count
+        }
+
 class ChangelogEntry(db.Model):
     __tablename__ = 'changelog_entries'
     

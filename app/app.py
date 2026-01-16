@@ -199,6 +199,11 @@ def create_app():
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
     # ============================================================================
+    # FILE UPLOAD CONFIGURATION (limit rozmiaru plików)
+    # ============================================================================
+    app.config['MAX_CONTENT_LENGTH'] = 100 * 1024 * 1024  # 100 MB
+
+    # ============================================================================
     # JINJA2 TEMPLATE CACHING (szybsze renderowanie)
     # ============================================================================
     if not app.config.get('DEBUG'):

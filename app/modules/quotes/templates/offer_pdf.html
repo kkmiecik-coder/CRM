@@ -6,7 +6,7 @@
     <style>
         @page {
             size: A4;
-            margin: 0;
+            margin: 20mm 15mm 55px 15mm; /* Górny (na nagłówek), prawy, dolny (na stopkę), lewy */
         }
 
         body {
@@ -14,14 +14,38 @@
             font-size: 12px;
             line-height: 1.2;
             margin: 0;
-            padding: 10mm 15mm 0 15mm; /* Usuń bottom padding */
+            padding: 0;
             color: #000;
-            min-height: 100vh;
-            position: relative;
+        }
+
+        /* NAGŁÓWEK Z LOGO I NUMEREM - NA KAŻDEJ STRONIE */
+        .page-header {
+            position: fixed;
+            top: -15mm; /* W górnym marginesie strony */
+            left: 0;
+            right: 0;
+            height: 15mm;
+        }
+
+        .page-header-content {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .page-header-logo {
+            height: 40px;
+            width: auto;
+        }
+
+        .page-header-number {
+            font-size: 18px;
+            font-weight: bold;
+            color: #000;
         }
 
         .content-wrapper {
-            padding-bottom: 120px; /* Zwiększona przestrzeń na stopkę i uwagi */
+            /* Zawartość zaczyna się od górnego marginesu strony - nagłówek jest w marginesie */
         }
 
         .header {
@@ -160,69 +184,37 @@
             page-break-before: always;
         }
 
-        /* SEKCJA UWAGI I DANE - NA DOLE PRZED STOPKĄ */
-        .bottom-content {
-            position: fixed;
-            bottom: 60px; /* Nad stopką */
-            left: 15mm;
-            right: 15mm;
+        /* SEKCJA UWAGI - NORMALNY FLOW NA KOŃCU DOKUMENTU */
+        .notes-section {
+            margin-top: 20px;
             font-size: 10px;
+            page-break-inside: avoid;
         }
 
-        .bottom-flex-container {
-            display: flex;
-            gap: 20px; /* Odstęp między kolumnami */
-            align-items: flex-start;
-        }
-
-        .bottom-section-left {
-            flex: 1;
-            margin-right: 10px; /* Odstęp między kolumnami */
-        }
-
-        .bottom-section-right {
-            flex: 1;
-        }
-
-        .bottom-section-title {
+        .notes-section-title {
             font-weight: bold;
             margin-bottom: 8px;
             font-size: 11px;
         }
 
-        .bottom-section ul {
+        .notes-section ul {
             margin: 2px 0;
             padding-left: 15px;
             font-size: 9px;
         }
 
-        .payment-info {
-            background-color: #f9f9f9;
-            padding: 8px;
-            border: 1px solid #ddd;
-            font-size: 9px;
-            border-radius: 4px;
-        }
-
-            .payment-info div {
-                margin-bottom: 4px;
-            }
-
-                .payment-info div:last-child {
-                    margin-bottom: 0;
-                }
-
-        /* STOPKA - FIXED NA DOLE STRONY */
+        /* STOPKA - FIXED NA KAŻDEJ STRONIE */
         .footer {
             position: fixed;
-            bottom: 0;
-            left: 0;
-            right: 0;
+            bottom: -55px; /* Ujemna wartość = w marginesie dolnym */
+            left: -15mm;   /* Wyrównanie do krawędzi strony */
+            right: -15mm;
+            height: 50px;
             background-color: #1F2020;
             color: white;
-            padding: 8px 5mm; /* 5mm marginesy z boków */
+            padding: 8px 15mm;
             font-size: 10px;
-            z-index: 1000;
+            box-sizing: border-box;
         }
 
         .footer-table {
@@ -266,26 +258,21 @@
     </style>
 </head>
 <body>
-    <div class="content-wrapper">
-        <!-- NAGŁÓWEK Z LOGO -->
-        <div class="header">
-            <div class="logo">
-                {% if icons.logo %}
-                <img src="{{ icons.logo }}"
-                     alt="Wood Power Logo"
-                     style="height: 40px; width: auto; display: block;">
-                {% else %}
-                <div style="height: 40px; background: #ED6B24; color: white; display: flex; align-items: center; justify-content: center; font-weight: bold; border-radius: 4px;">
-                    WOOD POWER
-                </div>
-                {% endif %}
+    <!-- NAGŁÓWEK Z LOGO I NUMEREM OFERTY - NA KAŻDEJ STRONIE -->
+    <div class="page-header">
+        <div class="page-header-content">
+            {% if icons.logo %}
+            <img src="{{ icons.logo }}" alt="Wood Power Logo" class="page-header-logo">
+            {% else %}
+            <div style="height: 35px; padding: 0 10px; background: #ED6B24; color: white; display: flex; align-items: center; font-weight: bold; border-radius: 4px;">
+                WOOD POWER
             </div>
+            {% endif %}
+            <div class="page-header-number">Wycena nr {{ quote.quote_number }}</div>
         </div>
+    </div>
 
-        <!-- SEKCJA Z NUMEREM OFERTY -->
-        <div class="quote-number-section">
-            <div class="quote-number">Wycena nr {{ quote.quote_number }}</div>
-        </div>
+    <div class="content-wrapper">
 
         <!-- SEKCJA Z INFORMACJAMI -->
         <div class="info-section">
@@ -500,34 +487,19 @@
                 </tr>
             </tbody>
         </table>
-    </div>
 
-    <!-- UWAGI I DANE - SEKCJA NA DOLE PRZED STOPKĄ -->
-    <div class="bottom-content">
-        <div class="bottom-flex-container">
-            <!-- LEWA KOLUMNA - UWAGI I WARUNKI -->
-            <div class="bottom-section-left">
-                <div class="bottom-section-title">Uwagi i warunki:</div>
-                <ul>
-                    <li>Termin realizacji: do uzgodnienia po potwierdzeniu zamówienia</li>
-                    <li>Płatność: przelew bankowy, przelew online</li>
-                    {% if quote.shipping_cost_brutto and quote.shipping_cost_brutto > 0 %}
-                    <li>Koszt dostawy: {{ "%.2f"|format(quote.shipping_cost_brutto) }} PLN brutto ({{ quote.courier_name or 'kurier' }})</li>
-                    {% else %}
-                    <li>Koszt dostawy do uzgodnienia indywidualnie</li>
-                    {% endif %}
-                </ul>
-            </div>
-
-            <!-- PRAWA KOLUMNA - DANE DO PRZELEWU -->
-            <div class="bottom-section-right">
-                <div class="bottom-section-title">Dane do przelewu:</div>
-                <div class="payment-info">
-                    <div><strong>Santander Bank Polska S.A.</strong></div>
-                    <div><strong>Numer konta:</strong> 28 1090 2590 0000 0001 3689 2780</div>
-                    <div><strong>Tytuł przelewu:</strong> Oferta {{ quote.quote_number }}</div>
-                </div>
-            </div>
+        <!-- SEKCJA UWAGI I WARUNKI - NA KOŃCU DOKUMENTU -->
+        <div class="notes-section">
+            <div class="notes-section-title">Uwagi i warunki:</div>
+            <ul>
+                <li>Termin realizacji: do uzgodnienia po potwierdzeniu zamówienia</li>
+                <li>Płatność: przelew bankowy, przelew online</li>
+                {% if quote.shipping_cost_brutto and quote.shipping_cost_brutto > 0 %}
+                <li>Koszt dostawy: {{ "%.2f"|format(quote.shipping_cost_brutto) }} PLN brutto ({{ quote.courier_name or 'kurier' }})</li>
+                {% else %}
+                <li>Koszt dostawy do uzgodnienia indywidualnie</li>
+                {% endif %}
+            </ul>
         </div>
     </div>
 
@@ -542,7 +514,7 @@
                     {% endif %}
                 </td>
                 <td class="footer-text-cell" style="width: 10%;">
-                    <div class="footer-text footer-phone">+48 690 002 109<br>+48 793 911 916</div>
+                    <div class="footer-text footer-phone">{% if quote.user and quote.user.phone %}{{ quote.user.phone }}<br>{% endif %}+48 690 009 890</div>
                 </td>
 
                 <!-- EMAIL -->

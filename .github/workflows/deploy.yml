@@ -1,0 +1,55 @@
+name: Deploy to Production
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:  # Pozwala na ręczne uruchomienie
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: 195.78.66.85
+          port: 222
+          username: woodpower
+          password: ${{ secrets.SSH_PASSWORD }}
+          script: |
+            echo "=== Starting deployment ==="
+
+            # Przejdź do katalogu aplikacji CRM WoodPower
+            cd ~/domains/crm.woodpower.pl/public_html/app || exit 1
+
+            echo "Current directory: $(pwd)"
+
+            # Pobierz najnowsze zmiany z Git
+            echo "=== Pulling latest changes ==="
+            git fetch origin main
+            git reset --hard origin/main
+
+            # Aktywuj virtualenv i zainstaluj zależności
+            echo "=== Checking dependencies ==="
+            source ~/virtualenv/domains/crm.woodpower.pl/public_html/3.9/bin/activate
+            pip install -q -r requirements.txt 2>/dev/null || true
+
+            # Restart aplikacji (Passenger)
+            echo "=== Restarting application ==="
+            touch tmp/restart.txt
+            echo "Passenger restart triggered"
+
+            echo "=== Deployment completed! ==="
+
+      - name: Notify success
+        if: success()
+        run: echo "✅ Deployment successful!"
+
+      - name: Notify failure
+        if: failure()
+        run: echo "❌ Deployment failed!"

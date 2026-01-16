@@ -1,0 +1,54 @@
+# Flask & Web Framework
+Flask==2.0.3
+Flask-SQLAlchemy==2.5.1
+Flask-Login==0.5.0
+Flask-Mail==0.9.1
+Werkzeug==2.0.3
+Jinja2==3.0.3
+click==8.0.4
+itsdangerous==2.0.1
+MarkupSafe==2.0.1
+
+# Database
+SQLAlchemy==1.4.54
+PyMySQL==1.0.2
+greenlet==2.0.2
+
+# PDF & Images
+WeasyPrint==52.5
+Pillow==8.4.0
+CairoSVG==2.7.1
+cairocffi==1.0.0
+tinycss2==1.1.1
+cssselect2==0.4.1
+html5lib==1.1
+pyphen==0.11.0
+
+# HTTP & API
+requests==2.27.1
+urllib3==1.26.20
+certifi==2025.1.31
+charset-normalizer==2.0.12
+idna==3.10
+
+# Scheduler
+APScheduler==3.10.4
+
+# Utilities
+python-dotenv==0.20.0
+pytz==2025.2
+six==1.17.0
+cffi==1.15.1
+pycparser==2.21
+defusedxml==0.7.1
+webencodings==0.5.1
+packaging==21.3
+pyparsing==3.1.4
+typing_extensions==4.1.1
+zipp==3.6.0
+
+# Server (production)
+gunicorn==21.2.0
+
+# AI (optional - for AI assistant module)
+google-generativeai>=0.3.0
