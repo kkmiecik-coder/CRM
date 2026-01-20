@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ustawienia aplikacji - Wood Power CRM</title>
+    <link rel="icon" href="{{ url_for('static', filename='images/favicon.png') }}" type="image/png">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="stylesheet" href="{{ url_for('settings.static', filename='css/settings.css') }}">
+</head>
+<body>
+    <div class="app-container">
+        {% include 'sidebar/sidebar.html' %}
+
+        <main class="main-content">
+            <!-- Header -->
+            <div class="app-settings-header">
+                <h1>⚙️ Ustawienia aplikacji</h1>
+                <p>Konfiguracja systemu CRM</p>
+            </div>
+
+            <!-- Flash messages -->
+            {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+            <div class="flash-messages">
+                {% for category, message in messages %}
+                <div class="flash flash-{{ category }}">{{ message }}</div>
+                {% endfor %}
+            </div>
+            {% endif %}
+            {% endwith %}
+
+            <!-- Nawigacja zakładek -->
+            <div class="settings-tabs">
+                <a href="{{ url_for('settings.sources') }}"
+                   class="settings-tab {% if active_tab == 'sources' %}active{% endif %}">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
+                    </svg>
+                    Źródła wycen
+                </a>
+                <a href="{{ url_for('settings.order_sources') }}"
+                   class="settings-tab {% if active_tab == 'order_sources' %}active{% endif %}">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-7 14l-5-5 1.41-1.41L12 14.17l4.59-4.58L18 11l-6 6z"/>
+                    </svg>
+                    Źródła zamówień BL
+                </a>
+            </div>
+
+            <!-- Zawartość zakładki: Źródła wycen -->
+            {% if active_tab == 'sources' %}
+            <div class="settings-content">
+                <div class="settings-section">
+                    <div class="section-header">
+                        <h2>Źródła wycen</h2>
+                        <p>Lista źródeł zapytań dostępnych przy zapisywaniu wycen. Pole jest opcjonalne dla użytkownika.</p>
+                        <button class="btn-primary" id="addSourceBtn">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                                <path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/>
+                            </svg>
+                            Dodaj źródło
+                        </button>
+                    </div>
+
+                    <!-- Tabela źródeł -->
+                    <div class="sources-table-wrapper">
+                        <table class="sources-table quote-sources-table">
+                            <thead>
+                                <tr>
+                                    <th style="width: 80px;">Kolejność</th>
+                                    <th style="width: 180px;">Nazwa</th>
+                                    <th>Role (mogą wybierać)</th>
+                                    <th style="width: 100px; text-align: center;">Pomiń walidację</th>
+                                    <th style="width: 100px;">Akcje</th>
+                                </tr>
+                            </thead>
+                            <tbody id="sourcesTableBody">
+                                {% for source in sources %}
+                                <tr data-id="{{ source.id }}" data-sort="{{ source.sort_order }}">
+                                    <td class="order-cell">
+                                        <div class="order-buttons">
+                                            <button class="btn-order btn-up" title="Przesuń w górę" data-id="{{ source.id }}">
+                                                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                                                    <path d="M7.41 15.41L12 10.83l4.59 4.58L18 14l-6-6-6 6z"/>
+                                                </svg>
+                                            </button>
+                                            <button class="btn-order btn-down" title="Przesuń w dół" data-id="{{ source.id }}">
+                                                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                                                    <path d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6z"/>
+                                                </svg>
+                                            </button>
+                                        </div>
+                                    </td>
+                                    <td>
+                                        <input type="text" class="name-input" value="{{ source.name }}"
+                                               data-field="name" data-id="{{ source.id }}" placeholder="Nazwa źródła">
+                                    </td>
+                                    <td>
+                                        <div class="roles-checkboxes" data-id="{{ source.id }}">
+                                            <label class="checkbox-label">
+                                                <input type="checkbox" class="source-role-checkbox" value="admin"
+                                                       {% if source.allowed_roles is none or 'admin' in (source.allowed_roles or []) %}checked{% endif %}>
+                                                Admin
+                                            </label>
+                                            <label class="checkbox-label">
+                                                <input type="checkbox" class="source-role-checkbox" value="user"
+                                                       {% if source.allowed_roles is none or 'user' in (source.allowed_roles or []) %}checked{% endif %}>
+                                                User
+                                            </label>
+                                            <label class="checkbox-label">
+                                                <input type="checkbox" class="source-role-checkbox" value="partner"
+                                                       {% if source.allowed_roles is none or 'partner' in (source.allowed_roles or []) %}checked{% endif %}>
+                                                Partner
+                                            </label>
+                                            <label class="checkbox-label">
+                                                <input type="checkbox" class="source-role-checkbox" value="flexible_partner"
+                                                       {% if source.allowed_roles is none or 'flexible_partner' in (source.allowed_roles or []) %}checked{% endif %}>
+                                                Flex. Partner
+                                            </label>
+                                        </div>
+                                    </td>
+                                    <td class="center">
+                                        <label class="toggle-switch">
+                                            <input type="checkbox" class="skip-validation-checkbox"
+                                                   data-id="{{ source.id }}"
+                                                   {% if source.skip_contact_validation %}checked{% endif %}>
+                                            <span class="toggle-slider"></span>
+                                        </label>
+                                    </td>
+                                    <td class="actions">
+                                        <button class="btn-icon btn-save" title="Zapisz zmiany" data-id="{{ source.id }}">
+                                            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                                                <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/>
+                                            </svg>
+                                        </button>
+                                        <button class="btn-icon btn-delete" title="Usuń" data-id="{{ source.id }}">
+                                            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                                                <path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/>
+                                            </svg>
+                                        </button>
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+
+                    {% if not sources %}
+                    <div class="empty-state">
+                        <p>Brak źródeł wycen. Kliknij "Dodaj źródło" aby utworzyć pierwsze.</p>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+            {% endif %}
+
+            <!-- Zawartość zakładki: Źródła zamówień Baselinker -->
+            {% if active_tab == 'order_sources' %}
+            <div class="settings-content">
+                <div class="settings-section">
+                    <div class="section-header">
+                        <h2>Źródła zamówień Baselinker</h2>
+                        <p>Konfiguracja źródeł zamówień synchronizowanych z Baselinker. Określ widoczność i przypisanie użytkowników.</p>
+                        <button class="btn-primary" id="syncOrderSourcesBtn">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                                <path d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46C19.54 15.03 20 13.57 20 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74C4.46 8.97 4 10.43 4 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z"/>
+                            </svg>
+                            Synchronizuj z Baselinker
+                        </button>
+                    </div>
+
+                    <!-- Tabela źródeł zamówień -->
+                    <div class="sources-table-wrapper">
+                        <table class="sources-table order-sources-table">
+                            <thead>
+                                <tr>
+                                    <th style="width: 80px;">Kolejność</th>
+                                    <th style="width: 200px;">Nazwa</th>
+                                    <th>Role (mogą wybierać)</th>
+                                    <th style="width: 100px;">Akcje</th>
+                                </tr>
+                            </thead>
+                            <tbody id="orderSourcesTableBody">
+                                {% for source in order_sources %}
+                                <tr data-db-id="{{ source.id }}" data-bl-id="{{ source.baselinker_id }}" data-sort="{{ source.sort_order }}">
+                                    <td class="order-cell">
+                                        <div class="order-buttons">
+                                            <button class="btn-order btn-up-order" title="Przesuń w górę" data-db-id="{{ source.id }}">
+                                                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                                                    <path d="M7.41 15.41L12 10.83l4.59 4.58L18 14l-6-6-6 6z"/>
+                                                </svg>
+                                            </button>
+                                            <button class="btn-order btn-down-order" title="Przesuń w dół" data-db-id="{{ source.id }}">
+                                                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                                                    <path d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6z"/>
+                                                </svg>
+                                            </button>
+                                        </div>
+                                    </td>
+                                    <td class="source-name">
+                                        <strong>{{ source.name }}</strong>
+                                        <small class="text-muted">(BL: {{ source.baselinker_id }})</small>
+                                    </td>
+                                    <td>
+                                        <div class="roles-checkboxes" data-db-id="{{ source.id }}">
+                                            <label class="checkbox-label">
+                                                <input type="checkbox" class="role-checkbox" value="admin"
+                                                       {% if source.allowed_roles is none or 'admin' in (source.allowed_roles or []) %}checked{% endif %}>
+                                                Admin
+                                            </label>
+                                            <label class="checkbox-label">
+                                                <input type="checkbox" class="role-checkbox" value="user"
+                                                       {% if source.allowed_roles is none or 'user' in (source.allowed_roles or []) %}checked{% endif %}>
+                                                User
+                                            </label>
+                                            <label class="checkbox-label">
+                                                <input type="checkbox" class="role-checkbox" value="partner"
+                                                       {% if source.allowed_roles is none or 'partner' in (source.allowed_roles or []) %}checked{% endif %}>
+                                                Partner
+                                            </label>
+                                            <label class="checkbox-label">
+                                                <input type="checkbox" class="role-checkbox" value="flexible_partner"
+                                                       {% if source.allowed_roles is none or 'flexible_partner' in (source.allowed_roles or []) %}checked{% endif %}>
+                                                Flex. Partner
+                                            </label>
+                                        </div>
+                                    </td>
+                                    <td class="actions">
+                                        <button class="btn-icon btn-save-order" title="Zapisz zmiany" data-db-id="{{ source.id }}">
+                                            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                                                <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/>
+                                            </svg>
+                                        </button>
+                                        <button class="btn-icon btn-delete-order" title="Usuń źródło" data-db-id="{{ source.id }}" data-name="{{ source.name }}">
+                                            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                                                <path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/>
+                                            </svg>
+                                        </button>
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+
+                    {% if not order_sources %}
+                    <div class="empty-state">
+                        <p>Brak źródeł zamówień. Kliknij "Synchronizuj z Baselinker" aby pobrać źródła.</p>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+            {% endif %}
+        </main>
+    </div>
+
+    <!-- Modal dodawania źródła -->
+    <div id="addSourceModal" class="modal-overlay" style="display: none;">
+        <div class="modal-box modal-small">
+            <div class="modal-header">
+                <h3>Dodaj nowe źródło</h3>
+                <button class="modal-close" id="closeAddSourceModal">&times;</button>
+            </div>
+            <form id="addSourceForm">
+                <div class="form-group">
+                    <label>Nazwa źródła <span class="required">*</span></label>
+                    <input type="text" name="name" required placeholder="np. Facebook, Instagram...">
+                </div>
+                <div class="form-actions">
+                    <button type="button" class="btn-secondary" id="cancelAddSource">Anuluj</button>
+                    <button type="submit" class="btn-primary">Dodaj</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/sidebar.js') }}"></script>
+    <script src="{{ url_for('settings.static', filename='js/settings.js') }}"></script>
+</body>
+</html>

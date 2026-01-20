@@ -13,6 +13,77 @@ from modules.logging import get_structured_logger
 # Inicjalizacja loggera dla całego modułu
 baselinker_logger = get_structured_logger('baselinker.routers')
 
+
+def generate_sku_for_modal(item, finishing_details=None):
+    """Generuje SKU w formacie BLADEBLIT3501004ABSUR (uproszczona wersja dla modala)"""
+    try:
+        # Parsuj kod wariantu (np. "dab-lity-ab")
+        variant_parts = item.variant_code.lower().split('-') if item.variant_code else []
+
+        # 1. Typ produktu (zawsze BLA dla blat)
+        product_type = "BLA"
+
+        # 2. Gatunek drewna
+        species_map = {
+            'dab': 'DEB',
+            'jes': 'JES',
+            'buk': 'BUK',
+            'brzoza': 'BRZ',
+            'sosna': 'SOS'
+        }
+        species = species_map.get(variant_parts[0] if len(variant_parts) > 0 else '', 'XXX')
+
+        # 3. Technologia
+        tech_map = {
+            'lity': 'LIT',
+            'micro': 'MIC',
+            'finger': 'FIN'
+        }
+        technology = tech_map.get(variant_parts[1] if len(variant_parts) > 1 else '', 'XXX')
+
+        # 4. Wymiary
+        length = str(int(item.length_cm or 0)).zfill(3) if item.length_cm else "000"
+        width = str(int(item.width_cm or 0)) if item.width_cm else "0"
+        thickness = str(int(item.thickness_cm or 0)) if item.thickness_cm else "0"
+
+        # 5. Klasa drewna
+        wood_class = variant_parts[2].upper() if len(variant_parts) > 2 else "XX"
+
+        # 6. Wykończenie
+        finishing = "SUR"
+        if finishing_details and finishing_details.finishing_type and finishing_details.finishing_type != 'Brak':
+            finishing_map = {
+                'lakier': 'LAK',
+                'olej': 'OLE',
+                'wosk': 'WOS',
+                'bejca': 'BEJ',
+                'lazura': 'LAZ'
+            }
+            finishing_type = finishing_details.finishing_type.lower()
+            for key, value in finishing_map.items():
+                if key in finishing_type:
+                    finishing = value
+                    break
+
+        # 7. Obróbka krawędzi
+        edge_code = ""
+        if finishing_details and finishing_details.edges_type and finishing_details.edges_config:
+            edges_config = finishing_details.edges_config
+            if edges_config and len(edges_config) > 0:
+                edge_type_map = {
+                    'round': 'ZR',
+                    'chamfer': 'FR'
+                }
+                edge_type = finishing_details.edges_type
+                r_value = finishing_details.edges_r_value or 0
+                edge_prefix = edge_type_map.get(edge_type, 'XX')
+                edge_code = f"{edge_prefix}{r_value}"
+
+        return f"{product_type}{species}{technology}{length}{width}{thickness}{wood_class}{finishing}{edge_code}"
+
+    except Exception:
+        return f"WP-{item.variant_code.upper()}-{item.id}" if item.variant_code else f"WP-UNKNOWN-{item.id}"
+
 @baselinker_bp.route('/api/quote/<int:quote_id>/create-order', methods=['POST'])
 @require_module_access('baselinker')
 def create_order(quote_id):
@@ -458,11 +529,13 @@ def get_order_modal_data(quote_id):
         
         products = []
         
-        # Osobno oblicz koszty produktów surowych i wykończenia
+        # Osobno oblicz koszty produktów surowych, wykończenia i krawędzi
         total_products_value_brutto = 0
         total_products_value_netto = 0
         total_finishing_value_brutto = 0
         total_finishing_value_netto = 0
+        total_edges_value_brutto = 0
+        total_edges_value_netto = 0
         
         for item in selected_items:
             # Pobierz szczegóły wykończenia dla tego produktu
@@ -485,39 +558,86 @@ def get_order_modal_data(quote_id):
             # CENY WYKOŃCZENIA (jeśli istnieje)
             finishing_total_netto = 0
             finishing_total_brutto = 0
-            
+
             if finishing_details and finishing_details.finishing_price_netto:
                 finishing_total_netto = float(finishing_details.finishing_price_netto or 0)
                 finishing_total_brutto = float(finishing_details.finishing_price_brutto or 0)
-                
+
                 # Dodaj do sumy wykończenia
                 total_finishing_value_netto += finishing_total_netto
                 total_finishing_value_brutto += finishing_total_brutto
-            
-            # KOŃCOWE CENY JEDNOSTKOWE (surowe + wykończenie na sztukę)
+
+            # CENY OBRÓBKI KRAWĘDZI (jeśli istnieje)
+            edges_total_netto = 0
+            edges_total_brutto = 0
+
+            if finishing_details and finishing_details.edges_price_netto:
+                edges_total_netto = float(finishing_details.edges_price_netto or 0)
+                edges_total_brutto = float(finishing_details.edges_price_brutto or 0)
+
+                # Dodaj do sumy krawędzi
+                total_edges_value_netto += edges_total_netto
+                total_edges_value_brutto += edges_total_brutto
+
+            # KOŃCOWE CENY JEDNOSTKOWE (surowe + wykończenie + krawędzie na sztukę)
             finishing_unit_netto = 0
             finishing_unit_brutto = 0
-            
+            edges_unit_netto = 0
+            edges_unit_brutto = 0
+
             if finishing_details and finishing_details.finishing_price_netto:
                 finishing_unit_netto = finishing_total_netto / quantity if quantity > 0 else 0
                 finishing_unit_brutto = finishing_total_brutto / quantity if quantity > 0 else 0
-            
-            final_unit_price_netto = unit_price_netto + finishing_unit_netto
-            final_unit_price_brutto = unit_price_brutto + finishing_unit_brutto
+
+            if finishing_details and finishing_details.edges_price_netto:
+                edges_unit_netto = edges_total_netto / quantity if quantity > 0 else 0
+                edges_unit_brutto = edges_total_brutto / quantity if quantity > 0 else 0
+
+            final_unit_price_netto = unit_price_netto + finishing_unit_netto + edges_unit_netto
+            final_unit_price_brutto = unit_price_brutto + finishing_unit_brutto + edges_unit_brutto
             
             # Przygotuj dane produktu
             product_name = f"{item.variant_code} {item.length_cm}×{item.width_cm}×{item.thickness_cm}cm"
-            
+
             # Oblicz wagę
             volume_m3 = (item.length_cm * item.width_cm * item.thickness_cm) / 1_000_000
             weight_kg = round(volume_m3 * 650, 2)
-            
+
+            # Generuj SKU
+            sku = generate_sku_for_modal(item, finishing_details)
+
+            # Przygotuj dane krawędzi
+            edges_data = None
+            if finishing_details and finishing_details.edges_config and len(finishing_details.edges_config) > 0:
+                # Mapowanie typów na polskie nazwy
+                edge_type_names = {
+                    'round': 'Zaokrąglenie',
+                    'chamfer': 'Fazowanie'
+                }
+                edge_type = finishing_details.edges_type or ''
+                edge_type_name = edge_type_names.get(edge_type, edge_type)
+                r_value = finishing_details.edges_r_value or 0
+
+                # Lista liter krawędzi
+                edge_letters = [edge.get('letter', '?') for edge in finishing_details.edges_config]
+
+                edges_data = {
+                    'type': edge_type,
+                    'type_name': edge_type_name,
+                    'r_value': r_value,
+                    'letters': edge_letters,
+                    'count': len(edge_letters),
+                    'price_netto': edges_total_netto,
+                    'price_brutto': edges_total_brutto
+                }
+
             product_data = {
                 'product_index': item.product_index,
                 'name': product_name,
                 'dimensions': f"{item.length_cm}×{item.width_cm}×{item.thickness_cm} cm",
                 'quantity': quantity,
                 'variant_code': item.variant_code,
+                'sku': sku,
                 'unit_price_netto': round(final_unit_price_netto, 2),
                 'unit_price_brutto': round(final_unit_price_brutto, 2),
                 'total_price_netto': round(final_unit_price_netto * quantity, 2),
@@ -529,9 +649,10 @@ def get_order_modal_data(quote_id):
                     'price_netto': finishing_total_netto if finishing_details and finishing_details.finishing_price_netto else 0,
                     'price_brutto': finishing_total_brutto if finishing_details and finishing_details.finishing_price_brutto else 0,
                     'quantity': quantity
-                } if finishing_details else None
+                } if finishing_details else None,
+                'edges': edges_data
             }
-            
+
             products.append(product_data)
         
         # Przygotuj dane klienta
@@ -621,14 +742,30 @@ def get_order_modal_data(quote_id):
                 'Paczkomaty InPost', 'Odbiór osobisty', 'Transport własny'
             ]
         }
-        
+
+        # Sugeruj źródło zamówienia na podstawie logiki biznesowej
+        suggested_source_id = None
+        try:
+            from .service import BaselinkerService
+            service = BaselinkerService()
+            suggested_source_id = service.suggest_order_source(
+                client=quote.client,
+                user_role=user_role,
+                is_flexible_partner=is_flexible_partner
+            )
+            baselinker_logger.info("Sugerowane źródło zamówienia",
+                                  suggested_source_id=suggested_source_id,
+                                  client_id=quote.client_id if quote.client else None)
+        except Exception as suggest_error:
+            baselinker_logger.error("Błąd sugerowania źródła zamówienia", error=str(suggest_error))
+
         # Oblicz koszty wysyłki
         shipping_cost_brutto = float(quote.shipping_cost_brutto or 0)
         shipping_cost_netto = shipping_cost_brutto / 1.23 if shipping_cost_brutto > 0 else 0
-        
-        # Poprawne koszty całkowite
-        total_value_netto = total_products_value_netto + total_finishing_value_netto + shipping_cost_netto
-        total_value_brutto = total_products_value_brutto + total_finishing_value_brutto + shipping_cost_brutto
+
+        # Poprawne koszty całkowite (produkty + wykończenie + krawędzie + wysyłka)
+        total_value_netto = total_products_value_netto + total_finishing_value_netto + total_edges_value_netto + shipping_cost_netto
+        total_value_brutto = total_products_value_brutto + total_finishing_value_brutto + total_edges_value_brutto + shipping_cost_brutto
 
         response_data = {
             'quote': {
@@ -650,12 +787,15 @@ def get_order_modal_data(quote_id):
                 'products_netto': round(total_products_value_netto, 2),
                 'finishing_brutto': round(total_finishing_value_brutto, 2),
                 'finishing_netto': round(total_finishing_value_netto, 2),
+                'edges_brutto': round(total_edges_value_brutto, 2),
+                'edges_netto': round(total_edges_value_netto, 2),
                 'shipping_brutto': round(shipping_cost_brutto, 2),
                 'shipping_netto': round(shipping_cost_netto, 2),
                 'total_brutto': round(total_value_brutto, 2),
                 'total_netto': round(total_value_netto, 2)
             },
-            'config': config_data
+            'config': config_data,
+            'suggested_source_id': suggested_source_id
         }
         
         baselinker_logger.info("Przygotowano dane dla modalu zamówienia",

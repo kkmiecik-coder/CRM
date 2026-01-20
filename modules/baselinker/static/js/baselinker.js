@@ -701,14 +701,20 @@ class BaselinkerModal {
             const unitPrice = isNetto ? product.unit_price_netto : product.unit_price_brutto;
             const priceLabel = isNetto ? 'netto' : 'brutto';
 
+            // Buduj opis krawędzi jeśli istnieją
+            const edgesDesc = this.getEdgesDescription(product.edges);
+
             return `
             <div class="bl-style-product-item">
                 <div class="bl-style-product-name">
                     ${this.buildProductName(product)}
                     <div class="bl-style-product-details">
-                        Waga: <span style="font-weight: 400;">${this.calculateProductWeight(product)} kg</span>
-                        ${product.finishing ?
-                    `<br>Wykończenie: <span class="bl-style-product-finishing">${this.getFinishingDescription(product.finishing)}</span>` : ''}
+                        ${product.sku ? `SKU: <span class="bl-style-detail-value">${product.sku}</span><br>` : ''}
+                        Waga: <span class="bl-style-detail-value">${this.calculateProductWeight(product)} kg</span>
+                        ${product.finishing && product.finishing.type && product.finishing.type !== 'Brak' ?
+                    `<br>Malowanie: <span class="bl-style-detail-value">${this.getFinishingDescription(product.finishing)}</span>` : ''}
+                        ${edgesDesc ?
+                    `<br>Obróbka krawędzi: <span class="bl-style-detail-value">${edgesDesc}</span>` : ''}
                     </div>
                 </div>
                 <div>${product.dimensions}</div>
@@ -726,15 +732,33 @@ class BaselinkerModal {
 
     getFinishingDescription(finishing) {
         if (!finishing) return 'Brak wykończenia';
-        
+
         const parts = [
             finishing.variant,
             finishing.type,
             finishing.color,
             finishing.gloss
         ].filter(Boolean);
-        
+
         return parts.length > 0 ? parts.join(' - ') : 'Brak wykończenia';
+    }
+
+    /**
+     * Buduje opis obróbki krawędzi w formacie: "[typ] | R[promień] | [krawędzie]"
+     */
+    getEdgesDescription(edges) {
+        if (!edges || !edges.type_name || !edges.letters || edges.letters.length === 0) {
+            return null;
+        }
+
+        // Format: "Zaokrąglenie | R5 | A, B, C, D"
+        const parts = [
+            edges.type_name,
+            `R${edges.r_value}`,
+            edges.letters.join(', ')
+        ];
+
+        return parts.join(' | ');
     }
 
     /**
@@ -749,9 +773,10 @@ class BaselinkerModal {
 
         console.log('[Baselinker] Renderowanie podsumowania finansowego, tryb:', isNetto ? 'NETTO' : 'BRUTTO');
 
-        // 🆕 NOWE: Wybierz odpowiednie kwoty w zależności od trybu
+        // Wybierz odpowiednie kwoty w zależności od trybu
         const productsCost = isNetto ? costs.products_netto : costs.products_brutto;
         const finishingCost = isNetto ? costs.finishing_netto : costs.finishing_brutto;
+        const edgesCost = isNetto ? (costs.edges_netto || 0) : (costs.edges_brutto || 0);
         const shippingCost = isNetto ? costs.shipping_netto : costs.shipping_brutto;
         const totalCost = isNetto ? costs.total_netto : costs.total_brutto;
         const priceLabel = isNetto ? 'netto' : 'brutto';
@@ -765,9 +790,16 @@ class BaselinkerModal {
             </div>
         </div>
         <div class="bl-style-summary-row">
-            <span>Koszt wykończenia:</span>
+            <span>Koszt malowania:</span>
             <div class="bl-style-amount">
                 <div class="bl-style-amount-main">${this.formatCurrency(finishingCost)}</div>
+                <div class="bl-style-amount-label">${priceLabel}</div>
+            </div>
+        </div>
+        <div class="bl-style-summary-row">
+            <span>Koszt obróbki krawędzi:</span>
+            <div class="bl-style-amount">
+                <div class="bl-style-amount-main">${this.formatCurrency(edgesCost)}</div>
                 <div class="bl-style-amount-label">${priceLabel}</div>
             </div>
         </div>
@@ -790,8 +822,10 @@ class BaselinkerModal {
 
     populateConfigurationForm() {
         const config = this.modalData.config;
+        const suggestedSourceId = this.modalData.suggested_source_id;
 
         console.log('[Baselinker] Konfiguracja otrzymana:', config);
+        console.log('[Baselinker] Sugerowane źródło (z backendu):', suggestedSourceId);
 
         // 1. ŹRÓDŁA ZAMÓWIEŃ
         const orderSourceSelect = document.getElementById('order-source-select');
@@ -814,41 +848,59 @@ class BaselinkerModal {
                 orderSourceSelect.appendChild(option);
             });
 
-            // TYLKO dopasowanie na podstawie źródła wyceny - BEZ FALLBACK
-            const quoteSource = this.modalData.quote.source;
-            console.log(`[Baselinker] Źródło wyceny: "${quoteSource}"`);
+            // PRIORYTET 1: Użyj sugerowanego źródła z backendu (logika biznesowa)
+            let autoSelectedSourceName = null;
 
-            if (quoteSource) {
-                // Szukaj dopasowania po nazwie źródła
-                const matchingSource = validSources.find(source => {
-                    const sourceName = source.name.toLowerCase();
-                    const quoteSourceLower = quoteSource.toLowerCase();
-
-                    // Dopasowania:
-                    return sourceName.includes(quoteSourceLower) ||
-                        quoteSourceLower.includes(sourceName.split(' ')[0]) ||
-                        // Dodatkowe dopasowanie dla "Osobiście"
-                        (quoteSourceLower === 'osobiście' && sourceName.includes('osobiście')) ||
-                        (quoteSourceLower === 'osobiscie' && sourceName.includes('osobiście'));
-                });
-
-                if (matchingSource) {
-                    orderSourceSelect.value = matchingSource.id;
+            if (suggestedSourceId !== null && suggestedSourceId !== undefined) {
+                // Sprawdź czy sugerowane źródło jest dostępne w liście
+                const suggestedSource = validSources.find(s => s.id === suggestedSourceId);
+                if (suggestedSource) {
+                    orderSourceSelect.value = suggestedSourceId;
                     sourceSelected = true;
-                    console.log(`[Baselinker] ✅ Automatycznie dopasowano źródło: ${matchingSource.name} (ID: ${matchingSource.id}) na podstawie źródła wyceny "${quoteSource}"`);
+                    autoSelectedSourceName = suggestedSource.name;
+                    console.log(`[Baselinker] ✅ Automatycznie wybrano SUGEROWANE źródło: ${suggestedSource.name} (ID: ${suggestedSourceId})`);
                 } else {
-                    console.log(`[Baselinker] ⚠️ Nie znaleziono dopasowania dla źródła wyceny "${quoteSource}"`);
-                    console.log(`[Baselinker] Dostępne źródła:`, validSources.map(s => ({ id: s.id, name: s.name })));
+                    console.log(`[Baselinker] ⚠️ Sugerowane źródło (ID: ${suggestedSourceId}) nie jest dostępne dla użytkownika`);
                 }
             }
 
+            // PRIORYTET 2: Dopasowanie na podstawie źródła wyceny (fallback)
+            if (!sourceSelected) {
+                const quoteSource = this.modalData.quote.source;
+                console.log(`[Baselinker] Źródło wyceny: "${quoteSource}"`);
+
+                if (quoteSource) {
+                    // Szukaj dopasowania po nazwie źródła
+                    const matchingSource = validSources.find(source => {
+                        const sourceName = source.name.toLowerCase();
+                        const quoteSourceLower = quoteSource.toLowerCase();
+
+                        // Dopasowania:
+                        return sourceName.includes(quoteSourceLower) ||
+                            quoteSourceLower.includes(sourceName.split(' ')[0]) ||
+                            // Dodatkowe dopasowanie dla "Osobiście"
+                            (quoteSourceLower === 'osobiście' && sourceName.includes('osobiście')) ||
+                            (quoteSourceLower === 'osobiscie' && sourceName.includes('osobiście'));
+                    });
+
+                    if (matchingSource) {
+                        orderSourceSelect.value = matchingSource.id;
+                        sourceSelected = true;
+                        autoSelectedSourceName = matchingSource.name;
+                        console.log(`[Baselinker] ✅ Automatycznie dopasowano źródło: ${matchingSource.name} (ID: ${matchingSource.id}) na podstawie źródła wyceny "${quoteSource}"`);
+                    } else {
+                        console.log(`[Baselinker] ⚠️ Nie znaleziono dopasowania dla źródła wyceny "${quoteSource}"`);
+                        console.log(`[Baselinker] Dostępne źródła:`, validSources.map(s => ({ id: s.id, name: s.name })));
+                    }
+                }
+            }
+
+            // Wizualny feedback dla automatycznego wyboru
+            this.showAutoSelectedFeedback(orderSourceSelect, sourceSelected, autoSelectedSourceName);
+
             // Komunikat o rezultacie
             if (!sourceSelected) {
-                if (quoteSource) {
-                    console.log(`[Baselinker] ⚪ Nie znaleziono dopasowania dla źródła "${quoteSource}" - użytkownik musi wybrać ręcznie`);
-                } else {
-                    console.log(`[Baselinker] ⚪ Brak źródła w wycenie - użytkownik musi wybrać ręcznie`);
-                }
+                console.log(`[Baselinker] ⚪ Brak automatycznego wyboru źródła - użytkownik musi wybrać ręcznie`);
             }
 
             // Informacja o braku źródeł
@@ -975,7 +1027,8 @@ class BaselinkerModal {
 
     // 5. NOWA METODA - POPRAWIONA OBSŁUGA EVENT LISTENERÓW KONFIGURACJI
     setupConfigurationEventListeners() {
-        const selectIds = ['order-source-select', 'order-status-select', 'payment-method-select'];
+        // Uwaga: order-status-select jest wyłączony (disabled), więc nie dodajemy mu event listenera
+        const selectIds = ['order-source-select', 'payment-method-select'];
 
         selectIds.forEach(selectId => {
             const select = document.getElementById(selectId);
@@ -1130,28 +1183,24 @@ class BaselinkerModal {
         console.log(`- Status: "${orderStatus?.value}" (type: ${typeof orderStatus?.value})`);
         console.log(`- Płatność: "${paymentMethod?.value}" (type: ${typeof paymentMethod?.value})`);
 
-        // 🔧 POPRAWIONA WALIDACJA ŹRÓDŁA - akceptuj ID = 0 oraz inne prawidłowe wartości
+        // 🔧 POPRAWIONA WALIDACJA TYPU KLIENTA - akceptuj ID = 0 oraz inne prawidłowe wartości
         if (!orderSource?.value && orderSource?.value !== '0') {
-            this.markFieldAsError(orderSource, 'Wybierz źródło zamówienia z listy');
-            errorMessages.push('Źródło zamówienia jest wymagane - wybierz z listy');
+            this.markFieldAsError(orderSource, 'Wybierz typ klienta z listy');
+            errorMessages.push('Typ klienta jest wymagany - wybierz z listy');
             isValid = false;
-            console.log('[Baselinker] BŁĄD: Nie wybrano źródła zamówienia');
+            console.log('[Baselinker] BŁĄD: Nie wybrano typu klienta');
         } else if (orderSource?.value === '') {
-            this.markFieldAsError(orderSource, 'Wybierz źródło zamówienia z listy');
-            errorMessages.push('Źródło zamówienia jest wymagane - wybierz z listy');
+            this.markFieldAsError(orderSource, 'Wybierz typ klienta z listy');
+            errorMessages.push('Typ klienta jest wymagany - wybierz z listy');
             isValid = false;
-            console.log('[Baselinker] BŁĄD: Puste źródło zamówienia');
+            console.log('[Baselinker] BŁĄD: Pusty typ klienta');
         } else {
-            console.log(`[Baselinker] ✅ Prawidłowe źródło zamówienia: ${orderSource.value}`);
+            console.log(`[Baselinker] ✅ Prawidłowy typ klienta: ${orderSource.value}`);
         }
 
-        if (!orderStatus?.value || orderStatus.value.trim() === '') {
-            this.markFieldAsError(orderStatus, 'Wybierz status zamówienia');
-            errorMessages.push('Status zamówienia jest wymagany');
-            isValid = false;
-            console.log('[Baselinker] BŁĄD: Brak statusu zamówienia');
-        } else {
-            console.log(`[Baselinker] ✅ Prawidłowy status zamówienia: ${orderStatus.value}`);
+        // Status zamówienia jest wyłączony (disabled) - ma wartość domyślną, nie walidujemy
+        if (orderStatus?.value) {
+            console.log(`[Baselinker] ✅ Status zamówienia (domyślny): ${orderStatus.value}`);
         }
 
         if (!paymentMethod?.value || paymentMethod.value.trim() === '') {
@@ -1619,7 +1668,7 @@ class BaselinkerModal {
         <div class="bl-style-validation-section">
             <h4>Konfiguracja zamówienia</h4>
             <div class="bl-style-config-row">
-                <span class="bl-style-config-label">Źródło:</span>
+                <span class="bl-style-config-label">Typ klienta:</span>
                 <span class="bl-style-config-value">${this.getSelectedOptionText('order-source-select')}</span>
             </div>
             <div class="bl-style-config-row">
@@ -1986,19 +2035,25 @@ class BaselinkerModal {
         // Formatuj wykończenie na podstawie obiektu finishing
         let finishingText = ' surowa'; // Domyślnie surowa
 
-        if (product.finishing && product.finishing.type && product.finishing.type !== '' && product.finishing.type !== 'Surowe') {
+        if (product.finishing && product.finishing.type && product.finishing.type !== '' && product.finishing.type !== 'Surowe' && product.finishing.type !== 'Brak') {
             let finishingParts = [product.finishing.type.toLowerCase()];
 
             // Dodaj kolor jeśli istnieje i nie jest "Brak"
-            if (product.finishing.color && product.finishing.color !== '' && product.finishing.color !== null) {
+            if (product.finishing.color && product.finishing.color !== '' && product.finishing.color !== null && product.finishing.color !== 'Brak') {
                 finishingParts.push(product.finishing.color);
             }
 
             finishingText = ` ${finishingParts.join(' ')}`;
         }
 
-        // Składamy całość: "Klejonka [gatunek] [technologia] [klasa] [wymiary] cm [wykończenie]"
-        const result = `${baseName} ${dimensions}${finishingText}`.trim();
+        // Formatuj krawędzie jeśli istnieją
+        let edgesText = '';
+        if (product.edges && product.edges.type_name && product.edges.r_value) {
+            edgesText = ` ${product.edges.type_name.toLowerCase()} R${product.edges.r_value}`;
+        }
+
+        // Składamy całość: "Klejonka [gatunek] [technologia] [klasa] [wymiary] cm [wykończenie] [krawędzie]"
+        const result = `${baseName} ${dimensions}${finishingText}${edgesText}`.trim();
         console.log('[Baselinker] buildProductName - wynik:', result);
 
         return result;
@@ -2710,6 +2765,109 @@ class BaselinkerModal {
         console.log('[Baselinker] Sparsowany adres:', { street, zipCode, city });
 
         return { street, zipCode, city };
+    }
+
+    /**
+     * Pokazuje wizualny feedback gdy źródło zostało automatycznie wybrane
+     */
+    showAutoSelectedFeedback(selectElement, wasAutoSelected, sourceName) {
+        if (!selectElement) return;
+
+        // Usuń poprzedni feedback jeśli istnieje
+        const existingFeedback = selectElement.parentElement.querySelector('.auto-selected-feedback');
+        if (existingFeedback) {
+            existingFeedback.remove();
+        }
+
+        // Usuń poprzednie style
+        selectElement.classList.remove('auto-selected-highlight');
+
+        if (wasAutoSelected && sourceName) {
+            // Dodaj podświetlenie do selecta
+            selectElement.classList.add('auto-selected-highlight');
+
+            // Dodaj komunikat pod selectem
+            const feedbackDiv = document.createElement('div');
+            feedbackDiv.className = 'auto-selected-feedback';
+            feedbackDiv.innerHTML = `
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/>
+                </svg>
+                <span>Automatycznie uzupełniono</span>
+            `;
+
+            // Wstaw feedback po select
+            selectElement.parentElement.appendChild(feedbackDiv);
+
+            // Usuń feedback po 5 sekundach lub przy zmianie
+            const removeFeedback = () => {
+                feedbackDiv.classList.add('fade-out');
+                setTimeout(() => {
+                    feedbackDiv.remove();
+                    selectElement.classList.remove('auto-selected-highlight');
+                }, 300);
+            };
+
+            // Auto-ukryj po 5 sekundach
+            setTimeout(removeFeedback, 5000);
+
+            // Usuń przy zmianie wartości
+            selectElement.addEventListener('change', removeFeedback, { once: true });
+
+            console.log(`[Baselinker] Pokazano feedback dla automatycznego wyboru: ${sourceName}`);
+        }
+
+        // Dodaj style CSS jeśli nie istnieją
+        if (!document.getElementById('auto-selected-styles')) {
+            const style = document.createElement('style');
+            style.id = 'auto-selected-styles';
+            style.textContent = `
+                .auto-selected-highlight {
+                    border: 2px solid #22c55e !important;
+                    box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.2) !important;
+                    background-color: #f0fdf4 !important;
+                    transition: all 0.3s ease;
+                }
+
+                .auto-selected-feedback {
+                    display: flex;
+                    align-items: center;
+                    gap: 6px;
+                    margin-top: 6px;
+                    padding: 6px 10px;
+                    background: linear-gradient(135deg, #dcfce7 0%, #bbf7d0 100%);
+                    border: 1px solid #86efac;
+                    border-radius: 6px;
+                    color: #166534;
+                    font-size: 12px;
+                    font-weight: 500;
+                    animation: slideIn 0.3s ease;
+                }
+
+                .auto-selected-feedback svg {
+                    flex-shrink: 0;
+                    color: #22c55e;
+                }
+
+                .auto-selected-feedback.fade-out {
+                    opacity: 0;
+                    transform: translateY(-5px);
+                    transition: all 0.3s ease;
+                }
+
+                @keyframes slideIn {
+                    from {
+                        opacity: 0;
+                        transform: translateY(-10px);
+                    }
+                    to {
+                        opacity: 1;
+                        transform: translateY(0);
+                    }
+                }
+            `;
+            document.head.appendChild(style);
+        }
     }
 }
 

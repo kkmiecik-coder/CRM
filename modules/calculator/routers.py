@@ -7,7 +7,7 @@ from flask import (
 from sqlalchemy import text
 from extensions import db
 from flask import Blueprint, render_template, request, jsonify
-from modules.calculator.models import Quote, QuoteItem, QuoteCounter, QuoteLog, Multiplier, User
+from modules.calculator.models import Quote, QuoteItem, QuoteCounter, QuoteLog, Multiplier, User, QuoteSource
 from modules.clients.models import Client
 from datetime import datetime
 from sqlalchemy.exc import SQLAlchemyError
@@ -314,6 +314,44 @@ def shipping_quote():
 
 logger = logging.getLogger(__name__)
 
+@calculator_bp.route('/api/quote-sources', methods=['GET'])
+@require_module_access('calculator')
+def get_quote_sources():
+    """
+    Pobiera źródła wycen dostępne dla aktualnego użytkownika.
+    Filtruje po roli użytkownika (allowed_roles).
+    """
+    try:
+        # Pobierz dane użytkownika
+        user_email = session.get('user_email')
+        user = User.query.filter_by(email=user_email).first() if user_email else None
+
+        user_role = user.role if user else None
+        is_flexible_partner = user_role == 'flexible_partner' if user_role else False
+
+        # Pobierz źródła dostępne dla użytkownika
+        if user_role:
+            sources = QuoteSource.get_sources_for_user(user_role, is_flexible_partner)
+        else:
+            # Fallback - wszystkie aktywne źródła
+            sources = QuoteSource.query.filter_by(is_active=True).order_by(
+                QuoteSource.sort_order
+            ).all()
+
+        return jsonify({
+            'success': True,
+            'sources': [{
+                'id': s.id,
+                'name': s.name,
+                'skip_contact_validation': s.skip_contact_validation
+            } for s in sources]
+        })
+
+    except Exception as e:
+        current_app.logger.error(f"[get_quote_sources] Błąd: {str(e)}")
+        return jsonify({'error': 'Błąd pobierania źródeł wycen'}), 500
+
+
 @calculator_bp.route('/api/finishing-prices', methods=['GET'])
 @require_module_access('calculator')
 def get_finishing_prices():
@@ -358,12 +396,10 @@ def save_quote():
                 
         client_id = data.get('client_id')
         products = data.get('products')
-
         total_price = data.get('total_price', 0.0)
 
         # Typ wyceny (brutto/netto)
         quote_type = data.get('quote_type', 'brutto')
-        current_app.logger.info(f"[save_quote] 🔍 DEBUG quote_type: otrzymano='{quote_type}', payload={data.get('quote_type')}")
 
         if not client_id:
             login = data.get('client_login')
@@ -455,7 +491,24 @@ def save_quote():
             finishing_price_netto = product.get("finishing_netto", 0.0)
             finishing_price_brutto = product.get("finishing_brutto", 0.0)
             
-            # Zapisz szczegóły wykończenia dla produktu
+            # Pobierz dane obróbki krawędzi z poziomu produktu
+            edges_data = product.get('edges', [])
+            edges_type = None
+            edges_r_value = None
+            edges_price_netto = float(product.get('edges_netto', 0.0))
+            edges_price_brutto = float(product.get('edges_brutto', 0.0))
+
+            # Pobierz typ i R z pierwszej krawędzi (wszystkie mają te same ustawienia)
+            if edges_data:
+                edges_type = edges_data[0].get('type')
+                edges_r_value = edges_data[0].get('r_value')
+                current_app.logger.info(f"[save_quote] Produkt #{i + 1}: {len(edges_data)} krawędzi, typ={edges_type}, R={edges_r_value}, netto={edges_price_netto}, brutto={edges_price_brutto}")
+
+            # Pobierz SVG wizualizacji krawędzi
+            edges_svg = product.get('edges_svg', '')
+            current_app.logger.info(f"[save_quote] Produkt #{i + 1}: edges_svg length={len(edges_svg) if edges_svg else 0}, has_svg={bool(edges_svg)}")
+
+            # Zapisz szczegóły wykończenia i krawędzi dla produktu
             item_details = QuoteItemDetails(
                 quote_id=quote.id,
                 product_index=i + 1,
@@ -465,7 +518,14 @@ def save_quote():
                 finishing_gloss_level=finishing_gloss_level,
                 finishing_price_netto=finishing_price_netto,
                 finishing_price_brutto=finishing_price_brutto,
-                quantity=product_quantity
+                quantity=product_quantity,
+                # Obróbka krawędzi
+                edges_config=edges_data if edges_data else None,
+                edges_type=edges_type,
+                edges_r_value=edges_r_value,
+                edges_price_netto=edges_price_netto,
+                edges_price_brutto=edges_price_brutto,
+                edges_svg=edges_svg if edges_svg else None
             )
             db.session.add(item_details)
 
@@ -500,6 +560,8 @@ def save_quote():
                     show_on_client_page=is_available   # Tylko dostępne warianty widoczne dla klienta
                 )
                 db.session.add(quote_item)
+
+            # Krawędzie są już zapisane w QuoteItemDetails (edges_config jako JSON)
 
         log = QuoteLog(
             quote_id=quote.id,
@@ -621,3 +683,75 @@ def latest_quotes():
         })
 
     return jsonify(result)
+
+
+# ============================================
+# ENDPOINTY OBRÓBKI KRAWĘDZI
+# ============================================
+
+@calculator_bp.route('/api/edge-options', methods=['GET'])
+@require_module_access('calculator')
+def get_edge_options():
+    """Pobiera dostępne typy obróbki krawędzi z bazy danych"""
+    try:
+        from .models import EdgeOption
+
+        options = EdgeOption.query.filter_by(is_active=True).order_by(EdgeOption.id).all()
+
+        # Jeśli brak w bazie, zwróć domyślne wartości
+        if not options:
+            return jsonify([
+                {'id': 1, 'type': 'chamfer', 'name': 'Fazowanie', 'price_per_mb': 15.0, 'corner_price': 5.0, 'r_min': 3, 'r_max': 10, 'r_default': 3},
+                {'id': 2, 'type': 'round', 'name': 'Zaokrąglenie', 'price_per_mb': 15.0, 'corner_price': 5.0, 'r_min': 3, 'r_max': 20, 'r_default': 5}
+            ])
+
+        return jsonify([opt.to_dict() for opt in options])
+
+    except Exception as e:
+        current_app.logger.error(f"[get_edge_options] Błąd: {str(e)}")
+        # Zwróć domyślne wartości w przypadku błędu
+        return jsonify([
+            {'id': 1, 'type': 'chamfer', 'name': 'Fazowanie', 'price_per_mb': 15.0, 'corner_price': 5.0, 'r_min': 3, 'r_max': 10, 'r_default': 3},
+            {'id': 2, 'type': 'round', 'name': 'Zaokrąglenie', 'price_per_mb': 15.0, 'corner_price': 5.0, 'r_min': 3, 'r_max': 20, 'r_default': 5}
+        ])
+
+
+@calculator_bp.route('/api/edge-definitions', methods=['GET'])
+@require_module_access('calculator')
+def get_edge_definitions():
+    """Zwraca definicje 12 krawędzi i grup dla frontendu"""
+    try:
+        from .services.edge_calculator import get_edge_definitions_for_frontend
+        return jsonify(get_edge_definitions_for_frontend())
+    except Exception as e:
+        current_app.logger.error(f"[get_edge_definitions] Błąd: {str(e)}")
+        return jsonify({'error': 'Błąd pobierania definicji krawędzi'}), 500
+
+
+@calculator_bp.route('/api/calculate-edges', methods=['POST'])
+@require_module_access('calculator')
+def calculate_edges():
+    """
+    Oblicza cenę obróbki krawędzi na podstawie przesłanych danych.
+    Opcjonalny endpoint - kalkulacja może być też wykonywana na froncie.
+    """
+    try:
+        from .services.edge_calculator import calculate_all_edges
+
+        data = request.get_json()
+        if not data:
+            return jsonify({'error': 'Brak danych'}), 400
+
+        edges_config = data.get('edges', [])
+        dimensions = {
+            'length': float(data.get('length', 0)),
+            'width': float(data.get('width', 0)),
+            'thickness': float(data.get('thickness', 0))
+        }
+
+        result = calculate_all_edges(edges_config, dimensions)
+        return jsonify(result)
+
+    except Exception as e:
+        current_app.logger.error(f"[calculate_edges] Błąd: {str(e)}")
+        return jsonify({'error': 'Błąd kalkulacji krawędzi'}), 500

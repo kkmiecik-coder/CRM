@@ -172,6 +172,22 @@ class QuoteDraftBackup {
         // Grupa cenowa (może być różna dla każdego produktu, chociaż zwykle jest synchronizowana)
         const clientType = form.querySelector('select[data-field="clientType"]')?.value || null;
 
+        // Dane obróbki krawędzi
+        let edges = null;
+        if (form.dataset.edgesData) {
+            try {
+                edges = {
+                    data: JSON.parse(form.dataset.edgesData),
+                    type: form.dataset.edgesType || 'round',
+                    rValue: parseInt(form.dataset.edgesRValue) || 5,
+                    netto: parseFloat(form.dataset.edgesNetto) || 0,
+                    brutto: parseFloat(form.dataset.edgesBrutto) || 0
+                };
+            } catch (e) {
+                console.warn('[QuoteDraftBackup] Błąd parsowania danych krawędzi:', e);
+            }
+        }
+
         return {
             index,
             length,
@@ -185,7 +201,8 @@ class QuoteDraftBackup {
                 variant: finishingVariant,
                 color: finishingColor,
                 gloss: finishingGloss
-            }
+            },
+            edges
         };
     }
 
@@ -398,6 +415,13 @@ class QuoteDraftBackup {
                 description += ' surowy';
             }
 
+            // Dodaj info o krawędziach
+            if (product.edges && product.edges.data && product.edges.data.length > 0) {
+                const edgeLetters = product.edges.data.map(e => e.letter).sort().join(', ');
+                const edgeTypeLabel = product.edges.type === 'chamfer' ? 'fazowanie' : 'zaokrąglenie';
+                description += ` + ${edgeTypeLabel} R${product.edges.rValue} (${edgeLetters})`;
+            }
+
             productDiv.textContent = description;
             container.appendChild(productDiv);
         });
@@ -576,6 +600,26 @@ class QuoteDraftBackup {
                 section.style.display = 'none';
             }
         });
+
+        // Wyczyść dane obróbki krawędzi
+        delete form.dataset.edgesData;
+        delete form.dataset.edgesType;
+        delete form.dataset.edgesRValue;
+        delete form.dataset.edgesNetto;
+        delete form.dataset.edgesBrutto;
+
+        // Ukryj podsumowanie opcji (wykończenie + krawędzie)
+        const optionsSummary = form.querySelector('.options-summary');
+        if (optionsSummary) {
+            optionsSummary.style.display = 'none';
+            const finishingRow = optionsSummary.querySelector('.finishing-row');
+            const edgesRow = optionsSummary.querySelector('.edges-row');
+            if (finishingRow) finishingRow.style.display = 'none';
+            if (edgesRow) {
+                edgesRow.style.display = 'none';
+                edgesRow.classList.remove('has-separator');
+            }
+        }
     }
 
     /**
@@ -642,6 +686,9 @@ class QuoteDraftBackup {
 
         // Przywróć wykończenie
         await this.restoreFinishing(form, productData.finishing);
+
+        // Przywróć obróbkę krawędzi
+        await this.restoreEdges(form, productData.edges);
     }
 
     /**
@@ -697,6 +744,68 @@ class QuoteDraftBackup {
                 await this.delay(100);
             }
         }
+    }
+
+    /**
+     * Przywraca ustawienia obróbki krawędzi
+     */
+    async restoreEdges(form, edges) {
+        if (!edges || !edges.data || edges.data.length === 0) {
+            return;
+        }
+
+        console.log('[QuoteDraftBackup] Przywracam obróbkę krawędzi:', edges);
+
+        // Zapisz dane krawędzi do dataset formularza
+        form.dataset.edgesData = JSON.stringify(edges.data);
+        form.dataset.edgesType = edges.type || 'round';
+        form.dataset.edgesRValue = edges.rValue || 5;
+        form.dataset.edgesNetto = edges.netto || 0;
+        form.dataset.edgesBrutto = edges.brutto || 0;
+
+        // Aktualizuj UI - pokaż podsumowanie krawędzi
+        const optionsSummary = form.closest('.quote-form')?.querySelector('.options-summary');
+        if (optionsSummary) {
+            const edgesRow = optionsSummary.querySelector('.edges-row');
+            if (edgesRow) {
+                // Wygeneruj tekst podsumowania
+                const edgeLetters = edges.data.map(e => e.letter).sort().join(', ');
+                const edgeTypeLabel = edges.type === 'chamfer' ? 'Fazowanie' : 'Zaokrąglenie';
+                const summaryText = `${edgeTypeLabel} R${edges.rValue} – krawędzie: ${edgeLetters}`;
+
+                // Zaktualizuj tekst i cenę
+                const textEl = edgesRow.querySelector('.edges-summary-text');
+                const priceEl = edgesRow.querySelector('.edges-summary-price');
+
+                if (textEl) textEl.textContent = summaryText;
+                if (priceEl) priceEl.textContent = `${edges.brutto.toFixed(2)} zł brutto`;
+
+                // Pokaż wiersz krawędzi
+                edgesRow.style.display = 'flex';
+
+                // Sprawdź widoczność kontenera
+                const finishingRow = optionsSummary.querySelector('.finishing-row');
+                const finishingVisible = finishingRow && finishingRow.style.display !== 'none';
+
+                // Pokaż kontener
+                optionsSummary.style.display = 'flex';
+
+                // Dodaj separator jeśli oba wiersze są widoczne
+                if (finishingVisible) {
+                    edgesRow.classList.add('has-separator');
+                } else {
+                    edgesRow.classList.remove('has-separator');
+                }
+            }
+        }
+
+        // Zaktualizuj przycisk "Obróbka krawędzi" (jeśli istnieje EdgesModule)
+        if (typeof EdgesModule !== 'undefined' && EdgesModule.updateOpenButton) {
+            EdgesModule.updateOpenButton(form);
+        }
+
+        await this.delay(100);
+        console.log('[QuoteDraftBackup] ✅ Przywrócono obróbkę krawędzi');
     }
 
     /**

@@ -437,7 +437,8 @@
   .delivery-summary,
   .order-summary,
   .final-summary,
-  .finishing-summary{
+  .finishing-summary,
+  .edges-summary {
     display: flex;
     width: 610px;
     padding: 8px 6px;
@@ -446,7 +447,8 @@
   }
 
 .order-summary,
-.finishing-summary {
+.finishing-summary,
+.edges-summary {
     border-bottom: 1px solid #EAEAEA;
 }
 
@@ -1405,8 +1407,9 @@ select.select-small option {
     display: flex;
     flex-direction: column;
     align-items: flex-start;
-    gap: 16px;
+    gap: 8px;
     font-family: "Poppins", sans-serif;
+    max-width: 331px;
 }
 
 .finishing-block {
@@ -1414,7 +1417,6 @@ select.select-small option {
     flex-direction: column;
     gap: 12px;
     align-self: stretch;
-    max-width: 331px;
 }
 
 .button-group {
@@ -1463,8 +1465,10 @@ select.select-small option {
     display: flex;
     flex-direction: column;
     gap: 10px;
-    margin-top: 10px;
     width: 100%;
+    padding-top: 12px;
+    border-top: 1px solid #E3E3E3;
+    margin-top: 4px;
 }
 
 .modal-trigger {
@@ -1527,94 +1531,6 @@ select.select-small option {
         border-color: #ED6B24;
         background: #FFECE1;
     }
-
-.modal-3d-overlay {
-    position: fixed;
-    inset: 0;
-    background-color: rgba(0, 0, 0, 0.6);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    z-index: 1000;
-}
-
-.modal-3d-box {
-    background: white;
-    border-radius: 12px;
-    padding: 20px;
-    width: 900px;
-    max-width: 95vw;
-    max-height: 95vh;
-    overflow: auto;
-    position: relative;
-}
-
-.close-modal-3d {
-    position: absolute;
-    top: 10px;
-    right: 14px;
-    background: none;
-    border: none;
-    font-size: 28px;
-    cursor: pointer;
-}
-.edge3d-root {
-    margin-top: 32px;
-}
-
-.edge3d-settings {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-    margin-top: 20px;
-    font-family: "Poppins", sans-serif;
-    font-size: 13px;
-}
-
-.edge3d-row {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-}
-
-.edge3d-header {
-    font-weight: 600;
-    color: #1F2020;
-    margin-bottom: 4px;
-}
-
-.edge3d-cell {
-    flex: 1;
-    min-width: 100px;
-}
-
-    .edge3d-cell input,
-    .edge3d-cell select {
-        width: 100%;
-        padding: 6px 10px;
-        border-radius: 12px;
-        border: 1px solid #ccc;
-        font-size: 13px;
-    }
-
-.edge3d-settings .edge-type-btn {
-    background: none;
-    border: none;
-    padding: 4px;
-    margin-right: 6px;
-    cursor: pointer;
-    opacity: 0.6;
-}
-
-    .edge3d-settings .edge-type-btn.active {
-        opacity: 1;
-        outline: 2px solid #ED6B24;
-        border-radius: 4px;
-    }
-
-.edge3d-settings .edge3d-cell:nth-child(4) {
-    transition: all 0.2s ease;
-}
 
 .variants-header {
     display: flex;

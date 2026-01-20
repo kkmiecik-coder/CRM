@@ -15,11 +15,16 @@ document.addEventListener('DOMContentLoaded', function () {
     const resultsBox = document.getElementById('clientSearchResults');
     const feedbackBox = document.getElementById('quoteSaveFeedback');
     const saveQuoteBtn = document.getElementById('confirmSaveQuote');
+    const quoteSourceSelect = document.getElementById('quoteSourceSelect');
 
     // Kroki modala - ZMIENIONE KLASY z sq-
     const stepSearch = document.querySelector('.sq-step-search');
     const stepForm = document.querySelector('.sq-step-form');
     const stepSuccess = document.querySelector('.sq-step-success');
+
+    // Cache źródeł wycen (ładowane raz przy pierwszym otwarciu modala)
+    let quoteSources = null;
+    let quoteSourcesLoaded = false;
 
     // ===== DEBOUNCE HELPER =====
     function debounce(func, delay) {
@@ -28,6 +33,65 @@ document.addEventListener('DOMContentLoaded', function () {
             clearTimeout(timeout);
             timeout = setTimeout(() => func.apply(this, args), delay);
         };
+    }
+
+    // ===== ŁADOWANIE ŹRÓDEŁ WYCEN Z API =====
+    async function loadQuoteSources() {
+        if (quoteSourcesLoaded) {
+            console.log("[loadQuoteSources] Źródła już załadowane, pomijam");
+            return quoteSources;
+        }
+
+        try {
+            console.log("[loadQuoteSources] Pobieram źródła z API...");
+            const response = await fetch('/calculator/api/quote-sources');
+
+            if (!response.ok) {
+                throw new Error(`HTTP error: ${response.status}`);
+            }
+
+            const data = await response.json();
+            quoteSources = data;
+            quoteSourcesLoaded = true;
+
+            // Wypełnij select źródłami
+            renderQuoteSourcesSelect(data);
+
+            console.log("[loadQuoteSources] Załadowano źródła:", data);
+            return data;
+
+        } catch (error) {
+            console.error("[loadQuoteSources] Błąd ładowania źródeł:", error);
+
+            // Fallback - pokaż podstawowe opcje (źródło jest opcjonalne)
+            if (quoteSourceSelect) {
+                quoteSourceSelect.innerHTML = `
+                    <option value="">-- Wybierz źródło --</option>
+                    <option value="Osobiście">Osobiście</option>
+                    <option value="Telefon">Telefon</option>
+                    <option value="E-mail">E-mail</option>
+                `;
+            }
+            return null;
+        }
+    }
+
+    // ===== RENDEROWANIE SELECTA ŹRÓDEŁ =====
+    function renderQuoteSourcesSelect(data) {
+        if (!quoteSourceSelect || !data) return;
+
+        // Początkowa opcja - puste źródło jest dozwolone
+        let html = '<option value="">-- Wybierz źródło --</option>';
+
+        // Format API: { success: true, sources: [{id, name, skip_contact_validation}, ...] }
+        const sources = data.sources || [];
+
+        for (const source of sources) {
+            html += `<option value="${source.name}" data-skip-validation="${source.skip_contact_validation}">${source.name}</option>`;
+        }
+
+        quoteSourceSelect.innerHTML = html;
+        console.log("[renderQuoteSourcesSelect] Select zaktualizowany z", sources.length, "źródłami");
     }
 
     // ===== WYŚWIETLANIE KROKÓW =====
@@ -42,13 +106,17 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     // ===== OTWIERANIE MODALA =====
-    openBtn?.addEventListener('click', () => {
+    openBtn?.addEventListener('click', async () => {
         modal.style.display = 'flex';
         showStep(stepSearch);
         searchInput.value = '';
         resultsBox.innerHTML = '';
         resultsBox.style.display = 'none';
         clearAllErrors();
+
+        // Załaduj źródła wycen (tylko przy pierwszym otwarciu)
+        await loadQuoteSources();
+
         console.log("[save_quote.js] Otworzono modal zapisu wyceny");
     });
 
@@ -199,9 +267,6 @@ document.addEventListener('DOMContentLoaded', function () {
         renderSummaryValues();
         renderProductsTable();
 
-        // Wywołaj handleSourceChange jeśli źródło już wybrane
-        setTimeout(handleSourceChange, 100);
-
         console.log("[goToFormStep] Przełączono do formularza");
     }
 
@@ -262,11 +327,15 @@ document.addEventListener('DOMContentLoaded', function () {
 
             const productName = `Klejonka ${variantName} ${product.length}x${product.width}x${product.thickness} cm (x${product.quantity} szt.)`;
             const rawPrice = selectedVariant.final_price_brutto.toFixed(2);
-            const finishingPrice = product.finishing_brutto.toFixed(2);
-            const totalPrice = (selectedVariant.final_price_brutto + product.finishing_brutto).toFixed(2);
+            // Wykończenie = finishing + krawędzie (wliczone razem)
+            const finishingWithEdges = product.finishing_brutto + (product.edges_brutto || 0);
+            const finishingPrice = finishingWithEdges.toFixed(2);
+            const totalPrice = (selectedVariant.final_price_brutto + finishingWithEdges).toFixed(2);
 
             console.log(`[renderProductsTable] 🔍 DEBUG Produkt ${idx + 1} ceny:`, {
-                rawPrice, finishingPrice, totalPrice
+                rawPrice, finishingPrice, totalPrice,
+                finishing_brutto: product.finishing_brutto,
+                edges_brutto: product.edges_brutto
             });
 
             html += `
@@ -305,8 +374,9 @@ document.addEventListener('DOMContentLoaded', function () {
 
         setText("summary-products-brutto", summary.products_brutto);
         setText("summary-products-netto", summary.products_netto);
-        setText("summary-finishing-brutto", summary.finishing_brutto);
-        setText("summary-finishing-netto", summary.finishing_netto);
+        // Wykończenie = finishing + krawędzie (wliczone razem)
+        setText("summary-finishing-brutto", summary.finishing_brutto + summary.edges_brutto);
+        setText("summary-finishing-netto", summary.finishing_netto + summary.edges_netto);
         setText("summary-shipping-brutto", summary.shipping_brutto);
         setText("summary-shipping-netto", summary.shipping_netto);
         setText("summary-total-brutto", summary.total_brutto);
@@ -319,12 +389,8 @@ document.addEventListener('DOMContentLoaded', function () {
         clearAllErrors();
         let isValid = true;
 
-        // 1. Źródło zapytania (required)
-        const sourceField = document.querySelector('[name="quote_source"]');
-        if (!sourceField || !sourceField.value.trim()) {
-            showFieldError(sourceField, 'Wybierz źródło zapytania');
-            isValid = false;
-        }
+        // 1. Źródło zapytania - OPCJONALNE (nie walidujemy)
+        // const sourceField = document.querySelector('[name="quote_source"]');
 
         // 2. Nazwa klienta (required, min 3 znaki)
         const loginField = document.querySelector('[name="client_login"]');
@@ -356,14 +422,14 @@ document.addEventListener('DOMContentLoaded', function () {
             isValid = false;
         }
 
-        // ✅ ZMIENIONE: 6. Jedno z pól: telefon LUB email (wyjątki: OLX i Czernecki)
-        const sourceValue = sourceField?.value.toLowerCase() || '';
-        const isOlxSource = sourceValue.includes('olx');
-        const isCzerneckiSource = sourceValue.includes('czernecki');
+        // 6. Jedno z pól: telefon LUB email (wyjątek: źródła z skip_contact_validation=true)
+        const sourceField = document.querySelector('[name="quote_source"]');
+        const selectedOption = sourceField?.options[sourceField.selectedIndex];
+        const skipValidation = selectedOption?.dataset?.skipValidation === 'true';
 
-        // Dla OLX i Czernecki - telefon i email są opcjonalne
-        // Dla pozostałych źródeł - wymagany jest telefon LUB email
-        if (!isOlxSource && !isCzerneckiSource) {
+        // Dla źródeł z skip_contact_validation=true - telefon i email są opcjonalne
+        // Dla pozostałych źródeł (lub brak źródła) - wymagany jest telefon LUB email
+        if (!skipValidation) {
             const phoneDigits = phoneValue ? phoneValue.replace(/\D/g, '') : '';
             if (!phoneDigits && !emailValue) {
                 showFieldError(phoneField, 'Wymagany telefon lub email');
@@ -435,14 +501,13 @@ document.addEventListener('DOMContentLoaded', function () {
 
         if (!sourceField) return;
 
-        const sourceValue = sourceField.value.toLowerCase();
-        const isOlxSource = sourceValue.includes('olx');
-        const isCzerneckiSource = sourceValue.includes('czernecki');
+        // Pobierz atrybut skip_contact_validation z wybranej opcji
+        const selectedOption = sourceField.options[sourceField.selectedIndex];
+        const skipValidation = selectedOption?.dataset?.skipValidation === 'true';
+        const sourceName = sourceField.value;
 
-        if (isOlxSource || isCzerneckiSource) {
-            // OLX lub Czernecki - usuń gwiazdki i zmień notatkę
-            const sourceName = isOlxSource ? 'OLX' : 'Czernecki';
-
+        if (skipValidation) {
+            // Źródło z pomijaniem walidacji - usuń gwiazdki i zmień notatkę
             if (phoneLabel) {
                 phoneLabel.innerHTML = 'Telefon <span class="sq-optional" style="color: #999;">(opcjonalne)</span>';
             }
@@ -452,10 +517,10 @@ document.addEventListener('DOMContentLoaded', function () {
             if (noteElement) {
                 noteElement.innerHTML = `
                 <span class="sq-required">*</span> - wymagane pola<br>
-                <span style="color: #999;">Dla ${sourceName} telefon i e-mail są opcjonalne</span>
+                <span style="color: #999;">Dla "${sourceName}" telefon i e-mail są opcjonalne</span>
             `;
             }
-            console.log(`[handleSourceChange] ${sourceName}: telefon i email opcjonalne`);
+            console.log(`[handleSourceChange] ${sourceName}: telefon i email opcjonalne (skip_contact_validation=true)`);
         } else {
             // Inne źródła - przywróć gwiazdki
             if (phoneLabel) {
@@ -674,6 +739,8 @@ function collectQuoteData() {
     let sumProductNetto = 0;
     let sumFinishingBrutto = 0;
     let sumFinishingNetto = 0;
+    let sumEdgesBrutto = 0;
+    let sumEdgesNetto = 0;
 
     forms.forEach((form, index) => {
         const length = parseFloat(form.querySelector('[data-field="length"]')?.value || 0);
@@ -693,9 +760,29 @@ function collectQuoteData() {
         const finishingBrutto = parseFloat(form.dataset.finishingBrutto || 0);
         const finishingNetto = parseFloat(form.dataset.finishingNetto || 0);
 
+        // Pobierz dane obróbki krawędzi
+        const edgesBrutto = parseFloat(form.dataset.edgesBrutto || 0);
+        const edgesNetto = parseFloat(form.dataset.edgesNetto || 0);
+        const edgesType = form.dataset.edgesType || null;
+        const edgesRValue = parseInt(form.dataset.edgesRValue) || null;
+        const edgesSvg = form.dataset.edgesSvg || '';
+        let edgesData = [];
+        try {
+            edgesData = form.dataset.edgesData ? JSON.parse(form.dataset.edgesData) : [];
+        } catch (e) {
+            console.warn(`[collectQuoteData] Błąd parsowania edgesData dla produktu ${index + 1}:`, e);
+        }
+
         console.log(`[collectQuoteData] Produkt ${index + 1} - wykończenie:`, {
             finishingType, finishingVariant, finishingColor, finishingGloss,
             finishingBrutto, finishingNetto, quantity
+        });
+
+        console.log(`[collectQuoteData] Produkt ${index + 1} - obróbka krawędzi:`, {
+            edgesType, edgesRValue, edgesBrutto, edgesNetto,
+            edgesCount: edgesData.length,
+            edgesSvgLength: edgesSvg ? edgesSvg.length : 0,
+            hasEdgesSvg: !!edgesSvg
         });
 
         let hasSelectedVariant = false;
@@ -752,6 +839,13 @@ function collectQuoteData() {
             console.log(`[collectQuoteData] Dodano wykończenie dla produktu ${index + 1}: ${finishingBrutto} PLN brutto (już uwzględnia ${quantity} szt)`);
         }
 
+        // Dodaj koszty obróbki krawędzi do sumy (tylko jeśli wariant jest wybrany)
+        if (hasSelectedVariant && edgesBrutto > 0) {
+            sumEdgesBrutto += edgesBrutto;
+            sumEdgesNetto += edgesNetto;
+            console.log(`[collectQuoteData] Dodano obróbkę krawędzi dla produktu ${index + 1}: ${edgesBrutto} PLN brutto`);
+        }
+
         products.push({
             index,
             length,
@@ -764,6 +858,13 @@ function collectQuoteData() {
             finishing_gloss_level: finishingGloss,
             finishing_netto: finishingNetto,
             finishing_brutto: finishingBrutto,
+            // Obróbka krawędzi
+            edges: edgesData,
+            edges_type: edgesType,
+            edges_r_value: edgesRValue,
+            edges_netto: edgesNetto,
+            edges_brutto: edgesBrutto,
+            edges_svg: edgesSvg,
             variants: allVariants
         });
     });
@@ -832,6 +933,7 @@ function collectQuoteData() {
 
     console.log(`[collectQuoteData] SUMA produktów brutto=${sumProductBrutto}, netto=${sumProductNetto}`);
     console.log(`[collectQuoteData] SUMA wykończenia brutto=${sumFinishingBrutto}, netto=${sumFinishingNetto}`);
+    console.log(`[collectQuoteData] SUMA obróbki krawędzi brutto=${sumEdgesBrutto}, netto=${sumEdgesNetto}`);
     console.log(`[collectQuoteData] SUMA wysyłki brutto=${shippingBrutto}, netto=${shippingNetto}`);
     console.log(`[collectQuoteData] Kurier: ${courierName}`);
     console.log(`[collectQuoteData] Grupa cenowa: ${selectedClientType} (mnożnik: ${selectedMultiplier})`);
@@ -845,16 +947,18 @@ function collectQuoteData() {
         quote_client_type: selectedClientType,
         quote_multiplier: selectedMultiplier,
         quote_note: quoteNote,
-        quote_type: quoteType,  // ✅ TYLKO TUTAJ
+        quote_type: quoteType,
         summary: {
             products_brutto: sumProductBrutto,
             products_netto: sumProductNetto,
             finishing_brutto: sumFinishingBrutto,
             finishing_netto: sumFinishingNetto,
+            edges_brutto: sumEdgesBrutto,
+            edges_netto: sumEdgesNetto,
             shipping_brutto: shippingBrutto,
             shipping_netto: shippingNetto,
-            total_brutto: sumProductBrutto + sumFinishingBrutto + shippingBrutto,
-            total_netto: sumProductNetto + sumFinishingNetto + shippingNetto
+            total_brutto: sumProductBrutto + sumFinishingBrutto + sumEdgesBrutto + shippingBrutto,
+            total_netto: sumProductNetto + sumFinishingNetto + sumEdgesNetto + shippingNetto
         }
     };
 

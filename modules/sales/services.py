@@ -20,9 +20,16 @@ from flask_mail import Message
 from extensions import db, mail
 from modules.sales.models import SalesApplication
 from datetime import datetime
-import magic
 import uuid
 import json
+
+# Opcjonalny import magic (może nie działać na Windows)
+try:
+    import magic
+    HAS_MAGIC = True
+except ImportError:
+    HAS_MAGIC = False
+    print("[sales] Biblioteka 'magic' niedostępna - walidacja MIME będzie ograniczona")
 
 
 class ApplicationService:
@@ -81,7 +88,20 @@ class ApplicationService:
 
                 # Pobierz info o pliku
                 filesize = os.path.getsize(filepath)
-                mime_type = magic.from_file(filepath, mime=True)
+                if HAS_MAGIC:
+                    mime_type = magic.from_file(filepath, mime=True)
+                else:
+                    # Fallback - określ MIME na podstawie rozszerzenia
+                    ext = filename.rsplit('.', 1)[-1].lower() if '.' in filename else ''
+                    mime_map = {
+                        'pdf': 'application/pdf',
+                        'jpg': 'image/jpeg',
+                        'jpeg': 'image/jpeg',
+                        'png': 'image/png',
+                        'docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                        'odt': 'application/vnd.oasis.opendocument.text'
+                    }
+                    mime_type = mime_map.get(ext, 'application/octet-stream')
 
                 if i == 0:
                     # Pierwszy plik - istniejące kolumny

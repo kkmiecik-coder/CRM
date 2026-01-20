@@ -8,13 +8,7 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
     <link rel="stylesheet" href="{{ url_for('calculator.static', filename='css/style_calculator.css') }}">
     <link rel="stylesheet" href="{{ url_for('calculator.static', filename='css/save_quote.css') }}">
-    <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
-    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
-    <script src="https://cdn.jsdelivr.net/npm/three@0.140.0/build/three.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/three@0.140.0/examples/js/controls/OrbitControls.js"></script>
-    <script src="{{ url_for('calculator.static', filename='js/three-csg.js') }}"></script>
-    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-    <script type="text/babel" src="{{ url_for('calculator.static', filename='js/components/Edge3DViewer.jsx') }}"></script>
+    <link rel="stylesheet" href="{{ url_for('calculator.static', filename='css/edges.css') }}">
     <script id="prices-data" type="application/json">{{ prices_json|safe }}</script>
     <script id="multipliers-data" type="application/json">{{ multipliers_json|safe }}</script>
 </head>
@@ -272,9 +266,28 @@
 
                                 <!-- Przyciski do modali -->
                                 <div class="finishing-actions">
-                                    <button type="button" class="modal-trigger" id="openEdgesModal">
-                                        + Dodaj obróbkę krawędzi<br><span style="font-size: 12px; font-weight: 400;">(faza testów, nie używać)</span>
+                                    <button type="button" class="modal-trigger open-edges-modal-btn">
+                                        + Dodaj obróbkę krawędzi
                                     </button>
+                                </div>
+                                <!-- Podsumowanie opcji (wykończenie + krawędzie) -->
+                                <div class="options-summary" style="display: none;">
+                                    <!-- Wiersz wykończenia -->
+                                    <div class="options-summary-row finishing-row" style="display: none;">
+                                        <div class="options-summary-content">
+                                            <span class="options-summary-text finishing-summary-text"></span>
+                                            <span class="options-summary-price finishing-summary-price"></span>
+                                        </div>
+                                        <button type="button" class="options-reset-btn finishing-reset-btn">Resetuj</button>
+                                    </div>
+                                    <!-- Wiersz krawędzi -->
+                                    <div class="options-summary-row edges-row" style="display: none;">
+                                        <div class="options-summary-content">
+                                            <span class="options-summary-text edges-summary-text"></span>
+                                            <span class="options-summary-price edges-summary-price"></span>
+                                        </div>
+                                        <button type="button" class="options-reset-btn edges-reset-btn">Resetuj</button>
+                                    </div>
                                 </div>
                             </section>
                         </div>
@@ -366,15 +379,6 @@
     <!-- Modal z listą kurierów -->
     {% include 'delivery_modal.html' %}
 
-    <!-- Modal z 3d -->
-    <div class="modal-3d-overlay" style="display: none;">
-        <div class="modal-3d-box">
-            <button class="close-modal-3d" onclick="document.querySelector('.modal-3d-overlay').style.display='none'">×</button>
-            <div id="edge3d-root"></div>
-            <div id="edge3d-table" class="edge3d-settings"></div>
-        </div>
-    </div>
-
     <div id="autosave-modal" class="modal-overlay" style="display: none;">
         <div class="modal-content autosave-modal-content">
             <div class="modal-header">
@@ -423,9 +427,11 @@
 
     {% include 'save_quote.html' %}
     {% include 'download_quote_modal.html' %}
+    {% include 'partials/edges_modal.html' %}
     <script src="{{ url_for('static', filename='js/sidebar.js') }}"></script>
     <script src="{{ url_for('calculator.static', filename='js/qdraft_backup_cookies.js') }}"></script>
     <script src="{{ url_for('calculator.static', filename='js/calculator.js') }}"></script>
     <script src="{{ url_for('calculator.static', filename='js/save_quote.js') }}"></script>
+    <script src="{{ url_for('calculator.static', filename='js/edges.js') }}"></script>
 </body>
 </html>

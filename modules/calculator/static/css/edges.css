@@ -1,0 +1,621 @@
+/* ==========================================
+   MODAL OBRÓBKI KRAWĘDZI
+   Wzorowany na PrestaShop woodconfigurator
+   ========================================== */
+
+.edges-modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.6);
+    backdrop-filter: blur(4px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 10000;
+}
+
+.edges-modal-container {
+    background: #fff;
+    border-radius: 16px;
+    width: 850px;
+    max-width: 95vw;
+    max-height: 90vh;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+}
+
+/* ==========================================
+   HEADER
+   ========================================== */
+
+.edges-modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 20px 24px;
+    background: #ED6B24;
+    color: #fff;
+}
+
+.edges-modal-header h3 {
+    margin: 0;
+    font-size: 18px;
+    font-weight: 600;
+    font-family: 'Poppins', sans-serif;
+}
+
+.edges-modal-close {
+    background: none;
+    border: none;
+    color: #fff;
+    font-size: 28px;
+    cursor: pointer;
+    line-height: 1;
+    padding: 0;
+    opacity: 0.8;
+    transition: opacity 0.2s;
+}
+
+.edges-modal-close:hover {
+    opacity: 1;
+}
+
+/* ==========================================
+   BODY
+   ========================================== */
+
+.edges-modal-body {
+    padding: 24px;
+    overflow-y: auto;
+    flex: 1;
+}
+
+/* ==========================================
+   TOP SECTION: SVG + Options
+   ========================================== */
+
+.edges-top-section {
+    display: flex;
+    gap: 24px;
+    margin-bottom: 24px;
+    padding-bottom: 24px;
+    border-bottom: 1px solid #eee;
+}
+
+/* SVG Visualization */
+.edges-visualization {
+    flex: 0 0 320px;
+    position: relative;
+}
+
+.edges-toggle-labels {
+    position: absolute;
+    top: 0;
+    left: 0;
+    padding: 6px 12px;
+    font-size: 12px;
+    font-family: 'Poppins', sans-serif;
+    background: #f5f5f5;
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    cursor: pointer;
+    z-index: 1;
+    transition: all 0.2s;
+}
+
+.edges-toggle-labels:hover {
+    background: #e8e8e8;
+}
+
+.edges-svg-container {
+    padding-top: 30px;
+}
+
+.edges-interactive-svg {
+    width: 100%;
+    height: auto;
+}
+
+/* SVG Faces */
+.edges-face {
+    fill: #f0f0f0;
+    stroke: none;
+}
+
+.edges-face-top {
+    fill: #e8e8e8;
+}
+
+.edges-face-front {
+    fill: #d8d8d8;
+}
+
+.edges-face-right {
+    fill: #c8c8c8;
+}
+
+.edges-face-left {
+    fill: #d0d0d0;
+}
+
+.edges-face-back {
+    fill: #b8b8b8;
+}
+
+/* SVG Lines */
+.edges-line {
+    stroke: #666;
+    stroke-width: 2;
+    fill: none;
+    transition: stroke 0.2s, stroke-width 0.2s;
+    cursor: pointer;
+}
+
+.edges-line.edges-hidden {
+    stroke-dasharray: 5, 5;
+    stroke: #999;
+}
+
+.edges-line.active {
+    stroke: #ED6B24;
+    opacity: 1;
+    stroke-width: 3;
+}
+
+.edges-line.highlight {
+    stroke: #ED6B24;
+    opacity: 1;
+    stroke-width: 4;
+}
+
+/* SVG Labels */
+.edges-label {
+    cursor: pointer;
+}
+
+.edges-label circle {
+    fill: #999;
+    opacity: 0.7;
+    transition: fill 0.2s;
+}
+
+.edges-label text {
+    fill: #fff;
+    font-size: 11px;
+    font-weight: 600;
+    text-anchor: middle;
+    font-family: 'Poppins', sans-serif;
+    pointer-events: none;
+}
+
+.edges-label-corner text {
+    font-size: 9px;
+}
+
+/* Hover i aktywne stany dla etykiet */
+.edges-label.active circle,
+.edges-label.highlight circle {
+    fill: #ED6B24;
+    opacity: 1;
+}
+
+/* Płynna animacja ukrywania/pokazywania etykiet */
+.edges-label {
+    transition: opacity 0.5s ease;
+}
+
+.edges-labels-hidden .edges-label {
+    opacity: 0;
+    pointer-events: none;
+}
+
+/* ==========================================
+   OPTIONS PANEL
+   ========================================== */
+
+.edges-options-panel {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+/* Quick Actions */
+.edges-quick-actions {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.edges-quick-btn {
+    padding: 8px 16px;
+    font-size: 13px;
+    font-family: 'Poppins', sans-serif;
+    background: #f5f5f5;
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.edges-quick-btn:hover {
+    background: #ED6B24;
+    color: #fff;
+    border-color: #ED6B24;
+}
+
+.edges-quick-btn-deselect:hover {
+    background: #666;
+    border-color: #666;
+}
+
+/* Type Selector */
+.edges-type-selector {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 16px;
+    background: #f9f9f9;
+    border-radius: 12px;
+}
+
+.edges-type-selector label {
+    font-weight: 500;
+    color: #333;
+    font-family: 'Poppins', sans-serif;
+    font-size: 14px;
+}
+
+.edges-type-selector select {
+    flex: 1;
+    padding: 10px 14px;
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    font-size: 14px;
+    font-family: 'Poppins', sans-serif;
+    cursor: pointer;
+    background: #fff;
+}
+
+.edges-type-selector select:focus {
+    outline: none;
+    border-color: #ED6B24;
+}
+
+/* R Value */
+.edges-r-value-group {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 16px;
+    background: #f9f9f9;
+    border-radius: 12px;
+}
+
+.edges-r-value-group label {
+    font-weight: 500;
+    color: #333;
+    font-family: 'Poppins', sans-serif;
+    font-size: 14px;
+}
+
+.edges-r-value-group input {
+    width: 80px;
+    padding: 10px 14px;
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    font-size: 14px;
+    font-family: 'Poppins', sans-serif;
+    text-align: center;
+}
+
+.edges-r-value-group input:focus {
+    outline: none;
+    border-color: #ED6B24;
+}
+
+.edges-r-value-group span {
+    color: #666;
+    font-family: 'Poppins', sans-serif;
+}
+
+/* ==========================================
+   EDGES SECTIONS
+   ========================================== */
+
+.edges-section {
+    margin-bottom: 20px;
+}
+
+.edges-section h4 {
+    font-size: 14px;
+    font-weight: 600;
+    color: #333;
+    margin: 0 0 12px 0;
+    padding-bottom: 8px;
+    border-bottom: 2px solid #ED6B24;
+    font-family: 'Poppins', sans-serif;
+}
+
+.edges-group {
+    margin-bottom: 16px;
+}
+
+.edges-group h5 {
+    font-size: 12px;
+    font-weight: 600;
+    color: #666;
+    margin: 0 0 8px 0;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    font-family: 'Poppins', sans-serif;
+}
+
+/* ==========================================
+   EDGES LIST
+   ========================================== */
+
+.edges-list {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 8px;
+}
+
+.edges-corners-list {
+    grid-template-columns: repeat(2, 1fr);
+}
+
+/* Edge Item */
+.edges-item {
+    background: #f9f9f9;
+    border-radius: 10px;
+    padding: 12px 16px;
+    transition: all 0.2s;
+    border: 2px solid transparent;
+    cursor: pointer;
+}
+
+.edges-item:hover,
+.edges-item.hover {
+    background: #FFF5F0;
+    border-color: #ED6B24;
+}
+
+.edges-item.selected {
+    background: #FFF5F0;
+    border-color: #ED6B24;
+}
+
+.edges-item.selected:hover,
+.edges-item.selected.hover {
+    background: #FFE8DC;
+}
+
+.edges-checkbox {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    cursor: pointer;
+}
+
+.edges-checkbox input[type="checkbox"] {
+    width: 18px;
+    height: 18px;
+    accent-color: #ED6B24;
+    cursor: pointer;
+}
+
+.edges-letter {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    background: #999;
+    color: #fff;
+    border-radius: 50%;
+    font-weight: 600;
+    transition: background 0.2s;
+    font-size: 13px;
+    font-family: 'Poppins', sans-serif;
+}
+
+.edges-letter-corner {
+    width: 32px;
+    height: 32px;
+    font-size: 11px;
+}
+
+/* Hover i zaznaczenie zmienia kolor literki */
+.edges-item:hover .edges-letter,
+.edges-item.hover .edges-letter,
+.edges-item.selected .edges-letter {
+    background: #ED6B24;
+}
+
+.edges-name {
+    flex: 1;
+    font-size: 13px;
+    color: #333;
+    font-family: 'Poppins', sans-serif;
+}
+
+.edges-length {
+    font-size: 12px;
+    color: #888;
+    font-family: 'Poppins', sans-serif;
+}
+
+/* ==========================================
+   FOOTER
+   ========================================== */
+
+.edges-modal-footer {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 20px 24px;
+    background: #FFF5F0;
+    border-top: 1px solid #ffd9c7;
+}
+
+.edges-price-summary {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.edges-price-label {
+    font-size: 13px;
+    color: #666;
+    font-family: 'Poppins', sans-serif;
+}
+
+.edges-price-brutto {
+    font-size: 24px;
+    font-weight: 700;
+    color: #ED6B24;
+    font-family: 'Poppins', sans-serif;
+}
+
+.edges-price-netto {
+    font-size: 13px;
+    color: #888;
+    font-family: 'Poppins', sans-serif;
+}
+
+.edges-apply-btn {
+    padding: 14px 40px;
+    font-size: 15px;
+    font-weight: 600;
+    font-family: 'Poppins', sans-serif;
+    background: #ED6B24;
+    color: #fff;
+    border: none;
+    border-radius: 10px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.edges-apply-btn:hover {
+    background: #d55a1a;
+    transform: translateY(-1px);
+}
+
+/* ==========================================
+   RESPONSIVE
+   ========================================== */
+
+@media (max-width: 768px) {
+    .edges-top-section {
+        flex-direction: column;
+    }
+
+    .edges-visualization {
+        flex: none;
+    }
+
+    .edges-list {
+        grid-template-columns: 1fr;
+    }
+
+    .edges-modal-footer {
+        flex-direction: column;
+        gap: 16px;
+        text-align: center;
+    }
+
+    .edges-apply-btn {
+        width: 100%;
+    }
+}
+
+/* ==========================================
+   PRZYCISK W KALKULATORZE
+   ========================================== */
+
+.open-edges-modal-btn {
+    transition: all 0.2s;
+}
+
+.open-edges-modal-btn:disabled,
+.open-edges-modal-btn.disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    pointer-events: none;
+    background: #ccc !important;
+    border-color: #bbb !important;
+    color: #888 !important;
+}
+
+/* ==========================================
+   PODSUMOWANIE OPCJI (WYKOŃCZENIE + KRAWĘDZIE)
+   ========================================== */
+
+.options-summary {
+    margin-top: 12px;
+    padding: 16px;
+    background: #FFF5F0;
+    border: 1px solid #ffd9c7;
+    border-radius: 8px;
+    width: 100%;
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.options-summary-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+/* Separator między wierszami - dodawany dynamicznie przez JS */
+.options-summary-row.edges-row.has-separator {
+    padding-top: 12px;
+    border-top: 1px solid #ffd9c7;
+}
+
+.options-summary-content {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    flex: 1;
+}
+
+.options-summary-text {
+    font-size: 13px;
+    color: #666;
+    font-family: 'Poppins', sans-serif;
+}
+
+.options-summary-price {
+    font-size: 15px;
+    font-weight: 600;
+    color: #ED6B24;
+    font-family: 'Poppins', sans-serif;
+}
+
+.options-reset-btn {
+    padding: 6px 14px;
+    font-size: 12px;
+    font-family: 'Poppins', sans-serif;
+    background: #fff;
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.2s;
+    color: #666;
+    flex-shrink: 0;
+}
+
+.options-reset-btn:hover {
+    background: #f5f5f5;
+    border-color: #ccc;
+    color: #333;
+}
+

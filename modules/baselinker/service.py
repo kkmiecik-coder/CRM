@@ -162,71 +162,90 @@ class BaselinkerService:
                             error_type=type(e).__name__)
             raise
     
-    def sync_order_sources(self) -> bool:
-        """Synchronizuje źródła zamówień z Baselinker"""
+    def sync_order_sources(self) -> dict:
+        """
+        Synchronizuje źródła zamówień z Baselinker
+
+        Returns:
+            dict: {'success': bool, 'synced': int, 'error': str (opcjonalnie)}
+        """
         self.logger.info("Rozpoczęcie synchronizacji źródeł zamówień")
-        
+
         try:
             sources = self.get_order_sources()
             self.logger.debug("Pobrano źródła do synchronizacji", sources_count=len(sources))
-        
+
             # DODAJ STANDARDOWE ŹRÓDŁA JEŚLI ICH BRAK
             standard_sources = [
                 {'id': 0, 'name': 'Osobiście (personal)', 'category': 'personal'},
-                # Możesz dodać więcej standardowych źródeł
             ]
-        
+
             # Połącz źródła z API i standardowe
             all_sources = sources + standard_sources
-            
+
             updated_count = 0
             created_count = 0
-        
+
+            # Pobierz najwyższy sort_order
+            max_order = db.session.query(db.func.max(BaselinkerConfig.sort_order)).filter(
+                BaselinkerConfig.config_type == 'order_source'
+            ).scalar() or 0
+
             for source in all_sources:
-                self.logger.debug("Przetwarzanie źródła", 
+                self.logger.debug("Przetwarzanie źródła",
                                 source_id=source.get('id'),
                                 source_name=source.get('name'))
-            
+
                 existing = BaselinkerConfig.query.filter_by(
                     config_type='order_source',
                     baselinker_id=source.get('id')
                 ).first()
-            
+
                 if not existing:
+                    max_order += 1
                     config = BaselinkerConfig(
                         config_type='order_source',
                         baselinker_id=source.get('id'),
-                        name=source.get('name', 'Nieznane zrodlo')
+                        name=source.get('name', 'Nieznane zrodlo'),
+                        sort_order=max_order
                     )
                     db.session.add(config)
                     created_count += 1
-                    self.logger.debug("Utworzono nowe źródło", 
+                    self.logger.debug("Utworzono nowe źródło",
                                     source_name=config.name,
                                     source_id=config.baselinker_id)
                 else:
                     existing.name = source.get('name', existing.name)
                     existing.is_active = True
                     updated_count += 1
-                    self.logger.debug("Zaktualizowano źródło", 
+                    self.logger.debug("Zaktualizowano źródło",
                                     source_name=existing.name,
                                     source_id=existing.baselinker_id)
-        
+
             db.session.commit()
-        
+
             saved_count = BaselinkerConfig.query.filter_by(config_type='order_source').count()
-            self.logger.info("Synchronizacja źródeł zakończona pomyślnie", 
+            self.logger.info("Synchronizacja źródeł zakończona pomyślnie",
                            created_count=created_count,
                            updated_count=updated_count,
                            total_in_db=saved_count)
-        
-            return True
-        
+
+            return {
+                'success': True,
+                'synced': created_count + updated_count,
+                'created': created_count,
+                'updated': updated_count
+            }
+
         except Exception as e:
             db.session.rollback()
-            self.logger.error("Błąd synchronizacji źródeł", 
+            self.logger.error("Błąd synchronizacji źródeł",
                             error=str(e),
                             error_type=type(e).__name__)
-            return False
+            return {
+                'success': False,
+                'error': str(e)
+            }
     
     def sync_order_statuses(self) -> bool:
         """Synchronizuje statusy zamówień z Baselinker"""
@@ -576,6 +595,27 @@ class BaselinkerService:
                                 finishing_unit_netto=finishing_unit_netto,
                                 finishing_unit_brutto=finishing_unit_brutto)
 
+            # Dodaj cenę obróbki krawędzi do ceny jednostkowej (jeśli istnieje)
+            if finishing_details and finishing_details.edges_price_netto:
+                # edges_price_netto to CAŁKOWITY koszt obróbki krawędzi
+                # Dzielimy przez quantity, żeby otrzymać koszt za 1 sztukę
+                edges_total_netto = float(finishing_details.edges_price_netto or 0)
+                edges_total_brutto = float(finishing_details.edges_price_brutto or 0)
+
+                edges_unit_netto = edges_total_netto / quantity if quantity > 0 else 0
+                edges_unit_brutto = edges_total_brutto / quantity if quantity > 0 else 0
+
+                unit_price_netto += edges_unit_netto
+                unit_price_brutto += edges_unit_brutto
+
+                self.logger.debug("Dodano cenę obróbki krawędzi jednostkową",
+                                product_index=item.product_index,
+                                edges_total_netto=edges_total_netto,
+                                edges_total_brutto=edges_total_brutto,
+                                quantity=quantity,
+                                edges_unit_netto=edges_unit_netto,
+                                edges_unit_brutto=edges_unit_brutto)
+
             self.logger.debug("Finalne ceny produktu",
                             product_index=item.product_index,
                             final_unit_netto=unit_price_netto,
@@ -600,6 +640,12 @@ class BaselinkerService:
                     product_name += f" {finishing_desc}"
             else:
                 product_name += " surowa"
+
+            # Dodaj obróbkę krawędzi do nazwy jeśli istnieje
+            if finishing_details and finishing_details.edges_type and finishing_details.edges_config:
+                edges_desc = self._translate_edges_to_description(finishing_details)
+                if edges_desc:
+                    product_name += f" {edges_desc}"
 
             # 🆕 NOWE: Wybierz odpowiednie ceny w zależności od trybu
             if is_netto_mode:
@@ -804,6 +850,48 @@ class BaselinkerService:
                        payment_type_field_106169=payment_type_value,  # 🆕 NOWE w logowaniu
                        quote_type=quote_type)
 
+        # Generuj PDF z wizualizacją krawędzi (jeśli są produkty z krawędziami)
+        products_with_edges = []
+        for item in selected_items:
+            finishing_details = QuoteItemDetails.query.filter_by(
+                quote_id=quote.id,
+                product_index=item.product_index
+            ).first()
+
+            if finishing_details and finishing_details.edges_config and len(finishing_details.edges_config) > 0:
+                products_with_edges.append({
+                    'product_index': item.product_index,
+                    'product_name': self._translate_variant_code(item.variant_code),
+                    'dimensions': {
+                        'length': float(item.length_cm or 0),
+                        'width': float(item.width_cm or 0),
+                        'thickness': float(item.thickness_cm or 0)
+                    },
+                    'edges_config': finishing_details.edges_config,
+                    'edges_type': finishing_details.edges_type,
+                    'edges_r_value': finishing_details.edges_r_value,
+                    'edges_svg': finishing_details.edges_svg
+                })
+
+        # Dodaj PDF do custom_extra_fields jeśli są krawędzie
+        if products_with_edges:
+            try:
+                from modules.baselinker.edges_pdf_generator import EdgesPdfGenerator
+
+                pdf_generator = EdgesPdfGenerator(logger=self.logger)
+                pdf_data = pdf_generator.generate_pdf_base64(products_with_edges)
+
+                order_data['custom_extra_fields']['56476'] = pdf_data
+
+                self.logger.info("Wygenerowano PDF z krawędziami",
+                                products_count=len(products_with_edges),
+                                pdf_size_kb=round(len(pdf_data['file']) / 1024, 2))
+            except Exception as e:
+                self.logger.error("Błąd generowania PDF krawędzi",
+                                error=str(e),
+                                products_count=len(products_with_edges))
+                # Kontynuuj bez PDF - nie blokuj zamówienia
+
         return order_data
     
     def _generate_sku(self, item, finishing_details=None):
@@ -847,21 +935,37 @@ class BaselinkerService:
                 # Mapowanie wykończeń na 3-literowe kody
                 finishing_map = {
                     'lakier': 'LAK',
-                    'olej': 'OLE', 
+                    'olej': 'OLE',
                     'wosk': 'WOS',
                     'bejca': 'BEJ',
                     'lazura': 'LAZ'
                 }
-                
+
                 finishing_type = finishing_details.finishing_type.lower()
                 for key, value in finishing_map.items():
                     if key in finishing_type:
                         finishing = value
                         break
-            
+
+            # 7. Obróbka krawędzi
+            edge_code = ""
+            if finishing_details and finishing_details.edges_type and finishing_details.edges_config:
+                edges_config = finishing_details.edges_config
+                if edges_config and len(edges_config) > 0:
+                    # Mapowanie typów krawędzi na kody
+                    edge_type_map = {
+                        'round': 'ZR',   # Zaokrąglenie Rxx
+                        'chamfer': 'FR'  # Fazowanie Rxx
+                    }
+                    edge_type = finishing_details.edges_type
+                    r_value = finishing_details.edges_r_value or 0
+
+                    edge_prefix = edge_type_map.get(edge_type, 'XX')
+                    edge_code = f"{edge_prefix}{r_value}"
+
             # Składamy SKU
-            sku = f"{product_type}{species}{technology}{length}{width}{thickness}{wood_class}{finishing}"
-            
+            sku = f"{product_type}{species}{technology}{length}{width}{thickness}{wood_class}{finishing}{edge_code}"
+
             self.logger.debug("Wygenerowano SKU",
                             item_id=item.id,
                             variant_code=item.variant_code,
@@ -871,7 +975,8 @@ class BaselinkerService:
                             technology=technology,
                             dimensions=f"{length}x{width}x{thickness}",
                             wood_class=wood_class,
-                            finishing=finishing)
+                            finishing=finishing,
+                            edge_code=edge_code)
             
             return sku
             
@@ -973,9 +1078,39 @@ class BaselinkerService:
                          finishing_type=finishing_details.finishing_type,
                          finishing_color=finishing_details.finishing_color,
                          result=result)
-    
+
         return result
-    
+
+    def _translate_edges_to_description(self, finishing_details):
+        """Tłumaczy szczegóły obróbki krawędzi na czytelny opis (np. 'fazowanie R3')"""
+        if not finishing_details or not finishing_details.edges_type or not finishing_details.edges_config:
+            return None
+
+        edges_config = finishing_details.edges_config
+        if not edges_config or len(edges_config) == 0:
+            return None
+
+        edge_type = finishing_details.edges_type
+        r_value = finishing_details.edges_r_value or 0
+
+        # Mapowanie typów na polskie nazwy
+        type_names = {
+            'round': 'zaokrąglenie',
+            'chamfer': 'fazowanie'
+        }
+        type_name = type_names.get(edge_type, edge_type)
+
+        # Format: "zaokrąglenie R5" lub "fazowanie R3"
+        result = f"{type_name} R{r_value}"
+
+        self.logger.debug("Przetłumaczono obróbkę krawędzi na opis",
+                         edges_type=edge_type,
+                         edges_r_value=r_value,
+                         edge_count=len(edges_config),
+                         result=result)
+
+        return result
+
     def _build_user_comments(self, quote):
         """Buduje komentarz użytkownika z numerem wyceny i notatką"""
         # Zawsze dodaj numer wyceny
@@ -1683,3 +1818,157 @@ class BaselinkerService:
                 'success': False,
                 'error': str(e)
             }
+
+    def suggest_order_source(self, client, user_role: str, is_flexible_partner: bool = False) -> Optional[int]:
+        """
+        Sugeruje źródło zamówienia na podstawie kontekstu.
+
+        Logika:
+        1. Jeśli klient ma ustawione order_source_id → użyj tego
+        2. Detal - klient bez NIP
+        3. Nowy B2B - klient z NIP (pierwsze zamówienie)
+        4. Stały B2B - klient z NIP, który miał już zamówienie ze źródłem "Nowy B2B"
+        5. PH Nowy B2B - partner składa pierwsze zamówienie dla klienta z NIP
+        6. PH Stały B2B - partner składa >1 zamówienie dla klienta z NIP (poprzednie to "PH Nowy B2B")
+
+        Args:
+            client: Obiekt klienta (lub None)
+            user_role: Rola użytkownika ('admin', 'user', 'partner')
+            is_flexible_partner: Czy użytkownik jest flexible partner
+
+        Returns:
+            int: baselinker_id sugerowanego źródła lub None
+        """
+        from modules.calculator.models import Quote
+
+        self.logger.info("[SuggestSource] Rozpoczęcie sugerowania źródła",
+                        client_id=getattr(client, 'id', None),
+                        user_role=user_role,
+                        is_flexible_partner=is_flexible_partner)
+
+        if not client:
+            self.logger.debug("[SuggestSource] Brak klienta - zwracam None")
+            return None
+
+        # 1. Sprawdź czy klient ma ustawione domyślne źródło
+        if hasattr(client, 'order_source_id') and client.order_source_id:
+            self.logger.info("[SuggestSource] Klient ma ustawione order_source_id",
+                           client_id=client.id,
+                           order_source_id=client.order_source_id)
+            return client.order_source_id
+
+        # Pobierz wszystkie aktywne źródła zamówień (będziemy szukać po nazwie)
+        sources = BaselinkerConfig.query.filter_by(
+            config_type='order_source',
+            is_active=True
+        ).all()
+
+        # Mapowanie nazw źródeł na baselinker_id
+        source_map = {}
+        for s in sources:
+            name_lower = s.name.lower()
+            source_map[name_lower] = s.baselinker_id
+            # Dodaj też bez kategorii w nawiasie
+            if '(' in s.name:
+                name_without_category = s.name.split('(')[0].strip().lower()
+                source_map[name_without_category] = s.baselinker_id
+
+        self.logger.debug("[SuggestSource] Mapa źródeł", source_map=list(source_map.keys()))
+
+        # Określ czy klient ma NIP (B2B vs Detal)
+        has_nip = bool(client.invoice_nip and client.invoice_nip.strip())
+        is_partner = user_role == 'partner'
+
+        self.logger.debug("[SuggestSource] Parametry klienta",
+                        client_id=client.id,
+                        has_nip=has_nip,
+                        is_partner=is_partner)
+
+        # Zlicz poprzednie zamówienia klienta (wyceny z base_linker_order_id)
+        orders_count = Quote.query.filter(
+            Quote.client_id == client.id,
+            Quote.base_linker_order_id != None,
+            Quote.base_linker_order_id != ''
+        ).count()
+
+        self.logger.debug("[SuggestSource] Liczba zamówień klienta", orders_count=orders_count)
+
+        # Pobierz ostatnie zamówienie, aby sprawdzić jego źródło (jeśli istnieje)
+        last_order = Quote.query.filter(
+            Quote.client_id == client.id,
+            Quote.base_linker_order_id != None,
+            Quote.base_linker_order_id != ''
+        ).order_by(Quote.created_at.desc()).first()
+
+        last_source_name = None
+        if last_order and hasattr(last_order, 'source') and last_order.source:
+            last_source_name = last_order.source.lower()
+            self.logger.debug("[SuggestSource] Źródło ostatniego zamówienia", last_source_name=last_source_name)
+
+        # Określ sugerowane źródło na podstawie logiki
+        suggested_source_name = None
+
+        if not has_nip:
+            # Klient bez NIP = Detal
+            suggested_source_name = 'detal'
+            self.logger.info("[SuggestSource] Klient bez NIP -> Detal")
+
+        elif is_partner:
+            # Partner składa zamówienie dla klienta z NIP
+            if orders_count == 0:
+                # Pierwsze zamówienie partnera = PH Nowy B2B
+                suggested_source_name = 'ph nowy b2b'
+                self.logger.info("[SuggestSource] Partner, pierwsze zamówienie z NIP -> PH Nowy B2B")
+            else:
+                # Partner, >1 zamówienie
+                # Sprawdź czy poprzednie było "PH Nowy B2B"
+                if last_source_name and 'ph nowy b2b' in last_source_name:
+                    suggested_source_name = 'ph stały b2b'
+                    self.logger.info("[SuggestSource] Partner, poprzednie=PH Nowy B2B -> PH Stały B2B")
+                else:
+                    # Domyślnie PH Stały B2B dla partnerów z wieloma zamówieniami
+                    suggested_source_name = 'ph stały b2b'
+                    self.logger.info("[SuggestSource] Partner, >1 zamówienie -> PH Stały B2B")
+
+        else:
+            # Admin/User składa zamówienie dla klienta z NIP
+            if orders_count == 0:
+                # Pierwsze zamówienie = Nowy B2B
+                suggested_source_name = 'nowy b2b'
+                self.logger.info("[SuggestSource] Klient z NIP, pierwsze zamówienie -> Nowy B2B")
+            else:
+                # >1 zamówienie
+                # Sprawdź czy poprzednie było "Nowy B2B"
+                if last_source_name and 'nowy b2b' in last_source_name and 'ph' not in last_source_name:
+                    suggested_source_name = 'stały b2b'
+                    self.logger.info("[SuggestSource] Poprzednie=Nowy B2B -> Stały B2B")
+                else:
+                    # Domyślnie Stały B2B dla klientów z wieloma zamówieniami
+                    suggested_source_name = 'stały b2b'
+                    self.logger.info("[SuggestSource] Klient z NIP, >1 zamówienie -> Stały B2B")
+
+        # Znajdź baselinker_id dla sugerowanego źródła
+        if suggested_source_name:
+            # Szukaj dokładnego dopasowania lub zawierania nazwy
+            for name, bl_id in source_map.items():
+                if suggested_source_name in name or name in suggested_source_name:
+                    self.logger.info("[SuggestSource] Znaleziono źródło",
+                                   suggested_name=suggested_source_name,
+                                   matched_name=name,
+                                   baselinker_id=bl_id)
+                    return bl_id
+
+            self.logger.warning("[SuggestSource] Nie znaleziono źródła o nazwie",
+                              suggested_name=suggested_source_name,
+                              available_sources=list(source_map.keys()))
+
+        # Fallback - domyślne źródło
+        default_source = BaselinkerConfig.get_default_order_source()
+        if default_source:
+            self.logger.info("[SuggestSource] Użyto domyślnego źródła",
+                           source_name=default_source.name,
+                           baselinker_id=default_source.baselinker_id)
+            return default_source.baselinker_id
+
+        self.logger.warning("[SuggestSource] Brak sugerowanego źródła")
+        return None

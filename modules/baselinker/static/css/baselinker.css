@@ -267,16 +267,21 @@
     border-radius: 8px;
     padding: 16px;
     border-left: 4px solid #ED6B24;
-    margin-bottom: 16px;
+    margin-bottom: 20px;
+}
+
+/* Ekran 1 - usunięcie margin-bottom */
+.bl-style-step-content[data-step="1"] .bl-style-summary-box {
+    margin-bottom: 0;
 }
 
 .bl-style-summary-row {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 5px 0;
-    border-bottom: 1px solid #E0E0E0;
     font-size: 13px;
+    border-bottom: 1px solid #E0E0E0;
+    padding: 4px 0;
 }
 
     .bl-style-summary-row:last-child {
@@ -324,7 +329,7 @@
 
 .bl-style-products-header {
     display: grid;
-    grid-template-columns: 2fr 1fr 80px 1fr;
+    grid-template-columns: auto 150px 80px 140px;
     gap: 12px;
     padding: 12px 16px;
     background: #F5F5F5;
@@ -336,7 +341,7 @@
 
 .bl-style-product-item {
     display: grid;
-    grid-template-columns: 2fr 1fr 80px 1fr;
+    grid-template-columns: auto 150px 80px 140px;
     gap: 12px;
     padding: 12px 16px;
     border-bottom: 1px solid #F0F0F0;
@@ -375,6 +380,11 @@
     font-size: 12px;
 }
 
+/* Wartości szczegółów produktu - niepogrubione */
+.bl-style-detail-value {
+    font-weight: 400;
+}
+
 .bl-style-product-price {
     text-align: right;
 }
@@ -386,9 +396,9 @@
 /* Kontener dla kwot - używany wszędzie */
 .bl-style-amount {
     display: flex;
-    flex-direction: column;
-    align-items: flex-end;
-    gap: 2px;
+    flex-direction: row;
+    align-items: center;
+    gap: 10px;
 }
 
 /* Główna kwota (widoczna na górze) */
@@ -431,15 +441,17 @@
         display: flex;
         justify-content: space-between;
         align-items: center;
-        padding: 10px 0;
-        border-bottom: 1px solid #E0E0E0;
         font-size: 14px;
+        border-bottom: 1px solid #E0E0E0;
     }
+
+        .bl-style-financial-summary .bl-style-summary-row:nth-last-child(2) {
+            border-bottom: none;
+        }
 
         .bl-style-financial-summary .bl-style-summary-row:last-child {
             border-bottom: none;
-            padding-top: 14px;
-            margin-top: 10px;
+            padding-top: 3px;
             border-top: 2px solid #ED6B24;
         }
 
@@ -504,9 +516,7 @@
         display: flex;
         justify-content: space-between;
         align-items: center;
-        padding: 10px 0;
         font-size: 14px;
-        border-bottom: 1px solid #E0E0E0;
     }
 
         .bl-style-financial-breakdown .bl-style-summary-row:last-child {

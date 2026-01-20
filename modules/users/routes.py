@@ -37,12 +37,12 @@ from datetime import datetime
 from flask_login import current_user
 
 # ============================================================================
-# SETTINGS - Ustawienia użytkownika i zarządzanie zespołem
+# PROFILE - Profil użytkownika
 # ============================================================================
 
-@users_bp.route('/settings', methods=['GET', 'POST'])
+@users_bp.route('/profile', methods=['GET', 'POST'])
 @access_control(allow_all=True)
-def settings():
+def profile():
     """
     Strona ustawień użytkownika - dostępna dla WSZYSTKICH
     - Profil (imię, nazwisko, avatar)
@@ -137,7 +137,7 @@ def update_profile():
         current_app.logger.error(f"Błąd aktualizacji profilu: {str(e)}")
         flash("Wystąpił błąd podczas aktualizacji profilu.", "error")
     
-    return redirect(url_for('users.settings'))
+    return redirect(url_for('users.profile'))
 
 @users_bp.route('/manage', methods=['GET'])
 @require_module_access('users')
@@ -218,11 +218,11 @@ def update_password():
         # Walidacja
         if not all([old_password, new_password, confirm_password]):
             flash("Wszystkie pola są wymagane.", "error")
-            return redirect(url_for('users.settings'))
+            return redirect(url_for('users.profile'))
         
         if new_password != confirm_password:
             flash("Nowe hasła muszą być identyczne.", "error")
-            return redirect(url_for('users.settings'))
+            return redirect(url_for('users.profile'))
         
         # Zmień hasło
         UserService.update_password(current_user.id, old_password, new_password)
@@ -234,7 +234,7 @@ def update_password():
         current_app.logger.error(f"Błąd zmiany hasła: {str(e)}")
         flash("Wystąpił błąd podczas zmiany hasła.", "error")
     
-    return redirect(url_for('users.settings'))
+    return redirect(url_for('users.profile'))
 
 
 # ============================================================================
@@ -261,7 +261,7 @@ def update_avatar():
             
             if not avatar_file or avatar_file.filename == '':
                 flash("Nie wybrano avatara.", "error")
-                return redirect(url_for('users.settings'))
+                return redirect(url_for('users.profile'))
             
             # Zapisz plik
             from datetime import datetime
@@ -285,7 +285,7 @@ def update_avatar():
         current_app.logger.error(f"Błąd zmiany avatara: {str(e)}")
         flash("Wystąpił błąd podczas zmiany avatara.", "error")
     
-    return redirect(url_for('users.settings'))
+    return redirect(url_for('users.profile'))
 
 
 # ============================================================================

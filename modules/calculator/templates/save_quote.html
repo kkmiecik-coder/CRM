@@ -44,45 +44,10 @@
                     <!-- Źródło zapytania -->
                     <div class="sq-form-group">
                         <label class="sq-form-label">
-                            <span>Źródło zapytania <span class="sq-required">*</span></span>
+                            <span>Źródło zapytania <span class="sq-optional" style="color: #999;">(opcjonalne)</span></span>
                         </label>
-                        <select name="quote_source" class="sq-form-input" required>
-                            <option value="" disabled selected>Wybierz źródło zapytania</option>
-
-                            {% if user_role != 'partner' %}
-                            {# Admin i User - wszystkie opcje #}
-                            <optgroup label="Allegro">
-                                <option value="woodpower">woodpower</option>
-                            </optgroup>
-                            <optgroup label="Sklep internetowy">
-                                <option value="PrestaShop">PrestaShop</option>
-                            </optgroup>
-                            <optgroup label="Pozostałe">
-                                <option value="Osobiście">Osobiście</option>
-                                <option value="Telefon">Telefon</option>
-                                <option value="E-mail">E-mail</option>
-                                <option value="Czernecki">Czernecki</option>
-                            </optgroup>
-                            <optgroup label="Ceneo">
-                                <option value="Ceneo">Ceneo</option>
-                            </optgroup>
-                            <optgroup label="OLX">
-                                <option value="OLX">OLX</option>
-                            </optgroup>
-
-                            {% elif is_flexible_partner %}
-                            {# Flexible Partner - opcje podstawowe + Czernecki #}
-                            <option value="Osobiście">Osobiście</option>
-                            <option value="Telefon">Telefon</option>
-                            <option value="E-mail">E-mail</option>
-                            <option value="Czernecki">Czernecki</option>
-
-                            {% else %}
-                            {# Standardowy Partner - tylko opcje podstawowe #}
-                            <option value="Osobiście">Osobiście</option>
-                            <option value="Telefon">Telefon</option>
-                            <option value="E-mail">E-mail</option>
-                            {% endif %}
+                        <select name="quote_source" class="sq-form-input" id="quoteSourceSelect">
+                            <option value="" disabled selected>Ładowanie źródeł...</option>
                         </select>
                         <span class="sq-error-message"></span>
                     </div>

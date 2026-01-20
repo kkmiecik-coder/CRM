@@ -1,0 +1,269 @@
+<!-- Modal obróbki krawędzi -->
+<div id="edgesModal" class="edges-modal-overlay" style="display: none;">
+    <div class="edges-modal-container">
+        <div class="edges-modal-header">
+            <h3>Obróbka krawędzi</h3>
+            <button type="button" class="edges-modal-close" id="closeEdgesModal">&times;</button>
+        </div>
+
+        <div class="edges-modal-body">
+            <!-- Sekcja górna: Wizualizacja + Opcje -->
+            <div class="edges-top-section">
+                <!-- Wizualizacja SVG -->
+                <div class="edges-visualization">
+                    <button type="button" class="edges-toggle-labels" id="toggleEdgeLabels">
+                        Ukryj etykiety
+                    </button>
+                    <div class="edges-svg-container">
+                        <!-- SVG izometryczny sześcian -->
+                        <svg viewBox="0 0 320 220" class="edges-interactive-svg" id="edgesSvg">
+                            <!-- Ściany (tło) -->
+                            <polygon class="edges-face edges-face-top"
+                                     points="50,120 120,70 270,100 200,150"/>
+                            <polygon class="edges-face edges-face-front"
+                                     points="50,120 200,150 200,175 50,145"/>
+                            <polygon class="edges-face edges-face-right"
+                                     points="200,150 270,100 270,125 200,175"/>
+
+                            <!-- Krawędzie ukryte (przerywane) -->
+                            <line class="edges-line edges-hidden" data-edge="F" x1="120" y1="95" x2="270" y2="125"/>
+                            <line class="edges-line edges-hidden" data-edge="G" x1="50" y1="145" x2="120" y2="95"/>
+                            <line class="edges-line edges-hidden edges-corner" data-edge="N3" x1="120" y1="70" x2="120" y2="95"/>
+
+                            <!-- Krawędzie górne -->
+                            <line class="edges-line" data-edge="A" x1="50" y1="120" x2="200" y2="150"/>
+                            <line class="edges-line" data-edge="B" x1="120" y1="70" x2="270" y2="100"/>
+                            <line class="edges-line" data-edge="C" x1="50" y1="120" x2="120" y2="70"/>
+                            <line class="edges-line" data-edge="D" x1="200" y1="150" x2="270" y2="100"/>
+
+                            <!-- Krawędzie dolne widoczne -->
+                            <line class="edges-line" data-edge="E" x1="50" y1="145" x2="200" y2="175"/>
+                            <line class="edges-line" data-edge="H" x1="200" y1="175" x2="270" y2="125"/>
+
+                            <!-- Narożniki (pionowe) -->
+                            <line class="edges-line edges-corner" data-edge="N1" x1="50" y1="120" x2="50" y2="145"/>
+                            <line class="edges-line edges-corner" data-edge="N2" x1="200" y1="150" x2="200" y2="175"/>
+                            <line class="edges-line edges-corner" data-edge="N4" x1="270" y1="100" x2="270" y2="125"/>
+
+                            <!-- Etykiety -->
+                            <g class="edges-labels" id="edgeLabelsGroup">
+                                <!-- Górne poziome -->
+                                <g class="edges-label" data-edge="A">
+                                    <circle cx="125" cy="138" r="12"/>
+                                    <text x="125" y="142">A</text>
+                                </g>
+                                <g class="edges-label" data-edge="B">
+                                    <circle cx="195" cy="88" r="12"/>
+                                    <text x="195" y="92">B</text>
+                                </g>
+                                <g class="edges-label" data-edge="C">
+                                    <circle cx="80" cy="92" r="12"/>
+                                    <text x="80" y="96">C</text>
+                                </g>
+                                <g class="edges-label" data-edge="D">
+                                    <circle cx="238" cy="128" r="12"/>
+                                    <text x="238" y="132">D</text>
+                                </g>
+
+                                <!-- Dolne poziome -->
+                                <g class="edges-label" data-edge="E">
+                                    <circle cx="125" cy="163" r="12"/>
+                                    <text x="125" y="167">E</text>
+                                </g>
+                                <g class="edges-label" data-edge="F">
+                                    <circle cx="195" cy="113" r="12"/>
+                                    <text x="195" y="117">F</text>
+                                </g>
+                                <g class="edges-label" data-edge="G">
+                                    <circle cx="80" cy="118" r="12"/>
+                                    <text x="80" y="122">G</text>
+                                </g>
+                                <g class="edges-label" data-edge="H">
+                                    <circle cx="238" cy="153" r="12"/>
+                                    <text x="238" y="157">H</text>
+                                </g>
+
+                                <!-- Narożniki -->
+                                <g class="edges-label edges-label-corner" data-edge="N1">
+                                    <circle cx="38" cy="132" r="14"/>
+                                    <text x="38" y="136">N1</text>
+                                </g>
+                                <g class="edges-label edges-label-corner" data-edge="N2">
+                                    <circle cx="212" cy="165" r="14"/>
+                                    <text x="212" y="169">N2</text>
+                                </g>
+                                <g class="edges-label edges-label-corner" data-edge="N3">
+                                    <circle cx="132" cy="82" r="14"/>
+                                    <text x="132" y="86">N3</text>
+                                </g>
+                                <g class="edges-label edges-label-corner" data-edge="N4">
+                                    <circle cx="282" cy="115" r="14"/>
+                                    <text x="282" y="119">N4</text>
+                                </g>
+                            </g>
+                        </svg>
+                    </div>
+                </div>
+
+                <!-- Panel opcji -->
+                <div class="edges-options-panel">
+                    <!-- Szybkie akcje -->
+                    <div class="edges-quick-actions">
+                        <button type="button" class="edges-quick-btn" data-action="select-top">Góra</button>
+                        <button type="button" class="edges-quick-btn" data-action="select-bottom">Dół</button>
+                        <button type="button" class="edges-quick-btn" data-action="select-all">Wszystkie</button>
+                        <button type="button" class="edges-quick-btn edges-quick-btn-deselect" data-action="deselect-all">Odznacz</button>
+                    </div>
+
+                    <!-- Typ obróbki -->
+                    <div class="edges-type-selector">
+                        <label>Typ obróbki:</label>
+                        <select id="edgeTypeSelect">
+                            <option value="round" data-r-min="3" data-r-max="20" data-r-default="5" selected>Zaokrąglenie</option>
+                            <option value="chamfer" data-r-min="3" data-r-max="10" data-r-default="3">Fazowanie</option>
+                        </select>
+                    </div>
+
+                    <!-- Promień R -->
+                    <div class="edges-r-value-group">
+                        <label>Promień R:</label>
+                        <input type="number" id="edgeRValue" min="3" max="20" value="5">
+                        <span>mm</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Sekcja krawędzi poziomych -->
+            <div class="edges-section">
+                <h4>Krawędzie poziome</h4>
+
+                <!-- Góra -->
+                <div class="edges-group">
+                    <h5>GÓRA</h5>
+                    <div class="edges-list">
+                        <div class="edges-item" data-edge="A">
+                            <label class="edges-checkbox">
+                                <input type="checkbox" name="edge_A">
+                                <span class="edges-letter">A</span>
+                                <span class="edges-name">Góra przednia</span>
+                                <span class="edges-length" data-dimension="length">(0 cm)</span>
+                            </label>
+                        </div>
+                        <div class="edges-item" data-edge="B">
+                            <label class="edges-checkbox">
+                                <input type="checkbox" name="edge_B">
+                                <span class="edges-letter">B</span>
+                                <span class="edges-name">Góra tylna</span>
+                                <span class="edges-length" data-dimension="length">(0 cm)</span>
+                            </label>
+                        </div>
+                        <div class="edges-item" data-edge="C">
+                            <label class="edges-checkbox">
+                                <input type="checkbox" name="edge_C">
+                                <span class="edges-letter">C</span>
+                                <span class="edges-name">Góra lewa</span>
+                                <span class="edges-length" data-dimension="width">(0 cm)</span>
+                            </label>
+                        </div>
+                        <div class="edges-item" data-edge="D">
+                            <label class="edges-checkbox">
+                                <input type="checkbox" name="edge_D">
+                                <span class="edges-letter">D</span>
+                                <span class="edges-name">Góra prawa</span>
+                                <span class="edges-length" data-dimension="width">(0 cm)</span>
+                            </label>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Dół -->
+                <div class="edges-group">
+                    <h5>DÓŁ</h5>
+                    <div class="edges-list">
+                        <div class="edges-item" data-edge="E">
+                            <label class="edges-checkbox">
+                                <input type="checkbox" name="edge_E">
+                                <span class="edges-letter">E</span>
+                                <span class="edges-name">Dół przednia</span>
+                                <span class="edges-length" data-dimension="length">(0 cm)</span>
+                            </label>
+                        </div>
+                        <div class="edges-item" data-edge="F">
+                            <label class="edges-checkbox">
+                                <input type="checkbox" name="edge_F">
+                                <span class="edges-letter">F</span>
+                                <span class="edges-name">Dół tylna</span>
+                                <span class="edges-length" data-dimension="length">(0 cm)</span>
+                            </label>
+                        </div>
+                        <div class="edges-item" data-edge="G">
+                            <label class="edges-checkbox">
+                                <input type="checkbox" name="edge_G">
+                                <span class="edges-letter">G</span>
+                                <span class="edges-name">Dół lewa</span>
+                                <span class="edges-length" data-dimension="width">(0 cm)</span>
+                            </label>
+                        </div>
+                        <div class="edges-item" data-edge="H">
+                            <label class="edges-checkbox">
+                                <input type="checkbox" name="edge_H">
+                                <span class="edges-letter">H</span>
+                                <span class="edges-name">Dół prawa</span>
+                                <span class="edges-length" data-dimension="width">(0 cm)</span>
+                            </label>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Sekcja narożników -->
+            <div class="edges-section edges-corners-section">
+                <h4>Narożniki (krawędzie pionowe)</h4>
+                <div class="edges-list edges-corners-list">
+                    <div class="edges-item edges-corner-item" data-edge="N1">
+                        <label class="edges-checkbox">
+                            <input type="checkbox" name="edge_N1">
+                            <span class="edges-letter edges-letter-corner">N1</span>
+                            <span class="edges-name">Przedni lewy</span>
+                            <span class="edges-length" data-dimension="thickness">(0 cm)</span>
+                        </label>
+                    </div>
+                    <div class="edges-item edges-corner-item" data-edge="N2">
+                        <label class="edges-checkbox">
+                            <input type="checkbox" name="edge_N2">
+                            <span class="edges-letter edges-letter-corner">N2</span>
+                            <span class="edges-name">Przedni prawy</span>
+                            <span class="edges-length" data-dimension="thickness">(0 cm)</span>
+                        </label>
+                    </div>
+                    <div class="edges-item edges-corner-item" data-edge="N3">
+                        <label class="edges-checkbox">
+                            <input type="checkbox" name="edge_N3">
+                            <span class="edges-letter edges-letter-corner">N3</span>
+                            <span class="edges-name">Tylny lewy</span>
+                            <span class="edges-length" data-dimension="thickness">(0 cm)</span>
+                        </label>
+                    </div>
+                    <div class="edges-item edges-corner-item" data-edge="N4">
+                        <label class="edges-checkbox">
+                            <input type="checkbox" name="edge_N4">
+                            <span class="edges-letter edges-letter-corner">N4</span>
+                            <span class="edges-name">Tylny prawy</span>
+                            <span class="edges-length" data-dimension="thickness">(0 cm)</span>
+                        </label>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Stopka z ceną i przyciskiem -->
+        <div class="edges-modal-footer">
+            <div class="edges-price-summary">
+                <span class="edges-price-label">Cena za obróbkę krawędzi:</span>
+                <span class="edges-price-brutto" id="edgesPriceBrutto">0,00 zł</span>
+                <span class="edges-price-netto" id="edgesPriceNetto">(0,00 zł netto)</span>
+            </div>
+            <button type="button" class="edges-apply-btn" id="applyEdgesBtn">ZASTOSUJ</button>
+        </div>
+    </div>
+</div>

@@ -206,7 +206,7 @@
         /* STOPKA - FIXED NA KAŻDEJ STRONIE */
         .footer {
             position: fixed;
-            bottom: -55px; /* Ujemna wartość = w marginesie dolnym */
+            bottom: -50px; /* Wyrównanie do dolnej krawędzi */
             left: -15mm;   /* Wyrównanie do krawędzi strony */
             right: -15mm;
             height: 50px;
@@ -254,6 +254,103 @@
         /* Dla telefonu - dwa numery w pionie */
         .footer-phone {
             line-height: 1.1;
+        }
+
+        /* ========== ZAŁĄCZNIK - OBRÓBKA KRAWĘDZI ========== */
+        .attachment-page {
+            page-break-before: always;
+        }
+
+        .attachment-header {
+            text-align: center;
+            margin-bottom: 20px;
+        }
+
+        .attachment-title {
+            font-size: 16px;
+            font-weight: bold;
+            color: #333;
+            margin: 0;
+        }
+
+        /* Grid dla produktów z krawędziami - ~5 na stronę */
+        .edges-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+            margin-top: 15px;
+        }
+
+        .edge-item {
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            padding: 12px;
+            background: #fafafa;
+            page-break-inside: avoid;
+        }
+
+        .edge-item-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+            padding-bottom: 8px;
+            border-bottom: 1px solid #eee;
+        }
+
+        .edge-item-position {
+            font-size: 14px;
+            font-weight: bold;
+            color: #ED6B24;
+        }
+
+        .edge-item-dimensions {
+            font-size: 11px;
+            color: #666;
+        }
+
+        .attachment-note {
+            font-size: 11px;
+            color: #666;
+            margin: 0 0 15px 0;
+            text-align: center;
+            font-style: italic;
+        }
+
+        .edge-item-content {
+            display: flex;
+            gap: 12px;
+            align-items: flex-start;
+        }
+
+        .edge-item-svg {
+            flex-shrink: 0;
+            width: 120px;
+            height: 120px;
+        }
+
+        .edge-item-svg svg {
+            width: 120px;
+            height: 120px;
+        }
+
+        .edge-item-info {
+            flex-grow: 1;
+            font-size: 10px;
+        }
+
+        .edge-item-info div {
+            margin-bottom: 4px;
+        }
+
+        .edge-item-info strong {
+            color: #333;
+        }
+
+        .edge-note {
+            font-style: italic;
+            color: #666;
+            margin-top: 8px;
         }
     </style>
 </head>
@@ -492,6 +589,15 @@
         <div class="notes-section">
             <div class="notes-section-title">Uwagi i warunki:</div>
             <ul>
+                {% set has_edges = namespace(value=false) %}
+                {% for detail in finishing_details %}
+                    {% if detail.edges_config and detail.edges_config|length > 0 %}
+                        {% set has_edges.value = true %}
+                    {% endif %}
+                {% endfor %}
+                {% if has_edges.value %}
+                <li><strong>Do oferty dołączono załącznik z wizualizacją obróbki krawędzi - Załącznik nr 1</strong></li>
+                {% endif %}
                 <li>Termin realizacji: do uzgodnienia po potwierdzeniu zamówienia</li>
                 <li>Płatność: przelew bankowy, przelew online</li>
                 {% if quote.shipping_cost_brutto and quote.shipping_cost_brutto > 0 %}
@@ -502,6 +608,53 @@
             </ul>
         </div>
     </div>
+
+    <!-- ========== ZAŁĄCZNIK NR 1 - OBRÓBKA KRAWĘDZI ========== -->
+    {% set edges_items = [] %}
+    {% for detail in finishing_details %}
+        {% if detail.edges_config and detail.edges_config|length > 0 %}
+            {% set _ = edges_items.append(detail) %}
+        {% endif %}
+    {% endfor %}
+
+    {% if edges_items|length > 0 %}
+    <div class="attachment-page">
+        <div class="attachment-header">
+            <div class="attachment-title">Załącznik nr 1 do wyceny nr {{ quote.quote_number }}</div>
+        </div>
+
+        <div class="edges-grid">
+            {% for detail in edges_items %}
+            {% set item = selected_items|selectattr('product_index', 'equalto', detail.product_index)|first %}
+            <div class="edge-item">
+                <div class="edge-item-header">
+                    <span class="edge-item-position">Pozycja {{ detail.product_index }}</span>
+                    {% if item %}
+                    <span class="edge-item-dimensions">{{ "%.1f"|format(item.length_cm) }} × {{ "%.1f"|format(item.width_cm) }} × {{ "%.1f"|format(item.thickness_cm) }} cm</span>
+                    {% endif %}
+                </div>
+                <div class="edge-item-content">
+                    {% if edges_images and edges_images.get(detail.product_index) %}
+                    <div class="edge-item-svg">
+                        {{ edges_images[detail.product_index]|safe }}
+                    </div>
+                    {% endif %}
+                    <div class="edge-item-info">
+                        <div><strong>Typ obróbki:</strong>
+                            {% if detail.edges_type == 'chamfer' %}Fazowanie
+                            {% elif detail.edges_type == 'round' %}Zaokrąglenie
+                            {% else %}{{ detail.edges_type or 'Standardowa' }}
+                            {% endif %}
+                        </div>
+                        <div><strong>Promień R:</strong> {{ detail.edges_r_value or '-' }}</div>
+                        <div class="edge-note">Krawędzie zaznaczone kolorem pomarańczowym zostaną poddane obróbce.</div>
+                    </div>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
 
     <!-- STOPKA Z KONTAKTEM - TABELA Z OSOBNYMI KOMÓRKAMI -->
     <div class="footer">

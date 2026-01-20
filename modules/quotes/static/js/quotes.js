@@ -1531,7 +1531,10 @@ function buildVariantPriceDisplay(variant, quantity, quoteData) {
     // Znajdź szczegóły wykończenia dla tego produktu
     const finishing = (quoteData.finishing || []).find(f => f.product_index == variant.product_index);
     const finishingType = finishing ? finishing.finishing_type : 'Surowe';
-    const hasFinishing = finishingType && finishingType !== 'Surowe' && finishingType !== 'Brak';
+    const hasPaintFinishing = finishingType && finishingType !== 'Surowe' && finishingType !== 'Brak';
+    const hasEdges = finishing && (finishing.edges_price_brutto > 0 || finishing.edges_price_netto > 0);
+    // Wykończenie = malowanie LUB obróbka krawędzi
+    const hasFinishing = hasPaintFinishing || hasEdges;
 
     // Przygotuj nazwę wariantu
     const variantName = translateVariantCode(variant.variant_code);
@@ -1543,13 +1546,16 @@ function buildVariantPriceDisplay(variant, quantity, quoteData) {
     const totalNetto = unitPriceNetto * quantity;
     const pricePerM3 = variant.price_per_m3 || 0;
 
-    // Ceny wykończenia (jeśli istnieje)
+    // Ceny wykończenia i krawędzi (jeśli istnieje)
     let finishingPriceBrutto = 0;
     let finishingPriceNetto = 0;
     if (finishing) {
         const finishingQuantity = finishing.quantity || quantity || 1;
-        finishingPriceBrutto = (finishing.finishing_price_brutto || 0) / finishingQuantity;
-        finishingPriceNetto = (finishing.finishing_price_netto || 0) / finishingQuantity;
+        // Uwzględnij zarówno wykończenie jak i obróbkę krawędzi
+        const totalFinishingBrutto = (finishing.finishing_price_brutto || 0) + (finishing.edges_price_brutto || 0);
+        const totalFinishingNetto = (finishing.finishing_price_netto || 0) + (finishing.edges_price_netto || 0);
+        finishingPriceBrutto = totalFinishingBrutto / finishingQuantity;
+        finishingPriceNetto = totalFinishingNetto / finishingQuantity;
     }
     const finishingTotalBrutto = finishingPriceBrutto * quantity;
     const finishingTotalNetto = finishingPriceNetto * quantity;
@@ -1844,19 +1850,18 @@ function setupProductTabs(quoteData, tabsContainer, itemsContainer) {
 
         // ——— 3. NOWY LAYOUT: KAFELKI WARIANTÓW ———
 
+        // Sprawdź czy produkt ma wykończenie (malowanie LUB krawędzie)
+        const finishing = (quoteData.finishing || []).find(f => f.product_index == index);
+        const finishingType = finishing ? finishing.finishing_type : 'Surowe';
+        const hasPaintFinishing = finishingType && finishingType !== 'Surowe' && finishingType !== 'Brak';
+        const hasEdges = finishing && (finishing.edges_price_brutto > 0 || finishing.edges_price_netto > 0);
+        const productHasFinishing = hasPaintFinishing || hasEdges;
+
         // Znajdź warianty z wykończeniem
-        const variantsWithFinishing = grouped[index].filter(item => {
-            const finishing = (quoteData.finishing || []).find(f => f.product_index == index);
-            const finishingType = finishing ? finishing.finishing_type : 'Surowe';
-            return finishingType && finishingType !== 'Surowe' && finishingType !== 'Brak';
-        });
+        const variantsWithFinishing = productHasFinishing ? grouped[index] : [];
 
         // Znajdź warianty surowe
-        const rawVariants = grouped[index].filter(item => {
-            const finishing = (quoteData.finishing || []).find(f => f.product_index == index);
-            const finishingType = finishing ? finishing.finishing_type : 'Surowe';
-            return !finishingType || finishingType === 'Surowe' || finishingType === 'Brak';
-        });
+        const rawVariants = productHasFinishing ? [] : grouped[index];
 
         // Grid dla wariantów z wykończeniem
         if (variantsWithFinishing.length > 0) {
@@ -2528,17 +2533,17 @@ function renderSelectedSummary(groupedItems, container) {
         const baseUnitPriceBrutto = selected.unit_price_brutto || selected.final_price_brutto || 0;
         const baseUnitPriceNetto = selected.unit_price_netto || selected.final_price_netto || 0;
 
-        // Dodaj cenę wykończenia do ceny jednostkowej (jeśli istnieje)
+        // Dodaj cenę wykończenia i krawędzi do ceny jednostkowej (jeśli istnieje)
         let finalUnitPriceBrutto = baseUnitPriceBrutto;
         let finalUnitPriceNetto = baseUnitPriceNetto;
 
-        if (finishing && finishing.finishing_price_brutto) {
+        if (finishing) {
             const finishingQuantity = finishing.quantity || quantity || 1;
-            finalUnitPriceBrutto += parseFloat(finishing.finishing_price_brutto || 0) / finishingQuantity;
-        }
-        if (finishing && finishing.finishing_price_netto) {
-            const finishingQuantity = finishing.quantity || quantity || 1;
-            finalUnitPriceNetto += parseFloat(finishing.finishing_price_netto || 0) / finishingQuantity;
+            // Uwzględnij zarówno wykończenie jak i obróbkę krawędzi
+            const totalFinishingBrutto = (parseFloat(finishing.finishing_price_brutto || 0)) + (parseFloat(finishing.edges_price_brutto || 0));
+            const totalFinishingNetto = (parseFloat(finishing.finishing_price_netto || 0)) + (parseFloat(finishing.edges_price_netto || 0));
+            finalUnitPriceBrutto += totalFinishingBrutto / finishingQuantity;
+            finalUnitPriceNetto += totalFinishingNetto / finishingQuantity;
         }
 
         // Oblicz wartości całkowite (cena jednostkowa × ilość)
@@ -2639,42 +2644,72 @@ function renderVariantSummary(groupedItemsForIndex, quoteData, productIndex) {
     
     let finalUnitPriceBrutto = baseUnitPriceBrutto;
     let finalUnitPriceNetto = baseUnitPriceNetto;
-    
-    // Dodaj cenę wykończenia do ceny jednostkowej
-    if (finishing && finishing.finishing_price_brutto) {
+
+    // Dodaj cenę wykończenia i krawędzi do ceny jednostkowej
+    if (finishing) {
         const finishingQuantity = finishing.quantity || quantity || 1;
-        finalUnitPriceBrutto += parseFloat(finishing.finishing_price_brutto || 0) / finishingQuantity;
+        // Uwzględnij zarówno wykończenie jak i obróbkę krawędzi
+        const totalFinishingBrutto = (parseFloat(finishing.finishing_price_brutto || 0)) + (parseFloat(finishing.edges_price_brutto || 0));
+        const totalFinishingNetto = (parseFloat(finishing.finishing_price_netto || 0)) + (parseFloat(finishing.edges_price_netto || 0));
+        finalUnitPriceBrutto += totalFinishingBrutto / finishingQuantity;
+        finalUnitPriceNetto += totalFinishingNetto / finishingQuantity;
     }
-    if (finishing && finishing.finishing_price_netto) {
-        const finishingQuantity = finishing.quantity || quantity || 1;
-        finalUnitPriceNetto += parseFloat(finishing.finishing_price_netto || 0) / finishingQuantity;
-    }
-    
+
     // Oblicz wartości całkowite
     const totalBrutto = finalUnitPriceBrutto * quantity;
     const totalNetto = finalUnitPriceNetto * quantity;
 
-    // Oblicz koszt wykończenia dla wyświetlenia
+    // Oblicz koszt wykończenia (tylko malowanie/olejowanie, bez krawędzi)
     let finishingCostDisplay = '0.00 PLN';
-    if (finishing && finishing.finishing_price_brutto && parseFloat(finishing.finishing_price_brutto) > 0) {
+    if (finishing) {
         const finishingCostBrutto = parseFloat(finishing.finishing_price_brutto || 0);
         const finishingCostNetto = parseFloat(finishing.finishing_price_netto || 0);
-        finishingCostDisplay = `${finishingCostBrutto.toFixed(2)} PLN <span class="cost-netto">${finishingCostNetto.toFixed(2)} PLN</span>`;
+        if (finishingCostBrutto > 0) {
+            finishingCostDisplay = `${finishingCostBrutto.toFixed(2)} PLN <span class="cost-netto">${finishingCostNetto.toFixed(2)} PLN</span>`;
+        }
+    }
+
+    // Przygotuj informacje o obróbce krawędzi
+    let edgesInfoHtml = '';
+    let edgesSvgHtml = '';
+    if (finishing && finishing.edges_config && finishing.edges_config.length > 0) {
+        const edgesConfig = finishing.edges_config;
+        const edgesType = finishing.edges_type === 'chamfer' ? 'Fazowanie' :
+                         finishing.edges_type === 'round' ? 'Zaokrąglenie' : finishing.edges_type;
+        const edgesRValue = finishing.edges_r_value || '-';
+        const edgesPriceBrutto = parseFloat(finishing.edges_price_brutto || 0);
+        const edgesPriceNetto = parseFloat(finishing.edges_price_netto || 0);
+
+        // Lista zaznaczonych krawędzi
+        const edgeLetters = edgesConfig.map(e => e.letter).sort().join(', ');
+
+        edgesInfoHtml = `
+            <div class="edges-separator"></div>
+            <div><strong>Obróbka krawędzi:</strong> ${edgesType} R${edgesRValue}</div>
+            <div><strong>Krawędzie:</strong> ${edgeLetters}</div>
+            <div><strong>Koszt krawędzi:</strong> ${edgesPriceBrutto.toFixed(2)} PLN <span class="cost-netto">${edgesPriceNetto.toFixed(2)} PLN</span></div>
+        `;
+
+        // Przygotuj SVG jeśli istnieje
+        if (finishing.edges_svg) {
+            edgesSvgHtml = `<div class="edges-svg-preview">${finishing.edges_svg}</div>`;
+        }
     }
 
     wrap.innerHTML = `
-        <div class="product-details">
+        <div class="product-column">
             <div><strong>Wariant:</strong> ${translateVariantCode(item.variant_code) || 'Nieznany wariant'}</div>
             <div><strong>Wymiary:</strong> ${dims}</div>
             <div><strong>Objętość:</strong> ${volume}</div>
-            <div><strong>Wykończenie:</strong> ${finishingDisplay}</div>
-            <div><strong>Koszt wykończenia:</strong> ${finishingCostDisplay}</div>
+            <div><strong>Ilość:</strong> ${quantity} szt.</div>
         </div>
-        <div class="product-pricing">
-            <div class="pricing-row" style="align-items: center;">
-                <span><strong>Ilość:</strong></span>
-                <span>${quantity} szt.</span>
+        <div class="finishing-column">
+            <div class="finishing-info">
+                <div><strong>Wykończenie:</strong> ${finishingDisplay}</div>
+                <div><strong>Koszt malowania:</strong> ${finishingCostDisplay}</div>
+                ${edgesInfoHtml}
             </div>
+            ${edgesSvgHtml}
         </div>
     `;
 

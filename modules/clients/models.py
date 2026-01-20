@@ -17,7 +17,7 @@ class Client(db.Model):
     delivery_city = db.Column(db.String(100))
     delivery_region = db.Column(db.String(100))
     delivery_country = db.Column(db.String(100))
-    
+
     # Dane do faktury
     invoice_name = db.Column(db.String(255))
     invoice_company = db.Column(db.String(255))
@@ -26,18 +26,21 @@ class Client(db.Model):
     invoice_city = db.Column(db.String(100))
     invoice_region = db.Column(db.String(100))
     invoice_nip = db.Column(db.String(20))
-    
-    # Źródło pochodzenia
+
+    # Źródło pochodzenia (wyceny)
     source = db.Column(db.String(100))
+
+    # Domyślne źródło zamówień Baselinker (baselinker_id)
+    order_source_id = db.Column(db.Integer, nullable=True)
 
     # Notatka o kliencie
     notes = db.Column(db.Text, nullable=True)
 
-    # ✅ NOWE: Właściciel klienta (kto go utworzył)
+    # Właściciel klienta (kto go utworzył)
     created_by_user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
-    
-    # ✅ NOWA RELACJA: dostęp do danych użytkownika przez client.created_by
+
+    # Relacja: dostęp do danych użytkownika przez client.created_by
     created_by = db.relationship('User', foreign_keys=[created_by_user_id], backref='created_clients')
-    
+
     def __repr__(self):
         return f"<Client {self.client_name}>"

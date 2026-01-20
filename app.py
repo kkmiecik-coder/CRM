@@ -38,6 +38,7 @@ from modules.users import users_bp
 from modules.help import help_bp
 from modules.issues import issues_bp
 from modules.ai_assistant import ai_assistant_bp
+from modules.settings import settings_bp
 
 from flask_login import login_user, logout_user  # DODANE importy
 from sqlalchemy.exc import ResourceClosedError, OperationalError
@@ -254,6 +255,7 @@ def create_app():
         app.register_blueprint(help_bp)
         app.register_blueprint(issues_bp)
         app.register_blueprint(ai_assistant_bp)
+        app.register_blueprint(settings_bp, url_prefix='/settings')
 
         print("✅ Wszystkie blueprinty zarejestrowane", file=sys.stderr)
 
@@ -518,7 +520,7 @@ def create_app():
                                 user_email=current_email,
                                 user_role=current_user.role if current_user else 'brak_użytkownika')
             flash("Brak uprawnień. Tylko administrator może edytować cennik.", "error")
-            return redirect(url_for('users.settings'))
+            return redirect(url_for('users.profile'))
 
         # 2A. Obsługa zapisu (POST)
         if request.method == "POST":
@@ -736,7 +738,7 @@ def create_app():
         user = User.query.filter_by(email=user_email).first()
         if not user or user.role != 'admin':
             flash('Brak uprawnień. Tylko administrator ma dostęp do logów.', 'error')
-            return redirect(url_for('users.settings'))
+            return redirect(url_for('users.profile'))
         return render_template('settings_page/logs_console.html')
 
     @app.route('/api/latest-version')
@@ -841,17 +843,19 @@ def create_app():
                     current_app.logger.debug(f"[Context] Błąd pobierania info sesji: {e}")
             
                 return dict(
-                    user_name=user_name, 
-                    user_avatar=user_avatar, 
+                    user_name=user_name,
+                    user_avatar=user_avatar,
                     user_email=user.email,
+                    user_role=user.role,  # Rola użytkownika dla sidebar
                     user=user,  # Dodaj cały obiekt user
                     user_session=session_info
                 )
     
         # Domyślne wartości, gdy nie ma zalogowanego użytkownika.
         return dict(
-            user_name="Dzielny człowieku!", 
+            user_name="Dzielny człowieku!",
             user_avatar=url_for('static', filename='images/avatars/default_avatars/avatar1.svg'),
+            user_role=None,
             user=None,
             user_session={}
         )

@@ -419,6 +419,14 @@ class QuoteItemDetails(db.Model):
     finishing_price_brutto = db.Column(db.Numeric(10, 2))
     quantity = db.Column(db.Integer, default=1, nullable=False)
 
+    # Obróbka krawędzi
+    edges_config = db.Column(db.JSON, nullable=True)      # Lista krawędzi jako JSON
+    edges_type = db.Column(db.String(32), nullable=True)  # 'chamfer' lub 'round'
+    edges_r_value = db.Column(db.Integer, nullable=True)  # Promień R
+    edges_price_netto = db.Column(db.Numeric(10, 2), default=0)
+    edges_price_brutto = db.Column(db.Numeric(10, 2), default=0)
+    edges_svg = db.Column(db.Text, nullable=True)         # SVG wizualizacji krawędzi
+
     __table_args__ = (
         db.UniqueConstraint('quote_id', 'product_index', name='uq_quote_product'),
     )
@@ -435,7 +443,14 @@ class QuoteItemDetails(db.Model):
             'finishing_gloss_level': self.finishing_gloss_level,
             'finishing_price_netto': float(self.finishing_price_netto) if self.finishing_price_netto else 0.0,
             'finishing_price_brutto': float(self.finishing_price_brutto) if self.finishing_price_brutto else 0.0,
-            'quantity': self.quantity
+            'quantity': self.quantity,
+            # Obróbka krawędzi
+            'edges_config': self.edges_config,
+            'edges_type': self.edges_type,
+            'edges_r_value': self.edges_r_value,
+            'edges_price_netto': float(self.edges_price_netto) if self.edges_price_netto else 0.0,
+            'edges_price_brutto': float(self.edges_price_brutto) if self.edges_price_brutto else 0.0,
+            'edges_svg': self.edges_svg
         }
 
     def __repr__(self):
@@ -498,3 +513,122 @@ class FinishingColor(db.Model):
 
     def __repr__(self):
         return f'<FinishingColor {self.name}>'
+
+
+# ============================================
+# MODELE OBRÓBKI KRAWĘDZI
+# ============================================
+
+class EdgeOption(db.Model):
+    """Typy obróbki krawędzi (ostre, fazowanie, zaokrąglenie)"""
+    __tablename__ = 'edge_options'
+
+    id = db.Column(db.Integer, primary_key=True)
+    type = db.Column(db.String(32), nullable=False, unique=True)  # 'sharp', 'chamfer', 'round'
+    name = db.Column(db.String(100), nullable=False)  # 'Ostre', 'Fazowanie', 'Zaokrąglenie'
+    price_per_mb = db.Column(db.Numeric(10, 2), nullable=False, default=0)  # Cena za metr bieżący (netto)
+    corner_price = db.Column(db.Numeric(10, 2), nullable=False, default=0)  # Cena za narożnik (netto)
+    r_min = db.Column(db.Integer, nullable=True)  # Minimalny promień (NULL dla sharp)
+    r_max = db.Column(db.Integer, nullable=True)  # Maksymalny promień
+    r_default = db.Column(db.Integer, nullable=True)  # Domyślny promień
+    is_active = db.Column(db.Boolean, default=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'type': self.type,
+            'name': self.name,
+            'price_per_mb': float(self.price_per_mb) if self.price_per_mb else 0,
+            'corner_price': float(self.corner_price) if self.corner_price else 0,
+            'r_min': self.r_min,
+            'r_max': self.r_max,
+            'r_default': self.r_default,
+            'is_active': self.is_active
+        }
+
+    def __repr__(self):
+        return f'<EdgeOption {self.type}: {self.price_per_mb} PLN/mb>'
+
+
+# QuoteItemEdge - USUNIĘTY
+# Dane krawędzi są teraz przechowywane jako JSON w QuoteItemDetails.edges_config
+
+
+# ============================================
+# ŹRÓDŁA WYCEN (QUOTE SOURCES)
+# ============================================
+
+class QuoteSource(db.Model):
+    """
+    Źródła wycen - prosta lista źródeł zapytań.
+    Używane przy zapisie wyceny w kalkulatorze (opcjonalne).
+
+    Kolumny kontroli dostępu:
+    - allowed_roles (JSON): role które mogą używać tego źródła
+      np. ['admin', 'user', 'partner', 'flexible_partner']
+      NULL = dostępne dla wszystkich
+    """
+    __tablename__ = 'quote_sources'
+
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(100), nullable=False)  # Nazwa wyświetlana
+    sort_order = db.Column(db.Integer, default=0)  # Kolejność wyświetlania
+    skip_contact_validation = db.Column(db.Boolean, default=False)  # Pomiń walidację telefonu/emaila
+    is_active = db.Column(db.Boolean, default=True)
+
+    # Kontrola dostępu - które role mogą używać źródła
+    allowed_roles = db.Column(db.JSON, nullable=True)
+
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    def is_allowed_for_role(self, user_role, is_flexible_partner=False):
+        """
+        Sprawdza czy źródło jest dostępne dla danej roli
+
+        Args:
+            user_role (str): 'admin', 'user', 'partner'
+            is_flexible_partner (bool): Czy użytkownik jest flexible partner
+
+        Returns:
+            bool: True jeśli źródło jest dostępne
+        """
+        # NULL = dostępne dla wszystkich
+        if self.allowed_roles is None:
+            return True
+
+        # Określ efektywną rolę użytkownika
+        effective_role = 'flexible_partner' if is_flexible_partner else user_role
+
+        # Sprawdź czy rola jest na liście dozwolonych
+        return effective_role in self.allowed_roles
+
+    @classmethod
+    def get_sources_for_user(cls, user_role, is_flexible_partner=False):
+        """
+        Pobiera źródła wycen dostępne dla użytkownika
+
+        Args:
+            user_role (str): Rola użytkownika
+            is_flexible_partner (bool): Czy flexible partner
+
+        Returns:
+            list: Lista źródeł dostępnych dla użytkownika
+        """
+        sources = cls.query.filter_by(is_active=True).order_by(cls.sort_order).all()
+        return [s for s in sources if s.is_allowed_for_role(user_role, is_flexible_partner)]
+
+    def to_dict(self):
+        """Konwertuje obiekt do słownika dla API"""
+        return {
+            'id': self.id,
+            'name': self.name,
+            'sort_order': self.sort_order,
+            'skip_contact_validation': self.skip_contact_validation,
+            'is_active': self.is_active,
+            'allowed_roles': self.allowed_roles
+        }
+
+    def __repr__(self):
+        return f'<QuoteSource {self.id}: {self.name}>'

@@ -454,6 +454,7 @@ let orderSummaryEls = {};
 let deliverySummaryEls = {};
 let finalSummaryEls = {};
 let finishingSummaryEls = {};
+let edgesSummaryEls = {};
 
 const shippingPackingMultiplier = 1.3;
 
@@ -511,6 +512,8 @@ function updateGlobalSummary() {
     let sumOrderNetto = 0;
     let sumFinishingBrutto = 0;
     let sumFinishingNetto = 0;
+    let sumEdgesBrutto = 0;
+    let sumEdgesNetto = 0;
 
     const forms = quoteFormsContainer.querySelectorAll('.quote-form');
     forms.forEach(form => {
@@ -518,11 +521,15 @@ function updateGlobalSummary() {
         const oNt = parseFloat(form.dataset.orderNetto) || 0;
         const fBr = parseFloat(form.dataset.finishingBrutto) || 0;
         const fNt = parseFloat(form.dataset.finishingNetto) || 0;
+        const eBr = parseFloat(form.dataset.edgesBrutto) || 0;
+        const eNt = parseFloat(form.dataset.edgesNetto) || 0;
 
         sumOrderBrutto += oBr;
         sumOrderNetto += oNt;
         sumFinishingBrutto += fBr;
         sumFinishingNetto += fNt;
+        sumEdgesBrutto += eBr;
+        sumEdgesNetto += eNt;
     });
 
     // ===================================================================
@@ -532,10 +539,12 @@ function updateGlobalSummary() {
     orderSummaryEls.netto.textContent = sumOrderNetto > 0 ? formatPLN(sumOrderNetto) : "0.00 PLN";
 
     // ===================================================================
-    // KROK 3: Wyświetl SUMĘ wykończeń w "Koszty wykończenia"
+    // KROK 3: Wyświetl SUMĘ wykończeń w "Koszty wykończenia" (wliczając obróbkę krawędzi!)
     // ===================================================================
-    finishingSummaryEls.brutto.textContent = sumFinishingBrutto > 0 ? formatPLN(sumFinishingBrutto) : "0.00 PLN";
-    finishingSummaryEls.netto.textContent = sumFinishingNetto > 0 ? formatPLN(sumFinishingNetto) : "0.00 PLN";
+    const totalFinishingBrutto = sumFinishingBrutto + sumEdgesBrutto;
+    const totalFinishingNetto = sumFinishingNetto + sumEdgesNetto;
+    finishingSummaryEls.brutto.textContent = totalFinishingBrutto > 0 ? formatPLN(totalFinishingBrutto) : "0.00 PLN";
+    finishingSummaryEls.netto.textContent = totalFinishingNetto > 0 ? formatPLN(totalFinishingNetto) : "0.00 PLN";
 
     // ===================================================================
     // KROK 4: Odczytaj koszt wysyłki (ustawiony wcześniej przez showDeliveryModal)
@@ -553,10 +562,10 @@ function updateGlobalSummary() {
     }
 
     // ===================================================================
-    // KROK 5: Oblicz i wyświetl SUMĘ KOŃCOWĄ
+    // KROK 5: Oblicz i wyświetl SUMĘ KOŃCOWĄ (z krawędziami!)
     // ===================================================================
-    const totalBrutto = sumOrderBrutto + sumFinishingBrutto + deliveryBruttoVal;
-    const totalNetto = sumOrderNetto + sumFinishingNetto + deliveryNettoVal;
+    const totalBrutto = sumOrderBrutto + sumFinishingBrutto + sumEdgesBrutto + deliveryBruttoVal;
+    const totalNetto = sumOrderNetto + sumFinishingNetto + sumEdgesNetto + deliveryNettoVal;
 
     finalSummaryEls.brutto.textContent = totalBrutto > 0 ? formatPLN(totalBrutto) : "0.00 PLN";
     finalSummaryEls.netto.textContent = totalNetto > 0 ? formatPLN(totalNetto) : "0.00 PLN";
@@ -853,8 +862,14 @@ function updatePrices() {
         console.log(`[updatePrices] Brak zaznaczonego wariantu w produkcie ${tabIndex + 1}`);
     }
 
-    // Aktualizuj wykończenie i podsumowania
+    // Aktualizuj wykończenie i krawędzie
     calculateFinishingCost(activeQuoteForm);
+
+    // Przelicz krawędzie jeśli są zapisane
+    if (window.EdgesModule && typeof window.EdgesModule.recalculateEdgesForForm === 'function') {
+        window.EdgesModule.recalculateEdgesForForm(activeQuoteForm);
+    }
+
     updateGlobalSummary();
     updateCalculateDeliveryButtonState();
     generateProductsSummary();
@@ -1173,12 +1188,14 @@ function calculateFinishingCost(form) {
     let finishingBruttoEl = form.querySelector('.finishing-brutto') || document.getElementById('finishing-brutto');
     let finishingNettoEl = form.querySelector('.finishing-netto') || document.getElementById('finishing-netto');
 
-    // Jeśli surowe - zwróć 0
+    // Jeśli surowe - zwróć 0 i ukryj wiersz wykończenia
     if (finishingType === 'Surowe') {
         form.dataset.finishingBrutto = 0;
         form.dataset.finishingNetto = 0;
         if (finishingBruttoEl) finishingBruttoEl.textContent = '0.00 PLN';
         if (finishingNettoEl) finishingNettoEl.textContent = '0.00 PLN';
+        // Ukryj wiersz wykończenia w options-summary
+        updateFinishingSummaryRow(form, 'Surowe', null, 0, 0);
         updateGlobalSummary();
         dbg("🧪 calculateFinishingCost end: surowe");
         return { netto: 0, brutto: 0 };
@@ -1242,6 +1259,9 @@ function calculateFinishingCost(form) {
     if (finishingBruttoEl) finishingBruttoEl.textContent = finishingPriceBrutto.toFixed(2) + ' PLN';
     if (finishingNettoEl) finishingNettoEl.textContent = finishingPriceNetto.toFixed(2) + ' PLN';
 
+    // Aktualizuj wiersz wykończenia w sekcji options-summary
+    updateFinishingSummaryRow(form, finishingType, finishingVariant, finishingPriceNetto, finishingPriceBrutto);
+
     // Odśwież globalne podsumowanie
     updateGlobalSummary();
     generateProductsSummary();
@@ -1254,6 +1274,131 @@ function calculateFinishingCost(form) {
     });
 
     return { netto: finishingPriceNetto, brutto: finishingPriceBrutto };
+}
+
+/**
+ * Aktualizuje wiersz wykończenia w sekcji options-summary
+ */
+function updateFinishingSummaryRow(form, finishingType, finishingVariant, priceNetto, priceBrutto) {
+    if (!form) return;
+
+    const finishingSection = form.querySelector('.finishing-section');
+    const optionsSummary = finishingSection?.querySelector('.options-summary');
+    const finishingRow = optionsSummary?.querySelector('.finishing-row');
+
+    if (!finishingRow) return;
+
+    // Jeśli surowe lub brak ceny - ukryj wiersz
+    if (finishingType === 'Surowe' || !priceBrutto || priceBrutto <= 0) {
+        finishingRow.style.display = 'none';
+        updateOptionsSummaryVisibility(optionsSummary);
+        return;
+    }
+
+    // Buduj opis wykończenia
+    let description = finishingType;
+    if (finishingVariant) {
+        description += ` ${finishingVariant}`;
+    }
+
+    // Dodaj kolor jeśli barwne
+    if (finishingVariant === 'Barwne') {
+        const colorBtn = form.querySelector('.color-btn.active');
+        if (colorBtn && colorBtn.dataset.finishingColor) {
+            description += ` (${colorBtn.dataset.finishingColor})`;
+        }
+    }
+
+    // Dodaj stopień połysku dla lakierowania
+    if (finishingType === 'Lakierowanie') {
+        const glossBtn = form.querySelector('.finishing-btn[data-finishing-gloss].active');
+        if (glossBtn && glossBtn.dataset.finishingGloss) {
+            description += ` ${glossBtn.dataset.finishingGloss}`;
+        }
+    }
+
+    // Aktualizuj tekst i cenę
+    const textEl = finishingRow.querySelector('.finishing-summary-text');
+    const priceEl = finishingRow.querySelector('.finishing-summary-price');
+
+    if (textEl) textEl.textContent = description;
+    if (priceEl) priceEl.textContent = `${priceBrutto.toFixed(2)} PLN`;
+
+    // Pokaż wiersz
+    finishingRow.style.display = 'flex';
+    updateOptionsSummaryVisibility(optionsSummary);
+
+    console.log(`[updateFinishingSummaryRow] Wykończenie: ${description}, cena: ${priceBrutto.toFixed(2)} PLN`);
+}
+
+/**
+ * Aktualizuje widoczność kontenera options-summary
+ */
+function updateOptionsSummaryVisibility(optionsSummary) {
+    if (!optionsSummary) return;
+
+    const finishingRow = optionsSummary.querySelector('.finishing-row');
+    const edgesRow = optionsSummary.querySelector('.edges-row');
+
+    const finishingVisible = finishingRow && finishingRow.style.display !== 'none';
+    const edgesVisible = edgesRow && edgesRow.style.display !== 'none';
+
+    // Dodaj/usuń separator gdy oba wiersze są widoczne
+    if (edgesRow) {
+        if (finishingVisible && edgesVisible) {
+            edgesRow.classList.add('has-separator');
+        } else {
+            edgesRow.classList.remove('has-separator');
+        }
+    }
+
+    if (finishingVisible || edgesVisible) {
+        optionsSummary.style.display = 'flex';
+    } else {
+        optionsSummary.style.display = 'none';
+    }
+}
+
+/**
+ * Resetuje wykończenie dla formularza
+ */
+function resetFinishing(form) {
+    if (!form) return;
+
+    // Resetuj przyciski wykończenia do "Surowe"
+    const finishingBtns = form.querySelectorAll('.finishing-btn[data-finishing-type]');
+    finishingBtns.forEach(btn => {
+        if (btn.dataset.finishingType === 'Surowe') {
+            btn.classList.add('active');
+        } else {
+            btn.classList.remove('active');
+        }
+    });
+
+    // Ukryj dodatkowe opcje
+    const additionalOptions = form.querySelectorAll('.finishing-variants, .finishing-colors, .finishing-gloss');
+    additionalOptions.forEach(el => {
+        if (el) el.style.display = 'none';
+    });
+
+    // Wyczyść dataset
+    form.dataset.finishingBrutto = 0;
+    form.dataset.finishingNetto = 0;
+
+    // Ukryj wiersz wykończenia w options-summary
+    const finishingSection = form.querySelector('.finishing-section');
+    const optionsSummary = finishingSection?.querySelector('.options-summary');
+    const finishingRow = optionsSummary?.querySelector('.finishing-row');
+    if (finishingRow) {
+        finishingRow.style.display = 'none';
+    }
+    updateOptionsSummaryVisibility(optionsSummary);
+
+    // Przelicz i odśwież
+    updateGlobalSummary();
+    generateProductsSummary();
+
+    console.log('[resetFinishing] Zresetowano wykończenie');
 }
 
 /**
@@ -1279,6 +1424,7 @@ function updateCalculateDeliveryButtonState() {
 
 /**
  * Dodaje listener dla wykończenia (inputy + kliknięcia)
+ * Uwaga: Przeliczanie krawędzi jest obsługiwane przez updatePrices()
  */
 function attachFinishingListenersToForm(form) {
     if (!form) return;
@@ -1559,6 +1705,48 @@ function prepareNewProductForm(form, index) {
     form.dataset.finishingType = 'Surowe';
     form.dataset.finishingBrutto = '';
     form.dataset.finishingNetto = '';
+
+    // ✅ Resetuj dane obróbki krawędzi (każdy produkt ma indywidualną obróbkę)
+    delete form.dataset.edgesData;
+    delete form.dataset.edgesNetto;
+    delete form.dataset.edgesBrutto;
+    delete form.dataset.edgesCount;
+    delete form.dataset.edgesType;
+    delete form.dataset.edgesRValue;
+    delete form.dataset.edgesSvg;
+
+    // ✅ Resetuj wizualnie wiersz podsumowania krawędzi oraz cały kontener
+    const finishingSection = form.querySelector('.finishing-section');
+    const optionsSummary = finishingSection?.querySelector('.options-summary');
+    if (optionsSummary) {
+        // Ukryj cały kontener
+        optionsSummary.style.display = 'none';
+
+        // Ukryj wiersz krawędzi i wyczyść jego zawartość
+        const edgesRow = optionsSummary.querySelector('.edges-row');
+        if (edgesRow) {
+            edgesRow.style.display = 'none';
+            const textEl = edgesRow.querySelector('.edges-summary-text');
+            const priceEl = edgesRow.querySelector('.edges-summary-price');
+            if (textEl) textEl.textContent = '';
+            if (priceEl) priceEl.textContent = '';
+        }
+
+        // Ukryj też wiersz wykończenia
+        const finishingRow = optionsSummary.querySelector('.finishing-row');
+        if (finishingRow) {
+            finishingRow.style.display = 'none';
+        }
+    }
+
+    // ✅ Przywróć oryginalny tekst przycisku obróbki krawędzi i ustaw disabled
+    const edgesBtn = form.querySelector('.open-edges-modal-btn');
+    if (edgesBtn) {
+        edgesBtn.textContent = '+ Dodaj obróbkę krawędzi';
+        edgesBtn.disabled = true;
+        edgesBtn.classList.add('disabled');
+        edgesBtn.title = 'Uzupełnij wszystkie wymiary (długość, szerokość, grubość)';
+    }
 
     // ✅ Resetuj kolory wariantów
     form.querySelectorAll('.variant-option').forEach(option => {
@@ -2219,6 +2407,8 @@ function init() {
     finalSummaryEls.netto = document.querySelector('.quote-summary .final-summary .final-netto');
     finishingSummaryEls.brutto = document.querySelector('.quote-summary .finishing-brutto');
     finishingSummaryEls.netto = document.querySelector('.quote-summary .finishing-netto');
+    edgesSummaryEls.brutto = document.querySelector('.quote-summary .edges-brutto');
+    edgesSummaryEls.netto = document.querySelector('.quote-summary .edges-netto');
 
     const populateMultiplierSelects = () => {
         console.log("[populateMultiplierSelects] Wypełniam opcje grup cenowych");
@@ -2564,12 +2754,29 @@ function safeAttachFormListeners(form) {
             const parentForm = this.closest('.quote-form');
             if (parentForm) {
                 // Znajdź typ przycisku i usuń active z innych tego samego typu
+                // oraz kaskadowo resetuj niższe poziomy
                 if (this.dataset.finishingType) {
+                    // Poziom 1: Rodzaj wykończenia - resetuj też wariant i kolor
                     const sameTypeButtons = parentForm.querySelectorAll(`[data-finishing-type]`);
                     sameTypeButtons.forEach(b => b.classList.remove('active'));
+
+                    // Kaskadowe resetowanie: odznacz wariant wykończenia
+                    const variantButtons = parentForm.querySelectorAll(`[data-finishing-variant]`);
+                    variantButtons.forEach(b => b.classList.remove('active'));
+
+                    // Kaskadowe resetowanie: odznacz kolor
+                    const colorButtons = parentForm.querySelectorAll('.color-btn');
+                    colorButtons.forEach(b => b.classList.remove('active'));
+
                 } else if (this.dataset.finishingVariant) {
+                    // Poziom 2: Podrodzaj wykończenia - resetuj też kolor
                     const sameTypeButtons = parentForm.querySelectorAll(`[data-finishing-variant]`);
                     sameTypeButtons.forEach(b => b.classList.remove('active'));
+
+                    // Kaskadowe resetowanie: odznacz kolor
+                    const colorButtons = parentForm.querySelectorAll('.color-btn');
+                    colorButtons.forEach(b => b.classList.remove('active'));
+
                 } else if (this.dataset.finishingGloss) {
                     const sameTypeButtons = parentForm.querySelectorAll(`[data-finishing-gloss]`);
                     sameTypeButtons.forEach(b => b.classList.remove('active'));
@@ -2997,6 +3204,7 @@ function showIframeFallback(iframe, pdfUrl) {
 document.addEventListener('DOMContentLoaded', init);
 
 window.calculateFinishingCost = calculateFinishingCost;
+window.resetFinishing = resetFinishing;
 
 /**
  * Przekierowuje do modułu quotes i otwiera modal szczegółów wyceny
@@ -3790,6 +3998,7 @@ function getFinishingDescriptionWithGloss(form) {
 
 /**
  * Generuje opis produktu z cenami
+ * Nowy schemat: [gatunek] | [technologia] | [klasa] | [wymiary] | [wykończenie] | [obróbka krawędzi] | [liczba sztuk]
  */
 function generateProductDescription(form, index) {
     if (!form) return { main: `Błąd formularza`, sub: "" };
@@ -3805,35 +4014,80 @@ function generateProductDescription(form, index) {
     const thickness = form.querySelector('[data-field="thickness"]')?.value;
     const quantity = form.querySelector('[data-field="quantity"]')?.value;
 
-    // ✅ POPRAWKA: Szukaj tylko w sekcji .variants
+    // Pobierz zaznaczony wariant i parsuj variant_code
     const variantRadio = form.querySelector('.variants input[type="radio"]:checked');
-    const variantLabel = variantRadio ? form.querySelector(`label[for="${variantRadio.id}"]`) : null;
-    const variantName = variantLabel ? variantLabel.textContent.replace(/BRAK/g, '').trim() : 'Nieznany wariant';
+    const variantCode = variantRadio ? variantRadio.value : '';
+
+    // Parsuj variant_code (np. "dab-lity-ab" → Dąb, Lity, A/B)
+    let species = '';
+    let technology = '';
+    let woodClass = '';
+
+    if (variantCode) {
+        const parts = variantCode.split('-');
+
+        // Gatunek drewna
+        const speciesMap = {
+            'dab': 'Dąb',
+            'jes': 'Jesion',
+            'buk': 'Buk'
+        };
+        species = speciesMap[parts[0]] || parts[0];
+
+        // Technologia
+        const techMap = {
+            'lity': 'Lity',
+            'micro': 'Mikrowczep'
+        };
+        technology = techMap[parts[1]] || parts[1];
+
+        // Klasa (np. "ab" → "A/B")
+        woodClass = parts[2] ? parts[2].toUpperCase().split('').join('/') : '';
+    }
 
     // Dodaj wykończenie z stopniem połysku
     const finishingDescription = getFinishingDescriptionWithGloss(form);
 
-    let mainDescription = `${variantName} ${length}×${width}×${thickness} cm | ${quantity} szt.`;
-
-    if (finishingDescription) {
-        mainDescription += ` | ${finishingDescription}`;
+    // Pobierz dane obróbki krawędzi
+    const edgesType = form.dataset.edgesType;
+    const edgesRValue = form.dataset.edgesRValue;
+    let edgesDescription = '';
+    if (edgesType && edgesRValue) {
+        const edgeTypeLabel = edgesType === 'chamfer' ? 'Fazowanie' : 'Zaokrąglenie';
+        edgesDescription = `${edgeTypeLabel} R${edgesRValue}`;
     }
 
+    // Buduj główny opis według nowego schematu
+    // [gatunek] | [technologia] | [klasa] | [wymiary] | [wykończenie] | [obróbka krawędzi] | [liczba sztuk]
+    let mainParts = [];
+
+    if (species) mainParts.push(species);
+    if (technology) mainParts.push(technology);
+    if (woodClass) mainParts.push(woodClass);
+    mainParts.push(`${length}×${width}×${thickness} cm`);
+    if (finishingDescription) mainParts.push(finishingDescription);
+    if (edgesDescription) mainParts.push(edgesDescription);
+    mainParts.push(`${quantity} szt.`);
+
+    const mainDescription = mainParts.join(' | ');
+
     // ===================================================================
-    // NOWE: Oblicz objętość, wagę i ceny dla informacji dodatkowych
+    // Oblicz objętość, wagę i ceny dla informacji dodatkowych
     // ===================================================================
     const volume = calculateProductVolume(form);
     const weight = calculateProductWeight(form);
 
-    // Pobierz ceny z dataset formularza (cena surowa + wykończenie)
+    // Pobierz ceny z dataset formularza (cena surowa + wykończenie + krawędzie)
     const orderBrutto = parseFloat(form.dataset.orderBrutto) || 0;
     const orderNetto = parseFloat(form.dataset.orderNetto) || 0;
     const finishingBrutto = parseFloat(form.dataset.finishingBrutto) || 0;
     const finishingNetto = parseFloat(form.dataset.finishingNetto) || 0;
+    const edgesBrutto = parseFloat(form.dataset.edgesBrutto) || 0;
+    const edgesNetto = parseFloat(form.dataset.edgesNetto) || 0;
 
-    // Oblicz całkowite ceny (surowe + wykończenie)
-    const totalBrutto = orderBrutto + finishingBrutto;
-    const totalNetto = orderNetto + finishingNetto;
+    // Oblicz całkowite ceny (surowe + wykończenie + krawędzie)
+    const totalBrutto = orderBrutto + finishingBrutto + edgesBrutto;
+    const totalNetto = orderNetto + finishingNetto + edgesNetto;
 
     // Formatuj ceny
     const bruttoText = totalBrutto > 0 ? `${totalBrutto.toFixed(2)} PLN brutto` : '';
@@ -3899,7 +4153,16 @@ function duplicateProduct(sourceIndex) {
         // Wykończenia
         finishingType: null,
         finishingColor: null,
-        finishingGloss: null
+        finishingGloss: null,
+
+        // Obróbka krawędzi
+        edgesData: sourceForm.dataset.edgesData || null,
+        edgesNetto: sourceForm.dataset.edgesNetto || null,
+        edgesBrutto: sourceForm.dataset.edgesBrutto || null,
+        edgesCount: sourceForm.dataset.edgesCount || null,
+        edgesType: sourceForm.dataset.edgesType || null,
+        edgesRValue: sourceForm.dataset.edgesRValue || null,
+        edgesSvg: sourceForm.dataset.edgesSvg || null
     };
 
     // Pobierz zaznaczony wariant z formularza źródłowego
@@ -3997,6 +4260,57 @@ function duplicateProduct(sourceIndex) {
                     }
                 }, 100);
             }
+        }
+
+        // ✅ Kopiuj dane obróbki krawędzi
+        if (sourceData.edgesData) {
+            newForm.dataset.edgesData = sourceData.edgesData;
+            newForm.dataset.edgesNetto = sourceData.edgesNetto;
+            newForm.dataset.edgesBrutto = sourceData.edgesBrutto;
+            newForm.dataset.edgesCount = sourceData.edgesCount;
+            newForm.dataset.edgesType = sourceData.edgesType;
+            newForm.dataset.edgesRValue = sourceData.edgesRValue;
+            newForm.dataset.edgesSvg = sourceData.edgesSvg;
+
+            // Aktualizuj wizualnie przycisk i podsumowanie krawędzi
+            const edgesBtn = newForm.querySelector('.open-edges-modal-btn');
+            if (edgesBtn) {
+                edgesBtn.textContent = 'Zmień obróbkę krawędzi';
+                edgesBtn.disabled = false;
+                edgesBtn.classList.remove('disabled');
+                edgesBtn.title = '';
+            }
+
+            // Aktualizuj wiersz podsumowania krawędzi
+            const finishingSection = newForm.querySelector('.finishing-section');
+            const optionsSummary = finishingSection?.querySelector('.options-summary');
+            if (optionsSummary) {
+                const edgesRow = optionsSummary.querySelector('.edges-row');
+                if (edgesRow) {
+                    // Zbuduj tekst podsumowania
+                    try {
+                        const edgesArray = JSON.parse(sourceData.edgesData);
+                        const edgeLetters = edgesArray.map(e => e.letter).sort().join(', ');
+                        const typeLabel = sourceData.edgesType === 'chamfer' ? 'Fazowanie' : 'Zaokrąglenie';
+                        const priceText = parseFloat(sourceData.edgesBrutto).toLocaleString('pl-PL', {
+                            minimumFractionDigits: 2,
+                            maximumFractionDigits: 2
+                        }) + ' zł';
+
+                        const textEl = edgesRow.querySelector('.edges-summary-text');
+                        const priceEl = edgesRow.querySelector('.edges-summary-price');
+                        if (textEl) textEl.textContent = `${typeLabel} R${sourceData.edgesRValue}: ${edgeLetters}`;
+                        if (priceEl) priceEl.textContent = priceText;
+
+                        edgesRow.style.display = 'flex';
+                        optionsSummary.style.display = 'flex';
+                    } catch (e) {
+                        console.error('[duplicateProduct] Błąd parsowania danych krawędzi:', e);
+                    }
+                }
+            }
+
+            console.log(`[duplicateProduct] ✅ Skopiowano dane obróbki krawędzi`);
         }
 
         // Przeliczy ceny jeśli mamy wszystkie wymiary

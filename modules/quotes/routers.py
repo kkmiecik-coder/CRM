@@ -9,6 +9,7 @@ from modules.users.decorators import require_module_access
 from extensions import db, mail
 from weasyprint import HTML
 from io import BytesIO
+import cairosvg
 from flask_mail import Message
 from functools import wraps
 import logging
@@ -384,9 +385,15 @@ def generate_quote_pdf(token, format):
         # KLUCZOWE: Oblicz koszty (tak jak w send_email i get_client_quote_data)
         selected_items = [item for item in quote.items if item.is_selected]
         finishing_details = db.session.query(QuoteItemDetails).filter_by(quote_id=quote.id).all()
-        
+
+        # Pobierz surowe SVG dla każdego finishing_detail (bez konwersji na PNG)
+        edges_images = {}
+        for fd in finishing_details:
+            if fd.edges_svg:
+                edges_images[fd.product_index] = fd.edges_svg
+
         cost_products_netto = round(sum(item.get_total_price_netto() for item in selected_items), 2)
-        cost_finishing_netto = round(sum(d.finishing_price_netto or 0.0 for d in finishing_details), 2)
+        cost_finishing_netto = round(sum(float(d.finishing_price_netto or 0) + float(d.edges_price_netto or 0) for d in finishing_details), 2)
         cost_shipping_brutto = quote.shipping_cost_brutto or 0.0
         
         # Użyj funkcji calculate_costs_with_vat
@@ -433,14 +440,15 @@ def generate_quote_pdf(token, format):
         quote.finishing = finishing_details
         
         # Renderuj template z wszystkimi potrzebnymi danymi
-        html_out = render_template("quotes/templates/offer_pdf.html", 
-                                 quote=quote, 
+        html_out = render_template("quotes/templates/offer_pdf.html",
+                                 quote=quote,
                                  client=quote.client,
                                  user=quote.user,
                                  status=quote.quote_status,
                                  costs=costs,  # Przekaż też jako osobny parametr
                                  selected_items=selected_items,  # Dodaj selected_items
                                  finishing_details=finishing_details,  # Dodaj finishing_details
+                                 edges_images=edges_images,  # PNG obrazy krawędzi
                                  icons=icons)
                 
         # Utwórz HTML object z base_url dla względnych ścieżek
@@ -490,7 +498,7 @@ def send_email(quote_id):
     
     # Oblicz koszty
     cost_products_netto = round(sum(i.get_total_price_netto or 0 for i in selected_items), 2)
-    cost_finishing_netto = round(sum(d.finishing_price_netto or 0.0 for d in db.session.query(QuoteItemDetails).filter_by(quote_id=quote.id).all()), 2)
+    cost_finishing_netto = round(sum(float(d.finishing_price_netto or 0) + float(d.edges_price_netto or 0) for d in db.session.query(QuoteItemDetails).filter_by(quote_id=quote.id).all()), 2)
     cost_shipping_brutto = quote.shipping_cost_brutto or 0.0
     costs = calculate_costs_with_vat(cost_products_netto, cost_finishing_netto, cost_shipping_brutto)
     
@@ -612,7 +620,7 @@ def get_quote_details(quote_id):
 
         selected_items = [item for item in quote_items if item.is_selected]
         cost_products_netto = round(sum(item.get_total_price_netto() for item in selected_items), 2)
-        cost_finishing_netto = round(sum(d.finishing_price_netto or 0.0 for d in finishing_details), 2)
+        cost_finishing_netto = round(sum(float(d.finishing_price_netto or 0) + float(d.edges_price_netto or 0) for d in finishing_details), 2)
         cost_shipping_brutto = quote.shipping_cost_brutto or 0.0
         costs = calculate_costs_with_vat(cost_products_netto, cost_finishing_netto, cost_shipping_brutto)
 
@@ -694,7 +702,15 @@ def get_quote_details(quote_id):
                 "finishing_color": d.finishing_color,
                 "finishing_gloss_level": d.finishing_gloss_level,
                 "finishing_price_netto": float(d.finishing_price_netto) if d.finishing_price_netto else 0.0,
-                "quantity": d.quantity or 1
+                "finishing_price_brutto": float(d.finishing_price_brutto) if d.finishing_price_brutto else 0.0,
+                "quantity": d.quantity or 1,
+                # Dane obróbki krawędzi
+                "edges_config": d.edges_config,
+                "edges_type": d.edges_type,
+                "edges_r_value": d.edges_r_value,
+                "edges_price_netto": float(d.edges_price_netto) if d.edges_price_netto else 0.0,
+                "edges_price_brutto": float(d.edges_price_brutto) if d.edges_price_brutto else 0.0,
+                "edges_svg": d.edges_svg
             } for d in finishing_details],
             "client": {
                 "id": quote.client.id if quote.client else None,
@@ -941,7 +957,7 @@ def get_client_quote_data(token):
         
         # Oblicz koszty
         cost_products_netto = round(sum(i.get_total_price_netto() for i in quote.items if i.is_selected), 2)
-        cost_finishing_netto = round(sum(d.finishing_price_netto or 0.0 for d in db.session.query(QuoteItemDetails).filter_by(quote_id=quote.id).all()), 2)
+        cost_finishing_netto = round(sum(float(d.finishing_price_netto or 0) + float(d.edges_price_netto or 0) for d in db.session.query(QuoteItemDetails).filter_by(quote_id=quote.id).all()), 2)
         cost_shipping_brutto = quote.shipping_cost_brutto or 0.0
         cost_shipping_netto = quote.shipping_cost_netto or 0.0
         costs = calculate_costs_with_vat(cost_products_netto, cost_finishing_netto, cost_shipping_brutto)
@@ -967,16 +983,23 @@ def get_client_quote_data(token):
                 "finishing_gloss_level": detail.finishing_gloss_level,
                 "finishing_price_netto": float(detail.finishing_price_netto or 0),
                 "finishing_price_brutto": float(detail.finishing_price_brutto or 0),
-                "quantity": detail.quantity or 1
+                "quantity": detail.quantity or 1,
+                # Dane obróbki krawędzi
+                "edges_config": detail.edges_config,
+                "edges_type": detail.edges_type,
+                "edges_r_value": detail.edges_r_value,
+                "edges_price_netto": float(detail.edges_price_netto or 0),
+                "edges_price_brutto": float(detail.edges_price_brutto or 0),
+                "edges_svg": detail.edges_svg
             }
-            
+
             # Dodaj ścieżkę do obrazka jeśli istnieje kolor
             if detail.finishing_color and detail.finishing_color != 'Brak':
                 # Sprawdź czy istnieje obrazek w bazie
                 color_image = FinishingColor.query.filter_by(name=detail.finishing_color).first()
                 if color_image and color_image.image_path:
                     finishing_info["image_path"] = color_image.image_path
-            
+
             finishing_data.append(finishing_info)
         
         # Przygotuj dane pozycji z cenami jednostkowymi
@@ -1157,10 +1180,10 @@ def send_acceptance_email_to_salesperson(quote):
         
         # Oblicz koszty
         cost_products_netto = round(sum(i.get_total_price_netto() or 0 for i in selected_items), 2)
-        cost_finishing_netto = round(sum(d.finishing_price_netto or 0.0 for d in db.session.query(QuoteItemDetails).filter_by(quote_id=quote.id).all()), 2)
+        cost_finishing_netto = round(sum(float(d.finishing_price_netto or 0) + float(d.edges_price_netto or 0) for d in db.session.query(QuoteItemDetails).filter_by(quote_id=quote.id).all()), 2)
         cost_shipping_brutto = quote.shipping_cost_brutto or 0.0
         costs = calculate_costs_with_vat(cost_products_netto, cost_finishing_netto, cost_shipping_brutto)
-        
+
         # Pobierz detale wykończenia
         finishing_details = db.session.query(QuoteItemDetails).filter_by(quote_id=quote.id).all()
         
@@ -1205,10 +1228,10 @@ def send_acceptance_email_to_client(quote):
         
         # Oblicz koszty
         cost_products_netto = round(sum(i.get_total_price_netto() or 0 for i in selected_items), 2)
-        cost_finishing_netto = round(sum(d.finishing_price_netto or 0.0 for d in db.session.query(QuoteItemDetails).filter_by(quote_id=quote.id).all()), 2)
+        cost_finishing_netto = round(sum(float(d.finishing_price_netto or 0) + float(d.edges_price_netto or 0) for d in db.session.query(QuoteItemDetails).filter_by(quote_id=quote.id).all()), 2)
         cost_shipping_brutto = quote.shipping_cost_brutto or 0.0
         costs = calculate_costs_with_vat(cost_products_netto, cost_finishing_netto, cost_shipping_brutto)
-        
+
         # Pobierz detale wykończenia
         finishing_details = db.session.query(QuoteItemDetails).filter_by(quote_id=quote.id).all()
         
@@ -1574,10 +1597,10 @@ def send_user_acceptance_email_to_client(quote, accepting_user):
 
         # Oblicz koszty
         cost_products_netto = round(sum(i.get_total_price_netto() or 0 for i in selected_items), 2)
-        cost_finishing_netto = round(sum(d.finishing_price_netto or 0.0 for d in db.session.query(QuoteItemDetails).filter_by(quote_id=quote.id).all()), 2)
+        cost_finishing_netto = round(sum(float(d.finishing_price_netto or 0) + float(d.edges_price_netto or 0) for d in db.session.query(QuoteItemDetails).filter_by(quote_id=quote.id).all()), 2)
         cost_shipping_brutto = quote.shipping_cost_brutto or 0.0
         costs = calculate_costs_with_vat(cost_products_netto, cost_finishing_netto, cost_shipping_brutto)
-        
+
         # Pobierz detale wykończenia
         finishing_details = db.session.query(QuoteItemDetails).filter_by(quote_id=quote.id).all()
         
@@ -2298,7 +2321,7 @@ def save_quote_changes(quote_id):
 
         selected_items = [item for item in quote_items if item.is_selected]
         cost_products_netto = round(sum(item.get_total_price_netto() for item in selected_items), 2)
-        cost_finishing_netto = round(sum(d.finishing_price_netto or 0.0 for d in finishing_details), 2)
+        cost_finishing_netto = round(sum(float(d.finishing_price_netto or 0) + float(d.edges_price_netto or 0) for d in finishing_details), 2)
         cost_shipping_brutto = quote.shipping_cost_brutto or 0.0
         costs = calculate_costs_with_vat(cost_products_netto, cost_finishing_netto, cost_shipping_brutto)
 

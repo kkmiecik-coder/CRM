@@ -1,0 +1,745 @@
+/* ============================================
+   USTAWIENIA APLIKACJI - STYLE
+   ============================================ */
+
+/* Header */
+.app-settings-header {
+    margin-bottom: 24px;
+}
+
+.app-settings-header h1 {
+    font-size: 1.75rem;
+    font-weight: 600;
+    color: var(--text-primary, #1a1a2e);
+    margin: 0 0 8px 0;
+}
+
+.app-settings-header p {
+    color: var(--text-secondary, #6b7280);
+    margin: 0;
+}
+
+/* Zakładki */
+.settings-tabs {
+    display: flex;
+    gap: 8px;
+    border-bottom: 2px solid var(--border-color, #e5e7eb);
+    margin-bottom: 24px;
+    padding-bottom: 0;
+}
+
+.settings-tab {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 12px 20px;
+    color: var(--text-secondary, #6b7280);
+    text-decoration: none;
+    font-weight: 500;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -2px;
+    transition: all 0.2s ease;
+}
+
+.settings-tab:hover {
+    color: var(--primary-color, #2563eb);
+    background-color: var(--bg-hover, #f3f4f6);
+}
+
+.settings-tab.active {
+    color: var(--primary-color, #2563eb);
+    border-bottom-color: var(--primary-color, #2563eb);
+}
+
+.settings-tab.disabled {
+    opacity: 0.5;
+    pointer-events: none;
+}
+
+.settings-tab svg {
+    width: 20px;
+    height: 20px;
+}
+
+/* Zawartość */
+.settings-content {
+    background: var(--bg-card, #ffffff);
+    border-radius: 12px;
+    padding: 24px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.settings-section {
+    /* Sekcja */
+}
+
+.section-header {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 16px;
+    margin-bottom: 24px;
+}
+
+.section-header h2 {
+    font-size: 1.25rem;
+    font-weight: 600;
+    color: var(--text-primary, #1a1a2e);
+    margin: 0;
+}
+
+.section-header p {
+    flex: 1 1 100%;
+    color: var(--text-secondary, #6b7280);
+    margin: 0;
+    font-size: 0.9rem;
+}
+
+.section-header .btn-primary {
+    margin-left: auto;
+}
+
+/* Tabela źródeł */
+.sources-table-wrapper {
+    overflow-x: auto;
+    margin-bottom: 24px;
+}
+
+.sources-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.9rem;
+}
+
+.sources-table th,
+.sources-table td {
+    padding: 12px 16px;
+    text-align: left;
+}
+
+.sources-table th {
+    background: var(--bg-secondary, #f9fafb);
+    font-weight: 600;
+    color: var(--text-primary, #1a1a2e);
+    white-space: nowrap;
+}
+
+.sources-table td.center {
+    text-align: center;
+}
+
+.sources-table td.actions {
+    white-space: nowrap;
+}
+
+.sources-table tr:hover {
+    background: var(--bg-hover, #f3f4f6);
+}
+
+/* Inputy w tabeli */
+.sources-table input[type="text"],
+.sources-table input[type="number"] {
+    width: 100%;
+    padding: 6px 10px;
+    border: 1px solid var(--border-color, #e5e7eb);
+    border-radius: 6px;
+    font-size: 0.875rem;
+    background: var(--bg-input, #ffffff);
+    transition: border-color 0.2s;
+}
+
+.sources-table input[type="text"]:focus,
+.sources-table input[type="number"]:focus {
+    outline: none;
+    border-color: var(--primary-color, #2563eb);
+}
+
+.sort-input {
+    width: 70px !important;
+}
+
+.name-input {
+    min-width: 120px;
+}
+
+.category-input {
+    min-width: 100px;
+}
+
+/* Select w tabeli */
+.roles-select {
+    min-width: 140px;
+    padding: 6px 10px;
+    border: 1px solid var(--border-color, #e5e7eb);
+    border-radius: 6px;
+    font-size: 0.8rem;
+    background: var(--bg-input, #ffffff);
+}
+
+.roles-select option {
+    padding: 4px;
+}
+
+.text-muted {
+    color: var(--text-muted, #9ca3af);
+    font-size: 0.75rem;
+}
+
+/* Toggle switch */
+.toggle-switch {
+    position: relative;
+    display: inline-block;
+    width: 44px;
+    height: 24px;
+}
+
+.toggle-switch input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+}
+
+.toggle-slider {
+    position: absolute;
+    cursor: pointer;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: #ccc;
+    transition: 0.3s;
+    border-radius: 24px;
+}
+
+.toggle-slider:before {
+    position: absolute;
+    content: "";
+    height: 18px;
+    width: 18px;
+    left: 3px;
+    bottom: 3px;
+    background-color: white;
+    transition: 0.3s;
+    border-radius: 50%;
+}
+
+.toggle-switch input:checked + .toggle-slider {
+    background-color: var(--primary-color, #2563eb);
+}
+
+.toggle-switch input:checked + .toggle-slider.active-toggle {
+    background-color: #22c55e;
+}
+
+.toggle-switch input:checked + .toggle-slider:before {
+    transform: translateX(20px);
+}
+
+/* Przyciski akcji */
+.btn-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.2s;
+    background: transparent;
+}
+
+.btn-icon:hover {
+    background: var(--bg-hover, #f3f4f6);
+}
+
+.btn-save {
+    color: #22c55e;
+}
+
+.btn-save:hover {
+    background: #dcfce7;
+}
+
+.btn-delete {
+    color: #ef4444;
+}
+
+.btn-delete:hover {
+    background: #fee2e2;
+}
+
+/* Przyciski kolejności (strzałki góra/dół) */
+.order-cell {
+    width: 100px;
+}
+
+.order-buttons {
+    display: flex;
+    gap: 4px;
+}
+
+.btn-order {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border: 1px solid var(--border-color, #e5e7eb);
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.2s;
+    background: var(--bg-card, #ffffff);
+    color: var(--text-secondary, #6b7280);
+}
+
+.btn-order:hover:not(.disabled) {
+    background: var(--primary-color, #2563eb);
+    border-color: var(--primary-color, #2563eb);
+    color: white;
+}
+
+.btn-order.disabled,
+.btn-order:disabled {
+    opacity: 0.3;
+    cursor: not-allowed;
+    pointer-events: none;
+}
+
+.btn-order svg {
+    width: 16px;
+    height: 16px;
+}
+
+/* Empty state */
+.empty-state {
+    text-align: center;
+    padding: 40px 20px;
+    color: var(--text-secondary, #6b7280);
+}
+
+/* Mniejszy modal */
+.modal-small {
+    max-width: 400px;
+}
+
+/* Info box */
+.sources-info {
+    background: var(--bg-secondary, #f9fafb);
+    border-radius: 8px;
+    padding: 16px 20px;
+    margin-top: 24px;
+}
+
+.sources-info h4 {
+    margin: 0 0 12px 0;
+    font-size: 0.9rem;
+    color: var(--text-primary, #1a1a2e);
+}
+
+.sources-info ul {
+    margin: 0;
+    padding-left: 20px;
+    color: var(--text-secondary, #6b7280);
+    font-size: 0.85rem;
+}
+
+.sources-info li {
+    margin-bottom: 6px;
+}
+
+.sources-info li:last-child {
+    margin-bottom: 0;
+}
+
+/* ============================================
+   MODAL
+   ============================================ */
+
+.modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+    padding: 20px;
+}
+
+.modal-box {
+    background: var(--bg-card, #ffffff);
+    border-radius: 12px;
+    width: 100%;
+    max-width: 500px;
+    max-height: 90vh;
+    overflow-y: auto;
+    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.2);
+}
+
+.modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 20px 24px;
+    border-bottom: 1px solid var(--border-color, #e5e7eb);
+}
+
+.modal-header h3 {
+    margin: 0;
+    font-size: 1.1rem;
+    font-weight: 600;
+    color: var(--text-primary, #1a1a2e);
+}
+
+.modal-close {
+    background: none;
+    border: none;
+    font-size: 24px;
+    color: var(--text-secondary, #6b7280);
+    cursor: pointer;
+    padding: 0;
+    line-height: 1;
+}
+
+.modal-close:hover {
+    color: var(--text-primary, #1a1a2e);
+}
+
+/* Formularz w modalu */
+#addSourceForm {
+    padding: 24px;
+}
+
+#addSourceForm .form-group {
+    margin-bottom: 20px;
+}
+
+#addSourceForm label {
+    display: block;
+    margin-bottom: 6px;
+    font-weight: 500;
+    color: var(--text-primary, #1a1a2e);
+    font-size: 0.9rem;
+}
+
+#addSourceForm .required {
+    color: #ef4444;
+}
+
+#addSourceForm input[type="text"],
+#addSourceForm input[type="number"],
+#addSourceForm select {
+    width: 100%;
+    padding: 10px 12px;
+    border: 1px solid var(--border-color, #e5e7eb);
+    border-radius: 8px;
+    font-size: 0.9rem;
+    background: var(--bg-input, #ffffff);
+}
+
+#addSourceForm input:focus,
+#addSourceForm select:focus {
+    outline: none;
+    border-color: var(--primary-color, #2563eb);
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+}
+
+#addSourceForm select[multiple] {
+    height: 100px;
+}
+
+#addSourceForm small {
+    display: block;
+    margin-top: 6px;
+    color: var(--text-muted, #9ca3af);
+    font-size: 0.8rem;
+}
+
+.checkbox-group label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+}
+
+.checkbox-group input[type="checkbox"] {
+    width: 18px;
+    height: 18px;
+    cursor: pointer;
+}
+
+.form-actions {
+    display: flex;
+    gap: 12px;
+    justify-content: flex-end;
+    margin-top: 24px;
+    padding-top: 20px;
+    border-top: 1px solid var(--border-color, #e5e7eb);
+}
+
+/* Przyciski */
+.btn-primary {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 20px;
+    background: var(--primary-color, #2563eb);
+    color: white;
+    border: none;
+    border-radius: 8px;
+    font-weight: 500;
+    font-size: 0.9rem;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.btn-primary:hover {
+    background: var(--primary-hover, #1d4ed8);
+}
+
+.btn-secondary {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 20px;
+    background: var(--bg-secondary, #f3f4f6);
+    color: var(--text-primary, #1a1a2e);
+    border: 1px solid var(--border-color, #e5e7eb);
+    border-radius: 8px;
+    font-weight: 500;
+    font-size: 0.9rem;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.btn-secondary:hover {
+    background: var(--bg-hover, #e5e7eb);
+}
+
+/* ============================================
+   ŹRÓDŁA WYCEN (QUOTE SOURCES)
+   ============================================ */
+
+.quote-sources-table {
+    table-layout: fixed;
+}
+
+.quote-sources-table tbody tr {
+    height: 70px;
+    vertical-align: middle;
+    border-bottom: 1px solid var(--border-color, #e5e7eb);
+}
+
+.quote-sources-table td {
+    vertical-align: middle;
+}
+
+.quote-sources-table .order-cell {
+    width: 80px;
+}
+
+.quote-sources-table .order-buttons {
+    display: flex;
+    gap: 6px;
+}
+
+.quote-sources-table .btn-order {
+    width: 32px;
+    height: 32px;
+    border: 1px solid var(--border-color, #d1d5db);
+    border-radius: 6px;
+    background: var(--bg-card, #ffffff);
+    color: var(--text-secondary, #4b5563);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s ease;
+}
+
+.quote-sources-table .btn-order:hover:not(.disabled) {
+    background: var(--primary-color, #2563eb);
+    border-color: var(--primary-color, #2563eb);
+    color: white;
+    transform: translateY(-1px);
+    box-shadow: 0 2px 4px rgba(37, 99, 235, 0.3);
+}
+
+.quote-sources-table .btn-order svg {
+    width: 16px;
+    height: 16px;
+}
+
+/* ============================================
+   ŹRÓDŁA ZAMÓWIEŃ BASELINKER
+   ============================================ */
+
+.order-sources-table {
+    table-layout: fixed;
+}
+
+/* Wyrównanie wierszy - stała wysokość */
+.order-sources-table tbody tr {
+    height: 80px;
+    vertical-align: middle;
+    border-bottom: 1px solid var(--border-color, #e5e7eb);
+}
+
+.order-sources-table td {
+    vertical-align: middle;
+}
+
+.order-sources-table .source-name {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.order-sources-table .source-name strong {
+    color: var(--text-primary, #1a1a2e);
+    font-size: 0.95rem;
+}
+
+.order-sources-table .source-name small {
+    color: var(--text-muted, #9ca3af);
+    font-size: 0.75rem;
+}
+
+/* Większe przyciski strzałek dla źródeł zamówień */
+.order-sources-table .order-cell {
+    width: 90px;
+}
+
+.order-sources-table .order-buttons {
+    display: flex;
+    gap: 6px;
+}
+
+.order-sources-table .btn-order {
+    width: 34px;
+    height: 34px;
+    border: 1px solid var(--border-color, #d1d5db);
+    border-radius: 6px;
+    background: var(--bg-card, #ffffff);
+    color: var(--text-secondary, #4b5563);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s ease;
+}
+
+.order-sources-table .btn-order:hover:not(.disabled) {
+    background: var(--primary-color, #2563eb);
+    border-color: var(--primary-color, #2563eb);
+    color: white;
+    transform: translateY(-1px);
+    box-shadow: 0 2px 4px rgba(37, 99, 235, 0.3);
+}
+
+.order-sources-table .btn-order svg {
+    width: 18px;
+    height: 18px;
+}
+
+/* Checkboxy ról */
+.roles-checkboxes {
+    display: flex;
+    flex-wrap: nowrap;
+    gap: 6px;
+    align-items: center;
+}
+
+.checkbox-label {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 0.75rem;
+    cursor: pointer;
+    padding: 4px 8px;
+    background: var(--bg-secondary, #f9fafb);
+    border-radius: 4px;
+    border: 1px solid var(--border-color, #e5e7eb);
+    transition: all 0.2s;
+    white-space: nowrap;
+}
+
+.checkbox-label:hover {
+    background: var(--bg-hover, #e5e7eb);
+    border-color: var(--primary-color, #2563eb);
+}
+
+.checkbox-label input[type="checkbox"] {
+    width: 14px;
+    height: 14px;
+    cursor: pointer;
+    accent-color: var(--primary-color, #2563eb);
+    margin: 0;
+}
+
+.checkbox-label input[type="checkbox"]:checked + span,
+.checkbox-label:has(input:checked) {
+    color: var(--primary-color, #2563eb);
+    font-weight: 500;
+}
+
+/* Przyciski akcji dla źródeł zamówień */
+.btn-save-order {
+    color: #22c55e;
+}
+
+.btn-save-order:hover {
+    background: #dcfce7;
+}
+
+.btn-delete-order {
+    color: #ef4444;
+}
+
+.btn-delete-order:hover {
+    background: #fee2e2;
+}
+
+/* Responsywność */
+@media (max-width: 768px) {
+    .settings-tabs {
+        flex-wrap: wrap;
+    }
+
+    .settings-tab {
+        flex: 1;
+        justify-content: center;
+    }
+
+    .sources-table th,
+    .sources-table td {
+        padding: 8px 12px;
+    }
+
+    .section-header {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
+    .section-header .btn-primary {
+        margin-left: 0;
+    }
+
+    .order-sources-table {
+        font-size: 0.8rem;
+    }
+
+    .roles-checkboxes {
+        flex-wrap: wrap;
+        gap: 4px;
+    }
+
+    .order-sources-table tbody tr {
+        height: auto;
+        min-height: 60px;
+    }
+}

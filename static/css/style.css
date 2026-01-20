@@ -2167,12 +2167,15 @@ select.select-input {
 .footer-menu {
     display: flex;
     flex-direction: row;
+    flex-wrap: wrap;
+    justify-content: center;
     width: 100%;
-    gap: 8px;
+    gap: 6px 12px;
 }
 
 .sidebar.collapsed .footer-menu {
     flex-direction: column;
+    flex-wrap: nowrap;
     gap: 12px;
 }
 

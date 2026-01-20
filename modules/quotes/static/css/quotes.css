@@ -966,11 +966,126 @@
 .variant-summary-header {
     font-size: 14px;
     margin-bottom: 12px;
-    padding: 8px 12px;
+    padding: 12px 16px;
     border-radius: 6px;
     background: #f4f4f4;
     border: 1px solid #dcdcdc;
     font-weight: 500;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    align-items: stretch;
+}
+
+.variant-summary-header .product-column {
+    display: flex;
+    flex-direction: column;
+}
+
+.variant-summary-header .product-column div {
+    line-height: 1.4;
+}
+
+/* Kolumna wykończenia (zawiera też krawędzie) */
+.variant-summary-header .finishing-column {
+    display: flex;
+    gap: 16px;
+    align-items: stretch;
+}
+
+.variant-summary-header .finishing-column .finishing-info {
+    display: flex;
+    flex-direction: column;
+}
+
+.variant-summary-header .finishing-column .finishing-info div {
+    line-height: 1.4;
+}
+
+.variant-summary-header .finishing-column .cost-netto {
+    color: #666;
+    font-size: 12px;
+}
+
+/* Separator między wykończeniem a krawędziami */
+.variant-summary-header .finishing-column .edges-separator {
+    height: 1px;
+    background: #e8d4a8;
+    margin: 6px 0;
+}
+
+/* SVG krawędzi - pełna wysokość kontenera */
+.edges-svg-preview {
+    width: 160px;
+    min-height: 110px;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.edges-svg-preview svg {
+    width: 100%;
+    height: auto;
+    display: block;
+}
+
+/* Style dla SVG krawędzi w podglądzie */
+.edges-svg-preview .edges-face {
+    fill: #d4a574;
+    stroke: #8b6914;
+    stroke-width: 0.5;
+}
+
+.edges-svg-preview .edges-face-top {
+    fill: #e6c18a;
+}
+
+.edges-svg-preview .edges-face-front {
+    fill: #c49a6c;
+}
+
+.edges-svg-preview .edges-face-right {
+    fill: #b8895e;
+}
+
+.edges-svg-preview .edges-line {
+    stroke: #5a3d1a;
+    stroke-width: 1.5;
+}
+
+.edges-svg-preview .edges-line.active {
+    stroke: #28a745;
+    stroke-width: 2.5;
+}
+
+.edges-svg-preview .edges-hidden {
+    stroke-dasharray: 3, 3;
+    stroke-width: 1;
+    opacity: 0.5;
+}
+
+/* Responsywność dla małych ekranów */
+@media (max-width: 768px) {
+    .variant-summary-header {
+        grid-template-columns: 1fr;
+    }
+
+    .variant-summary-header .finishing-column {
+        flex-direction: column;
+        align-items: center;
+    }
+
+    .variant-summary-header .finishing-column .finishing-info {
+        min-width: unset;
+        width: 100%;
+    }
+
+    .edges-svg-preview {
+        width: 100%;
+        max-width: 200px;
+        height: auto;
+        min-height: 100px;
+    }
 }
 
 /* === Custom Status Dropdown === */
