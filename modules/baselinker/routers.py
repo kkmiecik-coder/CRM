@@ -262,20 +262,19 @@ def sync_config():
     
     try:
         service = BaselinkerService()
-        
+
         baselinker_logger.debug("Rozpoczęcie synchronizacji źródeł zamówień")
         sources_synced = service.sync_order_sources()
-        
-        baselinker_logger.debug("Rozpoczęcie synchronizacji statusów zamówień")
-        statuses_synced = service.sync_order_statuses()
-        
+
+        # Status zamówienia jest hardcoded (105112), nie synchronizujemy statusów
+        statuses_synced = True
+
         sync_success = sources_synced and statuses_synced
-        
+
         baselinker_logger.info("Synchronizacja konfiguracji zakończona",
                               sources_synced=sources_synced,
-                              statuses_synced=statuses_synced,
                               overall_success=sync_success)
-        
+
         if sync_success:
             return jsonify({
                 'success': True,

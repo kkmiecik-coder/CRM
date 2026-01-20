@@ -89,19 +89,26 @@ class BaselinkerService:
                 sources_list = []
             
                 for category, items in sources_data.items():
-                    self.logger.debug("Przetwarzanie kategorii źródeł", 
-                                    category=category, 
+                    self.logger.debug("Przetwarzanie kategorii źródeł",
+                                    category=category,
                                     items_count=len(items))
-                
+
                     for source_id, source_name in items.items():
+                        # Pomijamy źródła bez numerycznego ID (np. 'order_return')
+                        if not source_id.isdigit():
+                            self.logger.debug("Pomijam źródło systemowe",
+                                            source_id=source_id,
+                                            source_name=source_name)
+                            continue
+
                         sources_list.append({
-                            'id': int(source_id) if source_id.isdigit() else 0,
+                            'id': int(source_id),
                             'name': f"{source_name} ({category})",
                             'category': category
                         })
-                        self.logger.debug("Dodano źródło", 
-                                        source_id=source_id, 
-                                        source_name=source_name, 
+                        self.logger.debug("Dodano źródło",
+                                        source_id=source_id,
+                                        source_name=source_name,
                                         category=category)
             
                 self.logger.info("Pomyślnie pobrano źródła zamówień", 
@@ -175,13 +182,8 @@ class BaselinkerService:
             sources = self.get_order_sources()
             self.logger.debug("Pobrano źródła do synchronizacji", sources_count=len(sources))
 
-            # DODAJ STANDARDOWE ŹRÓDŁA JEŚLI ICH BRAK
-            standard_sources = [
-                {'id': 0, 'name': 'Osobiście (personal)', 'category': 'personal'},
-            ]
-
-            # Połącz źródła z API i standardowe
-            all_sources = sources + standard_sources
+            # Używamy tylko źródeł z API Baselinker
+            all_sources = sources
 
             updated_count = 0
             created_count = 0
@@ -742,7 +744,7 @@ class BaselinkerService:
 
         # Konfiguracja zamówienia
         order_source_id = config.get('order_source_id')
-        order_status_id = config.get('order_status_id')
+        order_status_id = 105112  # Hardcoded: "Nowe - nieopłacone"
         payment_method = config.get('payment_method', 'Przelew bankowy')
         delivery_method = config.get('delivery_method', quote.courier_name or 'Przesyłka kurierska')
 

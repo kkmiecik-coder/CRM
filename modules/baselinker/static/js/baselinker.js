@@ -1169,7 +1169,6 @@ class BaselinkerModal {
     // POPRAWIONA FUNKCJA: Bardziej dokładna walidacja
     validateConfigurationForm() {
         const orderSource = document.getElementById('order-source-select');
-        const orderStatus = document.getElementById('order-status-select');
         const paymentMethod = document.getElementById('payment-method-select');
 
         let isValid = true;
@@ -1179,8 +1178,7 @@ class BaselinkerModal {
         this.clearValidationErrors();
 
         console.log('[Baselinker] Walidacja formularza konfiguracji:');
-        console.log(`- Źródło: "${orderSource?.value}" (type: ${typeof orderSource?.value})`);
-        console.log(`- Status: "${orderStatus?.value}" (type: ${typeof orderStatus?.value})`);
+        console.log(`- Typ klienta: "${orderSource?.value}" (type: ${typeof orderSource?.value})`);
         console.log(`- Płatność: "${paymentMethod?.value}" (type: ${typeof paymentMethod?.value})`);
 
         // 🔧 POPRAWIONA WALIDACJA TYPU KLIENTA - akceptuj ID = 0 oraz inne prawidłowe wartości
@@ -1196,11 +1194,6 @@ class BaselinkerModal {
             console.log('[Baselinker] BŁĄD: Pusty typ klienta');
         } else {
             console.log(`[Baselinker] ✅ Prawidłowy typ klienta: ${orderSource.value}`);
-        }
-
-        // Status zamówienia jest wyłączony (disabled) - ma wartość domyślną, nie walidujemy
-        if (orderStatus?.value) {
-            console.log(`[Baselinker] ✅ Status zamówienia (domyślny): ${orderStatus.value}`);
         }
 
         if (!paymentMethod?.value || paymentMethod.value.trim() === '') {
@@ -1413,27 +1406,19 @@ class BaselinkerModal {
 
         // Pobierz wartości z formularza
         const orderSourceId = document.getElementById('order-source-select').value;
-        const orderStatusId = document.getElementById('order-status-select').value;
         const paymentMethod = document.getElementById('payment-method-select').value;
         const deliveryMethod = document.getElementById('delivery-method-input').value;
 
         // DODATKOWA WALIDACJA PRZED WYSŁANIEM
         console.log('[Baselinker] 🔍 FINALNA WALIDACJA PRZED WYSŁANIEM:');
         console.log(`- order_source_id: "${orderSourceId}" (type: ${typeof orderSourceId})`);
-        console.log(`- order_status_id: "${orderStatusId}" (type: ${typeof orderStatusId})`);
         console.log(`- payment_method: "${paymentMethod}" (type: ${typeof paymentMethod})`);
         console.log(`- delivery_method: "${deliveryMethod}" (type: ${typeof deliveryMethod})`);
 
         // Sprawdź czy wartości nie są puste
         if (!orderSourceId && orderSourceId !== '0') {
             console.log('[Baselinker] ❌ KRYTYCZNY BŁĄD: orderSourceId jest puste!');
-            this.showAlert('Błąd: Nie wybrano źródła zamówienia', 'error');
-            return;
-        }
-
-        if (!orderStatusId) {
-            console.log('[Baselinker] ❌ KRYTYCZNY BŁĄD: orderStatusId jest puste!');
-            this.showAlert('Błąd: Nie wybrano statusu zamówienia', 'error');
+            this.showAlert('Błąd: Nie wybrano typu klienta', 'error');
             return;
         }
 
@@ -1494,7 +1479,6 @@ class BaselinkerModal {
 
             const orderData = {
                 order_source_id: parseInt(orderSourceId), // Konwertuj na int
-                order_status_id: parseInt(orderStatusId), // Konwertuj na int
                 payment_method: paymentMethod,
                 delivery_method: deliveryMethod,
                 shipping_cost_override: currentShippingCost,
@@ -1670,10 +1654,6 @@ class BaselinkerModal {
             <div class="bl-style-config-row">
                 <span class="bl-style-config-label">Typ klienta:</span>
                 <span class="bl-style-config-value">${this.getSelectedOptionText('order-source-select')}</span>
-            </div>
-            <div class="bl-style-config-row">
-                <span class="bl-style-config-label">Status:</span>
-                <span class="bl-style-config-value">${this.getSelectedOptionText('order-status-select')}</span>
             </div>
             <div class="bl-style-config-row">
                 <span class="bl-style-config-label">Płatność:</span>
