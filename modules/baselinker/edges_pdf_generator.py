@@ -3,13 +3,14 @@ Generator PDF z wizualizacją obróbki krawędzi dla BaseLinker.
 
 Generuje wielostronicowy PDF (format 105x80mm) z wizualizacją krawędzi
 i legendą dla każdego produktu. Dokument techniczny dla produkcji.
-Używa WeasyPrint do renderowania HTML z SVG - ta sama metoda co w PDF oferty.
+Używa WeasyPrint do renderowania HTML z obrazkiem PNG (konwertowanym z SVG przez CairoSVG).
 """
 
 import io
 import re
 import base64
 from weasyprint import HTML, CSS
+import cairosvg
 
 
 class EdgesPdfGenerator:
@@ -140,10 +141,10 @@ class EdgesPdfGenerator:
 
         return svg_html
 
-    def _fix_svg_for_weasyprint(self, svg_html: str) -> str:
+    def _fix_svg_for_conversion(self, svg_html: str) -> str:
         """
-        Naprawia SVG dla WeasyPrint:
-        1. Dodaje width/height jeśli brakuje (WeasyPrint wymaga wymiarów)
+        Naprawia SVG przed konwersją na PNG:
+        1. Dodaje width/height w pikselach
         2. Usuwa puste atrybuty style=""
         3. Dodaje xmlns jeśli brakuje
         """
@@ -153,12 +154,11 @@ class EdgesPdfGenerator:
         # Usuń puste style=""
         svg_html = re.sub(r'\s*style=""', '', svg_html)
 
-        # Dodaj width i height do SVG jeśli brakuje
+        # Dodaj width i height do SVG jeśli brakuje (w pikselach dla CairoSVG)
         if 'width=' not in svg_html or 'height=' not in svg_html:
-            # Dodaj wymiary 45mm x 45mm (rozmiar kontenera)
             svg_html = re.sub(
                 r'<svg\s+',
-                '<svg width="45mm" height="45mm" ',
+                '<svg width="300" height="300" ',
                 svg_html,
                 count=1
             )
@@ -174,6 +174,37 @@ class EdgesPdfGenerator:
 
         return svg_html
 
+    def _svg_to_png_base64(self, svg_html: str) -> str:
+        """
+        Konwertuje SVG na PNG i zwraca jako base64 data URI.
+        Używa CairoSVG który poprawnie obsługuje atrybuty SVG.
+        """
+        if not svg_html:
+            return None
+
+        try:
+            # Najpierw konwertuj CSS styles na atrybuty SVG
+            svg_html = self._convert_css_to_svg_attributes(svg_html)
+
+            # Napraw SVG dla konwersji
+            svg_html = self._fix_svg_for_conversion(svg_html)
+
+            # Konwertuj SVG na PNG używając CairoSVG
+            png_bytes = cairosvg.svg2png(
+                bytestring=svg_html.encode('utf-8'),
+                output_width=300,
+                output_height=300
+            )
+
+            # Zakoduj PNG jako base64
+            png_base64 = base64.b64encode(png_bytes).decode('utf-8')
+            return f'data:image/png;base64,{png_base64}'
+
+        except Exception as e:
+            if self.logger:
+                self.logger.error(f'Błąd konwersji SVG na PNG: {e}')
+            return None
+
     def _ensure_dashed_lines(self, svg_html: str) -> str:
         """
         Upewnia się, że ukryte krawędzie (F, G, N3) mają linie przerywane.
@@ -185,27 +216,23 @@ class EdgesPdfGenerator:
         # Najpierw konwertuj CSS styles na atrybuty SVG
         svg_html = self._convert_css_to_svg_attributes(svg_html)
 
-        # Napraw SVG dla WeasyPrint (wymiary, xmlns)
-        svg_html = self._fix_svg_for_weasyprint(svg_html)
+        # Napraw SVG dla konwersji
+        svg_html = self._fix_svg_for_conversion(svg_html)
 
-        # Dodaj style dla linii przerywanych jeśli ich brak
+        # Dodaj stroke-dasharray jako atrybut do linii ukrytych
         # Szukamy linii z klasą zawierającą 'hidden' i dodajemy stroke-dasharray
-        if 'stroke-dasharray' not in svg_html:
-            # Dodaj CSS dla linii ukrytych wewnątrz SVG
-            svg_style = """
-            <style>
-                .edge-hidden, .hidden, line[class*="hidden"] {
-                    stroke-dasharray: 5,3 !important;
-                }
-            </style>
-            """
-            # Wstaw style zaraz po otwarciu tagu <svg>
-            svg_html = re.sub(
-                r'(<svg[^>]*>)',
-                r'\1' + svg_style,
-                svg_html,
-                count=1
-            )
+        def add_dasharray(match):
+            tag = match.group(0)
+            if 'stroke-dasharray' not in tag:
+                # Dodaj przed zamknięciem tagu
+                tag = re.sub(r'>$', ' stroke-dasharray="5,3">', tag)
+            return tag
+
+        svg_html = re.sub(
+            r'<line[^>]*class="[^"]*hidden[^"]*"[^>]*>',
+            add_dasharray,
+            svg_html
+        )
 
         return svg_html
 
@@ -337,12 +364,19 @@ class EdgesPdfGenerator:
         edge_type = self.TYPE_NAMES.get(product.get('edges_type', ''), product.get('edges_type', ''))
         r_value = product.get('edges_r_value', 0)
 
-        # SVG z bazy danych - z dodaniem linii przerywanych
+        # Konwertuj SVG na PNG i osadź jako obrazek
         svg_html = product.get('edges_svg', '')
         if svg_html:
+            # Najpierw dodaj linie przerywane do SVG
             svg_html = self._ensure_dashed_lines(svg_html)
+            # Konwertuj SVG na PNG
+            png_data_uri = self._svg_to_png_base64(svg_html)
+            if png_data_uri:
+                image_html = f'<img src="{png_data_uri}" style="width:45mm;height:45mm;object-fit:contain;" />'
+            else:
+                image_html = '<div style="width:45mm;height:45mm;background:#f5f5f5;display:flex;align-items:center;justify-content:center;font-size:8px;color:#999;">Błąd konwersji</div>'
         else:
-            svg_html = '<div style="width:45mm;height:45mm;background:#f5f5f5;display:flex;align-items:center;justify-content:center;font-size:8px;color:#999;">Brak wizualizacji</div>'
+            image_html = '<div style="width:45mm;height:45mm;background:#f5f5f5;display:flex;align-items:center;justify-content:center;font-size:8px;color:#999;">Brak wizualizacji</div>'
 
         # Lista krawędzi
         edges_config = product.get('edges_config', [])
@@ -360,7 +394,7 @@ class EdgesPdfGenerator:
             </div>
             <div class="content">
                 <div class="svg-container">
-                    {svg_html}
+                    {image_html}
                 </div>
                 <div class="legend">
                     <div class="legend-item"><strong>Typ:</strong> {edge_type}</div>
