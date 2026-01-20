@@ -451,6 +451,37 @@ body.dark-mode .forgot-password:hover {
     color: #ED6B24;
 }
 
+/* Wyróżniony link do resetowania hasła - gdy hasło wymaga aktualizacji */
+.forgot-password-highlight {
+    background-color: #fff3e0;
+    padding: 8px 12px;
+    border-radius: 6px;
+    border: 2px solid #ED6B24;
+    animation: pulse-highlight 1.5s ease-in-out infinite;
+}
+
+.forgot-password-highlight:hover {
+    background-color: #ffe0b2;
+}
+
+body.dark-mode .forgot-password-highlight {
+    background-color: rgba(237, 107, 36, 0.2);
+    border-color: #ff8850;
+}
+
+body.dark-mode .forgot-password-highlight:hover {
+    background-color: rgba(237, 107, 36, 0.3);
+}
+
+@keyframes pulse-highlight {
+    0%, 100% {
+        box-shadow: 0 0 0 0 rgba(237, 107, 36, 0.4);
+    }
+    50% {
+        box-shadow: 0 0 0 8px rgba(237, 107, 36, 0);
+    }
+}
+
 /* Submit button */
 .submit-button {
     width: 100%;

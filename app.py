@@ -421,7 +421,23 @@ def create_app():
                                     email_value=email,
                                     password_error='Twoje konto zostało dezaktywowane.',
                                     email_error=None)
-            if not check_password_hash(user.password, password):
+
+            # Sprawdzenie hasła z obsługą niekompatybilnego algorytmu hashowania
+            try:
+                password_valid = check_password_hash(user.password, password)
+            except ValueError as e:
+                if 'unsupported hash type' in str(e) and user.password.startswith('scrypt:'):
+                    # Hasło używa scrypt, który nie jest obsługiwany na tym serwerze
+                    # Przekieruj na reset hasła
+                    current_app.logger.warning(f"[Login] Nieobsługiwany algorytm hashowania dla {email} - wymagany reset hasła")
+                    return render_template('login.html',
+                                        email_value=email,
+                                        password_error='Twoje hasło wymaga aktualizacji. Skorzystaj z opcji "Nie pamiętam hasła" aby ustawić nowe hasło.',
+                                        email_error=None,
+                                        show_forgot_password=True)
+                raise
+
+            if not password_valid:
                 return render_template('login.html',
                                     email_value=email,
                                     password_error='Błędne hasło lub e-mail.',

@@ -565,7 +565,7 @@
     color: #1F2020;
     text-align: right;
     font-family: Poppins, sans-serif;
-    font-size: 14px;
+    font-size: 16px;
     font-style: normal;
     font-weight: 400;
     line-height: normal;
@@ -592,7 +592,7 @@
     color: #7E7E7E;
     text-align: right;
     font-family: Poppins, sans-serif;
-    font-size: 10px;
+    font-size: 14px;
     font-style: normal;
     font-weight: 400;
     line-height: normal;
@@ -1593,7 +1593,7 @@ select.select-small option {
     .variant-option .unit-netto,
     .variant-option .total-brutto,
     .variant-option .total-netto {
-        font-size: 12px;
+        font-size: 14px;
         color: #1F2020;
         font-family: Poppins, sans-serif;
         text-align: right;

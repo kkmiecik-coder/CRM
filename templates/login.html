@@ -61,7 +61,7 @@
             <input type="checkbox" id="rememberMe" name="remember_me">
             <label for="rememberMe">Zapamiętaj mnie</label>
         </div>
-        <a href="{{ url_for('reset_password_request', email_value=email_value|default('')) }}" class="forgot-password">
+        <a href="{{ url_for('reset_password_request', email_value=email_value|default('')) }}" class="forgot-password{% if show_forgot_password %} forgot-password-highlight{% endif %}">
             Nie pamiętam hasła
         </a>
     </div>
