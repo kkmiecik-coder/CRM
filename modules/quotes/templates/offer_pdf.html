@@ -319,7 +319,6 @@
 
         .edge-item-content {
             display: flex;
-            gap: 12px;
             align-items: flex-start;
         }
 
@@ -327,11 +326,13 @@
             flex-shrink: 0;
             width: 120px;
             height: 120px;
+            margin-right: 12px;
         }
 
-        .edge-item-svg svg {
+        .edge-item-svg img {
             width: 120px;
             height: 120px;
+            object-fit: contain;
         }
 
         .edge-item-info {
@@ -636,7 +637,7 @@
                 <div class="edge-item-content">
                     {% if edges_images and edges_images.get(detail.product_index) %}
                     <div class="edge-item-svg">
-                        {{ edges_images[detail.product_index]|safe }}
+                        <img src="{{ edges_images[detail.product_index] }}" alt="Wizualizacja krawędzi" />
                     </div>
                     {% endif %}
                     <div class="edge-item-info">
