@@ -296,13 +296,13 @@ class EdgesPdfGenerator:
 
         .content {{
             display: flex;
-            gap: 3mm;
         }}
 
         .svg-container {{
             flex-shrink: 0;
             width: 45mm;
             height: 45mm;
+            margin-right: 3mm;
         }}
 
         .svg-container svg {{
