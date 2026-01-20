@@ -1020,6 +1020,7 @@ const EdgesModule = (function() {
                     <div class="options-summary-content">
                         <span class="options-summary-text finishing-summary-text"></span>
                         <span class="options-summary-price finishing-summary-price"></span>
+                        <span class="options-summary-price-netto finishing-summary-price-netto"></span>
                     </div>
                     <button type="button" class="options-reset-btn finishing-reset-btn">Resetuj</button>
                 </div>
@@ -1027,6 +1028,7 @@ const EdgesModule = (function() {
                     <div class="options-summary-content">
                         <span class="options-summary-text edges-summary-text"></span>
                         <span class="options-summary-price edges-summary-price"></span>
+                        <span class="options-summary-price-netto edges-summary-price-netto"></span>
                     </div>
                     <button type="button" class="options-reset-btn edges-reset-btn">Resetuj</button>
                 </div>
@@ -1037,7 +1039,18 @@ const EdgesModule = (function() {
         const edgesRow = optionsSummary.querySelector('.edges-row');
         const textEl = optionsSummary.querySelector('.edges-summary-text');
         const priceEl = optionsSummary.querySelector('.edges-summary-price');
+        let priceNettoEl = optionsSummary.querySelector('.edges-summary-price-netto');
         const openBtn = form.querySelector('.open-edges-modal-btn');
+
+        // Jeśli element netto nie istnieje, utwórz go dynamicznie
+        if (!priceNettoEl && edgesRow) {
+            const content = edgesRow.querySelector('.options-summary-content');
+            if (content) {
+                priceNettoEl = document.createElement('span');
+                priceNettoEl.className = 'options-summary-price-netto edges-summary-price-netto';
+                content.appendChild(priceNettoEl);
+            }
+        }
 
         if (state.selectedEdges.size > 0) {
             // Buduj tekst podsumowania
@@ -1045,7 +1058,8 @@ const EdgesModule = (function() {
             const typeLabel = state.edgeType === 'chamfer' ? 'Fazowanie' : 'Zaokrąglenie';
 
             if (textEl) textEl.textContent = `${typeLabel} R${state.rValue}: ${edgeNames}`;
-            if (priceEl) priceEl.textContent = formatPLN(prices.brutto);
+            if (priceEl) priceEl.textContent = formatPLN(prices.brutto) + ' brutto';
+            if (priceNettoEl) priceNettoEl.textContent = formatPLN(prices.netto) + ' netto';
             if (edgesRow) edgesRow.style.display = 'flex';
 
             // Zmień tekst przycisku na "Zmień obróbkę krawędzi"
@@ -1284,9 +1298,23 @@ const EdgesModule = (function() {
             if (edgesRow) {
                 const textEl = edgesRow.querySelector('.edges-summary-text');
                 const priceEl = edgesRow.querySelector('.edges-summary-price');
+                let priceNettoEl = edgesRow.querySelector('.edges-summary-price-netto');
+
+                // Jeśli element netto nie istnieje, utwórz go dynamicznie
+                if (!priceNettoEl) {
+                    const content = edgesRow.querySelector('.options-summary-content');
+                    if (content) {
+                        priceNettoEl = document.createElement('span');
+                        priceNettoEl.className = 'options-summary-price-netto edges-summary-price-netto';
+                        content.appendChild(priceNettoEl);
+                    }
+                }
 
                 if (priceEl) {
-                    priceEl.textContent = formatPLN(totalBrutto);
+                    priceEl.textContent = formatPLN(totalBrutto) + ' brutto';
+                }
+                if (priceNettoEl) {
+                    priceNettoEl.textContent = formatPLN(totalNetto) + ' netto';
                 }
             }
 

@@ -776,9 +776,21 @@ class QuoteDraftBackup {
                 // Zaktualizuj tekst i cenę
                 const textEl = edgesRow.querySelector('.edges-summary-text');
                 const priceEl = edgesRow.querySelector('.edges-summary-price');
+                let priceNettoEl = edgesRow.querySelector('.edges-summary-price-netto');
+
+                // Jeśli element netto nie istnieje, utwórz go dynamicznie
+                if (!priceNettoEl) {
+                    const content = edgesRow.querySelector('.options-summary-content');
+                    if (content) {
+                        priceNettoEl = document.createElement('span');
+                        priceNettoEl.className = 'options-summary-price-netto edges-summary-price-netto';
+                        content.appendChild(priceNettoEl);
+                    }
+                }
 
                 if (textEl) textEl.textContent = summaryText;
                 if (priceEl) priceEl.textContent = `${edges.brutto.toFixed(2)} zł brutto`;
+                if (priceNettoEl) priceNettoEl.textContent = `${edges.netto.toFixed(2)} zł netto`;
 
                 // Pokaż wiersz krawędzi
                 edgesRow.style.display = 'flex';

@@ -600,6 +600,12 @@
     font-family: 'Poppins', sans-serif;
 }
 
+.options-summary-price-netto {
+    font-size: 12px;
+    color: #888;
+    font-family: 'Poppins', sans-serif;
+}
+
 .options-reset-btn {
     padding: 6px 14px;
     font-size: 12px;

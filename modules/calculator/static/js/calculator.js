@@ -1320,15 +1320,27 @@ function updateFinishingSummaryRow(form, finishingType, finishingVariant, priceN
     // Aktualizuj tekst i cenę
     const textEl = finishingRow.querySelector('.finishing-summary-text');
     const priceEl = finishingRow.querySelector('.finishing-summary-price');
+    let priceNettoEl = finishingRow.querySelector('.finishing-summary-price-netto');
+
+    // Jeśli element netto nie istnieje, utwórz go dynamicznie
+    if (!priceNettoEl) {
+        const content = finishingRow.querySelector('.options-summary-content');
+        if (content) {
+            priceNettoEl = document.createElement('span');
+            priceNettoEl.className = 'options-summary-price-netto finishing-summary-price-netto';
+            content.appendChild(priceNettoEl);
+        }
+    }
 
     if (textEl) textEl.textContent = description;
-    if (priceEl) priceEl.textContent = `${priceBrutto.toFixed(2)} PLN`;
+    if (priceEl) priceEl.textContent = `${priceBrutto.toFixed(2)} PLN brutto`;
+    if (priceNettoEl) priceNettoEl.textContent = `${priceNetto.toFixed(2)} PLN netto`;
 
     // Pokaż wiersz
     finishingRow.style.display = 'flex';
     updateOptionsSummaryVisibility(optionsSummary);
 
-    console.log(`[updateFinishingSummaryRow] Wykończenie: ${description}, cena: ${priceBrutto.toFixed(2)} PLN`);
+    console.log(`[updateFinishingSummaryRow] Wykończenie: ${description}, cena: ${priceBrutto.toFixed(2)} PLN brutto, ${priceNetto.toFixed(2)} PLN netto`);
 }
 
 /**
@@ -4292,15 +4304,32 @@ function duplicateProduct(sourceIndex) {
                         const edgesArray = JSON.parse(sourceData.edgesData);
                         const edgeLetters = edgesArray.map(e => e.letter).sort().join(', ');
                         const typeLabel = sourceData.edgesType === 'chamfer' ? 'Fazowanie' : 'Zaokrąglenie';
-                        const priceText = parseFloat(sourceData.edgesBrutto).toLocaleString('pl-PL', {
+                        const priceBruttoText = parseFloat(sourceData.edgesBrutto).toLocaleString('pl-PL', {
                             minimumFractionDigits: 2,
                             maximumFractionDigits: 2
-                        }) + ' zł';
+                        }) + ' zł brutto';
+                        const priceNettoText = parseFloat(sourceData.edgesNetto).toLocaleString('pl-PL', {
+                            minimumFractionDigits: 2,
+                            maximumFractionDigits: 2
+                        }) + ' zł netto';
 
                         const textEl = edgesRow.querySelector('.edges-summary-text');
                         const priceEl = edgesRow.querySelector('.edges-summary-price');
+                        let priceNettoEl = edgesRow.querySelector('.edges-summary-price-netto');
+
+                        // Jeśli element netto nie istnieje, utwórz go dynamicznie
+                        if (!priceNettoEl) {
+                            const content = edgesRow.querySelector('.options-summary-content');
+                            if (content) {
+                                priceNettoEl = document.createElement('span');
+                                priceNettoEl.className = 'options-summary-price-netto edges-summary-price-netto';
+                                content.appendChild(priceNettoEl);
+                            }
+                        }
+
                         if (textEl) textEl.textContent = `${typeLabel} R${sourceData.edgesRValue}: ${edgeLetters}`;
-                        if (priceEl) priceEl.textContent = priceText;
+                        if (priceEl) priceEl.textContent = priceBruttoText;
+                        if (priceNettoEl) priceNettoEl.textContent = priceNettoText;
 
                         edgesRow.style.display = 'flex';
                         optionsSummary.style.display = 'flex';
