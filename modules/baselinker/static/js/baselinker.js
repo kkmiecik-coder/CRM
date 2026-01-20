@@ -80,12 +80,6 @@ class BaselinkerModal {
                 return;
             }
 
-            // Sync config
-            if (target.closest('#baselinker-sync-config')) {
-                this.syncConfig();
-                return;
-            }
-
             // Kopiuj z faktury do dostawy
             if (target.closest('#bl-copy-invoice-to-delivery')) {
                 e.preventDefault();
@@ -1789,28 +1783,6 @@ class BaselinkerModal {
             this.updateStep();
         } else {
             console.log(`[Baselinker] Już jesteśmy w pierwszym kroku`);
-        }
-    }
-
-    async syncConfig() {
-        console.log('[Baselinker] Syncing configuration...');
-
-        try {
-            const response = await fetch('/baselinker/api/sync-config');
-            const result = await response.json();
-
-            if (result.success) {
-                this.showAlert('Konfiguracja zsynchronizowana pomyślnie', 'success');
-                // Odśwież dane modala jeśli jest otwarty
-                if (this.modalData) {
-                    this.openModal(this.modalData.quote.id);
-                }
-            } else {
-                this.showAlert('Błąd synchronizacji konfiguracji', 'error');
-            }
-        } catch (error) {
-            console.error('[Baselinker] Sync error:', error);
-            this.showAlert('Błąd połączenia podczas synchronizacji', 'error');
         }
     }
 
