@@ -144,43 +144,32 @@ def create_order(quote_id):
                                user_email=user_email,
                                user_role=user.role)
         
-        # Walidacja konfiguracji
-        if not config.get('order_source_id') or not config.get('order_status_id'):
+        # Walidacja konfiguracji - order_source_id jest wymagane (może być 0!)
+        # order_status_id jest hardcoded w service.py (105112), nie walidujemy
+        if config.get('order_source_id') is None:
             baselinker_logger.error("Niepełna konfiguracja zamówienia",
                                    quote_id=quote_id,
-                                   missing_fields={
-                                       'order_source_id': not config.get('order_source_id'),
-                                       'order_status_id': not config.get('order_status_id')
-                                   })
-            return jsonify({'error': 'Niepełna konfiguracja zamówienia'}), 400
-        
-        # Sprawdź czy źródło i status istnieją w bazie
+                                   missing_fields={'order_source_id': True})
+            return jsonify({'error': 'Niepełna konfiguracja zamówienia - brak źródła'}), 400
+
+        # Sprawdź czy źródło istnieje w bazie
         source_exists = BaselinkerConfig.query.filter_by(
             config_type='order_source',
             baselinker_id=config['order_source_id']
         ).first()
-        
-        status_exists = BaselinkerConfig.query.filter_by(
-            config_type='order_status',
-            baselinker_id=config['order_status_id']
-        ).first()
-        
+
         if not source_exists:
             baselinker_logger.error("Źródło zamówienia nie istnieje w bazie",
                                    quote_id=quote_id,
                                    order_source_id=config['order_source_id'])
             return jsonify({'error': f'Źródło zamówienia o ID {config["order_source_id"]} nie istnieje'}), 400
-            
-        if not status_exists:
-            baselinker_logger.error("Status zamówienia nie istnieje w bazie",
-                                   quote_id=quote_id,
-                                   order_status_id=config['order_status_id'])
-            return jsonify({'error': f'Status zamówienia o ID {config["order_status_id"]} nie istnieje'}), 400
-        
+
+        # Status jest hardcoded (105112), nie walidujemy
+
         baselinker_logger.info("Walidacja konfiguracji przeszła pomyślnie",
                               quote_id=quote_id,
                               source_name=source_exists.name,
-                              status_name=status_exists.name)
+                              status_id_hardcoded=105112)
         
         # Utwórz zamówienie
         service = BaselinkerService()
