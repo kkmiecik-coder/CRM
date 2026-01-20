@@ -10,10 +10,17 @@ const EdgesModule = (function() {
     // KONFIGURACJA
     // ==========================================
 
+    // Ceny domyślne (fallback gdy API niedostępne)
+    const DEFAULT_PRICES = {
+        chamfer: { per_mb: 15.00, per_corner: 5.00 },
+        round: { per_mb: 15.00, per_corner: 5.00 }
+    };
+
+    // Dynamiczna konfiguracja - ceny będą aktualizowane z API
     const CONFIG = {
-        // Ceny (netto, PLN)
-        PRICE_PER_MB: 15.00,      // Cena za metr bieżący
-        PRICE_PER_CORNER: 5.00,   // Cena za narożnik
+        // Ceny (netto, PLN) - pobierane dynamicznie z bazy danych
+        prices: { ...DEFAULT_PRICES },
+        pricesLoaded: false,
         VAT_RATE: 1.23,           // Stawka VAT
 
         // Promienie R
@@ -22,6 +29,72 @@ const EdgesModule = (function() {
             round: { min: 3, max: 20, default: 5 }
         }
     };
+
+    /**
+     * Pobiera ceny obróbki krawędzi z API
+     * @returns {Promise<boolean>} true jeśli udało się pobrać ceny
+     */
+    async function loadPricesFromAPI() {
+        try {
+            const response = await fetch('/calculator/api/edge-options');
+            if (!response.ok) {
+                console.warn('[EdgesModule] Nie udało się pobrać cen z API, używam domyślnych');
+                return false;
+            }
+
+            const data = await response.json();
+
+            // API zwraca tablicę bezpośrednio [...]
+            if (Array.isArray(data)) {
+                data.forEach(option => {
+                    if (option.type) {
+                        // Aktualizuj ceny
+                        CONFIG.prices[option.type] = {
+                            per_mb: parseFloat(option.price_per_mb) || DEFAULT_PRICES[option.type]?.per_mb || 15.00,
+                            per_corner: parseFloat(option.corner_price) || DEFAULT_PRICES[option.type]?.per_corner || 5.00
+                        };
+
+                        // Aktualizuj limity R (r_min, r_max, r_default) z bazy danych
+                        if (option.r_min !== undefined || option.r_max !== undefined || option.r_default !== undefined) {
+                            if (!CONFIG.R_LIMITS[option.type]) {
+                                CONFIG.R_LIMITS[option.type] = { min: 3, max: 20, default: 5 };
+                            }
+                            if (option.r_min !== undefined && option.r_min !== null) {
+                                CONFIG.R_LIMITS[option.type].min = parseInt(option.r_min);
+                            }
+                            if (option.r_max !== undefined && option.r_max !== null) {
+                                CONFIG.R_LIMITS[option.type].max = parseInt(option.r_max);
+                            }
+                            if (option.r_default !== undefined && option.r_default !== null) {
+                                CONFIG.R_LIMITS[option.type].default = parseInt(option.r_default);
+                            }
+                        }
+                    }
+                });
+                CONFIG.pricesLoaded = true;
+                console.log('[EdgesModule] Ceny pobrane z bazy danych:', CONFIG.prices);
+                console.log('[EdgesModule] Limity R pobrane z bazy danych:', CONFIG.R_LIMITS);
+                return true;
+            }
+        } catch (error) {
+            console.error('[EdgesModule] Błąd podczas pobierania cen:', error);
+        }
+        return false;
+    }
+
+    /**
+     * Zwraca cenę za metr bieżący dla danego typu obróbki
+     */
+    function getPricePerMb(edgeType) {
+        return CONFIG.prices[edgeType]?.per_mb || DEFAULT_PRICES[edgeType]?.per_mb || 15.00;
+    }
+
+    /**
+     * Zwraca cenę za narożnik dla danego typu obróbki
+     */
+    function getPricePerCorner(edgeType) {
+        return CONFIG.prices[edgeType]?.per_corner || DEFAULT_PRICES[edgeType]?.per_corner || 5.00;
+    }
 
     // Definicje krawędzi
     const EDGES = {
@@ -100,8 +173,17 @@ const EdgesModule = (function() {
     // INICJALIZACJA
     // ==========================================
 
-    function init() {
+    async function init() {
         console.log('[EdgesModule] Rozpoczynam inicjalizację...');
+
+        // Pobierz ceny z API (nie blokuj inicjalizacji)
+        loadPricesFromAPI().then(success => {
+            if (success) {
+                console.log('[EdgesModule] ✅ Ceny załadowane z bazy danych');
+            } else {
+                console.warn('[EdgesModule] ⚠️ Używam domyślnych cen (API niedostępne)');
+            }
+        });
 
         // Zawsze dodaj event listenery dla przycisków (event delegation na document)
         attachGlobalEventListeners();
@@ -330,13 +412,19 @@ const EdgesModule = (function() {
     // MODAL
     // ==========================================
 
-    function openModal(form) {
+    async function openModal(form) {
         state.currentForm = form || document.querySelector('.quote-form');
 
         // Sprawdź czy formularz ma wymiary
         if (!formHasAllDimensions(state.currentForm)) {
             console.warn('[EdgesModule] Formularz nie ma wszystkich wymiarów');
             return;
+        }
+
+        // Jeśli ceny nie zostały jeszcze załadowane, poczekaj na ich pobranie
+        if (!CONFIG.pricesLoaded) {
+            console.log('[EdgesModule] Czekam na załadowanie cen z API...');
+            await loadPricesFromAPI();
         }
 
         state.isOpen = true;
@@ -852,19 +940,23 @@ const EdgesModule = (function() {
         let horizontalCount = 0;
         let cornerCount = 0;
 
+        // Pobierz ceny dla aktualnie wybranego typu obróbki
+        const pricePerMb = getPricePerMb(state.edgeType);
+        const pricePerCorner = getPricePerCorner(state.edgeType);
+
         state.selectedEdges.forEach(edge => {
             const def = EDGES[edge];
             if (!def) return;
 
             if (def.group === 'corner') {
-                // Narożnik - stała cena
-                totalNetto += CONFIG.PRICE_PER_CORNER;
+                // Narożnik - cena za sztukę (z bazy danych)
+                totalNetto += pricePerCorner;
                 cornerCount++;
             } else {
-                // Krawędź pozioma - cena za metr bieżący
+                // Krawędź pozioma - cena za metr bieżący (z bazy danych)
                 const lengthCm = state.dimensions[def.dimension] || 0;
                 const lengthMb = lengthCm / 100;  // cm → m
-                totalNetto += lengthMb * CONFIG.PRICE_PER_MB;
+                totalNetto += lengthMb * pricePerMb;
                 horizontalCount++;
             }
         });
@@ -899,6 +991,10 @@ const EdgesModule = (function() {
 
         const prices = calculatePrice();
 
+        // Pobierz ceny dla aktualnie wybranego typu obróbki
+        const pricePerMb = getPricePerMb(state.edgeType);
+        const pricePerCorner = getPricePerCorner(state.edgeType);
+
         // Zbierz dane o wybranych krawędziach
         const edgesData = [];
         state.selectedEdges.forEach(edge => {
@@ -910,9 +1006,9 @@ const EdgesModule = (function() {
 
             let priceNetto = 0;
             if (def.group === 'corner') {
-                priceNetto = CONFIG.PRICE_PER_CORNER;
+                priceNetto = pricePerCorner;
             } else {
-                priceNetto = (lengthCm / 100) * CONFIG.PRICE_PER_MB;
+                priceNetto = (lengthCm / 100) * pricePerMb;
             }
 
             edgesData.push({
@@ -1163,16 +1259,17 @@ const EdgesModule = (function() {
         // i sam zaznaczy prawidłowe krawędzie na podstawie state.selectedEdges
 
         if (!savedData) {
-            // Brak zapisanych danych dla tego formularza - ustaw domyślne wartości
+            // Brak zapisanych danych dla tego formularza - ustaw domyślne wartości z CONFIG.R_LIMITS
             state.edgeType = 'round';
-            state.rValue = 5;
+            const defaultLimits = CONFIG.R_LIMITS['round'] || { min: 3, max: 20, default: 5 };
+            state.rValue = defaultLimits.default;
             if (elements.typeSelect) elements.typeSelect.value = 'round';
             if (elements.rValueInput) {
-                elements.rValueInput.value = 5;
-                elements.rValueInput.min = 3;
-                elements.rValueInput.max = 20;
+                elements.rValueInput.value = defaultLimits.default;
+                elements.rValueInput.min = defaultLimits.min;
+                elements.rValueInput.max = defaultLimits.max;
             }
-            console.log('[EdgesModule] Brak zapisanych krawędzi dla tego formularza - ustawiono domyślne');
+            console.log('[EdgesModule] Brak zapisanych krawędzi dla tego formularza - ustawiono domyślne z bazy:', defaultLimits);
             return;
         }
 
@@ -1252,6 +1349,10 @@ const EdgesModule = (function() {
             const edgeType = form.dataset.edgesType || 'round';
             const rValue = parseInt(form.dataset.edgesRValue) || 5;
 
+            // Pobierz ceny dla zapisanego typu obróbki
+            const pricePerMb = getPricePerMb(edgeType);
+            const pricePerCorner = getPricePerCorner(edgeType);
+
             let totalNetto = 0;
             const updatedEdgesData = [];
 
@@ -1264,9 +1365,9 @@ const EdgesModule = (function() {
 
                 let priceNetto = 0;
                 if (def.group === 'corner') {
-                    priceNetto = CONFIG.PRICE_PER_CORNER;
+                    priceNetto = pricePerCorner;
                 } else {
-                    priceNetto = (lengthCm / 100) * CONFIG.PRICE_PER_MB;
+                    priceNetto = (lengthCm / 100) * pricePerMb;
                 }
 
                 totalNetto += priceNetto;

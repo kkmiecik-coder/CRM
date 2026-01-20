@@ -513,4 +513,338 @@ document.addEventListener('DOMContentLoaded', function() {
         `;
         document.head.appendChild(extraStyle);
     }
+
+    // =============================================
+    // KALKULATOR - CENNIK
+    // =============================================
+
+    const pricesTableBody = document.getElementById('pricesTableBody');
+    const addPriceBtn = document.getElementById('addPriceBtn');
+    const addPriceModal = document.getElementById('addPriceModal');
+    const closeAddPriceModal = document.getElementById('closeAddPriceModal');
+    const cancelAddPrice = document.getElementById('cancelAddPrice');
+    const addPriceForm = document.getElementById('addPriceForm');
+
+    // Filtry
+    const filterSpecies = document.getElementById('filterSpecies');
+    const filterTechnology = document.getElementById('filterTechnology');
+    const filterWoodClass = document.getElementById('filterWoodClass');
+    const clearFiltersBtn = document.getElementById('clearFiltersBtn');
+
+    // ===== MODAL DODAWANIA CENY =====
+    addPriceBtn?.addEventListener('click', () => {
+        addPriceModal.style.display = 'flex';
+        addPriceForm.reset();
+        addPriceForm.querySelector('input[name="species"]')?.focus();
+    });
+
+    closeAddPriceModal?.addEventListener('click', () => {
+        addPriceModal.style.display = 'none';
+    });
+
+    cancelAddPrice?.addEventListener('click', () => {
+        addPriceModal.style.display = 'none';
+    });
+
+    addPriceModal?.addEventListener('click', (e) => {
+        if (e.target === addPriceModal) {
+            addPriceModal.style.display = 'none';
+        }
+    });
+
+    // ===== DODAWANIE CENY =====
+    addPriceForm?.addEventListener('submit', async (e) => {
+        e.preventDefault();
+
+        const formData = new FormData(addPriceForm);
+        const data = {
+            species: formData.get('species'),
+            technology: formData.get('technology'),
+            wood_class: formData.get('wood_class'),
+            thickness_min: parseFloat(formData.get('thickness_min')),
+            thickness_max: parseFloat(formData.get('thickness_max')),
+            length_min: parseFloat(formData.get('length_min')),
+            length_max: parseFloat(formData.get('length_max')),
+            price_per_m3: parseFloat(formData.get('price_per_m3'))
+        };
+
+        try {
+            const response = await fetch('/settings/api/prices', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data)
+            });
+
+            const result = await response.json();
+
+            if (result.success) {
+                showNotification('Cena została dodana', 'success');
+                addPriceModal.style.display = 'none';
+                setTimeout(() => location.reload(), 500);
+            } else {
+                showNotification(result.error || 'Błąd dodawania ceny', 'error');
+            }
+        } catch (error) {
+            console.error('Błąd:', error);
+            showNotification('Błąd komunikacji z serwerem', 'error');
+        }
+    });
+
+    // ===== OBSŁUGA TABELI CENNIKA =====
+    pricesTableBody?.addEventListener('click', async (e) => {
+        const saveBtn = e.target.closest('.btn-save-price');
+        const deleteBtn = e.target.closest('.btn-delete-price');
+
+        if (saveBtn) {
+            const priceId = saveBtn.dataset.id;
+            await savePrice(priceId);
+        }
+
+        if (deleteBtn) {
+            const priceId = deleteBtn.dataset.id;
+            const row = deleteBtn.closest('tr');
+            const species = row.querySelector('.species-input')?.value || '';
+            const technology = row.querySelector('.technology-input')?.value || '';
+            const woodClass = row.querySelector('.wood-class-input')?.value || '';
+
+            if (confirm(`Czy na pewno chcesz usunąć cenę "${species} ${technology} ${woodClass}"?`)) {
+                await deletePrice(priceId, row);
+            }
+        }
+    });
+
+    // Enter w input zapisuje
+    pricesTableBody?.addEventListener('keydown', async (e) => {
+        if (e.key === 'Enter' && e.target.classList.contains('price-input')) {
+            e.preventDefault();
+            const priceId = e.target.dataset.id;
+            await savePrice(priceId);
+        }
+    });
+
+    async function savePrice(priceId) {
+        const row = document.querySelector(`tr[data-id="${priceId}"]`);
+        if (!row) return;
+
+        const data = {
+            species: row.querySelector('.species-input')?.value.trim(),
+            technology: row.querySelector('.technology-input')?.value.trim(),
+            wood_class: row.querySelector('.wood-class-input')?.value.trim(),
+            thickness_min: parseFloat(row.querySelector('[data-field="thickness_min"]')?.value) || 0,
+            thickness_max: parseFloat(row.querySelector('[data-field="thickness_max"]')?.value) || 0,
+            length_min: parseFloat(row.querySelector('[data-field="length_min"]')?.value) || 0,
+            length_max: parseFloat(row.querySelector('[data-field="length_max"]')?.value) || 0,
+            price_per_m3: parseFloat(row.querySelector('[data-field="price_per_m3"]')?.value) || 0
+        };
+
+        // Walidacja
+        if (!data.species || !data.technology || !data.wood_class) {
+            showNotification('Gatunek, technologia i klasa są wymagane', 'error');
+            return;
+        }
+
+        try {
+            const response = await fetch(`/settings/api/prices/${priceId}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data)
+            });
+
+            const result = await response.json();
+
+            if (result.success) {
+                showNotification('Zapisano', 'success');
+                row.style.backgroundColor = '#dcfce7';
+                setTimeout(() => row.style.backgroundColor = '', 500);
+
+                // Aktualizuj atrybuty data dla filtrów
+                row.dataset.species = data.species;
+                row.dataset.technology = data.technology;
+                row.dataset.woodClass = data.wood_class;
+            } else {
+                showNotification(result.error || 'Błąd zapisu', 'error');
+            }
+        } catch (error) {
+            console.error('Błąd:', error);
+            showNotification('Błąd komunikacji z serwerem', 'error');
+        }
+    }
+
+    async function deletePrice(priceId, row) {
+        try {
+            const response = await fetch(`/settings/api/prices/${priceId}`, {
+                method: 'DELETE'
+            });
+
+            const result = await response.json();
+
+            if (result.success) {
+                showNotification('Cena usunięta', 'success');
+                row.style.backgroundColor = '#fee2e2';
+                row.style.opacity = '0';
+                row.style.transition = 'opacity 0.3s';
+                setTimeout(() => row.remove(), 300);
+            } else {
+                showNotification(result.error || 'Błąd usuwania', 'error');
+            }
+        } catch (error) {
+            console.error('Błąd:', error);
+            showNotification('Błąd komunikacji z serwerem', 'error');
+        }
+    }
+
+    // ===== FILTRY =====
+    function applyFilters() {
+        const speciesValue = filterSpecies?.value.toLowerCase() || '';
+        const technologyValue = filterTechnology?.value.toLowerCase() || '';
+        const woodClassValue = filterWoodClass?.value.toLowerCase() || '';
+
+        const rows = pricesTableBody?.querySelectorAll('tr');
+        if (!rows) return;
+
+        rows.forEach(row => {
+            const species = (row.dataset.species || '').toLowerCase();
+            const technology = (row.dataset.technology || '').toLowerCase();
+            const woodClass = (row.dataset.woodClass || '').toLowerCase();
+
+            const matchSpecies = !speciesValue || species === speciesValue;
+            const matchTechnology = !technologyValue || technology === technologyValue;
+            const matchWoodClass = !woodClassValue || woodClass === woodClassValue;
+
+            row.style.display = (matchSpecies && matchTechnology && matchWoodClass) ? '' : 'none';
+        });
+    }
+
+    filterSpecies?.addEventListener('change', applyFilters);
+    filterTechnology?.addEventListener('change', applyFilters);
+    filterWoodClass?.addEventListener('change', applyFilters);
+
+    clearFiltersBtn?.addEventListener('click', () => {
+        if (filterSpecies) filterSpecies.value = '';
+        if (filterTechnology) filterTechnology.value = '';
+        if (filterWoodClass) filterWoodClass.value = '';
+        applyFilters();
+    });
+
+    // =============================================
+    // CENNIK WYKOŃCZENIA
+    // =============================================
+
+    const finishingPricesTableBody = document.getElementById('finishingPricesTableBody');
+
+    finishingPricesTableBody?.addEventListener('click', async (e) => {
+        const saveBtn = e.target.closest('.btn-save-finishing');
+
+        if (saveBtn) {
+            const priceId = saveBtn.dataset.id;
+            await saveFinishingPrice(priceId);
+        }
+    });
+
+    // Enter w input zapisuje
+    finishingPricesTableBody?.addEventListener('keydown', async (e) => {
+        if (e.key === 'Enter' && e.target.classList.contains('price-input')) {
+            e.preventDefault();
+            const priceId = e.target.dataset.id;
+            await saveFinishingPrice(priceId);
+        }
+    });
+
+    async function saveFinishingPrice(priceId) {
+        const row = document.querySelector(`#finishingPricesTableBody tr[data-id="${priceId}"]`);
+        if (!row) return;
+
+        const priceNetto = parseFloat(row.querySelector('[data-field="price_netto"]')?.value) || 0;
+
+        try {
+            const response = await fetch(`/settings/api/finishing-prices/${priceId}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ price_netto: priceNetto })
+            });
+
+            const result = await response.json();
+
+            if (result.success) {
+                showNotification('Zapisano', 'success');
+                row.style.backgroundColor = '#dcfce7';
+                setTimeout(() => row.style.backgroundColor = '', 500);
+            } else {
+                showNotification(result.error || 'Błąd zapisu', 'error');
+            }
+        } catch (error) {
+            console.error('Błąd:', error);
+            showNotification('Błąd komunikacji z serwerem', 'error');
+        }
+    }
+
+    // =============================================
+    // CENNIK OBRÓBKI KRAWĘDZI
+    // =============================================
+
+    const edgeOptionsTableBody = document.getElementById('edgeOptionsTableBody');
+
+    edgeOptionsTableBody?.addEventListener('click', async (e) => {
+        const saveBtn = e.target.closest('.btn-save-edge');
+
+        if (saveBtn) {
+            const optionId = saveBtn.dataset.id;
+            await saveEdgeOption(optionId);
+        }
+    });
+
+    // Enter w input zapisuje
+    edgeOptionsTableBody?.addEventListener('keydown', async (e) => {
+        if (e.key === 'Enter' && e.target.classList.contains('price-input')) {
+            e.preventDefault();
+            const optionId = e.target.dataset.id;
+            await saveEdgeOption(optionId);
+        }
+    });
+
+    async function saveEdgeOption(optionId) {
+        const row = document.querySelector(`#edgeOptionsTableBody tr[data-id="${optionId}"]`);
+        if (!row) return;
+
+        const data = {
+            price_per_mb: parseFloat(row.querySelector('[data-field="price_per_mb"]')?.value) || 0,
+            corner_price: parseFloat(row.querySelector('[data-field="corner_price"]')?.value) || 0
+        };
+
+        // Pola R tylko jeśli nie są disabled
+        const rMinInput = row.querySelector('[data-field="r_min"]');
+        const rMaxInput = row.querySelector('[data-field="r_max"]');
+        const rDefaultInput = row.querySelector('[data-field="r_default"]');
+
+        if (rMinInput && !rMinInput.disabled) {
+            data.r_min = rMinInput.value ? parseInt(rMinInput.value) : null;
+        }
+        if (rMaxInput && !rMaxInput.disabled) {
+            data.r_max = rMaxInput.value ? parseInt(rMaxInput.value) : null;
+        }
+        if (rDefaultInput && !rDefaultInput.disabled) {
+            data.r_default = rDefaultInput.value ? parseInt(rDefaultInput.value) : null;
+        }
+
+        try {
+            const response = await fetch(`/settings/api/edge-options/${optionId}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data)
+            });
+
+            const result = await response.json();
+
+            if (result.success) {
+                showNotification('Zapisano', 'success');
+                row.style.backgroundColor = '#dcfce7';
+                setTimeout(() => row.style.backgroundColor = '', 500);
+            } else {
+                showNotification(result.error || 'Błąd zapisu', 'error');
+            }
+        } catch (error) {
+            console.error('Błąd:', error);
+            showNotification('Błąd komunikacji z serwerem', 'error');
+        }
+    }
 });

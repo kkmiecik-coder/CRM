@@ -493,13 +493,35 @@ class Price(db.Model):
     def __repr__(self):
         return f"<Price id={self.id}, {self.species}, {self.wood_class}, {self.price_per_m3} PLN/m³>"
 
+    def to_dict(self):
+        """Konwertuje obiekt Price na słownik dla API"""
+        return {
+            'id': self.id,
+            'species': self.species,
+            'technology': self.technology,
+            'wood_class': self.wood_class,
+            'thickness_min': float(self.thickness_min) if self.thickness_min else 0,
+            'thickness_max': float(self.thickness_max) if self.thickness_max else 0,
+            'length_min': float(self.length_min) if self.length_min else 0,
+            'length_max': float(self.length_max) if self.length_max else 0,
+            'price_per_m3': float(self.price_per_m3) if self.price_per_m3 else 0
+        }
+
 class FinishingTypePrice(db.Model):
     __tablename__ = 'finishing_type_prices'
-    
+
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100), nullable=False)  # np. "Surowe", "Lakierowane bezbarwne", "Lakierowane barwne", "Olejowanie"
     price_netto = db.Column(db.Numeric(10, 2), nullable=False, default=0)  # Cena netto za m²
     is_active = db.Column(db.Boolean, default=True, nullable=False)  # Czy aktywne
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'name': self.name,
+            'price_netto': float(self.price_netto) if self.price_netto else 0,
+            'is_active': self.is_active
+        }
 
     def __repr__(self):
         return f'<FinishingTypePrice {self.name}: {self.price_netto} PLN/m²>'

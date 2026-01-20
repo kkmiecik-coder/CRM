@@ -38,30 +38,15 @@ def require_admin(f):
 @settings_bp.route('/')
 @require_admin
 def index():
-    """Strona główna ustawień - przekierowanie do źródeł"""
-    return redirect(url_for('settings.sources'))
+    """Strona główna ustawień - przekierowanie do kalkulatora"""
+    return redirect(url_for('settings.calculator'))
 
 
 @settings_bp.route('/sources')
 @require_admin
 def sources():
-    """Zarządzanie źródłami wycen"""
-    from modules.calculator.models import QuoteSource
-
-    user_email = session.get('user_email')
-    current_user = User.query.filter_by(email=user_email).first()
-
-    # Pobierz wszystkie aktywne źródła posortowane
-    all_sources = QuoteSource.query.filter_by(is_active=True).order_by(
-        QuoteSource.sort_order
-    ).all()
-
-    return render_template(
-        'settings_index.html',
-        current_user=current_user,
-        sources=all_sources,
-        active_tab='sources'
-    )
+    """Przekierowanie starych linków do nowej lokalizacji"""
+    return redirect(url_for('settings.calculator_sources'))
 
 
 @settings_bp.route('/api/sources', methods=['GET'])
@@ -432,4 +417,372 @@ def api_sync_order_sources():
             }), 500
     except Exception as e:
         current_app.logger.error(f"[api_sync_order_sources] Błąd: {str(e)}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+# =============================================
+# KALKULATOR
+# =============================================
+
+@settings_bp.route('/calculator')
+@require_admin
+def calculator():
+    """Przekierowanie do pierwszej podzakładki kalkulatora"""
+    return redirect(url_for('settings.calculator_prices'))
+
+
+@settings_bp.route('/calculator/sources')
+@require_admin
+def calculator_sources():
+    """Zarządzanie źródłami wycen - podzakładka kalkulatora"""
+    from modules.calculator.models import QuoteSource
+
+    user_email = session.get('user_email')
+    current_user = User.query.filter_by(email=user_email).first()
+
+    # Pobierz wszystkie aktywne źródła posortowane
+    all_sources = QuoteSource.query.filter_by(is_active=True).order_by(
+        QuoteSource.sort_order
+    ).all()
+
+    return render_template(
+        'settings_index.html',
+        current_user=current_user,
+        sources=all_sources,
+        active_tab='calculator',
+        calculator_subtab='sources'
+    )
+
+
+@settings_bp.route('/calculator/prices')
+@require_admin
+def calculator_prices():
+    """Zarządzanie cennikiem - tabela prices"""
+    from modules.calculator.models import Price
+
+    user_email = session.get('user_email')
+    current_user = User.query.filter_by(email=user_email).first()
+
+    # Pobierz wszystkie ceny posortowane
+    all_prices = Price.query.order_by(
+        Price.species,
+        Price.technology,
+        Price.wood_class,
+        Price.thickness_min
+    ).all()
+
+    # Pobierz unikalne wartości dla filtrów
+    species_list = sorted(set(p.species for p in all_prices))
+    technology_list = sorted(set(p.technology for p in all_prices))
+    wood_class_list = sorted(set(p.wood_class for p in all_prices))
+
+    return render_template(
+        'settings_index.html',
+        current_user=current_user,
+        prices=all_prices,
+        species_list=species_list,
+        technology_list=technology_list,
+        wood_class_list=wood_class_list,
+        active_tab='calculator',
+        calculator_subtab='prices'
+    )
+
+
+@settings_bp.route('/api/prices', methods=['GET'])
+@require_admin
+def api_get_prices():
+    """API: Pobiera wszystkie ceny"""
+    from modules.calculator.models import Price
+
+    try:
+        prices = Price.query.order_by(
+            Price.species,
+            Price.technology,
+            Price.wood_class,
+            Price.thickness_min
+        ).all()
+
+        return jsonify({
+            'success': True,
+            'prices': [p.to_dict() for p in prices]
+        })
+    except Exception as e:
+        current_app.logger.error(f"[api_get_prices] Błąd: {str(e)}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@settings_bp.route('/api/prices/<int:price_id>', methods=['PUT'])
+@require_admin
+def api_update_price(price_id):
+    """API: Aktualizuje cenę"""
+    from modules.calculator.models import Price
+    from extensions import db
+    from decimal import Decimal, InvalidOperation
+
+    try:
+        price = Price.query.get_or_404(price_id)
+        data = request.get_json()
+
+        # Walidacja i aktualizacja pól
+        if 'species' in data:
+            species = data['species'].strip()
+            if not species:
+                return jsonify({'success': False, 'error': 'Gatunek nie może być pusty'}), 400
+            price.species = species
+
+        if 'technology' in data:
+            technology = data['technology'].strip()
+            if not technology:
+                return jsonify({'success': False, 'error': 'Technologia nie może być pusta'}), 400
+            price.technology = technology
+
+        if 'wood_class' in data:
+            wood_class = data['wood_class'].strip()
+            if not wood_class:
+                return jsonify({'success': False, 'error': 'Klasa drewna nie może być pusta'}), 400
+            price.wood_class = wood_class
+
+        if 'thickness_min' in data:
+            try:
+                price.thickness_min = Decimal(str(data['thickness_min']))
+            except (InvalidOperation, ValueError):
+                return jsonify({'success': False, 'error': 'Nieprawidłowa wartość grubości min'}), 400
+
+        if 'thickness_max' in data:
+            try:
+                price.thickness_max = Decimal(str(data['thickness_max']))
+            except (InvalidOperation, ValueError):
+                return jsonify({'success': False, 'error': 'Nieprawidłowa wartość grubości max'}), 400
+
+        if 'length_min' in data:
+            try:
+                price.length_min = Decimal(str(data['length_min']))
+            except (InvalidOperation, ValueError):
+                return jsonify({'success': False, 'error': 'Nieprawidłowa wartość długości min'}), 400
+
+        if 'length_max' in data:
+            try:
+                price.length_max = Decimal(str(data['length_max']))
+            except (InvalidOperation, ValueError):
+                return jsonify({'success': False, 'error': 'Nieprawidłowa wartość długości max'}), 400
+
+        if 'price_per_m3' in data:
+            try:
+                price.price_per_m3 = Decimal(str(data['price_per_m3']))
+            except (InvalidOperation, ValueError):
+                return jsonify({'success': False, 'error': 'Nieprawidłowa wartość ceny'}), 400
+
+        db.session.commit()
+
+        return jsonify({
+            'success': True,
+            'price': price.to_dict()
+        })
+    except Exception as e:
+        current_app.logger.error(f"[api_update_price] Błąd: {str(e)}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@settings_bp.route('/api/prices', methods=['POST'])
+@require_admin
+def api_create_price():
+    """API: Tworzy nową cenę"""
+    from modules.calculator.models import Price
+    from extensions import db
+    from decimal import Decimal, InvalidOperation
+
+    try:
+        data = request.get_json()
+
+        # Walidacja wymaganych pól
+        required_fields = ['species', 'technology', 'wood_class', 'thickness_min',
+                          'thickness_max', 'length_min', 'length_max', 'price_per_m3']
+        for field in required_fields:
+            if field not in data or data[field] is None or str(data[field]).strip() == '':
+                return jsonify({
+                    'success': False,
+                    'error': f'Pole {field} jest wymagane'
+                }), 400
+
+        try:
+            price = Price(
+                species=data['species'].strip(),
+                technology=data['technology'].strip(),
+                wood_class=data['wood_class'].strip(),
+                thickness_min=Decimal(str(data['thickness_min'])),
+                thickness_max=Decimal(str(data['thickness_max'])),
+                length_min=Decimal(str(data['length_min'])),
+                length_max=Decimal(str(data['length_max'])),
+                price_per_m3=Decimal(str(data['price_per_m3']))
+            )
+        except (InvalidOperation, ValueError) as e:
+            return jsonify({
+                'success': False,
+                'error': f'Nieprawidłowe wartości liczbowe: {str(e)}'
+            }), 400
+
+        db.session.add(price)
+        db.session.commit()
+
+        return jsonify({
+            'success': True,
+            'price': price.to_dict()
+        }), 201
+    except Exception as e:
+        current_app.logger.error(f"[api_create_price] Błąd: {str(e)}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@settings_bp.route('/api/prices/<int:price_id>', methods=['DELETE'])
+@require_admin
+def api_delete_price(price_id):
+    """API: Usuwa cenę"""
+    from modules.calculator.models import Price
+    from extensions import db
+
+    try:
+        price = Price.query.get_or_404(price_id)
+        price_info = f"{price.species} {price.technology} {price.wood_class}"
+
+        db.session.delete(price)
+        db.session.commit()
+
+        return jsonify({
+            'success': True,
+            'message': f'Cena "{price_info}" została usunięta'
+        })
+    except Exception as e:
+        current_app.logger.error(f"[api_delete_price] Błąd: {str(e)}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+# =============================================
+# CENNIK DODATKOWY (WYKOŃCZENIE + OBRÓBKA KRAWĘDZI)
+# =============================================
+
+@settings_bp.route('/calculator/extras')
+@require_admin
+def calculator_extras():
+    """Przekierowanie do pierwszej podzakładki cennika dodatkowego"""
+    return redirect(url_for('settings.calculator_extras_finishing'))
+
+
+@settings_bp.route('/calculator/extras/finishing')
+@require_admin
+def calculator_extras_finishing():
+    """Cennik wykończenia"""
+    from modules.calculator.models import FinishingTypePrice
+
+    user_email = session.get('user_email')
+    current_user = User.query.filter_by(email=user_email).first()
+
+    finishing_prices = FinishingTypePrice.query.order_by(FinishingTypePrice.id).all()
+
+    return render_template(
+        'settings_index.html',
+        current_user=current_user,
+        finishing_prices=finishing_prices,
+        active_tab='calculator',
+        calculator_subtab='extras',
+        extras_subtab='finishing'
+    )
+
+
+@settings_bp.route('/calculator/extras/edges')
+@require_admin
+def calculator_extras_edges():
+    """Cennik obróbki krawędzi"""
+    from modules.calculator.models import EdgeOption
+
+    user_email = session.get('user_email')
+    current_user = User.query.filter_by(email=user_email).first()
+
+    edge_options = EdgeOption.query.order_by(EdgeOption.id).all()
+
+    return render_template(
+        'settings_index.html',
+        current_user=current_user,
+        edge_options=edge_options,
+        active_tab='calculator',
+        calculator_subtab='extras',
+        extras_subtab='edges'
+    )
+
+
+@settings_bp.route('/api/finishing-prices/<int:price_id>', methods=['PUT'])
+@require_admin
+def api_update_finishing_price(price_id):
+    """API: Aktualizuje cenę wykończenia"""
+    from modules.calculator.models import FinishingTypePrice
+    from extensions import db
+    from decimal import Decimal, InvalidOperation
+
+    try:
+        price = FinishingTypePrice.query.get_or_404(price_id)
+        data = request.get_json()
+
+        if 'price_netto' in data:
+            try:
+                price.price_netto = Decimal(str(data['price_netto']))
+            except (InvalidOperation, ValueError):
+                return jsonify({'success': False, 'error': 'Nieprawidłowa wartość ceny'}), 400
+
+        if 'is_active' in data:
+            price.is_active = bool(data['is_active'])
+
+        db.session.commit()
+
+        return jsonify({
+            'success': True,
+            'price': price.to_dict()
+        })
+    except Exception as e:
+        current_app.logger.error(f"[api_update_finishing_price] Błąd: {str(e)}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@settings_bp.route('/api/edge-options/<int:option_id>', methods=['PUT'])
+@require_admin
+def api_update_edge_option(option_id):
+    """API: Aktualizuje opcję obróbki krawędzi"""
+    from modules.calculator.models import EdgeOption
+    from extensions import db
+    from decimal import Decimal, InvalidOperation
+
+    try:
+        option = EdgeOption.query.get_or_404(option_id)
+        data = request.get_json()
+
+        if 'price_per_mb' in data:
+            try:
+                option.price_per_mb = Decimal(str(data['price_per_mb']))
+            except (InvalidOperation, ValueError):
+                return jsonify({'success': False, 'error': 'Nieprawidłowa wartość ceny za mb'}), 400
+
+        if 'corner_price' in data:
+            try:
+                option.corner_price = Decimal(str(data['corner_price']))
+            except (InvalidOperation, ValueError):
+                return jsonify({'success': False, 'error': 'Nieprawidłowa wartość ceny za narożnik'}), 400
+
+        if 'r_min' in data:
+            option.r_min = int(data['r_min']) if data['r_min'] is not None else None
+
+        if 'r_max' in data:
+            option.r_max = int(data['r_max']) if data['r_max'] is not None else None
+
+        if 'r_default' in data:
+            option.r_default = int(data['r_default']) if data['r_default'] is not None else None
+
+        if 'is_active' in data:
+            option.is_active = bool(data['is_active'])
+
+        db.session.commit()
+
+        return jsonify({
+            'success': True,
+            'option': option.to_dict()
+        })
+    except Exception as e:
+        current_app.logger.error(f"[api_update_edge_option] Błąd: {str(e)}")
         return jsonify({'success': False, 'error': str(e)}), 500

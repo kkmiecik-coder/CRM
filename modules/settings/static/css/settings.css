@@ -704,6 +704,193 @@
     background: #fee2e2;
 }
 
+/* ============================================
+   KALKULATOR - PODZAKŁADKI
+   ============================================ */
+
+.calculator-subtabs {
+    display: flex;
+    gap: 4px;
+    padding: 4px;
+    background: var(--bg-secondary, #f3f4f6);
+    border-radius: 8px;
+    width: fit-content;
+}
+
+.calculator-subtab {
+    padding: 8px 16px;
+    color: var(--text-secondary, #6b7280);
+    text-decoration: none;
+    font-weight: 500;
+    font-size: 0.875rem;
+    border-radius: 6px;
+    transition: all 0.2s ease;
+}
+
+.calculator-subtab:hover {
+    color: var(--text-primary, #1a1a2e);
+    background-color: var(--bg-card, #ffffff);
+}
+
+.calculator-subtab.active {
+    color: var(--primary-color, #2563eb);
+    background-color: var(--bg-card, #ffffff);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+/* ============================================
+   CENNIK (PRICES TABLE)
+   ============================================ */
+
+.prices-filters {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+    align-items: flex-end;
+    margin-bottom: 20px;
+    padding: 16px;
+    background: var(--bg-secondary, #f9fafb);
+    border-radius: 8px;
+}
+
+.filter-group {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.filter-group label {
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: var(--text-secondary, #6b7280);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.filter-group select {
+    padding: 8px 12px;
+    border: 1px solid var(--border-color, #e5e7eb);
+    border-radius: 6px;
+    font-size: 0.875rem;
+    background: var(--bg-card, #ffffff);
+    min-width: 140px;
+    cursor: pointer;
+}
+
+.filter-group select:focus {
+    outline: none;
+    border-color: var(--primary-color, #2563eb);
+}
+
+.btn-small {
+    padding: 8px 12px;
+    font-size: 0.8rem;
+}
+
+/* Tabela cennika */
+.prices-table {
+    table-layout: fixed;
+}
+
+.prices-table tbody tr {
+    height: 56px;
+    vertical-align: middle;
+    border-bottom: 1px solid var(--border-color, #e5e7eb);
+}
+
+.prices-table td {
+    vertical-align: middle;
+}
+
+.prices-table .price-input {
+    width: 100%;
+    padding: 6px 8px;
+    border: 1px solid var(--border-color, #e5e7eb);
+    border-radius: 4px;
+    font-size: 0.85rem;
+    background: var(--bg-input, #ffffff);
+    transition: border-color 0.2s;
+}
+
+.prices-table .price-input:focus {
+    outline: none;
+    border-color: var(--primary-color, #2563eb);
+}
+
+.prices-table .number-input {
+    text-align: right;
+}
+
+.prices-table .price-value-input {
+    text-align: right;
+    font-weight: 600;
+    color: var(--primary-color, #2563eb);
+}
+
+/* Przyciski akcji dla cennika */
+.btn-save-price {
+    color: #22c55e;
+}
+
+.btn-save-price:hover {
+    background: #dcfce7;
+}
+
+.btn-delete-price {
+    color: #ef4444;
+}
+
+.btn-delete-price:hover {
+    background: #fee2e2;
+}
+
+/* ============================================
+   MODAL DODAWANIA CENY
+   ============================================ */
+
+#addPriceForm {
+    padding: 24px;
+}
+
+#addPriceForm .form-group {
+    margin-bottom: 16px;
+}
+
+#addPriceForm .form-row {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+    gap: 16px;
+    margin-bottom: 16px;
+}
+
+#addPriceForm label {
+    display: block;
+    margin-bottom: 6px;
+    font-weight: 500;
+    color: var(--text-primary, #1a1a2e);
+    font-size: 0.85rem;
+}
+
+#addPriceForm .required {
+    color: #ef4444;
+}
+
+#addPriceForm input[type="text"],
+#addPriceForm input[type="number"] {
+    width: 100%;
+    padding: 10px 12px;
+    border: 1px solid var(--border-color, #e5e7eb);
+    border-radius: 8px;
+    font-size: 0.9rem;
+    background: var(--bg-input, #ffffff);
+}
+
+#addPriceForm input:focus {
+    outline: none;
+    border-color: var(--primary-color, #2563eb);
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+}
+
 /* Responsywność */
 @media (max-width: 768px) {
     .settings-tabs {
@@ -742,4 +929,132 @@
         height: auto;
         min-height: 60px;
     }
+
+    /* Cennik responsywność */
+    .prices-filters {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .filter-group {
+        width: 100%;
+    }
+
+    .filter-group select {
+        width: 100%;
+    }
+
+    .calculator-subtabs {
+        width: 100%;
+    }
+
+    .calculator-subtab {
+        flex: 1;
+        text-align: center;
+    }
+
+    .prices-table {
+        font-size: 0.8rem;
+    }
+
+    .prices-table .price-input {
+        padding: 4px 6px;
+        font-size: 0.8rem;
+    }
+
+    #addPriceForm .form-row {
+        grid-template-columns: 1fr;
+    }
+
+    .extras-subtabs {
+        width: 100%;
+    }
+
+    .extras-subtab {
+        flex: 1;
+        text-align: center;
+    }
+
+    .edge-options-table {
+        font-size: 0.75rem;
+    }
+
+    .edge-options-table .price-input {
+        padding: 4px 6px;
+        font-size: 0.75rem;
+    }
+}
+
+/* ============================================
+   CENNIK DODATKOWY - PODZAKŁADKI
+   ============================================ */
+
+.extras-subtabs {
+    display: flex;
+    gap: 4px;
+    margin-bottom: 20px;
+    padding: 4px;
+    background: var(--bg-card, #ffffff);
+    border: 1px solid var(--border-color, #e5e7eb);
+    border-radius: 8px;
+    width: fit-content;
+}
+
+.extras-subtab {
+    padding: 6px 14px;
+    color: var(--text-secondary, #6b7280);
+    text-decoration: none;
+    font-weight: 500;
+    font-size: 0.8rem;
+    border-radius: 6px;
+    transition: all 0.2s ease;
+}
+
+.extras-subtab:hover {
+    color: var(--text-primary, #1a1a2e);
+    background-color: var(--bg-secondary, #f3f4f6);
+}
+
+.extras-subtab.active {
+    color: var(--primary-color, #2563eb);
+    background-color: var(--bg-secondary, #f3f4f6);
+}
+
+/* Tabela wykończenia */
+.finishing-prices-table tbody tr {
+    height: 56px;
+}
+
+.finishing-prices-table td {
+    vertical-align: middle;
+}
+
+/* Tabela obróbki krawędzi */
+.edge-options-table {
+    table-layout: fixed;
+}
+
+.edge-options-table tbody tr {
+    height: 56px;
+}
+
+.edge-options-table td {
+    vertical-align: middle;
+}
+
+.edge-options-table .price-input:disabled {
+    background: var(--bg-secondary, #f3f4f6);
+    color: var(--text-muted, #9ca3af);
+    cursor: not-allowed;
+}
+
+/* Przyciski akcji dla cenników dodatkowych */
+.btn-save-finishing,
+.btn-save-edge {
+    color: #22c55e;
+}
+
+.btn-save-finishing:hover,
+.btn-save-edge:hover {
+    background: #dcfce7;
 }

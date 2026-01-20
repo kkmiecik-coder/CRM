@@ -696,7 +696,10 @@ def get_edge_options():
     try:
         from .models import EdgeOption
 
-        options = EdgeOption.query.filter_by(is_active=True).order_by(EdgeOption.id).all()
+        # is_active=True lub NULL (dla kompatybilności wstecznej)
+        options = EdgeOption.query.filter(
+            (EdgeOption.is_active == True) | (EdgeOption.is_active.is_(None))
+        ).order_by(EdgeOption.id).all()
 
         # Jeśli brak w bazie, zwróć domyślne wartości
         if not options:
