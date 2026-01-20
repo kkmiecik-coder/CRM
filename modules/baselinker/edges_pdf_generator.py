@@ -131,9 +131,9 @@ class EdgesPdfGenerator:
             return new_tag
 
         # Konwertuj wszystkie tagi SVG które mają style
-        # Dopasuj tagi: <tagname ... style="..." ...>
+        # Dopasuj tagi: <tagname ... style="..." ...> (otwierające lub samozamykające)
         svg_html = re.sub(
-            r'<(polygon|line|rect|circle|ellipse|path|polyline|g)([^>]*style="[^"]*"[^>]*)>',
+            r'<(polygon|line|rect|circle|ellipse|path|polyline|g)\b([^>]*?)>',
             convert_style_to_attrs,
             svg_html
         )
