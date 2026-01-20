@@ -140,6 +140,40 @@ class EdgesPdfGenerator:
 
         return svg_html
 
+    def _fix_svg_for_weasyprint(self, svg_html: str) -> str:
+        """
+        Naprawia SVG dla WeasyPrint:
+        1. Dodaje width/height jeśli brakuje (WeasyPrint wymaga wymiarów)
+        2. Usuwa puste atrybuty style=""
+        3. Dodaje xmlns jeśli brakuje
+        """
+        if not svg_html:
+            return svg_html
+
+        # Usuń puste style=""
+        svg_html = re.sub(r'\s*style=""', '', svg_html)
+
+        # Dodaj width i height do SVG jeśli brakuje
+        if 'width=' not in svg_html or 'height=' not in svg_html:
+            # Dodaj wymiary 45mm x 45mm (rozmiar kontenera)
+            svg_html = re.sub(
+                r'<svg\s+',
+                '<svg width="45mm" height="45mm" ',
+                svg_html,
+                count=1
+            )
+
+        # Dodaj xmlns jeśli brakuje
+        if 'xmlns=' not in svg_html:
+            svg_html = re.sub(
+                r'<svg\s+',
+                '<svg xmlns="http://www.w3.org/2000/svg" ',
+                svg_html,
+                count=1
+            )
+
+        return svg_html
+
     def _ensure_dashed_lines(self, svg_html: str) -> str:
         """
         Upewnia się, że ukryte krawędzie (F, G, N3) mają linie przerywane.
@@ -150,6 +184,9 @@ class EdgesPdfGenerator:
 
         # Najpierw konwertuj CSS styles na atrybuty SVG
         svg_html = self._convert_css_to_svg_attributes(svg_html)
+
+        # Napraw SVG dla WeasyPrint (wymiary, xmlns)
+        svg_html = self._fix_svg_for_weasyprint(svg_html)
 
         # Dodaj style dla linii przerywanych jeśli ich brak
         # Szukamy linii z klasą zawierającą 'hidden' i dodajemy stroke-dasharray
