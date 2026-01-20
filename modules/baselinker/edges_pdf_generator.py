@@ -58,6 +58,88 @@ class EdgesPdfGenerator:
             'file': f'data:{pdf_base64}'
         }
 
+    def _convert_css_to_svg_attributes(self, svg_html: str) -> str:
+        """
+        Konwertuje inline CSS styles na atrybuty SVG.
+        WeasyPrint nie obsługuje właściwości SVG (fill, stroke, stroke-width) jako CSS,
+        więc musimy je przekonwertować na natywne atrybuty SVG.
+
+        Przykład: style="fill: rgb(184, 184, 184); stroke: none;"
+        Na: fill="rgb(184, 184, 184)" stroke="none"
+        """
+        if not svg_html:
+            return svg_html
+
+        # Właściwości SVG które trzeba przekonwertować z CSS na atrybuty
+        svg_properties = ['fill', 'stroke', 'stroke-width', 'stroke-dasharray', 'stroke-linecap', 'stroke-linejoin']
+
+        def convert_style_to_attrs(match):
+            """Konwertuje style="" na atrybuty SVG"""
+            full_tag = match.group(0)
+            tag_name = match.group(1)
+
+            # Znajdź atrybut style
+            style_match = re.search(r'style="([^"]*)"', full_tag)
+            if not style_match:
+                return full_tag
+
+            style_content = style_match.group(1)
+
+            # Wyciągnij właściwości SVG ze stylu
+            new_attrs = []
+            remaining_styles = []
+
+            # Parsuj style CSS
+            for style_part in style_content.split(';'):
+                style_part = style_part.strip()
+                if not style_part:
+                    continue
+
+                if ':' not in style_part:
+                    continue
+
+                prop, value = style_part.split(':', 1)
+                prop = prop.strip()
+                value = value.strip()
+
+                if prop in svg_properties:
+                    # Dodaj jako atrybut SVG
+                    new_attrs.append(f'{prop}="{value}"')
+                else:
+                    # Zostaw w style
+                    remaining_styles.append(f'{prop}: {value}')
+
+            # Usuń stary style i dodaj nowe atrybuty
+            new_tag = full_tag
+
+            # Usuń atrybut style
+            if remaining_styles:
+                new_style = '; '.join(remaining_styles)
+                new_tag = re.sub(r'style="[^"]*"', f'style="{new_style}"', new_tag)
+            else:
+                new_tag = re.sub(r'\s*style="[^"]*"', '', new_tag)
+
+            # Dodaj nowe atrybuty przed zamknięciem tagu
+            if new_attrs:
+                attrs_str = ' ' + ' '.join(new_attrs)
+                # Wstaw przed > lub />
+                if new_tag.rstrip().endswith('/>'):
+                    new_tag = re.sub(r'\s*/>', f'{attrs_str}/>', new_tag)
+                else:
+                    new_tag = re.sub(r'>$', f'{attrs_str}>', new_tag)
+
+            return new_tag
+
+        # Konwertuj wszystkie tagi SVG które mają style
+        # Dopasuj tagi: <tagname ... style="..." ...>
+        svg_html = re.sub(
+            r'<(polygon|line|rect|circle|ellipse|path|polyline|g)([^>]*style="[^"]*"[^>]*)>',
+            convert_style_to_attrs,
+            svg_html
+        )
+
+        return svg_html
+
     def _ensure_dashed_lines(self, svg_html: str) -> str:
         """
         Upewnia się, że ukryte krawędzie (F, G, N3) mają linie przerywane.
@@ -65,6 +147,9 @@ class EdgesPdfGenerator:
         """
         if not svg_html:
             return svg_html
+
+        # Najpierw konwertuj CSS styles na atrybuty SVG
+        svg_html = self._convert_css_to_svg_attributes(svg_html)
 
         # Dodaj style dla linii przerywanych jeśli ich brak
         # Szukamy linii z klasą zawierającą 'hidden' i dodajemy stroke-dasharray
