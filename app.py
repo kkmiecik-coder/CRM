@@ -120,6 +120,47 @@ def register_cli_commands(app):
         create_admin()
         click.echo("[setup-db] Gotowe.")
 
+    @app.cli.command("migrate")
+    @with_appcontext
+    def migrate_command():
+        """Wykonuje oczekujące migracje bazy danych."""
+        from migrations import MigrationService
+        service = MigrationService(db)
+        count = service.run_pending_migrations()
+        click.echo(f"Wykonano {count} migracji.")
+
+    @app.cli.command("migrate-status")
+    @with_appcontext
+    def migrate_status_command():
+        """Pokazuje status wszystkich migracji."""
+        from migrations import MigrationService
+        service = MigrationService(db)
+        status = service.get_migration_status()
+
+        click.echo("\n" + "=" * 60)
+        click.echo("STATUS MIGRACJI")
+        click.echo("=" * 60)
+
+        for m in status:
+            if m['status'] == 'success':
+                icon = "✓"
+                color = 'green'
+            elif m['status'] == 'failed':
+                icon = "✗"
+                color = 'red'
+            else:
+                icon = "○"
+                color = 'yellow'
+
+            click.echo(click.style(
+                f"  {icon} {m['version']}_{m['name']}.{m['extension']} [{m['status']}]",
+                fg=color
+            ))
+            if m['error_message']:
+                click.echo(f"      Błąd: {m['error_message'][:80]}")
+
+        click.echo("=" * 60 + "\n")
+
 # Funkcje do generowania i weryfikacji tokena resetującego hasło
 def generate_reset_token(email, secret_key, salt='password-reset-salt'):
     serializer = URLSafeTimedSerializer(secret_key)
@@ -233,6 +274,16 @@ def create_app():
             print("[DB_SETUP] RUN_DB_SETUP włączone - tworzę schemat bazy i konto admina", file=sys.stderr)
             db.create_all()
             create_admin()
+
+        # Automatyczne migracje bazy danych
+        if app.config.get('RUN_MIGRATIONS', True):
+            try:
+                from migrations import MigrationService
+                migration_service = MigrationService(db)
+                migration_service.run_pending_migrations()
+            except Exception as e:
+                print(f"[Migrations] Błąd podczas migracji: {e}", file=sys.stderr)
+
         # Odkrywanie dostępnych modułów i ich metadanych
         app.config['MODULE_METADATA'] = discover_module_metadata(app)
 

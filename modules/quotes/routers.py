@@ -2494,11 +2494,50 @@ def get_multipliers():
 @quotes_bp.route('/api/finishing-data', methods=['GET'])
 @require_module_access('quotes')
 def get_finishing_data():
-    """Pobiera dane wykończenia - typy i kolory z bazy danych"""
+    """Pobiera dane wykończenia - hierarchiczne drzewko opcji z bazy danych"""
     try:
-        from modules.calculator.models import FinishingTypePrice, FinishingColor
-        
-        # Pobierz typy wykończenia z cenami
+        from modules.calculator.models import FinishingOption, FinishingTypePrice, FinishingColor
+
+        # Spróbuj najpierw pobrać z nowej tabeli hierarchicznej
+        try:
+            tree = FinishingOption.get_tree()
+            flat = FinishingOption.get_flat_list()
+
+            # Jeśli są dane w nowej tabeli, użyj ich
+            if tree:
+                # Legacy format dla kompatybilności wstecznej
+                finishing_types = []
+                finishing_colors = []
+
+                for opt in flat:
+                    # Typy główne i pierwszy poziom (0-1)
+                    if opt['level'] <= 1:
+                        finishing_types.append({
+                            'id': opt['id'],
+                            'name': opt['full_path'] if opt['level'] > 0 else opt['name'],
+                            'price_netto': opt['effective_price_netto']
+                        })
+
+                    # Kolory - opcje z obrazkami
+                    if opt.get('image_path'):
+                        finishing_colors.append({
+                            'id': opt['id'],
+                            'name': opt['name'],
+                            'image_path': opt['image_path'],
+                            'image_url': f"/calculator/static/{opt['image_path']}" if opt['image_path'] else None
+                        })
+
+                return jsonify({
+                    'success': True,
+                    'tree': tree,  # Nowy hierarchiczny format
+                    'flat': flat,  # Płaska lista z depth info
+                    'finishing_types': finishing_types,  # Legacy
+                    'finishing_colors': finishing_colors  # Legacy
+                })
+        except Exception as tree_error:
+            print(f"[get_finishing_data] Błąd nowej tabeli, fallback do starej: {tree_error}", file=sys.stderr)
+
+        # Fallback: Pobierz ze starych tabel (kompatybilność wsteczna)
         finishing_types = FinishingTypePrice.query.filter_by(is_active=True).all()
         types_data = []
         for ft in finishing_types:
@@ -2507,8 +2546,7 @@ def get_finishing_data():
                 'name': ft.name,
                 'price_netto': float(ft.price_netto)
             })
-        
-        # Pobierz kolory z obrazkami
+
         finishing_colors = FinishingColor.query.filter_by(is_available=True).all()
         colors_data = []
         for fc in finishing_colors:
@@ -2516,20 +2554,20 @@ def get_finishing_data():
                 'id': fc.id,
                 'name': fc.name,
                 'image_path': fc.image_path,
-                # Pełna ścieżka URL do obrazka
                 'image_url': f"/calculator/static/{fc.image_path}" if fc.image_path else None
             })
-                
+
         return jsonify({
+            'success': True,
             'finishing_types': types_data,
             'finishing_colors': colors_data
         })
-        
+
     except Exception as e:
         print(f"[get_finishing_data] Błąd: {e}", file=sys.stderr)
         import traceback
         traceback.print_exc(file=sys.stderr)
-        return jsonify({'error': 'Błąd pobierania danych wykończenia'}), 500
+        return jsonify({'success': False, 'error': 'Błąd pobierania danych wykończenia'}), 500
 
 
 @quotes_bp.route('/api/quotes/<int:quote_id>/invoice/download')

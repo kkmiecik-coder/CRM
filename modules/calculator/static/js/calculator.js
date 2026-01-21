@@ -150,7 +150,7 @@ window.getCurrentPriceMode = getCurrentPriceMode;
 
 console.log('✅ Poprawki calculator.js zostały załadowane - przełącznik brutto/netto jest teraz globalny');
 
-// Pobieranie cen wykończeń z bazy danych
+// Pobieranie cen wykończeń z bazy danych i renderowanie drzewka
 async function loadFinishingPrices() {
     try {
         console.log('[CALCULATOR] Ładowanie cen wykończenia z bazy danych...');
@@ -159,17 +159,42 @@ async function loadFinishingPrices() {
         if (response.ok) {
             const prices = await response.json();
             window.finishingPrices = {};
+            window.finishingOptionsFlat = prices; // Przechowaj płaską listę
+            window.finishingOptionsById = {}; // Indeks po ID
 
             prices.forEach(price => {
-                window.finishingPrices[price.name] = parseFloat(price.price_netto);
+                // Indeks po ID
+                window.finishingOptionsById[price.id] = price;
+
+                // Użyj full_path jeśli dostępny, inaczej name
+                const fullPath = price.full_path || price.name;
+
+                // Zapisz po pełnej ścieżce (np. "Lakierowane > Bezbarwne")
+                window.finishingPrices[fullPath] = parseFloat(price.price_netto);
+
+                // Mapowanie dla kompatybilności wstecznej z istniejącym kodem
+                // Konwertuj "Lakierowane > Bezbarwne" na "Lakierowane bezbarwne"
+                const legacyName = fullPath.replace(' > ', ' ').toLowerCase();
+                const legacyNameCapitalized = legacyName.charAt(0).toUpperCase() + legacyName.slice(1);
+                window.finishingPrices[legacyNameCapitalized] = parseFloat(price.price_netto);
+
+                // Dodaj też samą nazwę (dla opcji głównych jak "Surowe", "Olejowanie")
+                if (price.level === 0) {
+                    window.finishingPrices[price.name] = parseFloat(price.price_netto);
+                }
             });
 
-            console.log('[CALCULATOR] ✅ Załadowano ceny wykończeń z bazy danych:', window.finishingPrices);
+            console.log('[CALCULATOR] Załadowano ceny wykończeń z bazy danych:', window.finishingPrices);
+
+            // Renderuj drzewko we wszystkich formularzach
+            document.querySelectorAll('.quote-form').forEach(form => {
+                renderFinishingTree(form);
+            });
         } else {
             throw new Error(`HTTP ${response.status}`);
         }
     } catch (error) {
-        console.error('[CALCULATOR] ❌ Błąd pobierania cen wykończeń z bazy, używam domyślnych:', error);
+        console.error('[CALCULATOR] Błąd pobierania cen wykończeń z bazy, używam domyślnych:', error);
 
         // Fallback - domyślne ceny
         window.finishingPrices = {
@@ -178,9 +203,193 @@ async function loadFinishingPrices() {
             'Lakierowane barwne': 250,
             'Olejowanie': 250
         };
+        window.finishingOptionsFlat = [];
 
         console.log('[CALCULATOR] Używam domyślnych cen wykończeń:', window.finishingPrices);
     }
+}
+
+/**
+ * Renderuje hierarchiczne drzewko wykończeń w formularzu
+ */
+function renderFinishingTree(form) {
+    const container = form.querySelector('.finishing-tree-container');
+    if (!container) return;
+
+    const options = window.finishingOptionsFlat || [];
+    if (options.length === 0) {
+        container.innerHTML = '<p class="input-txt">Brak opcji wykończeń</p>';
+        return;
+    }
+
+    // Buduj strukturę - grupuj opcje po parent_id
+    const optionsByParent = {};
+    options.forEach(opt => {
+        const parentKey = opt.parent_id || 'root';
+        if (!optionsByParent[parentKey]) {
+            optionsByParent[parentKey] = [];
+        }
+        optionsByParent[parentKey].push(opt);
+    });
+
+    // Renderuj poziom 0 (główne opcje)
+    const rootOptions = optionsByParent['root'] || [];
+
+    container.innerHTML = `
+        <div class="finishing-level" data-level="0">
+            <p class="input-txt">Rodzaj wykończenia:</p>
+            <div class="button-group finishing-options-group" data-parent-id="null">
+                ${renderFinishingOptions(rootOptions, 0)}
+            </div>
+        </div>
+    `;
+
+    // Dodaj obsługę kliknięć
+    setupFinishingTreeHandlers(form, optionsByParent);
+
+    // Domyślnie zaznacz pierwszą opcję (Surowe)
+    const firstBtn = container.querySelector('.finishing-option-btn');
+    if (firstBtn) {
+        firstBtn.click();
+    }
+}
+
+/**
+ * Renderuje przyciski opcji wykończenia - różnicuje między tekstowymi a obrazkowymi
+ */
+function renderFinishingOptions(options, level) {
+    // Sprawdź czy są opcje z obrazkami
+    const hasImages = options.some(opt => opt.image_path);
+
+    if (hasImages) {
+        // Renderuj jako kafelki z obrazkami (grid kolorów)
+        return `<div class="color-group">${options.map(opt => {
+            const imgUrl = opt.image_path ? `/calculator/static/${opt.image_path}` : '';
+            const fullPath = opt.full_path || opt.name;
+            return `
+                <button type="button" class="color-btn finishing-option-btn"
+                        data-option-id="${opt.id}"
+                        data-option-name="${opt.name}"
+                        data-option-price="${opt.price_netto}"
+                        data-option-level="${opt.level}"
+                        data-full-path="${fullPath}">
+                    ${imgUrl ? `<img src="${imgUrl}" alt="${opt.name}" onerror="this.style.display='none'">` : ''}
+                    <span>${opt.name}</span>
+                </button>
+            `;
+        }).join('')}</div>`;
+    } else {
+        // Renderuj jako przyciski tekstowe
+        return options.map(opt => {
+            const fullPath = opt.full_path || opt.name;
+            return `
+                <button type="button" class="finishing-btn finishing-option-btn"
+                        data-option-id="${opt.id}"
+                        data-option-name="${opt.name}"
+                        data-option-price="${opt.price_netto}"
+                        data-option-level="${opt.level}"
+                        data-full-path="${fullPath}">
+                    ${opt.name}
+                </button>
+            `;
+        }).join('');
+    }
+}
+
+/**
+ * Konfiguruje obsługę kliknięć w drzewku wykończeń
+ */
+function setupFinishingTreeHandlers(form, optionsByParent) {
+    const container = form.querySelector('.finishing-tree-container');
+    if (!container) return;
+
+    container.addEventListener('click', (e) => {
+        const btn = e.target.closest('.finishing-option-btn');
+        if (!btn) return;
+
+        const optionId = parseInt(btn.dataset.optionId);
+        const optionLevel = parseInt(btn.dataset.optionLevel);
+        const optionName = btn.dataset.optionName;
+
+        // Usuń aktywność z innych przycisków na tym samym poziomie
+        const currentLevelContainer = btn.closest('.finishing-level');
+        currentLevelContainer.querySelectorAll('.finishing-option-btn').forEach(b => {
+            b.classList.remove('active');
+        });
+        btn.classList.add('active');
+
+        // Usuń wszystkie poziomy poniżej aktualnego
+        const allLevels = container.querySelectorAll('.finishing-level');
+        allLevels.forEach(level => {
+            const levelNum = parseInt(level.dataset.level);
+            if (levelNum > optionLevel) {
+                level.remove();
+            }
+        });
+
+        // Sprawdź czy ta opcja ma dzieci
+        const children = optionsByParent[optionId] || [];
+
+        if (children.length > 0) {
+            // Renderuj następny poziom
+            const nextLevel = optionLevel + 1;
+            const hasImages = children.some(opt => opt.image_path);
+            const labelText = hasImages ? 'Kolor:' : 'Wariant:';
+
+            const newLevelHtml = `
+                <div class="finishing-level" data-level="${nextLevel}">
+                    <p class="input-txt">${labelText}</p>
+                    <div class="button-group finishing-options-group" data-parent-id="${optionId}">
+                        ${renderFinishingOptions(children, nextLevel)}
+                    </div>
+                </div>
+            `;
+
+            container.insertAdjacentHTML('beforeend', newLevelHtml);
+        }
+
+        // Zaktualizuj wybrane wykończenie w formularzu
+        updateSelectedFinishing(form);
+
+        // Przelicz koszt wykończenia
+        if (typeof calculateFinishingCost === 'function') {
+            calculateFinishingCost(form);
+        }
+    });
+}
+
+/**
+ * Aktualizuje wybrane wykończenie na podstawie aktywnych przycisków
+ */
+function updateSelectedFinishing(form) {
+    const container = form.querySelector('.finishing-tree-container');
+    if (!container) return;
+
+    // Zbierz wszystkie aktywne opcje
+    const activeButtons = container.querySelectorAll('.finishing-option-btn.active');
+    const selectedPath = [];
+    let finalOption = null;
+
+    activeButtons.forEach(btn => {
+        selectedPath.push(btn.dataset.optionName);
+        finalOption = {
+            id: parseInt(btn.dataset.optionId),
+            name: btn.dataset.optionName,
+            fullPath: btn.dataset.fullPath,
+            price: parseFloat(btn.dataset.optionPrice) || 0
+        };
+    });
+
+    // Zapisz w dataset formularza dla kompatybilności
+    if (selectedPath.length > 0) {
+        form.dataset.finishingType = selectedPath[0]; // Główny typ (Surowe, Lakierowane, Olejowanie)
+        form.dataset.finishingVariant = selectedPath[1] || ''; // Wariant (Bezbarwne, Barwne)
+        form.dataset.finishingColor = selectedPath[2] || ''; // Kolor (jeśli wybrany)
+        form.dataset.finishingFullPath = selectedPath.join(' > ');
+        form.dataset.finishingOptionId = finalOption?.id || '';
+    }
+
+    console.log('[FINISHING] Wybrano:', selectedPath.join(' > '));
 }
 function toggleTheme() {
     document.documentElement.toggleAttribute('data-theme', 'dark');
@@ -838,6 +1047,14 @@ function updatePrices() {
             if (unitNettoSpan) unitNettoSpan.textContent = 'Brak ceny';
             if (totalBruttoSpan) totalBruttoSpan.textContent = 'Brak ceny';
             if (totalNettoSpan) totalNettoSpan.textContent = 'Brak ceny';
+
+            // Wyczyść dataset żeby stare wartości nie były używane
+            delete radio.dataset.totalNetto;
+            delete radio.dataset.totalBrutto;
+            delete radio.dataset.pricePerM3;
+            delete radio.dataset.volumeM3;
+            delete radio.dataset.multiplier;
+            delete radio.dataset.finalPrice;
         }
     });
 
@@ -848,6 +1065,7 @@ function updatePrices() {
     if (selectedRadio && selectedRadio.dataset.totalBrutto && selectedRadio.dataset.totalNetto) {
         activeQuoteForm.dataset.orderBrutto = selectedRadio.dataset.totalBrutto;
         activeQuoteForm.dataset.orderNetto = selectedRadio.dataset.totalNetto;
+        delete activeQuoteForm.dataset.outOfRange;
 
         // Pokoloruj wybrany wariant
         const selectedVariant = selectedRadio.closest('div');
@@ -859,7 +1077,13 @@ function updatePrices() {
     } else {
         activeQuoteForm.dataset.orderBrutto = "";
         activeQuoteForm.dataset.orderNetto = "";
-        console.log(`[updatePrices] Brak zaznaczonego wariantu w produkcie ${tabIndex + 1}`);
+        // Ustaw flagę błędu gdy wybrany wariant nie ma ceny
+        if (selectedRadio) {
+            activeQuoteForm.dataset.outOfRange = "true";
+        } else {
+            delete activeQuoteForm.dataset.outOfRange;
+        }
+        console.log(`[updatePrices] Brak zaznaczonego wariantu lub brak ceny w produkcie ${tabIndex + 1}`);
     }
 
     // Aktualizuj wykończenie i krawędzie
@@ -1026,6 +1250,22 @@ function updatePricesInOtherProducts() {
                             if (unitNettoSpan) unitNettoSpan.textContent = formatPLN(unitNetto);
                             if (totalBruttoSpan) totalBruttoSpan.textContent = formatPLN(totalBrutto);
                             if (totalNettoSpan) totalNettoSpan.textContent = formatPLN(totalNetto);
+                        } else {
+                            // Brak ceny - wyczyść dataset i pokaż błąd
+                            const unitBruttoSpan = variant.querySelector('.unit-brutto');
+                            const unitNettoSpan = variant.querySelector('.unit-netto');
+                            const totalBruttoSpan = variant.querySelector('.total-brutto');
+                            const totalNettoSpan = variant.querySelector('.total-netto');
+
+                            if (unitBruttoSpan) unitBruttoSpan.textContent = 'Brak ceny';
+                            if (unitNettoSpan) unitNettoSpan.textContent = 'Brak ceny';
+                            if (totalBruttoSpan) totalBruttoSpan.textContent = 'Brak ceny';
+                            if (totalNettoSpan) totalNettoSpan.textContent = 'Brak ceny';
+
+                            delete radio.dataset.totalNetto;
+                            delete radio.dataset.totalBrutto;
+                            delete radio.dataset.pricePerM3;
+                            delete radio.dataset.volumeM3;
                         }
                     });
 
@@ -1035,6 +1275,11 @@ function updatePricesInOtherProducts() {
                     if (selectedRadio && selectedRadio.dataset.totalBrutto && selectedRadio.dataset.totalNetto) {
                         form.dataset.orderBrutto = selectedRadio.dataset.totalBrutto;
                         form.dataset.orderNetto = selectedRadio.dataset.totalNetto;
+                        delete form.dataset.outOfRange;
+                    } else if (selectedRadio) {
+                        form.dataset.orderBrutto = "";
+                        form.dataset.orderNetto = "";
+                        form.dataset.outOfRange = "true";
                     }
                 }
             }
@@ -1171,12 +1416,12 @@ function calculateFinishingCost(form) {
 
     if (!form) return { netto: null, brutto: null };
 
-    // Pobierz wybrane wykończenie
-    const finishingTypeBtn = form.querySelector('.finishing-btn.active[data-finishing-type]');
-    const finishingVariantBtn = form.querySelector('.finishing-btn.active[data-finishing-variant]');
-
-    const finishingType = finishingTypeBtn ? finishingTypeBtn.dataset.finishingType : 'Surowe';
-    const finishingVariant = finishingVariantBtn ? finishingVariantBtn.dataset.finishingVariant : null;
+    // Pobierz wybrane wykończenie z dynamicznego drzewka
+    // Dane są zapisywane w form.dataset przez updateSelectedFinishing()
+    const finishingType = form.dataset.finishingType || 'Surowe';
+    const finishingVariant = form.dataset.finishingVariant || null;
+    const finishingFullPath = form.dataset.finishingFullPath || finishingType;
+    const finishingOptionId = form.dataset.finishingOptionId ? parseInt(form.dataset.finishingOptionId) : null;
 
     // Pobierz elementy input
     const lengthInput = form.querySelector('input[data-field="length"]');
@@ -1230,20 +1475,38 @@ function calculateFinishingCost(form) {
         "Całkowita powierzchnia [m²]": totalSurfaceAreaM2.toFixed(4)
     });
 
-    // Pobierz cenę z bazy danych (używa window.finishingPrices załadowanego przez loadFinishingPrices())
+    // Pobierz cenę z bazy danych (dynamicznie z drzewka wykończeń)
     let pricePerM2 = 0;
 
-    if (finishingType === 'Lakierowanie' && finishingVariant === 'Bezbarwne') {
-        pricePerM2 = window.finishingPrices?.['Lakierowane bezbarwne'] || 200;
-    } else if (finishingType === 'Lakierowanie' && finishingVariant === 'Barwne') {
-        pricePerM2 = window.finishingPrices?.['Lakierowane barwne'] || 250;
-    } else if (finishingType === 'Olejowanie') {
-        pricePerM2 = window.finishingPrices?.['Olejowanie'] || 250;
+    // Próbuj pobrać cenę z wybranej opcji (używa ID opcji)
+    if (finishingOptionId && window.finishingOptionsById) {
+        const selectedOption = window.finishingOptionsById[finishingOptionId];
+        if (selectedOption && selectedOption.price_netto) {
+            pricePerM2 = parseFloat(selectedOption.price_netto);
+        }
+    }
+
+    // Fallback: spróbuj po pełnej ścieżce
+    if (pricePerM2 === 0 && finishingFullPath && window.finishingPrices) {
+        pricePerM2 = window.finishingPrices[finishingFullPath] || 0;
+    }
+
+    // Legacy fallback dla kompatybilności wstecznej
+    if (pricePerM2 === 0) {
+        if (finishingType === 'Lakierowanie' && finishingVariant === 'Bezbarwne') {
+            pricePerM2 = window.finishingPrices?.['Lakierowane bezbarwne'] || 200;
+        } else if (finishingType === 'Lakierowanie' && finishingVariant === 'Barwne') {
+            pricePerM2 = window.finishingPrices?.['Lakierowane barwne'] || 250;
+        } else if (finishingType === 'Olejowanie') {
+            pricePerM2 = window.finishingPrices?.['Olejowanie'] || 250;
+        }
     }
 
     dbg("🧪 Cena wykończenia:", {
         "Typ": finishingType,
         "Wariant": finishingVariant,
+        "Pełna ścieżka": finishingFullPath,
+        "ID opcji": finishingOptionId,
         "Cena za m² [PLN netto]": pricePerM2
     });
 
@@ -1295,26 +1558,12 @@ function updateFinishingSummaryRow(form, finishingType, finishingVariant, priceN
         return;
     }
 
-    // Buduj opis wykończenia
-    let description = finishingType;
-    if (finishingVariant) {
-        description += ` ${finishingVariant}`;
-    }
+    // Buduj opis wykończenia - użyj pełnej ścieżki z dynamicznego drzewka
+    let description = form.dataset.finishingFullPath || finishingType;
 
-    // Dodaj kolor jeśli barwne
-    if (finishingVariant === 'Barwne') {
-        const colorBtn = form.querySelector('.color-btn.active');
-        if (colorBtn && colorBtn.dataset.finishingColor) {
-            description += ` (${colorBtn.dataset.finishingColor})`;
-        }
-    }
-
-    // Dodaj stopień połysku dla lakierowania
-    if (finishingType === 'Lakierowanie') {
-        const glossBtn = form.querySelector('.finishing-btn[data-finishing-gloss].active');
-        if (glossBtn && glossBtn.dataset.finishingGloss) {
-            description += ` ${glossBtn.dataset.finishingGloss}`;
-        }
+    // Dodaj kolor jeśli wybrany
+    if (form.dataset.finishingColor) {
+        description += ` (${form.dataset.finishingColor})`;
     }
 
     // Aktualizuj tekst i cenę
@@ -4016,6 +4265,11 @@ function generateProductDescription(form, index) {
     if (!form) return { main: `Błąd formularza`, sub: "" };
 
     const isComplete = checkProductCompleteness(form);
+    const isOutOfRange = form.dataset.outOfRange === "true";
+
+    if (isOutOfRange) {
+        return { main: `Produkt poza zakresem`, sub: "" };
+    }
 
     if (!isComplete) {
         return { main: `Dokończ wycenę produktu`, sub: "" };
@@ -4410,10 +4664,11 @@ function generateProductsSummary() {
     forms.forEach((form, index) => {
         const descriptionData = generateProductDescription(form, index);
         const isComplete = checkProductCompleteness(form);
+        const isOutOfRange = form.dataset.outOfRange === "true";
         const isActive = form === activeQuoteForm;
 
         const productCard = document.createElement('div');
-        productCard.className = `product-card ${isActive ? 'active' : ''} ${!isComplete ? 'error' : ''}`;
+        productCard.className = `product-card ${isActive ? 'active' : ''} ${(!isComplete || isOutOfRange) ? 'error' : ''}`;
         productCard.dataset.index = index;
 
         // Przycisk usuwania gdy jest więcej niż 1 produkt

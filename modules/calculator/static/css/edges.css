@@ -284,26 +284,33 @@
     border-color: #ED6B24;
 }
 
-/* R Value */
-.edges-r-value-group {
+/* Parametry obróbki (Promień R + Kąt) */
+.edges-params-group {
     display: flex;
     align-items: center;
-    gap: 12px;
+    gap: 0;
     padding: 16px;
     background: #f9f9f9;
     border-radius: 12px;
 }
 
-.edges-r-value-group label {
+.edges-param {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.edges-param label {
     font-weight: 500;
     color: #333;
     font-family: 'Poppins', sans-serif;
     font-size: 14px;
+    white-space: nowrap;
 }
 
-.edges-r-value-group input {
-    width: 80px;
-    padding: 10px 14px;
+.edges-param input {
+    width: 48px;
+    padding: 8px 0;
     border: 1px solid #ddd;
     border-radius: 8px;
     font-size: 14px;
@@ -311,14 +318,48 @@
     text-align: center;
 }
 
-.edges-r-value-group input:focus {
+.edges-param input:focus {
     outline: none;
     border-color: #ED6B24;
 }
 
-.edges-r-value-group span {
+.edges-param span {
     color: #666;
     font-family: 'Poppins', sans-serif;
+}
+
+/* Kąt fazowania - separator i przyciski */
+.edges-angle-param {
+    margin-left: 20px;
+    padding-left: 20px;
+    border-left: 1px solid #ddd;
+}
+
+.edges-angle-buttons {
+    display: flex;
+    gap: 6px;
+}
+
+.edges-angle-btn {
+    padding: 8px 14px;
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    background: #fff;
+    font-size: 13px;
+    font-family: 'Poppins', sans-serif;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.edges-angle-btn:hover {
+    border-color: #ED6B24;
+    background: #fff8f5;
+}
+
+.edges-angle-btn.active {
+    background: #ED6B24;
+    border-color: #ED6B24;
+    color: #fff;
 }
 
 /* ==========================================

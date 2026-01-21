@@ -1058,3 +1058,396 @@
 .btn-save-edge:hover {
     background: #dcfce7;
 }
+
+/* ============================================
+   HIERARCHICZNE DRZEWKO WYKOŃCZEŃ
+   ============================================ */
+
+.finishing-tree-info {
+    background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%);
+    border: 1px solid #bfdbfe;
+    border-radius: 8px;
+    padding: 12px 16px;
+    margin-bottom: 20px;
+}
+
+.finishing-tree-info p {
+    margin: 0;
+    color: #1e40af;
+    font-size: 0.875rem;
+}
+
+.finishing-tree-table {
+    table-layout: fixed;
+}
+
+.finishing-tree-table thead th {
+    background: var(--bg-secondary, #f9fafb);
+    font-weight: 600;
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+}
+
+.finishing-tree-table tbody tr {
+    height: 56px;
+    vertical-align: middle;
+    border-bottom: 1px solid var(--border-color, #e5e7eb);
+    transition: background-color 0.2s;
+}
+
+.finishing-tree-table td {
+    vertical-align: middle;
+    padding: 8px 12px;
+}
+
+/* Podświetlenie poziomów hierarchii */
+.finishing-tree-table tr[data-level="0"] {
+    background-color: var(--bg-card, #ffffff);
+}
+
+.finishing-tree-table tr[data-level="1"] {
+    background-color: rgba(37, 99, 235, 0.02);
+}
+
+.finishing-tree-table tr[data-level="2"] {
+    background-color: rgba(37, 99, 235, 0.04);
+}
+
+.finishing-tree-table tr[data-level="3"] {
+    background-color: rgba(37, 99, 235, 0.06);
+}
+
+.finishing-tree-table tr[data-level="4"] {
+    background-color: rgba(37, 99, 235, 0.08);
+}
+
+.finishing-tree-table tr:hover {
+    background-color: var(--bg-hover, #f3f4f6) !important;
+}
+
+/* Wcięcia drzewka */
+.tree-indent {
+    display: inline-block;
+    color: var(--text-muted, #9ca3af);
+    font-family: monospace;
+    font-size: 0.9rem;
+    user-select: none;
+}
+
+.name-cell {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.tree-name-input {
+    flex: 1;
+    font-weight: 500;
+}
+
+/* Input dla kodu SKU */
+.code-input {
+    width: 70px !important;
+    text-align: center;
+    text-transform: uppercase;
+    font-family: monospace;
+    font-size: 0.8rem !important;
+}
+
+/* Efektywna cena */
+.effective-price {
+    color: var(--primary-color, #2563eb);
+}
+
+.effective-price strong {
+    font-size: 0.9rem;
+}
+
+.effective-price .text-muted {
+    display: block;
+    font-size: 0.7rem;
+    margin-top: 2px;
+}
+
+/* Podgląd obrazka */
+.image-cell {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.color-preview {
+    width: 36px;
+    height: 36px;
+    object-fit: cover;
+    border-radius: 6px;
+    border: 1px solid var(--border-color, #e5e7eb);
+    flex-shrink: 0;
+}
+
+.btn-upload-image {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 6px 10px;
+    background: var(--bg-secondary, #f3f4f6);
+    border: 1px solid var(--border-color, #e5e7eb);
+    border-radius: 6px;
+    color: var(--text-secondary, #6b7280);
+    cursor: pointer;
+    transition: all 0.2s;
+    font-size: 0.75rem;
+}
+
+.btn-upload-image:hover {
+    background: var(--primary-color, #2563eb);
+    border-color: var(--primary-color, #2563eb);
+    color: white;
+}
+
+/* Przyciski akcji dla drzewka */
+.btn-add-child {
+    color: var(--primary-color, #2563eb);
+}
+
+.btn-add-child:hover {
+    background: rgba(37, 99, 235, 0.1);
+}
+
+.btn-save-tree {
+    color: #22c55e;
+}
+
+.btn-save-tree:hover {
+    background: #dcfce7;
+}
+
+.btn-delete-tree {
+    color: #ef4444;
+}
+
+.btn-delete-tree:hover {
+    background: #fee2e2;
+}
+
+/* Przyciski strzałek dla drzewka */
+.finishing-tree-table .btn-order {
+    width: 24px;
+    height: 24px;
+}
+
+.finishing-tree-table .btn-order svg {
+    width: 14px;
+    height: 14px;
+}
+
+/* Modal medium */
+.modal-medium {
+    max-width: 480px;
+}
+
+/* Formularz opcji wykończenia */
+#addFinishingOptionForm {
+    padding: 24px;
+}
+
+#addFinishingOptionForm .form-group {
+    margin-bottom: 16px;
+}
+
+#addFinishingOptionForm .form-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin-bottom: 16px;
+}
+
+#addFinishingOptionForm label {
+    display: block;
+    margin-bottom: 6px;
+    font-weight: 500;
+    color: var(--text-primary, #1a1a2e);
+    font-size: 0.85rem;
+}
+
+#addFinishingOptionForm .required {
+    color: #ef4444;
+}
+
+#addFinishingOptionForm input[type="text"],
+#addFinishingOptionForm input[type="number"],
+#addFinishingOptionForm select {
+    width: 100%;
+    padding: 10px 12px;
+    border: 1px solid var(--border-color, #e5e7eb);
+    border-radius: 8px;
+    font-size: 0.9rem;
+    background: var(--bg-input, #ffffff);
+}
+
+#addFinishingOptionForm input:focus,
+#addFinishingOptionForm select:focus {
+    outline: none;
+    border-color: var(--primary-color, #2563eb);
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+}
+
+#addFinishingOptionForm select {
+    cursor: pointer;
+}
+
+.form-hint {
+    display: block;
+    margin-top: 4px;
+    font-size: 0.75rem;
+    color: var(--text-muted, #9ca3af);
+}
+
+/* Responsywność drzewka */
+@media (max-width: 768px) {
+    .finishing-tree-table {
+        font-size: 0.75rem;
+    }
+
+    .finishing-tree-table .price-input,
+    .finishing-tree-table .tree-name-input {
+        padding: 4px 6px;
+        font-size: 0.75rem;
+    }
+
+    .color-preview {
+        width: 28px;
+        height: 28px;
+    }
+
+    .name-cell {
+        flex-wrap: wrap;
+    }
+
+    #addFinishingOptionForm .form-row {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* ============================================
+   STICKY SAVE FOOTER - BULK SAVE
+   ============================================ */
+
+.settings-save-footer {
+    position: sticky;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background: linear-gradient(to top, var(--bg-card, #ffffff) 80%, transparent);
+    padding: 20px 0 0 0;
+    margin-top: 20px;
+    z-index: 100;
+    display: none;
+}
+
+.settings-save-footer.visible {
+    display: block;
+    animation: slideUp 0.3s ease-out;
+}
+
+.save-footer-content {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 16px 24px;
+    background: var(--bg-card, #ffffff);
+    border: 2px solid var(--primary-color, #2563eb);
+    border-radius: 12px;
+    box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.15);
+}
+
+.changes-indicator {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--primary-color, #2563eb);
+    font-weight: 500;
+    font-size: 0.9rem;
+}
+
+.changes-count {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 24px;
+    height: 24px;
+    padding: 0 8px;
+    background: var(--primary-color, #2563eb);
+    color: white;
+    border-radius: 12px;
+    font-size: 0.85rem;
+    font-weight: 600;
+}
+
+.save-footer-actions {
+    display: flex;
+    gap: 12px;
+}
+
+.btn-save-all {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.btn-save-all svg {
+    width: 18px;
+    height: 18px;
+}
+
+/* Wizualne oznaczenie zmienionego wiersza */
+tr.row-changed {
+    background-color: rgba(37, 99, 235, 0.08) !important;
+}
+
+tr.row-changed td:first-child {
+    box-shadow: inset 3px 0 0 var(--primary-color, #2563eb);
+}
+
+/* Animacja pojawiania się footera */
+@keyframes slideUp {
+    from {
+        opacity: 0;
+        transform: translateY(20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* Input ze zmianą - subtelne podświetlenie */
+.input-changed {
+    border-color: var(--primary-color, #2563eb) !important;
+    background-color: rgba(37, 99, 235, 0.03) !important;
+}
+
+/* Responsywność footera */
+@media (max-width: 768px) {
+    .save-footer-content {
+        flex-direction: column;
+        gap: 12px;
+        padding: 12px 16px;
+    }
+
+    .changes-indicator {
+        font-size: 0.8rem;
+    }
+
+    .save-footer-actions {
+        width: 100%;
+        justify-content: stretch;
+    }
+
+    .save-footer-actions .btn-secondary,
+    .save-footer-actions .btn-primary {
+        flex: 1;
+        justify-content: center;
+    }
+}

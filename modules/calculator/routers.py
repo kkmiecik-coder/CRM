@@ -355,9 +355,30 @@ def get_quote_sources():
 @calculator_bp.route('/api/finishing-prices', methods=['GET'])
 @require_module_access('calculator')
 def get_finishing_prices():
-    """Pobieranie cen wykończeń z bazy danych"""
+    """Pobieranie cen wykończeń z bazy danych - hierarchiczne drzewko"""
     try:
-        from .models import FinishingTypePrice
+        from .models import FinishingOption, FinishingTypePrice
+
+        # Spróbuj najpierw z nowej tabeli hierarchicznej
+        try:
+            flat_list = FinishingOption.get_flat_list(include_inactive=False)
+            if flat_list:
+                prices_data = []
+                for opt in flat_list:
+                    prices_data.append({
+                        'id': opt['id'],
+                        'name': opt['name'],  # Pojedyncza nazwa np. "Barwne"
+                        'full_path': opt['full_path'],  # Pełna ścieżka np. "Lakierowane > Barwne"
+                        'price_netto': opt['effective_price_netto'],
+                        'level': opt['level'],
+                        'parent_id': opt['parent_id'],
+                        'image_path': opt.get('image_path')
+                    })
+                return jsonify(prices_data)
+        except Exception as e:
+            current_app.logger.warning(f"Fallback do starej tabeli finishing: {e}")
+
+        # Fallback: stara tabela
         prices = FinishingTypePrice.query.filter_by(is_active=True).all()
         prices_data = []
         for price in prices:
@@ -495,6 +516,7 @@ def save_quote():
             edges_data = product.get('edges', [])
             edges_type = None
             edges_r_value = None
+            edges_angle_value = product.get('edges_angle_value')  # Kąt fazowania
             edges_price_netto = float(product.get('edges_netto', 0.0))
             edges_price_brutto = float(product.get('edges_brutto', 0.0))
 
@@ -502,7 +524,10 @@ def save_quote():
             if edges_data:
                 edges_type = edges_data[0].get('type')
                 edges_r_value = edges_data[0].get('r_value')
-                current_app.logger.info(f"[save_quote] Produkt #{i + 1}: {len(edges_data)} krawędzi, typ={edges_type}, R={edges_r_value}, netto={edges_price_netto}, brutto={edges_price_brutto}")
+                # Jeśli kąt nie został przesłany osobno, pobierz z pierwszej krawędzi
+                if edges_angle_value is None and edges_type == 'chamfer':
+                    edges_angle_value = edges_data[0].get('angle_value')
+                current_app.logger.info(f"[save_quote] Produkt #{i + 1}: {len(edges_data)} krawędzi, typ={edges_type}, R={edges_r_value}, kąt={edges_angle_value}, netto={edges_price_netto}, brutto={edges_price_brutto}")
 
             # Pobierz SVG wizualizacji krawędzi
             edges_svg = product.get('edges_svg', '')
@@ -523,6 +548,7 @@ def save_quote():
                 edges_config=edges_data if edges_data else None,
                 edges_type=edges_type,
                 edges_r_value=edges_r_value,
+                edges_angle_value=edges_angle_value,
                 edges_price_netto=edges_price_netto,
                 edges_price_brutto=edges_price_brutto,
                 edges_svg=edges_svg if edges_svg else None

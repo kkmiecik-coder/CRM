@@ -49,21 +49,51 @@ def generate_sku_for_modal(item, finishing_details=None):
         # 5. Klasa drewna
         wood_class = variant_parts[2].upper() if len(variant_parts) > 2 else "XX"
 
-        # 6. Wykończenie
+        # 6. Wykończenie - najpierw sprawdź nową tabelę FinishingOption
         finishing = "SUR"
         if finishing_details and finishing_details.finishing_type and finishing_details.finishing_type != 'Brak':
-            finishing_map = {
-                'lakier': 'LAK',
-                'olej': 'OLE',
-                'wosk': 'WOS',
-                'bejca': 'BEJ',
-                'lazura': 'LAZ'
-            }
-            finishing_type = finishing_details.finishing_type.lower()
-            for key, value in finishing_map.items():
-                if key in finishing_type:
-                    finishing = value
-                    break
+            # Spróbuj pobrać kod z nowej hierarchicznej tabeli
+            try:
+                from modules.calculator.models import FinishingOption
+                finishing_opt = FinishingOption.query.filter_by(
+                    name=finishing_details.finishing_type,
+                    is_active=True
+                ).first()
+
+                if finishing_opt:
+                    # Użyj kodu z opcji lub jej rodzica
+                    code = finishing_opt.get_code()
+                    if code:
+                        finishing = code
+                else:
+                    # Fallback: stare mapowanie
+                    finishing_map = {
+                        'lakier': 'LAK',
+                        'olej': 'OLE',
+                        'wosk': 'WOS',
+                        'bejca': 'BEJ',
+                        'lazura': 'LAZ',
+                        'surow': 'SUR'
+                    }
+                    finishing_type = finishing_details.finishing_type.lower()
+                    for key, value in finishing_map.items():
+                        if key in finishing_type:
+                            finishing = value
+                            break
+            except Exception:
+                # Fallback: stare mapowanie
+                finishing_map = {
+                    'lakier': 'LAK',
+                    'olej': 'OLE',
+                    'wosk': 'WOS',
+                    'bejca': 'BEJ',
+                    'lazura': 'LAZ'
+                }
+                finishing_type = finishing_details.finishing_type.lower()
+                for key, value in finishing_map.items():
+                    if key in finishing_type:
+                        finishing = value
+                        break
 
         # 7. Obróbka krawędzi
         edge_code = ""
@@ -76,8 +106,13 @@ def generate_sku_for_modal(item, finishing_details=None):
                 }
                 edge_type = finishing_details.edges_type
                 r_value = finishing_details.edges_r_value or 0
+                angle_value = finishing_details.edges_angle_value
                 edge_prefix = edge_type_map.get(edge_type, 'XX')
-                edge_code = f"{edge_prefix}{r_value}"
+                # Dla fazowania dodaj kąt (np. FR45A45), dla zaokrąglenia tylko R (np. ZR5)
+                if edge_type == 'chamfer' and angle_value:
+                    edge_code = f"{edge_prefix}{r_value}A{angle_value}"
+                else:
+                    edge_code = f"{edge_prefix}{r_value}"
 
         return f"{product_type}{species}{technology}{length}{width}{thickness}{wood_class}{finishing}{edge_code}"
 
@@ -613,6 +648,7 @@ def get_order_modal_data(quote_id):
                     'type': edge_type,
                     'type_name': edge_type_name,
                     'r_value': r_value,
+                    'angle_value': finishing_details.edges_angle_value,
                     'letters': edge_letters,
                     'count': len(edge_letters),
                     'price_netto': edges_total_netto,

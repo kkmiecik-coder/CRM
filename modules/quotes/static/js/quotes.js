@@ -2677,15 +2677,22 @@ function renderVariantSummary(groupedItemsForIndex, quoteData, productIndex) {
         const edgesType = finishing.edges_type === 'chamfer' ? 'Fazowanie' :
                          finishing.edges_type === 'round' ? 'Zaokrąglenie' : finishing.edges_type;
         const edgesRValue = finishing.edges_r_value || '-';
+        const edgesAngleValue = finishing.edges_angle_value;
         const edgesPriceBrutto = parseFloat(finishing.edges_price_brutto || 0);
         const edgesPriceNetto = parseFloat(finishing.edges_price_netto || 0);
 
         // Lista zaznaczonych krawędzi
         const edgeLetters = edgesConfig.map(e => e.letter).sort().join(', ');
 
+        // Opis obróbki: dla fazowania dodaj kąt
+        let edgesDescription = `${edgesType} R${edgesRValue}`;
+        if (finishing.edges_type === 'chamfer' && edgesAngleValue) {
+            edgesDescription += ` (${edgesAngleValue}°)`;
+        }
+
         edgesInfoHtml = `
             <div class="edges-separator"></div>
-            <div><strong>Obróbka krawędzi:</strong> ${edgesType} R${edgesRValue}</div>
+            <div><strong>Obróbka krawędzi:</strong> ${edgesDescription}</div>
             <div><strong>Krawędzie:</strong> ${edgeLetters}</div>
             <div><strong>Koszt krawędzi:</strong> ${edgesPriceBrutto.toFixed(2)} PLN <span class="cost-netto">${edgesPriceNetto.toFixed(2)} PLN</span></div>
         `;

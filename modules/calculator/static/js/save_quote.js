@@ -765,6 +765,7 @@ function collectQuoteData() {
         const edgesNetto = parseFloat(form.dataset.edgesNetto || 0);
         const edgesType = form.dataset.edgesType || null;
         const edgesRValue = parseInt(form.dataset.edgesRValue) || null;
+        const edgesAngleValue = form.dataset.edgesAngleValue ? parseInt(form.dataset.edgesAngleValue) : null;
         const edgesSvg = form.dataset.edgesSvg || '';
         let edgesData = [];
         try {
@@ -779,7 +780,7 @@ function collectQuoteData() {
         });
 
         console.log(`[collectQuoteData] Produkt ${index + 1} - obróbka krawędzi:`, {
-            edgesType, edgesRValue, edgesBrutto, edgesNetto,
+            edgesType, edgesRValue, edgesAngleValue, edgesBrutto, edgesNetto,
             edgesCount: edgesData.length,
             edgesSvgLength: edgesSvg ? edgesSvg.length : 0,
             hasEdgesSvg: !!edgesSvg
@@ -862,6 +863,7 @@ function collectQuoteData() {
             edges: edgesData,
             edges_type: edgesType,
             edges_r_value: edgesRValue,
+            edges_angle_value: edgesAngleValue,
             edges_netto: edgesNetto,
             edges_brutto: edgesBrutto,
             edges_svg: edgesSvg,

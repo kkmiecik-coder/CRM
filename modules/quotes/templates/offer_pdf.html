@@ -525,7 +525,7 @@
                         {% else %}{{ item.variant_code }}
                         {% endif %}
 
-                        <!-- POPRAWIONE: Wykończenie z finishing_detail - ZAWSZE wyświetlaj -->
+                        <!-- Wykończenie (malowanie) -->
                         <br><span class="finishing-details">
                             Wykończenie:
                             {% if finishing_detail and finishing_detail.finishing_type and finishing_detail.finishing_type != 'Brak' %}
@@ -536,6 +536,16 @@
                             brak
                             {% endif %}
                         </span>
+                        <!-- Obróbka krawędzi -->
+                        {% if finishing_detail and finishing_detail.edges_type and finishing_detail.edges_config %}
+                        <br><span class="finishing-details">
+                            Krawędzie:
+                            {% if finishing_detail.edges_type == 'chamfer' %}Fazowanie{% elif finishing_detail.edges_type == 'round' %}Zaokrąglenie{% else %}{{ finishing_detail.edges_type }}{% endif %}
+                            R{{ finishing_detail.edges_r_value }}
+                            {%- if finishing_detail.edges_type == 'chamfer' and finishing_detail.edges_angle_value %} ({{ finishing_detail.edges_angle_value }}°){% endif %}
+                            - {{ finishing_detail.edges_config|map(attribute='letter')|list|sort|join(', ') }}
+                        </span>
+                        {% endif %}
                     </td>
                     <td>{{ "%.1f"|format(item.length_cm) }} × {{ "%.1f"|format(item.width_cm) }} × {{ "%.1f"|format(item.thickness_cm) }}</td>
                     <td>szt.</td>
@@ -648,6 +658,9 @@
                             {% endif %}
                         </div>
                         <div><strong>Promień R:</strong> {{ detail.edges_r_value or '-' }}</div>
+                        {% if detail.edges_type == 'chamfer' and detail.edges_angle_value %}
+                        <div><strong>Kąt ścięcia:</strong> {{ detail.edges_angle_value }}°</div>
+                        {% endif %}
                         <div class="edge-note">Krawędzie zaznaczone kolorem pomarańczowym zostaną poddane obróbce.</div>
                     </div>
                 </div>

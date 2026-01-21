@@ -664,7 +664,7 @@ def api_delete_price(price_id):
 @require_admin
 def calculator_extras():
     """Przekierowanie do pierwszej podzakładki cennika dodatkowego"""
-    return redirect(url_for('settings.calculator_extras_finishing'))
+    return redirect(url_for('settings.calculator_finishing_tree'))
 
 
 @settings_bp.route('/calculator/extras/finishing')
@@ -785,4 +785,605 @@ def api_update_edge_option(option_id):
         })
     except Exception as e:
         current_app.logger.error(f"[api_update_edge_option] Błąd: {str(e)}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+# =============================================
+# HIERARCHICZNE OPCJE WYKOŃCZEŃ (DRZEWKO)
+# =============================================
+
+@settings_bp.route('/calculator/extras/finishing-tree')
+@require_admin
+def calculator_finishing_tree():
+    """Panel administracyjny dla hierarchicznych opcji wykończeń"""
+    from modules.calculator.models import FinishingOption
+
+    user_email = session.get('user_email')
+    current_user = User.query.filter_by(email=user_email).first()
+
+    # Pobierz płaską listę z głębokością dla renderowania
+    finishing_options = FinishingOption.get_flat_list(include_inactive=False)
+
+    return render_template(
+        'settings_index.html',
+        current_user=current_user,
+        finishing_options=finishing_options,
+        active_tab='calculator',
+        calculator_subtab='extras',
+        extras_subtab='finishing_tree'
+    )
+
+
+@settings_bp.route('/api/finishing-options', methods=['GET'])
+@require_admin
+def api_get_finishing_options():
+    """API: Pobiera hierarchiczne opcje wykończeń"""
+    from modules.calculator.models import FinishingOption
+
+    try:
+        tree = FinishingOption.get_tree()
+        flat = FinishingOption.get_flat_list(include_inactive=False)
+
+        return jsonify({
+            'success': True,
+            'tree': tree,
+            'flat': flat
+        })
+    except Exception as e:
+        current_app.logger.error(f"[api_get_finishing_options] Błąd: {str(e)}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@settings_bp.route('/api/finishing-options', methods=['POST'])
+@require_admin
+def api_create_finishing_option():
+    """API: Tworzy nową opcję wykończenia"""
+    from modules.calculator.models import FinishingOption
+    from extensions import db
+    from decimal import Decimal, InvalidOperation
+
+    try:
+        data = request.get_json()
+
+        name = data.get('name', '').strip()
+        if not name:
+            return jsonify({'success': False, 'error': 'Nazwa jest wymagana'}), 400
+
+        parent_id = data.get('parent_id')
+        level = 0
+
+        if parent_id:
+            parent = FinishingOption.query.get(parent_id)
+            if not parent:
+                return jsonify({'success': False, 'error': 'Rodzic nie istnieje'}), 400
+            level = parent.level + 1
+
+        # Pobierz najwyższy sort_order dla rodzeństwa
+        max_sort = db.session.query(db.func.max(FinishingOption.sort_order)).filter_by(
+            parent_id=parent_id
+        ).scalar() or 0
+
+        # Przetwórz cenę
+        price_netto = None
+        if data.get('price_netto') is not None and str(data.get('price_netto')).strip() != '':
+            try:
+                price_netto = Decimal(str(data['price_netto']))
+            except (InvalidOperation, ValueError):
+                return jsonify({'success': False, 'error': 'Nieprawidłowa wartość ceny'}), 400
+
+        option = FinishingOption(
+            parent_id=parent_id,
+            level=level,
+            name=name,
+            code=data.get('code', '').strip() or None,
+            price_netto=price_netto,
+            image_path=data.get('image_path', '').strip() or None,
+            is_active=True,
+            sort_order=max_sort + 1
+        )
+
+        db.session.add(option)
+        db.session.commit()
+
+        return jsonify({
+            'success': True,
+            'option': option.to_dict()
+        }), 201
+    except Exception as e:
+        current_app.logger.error(f"[api_create_finishing_option] Błąd: {str(e)}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@settings_bp.route('/api/finishing-options/<int:option_id>', methods=['PUT'])
+@require_admin
+def api_update_finishing_option(option_id):
+    """API: Aktualizuje opcję wykończenia"""
+    from modules.calculator.models import FinishingOption
+    from extensions import db
+    from decimal import Decimal, InvalidOperation
+
+    try:
+        option = FinishingOption.query.get_or_404(option_id)
+        data = request.get_json()
+
+        if 'name' in data:
+            name = data['name'].strip()
+            if not name:
+                return jsonify({'success': False, 'error': 'Nazwa nie może być pusta'}), 400
+            option.name = name
+
+        if 'code' in data:
+            option.code = data['code'].strip() if data['code'] else None
+
+        if 'price_netto' in data:
+            if data['price_netto'] is None or str(data['price_netto']).strip() == '':
+                option.price_netto = None
+            else:
+                try:
+                    option.price_netto = Decimal(str(data['price_netto']))
+                except (InvalidOperation, ValueError):
+                    return jsonify({'success': False, 'error': 'Nieprawidłowa wartość ceny'}), 400
+
+        if 'image_path' in data:
+            option.image_path = data['image_path'].strip() if data['image_path'] else None
+
+        if 'is_active' in data:
+            option.is_active = bool(data['is_active'])
+
+        db.session.commit()
+
+        return jsonify({
+            'success': True,
+            'option': option.to_dict()
+        })
+    except Exception as e:
+        current_app.logger.error(f"[api_update_finishing_option] Błąd: {str(e)}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@settings_bp.route('/api/finishing-options/<int:option_id>', methods=['DELETE'])
+@require_admin
+def api_delete_finishing_option(option_id):
+    """API: Usuwa opcję wykończenia (soft delete - dezaktywacja)"""
+    from modules.calculator.models import FinishingOption
+    from extensions import db
+
+    try:
+        option = FinishingOption.query.get_or_404(option_id)
+        option_name = option.name
+
+        # Soft delete - dezaktywuj tę opcję i wszystkie dzieci rekurencyjnie
+        def deactivate_recursive(opt):
+            opt.is_active = False
+            for child in opt.children:
+                deactivate_recursive(child)
+
+        deactivate_recursive(option)
+        db.session.commit()
+
+        return jsonify({
+            'success': True,
+            'message': f'Opcja "{option_name}" została usunięta'
+        })
+    except Exception as e:
+        current_app.logger.error(f"[api_delete_finishing_option] Błąd: {str(e)}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@settings_bp.route('/api/finishing-options/<int:option_id>/move', methods=['POST'])
+@require_admin
+def api_move_finishing_option(option_id):
+    """API: Przesuwa opcję wykończenia w górę lub w dół wśród rodzeństwa"""
+    from modules.calculator.models import FinishingOption
+    from extensions import db
+
+    try:
+        data = request.get_json()
+        direction = data.get('direction')
+
+        if direction not in ['up', 'down']:
+            return jsonify({'success': False, 'error': 'Nieprawidłowy kierunek'}), 400
+
+        option = FinishingOption.query.get_or_404(option_id)
+
+        # Pobierz rodzeństwo (ten sam parent_id)
+        siblings = FinishingOption.query.filter_by(
+            parent_id=option.parent_id,
+            is_active=True
+        ).order_by(FinishingOption.sort_order).all()
+
+        # Znajdź indeks aktualnej opcji
+        current_index = None
+        for i, s in enumerate(siblings):
+            if s.id == option_id:
+                current_index = i
+                break
+
+        if current_index is None:
+            return jsonify({'success': False, 'error': 'Opcja nie znaleziona'}), 404
+
+        # Sprawdź czy można przesunąć
+        if direction == 'up' and current_index == 0:
+            return jsonify({'success': False, 'error': 'Opcja jest już na pierwszej pozycji'}), 400
+        if direction == 'down' and current_index == len(siblings) - 1:
+            return jsonify({'success': False, 'error': 'Opcja jest już na ostatniej pozycji'}), 400
+
+        # Zamień sort_order
+        swap_index = current_index - 1 if direction == 'up' else current_index + 1
+
+        current_order = siblings[current_index].sort_order
+        swap_order = siblings[swap_index].sort_order
+
+        siblings[current_index].sort_order = swap_order
+        siblings[swap_index].sort_order = current_order
+
+        db.session.commit()
+
+        return jsonify({'success': True})
+    except Exception as e:
+        current_app.logger.error(f"[api_move_finishing_option] Błąd: {str(e)}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@settings_bp.route('/api/finishing-options/<int:option_id>/upload-image', methods=['POST'])
+@require_admin
+def api_upload_finishing_option_image(option_id):
+    """API: Upload obrazka dla opcji wykończenia"""
+    from modules.calculator.models import FinishingOption
+    from extensions import db
+    import os
+    from werkzeug.utils import secure_filename
+
+    try:
+        option = FinishingOption.query.get_or_404(option_id)
+
+        if 'image' not in request.files:
+            return jsonify({'success': False, 'error': 'Brak pliku obrazka'}), 400
+
+        file = request.files['image']
+        if file.filename == '':
+            return jsonify({'success': False, 'error': 'Nie wybrano pliku'}), 400
+
+        # Sprawdź rozszerzenie
+        allowed_extensions = {'png', 'jpg', 'jpeg', 'gif', 'webp'}
+        ext = file.filename.rsplit('.', 1)[1].lower() if '.' in file.filename else ''
+        if ext not in allowed_extensions:
+            return jsonify({
+                'success': False,
+                'error': f'Niedozwolone rozszerzenie pliku. Dozwolone: {", ".join(allowed_extensions)}'
+            }), 400
+
+        # Utwórz bezpieczną nazwę pliku
+        filename = secure_filename(f"finishing_{option_id}_{option.name}.{ext}")
+
+        # Ścieżka do zapisu
+        upload_dir = os.path.join(current_app.root_path, 'modules', 'calculator', 'static', 'images', 'finishes')
+        os.makedirs(upload_dir, exist_ok=True)
+
+        filepath = os.path.join(upload_dir, filename)
+        file.save(filepath)
+
+        # Zapisz ścieżkę względną
+        relative_path = f"images/finishes/{filename}"
+        option.image_path = relative_path
+        db.session.commit()
+
+        return jsonify({
+            'success': True,
+            'image_path': relative_path,
+            'option': option.to_dict()
+        })
+    except Exception as e:
+        current_app.logger.error(f"[api_upload_finishing_option_image] Błąd: {str(e)}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+# =============================================
+# BULK SAVE ENDPOINTS
+# =============================================
+
+@settings_bp.route('/api/order-sources/bulk', methods=['PUT'])
+@require_admin
+def api_bulk_update_order_sources():
+    """API: Zapisuje wiele źródeł zamówień naraz"""
+    from modules.baselinker.models import BaselinkerConfig
+    from extensions import db
+
+    try:
+        data = request.get_json()
+        items = data.get('items', [])
+
+        if not items:
+            return jsonify({'success': False, 'error': 'Brak danych do zapisania'}), 400
+
+        updated = 0
+        for item in items:
+            source_id = item.get('id')
+            if not source_id:
+                continue
+
+            source = BaselinkerConfig.query.get(source_id)
+            if not source:
+                continue
+
+            if 'allowed_roles' in item:
+                roles = item['allowed_roles']
+                source.allowed_roles = roles if roles else None
+
+            updated += 1
+
+        db.session.commit()
+
+        return jsonify({
+            'success': True,
+            'updated': updated
+        })
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"[api_bulk_update_order_sources] Błąd: {str(e)}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@settings_bp.route('/api/prices/bulk', methods=['PUT'])
+@require_admin
+def api_bulk_update_prices():
+    """API: Zapisuje wiele cen naraz"""
+    from modules.calculator.models import Price
+    from extensions import db
+    from decimal import Decimal, InvalidOperation
+
+    try:
+        data = request.get_json()
+        items = data.get('items', [])
+
+        if not items:
+            return jsonify({'success': False, 'error': 'Brak danych do zapisania'}), 400
+
+        updated = 0
+        errors = []
+
+        for item in items:
+            price_id = item.get('id')
+            if not price_id:
+                continue
+
+            price = Price.query.get(price_id)
+            if not price:
+                errors.append(f"Cena o ID {price_id} nie istnieje")
+                continue
+
+            try:
+                if 'species' in item:
+                    price.species = item['species'].strip()
+                if 'technology' in item:
+                    price.technology = item['technology'].strip()
+                if 'wood_class' in item:
+                    price.wood_class = item['wood_class'].strip()
+                if 'thickness_min' in item:
+                    price.thickness_min = Decimal(str(item['thickness_min']))
+                if 'thickness_max' in item:
+                    price.thickness_max = Decimal(str(item['thickness_max']))
+                if 'length_min' in item:
+                    price.length_min = Decimal(str(item['length_min']))
+                if 'length_max' in item:
+                    price.length_max = Decimal(str(item['length_max']))
+                if 'price_per_m3' in item:
+                    price.price_per_m3 = Decimal(str(item['price_per_m3']))
+
+                updated += 1
+            except (InvalidOperation, ValueError) as e:
+                errors.append(f"Błąd dla ID {price_id}: {str(e)}")
+
+        db.session.commit()
+
+        result = {'success': True, 'updated': updated}
+        if errors:
+            result['warnings'] = errors
+
+        return jsonify(result)
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"[api_bulk_update_prices] Błąd: {str(e)}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@settings_bp.route('/api/finishing-options/bulk', methods=['PUT'])
+@require_admin
+def api_bulk_update_finishing_options():
+    """API: Zapisuje wiele opcji wykończeń naraz"""
+    from modules.calculator.models import FinishingOption
+    from extensions import db
+    from decimal import Decimal, InvalidOperation
+
+    try:
+        data = request.get_json()
+        items = data.get('items', [])
+
+        if not items:
+            return jsonify({'success': False, 'error': 'Brak danych do zapisania'}), 400
+
+        updated = 0
+        errors = []
+
+        for item in items:
+            option_id = item.get('id')
+            if not option_id:
+                continue
+
+            option = FinishingOption.query.get(option_id)
+            if not option:
+                errors.append(f"Opcja o ID {option_id} nie istnieje")
+                continue
+
+            try:
+                if 'name' in item:
+                    name = item['name'].strip()
+                    if not name:
+                        errors.append(f"Pusta nazwa dla ID {option_id}")
+                        continue
+                    option.name = name
+
+                if 'code' in item:
+                    option.code = item['code'].strip() if item['code'] else None
+
+                if 'price_netto' in item:
+                    if item['price_netto'] is None or str(item['price_netto']).strip() == '':
+                        option.price_netto = None
+                    else:
+                        option.price_netto = Decimal(str(item['price_netto']))
+
+                updated += 1
+            except (InvalidOperation, ValueError) as e:
+                errors.append(f"Błąd dla ID {option_id}: {str(e)}")
+
+        db.session.commit()
+
+        result = {'success': True, 'updated': updated}
+        if errors:
+            result['warnings'] = errors
+
+        return jsonify(result)
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"[api_bulk_update_finishing_options] Błąd: {str(e)}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@settings_bp.route('/api/edge-options/bulk', methods=['PUT'])
+@require_admin
+def api_bulk_update_edge_options():
+    """API: Zapisuje wiele opcji krawędzi naraz"""
+    from modules.calculator.models import EdgeOption
+    from extensions import db
+    from decimal import Decimal, InvalidOperation
+
+    try:
+        data = request.get_json()
+        items = data.get('items', [])
+
+        if not items:
+            return jsonify({'success': False, 'error': 'Brak danych do zapisania'}), 400
+
+        updated = 0
+        errors = []
+
+        for item in items:
+            option_id = item.get('id')
+            if not option_id:
+                continue
+
+            option = EdgeOption.query.get(option_id)
+            if not option:
+                errors.append(f"Opcja o ID {option_id} nie istnieje")
+                continue
+
+            try:
+                if 'price_per_mb' in item:
+                    option.price_per_mb = Decimal(str(item['price_per_mb']))
+                if 'corner_price' in item:
+                    option.corner_price = Decimal(str(item['corner_price']))
+                if 'r_min' in item:
+                    option.r_min = int(item['r_min']) if item['r_min'] is not None else None
+                if 'r_max' in item:
+                    option.r_max = int(item['r_max']) if item['r_max'] is not None else None
+                if 'r_default' in item:
+                    option.r_default = int(item['r_default']) if item['r_default'] is not None else None
+
+                # Kąty fazowania (tylko dla typu 'chamfer')
+                if 'chamfer_angles' in item:
+                    angles = item['chamfer_angles']
+                    if angles is not None:
+                        # Walidacja: musi być lista liczb 1-89
+                        if not isinstance(angles, list):
+                            errors.append(f"ID {option_id}: chamfer_angles musi być listą")
+                            continue
+                        for angle in angles:
+                            if not isinstance(angle, int) or angle <= 0 or angle >= 90:
+                                errors.append(f"ID {option_id}: kąty muszą być liczbami 1-89")
+                                continue
+                    option.chamfer_angles = angles
+
+                if 'angle_default' in item:
+                    angle_def = item['angle_default']
+                    if angle_def is not None:
+                        angle_def = int(angle_def)
+                        # Walidacja: musi być w liście dozwolonych kątów
+                        if option.chamfer_angles and angle_def not in option.chamfer_angles:
+                            errors.append(f"ID {option_id}: domyślny kąt musi być na liście dozwolonych")
+                            continue
+                    option.angle_default = angle_def
+
+                updated += 1
+            except (InvalidOperation, ValueError) as e:
+                errors.append(f"Błąd dla ID {option_id}: {str(e)}")
+
+        db.session.commit()
+
+        result = {'success': True, 'updated': updated}
+        if errors:
+            result['warnings'] = errors
+
+        return jsonify(result)
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"[api_bulk_update_edge_options] Błąd: {str(e)}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@settings_bp.route('/api/sources/bulk', methods=['PUT'])
+@require_admin
+def api_bulk_update_sources():
+    """API: Zapisuje wiele źródeł wycen naraz"""
+    from modules.calculator.models import QuoteSource
+    from extensions import db
+
+    try:
+        data = request.get_json()
+        items = data.get('items', [])
+
+        if not items:
+            return jsonify({'success': False, 'error': 'Brak danych do zapisania'}), 400
+
+        updated = 0
+        errors = []
+
+        for item in items:
+            source_id = item.get('id')
+            if not source_id:
+                continue
+
+            source = QuoteSource.query.get(source_id)
+            if not source:
+                errors.append(f"Źródło o ID {source_id} nie istnieje")
+                continue
+
+            try:
+                if 'name' in item:
+                    name = item['name'].strip()
+                    if not name:
+                        errors.append(f"Pusta nazwa dla ID {source_id}")
+                        continue
+                    source.name = name
+
+                if 'allowed_roles' in item:
+                    roles = item['allowed_roles']
+                    source.allowed_roles = roles if roles else None
+
+                if 'skip_contact_validation' in item:
+                    source.skip_contact_validation = bool(item['skip_contact_validation'])
+
+                updated += 1
+            except Exception as e:
+                errors.append(f"Błąd dla ID {source_id}: {str(e)}")
+
+        db.session.commit()
+
+        result = {'success': True, 'updated': updated}
+        if errors:
+            result['warnings'] = errors
+
+        return jsonify(result)
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"[api_bulk_update_sources] Błąd: {str(e)}")
         return jsonify({'success': False, 'error': str(e)}), 500

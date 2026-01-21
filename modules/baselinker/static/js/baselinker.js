@@ -745,10 +745,15 @@ class BaselinkerModal {
             return null;
         }
 
-        // Format: "Zaokrąglenie | R5 | A, B, C, D"
+        // Format: "Zaokrąglenie | R5 | A, B, C, D" lub "Fazowanie | R5 (45°) | A, B, C, D"
+        let rPart = `R${edges.r_value}`;
+        if (edges.type === 'chamfer' && edges.angle_value) {
+            rPart += ` (${edges.angle_value}°)`;
+        }
+
         const parts = [
             edges.type_name,
-            `R${edges.r_value}`,
+            rPart,
             edges.letters.join(', ')
         ];
 
@@ -2002,6 +2007,9 @@ class BaselinkerModal {
         let edgesText = '';
         if (product.edges && product.edges.type_name && product.edges.r_value) {
             edgesText = ` ${product.edges.type_name.toLowerCase()} R${product.edges.r_value}`;
+            if (product.edges.type === 'chamfer' && product.edges.angle_value) {
+                edgesText += ` (${product.edges.angle_value}°)`;
+            }
         }
 
         // Składamy całość: "Klejonka [gatunek] [technologia] [klasa] [wymiary] cm [wykończenie] [krawędzie]"

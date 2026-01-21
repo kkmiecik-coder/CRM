@@ -423,6 +423,7 @@ class QuoteItemDetails(db.Model):
     edges_config = db.Column(db.JSON, nullable=True)      # Lista krawędzi jako JSON
     edges_type = db.Column(db.String(32), nullable=True)  # 'chamfer' lub 'round'
     edges_r_value = db.Column(db.Integer, nullable=True)  # Promień R
+    edges_angle_value = db.Column(db.Integer, nullable=True)  # Kąt fazowania (tylko dla chamfer)
     edges_price_netto = db.Column(db.Numeric(10, 2), default=0)
     edges_price_brutto = db.Column(db.Numeric(10, 2), default=0)
     edges_svg = db.Column(db.Text, nullable=True)         # SVG wizualizacji krawędzi
@@ -448,6 +449,7 @@ class QuoteItemDetails(db.Model):
             'edges_config': self.edges_config,
             'edges_type': self.edges_type,
             'edges_r_value': self.edges_r_value,
+            'edges_angle_value': self.edges_angle_value,
             'edges_price_netto': float(self.edges_price_netto) if self.edges_price_netto else 0.0,
             'edges_price_brutto': float(self.edges_price_brutto) if self.edges_price_brutto else 0.0,
             'edges_svg': self.edges_svg
@@ -538,6 +540,167 @@ class FinishingColor(db.Model):
 
 
 # ============================================
+# HIERARCHICZNE OPCJE WYKOŃCZEŃ
+# ============================================
+
+class FinishingOption(db.Model):
+    """
+    Hierarchiczne opcje wykończeń z dziedziczeniem cen.
+    Zastępuje tabele finishing_type_prices i finishing_colors.
+
+    Struktura drzewka:
+    - Surowe (level 0)
+    - Lakierowane (level 0)
+      - Bezbarwne (level 1)
+        - Matowe (level 2)
+        - Połyskliwe (level 2)
+      - Barwne (level 1)
+        - Orzech (level 2)
+        - Dąb (level 2)
+    - Olejowanie (level 0)
+    """
+    __tablename__ = 'finishing_options'
+
+    id = db.Column(db.Integer, primary_key=True)
+    parent_id = db.Column(db.Integer, db.ForeignKey('finishing_options.id'), nullable=True, index=True)
+    level = db.Column(db.Integer, nullable=False, default=0)  # 0=root, 1, 2, 3...
+
+    name = db.Column(db.String(100), nullable=False)
+    code = db.Column(db.String(10), nullable=True)  # Kod SKU: SUR, LAK, OLE
+    price_netto = db.Column(db.Numeric(10, 2), nullable=True)  # NULL = dziedzicz z rodzica
+    image_path = db.Column(db.String(255), nullable=True)  # Ścieżka do obrazka (dla kolorów)
+
+    is_active = db.Column(db.Boolean, default=True, nullable=False)
+    sort_order = db.Column(db.Integer, default=0, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    # Self-referential relationship
+    parent = db.relationship(
+        'FinishingOption',
+        remote_side=[id],
+        backref=db.backref('children', lazy='dynamic')
+    )
+
+    def get_effective_price(self):
+        """
+        Zwraca efektywną cenę z dziedziczeniem.
+        Jeśli ta opcja nie ma ceny, przechodzi w górę drzewa.
+        """
+        if self.price_netto is not None:
+            return float(self.price_netto)
+
+        if self.parent:
+            return self.parent.get_effective_price()
+
+        return 0.0
+
+    def get_full_path(self):
+        """Zwraca pełną ścieżkę od korzenia do tej opcji."""
+        path = [self.name]
+        current = self.parent
+        while current:
+            path.insert(0, current.name)
+            current = current.parent
+        return ' > '.join(path)
+
+    def get_ancestors(self):
+        """Zwraca listę przodków od korzenia do rodzica."""
+        ancestors = []
+        current = self.parent
+        while current:
+            ancestors.insert(0, current)
+            current = current.parent
+        return ancestors
+
+    def get_root(self):
+        """Zwraca korzeń drzewa dla tej opcji."""
+        current = self
+        while current.parent:
+            current = current.parent
+        return current
+
+    def get_code(self):
+        """Zwraca kod SKU - własny lub odziedziczony z rodzica."""
+        if self.code:
+            return self.code
+        if self.parent:
+            return self.parent.get_code()
+        return None
+
+    def to_dict(self, include_children=False, include_effective_price=True):
+        """Serializuje do słownika."""
+        result = {
+            'id': self.id,
+            'parent_id': self.parent_id,
+            'level': self.level,
+            'name': self.name,
+            'code': self.code,
+            'price_netto': float(self.price_netto) if self.price_netto is not None else None,
+            'image_path': self.image_path,
+            'is_active': self.is_active,
+            'sort_order': self.sort_order,
+            'full_path': self.get_full_path()
+        }
+
+        if include_effective_price:
+            result['effective_price_netto'] = self.get_effective_price()
+            result['inherited_code'] = self.get_code()
+
+        if include_children:
+            active_children = [c for c in self.children if c.is_active]
+            result['children'] = [
+                child.to_dict(include_children=True, include_effective_price=include_effective_price)
+                for child in sorted(active_children, key=lambda x: x.sort_order)
+            ]
+
+        return result
+
+    @classmethod
+    def get_tree(cls):
+        """Zwraca pełne hierarchiczne drzewko zaczynając od korzeni."""
+        roots = cls.query.filter_by(parent_id=None, is_active=True).order_by(cls.sort_order).all()
+        return [root.to_dict(include_children=True) for root in roots]
+
+    @classmethod
+    def get_flat_list(cls, include_inactive=False):
+        """Zwraca płaską listę z informacją o głębokości dla panelu admin."""
+        result = []
+
+        def traverse(options, depth=0):
+            for opt in sorted(options, key=lambda x: x.sort_order):
+                if include_inactive or opt.is_active:
+                    item = opt.to_dict()
+                    item['depth'] = depth
+                    item['indent'] = '—' * depth
+                    result.append(item)
+
+                    # Pobierz dzieci (lazy loading)
+                    children = list(opt.children)
+                    if include_inactive:
+                        traverse(children, depth + 1)
+                    else:
+                        traverse([c for c in children if c.is_active], depth + 1)
+
+        query = cls.query.filter_by(parent_id=None)
+        if not include_inactive:
+            query = query.filter_by(is_active=True)
+        roots = query.order_by(cls.sort_order).all()
+        traverse(roots)
+        return result
+
+    @classmethod
+    def get_all_active_as_choices(cls):
+        """Zwraca listę (id, indented_name) do użycia w select."""
+        flat = cls.get_flat_list()
+        return [(item['id'], f"{'  ' * item['depth']}{item['name']}") for item in flat]
+
+    def __repr__(self):
+        price_str = f'{self.price_netto} PLN/m²' if self.price_netto else 'dziedziczona'
+        return f'<FinishingOption {self.name} (L{self.level}): {price_str}>'
+
+
+# ============================================
 # MODELE OBRÓBKI KRAWĘDZI
 # ============================================
 
@@ -553,6 +716,11 @@ class EdgeOption(db.Model):
     r_min = db.Column(db.Integer, nullable=True)  # Minimalny promień (NULL dla sharp)
     r_max = db.Column(db.Integer, nullable=True)  # Maksymalny promień
     r_default = db.Column(db.Integer, nullable=True)  # Domyślny promień
+
+    # Kąty fazowania (tylko dla type='chamfer')
+    chamfer_angles = db.Column(db.JSON, nullable=True)  # Predefiniowane kąty np. [30, 45, 60]
+    angle_default = db.Column(db.Integer, nullable=True)  # Domyślny kąt fazowania
+
     is_active = db.Column(db.Boolean, default=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
@@ -566,6 +734,8 @@ class EdgeOption(db.Model):
             'r_min': self.r_min,
             'r_max': self.r_max,
             'r_default': self.r_default,
+            'chamfer_angles': self.chamfer_angles,
+            'angle_default': self.angle_default,
             'is_active': self.is_active
         }
 

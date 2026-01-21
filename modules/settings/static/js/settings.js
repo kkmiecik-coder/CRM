@@ -1,9 +1,623 @@
 /**
  * Ustawienia aplikacji - JavaScript
  * ==================================
+ * Wersja z bulk save - jeden przycisk "Zapisz zmiany" na dole każdej sekcji
  */
 
 document.addEventListener('DOMContentLoaded', function() {
+
+    // =============================================
+    // SYSTEM ŚLEDZENIA ZMIAN - BULK SAVE
+    // =============================================
+
+    // Store dla zmienionych rekordów per sekcja
+    const changedRecords = {
+        orderSources: new Map(),    // id -> { allowed_roles: [...] }
+        prices: new Map(),          // id -> { species, technology, ... }
+        finishingTree: new Map(),   // id -> { name, code, price_netto }
+        edgeOptions: new Map(),     // id -> { price_per_mb, corner_price, ... }
+        quoteSources: new Map()     // id -> { name, allowed_roles, skip_contact_validation }
+    };
+
+    // Oryginalne wartości (do porównania i resetu)
+    const originalValues = {
+        orderSources: new Map(),
+        prices: new Map(),
+        finishingTree: new Map(),
+        edgeOptions: new Map(),
+        quoteSources: new Map()
+    };
+
+    // =============================================
+    // INICJALIZACJA ORYGINALNYCH WARTOŚCI
+    // =============================================
+
+    function initializeOriginalValues() {
+        // Order Sources
+        document.querySelectorAll('#orderSourcesTableBody tr').forEach(row => {
+            const id = row.dataset.dbId;
+            if (id) {
+                const roleCheckboxes = row.querySelectorAll('.role-checkbox');
+                const allowedRoles = Array.from(roleCheckboxes)
+                    .filter(cb => cb.checked)
+                    .map(cb => cb.value);
+                originalValues.orderSources.set(id, { allowed_roles: [...allowedRoles] });
+            }
+        });
+
+        // Prices
+        document.querySelectorAll('#pricesTableBody tr').forEach(row => {
+            const id = row.dataset.id;
+            if (id) {
+                originalValues.prices.set(id, {
+                    species: row.querySelector('.species-input')?.value || '',
+                    technology: row.querySelector('.technology-input')?.value || '',
+                    wood_class: row.querySelector('.wood-class-input')?.value || '',
+                    thickness_min: row.querySelector('[data-field="thickness_min"]')?.value || '',
+                    thickness_max: row.querySelector('[data-field="thickness_max"]')?.value || '',
+                    length_min: row.querySelector('[data-field="length_min"]')?.value || '',
+                    length_max: row.querySelector('[data-field="length_max"]')?.value || '',
+                    price_per_m3: row.querySelector('[data-field="price_per_m3"]')?.value || ''
+                });
+            }
+        });
+
+        // Finishing Tree
+        document.querySelectorAll('#finishingTreeTableBody tr').forEach(row => {
+            const id = row.dataset.id;
+            if (id) {
+                originalValues.finishingTree.set(id, {
+                    name: row.querySelector('.tree-name-input')?.value || '',
+                    code: row.querySelector('.code-input')?.value || '',
+                    price_netto: row.querySelector('.price-value-input')?.value || ''
+                });
+            }
+        });
+
+        // Edge Options
+        document.querySelectorAll('#edgeOptionsTableBody tr').forEach(row => {
+            const id = row.dataset.id;
+            if (id) {
+                originalValues.edgeOptions.set(id, {
+                    price_per_mb: row.querySelector('[data-field="price_per_mb"]')?.value || '',
+                    corner_price: row.querySelector('[data-field="corner_price"]')?.value || '',
+                    r_min: row.querySelector('[data-field="r_min"]')?.value || '',
+                    r_max: row.querySelector('[data-field="r_max"]')?.value || '',
+                    r_default: row.querySelector('[data-field="r_default"]')?.value || '',
+                    chamfer_angles: row.querySelector('[data-field="chamfer_angles"]')?.value || '',
+                    angle_default: row.querySelector('[data-field="angle_default"]')?.value || ''
+                });
+            }
+        });
+
+        // Quote Sources
+        document.querySelectorAll('#sourcesTableBody tr').forEach(row => {
+            const id = row.dataset.id;
+            if (id) {
+                const roleCheckboxes = row.querySelectorAll('.source-role-checkbox');
+                const allowedRoles = Array.from(roleCheckboxes)
+                    .filter(cb => cb.checked)
+                    .map(cb => cb.value);
+                const skipValidation = row.querySelector('.skip-validation-checkbox')?.checked || false;
+                originalValues.quoteSources.set(id, {
+                    name: row.querySelector('.name-input')?.value || '',
+                    allowed_roles: [...allowedRoles],
+                    skip_contact_validation: skipValidation
+                });
+            }
+        });
+    }
+
+    // =============================================
+    // FUNKCJE POMOCNICZE DLA ŚLEDZENIA ZMIAN
+    // =============================================
+
+    function arraysEqual(a, b) {
+        if (a.length !== b.length) return false;
+        const sortedA = [...a].sort();
+        const sortedB = [...b].sort();
+        return sortedA.every((val, idx) => val === sortedB[idx]);
+    }
+
+    function normalizeValue(val) {
+        // Normalizuje wartość do porównania
+        if (val === null || val === undefined) return '';
+        if (typeof val === 'boolean') return val;
+        if (Array.isArray(val)) return val;
+        // Usuń białe znaki z początku i końca, zamień na string
+        return String(val).trim();
+    }
+
+    function isNumericString(str) {
+        // Sprawdza czy string reprezentuje liczbę (obsługuje przecinek i kropkę)
+        if (typeof str !== 'string') return false;
+        const normalized = str.replace(',', '.');
+        return !isNaN(normalized) && !isNaN(parseFloat(normalized)) && normalized.trim() !== '';
+    }
+
+    function normalizeNumeric(val) {
+        // Normalizuje wartość numeryczną do porównania
+        // "500,00", "500.00", "500" -> wszystkie stają się równe
+        if (val === null || val === undefined || val === '') return '';
+        const str = String(val).trim().replace(',', '.');
+        if (str === '') return '';
+        const num = parseFloat(str);
+        if (isNaN(num)) return str; // Nie jest liczbą, zwróć oryginalny string
+        return num; // Zwróć jako number dla porównania
+    }
+
+    function valuesEqual(a, b) {
+        // Porównuje dwie wartości z normalizacją
+        const normA = normalizeValue(a);
+        const normB = normalizeValue(b);
+
+        if (Array.isArray(normA) && Array.isArray(normB)) {
+            return arraysEqual(normA, normB);
+        }
+        if (typeof normA === 'boolean' || typeof normB === 'boolean') {
+            return normA === normB;
+        }
+
+        // Dla wartości numerycznych, porównuj jako liczby
+        if (isNumericString(normA) || isNumericString(normB)) {
+            const numA = normalizeNumeric(normA);
+            const numB = normalizeNumeric(normB);
+            // Jeśli obie są puste stringi lub obie są liczbami
+            if (numA === '' && numB === '') return true;
+            if (typeof numA === 'number' && typeof numB === 'number') {
+                return numA === numB;
+            }
+        }
+
+        return normA === normB;
+    }
+
+    function trackChange(section, recordId, field, newValue) {
+        const original = originalValues[section].get(recordId);
+        if (!original) return;
+
+        // Pobierz aktualny stan zmian lub utwórz nowy z oryginału
+        let current = changedRecords[section].get(recordId);
+        if (!current) {
+            // Głęboka kopia oryginału
+            current = {};
+            for (const key of Object.keys(original)) {
+                if (Array.isArray(original[key])) {
+                    current[key] = [...original[key]];
+                } else {
+                    current[key] = original[key];
+                }
+            }
+        }
+
+        // Aktualizuj pole z nową wartością
+        if (Array.isArray(newValue)) {
+            current[field] = [...newValue];
+        } else if (typeof newValue === 'boolean') {
+            current[field] = newValue;
+        } else {
+            current[field] = newValue;
+        }
+
+        // Sprawdź czy wszystkie pola są takie same jak oryginalne
+        let hasChanges = false;
+        for (const key of Object.keys(original)) {
+            if (!valuesEqual(current[key], original[key])) {
+                hasChanges = true;
+                break;
+            }
+        }
+
+        if (hasChanges) {
+            changedRecords[section].set(recordId, current);
+        } else {
+            changedRecords[section].delete(recordId);
+        }
+
+        updateSaveFooter(section);
+        updateRowVisual(section, recordId);
+    }
+
+    function updateRowVisual(section, recordId) {
+        let row;
+        if (section === 'orderSources') {
+            row = document.querySelector(`#orderSourcesTableBody tr[data-db-id="${recordId}"]`);
+        } else if (section === 'prices') {
+            row = document.querySelector(`#pricesTableBody tr[data-id="${recordId}"]`);
+        } else if (section === 'finishingTree') {
+            row = document.querySelector(`#finishingTreeTableBody tr[data-id="${recordId}"]`);
+        } else if (section === 'edgeOptions') {
+            row = document.querySelector(`#edgeOptionsTableBody tr[data-id="${recordId}"]`);
+        } else if (section === 'quoteSources') {
+            row = document.querySelector(`#sourcesTableBody tr[data-id="${recordId}"]`);
+        }
+
+        if (row) {
+            if (changedRecords[section].has(recordId)) {
+                row.classList.add('row-changed');
+            } else {
+                row.classList.remove('row-changed');
+            }
+        }
+    }
+
+    function updateSaveFooter(section) {
+        const footerMap = {
+            orderSources: 'saveFooterOrderSources',
+            prices: 'saveFooterPrices',
+            finishingTree: 'saveFooterFinishingTree',
+            edgeOptions: 'saveFooterEdgeOptions',
+            quoteSources: 'saveFooterQuoteSources'
+        };
+        const countMap = {
+            orderSources: 'changesCountOrderSources',
+            prices: 'changesCountPrices',
+            finishingTree: 'changesCountFinishingTree',
+            edgeOptions: 'changesCountEdgeOptions',
+            quoteSources: 'changesCountQuoteSources'
+        };
+
+        const footer = document.getElementById(footerMap[section]);
+        const countEl = document.getElementById(countMap[section]);
+        const count = changedRecords[section].size;
+
+        if (footer && countEl) {
+            countEl.textContent = count;
+            if (count > 0) {
+                footer.classList.add('visible');
+            } else {
+                footer.classList.remove('visible');
+            }
+        }
+    }
+
+    function discardChanges(section) {
+        changedRecords[section].forEach((_, recordId) => {
+            const original = originalValues[section].get(recordId);
+            if (!original) return;
+
+            let row;
+            if (section === 'orderSources') {
+                row = document.querySelector(`#orderSourcesTableBody tr[data-db-id="${recordId}"]`);
+                if (row) {
+                    row.querySelectorAll('.role-checkbox').forEach(cb => {
+                        cb.checked = original.allowed_roles.includes(cb.value);
+                    });
+                }
+            } else if (section === 'prices') {
+                row = document.querySelector(`#pricesTableBody tr[data-id="${recordId}"]`);
+                if (row) {
+                    row.querySelector('.species-input').value = original.species;
+                    row.querySelector('.technology-input').value = original.technology;
+                    row.querySelector('.wood-class-input').value = original.wood_class;
+                    row.querySelector('[data-field="thickness_min"]').value = original.thickness_min;
+                    row.querySelector('[data-field="thickness_max"]').value = original.thickness_max;
+                    row.querySelector('[data-field="length_min"]').value = original.length_min;
+                    row.querySelector('[data-field="length_max"]').value = original.length_max;
+                    row.querySelector('[data-field="price_per_m3"]').value = original.price_per_m3;
+                }
+            } else if (section === 'finishingTree') {
+                row = document.querySelector(`#finishingTreeTableBody tr[data-id="${recordId}"]`);
+                if (row) {
+                    row.querySelector('.tree-name-input').value = original.name;
+                    row.querySelector('.code-input').value = original.code;
+                    row.querySelector('.price-value-input').value = original.price_netto;
+                }
+            } else if (section === 'edgeOptions') {
+                row = document.querySelector(`#edgeOptionsTableBody tr[data-id="${recordId}"]`);
+                if (row) {
+                    const pmb = row.querySelector('[data-field="price_per_mb"]');
+                    const cp = row.querySelector('[data-field="corner_price"]');
+                    const rmin = row.querySelector('[data-field="r_min"]');
+                    const rmax = row.querySelector('[data-field="r_max"]');
+                    const rdef = row.querySelector('[data-field="r_default"]');
+                    if (pmb) pmb.value = original.price_per_mb;
+                    if (cp) cp.value = original.corner_price;
+                    if (rmin && !rmin.disabled) rmin.value = original.r_min;
+                    if (rmax && !rmax.disabled) rmax.value = original.r_max;
+                    if (rdef && !rdef.disabled) rdef.value = original.r_default;
+                }
+            } else if (section === 'quoteSources') {
+                row = document.querySelector(`#sourcesTableBody tr[data-id="${recordId}"]`);
+                if (row) {
+                    row.querySelector('.name-input').value = original.name;
+                    row.querySelectorAll('.source-role-checkbox').forEach(cb => {
+                        cb.checked = original.allowed_roles.includes(cb.value);
+                    });
+                    const skipCb = row.querySelector('.skip-validation-checkbox');
+                    if (skipCb) skipCb.checked = original.skip_contact_validation;
+                }
+            }
+
+            if (row) {
+                row.classList.remove('row-changed');
+            }
+        });
+
+        changedRecords[section].clear();
+        updateSaveFooter(section);
+        showNotification('Zmiany zostały odrzucone', 'info');
+    }
+
+    // =============================================
+    // BULK SAVE FUNCTIONS
+    // =============================================
+
+    async function bulkSaveOrderSources() {
+        const items = Array.from(changedRecords.orderSources.entries())
+            .map(([id, data]) => ({ id: parseInt(id), ...data }));
+
+        if (items.length === 0) return;
+
+        try {
+            const response = await fetch('/settings/api/order-sources/bulk', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ items })
+            });
+
+            const result = await response.json();
+
+            if (result.success) {
+                // Zaktualizuj oryginalne wartości
+                items.forEach(item => {
+                    const current = changedRecords.orderSources.get(String(item.id));
+                    if (current) {
+                        originalValues.orderSources.set(String(item.id), { ...current });
+                    }
+                    const row = document.querySelector(`#orderSourcesTableBody tr[data-db-id="${item.id}"]`);
+                    if (row) row.classList.remove('row-changed');
+                });
+                changedRecords.orderSources.clear();
+                updateSaveFooter('orderSources');
+                showNotification(`Zapisano ${result.updated} źródeł zamówień`, 'success');
+            } else {
+                showNotification(result.error || 'Błąd zapisu', 'error');
+            }
+        } catch (error) {
+            console.error('Błąd:', error);
+            showNotification('Błąd komunikacji z serwerem', 'error');
+        }
+    }
+
+    async function bulkSavePrices() {
+        const items = Array.from(changedRecords.prices.entries())
+            .map(([id, data]) => ({
+                id: parseInt(id),
+                species: data.species,
+                technology: data.technology,
+                wood_class: data.wood_class,
+                thickness_min: parseFloat(data.thickness_min) || 0,
+                thickness_max: parseFloat(data.thickness_max) || 0,
+                length_min: parseFloat(data.length_min) || 0,
+                length_max: parseFloat(data.length_max) || 0,
+                price_per_m3: parseFloat(data.price_per_m3) || 0
+            }));
+
+        if (items.length === 0) return;
+
+        try {
+            const response = await fetch('/settings/api/prices/bulk', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ items })
+            });
+
+            const result = await response.json();
+
+            if (result.success) {
+                items.forEach(item => {
+                    const current = changedRecords.prices.get(String(item.id));
+                    if (current) {
+                        originalValues.prices.set(String(item.id), { ...current });
+                    }
+                    const row = document.querySelector(`#pricesTableBody tr[data-id="${item.id}"]`);
+                    if (row) {
+                        row.classList.remove('row-changed');
+                        // Aktualizuj data atrybuty dla filtrów
+                        row.dataset.species = item.species;
+                        row.dataset.technology = item.technology;
+                        row.dataset.woodClass = item.wood_class;
+                    }
+                });
+                changedRecords.prices.clear();
+                updateSaveFooter('prices');
+                showNotification(`Zapisano ${result.updated} cen`, 'success');
+            } else {
+                showNotification(result.error || 'Błąd zapisu', 'error');
+            }
+        } catch (error) {
+            console.error('Błąd:', error);
+            showNotification('Błąd komunikacji z serwerem', 'error');
+        }
+    }
+
+    async function bulkSaveFinishingTree() {
+        const items = Array.from(changedRecords.finishingTree.entries())
+            .map(([id, data]) => ({
+                id: parseInt(id),
+                name: data.name,
+                code: data.code || null,
+                price_netto: data.price_netto ? parseFloat(data.price_netto) : null
+            }));
+
+        if (items.length === 0) return;
+
+        try {
+            const response = await fetch('/settings/api/finishing-options/bulk', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ items })
+            });
+
+            const result = await response.json();
+
+            if (result.success) {
+                items.forEach(item => {
+                    const current = changedRecords.finishingTree.get(String(item.id));
+                    if (current) {
+                        originalValues.finishingTree.set(String(item.id), { ...current });
+                    }
+                    const row = document.querySelector(`#finishingTreeTableBody tr[data-id="${item.id}"]`);
+                    if (row) row.classList.remove('row-changed');
+                });
+                changedRecords.finishingTree.clear();
+                updateSaveFooter('finishingTree');
+                showNotification(`Zapisano ${result.updated} opcji wykończeń. Odśwież stronę aby zobaczyć zaktualizowane ceny efektywne.`, 'success');
+            } else {
+                showNotification(result.error || 'Błąd zapisu', 'error');
+            }
+        } catch (error) {
+            console.error('Błąd:', error);
+            showNotification('Błąd komunikacji z serwerem', 'error');
+        }
+    }
+
+    async function bulkSaveEdgeOptions() {
+        const items = Array.from(changedRecords.edgeOptions.entries())
+            .map(([id, data]) => {
+                // Parsuj kąty z stringa do tablicy liczb
+                let chamferAngles = null;
+                if (data.chamfer_angles && data.chamfer_angles.trim()) {
+                    chamferAngles = data.chamfer_angles
+                        .split(',')
+                        .map(a => parseInt(a.trim()))
+                        .filter(a => !isNaN(a) && a > 0 && a < 90);
+                    if (chamferAngles.length === 0) chamferAngles = null;
+                }
+
+                return {
+                    id: parseInt(id),
+                    price_per_mb: parseFloat(data.price_per_mb) || 0,
+                    corner_price: parseFloat(data.corner_price) || 0,
+                    r_min: data.r_min ? parseInt(data.r_min) : null,
+                    r_max: data.r_max ? parseInt(data.r_max) : null,
+                    r_default: data.r_default ? parseInt(data.r_default) : null,
+                    chamfer_angles: chamferAngles,
+                    angle_default: data.angle_default ? parseInt(data.angle_default) : null
+                };
+            });
+
+        if (items.length === 0) return;
+
+        try {
+            const response = await fetch('/settings/api/edge-options/bulk', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ items })
+            });
+
+            const result = await response.json();
+
+            if (result.success) {
+                items.forEach(item => {
+                    const current = changedRecords.edgeOptions.get(String(item.id));
+                    if (current) {
+                        originalValues.edgeOptions.set(String(item.id), { ...current });
+                    }
+                    const row = document.querySelector(`#edgeOptionsTableBody tr[data-id="${item.id}"]`);
+                    if (row) row.classList.remove('row-changed');
+                });
+                changedRecords.edgeOptions.clear();
+                updateSaveFooter('edgeOptions');
+                showNotification(`Zapisano ${result.updated} opcji krawędzi`, 'success');
+            } else {
+                showNotification(result.error || 'Błąd zapisu', 'error');
+            }
+        } catch (error) {
+            console.error('Błąd:', error);
+            showNotification('Błąd komunikacji z serwerem', 'error');
+        }
+    }
+
+    async function bulkSaveQuoteSources() {
+        const items = Array.from(changedRecords.quoteSources.entries())
+            .map(([id, data]) => ({
+                id: parseInt(id),
+                name: data.name,
+                allowed_roles: data.allowed_roles.length > 0 ? data.allowed_roles : null,
+                skip_contact_validation: data.skip_contact_validation
+            }));
+
+        if (items.length === 0) return;
+
+        try {
+            const response = await fetch('/settings/api/sources/bulk', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ items })
+            });
+
+            const result = await response.json();
+
+            if (result.success) {
+                items.forEach(item => {
+                    const current = changedRecords.quoteSources.get(String(item.id));
+                    if (current) {
+                        originalValues.quoteSources.set(String(item.id), { ...current });
+                    }
+                    const row = document.querySelector(`#sourcesTableBody tr[data-id="${item.id}"]`);
+                    if (row) row.classList.remove('row-changed');
+                });
+                changedRecords.quoteSources.clear();
+                updateSaveFooter('quoteSources');
+                showNotification(`Zapisano ${result.updated} źródeł wycen`, 'success');
+            } else {
+                showNotification(result.error || 'Błąd zapisu', 'error');
+            }
+        } catch (error) {
+            console.error('Błąd:', error);
+            showNotification('Błąd komunikacji z serwerem', 'error');
+        }
+    }
+
+    // =============================================
+    // EVENT LISTENERS DLA SAVE FOOTERS
+    // =============================================
+
+    // Order Sources
+    document.getElementById('saveAllBtnOrderSources')?.addEventListener('click', bulkSaveOrderSources);
+    document.getElementById('discardChangesOrderSources')?.addEventListener('click', () => discardChanges('orderSources'));
+
+    // Prices
+    document.getElementById('saveAllBtnPrices')?.addEventListener('click', bulkSavePrices);
+    document.getElementById('discardChangesPrices')?.addEventListener('click', () => discardChanges('prices'));
+
+    // Finishing Tree
+    document.getElementById('saveAllBtnFinishingTree')?.addEventListener('click', bulkSaveFinishingTree);
+    document.getElementById('discardChangesFinishingTree')?.addEventListener('click', () => discardChanges('finishingTree'));
+
+    // Edge Options
+    document.getElementById('saveAllBtnEdgeOptions')?.addEventListener('click', bulkSaveEdgeOptions);
+    document.getElementById('discardChangesEdgeOptions')?.addEventListener('click', () => discardChanges('edgeOptions'));
+
+    // Quote Sources
+    document.getElementById('saveAllBtnQuoteSources')?.addEventListener('click', bulkSaveQuoteSources);
+    document.getElementById('discardChangesQuoteSources')?.addEventListener('click', () => discardChanges('quoteSources'));
+
+    // =============================================
+    // OSTRZEŻENIE PRZY OPUSZCZANIU STRONY
+    // =============================================
+
+    window.addEventListener('beforeunload', (e) => {
+        const totalChanges =
+            changedRecords.orderSources.size +
+            changedRecords.prices.size +
+            changedRecords.finishingTree.size +
+            changedRecords.edgeOptions.size +
+            changedRecords.quoteSources.size;
+
+        if (totalChanges > 0) {
+            e.preventDefault();
+            e.returnValue = 'Masz niezapisane zmiany. Czy na pewno chcesz opuścić stronę?';
+            return e.returnValue;
+        }
+    });
+
+    // =============================================
+    // ŹRÓDŁA WYCEN (QUOTE SOURCES)
+    // =============================================
+
     const addSourceBtn = document.getElementById('addSourceBtn');
     const addSourceModal = document.getElementById('addSourceModal');
     const closeModalBtn = document.getElementById('closeAddSourceModal');
@@ -11,7 +625,7 @@ document.addEventListener('DOMContentLoaded', function() {
     const addSourceForm = document.getElementById('addSourceForm');
     const sourcesTableBody = document.getElementById('sourcesTableBody');
 
-    // ===== MODAL =====
+    // Modal
     addSourceBtn?.addEventListener('click', () => {
         addSourceModal.style.display = 'flex';
         addSourceForm.reset();
@@ -32,7 +646,7 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     });
 
-    // ===== DODAWANIE ŹRÓDŁA =====
+    // Dodawanie źródła
     addSourceForm?.addEventListener('submit', async (e) => {
         e.preventDefault();
         const name = addSourceForm.querySelector('input[name="name"]').value.trim();
@@ -64,19 +678,39 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     });
 
-    // ===== OBSŁUGA TABELI =====
+    // Obsługa tabeli - śledzenie zmian
+    sourcesTableBody?.addEventListener('input', (e) => {
+        if (e.target.classList.contains('name-input')) {
+            const id = e.target.dataset.id;
+            const row = e.target.closest('tr');
+            const roleCheckboxes = row.querySelectorAll('.source-role-checkbox');
+            const allowedRoles = Array.from(roleCheckboxes).filter(cb => cb.checked).map(cb => cb.value);
+            const skipValidation = row.querySelector('.skip-validation-checkbox')?.checked || false;
+
+            trackChange('quoteSources', id, 'name', e.target.value);
+        }
+    });
+
+    sourcesTableBody?.addEventListener('change', (e) => {
+        if (e.target.classList.contains('source-role-checkbox')) {
+            const row = e.target.closest('tr');
+            const id = row.dataset.id;
+            const roleCheckboxes = row.querySelectorAll('.source-role-checkbox');
+            const allowedRoles = Array.from(roleCheckboxes).filter(cb => cb.checked).map(cb => cb.value);
+            trackChange('quoteSources', id, 'allowed_roles', allowedRoles);
+        }
+
+        if (e.target.classList.contains('skip-validation-checkbox')) {
+            const id = e.target.dataset.id;
+            trackChange('quoteSources', id, 'skip_contact_validation', e.target.checked);
+        }
+    });
+
+    // Usuwanie i przesuwanie (natychmiastowe)
     sourcesTableBody?.addEventListener('click', async (e) => {
-        const saveBtn = e.target.closest('.btn-save');
         const deleteBtn = e.target.closest('.btn-delete');
         const upBtn = e.target.closest('.btn-up');
         const downBtn = e.target.closest('.btn-down');
-
-        if (saveBtn) {
-            const sourceId = saveBtn.dataset.id;
-            const row = saveBtn.closest('tr');
-            const nameInput = row.querySelector('.name-input');
-            await saveSource(sourceId, nameInput.value.trim());
-        }
 
         if (deleteBtn) {
             const sourceId = deleteBtn.dataset.id;
@@ -99,65 +733,6 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     });
 
-    // Enter w input zapisuje
-    sourcesTableBody?.addEventListener('keydown', async (e) => {
-        if (e.key === 'Enter' && e.target.classList.contains('name-input')) {
-            e.preventDefault();
-            const sourceId = e.target.dataset.id;
-            await saveSource(sourceId, e.target.value.trim());
-        }
-    });
-
-    // Checkbox "Pomiń walidację" - zmiana natychmiastowa
-    sourcesTableBody?.addEventListener('change', async (e) => {
-        if (e.target.classList.contains('skip-validation-checkbox')) {
-            const sourceId = e.target.dataset.id;
-            const skipValidation = e.target.checked;
-            await updateSkipValidation(sourceId, skipValidation);
-        }
-    });
-
-    // ===== API FUNCTIONS =====
-    async function saveSource(sourceId, name) {
-        if (!name) {
-            showNotification('Nazwa nie może być pusta', 'error');
-            return;
-        }
-
-        const row = document.querySelector(`tr[data-id="${sourceId}"]`);
-        if (!row) return;
-
-        // Pobierz zaznaczone role
-        const roleCheckboxes = row.querySelectorAll('.source-role-checkbox:checked');
-        const allowedRoles = Array.from(roleCheckboxes).map(cb => cb.value);
-
-        try {
-            const response = await fetch(`/settings/api/sources/${sourceId}`, {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    name,
-                    allowed_roles: allowedRoles.length > 0 ? allowedRoles : null
-                })
-            });
-
-            const result = await response.json();
-
-            if (result.success) {
-                showNotification('Zapisano', 'success');
-                if (row) {
-                    row.style.backgroundColor = '#dcfce7';
-                    setTimeout(() => row.style.backgroundColor = '', 500);
-                }
-            } else {
-                showNotification(result.error || 'Błąd zapisu', 'error');
-            }
-        } catch (error) {
-            console.error('Błąd:', error);
-            showNotification('Błąd komunikacji z serwerem', 'error');
-        }
-    }
-
     async function deleteSource(sourceId, row) {
         try {
             const response = await fetch(`/settings/api/sources/${sourceId}`, {
@@ -168,6 +743,10 @@ document.addEventListener('DOMContentLoaded', function() {
 
             if (result.success) {
                 showNotification('Źródło usunięte', 'success');
+                changedRecords.quoteSources.delete(sourceId);
+                originalValues.quoteSources.delete(sourceId);
+                updateSaveFooter('quoteSources');
+
                 row.style.backgroundColor = '#fee2e2';
                 row.style.opacity = '0';
                 row.style.transition = 'opacity 0.3s';
@@ -205,28 +784,6 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
 
-    async function updateSkipValidation(sourceId, skipValidation) {
-        try {
-            const response = await fetch(`/settings/api/sources/${sourceId}`, {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ skip_contact_validation: skipValidation })
-            });
-
-            const result = await response.json();
-
-            if (result.success) {
-                showNotification(skipValidation ? 'Walidacja wyłączona' : 'Walidacja włączona', 'success');
-            } else {
-                showNotification(result.error || 'Błąd zapisu', 'error');
-            }
-        } catch (error) {
-            console.error('Błąd:', error);
-            showNotification('Błąd komunikacji z serwerem', 'error');
-        }
-    }
-
-    // ===== AKTUALIZACJA PRZYCISKÓW KOLEJNOŚCI =====
     function updateOrderButtons() {
         const rows = sourcesTableBody?.querySelectorAll('tr');
         if (!rows) return;
@@ -246,71 +803,7 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 
-    // Inicjalizacja
     updateOrderButtons();
-
-    // ===== NOTYFIKACJE =====
-    function showNotification(message, type = 'info') {
-        document.querySelectorAll('.settings-notification').forEach(n => n.remove());
-
-        const notification = document.createElement('div');
-        notification.className = `settings-notification settings-notification-${type}`;
-        notification.innerHTML = `
-            <span>${message}</span>
-            <button class="notification-close">&times;</button>
-        `;
-
-        Object.assign(notification.style, {
-            position: 'fixed',
-            top: '20px',
-            right: '20px',
-            padding: '12px 20px',
-            borderRadius: '8px',
-            boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '12px',
-            zIndex: '9999',
-            animation: 'slideIn 0.3s ease',
-            backgroundColor: type === 'success' ? '#22c55e' : type === 'error' ? '#ef4444' : '#3b82f6',
-            color: 'white',
-            fontWeight: '500'
-        });
-
-        document.body.appendChild(notification);
-
-        notification.querySelector('.notification-close').addEventListener('click', () => {
-            notification.remove();
-        });
-
-        setTimeout(() => {
-            notification.style.opacity = '0';
-            notification.style.transition = 'opacity 0.3s';
-            setTimeout(() => notification.remove(), 300);
-        }, 3000);
-    }
-
-    // CSS animacje
-    if (!document.getElementById('settings-animations')) {
-        const style = document.createElement('style');
-        style.id = 'settings-animations';
-        style.textContent = `
-            @keyframes slideIn {
-                from { transform: translateX(100px); opacity: 0; }
-                to { transform: translateX(0); opacity: 1; }
-            }
-            .notification-close {
-                background: none;
-                border: none;
-                color: white;
-                font-size: 20px;
-                cursor: pointer;
-                padding: 0;
-                line-height: 1;
-            }
-        `;
-        document.head.appendChild(style);
-    }
 
     // =============================================
     // ŹRÓDŁA ZAMÓWIEŃ BASELINKER
@@ -319,7 +812,7 @@ document.addEventListener('DOMContentLoaded', function() {
     const orderSourcesTableBody = document.getElementById('orderSourcesTableBody');
     const syncOrderSourcesBtn = document.getElementById('syncOrderSourcesBtn');
 
-    // Synchronizacja źródeł z Baselinker
+    // Synchronizacja
     syncOrderSourcesBtn?.addEventListener('click', async () => {
         syncOrderSourcesBtn.disabled = true;
         syncOrderSourcesBtn.innerHTML = `
@@ -362,17 +855,22 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
 
-    // Obsługa tabeli źródeł zamówień
+    // Obsługa tabeli - śledzenie zmian
+    orderSourcesTableBody?.addEventListener('change', (e) => {
+        if (e.target.classList.contains('role-checkbox')) {
+            const row = e.target.closest('tr');
+            const id = row.dataset.dbId;
+            const roleCheckboxes = row.querySelectorAll('.role-checkbox');
+            const allowedRoles = Array.from(roleCheckboxes).filter(cb => cb.checked).map(cb => cb.value);
+            trackChange('orderSources', id, 'allowed_roles', allowedRoles);
+        }
+    });
+
+    // Usuwanie i przesuwanie
     orderSourcesTableBody?.addEventListener('click', async (e) => {
-        const saveBtn = e.target.closest('.btn-save-order');
         const deleteBtn = e.target.closest('.btn-delete-order');
         const upBtn = e.target.closest('.btn-up-order');
         const downBtn = e.target.closest('.btn-down-order');
-
-        if (saveBtn) {
-            const dbId = saveBtn.dataset.dbId;
-            await saveOrderSource(dbId);
-        }
 
         if (deleteBtn) {
             const dbId = deleteBtn.dataset.dbId;
@@ -393,38 +891,6 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     });
 
-    async function saveOrderSource(dbId) {
-        const row = document.querySelector(`tr[data-db-id="${dbId}"]`);
-        if (!row) return;
-
-        // Pobierz zaznaczone role
-        const roleCheckboxes = row.querySelectorAll('.role-checkbox:checked');
-        const allowedRoles = Array.from(roleCheckboxes).map(cb => cb.value);
-
-        try {
-            const response = await fetch(`/settings/api/order-sources/${dbId}`, {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    allowed_roles: allowedRoles.length > 0 ? allowedRoles : null
-                })
-            });
-
-            const result = await response.json();
-
-            if (result.success) {
-                showNotification('Zapisano', 'success');
-                row.style.backgroundColor = '#dcfce7';
-                setTimeout(() => row.style.backgroundColor = '', 500);
-            } else {
-                showNotification(result.error || 'Błąd zapisu', 'error');
-            }
-        } catch (error) {
-            console.error('Błąd:', error);
-            showNotification('Błąd komunikacji z serwerem', 'error');
-        }
-    }
-
     async function deleteOrderSource(dbId) {
         try {
             const response = await fetch(`/settings/api/order-sources/${dbId}`, {
@@ -435,6 +901,10 @@ document.addEventListener('DOMContentLoaded', function() {
 
             if (result.success) {
                 showNotification('Źródło usunięte', 'success');
+                changedRecords.orderSources.delete(dbId);
+                originalValues.orderSources.delete(dbId);
+                updateSaveFooter('orderSources');
+
                 const row = document.querySelector(`tr[data-db-id="${dbId}"]`);
                 if (row) {
                     row.style.backgroundColor = '#fee2e2';
@@ -475,7 +945,6 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
 
-    // Aktualizacja przycisków kolejności dla źródeł zamówień
     function updateOrderSourceButtons() {
         const rows = orderSourcesTableBody?.querySelectorAll('tr');
         if (!rows) return;
@@ -495,24 +964,7 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 
-    // Inicjalizacja przycisków kolejności dla źródeł zamówień
     updateOrderSourceButtons();
-
-    // Dodaj style dla animacji spin
-    if (!document.getElementById('settings-extra-styles')) {
-        const extraStyle = document.createElement('style');
-        extraStyle.id = 'settings-extra-styles';
-        extraStyle.textContent = `
-            @keyframes spin {
-                from { transform: rotate(0deg); }
-                to { transform: rotate(360deg); }
-            }
-            .spin {
-                animation: spin 1s linear infinite;
-            }
-        `;
-        document.head.appendChild(extraStyle);
-    }
 
     // =============================================
     // KALKULATOR - CENNIK
@@ -531,7 +983,7 @@ document.addEventListener('DOMContentLoaded', function() {
     const filterWoodClass = document.getElementById('filterWoodClass');
     const clearFiltersBtn = document.getElementById('clearFiltersBtn');
 
-    // ===== MODAL DODAWANIA CENY =====
+    // Modal
     addPriceBtn?.addEventListener('click', () => {
         addPriceModal.style.display = 'flex';
         addPriceForm.reset();
@@ -552,7 +1004,7 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     });
 
-    // ===== DODAWANIE CENY =====
+    // Dodawanie ceny
     addPriceForm?.addEventListener('submit', async (e) => {
         e.preventDefault();
 
@@ -590,15 +1042,40 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     });
 
-    // ===== OBSŁUGA TABELI CENNIKA =====
-    pricesTableBody?.addEventListener('click', async (e) => {
-        const saveBtn = e.target.closest('.btn-save-price');
-        const deleteBtn = e.target.closest('.btn-delete-price');
+    // Obsługa tabeli - śledzenie zmian
+    pricesTableBody?.addEventListener('input', (e) => {
+        if (e.target.classList.contains('price-input')) {
+            const id = e.target.dataset.id;
+            const field = e.target.dataset.field || e.target.className.match(/(\w+)-input/)?.[1];
+            const row = e.target.closest('tr');
 
-        if (saveBtn) {
-            const priceId = saveBtn.dataset.id;
-            await savePrice(priceId);
+            // Zbierz wszystkie wartości z wiersza
+            const data = {
+                species: row.querySelector('.species-input')?.value || '',
+                technology: row.querySelector('.technology-input')?.value || '',
+                wood_class: row.querySelector('.wood-class-input')?.value || '',
+                thickness_min: row.querySelector('[data-field="thickness_min"]')?.value || '',
+                thickness_max: row.querySelector('[data-field="thickness_max"]')?.value || '',
+                length_min: row.querySelector('[data-field="length_min"]')?.value || '',
+                length_max: row.querySelector('[data-field="length_max"]')?.value || '',
+                price_per_m3: row.querySelector('[data-field="price_per_m3"]')?.value || ''
+            };
+
+            // Użyj konkretnego pola
+            const fieldName = e.target.dataset.field ||
+                (e.target.classList.contains('species-input') ? 'species' :
+                 e.target.classList.contains('technology-input') ? 'technology' :
+                 e.target.classList.contains('wood-class-input') ? 'wood_class' : null);
+
+            if (fieldName) {
+                trackChange('prices', id, fieldName, e.target.value);
+            }
         }
+    });
+
+    // Usuwanie
+    pricesTableBody?.addEventListener('click', async (e) => {
+        const deleteBtn = e.target.closest('.btn-delete-price');
 
         if (deleteBtn) {
             const priceId = deleteBtn.dataset.id;
@@ -613,63 +1090,6 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     });
 
-    // Enter w input zapisuje
-    pricesTableBody?.addEventListener('keydown', async (e) => {
-        if (e.key === 'Enter' && e.target.classList.contains('price-input')) {
-            e.preventDefault();
-            const priceId = e.target.dataset.id;
-            await savePrice(priceId);
-        }
-    });
-
-    async function savePrice(priceId) {
-        const row = document.querySelector(`tr[data-id="${priceId}"]`);
-        if (!row) return;
-
-        const data = {
-            species: row.querySelector('.species-input')?.value.trim(),
-            technology: row.querySelector('.technology-input')?.value.trim(),
-            wood_class: row.querySelector('.wood-class-input')?.value.trim(),
-            thickness_min: parseFloat(row.querySelector('[data-field="thickness_min"]')?.value) || 0,
-            thickness_max: parseFloat(row.querySelector('[data-field="thickness_max"]')?.value) || 0,
-            length_min: parseFloat(row.querySelector('[data-field="length_min"]')?.value) || 0,
-            length_max: parseFloat(row.querySelector('[data-field="length_max"]')?.value) || 0,
-            price_per_m3: parseFloat(row.querySelector('[data-field="price_per_m3"]')?.value) || 0
-        };
-
-        // Walidacja
-        if (!data.species || !data.technology || !data.wood_class) {
-            showNotification('Gatunek, technologia i klasa są wymagane', 'error');
-            return;
-        }
-
-        try {
-            const response = await fetch(`/settings/api/prices/${priceId}`, {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(data)
-            });
-
-            const result = await response.json();
-
-            if (result.success) {
-                showNotification('Zapisano', 'success');
-                row.style.backgroundColor = '#dcfce7';
-                setTimeout(() => row.style.backgroundColor = '', 500);
-
-                // Aktualizuj atrybuty data dla filtrów
-                row.dataset.species = data.species;
-                row.dataset.technology = data.technology;
-                row.dataset.woodClass = data.wood_class;
-            } else {
-                showNotification(result.error || 'Błąd zapisu', 'error');
-            }
-        } catch (error) {
-            console.error('Błąd:', error);
-            showNotification('Błąd komunikacji z serwerem', 'error');
-        }
-    }
-
     async function deletePrice(priceId, row) {
         try {
             const response = await fetch(`/settings/api/prices/${priceId}`, {
@@ -680,6 +1100,10 @@ document.addEventListener('DOMContentLoaded', function() {
 
             if (result.success) {
                 showNotification('Cena usunięta', 'success');
+                changedRecords.prices.delete(priceId);
+                originalValues.prices.delete(priceId);
+                updateSaveFooter('prices');
+
                 row.style.backgroundColor = '#fee2e2';
                 row.style.opacity = '0';
                 row.style.transition = 'opacity 0.3s';
@@ -693,7 +1117,7 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
 
-    // ===== FILTRY =====
+    // Filtry
     function applyFilters() {
         const speciesValue = filterSpecies?.value.toLowerCase() || '';
         const technologyValue = filterTechnology?.value.toLowerCase() || '';
@@ -727,108 +1151,130 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 
     // =============================================
-    // CENNIK WYKOŃCZENIA
-    // =============================================
-
-    const finishingPricesTableBody = document.getElementById('finishingPricesTableBody');
-
-    finishingPricesTableBody?.addEventListener('click', async (e) => {
-        const saveBtn = e.target.closest('.btn-save-finishing');
-
-        if (saveBtn) {
-            const priceId = saveBtn.dataset.id;
-            await saveFinishingPrice(priceId);
-        }
-    });
-
-    // Enter w input zapisuje
-    finishingPricesTableBody?.addEventListener('keydown', async (e) => {
-        if (e.key === 'Enter' && e.target.classList.contains('price-input')) {
-            e.preventDefault();
-            const priceId = e.target.dataset.id;
-            await saveFinishingPrice(priceId);
-        }
-    });
-
-    async function saveFinishingPrice(priceId) {
-        const row = document.querySelector(`#finishingPricesTableBody tr[data-id="${priceId}"]`);
-        if (!row) return;
-
-        const priceNetto = parseFloat(row.querySelector('[data-field="price_netto"]')?.value) || 0;
-
-        try {
-            const response = await fetch(`/settings/api/finishing-prices/${priceId}`, {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ price_netto: priceNetto })
-            });
-
-            const result = await response.json();
-
-            if (result.success) {
-                showNotification('Zapisano', 'success');
-                row.style.backgroundColor = '#dcfce7';
-                setTimeout(() => row.style.backgroundColor = '', 500);
-            } else {
-                showNotification(result.error || 'Błąd zapisu', 'error');
-            }
-        } catch (error) {
-            console.error('Błąd:', error);
-            showNotification('Błąd komunikacji z serwerem', 'error');
-        }
-    }
-
-    // =============================================
     // CENNIK OBRÓBKI KRAWĘDZI
     // =============================================
 
     const edgeOptionsTableBody = document.getElementById('edgeOptionsTableBody');
 
-    edgeOptionsTableBody?.addEventListener('click', async (e) => {
-        const saveBtn = e.target.closest('.btn-save-edge');
+    edgeOptionsTableBody?.addEventListener('input', (e) => {
+        if (e.target.classList.contains('price-input') || e.target.classList.contains('number-input') || e.target.classList.contains('angles-input')) {
+            const id = e.target.dataset.id;
+            const field = e.target.dataset.field;
+            if (id && field) {
+                trackChange('edgeOptions', id, field, e.target.value);
 
-        if (saveBtn) {
-            const optionId = saveBtn.dataset.id;
-            await saveEdgeOption(optionId);
+                // Jeśli zmieniono kąty fazowania, zaktualizuj select domyślnego kąta
+                if (field === 'chamfer_angles') {
+                    updateAngleDefaultSelect(id, e.target.value);
+                }
+            }
         }
     });
 
-    // Enter w input zapisuje
-    edgeOptionsTableBody?.addEventListener('keydown', async (e) => {
-        if (e.key === 'Enter' && e.target.classList.contains('price-input')) {
-            e.preventDefault();
-            const optionId = e.target.dataset.id;
-            await saveEdgeOption(optionId);
+    // Obsługa zmiany selecta domyślnego kąta
+    edgeOptionsTableBody?.addEventListener('change', (e) => {
+        if (e.target.classList.contains('angle-default-select')) {
+            const id = e.target.dataset.id;
+            const field = e.target.dataset.field;
+            if (id && field) {
+                trackChange('edgeOptions', id, field, e.target.value);
+            }
         }
     });
 
-    async function saveEdgeOption(optionId) {
-        const row = document.querySelector(`#edgeOptionsTableBody tr[data-id="${optionId}"]`);
+    // Funkcja aktualizująca select domyślnego kąta na podstawie listy kątów
+    function updateAngleDefaultSelect(id, anglesStr) {
+        const row = document.querySelector(`#edgeOptionsTableBody tr[data-id="${id}"]`);
         if (!row) return;
 
+        const select = row.querySelector('.angle-default-select');
+        if (!select) return;
+
+        // Parsuj kąty
+        const angles = anglesStr
+            .split(',')
+            .map(a => parseInt(a.trim()))
+            .filter(a => !isNaN(a) && a > 0 && a < 90);
+
+        // Zachowaj obecną wartość jeśli możliwe
+        const currentValue = parseInt(select.value);
+
+        // Wyczyść i wypełnij na nowo
+        select.innerHTML = '';
+        angles.forEach(angle => {
+            const option = document.createElement('option');
+            option.value = angle;
+            option.textContent = angle + '°';
+            if (angle === currentValue) option.selected = true;
+            select.appendChild(option);
+        });
+
+        // Jeśli obecna wartość nie jest w nowej liście, wybierz pierwszą
+        if (angles.length > 0 && !angles.includes(currentValue)) {
+            select.value = angles[0];
+            trackChange('edgeOptions', id, 'angle_default', angles[0].toString());
+        }
+    }
+
+    // =============================================
+    // HIERARCHICZNE DRZEWKO WYKOŃCZEŃ
+    // =============================================
+
+    const finishingTreeTableBody = document.getElementById('finishingTreeTableBody');
+    const addFinishingOptionBtn = document.getElementById('addFinishingOptionBtn');
+    const addFinishingOptionModal = document.getElementById('addFinishingOptionModal');
+    const closeAddFinishingOptionModal = document.getElementById('closeAddFinishingOptionModal');
+    const cancelAddFinishingOption = document.getElementById('cancelAddFinishingOption');
+    const addFinishingOptionForm = document.getElementById('addFinishingOptionForm');
+    const finishingOptionParentSelect = document.getElementById('finishingOptionParentSelect');
+
+    // Modal
+    addFinishingOptionBtn?.addEventListener('click', () => {
+        addFinishingOptionModal.style.display = 'flex';
+        addFinishingOptionForm.reset();
+        if (finishingOptionParentSelect) {
+            finishingOptionParentSelect.value = '';
+        }
+        addFinishingOptionForm.querySelector('input[name="name"]')?.focus();
+    });
+
+    closeAddFinishingOptionModal?.addEventListener('click', () => {
+        addFinishingOptionModal.style.display = 'none';
+    });
+
+    cancelAddFinishingOption?.addEventListener('click', () => {
+        addFinishingOptionModal.style.display = 'none';
+    });
+
+    addFinishingOptionModal?.addEventListener('click', (e) => {
+        if (e.target === addFinishingOptionModal) {
+            addFinishingOptionModal.style.display = 'none';
+        }
+    });
+
+    // Dodawanie opcji
+    addFinishingOptionForm?.addEventListener('submit', async (e) => {
+        e.preventDefault();
+
+        const formData = new FormData(addFinishingOptionForm);
+        const parentId = formData.get('parent_id');
+        const priceNetto = formData.get('price_netto');
+
         const data = {
-            price_per_mb: parseFloat(row.querySelector('[data-field="price_per_mb"]')?.value) || 0,
-            corner_price: parseFloat(row.querySelector('[data-field="corner_price"]')?.value) || 0
+            parent_id: parentId ? parseInt(parentId) : null,
+            name: formData.get('name'),
+            code: formData.get('code') || null,
+            price_netto: priceNetto ? parseFloat(priceNetto) : null
         };
 
-        // Pola R tylko jeśli nie są disabled
-        const rMinInput = row.querySelector('[data-field="r_min"]');
-        const rMaxInput = row.querySelector('[data-field="r_max"]');
-        const rDefaultInput = row.querySelector('[data-field="r_default"]');
-
-        if (rMinInput && !rMinInput.disabled) {
-            data.r_min = rMinInput.value ? parseInt(rMinInput.value) : null;
-        }
-        if (rMaxInput && !rMaxInput.disabled) {
-            data.r_max = rMaxInput.value ? parseInt(rMaxInput.value) : null;
-        }
-        if (rDefaultInput && !rDefaultInput.disabled) {
-            data.r_default = rDefaultInput.value ? parseInt(rDefaultInput.value) : null;
+        if (!data.name || data.name.trim() === '') {
+            showNotification('Nazwa jest wymagana', 'error');
+            return;
         }
 
         try {
-            const response = await fetch(`/settings/api/edge-options/${optionId}`, {
-                method: 'PUT',
+            const response = await fetch('/settings/api/finishing-options', {
+                method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(data)
             });
@@ -836,15 +1282,268 @@ document.addEventListener('DOMContentLoaded', function() {
             const result = await response.json();
 
             if (result.success) {
-                showNotification('Zapisano', 'success');
-                row.style.backgroundColor = '#dcfce7';
-                setTimeout(() => row.style.backgroundColor = '', 500);
+                showNotification('Opcja została dodana', 'success');
+                addFinishingOptionModal.style.display = 'none';
+                setTimeout(() => location.reload(), 500);
             } else {
-                showNotification(result.error || 'Błąd zapisu', 'error');
+                showNotification(result.error || 'Błąd dodawania opcji', 'error');
+            }
+        } catch (error) {
+            console.error('Błąd:', error);
+            showNotification('Błąd komunikacji z serwerem', 'error');
+        }
+    });
+
+    // Obsługa tabeli - śledzenie zmian
+    finishingTreeTableBody?.addEventListener('input', (e) => {
+        const id = e.target.dataset.id;
+        if (!id) return;
+
+        if (e.target.classList.contains('tree-name-input')) {
+            trackChange('finishingTree', id, 'name', e.target.value);
+        } else if (e.target.classList.contains('code-input')) {
+            trackChange('finishingTree', id, 'code', e.target.value);
+        } else if (e.target.classList.contains('price-value-input')) {
+            trackChange('finishingTree', id, 'price_netto', e.target.value);
+        }
+    });
+
+    // Akcje (usuwanie, dodawanie pod-opcji, przesuwanie, upload)
+    finishingTreeTableBody?.addEventListener('click', async (e) => {
+        const deleteBtn = e.target.closest('.btn-delete-tree');
+        const addChildBtn = e.target.closest('.btn-add-child');
+        const upBtn = e.target.closest('.btn-up-tree');
+        const downBtn = e.target.closest('.btn-down-tree');
+        const uploadBtn = e.target.closest('.btn-upload-image');
+
+        if (deleteBtn) {
+            const optionId = deleteBtn.dataset.id;
+            const row = deleteBtn.closest('tr');
+            const name = row.querySelector('.tree-name-input')?.value || 'tę opcję';
+
+            if (confirm(`Czy na pewno chcesz usunąć "${name}" i wszystkie jej pod-opcje?`)) {
+                await deleteFinishingOption(optionId);
+            }
+        }
+
+        if (addChildBtn) {
+            const parentId = addChildBtn.dataset.id;
+            addFinishingOptionModal.style.display = 'flex';
+            addFinishingOptionForm.reset();
+            if (finishingOptionParentSelect) {
+                finishingOptionParentSelect.value = parentId;
+            }
+            addFinishingOptionForm.querySelector('input[name="name"]')?.focus();
+        }
+
+        if (upBtn && !upBtn.disabled) {
+            const optionId = upBtn.dataset.id;
+            await moveFinishingOption(optionId, 'up');
+        }
+
+        if (downBtn && !downBtn.disabled) {
+            const optionId = downBtn.dataset.id;
+            await moveFinishingOption(optionId, 'down');
+        }
+
+        if (uploadBtn) {
+            const optionId = uploadBtn.dataset.id;
+            const fileInput = document.querySelector(`.image-upload-input[data-id="${optionId}"]`);
+            if (fileInput) {
+                fileInput.click();
+            }
+        }
+    });
+
+    // Upload obrazka
+    finishingTreeTableBody?.addEventListener('change', async (e) => {
+        if (e.target.classList.contains('image-upload-input')) {
+            const optionId = e.target.dataset.id;
+            const file = e.target.files[0];
+            if (file) {
+                await uploadFinishingOptionImage(optionId, file);
+            }
+        }
+    });
+
+    async function deleteFinishingOption(optionId) {
+        try {
+            const response = await fetch(`/settings/api/finishing-options/${optionId}`, {
+                method: 'DELETE'
+            });
+
+            const result = await response.json();
+
+            if (result.success) {
+                showNotification('Opcja usunięta', 'success');
+                changedRecords.finishingTree.delete(optionId);
+                originalValues.finishingTree.delete(optionId);
+                updateSaveFooter('finishingTree');
+                setTimeout(() => location.reload(), 500);
+            } else {
+                showNotification(result.error || 'Błąd usuwania', 'error');
             }
         } catch (error) {
             console.error('Błąd:', error);
             showNotification('Błąd komunikacji z serwerem', 'error');
         }
     }
+
+    async function moveFinishingOption(optionId, direction) {
+        try {
+            const response = await fetch(`/settings/api/finishing-options/${optionId}/move`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ direction })
+            });
+
+            const result = await response.json();
+
+            if (result.success) {
+                location.reload();
+            } else {
+                showNotification(result.error || 'Błąd zmiany kolejności', 'error');
+            }
+        } catch (error) {
+            console.error('Błąd:', error);
+            showNotification('Błąd komunikacji z serwerem', 'error');
+        }
+    }
+
+    async function uploadFinishingOptionImage(optionId, file) {
+        const formData = new FormData();
+        formData.append('image', file);
+
+        try {
+            const response = await fetch(`/settings/api/finishing-options/${optionId}/upload-image`, {
+                method: 'POST',
+                body: formData
+            });
+
+            const result = await response.json();
+
+            if (result.success) {
+                showNotification('Obrazek został przesłany', 'success');
+                setTimeout(() => location.reload(), 500);
+            } else {
+                showNotification(result.error || 'Błąd przesyłania obrazka', 'error');
+            }
+        } catch (error) {
+            console.error('Błąd:', error);
+            showNotification('Błąd komunikacji z serwerem', 'error');
+        }
+    }
+
+    // Aktualizacja przycisków kolejności
+    function updateFinishingTreeOrderButtons() {
+        const rows = finishingTreeTableBody?.querySelectorAll('tr');
+        if (!rows) return;
+
+        const rowsByParent = {};
+        rows.forEach(row => {
+            const parentId = row.dataset.parentId || '';
+            if (!rowsByParent[parentId]) {
+                rowsByParent[parentId] = [];
+            }
+            rowsByParent[parentId].push(row);
+        });
+
+        Object.values(rowsByParent).forEach(siblings => {
+            siblings.forEach((row, index) => {
+                const upBtn = row.querySelector('.btn-up-tree');
+                const downBtn = row.querySelector('.btn-down-tree');
+
+                if (upBtn) {
+                    upBtn.disabled = (index === 0);
+                    upBtn.classList.toggle('disabled', index === 0);
+                }
+                if (downBtn) {
+                    downBtn.disabled = (index === siblings.length - 1);
+                    downBtn.classList.toggle('disabled', index === siblings.length - 1);
+                }
+            });
+        });
+    }
+
+    updateFinishingTreeOrderButtons();
+
+    // =============================================
+    // NOTYFIKACJE
+    // =============================================
+
+    function showNotification(message, type = 'info') {
+        document.querySelectorAll('.settings-notification').forEach(n => n.remove());
+
+        const notification = document.createElement('div');
+        notification.className = `settings-notification settings-notification-${type}`;
+        notification.innerHTML = `
+            <span>${message}</span>
+            <button class="notification-close">&times;</button>
+        `;
+
+        Object.assign(notification.style, {
+            position: 'fixed',
+            top: '20px',
+            right: '20px',
+            padding: '12px 20px',
+            borderRadius: '8px',
+            boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '12px',
+            zIndex: '9999',
+            animation: 'slideIn 0.3s ease',
+            backgroundColor: type === 'success' ? '#22c55e' : type === 'error' ? '#ef4444' : '#3b82f6',
+            color: 'white',
+            fontWeight: '500',
+            maxWidth: '400px'
+        });
+
+        document.body.appendChild(notification);
+
+        notification.querySelector('.notification-close').addEventListener('click', () => {
+            notification.remove();
+        });
+
+        setTimeout(() => {
+            notification.style.opacity = '0';
+            notification.style.transition = 'opacity 0.3s';
+            setTimeout(() => notification.remove(), 300);
+        }, 4000);
+    }
+
+    // CSS animacje
+    if (!document.getElementById('settings-animations')) {
+        const style = document.createElement('style');
+        style.id = 'settings-animations';
+        style.textContent = `
+            @keyframes slideIn {
+                from { transform: translateX(100px); opacity: 0; }
+                to { transform: translateX(0); opacity: 1; }
+            }
+            .notification-close {
+                background: none;
+                border: none;
+                color: white;
+                font-size: 20px;
+                cursor: pointer;
+                padding: 0;
+                line-height: 1;
+            }
+            @keyframes spin {
+                from { transform: rotate(0deg); }
+                to { transform: rotate(360deg); }
+            }
+            .spin {
+                animation: spin 1s linear infinite;
+            }
+        `;
+        document.head.appendChild(style);
+    }
+
+    // =============================================
+    // INICJALIZACJA
+    // =============================================
+
+    initializeOriginalValues();
 });

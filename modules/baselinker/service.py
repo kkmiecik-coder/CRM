@@ -872,6 +872,7 @@ class BaselinkerService:
                     'edges_config': finishing_details.edges_config,
                     'edges_type': finishing_details.edges_type,
                     'edges_r_value': finishing_details.edges_r_value,
+                    'edges_angle_value': finishing_details.edges_angle_value,
                     'edges_svg': finishing_details.edges_svg
                 })
 
@@ -961,9 +962,14 @@ class BaselinkerService:
                     }
                     edge_type = finishing_details.edges_type
                     r_value = finishing_details.edges_r_value or 0
+                    angle_value = finishing_details.edges_angle_value
 
                     edge_prefix = edge_type_map.get(edge_type, 'XX')
-                    edge_code = f"{edge_prefix}{r_value}"
+                    # Dla fazowania dodaj kąt (np. FR5A45), dla zaokrąglenia tylko R (np. ZR5)
+                    if edge_type == 'chamfer' and angle_value:
+                        edge_code = f"{edge_prefix}{r_value}A{angle_value}"
+                    else:
+                        edge_code = f"{edge_prefix}{r_value}"
 
             # Składamy SKU
             sku = f"{product_type}{species}{technology}{length}{width}{thickness}{wood_class}{finishing}{edge_code}"

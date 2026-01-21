@@ -202,66 +202,17 @@
                             <section class="finishing-section">
                                 <h2 class="title-with-underline-h2">Wykończenie</h2>
 
-                                <!-- Blok wyboru rodzaju wykończenia -->
-                                <div class="finishing-block">
-                                    <p class="input-txt">Rodzaj wykończenia:</p>
-                                    <div class="button-group" id="finishing-type-group">
-                                        <button type="button" class="finishing-btn active" data-finishing-type="Surowe">Surowe</button>
-                                        <button type="button" class="finishing-btn" data-finishing-type="Lakierowanie">Lakierowanie</button>
-                                        <button type="button" class="finishing-btn" data-finishing-type="Olejowanie">Olejowanie</button>
+                                <!-- Dynamiczne drzewko wykończeń - renderowane przez JavaScript -->
+                                <div class="finishing-tree-container" id="finishing-tree-container">
+                                    <!-- Poziom 0: Główne typy wykończenia -->
+                                    <div class="finishing-level" data-level="0">
+                                        <p class="input-txt">Rodzaj wykończenia:</p>
+                                        <div class="button-group finishing-options-group" data-parent-id="null">
+                                            <!-- Renderowane dynamicznie -->
+                                            <span class="loading-text">Ładowanie opcji...</span>
+                                        </div>
                                     </div>
-                                </div>
-
-                                <!-- Blok wyboru wariantu (bezbarwne/barwne) -->
-                                <div class="finishing-block" id="finishing-variant-wrapper" style="display: none;">
-                                    <p class="input-txt">Wariant:</p>
-                                    <div class="button-group">
-                                        <button type="button" class="finishing-btn" data-finishing-variant="Bezbarwne">Bezbarwne</button>
-                                        <button type="button" class="finishing-btn" data-finishing-variant="Barwne">Barwne</button>
-                                    </div>
-                                </div>
-
-                                <!-- Blok wyboru koloru barwnego -->
-                                <div class="finishing-block" id="finishing-color-wrapper" style="display: none;">
-                                    <p class="input-txt">Kolor:</p>
-                                    <div class="color-group">
-                                        <button class="color-btn" data-finishing-color="POPIEL 20-07">
-                                            <img src="{{ url_for('calculator.static', filename='images/finishing_colors/popiel-20-07.jpg') }}" alt="POPIEL 20-07">
-                                            <span>POPIEL 20-07</span>
-                                        </button>
-                                        <button class="color-btn" data-finishing-color="BEŻ BN-125/09">
-                                            <img src="{{ url_for('calculator.static', filename='images/finishing_colors/bez-bn-125-09.jpg') }}" alt="BEŻ BN-125/09">
-                                            <span>BEŻ BN-125/09</span>
-                                        </button>
-                                        <button class="color-btn" data-finishing-color="BRUNAT 22-10">
-                                            <img src="{{ url_for('calculator.static', filename='images/finishing_colors/brunat-22-10.jpg') }}" alt="BRUNAT 22-10">
-                                            <span>BRUNAT 22-10</span>
-                                        </button>
-                                        <button class="color-btn" data-finishing-color="BRUNAT 22-05">
-                                            <img src="{{ url_for('calculator.static', filename='images/finishing_colors/brunat-22-05.jpg') }}" alt="BRUNAT 22-05">
-                                            <span>BRUNAT 22-05</span>
-                                        </button>
-                                        <button class="color-btn" data-finishing-color="BRUNAT 22-15">
-                                            <img src="{{ url_for('calculator.static', filename='images/finishing_colors/brunat-22-15.jpg') }}" alt="BRUNAT 22-15">
-                                            <span>BRUNAT 22-15</span>
-                                        </button>
-                                        <button class="color-btn" data-finishing-color="BRUNAT 22-23">
-                                            <img src="{{ url_for('calculator.static', filename='images/finishing_colors/brunat-22-23.jpg') }}" alt="BRUNAT 22-23">
-                                            <span>BRUNAT 22-23</span>
-                                        </button>
-                                        <button class="color-btn" data-finishing-color="ORZECH 22-74">
-                                            <img src="{{ url_for('calculator.static', filename='images/finishing_colors/orzech-22-74.jpg') }}" alt="ORZECH 22-74">
-                                            <span>ORZECH 22-74</span>
-                                        </button>
-                                        <button class="color-btn" data-finishing-color="BRĄZ 22-50">
-                                            <img src="{{ url_for('calculator.static', filename='images/finishing_colors/braz-22-50.jpg') }}" alt="BRĄZ 22-50">
-                                            <span>BRĄZ 22-50</span>
-                                        </button>
-                                        <button class="color-btn" data-finishing-color="ORZECH 22-66">
-                                            <img src="{{ url_for('calculator.static', filename='images/finishing_colors/orzech-22-66.jpg') }}" alt="ORZECH 22-66">
-                                            <span>ORZECH 22-66</span>
-                                        </button>
-                                    </div>
+                                    <!-- Kolejne poziomy będą dodawane dynamicznie -->
                                 </div>
 
                                 <!-- Przyciski do modali -->

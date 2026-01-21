@@ -27,6 +27,12 @@ const EdgesModule = (function() {
         R_LIMITS: {
             chamfer: { min: 3, max: 10, default: 3 },
             round: { min: 3, max: 20, default: 5 }
+        },
+
+        // Kąty fazowania (pobierane z bazy danych)
+        CHAMFER_ANGLES: {
+            angles: [30, 45, 60],  // Predefiniowane kąty
+            default: 45           // Domyślny kąt
         }
     };
 
@@ -69,11 +75,22 @@ const EdgesModule = (function() {
                                 CONFIG.R_LIMITS[option.type].default = parseInt(option.r_default);
                             }
                         }
+
+                        // Aktualizuj kąty fazowania (tylko dla typu 'chamfer')
+                        if (option.type === 'chamfer') {
+                            if (option.chamfer_angles && Array.isArray(option.chamfer_angles) && option.chamfer_angles.length > 0) {
+                                CONFIG.CHAMFER_ANGLES.angles = option.chamfer_angles;
+                            }
+                            if (option.angle_default !== undefined && option.angle_default !== null) {
+                                CONFIG.CHAMFER_ANGLES.default = parseInt(option.angle_default);
+                            }
+                        }
                     }
                 });
                 CONFIG.pricesLoaded = true;
                 console.log('[EdgesModule] Ceny pobrane z bazy danych:', CONFIG.prices);
                 console.log('[EdgesModule] Limity R pobrane z bazy danych:', CONFIG.R_LIMITS);
+                console.log('[EdgesModule] Kąty fazowania pobrane z bazy danych:', CONFIG.CHAMFER_ANGLES);
                 return true;
             }
         } catch (error) {
@@ -136,6 +153,7 @@ const EdgesModule = (function() {
         selectedEdges: new Set(),
         edgeType: 'round',
         rValue: 5,
+        angleValue: null,         // Kąt fazowania (tylko dla chamfer)
         dimensions: { length: 0, width: 0, thickness: 0 },
         labelsVisible: true,
         modalInitialized: false
@@ -158,6 +176,8 @@ const EdgesModule = (function() {
             toggleLabelsBtn: document.getElementById('toggleEdgeLabels'),
             typeSelect: document.getElementById('edgeTypeSelect'),
             rValueInput: document.getElementById('edgeRValue'),
+            angleGroup: document.getElementById('edgesAngleGroup'),
+            angleButtons: document.getElementById('edgeAngleButtons'),
             priceBrutto: document.getElementById('edgesPriceBrutto'),
             priceNetto: document.getElementById('edgesPriceNetto'),
             svg: document.getElementById('edgesSvg'),
@@ -358,6 +378,8 @@ const EdgesModule = (function() {
             elements.rValueInput.addEventListener('input', onRValueChange);
         }
 
+        // Przyciski kąta fazowania są dodawane dynamicznie w updateAngleButtons()
+
         // Przyciski szybkiego wyboru (Góra, Dół, Wszystkie, Odznacz)
         elements.quickBtns.forEach(btn => {
             btn.addEventListener('click', function(e) {
@@ -525,7 +547,54 @@ const EdgesModule = (function() {
             }
         }
 
+        // Aktualizuj widoczność i zawartość przycisków kąta fazowania
+        updateAngleButtons();
+
         calculatePrice();
+    }
+
+    /**
+     * Aktualizuje przyciski kąta fazowania - widoczność i stan
+     */
+    function updateAngleButtons() {
+        if (!elements.angleGroup || !elements.angleButtons) return;
+
+        if (state.edgeType === 'chamfer') {
+            // Pokaż grupę kąta
+            elements.angleGroup.style.display = 'flex';
+
+            // Wypełnij przyciskami z konfiguracji
+            const angles = CONFIG.CHAMFER_ANGLES.angles;
+            const defaultAngle = CONFIG.CHAMFER_ANGLES.default;
+
+            // Ustaw domyślną wartość jeśli nie ustawiona
+            if (!state.angleValue || !angles.includes(state.angleValue)) {
+                state.angleValue = defaultAngle;
+            }
+
+            elements.angleButtons.innerHTML = angles.map(angle =>
+                `<button type="button" class="edges-angle-btn ${angle === state.angleValue ? 'active' : ''}" data-angle="${angle}">${angle}°</button>`
+            ).join('');
+
+            // Dodaj event listenery do przycisków
+            elements.angleButtons.querySelectorAll('.edges-angle-btn').forEach(btn => {
+                btn.addEventListener('click', onAngleButtonClick);
+            });
+        } else {
+            // Ukryj grupę kąta i wyczyść wartość
+            elements.angleGroup.style.display = 'none';
+            state.angleValue = null;
+        }
+    }
+
+    function onAngleButtonClick(e) {
+        const angle = parseInt(e.target.dataset.angle);
+        state.angleValue = angle;
+
+        // Aktualizuj klasy active
+        elements.angleButtons.querySelectorAll('.edges-angle-btn').forEach(btn => {
+            btn.classList.toggle('active', parseInt(btn.dataset.angle) === angle);
+        });
     }
 
     function onRValueChange() {
@@ -1015,6 +1084,7 @@ const EdgesModule = (function() {
                 letter: edge,
                 type: state.edgeType,
                 r_value: state.rValue,
+                angle_value: state.edgeType === 'chamfer' ? state.angleValue : null,
                 length_mm: lengthMm,
                 length_cm: lengthCm,
                 is_corner: def.group === 'corner',
@@ -1086,6 +1156,7 @@ const EdgesModule = (function() {
         state.currentForm.dataset.edgesCount = state.selectedEdges.size;
         state.currentForm.dataset.edgesType = state.edgeType;
         state.currentForm.dataset.edgesRValue = state.rValue;
+        state.currentForm.dataset.edgesAngleValue = state.edgeType === 'chamfer' ? state.angleValue : '';
         state.currentForm.dataset.edgesSvg = edgesSvg;
 
         // Aktualizuj przycisk
@@ -1153,7 +1224,14 @@ const EdgesModule = (function() {
             const edgeNames = Array.from(state.selectedEdges).sort().join(', ');
             const typeLabel = state.edgeType === 'chamfer' ? 'Fazowanie' : 'Zaokrąglenie';
 
-            if (textEl) textEl.textContent = `${typeLabel} R${state.rValue}: ${edgeNames}`;
+            // Dla fazowania dodaj kąt do opisu
+            let summaryText = `${typeLabel} R${state.rValue}`;
+            if (state.edgeType === 'chamfer' && state.angleValue) {
+                summaryText += ` (${state.angleValue}°)`;
+            }
+            summaryText += `: ${edgeNames}`;
+
+            if (textEl) textEl.textContent = summaryText;
             if (priceEl) priceEl.textContent = formatPLN(prices.brutto) + ' brutto';
             if (priceNettoEl) priceNettoEl.textContent = formatPLN(prices.netto) + ' netto';
             if (edgesRow) edgesRow.style.display = 'flex';
@@ -1246,6 +1324,7 @@ const EdgesModule = (function() {
         const savedData = state.currentForm.dataset.edgesData;
         const savedType = state.currentForm.dataset.edgesType;
         const savedRValue = state.currentForm.dataset.edgesRValue;
+        const savedAngleValue = state.currentForm.dataset.edgesAngleValue;
 
         // Reset stanu globalnego - WAŻNE dla izolacji między formularzami
         state.selectedEdges.clear();
@@ -1263,12 +1342,15 @@ const EdgesModule = (function() {
             state.edgeType = 'round';
             const defaultLimits = CONFIG.R_LIMITS['round'] || { min: 3, max: 20, default: 5 };
             state.rValue = defaultLimits.default;
+            state.angleValue = null;
             if (elements.typeSelect) elements.typeSelect.value = 'round';
             if (elements.rValueInput) {
                 elements.rValueInput.value = defaultLimits.default;
                 elements.rValueInput.min = defaultLimits.min;
                 elements.rValueInput.max = defaultLimits.max;
             }
+            // Ukryj grupę kąta (domyślnie 'round')
+            updateAngleButtons();
             console.log('[EdgesModule] Brak zapisanych krawędzi dla tego formularza - ustawiono domyślne z bazy:', defaultLimits);
             return;
         }
@@ -1285,6 +1367,13 @@ const EdgesModule = (function() {
             state.edgeType = savedType || 'round';
             state.rValue = parseInt(savedRValue) || 5;
 
+            // Przywróć kąt fazowania
+            if (savedAngleValue && state.edgeType === 'chamfer') {
+                state.angleValue = parseInt(savedAngleValue);
+            } else {
+                state.angleValue = null;
+            }
+
             // Aktualizuj UI kontrolek
             if (elements.typeSelect) elements.typeSelect.value = state.edgeType;
             if (elements.rValueInput) elements.rValueInput.value = state.rValue;
@@ -1295,6 +1384,9 @@ const EdgesModule = (function() {
                 elements.rValueInput.min = limits.min;
                 elements.rValueInput.max = limits.max;
             }
+
+            // Aktualizuj select kąta
+            updateAngleButtons();
 
             // Zaznacz checkboxy zgodnie z zapisanym stanem
             // (SVG będzie aktualizowany przez generateProportionalSVG później)

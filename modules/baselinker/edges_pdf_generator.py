@@ -363,6 +363,7 @@ class EdgesPdfGenerator:
 
         edge_type = self.TYPE_NAMES.get(product.get('edges_type', ''), product.get('edges_type', ''))
         r_value = product.get('edges_r_value', 0)
+        angle_value = product.get('edges_angle_value')
 
         # Konwertuj SVG na PNG i osadź jako obrazek
         svg_html = product.get('edges_svg', '')
@@ -378,14 +379,6 @@ class EdgesPdfGenerator:
         else:
             image_html = '<div style="width:45mm;height:45mm;background:#f5f5f5;display:flex;align-items:center;justify-content:center;font-size:8px;color:#999;">Brak wizualizacji</div>'
 
-        # Lista krawędzi
-        edges_config = product.get('edges_config', [])
-        edges_html = ''
-        for edge in edges_config:
-            letter = edge.get('letter', '?')
-            length_cm = edge.get('length_cm', 0)
-            edges_html += f'<div class="edge-row">• {letter}: {length_cm} cm</div>'
-
         return f"""
         <div class="page">
             <div class="header">
@@ -399,11 +392,7 @@ class EdgesPdfGenerator:
                 <div class="legend">
                     <div class="legend-item"><strong>Typ:</strong> {edge_type}</div>
                     <div class="legend-item"><strong>Promień:</strong> R{r_value}</div>
-
-                    <div class="edges-list">
-                        <div class="edges-list-title">Krawędzie:</div>
-                        {edges_html}
-                    </div>
+                    {f'<div class="legend-item"><strong>Kąt:</strong> {angle_value}°</div>' if angle_value and product.get('edges_type') == 'chamfer' else ''}
                 </div>
             </div>
         </div>
