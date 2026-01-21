@@ -24,6 +24,117 @@
         font-size: 14px;
     }
 
+/* ============================================
+   GÓRNY PASEK - PRZYCISKI I WYSZUKIWARKA
+   ============================================ */
+
+.clients-top-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 20px;
+    margin-bottom: 20px;
+    flex-wrap: wrap;
+}
+
+.clients-buttons-left {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-shrink: 0;
+}
+
+.clients-search-center {
+    display: flex;
+    flex: 1;
+    justify-content: flex-end;
+    min-width: 250px;
+}
+
+.clients-search-box {
+    display: flex;
+    align-items: center;
+    gap: 0;
+    background: #fff;
+    border: 2px solid #e0e0e0;
+    border-radius: 8px;
+    overflow: hidden;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+    max-width: 350px;
+    width: 100%;
+}
+
+.clients-search-box:focus-within {
+    border-color: #ED6B24;
+    box-shadow: 0 0 0 3px rgba(237, 107, 36, 0.1);
+}
+
+.clients-search-box input[type="text"] {
+    flex: 1;
+    padding: 10px 14px;
+    border: none;
+    outline: none;
+    font-size: 14px;
+    font-family: 'Poppins', sans-serif;
+    background: transparent;
+}
+
+.clients-search-box input[type="text"]::placeholder {
+    color: #999;
+}
+
+.clients-search-btn {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 10px 16px;
+    background-color: #ED6B24;
+    color: #fff;
+    border: none;
+    font-family: 'Poppins', sans-serif;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background-color 0.2s ease;
+}
+
+.clients-search-btn:hover {
+    background-color: #d85d20;
+}
+
+.clients-search-btn svg {
+    flex-shrink: 0;
+}
+
+@media (max-width: 768px) {
+    .clients-top-row {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .clients-buttons-left {
+        justify-content: flex-start;
+    }
+
+    .clients-search-center {
+        justify-content: stretch;
+    }
+
+    .clients-search-box {
+        max-width: 100%;
+    }
+}
+
+@media (max-width: 480px) {
+    .clients-search-btn span {
+        display: none;
+    }
+
+    .clients-search-btn {
+        padding: 10px 12px;
+    }
+}
+
 .clients-table-wrapper {
     overflow-x: auto;
     margin-bottom: 20px;
