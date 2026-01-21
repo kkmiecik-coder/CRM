@@ -1060,6 +1060,18 @@ const EdgesModule = (function() {
 
         const prices = calculatePrice();
 
+        // Pobierz ilość sztuk z formularza
+        const quantityInput = state.currentForm.querySelector('input[data-field="quantity"]');
+        const quantity = parseInt(quantityInput?.value) || 1;
+
+        // Pomnóż ceny przez ilość sztuk
+        const totalPrices = {
+            netto: Math.round(prices.netto * quantity * 100) / 100,
+            brutto: Math.round(prices.brutto * quantity * 100) / 100,
+            horizontalCount: prices.horizontalCount,
+            cornerCount: prices.cornerCount
+        };
+
         // Pobierz ceny dla aktualnie wybranego typu obróbki
         const pricePerMb = getPricePerMb(state.edgeType);
         const pricePerCorner = getPricePerCorner(state.edgeType);
@@ -1149,18 +1161,19 @@ const EdgesModule = (function() {
             edgesSvg = svgClone.outerHTML;
         }
 
-        // Zapisz w dataset formularza
+        // Zapisz w dataset formularza (ceny już pomnożone przez ilość sztuk)
         state.currentForm.dataset.edgesData = JSON.stringify(edgesData);
-        state.currentForm.dataset.edgesNetto = prices.netto;
-        state.currentForm.dataset.edgesBrutto = prices.brutto;
+        state.currentForm.dataset.edgesNetto = totalPrices.netto;
+        state.currentForm.dataset.edgesBrutto = totalPrices.brutto;
         state.currentForm.dataset.edgesCount = state.selectedEdges.size;
         state.currentForm.dataset.edgesType = state.edgeType;
         state.currentForm.dataset.edgesRValue = state.rValue;
         state.currentForm.dataset.edgesAngleValue = state.edgeType === 'chamfer' ? state.angleValue : '';
         state.currentForm.dataset.edgesSvg = edgesSvg;
+        state.currentForm.dataset.edgesQuantity = quantity; // Zapisz ilość dla debugowania
 
-        // Aktualizuj przycisk
-        updateOpenButton(state.currentForm, prices);
+        // Aktualizuj przycisk (pokazuj cenę łączną z uwzględnieniem ilości)
+        updateOpenButton(state.currentForm, totalPrices);
 
         // Wywołaj aktualizację globalnego podsumowania
         if (typeof updateGlobalSummary === 'function') {
@@ -1424,12 +1437,16 @@ const EdgesModule = (function() {
         const lengthInput = form.querySelector('input[data-field="length"]');
         const widthInput = form.querySelector('input[data-field="width"]');
         const thicknessInput = form.querySelector('input[data-field="thickness"]');
+        const quantityInput = form.querySelector('input[data-field="quantity"]');
 
         const dimensions = {
             length: parseFloat(lengthInput?.value) || 0,
             width: parseFloat(widthInput?.value) || 0,
             thickness: parseFloat(thicknessInput?.value) || 0
         };
+
+        // Pobierz ilość sztuk
+        const quantity = parseInt(quantityInput?.value) || 1;
 
         // Jeśli brak wymiarów, nie przeliczaj
         if (dimensions.length <= 0 || dimensions.width <= 0 || dimensions.thickness <= 0) {
@@ -1478,12 +1495,17 @@ const EdgesModule = (function() {
 
             const totalBrutto = totalNetto * CONFIG.VAT_RATE;
 
-            // Zaktualizuj dataset formularza
-            form.dataset.edgesData = JSON.stringify(updatedEdgesData);
-            form.dataset.edgesNetto = Math.round(totalNetto * 100) / 100;
-            form.dataset.edgesBrutto = Math.round(totalBrutto * 100) / 100;
+            // Pomnóż przez ilość sztuk
+            const totalNettoWithQuantity = Math.round(totalNetto * quantity * 100) / 100;
+            const totalBruttoWithQuantity = Math.round(totalBrutto * quantity * 100) / 100;
 
-            // Zaktualizuj wizualne podsumowanie
+            // Zaktualizuj dataset formularza (ceny już pomnożone przez ilość sztuk)
+            form.dataset.edgesData = JSON.stringify(updatedEdgesData);
+            form.dataset.edgesNetto = totalNettoWithQuantity;
+            form.dataset.edgesBrutto = totalBruttoWithQuantity;
+            form.dataset.edgesQuantity = quantity;
+
+            // Zaktualizuj wizualne podsumowanie (pokazuj cenę łączną z uwzględnieniem ilości)
             const finishingSection = form.querySelector('.finishing-section');
             const optionsSummary = finishingSection?.querySelector('.options-summary');
             const edgesRow = optionsSummary?.querySelector('.edges-row');
@@ -1503,11 +1525,12 @@ const EdgesModule = (function() {
                     }
                 }
 
+                // Pokazuj cenę łączną (pomnożoną przez ilość sztuk)
                 if (priceEl) {
-                    priceEl.textContent = formatPLN(totalBrutto) + ' brutto';
+                    priceEl.textContent = formatPLN(totalBruttoWithQuantity) + ' brutto';
                 }
                 if (priceNettoEl) {
-                    priceNettoEl.textContent = formatPLN(totalNetto) + ' netto';
+                    priceNettoEl.textContent = formatPLN(totalNettoWithQuantity) + ' netto';
                 }
             }
 
@@ -1516,7 +1539,7 @@ const EdgesModule = (function() {
                 updateGlobalSummary();
             }
 
-            console.log('[EdgesModule] Przeliczono krawędzie dla formularza, nowa cena:', totalBrutto.toFixed(2), 'PLN');
+            console.log('[EdgesModule] Przeliczono krawędzie dla formularza, cena per szt:', totalBrutto.toFixed(2), 'PLN, razem (' + quantity + ' szt):', totalBruttoWithQuantity.toFixed(2), 'PLN');
 
         } catch (e) {
             console.error('[EdgesModule] Błąd przeliczania krawędzi:', e);

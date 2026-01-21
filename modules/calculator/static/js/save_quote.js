@@ -841,10 +841,11 @@ function collectQuoteData() {
         }
 
         // Dodaj koszty obróbki krawędzi do sumy (tylko jeśli wariant jest wybrany)
+        // Cena już uwzględnia ilość sztuk (mnożenie odbywa się w EdgesModule)
         if (hasSelectedVariant && edgesBrutto > 0) {
             sumEdgesBrutto += edgesBrutto;
             sumEdgesNetto += edgesNetto;
-            console.log(`[collectQuoteData] Dodano obróbkę krawędzi dla produktu ${index + 1}: ${edgesBrutto} PLN brutto`);
+            console.log(`[collectQuoteData] Dodano obróbkę krawędzi dla produktu ${index + 1}: ${edgesBrutto} PLN brutto (już uwzględnia ${quantity} szt)`);
         }
 
         products.push({
