@@ -143,11 +143,23 @@ document.addEventListener('DOMContentLoaded', function() {
         // Normalizuje wartość numeryczną do porównania
         // "500,00", "500.00", "500" -> wszystkie stają się równe
         if (val === null || val === undefined || val === '') return '';
-        const str = String(val).trim().replace(',', '.');
+        const str = String(val).trim();
         if (str === '') return '';
-        const num = parseFloat(str);
-        if (isNaN(num)) return str; // Nie jest liczbą, zwróć oryginalny string
-        return num; // Zwróć jako number dla porównania
+        // Jeśli zawiera spację lub więcej niż jeden przecinek - to lista, nie liczba
+        if (str.includes(' ') || (str.match(/,/g) || []).length > 1) {
+            return str; // Zwróć jako string
+        }
+        const normalized = str.replace(',', '.');
+        const num = parseFloat(normalized);
+        // Sprawdź czy cały string to liczba (nie tylko początek)
+        if (isNaN(num) || normalized !== String(num) && normalized !== num.toFixed(2) && normalized !== num.toFixed(0)) {
+            // Dodatkowe sprawdzenie - czy parseFloat sparsował cały string
+            if (String(num) !== normalized && num.toFixed(2) !== normalized) {
+                return str;
+            }
+        }
+        if (isNaN(num)) return str;
+        return num;
     }
 
     function valuesEqual(a, b) {
@@ -163,13 +175,21 @@ document.addEventListener('DOMContentLoaded', function() {
         }
 
         // Dla wartości numerycznych, porównuj jako liczby
-        if (isNumericString(normA) || isNumericString(normB)) {
+        const isNumA = isNumericString(normA);
+        const isNumB = isNumericString(normB);
+
+        if (isNumA || isNumB) {
             const numA = normalizeNumeric(normA);
             const numB = normalizeNumeric(normB);
+
             // Jeśli obie są puste stringi lub obie są liczbami
             if (numA === '' && numB === '') return true;
             if (typeof numA === 'number' && typeof numB === 'number') {
                 return numA === numB;
+            }
+            // Jeśli jedna jest liczbą a druga nie - są różne
+            if (typeof numA !== typeof numB) {
+                return false;
             }
         }
 
