@@ -129,10 +129,14 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     function isNumericString(str) {
-        // Sprawdza czy string reprezentuje liczbę (obsługuje przecinek i kropkę)
+        // Sprawdza czy string reprezentuje POJEDYNCZĄ liczbę (obsługuje przecinek jako separator dziesiętny)
+        // Nie traktuje list wartości (np. "30, 45, 60") jako liczb
         if (typeof str !== 'string') return false;
-        const normalized = str.replace(',', '.');
-        return !isNaN(normalized) && !isNaN(parseFloat(normalized)) && normalized.trim() !== '';
+        const trimmed = str.trim();
+        // Jeśli zawiera przecinek z spacją lub więcej niż jeden przecinek - to lista, nie liczba
+        if (trimmed.includes(', ') || (trimmed.match(/,/g) || []).length > 1) return false;
+        const normalized = trimmed.replace(',', '.');
+        return !isNaN(normalized) && !isNaN(parseFloat(normalized)) && normalized !== '';
     }
 
     function normalizeNumeric(val) {
