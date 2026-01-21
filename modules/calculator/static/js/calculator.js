@@ -1963,7 +1963,13 @@ function prepareNewProductForm(form, index) {
     // ✅ Resetuj dataset formularza (ceny, dane)
     form.dataset.orderBrutto = '';
     form.dataset.orderNetto = '';
+
+    // ✅ Resetuj wszystkie dane wykończenia (każdy produkt ma indywidualne wykończenie)
     form.dataset.finishingType = 'Surowe';
+    form.dataset.finishingVariant = '';
+    form.dataset.finishingColor = '';
+    form.dataset.finishingFullPath = 'Surowe';
+    form.dataset.finishingOptionId = '';
     form.dataset.finishingBrutto = '';
     form.dataset.finishingNetto = '';
 
@@ -4441,17 +4447,24 @@ function duplicateProduct(sourceIndex) {
         };
     }
 
-    // Pobierz dane wykończeń
-    const finishingTypeBtn = sourceForm.querySelector('.finishing-btn[data-finishing-type].active');
-    if (finishingTypeBtn) {
-        sourceData.finishingType = finishingTypeBtn.dataset.finishingType;
+    // Pobierz dane wykończeń z dataset formularza (nowy system hierarchiczny)
+    sourceData.finishingType = sourceForm.dataset.finishingType || null;
+    sourceData.finishingVariant = sourceForm.dataset.finishingVariant || null;
+    sourceData.finishingColor = sourceForm.dataset.finishingColor || null;
+    sourceData.finishingFullPath = sourceForm.dataset.finishingFullPath || null;
+    sourceData.finishingOptionId = sourceForm.dataset.finishingOptionId || null;
+    sourceData.finishingBrutto = sourceForm.dataset.finishingBrutto || null;
+    sourceData.finishingNetto = sourceForm.dataset.finishingNetto || null;
+
+    // Fallback: spróbuj też ze starych selektorów dla kompatybilności wstecznej
+    if (!sourceData.finishingType) {
+        const finishingTypeBtn = sourceForm.querySelector('.finishing-btn[data-finishing-type].active');
+        if (finishingTypeBtn) {
+            sourceData.finishingType = finishingTypeBtn.dataset.finishingType;
+        }
     }
 
-    const finishingColorBtn = sourceForm.querySelector('.color-btn.active');
-    if (finishingColorBtn) {
-        sourceData.finishingColor = finishingColorBtn.dataset.finishingColor;
-    }
-
+    // Pobierz dane połysku (jeśli nadal używany)
     const finishingGlossBtn = sourceForm.querySelector('.finishing-btn[data-finishing-gloss].active');
     if (finishingGlossBtn) {
         sourceData.finishingGloss = finishingGlossBtn.dataset.finishingGloss;
@@ -4507,24 +4520,65 @@ function duplicateProduct(sourceIndex) {
             setDefaultClientType(newForm, false);
         }
 
-        // Aktywuj wykończenia jeśli były wybrane
+        // Aktywuj wykończenia jeśli były wybrane (nowy system hierarchiczny)
         if (sourceData.finishingType) {
-            const finishingBtn = newForm.querySelector(`[data-finishing-type="${sourceData.finishingType}"]`);
-            if (finishingBtn) {
-                finishingBtn.click();
+            // Próba 1: Nowy system - kliknij przyciski w drzewku hierarchicznym
+            const finishingTreeContainer = newForm.querySelector('.finishing-tree-container');
 
-                // Po aktywacji wykończenia, ustaw kolor i połysk
-                setTimeout(() => {
-                    if (sourceData.finishingColor) {
-                        const colorBtn = newForm.querySelector(`[data-finishing-color="${sourceData.finishingColor}"]`);
-                        if (colorBtn) colorBtn.click();
-                    }
+            if (finishingTreeContainer) {
+                // Kliknij przycisk typu wykończenia (poziom 0)
+                const typeBtn = finishingTreeContainer.querySelector(
+                    `.finishing-option-btn[data-option-name="${sourceData.finishingType}"]`
+                );
 
-                    if (sourceData.finishingGloss) {
-                        const glossBtn = newForm.querySelector(`[data-finishing-gloss="${sourceData.finishingGloss}"]`);
-                        if (glossBtn) glossBtn.click();
+                if (typeBtn) {
+                    typeBtn.click();
+                    console.log(`[duplicateProduct] Kliknięto typ wykończenia: ${sourceData.finishingType}`);
+
+                    // Po kliknięciu typu, ustaw wariant i kolor z opóźnieniem
+                    setTimeout(() => {
+                        // Wariant (poziom 1) - np. "Bezbarwne", "Barwne"
+                        if (sourceData.finishingVariant) {
+                            const variantBtn = finishingTreeContainer.querySelector(
+                                `.finishing-option-btn[data-option-name="${sourceData.finishingVariant}"]`
+                            );
+                            if (variantBtn) {
+                                variantBtn.click();
+                                console.log(`[duplicateProduct] Kliknięto wariant: ${sourceData.finishingVariant}`);
+
+                                // Kolor (poziom 2)
+                                setTimeout(() => {
+                                    if (sourceData.finishingColor) {
+                                        const colorBtn = finishingTreeContainer.querySelector(
+                                            `.finishing-option-btn[data-option-name="${sourceData.finishingColor}"]`
+                                        );
+                                        if (colorBtn) {
+                                            colorBtn.click();
+                                            console.log(`[duplicateProduct] Kliknięto kolor: ${sourceData.finishingColor}`);
+                                        }
+                                    }
+                                }, 50);
+                            }
+                        }
+                    }, 50);
+                } else {
+                    // Fallback: stary system - próbuj stare selektory
+                    const oldFinishingBtn = newForm.querySelector(`[data-finishing-type="${sourceData.finishingType}"]`);
+                    if (oldFinishingBtn) {
+                        oldFinishingBtn.click();
+
+                        setTimeout(() => {
+                            if (sourceData.finishingColor) {
+                                const colorBtn = newForm.querySelector(`[data-finishing-color="${sourceData.finishingColor}"]`);
+                                if (colorBtn) colorBtn.click();
+                            }
+                            if (sourceData.finishingGloss) {
+                                const glossBtn = newForm.querySelector(`[data-finishing-gloss="${sourceData.finishingGloss}"]`);
+                                if (glossBtn) glossBtn.click();
+                            }
+                        }, 100);
                     }
-                }, 100);
+                }
             }
         }
 
@@ -4965,6 +5019,13 @@ function addNewProduct() {
 
     // KROK 5: Dodaj event listenery do nowego formularza
     attachFormListeners(newForm);
+
+    // KROK 5.1: ✅ POPRAWKA - Przebuduj drzewko wykończeń dla nowego formularza
+    // Klonowanie kopiuje stare event listenery, więc trzeba przebudować drzewko
+    if (typeof renderFinishingTree === 'function') {
+        renderFinishingTree(newForm);
+        console.log(`[addNewProduct] ✅ Przebudowano drzewko wykończeń dla produktu ${newIndex + 1}`);
+    }
 
     // KROK 6: Przywróć zaznaczenia w STARYCH formularzach
     selectedStates.forEach(state => {

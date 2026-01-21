@@ -163,11 +163,13 @@ class QuoteDraftBackup {
         const selectedRadio = form.querySelector('input[type="radio"]:checked');
         const selectedVariant = selectedRadio ? selectedRadio.value : null;
 
-        // Dane wykończenia
-        const finishingType = form.querySelector('.finishing-btn[data-finishing-type].active')?.dataset.finishingType || 'Surowe';
-        const finishingVariant = form.querySelector('.finishing-btn[data-finishing-variant].active')?.dataset.finishingVariant || null;
-        const finishingColor = form.querySelector('.color-btn[data-finishing-color].active')?.dataset.finishingColor || null;
-        const finishingGloss = form.querySelector('.finishing-btn[data-finishing-gloss].active')?.dataset.finishingGloss || null;
+        // Dane wykończenia - pobierz z form.dataset (nowy system hierarchiczny)
+        const finishingType = form.dataset.finishingType || 'Surowe';
+        const finishingVariant = form.dataset.finishingVariant || null;
+        const finishingColor = form.dataset.finishingColor || null;
+        const finishingFullPath = form.dataset.finishingFullPath || null;
+        const finishingOptionId = form.dataset.finishingOptionId || null;
+        const finishingGloss = form.dataset.finishingGloss || null;
 
         // Grupa cenowa (może być różna dla każdego produktu, chociaż zwykle jest synchronizowana)
         const clientType = form.querySelector('select[data-field="clientType"]')?.value || null;
@@ -180,6 +182,7 @@ class QuoteDraftBackup {
                     data: JSON.parse(form.dataset.edgesData),
                     type: form.dataset.edgesType || 'round',
                     rValue: parseInt(form.dataset.edgesRValue) || 5,
+                    angleValue: form.dataset.edgesAngleValue ? parseInt(form.dataset.edgesAngleValue) : null,
                     netto: parseFloat(form.dataset.edgesNetto) || 0,
                     brutto: parseFloat(form.dataset.edgesBrutto) || 0
                 };
@@ -200,6 +203,8 @@ class QuoteDraftBackup {
                 type: finishingType,
                 variant: finishingVariant,
                 color: finishingColor,
+                fullPath: finishingFullPath,
+                optionId: finishingOptionId,
                 gloss: finishingGloss
             },
             edges
@@ -581,18 +586,32 @@ class QuoteDraftBackup {
             radio.checked = false;
         });
 
-        // Usuń aktywne klasy z wykończenia
-        form.querySelectorAll('.finishing-btn.active, .color-btn.active').forEach(btn => {
+        // Usuń aktywne klasy z wykończenia (nowy i stary system)
+        form.querySelectorAll('.finishing-btn.active, .color-btn.active, .finishing-option-btn.active').forEach(btn => {
             btn.classList.remove('active');
         });
 
-        // Ustaw domyślne wykończenie "Surowe"
-        const defaultFinishing = form.querySelector('.finishing-btn[data-finishing-type="Surowe"]');
-        if (defaultFinishing) {
-            defaultFinishing.classList.add('active');
+        // Resetuj dane wykończenia w dataset
+        form.dataset.finishingType = 'Surowe';
+        form.dataset.finishingVariant = '';
+        form.dataset.finishingColor = '';
+        form.dataset.finishingFullPath = 'Surowe';
+        form.dataset.finishingOptionId = '';
+        form.dataset.finishingBrutto = '';
+        form.dataset.finishingNetto = '';
+
+        // Przebuduj drzewko wykończeń dla nowego systemu
+        if (typeof renderFinishingTree === 'function') {
+            renderFinishingTree(form);
+        } else {
+            // Fallback dla starego systemu - ustaw domyślne wykończenie "Surowe"
+            const defaultFinishing = form.querySelector('.finishing-btn[data-finishing-type="Surowe"]');
+            if (defaultFinishing) {
+                defaultFinishing.classList.add('active');
+            }
         }
 
-        // Ukryj sekcje wykończenia
+        // Ukryj sekcje wykończenia (stary system)
         const sections = ['finishing-wrapper', 'color-section', 'gloss-section'];
         sections.forEach(sectionClass => {
             const section = form.querySelector(`.${sectionClass}`);
@@ -711,39 +730,89 @@ class QuoteDraftBackup {
             return;
         }
 
-        // Przywróć typ wykończenia
-        const typeBtn = form.querySelector(`[data-finishing-type="${finishing.type}"]`);
-        if (typeBtn) {
-            typeBtn.click();
-            await this.delay(100);
-        }
+        console.log('[QuoteDraftBackup] Przywracam wykończenie:', finishing);
 
-        // Przywróć wariant (bezbarwne/barwne)
-        if (finishing.variant) {
-            const variantBtn = form.querySelector(`[data-finishing-variant="${finishing.variant}"]`);
-            if (variantBtn) {
-                variantBtn.click();
+        // Sprawdź czy mamy nowy system (drzewko hierarchiczne)
+        const finishingTreeContainer = form.querySelector('.finishing-tree-container');
+
+        if (finishingTreeContainer) {
+            // NOWY SYSTEM - użyj przycisków .finishing-option-btn
+
+            // Przywróć typ wykończenia (poziom 0)
+            const typeBtn = finishingTreeContainer.querySelector(
+                `.finishing-option-btn[data-option-name="${finishing.type}"]`
+            );
+
+            if (typeBtn) {
+                typeBtn.click();
+                console.log(`[QuoteDraftBackup] ✅ Kliknięto typ: ${finishing.type}`);
                 await this.delay(100);
+
+                // Przywróć wariant (poziom 1) - np. "Bezbarwne", "Barwne"
+                if (finishing.variant) {
+                    const variantBtn = finishingTreeContainer.querySelector(
+                        `.finishing-option-btn[data-option-name="${finishing.variant}"]`
+                    );
+                    if (variantBtn) {
+                        variantBtn.click();
+                        console.log(`[QuoteDraftBackup] ✅ Kliknięto wariant: ${finishing.variant}`);
+                        await this.delay(100);
+
+                        // Przywróć kolor (poziom 2)
+                        if (finishing.color) {
+                            const colorBtn = finishingTreeContainer.querySelector(
+                                `.finishing-option-btn[data-option-name="${finishing.color}"]`
+                            );
+                            if (colorBtn) {
+                                colorBtn.click();
+                                console.log(`[QuoteDraftBackup] ✅ Kliknięto kolor: ${finishing.color}`);
+                                await this.delay(100);
+                            }
+                        }
+                    }
+                }
+            } else {
+                console.warn(`[QuoteDraftBackup] Nie znaleziono przycisku typu: ${finishing.type}`);
+            }
+        } else {
+            // STARY SYSTEM - fallback dla kompatybilności wstecznej
+
+            // Przywróć typ wykończenia
+            const typeBtn = form.querySelector(`[data-finishing-type="${finishing.type}"]`);
+            if (typeBtn) {
+                typeBtn.click();
+                await this.delay(100);
+            }
+
+            // Przywróć wariant (bezbarwne/barwne)
+            if (finishing.variant) {
+                const variantBtn = form.querySelector(`[data-finishing-variant="${finishing.variant}"]`);
+                if (variantBtn) {
+                    variantBtn.click();
+                    await this.delay(100);
+                }
+            }
+
+            // Przywróć kolor
+            if (finishing.color) {
+                const colorBtn = form.querySelector(`[data-finishing-color="${finishing.color}"]`);
+                if (colorBtn) {
+                    colorBtn.click();
+                    await this.delay(100);
+                }
+            }
+
+            // Przywróć połysk
+            if (finishing.gloss) {
+                const glossBtn = form.querySelector(`[data-finishing-gloss="${finishing.gloss}"]`);
+                if (glossBtn) {
+                    glossBtn.click();
+                    await this.delay(100);
+                }
             }
         }
 
-        // Przywróć kolor
-        if (finishing.color) {
-            const colorBtn = form.querySelector(`[data-finishing-color="${finishing.color}"]`);
-            if (colorBtn) {
-                colorBtn.click();
-                await this.delay(100);
-            }
-        }
-
-        // Przywróć połysk
-        if (finishing.gloss) {
-            const glossBtn = form.querySelector(`[data-finishing-gloss="${finishing.gloss}"]`);
-            if (glossBtn) {
-                glossBtn.click();
-                await this.delay(100);
-            }
-        }
+        console.log('[QuoteDraftBackup] ✅ Przywrócono wykończenie');
     }
 
     /**
@@ -763,6 +832,11 @@ class QuoteDraftBackup {
         form.dataset.edgesNetto = edges.netto || 0;
         form.dataset.edgesBrutto = edges.brutto || 0;
 
+        // Zapisz kąt fazowania jeśli istnieje
+        if (edges.angleValue) {
+            form.dataset.edgesAngleValue = edges.angleValue;
+        }
+
         // Aktualizuj UI - pokaż podsumowanie krawędzi
         const optionsSummary = form.closest('.quote-form')?.querySelector('.options-summary');
         if (optionsSummary) {
@@ -770,8 +844,13 @@ class QuoteDraftBackup {
             if (edgesRow) {
                 // Wygeneruj tekst podsumowania
                 const edgeLetters = edges.data.map(e => e.letter).sort().join(', ');
-                const edgeTypeLabel = edges.type === 'chamfer' ? 'Fazowanie' : 'Zaokrąglenie';
-                const summaryText = `${edgeTypeLabel} R${edges.rValue} – krawędzie: ${edgeLetters}`;
+                let edgeTypeLabel;
+                if (edges.type === 'chamfer') {
+                    edgeTypeLabel = edges.angleValue ? `Fazowanie R${edges.rValue} (${edges.angleValue}°)` : `Fazowanie R${edges.rValue}`;
+                } else {
+                    edgeTypeLabel = `Zaokrąglenie R${edges.rValue}`;
+                }
+                const summaryText = `${edgeTypeLabel} – krawędzie: ${edgeLetters}`;
 
                 // Zaktualizuj tekst i cenę
                 const textEl = edgesRow.querySelector('.edges-summary-text');
@@ -814,6 +893,32 @@ class QuoteDraftBackup {
         // Zaktualizuj przycisk "Obróbka krawędzi" (jeśli istnieje EdgesModule)
         if (typeof EdgesModule !== 'undefined' && EdgesModule.updateOpenButton) {
             EdgesModule.updateOpenButton(form);
+        }
+
+        // ✅ WAŻNE: Wygeneruj SVG poprzez otwarcie modala i kliknięcie "Zastosuj"
+        // SVG nie jest zapisywane w cookies (za duże), więc musimy je wygenerować
+        if (typeof EdgesModule !== 'undefined' && EdgesModule.openModal) {
+            try {
+                // Otwórz modal - to załaduje zapisane dane i wygeneruje SVG
+                EdgesModule.openModal(form);
+                await this.delay(200);
+
+                // Znajdź i kliknij przycisk "Zastosuj" - to zapisze SVG do form.dataset
+                const applyBtn = document.getElementById('applyEdgesBtn');
+                if (applyBtn) {
+                    applyBtn.click();
+                    console.log('[QuoteDraftBackup] ✅ Wygenerowano SVG poprzez modal krawędzi');
+                } else {
+                    // Jeśli nie ma przycisku, zamknij modal
+                    EdgesModule.closeModal();
+                    console.warn('[QuoteDraftBackup] Nie znaleziono przycisku "Zastosuj" w modalu krawędzi');
+                }
+            } catch (e) {
+                console.warn('[QuoteDraftBackup] Błąd podczas generowania SVG:', e);
+                if (typeof EdgesModule !== 'undefined' && EdgesModule.closeModal) {
+                    EdgesModule.closeModal();
+                }
+            }
         }
 
         await this.delay(100);

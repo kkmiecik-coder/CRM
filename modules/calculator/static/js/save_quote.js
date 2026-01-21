@@ -752,10 +752,17 @@ function collectQuoteData() {
             length, width, thickness, quantity
         });
 
-        const finishingType = form.querySelector('[data-finishing-type].active')?.dataset.finishingType || null;
-        const finishingVariant = form.querySelector('[data-finishing-variant].active')?.dataset.finishingVariant || null;
-        const finishingColor = form.querySelector('[data-finishing-color].active')?.dataset.finishingColor || null;
-        const finishingGloss = form.querySelector('[data-finishing-gloss].active')?.dataset.finishingGloss || null;
+        // ✅ POPRAWKA: Pobierz dane wykończenia z form.dataset (nowy system hierarchiczny)
+        // Dane są zapisywane przez updateSelectedFinishing() w calculator.js
+        const finishingType = form.dataset.finishingType || null;
+        const finishingVariant = form.dataset.finishingVariant || null;
+        const finishingColor = form.dataset.finishingColor || null;
+        const finishingFullPath = form.dataset.finishingFullPath || null;
+        const finishingOptionId = form.dataset.finishingOptionId || null;
+
+        // Fallback dla starszego systemu - jeśli dane nie są w dataset, spróbuj z DOM
+        const finishingGloss = form.dataset.finishingGloss ||
+            form.querySelector('[data-finishing-gloss].active')?.dataset.finishingGloss || null;
 
         const finishingBrutto = parseFloat(form.dataset.finishingBrutto || 0);
         const finishingNetto = parseFloat(form.dataset.finishingNetto || 0);
@@ -776,6 +783,7 @@ function collectQuoteData() {
 
         console.log(`[collectQuoteData] Produkt ${index + 1} - wykończenie:`, {
             finishingType, finishingVariant, finishingColor, finishingGloss,
+            finishingFullPath, finishingOptionId,
             finishingBrutto, finishingNetto, quantity
         });
 
