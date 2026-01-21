@@ -25,6 +25,7 @@ document.addEventListener("DOMContentLoaded", () => {
     });
     initStatusPanel();
     fetchUsers();
+    fetchRoles();
     initClearFiltersButton();
     updateClearFiltersButtonState();
     initEditModals();
@@ -237,6 +238,26 @@ function fetchUsers() {
             });
         })
         .catch(err => console.error("Błąd pobierania użytkowników:", err));
+}
+
+function fetchRoles() {
+    const select = document.getElementById("role-filter");
+    if (!select) return; // Element nie istnieje (ukryty dla partnerów)
+
+    fetch("/quotes/api/roles")
+        .then(res => res.json())
+        .then(data => {
+            // Reset opcji przed dodaniem nowych
+            select.innerHTML = '<option value="">Wszystkie</option>';
+
+            data.forEach(role => {
+                const opt = document.createElement("option");
+                opt.value = role.value;
+                opt.textContent = role.label;
+                select.appendChild(opt);
+            });
+        })
+        .catch(err => console.error("Błąd pobierania ról:", err));
 }
 
 /**
@@ -1922,6 +1943,7 @@ function filterQuotes() {
     const clientName = document.getElementById("client-name-filter")?.value || "";
     const source = document.getElementById("source-filter")?.value || "";
     const employee = document.getElementById("employee-filter")?.value || "";
+    const userRole = document.getElementById("role-filter")?.value || "";
     const dateFrom = document.getElementById("date-from-filter")?.value || "";
     const dateTo = document.getElementById("date-to-filter")?.value || "";
 
@@ -1946,6 +1968,7 @@ function filterQuotes() {
     if (clientName) params.append('client_name', clientName);
     if (source) params.append('source', source);
     if (employee) params.append('employee_id', employee);
+    if (userRole) params.append('user_role', userRole);
     if (dateFrom) params.append('date_from', dateFrom);
     if (dateTo) params.append('date_to', dateTo);
     if (activeStatus) params.append('status', activeStatus);

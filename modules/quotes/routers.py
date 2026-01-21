@@ -235,6 +235,7 @@ def api_quotes():
         client_name = request.args.get('client_name', '').strip()
         source = request.args.get('source', '').strip()
         employee_id = request.args.get('employee_id', type=int)
+        user_role_filter = request.args.get('user_role', '').strip()
         date_from = request.args.get('date_from', '').strip()
         date_to = request.args.get('date_to', '').strip()
         status_filter = request.args.get('status', '').strip()
@@ -272,6 +273,13 @@ def api_quotes():
 
         if employee_id:
             filtered_query = filtered_query.filter(Quote.user_id == employee_id)
+
+        # Filtrowanie po roli użytkownika (opiekuna wyceny)
+        if user_role_filter:
+            # Join z User tylko jeśli jeszcze nie został zrobiony
+            filtered_query = filtered_query.join(User, Quote.user_id == User.id, isouter=True).filter(
+                User.role == user_role_filter
+            )
 
         if date_from:
             try:
@@ -644,6 +652,35 @@ def get_users():
     return jsonify([
         {"id": user.id, "name": f"{user.first_name} {user.last_name}".strip()} for user in users
     ])
+
+@quotes_bp.route("/api/roles")
+@require_module_access('quotes')
+def get_roles():
+    """Zwraca listę unikalnych ról użytkowników dla filtra"""
+    # Słownik mapujący wartości ról na czytelne etykiety
+    role_labels = {
+        'admin': 'Administrator',
+        'user': 'Użytkownik',
+        'partner': 'Partner'
+    }
+
+    # Pobierz unikalne role z bazy
+    roles = db.session.query(User.role).filter(
+        User.active == True,
+        User.role.isnot(None)
+    ).distinct().all()
+
+    result = []
+    for (role,) in roles:
+        if role:
+            result.append({
+                "value": role,
+                "label": role_labels.get(role, role.capitalize())
+            })
+
+    # Sortuj alfabetycznie po etykiecie
+    result.sort(key=lambda x: x['label'])
+    return jsonify(result)
 
 @quotes_bp.route("/api/quotes/<int:quote_id>")
 @require_module_access('quotes')

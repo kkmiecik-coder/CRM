@@ -59,6 +59,15 @@
                             <label for="user-filter" class="select-label static">Pracownik</label>
                         </div>
 
+                        <!-- Rola użytkownika - tylko dla admin i user -->
+                        <div class="floating-label-input">
+                            <select id="role-filter" class="styled-select">
+                                <option value="">Wszystkie</option>
+                                <!-- Opcje wstrzykujemy z JS -->
+                            </select>
+                            <label for="role-filter" class="select-label static">Rola użytkownika</label>
+                        </div>
+
                         <!-- Źródło -->
                         <div class="floating-label-input">
                             <select id="source-filter" class="styled-select" required>
