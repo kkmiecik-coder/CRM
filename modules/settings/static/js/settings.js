@@ -1160,17 +1160,13 @@ document.addEventListener('DOMContentLoaded', function() {
 
     const edgeOptionsTableBody = document.getElementById('edgeOptionsTableBody');
 
+    // Obsługa inputów numerycznych (ceny, R wartości)
     edgeOptionsTableBody?.addEventListener('input', (e) => {
-        if (e.target.classList.contains('price-input') || e.target.classList.contains('number-input') || e.target.classList.contains('angles-input')) {
+        if (e.target.classList.contains('price-input') || e.target.classList.contains('number-input')) {
             const id = e.target.dataset.id;
             const field = e.target.dataset.field;
             if (id && field) {
                 trackChange('edgeOptions', id, field, e.target.value);
-
-                // Jeśli zmieniono kąty fazowania, zaktualizuj select domyślnego kąta
-                if (field === 'chamfer_angles') {
-                    updateAngleDefaultSelect(id, e.target.value);
-                }
             }
         }
     });
@@ -1186,19 +1182,107 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     });
 
-    // Funkcja aktualizująca select domyślnego kąta na podstawie listy kątów
-    function updateAngleDefaultSelect(id, anglesStr) {
+    // =============================================
+    // KĄTY FAZOWANIA - TAGI UI
+    // =============================================
+
+    // Obsługa usuwania tagu kąta
+    edgeOptionsTableBody?.addEventListener('click', (e) => {
+        if (e.target.classList.contains('angle-remove')) {
+            const tag = e.target.closest('.angle-tag');
+            const container = e.target.closest('.angles-container');
+            if (tag && container) {
+                tag.remove();
+                updateAnglesFromTags(container);
+            }
+        }
+
+        // Obsługa dodawania nowego kąta
+        if (e.target.classList.contains('angle-add-btn')) {
+            const container = e.target.closest('.angles-container');
+            const input = container?.querySelector('.angle-new-input');
+            if (container && input) {
+                addAngleTag(container, input);
+            }
+        }
+    });
+
+    // Obsługa Enter w inpucie dodawania kąta
+    edgeOptionsTableBody?.addEventListener('keypress', (e) => {
+        if (e.target.classList.contains('angle-new-input') && e.key === 'Enter') {
+            e.preventDefault();
+            const container = e.target.closest('.angles-container');
+            if (container) {
+                addAngleTag(container, e.target);
+            }
+        }
+    });
+
+    // Funkcja dodająca nowy tag kąta
+    function addAngleTag(container, input) {
+        const value = parseInt(input.value);
+        if (isNaN(value) || value < 1 || value > 89) {
+            input.classList.add('error');
+            setTimeout(() => input.classList.remove('error'), 500);
+            return;
+        }
+
+        // Sprawdź czy kąt już istnieje
+        const existingAngles = getAnglesFromContainer(container);
+        if (existingAngles.includes(value)) {
+            input.value = '';
+            return;
+        }
+
+        // Utwórz nowy tag
+        const tag = document.createElement('span');
+        tag.className = 'angle-tag';
+        tag.dataset.angle = value;
+        tag.innerHTML = `${value}°<button type="button" class="angle-remove">&times;</button>`;
+
+        // Dodaj tag do kontenera
+        const tagsContainer = container.querySelector('.angles-tags');
+        tagsContainer.appendChild(tag);
+
+        // Wyczyść input
+        input.value = '';
+
+        // Aktualizuj hidden input i trackChange
+        updateAnglesFromTags(container);
+    }
+
+    // Funkcja pobierająca kąty z tagów
+    function getAnglesFromContainer(container) {
+        const tags = container.querySelectorAll('.angle-tag');
+        return Array.from(tags).map(tag => parseInt(tag.dataset.angle)).filter(a => !isNaN(a));
+    }
+
+    // Funkcja aktualizująca hidden input i wywołująca trackChange
+    function updateAnglesFromTags(container) {
+        const id = container.dataset.id;
+        const angles = getAnglesFromContainer(container);
+        const anglesStr = angles.join(', ');
+
+        // Zaktualizuj hidden input
+        const hiddenInput = container.querySelector('.angles-hidden');
+        if (hiddenInput) {
+            hiddenInput.value = anglesStr;
+        }
+
+        // Wywołaj trackChange
+        trackChange('edgeOptions', id, 'chamfer_angles', anglesStr);
+
+        // Zaktualizuj select domyślnego kąta
+        updateAngleDefaultSelect(id, angles);
+    }
+
+    // Funkcja aktualizująca select domyślnego kąta
+    function updateAngleDefaultSelect(id, angles) {
         const row = document.querySelector(`#edgeOptionsTableBody tr[data-id="${id}"]`);
         if (!row) return;
 
         const select = row.querySelector('.angle-default-select');
         if (!select) return;
-
-        // Parsuj kąty
-        const angles = anglesStr
-            .split(',')
-            .map(a => parseInt(a.trim()))
-            .filter(a => !isNaN(a) && a > 0 && a < 90);
 
         // Zachowaj obecną wartość jeśli możliwe
         const currentValue = parseInt(select.value);

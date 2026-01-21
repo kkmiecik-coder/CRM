@@ -1451,3 +1451,96 @@ tr.row-changed td:first-child {
         justify-content: center;
     }
 }
+
+/* ============================================
+   KĄTY FAZOWANIA - TAGI UI
+   ============================================ */
+
+.angles-container {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 120px;
+}
+
+.angles-container[data-disabled="true"] {
+    opacity: 0.5;
+    pointer-events: none;
+}
+
+.angles-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+}
+
+.angle-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 6px 3px 8px;
+    background: var(--primary-color, #2563eb);
+    color: white;
+    border-radius: 4px;
+    font-size: 0.8rem;
+    font-weight: 500;
+}
+
+.angle-remove {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 16px;
+    padding: 0;
+    border: none;
+    background: rgba(255,255,255,0.2);
+    color: white;
+    border-radius: 3px;
+    cursor: pointer;
+    font-size: 12px;
+    line-height: 1;
+}
+
+.angle-remove:hover {
+    background: rgba(255,255,255,0.4);
+}
+
+.angles-add-form {
+    display: flex;
+    gap: 4px;
+}
+
+.angle-new-input {
+    width: 50px;
+    padding: 4px 6px;
+    border: 1px solid var(--border-color, #e5e7eb);
+    border-radius: 4px;
+    font-size: 0.8rem;
+    text-align: center;
+}
+
+.angle-new-input:focus {
+    outline: none;
+    border-color: var(--primary-color, #2563eb);
+}
+
+.angle-add-btn {
+    padding: 4px 8px;
+    border: 1px solid var(--primary-color, #2563eb);
+    background: var(--primary-color, #2563eb);
+    color: white;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 0.85rem;
+    font-weight: 600;
+}
+
+.angle-add-btn:hover {
+    background: var(--primary-hover, #1d4ed8);
+}
+
+.angle-add-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}

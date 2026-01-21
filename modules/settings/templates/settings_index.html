@@ -565,11 +565,21 @@
                                                {% if option.type == 'sharp' %}disabled{% endif %}>
                                     </td>
                                     <td>
-                                        <input type="text" class="price-input angles-input"
-                                               value="{{ option.chamfer_angles|join(', ') if option.chamfer_angles else '' }}"
-                                               data-field="chamfer_angles" data-id="{{ option.id }}"
-                                               placeholder="np. 30, 45, 60"
-                                               {% if option.type != 'chamfer' %}disabled{% endif %}>
+                                        <div class="angles-container" data-id="{{ option.id }}" {% if option.type != 'chamfer' %}data-disabled="true"{% endif %}>
+                                            <div class="angles-tags">
+                                                {% if option.chamfer_angles %}
+                                                    {% for angle in option.chamfer_angles %}
+                                                    <span class="angle-tag" data-angle="{{ angle }}">{{ angle }}°<button type="button" class="angle-remove">&times;</button></span>
+                                                    {% endfor %}
+                                                {% endif %}
+                                            </div>
+                                            <div class="angles-add-form">
+                                                <input type="number" class="angle-new-input" min="1" max="89" placeholder="°" {% if option.type != 'chamfer' %}disabled{% endif %}>
+                                                <button type="button" class="angle-add-btn" {% if option.type != 'chamfer' %}disabled{% endif %}>+</button>
+                                            </div>
+                                            <input type="hidden" class="angles-hidden" data-field="chamfer_angles" data-id="{{ option.id }}"
+                                                   value="{{ option.chamfer_angles|join(', ') if option.chamfer_angles else '' }}">
+                                        </div>
                                     </td>
                                     <td>
                                         <select class="price-input angle-default-select"
