@@ -4224,42 +4224,31 @@ function getFinishingDescription(form) {
 
 function getFinishingDescriptionWithGloss(form) {
     if (!form) return null;
-    
-    const finishingTypeBtn = form.querySelector('.finishing-btn[data-finishing-type].active');
-    const finishingVariantBtn = form.querySelector('.finishing-btn[data-finishing-variant].active');
-    
-    if (!finishingTypeBtn || finishingTypeBtn.dataset.finishingType === 'Surowe') {
+
+    // ✅ Pobierz dane z form.dataset (zapisane przez updateSelectedFinishing)
+    const finishingType = form.dataset.finishingType;
+    const finishingVariant = form.dataset.finishingVariant;
+    const finishingColor = form.dataset.finishingColor;
+
+    // Jeśli brak wykończenia lub wybrano "Surowe"
+    if (!finishingType || finishingType === 'Surowe') {
         return null;
     }
-    
-    let description = finishingTypeBtn.dataset.finishingType;
-    
-    if (finishingVariantBtn) {
-        description += ` ${finishingVariantBtn.dataset.finishingVariant}`;
-        
-        // Dodaj kolor jeśli jest wybrany
-        if (finishingVariantBtn.dataset.finishingVariant === 'Barwne') {
-            const colorBtn = form.querySelector('.color-btn.active');
-            if (colorBtn) {
-                const color = colorBtn.dataset.finishingColor;
-                if (color) {
-                    description += ` (${color})`;
-                }
-            }
-        }
+
+    // Rozpocznij od głównego typu (np. "Lakierowanie", "Olejowanie")
+    let description = finishingType;
+
+    // Dodaj wariant jeśli istnieje (np. "Bezbarwne", "Barwne")
+    if (finishingVariant) {
+        const variantLower = finishingVariant.toLowerCase();
+        description += ` ${variantLower}`;
     }
-    
-    // ✅ POPRAWKA: Dodaj stopień połysku
-    if (finishingTypeBtn.dataset.finishingType === 'Lakierowanie') {
-        const glossBtn = form.querySelector('.finishing-btn[data-finishing-gloss].active');
-        if (glossBtn) {
-            const gloss = glossBtn.dataset.finishingGloss;
-            if (gloss) {
-                description += ` ${gloss}`;
-            }
-        }
+
+    // Dodaj kolor jeśli istnieje (np. "Orzech 22-74")
+    if (finishingColor) {
+        description += ` ${finishingColor}`;
     }
-    
+
     return description;
 }
 
@@ -4323,22 +4312,39 @@ function generateProductDescription(form, index) {
     // Pobierz dane obróbki krawędzi
     const edgesType = form.dataset.edgesType;
     const edgesRValue = form.dataset.edgesRValue;
+    const edgesAngleValue = form.dataset.edgesAngleValue;
     let edgesDescription = '';
     if (edgesType && edgesRValue) {
         const edgeTypeLabel = edgesType === 'chamfer' ? 'Fazowanie' : 'Zaokrąglenie';
         edgesDescription = `${edgeTypeLabel} R${edgesRValue}`;
+
+        // Dodaj kąt dla fazowania
+        if (edgesType === 'chamfer' && edgesAngleValue) {
+            edgesDescription += ` ${edgesAngleValue}°`;
+        }
     }
 
     // Buduj główny opis według nowego schematu
-    // [gatunek] | [technologia] | [klasa] | [wymiary] | [wykończenie] | [obróbka krawędzi] | [liczba sztuk]
+    // Format: Dąb mikrowczep A/B 100×40×4 cm | Wykończenie | Obróbka krawędzi | Ilość
     let mainParts = [];
 
-    if (species) mainParts.push(species);
-    if (technology) mainParts.push(technology);
-    if (woodClass) mainParts.push(woodClass);
-    mainParts.push(`${length}×${width}×${thickness} cm`);
-    if (finishingDescription) mainParts.push(finishingDescription);
-    if (edgesDescription) mainParts.push(edgesDescription);
+    // Część 1: Gatunek + technologia + klasa + wymiary (bez separatorów między nimi)
+    let basicInfo = [];
+    if (species) basicInfo.push(species);
+    if (technology) basicInfo.push(technology);
+    if (woodClass) basicInfo.push(woodClass);
+    basicInfo.push(`${length}×${width}×${thickness} cm`);
+    mainParts.push(basicInfo.join(' '));
+
+    // Część 2: Wykończenie (lub "Surowy" jeśli brak)
+    mainParts.push(finishingDescription || 'Surowy');
+
+    // Część 3: Obróbka krawędzi (opcjonalna)
+    if (edgesDescription) {
+        mainParts.push(edgesDescription);
+    }
+
+    // Część 4: Ilość
     mainParts.push(`${quantity} szt.`);
 
     const mainDescription = mainParts.join(' | ');

@@ -634,7 +634,6 @@ body {
     box-shadow: var(--shadow-light);
     width: 100%;
     max-width: 100%;
-    min-height: 200px; /* Minimalna wysokość dla stabilności */
 }
 
 .comparison-section {

@@ -325,7 +325,48 @@ document.addEventListener('DOMContentLoaded', function () {
                 variantName = `${species} ${technology}${woodClass ? ' ' + woodClass : ''}`;
             }
 
-            const productName = `Klejonka ${variantName} ${product.length}x${product.width}x${product.thickness} cm (x${product.quantity} szt.)`;
+            // Buduj nazwę produktu z wykończeniem i obróbką krawędzi
+            let productNameParts = [];
+
+            // Część 1: Gatunek + wymiary
+            productNameParts.push(`${variantName} ${product.length}×${product.width}×${product.thickness} cm`);
+
+            // Część 2: Wykończenie
+            let finishingText = '';
+            if (product.finishing_type) {
+                // Parsuj finishingType, np. "Lakierowanie|Bezbarwne|Półmat" lub "Olejowanie|Bejca dąb|Satyna"
+                const finishingParts = product.finishing_type.split('|');
+
+                if (finishingParts.length >= 2) {
+                    const mainType = finishingParts[0]; // np. "Lakierowanie"
+                    const variant = finishingParts[1]; // np. "Bezbarwne" lub "Orzech 22-74"
+
+                    finishingText = `${mainType} ${variant}`;
+                } else {
+                    finishingText = product.finishing_type;
+                }
+            } else {
+                finishingText = 'Surowy';
+            }
+            productNameParts.push(finishingText);
+
+            // Część 3: Obróbka krawędzi
+            if (product.edges_type && product.edges_type !== 'none') {
+                let edgesText = '';
+
+                if (product.edges_type === 'rounded') {
+                    edgesText = `Zaokrąglenie R${product.edges_r_value}`;
+                } else if (product.edges_type === 'chamfer') {
+                    edgesText = `Fazowanie R${product.edges_r_value} ${product.edges_angle_value}°`;
+                }
+
+                if (edgesText) {
+                    productNameParts.push(edgesText);
+                }
+            }
+
+            // Część 4: Ilość
+            const productName = `${productNameParts.join(' | ')} | ${product.quantity} szt.`;
             const rawPrice = selectedVariant.final_price_brutto.toFixed(2);
             // Wykończenie = finishing + krawędzie (wliczone razem)
             const finishingWithEdges = product.finishing_brutto + (product.edges_brutto || 0);
