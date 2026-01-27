@@ -390,11 +390,27 @@ function renderApplicationModalContent(data) {
                     <button onclick="updateApplicationStatus(${data.id})">Zapisz</button>
                 </div>
                 <div class="nda-control">
-                    ${data.has_nda_file ?
-            `<button class="btn-nda" onclick="openNDA(${data.id})">
-                            📄 Otwórz NDA (${filesizeKB} KB)
-                        </button>` :
-            '<p style="color: var(--text-gray); margin: 0;">Brak pliku NDA</p>'}
+    `;
+
+    // Obsługa wielu plików NDA
+    if (data.has_nda_file || data.has_nda_file_2) {
+        if (data.has_nda_file) {
+            const filesizeKB1 = data.nda_filesize ? (data.nda_filesize / 1024).toFixed(2) : '0';
+            html += `<button class="btn-nda" onclick="openNDA(${data.id}, 1)">
+                        📄 Otwórz NDA 1 (${filesizeKB1} KB)
+                    </button>`;
+        }
+        if (data.has_nda_file_2) {
+            const filesizeKB2 = data.nda_filesize_2 ? (data.nda_filesize_2 / 1024).toFixed(2) : '0';
+            html += `<button class="btn-nda" onclick="openNDA(${data.id}, 2)">
+                        📄 Otwórz NDA 2 (${filesizeKB2} KB)
+                    </button>`;
+        }
+    } else {
+        html += '<p style="color: var(--text-gray); margin: 0;">Brak pliku NDA</p>';
+    }
+
+    html += `
                 </div>
             </div>
         </div>
@@ -434,9 +450,9 @@ function renderApplicationModalContent(data) {
     modalContent.innerHTML = html;
 }
 
-function openNDA(applicationId) {
-    // Otwórz PDF w nowym oknie zamiast pobierać
-    window.open(`/partner-academy/admin/api/application/${applicationId}/nda`, '_blank');
+function openNDA(applicationId, fileNumber = 1) {
+    // Otwórz plik NDA w nowej zakładce przeglądarki
+    window.open(`/partner-academy/admin/api/application/${applicationId}/nda/${fileNumber}`, '_blank');
 }
 
 function renderNotes(notes) {

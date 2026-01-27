@@ -628,25 +628,29 @@ def add_application_note(application_id):
 @partner_academy_bp.route('/admin/api/application/<int:application_id>/nda/<int:file_number>')
 @require_module_access('partner_academy')
 def download_nda(application_id, file_number=1):
-    """Pobieranie pliku NDA (1 lub 2)"""
+    """Otwieranie/pobieranie pliku NDA (1 lub 2)"""
     try:
         application = PartnerApplication.query.get_or_404(application_id)
 
         if file_number == 1:
             filepath = application.nda_filepath
             filename = application.nda_filename
+            mime_type = application.nda_mime_type
         elif file_number == 2:
             filepath = application.nda_filepath_2
             filename = application.nda_filename_2
+            mime_type = application.nda_mime_type_2
         else:
             return jsonify({'success': False, 'message': 'Nieprawidłowy numer pliku'}), 400
 
         if not filepath or not os.path.exists(filepath):
             return jsonify({'success': False, 'message': f'Plik NDA {file_number} nie istnieje'}), 404
 
+        # Otwórz w przeglądarce zamiast pobierać (inline zamiast attachment)
         return send_file(
             filepath,
-            as_attachment=True,
+            mimetype=mime_type or 'application/pdf',
+            as_attachment=False,
             download_name=filename or os.path.basename(filepath)
         )
 
