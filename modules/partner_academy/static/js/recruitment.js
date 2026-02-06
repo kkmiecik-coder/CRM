@@ -64,7 +64,7 @@ function setupCooperationCardSelector() {
                 setTimeout(() => {
                     b2bFields.classList.add('show');
                 }, 10);
-                
+
                 // Ustaw required dla pól B2B
                 setB2BFieldsRequired(true);
             } else {
@@ -72,11 +72,13 @@ function setupCooperationCardSelector() {
                 setTimeout(() => {
                     b2bFields.style.display = 'none';
                 }, 400);
-                
+
                 // Usuń required z pól B2B i wyczyść błędy
                 setB2BFieldsRequired(false);
                 clearB2BFieldsErrors();
             }
+            // Aktualizuj stan przycisku generowania NDA
+            checkGenerateNDAButton();
         });
     });
     
@@ -194,6 +196,11 @@ function transitionStep(oldStep, newStep, direction) {
         updateNavigationButtons();
         renderMobileProgress();
 
+        // Przy przejściu na krok z formularzem - sprawdź stan przycisku NDA
+        if (newStep === totalSteps) {
+            checkGenerateNDAButton();
+        }
+
         // Scroll do góry
         window.scrollTo({ top: 0, behavior: 'smooth' });
     }, 500);
@@ -298,8 +305,96 @@ function setupFormValidation() {
                 errorSpan.style.display = 'none';
             }
             this.classList.remove('error');
+            // Sprawdź czy przycisk NDA może być aktywny
+            checkGenerateNDAButton();
+        });
+
+        field.addEventListener('change', function () {
+            checkGenerateNDAButton();
         });
     });
+
+    // Początkowe sprawdzenie stanu przycisku
+    checkGenerateNDAButton();
+}
+
+// ============================================================================
+// NDA BUTTON STATE (disabled dopóki formularz niekompletny)
+// ============================================================================
+
+function isFieldFormatValid(field) {
+    const value = field.value.trim();
+    if (!value) return false;
+
+    // Email
+    if (field.type === 'email') {
+        return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+    }
+    // Telefon
+    if (field.id === 'phone') {
+        return /^[\d\s\+\-\(\)]+$/.test(value) && value.replace(/\D/g, '').length >= 9;
+    }
+    // Kod pocztowy
+    if (field.id === 'postal_code' || field.id === 'company_postal_code') {
+        return /^\d{2}-\d{3}$/.test(value);
+    }
+    // NIP
+    if (field.id === 'nip') {
+        return /^\d{10}$/.test(value.replace(/\D/g, ''));
+    }
+
+    return true;
+}
+
+function checkGenerateNDAButton() {
+    const btn = document.getElementById('btnGenerateNDA');
+    if (!btn) return;
+
+    const form = document.getElementById('applicationForm');
+    if (!form) return;
+
+    let allValid = true;
+
+    // Sprawdź wszystkie wymagane pola (input, select) - bez textarea
+    const requiredFields = form.querySelectorAll('input[required], select[required]');
+    requiredFields.forEach(field => {
+        // Pomiń ukryte pola B2B jeśli nie wybrano B2B
+        const b2bContainer = document.getElementById('b2bFields');
+        if (b2bContainer && b2bContainer.style.display === 'none' && b2bContainer.contains(field)) {
+            return;
+        }
+
+        if (field.type === 'checkbox') {
+            if (!field.checked) allValid = false;
+        } else if (field.type === 'radio') {
+            const radioGroup = form.querySelectorAll(`input[name="${field.name}"]`);
+            const anyChecked = Array.from(radioGroup).some(r => r.checked);
+            if (!anyChecked) allValid = false;
+        } else {
+            if (!isFieldFormatValid(field)) allValid = false;
+        }
+    });
+
+    // Sprawdź pola B2B jeśli wybrano B2B
+    const cooperationType = document.querySelector('input[name="cooperation_type"]:checked');
+    if (cooperationType && cooperationType.value === 'b2b') {
+        const b2bFieldIds = ['company_name', 'nip', 'company_address', 'company_city', 'company_postal_code'];
+        b2bFieldIds.forEach(fieldId => {
+            const field = document.getElementById(fieldId);
+            if (field && !isFieldFormatValid(field)) {
+                allValid = false;
+            }
+        });
+    }
+
+    // Sprawdź zgodę RODO
+    const consent = document.getElementById('data_processing_consent');
+    if (consent && !consent.checked) {
+        allValid = false;
+    }
+
+    // Aktualizuj stan przycisku (styl obsługuje CSS :disabled)
+    btn.disabled = !allValid;
 }
 
 function validateField(field) {
@@ -571,6 +666,14 @@ function handleFile(file) {
         return;
     }
 
+    // Detekcja nazw plików sugerujących CV
+    const cvPatterns = [/cv[_\-\s.]/i, /curriculum/i, /resume/i, /życiorys/i, /zyciorys/i, /lebenslauf/i];
+    const fileNameLower = file.name.toLowerCase();
+    if (cvPatterns.some(pattern => pattern.test(fileNameLower))) {
+        alert('Nazwa pliku sugeruje, że to CV. Tutaj załączasz wyłącznie podpisaną umowę NDA.');
+        return;
+    }
+
     uploadedFiles.push(file);
     renderFilePreviews();
 }
@@ -578,6 +681,8 @@ function handleFile(file) {
 function renderFilePreviews() {
     const uploadArea = document.getElementById('fileUploadArea');
     const previewContainer = document.getElementById('filesPreviewContainer');
+    const confirmSection = document.getElementById('ndaConfirmSection');
+    const submitSection = document.getElementById('submitSection');
 
     if (!previewContainer) return;
 
@@ -588,6 +693,9 @@ function renderFilePreviews() {
         // Pokaż obszar uploadu
         if (uploadArea) uploadArea.style.display = 'block';
         previewContainer.style.display = 'none';
+        // Ukryj sekcję potwierdzenia i submit
+        if (confirmSection) confirmSection.style.display = 'none';
+        if (submitSection) submitSection.style.display = 'none';
         return;
     }
 
@@ -628,6 +736,10 @@ function renderFilePreviews() {
         filesCount.textContent = uploadedFiles.length;
         filesCountInfo.style.display = uploadedFiles.length > 0 ? 'block' : 'none';
     }
+
+    // Pokaż sekcję potwierdzenia NDA (ukryj submit do czasu potwierdzenia)
+    if (confirmSection) confirmSection.style.display = 'block';
+    if (submitSection) submitSection.style.display = 'none';
 }
 
 function handleFileSelect(event) {
@@ -647,6 +759,46 @@ function removeFile(index) {
     const fileInput = document.getElementById('ndaFile');
     if (fileInput) fileInput.value = '';
 
+    renderFilePreviews();
+}
+
+// ============================================================================
+// "MAM UMOWĘ NDA" - odkrycie uploadu bez generowania
+// ============================================================================
+
+function showUploadSection() {
+    const ndaUploadSection = document.getElementById('ndaUploadSection');
+    if (ndaUploadSection) {
+        ndaUploadSection.style.display = 'block';
+        ndaUploadSection.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+}
+
+// ============================================================================
+// NDA CONFIRMATION (Tak / Nie, chcę podmienić plik)
+// ============================================================================
+
+function confirmNDA() {
+    const confirmSection = document.getElementById('ndaConfirmSection');
+    const submitSection = document.getElementById('submitSection');
+
+    // Ukryj sekcję potwierdzenia, pokaż przycisk "Wyślij aplikację"
+    if (confirmSection) confirmSection.style.display = 'none';
+    if (submitSection) {
+        submitSection.style.display = 'block';
+        submitSection.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+}
+
+function rejectNDA() {
+    // Usuń wszystkie załączone pliki
+    uploadedFiles = [];
+
+    // Reset inputa
+    const fileInput = document.getElementById('ndaFile');
+    if (fileInput) fileInput.value = '';
+
+    // Przerenderuj (pokaże pustą strefę uploadu, ukryje potwierdzenie i submit)
     renderFilePreviews();
 }
 
@@ -721,6 +873,13 @@ async function generateNDA() {
                     ✓ Wygenerowano
                 </span>
             `;
+
+            // Odkryj sekcję uploadu NDA
+            const ndaUploadSection = document.getElementById('ndaUploadSection');
+            if (ndaUploadSection) {
+                ndaUploadSection.style.display = 'block';
+                ndaUploadSection.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }
 
             // Przywróć oryginalny stan po 3 sekundach
             setTimeout(() => {

@@ -248,6 +248,16 @@ def validate_files(files):
     if len(valid_files) > 2:
         return False, 'Maksymalnie można przesłać 2 pliki NDA'
 
+    # Wzorce nazw plików sugerujących CV
+    cv_patterns = [
+        re.compile(r'cv[\s_\-.]', re.IGNORECASE),
+        re.compile(r'curriculum', re.IGNORECASE),
+        re.compile(r'resume', re.IGNORECASE),
+        re.compile(r'życiorys', re.IGNORECASE),
+        re.compile(r'zyciorys', re.IGNORECASE),
+        re.compile(r'lebenslauf', re.IGNORECASE),
+    ]
+
     # Waliduj każdy plik osobno
     allowed_extensions = {'pdf', 'jpg', 'jpeg', 'png', 'docx', 'odt'}
     max_size = 5 * 1024 * 1024  # 5MB per plik
@@ -270,6 +280,10 @@ def validate_files(files):
         if file_size > max_size:
             size_mb = file_size / (1024 * 1024)
             return False, f'Plik {i} jest za duży ({size_mb:.1f}MB). Maksymalny rozmiar to 5MB'
+
+        # Sprawdź czy nazwa pliku nie sugeruje CV
+        if any(pattern.search(file.filename) for pattern in cv_patterns):
+            return False, f'Plik {i}: nazwa pliku sugeruje, że to CV. Tutaj załączasz wyłącznie podpisaną umowę NDA.'
 
     return True, None
 

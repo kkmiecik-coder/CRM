@@ -323,7 +323,6 @@ body {
     text-align: center;
     line-height: 1.8;
     position: relative;
-    padding-bottom: var(--spacing-md);
 }
 
 .section-subtitle::after {
@@ -336,6 +335,16 @@ body {
     height: 4px;
     background-color: var(--primary-color);
     border-radius: 2px;
+}
+
+.section-subtitle--left {
+    text-align: left;
+    margin-bottom: 0;
+}
+
+.section-subtitle--left::after {
+    left: 0;
+    transform: none;
 }
 
 /* ============================================================================
@@ -1221,25 +1230,6 @@ body {
     background: #FFF5EE;
 }
 
-.btn-generate-nda {
-    display: inline-block;
-    padding: 14px 28px;
-    background: var(--accent-orange);
-    color: white;
-    border: none;
-    border-radius: 8px;
-    font-weight: 600;
-    font-size: 16px;
-    cursor: pointer;
-    transition: all 0.3s ease;
-}
-
-.btn-generate-nda:hover {
-    background: #D65A1F;
-    transform: translateY(-2px);
-    box-shadow: 0 4px 12px rgba(237, 107, 36, 0.3);
-}
-
 /* Consent Label */
 .consent-label {
     display: flex;
@@ -1623,9 +1613,31 @@ body {
         box-shadow: 0 4px 12px rgba(237, 107, 36, 0.3);
     }
 
+.btn-have-nda {
+    display: inline-block;
+    padding: 14px 28px;
+    background: white;
+    color: var(--accent-orange);
+    border: 2px solid var(--accent-orange);
+    border-radius: 8px;
+    font-weight: 600;
+    font-size: 16px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+}
+
+    .btn-have-nda:hover {
+        background: var(--accent-orange);
+        color: white;
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(237, 107, 36, 0.3);
+    }
+
     .btn-generate-nda:disabled {
-        opacity: 0.9;
+        opacity: 0.5;
+        cursor: not-allowed;
         transform: none;
+        background: #aaa;
     }
 
     /* Success state */

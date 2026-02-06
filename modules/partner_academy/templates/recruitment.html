@@ -372,13 +372,30 @@
 
             <!-- Step 7: Formularz -->
             <div class="step-content" data-step="7">
-                <h2 class="section-title">Formularz aplikacyjny</h2>
-                <p class="section-subtitle">Wypełnij formularz i dołącz do nas już dziś!</p>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 32px; align-items: start; margin-bottom: 24px;">
+                    <!-- Lewa: nagłówek + info -->
+                    <div>
+                        <h2 class="section-title" style="text-align: left; margin-bottom: 8px;">Formularz aplikacyjny</h2>
+                        <p class="section-subtitle section-subtitle--left">Wypełnij formularz i dołącz do nas już dziś!</p>
+                        <div class="form-info-box" style="margin-top: 16px;">
+                            <p><strong>ℹ️ Informacja:</strong> Dane z tego formularza są niezbędne do przygotowania umowy NDA oraz dalszego procesu rekrutacji.</p>
+                        </div>
+                    </div>
+                    <!-- Prawa: instrukcja -->
+                    <div style="background: #f0f4ff; border: 1px solid #d0d9f0; border-radius: 10px; padding: 16px 18px;">
+                        <p style="font-weight: 600; font-size: 14px; color: #333; margin-bottom: 8px;">Jak wypełnić formularz:</p>
+                        <ol style="margin: 0; padding-left: 20px; font-size: 13px; color: #444; line-height: 1.8;">
+                            <li>Uzupełnij niezbędne dane</li>
+                            <li>Wybierz formę współpracy i swój region</li>
+                            <li>Wygeneruj umowę NDA</li>
+                            <li>Wydrukuj i podpisz ręcznie lub podpisem zaufanym</li>
+                            <li>Zeskanuj lub zrób zdjęcie podpisanego dokumentu</li>
+                            <li>Dołącz podpisany plik do aplikacji</li>
+                        </ol>
+                    </div>
+                </div>
 
                 <div class="form-container">
-                    <div class="form-info-box">
-                        <p><strong>ℹ️ Informacja:</strong> Dane z tego formularza są niezbędne do przygotowania umowy NDA oraz dalszego procesu rekrutacji.</p>
-                    </div>
 
                     <form id="applicationForm">
                         <div class="form-two-columns">
@@ -563,39 +580,63 @@
 
                                 <!-- NDA SECTION -->
                                 <div class="form-group">
-                                    <h4 style="margin-bottom: 12px; color: var(--primary-color); font-size: 18px; font-weight: 600;">
-                                        Umowa NDA * <span style="font-size: 13px; font-weight: 400; color: #666;">(min. 1, max. 2 pliki)</span>
-                                    </h4>
-                                    <button type="button" class="btn-generate-nda" onclick="generateNDA()">
-                                        📄 Wygeneruj umowę NDA
-                                    </button>
-                                    <p style="font-size: 13px; color: #666; margin: 10px 0;">
-                                        Podpisz dokument i załącz poniżej (możesz dodać do 2 plików)
-                                    </p>
-
-                                    <!-- Upload Area -->
-                                    <div class="file-upload-area" id="fileUploadArea">
-                                        <input type="file" id="ndaFile" accept=".pdf,.jpg,.jpeg,.png,.docx,.odt" style="display: none;" onchange="handleFileSelect(event)">
-                                        <label for="ndaFile" style="cursor: pointer; display: block;">
-                                            <div style="text-align: center; padding: 24px;">
-                                                <div style="font-size: 40px; margin-bottom: 8px;">📎</div>
-                                                <p style="font-weight: 600; margin-bottom: 6px; color: var(--text-primary); font-size: 14px;">Przeciągnij lub kliknij aby dodać plik</p>
-                                                <p style="font-size: 12px; color: #666;">PDF, JPG, PNG, DOCX (max 5 MB na plik)</p>
-                                            </div>
-                                        </label>
+                                    <div style="display: flex; gap: 12px;">
+                                        <button type="button" class="btn-generate-nda" id="btnGenerateNDA" onclick="generateNDA()" disabled style="flex: 1;">
+                                            📄 Wygeneruj umowę NDA
+                                        </button>
+                                        <button type="button" class="btn-have-nda" onclick="showUploadSection()">
+                                            ✅ Mam umowę NDA
+                                        </button>
                                     </div>
 
-                                    <!-- Files Preview Container (dynamicznie generowany przez JS) -->
-                                    <div id="filesPreviewContainer" style="display: none;"></div>
+                                    <!-- Sekcja uploadu - ukryta do momentu wygenerowania NDA -->
+                                    <div id="ndaUploadSection" style="display: none;">
+                                        <h4 style="margin: 14px 0 4px 0; color: var(--primary-color); font-size: 18px; font-weight: 600;">
+                                            Umowa NDA * <span style="font-size: 13px; font-weight: 400; color: #666;">(min. 1, max. 2 pliki)</span>
+                                        </h4>
+                                        <p style="font-size: 13px; color: #333; margin: 4px 0 10px 0; font-weight: 500;">
+                                            Wydrukuj dokument, podpisz odręcznie i załącz skan poniżej:
+                                        </p>
 
-                                    <!-- Informacja o liczbie plików -->
-                                    <p id="filesCountInfo" style="font-size: 12px; color: #666; margin-top: 8px; display: none;">
-                                        Dodano <span id="filesCount">0</span>/2 plików
-                                    </p>
+                                        <!-- Upload Area -->
+                                        <div class="file-upload-area" id="fileUploadArea">
+                                            <input type="file" id="ndaFile" accept=".pdf,.jpg,.jpeg,.png,.docx,.odt" style="display: none;" onchange="handleFileSelect(event)">
+                                            <label for="ndaFile" style="cursor: pointer; display: block;">
+                                                <div style="text-align: center; padding: 24px;">
+                                                    <div style="font-size: 40px; margin-bottom: 8px;">📝</div>
+                                                    <p style="font-weight: 600; margin-bottom: 6px; color: var(--text-primary); font-size: 14px;">Przeciągnij lub kliknij aby dodać podpisaną umowę NDA</p>
+                                                    <p style="font-size: 12px; color: #666;">PDF, JPG, PNG, DOCX (max 5 MB na plik)</p>
+                                                </div>
+                                            </label>
+                                        </div>
+
+                                        <!-- Files Preview Container (dynamicznie generowany przez JS) -->
+                                        <div id="filesPreviewContainer" style="display: none; margin-top: 8px;"></div>
+
+                                        <!-- Informacja o liczbie plików -->
+                                        <p id="filesCountInfo" style="font-size: 12px; color: #666; margin-top: 8px; display: none;">
+                                            Dodano <span id="filesCount">0</span> z 2 plików możliwych do dodania.
+                                        </p>
+                                    </div>
                                 </div>
 
-                                <!-- SUBMIT BUTTON -->
-                                <div>
+                                <!-- SEKCJA POTWIERDZENIA NDA - ukryta domyślnie -->
+                                <div id="ndaConfirmSection" style="display: none;">
+                                    <p style="font-weight: 600; font-size: 15px; color: #333; text-align: center; margin-bottom: 14px;">
+                                        Czy na pewno załączyłeś podpisaną umowę NDA?
+                                    </p>
+                                    <div style="display: flex; gap: 12px; justify-content: center;">
+                                        <button type="button" onclick="confirmNDA()" style="background: #2ECC71; color: white; border: none; padding: 12px 32px; border-radius: 8px; font-weight: 600; font-size: 15px; cursor: pointer; transition: background 0.2s;">
+                                            Tak
+                                        </button>
+                                        <button type="button" onclick="rejectNDA()" style="background: #e0e0e0; color: #333; border: none; padding: 12px 32px; border-radius: 8px; font-weight: 600; font-size: 15px; cursor: pointer; transition: background 0.2s;">
+                                            Nie, chcę podmienić plik
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <!-- SUBMIT BUTTON - ukryty do potwierdzenia NDA -->
+                                <div id="submitSection" style="display: none;">
                                     <button type="button" class="btn-submit-form" id="submitButton" onclick="submitForm()">
                                         Wyślij aplikację
                                     </button>
