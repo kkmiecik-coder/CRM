@@ -209,6 +209,9 @@ Thumbs.db
 Desktop.ini
 nul
 
+# Mockupy
+mockups/
+
 # Pliki testowe/raporty
 raport_partnerow.html
 stderr.log

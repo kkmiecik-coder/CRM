@@ -5183,7 +5183,7 @@ const defaultVariantAvailability = {
     'jes-lity-ab': true,
     'jes-micro-ab': false,  // Domyślnie niedostępny (był "BRAK")
     'buk-lity-ab': true,
-    'buk-micro-ab': false   // Domyślnie niedostępny (był "BRAK")
+    'buk-micro-ab': true
 };
 
 /**

@@ -30,5 +30,23 @@
         "model": "gemini-2.5-flash",
         "prestashop_api_key": "KLUCZ_PRESTASHOP",
         "groq_api_key": "KLUCZ_GROQ"
+    },
+    "MESSAGING": {
+        "allegro": {
+            "client_id": "",
+            "client_secret": "",
+            "redirect_uri": "https://crm.woodpower.pl/messaging/allegro/callback",
+            "api_url": "https://api.allegro.pl",
+            "auth_url": "https://allegro.pl/auth/oauth",
+            "sync_interval_minutes": 5
+        },
+        "olx": {
+            "client_id": "",
+            "client_secret": "",
+            "redirect_uri": "https://crm.woodpower.pl/messaging/olx/callback",
+            "api_url": "https://www.olx.pl/api/partner",
+            "auth_url": "https://www.olx.pl/oauth",
+            "sync_interval_minutes": 5
+        }
     }
 }
