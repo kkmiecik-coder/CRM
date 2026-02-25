@@ -275,7 +275,7 @@ def update_avatar():
             filepath = os.path.join(upload_folder, filename)
             avatar_file.save(filepath)
             
-            avatar_path = f"custom/{filename}"
+            avatar_path = f"images/avatars/custom/{filename}"
         
         # Aktualizuj avatar
         UserService.update_avatar(current_user.id, avatar_path)
