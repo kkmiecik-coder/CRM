@@ -50,7 +50,7 @@
                     </div>
 
                     <div class="quote-forms">
-                        <div class="quote-form">
+                        <div class="quote-form" data-product-shape="rectangular">
                             <!-- Kolumna 2: Dane produktu -->
                             <section class="product-data">
                                 <h2 class="title-with-underline-h2">Produkt</h2>
@@ -65,6 +65,26 @@
                                             <option value="Detal" disabled>Detal</option>
                                             <option value="Detal" disabled>Detal+</option>
                                         </select>
+                                    </div>
+                                    <!-- Kształt produktu -->
+                                    <div class="product-shape">
+                                        <label class="input-txt">Kształt:</label>
+                                        <div class="shape-toggle">
+                                            <label class="shape-option">
+                                                <input type="radio" name="productShape-0" data-field="shapeRect" value="rectangular" checked>
+                                                <span class="shape-label">
+                                                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="12" height="10" rx="1"/></svg>
+                                                    Prostokąt
+                                                </span>
+                                            </label>
+                                            <label class="shape-option">
+                                                <input type="radio" name="productShape-0" data-field="shapeRound" value="round">
+                                                <span class="shape-label">
+                                                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><ellipse cx="8" cy="8" rx="7" ry="5"/></svg>
+                                                    Okrągły
+                                                </span>
+                                            </label>
+                                        </div>
                                     </div>
                                     <!-- Długość -->
                                     <div class="lenght">

@@ -607,6 +607,27 @@
                     </div>
                     {% endif %}
 
+                    <!-- Dopłata za kształt okrągły -->
+                    <div class="settings-subsection" style="margin-top: 30px; padding: 20px; background: #f8f9fa; border-radius: 8px; border: 1px solid #e0e0e0;">
+                        <h4 style="margin: 0 0 15px 0; font-size: 15px; color: #333;">Kształt okrągły/owalny</h4>
+                        <div style="display: flex; align-items: center; gap: 15px;">
+                            <label style="font-size: 13px; color: #555; white-space: nowrap;">Dopłata netto za sztukę:</label>
+                            <div style="display: flex; align-items: center; gap: 8px;">
+                                <input type="number" id="roundSurchargeNetto" step="0.01" min="0"
+                                       value="{{ round_surcharge }}"
+                                       style="width: 120px; padding: 8px 12px; border: 1px solid #d0d0d0; border-radius: 6px; font-size: 14px;">
+                                <span style="font-size: 13px; color: #777;">PLN netto</span>
+                            </div>
+                            <button type="button" id="saveRoundSurchargeBtn" class="btn-primary" style="padding: 8px 20px; font-size: 13px;">
+                                Zapisz
+                            </button>
+                            <span id="roundSurchargeSaveStatus" style="font-size: 12px; color: #28a745; display: none;">Zapisano!</span>
+                        </div>
+                        <p style="margin: 10px 0 0 0; font-size: 12px; color: #888;">
+                            Dopłata doliczana do ceny netto surowego produktu za każdą sztukę o kształcie okrągłym/owalnym.
+                        </p>
+                    </div>
+
                     <!-- Sticky Save Footer - Edge Options -->
                     <div class="settings-save-footer" id="saveFooterEdgeOptions">
                         <div class="save-footer-content">

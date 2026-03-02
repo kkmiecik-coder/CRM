@@ -692,21 +692,50 @@ def calculator_extras_finishing():
 @require_admin
 def calculator_extras_edges():
     """Cennik obróbki krawędzi"""
-    from modules.calculator.models import EdgeOption
+    from modules.calculator.models import EdgeOption, CalculatorSetting
 
     user_email = session.get('user_email')
     current_user = User.query.filter_by(email=user_email).first()
 
     edge_options = EdgeOption.query.order_by(EdgeOption.id).all()
+    round_surcharge = CalculatorSetting.get_value('round_shape_surcharge_netto', '50.00')
 
     return render_template(
         'settings_index.html',
         current_user=current_user,
         edge_options=edge_options,
+        round_surcharge=round_surcharge,
         active_tab='calculator',
         calculator_subtab='extras',
         extras_subtab='edges'
     )
+
+
+@settings_bp.route('/api/calculator-settings', methods=['PUT'])
+@require_admin
+def api_update_calculator_settings():
+    """API: Aktualizuje ustawienia kalkulatora"""
+    from modules.calculator.models import CalculatorSetting
+    from decimal import Decimal, InvalidOperation
+
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({'success': False, 'error': 'Brak danych'}), 400
+
+        if 'round_shape_surcharge_netto' in data:
+            try:
+                value = Decimal(str(data['round_shape_surcharge_netto']))
+                if value < 0:
+                    return jsonify({'success': False, 'error': 'Dopłata nie może być ujemna'}), 400
+                CalculatorSetting.set_value('round_shape_surcharge_netto', str(value))
+            except (InvalidOperation, ValueError):
+                return jsonify({'success': False, 'error': 'Nieprawidłowa wartość dopłaty'}), 400
+
+        return jsonify({'success': True})
+    except Exception as e:
+        current_app.logger.error(f"[api_update_calculator_settings] Błąd: {str(e)}")
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 
 @settings_bp.route('/api/finishing-prices/<int:price_id>', methods=['PUT'])

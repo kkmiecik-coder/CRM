@@ -122,6 +122,10 @@ class EdgesPdfGenerator:
 
             # Dodaj nowe atrybuty przed zamknięciem tagu
             if new_attrs:
+                # Usuń istniejące atrybuty które będą nadpisane (zapobiega duplikatom)
+                for attr in new_attrs:
+                    attr_name = attr.split('=')[0]
+                    new_tag = re.sub(rf'\s+{re.escape(attr_name)}="[^"]*"', '', new_tag)
                 attrs_str = ' ' + ' '.join(new_attrs)
                 # Wstaw przed > lub />
                 if new_tag.rstrip().endswith('/>'):

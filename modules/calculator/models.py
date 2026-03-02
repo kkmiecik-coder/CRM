@@ -254,7 +254,8 @@ class QuoteItem(db.Model):
     length_cm = db.Column(db.Numeric(10, 2))
     width_cm = db.Column(db.Numeric(10, 2))
     thickness_cm = db.Column(db.Numeric(10, 2))
-    volume_m3 = db.Column(db.Numeric(10, 6))
+    volume_m3 = db.Column(db.Numeric(10, 6))          # Objętość bloku (do wyceny)
+    real_volume_m3 = db.Column(db.Numeric(10, 6))     # Rzeczywista objętość produktu (dla okrągłych: π×a×b×T)
     price_per_m3 = db.Column(db.Numeric(10, 2))
     multiplier = db.Column(db.Numeric(5, 2))
     is_selected = db.Column(db.Boolean, default=False)
@@ -380,6 +381,7 @@ class QuoteItem(db.Model):
             'width_cm': float(self.width_cm) if self.width_cm else None,
             'thickness_cm': float(self.thickness_cm) if self.thickness_cm else None,
             'volume_m3': float(self.volume_m3) if self.volume_m3 else None,
+            'real_volume_m3': float(self.real_volume_m3) if self.real_volume_m3 else None,
             'price_per_m3': float(self.price_per_m3) if self.price_per_m3 else None,
             'multiplier': float(self.multiplier) if self.multiplier else None,
             'is_selected': self.is_selected,
@@ -428,6 +430,11 @@ class QuoteItemDetails(db.Model):
     edges_price_brutto = db.Column(db.Numeric(10, 2), default=0)
     edges_svg = db.Column(db.Text, nullable=True)         # SVG wizualizacji krawędzi
 
+    # Kształt produktu
+    shape = db.Column(db.String(20), default='rectangular')  # 'rectangular' lub 'round'
+    round_surcharge_netto = db.Column(db.Numeric(10, 2), default=0)
+    round_surcharge_brutto = db.Column(db.Numeric(10, 2), default=0)
+
     __table_args__ = (
         db.UniqueConstraint('quote_id', 'product_index', name='uq_quote_product'),
     )
@@ -452,7 +459,11 @@ class QuoteItemDetails(db.Model):
             'edges_angle_value': self.edges_angle_value,
             'edges_price_netto': float(self.edges_price_netto) if self.edges_price_netto else 0.0,
             'edges_price_brutto': float(self.edges_price_brutto) if self.edges_price_brutto else 0.0,
-            'edges_svg': self.edges_svg
+            'edges_svg': self.edges_svg,
+            # Kształt produktu
+            'shape': self.shape or 'rectangular',
+            'round_surcharge_netto': float(self.round_surcharge_netto) if self.round_surcharge_netto else 0.0,
+            'round_surcharge_brutto': float(self.round_surcharge_brutto) if self.round_surcharge_brutto else 0.0
         }
 
     def __repr__(self):
@@ -824,3 +835,45 @@ class QuoteSource(db.Model):
 
     def __repr__(self):
         return f'<QuoteSource {self.id}: {self.name}>'
+
+
+class CalculatorSetting(db.Model):
+    """Ustawienia kalkulatora (klucz-wartość)"""
+    __tablename__ = 'calculator_settings'
+
+    id = db.Column(db.Integer, primary_key=True)
+    setting_key = db.Column(db.String(100), unique=True, nullable=False)
+    setting_value = db.Column(db.String(255), nullable=False)
+    description = db.Column(db.String(500), nullable=True)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    @classmethod
+    def get_value(cls, key, default=None):
+        """Pobiera wartość ustawienia po kluczu"""
+        setting = cls.query.filter_by(setting_key=key).first()
+        return setting.setting_value if setting else default
+
+    @classmethod
+    def set_value(cls, key, value, description=None):
+        """Ustawia wartość ustawienia (tworzy lub aktualizuje)"""
+        setting = cls.query.filter_by(setting_key=key).first()
+        if setting:
+            setting.setting_value = str(value)
+            if description is not None:
+                setting.description = description
+        else:
+            setting = cls(setting_key=key, setting_value=str(value), description=description)
+            db.session.add(setting)
+        db.session.commit()
+        return setting
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'setting_key': self.setting_key,
+            'setting_value': self.setting_value,
+            'description': self.description
+        }
+
+    def __repr__(self):
+        return f'<CalculatorSetting {self.setting_key}={self.setting_value}>'

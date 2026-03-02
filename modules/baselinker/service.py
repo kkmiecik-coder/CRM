@@ -565,7 +565,11 @@ class BaselinkerService:
             sku = self._generate_sku(item, finishing_details)
 
             # Nazwa produktu z wymiarami
-            base_name = f"{self._translate_variant_code(item.variant_code)} {item.length_cm}×{item.width_cm}×{item.thickness_cm} cm"
+            variant_name = self._translate_variant_code(item.variant_code)
+            # Wstaw "Okrągła" po "Klejonka" dla okrągłych produktów
+            if finishing_details and getattr(finishing_details, 'shape', 'rectangular') == 'round':
+                variant_name = variant_name.replace('Klejonka ', 'Klejonka okrągła ', 1)
+            base_name = f"{variant_name} {item.length_cm}×{item.width_cm}×{item.thickness_cm} cm"
 
             # NOWE: Używamy cen jednostkowych bezpośrednio z bazy (już nie trzeba dzielić!)
             unit_price_netto = float(item.price_netto or 0)
@@ -624,9 +628,10 @@ class BaselinkerService:
                             final_unit_brutto=unit_price_brutto,
                             quantity=quantity)
 
-            # Oblicz wagę (zakładając gęstość drewna ~0.7 kg/dm³)
-            volume_dm3 = float(item.volume_m3 or 0) * 1000  # m³ na dm³
-            weight_kg = round(volume_dm3 * 0.7, 2) if item.volume_m3 else 0.0
+            # Oblicz wagę z rzeczywistej objętości (zakładając gęstość drewna ~0.7 kg/dm³)
+            real_vol = float(getattr(item, 'real_volume_m3', None) or item.volume_m3 or 0)
+            volume_dm3 = real_vol * 1000  # m³ na dm³
+            weight_kg = round(volume_dm3 * 0.7, 2) if real_vol else 0.0
 
             self.logger.debug("Obliczenie wagi produktu",
                             product_index=item.product_index,
@@ -634,8 +639,9 @@ class BaselinkerService:
                             volume_dm3=volume_dm3,
                             weight_kg=weight_kg)
 
-            # Dodaj wykończenie do nazwy jeśli istnieje
             product_name = base_name
+
+            # Dodaj wykończenie do nazwy jeśli istnieje
             if finishing_details and finishing_details.finishing_type and finishing_details.finishing_type != 'Brak' and finishing_details.finishing_type != 'Surowe':
                 finishing_desc = self._translate_finishing_to_adjective(finishing_details)
                 if finishing_desc:
@@ -1108,8 +1114,13 @@ class BaselinkerService:
         }
         type_name = type_names.get(edge_type, edge_type)
 
-        # Format: "zaokrąglenie R5" lub "fazowanie R3"
-        result = f"{type_name} R{r_value}"
+        # Format: "zaokrąglenie R5 (A, B)" lub "fazowanie R3 45° (KD)"
+        angle_part = ''
+        if edge_type == 'chamfer' and finishing_details.edges_angle_value:
+            angle_part = f" {finishing_details.edges_angle_value}°"
+        edge_letters = [edge.get('letter', '?') for edge in edges_config]
+        letters_str = ', '.join(edge_letters)
+        result = f"{type_name} R{r_value}{angle_part} ({letters_str})"
 
         self.logger.debug("Przetłumaczono obróbkę krawędzi na opis",
                          edges_type=edge_type,
@@ -1143,12 +1154,13 @@ class BaselinkerService:
         return comments
     
     def _calculate_item_weight(self, item) -> float:
-        """Oblicza wagę produktu na podstawie objętości (przyjmując gęstość drewna 800kg/m³)"""
-        if item.volume_m3:
-            weight = round(item.volume_m3 * 800, 2)
+        """Oblicza wagę produktu na podstawie rzeczywistej objętości (gęstość drewna 800kg/m³)"""
+        real_vol = float(getattr(item, 'real_volume_m3', None) or item.volume_m3 or 0)
+        if real_vol:
+            weight = round(real_vol * 800, 2)
             self.logger.debug("Obliczono wagę produktu",
                             item_id=getattr(item, 'id', None),
-                            volume_m3=item.volume_m3,
+                            real_volume_m3=real_vol,
                             weight_kg=weight)
             return weight
         return 0.0

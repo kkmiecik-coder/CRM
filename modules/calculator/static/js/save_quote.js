@@ -841,6 +841,15 @@ function collectQuoteData() {
             const brutto = parseFloat(radio.dataset.totalBrutto || 0);
             const netto = parseFloat(radio.dataset.totalNetto || 0);
             const volume = (length / 100) * (width / 100) * (thickness / 100);
+            const productShape = form.dataset.productShape || 'rectangular';
+            let realVolume;
+            if (productShape === 'round') {
+                const a = (length / 100) / 2;
+                const b = (width / 100) / 2;
+                realVolume = Math.PI * a * b * (thickness / 100);
+            } else {
+                realVolume = volume;
+            }
 
             // ✅ DEBUG: Log szczegółowych danych dla zaznaczonego wariantu
             if (radio.checked) {
@@ -868,6 +877,7 @@ function collectQuoteData() {
                 is_available: isAvailable,
                 price_per_m3: parseFloat(radio.dataset.pricePerM3 || 0),
                 volume_m3: volume,
+                real_volume_m3: realVolume,
                 multiplier: parseFloat(radio.dataset.multiplier || 1),
                 final_price: parseFloat(radio.dataset.finalPrice || 0),
                 final_price_netto: netto,
@@ -903,6 +913,7 @@ function collectQuoteData() {
             width,
             thickness,
             quantity,
+            shape: form.dataset.productShape || 'rectangular',
             finishing_type: finishingType,
             finishing_variant: finishingVariant,
             finishing_color: finishingColor,

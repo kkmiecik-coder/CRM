@@ -1981,7 +1981,12 @@ class BaselinkerModal {
         }
 
         // Tłumacz kod wariantu na pełną nazwę
-        const baseName = this.translateVariantCode(product.variant_code);
+        let baseName = this.translateVariantCode(product.variant_code);
+
+        // Wstaw "Okrągła" po "Klejonka" dla okrągłych produktów
+        if (product.shape === 'round') {
+            baseName = baseName.replace('Klejonka ', 'Klejonka okrągła ');
+        }
 
         // Formatuj wymiary - upewnij się że mają odstęp przed "cm"
         let dimensions = product.dimensions || '';
@@ -2008,7 +2013,10 @@ class BaselinkerModal {
         if (product.edges && product.edges.type_name && product.edges.r_value) {
             edgesText = ` ${product.edges.type_name.toLowerCase()} R${product.edges.r_value}`;
             if (product.edges.type === 'chamfer' && product.edges.angle_value) {
-                edgesText += ` (${product.edges.angle_value}°)`;
+                edgesText += ` ${product.edges.angle_value}°`;
+            }
+            if (product.edges.letters && product.edges.letters.length > 0) {
+                edgesText += ` (${product.edges.letters.join(', ')})`;
             }
         }
 

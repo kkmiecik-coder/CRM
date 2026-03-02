@@ -150,6 +150,68 @@ window.getCurrentPriceMode = getCurrentPriceMode;
 
 console.log('✅ Poprawki calculator.js zostały załadowane - przełącznik brutto/netto jest teraz globalny');
 
+// ========================================
+// USTAWIENIA KALKULATORA (kształt okrągły)
+// ========================================
+
+window._roundShapeSurchargeNetto = 0;
+
+async function loadCalculatorSettings() {
+    try {
+        const response = await fetch('/calculator/api/calculator-settings');
+        if (response.ok) {
+            const data = await response.json();
+            window._roundShapeSurchargeNetto = data.round_shape_surcharge_netto || 0;
+            console.log('[CALCULATOR] Dopłata za kształt okrągły:', window._roundShapeSurchargeNetto, 'PLN netto/szt');
+        }
+    } catch (e) {
+        console.warn('[CALCULATOR] Nie udało się załadować ustawień kalkulatora:', e);
+    }
+}
+
+/**
+ * Inicjalizuje toggle kształtu produktu dla danego formularza
+ */
+function initShapeToggle(form) {
+    const radios = form.querySelectorAll('input[data-field="shapeRect"], input[data-field="shapeRound"]');
+    if (!radios.length) return;
+
+    // Wymusz domyślne zaznaczenie prostokąta jeśli nic nie zaznaczone
+    const checkedRadio = form.querySelector('input[data-field="shapeRect"]:checked, input[data-field="shapeRound"]:checked');
+    if (checkedRadio) {
+        form.dataset.productShape = checkedRadio.value;
+    } else {
+        const rectRadio = form.querySelector('input[data-field="shapeRect"]');
+        if (rectRadio) rectRadio.checked = true;
+        form.dataset.productShape = 'rectangular';
+    }
+
+    console.log(`[initShapeToggle] Zainicjalizowano kształt: ${form.dataset.productShape}`);
+
+    // Dodaj listenery tylko raz (flaga na formularzu)
+    if (form.dataset.shapeListenersAttached) return;
+    form.dataset.shapeListenersAttached = 'true';
+
+    radios.forEach(radio => {
+        radio.addEventListener('change', function () {
+            const newShape = this.value;
+            const oldShape = form.dataset.productShape;
+            if (newShape === oldShape) return;
+
+            form.dataset.productShape = newShape;
+            console.log(`[initShapeToggle] Kształt zmieniony na: ${newShape}`);
+
+            // Reset krawędzi przy zmianie kształtu
+            if (window.EdgesModule && typeof window.EdgesModule.reset === 'function') {
+                window.EdgesModule.reset(form);
+            }
+
+            // Przelicz ceny
+            updatePrices();
+        });
+    });
+}
+
 // Pobieranie cen wykończeń z bazy danych i renderowanie drzewka
 async function loadFinishingPrices() {
     try {
@@ -1016,6 +1078,12 @@ function updatePrices() {
             let effectiveMultiplier = multiplier;
             let unitNetto = singleVolume * basePrice * effectiveMultiplier;
 
+            // Dopłata za kształt okrągły (per sztuka) - po mnożniku
+            const productShape = activeQuoteForm.dataset.productShape || 'rectangular';
+            if (productShape === 'round' && window._roundShapeSurchargeNetto) {
+                unitNetto += window._roundShapeSurchargeNetto;
+            }
+
             variant.style.backgroundColor = "";
 
             const unitBrutto = unitNetto * 1.23;
@@ -1058,9 +1126,8 @@ function updatePrices() {
         }
     });
 
-    // ✅ POPRAWKA: Znajdź zaznaczony radio button BEZ zmiany nazw
-    // Używamy prostego selektora :checked zamiast manipulacji nazwami
-    const selectedRadio = activeQuoteForm.querySelector('input[type="radio"]:checked');
+    // ✅ POPRAWKA: Znajdź zaznaczony radio button wariantu (pomiń radio kształtu)
+    const selectedRadio = activeQuoteForm.querySelector('.variants input[type="radio"]:checked');
 
     if (selectedRadio && selectedRadio.dataset.totalBrutto && selectedRadio.dataset.totalNetto) {
         activeQuoteForm.dataset.orderBrutto = selectedRadio.dataset.totalBrutto;
@@ -1463,8 +1530,24 @@ function calculateFinishingCost(form) {
     const widthM = widthVal / 100;       // cm → m
     const thicknessM = thicknessVal / 100; // cm → m
 
-    // Powierzchnia wszystkich ścian sześcianu w m²
-    const surfaceAreaPerPieceM2 = 2 * (lengthM * widthM + lengthM * thicknessM + widthM * thicknessM);
+    // Powierzchnia w m² - zależna od kształtu produktu
+    const formShape = form.dataset.productShape || 'rectangular';
+    let surfaceAreaPerPieceM2;
+
+    if (formShape === 'round') {
+        // Elipsa: Góra + Dół = 2 * π * a * b
+        // Pasek boczny: obwód elipsy * grubość
+        // Obwód Ramanujan: π * [3(a+b) - sqrt((3a+b)(a+3b))]
+        const a = lengthM / 2, b = widthM / 2;
+        const topBottom = 2 * Math.PI * a * b;
+        const perimeter = Math.PI * (3 * (a + b) - Math.sqrt((3 * a + b) * (a + 3 * b)));
+        const sideBand = perimeter * thicknessM;
+        surfaceAreaPerPieceM2 = topBottom + sideBand;
+    } else {
+        // Prostokąt: 6 ścian
+        surfaceAreaPerPieceM2 = 2 * (lengthM * widthM + lengthM * thicknessM + widthM * thicknessM);
+    }
+
     const totalSurfaceAreaM2 = surfaceAreaPerPieceM2 * quantityVal;
 
     dbg("🧪 Obliczenia powierzchni:", {
@@ -1626,25 +1709,31 @@ function updateOptionsSummaryVisibility(optionsSummary) {
 function resetFinishing(form) {
     if (!form) return;
 
-    // Resetuj przyciski wykończenia do "Surowe"
-    const finishingBtns = form.querySelectorAll('.finishing-btn[data-finishing-type]');
-    finishingBtns.forEach(btn => {
-        if (btn.dataset.finishingType === 'Surowe') {
-            btn.classList.add('active');
-        } else {
-            btn.classList.remove('active');
-        }
-    });
+    // Resetuj drzewko wykończeń - usuń wszystkie poziomy poniżej 0
+    const container = form.querySelector('.finishing-tree-container');
+    if (container) {
+        const allLevels = container.querySelectorAll('.finishing-level');
+        allLevels.forEach(level => {
+            if (parseInt(level.dataset.level) > 0) {
+                level.remove();
+            }
+        });
 
-    // Ukryj dodatkowe opcje
-    const additionalOptions = form.querySelectorAll('.finishing-variants, .finishing-colors, .finishing-gloss');
-    additionalOptions.forEach(el => {
-        if (el) el.style.display = 'none';
-    });
+        // Na poziomie 0: odznacz wszystkie i zaznacz "Surowe" (pierwszy przycisk)
+        const level0Buttons = container.querySelectorAll('.finishing-level[data-level="0"] .finishing-option-btn');
+        level0Buttons.forEach(btn => btn.classList.remove('active'));
+        const firstBtn = level0Buttons[0];
+        if (firstBtn) {
+            firstBtn.classList.add('active');
+        }
+    }
 
     // Wyczyść dataset
     form.dataset.finishingBrutto = 0;
     form.dataset.finishingNetto = 0;
+    form.dataset.finishingType = 'Surowe';
+    form.dataset.finishingVariant = '';
+    form.dataset.finishingColor = '';
 
     // Ukryj wiersz wykończenia w options-summary
     const finishingSection = form.querySelector('.finishing-section');
@@ -1894,9 +1983,9 @@ function prepareNewProductForm(form, index) {
         }
     });
 
-    // KROK 3: Resetuj wszystkie inputy wymiarów
+    // KROK 3: Resetuj wszystkie inputy wymiarów (pomiń radio buttony kształtu)
     form.querySelectorAll('input[data-field]').forEach(input => {
-        // Ustaw wartość 1 dla ilości, pozostawiając pozostałe pola puste
+        if (input.type === 'radio') return; // Nie resetuj radio (kształt obsługiwany osobno)
         input.value = input.dataset.field === 'quantity' ? '1' : '';
     });
 
@@ -2022,6 +2111,16 @@ function prepareNewProductForm(form, index) {
             el.style.color = '';
         });
     });
+
+    // ✅ Resetuj kształt produktu na prostokątny
+    form.dataset.productShape = 'rectangular';
+    delete form.dataset.shapeListenersAttached; // Pozwól initShapeToggle dodać nowe listenery
+    const shapeRadios = form.querySelectorAll('input[data-field="shapeRect"], input[data-field="shapeRound"]');
+    shapeRadios.forEach(radio => {
+        radio.name = `productShape-${index}`;
+        radio.checked = (radio.value === 'rectangular');
+    });
+    initShapeToggle(form);
 
     // ✅ Usuń oznaczenie o dodanych event listenerach
     delete form.dataset.listenersAttached;
@@ -2304,7 +2403,16 @@ function computeAggregatedData() {
         if (widthVal > maxWidth) maxWidth = widthVal;
 
         totalThickness += thicknessVal * quantityVal;
-        const volume = (lengthVal / 100) * (widthVal / 100) * (thicknessVal / 100);
+        const productShape = form.dataset.productShape || 'rectangular';
+        let volume;
+        if (productShape === 'round') {
+            // Cylinder eliptyczny: π × a × b × T
+            const a = (lengthVal / 100) / 2;
+            const b = (widthVal / 100) / 2;
+            volume = Math.PI * a * b * (thicknessVal / 100);
+        } else {
+            volume = (lengthVal / 100) * (widthVal / 100) * (thicknessVal / 100);
+        }
         const productWeight = volume * 800 * quantityVal;
         totalWeight += productWeight;
     });
@@ -2604,8 +2712,9 @@ function init() {
         }
     }
 
-    // Załaduj ceny wykończeń z bazy danych
+    // Załaduj ceny wykończeń z bazy danych i ustawienia kalkulatora
     loadFinishingPrices();
+    loadCalculatorSettings();
 
     const overlay = document.getElementById('loadingOverlay');
     if (overlay) overlay.style.display = 'none';
@@ -2890,6 +2999,12 @@ function init() {
     // Inicjalizuj przełącznik brutto/netto
     initPriceModeToggle();
 
+    // Inicjalizuj toggle kształtu dla pierwszego formularza
+    const initialForm = quoteFormsContainer?.querySelector('.quote-form');
+    if (initialForm) {
+        initShapeToggle(initialForm);
+    }
+
     console.log("Inicjalizacja calculator.js zakończona");
 
 }
@@ -2908,8 +3023,9 @@ function safeAttachFormListeners(form) {
     // ✅ KLUCZOWA POPRAWKA: Zachowaj wszystkie wartości formularza przed manipulacją
     const formValues = {};
 
-    // Zapisz wartości input i select
+    // Zapisz wartości input i select (pomiń radio kształtu - zarządzane przez initShapeToggle)
     form.querySelectorAll('input[data-field], select[data-field]').forEach(input => {
+        if (input.dataset.field === 'shapeRect' || input.dataset.field === 'shapeRound') return;
         const key = input.id || input.name || input.dataset.field;
         if (input.type === 'checkbox' || input.type === 'radio') {
             formValues[key] = input.checked;
@@ -2918,8 +3034,9 @@ function safeAttachFormListeners(form) {
         }
     });
 
-    // Zapisz wartości radio buttons
+    // Zapisz wartości radio buttons (pomiń radio kształtu)
     form.querySelectorAll('input[type="radio"]').forEach(radio => {
+        if (radio.dataset.field === 'shapeRect' || radio.dataset.field === 'shapeRound') return;
         const key = radio.id || radio.name;
         formValues[key + '_checked'] = radio.checked;
         formValues[key + '_value'] = radio.value;
@@ -2946,6 +3063,9 @@ function safeAttachFormListeners(form) {
     // ✅ NOWA POPRAWKA: Dodaj listenery dla inputów BEZ klonowania
     const inputs = form.querySelectorAll('input[data-field], select[data-field]');
     inputs.forEach(input => {
+        // Pomiń radio buttony kształtu (obsługiwane przez initShapeToggle)
+        if (input.type === 'radio') return;
+
         // Usuń poprzednie listenery bezpośrednio
         input.removeEventListener('input', updatePrices);
         input.removeEventListener('change', updatePrices);
@@ -2958,8 +3078,9 @@ function safeAttachFormListeners(form) {
         }
     });
 
-    // Dodaj listenery dla radio buttons BEZ klonowania
-    const radios = form.querySelectorAll('input[type="radio"]');
+    // Dodaj listenery dla radio buttons wariantów BEZ klonowania
+    // (pomiń radio kształtu - data-field="shapeRect"/"shapeRound")
+    const radios = form.querySelectorAll('.variants input[type="radio"]');
     radios.forEach(radio => {
         // Usuń poprzednie listenery
         radio.removeEventListener('change', updatePrices);
@@ -3086,8 +3207,9 @@ function safeAttachFormListeners(form) {
     // ✅ KLUCZOWA POPRAWKA: Przywróć wszystkie wartości po dodaniu listenerów
     console.log(`[safeAttachFormListeners] Przywracam wartości formularza...`);
 
-    // Przywróć wartości input i select
+    // Przywróć wartości input i select (pomiń radio kształtu)
     form.querySelectorAll('input[data-field], select[data-field]').forEach(input => {
+        if (input.dataset.field === 'shapeRect' || input.dataset.field === 'shapeRound') return;
         const key = input.id || input.name || input.dataset.field;
         const savedValue = formValues[key];
 
@@ -3104,8 +3226,9 @@ function safeAttachFormListeners(form) {
         }
     });
 
-    // Przywróć stany radio buttons
+    // Przywróć stany radio buttons (pomiń radio kształtu)
     form.querySelectorAll('input[type="radio"]').forEach(radio => {
+        if (radio.dataset.field === 'shapeRect' || radio.dataset.field === 'shapeRound') return;
         const key = radio.id || radio.name;
         const savedChecked = formValues[key + '_checked'];
         if (savedChecked !== undefined) {
@@ -4163,8 +4286,8 @@ function checkProductCompleteness(form) {
  */
 function getVariantDescription(form) {
     if (!form) return null;
-    
-    const variant = form.querySelector('input[type="radio"]:checked');
+
+    const variant = form.querySelector('.variants input[type="radio"]:checked');
     if (!variant) return null;
     
     // Znajdź label dla tego radio button
@@ -4330,6 +4453,7 @@ function generateProductDescription(form, index) {
 
     // Część 1: Gatunek + technologia + klasa + wymiary (bez separatorów między nimi)
     let basicInfo = [];
+    if (form.dataset.productShape === 'round') mainParts.push('Okrągły');
     if (species) basicInfo.push(species);
     if (technology) basicInfo.push(technology);
     if (woodClass) basicInfo.push(woodClass);
@@ -4401,9 +4525,9 @@ function duplicateProduct(sourceIndex) {
         return;
     }
 
-    // KROK 1: Zapisz stan wszystkich formularzy
+    // KROK 1: Zapisz stan wszystkich formularzy (tylko warianty, nie kształt)
     const selectedStates = forms.map((form, index) => {
-        const selectedRadio = form.querySelector('input[type="radio"]:checked');
+        const selectedRadio = form.querySelector('.variants input[type="radio"]:checked');
         return {
             formIndex: index,
             selectedVariant: selectedRadio ? {
@@ -4443,8 +4567,8 @@ function duplicateProduct(sourceIndex) {
         edgesSvg: sourceForm.dataset.edgesSvg || null
     };
 
-    // Pobierz zaznaczony wariant z formularza źródłowego
-    const sourceSelectedRadio = sourceForm.querySelector('input[type="radio"]:checked');
+    // Pobierz zaznaczony wariant z formularza źródłowego (pomiń radio kształtu)
+    const sourceSelectedRadio = sourceForm.querySelector('.variants input[type="radio"]:checked');
     if (sourceSelectedRadio) {
         sourceData.selectedVariant = {
             value: sourceSelectedRadio.value,
@@ -4867,10 +4991,10 @@ function activateProductCard(index) {
         return;
     }
     
-    // KROK 1: Zapisz stan zaznaczonych wariantów we WSZYSTKICH formularzach
+    // KROK 1: Zapisz stan zaznaczonych wariantów we WSZYSTKICH formularzach (pomiń radio kształtu)
     const selectedVariants = {};
     forms.forEach((form, formIndex) => {
-        const selectedRadio = form.querySelector('input[type="radio"]:checked');
+        const selectedRadio = form.querySelector('.variants input[type="radio"]:checked');
         if (selectedRadio) {
             selectedVariants[formIndex] = {
                 id: selectedRadio.id,
@@ -4914,7 +5038,7 @@ function activateProductCard(index) {
     // KROK 5: Przywróć zaznaczenia we WSZYSTKICH formularzach
     Object.entries(selectedVariants).forEach(([formIndex, variant]) => {
         const form = forms[parseInt(formIndex)];
-        if (form) {
+        if (form && variant.id) {
             const radio = form.querySelector(`#${variant.id}`);
             if (radio && !radio.checked) {
                 radio.checked = true;
@@ -4970,10 +5094,10 @@ function addNewProduct() {
         return;
     }
 
-    // KROK 1: Zapisz stan zaznaczonych wariantów przed klonowaniem
+    // KROK 1: Zapisz stan zaznaczonych wariantów przed klonowaniem (pomiń radio kształtu)
     const allForms = Array.from(quoteFormsContainer.querySelectorAll('.quote-form'));
     const selectedStates = allForms.map((form, index) => {
-        const selectedRadio = form.querySelector('input[type="radio"]:checked');
+        const selectedRadio = form.querySelector('.variants input[type="radio"]:checked');
         return {
             formIndex: index,
             selectedVariant: selectedRadio ? {
@@ -5133,14 +5257,45 @@ function calculateProductVolume(form) {
 
     if (length <= 0 || width <= 0 || thickness <= 0) return 0;
 
-    const singleVolume = calculateSingleVolume(length, width, thickness);
+    const productShape = form.dataset.productShape || 'rectangular';
+    let singleVolume;
+
+    if (productShape === 'round') {
+        // Rzeczywista objętość cylindra eliptycznego: π × a × b × T
+        const a = (length / 100) / 2;
+        const b = (width / 100) / 2;
+        const t = thickness / 100;
+        singleVolume = Math.PI * a * b * t;
+    } else {
+        singleVolume = calculateSingleVolume(length, width, thickness);
+    }
+
     return singleVolume * quantity;
 }
 
 function calculateProductWeight(form) {
-    const volume = calculateProductVolume(form);
+    const length = parseFloat(form.querySelector('[data-field="length"]')?.value) || 0;
+    const width = parseFloat(form.querySelector('[data-field="width"]')?.value) || 0;
+    const thickness = parseFloat(form.querySelector('[data-field="thickness"]')?.value) || 0;
+    const quantity = parseInt(form.querySelector('[data-field="quantity"]')?.value) || 1;
+
+    if (length <= 0 || width <= 0 || thickness <= 0) return 0;
+
+    const productShape = form.dataset.productShape || 'rectangular';
+    let singleVolumeM3;
+
+    if (productShape === 'round') {
+        // Cylinder eliptyczny: π × a × b × T (rzeczywista objętość produktu)
+        const a = (length / 100) / 2;
+        const b = (width / 100) / 2;
+        const t = thickness / 100;
+        singleVolumeM3 = Math.PI * a * b * t;
+    } else {
+        singleVolumeM3 = calculateSingleVolume(length, width, thickness);
+    }
+
     // Gęstość drewna: 800 kg/m³
-    return volume * 800;
+    return singleVolumeM3 * quantity * 800;
 }
 
 function formatVolume(volume) {
@@ -5516,7 +5671,8 @@ function filterAvailableVariantsForSave(form, variants) {
  * Dodaj obsługę dostępności do event listenerów formularza
  */
 function attachVariantSelectionListeners(form) {
-    const radioButtons = form.querySelectorAll('input[type="radio"]');
+    // Tylko radio wariantów (pomiń radio kształtu)
+    const radioButtons = form.querySelectorAll('.variants input[type="radio"]');
 
     radioButtons.forEach(radio => {
         // Usuń poprzednie event listenery
@@ -5534,7 +5690,8 @@ function checkRadioButtonIntegrity() {
     let hasIssues = false;
 
     allForms.forEach((form, formIndex) => {
-        const radioButtons = form.querySelectorAll('input[type="radio"]');
+        // Sprawdzaj tylko radio wariantów (pomiń radio kształtu)
+        const radioButtons = form.querySelectorAll('.variants input[type="radio"]');
         const radioGroups = {};
 
         // Grupuj radio buttony według name
@@ -5575,8 +5732,8 @@ function fixSelectedClasses() {
     const allForms = quoteFormsContainer.querySelectorAll('.quote-form');
 
     allForms.forEach((form, formIndex) => {
-        // Znajdź zaznaczony radio button w tym formularzu
-        const checkedRadio = form.querySelector('input[type="radio"]:checked');
+        // Znajdź zaznaczony radio button wariantu (pomiń radio kształtu)
+        const checkedRadio = form.querySelector('.variants input[type="radio"]:checked');
 
         // Usuń wszystkie klasy 'selected' z tego formularza
         form.querySelectorAll('.variant-option').forEach(option => {
@@ -5673,8 +5830,14 @@ document.addEventListener('DOMContentLoaded', function() {
         if (typeof generateProductsSummary === 'function') {
             generateProductsSummary();
         }
+        // Uruchom updatePrices tylko jeśli formularz ma wypełnione wymiary
+        // (unikamy czerwonych obwódek na pustym formularzu przy starcie)
         if (typeof updatePrices === 'function') {
-            updatePrices();
+            const firstForm = document.querySelector('.quote-form');
+            const hasLength = firstForm && firstForm.querySelector('input[data-field="length"]')?.value;
+            if (hasLength) {
+                updatePrices();
+            }
         }
     }, 500);
 
@@ -5692,7 +5855,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
         allForms.forEach(form => {
             const selectedCount = form.querySelectorAll('.variant-option.selected').length;
-            const checkedCount = form.querySelectorAll('input[type="radio"]:checked').length;
+            const checkedCount = form.querySelectorAll('.variants input[type="radio"]:checked').length;
 
             if (selectedCount !== checkedCount) {
                 hasIssues = true;

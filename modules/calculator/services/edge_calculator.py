@@ -29,13 +29,20 @@ EDGE_DEFINITIONS = {
     'N4': {'group': 'corner', 'dimension': 'thickness', 'name': 'Tylny prawy', 'name_full': 'Narożnik tylny prawy'},
 }
 
+# Definicje krawędzi okrągłych (obwodowe)
+ROUND_EDGE_DEFINITIONS = {
+    'KG': {'group': 'round_perimeter', 'name': 'Krawędź górna', 'name_full': 'Krawędź górna (obwód)'},
+    'KD': {'group': 'round_perimeter', 'name': 'Krawędź dolna', 'name_full': 'Krawędź dolna (obwód)'},
+}
+
 # Grupy krawędzi dla szybkich akcji
 EDGE_GROUPS = {
     'top': ['A', 'B', 'C', 'D'],
     'bottom': ['E', 'F', 'G', 'H'],
     'horizontal': ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'],
     'corner': ['N1', 'N2', 'N3', 'N4'],
-    'all': ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'N1', 'N2', 'N3', 'N4']
+    'all': ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'N1', 'N2', 'N3', 'N4'],
+    'round_all': ['KG', 'KD']
 }
 
 # ============================================
@@ -56,10 +63,56 @@ R_LIMITS = {
 
 VAT_RATE = Decimal('1.23')
 
+import math
+
 
 # ============================================
 # FUNKCJE POMOCNICZE
 # ============================================
+
+def calculate_ellipse_perimeter_mm(length_mm, width_mm):
+    """
+    Oblicza obwód elipsy w mm (aproksymacja Ramanujan).
+    length_mm, width_mm to wymiary prostokąta opisanego na elipsie.
+    """
+    a = length_mm / 2
+    b = width_mm / 2
+    return math.pi * (3 * (a + b) - math.sqrt((3 * a + b) * (a + 3 * b)))
+
+
+def calculate_round_edge_price(edge_letter, length_mm, width_mm, edge_type='round', prices=None):
+    """
+    Oblicza cenę obróbki krawędzi obwodowej dla kształtu okrągłego.
+
+    Returns:
+        dict: {letter, type, length_mm, length_mb, price_netto, price_brutto, ...}
+    """
+    if edge_letter not in ROUND_EDGE_DEFINITIONS:
+        return None
+
+    edge_def = ROUND_EDGE_DEFINITIONS[edge_letter]
+    perimeter_mm = calculate_ellipse_perimeter_mm(length_mm, width_mm)
+    perimeter_mb = Decimal(str(perimeter_mm)) / Decimal('1000')
+
+    if prices is None:
+        prices = DEFAULT_PRICES
+    type_prices = prices.get(edge_type, DEFAULT_PRICES.get(edge_type, {}))
+    price_per_mb = type_prices.get('per_mb', Decimal('15.00'))
+
+    price_netto = (perimeter_mb * price_per_mb).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+    price_brutto = (price_netto * VAT_RATE).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+
+    return {
+        'letter': edge_letter,
+        'type': edge_type,
+        'group': edge_def['group'],
+        'name': edge_def['name'],
+        'length_mm': round(perimeter_mm, 2),
+        'length_mb': float(perimeter_mb),
+        'is_round_perimeter': True,
+        'price_netto': float(price_netto),
+        'price_brutto': float(price_brutto)
+    }
 
 def get_edge_definition(edge_letter: str) -> dict:
     """

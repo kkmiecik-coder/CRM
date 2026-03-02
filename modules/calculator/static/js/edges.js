@@ -113,7 +113,7 @@ const EdgesModule = (function() {
         return CONFIG.prices[edgeType]?.per_corner || DEFAULT_PRICES[edgeType]?.per_corner || 5.00;
     }
 
-    // Definicje krawędzi
+    // Definicje krawędzi - prostokąt
     const EDGES = {
         // Poziome górne
         A: { group: 'top', dimension: 'length', name: 'Góra przednia' },
@@ -134,14 +134,29 @@ const EdgesModule = (function() {
         N4: { group: 'corner', dimension: 'thickness', name: 'Tylny prawy' }
     };
 
+    // Definicje krawędzi - kształt okrągły/owalny (2 krawędzie obwodowe)
+    const ROUND_EDGES = {
+        KG: { group: 'round_perimeter', name: 'Krawędź górna' },
+        KD: { group: 'round_perimeter', name: 'Krawędź dolna' }
+    };
+
     // Grupy krawędzi
     const EDGE_GROUPS = {
         top: ['A', 'B', 'C', 'D'],
         bottom: ['E', 'F', 'G', 'H'],
         horizontal: ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'],
         corner: ['N1', 'N2', 'N3', 'N4'],
-        all: ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'N1', 'N2', 'N3', 'N4']
+        all: ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'N1', 'N2', 'N3', 'N4'],
+        round_all: ['KG', 'KD']
     };
+
+    /**
+     * Oblicza obwód elipsy w cm (aproksymacja Ramanujan)
+     */
+    function calculateEllipsePerimeterCm(lengthCm, widthCm) {
+        const a = lengthCm / 2, b = widthCm / 2;
+        return Math.PI * (3 * (a + b) - Math.sqrt((3 * a + b) * (a + 3 * b)));
+    }
 
     // ==========================================
     // STAN
@@ -156,7 +171,8 @@ const EdgesModule = (function() {
         angleValue: null,         // Kąt fazowania (tylko dla chamfer)
         dimensions: { length: 0, width: 0, thickness: 0 },
         labelsVisible: true,
-        modalInitialized: false
+        modalInitialized: false,
+        productShape: 'rectangular' // 'rectangular' lub 'round'
     };
 
     // ==========================================
@@ -451,6 +467,9 @@ const EdgesModule = (function() {
 
         state.isOpen = true;
 
+        // Odczytaj kształt produktu z formularza
+        state.productShape = state.currentForm.dataset.productShape || 'rectangular';
+
         // Jeśli elementy nie były jeszcze zcache'owane, zrób to teraz
         if (!elements.modal) {
             console.log('[EdgesModule] Cache\'uję elementy modalu przy pierwszym otwarciu...');
@@ -467,17 +486,24 @@ const EdgesModule = (function() {
         loadDimensionsFromForm();
 
         // WAŻNE: Najpierw wczytaj zapisany stan z formularza (lub zresetuj do domyślnych)
-        // To czyści globalny state.selectedEdges i wczytuje dane dla TEGO konkretnego formularza
-        // Musi być PRZED generateProportionalSVG(), bo SVG używa state.selectedEdges
         loadSavedState();
 
-        // Wygeneruj proporcjonalny SVG na podstawie wymiarów
-        // (generateProportionalSVG używa state.selectedEdges do podświetlenia krawędzi)
-        generateProportionalSVG(
-            state.dimensions.length,
-            state.dimensions.width,
-            state.dimensions.thickness
-        );
+        // Przełącz UI w zależności od kształtu produktu
+        if (state.productShape === 'round') {
+            showRoundEdgesUI();
+            generateRoundSVG(
+                state.dimensions.length,
+                state.dimensions.width,
+                state.dimensions.thickness
+            );
+        } else {
+            showRectangularEdgesUI();
+            generateProportionalSVG(
+                state.dimensions.length,
+                state.dimensions.width,
+                state.dimensions.thickness
+            );
+        }
 
         // Aktualizuj długości krawędzi w UI
         updateEdgeLengths();
@@ -488,7 +514,7 @@ const EdgesModule = (function() {
         // Przelicz cenę
         calculatePrice();
 
-        console.log('[EdgesModule] Modal otwarty, wymiary:', state.dimensions, 'wybrane krawędzie:', Array.from(state.selectedEdges));
+        console.log('[EdgesModule] Modal otwarty, kształt:', state.productShape, 'wymiary:', state.dimensions, 'wybrane krawędzie:', Array.from(state.selectedEdges));
     }
 
     function closeModal() {
@@ -631,24 +657,42 @@ const EdgesModule = (function() {
     }
 
     function handleQuickAction(action) {
-        switch (action) {
-            case 'select-top':
-                // Zamień zaznaczenie na górne krawędzie
-                deselectAllEdges();
-                selectEdges(EDGE_GROUPS.top);
-                break;
-            case 'select-bottom':
-                // Zamień zaznaczenie na dolne krawędzie
-                deselectAllEdges();
-                selectEdges(EDGE_GROUPS.bottom);
-                break;
-            case 'select-all':
-                // Zaznacz wszystkie
-                selectEdges(EDGE_GROUPS.all);
-                break;
-            case 'deselect-all':
-                deselectAllEdges();
-                break;
+        if (state.productShape === 'round') {
+            // Akcje dla kształtu okrągłego
+            switch (action) {
+                case 'select-top':
+                    deselectAllEdges();
+                    selectEdges(['KG']);
+                    break;
+                case 'select-bottom':
+                    deselectAllEdges();
+                    selectEdges(['KD']);
+                    break;
+                case 'select-all':
+                    selectEdges(EDGE_GROUPS.round_all);
+                    break;
+                case 'deselect-all':
+                    deselectAllEdges();
+                    break;
+            }
+        } else {
+            // Akcje dla kształtu prostokątnego
+            switch (action) {
+                case 'select-top':
+                    deselectAllEdges();
+                    selectEdges(EDGE_GROUPS.top);
+                    break;
+                case 'select-bottom':
+                    deselectAllEdges();
+                    selectEdges(EDGE_GROUPS.bottom);
+                    break;
+                case 'select-all':
+                    selectEdges(EDGE_GROUPS.all);
+                    break;
+                case 'deselect-all':
+                    deselectAllEdges();
+                    break;
+            }
         }
 
         calculatePrice();
@@ -657,23 +701,40 @@ const EdgesModule = (function() {
     function selectEdges(edges) {
         edges.forEach(edge => {
             state.selectedEdges.add(edge);
-            const item = document.querySelector(`.edges-item[data-edge="${edge}"]`);
+            // Szukaj elementu krawędzi w całym modalu (obsługuje zarówno prostokąt, jak i okrągły)
+            const item = elements.modal?.querySelector(`.edges-item[data-edge="${edge}"]`);
             if (item) {
                 const checkbox = item.querySelector('input[type="checkbox"]');
                 if (checkbox) checkbox.checked = true;
                 item.classList.add('selected');
-                updateSvgEdge(edge, true);
             }
+            updateSvgEdge(edge, true);
         });
+        if (state.productShape === 'round') {
+            updateRoundSvgHighlights();
+        }
     }
 
     function deselectAllEdges() {
         state.selectedEdges.clear();
+        // Odznacz checkboxy prostokąta
         elements.checkboxes.forEach(cb => {
             cb.checked = false;
             cb.closest('.edges-item')?.classList.remove('selected');
         });
         EDGE_GROUPS.all.forEach(edge => updateSvgEdge(edge, false));
+
+        // Odznacz checkboxy okrągłego (jeśli istnieją)
+        const roundSection = elements.modal?.querySelector('.edges-round-section');
+        if (roundSection) {
+            roundSection.querySelectorAll('input[type="checkbox"]').forEach(cb => {
+                cb.checked = false;
+                cb.closest('.edges-item')?.classList.remove('selected');
+            });
+        }
+        if (state.productShape === 'round') {
+            updateRoundSvgHighlights();
+        }
     }
 
     function toggleLabels() {
@@ -1013,22 +1074,36 @@ const EdgesModule = (function() {
         const pricePerMb = getPricePerMb(state.edgeType);
         const pricePerCorner = getPricePerCorner(state.edgeType);
 
-        state.selectedEdges.forEach(edge => {
-            const def = EDGES[edge];
-            if (!def) return;
+        if (state.productShape === 'round') {
+            // Kształt okrągły: krawędzie obwodowe KG/KD
+            const perimeterCm = calculateEllipsePerimeterCm(
+                state.dimensions.length, state.dimensions.width
+            );
+            const perimeterMb = perimeterCm / 100;
 
-            if (def.group === 'corner') {
-                // Narożnik - cena za sztukę (z bazy danych)
-                totalNetto += pricePerCorner;
-                cornerCount++;
-            } else {
-                // Krawędź pozioma - cena za metr bieżący (z bazy danych)
-                const lengthCm = state.dimensions[def.dimension] || 0;
-                const lengthMb = lengthCm / 100;  // cm → m
-                totalNetto += lengthMb * pricePerMb;
-                horizontalCount++;
-            }
-        });
+            state.selectedEdges.forEach(edge => {
+                if (ROUND_EDGES[edge]) {
+                    totalNetto += perimeterMb * pricePerMb;
+                    horizontalCount++;
+                }
+            });
+        } else {
+            // Kształt prostokątny: standardowe 12 krawędzi
+            state.selectedEdges.forEach(edge => {
+                const def = EDGES[edge];
+                if (!def) return;
+
+                if (def.group === 'corner') {
+                    totalNetto += pricePerCorner;
+                    cornerCount++;
+                } else {
+                    const lengthCm = state.dimensions[def.dimension] || 0;
+                    const lengthMb = lengthCm / 100;
+                    totalNetto += lengthMb * pricePerMb;
+                    horizontalCount++;
+                }
+            });
+        }
 
         const totalBrutto = totalNetto * CONFIG.VAT_RATE;
 
@@ -1078,32 +1153,63 @@ const EdgesModule = (function() {
 
         // Zbierz dane o wybranych krawędziach
         const edgesData = [];
-        state.selectedEdges.forEach(edge => {
-            const def = EDGES[edge];
-            if (!def) return;
 
-            const lengthCm = state.dimensions[def.dimension] || 0;
-            const lengthMm = lengthCm * 10;
+        if (state.productShape === 'round') {
+            // Kształt okrągły: krawędzie obwodowe KG/KD
+            const perimeterCm = calculateEllipsePerimeterCm(
+                state.dimensions.length, state.dimensions.width
+            );
+            const perimeterMm = perimeterCm * 10;
+            const perimeterMb = perimeterCm / 100;
 
-            let priceNetto = 0;
-            if (def.group === 'corner') {
-                priceNetto = pricePerCorner;
-            } else {
-                priceNetto = (lengthCm / 100) * pricePerMb;
-            }
+            state.selectedEdges.forEach(edge => {
+                const def = ROUND_EDGES[edge];
+                if (!def) return;
 
-            edgesData.push({
-                letter: edge,
-                type: state.edgeType,
-                r_value: state.rValue,
-                angle_value: state.edgeType === 'chamfer' ? state.angleValue : null,
-                length_mm: lengthMm,
-                length_cm: lengthCm,
-                is_corner: def.group === 'corner',
-                price_netto: Math.round(priceNetto * 100) / 100,
-                price_brutto: Math.round(priceNetto * CONFIG.VAT_RATE * 100) / 100
+                const priceNetto = perimeterMb * pricePerMb;
+
+                edgesData.push({
+                    letter: edge,
+                    type: state.edgeType,
+                    r_value: state.rValue,
+                    angle_value: state.edgeType === 'chamfer' ? state.angleValue : null,
+                    length_mm: Math.round(perimeterMm * 100) / 100,
+                    length_cm: Math.round(perimeterCm * 100) / 100,
+                    is_corner: false,
+                    is_round_perimeter: true,
+                    price_netto: Math.round(priceNetto * 100) / 100,
+                    price_brutto: Math.round(priceNetto * CONFIG.VAT_RATE * 100) / 100
+                });
             });
-        });
+        } else {
+            // Kształt prostokątny: standardowe krawędzie
+            state.selectedEdges.forEach(edge => {
+                const def = EDGES[edge];
+                if (!def) return;
+
+                const lengthCm = state.dimensions[def.dimension] || 0;
+                const lengthMm = lengthCm * 10;
+
+                let priceNetto = 0;
+                if (def.group === 'corner') {
+                    priceNetto = pricePerCorner;
+                } else {
+                    priceNetto = (lengthCm / 100) * pricePerMb;
+                }
+
+                edgesData.push({
+                    letter: edge,
+                    type: state.edgeType,
+                    r_value: state.rValue,
+                    angle_value: state.edgeType === 'chamfer' ? state.angleValue : null,
+                    length_mm: lengthMm,
+                    length_cm: lengthCm,
+                    is_corner: def.group === 'corner',
+                    price_netto: Math.round(priceNetto * 100) / 100,
+                    price_brutto: Math.round(priceNetto * CONFIG.VAT_RATE * 100) / 100
+                });
+            });
+        }
 
         // Pobierz SVG jako string do zapisu w bazie
         let edgesSvg = '';
@@ -1465,32 +1571,59 @@ const EdgesModule = (function() {
             let totalNetto = 0;
             const updatedEdgesData = [];
 
+            const formShape = form.dataset.productShape || 'rectangular';
+
             edges.forEach(edge => {
-                const def = EDGES[edge.letter];
-                if (!def) return;
+                if (formShape === 'round') {
+                    // Krawędzie obwodowe dla kształtu okrągłego
+                    const def = ROUND_EDGES[edge.letter];
+                    if (!def) return;
 
-                const lengthCm = dimensions[def.dimension] || 0;
-                const lengthMm = lengthCm * 10;
+                    const perimeterCm = calculateEllipsePerimeterCm(dimensions.length, dimensions.width);
+                    const perimeterMm = perimeterCm * 10;
+                    const priceNetto = (perimeterCm / 100) * pricePerMb;
 
-                let priceNetto = 0;
-                if (def.group === 'corner') {
-                    priceNetto = pricePerCorner;
+                    totalNetto += priceNetto;
+
+                    updatedEdgesData.push({
+                        letter: edge.letter,
+                        type: edgeType,
+                        r_value: rValue,
+                        length_mm: Math.round(perimeterMm * 100) / 100,
+                        length_cm: Math.round(perimeterCm * 100) / 100,
+                        is_corner: false,
+                        is_round_perimeter: true,
+                        price_netto: Math.round(priceNetto * 100) / 100,
+                        price_brutto: Math.round(priceNetto * CONFIG.VAT_RATE * 100) / 100
+                    });
                 } else {
-                    priceNetto = (lengthCm / 100) * pricePerMb;
+                    // Standardowe krawędzie prostokątne
+                    const def = EDGES[edge.letter];
+                    if (!def) return;
+
+                    const lengthCm = dimensions[def.dimension] || 0;
+                    const lengthMm = lengthCm * 10;
+
+                    let priceNetto = 0;
+                    if (def.group === 'corner') {
+                        priceNetto = pricePerCorner;
+                    } else {
+                        priceNetto = (lengthCm / 100) * pricePerMb;
+                    }
+
+                    totalNetto += priceNetto;
+
+                    updatedEdgesData.push({
+                        letter: edge.letter,
+                        type: edgeType,
+                        r_value: rValue,
+                        length_mm: lengthMm,
+                        length_cm: lengthCm,
+                        is_corner: def.group === 'corner',
+                        price_netto: Math.round(priceNetto * 100) / 100,
+                        price_brutto: Math.round(priceNetto * CONFIG.VAT_RATE * 100) / 100
+                    });
                 }
-
-                totalNetto += priceNetto;
-
-                updatedEdgesData.push({
-                    letter: edge.letter,
-                    type: edgeType,
-                    r_value: rValue,
-                    length_mm: lengthMm,
-                    length_cm: lengthCm,
-                    is_corner: def.group === 'corner',
-                    price_netto: Math.round(priceNetto * 100) / 100,
-                    price_brutto: Math.round(priceNetto * CONFIG.VAT_RATE * 100) / 100
-                });
             });
 
             const totalBrutto = totalNetto * CONFIG.VAT_RATE;
@@ -1547,6 +1680,289 @@ const EdgesModule = (function() {
     }
 
     // ==========================================
+    // KSZTAŁT OKRĄGŁY - UI
+    // ==========================================
+
+    /**
+     * Przełącza modal na tryb krawędzi okrągłych (2 krawędzie obwodowe)
+     */
+    function showRoundEdgesUI() {
+        const modal = elements.modal;
+        if (!modal) return;
+
+        // Ukryj standardowe sekcje krawędzi prostokąta
+        modal.querySelectorAll('.edges-section').forEach(section => {
+            section.style.display = 'none';
+        });
+
+        // Pokaż lub utwórz sekcję krawędzi okrągłych
+        let roundSection = modal.querySelector('.edges-round-section');
+        if (!roundSection) {
+            roundSection = document.createElement('div');
+            roundSection.className = 'edges-section edges-round-section';
+
+            const perimeterCm = calculateEllipsePerimeterCm(
+                state.dimensions.length, state.dimensions.width
+            );
+
+            roundSection.innerHTML = `
+                <h4>Krawędzie obwodowe (kształt okrągły)</h4>
+                <div class="edges-list">
+                    <div class="edges-item edges-round-item" data-edge="KG">
+                        <label class="edges-checkbox">
+                            <input type="checkbox" name="edge_KG">
+                            <span class="edges-letter">KG</span>
+                            <span class="edges-name">Krawędź górna</span>
+                            <span class="edges-length edges-round-length" data-round-edge="KG">(${perimeterCm.toFixed(1)} cm)</span>
+                        </label>
+                    </div>
+                    <div class="edges-item edges-round-item" data-edge="KD">
+                        <label class="edges-checkbox">
+                            <input type="checkbox" name="edge_KD">
+                            <span class="edges-letter">KD</span>
+                            <span class="edges-name">Krawędź dolna</span>
+                            <span class="edges-length edges-round-length" data-round-edge="KD">(${perimeterCm.toFixed(1)} cm)</span>
+                        </label>
+                    </div>
+                </div>
+            `;
+
+            // Wstaw przed stopką modalu
+            const body = modal.querySelector('.edges-modal-body');
+            if (body) body.appendChild(roundSection);
+
+            // Dodaj event listenery na checkboxy
+            roundSection.querySelectorAll('input[type="checkbox"]').forEach(cb => {
+                cb.addEventListener('change', function () {
+                    const edgeLetter = this.closest('.edges-item').dataset.edge;
+                    if (this.checked) {
+                        state.selectedEdges.add(edgeLetter);
+                        this.closest('.edges-item').classList.add('selected');
+                    } else {
+                        state.selectedEdges.delete(edgeLetter);
+                        this.closest('.edges-item').classList.remove('selected');
+                    }
+                    // Aktualizuj SVG
+                    updateRoundSvgHighlights();
+                    calculatePrice();
+                });
+            });
+        } else {
+            roundSection.style.display = 'block';
+            // Zaktualizuj długości obwodu
+            const perimeterCm = calculateEllipsePerimeterCm(
+                state.dimensions.length, state.dimensions.width
+            );
+            roundSection.querySelectorAll('.edges-round-length').forEach(el => {
+                el.textContent = `(${perimeterCm.toFixed(1)} cm)`;
+            });
+        }
+
+        // Synchronizuj checkboxy z state.selectedEdges
+        roundSection.querySelectorAll('.edges-item').forEach(item => {
+            const edgeLetter = item.dataset.edge;
+            const cb = item.querySelector('input[type="checkbox"]');
+            if (cb) {
+                cb.checked = state.selectedEdges.has(edgeLetter);
+                item.classList.toggle('selected', state.selectedEdges.has(edgeLetter));
+            }
+        });
+
+        // Zmień szybkie akcje
+        const quickBtns = modal.querySelectorAll('.edges-quick-btn');
+        quickBtns.forEach(btn => {
+            const action = btn.dataset.action;
+            if (action === 'select-top') {
+                btn.textContent = 'Góra';
+                btn.dataset.roundAction = 'select-rt';
+            } else if (action === 'select-bottom') {
+                btn.textContent = 'Dół';
+                btn.dataset.roundAction = 'select-rb';
+            } else if (action === 'select-all') {
+                btn.textContent = 'Oba';
+            }
+            // 'deselect-all' pozostaje bez zmian
+        });
+    }
+
+    /**
+     * Przywraca standardowy widok krawędzi prostokątnych
+     */
+    function showRectangularEdgesUI() {
+        const modal = elements.modal;
+        if (!modal) return;
+
+        // Pokaż standardowe sekcje
+        modal.querySelectorAll('.edges-section').forEach(section => {
+            if (!section.classList.contains('edges-round-section')) {
+                section.style.display = '';
+            }
+        });
+
+        // Ukryj sekcję okrągłą (jeśli istnieje)
+        const roundSection = modal.querySelector('.edges-round-section');
+        if (roundSection) roundSection.style.display = 'none';
+
+        // Przywróć szybkie akcje
+        const quickBtns = modal.querySelectorAll('.edges-quick-btn');
+        quickBtns.forEach(btn => {
+            const action = btn.dataset.action;
+            if (action === 'select-top') btn.textContent = 'Góra';
+            else if (action === 'select-bottom') btn.textContent = 'Dół';
+            else if (action === 'select-all') btn.textContent = 'Wszystkie';
+            delete btn.dataset.roundAction;
+        });
+    }
+
+    /**
+     * Aktualizuje podświetlenie SVG dla krawędzi okrągłych
+     */
+    function updateRoundSvgHighlights() {
+        const svg = elements.svg;
+        if (!svg) return;
+
+        const topEdge = svg.querySelector('[data-edge="KG"]');
+        const bottomEdge = svg.querySelector('[data-edge="KD"]');
+
+        if (topEdge) {
+            topEdge.classList.toggle('active', state.selectedEdges.has('KG'));
+        }
+        if (bottomEdge) {
+            bottomEdge.classList.toggle('active', state.selectedEdges.has('KD'));
+        }
+    }
+
+    /**
+     * Generuje izometryczny SVG owalnego produktu z 2 krawędziami (KG, KD)
+     */
+    function generateRoundSVG(L, W, T) {
+        const svg = elements.svg;
+        if (!svg) return;
+
+        // Oblicz proporcje
+        const maxDim = Math.max(L, W, T, 1);
+        const scale = 200 / maxDim;
+        const sL = Math.max(L * scale, 30);
+        const sW = Math.max(W * scale, 20);
+        const sT = Math.max(T * scale * 0.3, 8);
+
+        // Środek SVG
+        const cx = 160, cy = 100;
+
+        // Izometryczne promienie elipsy
+        const rx = sL * 0.45;
+        const ry = sW * 0.25;
+
+        // Wyczyść SVG
+        svg.innerHTML = '';
+        svg.setAttribute('viewBox', '0 0 320 220');
+
+        // Dolna elipsa (bottom face)
+        const bottomEllipse = document.createElementNS('http://www.w3.org/2000/svg', 'ellipse');
+        bottomEllipse.setAttribute('cx', cx);
+        bottomEllipse.setAttribute('cy', cy + sT);
+        bottomEllipse.setAttribute('rx', rx);
+        bottomEllipse.setAttribute('ry', ry);
+        bottomEllipse.setAttribute('class', 'edges-face edges-face-front');
+        svg.appendChild(bottomEllipse);
+
+        // Boki (pasek boczny) - path łączący górną i dolną elipsę
+        const sidePath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        sidePath.setAttribute('d',
+            `M${cx - rx},${cy} ` +
+            `A${rx},${ry} 0 0,0 ${cx + rx},${cy} ` +
+            `L${cx + rx},${cy + sT} ` +
+            `A${rx},${ry} 0 0,1 ${cx - rx},${cy + sT} Z`
+        );
+        sidePath.setAttribute('class', 'edges-face edges-face-right');
+        svg.appendChild(sidePath);
+
+        // Górna elipsa (top face)
+        const topEllipse = document.createElementNS('http://www.w3.org/2000/svg', 'ellipse');
+        topEllipse.setAttribute('cx', cx);
+        topEllipse.setAttribute('cy', cy);
+        topEllipse.setAttribute('rx', rx);
+        topEllipse.setAttribute('ry', ry);
+        topEllipse.setAttribute('class', 'edges-face edges-face-top');
+        svg.appendChild(topEllipse);
+
+        // Krawędź dolna (KD) - dolna pół-elipsa (renderowana przed KG, żeby była pod nią)
+        const bottomEdge = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        const bottomD = `M${cx - rx},${cy + sT} A${rx},${ry} 0 0,0 ${cx + rx},${cy + sT}`;
+        bottomEdge.setAttribute('d', bottomD);
+        bottomEdge.setAttribute('fill', 'none');
+        bottomEdge.setAttribute('stroke-width', '3');
+        bottomEdge.setAttribute('data-edge', 'KD');
+        bottomEdge.setAttribute('class', 'edges-line' + (state.selectedEdges.has('KD') ? ' active' : ''));
+        svg.appendChild(bottomEdge);
+
+        // Krawędź górna (KG) - elipsa obwodowa (na wierzchu)
+        const topEdge = document.createElementNS('http://www.w3.org/2000/svg', 'ellipse');
+        topEdge.setAttribute('cx', cx);
+        topEdge.setAttribute('cy', cy);
+        topEdge.setAttribute('rx', rx);
+        topEdge.setAttribute('ry', ry);
+        topEdge.setAttribute('fill', 'none');
+        topEdge.setAttribute('stroke-width', '3');
+        topEdge.setAttribute('data-edge', 'KG');
+        topEdge.setAttribute('class', 'edges-line' + (state.selectedEdges.has('KG') ? ' active' : ''));
+        svg.appendChild(topEdge);
+
+        // Linie boczne (krawędzie pionowe łączące)
+        const leftLine = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+        leftLine.setAttribute('x1', cx - rx); leftLine.setAttribute('y1', cy);
+        leftLine.setAttribute('x2', cx - rx); leftLine.setAttribute('y2', cy + sT);
+        leftLine.setAttribute('class', 'edges-line');
+        svg.appendChild(leftLine);
+
+        const rightLine = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+        rightLine.setAttribute('x1', cx + rx); rightLine.setAttribute('y1', cy);
+        rightLine.setAttribute('x2', cx + rx); rightLine.setAttribute('y2', cy + sT);
+        rightLine.setAttribute('class', 'edges-line');
+        svg.appendChild(rightLine);
+
+        // Etykiety
+        if (state.labelsVisible) {
+            const labelsGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+            labelsGroup.setAttribute('id', 'edgeLabelsGroup');
+            labelsGroup.setAttribute('class', 'edges-labels');
+
+            // Etykieta KG (góra)
+            const kgLabel = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+            kgLabel.setAttribute('class', 'edges-label');
+            kgLabel.setAttribute('data-edge', 'KG');
+            const kgCircle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+            kgCircle.setAttribute('cx', cx); kgCircle.setAttribute('cy', cy - ry - 18);
+            kgCircle.setAttribute('r', '14');
+            const kgText = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+            kgText.setAttribute('x', cx); kgText.setAttribute('y', cy - ry - 14);
+            kgText.textContent = 'KG';
+            kgLabel.appendChild(kgCircle);
+            kgLabel.appendChild(kgText);
+            labelsGroup.appendChild(kgLabel);
+
+            // Etykieta KD (dół)
+            const kdLabel = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+            kdLabel.setAttribute('class', 'edges-label');
+            kdLabel.setAttribute('data-edge', 'KD');
+            const kdCircle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+            kdCircle.setAttribute('cx', cx); kdCircle.setAttribute('cy', cy + sT + ry + 18);
+            kdCircle.setAttribute('r', '14');
+            const kdText = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+            kdText.setAttribute('x', cx); kdText.setAttribute('y', cy + sT + ry + 22);
+            kdText.textContent = 'KD';
+            kdLabel.appendChild(kdCircle);
+            kdLabel.appendChild(kdText);
+            labelsGroup.appendChild(kdLabel);
+
+            svg.appendChild(labelsGroup);
+        }
+
+        // Przypisz event listenery (klikanie w krawędzie i etykiety na SVG)
+        attachSvgEventListeners();
+    }
+
+    // ==========================================
     // PUBLICZNE API
     // ==========================================
 
@@ -1581,6 +1997,7 @@ const EdgesModule = (function() {
         // Eksportuj konfigurację dla integracji z save_quote
         CONFIG,
         EDGES,
+        ROUND_EDGES,
         EDGE_GROUPS
     };
 

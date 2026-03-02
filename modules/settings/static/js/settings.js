@@ -615,6 +615,45 @@ document.addEventListener('DOMContentLoaded', function() {
     document.getElementById('saveAllBtnEdgeOptions')?.addEventListener('click', bulkSaveEdgeOptions);
     document.getElementById('discardChangesEdgeOptions')?.addEventListener('click', () => discardChanges('edgeOptions'));
 
+    // Round Shape Surcharge
+    document.getElementById('saveRoundSurchargeBtn')?.addEventListener('click', async () => {
+        const input = document.getElementById('roundSurchargeNetto');
+        const statusEl = document.getElementById('roundSurchargeSaveStatus');
+        if (!input) return;
+
+        const value = parseFloat(input.value);
+        if (isNaN(value) || value < 0) {
+            statusEl.textContent = 'Nieprawidłowa wartość!';
+            statusEl.style.color = '#dc3545';
+            statusEl.style.display = 'inline';
+            setTimeout(() => statusEl.style.display = 'none', 3000);
+            return;
+        }
+
+        try {
+            const resp = await fetch('/settings/api/calculator-settings', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ round_shape_surcharge_netto: value })
+            });
+            const data = await resp.json();
+            if (data.success) {
+                statusEl.textContent = 'Zapisano!';
+                statusEl.style.color = '#28a745';
+            } else {
+                statusEl.textContent = data.error || 'Błąd zapisu';
+                statusEl.style.color = '#dc3545';
+            }
+            statusEl.style.display = 'inline';
+            setTimeout(() => statusEl.style.display = 'none', 3000);
+        } catch (err) {
+            statusEl.textContent = 'Błąd połączenia';
+            statusEl.style.color = '#dc3545';
+            statusEl.style.display = 'inline';
+            setTimeout(() => statusEl.style.display = 'none', 3000);
+        }
+    });
+
     // Quote Sources
     document.getElementById('saveAllBtnQuoteSources')?.addEventListener('click', bulkSaveQuoteSources);
     document.getElementById('discardChangesQuoteSources')?.addEventListener('click', () => discardChanges('quoteSources'));

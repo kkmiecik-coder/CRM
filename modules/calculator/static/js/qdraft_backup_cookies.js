@@ -159,9 +159,12 @@ class QuoteDraftBackup {
         const thickness = parseFloat(form.querySelector('[data-field="thickness"]')?.value || 0);
         const quantity = parseInt(form.querySelector('[data-field="quantity"]')?.value || 1);
 
-        // Wybrany wariant (radio button)
-        const selectedRadio = form.querySelector('input[type="radio"]:checked');
+        // Wybrany wariant (radio button - tylko z sekcji wariantów)
+        const selectedRadio = form.querySelector('.variants input[type="radio"]:checked');
         const selectedVariant = selectedRadio ? selectedRadio.value : null;
+
+        // Kształt produktu
+        const shape = form.dataset.productShape || 'rectangular';
 
         // Dane wykończenia - pobierz z form.dataset (nowy system hierarchiczny)
         const finishingType = form.dataset.finishingType || 'Surowe';
@@ -198,6 +201,7 @@ class QuoteDraftBackup {
             thickness,
             quantity,
             selectedVariant,
+            shape,
             clientType,
             finishing: {
                 type: finishingType,
@@ -408,6 +412,10 @@ class QuoteDraftBackup {
                 description = `${variantName} ${product.length}×${product.width}×${product.thickness}cm`;
             }
 
+            if (product.shape === 'round') {
+                description += ' (okrągły)';
+            }
+
             if (product.finishing && product.finishing.type !== 'Surowe') {
                 description += ` ${product.finishing.type.toLowerCase()}`;
                 if (product.finishing.variant) {
@@ -570,8 +578,9 @@ class QuoteDraftBackup {
      * Czyści pojedynczy formularz produktu
      */
     clearProductForm(form) {
-        // Wyczyść pola tekstowe
+        // Wyczyść pola tekstowe (pomiń radio kształtu)
         form.querySelectorAll('input[data-field]').forEach(input => {
+            if (input.type === 'radio') return;
             input.value = '';
         });
 
@@ -581,10 +590,15 @@ class QuoteDraftBackup {
             clientTypeSelect.selectedIndex = 0;
         }
 
-        // Odznacz wszystkie radio buttony
-        form.querySelectorAll('input[type="radio"]').forEach(radio => {
+        // Odznacz radio buttony wariantów (pomiń radio kształtu)
+        form.querySelectorAll('.variants input[type="radio"]').forEach(radio => {
             radio.checked = false;
         });
+
+        // Przywróć domyślny kształt prostokątny
+        const rectRadio = form.querySelector('input[data-field="shapeRect"]');
+        if (rectRadio) rectRadio.checked = true;
+        form.dataset.productShape = 'rectangular';
 
         // Usuń aktywne klasy z wykończenia (nowy i stary system)
         form.querySelectorAll('.finishing-btn.active, .color-btn.active, .finishing-option-btn.active').forEach(btn => {
@@ -675,6 +689,16 @@ class QuoteDraftBackup {
 
         if (!form) {
             throw new Error(`Nie można znaleźć formularza dla produktu ${index + 1}`);
+        }
+
+        // Przywróć kształt produktu
+        if (productData.shape && productData.shape !== 'rectangular') {
+            const shapeRadio = form.querySelector(`input[data-field="shapeRound"]`);
+            if (shapeRadio) {
+                shapeRadio.checked = true;
+                form.dataset.productShape = 'round';
+                shapeRadio.dispatchEvent(new Event('change', { bubbles: true }));
+            }
         }
 
         // Przywróć wymiary

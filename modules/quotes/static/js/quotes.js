@@ -2573,9 +2573,11 @@ function renderSelectedSummary(groupedItems, container) {
         const totalBrutto = finalUnitPriceBrutto * quantity;
         const totalNetto = finalUnitPriceNetto * quantity;
 
-        // Oblicz objętość (m³) i wagę (kg)
+        // Oblicz objętość (m³) i wagę (kg) - używaj rzeczywistej objętości jeśli dostępna
         let itemVolume = 0;
-        if (selected.volume_m3) {
+        if (selected.real_volume_m3) {
+            itemVolume = parseFloat(selected.real_volume_m3) * quantity;
+        } else if (selected.volume_m3) {
             itemVolume = parseFloat(selected.volume_m3) * quantity;
         } else if (selected.length_cm && selected.width_cm && selected.thickness_cm) {
             itemVolume = (selected.length_cm / 100) * (selected.width_cm / 100) * (selected.thickness_cm / 100) * quantity;
@@ -2631,7 +2633,8 @@ function renderVariantSummary(groupedItemsForIndex, quoteData, productIndex) {
     wrap.className = 'variant-summary-header';
 
     const dims = `${item.length_cm} × ${item.width_cm} × ${item.thickness_cm} cm`;
-    const volume = item.volume_m3 ? `${item.volume_m3.toFixed(3)} m³` : '-';
+    const realVol = item.real_volume_m3 || item.volume_m3;
+    const volume = realVol ? `${realVol.toFixed(3)} m³` : '-';
 
     const finishing = (quoteData.finishing || []).find(f => f.product_index == productIndex);
     
@@ -2726,9 +2729,14 @@ function renderVariantSummary(groupedItemsForIndex, quoteData, productIndex) {
         }
     }
 
+    // Badge kształtu okrągłego
+    const shapeDisplay = (finishing && finishing.shape === 'round')
+        ? ' <span style="background:#e67e22;color:#fff;padding:1px 6px;border-radius:4px;font-size:11px;margin-left:4px;">Okrągły</span>'
+        : '';
+
     wrap.innerHTML = `
         <div class="product-column">
-            <div><strong>Wariant:</strong> ${translateVariantCode(item.variant_code) || 'Nieznany wariant'}</div>
+            <div><strong>Wariant:</strong> ${translateVariantCode(item.variant_code) || 'Nieznany wariant'}${shapeDisplay}</div>
             <div><strong>Wymiary:</strong> ${dims}</div>
             <div><strong>Objętość:</strong> ${volume}</div>
             <div><strong>Ilość:</strong> ${quantity} szt.</div>
@@ -2887,7 +2895,8 @@ function openVariantEditModal(item, quoteData) {
     // Wypełnij informacje o wariancie
     document.getElementById('edit-variant-name').textContent = translateVariantCode(item.variant_code);
     document.getElementById('edit-variant-dimensions').textContent = `${item.length_cm}×${item.width_cm}×${item.thickness_cm} cm`;
-    document.getElementById('edit-variant-volume').textContent = `${item.volume_m3?.toFixed(3) || '0.000'} m³`;
+    const editVol = item.real_volume_m3 || item.volume_m3;
+    document.getElementById('edit-variant-volume').textContent = `${editVol?.toFixed(3) || '0.000'} m³`;
 
     // Wypełnij formularz
     document.getElementById('discount-percentage').value = item.discount_percentage || 0;

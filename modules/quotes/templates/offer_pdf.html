@@ -524,6 +524,9 @@
                         {% elif item.variant_code == 'buk-micro-ab' %}Klejonka bukowa mikrowczep A/B
                         {% else %}{{ item.variant_code }}
                         {% endif %}
+                        {% if finishing_detail and finishing_detail.shape == 'round' %}
+                        <br><span class="finishing-details" style="color: #e67e22; font-weight: bold;">Kształt: okrągły/owalny</span>
+                        {% endif %}
 
                         <!-- Wykończenie (malowanie) -->
                         <br><span class="finishing-details">

@@ -533,6 +533,17 @@ def save_quote():
             edges_svg = product.get('edges_svg', '')
             current_app.logger.info(f"[save_quote] Produkt #{i + 1}: edges_svg length={len(edges_svg) if edges_svg else 0}, has_svg={bool(edges_svg)}")
 
+            # Kształt produktu i dopłata za okrągły
+            product_shape = product.get('shape', 'rectangular')
+            round_surcharge_netto = 0
+            round_surcharge_brutto = 0
+            if product_shape == 'round':
+                from .models import CalculatorSetting
+                surcharge_per_unit = float(CalculatorSetting.get_value('round_shape_surcharge_netto', '50.00'))
+                round_surcharge_netto = round(surcharge_per_unit * product_quantity, 2)
+                round_surcharge_brutto = round(round_surcharge_netto * 1.23, 2)
+                current_app.logger.info(f"[save_quote] Produkt #{i + 1}: kształt okrągły, dopłata netto={round_surcharge_netto} ({surcharge_per_unit}/szt × {product_quantity})")
+
             # Zapisz szczegóły wykończenia i krawędzi dla produktu
             item_details = QuoteItemDetails(
                 quote_id=quote.id,
@@ -551,7 +562,11 @@ def save_quote():
                 edges_angle_value=edges_angle_value,
                 edges_price_netto=edges_price_netto,
                 edges_price_brutto=edges_price_brutto,
-                edges_svg=edges_svg if edges_svg else None
+                edges_svg=edges_svg if edges_svg else None,
+                # Kształt produktu
+                shape=product_shape,
+                round_surcharge_netto=round_surcharge_netto,
+                round_surcharge_brutto=round_surcharge_brutto
             )
             db.session.add(item_details)
 
@@ -576,6 +591,7 @@ def save_quote():
                     width_cm=product.get('width'),
                     thickness_cm=product.get('thickness'),
                     volume_m3=variant.get('volume_m3', 0.0),
+                    real_volume_m3=variant.get('real_volume_m3', variant.get('volume_m3', 0.0)),
                     price_per_m3=variant.get('price_per_m3', 0.0),
                     multiplier=variant.get('multiplier', 1.0),
                     price_netto=unit_price_netto,      # CENA JEDNOSTKOWA
@@ -743,6 +759,21 @@ def get_edge_options():
             {'id': 1, 'type': 'chamfer', 'name': 'Fazowanie', 'price_per_mb': 15.0, 'corner_price': 5.0, 'r_min': 3, 'r_max': 10, 'r_default': 3},
             {'id': 2, 'type': 'round', 'name': 'Zaokrąglenie', 'price_per_mb': 15.0, 'corner_price': 5.0, 'r_min': 3, 'r_max': 20, 'r_default': 5}
         ])
+
+
+@calculator_bp.route('/api/calculator-settings', methods=['GET'])
+@require_module_access('calculator')
+def get_calculator_settings():
+    """Zwraca ustawienia kalkulatora (dopłata za kształt okrągły itp.)"""
+    try:
+        from .models import CalculatorSetting
+        surcharge = CalculatorSetting.get_value('round_shape_surcharge_netto', '50.00')
+        return jsonify({
+            'round_shape_surcharge_netto': float(surcharge)
+        })
+    except Exception as e:
+        current_app.logger.error(f"[get_calculator_settings] Błąd: {str(e)}")
+        return jsonify({'round_shape_surcharge_netto': 50.00})
 
 
 @calculator_bp.route('/api/edge-definitions', methods=['GET'])

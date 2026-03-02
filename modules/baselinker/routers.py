@@ -661,6 +661,7 @@ def get_order_modal_data(quote_id):
                 'dimensions': f"{item.length_cm}×{item.width_cm}×{item.thickness_cm} cm",
                 'quantity': quantity,
                 'variant_code': item.variant_code,
+                'shape': finishing_details.shape if finishing_details and finishing_details.shape else 'rectangular',
                 'sku': sku,
                 'unit_price_netto': round(final_unit_price_netto, 2),
                 'unit_price_brutto': round(final_unit_price_brutto, 2),
