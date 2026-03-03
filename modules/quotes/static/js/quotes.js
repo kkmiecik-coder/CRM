@@ -1931,11 +1931,11 @@ function setupProductTabs(quoteData, tabsContainer, itemsContainer) {
     });
 }
 
-function filterQuotes() {
+function filterQuotes(resetPage = true) {
     console.log("[filterQuotes] Uruchamianie filtrowania...");
 
-    // Resetuj do pierwszej strony przy zmianie filtrów
-    currentPage = 1;
+    // Resetuj do pierwszej strony przy zmianie filtrów (nie przy paginacji)
+    if (resetPage) currentPage = 1;
 
     // Pobierz wartości filtrów
     const quoteNumber = document.getElementById("quote-number-filter")?.value || "";
@@ -2378,7 +2378,7 @@ function goToPage(page) {
         return;
     }
     currentPage = page;
-    fetchQuotes();
+    filterQuotes(false);
 }
 
 // Funkcje dla overlaya ładowania
