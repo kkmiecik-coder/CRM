@@ -1,6 +1,7 @@
 from extensions import db
 from datetime import datetime, timedelta
 from sqlalchemy import func
+from sqlalchemy.orm import joinedload
 from flask import current_app
 
 
@@ -188,10 +189,9 @@ class UserSession(db.Model):
         """
         threshold_time = datetime.utcnow() - timedelta(minutes=minutes_threshold)
         
-        return db.session.query(cls).join(cls.user).filter(
+        return db.session.query(cls).options(joinedload(cls.user)).filter(
             cls.is_active == True,
-            cls.last_activity_at >= threshold_time,
-            cls.user.has(active=True)
+            cls.last_activity_at >= threshold_time
         ).order_by(cls.last_activity_at.desc()).all()
     
     @classmethod

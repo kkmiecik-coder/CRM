@@ -46,10 +46,14 @@ class UserActivityService:
             )
             
             db.session.add(new_session)
+            db.session.flush()
+
+            # Zapisz token przed commitem (unikamy deferred load)
+            token = new_session.session_token
             db.session.commit()
-            
+
             # Zapisz token sesji w Flask session
-            session['user_session_token'] = new_session.session_token
+            session['user_session_token'] = token
             
             logger.info(f"[UserActivity] Utworzono nową sesję dla user_id={user_id}, token={new_session.session_token[:8]}...")
             return new_session

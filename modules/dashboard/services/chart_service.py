@@ -230,51 +230,56 @@ def get_top_products_data(limit=5):
 def get_production_overview():
     """
     Pobiera przegląd statusów produkcji
-    
+
     Returns:
         dict: Statystyki produkcji według statusów
     """
+    # Mapowanie statusów ENUM na nazwy wyświetlane i kolory
+    STATUS_CONFIG = {
+        'czeka_na_wyciecie': {'name': 'Czeka na wycięcie', 'color': '#94a3b8'},
+        'czeka_na_skladanie': {'name': 'Czeka na składanie', 'color': '#64748b'},
+        'czeka_na_sklejanie': {'name': 'Czeka na sklejanie', 'color': '#8b5cf6'},
+        'czeka_na_formatowanie': {'name': 'Czeka na formatowanie', 'color': '#3b82f6'},
+        'czeka_na_wykanczanie': {'name': 'Czeka na wykańczanie', 'color': '#06b6d4'},
+        'czeka_na_pakowanie': {'name': 'Czeka na pakowanie', 'color': '#f59e0b'},
+        'spakowane': {'name': 'Spakowane', 'color': '#10b981'},
+        'anulowane': {'name': 'Anulowane', 'color': '#ef4444'},
+        'wstrzymane': {'name': 'Wstrzymane', 'color': '#f97316'},
+        'w_realizacji': {'name': 'W realizacji', 'color': '#eab308'},
+    }
+
     try:
-        from ...production.models import ProductionItem, ProductionStatus
-        
-        # Pobierz statystyki według statusów
+        from ...production.models import ProductionItem
+
         status_stats = db.session.query(
-            ProductionStatus.display_name.label('status_name'),
-            ProductionStatus.color_code.label('color'),
+            ProductionItem.current_status,
             func.count(ProductionItem.id).label('count')
-        ).join(
-            ProductionItem, ProductionItem.status_id == ProductionStatus.id
         ).group_by(
-            ProductionStatus.id,
-            ProductionStatus.display_name,
-            ProductionStatus.color_code
+            ProductionItem.current_status
         ).all()
-        
+
         production_data = {
             'statuses': [],
             'total_items': 0
         }
-        
+
         for stat in status_stats:
+            config = STATUS_CONFIG.get(stat.current_status, {'name': stat.current_status, 'color': '#94a3b8'})
             production_data['statuses'].append({
-                'name': stat.status_name,
+                'name': config['name'],
                 'count': stat.count,
-                'color': stat.color
+                'color': config['color']
             })
             production_data['total_items'] += stat.count
-        
+
         logger.info(f"[ChartService] Statystyki produkcji: {production_data['total_items']} elementów")
         return production_data
-        
+
     except Exception as e:
         logger.exception(f"[ChartService] Błąd pobierania danych produkcji: {e}")
         return {
-            'statuses': [
-                {'name': 'W kolejce', 'count': 15, 'color': '#94a3b8'},
-                {'name': 'W produkcji', 'count': 8, 'color': '#f59e0b'},
-                {'name': 'Gotowe', 'count': 23, 'color': '#10b981'}
-            ],
-            'total_items': 46
+            'statuses': [],
+            'total_items': 0
         }
 
 def get_sales_trends(days=30):
