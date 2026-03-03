@@ -234,6 +234,8 @@
                                     <th style="width: 100px;">Grubość max</th>
                                     <th style="width: 100px;">Długość min</th>
                                     <th style="width: 100px;">Długość max</th>
+                                    <th style="width: 90px;">Szer. min</th>
+                                    <th style="width: 90px;">Szer. max</th>
                                     <th style="width: 120px;">Cena/m³ (PLN)</th>
                                     <th style="width: 100px;">Akcje</th>
                                 </tr>
@@ -271,6 +273,14 @@
                                     <td>
                                         <input type="number" step="0.01" class="price-input number-input" value="{{ price.length_max }}"
                                                data-field="length_max" data-id="{{ price.id }}">
+                                    </td>
+                                    <td>
+                                        <input type="number" step="0.01" class="price-input number-input" value="{{ price.width_min }}"
+                                               data-field="width_min" data-id="{{ price.id }}">
+                                    </td>
+                                    <td>
+                                        <input type="number" step="0.01" class="price-input number-input" value="{{ price.width_max }}"
+                                               data-field="width_max" data-id="{{ price.id }}">
                                     </td>
                                     <td>
                                         <input type="number" step="0.01" class="price-input price-value-input" value="{{ price.price_per_m3 }}"
@@ -829,6 +839,16 @@
                     <div class="form-group">
                         <label>Długość max (cm) <span class="required">*</span></label>
                         <input type="number" step="0.01" name="length_max" required placeholder="0.00">
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Szerokość min (cm) <span class="required">*</span></label>
+                        <input type="number" step="0.01" name="width_min" required placeholder="0.00" value="0.00">
+                    </div>
+                    <div class="form-group">
+                        <label>Szerokość max (cm) <span class="required">*</span></label>
+                        <input type="number" step="0.01" name="width_max" required placeholder="120.00" value="120.00">
                     </div>
                 </div>
                 <div class="form-group">

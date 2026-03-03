@@ -31,13 +31,13 @@ def calculator_home():
     user_client_type = user.multiplier.client_type if user.multiplier else None
     
     prices_query = db.session.execute(text("""
-        SELECT species, technology, wood_class, thickness_min, thickness_max, 
-               length_min, length_max, price_per_m3 
+        SELECT species, technology, wood_class, thickness_min, thickness_max,
+               length_min, length_max, width_min, width_max, price_per_m3
         FROM prices
     """)).fetchall()
     prices_list = [dict(row._mapping) for row in prices_query]
     for row in prices_list:
-        for key in ['thickness_min', 'thickness_max', 'length_min', 'length_max', 'price_per_m3']:
+        for key in ['thickness_min', 'thickness_max', 'length_min', 'length_max', 'width_min', 'width_max', 'price_per_m3']:
             if key in row and row[key] is not None:
                 row[key] = float(row[key])
     prices_json = json.dumps(prices_list)

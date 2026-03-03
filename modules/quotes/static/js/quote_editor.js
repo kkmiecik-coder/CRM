@@ -1719,7 +1719,7 @@ function calculateVariantPrice(variantCode, formData) {
 
     // Try to get price from database
     if (window.priceIndex) {
-        const match = getEditorPrice(config.species, config.technology, config.wood_class, formData.thickness, formData.length);
+        const match = getEditorPrice(config.species, config.technology, config.wood_class, formData.thickness, formData.length, formData.width);
         if (match) {
             basePrice = match.price_per_m3;
         }
@@ -4690,7 +4690,8 @@ function collectUpdatedQuoteData() {
                                 config.technology,
                                 config.wood_class,
                                 item.thickness_cm,
-                                item.length_cm
+                                item.length_cm,
+                                item.width_cm
                             );
                             if (match) {
                                 // Bazowa cena * multiplier = cena dla grupy cenowej
@@ -5074,19 +5075,20 @@ function syncSelectedVariant() {
 /**
  * Zoptymalizowana funkcja getEditorPrice
  */
-function getEditorPrice(species, technology, wood_class, thickness, length) {
+function getEditorPrice(species, technology, wood_class, thickness, length, width) {
     const roundedThickness = Math.ceil(thickness);
     const key = `${species}::${technology}::${wood_class}`;
     const entries = window.priceIndex?.[key] || [];
 
     if (entries.length === 0) return null;
 
-    // Optimized search - break early when found
+    // Szukanie ceny z uwzględnieniem zakresu szerokości
     for (const entry of entries) {
         const thickOk = roundedThickness >= entry.thickness_min && roundedThickness <= entry.thickness_max;
         const lengthOk = length >= entry.length_min && length <= entry.length_max;
+        const widthOk = width >= entry.width_min && width <= entry.width_max;
 
-        if (thickOk && lengthOk) {
+        if (thickOk && lengthOk && widthOk) {
             return entry;
         }
     }

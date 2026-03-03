@@ -57,6 +57,8 @@ document.addEventListener('DOMContentLoaded', function() {
                     thickness_max: row.querySelector('[data-field="thickness_max"]')?.value || '',
                     length_min: row.querySelector('[data-field="length_min"]')?.value || '',
                     length_max: row.querySelector('[data-field="length_max"]')?.value || '',
+                    width_min: row.querySelector('[data-field="width_min"]')?.value || '',
+                    width_max: row.querySelector('[data-field="width_max"]')?.value || '',
                     price_per_m3: row.querySelector('[data-field="price_per_m3"]')?.value || ''
                 });
             }
@@ -415,6 +417,8 @@ document.addEventListener('DOMContentLoaded', function() {
                 thickness_max: parseFloat(data.thickness_max) || 0,
                 length_min: parseFloat(data.length_min) || 0,
                 length_max: parseFloat(data.length_max) || 0,
+                width_min: parseFloat(data.width_min) || 0,
+                width_max: parseFloat(data.width_max) || 0,
                 price_per_m3: parseFloat(data.price_per_m3) || 0
             }));
 
@@ -1080,6 +1084,8 @@ document.addEventListener('DOMContentLoaded', function() {
             thickness_max: parseFloat(formData.get('thickness_max')),
             length_min: parseFloat(formData.get('length_min')),
             length_max: parseFloat(formData.get('length_max')),
+            width_min: parseFloat(formData.get('width_min')),
+            width_max: parseFloat(formData.get('width_max')),
             price_per_m3: parseFloat(formData.get('price_per_m3'))
         };
 
@@ -1121,6 +1127,8 @@ document.addEventListener('DOMContentLoaded', function() {
                 thickness_max: row.querySelector('[data-field="thickness_max"]')?.value || '',
                 length_min: row.querySelector('[data-field="length_min"]')?.value || '',
                 length_max: row.querySelector('[data-field="length_max"]')?.value || '',
+                width_min: row.querySelector('[data-field="width_min"]')?.value || '',
+                width_max: row.querySelector('[data-field="width_max"]')?.value || '',
                 price_per_m3: row.querySelector('[data-field="price_per_m3"]')?.value || ''
             };
 

@@ -254,7 +254,9 @@ document.addEventListener("DOMContentLoaded", () => {
                 tRounded >= p.thickness_min &&
                 tRounded <= p.thickness_max &&
                 lRounded >= p.length_min &&
-                lRounded <= p.length_max
+                lRounded <= p.length_max &&
+                w >= p.width_min &&
+                w <= p.width_max
             );
 
             if (!match) {

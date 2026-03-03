@@ -501,6 +501,8 @@ class Price(db.Model):
     thickness_max = db.Column(DECIMAL(4, 2), nullable=False)
     length_min = db.Column(DECIMAL(10, 2), nullable=False)
     length_max = db.Column(DECIMAL(10, 2), nullable=False)
+    width_min = db.Column(DECIMAL(10, 2), nullable=False, default=0)
+    width_max = db.Column(DECIMAL(10, 2), nullable=False, default=999.99)
     price_per_m3 = db.Column(DECIMAL(10, 2), nullable=False)
 
     def __repr__(self):
@@ -517,6 +519,8 @@ class Price(db.Model):
             'thickness_max': float(self.thickness_max) if self.thickness_max else 0,
             'length_min': float(self.length_min) if self.length_min else 0,
             'length_max': float(self.length_max) if self.length_max else 0,
+            'width_min': float(self.width_min) if self.width_min else 0,
+            'width_max': float(self.width_max) if self.width_max else 0,
             'price_per_m3': float(self.price_per_m3) if self.price_per_m3 else 0
         }
 

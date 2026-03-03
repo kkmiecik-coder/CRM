@@ -758,7 +758,7 @@ function buildPriceIndex() {
 /**
  * Pobiera cenę z priceIndex zamiast liniowego .find na całej tablicy
  */
-function getPrice(species, technology, wood_class, thickness, length) {
+function getPrice(species, technology, wood_class, thickness, length, width) {
     const roundedThickness = Math.ceil(thickness);
     const key = `${species}::${technology}::${wood_class}`;
     const arr = priceIndex[key] || [];
@@ -766,7 +766,9 @@ function getPrice(species, technology, wood_class, thickness, length) {
         roundedThickness >= entry.thickness_min &&
         roundedThickness <= entry.thickness_max &&
         length >= entry.length_min &&
-        length <= entry.length_max
+        length <= entry.length_max &&
+        width >= entry.width_min &&
+        width <= entry.width_max
     );
 }
 
@@ -1065,7 +1067,7 @@ function updatePrices() {
 
         dbg("Processing variant:", id, config);
 
-        const match = getPrice(config.species, config.technology, config.wood_class, thickness, length);
+        const match = getPrice(config.species, config.technology, config.wood_class, thickness, length, width);
         const unitBruttoSpan = variant.querySelector('.unit-brutto');
         const unitNettoSpan = variant.querySelector('.unit-netto');
         const totalBruttoSpan = variant.querySelector('.total-brutto');
@@ -1278,7 +1280,7 @@ function updatePricesInOtherProducts() {
                         const config = variantMapping[id]; // ✅ UŻYWAJ mapowania!
                         if (!config) return;
 
-                        const match = getPrice(config.species, config.technology, config.wood_class, thickness, length);
+                        const match = getPrice(config.species, config.technology, config.wood_class, thickness, length, width);
 
                         if (match) {
                             const basePrice = match.price_per_m3;

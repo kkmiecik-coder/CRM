@@ -468,6 +468,7 @@ def calculator_prices():
         Price.species,
         Price.technology,
         Price.wood_class,
+        Price.width_min,
         Price.thickness_min
     ).all()
 
@@ -499,6 +500,7 @@ def api_get_prices():
             Price.species,
             Price.technology,
             Price.wood_class,
+            Price.width_min,
             Price.thickness_min
         ).all()
 
@@ -566,6 +568,18 @@ def api_update_price(price_id):
             except (InvalidOperation, ValueError):
                 return jsonify({'success': False, 'error': 'Nieprawidłowa wartość długości max'}), 400
 
+        if 'width_min' in data:
+            try:
+                price.width_min = Decimal(str(data['width_min']))
+            except (InvalidOperation, ValueError):
+                return jsonify({'success': False, 'error': 'Nieprawidłowa wartość szerokości min'}), 400
+
+        if 'width_max' in data:
+            try:
+                price.width_max = Decimal(str(data['width_max']))
+            except (InvalidOperation, ValueError):
+                return jsonify({'success': False, 'error': 'Nieprawidłowa wartość szerokości max'}), 400
+
         if 'price_per_m3' in data:
             try:
                 price.price_per_m3 = Decimal(str(data['price_per_m3']))
@@ -596,7 +610,8 @@ def api_create_price():
 
         # Walidacja wymaganych pól
         required_fields = ['species', 'technology', 'wood_class', 'thickness_min',
-                          'thickness_max', 'length_min', 'length_max', 'price_per_m3']
+                          'thickness_max', 'length_min', 'length_max',
+                          'width_min', 'width_max', 'price_per_m3']
         for field in required_fields:
             if field not in data or data[field] is None or str(data[field]).strip() == '':
                 return jsonify({
@@ -613,6 +628,8 @@ def api_create_price():
                 thickness_max=Decimal(str(data['thickness_max'])),
                 length_min=Decimal(str(data['length_min'])),
                 length_max=Decimal(str(data['length_max'])),
+                width_min=Decimal(str(data['width_min'])),
+                width_max=Decimal(str(data['width_max'])),
                 price_per_m3=Decimal(str(data['price_per_m3']))
             )
         except (InvalidOperation, ValueError) as e:
@@ -1196,6 +1213,10 @@ def api_bulk_update_prices():
                     price.length_min = Decimal(str(item['length_min']))
                 if 'length_max' in item:
                     price.length_max = Decimal(str(item['length_max']))
+                if 'width_min' in item:
+                    price.width_min = Decimal(str(item['width_min']))
+                if 'width_max' in item:
+                    price.width_max = Decimal(str(item['width_max']))
                 if 'price_per_m3' in item:
                     price.price_per_m3 = Decimal(str(item['price_per_m3']))
 

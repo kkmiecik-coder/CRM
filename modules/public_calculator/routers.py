@@ -21,6 +21,8 @@ def public_calculator():
             "price_per_m3": float(p.price_per_m3),
             "length_min": float(p.length_min),
             "length_max": float(p.length_max),
+            "width_min": float(p.width_min) if p.width_min else 0,
+            "width_max": float(p.width_max) if p.width_max else 999.99,
             "thickness_min": float(p.thickness_min),
             "thickness_max": float(p.thickness_max)
         }
@@ -46,6 +48,8 @@ def public_calculator_b2b():
             "price_per_m3": float(p.price_per_m3),
             "length_min": float(p.length_min),
             "length_max": float(p.length_max),
+            "width_min": float(p.width_min) if p.width_min else 0,
+            "width_max": float(p.width_max) if p.width_max else 999.99,
             "thickness_min": float(p.thickness_min),
             "thickness_max": float(p.thickness_max)
         }
