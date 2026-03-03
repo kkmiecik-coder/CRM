@@ -4652,6 +4652,13 @@ function duplicateProduct(sourceIndex) {
             setDefaultClientType(newForm, false);
         }
 
+        // ✅ POPRAWKA: Aktualizuj stan przycisku obróbki krawędzi po wypełnieniu wymiarów
+        // (ustawienie .value programowo nie wywołuje eventu 'input', więc trzeba ręcznie)
+        if (typeof EdgesModule !== 'undefined' && EdgesModule.updateButtonState) {
+            EdgesModule.updateButtonState(newForm);
+            console.log(`[duplicateProduct] ✅ Zaktualizowano stan przycisku obróbki krawędzi`);
+        }
+
         // Aktywuj wykończenia jeśli były wybrane (nowy system hierarchiczny)
         if (sourceData.finishingType) {
             // Próba 1: Nowy system - kliknij przyciski w drzewku hierarchicznym
@@ -5124,6 +5131,14 @@ function addNewProduct() {
     // KROK 3: Sklonuj i przygotuj nowy formularz
     const newForm = firstForm.cloneNode(true);
     newForm.style.display = 'none';
+
+    // ✅ POPRAWKA: Odznacz radio kształtu w klonie PRZED dodaniem do DOM
+    // (zapobiega konfliktowi grup radio - klon i oryginał mają tę samą nazwę "productShape-N",
+    // a ponieważ .quote-form to <div> nie <form>, przeglądarka traktuje je jako jedną grupę)
+    newForm.querySelectorAll('input[data-field="shapeRect"], input[data-field="shapeRound"]').forEach(r => {
+        r.checked = false;
+    });
+
     quoteFormsContainer.appendChild(newForm);
 
     prepareNewProductForm(newForm, newIndex);

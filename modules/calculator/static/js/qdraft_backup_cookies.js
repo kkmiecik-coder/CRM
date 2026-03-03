@@ -532,6 +532,23 @@ class QuoteDraftBackup {
                 await this.delay(200);
             }
 
+            // ✅ POPRAWKA: Przywróć kształt dla wszystkich produktów po zakończeniu przywracania
+            // (zabezpieczenie przed utratą zaznaczenia kształtu przez konflikty grup radio)
+            const allRestoredForms = document.querySelectorAll('.quote-form');
+            for (let i = 0; i < draftData.products.length; i++) {
+                const form = allRestoredForms[i];
+                if (form && draftData.products[i]) {
+                    const shape = draftData.products[i].shape || 'rectangular';
+                    const radioField = shape === 'round' ? 'shapeRound' : 'shapeRect';
+                    const radio = form.querySelector(`input[data-field="${radioField}"]`);
+                    if (radio) {
+                        radio.checked = true;
+                        form.dataset.productShape = shape;
+                    }
+                    console.log(`[QuoteDraftBackup] ✅ Przywrócono kształt produktu ${i + 1}: ${shape}`);
+                }
+            }
+
             // Usuń draft po udanym przywróceniu
             this.clearDraft();
 
