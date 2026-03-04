@@ -201,6 +201,24 @@ function initShapeToggle(form) {
             form.dataset.productShape = newShape;
             console.log(`[initShapeToggle] Kształt zmieniony na: ${newShape}`);
 
+            // Okrągły: kopiuj długość na szerokość i zablokuj pole
+            const widthInput = form.querySelector('input[data-field="width"]');
+            const lengthInput = form.querySelector('input[data-field="length"]');
+            if (widthInput) {
+                if (newShape === 'round') {
+                    if (lengthInput && lengthInput.value) {
+                        widthInput.value = lengthInput.value;
+                    }
+                    widthInput.readOnly = true;
+                    widthInput.style.opacity = '0.5';
+                    widthInput.style.cursor = 'not-allowed';
+                } else {
+                    widthInput.readOnly = false;
+                    widthInput.style.opacity = '';
+                    widthInput.style.cursor = '';
+                }
+            }
+
             // Reset krawędzi przy zmianie kształtu
             if (window.EdgesModule && typeof window.EdgesModule.reset === 'function') {
                 window.EdgesModule.reset(form);
@@ -210,6 +228,28 @@ function initShapeToggle(form) {
             updatePrices();
         });
     });
+
+    // Listener na długość: kopiuj wartość na szerokość gdy kształt okrągły
+    const lengthInput = form.querySelector('input[data-field="length"]');
+    const widthInput = form.querySelector('input[data-field="width"]');
+    if (lengthInput && widthInput) {
+        lengthInput.addEventListener('input', function () {
+            if (form.dataset.productShape === 'round') {
+                widthInput.value = this.value;
+            }
+        });
+    }
+
+    // Jeśli formularz już jest w trybie okrągłym (np. po załadowaniu)
+    if (form.dataset.productShape === 'round' && widthInput) {
+        const lengthVal = form.querySelector('input[data-field="length"]');
+        if (lengthVal && lengthVal.value) {
+            widthInput.value = lengthVal.value;
+        }
+        widthInput.readOnly = true;
+        widthInput.style.opacity = '0.5';
+        widthInput.style.cursor = 'not-allowed';
+    }
 }
 
 // Pobieranie cen wykończeń z bazy danych i renderowanie drzewka
