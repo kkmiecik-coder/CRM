@@ -9,6 +9,7 @@ Data: 2025-01-15
 from extensions import db
 from datetime import datetime, timedelta
 from sqlalchemy import extract, func
+from ...calculator.models import QuoteItemDetails
 import logging
 
 logger = logging.getLogger(__name__)
@@ -35,9 +36,10 @@ def get_partner_dashboard_stats(user):
         # Pobierz ID statusu "Zaakceptowane" (id = 3)
         accepted_status = QuoteStatus.query.filter_by(name='Zaakceptowane').first()
         accepted_status_id = accepted_status.id if accepted_status else 3
-        
-        # Zaakceptowane wyceny (status_id = 3)
-        accepted_quotes = [q for q in month_quotes if q.status_id == accepted_status_id]
+
+        # Zaakceptowane wyceny (status "Zaakceptowane" LUB zamówione do BaseLinker)
+        # Zamówione wyceny też były wcześniej zaakceptowane, więc nie powinny wypadać z licznika
+        accepted_quotes = [q for q in month_quotes if q.status_id == accepted_status_id or q.base_linker_order_id is not None]
         accepted_count = len(accepted_quotes)
         
         # Zamówione (mają base_linker_order_id)
@@ -52,19 +54,21 @@ def get_partner_dashboard_stats(user):
             acceptance_rate = (accepted_count / month_count) * 100
             ordered_rate = (ordered_count / month_count) * 100
         
-        # Oblicz wartość netto zamówień (tylko produkty, bez wysyłki)
+        # Oblicz wartość netto zamówień (produkty + wykończenie, bez wysyłki)
         ordered_value_net = 0.0
         for quote in ordered_quotes:
-            # Sumuj wartość netto wszystkich wybranych produktów z wyceny
-            quote_products_net = 0.0
-    
-            # Pobierz tylko wybrane itemy (is_selected=True)
+            # Produkty netto
             selected_items = quote.items.filter_by(is_selected=True).all()
+            quote_products_net = sum(item.get_total_price_netto() for item in selected_items)
 
-            for item in selected_items:
-                quote_products_net += item.get_total_price_netto()
-    
-            ordered_value_net += quote_products_net
+            # Wykończenie netto (finishing + krawędzie + dopłata za okrągły)
+            finishing_details = db.session.query(QuoteItemDetails).filter_by(quote_id=quote.id).all()
+            quote_finishing_net = sum(
+                float(d.finishing_price_netto or 0) + float(d.edges_price_netto or 0)
+                for d in finishing_details
+            )
+
+            ordered_value_net += quote_products_net + quote_finishing_net
         
         # Ostatnie wyceny partnera (5 najnowszych)
         recent_quotes = Quote.query.filter_by(user_id=user.id)\
