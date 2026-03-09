@@ -568,6 +568,9 @@ class QuoteEditLoader {
             calculator.addEventListener('change', (e) => scheduleCheck(e), true);
         }
 
+        // Dodanie/usunięcie produktu
+        document.addEventListener('products-changed', () => scheduleCheck('products-changed'));
+
         // MutationObserver na dataset formularzy (finishing, edges, shape)
         const forms = document.querySelectorAll('.quote-form');
         this.datasetObserver = new MutationObserver((mutations) => {

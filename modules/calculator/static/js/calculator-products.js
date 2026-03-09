@@ -642,6 +642,9 @@ function removeProduct(index) {
     // Odśwież podsumowanie
     generateProductsSummary();
     updateGlobalSummary();
+
+    // Powiadom detekcje zmian (tryb edycji wyceny)
+    document.dispatchEvent(new CustomEvent('products-changed'));
 }
 
 /**
@@ -861,6 +864,9 @@ function addNewProduct() {
 
         // ✅ POPRAWKA: Upewnij się, że klasy 'selected' są prawidłowe we wszystkich formularzach
         fixSelectedClasses();
+
+        // Powiadom detekcje zmian (tryb edycji wyceny)
+        document.dispatchEvent(new CustomEvent('products-changed'));
     }, 150);
 
 }
