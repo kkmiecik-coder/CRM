@@ -494,8 +494,20 @@ function showDetailsModal(quoteData) {
     document.getElementById('quotes-details-modal-client-name').textContent = quoteData.client?.client_name || '-';
     document.getElementById('quotes-details-modal-client-fullname').textContent = quoteData.client?.first_name || '-';
     document.getElementById('quotes-details-modal-client-company').textContent = quoteData.client?.company_name || '-';
-    document.getElementById('quotes-details-modal-client-email').textContent = quoteData.client?.email || '-';
-    document.getElementById('quotes-details-modal-client-phone').textContent = quoteData.client?.phone || '-';
+    const clientEmail = quoteData.client?.email;
+    const clientPhone = quoteData.client?.phone;
+    const emailSpan = document.getElementById('quotes-details-modal-client-email');
+    const phoneSpan = document.getElementById('quotes-details-modal-client-phone');
+    if (clientEmail) {
+        emailSpan.innerHTML = `<a href="mailto:${clientEmail}" title="Wyślij e-mail">${clientEmail}</a>`;
+    } else {
+        emailSpan.textContent = '-';
+    }
+    if (clientPhone) {
+        phoneSpan.innerHTML = `<a href="tel:${clientPhone}" title="Zadzwoń">${clientPhone}</a>`;
+    } else {
+        phoneSpan.textContent = '-';
+    }
 
     // ZAKTUALIZUJ Dane wyceny
     const parsedDate = quoteData.created_at ? 

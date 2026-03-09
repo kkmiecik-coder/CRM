@@ -190,8 +190,8 @@ function renderTable() {
         row.innerHTML = `
             <td>${client.client_number || '-'}</td>
             <td>${client.client_name || '-'}</td>
-            <td>${client.email || '-'}</td>
-            <td>${client.phone || '-'}</td>
+            <td>${client.email ? `<a href="mailto:${client.email}" title="Wyślij e-mail">${client.email}</a>` : '-'}</td>
+            <td>${client.phone ? `<a href="tel:${client.phone}" title="Zadzwoń">${client.phone}</a>` : '-'}</td>
             <td class="clients-actions"></td>
         `;
 
@@ -340,8 +340,18 @@ function showClientDetails(clientId) {
 
             document.getElementById('detailClientName').textContent = client.client_number || '---';
             document.getElementById('detailClientDeliveryName').textContent = client.client_name || '---';
-            document.getElementById('detailClientEmail').textContent = client.email || '---';
-            document.getElementById('detailClientPhone').textContent = client.phone || '---';
+            const emailEl = document.getElementById('detailClientEmail');
+            const phoneEl = document.getElementById('detailClientPhone');
+            if (client.email) {
+                emailEl.innerHTML = `<a href="mailto:${client.email}" title="Wyślij e-mail">${client.email}</a>`;
+            } else {
+                emailEl.textContent = '---';
+            }
+            if (client.phone) {
+                phoneEl.innerHTML = `<a href="tel:${client.phone}" title="Zadzwoń">${client.phone}</a>`;
+            } else {
+                phoneEl.textContent = '---';
+            }
             document.getElementById('detailClientNotes').textContent = client.notes || '---';
 
             loadClientQuotes(clientId);

@@ -1732,3 +1732,17 @@
 .clients-select option[value=""] {
     color: #999;
 }
+
+/* Linki mailto/tel */
+a[href^="mailto:"],
+a[href^="tel:"] {
+    color: inherit;
+    text-decoration: none;
+    transition: color 0.2s;
+}
+
+a[href^="mailto:"]:hover,
+a[href^="tel:"]:hover {
+    color: #F57C00;
+    text-decoration: underline;
+}
