@@ -549,7 +549,7 @@ class QuoteEditLoader {
         const forms = document.querySelectorAll('.quote-form');
         this.datasetObserver = new MutationObserver(scheduleCheck);
         forms.forEach(form => {
-            this.datasetObserver.observe(form, { attributes: true, attributeFilter: ['data-finishing-type', 'data-finishing-variant', 'data-finishing-color', 'data-finishing-gloss', 'data-edges-type', 'data-edges-r-value', 'data-edges-brutto', 'data-product-shape'] });
+            this.datasetObserver.observe(form, { attributes: true, attributeFilter: ['data-finishing-type', 'data-finishing-variant', 'data-finishing-color', 'data-finishing-gloss', 'data-edges-type', 'data-edges-r-value', 'data-edges-angle-value', 'data-edges-brutto', 'data-edges-data', 'data-product-shape'] });
         });
     }
 
@@ -570,6 +570,8 @@ class QuoteEditLoader {
                 finishing_gloss: p.finishing_gloss_level,
                 edges_type: p.edges_type,
                 edges_r_value: p.edges_r_value,
+                edges_angle_value: p.edges_angle_value,
+                edges: p.edges ? JSON.stringify(p.edges) : null,
                 shape: p.shape,
             })),
             courier_name: data.courier_name,
