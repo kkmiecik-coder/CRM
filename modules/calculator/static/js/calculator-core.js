@@ -395,10 +395,10 @@ function updatePrices() {
     const thickness = parseFloat(thicknessEl.value);
     let quantity = parseInt(quantityEl.value);
 
-    // Walidacja quantity
+    // Walidacja quantity — pozwalamy na puste pole i 0 (wygoda na telefonie),
+    // ale traktujemy jako blad i nie liczymy cen
     if (isNaN(quantity) || quantity < 1) {
-        quantity = 1;
-        quantityEl.value = 1;
+        // Nie nadpisujemy wartosci w inpucie — uzytkownik moze kasowac i wpisywac nowa
     }
 
     const clientType = clientTypeEl ? clientTypeEl.value : "";
@@ -423,6 +423,7 @@ function updatePrices() {
     if (isNaN(length)) errorMsg = "Brak dług.";
     else if (isNaN(width)) errorMsg = "Brak szer.";
     else if (isNaN(thickness)) errorMsg = "Brak grub.";
+    else if (isNaN(quantity) || quantity < 1) errorMsg = "Brak ilości";
     else if (limits) {
         if (length < limits.length_min || length > limits.length_max) errorMsg = "Dług. poza zakr.";
         else if (width < limits.width_min || width > limits.width_max) errorMsg = "Szer. poza zakr.";
@@ -447,8 +448,8 @@ function updatePrices() {
         else if (!isNaN(thickness) && !outOfRange(thicknessEl)) thicknessEl.classList.remove('error-outline');
     }
     if (quantityEl) {
-        if (isNaN(quantity) && touched(quantityEl)) quantityEl.classList.add('error-outline');
-        else if (!isNaN(quantity)) quantityEl.classList.remove('error-outline');
+        if ((isNaN(quantity) || quantity < 1) && touched(quantityEl)) quantityEl.classList.add('error-outline');
+        else if (!isNaN(quantity) && quantity >= 1) quantityEl.classList.remove('error-outline');
     }
 
     if (errorMsg) {

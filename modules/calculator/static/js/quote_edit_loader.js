@@ -117,6 +117,14 @@ class QuoteEditLoader {
         this.showLoadingOverlay('Finalizacja...');
         this.restoreShipping(settings);
 
+        // Przelicz wykończenie dla każdego formularza przed generowaniem podsumowania
+        const allForms = document.querySelectorAll('.quote-form');
+        allForms.forEach(form => {
+            if (typeof calculateFinishingCost === 'function') {
+                calculateFinishingCost(form);
+            }
+        });
+
         if (typeof generateProductsSummary === 'function') {
             generateProductsSummary();
         }
@@ -322,15 +330,19 @@ class QuoteEditLoader {
                     }
                 }
 
-                // Połysk
+                // Połysk - klikamy przycisk żeby uruchomić handler z calculateFinishingCost
                 if (finishing.gloss) {
                     const glossBtn = treeContainer.querySelector(`.finishing-gloss-btn[data-gloss-value="${finishing.gloss}"]`);
                     if (glossBtn) {
-                        treeContainer.querySelectorAll('.finishing-gloss-btn').forEach(b => b.classList.remove('active'));
-                        glossBtn.classList.add('active');
-                        form.dataset.finishingGloss = finishing.gloss;
+                        glossBtn.click();
+                        await this.delay(100);
                     }
                 }
+            }
+
+            // Po ustawieniu wszystkich opcji wykończenia, przelicz koszt
+            if (typeof calculateFinishingCost === 'function') {
+                calculateFinishingCost(form);
             }
         } else {
             // Stary system - fallback
@@ -523,31 +535,46 @@ class QuoteEditLoader {
         const saveBtn = document.querySelector('.save-quote');
         if (!saveBtn) return;
 
-        // Zrob snapshot po krotkim opoznieniu (poczekaj az ceny sie przelicza)
-        setTimeout(() => {
-            this.initialSnapshot = this.takeSnapshot();
-        }, 800);
-
         // Wylacz przycisk na start
         saveBtn.disabled = true;
 
-        // Nasłuchuj na zmiany w kalkulatorze
-        const scheduleCheck = () => {
-            this.checkForChanges();
-            // Dodatkowy check z opoznieniem (finishing/edges ustawiaja dataset po chwili)
-            setTimeout(() => this.checkForChanges(), 350);
+        // Poczekaj az dane sie ustabilizuja, zrob snapshot,
+        // i DOPIERO POTEM podlacz listenery/observer.
+        // Kolejnosc jest kluczowa — listenery przed snapshotem
+        // powodowaly falszywe wykrycia zmian.
+        setTimeout(() => {
+            this.initialSnapshot = this.takeSnapshot();
+            this._attachChangeListeners();
+        }, 1500);
+    }
+
+    /**
+     * Podlacza listenery i observer do detekcji zmian.
+     * Wywolywane DOPIERO PO zrobieniu snapshota.
+     */
+    _attachChangeListeners() {
+        console.log('[ChangeDetection] Listenery podlaczone, snapshot:', this.initialSnapshot?.substring(0, 200));
+
+        const scheduleCheck = (reason) => {
+            const src = reason instanceof Event ? `event:${reason.type} target:${reason.target?.tagName}.${reason.target?.className?.substring?.(0,30)}` : 'MutationObserver';
+            console.log('[ChangeDetection] scheduleCheck z:', src);
+            this.checkForChanges(src);
+            setTimeout(() => this.checkForChanges(src + ' (delayed)'), 350);
         };
 
         const calculator = document.querySelector('.calculatorrr');
         if (calculator) {
-            calculator.addEventListener('input', scheduleCheck, true);
-            calculator.addEventListener('change', scheduleCheck, true);
-            calculator.addEventListener('click', scheduleCheck, true);
+            calculator.addEventListener('input', (e) => scheduleCheck(e), true);
+            calculator.addEventListener('change', (e) => scheduleCheck(e), true);
         }
 
         // MutationObserver na dataset formularzy (finishing, edges, shape)
         const forms = document.querySelectorAll('.quote-form');
-        this.datasetObserver = new MutationObserver(scheduleCheck);
+        this.datasetObserver = new MutationObserver((mutations) => {
+            const changed = mutations.map(m => m.attributeName).join(', ');
+            console.log('[ChangeDetection] MutationObserver:', changed);
+            scheduleCheck('MutationObserver: ' + changed);
+        });
         forms.forEach(form => {
             this.datasetObserver.observe(form, { attributes: true, attributeFilter: ['data-finishing-type', 'data-finishing-variant', 'data-finishing-color', 'data-finishing-gloss', 'data-edges-type', 'data-edges-r-value', 'data-edges-angle-value', 'data-edges-brutto', 'data-edges-data', 'data-product-shape'] });
         });
@@ -567,6 +594,8 @@ class QuoteEditLoader {
                 quantity: p.quantity,
                 selectedVariant: p.variants.find(v => v.is_selected)?.variant_code || null,
                 finishing_type: p.finishing_type,
+                finishing_variant: p.finishing_variant,
+                finishing_color: p.finishing_color,
                 finishing_gloss: p.finishing_gloss_level,
                 edges_type: p.edges_type,
                 edges_r_value: p.edges_r_value,
@@ -582,11 +611,42 @@ class QuoteEditLoader {
         return JSON.stringify(slim);
     }
 
-    checkForChanges() {
+    checkForChanges(source) {
         if (!this.initialSnapshot) return;
 
         const current = this.takeSnapshot();
         const hasChanges = current !== this.initialSnapshot;
+
+        if (hasChanges) {
+            // Znajdz dokladnie co sie zmienilo
+            try {
+                const initial = JSON.parse(this.initialSnapshot);
+                const curr = JSON.parse(current);
+                const diffs = [];
+                // Porownaj pola globalne
+                ['courier_name', 'shipping_cost_brutto', 'quote_client_type', 'quote_type'].forEach(key => {
+                    if (JSON.stringify(initial[key]) !== JSON.stringify(curr[key])) {
+                        diffs.push(`${key}: ${JSON.stringify(initial[key])} → ${JSON.stringify(curr[key])}`);
+                    }
+                });
+                // Porownaj produkty
+                const maxLen = Math.max(initial.products?.length || 0, curr.products?.length || 0);
+                for (let i = 0; i < maxLen; i++) {
+                    const p1 = initial.products?.[i];
+                    const p2 = curr.products?.[i];
+                    if (!p1) { diffs.push(`Produkt ${i}: NOWY`); continue; }
+                    if (!p2) { diffs.push(`Produkt ${i}: USUNIETY`); continue; }
+                    Object.keys({...p1, ...p2}).forEach(key => {
+                        if (JSON.stringify(p1[key]) !== JSON.stringify(p2[key])) {
+                            diffs.push(`Produkt ${i}.${key}: ${JSON.stringify(p1[key])} → ${JSON.stringify(p2[key])}`);
+                        }
+                    });
+                }
+                console.warn('[ChangeDetection] ZMIANA WYKRYTA! Zrodlo:', source, '\nRoznice:', diffs);
+            } catch(e) {
+                console.warn('[ChangeDetection] ZMIANA WYKRYTA! Zrodlo:', source);
+            }
+        }
 
         const saveBtn = document.querySelector('.save-quote');
         if (saveBtn) {

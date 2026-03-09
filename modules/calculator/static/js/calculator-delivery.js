@@ -242,6 +242,16 @@ function updateCalculateDeliveryButtonState() {
 
     [calcDeliveryBtn, saveQuoteBtn, copyBtn].forEach(btn => {
         if (!btn) return;
+
+        // W trybie edycji przycisk zapisu jest kontrolowany przez detekcje zmian
+        // (QuoteEditLoader.checkForChanges) — nie nadpisujemy go tutaj
+        if (btn === saveQuoteBtn && window.quoteEditMode?.isActive) {
+            // Tylko dodaj/usun klase wizualna, nie ruszaj disabled
+            if (!allComplete) btn.classList.add('btn-disabled');
+            else btn.classList.remove('btn-disabled');
+            return;
+        }
+
         if (!allComplete) {
             btn.classList.add('btn-disabled');
             btn.disabled = true;

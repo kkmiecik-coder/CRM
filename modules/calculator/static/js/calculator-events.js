@@ -98,6 +98,7 @@ function attachFormListeners(form) {
     attachLengthValidation(form);
     attachWidthValidation(form);
     attachThicknessValidation(form);
+    attachQuantityValidation(form);
 
     // Oznacz formularz jako mający event listenery
     form.dataset.listenersAttached = "true";
@@ -528,6 +529,43 @@ function attachWidthValidation(form) {
 
 function attachThicknessValidation(form) {
     attachDimensionValidation(form, 'thickness', 'error-message-thickness', 'Grubość', 'thickness_min', 'thickness_max');
+}
+
+/**
+ * Walidacja ilości — minimum 1 szt, ale pozwalamy na puste pole i 0
+ * (wygoda na telefonie — mozna skasowac i wpisac nowa wartosc)
+ */
+function attachQuantityValidation(form) {
+    if (!form) return;
+
+    const input = form.querySelector('input[data-field="quantity"]');
+    if (!input) return;
+
+    input.removeEventListener('input', input._quantityValidationHandler);
+
+    input._quantityValidationHandler = function () {
+        const val = parseInt(this.value);
+        let errorSpan = this.parentNode.querySelector('.error-message-quantity');
+
+        if (this.value === '' || (!isNaN(val) && val < 1)) {
+            if (!errorSpan) {
+                errorSpan = document.createElement('span');
+                errorSpan.classList.add('error-message-quantity');
+                errorSpan.style.color = 'red';
+                errorSpan.style.fontSize = '12px';
+                errorSpan.style.display = 'block';
+                errorSpan.style.marginTop = '4px';
+                this.parentNode.appendChild(errorSpan);
+            }
+            errorSpan.textContent = 'Ilość musi wynosić minimum 1 szt.';
+            this.classList.add('error-outline');
+        } else {
+            if (errorSpan) errorSpan.remove();
+            this.classList.remove('error-outline');
+        }
+    };
+
+    input.addEventListener('input', input._quantityValidationHandler);
 }
 
 /**

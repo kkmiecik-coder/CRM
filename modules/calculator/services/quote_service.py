@@ -207,12 +207,11 @@ def update_quote(edit_uuid, data, current_user):
         if 'total_price' in data:
             quote.total_price = data['total_price']
 
-        # 2. Usuniecie produktow
-        for idx in data.get('deleted_product_indexes', []):
-            QuoteItem.query.filter_by(quote_id=quote.id, product_index=idx).delete()
-            QuoteItemDetails.query.filter_by(quote_id=quote.id, product_index=idx).delete()
+        # 2. Usun WSZYSTKIE stare produkty i dodaj nowe (pelna nadpisanie)
+        QuoteItem.query.filter_by(quote_id=quote.id).delete()
+        QuoteItemDetails.query.filter_by(quote_id=quote.id).delete()
 
-        # 3. Aktualizacja/dodanie produktow
+        # 3. Dodanie produktow od nowa
         for product in data.get('products', []):
             _update_or_create_product(quote, product)
 

@@ -167,6 +167,10 @@ document.addEventListener('DOMContentLoaded', function () {
         const client = getEditModeData().client || {};
         const quoteNumber = getEditModeData().quoteNumber || '';
 
+        // Usuń poprzednią kartę klienta jeśli istnieje (zapobiega duplikacji)
+        const existingCard = formSection.querySelector('.edit-mode-client-card');
+        if (existingCard) existingCard.remove();
+
         // Ukryj standardowe pola klienta, zachowaj źródło i notatkę
         const fieldsToHide = formSection.querySelectorAll('.sq-form-group');
         fieldsToHide.forEach(group => {
@@ -1114,7 +1118,7 @@ function collectQuoteData() {
         }
 
         products.push({
-            index,
+            index: index + 1,
             length,
             width,
             thickness,
