@@ -265,24 +265,58 @@ def _update_or_create_product(quote, product_data):
         quote_id=quote.id, product_index=idx
     ).first()
 
-    finishing = product_data.get('finishing', {}) or {}
-    edges = product_data.get('edges', {}) or {}
+    # Obsluga dwoch formatow danych:
+    # Format A (z load_quote_for_edit): finishing={type,variant,...}, edges={config,type,...}
+    # Format B (z frontendu): finishing_type, finishing_variant, edges (lista), edges_type, ...
+    finishing_raw = product_data.get('finishing')
+    if isinstance(finishing_raw, dict):
+        finishing_type = finishing_raw.get('type')
+        finishing_variant = finishing_raw.get('variant')
+        finishing_color = finishing_raw.get('color')
+        finishing_gloss = finishing_raw.get('gloss')
+        finishing_price_netto = finishing_raw.get('priceNetto', 0)
+        finishing_price_brutto = finishing_raw.get('priceBrutto', 0)
+    else:
+        finishing_type = product_data.get('finishing_type')
+        finishing_variant = product_data.get('finishing_variant')
+        finishing_color = product_data.get('finishing_color')
+        finishing_gloss = product_data.get('finishing_gloss_level')
+        finishing_price_netto = product_data.get('finishing_netto', 0)
+        finishing_price_brutto = product_data.get('finishing_brutto', 0)
+
+    edges_raw = product_data.get('edges')
+    if isinstance(edges_raw, dict):
+        edges_config = edges_raw.get('config')
+        edges_type = edges_raw.get('type')
+        edges_r_value = edges_raw.get('rValue')
+        edges_angle_value = edges_raw.get('angleValue')
+        edges_price_netto = edges_raw.get('netto', 0)
+        edges_price_brutto = edges_raw.get('brutto', 0)
+        edges_svg = edges_raw.get('svg')
+    else:
+        edges_config = edges_raw if isinstance(edges_raw, list) and edges_raw else None
+        edges_type = product_data.get('edges_type')
+        edges_r_value = product_data.get('edges_r_value')
+        edges_angle_value = product_data.get('edges_angle_value')
+        edges_price_netto = product_data.get('edges_netto', 0)
+        edges_price_brutto = product_data.get('edges_brutto', 0)
+        edges_svg = product_data.get('edges_svg')
 
     if detail:
         detail.quantity = quantity
-        detail.finishing_type = finishing.get('type')
-        detail.finishing_variant = finishing.get('variant')
-        detail.finishing_color = finishing.get('color')
-        detail.finishing_gloss_level = finishing.get('gloss')
-        detail.finishing_price_netto = finishing.get('priceNetto', 0)
-        detail.finishing_price_brutto = finishing.get('priceBrutto', 0)
-        detail.edges_config = edges.get('config')
-        detail.edges_type = edges.get('type')
-        detail.edges_r_value = edges.get('rValue')
-        detail.edges_angle_value = edges.get('angleValue')
-        detail.edges_price_netto = edges.get('netto', 0)
-        detail.edges_price_brutto = edges.get('brutto', 0)
-        detail.edges_svg = edges.get('svg')
+        detail.finishing_type = finishing_type
+        detail.finishing_variant = finishing_variant
+        detail.finishing_color = finishing_color
+        detail.finishing_gloss_level = finishing_gloss
+        detail.finishing_price_netto = finishing_price_netto
+        detail.finishing_price_brutto = finishing_price_brutto
+        detail.edges_config = edges_config
+        detail.edges_type = edges_type
+        detail.edges_r_value = edges_r_value
+        detail.edges_angle_value = edges_angle_value
+        detail.edges_price_netto = edges_price_netto
+        detail.edges_price_brutto = edges_price_brutto
+        detail.edges_svg = edges_svg
         detail.shape = shape
         detail.round_surcharge_netto = round_surcharge_netto
         detail.round_surcharge_brutto = round_surcharge_brutto
@@ -291,19 +325,19 @@ def _update_or_create_product(quote, product_data):
             quote_id=quote.id,
             product_index=idx,
             quantity=quantity,
-            finishing_type=finishing.get('type'),
-            finishing_variant=finishing.get('variant'),
-            finishing_color=finishing.get('color'),
-            finishing_gloss_level=finishing.get('gloss'),
-            finishing_price_netto=finishing.get('priceNetto', 0),
-            finishing_price_brutto=finishing.get('priceBrutto', 0),
-            edges_config=edges.get('config'),
-            edges_type=edges.get('type'),
-            edges_r_value=edges.get('rValue'),
-            edges_angle_value=edges.get('angleValue'),
-            edges_price_netto=edges.get('netto', 0),
-            edges_price_brutto=edges.get('brutto', 0),
-            edges_svg=edges.get('svg'),
+            finishing_type=finishing_type,
+            finishing_variant=finishing_variant,
+            finishing_color=finishing_color,
+            finishing_gloss_level=finishing_gloss,
+            finishing_price_netto=finishing_price_netto,
+            finishing_price_brutto=finishing_price_brutto,
+            edges_config=edges_config,
+            edges_type=edges_type,
+            edges_r_value=edges_r_value,
+            edges_angle_value=edges_angle_value,
+            edges_price_netto=edges_price_netto,
+            edges_price_brutto=edges_price_brutto,
+            edges_svg=edges_svg,
             shape=shape,
             round_surcharge_netto=round_surcharge_netto,
             round_surcharge_brutto=round_surcharge_brutto,
@@ -315,8 +349,24 @@ def _update_or_create_product(quote, product_data):
 
     # Dodaj nowe warianty
     for variant in product_data.get('variants', []):
-        unit_price_netto = variant.get('unit_price_netto', 0)
-        unit_price_brutto = variant.get('unit_price_brutto', 0)
+        # Obsluga dwoch formatow:
+        # Format A (load_quote): unit_price_netto/brutto (cena jednostkowa)
+        # Format B (frontend): final_price_netto/brutto (cena calkowita za ilosc)
+        if 'unit_price_netto' in variant:
+            unit_price_netto = variant.get('unit_price_netto', 0)
+            unit_price_brutto = variant.get('unit_price_brutto', 0)
+        else:
+            final_netto = variant.get('final_price_netto', 0)
+            final_brutto = variant.get('final_price_brutto', 0)
+            unit_price_netto = _round_price(
+                _to_decimal(final_netto) / Decimal(quantity)
+            ) if quantity > 0 else 0
+            unit_price_brutto = _round_price(
+                _to_decimal(final_brutto) / Decimal(quantity)
+            ) if quantity > 0 else 0
+
+        is_available = variant.get('show_on_client_page',
+                                   variant.get('is_available', True))
 
         quote_item = QuoteItem(
             quote_id=quote.id,
@@ -334,7 +384,7 @@ def _update_or_create_product(quote, product_data):
             original_price_brutto=unit_price_brutto,
             is_selected=variant.get('is_selected', False),
             variant_code=variant.get('variant_code'),
-            show_on_client_page=variant.get('show_on_client_page', True),
+            show_on_client_page=is_available,
         )
         db.session.add(quote_item)
 
