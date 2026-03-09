@@ -168,13 +168,13 @@ function syncClientTypeAcrossProducts(selectedType, sourceForm) {
         state.checkedRadios.forEach(radioData => {
             const radio = state.form.querySelector(`input[value="${radioData.value}"]`);
             if (radio) {
-                // ✅ POPRAWKA: NIE zmieniaj name - zostaw oryginalną wartość
                 radio.checked = true;
 
-                // Przywróć dataset jeśli się zgadza
-                if (radioData.totalBrutto && radioData.totalNetto) {
-                    state.form.dataset.orderBrutto = radioData.totalBrutto;
-                    state.form.dataset.orderNetto = radioData.totalNetto;
+                // ✅ POPRAWKA: Użyj NOWYCH cen z radio.dataset (przeliczonych przez updatePrices)
+                // zamiast starych wartości z preservedStates
+                if (radio.dataset.totalBrutto && radio.dataset.totalNetto) {
+                    state.form.dataset.orderBrutto = radio.dataset.totalBrutto;
+                    state.form.dataset.orderNetto = radio.dataset.totalNetto;
                 }
 
                 // Przywróć kolor
@@ -185,6 +185,9 @@ function syncClientTypeAcrossProducts(selectedType, sourceForm) {
             }
         });
     });
+
+    // ✅ POPRAWKA: Przelicz podsumowanie po przywróceniu stanów
+    updateGlobalSummary();
 
     // ✅ POPRAWKA: Napraw klasy 'selected' po synchronizacji
     setTimeout(() => {
