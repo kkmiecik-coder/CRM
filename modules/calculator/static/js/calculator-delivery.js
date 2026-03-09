@@ -284,6 +284,9 @@ function updateDeliverySelection(selection) {
     // Zapisz snapshot parametrow wysylki i ukryj badge nieaktualnosci
     deliveryParamsSnapshot = takeDeliveryParamsSnapshot();
     hideDeliveryStaleBadge();
+
+    // Powiadom detekcje zmian (tryb edycji wyceny)
+    document.dispatchEvent(new CustomEvent('delivery-changed'));
 }
 
 /**
@@ -305,6 +308,9 @@ function clearDeliverySelection() {
     // Reset snapshotu i ukryj badge
     deliveryParamsSnapshot = null;
     hideDeliveryStaleBadge();
+
+    // Powiadom detekcje zmian (tryb edycji wyceny)
+    document.dispatchEvent(new CustomEvent('delivery-changed'));
 }
 
 /**

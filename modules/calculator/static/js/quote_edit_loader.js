@@ -571,6 +571,9 @@ class QuoteEditLoader {
         // Dodanie/usunięcie produktu
         document.addEventListener('products-changed', () => scheduleCheck('products-changed'));
 
+        // Zmiana/dodanie/usunięcie wysyłki
+        document.addEventListener('delivery-changed', () => scheduleCheck('delivery-changed'));
+
         // MutationObserver na dataset formularzy (finishing, edges, shape)
         const forms = document.querySelectorAll('.quote-form');
         this.datasetObserver = new MutationObserver((mutations) => {
