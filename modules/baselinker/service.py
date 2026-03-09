@@ -1053,15 +1053,32 @@ class BaselinkerService:
         # Mapowanie na przymiotniki w rodzaju żeńskim
         if 'lakier' in finishing_type:
             result = 'lakierowana'
-        
-            # Dodaj wariant lakieru jeśli istnieje
-            if finishing_details.finishing_color and finishing_details.finishing_color != 'Brak':
-                if finishing_details.finishing_color.lower() == 'bezbarwny' or 'bezbarwn' in finishing_details.finishing_color.lower():
+
+            # Dodaj wariant (bezbarwnie/barwnie)
+            if finishing_details.finishing_variant and finishing_details.finishing_variant != 'Brak':
+                variant_lower = finishing_details.finishing_variant.lower()
+                if 'bezbarwn' in variant_lower:
+                    result += ' bezbarwnie'
+                elif 'barwn' in variant_lower:
+                    result += ' barwnie'
+                else:
+                    result += f' {finishing_details.finishing_variant}'
+            elif finishing_details.finishing_color and finishing_details.finishing_color != 'Brak':
+                if 'bezbarwn' in finishing_details.finishing_color.lower():
                     result += ' bezbarwnie'
                 else:
-                    result += f' {finishing_details.finishing_color}'
+                    result += ' barwnie'
             else:
-                result += ' bezbarwnie'  # Domyślnie bezbarwnie
+                result += ' bezbarwnie'
+
+            # Dodaj stopień połysku
+            if finishing_details.finishing_gloss_level:
+                result += f' {finishing_details.finishing_gloss_level.lower()}'
+
+            # Dodaj kolor jeśli istnieje (dla barwnych)
+            if finishing_details.finishing_color and finishing_details.finishing_color != 'Brak':
+                if 'bezbarwn' not in finishing_details.finishing_color.lower():
+                    result += f' {finishing_details.finishing_color}'
             
         elif 'olej' in finishing_type or 'olejow' in finishing_type:
             result = 'olejowana'

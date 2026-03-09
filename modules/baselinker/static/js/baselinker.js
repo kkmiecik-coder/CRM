@@ -728,13 +728,13 @@ class BaselinkerModal {
         if (!finishing) return 'Brak wykończenia';
 
         const parts = [
-            finishing.variant,
             finishing.type,
-            finishing.color,
-            finishing.gloss
-        ].filter(Boolean);
+            finishing.variant,
+            finishing.gloss_level,
+            finishing.color
+        ].filter(p => p && p !== 'Brak');
 
-        return parts.length > 0 ? parts.join(' - ') : 'Brak wykończenia';
+        return parts.length > 0 ? parts.join(' | ') : 'Brak wykończenia';
     }
 
     /**
@@ -1999,6 +1999,16 @@ class BaselinkerModal {
 
         if (product.finishing && product.finishing.type && product.finishing.type !== '' && product.finishing.type !== 'Surowe' && product.finishing.type !== 'Brak') {
             let finishingParts = [product.finishing.type.toLowerCase()];
+
+            // Dodaj wariant jeśli istnieje
+            if (product.finishing.variant && product.finishing.variant !== 'Brak') {
+                finishingParts.push(product.finishing.variant.toLowerCase());
+            }
+
+            // Dodaj stopień połysku jeśli istnieje
+            if (product.finishing.gloss_level) {
+                finishingParts.push(product.finishing.gloss_level.toLowerCase());
+            }
 
             // Dodaj kolor jeśli istnieje i nie jest "Brak"
             if (product.finishing.color && product.finishing.color !== '' && product.finishing.color !== null && product.finishing.color !== 'Brak') {

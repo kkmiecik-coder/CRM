@@ -44,7 +44,6 @@ const EdgesModule = (function() {
         try {
             const response = await fetch('/calculator/api/edge-options');
             if (!response.ok) {
-                console.warn('[EdgesModule] Nie udało się pobrać cen z API, używam domyślnych');
                 return false;
             }
 
@@ -88,9 +87,6 @@ const EdgesModule = (function() {
                     }
                 });
                 CONFIG.pricesLoaded = true;
-                console.log('[EdgesModule] Ceny pobrane z bazy danych:', CONFIG.prices);
-                console.log('[EdgesModule] Limity R pobrane z bazy danych:', CONFIG.R_LIMITS);
-                console.log('[EdgesModule] Kąty fazowania pobrane z bazy danych:', CONFIG.CHAMFER_ANGLES);
                 return true;
             }
         } catch (error) {
@@ -210,16 +206,9 @@ const EdgesModule = (function() {
     // ==========================================
 
     async function init() {
-        console.log('[EdgesModule] Rozpoczynam inicjalizację...');
 
         // Pobierz ceny z API (nie blokuj inicjalizacji)
-        loadPricesFromAPI().then(success => {
-            if (success) {
-                console.log('[EdgesModule] ✅ Ceny załadowane z bazy danych');
-            } else {
-                console.warn('[EdgesModule] ⚠️ Używam domyślnych cen (API niedostępne)');
-            }
-        });
+        loadPricesFromAPI();
 
         // Zawsze dodaj event listenery dla przycisków (event delegation na document)
         attachGlobalEventListeners();
@@ -230,7 +219,11 @@ const EdgesModule = (function() {
         // Aktualizuj stan przycisków dla wszystkich formularzy
         updateAllButtonStates();
 
-        console.log('[EdgesModule] ✅ Zainicjalizowany pomyślnie');
+        // Wygeneruj domyślny podgląd SVG dla wszystkich formularzy
+        document.querySelectorAll('.quote-form').forEach(form => {
+            updateEdgesPreview(form);
+        });
+
     }
 
     /**
@@ -304,7 +297,6 @@ const EdgesModule = (function() {
             if (openBtn && !openBtn.disabled) {
                 e.preventDefault();
                 const form = openBtn.closest('.quote-form');
-                console.log('[EdgesModule] Kliknięto przycisk otwierania modalu, formularz:', form);
                 openModal(form);
                 return;
             }
@@ -314,7 +306,6 @@ const EdgesModule = (function() {
             if (resetBtn) {
                 e.preventDefault();
                 const form = resetBtn.closest('.quote-form');
-                console.log('[EdgesModule] Kliknięto przycisk reset krawędzi, formularz:', form);
                 state.currentForm = form;
                 resetEdges();
                 return;
@@ -325,11 +316,8 @@ const EdgesModule = (function() {
             if (finishingResetBtn) {
                 e.preventDefault();
                 const form = finishingResetBtn.closest('.quote-form');
-                console.log('[EdgesModule] Kliknięto przycisk reset wykończenia, formularz:', form);
                 if (typeof window.resetFinishing === 'function') {
                     window.resetFinishing(form);
-                } else {
-                    console.warn('[EdgesModule] Funkcja resetFinishing nie jest dostępna');
                 }
                 return;
             }
@@ -347,7 +335,6 @@ const EdgesModule = (function() {
             }
         });
 
-        console.log('[EdgesModule] Event listenery globalne zostały dodane');
     }
 
     /**
@@ -357,7 +344,6 @@ const EdgesModule = (function() {
     function attachModalEventListeners() {
         if (state.modalInitialized) return;
 
-        console.log('[EdgesModule] Inicjalizuję event listenery modalu...');
 
         // Przycisk zamknięcia
         if (elements.closeBtn) {
@@ -371,7 +357,6 @@ const EdgesModule = (function() {
         if (elements.applyBtn) {
             elements.applyBtn.addEventListener('click', function(e) {
                 e.preventDefault();
-                console.log('[EdgesModule] Kliknięto ZASTOSUJ');
                 applyEdges();
             });
         }
@@ -401,7 +386,6 @@ const EdgesModule = (function() {
             btn.addEventListener('click', function(e) {
                 e.preventDefault();
                 const action = this.dataset.action;
-                console.log('[EdgesModule] Quick action:', action);
                 handleQuickAction(action);
             });
         });
@@ -443,7 +427,6 @@ const EdgesModule = (function() {
         // wywoływanym po każdej regeneracji SVG w generateProportionalSVG()
 
         state.modalInitialized = true;
-        console.log('[EdgesModule] Event listenery modalu zainicjalizowane');
     }
 
     // ==========================================
@@ -455,13 +438,11 @@ const EdgesModule = (function() {
 
         // Sprawdź czy formularz ma wymiary
         if (!formHasAllDimensions(state.currentForm)) {
-            console.warn('[EdgesModule] Formularz nie ma wszystkich wymiarów');
             return;
         }
 
         // Jeśli ceny nie zostały jeszcze załadowane, poczekaj na ich pobranie
         if (!CONFIG.pricesLoaded) {
-            console.log('[EdgesModule] Czekam na załadowanie cen z API...');
             await loadPricesFromAPI();
         }
 
@@ -472,7 +453,6 @@ const EdgesModule = (function() {
 
         // Jeśli elementy nie były jeszcze zcache'owane, zrób to teraz
         if (!elements.modal) {
-            console.log('[EdgesModule] Cache\'uję elementy modalu przy pierwszym otwarciu...');
             if (!cacheElements()) {
                 console.error('[EdgesModule] Modal #edgesModal nie znaleziony w DOM!');
                 return;
@@ -514,7 +494,6 @@ const EdgesModule = (function() {
         // Przelicz cenę
         calculatePrice();
 
-        console.log('[EdgesModule] Modal otwarty, kształt:', state.productShape, 'wymiary:', state.dimensions, 'wybrane krawędzie:', Array.from(state.selectedEdges));
     }
 
     function closeModal() {
@@ -1261,7 +1240,7 @@ const EdgesModule = (function() {
                 svgClone.style.removeProperty('position');
                 svgClone.style.removeProperty('visibility');
             } catch (e) {
-                console.warn('Nie udało się dopasować viewBox:', e);
+                // Ignore errors during SVG clone cleanup
             }
 
             edgesSvg = svgClone.outerHTML;
@@ -1286,41 +1265,16 @@ const EdgesModule = (function() {
             updateGlobalSummary();
         }
 
+        // Zaktualizuj podgląd SVG w sekcji krawędzi
+        updateEdgesPreview(state.currentForm);
+
         closeModal();
     }
 
     function updateOpenButton(form, prices) {
-        const finishingSection = form.querySelector('.finishing-section');
-        if (!finishingSection) return;
-
-        // Szukaj głównego kontenera .options-summary
-        let optionsSummary = finishingSection.querySelector('.options-summary');
-
-        // Jeśli nie ma kontenera, utwórz go dynamicznie
-        if (!optionsSummary) {
-            optionsSummary = document.createElement('div');
-            optionsSummary.className = 'options-summary';
-            optionsSummary.style.display = 'none';
-            optionsSummary.innerHTML = `
-                <div class="options-summary-row finishing-row" style="display: none;">
-                    <div class="options-summary-content">
-                        <span class="options-summary-text finishing-summary-text"></span>
-                        <span class="options-summary-price finishing-summary-price"></span>
-                        <span class="options-summary-price-netto finishing-summary-price-netto"></span>
-                    </div>
-                    <button type="button" class="options-reset-btn finishing-reset-btn">Resetuj</button>
-                </div>
-                <div class="options-summary-row edges-row" style="display: none;">
-                    <div class="options-summary-content">
-                        <span class="options-summary-text edges-summary-text"></span>
-                        <span class="options-summary-price edges-summary-price"></span>
-                        <span class="options-summary-price-netto edges-summary-price-netto"></span>
-                    </div>
-                    <button type="button" class="options-reset-btn edges-reset-btn">Resetuj</button>
-                </div>
-            `;
-            finishingSection.appendChild(optionsSummary);
-        }
+        // Szukaj kontenera krawędzi w sekcji edges
+        let optionsSummary = form.querySelector('.edges-options-summary');
+        if (!optionsSummary) return;
 
         const edgesRow = optionsSummary.querySelector('.edges-row');
         const textEl = optionsSummary.querySelector('.edges-summary-text');
@@ -1357,7 +1311,7 @@ const EdgesModule = (function() {
 
             // Zmień tekst przycisku na "Zmień obróbkę krawędzi"
             if (openBtn) {
-                openBtn.textContent = 'Zmień obróbkę krawędzi';
+                openBtn.textContent = 'Edytuj';
             }
         } else {
             // Ukryj wiersz krawędzi
@@ -1365,7 +1319,7 @@ const EdgesModule = (function() {
 
             // Przywróć oryginalny tekst przycisku
             if (openBtn) {
-                openBtn.textContent = '+ Dodaj obróbkę krawędzi';
+                openBtn.textContent = '+ Dodaj';
             }
         }
 
@@ -1374,31 +1328,15 @@ const EdgesModule = (function() {
     }
 
     /**
-     * Aktualizuje widoczność głównego kontenera options-summary
+     * Aktualizuje widoczność kontenera options-summary
      */
     function updateOptionsSummaryVisibility(optionsSummary) {
         if (!optionsSummary) return;
 
-        const finishingRow = optionsSummary.querySelector('.finishing-row');
-        const edgesRow = optionsSummary.querySelector('.edges-row');
+        const row = optionsSummary.querySelector('.options-summary-row');
+        const rowVisible = row && row.style.display !== 'none';
 
-        const finishingVisible = finishingRow && finishingRow.style.display !== 'none';
-        const edgesVisible = edgesRow && edgesRow.style.display !== 'none';
-
-        // Dodaj/usuń separator gdy oba wiersze są widoczne
-        if (edgesRow) {
-            if (finishingVisible && edgesVisible) {
-                edgesRow.classList.add('has-separator');
-            } else {
-                edgesRow.classList.remove('has-separator');
-            }
-        }
-
-        if (finishingVisible || edgesVisible) {
-            optionsSummary.style.display = 'flex';
-        } else {
-            optionsSummary.style.display = 'none';
-        }
+        optionsSummary.style.display = rowVisible ? 'flex' : 'none';
     }
 
     function resetEdges() {
@@ -1417,8 +1355,7 @@ const EdgesModule = (function() {
         delete state.currentForm.dataset.edgesSvg;
 
         // Ukryj wiersz krawędzi w podsumowaniu
-        const finishingSection = state.currentForm.querySelector('.finishing-section');
-        const optionsSummary = finishingSection?.querySelector('.options-summary');
+        const optionsSummary = state.currentForm.querySelector('.edges-options-summary');
         const edgesRow = optionsSummary?.querySelector('.edges-row');
         if (edgesRow) {
             edgesRow.style.display = 'none';
@@ -1428,8 +1365,11 @@ const EdgesModule = (function() {
         // Przywróć oryginalny tekst przycisku
         const openBtn = state.currentForm.querySelector('.open-edges-modal-btn');
         if (openBtn) {
-            openBtn.textContent = '+ Dodaj obróbkę krawędzi';
+            openBtn.textContent = '+ Dodaj';
         }
+
+        // Zaktualizuj podgląd SVG (szare krawędzie)
+        updateEdgesPreview(state.currentForm);
 
         // Wywołaj aktualizację globalnego podsumowania
         if (typeof updateGlobalSummary === 'function') {
@@ -1470,7 +1410,6 @@ const EdgesModule = (function() {
             }
             // Ukryj grupę kąta (domyślnie 'round')
             updateAngleButtons();
-            console.log('[EdgesModule] Brak zapisanych krawędzi dla tego formularza - ustawiono domyślne z bazy:', defaultLimits);
             return;
         }
 
@@ -1518,7 +1457,6 @@ const EdgesModule = (function() {
                 item.classList.toggle('selected', isSelected);
             });
 
-            console.log('[EdgesModule] Wczytano zapisany stan dla formularza:', Array.from(state.selectedEdges));
 
         } catch (e) {
             console.error('EdgesModule: Błąd wczytywania zapisanego stanu:', e);
@@ -1639,8 +1577,7 @@ const EdgesModule = (function() {
             form.dataset.edgesQuantity = quantity;
 
             // Zaktualizuj wizualne podsumowanie (pokazuj cenę łączną z uwzględnieniem ilości)
-            const finishingSection = form.querySelector('.finishing-section');
-            const optionsSummary = finishingSection?.querySelector('.options-summary');
+            const optionsSummary = form.querySelector('.edges-options-summary');
             const edgesRow = optionsSummary?.querySelector('.edges-row');
 
             if (edgesRow) {
@@ -1672,7 +1609,6 @@ const EdgesModule = (function() {
                 updateGlobalSummary();
             }
 
-            console.log('[EdgesModule] Przeliczono krawędzie dla formularza, cena per szt:', totalBrutto.toFixed(2), 'PLN, razem (' + quantity + ' szt):', totalBruttoWithQuantity.toFixed(2), 'PLN');
 
         } catch (e) {
             console.error('[EdgesModule] Błąd przeliczania krawędzi:', e);
@@ -1963,6 +1899,128 @@ const EdgesModule = (function() {
     }
 
     // ==========================================
+    // PODGLĄD SVG W SEKCJI KRAWĘDZI
+    // ==========================================
+
+    /**
+     * Generuje podgląd SVG krawędzi (bez etykiet, bez interakcji)
+     * @param {HTMLElement} form - formularz produktu
+     */
+    function updateEdgesPreview(form) {
+        if (!form) return;
+
+        const svgEl = form.querySelector('.edges-preview-svg');
+        if (!svgEl) return;
+
+        const lengthVal = parseFloat(form.querySelector('[data-field="length"]')?.value) || 100;
+        const widthVal = parseFloat(form.querySelector('[data-field="width"]')?.value) || 50;
+        const thicknessVal = parseFloat(form.querySelector('[data-field="thickness"]')?.value) || 4;
+
+        // Pobierz aktywne krawędzie z dataset formularza
+        let activeEdges = new Set();
+        try {
+            const edgesData = JSON.parse(form.dataset.edgesData || '[]');
+            edgesData.forEach(e => activeEdges.add(e.letter));
+        } catch (err) { /* brak danych */ }
+
+        const shape = form.dataset.productShape || 'rectangular';
+
+        if (shape === 'round') {
+            generateRoundPreviewSVG(svgEl, lengthVal, widthVal, thicknessVal, activeEdges);
+        } else {
+            generateRectPreviewSVG(svgEl, lengthVal, widthVal, thicknessVal, activeEdges);
+        }
+    }
+
+    function generateRectPreviewSVG(svgEl, length, width, thickness, activeEdges) {
+        const viewBoxWidth = 320;
+        const viewBoxHeight = 220;
+        const margin = 20;
+
+        const workWidth = viewBoxWidth - 2 * margin;
+        const workHeight = viewBoxHeight - 2 * margin;
+
+        const isoAngle = Math.PI / 6;
+        const maxDim = Math.max(length, width);
+        const effectiveThickness = Math.max(thickness, maxDim * 0.15);
+
+        const projectedWidth = (length + width) * Math.cos(isoAngle);
+        const projectedHeight = (length + width) * Math.sin(isoAngle) + effectiveThickness;
+
+        const scale = Math.min(workWidth / projectedWidth, workHeight / projectedHeight) * 0.85;
+
+        const L = length * scale;
+        const W = width * scale;
+        const T = effectiveThickness * scale;
+
+        const vecX = { x: Math.cos(isoAngle), y: Math.sin(isoAngle) };
+        const vecY = { x: -Math.cos(isoAngle), y: Math.sin(isoAngle) };
+
+        const totalProjWidth = L * vecX.x + W * Math.abs(vecY.x);
+        const totalProjHeight = L * vecX.y + W * vecY.y + T;
+
+        const startX = (viewBoxWidth - totalProjWidth) / 2 + W * Math.abs(vecY.x);
+        const startY = (viewBoxHeight - totalProjHeight) / 2 + T;
+
+        // 8 wierzchołków
+        const pTLD = { x: startX, y: startY };
+        const pTPD = { x: pTLD.x + L * vecX.x, y: pTLD.y + L * vecX.y };
+        const pPPD = { x: pTPD.x + W * vecY.x, y: pTPD.y + W * vecY.y };
+        const pPLD = { x: pTLD.x + W * vecY.x, y: pTLD.y + W * vecY.y };
+        const pTLG = { x: pTLD.x, y: pTLD.y - T };
+        const pTPG = { x: pTPD.x, y: pTPD.y - T };
+        const pPPG = { x: pPPD.x, y: pPPD.y - T };
+        const pPLG = { x: pPLD.x, y: pPLD.y - T };
+
+        const ec = (edge) => activeEdges.has(edge) ? 'active' : '';
+
+        svgEl.innerHTML = `
+            <polygon class="edges-face edges-face-back" points="${pTLD.x},${pTLD.y} ${pTPD.x},${pTPD.y} ${pTPG.x},${pTPG.y} ${pTLG.x},${pTLG.y}"/>
+            <polygon class="edges-face edges-face-left" points="${pTLD.x},${pTLD.y} ${pPLD.x},${pPLD.y} ${pPLG.x},${pPLG.y} ${pTLG.x},${pTLG.y}"/>
+            <polygon class="edges-face edges-face-top" points="${pTLG.x},${pTLG.y} ${pTPG.x},${pTPG.y} ${pPPG.x},${pPPG.y} ${pPLG.x},${pPLG.y}"/>
+            <polygon class="edges-face edges-face-front" points="${pPLD.x},${pPLD.y} ${pPPD.x},${pPPD.y} ${pPPG.x},${pPPG.y} ${pPLG.x},${pPLG.y}"/>
+            <polygon class="edges-face edges-face-right" points="${pTPD.x},${pTPD.y} ${pPPD.x},${pPPD.y} ${pPPG.x},${pPPG.y} ${pTPG.x},${pTPG.y}"/>
+            <line class="edges-line edges-hidden ${ec('F')}" data-edge="F" x1="${pTLD.x}" y1="${pTLD.y}" x2="${pTPD.x}" y2="${pTPD.y}"/>
+            <line class="edges-line edges-hidden ${ec('G')}" data-edge="G" x1="${pTLD.x}" y1="${pTLD.y}" x2="${pPLD.x}" y2="${pPLD.y}"/>
+            <line class="edges-line edges-hidden edges-corner ${ec('N3')}" data-edge="N3" x1="${pTLG.x}" y1="${pTLG.y}" x2="${pTLD.x}" y2="${pTLD.y}"/>
+            <line class="edges-line ${ec('A')}" data-edge="A" x1="${pPLG.x}" y1="${pPLG.y}" x2="${pPPG.x}" y2="${pPPG.y}"/>
+            <line class="edges-line ${ec('B')}" data-edge="B" x1="${pTLG.x}" y1="${pTLG.y}" x2="${pTPG.x}" y2="${pTPG.y}"/>
+            <line class="edges-line ${ec('C')}" data-edge="C" x1="${pTLG.x}" y1="${pTLG.y}" x2="${pPLG.x}" y2="${pPLG.y}"/>
+            <line class="edges-line ${ec('D')}" data-edge="D" x1="${pTPG.x}" y1="${pTPG.y}" x2="${pPPG.x}" y2="${pPPG.y}"/>
+            <line class="edges-line ${ec('E')}" data-edge="E" x1="${pPLD.x}" y1="${pPLD.y}" x2="${pPPD.x}" y2="${pPPD.y}"/>
+            <line class="edges-line ${ec('H')}" data-edge="H" x1="${pTPD.x}" y1="${pTPD.y}" x2="${pPPD.x}" y2="${pPPD.y}"/>
+            <line class="edges-line edges-corner ${ec('N1')}" data-edge="N1" x1="${pPLG.x}" y1="${pPLG.y}" x2="${pPLD.x}" y2="${pPLD.y}"/>
+            <line class="edges-line edges-corner ${ec('N2')}" data-edge="N2" x1="${pPPG.x}" y1="${pPPG.y}" x2="${pPPD.x}" y2="${pPPD.y}"/>
+            <line class="edges-line edges-corner ${ec('N4')}" data-edge="N4" x1="${pTPG.x}" y1="${pTPG.y}" x2="${pTPD.x}" y2="${pTPD.y}"/>
+        `;
+    }
+
+    function generateRoundPreviewSVG(svgEl, length, width, thickness, activeEdges) {
+        const maxDim = Math.max(length, width, thickness, 1);
+        const scale = 200 / maxDim;
+        const sL = Math.max(length * scale, 30);
+        const sW = Math.max(width * scale, 20);
+        const sT = Math.max(thickness * scale * 0.3, 8);
+
+        const cx = 160, cy = 100;
+        const rx = sL * 0.45;
+        const ry = sW * 0.25;
+
+        const ecKG = activeEdges.has('KG') ? ' active' : '';
+        const ecKD = activeEdges.has('KD') ? ' active' : '';
+
+        svgEl.innerHTML = `
+            <ellipse class="edges-face edges-face-front" cx="${cx}" cy="${cy + sT}" rx="${rx}" ry="${ry}"/>
+            <path class="edges-face edges-face-right" d="M${cx - rx},${cy} A${rx},${ry} 0 0,0 ${cx + rx},${cy} L${cx + rx},${cy + sT} A${rx},${ry} 0 0,1 ${cx - rx},${cy + sT} Z"/>
+            <ellipse class="edges-face edges-face-top" cx="${cx}" cy="${cy}" rx="${rx}" ry="${ry}"/>
+            <path class="edges-line${ecKD}" data-edge="KD" d="M${cx - rx},${cy + sT} A${rx},${ry} 0 0,0 ${cx + rx},${cy + sT}" fill="none"/>
+            <ellipse class="edges-line${ecKG}" data-edge="KG" cx="${cx}" cy="${cy}" rx="${rx}" ry="${ry}" fill="none"/>
+            <line class="edges-line" x1="${cx - rx}" y1="${cy}" x2="${cx - rx}" y2="${cy + sT}"/>
+            <line class="edges-line" x1="${cx + rx}" y1="${cy}" x2="${cx + rx}" y2="${cy + sT}"/>
+        `;
+    }
+
+    // ==========================================
     // PUBLICZNE API
     // ==========================================
 
@@ -1994,6 +2052,8 @@ const EdgesModule = (function() {
         updateAllButtonStates,
         // Przeliczanie krawędzi po zmianie wymiarów
         recalculateEdgesForForm,
+        // Podgląd SVG w sekcji krawędzi
+        updateEdgesPreview,
         // Eksportuj konfigurację dla integracji z save_quote
         CONFIG,
         EDGES,

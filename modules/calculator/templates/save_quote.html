@@ -13,23 +13,28 @@
                 <h3 class="sq-search-title">Wyszukaj lub utwórz klienta</h3>
                 <p class="sq-search-desc">Wprowadź imię, nazwisko, telefon lub email klienta</p>
 
-                <div class="sq-search-input-wrapper">
-                    <input type="text"
-                           id="clientSearchInput"
-                           class="sq-search-input"
-                           placeholder="Wpisz przynajmniej 3 znaki..."
-                           autocomplete="off">
+                <div class="sq-search-row">
+                    <div class="sq-search-input-wrapper">
+                        <input type="text"
+                               id="clientSearchInput"
+                               class="sq-search-input"
+                               placeholder="Wpisz przynajmniej 3 znaki..."
+                               autocomplete="off">
+                    </div>
+                    <button type="button" class="sq-create-new-btn" id="createNewClientBtnTop">
+                        + Utwórz nowego
+                    </button>
                 </div>
 
                 <div class="sq-search-hint">
                     <span class="sq-hint-icon">ℹ️</span>
                     <span>Wpisz minimum 3 znaki, aby rozpocząć wyszukiwanie</span>
                 </div>
+            </div>
 
-                <!-- Wyniki wyszukiwania -->
-                <div id="clientSearchResults" class="sq-search-results" style="display: none;">
-                    <!-- Dynamicznie generowane przez JS -->
-                </div>
+            <!-- Wyniki wyszukiwania — pełna szerokość modala -->
+            <div id="clientSearchResults" class="sq-search-results" style="display: none;">
+                <!-- Dynamicznie generowane przez JS -->
             </div>
         </div>
 
@@ -52,55 +57,57 @@
                         <span class="sq-error-message"></span>
                     </div>
 
-                    <!-- Nazwa klienta -->
-                    <div class="sq-form-group">
-                        <label class="sq-form-label">
-                            <span>Nazwa klienta <span class="sq-required">*</span></span>
-                        </label>
-                        <input type="text"
-                               name="client_login"
-                               class="sq-form-input"
-                               placeholder="Min. 3 znaki"
-                               minlength="3"
-                               required
-                               readonly>
-                        <span class="sq-error-message"></span>
+                    <!-- Nazwa klienta + Imię i nazwisko -->
+                    <div class="sq-form-row">
+                        <div class="sq-form-group">
+                            <label class="sq-form-label">
+                                <span>Nazwa klienta <span class="sq-required">*</span></span>
+                            </label>
+                            <input type="text"
+                                   name="client_login"
+                                   class="sq-form-input"
+                                   placeholder="Min. 3 znaki"
+                                   minlength="3"
+                                   required
+                                   readonly>
+                            <span class="sq-error-message"></span>
+                        </div>
+
+                        <div class="sq-form-group">
+                            <label class="sq-form-label">
+                                <span>Imię i nazwisko <span class="sq-optional" style="color: #999;">(opcjonalne)</span></span>
+                            </label>
+                            <input type="text"
+                                   name="client_name"
+                                   class="sq-form-input"
+                                   placeholder="Imię i nazwisko">
+                            <span class="sq-error-message"></span>
+                        </div>
                     </div>
 
-                    <!-- Imię i nazwisko -->
-                    <div class="sq-form-group">
-                        <label class="sq-form-label">
-                            <span>Imię i nazwisko <span class="sq-optional" style="color: #999;">(opcjonalne)</span></span>
-                        </label>
-                        <input type="text"
-                               name="client_name"
-                               class="sq-form-input"
-                               placeholder="Podaj pełne imię i nazwisko">
-                        <span class="sq-error-message"></span>
-                    </div>
+                    <!-- Telefon + E-mail -->
+                    <div class="sq-form-row">
+                        <div class="sq-form-group">
+                            <label class="sq-form-label">
+                                Telefon <span class="sq-optional">*</span>
+                            </label>
+                            <input type="tel"
+                                   name="client_phone"
+                                   class="sq-form-input"
+                                   placeholder="+48 123 456 789">
+                            <span class="sq-error-message"></span>
+                        </div>
 
-                    <!-- Telefon -->
-                    <div class="sq-form-group">
-                        <label class="sq-form-label">
-                            Telefon <span class="sq-optional">*</span>
-                        </label>
-                        <input type="tel"
-                               name="client_phone"
-                               class="sq-form-input"
-                               placeholder="+48 123 456 789">
-                        <span class="sq-error-message"></span>
-                    </div>
-
-                    <!-- E-mail -->
-                    <div class="sq-form-group">
-                        <label class="sq-form-label">
-                            E-mail <span class="sq-optional">*</span>
-                        </label>
-                        <input type="email"
-                               name="client_email"
-                               class="sq-form-input"
-                               placeholder="email@example.com">
-                        <span class="sq-error-message"></span>
+                        <div class="sq-form-group">
+                            <label class="sq-form-label">
+                                E-mail <span class="sq-optional">*</span>
+                            </label>
+                            <input type="email"
+                                   name="client_email"
+                                   class="sq-form-input"
+                                   placeholder="email@example.com">
+                            <span class="sq-error-message"></span>
+                        </div>
                     </div>
 
                     <p class="sq-input-note">

@@ -13,6 +13,7 @@
     <script id="multipliers-data" type="application/json">{{ multipliers_json|safe }}</script>
 </head>
 <body data-role="{{ user_role }}"
+      data-static-base="{{ url_for('calculator.static', filename='') }}"
       data-multiplier="{{ user_multiplier }}"
       data-client-type="{{ user_client_type or '' }}"
       data-user-id="{{ user_id }}"
@@ -23,35 +24,87 @@
         <!-- Główna zawartość modułu -->
         <div class="main-content">
             <div class="calculatorrr">
-                <h1 class="page-title title-with-underline">
-                    Kalkulator produktowy
-                </h1>
-                <!-- Główna sekcja kalkulatora: 3 kolumny (Dane klienta, Dane produktu, Kalkulacja) -->
+                <div class="calculator-header-row">
+                    <h1 class="page-title title-with-underline">
+                        Kalkulator produktowy
+                    </h1>
+                    <div class="draft-status-badge" id="draftStatusBadge">
+                        <span class="draft-status-dot" id="draftStatusDot"></span>
+                        <span class="draft-status-text-wrap" id="draftStatusTextWrap">
+                            <span class="draft-status-text" id="draftStatusText">Brak zmian</span>
+                        </span>
+                        <span class="draft-status-separator"></span>
+                        <span class="draft-status-time" id="draftStatusTime"></span>
+                        <button class="draft-save-btn" id="draftSaveBtn" title="Zapisz draft recznie">
+                            <span class="draft-save-state draft-save-state--floppy active">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/>
+                                    <polyline points="17 21 17 13 7 13 7 21"/>
+                                    <polyline points="7 3 7 8 15 8"/>
+                                </svg>
+                                <span>Zapisz</span>
+                            </span>
+                            <span class="draft-save-state draft-save-state--spinner">
+                                <svg class="draft-spinner-svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+                                    <circle cx="12" cy="12" r="10" stroke-opacity="0.25"/>
+                                    <path d="M12 2a10 10 0 0 1 10 10"/>
+                                </svg>
+                                <span>Zapisuje</span>
+                            </span>
+                            <span class="draft-save-state draft-save-state--check">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+                                    <polyline points="20 6 9 17 4 12"/>
+                                </svg>
+                                <span>Zapisano</span>
+                            </span>
+                        </button>
+                    </div>
+                </div>
+                <!-- Główna sekcja kalkulatora: sidebar + workspace 2×2 -->
                 <div class="quote-container">
 
-                    <!-- Kontrolki globalne PRZED formularzami -->
-                    <div class="calculator-controls">
-                        <div>
-                            <div class="price-mode-toggle">
-                                <label for="priceMode" class="input-txt">Tryb wyceny:</label>
-                                <div class="toggle-switch" id="priceModeToggle">
-                                    <input type="radio" name="priceMode" id="priceModeBrutto" value="brutto" checked>
-                                    <label for="priceModeBrutto" class="toggle-option toggle-option-active">
-                                        Brutto
-                                    </label>
-                                    <input type="radio" name="priceMode" id="priceModeNetto" value="netto">
-                                    <label for="priceModeNetto" class="toggle-option">
-                                        Netto
-                                    </label>
-                                    <div class="toggle-slider"></div>
+                    <!-- LEWA KOLUMNA: Sidebar z kontrolkami i listą produktów -->
+                    <aside class="calculator-sidebar">
+                        <div class="calculator-controls">
+                            <div>
+                                <div class="price-mode-toggle">
+                                    <label for="priceMode" class="input-txt">Tryb wyceny:</label>
+                                    <div class="toggle-switch" id="priceModeToggle">
+                                        <input type="radio" name="priceMode" id="priceModeBrutto" value="brutto" checked>
+                                        <label for="priceModeBrutto" class="toggle-option toggle-option-active">
+                                            Brutto
+                                        </label>
+                                        <input type="radio" name="priceMode" id="priceModeNetto" value="netto">
+                                        <label for="priceModeNetto" class="toggle-option">
+                                            Netto
+                                        </label>
+                                        <div class="toggle-slider"></div>
+                                    </div>
                                 </div>
                             </div>
                         </div>
-                    </div>
 
+                        <!-- Produkty w wycenie -->
+                        <section class="products-summary-main">
+                            <div class="products-summary-header">
+                                <h2 class="title-with-underline-h2">Produkty</h2>
+                                <button type="button" class="add-product-btn" id="add-product-btn">
+                                    <span class="add-product-icon">+</span>
+                                    <span class="add-product-text">Dodaj produkt</span>
+                                </button>
+                            </div>
+                            <div class="products-summary-container" id="products-summary-container">
+                                <!-- Dynamicznie generowane karty produktów -->
+                            </div>
+                        </section>
+                    </aside>
+
+                    <!-- PRAWA KOLUMNA: Workspace -->
+                    <div class="calculator-workspace">
                     <div class="quote-forms">
                         <div class="quote-form" data-product-shape="rectangular">
-                            <!-- Kolumna 2: Dane produktu -->
+                          <!-- Wiersz 1: Produkt + Kalkulacja -->
+                          <div class="workspace-row workspace-row-1">
                             <section class="product-data">
                                 <h2 class="title-with-underline-h2">Produkt</h2>
                                 <div class="product-inputs">
@@ -89,17 +142,17 @@
                                     <!-- Długość -->
                                     <div class="lenght">
                                         <label for="length" class="input-txt">Długość (cm):</label>
-                                        <input type="number" step="0.1" min="4" max="450" data-field="length" id="length" class="input-window">
+                                        <input type="number" step="0.1" data-field="length" id="length" class="input-window">
                                     </div>
                                     <!-- Szerokość -->
                                     <div class="width">
                                         <label for="width" class="input-txt">Szerokość (cm):</label>
-                                        <input type="number" step="0.1" min="4" max="120" data-field="width" id="width" class="input-window">
+                                        <input type="number" step="0.1" data-field="width" id="width" class="input-window">
                                     </div>
                                     <!-- Grubość -->
                                     <div class="thickness">
                                         <label for="thickness" class="input-txt">Grubość (cm):</label>
-                                        <input type="number" step="0.1" min="0.5" max="" data-field="thickness" id="thickness" class="input-window">
+                                        <input type="number" step="0.1" data-field="thickness" id="thickness" class="input-window">
                                     </div>
                                     <!-- Ilość -->
                                     <div class="quantity">
@@ -112,112 +165,133 @@
                             <section class="calculations-main">
                                 <div class="calculations">
                                     <h2 class="title-with-underline-h2">Kalkulacja</h2>
-                                    <p class="input-txt" style="margin-bottom: 6px;">Wybierz wariant wybrany przez klienta:</p>
                                     <!-- Lista wariantów (8 sztuk) z placeholderami brutto/netto -->
                                     <!-- Zaktualizowana sekcja wariantów w calculator.html -->
                                     <div class="variants">
                                         <div class="variants-header">
-                                            <span class="header-availability">Dostępny</span>
                                             <span class="header-title">Wariant</span>
                                             <span class="header-unit-brutto">Cena brutto</span>
                                             <span class="header-unit-netto">Cena netto</span>
                                             <span class="header-total-brutto">Wartość brutto</span>
                                             <span class="header-total-netto">Wartość netto</span>
+                                            <!-- Nagłówki scalone - widoczne tylko na tablet/mobile -->
+                                            <span class="header-unit-merged">Cena</span>
+                                            <span class="header-total-merged">Wartość</span>
                                         </div>
 
                                         <div class="dab-lity-ab-option variant-option">
-                                            <input type="checkbox" class="variant-availability-checkbox"
-                                                   data-variant="dab-lity-ab" checked>
                                             <input type="radio" name="variantOption-0" id="dab-lity-ab" value="dab-lity-ab">
                                             <label for="dab-lity-ab" class="option-title">Dąb lity A/B</label>
-                                            <span class="unit-brutto">---.-- PLN</span>
-                                            <span class="unit-netto">---.-- PLN</span>
-                                            <span class="total-brutto">---.-- PLN</span>
-                                            <span class="total-netto">---.-- PLN</span>
+                                            <div class="price-cell">
+                                                <span class="unit-brutto">---.-- PLN</span>
+                                                <span class="unit-netto">---.-- PLN</span>
+                                            </div>
+                                            <div class="price-cell">
+                                                <span class="total-brutto">---.-- PLN</span>
+                                                <span class="total-netto">---.-- PLN</span>
+                                            </div>
                                         </div>
 
                                         <div class="dab-lity-bb-option variant-option">
-                                            <input type="checkbox" class="variant-availability-checkbox"
-                                                   data-variant="dab-lity-bb" checked>
                                             <input type="radio" name="variantOption-0" id="dab-lity-bb" value="dab-lity-bb">
                                             <label for="dab-lity-bb" class="option-title">Dąb lity B/B</label>
-                                            <span class="unit-brutto">---.-- PLN</span>
-                                            <span class="unit-netto">---.-- PLN</span>
-                                            <span class="total-brutto">---.-- PLN</span>
-                                            <span class="total-netto">---.-- PLN</span>
+                                            <div class="price-cell">
+                                                <span class="unit-brutto">---.-- PLN</span>
+                                                <span class="unit-netto">---.-- PLN</span>
+                                            </div>
+                                            <div class="price-cell">
+                                                <span class="total-brutto">---.-- PLN</span>
+                                                <span class="total-netto">---.-- PLN</span>
+                                            </div>
                                         </div>
 
                                         <div class="dab-micro-ab-option variant-option">
-                                            <input type="checkbox" class="variant-availability-checkbox"
-                                                   data-variant="dab-micro-ab" checked>
                                             <input type="radio" name="variantOption-0" id="dab-micro-ab" value="dab-micro-ab">
                                             <label for="dab-micro-ab" class="option-title">Dąb mikrowczep A/B</label>
-                                            <span class="unit-brutto">---.-- PLN</span>
-                                            <span class="unit-netto">---.-- PLN</span>
-                                            <span class="total-brutto">---.-- PLN</span>
-                                            <span class="total-netto">---.-- PLN</span>
+                                            <div class="price-cell">
+                                                <span class="unit-brutto">---.-- PLN</span>
+                                                <span class="unit-netto">---.-- PLN</span>
+                                            </div>
+                                            <div class="price-cell">
+                                                <span class="total-brutto">---.-- PLN</span>
+                                                <span class="total-netto">---.-- PLN</span>
+                                            </div>
                                         </div>
 
                                         <div class="dab-micro-bb-option variant-option">
-                                            <input type="checkbox" class="variant-availability-checkbox"
-                                                   data-variant="dab-micro-bb" checked>
                                             <input type="radio" name="variantOption-0" id="dab-micro-bb" value="dab-micro-bb">
                                             <label for="dab-micro-bb" class="option-title">Dąb mikrowczep B/B</label>
-                                            <span class="unit-brutto">---.-- PLN</span>
-                                            <span class="unit-netto">---.-- PLN</span>
-                                            <span class="total-brutto">---.-- PLN</span>
-                                            <span class="total-netto">---.-- PLN</span>
+                                            <div class="price-cell">
+                                                <span class="unit-brutto">---.-- PLN</span>
+                                                <span class="unit-netto">---.-- PLN</span>
+                                            </div>
+                                            <div class="price-cell">
+                                                <span class="total-brutto">---.-- PLN</span>
+                                                <span class="total-netto">---.-- PLN</span>
+                                            </div>
                                         </div>
 
                                         <div class="jes-lity-ab-option variant-option">
-                                            <input type="checkbox" class="variant-availability-checkbox"
-                                                   data-variant="jes-lity-ab" checked>
                                             <input type="radio" name="variantOption-0" id="jes-lity-ab" value="jes-lity-ab">
                                             <label for="jes-lity-ab" class="option-title">Jesion lity A/B</label>
-                                            <span class="unit-brutto">---.-- PLN</span>
-                                            <span class="unit-netto">---.-- PLN</span>
-                                            <span class="total-brutto">---.-- PLN</span>
-                                            <span class="total-netto">---.-- PLN</span>
+                                            <div class="price-cell">
+                                                <span class="unit-brutto">---.-- PLN</span>
+                                                <span class="unit-netto">---.-- PLN</span>
+                                            </div>
+                                            <div class="price-cell">
+                                                <span class="total-brutto">---.-- PLN</span>
+                                                <span class="total-netto">---.-- PLN</span>
+                                            </div>
                                         </div>
 
-                                        <!-- Jesion mikrowczep A/B - domyślnie niedostępny -->
-                                        <div class="jes-micro-ab-option variant-option">
-                                            <input type="checkbox" class="variant-availability-checkbox"
-                                                   data-variant="jes-micro-ab">
-                                            <input type="radio" name="variantOption-0" id="jes-micro-ab" value="jes-micro-ab">
+                                        <!-- Jesion mikrowczep A/B - niedostępny -->
+                                        <div class="jes-micro-ab-option variant-option unavailable">
+                                            <input type="radio" name="variantOption-0" id="jes-micro-ab" value="jes-micro-ab" disabled>
                                             <label for="jes-micro-ab" class="option-title">Jesion mikrowczep A/B</label>
-                                            <span class="unit-brutto">---.-- PLN</span>
-                                            <span class="unit-netto">---.-- PLN</span>
-                                            <span class="total-brutto">---.-- PLN</span>
-                                            <span class="total-netto">---.-- PLN</span>
+                                            <div class="price-cell">
+                                                <span class="unit-brutto">---.-- PLN</span>
+                                                <span class="unit-netto">---.-- PLN</span>
+                                            </div>
+                                            <div class="price-cell">
+                                                <span class="total-brutto">---.-- PLN</span>
+                                                <span class="total-netto">---.-- PLN</span>
+                                            </div>
                                         </div>
 
                                         <div class="buk-lity-ab-option variant-option">
-                                            <input type="checkbox" class="variant-availability-checkbox"
-                                                   data-variant="buk-lity-ab" checked>
                                             <input type="radio" name="variantOption-0" id="buk-lity-ab" value="buk-lity-ab">
                                             <label for="buk-lity-ab" class="option-title">Buk lity A/B</label>
-                                            <span class="unit-brutto">---.-- PLN</span>
-                                            <span class="unit-netto">---.-- PLN</span>
-                                            <span class="total-brutto">---.-- PLN</span>
-                                            <span class="total-netto">---.-- PLN</span>
+                                            <div class="price-cell">
+                                                <span class="unit-brutto">---.-- PLN</span>
+                                                <span class="unit-netto">---.-- PLN</span>
+                                            </div>
+                                            <div class="price-cell">
+                                                <span class="total-brutto">---.-- PLN</span>
+                                                <span class="total-netto">---.-- PLN</span>
+                                            </div>
                                         </div>
 
                                         <div class="buk-micro-ab-option variant-option">
-                                            <input type="checkbox" class="variant-availability-checkbox"
-                                                   data-variant="buk-micro-ab" checked>
                                             <input type="radio" name="variantOption-0" id="buk-micro-ab" value="buk-micro-ab">
                                             <label for="buk-micro-ab" class="option-title">Buk mikrowczep A/B</label>
-                                            <span class="unit-brutto">---.-- PLN</span>
-                                            <span class="unit-netto">---.-- PLN</span>
-                                            <span class="total-brutto">---.-- PLN</span>
-                                            <span class="total-netto">---.-- PLN</span>
+                                            <div class="price-cell">
+                                                <span class="unit-brutto">---.-- PLN</span>
+                                                <span class="unit-netto">---.-- PLN</span>
+                                            </div>
+                                            <div class="price-cell">
+                                                <span class="total-brutto">---.-- PLN</span>
+                                                <span class="total-netto">---.-- PLN</span>
+                                            </div>
                                         </div>
                                     </div>
                                     <p class="multiplier-message"></p>
                                 </div>
                             </section>
-                            <!-- Nowa kolumna: Wykończenie -->
+                          </div>
+                          <!-- Wiersz 2: Wykończenie + Krawędzie + Podsumowanie -->
+                          <div class="workspace-row workspace-row-2">
+                            <div class="row-2-left">
+                            <!-- Sekcja: Wykończenie (malowanie/olejowanie) -->
                             <section class="finishing-section">
                                 <h2 class="title-with-underline-h2">Wykończenie</h2>
 
@@ -234,15 +308,8 @@
                                     <!-- Kolejne poziomy będą dodawane dynamicznie -->
                                 </div>
 
-                                <!-- Przyciski do modali -->
-                                <div class="finishing-actions">
-                                    <button type="button" class="modal-trigger open-edges-modal-btn">
-                                        + Dodaj obróbkę krawędzi
-                                    </button>
-                                </div>
-                                <!-- Podsumowanie opcji (wykończenie + krawędzie) -->
-                                <div class="options-summary" style="display: none;">
-                                    <!-- Wiersz wykończenia -->
+                                <!-- Podsumowanie wykończenia -->
+                                <div class="options-summary finishing-options-summary" style="display: none;">
                                     <div class="options-summary-row finishing-row" style="display: none;">
                                         <div class="options-summary-content">
                                             <span class="options-summary-text finishing-summary-text"></span>
@@ -251,7 +318,24 @@
                                         </div>
                                         <button type="button" class="options-reset-btn finishing-reset-btn">Resetuj</button>
                                     </div>
-                                    <!-- Wiersz krawędzi -->
+                                </div>
+                            </section>
+                            <!-- Sekcja: Obróbka krawędzi -->
+                            <section class="edges-section">
+                                <div class="edges-header">
+                                    <h2 class="title-with-underline-h2">Krawędzie</h2>
+                                    <button type="button" class="modal-trigger open-edges-modal-btn disabled" disabled title="Uzupełnij wszystkie wymiary (długość, szerokość, grubość)">
+                                        + Dodaj
+                                    </button>
+                                </div>
+
+                                <!-- Podgląd SVG krawędzi -->
+                                <div class="edges-preview">
+                                    <svg class="edges-preview-svg" viewBox="0 0 320 220" xmlns="http://www.w3.org/2000/svg"></svg>
+                                </div>
+
+                                <!-- Podsumowanie krawędzi -->
+                                <div class="options-summary edges-options-summary" style="display: none;">
                                     <div class="options-summary-row edges-row" style="display: none;">
                                         <div class="options-summary-content">
                                             <span class="options-summary-text edges-summary-text"></span>
@@ -262,90 +346,72 @@
                                     </div>
                                 </div>
                             </section>
+                            </div><!-- .row-2-left -->
+                            <div class="quote-summary">
+                                <div class="delivery-stale-badge" id="deliveryStaleBadge" style="display: none;" title="Kliknij aby przeliczyć wysyłkę">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                        <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+                                        <line x1="12" y1="9" x2="12" y2="13"/>
+                                        <line x1="12" y1="17" x2="12.01" y2="17"/>
+                                    </svg>
+                                    <span>Koszty wysyłki mogą być nieaktualne</span>
+                                </div>
+                                <div class="order-summary">
+                                    <span class="input-txt-bold">Koszt produktów surowych:</span>
+                                    <span class="order-brutto">0.00 PLN</span>
+                                    <span class="order-netto">0.00 PLN</span>
+                                </div>
+                                <div class="finishing-summary">
+                                    <span class="input-txt-bold">Koszty wykończenia:</span>
+                                    <span class="finishing-brutto" id="finishing-brutto">0.00 PLN</span>
+                                    <span class="finishing-netto" id="finishing-netto">0.00 PLN</span>
+                                </div>
+                                <div class="delivery-summary">
+                                    <span class="input-txt-bold">Koszt wysyłki:</span>
+                                    <span class="courier" id="courier-name"></span>
+                                    <span class="delivery-brutto" id="delivery-brutto">0.00 PLN</span>
+                                    <span class="delivery-netto" id="delivery-netto">0.00 PLN</span>
+                                </div>
+                                <div class="final-summary">
+                                    <span class="input-txt-bold">Suma:</span>
+                                    <span class="final-brutto">0.00 PLN</span>
+                                    <span class="final-netto">0.00 PLN</span>
+                                </div>
+                                <div class="action-buttons">
+                                    <div class="remove-product-container" style="display:none;">
+                                        <button type="button" class="remove-product" title="Usuń produkt">Usuń produkt</button>
+                                    </div>
+                                    <div class="copy-to-clipboard-container">
+                                        <button type="button" class="copy-to-clipboard">
+                                            <span class="copy-btn-text">Kopiuj do schowka</span>
+                                        </button>
+                                        <div class="copy-tooltip">
+                                            <div class="copy-tooltip-option" data-copy-type="product">Kopiuj produkt</div>
+                                            <div class="copy-tooltip-option" data-copy-type="quote">Kopiuj wycenę</div>
+                                        </div>
+                                    </div>
+                                    <div class="delivery-buttons-group">
+                                        <button type="button" class="calculate-delivery">
+                                            <span>Oblicz wysyłkę</span>
+                                        </button>
+                                        <button type="button" class="clear-delivery" title="Wyczyść kuriera" style="display: none;">
+                                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                                <line x1="18" y1="6" x2="6" y2="18"></line>
+                                                <line x1="6" y1="6" x2="18" y2="18"></line>
+                                            </svg>
+                                        </button>
+                                    </div>
+                                    <button type="button" class="save-quote">
+                                        <span>Zapisz wycenę</span>
+                                    </button>
+                                </div>
+                            </div>
+                          </div>
                         </div>
                     </div>
-                    <div class="summary-section-container">
-                        <!-- PRZENIESIОНА SEKCJA: Produkty w wycenie -->
-                        <section class="products-summary-main">
-                            <div class="products-summary-header">
-                                <h2 class="title-with-underline-h2">Produkty w wycenie</h2>
-                                <button type="button" class="add-product-btn" id="add-product-btn">
-                                    <span class="add-product-icon">+</span>
-                                    <span class="add-product-text">Dodaj produkt</span>
-                                </button>
-                            </div>
-                            <div class="products-summary-container" id="products-summary-container">
-                                <!-- Dynamicznie generowane karty produktów -->
-                            </div>
-                        </section>
-
-                        <div class="quote-summary">
-                            <div class="order-summary">
-                                <span class="input-txt-bold" style="padding-right: 110px;">Koszt produktów surowych:</span>
-                                <span class="order-brutto">0.00 PLN</span>
-                                <span class="order-netto">0.00 PLN</span>
-                            </div>
-                            <div class="finishing-summary">
-                                <span class="input-txt-bold" style="padding-right: 110px;">Koszty wykończenia:</span>
-                                <span class="finishing-brutto" id="finishing-brutto">0.00 PLN</span>
-                                <span class="finishing-netto" id="finishing-netto">0.00 PLN</span>
-                            </div>
-                            <div class="delivery-summary">
-                                <span class="input-txt-bold">Koszt wysyłki wszystkich produktów:</span>
-                                <span class="courier" id="courier-name"></span>
-                                <span class="delivery-brutto" id="delivery-brutto">0.00 PLN</span>
-                                <span class="delivery-netto" id="delivery-netto">0.00 PLN</span>
-                            </div>
-                            <div class="final-summary">
-                                <span class="input-txt-bold" style="padding-right: 110px;">Suma:</span>
-                                <span class="final-brutto">0.00 PLN</span>
-                                <span class="final-netto">0.00 PLN</span>
-                            </div>
-                            <div class="action-buttons">
-                                <div class="remove-product-container" style="display:none;">
-                                    <button type="button" class="remove-product" title="Usuń produkt">Usuń produkt</button>
-                                </div>
-                                <div class="copy-to-clipboard-container">
-                                    <button type="button" class="copy-to-clipboard">
-                                        <span class="copy-btn-text">Kopiuj do schowka</span>
-                                    </button>
-                                    <div class="copy-tooltip">
-                                        <div class="copy-tooltip-option" data-copy-type="product">Kopiuj produkt</div>
-                                        <div class="copy-tooltip-option" data-copy-type="quote">Kopiuj wycenę</div>
-                                    </div>
-                                </div>
-                                <div class="delivery-buttons-group">
-                                    <button type="button" class="calculate-delivery">Oblicz wysyłkę</button>
-                                    <button type="button" class="clear-delivery" title="Wyczyść kuriera" style="display: none;">
-                                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                            <line x1="18" y1="6" x2="6" y2="18"></line>
-                                            <line x1="6" y1="6" x2="18" y2="18"></line>
-                                        </svg>
-                                    </button>
-                                </div>
-                                <button type="button" class="save-quote">Zapisz wycenę</button>
-                            </div>
-                        </div>
                     </div>
                 </div>
             </div> <!-- /calculator -->
-            <!-- Sekcja: Twoje ostatnie wyceny -->
-            <section class="last-quotes-main">
-                <h2 class="title-with-underline-h2">Twoje ostatnie wyceny</h2>
-                <div class="quotes-grid-wrap">
-                    <div class="quote-header">
-                        <div>Numer wyceny</div>
-                        <div>Data wyceny</div>
-                        <div>Klient</div>
-                        <div>Źródło zapytania</div>
-                        <div>Status</div>
-                        <div>Akcje</div>
-                    </div>
-                    <div class="last-quotes-list" id="latestQuotesList">
-                        <!-- Ładowane z JS -->
-                    </div>
-                </div>
-            </section>
         </div>
     </div>
     <!-- Modal z listą kurierów -->
@@ -385,14 +451,28 @@
         </div>
     </div>
 
-    <!-- Overlay ładowania podczas przywracania -->
+    <!-- Overlay ładowania podczas przywracania kopii zapasowej -->
     <div id="restore-overlay" class="loading-overlay" style="display: none;">
         <div class="loading-content">
-            <p class="loading-text">Wczytuję wycenę...</p>
+            <p class="loading-text" id="restoreLoadingText">Wczytuję wycenę...</p>
             <div class="loading-progress">
                 <div class="progress-bar">
-                    <div class="progress-fill"></div>
+                    <div class="progress-fill" id="restoreProgressFill"></div>
                 </div>
+                <p class="progress-percent" id="restoreProgressPercent">0%</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Overlay ładowania podczas edycji wyceny -->
+    <div id="edit-overlay" class="loading-overlay" style="display: none;">
+        <div class="loading-content">
+            <p class="loading-text" id="editLoadingText">Wczytywanie wyceny...</p>
+            <div class="loading-progress">
+                <div class="progress-bar">
+                    <div class="progress-fill" id="editProgressFill"></div>
+                </div>
+                <p class="progress-percent" id="editProgressPercent">0%</p>
             </div>
         </div>
     </div>
@@ -401,8 +481,15 @@
     {% include 'download_quote_modal.html' %}
     {% include 'partials/edges_modal.html' %}
     <script src="{{ url_for('static', filename='js/sidebar.js') }}"></script>
-    <script src="{{ url_for('calculator.static', filename='js/qdraft_backup_cookies.js') }}"></script>
-    <script src="{{ url_for('calculator.static', filename='js/calculator.js') }}"></script>
+    <script src="{{ url_for('calculator.static', filename='js/qdraft_backup.js') }}"></script>
+    <script src="{{ url_for('calculator.static', filename='js/calculator-core.js') }}"></script>
+    <script src="{{ url_for('calculator.static', filename='js/calculator-ui.js') }}"></script>
+    <script src="{{ url_for('calculator.static', filename='js/calculator-products.js') }}"></script>
+    <script src="{{ url_for('calculator.static', filename='js/calculator-delivery.js') }}"></script>
+    <script src="{{ url_for('calculator.static', filename='js/calculator-clipboard.js') }}"></script>
+    <script src="{{ url_for('calculator.static', filename='js/calculator-events.js') }}"></script>
+    <script src="{{ url_for('calculator.static', filename='js/quote_edit_loader.js') }}"></script>
+    <script src="{{ url_for('calculator.static', filename='js/calculator-init.js') }}"></script>
     <script src="{{ url_for('calculator.static', filename='js/save_quote.js') }}"></script>
     <script src="{{ url_for('calculator.static', filename='js/edges.js') }}"></script>
 </body>

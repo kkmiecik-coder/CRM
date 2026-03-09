@@ -1,0 +1,811 @@
+/* Style dla informacji o objętości i wadze */
+
+/* Dodatkowe informacje o produkcie (objętość i waga) - szary kolor */
+.product-card-sub-info {
+    font-size: 13px;
+    color: #888888;
+    font-family: Poppins, sans-serif;
+    font-weight: 400;
+    line-height: 1.3;
+    word-break: break-word;
+    max-width: 100%;
+}
+
+/* ============================================
+   POPRAWKI CSS dla modułu calculator
+   ============================================ */
+
+/* POPRAWKA 1: Nowy header z przyciskiem dodawania produktu */
+.products-summary-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin: 0 0 10px 0;
+    align-self: stretch;
+}
+
+    .products-summary-header h2 {
+        margin: 0;
+        flex: 1;
+    }
+
+/* Przycisk dodawania produktu w headerze */
+.add-product-btn {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 12px;
+    border: 1px solid #ED6B24;
+    border-radius: 6px;
+    background: transparent;
+    color: #ED6B24;
+    cursor: pointer;
+    font-size: 12px;
+    font-family: 'Poppins', sans-serif;
+    font-weight: 500;
+    transition: all 0.2s ease;
+    flex-shrink: 0;
+}
+
+    .add-product-btn:hover {
+        background: #ED6B24;
+        color: white;
+        transform: translateY(-1px);
+        box-shadow: 0 2px 4px rgba(237, 107, 36, 0.2);
+    }
+
+.add-product-icon {
+    font-size: 14px;
+    font-weight: bold;
+    line-height: 1;
+}
+
+.add-product-text {
+    font-size: 12px;
+    white-space: nowrap;
+}
+
+/* Kontener listy produktów — scrolluje się, podsumowanie zostaje na dole */
+.products-summary-container {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    align-self: stretch;
+    border-radius: 6px;
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding-right: 4px;
+}
+
+/* Karty nie mogą się ściskać — scroll zamiast kompresji */
+.products-summary-container .product-card {
+    flex-shrink: 0;
+}
+
+/* Sekcja z niedokończonym produktem — czerwony obrys */
+.products-summary-main.has-error {
+    border-color: #F44336;
+}
+
+/* Główny kontener sekcji produktów — rozciąga się na pełną wysokość sidebara */
+.products-summary-main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 15px;
+    background: #FAFBFC;
+    border: 1px solid #E8ECF0;
+    border-radius: 12px;
+    min-width: 0;
+    min-height: 0;
+    overflow: hidden;
+}
+
+    .products-summary-main h2 {
+        font-family: 'Poppins', sans-serif;
+        font-size: 18px;
+        font-weight: 600;
+        color: #1F2020;
+        margin: 0;
+    }
+
+/* POPRAWKA 5: Lepsze style dla scrollbara */
+.products-summary-container::-webkit-scrollbar {
+    width: 6px;
+}
+
+.products-summary-container::-webkit-scrollbar-track {
+    background: #f1f1f1;
+    border-radius: 3px;
+}
+
+.products-summary-container::-webkit-scrollbar-thumb {
+    background: #ED6B24;
+    border-radius: 3px;
+}
+
+    .products-summary-container::-webkit-scrollbar-thumb:hover {
+        background: #D45611;
+    }
+
+/* POPRAWKA 6: Responsive design dla nowego headera */
+@media (max-width: 1200px) {
+    .add-product-btn {
+        padding: 6px 10px;
+        font-size: 11px;
+    }
+
+    .add-product-icon {
+        font-size: 12px;
+    }
+
+    .add-product-text {
+        font-size: 11px;
+    }
+
+    .product-card-sub-info {
+        font-size: 12px;
+    }
+
+}
+
+@media (max-width: 768px) {
+    .add-product-btn {
+        padding: 5px 8px;
+        font-size: 10px;
+    }
+
+    .add-product-icon {
+        font-size: 11px;
+    }
+
+    .add-product-text {
+        font-size: 10px;
+    }
+
+    .product-card-sub-info {
+        font-size: 11px;
+    }
+
+    .products-summary-container {
+        flex: 0 0 auto;
+        overflow-y: visible;
+    }
+}
+
+/* POPRAWKA 7: Poprawka dla małych ekranów - zachowaj przycisk w jednej linii */
+@media (min-width: 769px) and (max-width: 1024px) {
+    .add-product-text {
+        display: none; /* Ukryj tekst na średnich ekranach, zostaw tylko ikonę + */
+    }
+
+    .add-product-btn {
+        width: 32px;
+        height: 32px;
+        justify-content: center;
+        padding: 0;
+    }
+
+    .add-product-icon {
+        font-size: 16px;
+    }
+}
+
+/* ===== MODAL PRZYWRACANIA WYCENY ===== */
+.modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.6);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 10000;
+    backdrop-filter: blur(3px);
+}
+
+.autosave-modal-content {
+    background: white;
+    border-radius: 12px;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+    max-width: 700px;
+    width: 90%;
+    max-height: 80vh;
+    overflow-y: auto;
+    animation: modalSlideIn 0.3s ease-out;
+}
+
+@keyframes modalSlideIn {
+    from {
+        opacity: 0;
+        transform: translateY(-30px) scale(0.95);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
+}
+
+.modal-header {
+    padding: 24px 24px 0 24px;
+    border-bottom: 1px solid #e5e7eb;
+    margin-bottom: 20px;
+}
+
+    .modal-header h3 {
+        margin: 0;
+        color: #ED6B24;
+        font-size: 20px;
+        font-weight: 600;
+    }
+
+.modal-body {
+    padding: 0 24px;
+}
+
+.draft-info {
+    margin-bottom: 20px;
+}
+
+.draft-timestamp {
+    color: #6b7280;
+    font-size: 14px;
+    margin-bottom: 16px;
+}
+
+    .draft-timestamp strong {
+        color: #374151;
+    }
+
+.products-section h4 {
+    color: #374151;
+    font-size: 16px;
+    font-weight: 600;
+    margin-bottom: 12px;
+}
+
+.products-list {
+    background: #f9fafb;
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    padding: 12px;
+    max-height: 300px;
+    overflow-y: auto;
+}
+
+.product-item {
+    padding: 8px 0;
+    border-bottom: 1px solid #e5e7eb;
+    font-size: 14px;
+    color: #374151;
+    line-height: 1.4;
+}
+
+    .product-item:last-child {
+        border-bottom: none;
+    }
+
+.modal-footer {
+    padding: 20px 24px 24px 24px;
+    display: flex;
+    gap: 12px;
+    justify-content: flex-end;
+}
+
+/* ===== PRZYCISKI MODALA ===== */
+.btn {
+    padding: 12px 20px;
+    border: none;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    transition: all 0.2s ease;
+    min-width: 140px;
+    justify-content: center;
+}
+
+.btn-primary {
+    background-color: #ED6B24;
+    color: white;
+}
+
+    .btn-primary:hover {
+        background-color: #d55a1f;
+        transform: translateY(-1px);
+        box-shadow: 0 4px 12px rgba(237, 107, 36, 0.3);
+    }
+
+.btn-secondary {
+    background-color: #f3f4f6;
+    color: #374151;
+    border: 1px solid #d1d5db;
+}
+
+    .btn-secondary:hover {
+        background-color: #e5e7eb;
+        transform: translateY(-1px);
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    }
+
+.btn-icon {
+    font-size: 16px;
+}
+
+/* ===== OVERLAY ŁADOWANIA ===== */
+#loadingOverlay,
+.loading-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.8);
+    display: none;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    z-index: 10001;
+    backdrop-filter: blur(5px);
+}
+
+.loading-content {
+    text-align: center;
+    color: white;
+    width: 360px;
+}
+
+.spinner-container {
+    margin-bottom: 20px;
+}
+
+.spinner {
+    width: 50px;
+    height: 50px;
+    border: 4px solid rgba(255, 255, 255, 0.3);
+    border-left: 4px solid #ED6B24;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+    margin: 0 auto;
+}
+
+@keyframes spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+.loading-text {
+    font-size: 18px;
+    font-weight: 600;
+    margin-bottom: 20px;
+    color: white;
+    text-align: center;
+    transition: opacity 0.3s ease;
+}
+
+.loading-progress {
+    width: 100%;
+}
+
+.progress-bar {
+    width: 300px;
+    height: 6px;
+    background-color: rgba(255, 255, 255, 0.2);
+    border-radius: 3px;
+    overflow: hidden;
+    margin: 0 auto;
+}
+
+.progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #ED6B24, #f97316);
+    width: 0%;
+    border-radius: 3px;
+    transition: width 0.3s ease;
+}
+
+.progress-percent {
+    font-size: 14px;
+    font-weight: 500;
+    color: rgba(255, 255, 255, 0.9);
+    margin-top: 8px;
+    font-family: Poppins, sans-serif;
+    text-align: center;
+    width: 300px;
+    margin-left: auto;
+    margin-right: auto;
+}
+
+/* ===== RESPONSYWNOŚĆ ===== */
+@media (max-width: 768px) {
+    .autosave-modal-content {
+        width: 95%;
+        margin: 20px;
+    }
+
+    .modal-footer {
+        flex-direction: column;
+    }
+
+    .btn {
+        width: 100%;
+    }
+
+    .modal-header h3 {
+        font-size: 18px;
+    }
+}
+
+/* ===== SCROLLBAR STYLING ===== */
+.products-list::-webkit-scrollbar {
+    width: 6px;
+}
+
+.products-list::-webkit-scrollbar-track {
+    background: #f1f1f1;
+    border-radius: 3px;
+}
+
+.products-list::-webkit-scrollbar-thumb {
+    background: #c1c1c1;
+    border-radius: 3px;
+}
+
+    .products-list::-webkit-scrollbar-thumb:hover {
+        background: #a8a8a8;
+    }
+
+/* ============================================
+   Karty produktów (przeniesione z calculator_delivery.css)
+   ============================================ */
+
+/* Pojedyncza karta produktu */
+.product-card {
+    display: flex;
+    flex-direction: column;
+    padding: 10px 12px;
+    border: 1px solid #E0E0E0;
+    border-radius: 8px;
+    background: white;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    position: relative;
+    font-family: 'Poppins', sans-serif;
+}
+
+.product-card:hover {
+    border-color: #ED6B24;
+    background: #FFF8F5;
+    box-shadow: 0 2px 8px rgba(237, 107, 36, 0.1);
+}
+
+.product-card.active {
+    border-color: #ED6B24;
+    background: #FFF8F5;
+    box-shadow: 0 2px 12px rgba(237, 107, 36, 0.15);
+    border-width: 2px;
+    padding: 9px 11px; /* kompensacja grubszego border */
+}
+
+.product-card.error {
+    border-color: #F44336;
+    background: #FFF5F5;
+}
+
+.product-card.error:hover {
+    border-color: #D32F2F;
+    box-shadow: 0 2px 8px rgba(244, 67, 54, 0.15);
+}
+
+.product-card.error .product-card-sub-info {
+    color: #999999;
+}
+
+/* Numer produktu (kółko z numerem) */
+.product-card-number {
+    width: 28px;
+    height: 28px;
+    min-width: 28px;
+    border-radius: 50%;
+    background: #ED6B24;
+    color: white;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 13px;
+    font-weight: 600;
+    font-family: 'Poppins', sans-serif;
+}
+
+.product-card.error .product-card-number {
+    background: #F44336;
+}
+
+/* Nagłówek karty — numer + nazwa na pełną szerokość */
+.product-card-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+}
+
+/* Główna linia opisu — pełna szerokość */
+.product-card-main-info {
+    flex: 1;
+    min-width: 0;
+    font-size: 14px;
+    font-weight: 500;
+    color: #1F2020;
+    font-family: 'Poppins', sans-serif;
+    line-height: 1.3;
+    word-break: break-word;
+}
+
+/* Stopka karty — szczegóły + przyciski obok siebie */
+.product-card-footer {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    padding-left: 38px; /* wyrównanie z tekstem (28px numer + 10px gap) */
+}
+
+/* Akcje na karcie (duplikuj, usuń) — poziomo */
+.product-card-actions {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 4px;
+    flex-shrink: 0;
+    margin-left: auto;
+}
+
+/* Przycisk duplikowania produktu */
+.duplicate-product-btn {
+    width: 28px;
+    height: 28px;
+    border: none;
+    border-radius: 6px;
+    background: #F0F1F2;
+    color: #999;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s ease;
+    padding: 0;
+}
+
+.duplicate-product-btn:hover {
+    background: #E3F2FD;
+    color: #1976D2;
+}
+
+/* Przycisk usuwania produktu */
+.remove-product-btn {
+    width: 28px;
+    height: 28px;
+    border: none;
+    border-radius: 6px;
+    background: #F0F1F2;
+    color: #999;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s ease;
+    padding: 0;
+}
+
+.remove-product-btn:hover {
+    background: #FFEBEE;
+    color: #F44336;
+}
+
+/* Przycisk wyłączony */
+.btn-disabled {
+    opacity: 0.5;
+    cursor: not-allowed !important;
+    pointer-events: none;
+}
+
+.btn-disabled:hover {
+    transform: none;
+    box-shadow: none;
+}
+
+/* Badge informujący o nieaktualnych kosztach wysyłki */
+.delivery-stale-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    background: #FFF3E0;
+    border: 1px solid #FFB74D;
+    border-radius: 6px;
+    color: #E65100;
+    font-size: 12px;
+    font-family: 'Poppins', sans-serif;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    animation: pulseWarning 2s ease-in-out infinite;
+}
+
+.delivery-stale-badge:hover {
+    background: #FFE0B2;
+    border-color: #FF9800;
+}
+
+@keyframes pulseWarning {
+    0%, 100% {
+        opacity: 1;
+    }
+    50% {
+        opacity: 0.7;
+    }
+}
+
+/* Podsumowanie łącznej objętości i wagi */
+.products-total-summary {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 12px;
+    margin-top: auto;
+    border: 1px solid #E0E0E0;
+    border-radius: 6px;
+    background: #F8F9FA;
+    font-size: 14px;
+    font-family: Poppins, sans-serif;
+    transition: all 0.2s ease;
+    flex-shrink: 0;
+    align-self: stretch;
+}
+
+    .products-total-summary:hover {
+        background: #F0F1F2;
+        border-color: #ED6B24;
+    }
+
+.products-total-title {
+    font-weight: 600;
+    color: #1F2020;
+    flex-shrink: 0;
+}
+
+.products-total-details {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    font-weight: 500;
+    color: #ED6B24;
+}
+
+.products-total-volume,
+.products-total-weight {
+    font-size: 13px;
+    padding: 2px 6px;
+    background: rgba(237, 107, 36, 0.1);
+    border-radius: 4px;
+    border: 1px solid rgba(237, 107, 36, 0.2);
+}
+
+/* ============================================
+   Responsive - Karty produktów
+   ============================================ */
+
+@media (max-width: 1200px) {
+    .product-card {
+        padding: 8px 10px;
+    }
+
+    .product-card.active {
+        padding: 7px 9px;
+    }
+
+    .product-card-number {
+        width: 24px;
+        height: 24px;
+        min-width: 24px;
+        font-size: 12px;
+    }
+
+    .product-card-main-info {
+        font-size: 13px;
+    }
+
+    .product-card-header {
+        gap: 8px;
+    }
+
+    .product-card-footer {
+        padding-left: 32px;
+    }
+
+    .remove-product-btn,
+    .duplicate-product-btn {
+        width: 24px;
+        height: 24px;
+    }
+
+    .products-total-summary {
+        padding: 8px 10px;
+        font-size: 13px;
+    }
+
+    .products-total-details {
+        gap: 8px;
+    }
+
+    .products-total-volume,
+    .products-total-weight {
+        font-size: 12px;
+        padding: 2px 5px;
+    }
+
+    .delivery-stale-badge {
+        font-size: 11px;
+        padding: 4px 10px;
+    }
+}
+
+@media (max-width: 768px) {
+    .product-card {
+        padding: 6px 8px;
+    }
+
+    .product-card.active {
+        padding: 5px 7px;
+    }
+
+    .product-card-number {
+        width: 22px;
+        height: 22px;
+        min-width: 22px;
+        font-size: 11px;
+    }
+
+    .product-card-main-info {
+        font-size: 12px;
+    }
+
+    .product-card-header {
+        gap: 6px;
+    }
+
+    .product-card-footer {
+        padding-left: 28px;
+    }
+
+    .remove-product-btn,
+    .duplicate-product-btn {
+        width: 24px;
+        height: 24px;
+    }
+
+    .products-total-summary {
+        padding: 6px 8px;
+        font-size: 12px;
+    }
+
+    .products-total-volume,
+    .products-total-weight {
+        font-size: 11px;
+        padding: 2px 4px;
+    }
+
+    .delivery-stale-badge {
+        font-size: 10px;
+        padding: 4px 8px;
+    }
+}

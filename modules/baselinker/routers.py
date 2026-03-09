@@ -670,6 +670,8 @@ def get_order_modal_data(quote_id):
                 'weight': weight_kg,
                 'finishing': {
                     'type': finishing_details.finishing_type if finishing_details else 'Brak',
+                    'variant': finishing_details.finishing_variant if finishing_details else None,
+                    'gloss_level': finishing_details.finishing_gloss_level if finishing_details else None,
                     'color': finishing_details.finishing_color if finishing_details else 'Brak',
                     'price_netto': finishing_total_netto if finishing_details and finishing_details.finishing_price_netto else 0,
                     'price_brutto': finishing_total_brutto if finishing_details and finishing_details.finishing_price_brutto else 0,

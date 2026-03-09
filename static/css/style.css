@@ -283,7 +283,7 @@ html, body {
 .title-with-underline-h2 {
     position: relative;
     display: inline-block;
-    margin-bottom: 20px;
+    margin-bottom: 10px;
 }
 
     .title-with-underline-h2::after {

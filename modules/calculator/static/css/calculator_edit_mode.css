@@ -1,0 +1,149 @@
+/* ========================================
+   Tryb edycji wyceny - badge, info w podsumowaniu, karta klienta
+   ======================================== */
+
+/* Badge obok H1 (styl jak draft-status-badge) */
+.edit-mode-badge {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 14px;
+    border-radius: 20px;
+    font-size: 13px;
+    font-weight: 500;
+    font-family: Poppins, sans-serif;
+    white-space: nowrap;
+    background: #fef3c7;
+    color: #92400e;
+    border: 1px solid #f59e0b;
+}
+
+.edit-mode-badge svg {
+    flex-shrink: 0;
+    stroke: #d97706;
+}
+
+.edit-mode-badge strong {
+    font-weight: 700;
+}
+
+/* Nagłówek edycji w sekcji podsumowania */
+.edit-mode-summary-info {
+    background: #ED6B24;
+    color: white;
+    margin: -20px -20px 0 -20px;
+    padding: 10px 20px;
+    border-radius: 12px 12px 0 0;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 13px;
+    font-family: Poppins, sans-serif;
+}
+
+.edit-mode-summary-info .input-txt-bold {
+    color: rgba(255, 255, 255, 0.8);
+    font-size: 12px;
+    font-weight: 500;
+}
+
+.edit-mode-summary-info .edit-info-value {
+    font-weight: 700;
+    font-size: 14px;
+}
+
+.edit-mode-summary-info .edit-info-client {
+    margin-left: auto;
+    font-size: 13px;
+    opacity: 0.9;
+}
+
+.edit-mode-summary-info .edit-info-cancel {
+    font-size: 12px;
+    color: white;
+    text-decoration: none;
+    font-weight: 500;
+    padding: 3px 10px;
+    border: 1px solid rgba(255, 255, 255, 0.6);
+    border-radius: 4px;
+    transition: all 0.2s;
+    margin-left: 6px;
+}
+
+.edit-mode-summary-info .edit-info-cancel:hover {
+    background: rgba(255, 255, 255, 0.2);
+    border-color: white;
+}
+
+/* Karta klienta w modalu zapisu (tryb edycji) */
+.edit-mode-client-card {
+    background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%);
+    border: 1px solid #93c5fd;
+    border-radius: 12px;
+    overflow: hidden;
+    margin-bottom: 20px;
+}
+
+.client-card-header {
+    background: #2563eb;
+    color: white;
+    padding: 12px 16px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 15px;
+}
+
+.client-card-body {
+    padding: 16px;
+}
+
+.client-info-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 0;
+    border-bottom: 1px solid #bfdbfe;
+}
+
+.client-info-row:last-child {
+    border-bottom: none;
+}
+
+.client-info-row svg {
+    color: #3b82f6;
+    width: 20px;
+    flex-shrink: 0;
+}
+
+.client-info-row .client-name {
+    font-weight: 600;
+    color: #1e40af;
+}
+
+.client-card-footer {
+    background: #dbeafe;
+    padding: 10px 16px;
+    text-align: center;
+}
+
+.client-card-footer small {
+    color: #1e40af;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    font-size: 13px;
+}
+
+/* Responsywnosc */
+@media (max-width: 768px) {
+    .edit-mode-badge {
+        font-size: 12px;
+        padding: 4px 10px;
+    }
+
+    .edit-mode-summary-info {
+        padding: 8px 10px;
+    }
+}

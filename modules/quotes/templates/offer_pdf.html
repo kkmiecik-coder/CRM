@@ -533,8 +533,9 @@
                             Wykończenie:
                             {% if finishing_detail and finishing_detail.finishing_type and finishing_detail.finishing_type != 'Brak' %}
                             {{ finishing_detail.finishing_type }}
-                            {%- if finishing_detail.finishing_color and finishing_detail.finishing_color != 'Brak' %} - {{ finishing_detail.finishing_color }}{% endif -%}
-                            {%- if finishing_detail.application_method and finishing_detail.application_method != 'Brak' %} ({{ finishing_detail.application_method }}){% endif -%}
+                            {%- if finishing_detail.finishing_variant %} | {{ finishing_detail.finishing_variant }}{% endif -%}
+                            {%- if finishing_detail.finishing_gloss_level %} | {{ finishing_detail.finishing_gloss_level }}{% endif -%}
+                            {%- if finishing_detail.finishing_color %} | {{ finishing_detail.finishing_color }}{% endif -%}
                             {% else %}
                             brak
                             {% endif %}

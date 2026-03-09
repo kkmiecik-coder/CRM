@@ -1596,6 +1596,101 @@ body {
     font-weight: 600;
 }
 
+/* Summary Product Cards (Desktop Sidebar) */
+.summary-product-card {
+    background: var(--bg-grey);
+    border-radius: 8px;
+    padding: 8px 10px;
+    margin-bottom: 6px;
+}
+
+    .summary-product-card:last-child {
+        margin-bottom: 0;
+    }
+
+    .summary-product-card.active {
+        border: 1px solid var(--primary-color);
+    }
+
+.summary-product-title {
+    font-size: var(--font-size-xs);
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 4px;
+    line-height: 1.3;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+    .summary-product-title small {
+        font-weight: 400;
+        color: var(--text-muted);
+    }
+
+.summary-product-rows {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.summary-product-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    font-size: var(--font-size-xs);
+    color: var(--text-secondary);
+}
+
+.summary-product-price {
+    font-weight: 600;
+    color: var(--text-primary);
+    white-space: nowrap;
+}
+
+    .summary-product-price small {
+        font-weight: 400;
+        color: var(--text-muted);
+        margin-left: 4px;
+    }
+
+/* Mobile Summary Product Cards */
+.mobile-summary-product-card {
+    padding-bottom: 6px;
+    margin-bottom: 6px;
+    border-bottom: 1px solid var(--border-light);
+}
+
+    .mobile-summary-product-card:last-child {
+        margin-bottom: 0;
+        border-bottom: none;
+    }
+
+.mobile-summary-product-title {
+    font-size: var(--font-size-xs);
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 4px;
+}
+
+    .mobile-summary-product-title small {
+        font-weight: 400;
+        color: var(--text-muted);
+    }
+
+.mobile-summary-price {
+    font-weight: 600;
+    color: var(--text-primary);
+    font-size: var(--font-size-xs);
+    white-space: nowrap;
+}
+
+    .mobile-summary-price small {
+        font-weight: 400;
+        color: var(--text-muted);
+        margin-left: 4px;
+    }
+
 /* Summary Total */
 .summary-total {
     padding: var(--spacing-base);
@@ -3092,5 +3187,170 @@ body {
 
     .ar-modal-btn {
         width: 100%;
+    }
+}
+
+/* ===================================
+   SEKCJA OBRÓBKI KRAWĘDZI (PODGLĄD)
+   =================================== */
+
+.edges-display-section {
+    margin-top: 20px;
+    background: var(--bg-white);
+    border: 1px solid var(--border-light);
+    border-radius: 12px;
+    overflow: hidden;
+}
+
+.edges-display-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 16px 20px;
+    background: var(--bg-grey);
+    border-bottom: 1px solid var(--border-light);
+}
+
+.edges-display-header svg {
+    color: var(--primary-color);
+    flex-shrink: 0;
+}
+
+.edges-display-header h3 {
+    margin: 0;
+    font-size: var(--font-size-base);
+    font-weight: 600;
+    color: var(--text-primary);
+    font-family: var(--font-family);
+}
+
+.edges-display-content {
+    display: flex;
+    gap: 24px;
+    padding: 20px;
+    align-items: flex-start;
+}
+
+/* SVG podgląd */
+.edges-preview-svg {
+    flex: 0 0 280px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #fafafa;
+    border-radius: 8px;
+    padding: 16px;
+    border: 1px solid var(--border-light);
+}
+
+.edges-preview-svg svg {
+    width: 100%;
+    height: auto;
+    max-width: 280px;
+}
+
+/* Specyfikacja krawędzi */
+.edges-display-spec {
+    flex: 1;
+    min-width: 0;
+}
+
+.edges-spec-summary {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-bottom: 16px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid var(--border-light);
+}
+
+.edges-spec-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+}
+
+.edges-spec-label {
+    font-size: var(--font-size-sm);
+    color: var(--text-secondary);
+    font-family: var(--font-family);
+}
+
+.edges-spec-value {
+    font-size: var(--font-size-sm);
+    font-weight: 600;
+    color: var(--text-primary);
+    font-family: var(--font-family);
+}
+
+.edges-spec-details {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.edges-spec-group {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.edges-spec-group-label {
+    font-size: var(--font-size-xs);
+    font-weight: 600;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    font-family: var(--font-family);
+}
+
+.edges-spec-items {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.edges-spec-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 10px;
+    background: var(--primary-bg);
+    border: 1px solid rgba(237, 107, 36, 0.2);
+    border-radius: 6px;
+    font-size: var(--font-size-xs);
+    font-weight: 600;
+    color: var(--primary-color);
+    font-family: var(--font-family);
+}
+
+.edges-spec-tag-name {
+    font-weight: 400;
+    color: var(--text-secondary);
+}
+
+/* Responsywność - mobilna */
+@media (max-width: 768px) {
+    .edges-display-content {
+        flex-direction: column;
+        gap: 16px;
+        padding: 16px;
+    }
+
+    .edges-preview-svg {
+        flex: none;
+        width: 100%;
+        max-width: 100%;
+    }
+
+    .edges-preview-svg svg {
+        max-width: 250px;
+    }
+
+    .edges-spec-row {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 2px;
     }
 }

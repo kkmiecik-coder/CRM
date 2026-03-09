@@ -867,174 +867,6 @@ async function reloadQuoteDetailsModal(quoteId) {
         throw error;
     }
 }
-/**
- * Aplikowanie stylów dla trybu wyceny
- */
-function applyQuoteTypeStyles(quoteType) {
-    console.log('[QUOTE TYPE] Aplikowanie stylów dla:', quoteType);
-
-    const modalBox = document.querySelector('.quotes-details-modal-box');
-
-    if (!modalBox) {
-        console.warn('[QUOTE TYPE] Brak elementu .quotes-details-modal-box');
-        return;
-    }
-
-    // Usuń poprzednie klasy
-    modalBox.classList.remove('quote-type-brutto', 'quote-type-netto');
-
-    // Dodaj odpowiednią klasę
-    modalBox.classList.add(`quote-type-${quoteType}`);
-
-    // POPRAWKA: Zastosuj ukrywanie/pokazywanie kwot przez JS
-    if (quoteType === 'netto') {
-        hideAllBruttoPrice();
-        styleNettoAsMain();
-    } else {
-        showAllBruttoPrice();
-        styleNettoAsSecondary();
-    }
-
-    console.log('[QUOTE TYPE] Zastosowano klasę i style:', `quote-type-${quoteType}`);
-}
-
-/**
- * Ukrywa wszystkie kwoty brutto
- */
-function hideAllBruttoPrice() {
-    console.log('[QUOTE TYPE] Ukrywam wszystkie kwoty brutto');
-
-    // Sekcja kosztów - ID elementów
-    const bruttoElements = [
-        'quotes-details-modal-cost-products-brutto',
-        'quotes-details-modal-cost-finishing-brutto',
-        'quotes-details-modal-cost-products-total-brutto',
-        'quotes-details-modal-cost-shipping-brutto',
-        'quotes-details-modal-cost-total-brutto'
-    ];
-
-    bruttoElements.forEach(id => {
-        const element = document.getElementById(id);
-        if (element) {
-            element.style.display = 'none';
-        }
-    });
-
-    // Kafelki wariantów - klasy
-    const variantBruttoElements = document.querySelectorAll('.qvmd-price-brutto');
-    variantBruttoElements.forEach(element => {
-        element.style.display = 'none';
-    });
-
-    console.log('[QUOTE TYPE] Ukryto kwoty brutto:', {
-        sekcjaKosztow: bruttoElements.length,
-        kafelkiWariantow: variantBruttoElements.length
-    });
-}
-
-/**
- * Pokazuje wszystkie kwoty brutto
- */
-function showAllBruttoPrice() {
-    console.log('[QUOTE TYPE] Pokazuję wszystkie kwoty brutto');
-
-    // Sekcja kosztów
-    const bruttoElements = [
-        'quotes-details-modal-cost-products-brutto',
-        'quotes-details-modal-cost-finishing-brutto',
-        'quotes-details-modal-cost-products-total-brutto',
-        'quotes-details-modal-cost-shipping-brutto',
-        'quotes-details-modal-cost-total-brutto'
-    ];
-
-    bruttoElements.forEach(id => {
-        const element = document.getElementById(id);
-        if (element) {
-            element.style.display = '';
-        }
-    });
-
-    // Kafelki wariantów
-    const variantBruttoElements = document.querySelectorAll('.qvmd-price-brutto');
-    variantBruttoElements.forEach(element => {
-        element.style.display = '';
-    });
-
-    console.log('[QUOTE TYPE] Pokazano kwoty brutto');
-}
-
-/**
- * Styluje kwoty netto jako główne (większa czcionka, pogrubienie)
- */
-function styleNettoAsMain() {
-    console.log('[QUOTE TYPE] Styluję kwoty netto jako główne');
-
-    // Sekcja kosztów
-    const nettoElements = [
-        'quotes-details-modal-cost-products-netto',
-        'quotes-details-modal-cost-finishing-netto',
-        'quotes-details-modal-cost-products-total-netto',
-        'quotes-details-modal-cost-shipping-netto',
-        'quotes-details-modal-cost-total-netto'
-    ];
-
-    nettoElements.forEach(id => {
-        const element = document.getElementById(id);
-        if (element) {
-            element.style.fontSize = '16px';
-            element.style.fontWeight = '600';
-            element.style.color = '#1F2020';
-        }
-    });
-
-    // Kafelki wariantów
-    const variantNettoElements = document.querySelectorAll('.qvmd-price-netto');
-    variantNettoElements.forEach(element => {
-        element.style.fontSize = '12px';  // POPRAWKA: zwiększona z 10px do 12px
-        element.style.fontWeight = '600';
-        element.style.color = '#1F2020';
-        element.style.marginTop = '0';
-    });
-
-    console.log('[QUOTE TYPE] Netto stylowane jako główne');
-}
-
-/**
- * Przywraca style kwot netto jako drugorzędne (mniejsza czcionka, szary kolor)
- */
-function styleNettoAsSecondary() {
-    console.log('[QUOTE TYPE] Przywracam style netto jako drugorzędne');
-
-    // Sekcja kosztów
-    const nettoElements = [
-        'quotes-details-modal-cost-products-netto',
-        'quotes-details-modal-cost-finishing-netto',
-        'quotes-details-modal-cost-products-total-netto',
-        'quotes-details-modal-cost-shipping-netto',
-        'quotes-details-modal-cost-total-netto'
-    ];
-
-    nettoElements.forEach(id => {
-        const element = document.getElementById(id);
-        if (element) {
-            element.style.fontSize = '';
-            element.style.fontWeight = '';
-            element.style.color = '';
-        }
-    });
-
-    // Kafelki wariantów
-    const variantNettoElements = document.querySelectorAll('.qvmd-price-netto');
-    variantNettoElements.forEach(element => {
-        element.style.fontSize = '';
-        element.style.fontWeight = '';
-        element.style.color = '';
-        element.style.marginTop = '';
-    });
-
-    console.log('[QUOTE TYPE] Netto przywrócone jako drugorzędne');
-}
-
 function updateMultiplierDisplay(quoteData) {
     console.log('[updateMultiplierDisplay] Aktualizuję wyświetlanie mnożnika:', quoteData);
     
@@ -2591,17 +2423,12 @@ function renderSelectedSummary(groupedItems, container) {
         if (finishing && finishing.finishing_type && finishing.finishing_type !== 'Brak' && finishing.finishing_type !== 'Surowe') {
             const finishingParts = [];
 
-            if (finishing.finishing_type) {
-                finishingParts.push(finishing.finishing_type);
-            }
-            if (finishing.finishing_color && finishing.finishing_color !== 'Brak') {
-                finishingParts.push(finishing.finishing_color);
-            }
-            if (finishing.application_method && finishing.application_method !== 'Brak') {
-                finishingParts.push(finishing.application_method);
-            }
+            if (finishing.finishing_type) finishingParts.push(finishing.finishing_type);
+            if (finishing.finishing_variant) finishingParts.push(finishing.finishing_variant);
+            if (finishing.finishing_gloss_level) finishingParts.push(finishing.finishing_gloss_level);
+            if (finishing.finishing_color) finishingParts.push(finishing.finishing_color);
 
-            finishingText = finishingParts.length > 0 ? ` ${finishingParts.join(' ')}` : '';
+            finishingText = finishingParts.length > 0 ? ` ${finishingParts.join(' | ')}` : '';
         }
 
         const p = document.createElement("p");
@@ -2641,27 +2468,17 @@ function renderVariantSummary(groupedItemsForIndex, quoteData, productIndex) {
     // Pobierz quantity z finishing details lub z item
     const quantity = finishing ? finishing.quantity || 1 : (item.quantity || 1);
     
-    // Dodaj informacje o wykończeniu
+    // Dodaj informacje o wykończeniu: [wykończenie] | [wariant] | [połysk] | [kolor]
     let finishingDisplay = 'Brak wykończenia';
     if (finishing && finishing.finishing_type && finishing.finishing_type !== 'Brak') {
         const finishingParts = [];
-        
-        // Typ wykończenia
-        if (finishing.finishing_type) {
-            finishingParts.push(finishing.finishing_type);
-        }
-        
-        // Kolor wykończenia
-        if (finishing.finishing_color && finishing.finishing_color !== 'Brak') {
-            finishingParts.push(finishing.finishing_color);
-        }
-        
-        // Metoda aplikacji
-        if (finishing.application_method && finishing.application_method !== 'Brak') {
-            finishingParts.push(finishing.application_method);
-        }
-        
-        finishingDisplay = finishingParts.length > 0 ? finishingParts.join(' - ') : 'Brak wykończenia';
+
+        if (finishing.finishing_type) finishingParts.push(finishing.finishing_type);
+        if (finishing.finishing_variant) finishingParts.push(finishing.finishing_variant);
+        if (finishing.finishing_gloss_level) finishingParts.push(finishing.finishing_gloss_level);
+        if (finishing.finishing_color) finishingParts.push(finishing.finishing_color);
+
+        finishingDisplay = finishingParts.length > 0 ? finishingParts.join(' | ') : 'Brak wykończenia';
     }
 
     // Oblicz ceny z wykończeniem
@@ -5019,50 +4836,27 @@ function showAvailableDocuments(data, quoteId) {
 }
 
 /**
- * ✅ NOWA FUNKCJA: Otwiera edytor wyceny z pobraniem świeżych danych z serwera
+ * Przekierowanie do kalkulatora w trybie edycji wyceny.
+ * Zastępuje stary openQuoteEditorWithFreshData() - edycja odbywa się teraz w kalkulatorze.
  */
-async function openQuoteEditorWithFreshData() {
-    if (!currentQuoteData || !currentQuoteData.id) {
-        console.error('[QuoteEditor] Brak ID wyceny w currentQuoteData');
+function editQuoteInCalculator() {
+    if (!currentQuoteData) {
+        console.error('[editQuoteInCalculator] Brak currentQuoteData');
         if (typeof showToast === 'function') {
             showToast('Błąd: Brak danych wyceny', 'error');
         }
         return;
     }
 
-    const quoteId = currentQuoteData.id;
-
-    try {
-        console.log(`[QuoteEditor] Pobieranie świeżych danych dla wyceny ID: ${quoteId}`);
-
-        // Pobierz świeże dane z serwera
-        const response = await fetch(`/quotes/api/quotes/${quoteId}`);
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-        }
-
-        const freshQuoteData = await response.json();
-        console.log(`[QuoteEditor] Otrzymano świeże dane wyceny: ${freshQuoteData.quote_number}`);
-
-        // Zaktualizuj currentQuoteData
-        currentQuoteData = freshQuoteData;
-        window.currentQuoteData = freshQuoteData;
-
-        // Otwórz edytor ze świeżymi danymi
-        if (typeof openQuoteEditor === 'function') {
-            await openQuoteEditor(freshQuoteData);
-            console.log('[QuoteEditor] ✅ Edytor otwarty ze świeżymi danymi');
-        } else {
-            console.error('[QuoteEditor] Funkcja openQuoteEditor nie istnieje');
-            throw new Error('Funkcja openQuoteEditor nie jest dostępna');
-        }
-
-    } catch (error) {
-        console.error(`[QuoteEditor] Błąd podczas otwierania edytora:`, error);
+    const editUuid = currentQuoteData.edit_uuid;
+    if (!editUuid) {
+        console.error('[editQuoteInCalculator] Brak edit_uuid w danych wyceny');
         if (typeof showToast === 'function') {
-            showToast('Nie udało się otworzyć edytora wyceny', 'error');
-        } else {
-            alert('Nie udało się otworzyć edytora wyceny');
+            showToast('Błąd: Wycena nie ma identyfikatora edycji', 'error');
         }
+        return;
     }
+
+    console.log(`[editQuoteInCalculator] Przekierowanie do kalkulatora: edit_uuid=${editUuid}`);
+    window.location.href = `/calculator?edit_quote=${editUuid}`;
 }

@@ -1,0 +1,754 @@
+/* ===============================
+   Wykończenie i warianty
+   =============================== */
+
+.finishing-section,
+.edges-section {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    font-family: "Poppins", sans-serif;
+    background: #FAFBFC;
+    border: 1px solid #E8ECF0;
+    border-radius: 12px;
+    gap: 12px;
+    transition: width 0.3s ease, flex-basis 0.3s ease;
+    min-width: 0;
+    overflow: hidden;
+}
+
+/* Drzewko wykończeń — układ pionowy, przyciski poziomo */
+.finishing-section {
+    container-type: inline-size;
+    container-name: finishing;
+}
+
+.finishing-tree-container {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    align-self: stretch;
+}
+
+.finishing-tree-container .button-group:not(.color-group) {
+    flex-direction: row;
+}
+
+.finishing-tree-container .finishing-btn {
+    justify-content: center;
+}
+
+.finishing-level:has(.color-group) .color-group {
+    grid-template-columns: repeat(2, 1fr);
+}
+
+/* 3 kolumny kolorów gdy sekcja wykończenia jest szersza */
+@container finishing (min-width: 420px) {
+    .finishing-level:has(.color-group) .color-group {
+        grid-template-columns: repeat(3, 1fr);
+    }
+}
+
+.finishing-level {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    min-width: 140px;
+    animation: none;
+    overflow: hidden;
+}
+
+/* Sekcja połysku — stały element, show/hide przez JS */
+.finishing-level-gloss {
+    flex: 0 0 auto;
+    animation: none;
+}
+
+.finishing-level-gloss .button-group {
+    flex-direction: row;
+}
+
+/* Poziom wariantów — domyślnie nieaktywny, klasa .enabled go włącza */
+.finishing-level-variants {
+    opacity: 0.4;
+    pointer-events: none;
+    transition: opacity 0.25s ease;
+}
+
+.finishing-level-variants.enabled {
+    opacity: 1;
+    pointer-events: auto;
+}
+
+@keyframes fadeInLevel {
+    from {
+        opacity: 0;
+        transform: translateX(-12px);
+        max-width: 0;
+    }
+    to {
+        opacity: 1;
+        transform: translateX(0);
+        max-width: 400px;
+    }
+}
+
+/* Przyciski wykończeń — pionowo, rozciągnięte na szerokość i wysokość kolumny */
+.button-group {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    flex: 1;
+}
+
+/* Pierwszy i drugi poziom — nie rozciągają się na wysokość */
+.finishing-level[data-level="0"],
+.finishing-level-variants {
+    flex: 0 0 auto;
+}
+
+/* Pierwszy poziom i warianty — bez animacji wejścia */
+.finishing-level[data-level="0"],
+.finishing-level-variants {
+    animation: none;
+}
+
+.finishing-btn {
+    padding: 8px 14px;
+    border-radius: 8px;
+    border: 2px solid #E3E3E3;
+    background-color: #F5F5F5;
+    color: #1F2020;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    text-align: left;
+    font-family: "Poppins", sans-serif;
+    white-space: nowrap;
+    width: 100%;
+    flex: 1;
+    display: flex;
+    align-items: center;
+}
+
+    .finishing-btn:hover {
+        background-color: #e3e3e3;
+    }
+
+    .finishing-btn.active {
+        background-color: #ED6B24;
+        color: white;
+        border-color: #ED6B24;
+    }
+
+.finishing-block .input-txt {
+    font-size: 13px;
+    font-weight: 500;
+    color: #1F2020;
+    margin-bottom: -4px;
+    line-height: 1.4;
+}
+
+/* Nagłówek krawędzi — 2 kolumny */
+.edges-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+}
+
+.edges-header .title-with-underline-h2 {
+    margin: 0;
+}
+
+.edges-header .modal-trigger {
+    width: auto;
+    padding: 8px 12px;
+    border: 1px solid #ED6B24;
+    border-radius: 6px;
+    background: transparent;
+    color: #ED6B24;
+    font-size: 12px;
+    font-family: 'Poppins', sans-serif;
+    font-weight: 500;
+    white-space: nowrap;
+    transition: all 0.2s ease;
+}
+
+.edges-header .modal-trigger:hover {
+    background: #ED6B24;
+    color: white;
+    transform: translateY(-1px);
+    box-shadow: 0 2px 4px rgba(237, 107, 36, 0.2);
+}
+
+/* Podgląd SVG krawędzi */
+.edges-preview {
+    width: 100%;
+    flex: 1;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+.edges-preview-svg {
+    width: 100%;
+    max-width: 320px;
+    height: auto;
+}
+
+.edges-preview-svg .edges-face { fill: #f0f0f0; stroke: none; }
+.edges-preview-svg .edges-face-top { fill: #e8e8e8; }
+.edges-preview-svg .edges-face-front { fill: #d8d8d8; }
+.edges-preview-svg .edges-face-right { fill: #c8c8c8; }
+.edges-preview-svg .edges-face-left { fill: #d0d0d0; }
+.edges-preview-svg .edges-face-back { fill: #b8b8b8; }
+.edges-preview-svg .edges-line { stroke: #999; stroke-width: 2; fill: none; }
+.edges-preview-svg .edges-line.edges-hidden { stroke-dasharray: 4 3; stroke-width: 1.5; stroke: #bbb; }
+.edges-preview-svg .edges-line.active { stroke: #ED6B24; stroke-width: 3; }
+
+.modal-trigger {
+    padding: 12px 16px;
+    border-radius: 12px;
+    background-color: #ED6B24;
+    color: white;
+    font-weight: 600;
+    border: none;
+    cursor: pointer;
+    transition: background 0.2s;
+    font-size: 14px;
+    text-align: center;
+    width: 100%;
+}
+
+    .modal-trigger:hover {
+        background-color: #d85d20;
+    }
+
+.modal-trigger.disabled,
+.modal-trigger:disabled {
+    opacity: 0.4;
+    pointer-events: none;
+    cursor: not-allowed;
+}
+
+.color-group {
+    display: grid;
+    flex: 1;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 6px;
+    align-content: start;
+}
+
+.color-btn {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 8px;
+    border: 2px solid #E3E3E3;
+    border-radius: 8px;
+    background: #F5F5F5;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    font-size: 12px;
+    text-align: left;
+    width: 100%;
+    padding: 4px;
+}
+
+    .color-btn img {
+        width: 32px;
+        height: 32px;
+        object-fit: cover;
+        border-radius: 4px;
+        flex-shrink: 0;
+    }
+
+    .color-btn span {
+        color: #1F2020;
+        font-weight: 500;
+        font-size: 12px;
+        white-space: nowrap;
+    }
+
+    .color-btn .color-placeholder,
+    .color-btn img.img-error {
+        width: 32px;
+        height: 32px;
+        border-radius: 4px;
+        background: #E3E3E3;
+        flex-shrink: 0;
+    }
+
+    .color-btn img.img-error {
+        object-position: -9999px;
+    }
+
+    .color-btn:hover {
+        border-color: #c0c0c0;
+    }
+
+    .color-btn.active {
+        border-color: #ED6B24;
+        background: #FFECE1;
+    }
+
+.variants {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+}
+
+.variants-header {
+    display: flex;
+    padding: 8px 6px;
+    align-items: center;
+    gap: 8px;
+    align-self: stretch;
+    background: #F8F9FA;
+    border-bottom: 2px solid #E0E0E0;
+    font-weight: 600;
+    font-size: 11px;
+    color: #666666;
+}
+
+    .variants-header span {
+        display: inline-block;
+    }
+
+    /* Scalone nagłówki - ukryte na desktopie */
+    .variants-header .header-unit-merged,
+    .variants-header .header-total-merged {
+        display: none;
+    }
+
+.variant-option {
+    display: flex;
+    padding: 8px 6px;
+    align-items: center;
+    gap: 8px;
+    align-self: stretch;
+    border-bottom: 1px solid #EAEAEA;
+    transition: all 0.2s ease;
+    flex: 1;
+    cursor: pointer;
+}
+
+.variant-option.unavailable {
+    cursor: not-allowed;
+}
+
+    /* Radio button */
+    .variant-option input[type="radio"] {
+        width: 20px;
+        height: 20px;
+        margin-right: 8px;
+        cursor: pointer;
+        flex-shrink: 0;
+        accent-color: #ED6B24;
+    }
+
+    /* Label wariantu */
+    .variant-option .option-title {
+        flex: 1;
+        min-width: 100px;
+        color: #1F2020;
+        font-family: Poppins, sans-serif;
+        font-size: 14px;
+        font-style: normal;
+        font-weight: 600;
+        line-height: normal;
+        cursor: pointer;
+    }
+
+    /* Price-cell: na desktopie wyświetl zawartość jako display:contents (flat) */
+    .price-cell {
+        display: contents;
+    }
+
+    /* Na desktopie ceny wyświetlane jak dotychczas - 4 osobne kolumny */
+    .variant-option .unit-brutto,
+    .variant-option .unit-netto,
+    .variant-option .total-brutto,
+    .variant-option .total-netto {
+        font-size: 14px;
+        color: #1F2020;
+        font-family: Poppins, sans-serif;
+        text-align: right;
+        min-width: 120px;
+    }
+
+    /* Scalone nagłówki - ukryte na desktopie */
+    .header-unit-merged,
+    .header-total-merged {
+        display: none;
+    }
+
+
+.header-title {
+    flex: 1;
+    min-width: 100px;
+}
+
+/* Scalone nagłówki - reguła ukrywania wyżej przy .variants-header span */
+
+/* STANY NIEDOSTĘPNOŚCI */
+
+/* Wyszarzenie całego wariantu gdy niedostępny */
+.variant-option.unavailable {
+    background: #FAFAFA;
+    opacity: 0.7;
+}
+
+    /* Wyłączenie radio button gdy niedostępny */
+    .variant-option.unavailable input[type="radio"] {
+        pointer-events: none;
+        opacity: 0.5;
+        cursor: not-allowed;
+    }
+
+    /* Wyszarzenie tekstu wariantu */
+    .variant-option.unavailable .option-title {
+        color: #000000;
+        cursor: default;
+    }
+
+    /* Wyszarzenie cen */
+    .variant-option.unavailable .unit-brutto,
+    .variant-option.unavailable .unit-netto,
+    .variant-option.unavailable .total-brutto,
+    .variant-option.unavailable .total-netto {
+        color: #1F2020;
+    }
+
+/* Hover effect dla dostępnych wariantów */
+.variant-option:not(.unavailable):hover {
+    background: #FFF8F5;
+    border-color: #ED6B24;
+}
+
+/* Aktywny (zaznaczony) wariant */
+.variant-option.selected {
+    background: #FFF4ED;
+    border-left: 3px solid #ED6B24;
+    border-bottom-color: #ED6B24;
+}
+
+
+/* ============================================
+   Responsywność wariantów — container queries
+   Reaguje na szerokość .calculations-main,
+   nie na viewport.
+   ============================================ */
+
+/* Scalenie kolumn brutto/netto gdy sekcja < 650px */
+@container calculations (max-width: 650px) {
+    .variant-option {
+        padding: 6px 4px;
+        gap: 6px;
+    }
+
+    .variant-option input[type="radio"] {
+        width: 18px;
+        height: 18px;
+    }
+
+    .variant-option .option-title {
+        font-size: 12px;
+        min-width: 80px;
+    }
+
+    /* Ukryj 4 osobne nagłówki, pokaż 2 scalone
+       Specyficzność .variants-header .header-* (0,2,0) bije
+       domyślne .variants-header span (0,1,1) */
+    .variants-header .header-unit-brutto,
+    .variants-header .header-unit-netto,
+    .variants-header .header-total-brutto,
+    .variants-header .header-total-netto {
+        display: none;
+    }
+
+    .variants-header .header-unit-merged,
+    .variants-header .header-total-merged {
+        display: inline-block;
+        min-width: 90px;
+        text-align: right;
+    }
+
+    /* Price-cell: kolumna z brutto na górze, netto pod spodem */
+    .price-cell {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-end;
+        min-width: 90px;
+        gap: 2px;
+    }
+
+    .price-cell .unit-brutto,
+    .price-cell .total-brutto {
+        font-size: 13px;
+        font-weight: 600;
+        color: #1F2020;
+        min-width: auto;
+    }
+
+    .price-cell .unit-netto,
+    .price-cell .total-netto {
+        font-size: 10px;
+        font-weight: 400;
+        color: #888;
+        min-width: auto;
+    }
+}
+
+/* Jeszcze węższa sekcja < 420px — bardziej kompaktowy widok */
+@container calculations (max-width: 420px) {
+    .variant-option {
+        padding: 6px 4px;
+        gap: 4px;
+        flex-wrap: wrap;
+    }
+
+    .variant-option input[type="radio"] {
+        width: 16px;
+        height: 16px;
+        margin-right: 4px;
+    }
+
+    .variant-option .option-title {
+        font-size: 11px;
+        min-width: 70px;
+    }
+
+    .price-cell {
+        min-width: 70px;
+    }
+
+    .price-cell .unit-brutto,
+    .price-cell .total-brutto {
+        font-size: 12px;
+    }
+
+    .price-cell .unit-netto,
+    .price-cell .total-netto {
+        font-size: 9px;
+    }
+
+    .variants-header .header-unit-merged,
+    .variants-header .header-total-merged {
+        min-width: 70px;
+        font-size: 9px;
+    }
+
+    .variants-header {
+        gap: 4px;
+    }
+}
+
+.variant-option input[type="radio"]:focus {
+    outline: 2px solid #ED6B24;
+    outline-offset: 2px;
+}
+
+/* Animacja dla zmian dostępności */
+.variant-option {
+    transition: all 0.3s ease;
+}
+
+    .variant-option.unavailable {
+        animation: fadeToUnavailable 0.3s ease;
+    }
+
+@keyframes fadeToUnavailable {
+    from {
+        opacity: 1;
+        background: #FFFFFF;
+    }
+
+    to {
+        opacity: 0.7;
+        background: #FAFAFA;
+    }
+}
+
+.header-unit-netto,
+.header-total-netto {
+    width: 120px;
+    text-align: right;
+}
+
+.header-unit-brutto,
+.header-total-brutto {
+    width: 120px;
+    text-align: right;
+    font-weight: 600;
+}
+
+.clients-modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    background-color: rgba(0, 0, 0, 0.3);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 9999;
+}
+
+/* Styl dla modala */
+.clients-modal {
+    background: white;
+    border-radius: 12px;
+    max-width: 700px;
+    width: 90%;
+    padding: 24px;
+    box-shadow: 0 0 20px rgba(0, 0, 0, 0.2);
+}
+
+    .clients-modal .modal-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 16px;
+    }
+
+    .clients-modal .modal-title {
+        font-size: 20px;
+        font-weight: bold;
+    }
+
+    .clients-modal .close-modal {
+        background: none;
+        border: none;
+        font-size: 24px;
+        cursor: pointer;
+    }
+
+.clients-modal-section {
+    margin-bottom: 16px;
+}
+
+.clients-modal iframe {
+    width: 100%;
+    height: 90vh;
+    border: none;
+    background-color: #fff;
+}
+
+.center-block {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+}
+
+.download-buttons {
+    display: flex;
+    gap: 16px;
+    margin-top: 12px;
+}
+
+/* Przyciski akcji */
+.quotes-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 2px 6px;
+    background-color: #ED6B24;
+    color: white;
+    border: none;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 500;
+    font-family: 'Poppins', sans-serif;
+    cursor: pointer;
+    transition: background 0.2s ease;
+}
+
+    .quotes-btn:hover {
+        background-color: #B84D13;
+    }
+
+    .quotes-btn::before {
+        content: none;
+    }
+
+    .quotes-btn::after {
+        content: "";
+        display: inline-block;
+        background-size: contain;
+        background-repeat: no-repeat;
+        width: 16px;
+        height: 16px;
+    }
+
+.quotes-btn-detail::after {
+    background-image: url('/static/icons/go.svg');
+}
+
+.quotes-btn-download::after {
+    background-image: url('/static/icons/download.svg');
+}
+
+.quotes-btn-detail {
+    min-width: 106px;
+}
+
+.quotes-btn-download {
+    min-width: 90px;
+}
+
+/* Ukrywamy tekst w wąskich ekranach */
+@media (max-width: 820px) {
+    .quotes-btn {
+        padding: 6px;
+    }
+
+        .quotes-btn::before {
+            display: none;
+        }
+
+        .quotes-btn::after {
+            margin: 0;
+        }
+}
+
+.close-modal {
+    position: static;
+}
+
+/* Dodatkowa animacja dla emotikonów */
+@keyframes bounce {
+    0%, 100% {
+        transform: translateY(0);
+    }
+
+    50% {
+        transform: translateY(-10px);
+    }
+}
+
+.loading-text:has(🚚) {
+    animation: bounce 1s ease-in-out;
+}
+
+.clients-modal-overlay.active {
+    display: flex !important;
+}
+
+/* Style dla fallback */
+.iframe-fallback a:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 8px rgba(237, 107, 36, 0.3);
+}
+
+/* Stan wyłączony radio */
+input[type="radio"]:disabled + label {
+    opacity: 0.4;
+    cursor: not-allowed;
+}

@@ -17,7 +17,7 @@
     display: none;
     justify-content: center;
     align-items: center;
-    z-index: 9999;
+    z-index: 10001;
     overflow-y: auto;
     padding: 20px;
 }
@@ -129,10 +129,45 @@
     margin-bottom: 20px;
 }
 
+.sq-search-row {
+    display: flex;
+    gap: 10px;
+    align-items: stretch;
+    margin-bottom: 12px;
+}
+
 .sq-search-input-wrapper {
     position: relative;
-    margin-bottom: 12px;
+    flex: 1;
     z-index: 2;
+}
+
+.sq-create-new-btn {
+    padding: 0 20px;
+    background: #1f7d4c;
+    color: white;
+    border: none;
+    border-radius: 12px;
+    font-family: 'Poppins', sans-serif;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: all 0.2s ease;
+    flex-shrink: 0;
+}
+
+.sq-create-new-btn:hover:not(:disabled) {
+    background: #146c3e;
+}
+
+.sq-create-new-btn:disabled {
+    background: #CCCCCC;
+    cursor: not-allowed;
+}
+
+.sq-search-section {
+    position: relative;
 }
 
 .sq-search-input {
@@ -213,27 +248,7 @@
     font-size: 14px;
 }
 
-.sq-create-client-btn {
-    width: 100%;
-    padding: 16px 20px;
-    background: #1f7d4c;
-    color: white;
-    border: none;
-    border-top: 2px solid #f0f0f0;
-    font-family: 'Poppins', sans-serif;
-    font-size: 15px;
-    font-weight: 600;
-    cursor: pointer;
-    transition: all 0.2s ease;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 8px;
-}
-
-    .sq-create-client-btn:hover {
-        background: #146c3e;
-    }
+/* ================================ */
 
 /* ================================
    KROK 2: FORM + SUMMARY
@@ -261,6 +276,11 @@
     margin-bottom: 8px;
     padding-bottom: 8px;
     border-bottom: 2px solid #f0f0f0;
+}
+
+.sq-form-row {
+    display: flex;
+    flex-direction: column;
 }
 
 .sq-form-group {
@@ -302,6 +322,11 @@
 
     .sq-form-input.error {
         border-color: #F44336;
+        background: #FFF5F5;
+    }
+
+    .sq-form-input.valid {
+        border-color: #4CAF50;
     }
 
 .sq-error-message {
@@ -700,17 +725,100 @@ select.sq-form-input {
 
 @media (max-width: 768px) {
     .sq-modal-box {
-        padding: 24px;
+        padding: 20px;
         width: 95%;
+        border-radius: 12px;
+    }
+
+    .sq-modal-header {
+        margin-bottom: 20px;
+        padding-bottom: 12px;
+    }
+
+    .sq-modal-title {
+        font-size: 20px;
+    }
+
+    .sq-close-btn {
+        width: 34px;
+        height: 34px;
+        font-size: 26px;
+    }
+
+    .sq-search-title {
+        font-size: 17px;
+    }
+
+    .sq-search-desc {
+        font-size: 13px;
+        margin-bottom: 14px;
+    }
+
+    .sq-search-input {
+        padding: 11px 14px;
+        font-size: 14px;
+        border-radius: 8px;
+    }
+
+    .sq-search-hint {
+        font-size: 12px;
+        margin-bottom: 8px;
+    }
+
+    .sq-search-results {
+        border: none;
+        border-radius: 0;
+        margin-top: 0;
+        border-top: 1px solid #eee;
+    }
+
+    .sq-search-result-item {
+        padding: 12px 14px;
+    }
+
+    .sq-search-result-name {
+        font-size: 14px;
+    }
+
+    .sq-search-result-contact {
+        font-size: 12px;
+    }
+
+    .sq-create-new-btn {
+        padding: 0 14px;
+        font-size: 13px;
+        border-radius: 8px;
     }
 
     .sq-form-grid {
         grid-template-columns: 1fr;
-        gap: 32px;
+        gap: 20px;
     }
 
-    .sq-modal-title {
-        font-size: 22px;
+    .sq-section-title {
+        font-size: 16px;
+        margin-bottom: 6px;
+        padding-bottom: 6px;
+    }
+
+    .sq-form-row {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 10px;
+    }
+
+    .sq-form-input {
+        padding: 10px 12px;
+        font-size: 13px;
+        border-radius: 8px;
+    }
+
+    .sq-form-label {
+        font-size: 13px;
+    }
+
+    .sq-form-group {
+        gap: 4px;
     }
 
     .sq-table-header,
@@ -718,15 +826,371 @@ select.sq-form-input {
         grid-template-columns: 1.5fr 1fr 1fr 1fr;
         gap: 8px;
         padding: 10px 12px;
+    }
+
+    .sq-table-header {
         font-size: 12px;
+        padding: 8px 12px;
+    }
+
+    .sq-product-name {
+        font-size: 13px;
+    }
+
+    .sq-product-value {
+        font-size: 13px;
+    }
+
+    .sq-product-sum {
+        font-size: 13px;
+    }
+
+    .sq-products-table {
+        border-radius: 8px;
+        margin-bottom: 12px;
     }
 
     .sq-summary-totals {
-        padding: 16px;
+        padding: 14px;
+        border-radius: 8px;
+    }
+
+    .sq-summary-row {
+        padding: 8px 0;
+    }
+
+    .sq-summary-label {
+        font-size: 13px;
+    }
+
+    .sq-summary-brutto {
+        font-size: 14px;
+    }
+
+    .sq-summary-netto {
+        font-size: 11px;
+    }
+
+    .sq-summary-row-total .sq-summary-brutto {
+        font-size: 17px;
+    }
+
+    .sq-note-section {
+        margin-top: 16px;
+        padding: 14px;
+    }
+
+    .sq-note-textarea {
+        min-height: 60px;
+        padding: 10px;
+        font-size: 13px;
+    }
+
+    .sq-note-info {
+        padding: 8px 10px;
+        font-size: 12px;
+    }
+
+    .sq-save-btn {
+        padding: 12px 20px;
+        font-size: 15px;
+        border-radius: 8px;
+    }
+
+    .sq-success-icon {
+        width: 60px;
+        height: 60px;
+        font-size: 36px;
+        margin-bottom: 16px;
+    }
+
+    .sq-success-title {
+        font-size: 20px;
     }
 
     .sq-success-number {
         font-size: 24px;
+        margin-bottom: 12px;
+    }
+
+    .sq-success-text {
+        font-size: 14px;
+        margin-bottom: 20px;
+    }
+
+    .sq-success-btn {
+        padding: 12px 20px;
+        font-size: 14px;
+        border-radius: 8px;
+    }
+
+    .sq-feedback {
+        padding: 10px;
+        font-size: 13px;
+    }
+}
+
+/* ================================
+   MOBILE ≤480px
+   ================================ */
+
+@media (max-width: 480px) {
+    .sq-modal-overlay {
+        padding: 0;
+        align-items: flex-start;
+    }
+
+    .sq-modal-box {
+        padding: 16px;
+        width: 100%;
+        max-width: 100%;
+        border-radius: 0;
+        min-height: 100dvh;
+        box-shadow: none;
+        margin: 0;
+    }
+
+    .sq-modal-header {
+        margin-bottom: 16px;
+        padding-bottom: 10px;
+        border-bottom-width: 2px;
+    }
+
+    .sq-modal-title {
+        font-size: 18px;
+    }
+
+    .sq-close-btn {
+        width: 30px;
+        height: 30px;
+        font-size: 24px;
+    }
+
+    .sq-search-section {
+        max-width: none;
+    }
+
+    .sq-search-title {
+        font-size: 15px;
+        margin-bottom: 4px;
+    }
+
+    .sq-search-desc {
+        font-size: 12px;
+        margin-bottom: 12px;
+    }
+
+    .sq-search-input {
+        padding: 10px 12px;
+        font-size: 14px;
+        border-width: 1.5px;
+        border-radius: 6px;
+    }
+
+    .sq-search-hint {
+        font-size: 11px;
+        margin-bottom: 6px;
+    }
+
+    .sq-search-results {
+        border: none;
+        border-radius: 0;
+        margin-top: 0;
+        border-top: 1px solid #eee;
+    }
+
+    .sq-search-result-item {
+        padding: 10px 12px;
+        gap: 2px;
+    }
+
+    .sq-search-result-name {
+        font-size: 13px;
+    }
+
+    .sq-search-result-contact {
+        font-size: 11px;
+    }
+
+    .sq-no-results {
+        padding: 16px 12px;
+        font-size: 13px;
+    }
+
+    .sq-create-new-btn {
+        padding: 0 12px;
+        font-size: 12px;
+        border-radius: 6px;
+    }
+
+    .sq-form-grid {
+        gap: 16px;
+    }
+
+    .sq-section-title {
+        font-size: 14px;
+        margin-bottom: 4px;
+        padding-bottom: 4px;
+    }
+
+    .sq-form-row {
+        grid-template-columns: 1fr 1fr;
+        gap: 8px;
+    }
+
+    .sq-form-group {
+        gap: 3px;
+    }
+
+    .sq-form-label {
+        font-size: 12px;
+    }
+
+    .sq-form-input {
+        padding: 8px 10px;
+        font-size: 13px;
+        border-radius: 6px;
+        border-width: 1.5px;
+    }
+
+    .sq-error-message {
+        font-size: 11px;
+        min-height: 14px;
+    }
+
+    .sq-input-note {
+        font-size: 11px;
+    }
+
+    .sq-table-header,
+    .sq-product-row {
+        gap: 6px;
+        padding: 8px 10px;
+    }
+
+    .sq-table-header {
+        font-size: 11px;
+        padding: 6px 10px;
+    }
+
+    .sq-product-name {
+        font-size: 12px;
+    }
+
+    .sq-product-value {
+        font-size: 12px;
+    }
+
+    .sq-product-sum {
+        font-size: 12px;
+    }
+
+    .sq-products-table {
+        border-radius: 6px;
+        border-width: 1.5px;
+        margin-bottom: 10px;
+    }
+
+    .sq-summary-totals {
+        padding: 12px;
+        border-radius: 6px;
+        border-width: 1.5px;
+    }
+
+    .sq-summary-row {
+        padding: 6px 0;
+    }
+
+    .sq-summary-label {
+        font-size: 12px;
+    }
+
+    .sq-summary-brutto {
+        font-size: 13px;
+    }
+
+    .sq-summary-netto {
+        font-size: 10px;
+    }
+
+    .sq-summary-row-total {
+        margin-top: 6px;
+        padding-top: 10px;
+    }
+
+    .sq-summary-row-total .sq-summary-brutto {
+        font-size: 15px;
+    }
+
+    .sq-note-section {
+        margin-top: 12px;
+        padding: 12px;
+    }
+
+    .sq-note-textarea {
+        min-height: 50px;
+        padding: 8px;
+        font-size: 13px;
+    }
+
+    .sq-note-counter {
+        font-size: 11px;
+    }
+
+    .sq-note-info {
+        padding: 6px 8px;
+        font-size: 11px;
+        border-left-width: 3px;
+    }
+
+    .sq-save-btn {
+        padding: 10px 16px;
+        font-size: 14px;
+        border-radius: 6px;
+    }
+
+    .sq-success-icon {
+        width: 50px;
+        height: 50px;
+        font-size: 28px;
+        margin-bottom: 12px;
+    }
+
+    .sq-success-title {
+        font-size: 17px;
+        margin-bottom: 4px;
+    }
+
+    .sq-success-number {
+        font-size: 20px;
+        margin-bottom: 10px;
+    }
+
+    .sq-success-text {
+        font-size: 13px;
+        margin-bottom: 16px;
+        line-height: 1.4;
+    }
+
+    .sq-success-actions {
+        gap: 8px;
+    }
+
+    .sq-success-btn {
+        padding: 10px 16px;
+        font-size: 13px;
+        border-radius: 6px;
+    }
+
+    .sq-feedback {
+        padding: 8px;
+        font-size: 12px;
+        margin-bottom: 12px;
+        border-radius: 6px;
+    }
+
+    .sq-summary-section {
+        gap: 12px;
     }
 }
 
@@ -771,10 +1235,12 @@ select.sq-form-input {
     .sq-search-result-row {
         flex-direction: column;
         align-items: flex-start;
-        gap: 8px;
+        gap: 6px;
     }
-    
+
     .sq-other-client-badge {
         align-self: flex-start;
+        padding: 4px 8px;
+        font-size: 11px;
     }
 }

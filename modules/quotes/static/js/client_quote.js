@@ -290,6 +290,8 @@ const render = {
                     ${this.renderVariants(product)}
                 </div>
 
+                ${this.renderEdgesSection(product)}
+
                 <div class="save-changes-section ${globalState.hasUnsavedChanges ? 'visible' : 'hidden'}" id="saveChangesSection-${product.index}">
                     <div class="save-changes-content">
                         <span class="save-changes-text">Masz niezapisane zmiany</span>
@@ -305,11 +307,228 @@ const render = {
     },
 
     /**
+     * Renderuje sekcję obróbki krawędzi (tylko podgląd) pod wariantami
+     * @param {Object} product - Dane produktu
+     * @returns {string} HTML sekcji krawędzi
+     */
+    renderEdgesSection(product) {
+        if (!globalState.quoteData?.finishing) return '';
+
+        const finishing = globalState.quoteData.finishing.find(
+            f => f.product_index === product.index
+        );
+
+        // Sprawdź czy są dane krawędzi
+        if (!finishing || !finishing.edges_config || !Array.isArray(finishing.edges_config) || finishing.edges_config.length === 0) {
+            return '';
+        }
+
+        const edgesConfig = finishing.edges_config;
+        const edgesType = finishing.edges_type;
+        const edgesRValue = finishing.edges_r_value;
+        const edgesSvg = finishing.edges_svg || '';
+
+        // Nazwy krawędzi
+        const edgeNames = {
+            'A': 'Góra przednia', 'B': 'Góra tylna',
+            'C': 'Góra lewa', 'D': 'Góra prawa',
+            'E': 'Dół przednia', 'F': 'Dół tylna',
+            'G': 'Dół lewa', 'H': 'Dół prawa',
+            'N1': 'Narożnik przedni lewy', 'N2': 'Narożnik przedni prawy',
+            'N3': 'Narożnik tylny lewy', 'N4': 'Narożnik tylny prawy',
+            'KG': 'Krawędź górna (obwód)', 'KD': 'Krawędź dolna (obwód)'
+        };
+
+        // Typ obróbki
+        const typeLabel = edgesType === 'chamfer' ? 'Fazowanie' : 'Zaokrąglenie';
+
+        // Kąt (tylko dla fazowania)
+        const firstEdge = edgesConfig[0];
+        const angleValue = firstEdge?.angle_value;
+        const angleInfo = (edgesType === 'chamfer' && angleValue) ? `, kąt ${angleValue}°` : '';
+
+        // Pogrupuj krawędzie
+        const topEdges = edgesConfig.filter(e => ['A','B','C','D'].includes(e.letter));
+        const bottomEdges = edgesConfig.filter(e => ['E','F','G','H'].includes(e.letter));
+        const cornerEdges = edgesConfig.filter(e => e.letter && e.letter.startsWith('N'));
+        const roundEdges = edgesConfig.filter(e => ['KG','KD'].includes(e.letter));
+
+        const renderEdgeGroup = (label, edges) => {
+            if (edges.length === 0) return '';
+            return `
+                <div class="edges-spec-group">
+                    <div class="edges-spec-group-label">${label}</div>
+                    <div class="edges-spec-items">
+                        ${edges.map(e => `
+                            <span class="edges-spec-tag">${e.letter} <span class="edges-spec-tag-name">– ${edgeNames[e.letter] || e.letter}</span></span>
+                        `).join('')}
+                    </div>
+                </div>
+            `;
+        };
+
+        // SVG podgląd - jeśli zapisany, użyj go; w przeciwnym razie generuj
+        let svgPreview = '';
+        if (edgesSvg) {
+            svgPreview = `<div class="edges-preview-svg">${edgesSvg}</div>`;
+        } else {
+            const firstItem = product.variants[0];
+            if (firstItem) {
+                svgPreview = `<div class="edges-preview-svg">${this.generateEdgesIsometricSVG(
+                    firstItem.length_cm, firstItem.width_cm, firstItem.thickness_cm, edgesConfig
+                )}</div>`;
+            }
+        }
+
+        return `
+            <div class="edges-display-section">
+                <div class="edges-display-header">
+                    <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 5a1 1 0 011-1h14a1 1 0 011 1v2a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM4 13a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H5a1 1 0 01-1-1v-6z"></path>
+                    </svg>
+                    <h3>Obróbka krawędzi</h3>
+                </div>
+                <div class="edges-display-content">
+                    ${svgPreview}
+                    <div class="edges-display-spec">
+                        <div class="edges-spec-summary">
+                            <div class="edges-spec-row">
+                                <span class="edges-spec-label">Sposób obróbki:</span>
+                                <span class="edges-spec-value">${typeLabel}</span>
+                            </div>
+                            <div class="edges-spec-row">
+                                <span class="edges-spec-label">Promień R:</span>
+                                <span class="edges-spec-value">${edgesRValue} mm${angleInfo}</span>
+                            </div>
+                            <div class="edges-spec-row">
+                                <span class="edges-spec-label">Liczba krawędzi:</span>
+                                <span class="edges-spec-value">${edgesConfig.length}</span>
+                            </div>
+                        </div>
+                        <div class="edges-spec-details">
+                            ${renderEdgeGroup('Krawędzie górne', topEdges)}
+                            ${renderEdgeGroup('Krawędzie dolne', bottomEdges)}
+                            ${renderEdgeGroup('Narożniki', cornerEdges)}
+                            ${renderEdgeGroup('Krawędzie obwodowe', roundEdges)}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+    },
+
+    /**
+     * Generuje izometryczny SVG podglądu produktu z zaznaczonymi krawędziami
+     * @param {number} length - długość w cm
+     * @param {number} width - szerokość w cm
+     * @param {number} thickness - grubość w cm
+     * @param {Array} edgesConfig - konfiguracja krawędzi
+     * @returns {string} HTML SVG
+     */
+    generateEdgesIsometricSVG(length, width, thickness, edgesConfig) {
+        const viewBoxWidth = 320;
+        const viewBoxHeight = 220;
+        const margin = 35;
+        const workWidth = viewBoxWidth - 2 * margin;
+        const workHeight = viewBoxHeight - 2 * margin;
+        const isoAngle = Math.PI / 6;
+
+        const maxDim = Math.max(length, width);
+        const effectiveThickness = Math.max(thickness, maxDim * 0.15);
+
+        const projectedWidth = (length + width) * Math.cos(isoAngle);
+        const projectedHeight = (length + width) * Math.sin(isoAngle) + effectiveThickness;
+
+        const scale = Math.min(workWidth / projectedWidth, workHeight / projectedHeight) * 0.85;
+
+        const L = length * scale;
+        const W = width * scale;
+        const T = effectiveThickness * scale;
+
+        const vecX = { x: Math.cos(isoAngle), y: Math.sin(isoAngle) };
+        const vecY = { x: -Math.cos(isoAngle), y: Math.sin(isoAngle) };
+
+        const totalProjWidth = L * vecX.x + W * Math.abs(vecY.x);
+        const totalProjHeight = L * vecX.y + W * vecY.y + T;
+
+        const startX = (viewBoxWidth - totalProjWidth) / 2 + W * Math.abs(vecY.x);
+        const startY = (viewBoxHeight - totalProjHeight) / 2 + T;
+
+        const tld = { x: startX, y: startY };
+        const tpd = { x: tld.x + L * vecX.x, y: tld.y + L * vecX.y };
+        const ppd = { x: tpd.x + W * vecY.x, y: tpd.y + W * vecY.y };
+        const pld = { x: tld.x + W * vecY.x, y: tld.y + W * vecY.y };
+        const tlg = { x: tld.x, y: tld.y - T };
+        const tpg = { x: tpd.x, y: tpd.y - T };
+        const ppg = { x: ppd.x, y: ppd.y - T };
+        const plg = { x: pld.x, y: pld.y - T };
+
+        const selectedLetters = new Set(edgesConfig.map(e => e.letter));
+        const mid = (p1, p2) => ({ x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2 });
+
+        const edgeCoords = {
+            'A': [plg, ppg], 'B': [tlg, tpg], 'C': [tlg, plg], 'D': [tpg, ppg],
+            'E': [pld, ppd], 'F': [tld, tpd], 'G': [tld, pld], 'H': [tpd, ppd],
+            'N1': [plg, pld], 'N2': [ppg, ppd], 'N3': [tlg, tld], 'N4': [tpg, tpd]
+        };
+        const hiddenEdges = new Set(['F', 'G', 'N3']);
+
+        const renderLine = (letter) => {
+            const [p1, p2] = edgeCoords[letter];
+            const isActive = selectedLetters.has(letter);
+            const isHidden = hiddenEdges.has(letter);
+            return `<line x1="${p1.x}" y1="${p1.y}" x2="${p2.x}" y2="${p2.y}"
+                stroke="${isActive ? '#ED6B24' : '#666'}" stroke-width="${isActive ? '3' : '2'}"
+                ${isHidden && !isActive ? 'stroke-dasharray="4 3"' : ''} fill="none"/>`;
+        };
+
+        const renderLabel = (letter, pos, offsetX = 0) => {
+            const isActive = selectedLetters.has(letter);
+            const r = letter.startsWith('N') ? 14 : 12;
+            return `<g>
+                <circle cx="${pos.x + offsetX}" cy="${pos.y}" r="${r}"
+                    fill="${isActive ? '#ED6B24' : '#f5f5f5'}" stroke="${isActive ? '#ED6B24' : '#ccc'}" stroke-width="1"/>
+                <text x="${pos.x + offsetX}" y="${pos.y + 4}" text-anchor="middle" font-size="10"
+                    font-family="Poppins, sans-serif" font-weight="600"
+                    fill="${isActive ? '#fff' : '#666'}">${letter}</text>
+            </g>`;
+        };
+
+        return `<svg viewBox="0 0 ${viewBoxWidth} ${viewBoxHeight}" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;max-width:320px;">
+            <polygon points="${tld.x},${tld.y} ${tpd.x},${tpd.y} ${tpg.x},${tpg.y} ${tlg.x},${tlg.y}" fill="#b8b8b8" stroke="none"/>
+            <polygon points="${tld.x},${tld.y} ${pld.x},${pld.y} ${plg.x},${plg.y} ${tlg.x},${tlg.y}" fill="#d0d0d0" stroke="none"/>
+            <polygon points="${tlg.x},${tlg.y} ${tpg.x},${tpg.y} ${ppg.x},${ppg.y} ${plg.x},${plg.y}" fill="#e8e8e8" stroke="none"/>
+            <polygon points="${pld.x},${pld.y} ${ppd.x},${ppd.y} ${ppg.x},${ppg.y} ${plg.x},${plg.y}" fill="#d8d8d8" stroke="none"/>
+            <polygon points="${tpd.x},${tpd.y} ${ppd.x},${ppd.y} ${ppg.x},${ppg.y} ${tpg.x},${tpg.y}" fill="#c8c8c8" stroke="none"/>
+            ${['F','G','N3','B','C','A','D','E','H','N1','N2','N4'].map(renderLine).join('')}
+            ${renderLabel('A', mid(plg, ppg))}
+            ${renderLabel('B', mid(tlg, tpg))}
+            ${renderLabel('C', mid(tlg, plg))}
+            ${renderLabel('D', mid(tpg, ppg))}
+            ${renderLabel('E', mid(pld, ppd))}
+            ${renderLabel('F', mid(tld, tpd))}
+            ${renderLabel('G', mid(tld, pld))}
+            ${renderLabel('H', mid(tpd, ppd))}
+            ${renderLabel('N1', mid(plg, pld), -14)}
+            ${renderLabel('N2', mid(ppg, ppd), 14)}
+            ${renderLabel('N3', mid(tlg, tld), -14)}
+            ${renderLabel('N4', mid(tpg, tpd), 14)}
+        </svg>`;
+    },
+
+    /**
  * Renderuje karty wariantów
  * @param {Object} product - Dane produktu
  * @returns {string} HTML wariantów
  */
     renderVariants(product) {
+        // Pobierz koszty wykończenia i krawędzi dla tego produktu (wspólne dla wszystkich wariantów)
+        const finishing = globalState.quoteData?.finishing?.find(
+            f => f.product_index === product.index
+        );
+        const finishingNetto = (finishing ? (parseFloat(finishing.finishing_price_netto) || 0) + (parseFloat(finishing.edges_price_netto) || 0) : 0);
+        const finishingBrutto = (finishing ? (parseFloat(finishing.finishing_price_brutto) || 0) + (parseFloat(finishing.edges_price_brutto) || 0) : 0);
+
         return product.variants
             .filter(v => v.show_on_client_page !== false)
             .map(variant => {
@@ -319,9 +538,11 @@ const render = {
                 // Użyj ścieżki z podwójnym quotes
                 const variantImagePath = `/quotes/quotes/static/img/${variant.variant_code}.jpg`;
 
-                // Te ceny już są przemnożone przez ilość w API
-                const totalBrutto = variant.final_price_brutto || variant.unit_price_brutto || 0;
-                const totalNetto = variant.final_price_netto || variant.unit_price_netto || 0;
+                // Ceny surowe (już przemnożone przez ilość w API) + koszty wykończenia/krawędzi
+                const rawBrutto = variant.final_price_brutto || variant.unit_price_brutto || 0;
+                const rawNetto = variant.final_price_netto || variant.unit_price_netto || 0;
+                const totalBrutto = rawBrutto + finishingBrutto;
+                const totalNetto = rawNetto + finishingNetto;
 
                 // Oblicz cenę jednostkową (podziel przez ilość)
                 const quantity = variant.quantity || 1;
@@ -375,22 +596,27 @@ const render = {
         const firstProduct = this.groupProductsByIndex()[0];
         if (!firstProduct) return;
 
+        // Koszty wykończenia/krawędzi wspólne dla wszystkich wariantów danego produktu
+        const finishing = globalState.quoteData?.finishing?.find(f => f.product_index === firstProduct.index);
+        const finNetto = finishing ? (parseFloat(finishing.finishing_price_netto) || 0) + (parseFloat(finishing.edges_price_netto) || 0) : 0;
+        const finBrutto = finishing ? (parseFloat(finishing.finishing_price_brutto) || 0) + (parseFloat(finishing.edges_price_brutto) || 0) : 0;
+
         tbody.innerHTML = variants.map(variant => {
             // POPRAWKA: Znajdź wariant dla pierwszego produktu
             const variantForProduct = firstProduct.variants.find(v => v.variant_code === variant.code);
             if (!variantForProduct) return '';
 
-            // Oblicz ceny dla tego konkretnego wariantu
-            const totalBrutto = variantForProduct.final_price_brutto || variantForProduct.unit_price_brutto || 0;
-            const totalNetto = variantForProduct.final_price_netto || variantForProduct.unit_price_netto || 0;
+            // Oblicz ceny dla tego konkretnego wariantu (surowe + wykończenie)
+            const totalBrutto = (variantForProduct.final_price_brutto || variantForProduct.unit_price_brutto || 0) + finBrutto;
+            const totalNetto = (variantForProduct.final_price_netto || variantForProduct.unit_price_netto || 0) + finNetto;
 
             // Sprawdź czy jest wybrany
             const isSelected = globalState.selectedVariants.get(firstProduct.index) === variantForProduct.id;
 
-            // Oblicz różnicę względem aktualnie wybranego
+            // Oblicz różnicę względem aktualnie wybranego (finishing się skraca)
             const selectedVariantId = globalState.selectedVariants.get(firstProduct.index);
             const selectedVariant = firstProduct.variants.find(v => v.id === selectedVariantId);
-            const selectedTotal = selectedVariant ? (selectedVariant.final_price_brutto || selectedVariant.unit_price_brutto || 0) : 0;
+            const selectedTotal = selectedVariant ? (selectedVariant.final_price_brutto || selectedVariant.unit_price_brutto || 0) + finBrutto : 0;
             const difference = totalBrutto - selectedTotal;
 
             return `
@@ -418,28 +644,38 @@ const render = {
         const selectedItems = this.getSelectedItems();
         const costs = globalState.quoteData.costs || {};
 
-        // Renderuj zawartość podsumowania z pełnymi nazwami produktów i ilościami
+        // Renderuj karty produktów z podziałem na surowe / wykończenie
         summaryContainer.innerHTML = selectedItems.map(item => {
             const product = this.getProductByIndex(item.product_index);
             const variantName = utils.translateVariantCode(item.variant_code);
             const quantity = item.quantity || 1;
             const productName = product ? product.full_name || `Produkt ${item.product_index}` : `Produkt ${item.product_index}`;
 
+            // Koszty wykończenia dla tego produktu
+            const finishing = globalState.quoteData?.finishing?.find(f => f.product_index === item.product_index);
+            const finishingNetto = finishing ? (parseFloat(finishing.finishing_price_netto) || 0) + (parseFloat(finishing.edges_price_netto) || 0) : 0;
+            const finishingBrutto = finishing ? (parseFloat(finishing.finishing_price_brutto) || 0) + (parseFloat(finishing.edges_price_brutto) || 0) : 0;
+            const hasFinishing = finishingNetto > 0;
+
             return `
-        <div class="summary-item">
-            <div class="summary-item-label">
-                ${productName} ${variantName}
-                <br><small>${quantity} szt.</small>
-            </div>
-            <div class="summary-item-value">
-                <div class="price-brutto">${utils.formatCurrency(item.final_price_brutto)}</div>
-                <div class="price-netto">${utils.formatCurrency(item.final_price_netto)} netto</div>
+        <div class="summary-product-card ${item.product_index === globalState.currentProductIndex ? 'active' : ''}" data-product-index="${item.product_index}">
+            <div class="summary-product-title">${productName} · ${variantName} <small>(${quantity} szt.)</small></div>
+            <div class="summary-product-rows">
+                <div class="summary-product-row">
+                    <span>Produkt:</span>
+                    <span class="summary-product-price">${utils.formatCurrency(item.final_price_brutto)} <small>${utils.formatCurrency(item.final_price_netto)} netto</small></span>
+                </div>
+                ${hasFinishing ? `
+                <div class="summary-product-row">
+                    <span>Wykończenie:</span>
+                    <span class="summary-product-price">${utils.formatCurrency(finishingBrutto)} <small>${utils.formatCurrency(finishingNetto)} netto</small></span>
+                </div>` : ''}
             </div>
         </div>
     `;
         }).join('');
 
-        // Renderuj podsumowanie całkowite z cenami brutto i netto
+        // Renderuj podsumowanie całkowite
         totalContainer.innerHTML = `
     <div class="summary-total-row">
         <span class="summary-total-label">Produkty:</span>
@@ -490,7 +726,7 @@ const render = {
         <div class="price-brutto">${utils.formatCurrency(costs.total?.brutto || 0)}</div>
     `;
 
-        // Renderuj szczegóły z pełnymi nazwami produktów i ilościami
+        // Renderuj karty produktów z podziałem surowe / wykończenie
         detailsContent.innerHTML = `
         <div class="mobile-summary-details">
             ${selectedItems.map(item => {
@@ -499,18 +735,35 @@ const render = {
             const quantity = item.quantity || 1;
             const productName = product ? product.full_name || `Produkt ${item.product_index}` : `Produkt ${item.product_index}`;
 
+            const finishing = globalState.quoteData?.finishing?.find(f => f.product_index === item.product_index);
+            const finishingNetto = finishing ? (parseFloat(finishing.finishing_price_netto) || 0) + (parseFloat(finishing.edges_price_netto) || 0) : 0;
+            const finishingBrutto = finishing ? (parseFloat(finishing.finishing_price_brutto) || 0) + (parseFloat(finishing.edges_price_brutto) || 0) : 0;
+            const hasFinishing = finishingNetto > 0;
+
             return `
-                    <div class="mobile-summary-item">
-                        <span>${productName} ${variantName} (${quantity} szt.)</span>
-                        <div class="mobile-price-stack">
-                            <div class="price-netto">${utils.formatCurrency(item.final_price_netto)} netto</div>
-                            <div class="price-brutto">${utils.formatCurrency(item.final_price_brutto)}</div>
+                    <div class="mobile-summary-product-card">
+                        <div class="mobile-summary-product-title">${productName} · ${variantName} <small>(${quantity} szt.)</small></div>
+                        <div class="mobile-summary-item">
+                            <span>Produkt:</span>
+                            <span class="mobile-summary-price">${utils.formatCurrency(item.final_price_brutto)} <small>${utils.formatCurrency(item.final_price_netto)} netto</small></span>
                         </div>
+                        ${hasFinishing ? `
+                        <div class="mobile-summary-item">
+                            <span>Wykończenie:</span>
+                            <span class="mobile-summary-price">${utils.formatCurrency(finishingBrutto)} <small>${utils.formatCurrency(finishingNetto)} netto</small></span>
+                        </div>` : ''}
                     </div>
                 `;
         }).join('')}
-        
+
         <div class="mobile-summary-section">
+            <div class="mobile-summary-item">
+                <span>Produkty:</span>
+                <div class="mobile-price-stack">
+                    <div class="price-netto">${utils.formatCurrency(costs.products?.netto || 0)} netto</div>
+                    <div class="price-brutto">${utils.formatCurrency(costs.products?.brutto || 0)}</div>
+                </div>
+            </div>
             <div class="mobile-summary-item">
                 <span>Wykończenie:</span>
                 <div class="mobile-price-stack">
@@ -550,22 +803,27 @@ const render = {
         const firstProduct = this.groupProductsByIndex()[0];
         if (!firstProduct) return;
 
+        // Koszty wykończenia/krawędzi wspólne dla wszystkich wariantów
+        const finishing = globalState.quoteData?.finishing?.find(f => f.product_index === firstProduct.index);
+        const finNetto = finishing ? (parseFloat(finishing.finishing_price_netto) || 0) + (parseFloat(finishing.edges_price_netto) || 0) : 0;
+        const finBrutto = finishing ? (parseFloat(finishing.finishing_price_brutto) || 0) + (parseFloat(finishing.edges_price_brutto) || 0) : 0;
+
         tbody.innerHTML = variants.map(variant => {
             // POPRAWKA: Znajdź wariant dla pierwszego produktu
             const variantForProduct = firstProduct.variants.find(v => v.variant_code === variant.code);
             if (!variantForProduct) return '';
 
-            // Oblicz ceny dla tego konkretnego wariantu
-            const totalBrutto = variantForProduct.final_price_brutto || variantForProduct.unit_price_brutto || 0;
-            const totalNetto = variantForProduct.final_price_netto || variantForProduct.unit_price_netto || 0;
+            // Oblicz ceny dla tego konkretnego wariantu (surowe + wykończenie)
+            const totalBrutto = (variantForProduct.final_price_brutto || variantForProduct.unit_price_brutto || 0) + finBrutto;
+            const totalNetto = (variantForProduct.final_price_netto || variantForProduct.unit_price_netto || 0) + finNetto;
 
             // Sprawdź czy jest wybrany
             const isSelected = globalState.selectedVariants.get(firstProduct.index) === variantForProduct.id;
 
-            // Oblicz różnicę względem aktualnie wybranego
+            // Oblicz różnicę względem aktualnie wybranego (finishing się skraca)
             const selectedVariantId = globalState.selectedVariants.get(firstProduct.index);
             const selectedVariant = firstProduct.variants.find(v => v.id === selectedVariantId);
-            const selectedTotal = selectedVariant ? (selectedVariant.final_price_brutto || selectedVariant.unit_price_brutto || 0) : 0;
+            const selectedTotal = selectedVariant ? (selectedVariant.final_price_brutto || selectedVariant.unit_price_brutto || 0) + finBrutto : 0;
             const difference = totalBrutto - selectedTotal;
 
             return `
@@ -636,12 +894,11 @@ const render = {
 
         const parts = [];
         if (finishing.finishing_type) parts.push(finishing.finishing_type);
-        if (finishing.finishing_color && finishing.finishing_color !== 'Brak') {
-            parts.push(finishing.finishing_color);
-        }
         if (finishing.finishing_variant) parts.push(finishing.finishing_variant);
+        if (finishing.finishing_gloss_level) parts.push(finishing.finishing_gloss_level);
+        if (finishing.finishing_color) parts.push(finishing.finishing_color);
 
-        return parts.join(' - ');
+        return parts.join(' | ');
     },
 
     getUniqueVariants() {
@@ -776,6 +1033,11 @@ const handlers = {
         if (mobileSelect) {
             mobileSelect.value = index;
         }
+
+        // Update summary product cards
+        document.querySelectorAll('.summary-product-card').forEach(card => {
+            card.classList.toggle('active', parseInt(card.dataset.productIndex) === index);
+        });
     },
 
     /**

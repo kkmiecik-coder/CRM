@@ -1,0 +1,932 @@
+/* ============================================
+   Kalkulator - Layout & Responsywność
+   ============================================ */
+
+/* [main-content] */
+.main-content {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    flex: 1 0 0;
+    align-self: stretch;
+    overflow-x: hidden;
+}
+
+/* [calculatorrr] */
+.calculatorrr {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 15px;
+    align-self: stretch;
+}
+
+/* [calculator-header-row] */
+.calculator-header-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    width: 100%;
+}
+
+/* [draft-status-badge] */
+.draft-status-badge {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    padding: 6px 8px 6px 14px;
+    border-radius: 20px;
+    background: #f3f4f6;
+    color: #6b7280;
+    transition: background 0.3s, color 0.3s;
+    font-family: Poppins, sans-serif;
+    white-space: nowrap;
+}
+.draft-status-badge.unsaved      { background: #fef3c7; color: #92400e; }
+.draft-status-badge.saving       { background: #dbeafe; color: #1e40af; }
+.draft-status-badge.saved        { background: #dbeafe; color: #1e40af; }
+.draft-status-badge.quote-saved  { background: #d1fae5; color: #065f46; }
+.draft-status-badge.error        { background: #fee2e2; color: #991b1b; }
+
+.draft-status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #9ca3af;
+    flex-shrink: 0;
+}
+.draft-status-badge.saving .draft-status-dot       { background: #3b82f6; animation: draftPulse 1s infinite; }
+.draft-status-badge.saved .draft-status-dot         { background: #3b82f6; }
+.draft-status-badge.quote-saved .draft-status-dot   { background: #10b981; }
+.draft-status-badge.unsaved .draft-status-dot       { background: #f59e0b; }
+.draft-status-badge.error .draft-status-dot         { background: #ef4444; }
+
+/* Wrapper tekstu statusu — animacja slide + plynna szerokosc */
+.draft-status-text-wrap {
+    position: relative;
+    overflow: hidden;
+    height: 18px;
+    transition: width 0.3s ease;
+}
+
+.draft-status-text {
+    position: absolute;
+    left: 0;
+    top: 0;
+    white-space: nowrap;
+    line-height: 18px;
+    transform: translateY(0);
+    opacity: 1;
+    transition: transform 0.3s ease, opacity 0.3s ease;
+}
+
+/* Stary tekst — spada w dol */
+.draft-status-text.text-exit {
+    transform: translateY(120%);
+    opacity: 0;
+}
+
+/* Nowy tekst — zaczyna nad wrapperem */
+.draft-status-text.text-enter-from {
+    transform: translateY(-120%);
+    opacity: 0;
+}
+
+.draft-status-separator {
+    width: 1px;
+    height: 14px;
+    background: currentColor;
+    opacity: 0.3;
+}
+
+/* Ukryj separator i czas gdy czas jest pusty */
+.draft-status-badge:not(:has(.draft-status-time:not(:empty))) .draft-status-separator {
+    display: none;
+}
+.draft-status-time:empty {
+    display: none;
+}
+
+.draft-save-btn {
+    position: relative;
+    border-radius: 14px;
+    background: #6b7280;
+    border: none;
+    cursor: pointer;
+    color: #fff;
+    flex-shrink: 0;
+    padding: 0;
+    height: 28px;
+    overflow: hidden;
+    transition: width 0.3s ease, background 0.2s, transform 0.15s;
+}
+.draft-save-btn:hover {
+    background: #4b5563;
+}
+
+/* Niebieski dla stanow kopii zapasowej (saving/saved) */
+.draft-status-badge.saving .draft-save-btn       { background: #1d4ed8; }
+.draft-status-badge.saving .draft-save-btn:hover  { background: #1e40af; }
+.draft-status-badge.saved .draft-save-btn       { background: #1d4ed8; }
+.draft-status-badge.saved .draft-save-btn:hover  { background: #1e40af; }
+.draft-save-btn:active {
+    transform: scale(0.97);
+}
+
+/* Kolor przycisku zalezy od stanu badge */
+.draft-status-badge.idle .draft-save-btn       { background: #6b7280; }
+.draft-status-badge.idle .draft-save-btn:hover  { background: #4b5563; }
+.draft-status-badge.unsaved .draft-save-btn       { background: #d97706; }
+.draft-status-badge.unsaved .draft-save-btn:hover  { background: #b45309; }
+.draft-status-badge.error .draft-save-btn       { background: #dc2626; }
+.draft-status-badge.error .draft-save-btn:hover  { background: #b91c1c; }
+.draft-status-badge.quote-saved .draft-save-btn       { background: #15803d; }
+.draft-status-badge.quote-saved .draft-save-btn:hover  { background: #166534; }
+
+.draft-save-state {
+    position: absolute;
+    top: 0;
+    left: 0;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    height: 28px;
+    padding: 0 10px 0 8px;
+    white-space: nowrap;
+    font-size: 12px;
+    font-family: Poppins, sans-serif;
+    font-weight: 500;
+    opacity: 0;
+    transform: scale(0.85);
+    transition: opacity 0.25s ease, transform 0.25s ease;
+    pointer-events: none;
+    line-height: 0;
+}
+.draft-save-state.active {
+    opacity: 1;
+    transform: scale(1);
+    pointer-events: auto;
+}
+.draft-save-state svg {
+    flex-shrink: 0;
+}
+
+.draft-spinner-svg {
+    animation: draftSpin 0.7s linear infinite;
+}
+
+@keyframes draftPulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+}
+
+@keyframes draftSpin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
+/* ============================================
+   Sekcje kalkulatora - karty wizualne
+   ============================================ */
+
+/* Wspólny padding dla wszystkich sekcji */
+.product-data,
+.calculations-main,
+.finishing-section,
+.edges-section,
+.quote-summary,
+.products-summary-main {
+    padding: 20px;
+}
+
+/* [product-data] */
+.product-data {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    background: #FAFBFC;
+    border: 1px solid #E8ECF0;
+    border-radius: 12px;
+    min-width: 280px;
+    max-width: 100%;
+    transition: flex-basis 0.3s ease;
+}
+
+/* [product-inputs] */
+.product-inputs {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
+    align-self: stretch;
+}
+
+/* [lenght], [width], [thickness], [quantity] */
+.lenght,
+.width,
+.thickness,
+.quantity {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    align-self: stretch;
+}
+
+/* [product-shape] */
+.product-shape {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    align-self: stretch;
+}
+
+.shape-toggle {
+    display: flex;
+    gap: 4px;
+    width: 100%;
+}
+
+.shape-option {
+    cursor: pointer;
+    flex: 1;
+}
+
+.shape-option input[type="radio"] {
+    display: none;
+}
+
+.shape-label {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    padding: 6px 12px;
+    border: 1px solid #d0d0d0;
+    border-radius: 6px;
+    font-size: 13px;
+    color: #555;
+    background: #fff;
+    transition: all 0.15s ease;
+    user-select: none;
+    width: 100%;
+}
+
+.shape-option input[type="radio"]:checked + .shape-label {
+    border-color: #e67e22;
+    background: #fef5ec;
+    color: #e67e22;
+    font-weight: 600;
+}
+
+.shape-label:hover {
+    border-color: #e67e22;
+}
+
+/* [calculations-main] — kontener dla container queries */
+.calculations-main {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 18px;
+    background: #FAFBFC;
+    border: 1px solid #E8ECF0;
+    border-radius: 12px;
+    flex: 1;
+    min-width: 0;
+    container-type: inline-size;
+    container-name: calculations;
+    transition: flex-basis 0.3s ease;
+}
+
+/* [calculations] */
+.calculations {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    align-self: stretch;
+    flex: 1;
+}
+
+/* [options] */
+.options {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 18px;
+    align-self: stretch;
+}
+
+/* [input-txt] w opcjach */
+.options .input-txt {
+    align-self: stretch;
+    color: #1F2020;
+    font-family: Poppins, sans-serif;
+    font-size: 14px;
+    font-style: normal;
+    font-weight: 400;
+    line-height: normal;
+}
+
+/* [variants] */
+.variants {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    align-self: stretch;
+}
+
+
+/* [option-title] */
+.option-title {
+    flex: 1;
+    min-width: 100px;
+    color: #1F2020;
+    font-family: Poppins, sans-serif;
+    font-size: 14px;
+    font-style: normal;
+    font-weight: 600;
+    line-height: normal;
+}
+
+/* [input-txt-bold] */
+.input-txt-bold {
+    color: #1F2020;
+    font-family: Poppins, sans-serif;
+    font-size: 14px;
+    font-style: normal;
+    font-weight: 600;
+    line-height: normal;
+}
+
+/* [action-buttons] */
+.action-buttons {
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+/* Przycisk usuwania produktu */
+.remove-product {
+    display: flex;
+    padding: 5px 16px;
+    justify-content: center;
+    align-items: center;
+    gap: 10px;
+    border-radius: 6px;
+    background-color: #D32F2F;
+    border: none;
+    color: #FFF;
+    cursor: pointer;
+    font-family: Poppins, sans-serif;
+    transition: all 0.2s ease;
+}
+
+.remove-product:hover {
+    background-color: #890A0A;
+}
+
+/* [save-quote] */
+.save-quote {
+    background: #ED6B24;
+}
+
+/* [calculate-delivery] */
+.calculate-delivery {
+    background: #07B90D;
+}
+
+/* [order] */
+.order {
+    background: #0177D9;
+}
+
+.quotes-btn-download {
+    background: #ED6B24;
+}
+
+.quotes-btn-download {
+    display: flex;
+    padding: 10px 16px;
+    justify-content: center;
+    align-items: center;
+    border-radius: 6px;
+    border: none;
+    color: #FFF;
+    cursor: pointer;
+    font-family: Poppins, sans-serif;
+    position: relative;
+    padding-right: 36px;
+    transition: all 0.2s ease;
+}
+
+.calculate-delivery,
+.save-quote,
+.copy-to-clipboard {
+    display: flex;
+    padding: 6px 8px;
+    justify-content: center;
+    align-items: center;
+    gap: 8px;
+    border-radius: 6px;
+    border: none;
+    color: #FFF;
+    cursor: pointer;
+    font-family: Poppins, sans-serif;
+    transition: all 0.2s ease;
+}
+
+.calculate-delivery span,
+.save-quote span,
+.copy-to-clipboard .copy-btn-text {
+    color: inherit;
+    white-space: nowrap;
+}
+
+.btn-icon-svg {
+    flex-shrink: 0;
+}
+
+/* Disabled — ujednolicony styl */
+.calculate-delivery:disabled,
+.save-quote:disabled,
+.copy-to-clipboard:disabled {
+    background-color: #cccccc;
+    color: #888;
+    cursor: not-allowed;
+    opacity: 0.6;
+}
+
+.calculate-delivery:hover {
+    background-color: #06930A;
+}
+
+.save-quote:hover:not(:disabled) {
+    background-color: #BD4D0F;
+}
+
+.quotes-btn-download::after {
+    content: "";
+    display: inline-block;
+    position: absolute;
+    right: 9px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 16px;
+    height: 16px;
+    background-image: url('/static/icons/download.svg');
+    background-size: contain;
+    background-repeat: no-repeat;
+    background-position: center;
+}
+
+/* ============================================
+   Inputy - odswiezony styl
+   ============================================ */
+
+.input-window {
+    border: 1.5px solid #D0D5DD;
+    border-radius: 10px;
+    padding: 10px 14px;
+    font-family: Poppins, sans-serif;
+    font-size: 14px;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+    width: 100%;
+    box-sizing: border-box;
+}
+
+.input-window:focus {
+    border-color: #ED6B24;
+    outline: none;
+    box-shadow: 0 0 0 3px rgba(237, 107, 36, 0.15);
+}
+
+.error-outline {
+    outline: 1px solid red;
+    outline-offset: 0;
+}
+
+/* ============================================
+   Podsumowanie - subtelny gradient
+   ============================================ */
+
+/* Sekcje podsumowania — padding i separatory */
+.delivery-summary,
+.order-summary,
+.final-summary,
+.finishing-summary {
+    width: 100%;
+    padding: 8px 6px;
+    align-items: center;
+}
+
+.order-summary,
+.finishing-summary {
+    border-bottom: 1px solid #EAEAEA;
+}
+
+.delivery-summary {
+    border-bottom: 2px solid #999999;
+}
+
+.quote-summary {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    background: #FAFBFC;
+    border: 1px solid #E8ECF0;
+    border-radius: 12px;
+    min-width: 340px;
+    transition: flex-basis 0.3s ease;
+}
+
+/* Wiersze podsumowania — grid 3-kolumnowy, rozciągane na dostępną wysokość */
+.quote-summary .order-summary,
+.quote-summary .finishing-summary,
+.quote-summary .final-summary {
+    display: grid;
+    grid-template-columns: 1fr auto auto;
+    gap: 4px 12px;
+    align-items: center;
+    align-content: center;
+    width: 100%;
+    flex: 1;
+    min-height: 0;
+}
+
+/* Delivery ma dodatkowy element courier */
+.quote-summary .delivery-summary {
+    display: grid;
+    grid-template-columns: 1fr auto auto auto;
+    gap: 4px 12px;
+    align-items: center;
+    align-content: center;
+    width: 100%;
+    flex: 1;
+    min-height: 0;
+}
+
+.quote-summary .final-summary .input-txt-bold {
+    font-size: 16px;
+    font-weight: 700;
+}
+
+.quote-summary .final-summary .final-brutto {
+    font-size: 18px;
+    font-weight: 700;
+}
+
+.quote-summary .final-summary .final-netto {
+    font-size: 16px;
+    font-weight: 600;
+}
+
+/* Sekcja przycisków akcji — dociśnięta do dołu, 1 wiersz */
+.quote-summary .action-buttons {
+    width: 100%;
+    margin-top: auto;
+    display: flex;
+    gap: 8px;
+    justify-content: stretch;
+}
+
+.quote-summary .action-buttons > *,
+.quote-summary .action-buttons .copy-to-clipboard-container,
+.quote-summary .action-buttons .delivery-buttons-group {
+    flex: 1;
+}
+
+.quote-summary .action-buttons .copy-to-clipboard,
+.quote-summary .action-buttons .calculate-delivery,
+.quote-summary .action-buttons .save-quote {
+    width: 100%;
+}
+
+/* Kontener formularzy */
+.quote-container {
+    display: flex;
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 20px;
+    width: 100%;
+    align-items: flex-start;
+    margin-bottom: 20px;
+}
+
+/* ============================================
+   Layout 2-kolumnowy: Sidebar + Workspace
+   ============================================ */
+
+.calculator-sidebar {
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+    min-width: 400px;
+    max-width: 430px;
+    flex: 1;
+}
+
+.calculator-workspace {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+    min-width: 0;
+}
+
+.quote-forms {
+    display: contents;
+}
+
+.quote-form {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+}
+
+.quote-form.hidden {
+    display: none !important;
+}
+
+/* Wiersz 1: Produkt + Kalkulacja */
+.workspace-row-1 {
+    display: flex;
+    gap: 20px;
+}
+
+.workspace-row-1 .product-data {
+    flex: 0 0 280px;
+}
+
+.workspace-row-1 .calculations-main {
+    flex: 1 1 0;
+    min-width: 300px;
+}
+
+/* Wiersz 2: [Wykończenie + Krawędzie] + Podsumowanie */
+.workspace-row-2 {
+    display: flex;
+    gap: 20px;
+    align-items: flex-start;
+    flex-wrap: wrap;
+}
+
+/* Lewa grupa: wykończenie + krawędzie */
+.row-2-left {
+    display: flex;
+    gap: 20px;
+    align-items: flex-start;
+    flex: 1 1 740px;
+    min-width: 0;
+}
+
+.row-2-left .finishing-section {
+    flex: 1 1 360px;
+    min-width: 360px;
+}
+
+.row-2-left .edges-section {
+    flex: 1 1 360px;
+    min-width: 360px;
+}
+
+.workspace-row-2 .quote-summary {
+    flex: 1 1 500px;
+    min-width: 500px;
+    align-self: flex-start;
+}
+
+/* ============================================
+   BREAKPOINT: Tablet (max-width: 1200px)
+   ============================================ */
+
+@media (max-width: 1200px) {
+    .calculator-sidebar {
+        min-width: 280px;
+        max-width: 320px;
+    }
+
+    /* Workspace: kolumny w pionie na tablecie */
+    .workspace-row-1,
+    .workspace-row-2 {
+        flex-direction: column;
+    }
+
+    .workspace-row-1 .product-data,
+    .workspace-row-1 .calculations-main,
+    .workspace-row-2 .quote-summary {
+        flex: 0 0 auto;
+        min-width: 0;
+        max-width: none;
+        width: 100%;
+        align-self: auto;
+    }
+
+    .row-2-left {
+        flex-direction: column;
+        flex: 0 0 auto;
+        min-width: 0;
+        width: 100%;
+    }
+
+    .row-2-left .finishing-section,
+    .row-2-left .edges-section {
+        flex: 0 0 auto;
+        width: 100%;
+    }
+
+    .product-data,
+    .calculations-main,
+    .finishing-section,
+    .edges-section,
+    .quote-summary,
+    .products-summary-main {
+        padding: 16px;
+    }
+
+    .product-inputs {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 10px;
+    }
+
+    .product-inputs .client-type,
+    .product-inputs .product-shape {
+        grid-column: span 3;
+    }
+
+    .finishing-section,
+    .edges-section {
+        min-width: 240px;
+    }
+
+    .quote-summary {
+        min-width: 280px;
+    }
+
+    .action-buttons {
+        flex-wrap: wrap;
+        gap: 8px;
+    }
+}
+
+/* ============================================
+   BREAKPOINT: Mobile (max-width: 768px)
+   ============================================ */
+
+@media (max-width: 768px) {
+    .calculator-header-row {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 8px;
+    }
+    .draft-status-badge {
+        font-size: 12px;
+        padding: 4px 10px;
+    }
+
+    .calculatorrr {
+        gap: 10px;
+    }
+
+    /* Na mobile: układ pionowy — sidebar nad workspace */
+    .quote-container {
+        flex-direction: column;
+    }
+
+    .calculator-sidebar {
+        min-width: 0;
+        max-width: none;
+        flex: 0 0 auto;
+        width: 100%;
+        max-height: none !important;
+    }
+
+    .calculator-workspace {
+        width: 100%;
+    }
+
+    /* Workspace: jedna kolumna */
+    .workspace-row-1,
+    .workspace-row-2 {
+        flex-direction: column;
+        width: 100%;
+    }
+
+    .row-2-left {
+        width: 100%;
+    }
+
+    .product-data,
+    .calculations-main,
+    .finishing-section,
+    .edges-section,
+    .quote-summary,
+    .products-summary-main {
+        width: 100%;
+        max-width: 100%;
+        box-sizing: border-box;
+        padding: 14px;
+    }
+
+    .products-summary-main {
+        flex: 0 0 auto;
+    }
+
+    .product-inputs {
+        grid-template-columns: repeat(2, 1fr);
+        gap: 8px;
+    }
+
+    .product-inputs .client-type,
+    .product-inputs .product-shape {
+        grid-column: span 2;
+    }
+
+    /* Zapobiegaj wylewaniu inputów poza ekran */
+    .product-inputs .input-window {
+        min-width: 0;
+    }
+
+    .action-buttons {
+        flex-direction: column;
+        width: 100%;
+    }
+
+    .action-buttons > * {
+        width: 100%;
+    }
+
+    .action-buttons .delivery-buttons-group {
+        display: flex;
+        gap: 8px;
+    }
+
+    /* Przyciski w podsumowaniu — zawsze w 1 wierszu */
+    .quote-summary .action-buttons {
+        flex-direction: row;
+    }
+
+    .order,
+    .calculate-delivery,
+    .save-quote,
+    .go-ahead {
+        width: 100%;
+        justify-content: center;
+    }
+
+    .quote-summary {
+        min-width: 0;
+    }
+
+    /* Na mobile — 2 kolumny: nazwa | ceny */
+    .quote-summary .order-summary,
+    .quote-summary .finishing-summary,
+    .quote-summary .final-summary {
+        grid-template-columns: 1fr auto;
+        gap: 2px 8px;
+    }
+
+    .quote-summary .delivery-summary {
+        grid-template-columns: 1fr auto;
+        gap: 2px 8px;
+    }
+
+    /* Etykieta — lewa kolumna, rozciągnięta na wszystkie wiersze */
+    .quote-summary .order-summary > .input-txt-bold,
+    .quote-summary .finishing-summary > .input-txt-bold,
+    .quote-summary .final-summary > .input-txt-bold {
+        grid-column: 1;
+        grid-row: 1 / 3;
+        align-self: center;
+        font-size: 12px;
+    }
+
+    .quote-summary .delivery-summary > .input-txt-bold {
+        grid-column: 1;
+        grid-row: 1 / 4;
+        align-self: center;
+        font-size: 12px;
+    }
+
+    /* Ceny — prawa kolumna */
+    .quote-summary .order-summary > .order-brutto,
+    .quote-summary .order-summary > .order-netto,
+    .quote-summary .finishing-summary > .finishing-brutto,
+    .quote-summary .finishing-summary > .finishing-netto,
+    .quote-summary .delivery-summary > .courier,
+    .quote-summary .delivery-summary > .delivery-brutto,
+    .quote-summary .delivery-summary > .delivery-netto,
+    .quote-summary .final-summary > .final-brutto,
+    .quote-summary .final-summary > .final-netto {
+        grid-column: 2;
+        text-align: right;
+        font-size: 13px;
+    }
+
+    .input-window {
+        padding: 8px 12px;
+    }
+}

@@ -1,0 +1,396 @@
+/* ============================================
+   POPRAWKI DLA MODALA BŁĘDÓW WYSYŁKI
+   Dodaj te style na końcu pliku calculator.css
+   ============================================ */
+
+/* Poprawiony styl dla error state w delivery modal */
+.delivery-modal-error {
+    padding: 40px 20px;
+    text-align: center;
+    background: #fff;
+    border-radius: 8px;
+}
+
+    .delivery-modal-error strong {
+        display: block;
+        font-size: 18px;
+        color: #d32f2f;
+        margin-bottom: 12px;
+        font-weight: 600;
+    }
+
+#deliveryErrorMessage {
+    font-size: 15px;
+    color: #666;
+    line-height: 1.6;
+    margin-bottom: 20px;
+    max-width: 500px;
+    margin-left: auto;
+    margin-right: auto;
+}
+
+/* Animacja ikony błędu */
+.delivery-modal-error::before {
+    content: "⚠️";
+    display: block;
+    font-size: 48px;
+    margin-bottom: 16px;
+    animation: errorPulse 2s ease-in-out infinite;
+}
+
+@keyframes errorPulse {
+    0%, 100% {
+        opacity: 1;
+        transform: scale(1);
+    }
+
+    50% {
+        opacity: 0.7;
+        transform: scale(1.05);
+    }
+}
+
+/* Dark mode support dla błędów */
+[data-theme="dark"] .delivery-modal-error {
+    background: #2a2a2a;
+}
+
+    [data-theme="dark"] .delivery-modal-error strong {
+        color: #ff5252;
+    }
+
+[data-theme="dark"] #deliveryErrorMessage {
+    color: #b0b0b0;
+}
+
+/* Responsywność */
+@media (max-width: 600px) {
+    .delivery-modal-error {
+        padding: 30px 15px;
+    }
+
+        .delivery-modal-error::before {
+            font-size: 36px;
+        }
+
+        .delivery-modal-error strong {
+            font-size: 16px;
+        }
+
+    #deliveryErrorMessage {
+        font-size: 14px;
+    }
+}
+
+/* ========================================
+   KONTROLKI KALKULATORA (GLOBALNE)
+   ======================================== */
+
+.calculator-controls {
+    display: flex;
+    justify-content: flex-start;
+    align-items: center;
+    padding: 6px 6px 6px 16px;
+    background: #f8f9fa;
+    border-radius: 12px;
+    border: 1px solid #e0e0e0;
+    width: 100%;
+}
+
+.price-mode-toggle {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+    .price-mode-toggle .input-txt {
+        font-family: 'Poppins', sans-serif;
+        font-size: 14px;
+        font-weight: 500;
+        color: #1F2020;
+        margin: 0;
+    }
+
+/* ========================================
+   PRZEŁĄCZNIK TRYBU BRUTTO/NETTO
+   ======================================== */
+
+.toggle-switch {
+    display: flex;
+    position: relative;
+    background: #f0f0f0;
+    border-radius: 8px;
+    padding: 4px;
+    width: 200px;
+    height: 40px;
+}
+
+    .toggle-switch input[type="radio"] {
+        display: none;
+    }
+
+.toggle-option {
+    flex: 1;
+    text-align: center;
+    line-height: 32px;
+    cursor: pointer;
+    z-index: 2;
+    transition: color 0.3s;
+    font-weight: 500;
+    color: #333;
+    font-family: 'Poppins', sans-serif;
+    font-size: 14px;
+}
+
+/* Biały kolor dla aktywnej opcji */
+.toggle-switch input[value="brutto"]:checked ~ label[for="priceModeBrutto"],
+.toggle-switch input[value="netto"]:checked ~ label[for="priceModeNetto"] {
+    color: white;
+}
+
+.toggle-slider {
+    position: absolute;
+    top: 4px;
+    left: 4px;
+    width: calc(50% - 4px);
+    height: 32px;
+    background: #ED6B24;
+    border-radius: 6px;
+    transition: transform 0.3s ease;
+    z-index: 1;
+}
+
+.toggle-switch input[value="netto"]:checked ~ .toggle-slider {
+    transform: translateX(100%);
+}
+
+/* ========================================
+   WIZUALNE WYRÓŻNIENIE TRYBU CEN
+   ======================================== */
+
+/* TRYB BRUTTO - wyróżnij ceny brutto, przyciemnij netto */
+.hide-netto .unit-brutto,
+.hide-netto .total-brutto,
+.hide-netto .order-brutto,
+.hide-netto .finishing-brutto,
+.hide-netto .delivery-brutto,
+.hide-netto .final-brutto,
+.hide-netto .header-unit-brutto,
+.hide-netto .header-total-brutto {
+    color: #ED6B24 !important;
+    font-weight: 700 !important;
+}
+
+.hide-netto .unit-netto,
+.hide-netto .total-netto,
+.hide-netto .order-netto,
+.hide-netto .finishing-netto,
+.hide-netto .delivery-netto,
+.hide-netto .final-netto,
+.hide-netto .header-unit-netto,
+.hide-netto .header-total-netto {
+    font-weight: 400 !important;
+    opacity: 0.6;
+}
+
+/* TRYB NETTO - wyróżnij ceny netto, przyciemnij brutto */
+.hide-brutto .unit-netto,
+.hide-brutto .total-netto,
+.hide-brutto .order-netto,
+.hide-brutto .finishing-netto,
+.hide-brutto .delivery-netto,
+.hide-brutto .final-netto,
+.hide-brutto .header-unit-netto,
+.hide-brutto .header-total-netto {
+    color: #ED6B24 !important;
+    font-weight: 700 !important;
+    font-size: 14px !important;
+}
+
+.hide-brutto .unit-brutto,
+.hide-brutto .total-brutto,
+.hide-brutto .order-brutto,
+.hide-brutto .finishing-brutto,
+.hide-brutto .delivery-brutto,
+.hide-brutto .final-brutto,
+.hide-brutto .header-unit-brutto,
+.hide-brutto .header-total-brutto {
+    font-weight: 400 !important;
+    opacity: 0.6;
+}
+
+/* Dostosowanie trybu brutto/netto do scalonych price-cell (container query) */
+@container calculations (max-width: 650px) {
+    /* Tryb brutto w scalonych komórkach */
+    .hide-netto .price-cell .unit-netto,
+    .hide-netto .price-cell .total-netto {
+        opacity: 0.5;
+    }
+
+    /* Tryb netto w scalonych komórkach — netto duże, brutto małe */
+    .hide-brutto .price-cell .unit-netto,
+    .hide-brutto .price-cell .total-netto {
+        font-size: 13px !important;
+    }
+
+    .hide-brutto .price-cell .unit-brutto,
+    .hide-brutto .price-cell .total-brutto {
+        font-size: 11px !important;
+        color: #999 !important;
+    }
+}
+
+/* Subtelna animacja przy przełączaniu */
+.unit-brutto,
+.unit-netto,
+.total-brutto,
+.total-netto,
+.order-brutto,
+.order-netto,
+.finishing-brutto,
+.finishing-netto,
+.delivery-brutto,
+.delivery-netto,
+.final-brutto,
+.final-netto,
+.header-unit-brutto,
+.header-unit-netto,
+.header-total-brutto,
+.header-total-netto {
+    transition: color 0.3s ease, font-weight 0.3s ease, opacity 0.3s ease, font-size 0.3s ease;
+}
+
+/* Wyróżnienie nagłówków kolumn w tabeli wariantów */
+.hide-netto .variants-header .header-unit-brutto,
+.hide-netto .variants-header .header-total-brutto {
+    color: #ED6B24 !important;
+    font-weight: 700 !important;
+}
+
+.hide-netto .variants-header .header-unit-netto,
+.hide-netto .variants-header .header-total-netto {
+    font-weight: 400 !important;
+    opacity: 0.6;
+}
+
+.hide-brutto .variants-header .header-unit-netto,
+.hide-brutto .variants-header .header-total-netto {
+    color: #ED6B24 !important;
+    font-weight: 700 !important;
+}
+
+.hide-brutto .variants-header .header-unit-brutto,
+.hide-brutto .variants-header .header-total-brutto {
+    font-weight: 400 !important;
+    opacity: 0.6;
+}
+
+/* Wyróżnienie w sekcji podsumowania (quote-summary) */
+.hide-netto #summary-products-brutto,
+.hide-netto #summary-finishing-brutto,
+.hide-netto #summary-shipping-brutto,
+.hide-netto #summary-total-brutto {
+    color: #ED6B24 !important;
+    font-weight: 700 !important;
+    font-size: 16px !important;
+}
+
+.hide-netto #summary-products-netto,
+.hide-netto #summary-finishing-netto,
+.hide-netto #summary-shipping-netto,
+.hide-netto #summary-total-netto {
+    font-weight: 400 !important;
+    opacity: 0.6;
+}
+
+.hide-brutto #summary-products-netto,
+.hide-brutto #summary-finishing-netto,
+.hide-brutto #summary-shipping-netto,
+.hide-brutto #summary-total-netto {
+    color: #ED6B24 !important;
+    font-weight: 700 !important;
+    font-size: 14px !important;
+}
+
+.hide-brutto #summary-products-brutto,
+.hide-brutto #summary-finishing-brutto,
+.hide-brutto #summary-shipping-brutto,
+.hide-brutto #summary-total-brutto {
+    font-weight: 400 !important;
+    opacity: 0.6;
+    color: #1F2020 !important;
+}
+
+/* Wyróżnienie w modalu zapisywania wyceny */
+.hide-netto .sq-summary-brutto {
+    color: #ED6B24 !important;
+    font-weight: 700 !important;
+}
+
+.hide-netto .sq-summary-netto {
+    font-weight: 400 !important;
+    opacity: 0.6;
+}
+
+.hide-brutto .sq-summary-netto {
+    color: #ED6B24 !important;
+    font-weight: 700 !important;
+}
+
+.hide-brutto .sq-summary-brutto {
+    font-weight: 400 !important;
+    opacity: 0.6;
+}
+
+/* ========================================
+   TYPOGRAFIA CEN BRUTTO/NETTO
+   ======================================== */
+
+/* Ceny brutto */
+.unit-brutto,
+.total-brutto,
+.order-brutto,
+.delivery-brutto,
+.finishing-brutto,
+.final-brutto {
+    min-width: 100px;
+    color: #1F2020;
+    text-align: right;
+    font-family: Poppins, sans-serif;
+    font-size: 16px;
+    font-style: normal;
+    font-weight: 400;
+    line-height: normal;
+    white-space: nowrap;
+}
+
+/* Kurier */
+.courier {
+    min-width: 80px;
+    color: #1F2020;
+    text-align: right;
+    font-family: Poppins, sans-serif;
+    font-size: 14px;
+    font-style: normal;
+    font-weight: 400;
+    line-height: normal;
+    white-space: nowrap;
+}
+
+/* Ceny netto */
+.unit-netto,
+.total-netto,
+.order-netto,
+.delivery-netto,
+.finishing-netto,
+.final-netto {
+    min-width: 100px;
+    color: #7E7E7E;
+    text-align: right;
+    font-family: Poppins, sans-serif;
+    font-size: 14px;
+    font-style: normal;
+    font-weight: 400;
+    line-height: normal;
+    white-space: nowrap;
+}
