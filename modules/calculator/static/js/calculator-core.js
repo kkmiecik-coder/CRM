@@ -56,11 +56,11 @@ function initPriceModeToggle() {
 
         containers.forEach(container => {
             if (mode === 'brutto') {
-                // Tryb BRUTTO = pokaż WSZYSTKO (usuń obie klasy ukrywające)
+                // Tryb BRUTTO = wyróżnij brutto, przyciemnij netto
                 container.classList.remove('hide-brutto');
-                container.classList.remove('hide-netto');
+                container.classList.add('hide-netto');
             } else {
-                // Tryb NETTO = ukryj TYLKO brutto, pokaż netto
+                // Tryb NETTO = wyróżnij netto, przyciemnij brutto
                 container.classList.remove('hide-netto');
                 container.classList.add('hide-brutto');
             }

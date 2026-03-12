@@ -174,11 +174,9 @@
 .hide-netto .order-brutto,
 .hide-netto .finishing-brutto,
 .hide-netto .delivery-brutto,
-.hide-netto .final-brutto,
-.hide-netto .header-unit-brutto,
-.hide-netto .header-total-brutto {
+.hide-netto .final-brutto {
     color: #ED6B24 !important;
-    font-weight: 700 !important;
+    font-weight: 600 !important;
 }
 
 .hide-netto .unit-netto,
@@ -186,9 +184,7 @@
 .hide-netto .order-netto,
 .hide-netto .finishing-netto,
 .hide-netto .delivery-netto,
-.hide-netto .final-netto,
-.hide-netto .header-unit-netto,
-.hide-netto .header-total-netto {
+.hide-netto .final-netto {
     font-weight: 400 !important;
     opacity: 0.6;
 }
@@ -199,12 +195,9 @@
 .hide-brutto .order-netto,
 .hide-brutto .finishing-netto,
 .hide-brutto .delivery-netto,
-.hide-brutto .final-netto,
-.hide-brutto .header-unit-netto,
-.hide-brutto .header-total-netto {
+.hide-brutto .final-netto {
     color: #ED6B24 !important;
-    font-weight: 700 !important;
-    font-size: 14px !important;
+    font-weight: 600 !important;
 }
 
 .hide-brutto .unit-brutto,
@@ -212,32 +205,9 @@
 .hide-brutto .order-brutto,
 .hide-brutto .finishing-brutto,
 .hide-brutto .delivery-brutto,
-.hide-brutto .final-brutto,
-.hide-brutto .header-unit-brutto,
-.hide-brutto .header-total-brutto {
+.hide-brutto .final-brutto {
     font-weight: 400 !important;
     opacity: 0.6;
-}
-
-/* Dostosowanie trybu brutto/netto do scalonych price-cell (container query) */
-@container calculations (max-width: 650px) {
-    /* Tryb brutto w scalonych komórkach */
-    .hide-netto .price-cell .unit-netto,
-    .hide-netto .price-cell .total-netto {
-        opacity: 0.5;
-    }
-
-    /* Tryb netto w scalonych komórkach — netto duże, brutto małe */
-    .hide-brutto .price-cell .unit-netto,
-    .hide-brutto .price-cell .total-netto {
-        font-size: 13px !important;
-    }
-
-    .hide-brutto .price-cell .unit-brutto,
-    .hide-brutto .price-cell .total-brutto {
-        font-size: 11px !important;
-        color: #999 !important;
-    }
 }
 
 /* Subtelna animacja przy przełączaniu */
@@ -252,37 +222,8 @@
 .delivery-brutto,
 .delivery-netto,
 .final-brutto,
-.final-netto,
-.header-unit-brutto,
-.header-unit-netto,
-.header-total-brutto,
-.header-total-netto {
-    transition: color 0.3s ease, font-weight 0.3s ease, opacity 0.3s ease, font-size 0.3s ease;
-}
-
-/* Wyróżnienie nagłówków kolumn w tabeli wariantów */
-.hide-netto .variants-header .header-unit-brutto,
-.hide-netto .variants-header .header-total-brutto {
-    color: #ED6B24 !important;
-    font-weight: 700 !important;
-}
-
-.hide-netto .variants-header .header-unit-netto,
-.hide-netto .variants-header .header-total-netto {
-    font-weight: 400 !important;
-    opacity: 0.6;
-}
-
-.hide-brutto .variants-header .header-unit-netto,
-.hide-brutto .variants-header .header-total-netto {
-    color: #ED6B24 !important;
-    font-weight: 700 !important;
-}
-
-.hide-brutto .variants-header .header-unit-brutto,
-.hide-brutto .variants-header .header-total-brutto {
-    font-weight: 400 !important;
-    opacity: 0.6;
+.final-netto {
+    transition: color 0.3s ease, font-weight 0.3s ease, opacity 0.3s ease;
 }
 
 /* Wyróżnienie w sekcji podsumowania (quote-summary) */
@@ -291,8 +232,7 @@
 .hide-netto #summary-shipping-brutto,
 .hide-netto #summary-total-brutto {
     color: #ED6B24 !important;
-    font-weight: 700 !important;
-    font-size: 16px !important;
+    font-weight: 600 !important;
 }
 
 .hide-netto #summary-products-netto,
@@ -308,8 +248,7 @@
 .hide-brutto #summary-shipping-netto,
 .hide-brutto #summary-total-netto {
     color: #ED6B24 !important;
-    font-weight: 700 !important;
-    font-size: 14px !important;
+    font-weight: 600 !important;
 }
 
 .hide-brutto #summary-products-brutto,
@@ -318,13 +257,12 @@
 .hide-brutto #summary-total-brutto {
     font-weight: 400 !important;
     opacity: 0.6;
-    color: #1F2020 !important;
 }
 
 /* Wyróżnienie w modalu zapisywania wyceny */
 .hide-netto .sq-summary-brutto {
     color: #ED6B24 !important;
-    font-weight: 700 !important;
+    font-weight: 600 !important;
 }
 
 .hide-netto .sq-summary-netto {
@@ -334,7 +272,7 @@
 
 .hide-brutto .sq-summary-netto {
     color: #ED6B24 !important;
-    font-weight: 700 !important;
+    font-weight: 600 !important;
 }
 
 .hide-brutto .sq-summary-brutto {
