@@ -915,6 +915,8 @@ class QuoteDraftBackup {
     startNewQuote() {
         document.getElementById('autosave-modal').style.display = 'none';
         this.clearDraft();
+        // Reset trybu cen na brutto przy nowej wycenie
+        this.resetPriceModeToBrutto();
     }
 
     clearDraft() {
@@ -961,8 +963,17 @@ class QuoteDraftBackup {
     resetForNewQuote() {
         this.isQuoteSaved = false;
         this.clearDraft();
+        this.resetPriceModeToBrutto();
         this.updateStatusIndicator('idle', 'Brak zmian');
         this.startAutoSave();
+    }
+
+    resetPriceModeToBrutto() {
+        const bruttoRadio = document.getElementById('priceModeBrutto');
+        if (bruttoRadio && !bruttoRadio.checked) {
+            bruttoRadio.checked = true;
+            bruttoRadio.dispatchEvent(new Event('change', { bubbles: true }));
+        }
     }
 
     // ========================================

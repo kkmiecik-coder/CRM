@@ -102,20 +102,10 @@ function initPriceModeToggle() {
         }
     });
 
-    // Przywróć zapisaną preferencję z localStorage
-    try {
-        const savedMode = localStorage.getItem('woodpower_price_mode');
-        if (savedMode === 'netto') {
-            nettoRadio.checked = true;
-            switchPriceMode('netto');
-        } else {
-            bruttoRadio.checked = true;
-            switchPriceMode('brutto');
-        }
-    } catch (e) {
-        bruttoRadio.checked = true;
-        switchPriceMode('brutto');
-    }
+    // Domyślnie zawsze brutto przy nowej wycenie.
+    // Tryb netto jest przywracany tylko przy edycji wyceny lub wczytywaniu draftu.
+    bruttoRadio.checked = true;
+    switchPriceMode('brutto');
 
 }
 
