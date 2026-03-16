@@ -1223,15 +1223,15 @@ def client_accept_quote(token):
         
         # Zapisz komentarz jeśli podany
         if comments:
-            quote.client_comment = comments
+            quote.client_comments = comments
         
         # Ustaw datę akceptacji i status
         quote.acceptance_date = datetime.utcnow()
         quote.is_client_editable = False
         quote.accepted_by_email = email_or_phone
         
-        # Zmień status na "Zaakceptowana przez klienta" (ID=7)
-        quote.status_id = 7
+        # Zmień status na "Zaakceptowane" (ID=3) - spójne z accept-with-data
+        quote.status_id = 3
         
         # Dodaj log
         log_entry = QuoteLog(

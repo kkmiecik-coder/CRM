@@ -1292,7 +1292,7 @@ function collectFormData() {
         comments: document.getElementById('acceptComments').value.trim(),
 
         // Opcje
-        self_pickup: isSelfPickup,
+        is_self_pickup: isSelfPickup,
         wants_invoice: wantInvoice
     };
 
