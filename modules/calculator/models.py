@@ -718,9 +718,12 @@ class QuoteItemDetails(db.Model):
     edges_svg = db.Column(db.Text, nullable=True)
 
     # Kształt produktu
-    shape = db.Column(db.String(20), default='rectangular')
+    shape = db.Column(db.String(50), default='rectangular')
     round_surcharge_netto = db.Column(db.Numeric(10, 2), default=0)
     round_surcharge_brutto = db.Column(db.Numeric(10, 2), default=0)
+
+    shape_data = db.Column(db.Text, nullable=True)  # JSON: params, vertices, real_area_cm2, bbox
+    shape_svg = db.Column(db.Text, nullable=True)    # SVG string for display in quotes/PDF
 
     __table_args__ = (
         db.UniqueConstraint('quote_id', 'product_index', name='uq_quote_product'),
@@ -748,6 +751,8 @@ class QuoteItemDetails(db.Model):
             'shape': self.shape or 'rectangular',
             'round_surcharge_netto': float(self.round_surcharge_netto) if self.round_surcharge_netto else 0.0,
             'round_surcharge_brutto': float(self.round_surcharge_brutto) if self.round_surcharge_brutto else 0.0,
+            'shape_data': self.shape_data,
+            'shape_svg': self.shape_svg,
         }
 
     def __repr__(self):
