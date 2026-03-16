@@ -642,6 +642,18 @@ p {
         fill: currentColor;
     }
 
+.footer-icon:has(.sidebar-avatar) {
+    width: 36px;
+    height: 36px;
+}
+
+.sidebar-avatar {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    object-fit: cover;
+}
+
 /* [footer-menu-text] – tekst w stopce */
 .footer-menu-text {
     color: inherit;

@@ -228,3 +228,9 @@ static/images/avatars/custom/user_42_1772029199_IMG_8244.jpeg
 static/images/avatars/custom/user_42_1772029471_IMG_8244.jpeg
 static/images/avatars/custom/user_45_1771921401_IMG_9106.jpg
 cennik_prices_kantowki.xlsx
+static/images/avatars/custom/user_1_1773664089_profilowe.png
+static/images/avatars/custom/user_1_1773666058_12345.jpg
+
+# Pliki .md i .xlsx w głównym katalogu (głębiej pozwalaj)
+/*.md
+/*.xlsx

@@ -1391,3 +1391,48 @@ body.dark-mode .info-text span {
 body.dark-mode .input-wrapper.has-autofill .floating-label {
     background: rgba(30, 30, 35, 0.95) !important;
 }
+
+/* ============================================
+   TRYB KONSERWACJI (MAINTENANCE)
+   ============================================ */
+
+.maintenance-icon-wrapper {
+    position: relative;
+    width: 120px;
+    height: 120px;
+    margin: 0 auto 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.maintenance-ring {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+}
+
+.ring-outer {
+    animation: spin-cw 4s linear infinite;
+}
+
+.ring-inner {
+    animation: spin-ccw 2.5s linear infinite;
+}
+
+.maintenance-wrench {
+    position: relative;
+    z-index: 1;
+}
+
+@keyframes spin-cw {
+    from { transform: rotate(0deg); }
+    to   { transform: rotate(360deg); }
+}
+
+@keyframes spin-ccw {
+    from { transform: rotate(0deg); }
+    to   { transform: rotate(-360deg); }
+}

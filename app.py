@@ -39,6 +39,7 @@ from modules.help import help_bp
 from modules.issues import issues_bp
 from modules.ai_assistant import ai_assistant_bp
 from modules.settings import settings_bp
+from modules.settings.models import AppSetting
 
 from flask_login import login_user, logout_user  # DODANE importy
 from sqlalchemy.exc import ResourceClosedError, OperationalError
@@ -312,10 +313,53 @@ def create_app():
 
     register_blueprints_lazy(app)
 
+    # Cache trybu konserwacji (aby nie odpytywać DB przy każdym requeście)
+    _maintenance_cache = {'enabled': False, 'checked_at': 0}
+
+    @app.before_request
+    def check_maintenance_mode():
+        """Sprawdza tryb konserwacji - blokuje dostęp nie-adminom"""
+        import time
+
+        # Pomiń statyczne pliki
+        if request.endpoint and ('static' in request.endpoint or request.endpoint == 'favicon'):
+            return
+
+        # /login — zawsze dostępny (formularz logowania dla admina podczas konserwacji)
+        if request.endpoint == 'login':
+            return
+
+        # Cache: sprawdzaj DB co 5 sekund
+        now = time.time()
+        if now - _maintenance_cache['checked_at'] > 5:
+            try:
+                _maintenance_cache['enabled'] = AppSetting.get_value('maintenance_mode', 'false') == 'true'
+                _maintenance_cache['checked_at'] = now
+            except Exception:
+                _maintenance_cache['enabled'] = False
+
+        if not _maintenance_cache['enabled']:
+            return
+
+        # Tryb konserwacji aktywny — sprawdź czy user jest adminem
+        user_email = session.get('user_email')
+        if user_email:
+            try:
+                user = User.query.filter_by(email=user_email).first()
+                if user and user.is_admin():
+                    return  # Admin — przepuść
+            except Exception:
+                pass
+            # Nie-admin zalogowany — wyloguj
+            session.clear()
+
+        # Niezalogowany (lub właśnie wylogowany) — pokaż stronę konserwacji
+        return render_template('login.html', mode='maintenance'), 503
+
     @app.before_request
     def extend_session():
         session.permanent = True
-    
+
         # DODAJ tracking aktywności użytkowników
         track_user_activity()
 
@@ -530,14 +574,15 @@ def create_app():
         
             return redirect(url_for("dashboard.dashboard"))
 
-        return render_template("login.html")
+        return render_template("login.html", mode='login')
 
     @app.route("/")
     def index():
         # Jeśli użytkownik jest zalogowany, przekieruj na dashboard
         if session.get('user_email'):
             return redirect(url_for('dashboard.dashboard'))
-        return redirect(url_for("login"))
+        # Niezalogowany — pokaż formularz logowania (mode='login' domyślnie)
+        return render_template("login.html", mode='login')
 
     @app.route("/clients")
     @login_required
@@ -546,26 +591,25 @@ def create_app():
         return render_template("clients.html", user_email=user_email)
 
     @app.route("/logged_out")
-    @app.route("/logged_out")
     def logged_out():
         try:
-            # DODAJ: Zakończ sesję tracking przed wylogowaniem
+            # Zakończ sesję tracking przed wylogowaniem
             user_id = session.get('user_id')
             session_token = session.get('user_session_token')
-        
+
             if user_id or session_token:
                 UserActivityService.end_session(
                     user_id=user_id,
                     session_token=session_token
                 )
                 current_app.logger.info(f"[Logout] Zakończono sesję tracking dla user_id={user_id}")
-            
+
         except Exception as e:
             current_app.logger.error(f"[Logout] Błąd kończenia sesji tracking: {e}")
-    
-        # Oryginalne czyszczenie sesji
+
+        # Czyszczenie sesji i wyświetlenie ekranu wylogowania
         session.clear()
-        return render_template("logged_out.html")
+        return render_template("login.html", mode='logged_out')
 
     @app.route("/settings/prices", methods=["GET", "POST"])
     @login_required

@@ -60,7 +60,7 @@ def profile():
     
     # Pobierz dane użytkownika
     user_name = current_user.get_full_name()
-    user_avatar = current_user.avatar_path or url_for('static', filename='images/avatars/default_avatars/avatar1.svg')
+    user_avatar = url_for('static', filename=current_user.avatar_path) if current_user.avatar_path else url_for('static', filename='images/avatars/default_avatars/avatar1.svg')
     
     # Oblicz czas członkostwa od created_at
     member_since = "kilku dni"  # Domyślna wartość

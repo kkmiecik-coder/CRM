@@ -11,6 +11,7 @@ Endpointy:
 
 from flask import render_template, redirect, url_for, session, flash, request, jsonify, current_app
 from . import settings_bp
+from .models import AppSetting
 from modules.users.models import User
 
 
@@ -38,8 +39,54 @@ def require_admin(f):
 @settings_bp.route('/')
 @require_admin
 def index():
-    """Strona główna ustawień - przekierowanie do kalkulatora"""
-    return redirect(url_for('settings.calculator'))
+    """Strona główna ustawień - przekierowanie do ogólnych"""
+    return redirect(url_for('settings.general'))
+
+
+@settings_bp.route('/general')
+@require_admin
+def general():
+    """Zakładka Ogólne - tryb konserwacji itp."""
+    maintenance_enabled = AppSetting.get_value('maintenance_mode', 'false') == 'true'
+    return render_template('settings_index.html',
+                           active_tab='general',
+                           maintenance_enabled=maintenance_enabled)
+
+
+@settings_bp.route('/api/maintenance', methods=['POST'])
+@require_admin
+def api_toggle_maintenance():
+    """API: Włącz/wyłącz tryb konserwacji"""
+    from extensions import db
+    from modules.dashboard.models import UserSession
+
+    try:
+        from datetime import datetime
+        data = request.get_json()
+        enabled = data.get('enabled', False)
+
+        AppSetting.set_value('maintenance_mode',
+                             'true' if enabled else 'false',
+                             'Tryb konserwacji (maintenance mode)')
+
+        # Jeśli włączamy — wyloguj wszystkich nie-adminów
+        if enabled:
+            active_sessions = UserSession.query.filter_by(is_active=True).all()
+            for user_session in active_sessions:
+                if user_session.user and not user_session.user.is_admin():
+                    user_session.is_active = False
+                    user_session.logout_time = datetime.utcnow()
+            db.session.commit()
+
+        return jsonify({
+            'success': True,
+            'enabled': enabled,
+            'message': 'Tryb konserwacji włączony. Nie-adminowie zostali wylogowani.' if enabled
+                       else 'Tryb konserwacji wyłączony.'
+        })
+    except Exception as e:
+        current_app.logger.error(f"[Settings] Błąd przełączania trybu konserwacji: {e}")
+        return jsonify({'success': False, 'message': str(e)}), 500
 
 
 @settings_bp.route('/sources')

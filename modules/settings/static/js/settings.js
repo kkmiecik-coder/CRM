@@ -1697,6 +1697,81 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     // =============================================
+    // TRYB KONSERWACJI
+    // =============================================
+
+    const maintenanceToggle = document.getElementById('maintenanceToggle');
+    const maintenanceWarning = document.getElementById('maintenanceWarning');
+    const maintenanceStatus = document.getElementById('maintenanceStatus');
+
+    if (maintenanceToggle) {
+        // Pokaż ostrzeżenie gdy toggle nie jest zaznaczony (będzie włączany)
+        maintenanceToggle.addEventListener('change', function() {
+            if (maintenanceWarning) {
+                maintenanceWarning.style.display = this.checked ? 'none' : 'none';
+            }
+
+            const enabled = this.checked;
+            const action = enabled ? 'WŁĄCZYĆ' : 'WYŁĄCZYĆ';
+            const msg = enabled
+                ? 'Czy na pewno chcesz włączyć tryb konserwacji?\n\nWszyscy użytkownicy (poza administratorami) zostaną wylogowani.'
+                : 'Czy na pewno chcesz wyłączyć tryb konserwacji?\n\nUżytkownicy będą mogli normalnie korzystać z aplikacji.';
+
+            if (!confirm(msg)) {
+                this.checked = !enabled;
+                return;
+            }
+
+            // Wyślij żądanie do API
+            fetch('/settings/api/maintenance', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ enabled: enabled })
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (data.success) {
+                    // Aktualizuj badge statusu
+                    if (maintenanceStatus) {
+                        maintenanceStatus.innerHTML = enabled
+                            ? '<span class="status-badge status-active">AKTYWNY</span>'
+                            : '<span class="status-badge status-inactive">WYŁĄCZONY</span>';
+                    }
+
+                    // Aktualizuj kolor toggle slidera
+                    const slider = maintenanceToggle.nextElementSibling;
+                    if (slider) {
+                        if (enabled) {
+                            slider.classList.add('danger-toggle');
+                        } else {
+                            slider.classList.remove('danger-toggle');
+                        }
+                    }
+                } else {
+                    alert('Błąd: ' + (data.message || 'Nie udało się zmienić trybu'));
+                    maintenanceToggle.checked = !enabled;
+                }
+            })
+            .catch(err => {
+                alert('Błąd połączenia z serwerem');
+                maintenanceToggle.checked = !enabled;
+            });
+        });
+
+        // Pokaż ostrzeżenie gdy hover na wyłączonym toggle
+        if (!maintenanceToggle.checked && maintenanceWarning) {
+            maintenanceToggle.closest('.maintenance-toggle-row')?.addEventListener('mouseenter', function() {
+                if (!maintenanceToggle.checked) {
+                    maintenanceWarning.style.display = 'flex';
+                }
+            });
+            maintenanceToggle.closest('.maintenance-toggle-row')?.addEventListener('mouseleave', function() {
+                maintenanceWarning.style.display = 'none';
+            });
+        }
+    }
+
+    // =============================================
     // INICJALIZACJA
     // =============================================
 

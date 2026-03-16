@@ -228,24 +228,14 @@ window.ActiveUsersWidget = (function () {
 
         // Avatar
         const avatar = userItem.querySelector('.user-avatar');
-        if (user.user_avatar && user.user_avatar !== '/static/images/avatars/default_avatars/avatar1.svg') {
-            avatar.src = user.user_avatar;
-            avatar.alt = user.user_name;
-            avatar.style.backgroundImage = 'none';
-            avatar.textContent = '';
+        if (user.user_avatar) {
+            avatar.style.backgroundImage = `url('${user.user_avatar}')`;
+            avatar.title = user.user_name;
         } else {
             // Fallback do inicjałów gdy brak avatara
             avatar.style.backgroundImage = 'linear-gradient(45deg, #ED6B24, #f39c12)';
-            avatar.alt = user.user_name;
             avatar.textContent = user.user_name.charAt(0).toUpperCase();
-            avatar.style.display = 'flex';
-            avatar.style.alignItems = 'center';
-            avatar.style.justifyContent = 'center';
-            avatar.style.fontSize = '1.2rem';
-            avatar.style.fontWeight = 'bold';
-            avatar.style.color = 'white';
-            // Usuń atrybut src jeśli istnieje
-            avatar.removeAttribute('src');
+            avatar.title = user.user_name;
         }
 
         // Status indicator
