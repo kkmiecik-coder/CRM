@@ -9,6 +9,7 @@
     <link rel="stylesheet" href="{{ url_for('calculator.static', filename='css/style_calculator.css') }}">
     <link rel="stylesheet" href="{{ url_for('calculator.static', filename='css/save_quote.css') }}">
     <link rel="stylesheet" href="{{ url_for('calculator.static', filename='css/edges.css') }}">
+    <link rel="stylesheet" href="{{ url_for('calculator.static', filename='css/shape_canvas.css') }}">
     <script id="prices-data" type="application/json">{{ prices_json|safe }}</script>
     <script id="multipliers-data" type="application/json">{{ multipliers_json|safe }}</script>
 </head>
@@ -122,22 +123,24 @@
                                     <!-- Kształt produktu -->
                                     <div class="product-shape">
                                         <label class="input-txt">Kształt:</label>
-                                        <div class="shape-toggle">
-                                            <label class="shape-option">
-                                                <input type="radio" name="productShape-0" data-field="shapeRect" value="rectangular" checked>
-                                                <span class="shape-label">
-                                                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="12" height="10" rx="1"/></svg>
-                                                    Prostokąt
-                                                </span>
-                                            </label>
-                                            <label class="shape-option">
-                                                <input type="radio" name="productShape-0" data-field="shapeRound" value="round">
-                                                <span class="shape-label">
-                                                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><ellipse cx="8" cy="8" rx="7" ry="5"/></svg>
-                                                    Okrągły
-                                                </span>
-                                            </label>
-                                        </div>
+                                        <select class="shape-select" data-field="shapeSelect">
+                                            <option value="rectangular">Prostokąt</option>
+                                            <option value="circle">Koło</option>
+                                            <option value="ellipse">Elipsa</option>
+                                            <optgroup label="Trójkąt">
+                                                <option value="triangle_right">Trójkąt prostokątny</option>
+                                                <option value="triangle_equilateral">Trójkąt równoboczny</option>
+                                                <option value="triangle_isosceles">Trójkąt równoramienny</option>
+                                                <option value="triangle_custom">Trójkąt dowolny</option>
+                                            </optgroup>
+                                            <optgroup label="Trapez">
+                                                <option value="trapezoid_symmetric">Trapez symetryczny</option>
+                                                <option value="trapezoid_asymmetric">Trapez niesymetryczny</option>
+                                                <option value="trapezoid_custom">Trapez dowolny</option>
+                                            </optgroup>
+                                            <option value="parallelogram">Równoległobok</option>
+                                            <option value="polygon">Wielokąt niestandardowy</option>
+                                        </select>
                                     </div>
                                     <!-- Długość -->
                                     <div class="lenght">
@@ -161,6 +164,24 @@
                                     </div>
                                 </div>
                             </section>
+                            <!-- Shape Editor: inputs + canvas (two-column) -->
+                            <div class="shape-editor-container collapsed-canvas" data-shape-editor>
+                                <div class="shape-inputs-column" data-shape-inputs></div>
+                                <div class="shape-canvas-column">
+                                    <div class="shape-canvas-wrapper">
+                                        <canvas data-shape-canvas></canvas>
+                                        <div class="shape-canvas-scale-indicator" data-shape-scale></div>
+                                    </div>
+                                    <div class="shape-canvas-controls">
+                                        <button type="button" data-shape-undo title="Cofnij" disabled>&#8617;</button>
+                                        <button type="button" data-shape-redo title="Ponów" disabled>&#8618;</button>
+                                        <button type="button" data-shape-fit title="Dopasuj do widoku">&#8865;</button>
+                                    </div>
+                                    <div class="shape-canvas-hint" data-shape-hint style="display:none">
+                                        Klik na krawędzi = dodaj punkt | PPM na punkcie = usuń punkt
+                                    </div>
+                                </div>
+                            </div>
                             <!-- Kolumna 3: Kalkulacja -->
                             <section class="calculations-main">
                                 <div class="calculations">
@@ -482,6 +503,9 @@
     {% include 'partials/edges_modal.html' %}
     <script src="{{ url_for('static', filename='js/sidebar.js') }}"></script>
     <script src="{{ url_for('calculator.static', filename='js/qdraft_backup.js') }}"></script>
+    <script src="{{ url_for('calculator.static', filename='js/shape-geometry.js') }}"></script>
+    <script src="{{ url_for('calculator.static', filename='js/shape-canvas.js') }}"></script>
+    <script src="{{ url_for('calculator.static', filename='js/shape-editor.js') }}"></script>
     <script src="{{ url_for('calculator.static', filename='js/calculator-core.js') }}"></script>
     <script src="{{ url_for('calculator.static', filename='js/calculator-ui.js') }}"></script>
     <script src="{{ url_for('calculator.static', filename='js/calculator-products.js') }}"></script>

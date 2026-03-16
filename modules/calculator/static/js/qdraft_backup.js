@@ -541,24 +541,14 @@ class QuoteDraftBackup {
                 const form = allRestoredForms[i];
                 if (form && draftData.products[i]) {
                     const shape = draftData.products[i].shape || 'rectangular';
-                    const radioField = shape === 'round' ? 'shapeRound' : 'shapeRect';
-                    const radio = form.querySelector(`input[data-field="${radioField}"]`);
-                    if (radio) {
-                        radio.checked = true;
-                        form.dataset.productShape = shape;
-
-                        const widthInput = form.querySelector('input[data-field="width"]');
-                        if (widthInput) {
-                            if (shape === 'round') {
-                                widthInput.readOnly = true;
-                                widthInput.style.opacity = '0.5';
-                                widthInput.style.cursor = 'not-allowed';
-                            } else {
-                                widthInput.readOnly = false;
-                                widthInput.style.opacity = '';
-                                widthInput.style.cursor = '';
-                            }
-                        }
+                    const mappedShape = shape === 'round' ? 'circle' : shape;
+                    const editor = form._shapeEditor;
+                    if (editor) {
+                        editor.restore(mappedShape, draftData.products[i].shape_data || null);
+                    } else {
+                        const shapeSelect = form.querySelector('[data-field="shapeSelect"]');
+                        if (shapeSelect) shapeSelect.value = mappedShape;
+                        form.dataset.productShape = mappedShape;
                     }
                 }
             }
@@ -625,8 +615,8 @@ class QuoteDraftBackup {
             radio.checked = false;
         });
 
-        const rectRadio = form.querySelector('input[data-field="shapeRect"]');
-        if (rectRadio) rectRadio.checked = true;
+        const shapeSelect = form.querySelector('[data-field="shapeSelect"]');
+        if (shapeSelect) shapeSelect.value = 'rectangular';
         form.dataset.productShape = 'rectangular';
 
         form.querySelectorAll('.finishing-btn.active, .color-btn.active, .finishing-option-btn.active').forEach(btn => {
@@ -709,11 +699,17 @@ class QuoteDraftBackup {
         }
 
         if (productData.shape && productData.shape !== 'rectangular') {
-            const shapeRadio = form.querySelector(`input[data-field="shapeRound"]`);
-            if (shapeRadio) {
-                shapeRadio.checked = true;
-                form.dataset.productShape = 'round';
-                shapeRadio.dispatchEvent(new Event('change', { bubbles: true }));
+            const mappedShape = productData.shape === 'round' ? 'circle' : productData.shape;
+            const editor = form._shapeEditor;
+            if (editor) {
+                editor.restore(mappedShape, productData.shape_data || null);
+            } else {
+                const shapeSelect = form.querySelector('[data-field="shapeSelect"]');
+                if (shapeSelect) {
+                    shapeSelect.value = mappedShape;
+                    shapeSelect.dispatchEvent(new Event('change', { bubbles: true }));
+                }
+                form.dataset.productShape = mappedShape;
             }
         }
 

@@ -171,8 +171,8 @@ class QuoteEditLoader {
      */
     async restoreProduct(form, product) {
 
-        // Ksztalt (przed wymiarami - bo round blokuje width)
-        await this.restoreShape(form, product.shape);
+        // Ksztalt (przed wymiarami - bo nieprosto. blokuje length/width)
+        await this.restoreShape(form, product.shape, product.shape_data);
 
         // Grupa cenowa na tym formularzu (przed wymiarami - wplywa na ceny)
         const clientType = this.quoteData.settings.clientType;
@@ -225,31 +225,26 @@ class QuoteEditLoader {
     // RESTORE: KSZTALT
     // ========================================
 
-    async restoreShape(form, shape) {
-        if (!shape || shape === 'rectangular') {
-            // Domyslny - prostokat
-            const rectRadio = form.querySelector('input[data-field="shapeRect"]');
-            if (rectRadio) {
-                rectRadio.checked = true;
-                form.dataset.productShape = 'rectangular';
-            }
-            return;
-        }
+    async restoreShape(form, shape, shapeData) {
+        // Mapowanie legacy 'round' na 'circle'
+        var mappedShape = shape === 'round' ? 'circle' : (shape || 'rectangular');
 
-        // Okragly
-        const roundRadio = form.querySelector('input[data-field="shapeRound"]');
-        if (roundRadio) {
-            roundRadio.checked = true;
-            form.dataset.productShape = 'round';
-            roundRadio.dispatchEvent(new Event('change', { bubbles: true }));
-
-            // Zablokuj pole szerokosc
-            const widthInput = form.querySelector('input[data-field="width"]');
-            if (widthInput) {
-                widthInput.readOnly = true;
-                widthInput.style.opacity = '0.5';
-                widthInput.style.cursor = 'not-allowed';
+        var editor = form._shapeEditor;
+        if (editor) {
+            // Parse shape_data jesli string
+            var parsedData = shapeData;
+            if (typeof shapeData === 'string') {
+                try { parsedData = JSON.parse(shapeData); } catch(e) { parsedData = null; }
             }
+            editor.restore(mappedShape, parsedData);
+        } else {
+            // Fallback: ustaw dropdown bezposrednio
+            var select = form.querySelector('[data-field="shapeSelect"]');
+            if (select) {
+                select.value = mappedShape;
+                select.dispatchEvent(new Event('change', { bubbles: true }));
+            }
+            form.dataset.productShape = mappedShape;
         }
 
         await this.delay(50);
@@ -266,24 +261,20 @@ class QuoteEditLoader {
             if (!form || !products[i]) continue;
 
             const shape = products[i].shape || 'rectangular';
-            const radioField = shape === 'round' ? 'shapeRound' : 'shapeRect';
-            const radio = form.querySelector(`input[data-field="${radioField}"]`);
-            if (radio) {
-                radio.checked = true;
-                form.dataset.productShape = shape;
+            const mappedShape = shape === 'round' ? 'circle' : shape;
+            form.dataset.productShape = mappedShape;
 
+            const select = form.querySelector('[data-field="shapeSelect"]');
+            if (select && select.value !== mappedShape) {
+                select.value = mappedShape;
+            }
+
+            // Zablokuj length/width dla nie-prostokatnych ksztaltow
+            if (mappedShape !== 'rectangular') {
+                const lengthInput = form.querySelector('input[data-field="length"]');
                 const widthInput = form.querySelector('input[data-field="width"]');
-                if (widthInput) {
-                    if (shape === 'round') {
-                        widthInput.readOnly = true;
-                        widthInput.style.opacity = '0.5';
-                        widthInput.style.cursor = 'not-allowed';
-                    } else {
-                        widthInput.readOnly = false;
-                        widthInput.style.opacity = '';
-                        widthInput.style.cursor = '';
-                    }
-                }
+                if (lengthInput) { lengthInput.readOnly = true; lengthInput.style.opacity = '0.5'; lengthInput.style.cursor = 'not-allowed'; }
+                if (widthInput) { widthInput.readOnly = true; widthInput.style.opacity = '0.5'; widthInput.style.cursor = 'not-allowed'; }
             }
         }
     }

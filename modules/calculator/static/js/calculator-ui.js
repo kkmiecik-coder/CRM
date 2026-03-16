@@ -2,83 +2,20 @@
 // Moduł UI - renderowanie wykończeń, opisy produktów, panel podsumowania
 
 /**
- * Inicjalizuje toggle kształtu produktu dla danego formularza
+ * Inicjalizuje edytor kształtu produktu dla danego formularza
+ * Nowy system: ShapeEditor obsługuje dropdown + canvas
  */
 function initShapeToggle(form) {
-    const radios = form.querySelectorAll('input[data-field="shapeRect"], input[data-field="shapeRound"]');
-    if (!radios.length) return;
+    if (form.dataset.shapeEditorInit) return;
+    form.dataset.shapeEditorInit = 'true';
 
-    // Wymusz domyślne zaznaczenie prostokąta jeśli nic nie zaznaczone
-    const checkedRadio = form.querySelector('input[data-field="shapeRect"]:checked, input[data-field="shapeRound"]:checked');
-    if (checkedRadio) {
-        form.dataset.productShape = checkedRadio.value;
-    } else {
-        const rectRadio = form.querySelector('input[data-field="shapeRect"]');
-        if (rectRadio) rectRadio.checked = true;
+    var editor = ShapeEditor.init(form);
+    if (editor) {
+        form._shapeEditor = editor;
+    }
+
+    if (!form.dataset.productShape) {
         form.dataset.productShape = 'rectangular';
-    }
-
-
-    // Dodaj listenery tylko raz (flaga na formularzu)
-    if (form.dataset.shapeListenersAttached) return;
-    form.dataset.shapeListenersAttached = 'true';
-
-    radios.forEach(radio => {
-        radio.addEventListener('change', function () {
-            const newShape = this.value;
-            const oldShape = form.dataset.productShape;
-            if (newShape === oldShape) return;
-
-            form.dataset.productShape = newShape;
-
-            // Okrągły: kopiuj długość na szerokość i zablokuj pole
-            const widthInput = form.querySelector('input[data-field="width"]');
-            const lengthInput = form.querySelector('input[data-field="length"]');
-            if (widthInput) {
-                if (newShape === 'round') {
-                    if (lengthInput && lengthInput.value) {
-                        widthInput.value = lengthInput.value;
-                    }
-                    widthInput.readOnly = true;
-                    widthInput.style.opacity = '0.5';
-                    widthInput.style.cursor = 'not-allowed';
-                } else {
-                    widthInput.readOnly = false;
-                    widthInput.style.opacity = '';
-                    widthInput.style.cursor = '';
-                }
-            }
-
-            // Reset krawędzi przy zmianie kształtu
-            if (window.EdgesModule && typeof window.EdgesModule.reset === 'function') {
-                window.EdgesModule.reset(form);
-            }
-
-            // Przelicz ceny
-            updatePrices();
-        });
-    });
-
-    // Listener na długość: kopiuj wartość na szerokość gdy kształt okrągły
-    const lengthInput = form.querySelector('input[data-field="length"]');
-    const widthInput = form.querySelector('input[data-field="width"]');
-    if (lengthInput && widthInput) {
-        lengthInput.addEventListener('input', function () {
-            if (form.dataset.productShape === 'round') {
-                widthInput.value = this.value;
-            }
-        });
-    }
-
-    // Jeśli formularz już jest w trybie okrągłym (np. po załadowaniu)
-    if (form.dataset.productShape === 'round' && widthInput) {
-        const lengthVal = form.querySelector('input[data-field="length"]');
-        if (lengthVal && lengthVal.value) {
-            widthInput.value = lengthVal.value;
-        }
-        widthInput.readOnly = true;
-        widthInput.style.opacity = '0.5';
-        widthInput.style.cursor = 'not-allowed';
     }
 }
 

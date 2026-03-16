@@ -185,12 +185,15 @@ function prepareNewProductForm(form, index) {
 
     // ✅ Resetuj kształt produktu na prostokątny
     form.dataset.productShape = 'rectangular';
-    delete form.dataset.shapeListenersAttached; // Pozwól initShapeToggle dodać nowe listenery
-    const shapeRadios = form.querySelectorAll('input[data-field="shapeRect"], input[data-field="shapeRound"]');
-    shapeRadios.forEach(radio => {
-        radio.name = `productShape-${index}`;
-        radio.checked = (radio.value === 'rectangular');
-    });
+    delete form.dataset.shapeEditorInit; // Pozwól initShapeToggle zainicjalizować nowy ShapeEditor
+    delete form.dataset.shapeRealAreaCm2;
+    var shapeSelect = form.querySelector('[data-field="shapeSelect"]');
+    if (shapeSelect) shapeSelect.value = 'rectangular';
+    // Zniszcz stary ShapeEditor jeśli istnieje (z klonowanego formularza)
+    if (form._shapeEditor && form._shapeEditor.destroy) {
+        form._shapeEditor.destroy();
+        form._shapeEditor = null;
+    }
     initShapeToggle(form);
 
     // ✅ Usuń oznaczenie o dodanych event listenerach
@@ -794,12 +797,10 @@ function addNewProduct() {
     const clonedSummary = newForm.querySelector('.quote-summary');
     if (clonedSummary) clonedSummary.remove();
 
-    // ✅ POPRAWKA: Odznacz radio kształtu w klonie PRZED dodaniem do DOM
-    // (zapobiega konfliktowi grup radio - klon i oryginał mają tę samą nazwę "productShape-N",
-    // a ponieważ .quote-form to <div> nie <form>, przeglądarka traktuje je jako jedną grupę)
-    newForm.querySelectorAll('input[data-field="shapeRect"], input[data-field="shapeRound"]').forEach(r => {
-        r.checked = false;
-    });
+    // ✅ Resetuj kształt w klonie PRZED dodaniem do DOM
+    var clonedShapeSelect = newForm.querySelector('[data-field="shapeSelect"]');
+    if (clonedShapeSelect) clonedShapeSelect.value = 'rectangular';
+    newForm.dataset.productShape = 'rectangular';
 
     quoteFormsContainer.appendChild(newForm);
 

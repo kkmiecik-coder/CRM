@@ -594,9 +594,9 @@ function safeAttachFormListeners(form) {
     // ✅ KLUCZOWA POPRAWKA: Zachowaj wszystkie wartości formularza przed manipulacją
     const formValues = {};
 
-    // Zapisz wartości input i select (pomiń radio kształtu - zarządzane przez initShapeToggle)
+    // Zapisz wartości input i select (pomiń select kształtu - zarządzane przez initShapeToggle)
     form.querySelectorAll('input[data-field], select[data-field]').forEach(input => {
-        if (input.dataset.field === 'shapeRect' || input.dataset.field === 'shapeRound') return;
+        if (input.dataset.field === 'shapeSelect') return;
         const key = input.id || input.name || input.dataset.field;
         if (input.type === 'checkbox' || input.type === 'radio') {
             formValues[key] = input.checked;
@@ -605,9 +605,9 @@ function safeAttachFormListeners(form) {
         }
     });
 
-    // Zapisz wartości radio buttons (pomiń radio kształtu)
+    // Zapisz wartości radio buttons (pomiń select kształtu)
     form.querySelectorAll('input[type="radio"]').forEach(radio => {
-        if (radio.dataset.field === 'shapeRect' || radio.dataset.field === 'shapeRound') return;
+        if (radio.dataset.field === 'shapeSelect') return;
         const key = radio.id || radio.name;
         formValues[key + '_checked'] = radio.checked;
         formValues[key + '_value'] = radio.value;
@@ -649,7 +649,7 @@ function safeAttachFormListeners(form) {
     });
 
     // Dodaj listenery dla radio buttons wariantów BEZ klonowania
-    // (pomiń radio kształtu - data-field="shapeRect"/"shapeRound")
+    // (kształt obsługiwany przez ShapeEditor)
     const radios = form.querySelectorAll('.variants input[type="radio"]');
     radios.forEach(radio => {
         // Usuń poprzednie listenery
@@ -775,9 +775,9 @@ function safeAttachFormListeners(form) {
 
     // ✅ KLUCZOWA POPRAWKA: Przywróć wszystkie wartości po dodaniu listenerów
 
-    // Przywróć wartości input i select (pomiń radio kształtu)
+    // Przywróć wartości input i select (pomiń select kształtu)
     form.querySelectorAll('input[data-field], select[data-field]').forEach(input => {
-        if (input.dataset.field === 'shapeRect' || input.dataset.field === 'shapeRound') return;
+        if (input.dataset.field === 'shapeSelect') return;
         const key = input.id || input.name || input.dataset.field;
         const savedValue = formValues[key];
 
@@ -790,9 +790,9 @@ function safeAttachFormListeners(form) {
         }
     });
 
-    // Przywróć stany radio buttons (pomiń radio kształtu)
+    // Przywróć stany radio buttons (pomiń select kształtu)
     form.querySelectorAll('input[type="radio"]').forEach(radio => {
-        if (radio.dataset.field === 'shapeRect' || radio.dataset.field === 'shapeRound') return;
+        if (radio.dataset.field === 'shapeSelect') return;
         const key = radio.id || radio.name;
         const savedChecked = formValues[key + '_checked'];
         if (savedChecked !== undefined) {
