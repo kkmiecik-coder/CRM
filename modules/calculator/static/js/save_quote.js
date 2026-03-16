@@ -1061,19 +1061,29 @@ function collectQuoteData() {
 
         let hasSelectedVariant = false;
 
+        // Shape data z ShapeEditor
+        const shapeEditor = form._shapeEditor;
+        let shapeDataJson = null;
+        let shapeSvg = null;
+        let productShape = form.dataset.productShape || 'rectangular';
+
+        if (shapeEditor) {
+            const shapeData = shapeEditor.getShapeData();
+            shapeDataJson = shapeData ? JSON.stringify(shapeData) : null;
+            shapeSvg = shapeEditor.getShapeSvg() || null;
+            productShape = shapeEditor.getShapeType();
+        }
+
+        // Objętość: bbox (do wyceny drewna) vs realna (do wyświetlania/wysyłki)
+        const bboxVolume = (length / 100) * (width / 100) * (thickness / 100);
+        const realAreaCm2 = parseFloat(form.dataset.shapeRealAreaCm2);
+        const realVolume = (productShape !== 'rectangular' && !isNaN(realAreaCm2) && realAreaCm2 > 0)
+            ? (realAreaCm2 / 10000) * (thickness / 100)
+            : bboxVolume;
+
         const allVariants = Array.from(form.querySelectorAll('.variants input[type="radio"]')).map(radio => {
             const brutto = parseFloat(radio.dataset.totalBrutto || 0);
             const netto = parseFloat(radio.dataset.totalNetto || 0);
-            const volume = (length / 100) * (width / 100) * (thickness / 100);
-            const productShape = form.dataset.productShape || 'rectangular';
-            let realVolume;
-            if (productShape === 'round') {
-                const a = (length / 100) / 2;
-                const b = (width / 100) / 2;
-                realVolume = Math.PI * a * b * (thickness / 100);
-            } else {
-                realVolume = volume;
-            }
 
             const checkbox = form.querySelector(`[data-variant="${radio.value}"]`);
             const isAvailable = checkbox && checkbox.checked;
@@ -1089,7 +1099,7 @@ function collectQuoteData() {
                 is_selected: radio.checked,
                 is_available: isAvailable,
                 price_per_m3: parseFloat(radio.dataset.pricePerM3 || 0),
-                volume_m3: volume,
+                volume_m3: bboxVolume,
                 real_volume_m3: realVolume,
                 multiplier: parseFloat(radio.dataset.multiplier || 1),
                 final_price: parseFloat(radio.dataset.finalPrice || 0),
@@ -1123,7 +1133,9 @@ function collectQuoteData() {
             width,
             thickness,
             quantity,
-            shape: form.dataset.productShape || 'rectangular',
+            shape: productShape,
+            shape_data: shapeDataJson,
+            shape_svg: shapeSvg,
             finishing_type: finishingType,
             finishing_variant: finishingVariant,
             finishing_color: finishingColor,

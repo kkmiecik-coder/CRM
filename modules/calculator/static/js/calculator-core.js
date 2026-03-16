@@ -498,9 +498,9 @@ function updatePrices() {
             let effectiveMultiplier = multiplier;
             let unitNetto = singleVolume * basePrice * effectiveMultiplier;
 
-            // Dopłata za kształt okrągły (per sztuka) - po mnożniku
+            // Dopłata za kształt okrągły/koło/elipsa (per sztuka) - po mnożniku
             const productShape = activeQuoteForm.dataset.productShape || 'rectangular';
-            if (productShape === 'round' && window._roundShapeSurchargeNetto) {
+            if ((productShape === 'round' || productShape === 'circle' || productShape === 'ellipse') && window._roundShapeSurchargeNetto) {
                 unitNetto += window._roundShapeSurchargeNetto;
             }
 
@@ -694,7 +694,13 @@ function updatePricesInOtherProducts() {
 
                             // Użyj mnożnika z wybranej grupy cenowej (bez automatycznej zmiany na Detal+)
                             const effectiveMultiplier = multiplier;
-                            const unitNetto = singleVolume * basePrice * effectiveMultiplier;
+                            let unitNetto = singleVolume * basePrice * effectiveMultiplier;
+
+                            // Dopłata za kształt okrągły/koło/elipsa
+                            const otherProductShape = form.dataset.productShape || 'rectangular';
+                            if ((otherProductShape === 'round' || otherProductShape === 'circle' || otherProductShape === 'ellipse') && window._roundShapeSurchargeNetto) {
+                                unitNetto += window._roundShapeSurchargeNetto;
+                            }
 
                             // Wyczyść kolor tła (usunięto starą regułę Detal+)
                             variant.style.backgroundColor = "";
@@ -816,18 +822,8 @@ function computeAggregatedData() {
         if (widthVal > maxWidth) maxWidth = widthVal;
 
         totalThickness += thicknessVal * quantityVal;
-        const productShape = form.dataset.productShape || 'rectangular';
-        let volume;
-        if (productShape === 'round') {
-            // Cylinder eliptyczny: π × a × b × T
-            const a = (lengthVal / 100) / 2;
-            const b = (widthVal / 100) / 2;
-            volume = Math.PI * a * b * (thicknessVal / 100);
-        } else {
-            volume = (lengthVal / 100) * (widthVal / 100) * (thicknessVal / 100);
-        }
-        const productWeight = volume * 800 * quantityVal;
-        totalWeight += productWeight;
+        // Realna objętość i waga (przez calculateProductVolume/Weight)
+        totalWeight += calculateProductWeight(form);
     });
 
     const aggregatedLength = maxLength + 5;
@@ -850,7 +846,8 @@ function computeAggregatedData() {
 // ------------------------------
 
 /**
- * Oblicza objętość produktu (uwzględnia kształt okrągły/prostokątny)
+ * Oblicza realną objętość produktu (uwzględnia kształt)
+ * Dla nie-prostokątnych kształtów używa realnego pola z ShapeEditor
  */
 function calculateProductVolume(form) {
     const length = parseFloat(form.querySelector('[data-field="length"]')?.value) || 0;
@@ -858,50 +855,29 @@ function calculateProductVolume(form) {
     const thickness = parseFloat(form.querySelector('[data-field="thickness"]')?.value) || 0;
     const quantity = parseInt(form.querySelector('[data-field="quantity"]')?.value) || 1;
 
-    if (length <= 0 || width <= 0 || thickness <= 0) return 0;
+    if (thickness <= 0) return 0;
 
     const productShape = form.dataset.productShape || 'rectangular';
-    let singleVolume;
 
-    if (productShape === 'round') {
-        // Rzeczywista objętość cylindra eliptycznego: π × a × b × T
-        const a = (length / 100) / 2;
-        const b = (width / 100) / 2;
-        const t = thickness / 100;
-        singleVolume = Math.PI * a * b * t;
-    } else {
-        singleVolume = calculateSingleVolume(length, width, thickness);
+    // Nie-prostokątne kształty: realne pole z ShapeEditor (w dataset)
+    if (productShape !== 'rectangular') {
+        const realAreaCm2 = parseFloat(form.dataset.shapeRealAreaCm2);
+        if (!isNaN(realAreaCm2) && realAreaCm2 > 0) {
+            return (realAreaCm2 / 10000) * (thickness / 100) * quantity;
+        }
     }
 
-    return singleVolume * quantity;
+    if (length <= 0 || width <= 0) return 0;
+    return calculateSingleVolume(length, width, thickness) * quantity;
 }
 
 /**
  * Oblicza wagę produktu (gęstość drewna: 800 kg/m³)
+ * Używa realnej objętości (nie bbox)
  */
 function calculateProductWeight(form) {
-    const length = parseFloat(form.querySelector('[data-field="length"]')?.value) || 0;
-    const width = parseFloat(form.querySelector('[data-field="width"]')?.value) || 0;
-    const thickness = parseFloat(form.querySelector('[data-field="thickness"]')?.value) || 0;
-    const quantity = parseInt(form.querySelector('[data-field="quantity"]')?.value) || 1;
-
-    if (length <= 0 || width <= 0 || thickness <= 0) return 0;
-
-    const productShape = form.dataset.productShape || 'rectangular';
-    let singleVolumeM3;
-
-    if (productShape === 'round') {
-        // Cylinder eliptyczny: π × a × b × T (rzeczywista objętość produktu)
-        const a = (length / 100) / 2;
-        const b = (width / 100) / 2;
-        const t = thickness / 100;
-        singleVolumeM3 = Math.PI * a * b * t;
-    } else {
-        singleVolumeM3 = calculateSingleVolume(length, width, thickness);
-    }
-
-    // Gęstość drewna: 800 kg/m³
-    return singleVolumeM3 * quantity * 800;
+    const volume = calculateProductVolume(form);
+    return volume * 800;
 }
 
 /**
