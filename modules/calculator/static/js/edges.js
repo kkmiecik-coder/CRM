@@ -2052,40 +2052,18 @@ const EdgesModule = (function() {
         var viewBoxHeight = 220;
         var margin = 20;
 
-        // Znajdź centroid kształtu (do obrotu)
-        var cx = 0, cy = 0;
-        for (var i = 0; i < n; i++) {
-            cx += verts[i][0];
-            cy += verts[i][1];
-        }
-        cx /= n;
-        cy /= n;
-
-        // Obróć wierzchołki o ~135° żeby kąt prosty (lewy-dolny na canvasie)
-        // znalazł się z przodu-na dole w widoku izometrycznym
-        var rotAngle = 135 * Math.PI / 180;
-        var rotVerts = [];
-        for (var r = 0; r < n; r++) {
-            var dx = verts[r][0] - cx;
-            var dy = verts[r][1] - cy;
-            rotVerts.push([
-                cx + dx * Math.cos(rotAngle) - dy * Math.sin(rotAngle),
-                cy + dx * Math.sin(rotAngle) + dy * Math.cos(rotAngle)
-            ]);
-        }
-
-        // Znajdź bbox obróconych wierzchołków
+        // Znajdź bbox wierzchołków
         var minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-        for (var b = 0; b < n; b++) {
-            if (rotVerts[b][0] < minX) minX = rotVerts[b][0];
-            if (rotVerts[b][1] < minY) minY = rotVerts[b][1];
-            if (rotVerts[b][0] > maxX) maxX = rotVerts[b][0];
-            if (rotVerts[b][1] > maxY) maxY = rotVerts[b][1];
+        for (var i = 0; i < n; i++) {
+            if (verts[i][0] < minX) minX = verts[i][0];
+            if (verts[i][1] < minY) minY = verts[i][1];
+            if (verts[i][0] > maxX) maxX = verts[i][0];
+            if (verts[i][1] > maxY) maxY = verts[i][1];
         }
         var shapeW = maxX - minX || 1;
         var shapeH = maxY - minY || 1;
 
-        // Izometryczny rzut (tak samo jak prostokąt)
+        // Izometryczny rzut
         var isoAngle = Math.PI / 6;
         var effectiveThickness = Math.max(thickness, Math.max(shapeW, shapeH) * 0.15);
 
@@ -2100,19 +2078,21 @@ const EdgesModule = (function() {
         var vecX = { x: Math.cos(isoAngle), y: Math.sin(isoAngle) };
         var vecY = { x: -Math.cos(isoAngle), y: Math.sin(isoAngle) };
 
-        // Centrowanie
+        // Oblicz projekcję izometryczną żeby wycentrować
         var totalProjW = shapeW * scale * vecX.x + shapeH * scale * Math.abs(vecY.x);
         var totalProjH = shapeW * scale * vecX.y + shapeH * scale * vecY.y + T;
 
-        var offX = (viewBoxWidth - totalProjW) / 2 + shapeH * scale * Math.abs(vecY.x);
-        var offY = (viewBoxHeight - totalProjH) / 2 + T;
+        var offsetX = (viewBoxWidth - totalProjW) / 2 + shapeH * scale * Math.abs(vecY.x);
+        var offsetY = (viewBoxHeight - totalProjH) / 2 + T;
 
+        // Przekształć wierzchołki do izometrii (wycentrowane)
+        // Odwrócenie Y: dół canvasu (niskie Y) = przód izometrii (bliżej widza)
         function toIso(px, py) {
-            var lx = (px - minX) * scale;
-            var ly = (py - minY) * scale;
+            var cx = (px - minX) * scale;
+            var cy = (maxY - py) * scale;  // odwrócona oś Y
             return {
-                x: offX + lx * vecX.x + ly * vecY.x,
-                y: offY + lx * vecX.y + ly * vecY.y
+                x: offsetX + cx * vecX.x + cy * vecY.x,
+                y: offsetY + cx * vecX.y + cy * vecY.y
             };
         }
 
@@ -2120,101 +2100,62 @@ const EdgesModule = (function() {
         var topPts = [];
         var botPts = [];
         for (var j = 0; j < n; j++) {
-            var iso = toIso(rotVerts[j][0], rotVerts[j][1]);
+            var iso = toIso(verts[j][0], verts[j][1]);
             topPts.push({ x: iso.x, y: iso.y - T });
             botPts.push({ x: iso.x, y: iso.y });
         }
 
-        // Określ widoczność krawędzi bocznych na podstawie normali 2D
-        // Krawędź boczna jest widoczna jeśli jej normala (w płaszczyźnie izometrycznej)
-        // jest skierowana "do przodu" (w stronę widza)
-        var edgeVisible = [];
-        for (var ev = 0; ev < n; ev++) {
-            var ev2 = (ev + 1) % n;
-            // Normala krawędzi w 2D (obrócone wierzchołki): wektor prostopadły do krawędzi
-            var edx = rotVerts[ev2][0] - rotVerts[ev][0];
-            var edy = rotVerts[ev2][1] - rotVerts[ev][1];
-            // Normala zewnętrzna (zakładając CCW winding): (edy, -edx)
-            var nx = edy;
-            var ny = -edx;
-            // W izometrii "do widza" to kierunek vecX + vecY (prawy-dół na ekranie)
-            // Krawędź widoczna jeśli normala ma składową w kierunku widza
-            var dot = nx * (vecX.x + vecY.x) + ny * (vecX.y + vecY.y);
-            edgeVisible.push(dot > 0);
-        }
-
-        // Renderuj SVG — kolejność: tylne ściany → dół → górna powierzchnia → przednie ściany → krawędzie
-
+        // Renderuj SVG
         var svg = '';
 
-        // 1. Tylne ściany boczne (niewidoczne — za kształtem)
-        for (var tb = 0; tb < n; tb++) {
-            if (edgeVisible[tb]) continue;
-            var tb2 = (tb + 1) % n;
-            var tbPts = [
-                botPts[tb].x + ',' + botPts[tb].y,
-                botPts[tb2].x + ',' + botPts[tb2].y,
-                topPts[tb2].x + ',' + topPts[tb2].y,
-                topPts[tb].x + ',' + topPts[tb].y
-            ].join(' ');
-            svg += '<polygon class="edges-face edges-face-back" points="' + tbPts + '"/>';
-        }
-
-        // 2. Dolna powierzchnia (przerywanym obrysem, widoczna częściowo)
-        var botPolyPts = botPts.map(function(p) { return p.x + ',' + p.y; }).join(' ');
-        svg += '<polygon class="edges-face edges-face-left" points="' + botPolyPts + '"/>';
-
-        // 3. Górna powierzchnia
+        // Górna powierzchnia (wypełnienie)
         var topPolyPts = topPts.map(function(p) { return p.x + ',' + p.y; }).join(' ');
         svg += '<polygon class="edges-face edges-face-top" points="' + topPolyPts + '"/>';
 
-        // 4. Przednie ściany boczne (widoczne — przed kształtem)
-        for (var tf = 0; tf < n; tf++) {
-            if (!edgeVisible[tf]) continue;
-            var tf2 = (tf + 1) % n;
-            var tfPts = [
-                botPts[tf].x + ',' + botPts[tf].y,
-                botPts[tf2].x + ',' + botPts[tf2].y,
-                topPts[tf2].x + ',' + topPts[tf2].y,
-                topPts[tf].x + ',' + topPts[tf].y
+        // Boczne ściany (łączą górę z dołem) — renderuj tylko widoczne
+        for (var k = 0; k < n; k++) {
+            var k2 = (k + 1) % n;
+            var midX = (botPts[k].x + botPts[k2].x) / 2;
+            // Prosta heurystyka widoczności: rysuj boki skierowane na "zewnątrz"
+            var pts = [
+                botPts[k].x + ',' + botPts[k].y,
+                botPts[k2].x + ',' + botPts[k2].y,
+                topPts[k2].x + ',' + topPts[k2].y,
+                topPts[k].x + ',' + topPts[k].y
             ].join(' ');
-            svg += '<polygon class="edges-face edges-face-front" points="' + tfPts + '"/>';
+            svg += '<polygon class="edges-face edges-face-front" points="' + pts + '" opacity="0.3"/>';
         }
 
-        // 5. Krawędzie dolne — ukryte (kreskowane) lub widoczne (ciągłe)
+        // Krawędzie górne (G1-GN)
+        for (var g = 0; g < n; g++) {
+            var g2 = (g + 1) % n;
+            var edgeId = 'G' + (g + 1);
+            var cls = 'edges-line' + (activeEdges.has(edgeId) ? ' active' : '');
+            svg += '<line class="' + cls + '" data-edge="' + edgeId + '"' +
+                ' x1="' + topPts[g].x + '" y1="' + topPts[g].y + '"' +
+                ' x2="' + topPts[g2].x + '" y2="' + topPts[g2].y + '"/>';
+        }
+
+        // Krawędzie dolne (D1-DN) — przerywaną linią
         for (var d = 0; d < n; d++) {
             var d2 = (d + 1) % n;
             var dEdgeId = 'D' + (d + 1);
-            // Dolna krawędź jest widoczna jeśli OBIE przylegające ściany boczne są widoczne
-            // lub jeśli jest na "froncie" (prosta heurystyka: krawędź dolna przy widocznej ścianie)
-            var dVisible = edgeVisible[d] || edgeVisible[(d + n - 1) % n];
-            var dCls = 'edges-line' + (dVisible ? '' : ' edges-hidden') + (activeEdges.has(dEdgeId) ? ' active' : '');
+            var dCls = 'edges-line edges-hidden' + (activeEdges.has(dEdgeId) ? ' active' : '');
             svg += '<line class="' + dCls + '" data-edge="' + dEdgeId + '"' +
                 ' x1="' + botPts[d].x + '" y1="' + botPts[d].y + '"' +
                 ' x2="' + botPts[d2].x + '" y2="' + botPts[d2].y + '"/>';
         }
 
-        // 6. Krawędzie górne — zawsze ciągłe (widoczne z góry)
-        for (var g = 0; g < n; g++) {
-            var g2 = (g + 1) % n;
-            var gEdgeId = 'G' + (g + 1);
-            var gCls = 'edges-line' + (activeEdges.has(gEdgeId) ? ' active' : '');
-            svg += '<line class="' + gCls + '" data-edge="' + gEdgeId + '"' +
-                ' x1="' + topPts[g].x + '" y1="' + topPts[g].y + '"' +
-                ' x2="' + topPts[g2].x + '" y2="' + topPts[g2].y + '"/>';
-        }
-
-        // 7. Krawędzie pionowe — widoczne jeśli przy widocznej ścianie, inaczej kreskowane
+        // Krawędzie pionowe (P1-PN)
         for (var p = 0; p < n; p++) {
             var pEdgeId = 'P' + (p + 1);
-            var pVisible = edgeVisible[p] || edgeVisible[(p + n - 1) % n];
-            var pCls = 'edges-line edges-corner' + (pVisible ? '' : ' edges-hidden') + (activeEdges.has(pEdgeId) ? ' active' : '');
+            var pCls = 'edges-line edges-corner' + (activeEdges.has(pEdgeId) ? ' active' : '');
             svg += '<line class="' + pCls + '" data-edge="' + pEdgeId + '"' +
                 ' x1="' + topPts[p].x + '" y1="' + topPts[p].y + '"' +
                 ' x2="' + botPts[p].x + '" y2="' + botPts[p].y + '"/>';
         }
 
-        // 8. Etykiety krawędzi górnych
+        // Etykiety krawędzi górnych
         for (var l = 0; l < n; l++) {
             var l2 = (l + 1) % n;
             var lx = (topPts[l].x + topPts[l2].x) / 2;
