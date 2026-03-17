@@ -524,8 +524,25 @@
                         {% elif item.variant_code == 'buk-micro-ab' %}Klejonka bukowa mikrowczep A/B
                         {% else %}{{ item.variant_code }}
                         {% endif %}
-                        {% if finishing_detail and finishing_detail.shape == 'round' %}
-                        <br><span class="finishing-details" style="color: #e67e22; font-weight: bold;">Kształt: okrągły/owalny</span>
+                        {% set shape_labels = {
+                            'circle': 'Koło',
+                            'ellipse': 'Elipsa',
+                            'round': 'Okrągły/owalny',
+                            'triangle_right': 'Trójkąt prostokątny',
+                            'triangle_equilateral': 'Trójkąt równoboczny',
+                            'triangle_isosceles': 'Trójkąt równoramienny',
+                            'triangle_custom': 'Trójkąt dowolny',
+                            'trapezoid_symmetric': 'Trapez symetryczny',
+                            'trapezoid_asymmetric': 'Trapez niesymetryczny',
+                            'trapezoid_custom': 'Trapez dowolny',
+                            'parallelogram': 'Równoległobok',
+                            'polygon': 'Wielokąt'
+                        } %}
+                        {% if finishing_detail and finishing_detail.shape in shape_labels %}
+                        <br><span class="finishing-details" style="color: #e67e22; font-weight: bold;">Kształt: {{ shape_labels[finishing_detail.shape] }}</span>
+                        {% if finishing_detail.shape_svg %}
+                        <div style="margin-top: 4px;">{{ finishing_detail.shape_svg|safe }}</div>
+                        {% endif %}
                         {% endif %}
 
                         <!-- Wykończenie (malowanie) -->

@@ -253,6 +253,8 @@ class QuoteDraftBackup {
         const selectedVariant = selectedRadio ? selectedRadio.value : null;
 
         const shape = form.dataset.productShape || 'rectangular';
+        const shapeEditor = form._shapeEditor;
+        const shapeData = shapeEditor ? shapeEditor.getShapeData() : null;
 
         const finishingType = form.dataset.finishingType || 'Surowe';
         const finishingVariant = form.dataset.finishingVariant || null;
@@ -287,6 +289,7 @@ class QuoteDraftBackup {
             quantity,
             selectedVariant,
             shape,
+            shape_data: shapeData,
             clientType,
             finishing: {
                 type: finishingType,

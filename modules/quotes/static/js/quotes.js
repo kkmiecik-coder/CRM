@@ -2558,9 +2558,30 @@ function renderVariantSummary(groupedItemsForIndex, quoteData, productIndex) {
         }
     }
 
-    // Badge kształtu okrągłego
-    const shapeDisplay = (finishing && finishing.shape === 'round')
-        ? ' <span style="background:#e67e22;color:#fff;padding:1px 6px;border-radius:4px;font-size:11px;margin-left:4px;">Okrągły</span>'
+    // Badge kształtu
+    const shapeLabels = {
+        'rectangular': null,
+        'circle': 'Koło',
+        'ellipse': 'Elipsa',
+        'round': 'Okrągły',
+        'triangle_right': 'Trójkąt prostokątny',
+        'triangle_equilateral': 'Trójkąt równoboczny',
+        'triangle_isosceles': 'Trójkąt równoramienny',
+        'triangle_custom': 'Trójkąt dowolny',
+        'trapezoid_symmetric': 'Trapez symetryczny',
+        'trapezoid_asymmetric': 'Trapez niesymetryczny',
+        'trapezoid_custom': 'Trapez dowolny',
+        'parallelogram': 'Równoległobok',
+        'polygon': 'Wielokąt'
+    };
+    const shapeLabel = finishing && finishing.shape ? shapeLabels[finishing.shape] : null;
+    const shapeDisplay = shapeLabel
+        ? ` <span style="background:#e67e22;color:#fff;padding:1px 6px;border-radius:4px;font-size:11px;margin-left:4px;">${shapeLabel}</span>`
+        : '';
+
+    // Shape SVG preview
+    const shapeSvgHtml = finishing && finishing.shape_svg
+        ? `<div class="shape-svg-preview" style="margin-top:4px">${finishing.shape_svg}</div>`
         : '';
 
     wrap.innerHTML = `
@@ -2569,6 +2590,7 @@ function renderVariantSummary(groupedItemsForIndex, quoteData, productIndex) {
             <div><strong>Wymiary:</strong> ${dims}</div>
             <div><strong>Objętość:</strong> ${volume}</div>
             <div><strong>Ilość:</strong> ${quantity} szt.</div>
+            ${shapeSvgHtml}
         </div>
         <div class="finishing-column">
             <div class="finishing-info">
