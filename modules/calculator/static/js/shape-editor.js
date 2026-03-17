@@ -103,11 +103,15 @@ var ShapeEditor = (function() {
 
             if (currentShape === 'circle') {
                 form._circleInputHandler = function() {
-                    widthInput.value = lengthInput.value;
+                    widthInput.value = this.value;
+                    // Wymuszenie dispatcha żeby walidacja się odpaliła
+                    widthInput.dispatchEvent(new Event('input', { bubbles: true }));
                 };
                 lengthInput.addEventListener('input', form._circleInputHandler);
                 // Synchronizuj od razu
-                widthInput.value = lengthInput.value;
+                if (lengthInput.value) {
+                    widthInput.value = lengthInput.value;
+                }
             }
         }
 
@@ -217,19 +221,25 @@ var ShapeEditor = (function() {
         // ============================================
 
         function _syncToMainDimensions() {
-            var vertices = canvas ? canvas.getVertices() : null;
-            var bbox = ShapeGeometry.calculateBbox(currentShape, currentParams, vertices);
-
             var lengthInput = form.querySelector('input[data-field="length"]');
             var widthInput = form.querySelector('input[data-field="width"]');
 
             if (currentShape === 'rectangular') {
-                // Prostokąt: length/width widoczne, edytowalne normalnie
                 return;
             }
 
-            // Nie-prostokątne: length/width ukryte (display:none na wrapperze),
-            // ale wartości aktualizowane z bbox do wyceny drewna
+            if (currentShape === 'circle') {
+                // Koło: width = length (średnica)
+                if (lengthInput && widthInput) {
+                    widthInput.value = lengthInput.value;
+                }
+                return;
+            }
+
+            // Nie-prostokątne: length/width z bbox
+            var vertices = canvas ? canvas.getVertices() : null;
+            var bbox = ShapeGeometry.calculateBbox(currentShape, currentParams, vertices);
+
             if (lengthInput) {
                 lengthInput.value = Math.round(bbox.width * 10) / 10;
             }

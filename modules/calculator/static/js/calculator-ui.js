@@ -966,11 +966,33 @@ function generateProductDescription(form, index) {
 
     // Część 1: Gatunek + technologia + klasa + wymiary (bez separatorów między nimi)
     let basicInfo = [];
-    if (form.dataset.productShape === 'round') mainParts.push('Okrągły');
+    const productShape = form.dataset.productShape || 'rectangular';
     if (species) basicInfo.push(species);
     if (technology) basicInfo.push(technology);
     if (woodClass) basicInfo.push(woodClass);
-    basicInfo.push(`${length}×${width}×${thickness} cm`);
+
+    // Wymiary zależne od kształtu
+    if (productShape === 'circle') {
+        basicInfo.push(`\u2300${length}\u00d7${thickness} cm`);
+    } else if (productShape === 'rectangular') {
+        basicInfo.push(`${length}\u00d7${width}\u00d7${thickness} cm`);
+    } else {
+        // Nieregularny kształt — pokaż nazwę kształtu + bbox
+        const shapeLabels = {
+            'triangle_right': 'Trójkąt',
+            'triangle_equilateral': 'Trójkąt',
+            'triangle_isosceles': 'Trójkąt',
+            'triangle_custom': 'Trójkąt',
+            'trapezoid_symmetric': 'Trapez',
+            'trapezoid_asymmetric': 'Trapez',
+            'trapezoid_custom': 'Trapez',
+            'parallelogram': 'Równoległobok',
+            'polygon': 'Wielokąt'
+        };
+        const shapeName = shapeLabels[productShape] || '';
+        if (shapeName) basicInfo.push(shapeName);
+        basicInfo.push(`${length}\u00d7${width}\u00d7${thickness} cm`);
+    }
     mainParts.push(basicInfo.join(' '));
 
     // Część 2: Wykończenie (lub "Surowy" jeśli brak)
