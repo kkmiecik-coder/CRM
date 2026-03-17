@@ -2066,8 +2066,8 @@ const EdgesModule = (function() {
         // Izometryczny rzut — dwa niezależne kąty:
         // angleY: obrót w prawo/lewo (mniejszy = mniej w prawo)
         // angleX: pochylenie do tyłu (widoczność górnej powierzchni)
-        var angleY = 15 * Math.PI / 180;  // obrót w prawo (stopnie)
-        var angleX = 30 * Math.PI / 180;  // pochylenie do tyłu (stopnie)
+        var angleY = 0 * Math.PI / 180;   // obrót w prawo (stopnie)
+        var angleX = 40 * Math.PI / 180;  // pochylenie do tyłu (stopnie)
         var effectiveThickness = Math.max(thickness, Math.max(shapeW, shapeH) * 0.15);
 
         var workWidth = viewBoxWidth - 2 * margin;
