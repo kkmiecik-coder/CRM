@@ -236,8 +236,8 @@ const EdgesModule = (function() {
             if (!btn) return;
             e.preventDefault();
             btn.classList.toggle('labels-hidden');
-            var preview = btn.closest('.edges-preview');
-            var svg = preview ? preview.querySelector('.edges-preview-svg') : null;
+            var section = btn.closest('.edges-section');
+            var svg = section ? section.querySelector('.edges-preview-svg') : null;
             if (svg) {
                 var labelsG = svg.querySelector('.edges-labels');
                 if (labelsG) labelsG.classList.toggle('edges-labels-hidden');
