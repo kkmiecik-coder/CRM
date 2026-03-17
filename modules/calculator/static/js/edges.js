@@ -173,7 +173,8 @@ const EdgesModule = (function() {
         dimensions: { length: 0, width: 0, thickness: 0 },
         labelsVisible: true,
         modalInitialized: false,
-        productShape: 'rectangular' // 'rectangular' lub 'round'
+        productShape: 'rectangular', // 'rectangular' lub 'round'
+        dynamicEdgeDefs: {}  // {G1: {length_cm: 80, group: 'top'}, D1: {...}, P1: {...}}
     };
 
     // ==========================================
@@ -1112,6 +1113,24 @@ const EdgesModule = (function() {
                     horizontalCount++;
                 }
             });
+        } else if (state.productShape !== 'rectangular' && Object.keys(state.dynamicEdgeDefs).length > 0) {
+            // Nieregularny kształt: dynamiczne krawędzie G/D/P
+            state.selectedEdges.forEach(edge => {
+                const def = state.dynamicEdgeDefs[edge];
+                if (!def) return;
+
+                if (def.group === 'vertical') {
+                    // Krawędzie pionowe — cena za grubość
+                    const lengthMb = def.length_cm / 100;
+                    totalNetto += lengthMb * pricePerMb;
+                    cornerCount++;
+                } else {
+                    // Krawędzie górne/dolne — cena za długość
+                    const lengthMb = def.length_cm / 100;
+                    totalNetto += lengthMb * pricePerMb;
+                    horizontalCount++;
+                }
+            });
         } else {
             // Kształt prostokątny: standardowe 12 krawędzi
             state.selectedEdges.forEach(edge => {
@@ -1202,6 +1221,28 @@ const EdgesModule = (function() {
                     length_cm: Math.round(perimeterCm * 100) / 100,
                     is_corner: false,
                     is_round_perimeter: true,
+                    price_netto: Math.round(priceNetto * 100) / 100,
+                    price_brutto: Math.round(priceNetto * CONFIG.VAT_RATE * 100) / 100
+                });
+            });
+        } else if (state.productShape !== 'rectangular' && Object.keys(state.dynamicEdgeDefs).length > 0) {
+            // Nieregularny kształt: dynamiczne krawędzie G/D/P
+            state.selectedEdges.forEach(edge => {
+                const def = state.dynamicEdgeDefs[edge];
+                if (!def) return;
+
+                const lengthCm = def.length_cm;
+                const lengthMm = lengthCm * 10;
+                const priceNetto = (lengthCm / 100) * pricePerMb;
+
+                edgesData.push({
+                    letter: edge,
+                    type: state.edgeType,
+                    r_value: state.rValue,
+                    angle_value: state.edgeType === 'chamfer' ? state.angleValue : null,
+                    length_mm: Math.round(lengthMm * 100) / 100,
+                    length_cm: Math.round(lengthCm * 100) / 100,
+                    is_corner: def.group === 'vertical',
                     price_netto: Math.round(priceNetto * 100) / 100,
                     price_brutto: Math.round(priceNetto * CONFIG.VAT_RATE * 100) / 100
                 });
@@ -1813,6 +1854,15 @@ const EdgesModule = (function() {
         // Krawędzie pionowe P1-PN
         for (var i3 = 0; i3 < n; i3++) {
             edges.push({ id: 'P' + (i3 + 1), group: 'vertical', name: 'Pion ' + (i3 + 1), length: thickness });
+        }
+
+        // Zapisz definicje do state (do calculatePrice)
+        state.dynamicEdgeDefs = {};
+        for (var ei = 0; ei < edges.length; ei++) {
+            state.dynamicEdgeDefs[edges[ei].id] = {
+                length_cm: edges[ei].length,
+                group: edges[ei].group
+            };
         }
 
         // Buduj HTML
