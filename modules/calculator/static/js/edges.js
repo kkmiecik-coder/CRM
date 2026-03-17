@@ -699,7 +699,7 @@ const EdgesModule = (function() {
                 updateSvgEdge(eid, isSelected);
             });
 
-            updatePriceSummary();
+            calculatePrice();
             return;
         } else {
             // Akcje dla kształtu prostokątnego
@@ -1945,7 +1945,7 @@ const EdgesModule = (function() {
                         item.classList.remove('active');
                     }
                     updateSvgEdge(edgeId, this.checked);
-                    updatePriceSummary();
+                    calculatePrice();
                 });
 
                 // Kliknięcie na całą etykietę w SVG
@@ -2407,15 +2407,48 @@ const EdgesModule = (function() {
                 ' x2="' + botPts[p].x + '" y2="' + botPts[p].y + '"/>';
         }
 
-        // Etykiety krawędzi górnych
+        // Etykiety z badge'ami (kółko + tekst) w grupie edgeLabelsGroup
+        svg += '<g class="edges-labels" id="edgeLabelsGroup">';
+
+        // Etykiety górnych krawędzi G1-GN
         for (var l = 0; l < n; l++) {
             var l2 = (l + 1) % n;
             var lx = (topPts[l].x + topPts[l2].x) / 2;
-            var ly = (topPts[l].y + topPts[l2].y) / 2 - 6;
+            var ly = (topPts[l].y + topPts[l2].y) / 2 - 8;
             var lEdgeId = 'G' + (l + 1);
             var lCls = activeEdges.has(lEdgeId) ? ' active' : '';
-            svg += '<text class="edges-label' + lCls + '" x="' + lx + '" y="' + ly + '" text-anchor="middle" font-size="10">' + lEdgeId + '</text>';
+            svg += '<g class="edges-label' + lCls + '" data-edge="' + lEdgeId + '">';
+            svg += '<circle cx="' + lx + '" cy="' + (ly - 2) + '" r="12"/>';
+            svg += '<text x="' + lx + '" y="' + (ly + 2) + '">' + lEdgeId + '</text>';
+            svg += '</g>';
         }
+
+        // Etykiety dolnych krawędzi D1-DN
+        for (var dl = 0; dl < n; dl++) {
+            var dl2 = (dl + 1) % n;
+            var dlx = (botPts[dl].x + botPts[dl2].x) / 2;
+            var dly = (botPts[dl].y + botPts[dl2].y) / 2 + 8;
+            var dlEdgeId = 'D' + (dl + 1);
+            var dlCls = activeEdges.has(dlEdgeId) ? ' active' : '';
+            svg += '<g class="edges-label' + dlCls + '" data-edge="' + dlEdgeId + '">';
+            svg += '<circle cx="' + dlx + '" cy="' + (dly + 2) + '" r="12"/>';
+            svg += '<text x="' + dlx + '" y="' + (dly + 6) + '">' + dlEdgeId + '</text>';
+            svg += '</g>';
+        }
+
+        // Etykiety pionowych krawędzi P1-PN
+        for (var pl = 0; pl < n; pl++) {
+            var plx = (topPts[pl].x + botPts[pl].x) / 2 - 14;
+            var ply = (topPts[pl].y + botPts[pl].y) / 2;
+            var plEdgeId = 'P' + (pl + 1);
+            var plCls = activeEdges.has(plEdgeId) ? ' active' : '';
+            svg += '<g class="edges-label edges-label-corner' + plCls + '" data-edge="' + plEdgeId + '">';
+            svg += '<circle cx="' + plx + '" cy="' + ply + '" r="12"/>';
+            svg += '<text x="' + plx + '" y="' + (ply + 4) + '">' + plEdgeId + '</text>';
+            svg += '</g>';
+        }
+
+        svg += '</g>';
 
         svgEl.innerHTML = svg;
     }
