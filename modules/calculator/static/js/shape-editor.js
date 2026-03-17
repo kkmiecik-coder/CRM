@@ -15,6 +15,8 @@ var ShapeEditor = (function() {
         var redoBtn = form.querySelector('[data-shape-redo]');
         var fitBtn = form.querySelector('[data-shape-fit]');
         var hintEl = form.querySelector('[data-shape-hint]');
+        var lengthWrapper = form.querySelector('[data-dim-field="length-wrapper"]');
+        var widthWrapper = form.querySelector('[data-dim-field="width-wrapper"]');
 
         if (!select || !editorContainer) return null;
 
@@ -56,6 +58,10 @@ var ShapeEditor = (function() {
             var isSimpleRect = (shapeType === 'rectangular');
             editorContainer.classList.toggle('collapsed-canvas', isSimpleRect);
 
+            // Pokaż/ukryj oryginalne inputy length/width
+            if (lengthWrapper) lengthWrapper.style.display = isSimpleRect ? '' : 'none';
+            if (widthWrapper) widthWrapper.style.display = isSimpleRect ? '' : 'none';
+
             if (hintEl) {
                 hintEl.style.display = shapeType === 'polygon' ? '' : 'none';
             }
@@ -82,16 +88,19 @@ var ShapeEditor = (function() {
         function _renderInputs(config) {
             inputsColumn.innerHTML = '';
 
+            // Nie renderuj inputów dla prostokąta (używa natywnych length/width)
+            if (currentShape === 'rectangular') return;
+
             for (var i = 0; i < config.inputs.length; i++) {
                 var input = config.inputs[i];
                 var row = document.createElement('div');
-                row.className = 'shape-input-row';
+                row.className = 'shape-param-field';
                 row.innerHTML =
-                    '<label>' + input.label + ':</label>' +
+                    '<label class="input-txt">' + input.label + ' (' + input.unit + '):</label>' +
                     '<input type="number" step="0.1" min="0.1"' +
                     ' data-shape-param="' + input.key + '"' +
-                    ' value="' + (currentParams[input.key] || '') + '">' +
-                    '<span class="unit">' + input.unit + '</span>';
+                    ' class="input-window"' +
+                    ' value="' + (currentParams[input.key] || '') + '">';
                 inputsColumn.appendChild(row);
             }
 
@@ -190,30 +199,17 @@ var ShapeEditor = (function() {
             var widthInput = form.querySelector('input[data-field="width"]');
 
             if (currentShape === 'rectangular') {
-                if (lengthInput) {
-                    lengthInput.readOnly = false;
-                    lengthInput.style.opacity = '';
-                    lengthInput.style.cursor = '';
-                }
-                if (widthInput) {
-                    widthInput.readOnly = false;
-                    widthInput.style.opacity = '';
-                    widthInput.style.cursor = '';
-                }
+                // Prostokąt: length/width widoczne, edytowalne normalnie
                 return;
             }
 
+            // Nie-prostokątne: length/width ukryte (display:none na wrapperze),
+            // ale wartości aktualizowane z bbox do wyceny drewna
             if (lengthInput) {
                 lengthInput.value = Math.round(bbox.width * 10) / 10;
-                lengthInput.readOnly = true;
-                lengthInput.style.opacity = '0.5';
-                lengthInput.style.cursor = 'not-allowed';
             }
             if (widthInput) {
                 widthInput.value = Math.round(bbox.height * 10) / 10;
-                widthInput.readOnly = true;
-                widthInput.style.opacity = '0.5';
-                widthInput.style.cursor = 'not-allowed';
             }
 
             var area = ShapeGeometry.calculateArea(currentShape, currentParams, vertices);
@@ -294,6 +290,8 @@ var ShapeEditor = (function() {
 
                 var isSimpleRect = (shapeType === 'rectangular');
                 editorContainer.classList.toggle('collapsed-canvas', isSimpleRect);
+                if (lengthWrapper) lengthWrapper.style.display = isSimpleRect ? '' : 'none';
+                if (widthWrapper) widthWrapper.style.display = isSimpleRect ? '' : 'none';
                 if (hintEl) hintEl.style.display = shapeType === 'polygon' ? '' : 'none';
 
                 _renderInputs(config);

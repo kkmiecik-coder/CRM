@@ -269,12 +269,12 @@ class QuoteEditLoader {
                 select.value = mappedShape;
             }
 
-            // Zablokuj length/width dla nie-prostokatnych ksztaltow
+            // Ukryj length/width wrappery dla nie-prostokatnych ksztaltow
             if (mappedShape !== 'rectangular') {
-                const lengthInput = form.querySelector('input[data-field="length"]');
-                const widthInput = form.querySelector('input[data-field="width"]');
-                if (lengthInput) { lengthInput.readOnly = true; lengthInput.style.opacity = '0.5'; lengthInput.style.cursor = 'not-allowed'; }
-                if (widthInput) { widthInput.readOnly = true; widthInput.style.opacity = '0.5'; widthInput.style.cursor = 'not-allowed'; }
+                const lengthWrap = form.querySelector('[data-dim-field="length-wrapper"]');
+                const widthWrap = form.querySelector('[data-dim-field="width-wrapper"]');
+                if (lengthWrap) lengthWrap.style.display = 'none';
+                if (widthWrap) widthWrap.style.display = 'none';
             }
         }
     }

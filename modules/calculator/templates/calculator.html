@@ -142,16 +142,18 @@
                                             <option value="polygon">Wielokąt niestandardowy</option>
                                         </select>
                                     </div>
-                                    <!-- Długość -->
-                                    <div class="lenght">
+                                    <!-- Długość (ukrywane dla nie-prostokątnych) -->
+                                    <div class="lenght" data-dim-field="length-wrapper">
                                         <label for="length" class="input-txt">Długość (cm):</label>
                                         <input type="number" step="0.1" data-field="length" id="length" class="input-window">
                                     </div>
-                                    <!-- Szerokość -->
-                                    <div class="width">
+                                    <!-- Szerokość (ukrywane dla nie-prostokątnych) -->
+                                    <div class="width" data-dim-field="width-wrapper">
                                         <label for="width" class="input-txt">Szerokość (cm):</label>
                                         <input type="number" step="0.1" data-field="width" id="width" class="input-window">
                                     </div>
+                                    <!-- Dynamiczne inputy kształtu (renderowane przez ShapeEditor) -->
+                                    <div class="shape-dynamic-inputs" data-shape-inputs></div>
                                     <!-- Grubość -->
                                     <div class="thickness">
                                         <label for="thickness" class="input-txt">Grubość (cm):</label>
@@ -166,7 +168,6 @@
                             </section>
                             <!-- Shape Editor: inputs + canvas (two-column) -->
                             <div class="shape-editor-container collapsed-canvas" data-shape-editor>
-                                <div class="shape-inputs-column" data-shape-inputs></div>
                                 <div class="shape-canvas-column">
                                     <div class="shape-canvas-wrapper">
                                         <canvas data-shape-canvas></canvas>
