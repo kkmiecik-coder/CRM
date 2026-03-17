@@ -481,6 +481,13 @@ const EdgesModule = (function() {
                 state.dimensions.width,
                 state.dimensions.thickness
             );
+        } else if (state.productShape !== 'rectangular' && state.currentForm._shapeEditor) {
+            // Nieregularny kształt — generuj SVG z wierzchołków
+            showRectangularEdgesUI(); // Reuse rectangular UI layout for now
+            var shapeData = state.currentForm._shapeEditor.getShapeData();
+            if (elements.svg && shapeData && shapeData.vertices) {
+                generateShapePreviewSVG(elements.svg, shapeData, state.dimensions.thickness, new Set(), state.productShape);
+            }
         } else {
             showRectangularEdgesUI();
             generateProportionalSVG(
@@ -1932,6 +1939,10 @@ const EdgesModule = (function() {
 
         if (_isRoundShape(shape)) {
             generateRoundPreviewSVG(svgEl, lengthVal, widthVal, thicknessVal, activeEdges);
+        } else if (shape !== 'rectangular' && form._shapeEditor) {
+            // Nieregularny kształt — renderuj z wierzchołków
+            var shapeData = form._shapeEditor.getShapeData();
+            generateShapePreviewSVG(svgEl, shapeData, thicknessVal, activeEdges, shape);
         } else {
             generateRectPreviewSVG(svgEl, lengthVal, widthVal, thicknessVal, activeEdges);
         }
@@ -2023,6 +2034,126 @@ const EdgesModule = (function() {
             <line class="edges-line" x1="${cx - rx}" y1="${cy}" x2="${cx - rx}" y2="${cy + sT}"/>
             <line class="edges-line" x1="${cx + rx}" y1="${cy}" x2="${cx + rx}" y2="${cy + sT}"/>
         `;
+    }
+
+    /**
+     * Generuje podgląd SVG dla nieregularnych kształtów (trójkąt, trapez, wielokąt, równoległobok)
+     * Widok izometryczny 3D z oznaczeniem krawędzi G/D/P
+     */
+    function generateShapePreviewSVG(svgEl, shapeData, thickness, activeEdges, shapeType) {
+        if (!shapeData || !shapeData.vertices || shapeData.vertices.length < 3) {
+            svgEl.innerHTML = '';
+            return;
+        }
+
+        var verts = shapeData.vertices;
+        var n = verts.length;
+        var viewBoxWidth = 320;
+        var viewBoxHeight = 220;
+
+        // Znajdź bbox wierzchołków
+        var minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+        for (var i = 0; i < n; i++) {
+            if (verts[i][0] < minX) minX = verts[i][0];
+            if (verts[i][1] < minY) minY = verts[i][1];
+            if (verts[i][0] > maxX) maxX = verts[i][0];
+            if (verts[i][1] > maxY) maxY = verts[i][1];
+        }
+        var shapeW = maxX - minX || 1;
+        var shapeH = maxY - minY || 1;
+
+        // Izometryczny rzut
+        var isoAngle = Math.PI / 6;
+        var effectiveThickness = Math.max(thickness, Math.max(shapeW, shapeH) * 0.15);
+
+        var projW = (shapeW + shapeH) * Math.cos(isoAngle);
+        var projH = (shapeW + shapeH) * Math.sin(isoAngle) + effectiveThickness;
+        var scale = Math.min((viewBoxWidth - 40) / projW, (viewBoxHeight - 40) / projH) * 0.8;
+
+        var T = effectiveThickness * scale;
+        var vecX = { x: Math.cos(isoAngle), y: Math.sin(isoAngle) };
+        var vecY = { x: -Math.cos(isoAngle), y: Math.sin(isoAngle) };
+
+        // Przekształć wierzchołki do izometrii
+        function toIso(px, py) {
+            var cx = (px - minX) * scale;
+            var cy = (py - minY) * scale;
+            return {
+                x: 60 + cx * vecX.x + cy * vecY.x,
+                y: 30 + T + cx * vecX.y + cy * vecY.y
+            };
+        }
+
+        // Wierzchołki górnej i dolnej płaszczyzny
+        var topPts = [];
+        var botPts = [];
+        for (var j = 0; j < n; j++) {
+            var iso = toIso(verts[j][0], verts[j][1]);
+            topPts.push({ x: iso.x, y: iso.y - T });
+            botPts.push({ x: iso.x, y: iso.y });
+        }
+
+        // Renderuj SVG
+        var svg = '';
+
+        // Górna powierzchnia (wypełnienie)
+        var topPolyPts = topPts.map(function(p) { return p.x + ',' + p.y; }).join(' ');
+        svg += '<polygon class="edges-face edges-face-top" points="' + topPolyPts + '"/>';
+
+        // Boczne ściany (łączą górę z dołem) — renderuj tylko widoczne
+        for (var k = 0; k < n; k++) {
+            var k2 = (k + 1) % n;
+            var midX = (botPts[k].x + botPts[k2].x) / 2;
+            // Prosta heurystyka widoczności: rysuj boki skierowane na "zewnątrz"
+            var pts = [
+                botPts[k].x + ',' + botPts[k].y,
+                botPts[k2].x + ',' + botPts[k2].y,
+                topPts[k2].x + ',' + topPts[k2].y,
+                topPts[k].x + ',' + topPts[k].y
+            ].join(' ');
+            svg += '<polygon class="edges-face edges-face-front" points="' + pts + '" opacity="0.3"/>';
+        }
+
+        // Krawędzie górne (G1-GN)
+        for (var g = 0; g < n; g++) {
+            var g2 = (g + 1) % n;
+            var edgeId = 'G' + (g + 1);
+            var cls = 'edges-line' + (activeEdges.has(edgeId) ? ' active' : '');
+            svg += '<line class="' + cls + '" data-edge="' + edgeId + '"' +
+                ' x1="' + topPts[g].x + '" y1="' + topPts[g].y + '"' +
+                ' x2="' + topPts[g2].x + '" y2="' + topPts[g2].y + '"/>';
+        }
+
+        // Krawędzie dolne (D1-DN) — przerywaną linią
+        for (var d = 0; d < n; d++) {
+            var d2 = (d + 1) % n;
+            var dEdgeId = 'D' + (d + 1);
+            var dCls = 'edges-line edges-hidden' + (activeEdges.has(dEdgeId) ? ' active' : '');
+            svg += '<line class="' + dCls + '" data-edge="' + dEdgeId + '"' +
+                ' x1="' + botPts[d].x + '" y1="' + botPts[d].y + '"' +
+                ' x2="' + botPts[d2].x + '" y2="' + botPts[d2].y + '"/>';
+        }
+
+        // Krawędzie pionowe (P1-PN)
+        for (var p = 0; p < n; p++) {
+            var pEdgeId = 'P' + (p + 1);
+            var pCls = 'edges-line edges-corner' + (activeEdges.has(pEdgeId) ? ' active' : '');
+            svg += '<line class="' + pCls + '" data-edge="' + pEdgeId + '"' +
+                ' x1="' + topPts[p].x + '" y1="' + topPts[p].y + '"' +
+                ' x2="' + botPts[p].x + '" y2="' + botPts[p].y + '"/>';
+        }
+
+        // Etykiety krawędzi górnych
+        for (var l = 0; l < n; l++) {
+            var l2 = (l + 1) % n;
+            var lx = (topPts[l].x + topPts[l2].x) / 2;
+            var ly = (topPts[l].y + topPts[l2].y) / 2 - 6;
+            var lEdgeId = 'G' + (l + 1);
+            var lCls = activeEdges.has(lEdgeId) ? ' active' : '';
+            svg += '<text class="edges-label' + lCls + '" x="' + lx + '" y="' + ly + '" text-anchor="middle" font-size="10">' + lEdgeId + '</text>';
+        }
+
+        svgEl.innerHTML = svg;
     }
 
     // ==========================================
