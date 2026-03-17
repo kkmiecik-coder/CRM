@@ -199,9 +199,9 @@
     position: relative;
 }
 
+/* Przycisk oczka — styl jak "+ Dodaj" */
 .edges-preview-toggle-labels {
-    background: transparent;
-    border: 1px solid #ccc;
+    border: 1px solid #ED6B24;
     border-radius: 6px;
     width: 32px;
     height: 32px;
@@ -209,18 +209,28 @@
     align-items: center;
     justify-content: center;
     cursor: pointer;
-    color: #888;
     padding: 0;
     flex-shrink: 0;
+    background: #ED6B24;
+    color: white;
+    transition: all 0.2s ease;
 }
 
 .edges-preview-toggle-labels:hover {
-    color: #e67e22;
-    border-color: #e67e22;
+    transform: translateY(-1px);
+    box-shadow: 0 2px 4px rgba(237, 107, 36, 0.2);
 }
 
+/* Etykiety wyłączone — szary */
 .edges-preview-toggle-labels.labels-hidden {
-    opacity: 0.4;
+    background: transparent;
+    border-color: #ccc;
+    color: #888;
+}
+
+.edges-preview-toggle-labels.labels-hidden:hover {
+    border-color: #ED6B24;
+    color: #ED6B24;
 }
 
 .edges-preview-svg {

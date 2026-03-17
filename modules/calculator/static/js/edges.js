@@ -230,20 +230,22 @@ const EdgesModule = (function() {
             updateEdgesPreview(form);
         });
 
-        // Przycisk oczka w preview — toggle etykiet
+        // Przycisk oczka w preview — toggle etykiet (globalny na wszystkich produktach)
         document.addEventListener('click', function(e) {
             var btn = e.target.closest('.edges-preview-toggle-labels');
             if (!btn) return;
             e.preventDefault();
-            btn.classList.toggle('labels-hidden');
-            var section = btn.closest('.edges-section');
-            var svg = section ? section.querySelector('.edges-preview-svg') : null;
-            if (svg) {
-                var labelsG = svg.querySelector('.edges-labels');
-                if (labelsG) labelsG.classList.toggle('edges-labels-hidden');
-            }
-            // Synchronizuj z modalem
-            state.labelsVisible = !btn.classList.contains('labels-hidden');
+
+            // Toggle globalny stan
+            state.labelsVisible = !state.labelsVisible;
+
+            // Aktualizuj wszystkie przyciski oczka i SVG we wszystkich produktach
+            document.querySelectorAll('.edges-preview-toggle-labels').forEach(function(b) {
+                b.classList.toggle('labels-hidden', !state.labelsVisible);
+            });
+            document.querySelectorAll('.edges-preview-svg .edges-labels').forEach(function(g) {
+                g.classList.toggle('edges-labels-hidden', !state.labelsVisible);
+            });
         });
 
     }
@@ -2210,6 +2212,12 @@ const EdgesModule = (function() {
             generateShapePreviewSVG(svgEl, shapeData, thicknessVal, activeEdges, shape);
         } else {
             generateRectPreviewSVG(svgEl, lengthVal, widthVal, thicknessVal, activeEdges);
+        }
+
+        // Zastosuj globalny stan etykiet po przebudowie SVG
+        if (!state.labelsVisible) {
+            var labelsG = svgEl.querySelector('.edges-labels');
+            if (labelsG) labelsG.classList.add('edges-labels-hidden');
         }
     }
 
