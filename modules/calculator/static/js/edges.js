@@ -498,6 +498,9 @@ const EdgesModule = (function() {
             );
         }
 
+        // Re-cache labelsGroup po każdym przebudowaniu SVG
+        elements.labelsGroup = document.getElementById('edgeLabelsGroup');
+
         // Aktualizuj długości krawędzi w UI
         updateEdgeLengths();
 
