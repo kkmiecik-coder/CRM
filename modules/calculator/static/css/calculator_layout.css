@@ -626,16 +626,17 @@
     min-width: 300px;
 }
 
-/* Canvas kształtu — obok sekcji Produkt, wypełnia resztę szerokości */
+/* Canvas kształtu — obok sekcji Produkt, max szerokość */
 .workspace-row-1 .shape-editor-container {
     flex: 1 1 0;
-    min-width: 300px;
+    min-width: 400px;
+    max-width: 1000px;
 }
 
-/* Gdy canvas widoczny — kalkulacja na pełną szerokość pod spodem */
+/* Gdy canvas widoczny na szerokim ekranie — kalkulacja obok */
 .quote-form.shape-canvas-active .workspace-row-1 .calculations-main {
-    flex: 0 0 100%;
-    min-width: 0;
+    flex: 1 1 300px;
+    min-width: 300px;
 }
 
 /* Wiersz 2: [Wykończenie + Krawędzie] + Podsumowanie */

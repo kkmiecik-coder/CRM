@@ -446,9 +446,13 @@ function updatePrices() {
         showErrorForAllVariants(errorMsg, variantContainer);
         activeQuoteForm.dataset.orderBrutto = "";
         activeQuoteForm.dataset.orderNetto = "";
+        activeQuoteForm.dataset.outOfRange = "true";
+        activeQuoteForm.dataset.errorMessage = errorMsg;
         updateGlobalSummary();
         return;
     }
+    // Wyczyść błąd gdy wymiary poprawne
+    delete activeQuoteForm.dataset.errorMessage;
 
     const singleVolume = calculateSingleVolume(length, width, Math.ceil(thickness));
     // Flexible partner używa selecta, standardowy partner używa userMultiplier

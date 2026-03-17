@@ -874,11 +874,36 @@ function generateProductDescription(form, index) {
     const isOutOfRange = form.dataset.outOfRange === "true";
 
     if (isOutOfRange) {
-        return { main: `Produkt poza zakresem`, sub: "" };
+        var errorMsg = form.dataset.errorMessage || '';
+        var errorDetail = '';
+        if (errorMsg) {
+            // Rozwiń skróty na pełne komunikaty
+            var errorMap = {
+                'Dług. poza zakr.': 'Długość poza zakresem cennika',
+                'Szer. poza zakr.': 'Szerokość poza zakresem cennika',
+                'Grub. poza zakr.': 'Grubość poza zakresem cennika',
+                'Brak dług.': 'Brak długości',
+                'Brak szer.': 'Brak szerokości',
+                'Brak grub.': 'Brak grubości',
+                'Brak ilości': 'Brak ilości',
+                'Brak grupy': 'Brak grupy cenowej'
+            };
+            errorDetail = errorMap[errorMsg] || errorMsg;
+        }
+        return { main: errorDetail || 'Produkt poza zakresem', sub: "" };
     }
 
     if (!isComplete) {
-        return { main: `Dokończ wycenę produktu`, sub: "" };
+        // Sprawdź co dokładnie brakuje
+        var missing = [];
+        if (!form.querySelector('[data-field="length"]')?.value) missing.push('długość');
+        if (!form.querySelector('[data-field="width"]')?.value) missing.push('szerokość');
+        if (!form.querySelector('[data-field="thickness"]')?.value) missing.push('grubość');
+        if (!form.querySelector('[data-field="quantity"]')?.value) missing.push('ilość');
+        if (!form.querySelector('.variants input[type="radio"]:checked')) missing.push('wariant');
+
+        var missingText = missing.length > 0 ? 'Brak: ' + missing.join(', ') : 'Dokończ wycenę produktu';
+        return { main: missingText, sub: "" };
     }
 
     const length = form.querySelector('[data-field="length"]')?.value;
