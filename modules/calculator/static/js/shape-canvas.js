@@ -14,7 +14,7 @@ var ShapeCanvas = (function() {
             offsetX: 0,
             offsetY: 0,
             scale: 3,
-            gridLevels: [0.1, 1, 10, 20, 30, 50, 100],
+            gridLevels: [0.1, 0.5, 1, 5, 10, 20, 30, 50, 100],
             currentGridCm: 1,
             dragVertex: -1,
             isPanning: false,
@@ -38,7 +38,11 @@ var ShapeCanvas = (function() {
         function resize() {
             var rect = canvasElement.parentElement.getBoundingClientRect();
             state.width = rect.width;
-            state.height = Math.max(200, Math.min(rect.width * 0.6, 350));
+            // Dopasuj wysokość do sekcji Produkt
+            var form = canvasElement.closest('.quote-form');
+            var productSection = form ? form.querySelector('.product-data') : null;
+            var productH = productSection ? productSection.offsetHeight : 0;
+            state.height = productH > 50 ? productH : 400;
             canvasElement.width = state.width * state.dpr;
             canvasElement.height = state.height * state.dpr;
             canvasElement.style.height = state.height + 'px';
@@ -63,7 +67,7 @@ var ShapeCanvas = (function() {
         // ============================================
 
         function _selectGridSpacing() {
-            var minPx = 15, maxPx = 80;
+            var minPx = 8, maxPx = 80;
             for (var g = 0; g < state.gridLevels.length; g++) {
                 var cm = state.gridLevels[g];
                 var px = cm * state.scale;
@@ -91,11 +95,11 @@ var ShapeCanvas = (function() {
             var cmLeft = cmLeftBottom[0], cmBottom = cmLeftBottom[1];
             var cmRight = cmRightTop[0], cmTop = cmRightTop[1];
 
-            ctx.strokeStyle = 'rgba(255, 255, 255, 0.06)';
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.22)';
             ctx.lineWidth = 0.5;
             _drawGridLines(cmLeft, cmRight, cmBottom, cmTop, minor);
 
-            ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
             ctx.lineWidth = 0.5;
             _drawGridLines(cmLeft, cmRight, cmBottom, cmTop, major);
         }
@@ -122,6 +126,208 @@ var ShapeCanvas = (function() {
         // SHAPE RENDERING
         // ============================================
 
+        function _renderBbox() {
+            if (state.shapeType === 'rectangular' || state.shapeType === 'circle') return;
+            var verts = state.vertices;
+            if (!verts || verts.length < 3) return;
+
+            var bbox = ShapeGeometry.calculateBbox(state.shapeType, state.params, verts);
+            if (bbox.width <= 0 || bbox.height <= 0) return;
+
+            var bMinX = Infinity, bMinY = Infinity;
+            for (var i = 0; i < verts.length; i++) {
+                if (verts[i][0] < bMinX) bMinX = verts[i][0];
+                if (verts[i][1] < bMinY) bMinY = verts[i][1];
+            }
+
+            var p1 = cmToPixel(bMinX, bMinY);
+            var p2 = cmToPixel(bMinX + bbox.width, bMinY);
+            var p3 = cmToPixel(bMinX + bbox.width, bMinY + bbox.height);
+            var p4 = cmToPixel(bMinX, bMinY + bbox.height);
+
+            ctx.beginPath();
+            ctx.moveTo(p1[0], p1[1]);
+            ctx.lineTo(p2[0], p2[1]);
+            ctx.lineTo(p3[0], p3[1]);
+            ctx.lineTo(p4[0], p4[1]);
+            ctx.closePath();
+            ctx.fillStyle = 'rgba(230, 126, 34, 0.15)';
+            ctx.fill();
+            ctx.strokeStyle = 'rgba(230, 126, 34, 0.7)';
+            ctx.lineWidth = 1;
+            ctx.setLineDash([4, 4]);
+            ctx.stroke();
+            ctx.setLineDash([]);
+
+            // Wymiary bounding boxa — pomijaj jeśli krawędź bbox pokrywa się z krawędzią kształtu
+            var bboxW = Math.round(bbox.width * 10) / 10;
+            var bboxH = Math.round(bbox.height * 10) / 10;
+            var bMaxX = bMinX + bbox.width;
+            var bMaxY = bMinY + bbox.height;
+            var tolerance = 0.05;
+
+            // Sprawdź czy dolna krawędź bbox pokrywa się z krawędzią kształtu
+            var bottomEdgeOverlaps = false;
+            var rightEdgeOverlaps = false;
+            for (var ei = 0; ei < verts.length; ei++) {
+                var ej = (ei + 1) % verts.length;
+                var v1 = verts[ei], v2 = verts[ej];
+                // Dolna: oba wierzchołki na Y=bMinY i rozciągają się na całą szerokość bbox
+                if (Math.abs(v1[1] - bMinY) < tolerance && Math.abs(v2[1] - bMinY) < tolerance) {
+                    var edgeMinX = Math.min(v1[0], v2[0]);
+                    var edgeMaxX = Math.max(v1[0], v2[0]);
+                    if (Math.abs(edgeMinX - bMinX) < tolerance && Math.abs(edgeMaxX - bMaxX) < tolerance) {
+                        bottomEdgeOverlaps = true;
+                    }
+                }
+                // Prawa: oba wierzchołki na X=bMaxX i rozciągają się na całą wysokość bbox
+                if (Math.abs(v1[0] - bMaxX) < tolerance && Math.abs(v2[0] - bMaxX) < tolerance) {
+                    var edgeMinY = Math.min(v1[1], v2[1]);
+                    var edgeMaxY = Math.max(v1[1], v2[1]);
+                    if (Math.abs(edgeMinY - bMinY) < tolerance && Math.abs(edgeMaxY - bMaxY) < tolerance) {
+                        rightEdgeOverlaps = true;
+                    }
+                }
+            }
+
+            if (!bottomEdgeOverlaps) {
+                _renderSingleDimension(bMinX, bMinY, bMaxX, bMinY, bboxW + ' cm', 'Formatka');
+            }
+            if (!rightEdgeOverlaps) {
+                _renderSingleDimension(bMaxX, bMinY, bMaxX, bMaxY, bboxH + ' cm', 'Formatka', 40);
+            }
+
+            // Klamerki: dla każdego wierzchołka rzutujemy na krawędzie bbox
+            // i rysujemy klamerkę od rogu bbox do rzutu wierzchołka
+
+            // Linie prowadzące: od wierzchołków kształtu do krawędzi bbox
+            ctx.save();
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
+            ctx.lineWidth = 1.5;
+            ctx.setLineDash([6, 6]);
+            for (var gi = 0; gi < verts.length; gi++) {
+                var gvx = verts[gi][0], gvy = verts[gi][1];
+                var isOnBboxCorner = (Math.abs(gvx - bMinX) < tolerance || Math.abs(gvx - bMaxX) < tolerance)
+                    && (Math.abs(gvy - bMinY) < tolerance || Math.abs(gvy - bMaxY) < tolerance);
+                if (isOnBboxCorner) continue;
+
+                // Linia pionowa w górę — tylko jeśli wierzchołek NIE leży na lewej/prawej krawędzi bbox
+                var onLeftOrRight = Math.abs(gvx - bMinX) < tolerance || Math.abs(gvx - bMaxX) < tolerance;
+                if (!onLeftOrRight && Math.abs(gvy - bMaxY) > tolerance) {
+                    var gp1 = cmToPixel(gvx, gvy);
+                    var gp2 = cmToPixel(gvx, bMaxY);
+                    ctx.beginPath(); ctx.moveTo(gp1[0], gp1[1]); ctx.lineTo(gp2[0], gp2[1]); ctx.stroke();
+                }
+                // Linia pozioma w prawo — tylko jeśli wierzchołek NIE leży na dolnej/górnej krawędzi bbox
+                var onTopOrBottom = Math.abs(gvy - bMinY) < tolerance || Math.abs(gvy - bMaxY) < tolerance;
+                if (!onTopOrBottom && Math.abs(gvx - bMaxX) > tolerance) {
+                    var gp3 = cmToPixel(gvx, gvy);
+                    var gp4 = cmToPixel(bMaxX, gvy);
+                    ctx.beginPath(); ctx.moveTo(gp3[0], gp3[1]); ctx.lineTo(gp4[0], gp4[1]); ctx.stroke();
+                }
+            }
+            ctx.restore();
+
+            // Zbierz unikalne pozycje X i Y wierzchołków (rzuty na krawędzie)
+            var xPositions = []; // rzuty na dolną/górną krawędź
+            var yPositions = []; // rzuty na lewą/prawą krawędź
+
+            for (var bi = 0; bi < verts.length; bi++) {
+                var vx = verts[bi][0], vy = verts[bi][1];
+                // Rzut X na dolną krawędź — pomijaj jeśli w rogu bbox
+                if (Math.abs(vx - bMinX) > tolerance && Math.abs(vx - bMaxX) > tolerance) {
+                    xPositions.push(vx);
+                }
+                // Rzut Y na lewą krawędź — pomijaj jeśli w rogu bbox
+                if (Math.abs(vy - bMinY) > tolerance && Math.abs(vy - bMaxY) > tolerance) {
+                    yPositions.push(vy);
+                }
+            }
+
+            // Sortuj i usuń duplikaty
+            xPositions.sort(function(a, b) { return a - b; });
+            yPositions.sort(function(a, b) { return a - b; });
+
+            // Klamerki na górnej krawędzi bbox (poziome) — każda kolejna wyżej
+            for (var xi = 0; xi < xPositions.length; xi++) {
+                var xDist = xPositions[xi] - bMinX;
+                if (xDist > tolerance) {
+                    _renderBracket(bMinX, bMaxY, xPositions[xi], bMaxY, 'top', xDist, xi);
+                }
+            }
+
+            // Klamerki na prawej krawędzi bbox (pionowe) — każda kolejna bardziej w prawo
+            for (var yi = 0; yi < yPositions.length; yi++) {
+                var yDist = yPositions[yi] - bMinY;
+                if (yDist > tolerance) {
+                    _renderBracket(bMaxX, bMinY, bMaxX, yPositions[yi], 'right', yDist, yi);
+                }
+            }
+        }
+
+        // Rysuje klamerkę wymiarową |----wymiar----|
+        function _renderBracket(x1cm, y1cm, x2cm, y2cm, side, distCm, level) {
+            var p1 = cmToPixel(x1cm, y1cm);
+            var p2 = cmToPixel(x2cm, y2cm);
+            var baseOffset = 14;
+            var levelSpacing = 28; // px odstęp między kolejnymi klamerkami
+            var offset = baseOffset + (level || 0) * levelSpacing;
+            var tick = 6;    // px kreski |
+
+            var ox = 0, oy = 0;
+            if (side === 'bottom') oy = offset;
+            else if (side === 'top') oy = -offset;
+            else if (side === 'left') ox = -offset;
+            else if (side === 'right') ox = offset;
+
+            var tx = 0, ty = 0;
+            if (side === 'bottom' || side === 'top') { ty = tick; }
+            else { tx = tick; }
+
+            var sx = p1[0] + ox, sy = p1[1] + oy;
+            var ex = p2[0] + ox, ey = p2[1] + oy;
+
+            ctx.save();
+            ctx.strokeStyle = '#e67e22';
+            ctx.lineWidth = 2;
+            ctx.setLineDash([]);
+
+            ctx.beginPath();
+            ctx.moveTo(sx, sy);
+            ctx.lineTo(ex, ey);
+            ctx.stroke();
+
+            ctx.beginPath();
+            ctx.moveTo(sx - tx, sy - ty);
+            ctx.lineTo(sx + tx, sy + ty);
+            ctx.stroke();
+
+            ctx.beginPath();
+            ctx.moveTo(ex - tx, ey - ty);
+            ctx.lineTo(ex + tx, ey + ty);
+            ctx.stroke();
+
+            var label = (Math.round(distCm * 10) / 10) + ' cm';
+            var mx = (sx + ex) / 2;
+            var my = (sy + ey) / 2;
+            ctx.font = 'bold 11px sans-serif';
+            ctx.fillStyle = '#e67e22';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+
+            if (side === 'right' || side === 'left') {
+                // Pionowe klamerki — tekst obrócony o 90° w prawo
+                var rotOx = (side === 'right' ? 14 : -14);
+                ctx.translate(mx + rotOx, my);
+                ctx.rotate(Math.PI / 2);
+                ctx.fillText(label, 0, 0);
+            } else {
+                var labelOy = (side === 'bottom' ? 12 : -12);
+                ctx.fillText(label, mx, my + labelOy);
+            }
+            ctx.restore();
+        }
+
         function _renderShape() {
             if (state.shapeType === 'circle' || state.shapeType === 'ellipse') {
                 _renderEllipse();
@@ -129,6 +335,9 @@ var ShapeCanvas = (function() {
             }
             var verts = state.vertices;
             if (!verts || verts.length < 2) return;
+
+            // Bounding box (pod kształtem)
+            _renderBbox();
 
             ctx.beginPath();
             var start = cmToPixel(verts[0][0], verts[0][1]);
@@ -138,7 +347,7 @@ var ShapeCanvas = (function() {
                 ctx.lineTo(pt[0], pt[1]);
             }
             ctx.closePath();
-            ctx.fillStyle = 'rgba(230, 126, 34, 0.15)';
+            ctx.fillStyle = 'rgba(230, 126, 34, 0.35)';
             ctx.fill();
 
             ctx.strokeStyle = '#e67e22';
@@ -161,7 +370,7 @@ var ShapeCanvas = (function() {
 
             ctx.beginPath();
             ctx.ellipse(center[0], center[1], rx, ry, 0, 0, 2 * Math.PI);
-            ctx.fillStyle = 'rgba(230, 126, 34, 0.15)';
+            ctx.fillStyle = 'rgba(230, 126, 34, 0.35)';
             ctx.fill();
             ctx.strokeStyle = '#e67e22';
             ctx.lineWidth = 2;
@@ -214,33 +423,82 @@ var ShapeCanvas = (function() {
             }
         }
 
-        function _renderSingleDimension(x1, y1, x2, y2, label, edgeId) {
+        function _renderSingleDimension(x1, y1, x2, y2, label, edgeId, offsetOverride) {
             var p1 = cmToPixel(x1, y1);
             var p2 = cmToPixel(x2, y2);
-            var mx = (p1[0] + p2[0]) / 2;
-            var my = (p1[1] + p2[1]) / 2;
 
             ctx.save();
 
             var dx = p2[0] - p1[0], dy = p2[1] - p1[1];
             var len = Math.sqrt(dx * dx + dy * dy);
             if (len < 1) { ctx.restore(); return; }
-            // Offset prostopadły do krawędzi — zwiększony z 14 na 22
-            var nx = -dy / len * 22, ny = dx / len * 22;
+            var dist = offsetOverride || 22;
+            var nx = -dy / len * dist, ny = dx / len * dist;
+
+            // Pozycja wymiaru: domyślnie środek krawędzi
+            var mx = (p1[0] + p2[0]) / 2;
+            var my = (p1[1] + p2[1]) / 2;
+
+            // Sticky: przytrzymaj wymiar w widocznym obszarze canvasu
+            // Jeśli środek krawędzi wychodzi poza canvas, przesuń wymiar wzdłuż krawędzi
+            var pad = 15; // margines od krawędzi canvasu
+            var labelX = mx + nx;
+            var labelY = my + ny;
+
+            // Clamp pozycji wzdłuż krawędzi (parametr t: 0=p1, 1=p2)
+            // Oblicz t dla którego label jest w widocznym obszarze
+            if (edgeId && len > 10) {
+                // Znajdź zakres t dla którego punkt na krawędzi + offset mieści się w canvasie
+                var bestT = 0.5; // domyślnie środek
+                var candidateX = p1[0] + bestT * dx + nx;
+                var candidateY = p1[1] + bestT * dy + ny;
+
+                // Sprawdź czy środek jest w widocznym obszarze
+                var inBounds = candidateX > pad && candidateX < state.width - pad
+                            && candidateY > pad && candidateY < state.height - pad;
+
+                if (!inBounds) {
+                    // Szukaj najlepszego t żeby label był w canvasie
+                    // Próbkuj wzdłuż krawędzi
+                    var found = false;
+                    for (var st = 0.02; st <= 0.98; st += 0.02) {
+                        var cx = p1[0] + st * dx + nx;
+                        var cy = p1[1] + st * dy + ny;
+                        if (cx > pad && cx < state.width - pad && cy > pad && cy < state.height - pad) {
+                            bestT = st;
+                            found = true;
+                            // Preferuj punkt bliżej środka
+                            if (st >= 0.45) break;
+                        }
+                    }
+                    if (!found) {
+                        // Krawędź całkowicie poza ekranem — nie rysuj
+                        ctx.restore();
+                        return;
+                    }
+                }
+
+                labelX = p1[0] + bestT * dx + nx;
+                labelY = p1[1] + bestT * dy + ny;
+
+                // Finalny clamp do granic canvasu
+                labelX = Math.max(pad, Math.min(state.width - pad, labelX));
+                labelY = Math.max(pad, Math.min(state.height - pad, labelY));
+            }
 
             // Wymiar
             ctx.font = '11px sans-serif';
             ctx.fillStyle = '#e67e22';
             ctx.textAlign = 'center';
             ctx.textBaseline = 'bottom';
-            ctx.fillText(label, mx + nx, my + ny);
+            ctx.fillText(label, labelX, labelY);
 
             // Oznaczenie boku (G1, G2...) — pod wymiarem
             if (edgeId) {
                 ctx.font = 'bold 10px sans-serif';
                 ctx.fillStyle = 'rgba(230, 126, 34, 0.6)';
                 ctx.textBaseline = 'top';
-                ctx.fillText(edgeId, mx + nx, my + ny + 2);
+                ctx.fillText(edgeId, labelX, labelY + 2);
             }
 
             ctx.restore();
@@ -511,9 +769,32 @@ var ShapeCanvas = (function() {
             var bbox = ShapeGeometry.calculateBbox(state.shapeType, state.params, state.vertices);
             if (bbox.width <= 0 || bbox.height <= 0) return;
 
-            var margin = 0.1;
-            var availW = state.width * (1 - 2 * margin);
-            var availH = state.height * (1 - 2 * margin);
+            // Policz klamerki (wierzchołki nie w rogach bbox)
+            var bracketCountX = 0, bracketCountY = 0;
+            var isSimple = (state.shapeType === 'rectangular' || state.shapeType === 'circle');
+            if (!isSimple && state.vertices) {
+                var bMinXc = state.vertices.reduce(function(m, v) { return Math.min(m, v[0]); }, Infinity);
+                var bMinYc = state.vertices.reduce(function(m, v) { return Math.min(m, v[1]); }, Infinity);
+                var bMaxXc = bMinXc + bbox.width;
+                var bMaxYc = bMinYc + bbox.height;
+                var tol = 0.3;
+                for (var fi = 0; fi < state.vertices.length; fi++) {
+                    var fvx = state.vertices[fi][0], fvy = state.vertices[fi][1];
+                    if (Math.abs(fvx - bMinXc) > tol && Math.abs(fvx - bMaxXc) > tol) bracketCountX++;
+                    if (Math.abs(fvy - bMinYc) > tol && Math.abs(fvy - bMaxYc) > tol) bracketCountY++;
+                }
+            }
+
+            // Dodatkowy margines na klamerki i wymiary (px)
+            var bracketSpacing = 28;
+            var extraRight = isSimple ? 30 : (bracketCountY * bracketSpacing + 60);
+            var extraTop = isSimple ? 30 : (bracketCountX * bracketSpacing + 40);
+            var extraBottom = 60; // margines na wymiar dolny formatki
+            var extraLeft = 30;
+
+            // Oblicz skalę żeby kształt + marginesy zmieścił się w canvasie
+            var availW = state.width - extraLeft - extraRight;
+            var availH = state.height - extraTop - extraBottom;
 
             state.scale = Math.min(availW / bbox.width, availH / bbox.height);
             state.scale = Math.max(0.1, Math.min(100, state.scale));
@@ -525,8 +806,15 @@ var ShapeCanvas = (function() {
             }
             var shapePixelW = bbox.width * state.scale;
             var shapePixelH = bbox.height * state.scale;
-            state.offsetX = (state.width - shapePixelW) / 2 - minX * state.scale;
-            state.offsetY = (state.height - shapePixelH) / 2 - minY * state.scale;
+
+            // Centruj: kształt + klamerki jako całość
+            // Canvas Y jest odwrócony (cmToPixel: screenY = height - cmY*scale - offsetY)
+            // offsetX: pozycja lewej krawędzi kształtu
+            // offsetY: pozycja dolnej krawędzi kształtu (w odwróconym Y)
+            var totalW = shapePixelW + extraRight;
+            var totalH = shapePixelH + extraTop;
+            state.offsetX = (state.width - totalW) / 2 + extraLeft / 2 - minX * state.scale;
+            state.offsetY = (state.height - totalH) / 2 + extraBottom / 2 - minY * state.scale;
 
             render();
         }
@@ -617,8 +905,12 @@ var ShapeCanvas = (function() {
         // INIT
         // ============================================
 
-        var resizeObserver = new ResizeObserver(function() { resize(); });
+        var resizeObserver = new ResizeObserver(function() { resize(); fitToView(); });
         resizeObserver.observe(canvasElement.parentElement);
+        // Obserwuj też sekcję Produkt — zmiana inputów zmienia jej wysokość
+        var form = canvasElement.closest('.quote-form');
+        var productSection = form ? form.querySelector('.product-data') : null;
+        if (productSection) resizeObserver.observe(productSection);
         resize();
 
         return {

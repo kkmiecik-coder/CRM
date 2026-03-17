@@ -123,10 +123,9 @@
                                     <!-- Kształt produktu -->
                                     <div class="product-shape">
                                         <label class="input-txt">Kształt:</label>
-                                        <select class="shape-select" data-field="shapeSelect">
+                                        <select class="input-window" data-field="shapeSelect">
                                             <option value="rectangular">Prostokąt</option>
                                             <option value="circle">Koło</option>
-                                            <option value="ellipse">Elipsa</option>
                                             <optgroup label="Trójkąt">
                                                 <option value="triangle_right">Trójkąt prostokątny</option>
                                                 <option value="triangle_equilateral">Trójkąt równoboczny</option>
@@ -166,17 +165,17 @@
                                     </div>
                                 </div>
                             </section>
-                            <!-- Shape Editor: inputs + canvas (two-column) -->
+                            <!-- Shape Editor: canvas obok sekcji Produkt -->
                             <div class="shape-editor-container collapsed-canvas" data-shape-editor>
                                 <div class="shape-canvas-column">
                                     <div class="shape-canvas-wrapper">
                                         <canvas data-shape-canvas></canvas>
                                         <div class="shape-canvas-scale-indicator" data-shape-scale></div>
-                                    </div>
-                                    <div class="shape-canvas-controls">
-                                        <button type="button" data-shape-undo title="Cofnij" disabled>&#8617;</button>
-                                        <button type="button" data-shape-redo title="Ponów" disabled>&#8618;</button>
-                                        <button type="button" data-shape-fit title="Dopasuj do widoku">&#8865;</button>
+                                        <div class="shape-canvas-controls">
+                                            <button type="button" data-shape-undo title="Cofnij" disabled>&#8617;</button>
+                                            <button type="button" data-shape-redo title="Ponów" disabled>&#8618;</button>
+                                            <button type="button" data-shape-fit title="Dopasuj do widoku">&#8865;</button>
+                                        </div>
                                     </div>
                                     <div class="shape-canvas-hint" data-shape-hint style="display:none">
                                         Klik na krawędzi = dodaj punkt | PPM na punkcie = usuń punkt

@@ -241,20 +241,6 @@
     align-self: stretch;
 }
 
-.shape-select {
-    width: 100%;
-    padding: 6px 8px;
-    border: 1px solid #ccc;
-    border-radius: 4px;
-    font-size: 12px;
-    background: #fff;
-    cursor: pointer;
-}
-
-.shape-select:focus {
-    border-color: #e67e22;
-    outline: none;
-}
 
 /* [calculations-main] — kontener dla container queries */
 .calculations-main {
@@ -627,15 +613,29 @@
 .workspace-row-1 {
     display: flex;
     gap: 20px;
+    flex-wrap: wrap;
 }
 
 .workspace-row-1 .product-data {
     flex: 0 0 280px;
+    align-self: flex-start;
 }
 
 .workspace-row-1 .calculations-main {
     flex: 1 1 0;
     min-width: 300px;
+}
+
+/* Canvas kształtu — obok sekcji Produkt, wypełnia resztę szerokości */
+.workspace-row-1 .shape-editor-container {
+    flex: 1 1 0;
+    min-width: 300px;
+}
+
+/* Gdy canvas widoczny — kalkulacja na pełną szerokość pod spodem */
+.quote-form.shape-canvas-active .workspace-row-1 .calculations-main {
+    flex: 0 0 100%;
+    min-width: 0;
 }
 
 /* Wiersz 2: [Wykończenie + Krawędzie] + Podsumowanie */

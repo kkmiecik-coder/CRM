@@ -55,12 +55,18 @@ var ShapeEditor = (function() {
             var config = ShapeGeometry.SHAPE_CONFIG[shapeType];
             if (!config) return;
 
-            var isSimpleRect = (shapeType === 'rectangular');
-            editorContainer.classList.toggle('collapsed-canvas', isSimpleRect);
+            var hideCanvas = (shapeType === 'rectangular' || shapeType === 'circle');
+            var usesOriginalInputs = (shapeType === 'rectangular' || shapeType === 'circle');
+            editorContainer.classList.toggle('collapsed-canvas', hideCanvas);
+            form.classList.toggle('shape-canvas-active', !hideCanvas);
 
-            // Pokaż/ukryj oryginalne inputy length/width
-            if (lengthWrapper) lengthWrapper.style.display = isSimpleRect ? '' : 'none';
-            if (widthWrapper) widthWrapper.style.display = isSimpleRect ? '' : 'none';
+            // Pokaż/ukryj oryginalne inputy length/width (prostokąt i koło ich używają)
+            if (lengthWrapper) {
+                lengthWrapper.style.display = usesOriginalInputs ? '' : 'none';
+                var lengthLabel = lengthWrapper.querySelector('label');
+                if (lengthLabel) lengthLabel.textContent = (shapeType === 'circle') ? 'Średnica (cm):' : 'Długość (cm):';
+            }
+            if (widthWrapper) widthWrapper.style.display = (shapeType === 'rectangular') ? '' : 'none';
 
             if (hintEl) {
                 hintEl.style.display = shapeType === 'polygon' ? '' : 'none';
@@ -70,7 +76,7 @@ var ShapeEditor = (function() {
 
             _renderInputs(config);
 
-            if (!isSimpleRect) {
+            if (!hideCanvas) {
                 _ensureCanvas();
                 var vertices = ShapeGeometry.generateVertices(shapeType, currentParams);
                 canvas.setShape(shapeType, currentParams, vertices);
@@ -88,8 +94,8 @@ var ShapeEditor = (function() {
         function _renderInputs(config) {
             inputsColumn.innerHTML = '';
 
-            // Nie renderuj inputów dla prostokąta (używa natywnych length/width)
-            if (currentShape === 'rectangular') return;
+            // Prostokąt i koło używają natywnych inputów length/width
+            if (currentShape === 'rectangular' || currentShape === 'circle') return;
 
             for (var i = 0; i < config.inputs.length; i++) {
                 var input = config.inputs[i];
@@ -229,7 +235,7 @@ var ShapeEditor = (function() {
             }
             var vertices = canvas ? canvas.getVertices() : null;
             var bbox = ShapeGeometry.calculateBbox(currentShape, currentParams, vertices);
-            bboxDiv.textContent = 'Bbox: ' + (Math.round(bbox.width * 10) / 10) + ' \u00d7 ' + (Math.round(bbox.height * 10) / 10) + ' cm';
+            bboxDiv.textContent = 'Formatka: ' + (Math.round(bbox.width * 10) / 10) + ' \u00d7 ' + (Math.round(bbox.height * 10) / 10) + ' cm';
         }
 
         // ============================================
@@ -288,10 +294,16 @@ var ShapeEditor = (function() {
 
                 currentParams = (shapeData && shapeData.params) ? Object.assign({}, shapeData.params) : Object.assign({}, config.defaults);
 
-                var isSimpleRect = (shapeType === 'rectangular');
-                editorContainer.classList.toggle('collapsed-canvas', isSimpleRect);
-                if (lengthWrapper) lengthWrapper.style.display = isSimpleRect ? '' : 'none';
-                if (widthWrapper) widthWrapper.style.display = isSimpleRect ? '' : 'none';
+                var hideCanvas = (shapeType === 'rectangular' || shapeType === 'circle');
+                var usesOriginalInputs = (shapeType === 'rectangular' || shapeType === 'circle');
+                editorContainer.classList.toggle('collapsed-canvas', hideCanvas);
+                form.classList.toggle('shape-canvas-active', !hideCanvas);
+                if (lengthWrapper) {
+                    lengthWrapper.style.display = usesOriginalInputs ? '' : 'none';
+                    var lengthLabel = lengthWrapper.querySelector('label');
+                    if (lengthLabel) lengthLabel.textContent = (shapeType === 'circle') ? 'Średnica (cm):' : 'Długość (cm):';
+                }
+                if (widthWrapper) widthWrapper.style.display = (shapeType === 'rectangular') ? '' : 'none';
                 if (hintEl) hintEl.style.display = shapeType === 'polygon' ? '' : 'none';
 
                 _renderInputs(config);
@@ -301,7 +313,7 @@ var ShapeEditor = (function() {
                     if (currentParams[key] !== undefined) paramInputs[i].value = currentParams[key];
                 }
 
-                if (!isSimpleRect) {
+                if (!hideCanvas) {
                     _ensureCanvas();
                     var vertices = (shapeData && shapeData.vertices)
                         ? shapeData.vertices
