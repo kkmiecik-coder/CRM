@@ -70,7 +70,7 @@ var ShapeCanvas = (function() {
         // ============================================
 
         function _selectGridSpacing() {
-            var minPx = 8, maxPx = 80;
+            var minPx = 4, maxPx = 80;
             for (var g = 0; g < state.gridLevels.length; g++) {
                 var cm = state.gridLevels[g];
                 var px = cm * state.scale;

@@ -110,11 +110,6 @@ var ShapeEditor = (function() {
                 inputsColumn.appendChild(row);
             }
 
-            var bboxDiv = document.createElement('div');
-            bboxDiv.className = 'shape-bbox-info';
-            bboxDiv.setAttribute('data-shape-bbox', '');
-            inputsColumn.appendChild(bboxDiv);
-
             var validDiv = document.createElement('div');
             validDiv.className = 'shape-validation-error';
             validDiv.setAttribute('data-shape-validation', '');
@@ -227,15 +222,16 @@ var ShapeEditor = (function() {
         // ============================================
 
         function _updateBboxDisplay() {
-            var bboxDiv = inputsColumn.querySelector('[data-shape-bbox]');
-            if (!bboxDiv) return;
-            if (currentShape === 'rectangular') {
-                bboxDiv.textContent = '';
+            // Wyświetl na canvasie (panel info w lewym dolnym rogu)
+            var formatkaDiv = form.querySelector('[data-shape-formatka]');
+            if (!formatkaDiv) return;
+            if (currentShape === 'rectangular' || currentShape === 'circle') {
+                formatkaDiv.textContent = '';
                 return;
             }
             var vertices = canvas ? canvas.getVertices() : null;
             var bbox = ShapeGeometry.calculateBbox(currentShape, currentParams, vertices);
-            bboxDiv.textContent = 'Formatka: ' + (Math.round(bbox.width * 10) / 10) + ' \u00d7 ' + (Math.round(bbox.height * 10) / 10) + ' cm';
+            formatkaDiv.textContent = 'Formatka: ' + (Math.round(bbox.width * 10) / 10) + ' \u00d7 ' + (Math.round(bbox.height * 10) / 10) + ' cm';
         }
 
         // ============================================

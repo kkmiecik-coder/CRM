@@ -482,11 +482,11 @@ const EdgesModule = (function() {
                 state.dimensions.thickness
             );
         } else if (state.productShape !== 'rectangular' && state.currentForm._shapeEditor) {
-            // Nieregularny kształt — generuj SVG z wierzchołków
-            showRectangularEdgesUI(); // Reuse rectangular UI layout for now
+            // Nieregularny kształt — dynamiczne krawędzie G/D/P
             var shapeData = state.currentForm._shapeEditor.getShapeData();
+            showDynamicEdgesUI(shapeData, state.dimensions.thickness);
             if (elements.svg && shapeData && shapeData.vertices) {
-                generateShapePreviewSVG(elements.svg, shapeData, state.dimensions.thickness, new Set(), state.productShape);
+                generateShapePreviewSVG(elements.svg, shapeData, state.dimensions.thickness, state.selectedEdges, state.productShape);
             }
         } else {
             showRectangularEdgesUI();
@@ -666,6 +666,40 @@ const EdgesModule = (function() {
                     deselectAllEdges();
                     break;
             }
+        } else if (state.productShape !== 'rectangular') {
+            // Dynamiczne krawędzie
+            var dynSection = elements.modal ? elements.modal.querySelector('.edges-dynamic-section') : null;
+            if (!dynSection) return;
+
+            var topEdges = [], bottomEdges = [], allEdges = [];
+            dynSection.querySelectorAll('.edges-item').forEach(function(item) {
+                var eid = item.dataset.edge;
+                allEdges.push(eid);
+                if (eid.charAt(0) === 'G') topEdges.push(eid);
+                else if (eid.charAt(0) === 'D') bottomEdges.push(eid);
+            });
+
+            var targetEdges = [];
+            if (action === 'select-top') targetEdges = topEdges;
+            else if (action === 'select-bottom') targetEdges = bottomEdges;
+            else if (action === 'select-all') targetEdges = allEdges;
+            else if (action === 'deselect-all') { targetEdges = []; state.selectedEdges.clear(); }
+
+            if (action !== 'deselect-all') {
+                targetEdges.forEach(function(eid) { state.selectedEdges.add(eid); });
+            }
+
+            dynSection.querySelectorAll('.edges-item').forEach(function(item) {
+                var eid = item.dataset.edge;
+                var cb = item.querySelector('input[type="checkbox"]');
+                var isSelected = state.selectedEdges.has(eid);
+                if (cb) cb.checked = isSelected;
+                item.classList.toggle('active', isSelected);
+                updateSvgEdge(eid, isSelected);
+            });
+
+            updatePriceSummary();
+            return;
         } else {
             // Akcje dla kształtu prostokątnego
             switch (action) {
@@ -1734,6 +1768,157 @@ const EdgesModule = (function() {
     }
 
     /**
+     * Dynamiczny UI krawędzi G/D/P dla kształtów nieregularnych
+     */
+    function showDynamicEdgesUI(shapeData, thickness) {
+        var modal = elements.modal;
+        if (!modal) return;
+
+        // Ukryj standardowe sekcje prostokątne
+        modal.querySelectorAll('.edges-section').forEach(function(section) {
+            section.style.display = 'none';
+        });
+
+        // Ukryj sekcję okrągłą
+        var roundSection = modal.querySelector('.edges-round-section');
+        if (roundSection) roundSection.style.display = 'none';
+
+        // Usuń wcześniej wygenerowaną sekcję dynamiczną
+        var existingDynamic = modal.querySelector('.edges-dynamic-section');
+        if (existingDynamic) existingDynamic.remove();
+
+        // Wygeneruj definicje krawędzi z ShapeGeometry
+        var vertices = shapeData.vertices;
+        if (!vertices || vertices.length < 3) return;
+
+        var n = vertices.length;
+        var edges = [];
+
+        // Krawędzie górne G1-GN
+        for (var i = 0; i < n; i++) {
+            var j = (i + 1) % n;
+            var dx = vertices[j][0] - vertices[i][0];
+            var dy = vertices[j][1] - vertices[i][1];
+            var len = Math.sqrt(dx * dx + dy * dy);
+            edges.push({ id: 'G' + (i + 1), group: 'top', name: 'Góra ' + (i + 1), length: len });
+        }
+        // Krawędzie dolne D1-DN
+        for (var i2 = 0; i2 < n; i2++) {
+            var j2 = (i2 + 1) % n;
+            var dx2 = vertices[j2][0] - vertices[i2][0];
+            var dy2 = vertices[j2][1] - vertices[i2][1];
+            var len2 = Math.sqrt(dx2 * dx2 + dy2 * dy2);
+            edges.push({ id: 'D' + (i2 + 1), group: 'bottom', name: 'Dół ' + (i2 + 1), length: len2 });
+        }
+        // Krawędzie pionowe P1-PN
+        for (var i3 = 0; i3 < n; i3++) {
+            edges.push({ id: 'P' + (i3 + 1), group: 'vertical', name: 'Pion ' + (i3 + 1), length: thickness });
+        }
+
+        // Buduj HTML
+        var html = '<div class="edges-section edges-dynamic-section">';
+
+        // Grupa: Góra
+        html += '<div class="edges-group"><h5>GÓRA</h5><div class="edges-list">';
+        for (var g = 0; g < edges.length; g++) {
+            if (edges[g].group !== 'top') continue;
+            var e = edges[g];
+            var lenStr = (Math.round(e.length * 10) / 10);
+            html += '<div class="edges-item" data-edge="' + e.id + '">' +
+                '<label class="edges-checkbox">' +
+                '<input type="checkbox" name="edge_' + e.id + '">' +
+                '<span class="edges-letter">' + e.id + '</span>' +
+                '<span class="edges-name">' + e.name + '</span>' +
+                '<span class="edges-length">(' + lenStr + ' cm)</span>' +
+                '</label></div>';
+        }
+        html += '</div></div>';
+
+        // Grupa: Dół
+        html += '<div class="edges-group"><h5>DÓŁ</h5><div class="edges-list">';
+        for (var d = 0; d < edges.length; d++) {
+            if (edges[d].group !== 'bottom') continue;
+            var ed = edges[d];
+            var lenStr2 = (Math.round(ed.length * 10) / 10);
+            html += '<div class="edges-item" data-edge="' + ed.id + '">' +
+                '<label class="edges-checkbox">' +
+                '<input type="checkbox" name="edge_' + ed.id + '">' +
+                '<span class="edges-letter">' + ed.id + '</span>' +
+                '<span class="edges-name">' + ed.name + '</span>' +
+                '<span class="edges-length">(' + lenStr2 + ' cm)</span>' +
+                '</label></div>';
+        }
+        html += '</div></div>';
+
+        // Grupa: Pionowe
+        html += '<div class="edges-group"><h5>PIONOWE</h5><div class="edges-list">';
+        for (var p = 0; p < edges.length; p++) {
+            if (edges[p].group !== 'vertical') continue;
+            var ep = edges[p];
+            var lenStr3 = (Math.round(ep.length * 10) / 10);
+            html += '<div class="edges-item edges-corner-item" data-edge="' + ep.id + '">' +
+                '<label class="edges-checkbox">' +
+                '<input type="checkbox" name="edge_' + ep.id + '">' +
+                '<span class="edges-letter edges-letter-corner">' + ep.id + '</span>' +
+                '<span class="edges-name">' + ep.name + '</span>' +
+                '<span class="edges-length">(' + lenStr3 + ' cm)</span>' +
+                '</label></div>';
+        }
+        html += '</div></div>';
+
+        html += '</div>';
+
+        // Wstaw do modalu (po edges-top-section)
+        var topSection = modal.querySelector('.edges-top-section');
+        if (topSection) {
+            topSection.insertAdjacentHTML('afterend', html);
+        }
+
+        // Podepnij event listenery do nowych checkboxów
+        var dynamicSection = modal.querySelector('.edges-dynamic-section');
+        if (dynamicSection) {
+            dynamicSection.querySelectorAll('.edges-item').forEach(function(item) {
+                var edgeId = item.dataset.edge;
+                var checkbox = item.querySelector('input[type="checkbox"]');
+                if (!checkbox) return;
+
+                // Ustaw stan z aktualnie wybranych krawędzi
+                checkbox.checked = state.selectedEdges.has(edgeId);
+                if (checkbox.checked) item.classList.add('active');
+
+                checkbox.addEventListener('change', function() {
+                    if (this.checked) {
+                        state.selectedEdges.add(edgeId);
+                        item.classList.add('active');
+                    } else {
+                        state.selectedEdges.delete(edgeId);
+                        item.classList.remove('active');
+                    }
+                    updateSvgEdge(edgeId, this.checked);
+                    updatePriceSummary();
+                });
+
+                // Kliknięcie na całą etykietę w SVG
+                item.addEventListener('mouseenter', function() {
+                    highlightEdge(edgeId, true);
+                });
+                item.addEventListener('mouseleave', function() {
+                    highlightEdge(edgeId, false);
+                });
+            });
+        }
+
+        // Szybkie akcje
+        var quickBtns = modal.querySelectorAll('.edges-quick-btn');
+        quickBtns.forEach(function(btn) {
+            var action = btn.dataset.action;
+            if (action === 'select-top') btn.textContent = 'Góra';
+            else if (action === 'select-bottom') btn.textContent = 'Dół';
+            else if (action === 'select-all') btn.textContent = 'Wszystkie';
+        });
+    }
+
+    /**
      * Przywraca standardowy widok krawędzi prostokątnych
      */
     function showRectangularEdgesUI() {
@@ -2157,7 +2342,7 @@ const EdgesModule = (function() {
         for (var d = 0; d < n; d++) {
             var d2 = (d + 1) % n;
             var dEdgeId = 'D' + (d + 1);
-            var dCls = 'edges-line edges-hidden' + (activeEdges.has(dEdgeId) ? ' active' : '');
+            var dCls = 'edges-line' + (activeEdges.has(dEdgeId) ? ' active' : '');
             svg += '<line class="' + dCls + '" data-edge="' + dEdgeId + '"' +
                 ' x1="' + botPts[d].x + '" y1="' + botPts[d].y + '"' +
                 ' x2="' + botPts[d2].x + '" y2="' + botPts[d2].y + '"/>';
