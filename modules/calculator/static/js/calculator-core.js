@@ -416,9 +416,18 @@ function updatePrices() {
     else if (isNaN(quantity) || quantity < 1) errorMsg = "Brak ilości";
     else if (limits) {
         var shape = activeQuoteForm.dataset.productShape || 'rectangular';
-        if (length < limits.length_min || length > limits.length_max) errorMsg = shape === 'circle' ? "Średnica poza zakr." : "Dług. poza zakr.";
-        else if (shape !== 'circle' && (width < limits.width_min || width > limits.width_max)) errorMsg = "Szer. poza zakr.";
-        else if (thickness < limits.thickness_min || thickness > limits.thickness_max) errorMsg = "Grub. poza zakr.";
+        if (shape === 'circle') {
+            // Koło: średnica musi mieścić się w obu zakresach (length i width)
+            var diameterMax = Math.min(limits.length_max, limits.width_max);
+            var diameterMin = Math.max(limits.length_min, limits.width_min);
+            if (length > diameterMax) errorMsg = "Średnica poza zakr. (max " + diameterMax + " cm)";
+            else if (length < diameterMin) errorMsg = "Średnica poza zakr. (min " + diameterMin + " cm)";
+            else if (thickness < limits.thickness_min || thickness > limits.thickness_max) errorMsg = "Grub. poza zakr.";
+        } else {
+            if (length < limits.length_min || length > limits.length_max) errorMsg = "Dług. poza zakr.";
+            else if (width < limits.width_min || width > limits.width_max) errorMsg = "Szer. poza zakr.";
+            else if (thickness < limits.thickness_min || thickness > limits.thickness_max) errorMsg = "Grub. poza zakr.";
+        }
     }
 
     // Podświetlaj puste pola na czerwono TYLKO jeśli były dotknięte przez użytkownika.

@@ -495,8 +495,26 @@ function attachDimensionValidation(form, fieldName, errorClass, label, limitMinK
             return;
         }
 
-        const min = limits[limitMinKey];
-        const max = limits[limitMaxKey];
+        var currentForm = this.closest('.quote-form');
+        var shape = currentForm ? (currentForm.dataset.productShape || 'rectangular') : 'rectangular';
+
+        var min = limits[limitMinKey];
+        var max = limits[limitMaxKey];
+        var displayLabel = label;
+
+        // Koło: średnica musi mieścić się w obu zakresach
+        if (shape === 'circle' && fieldName === 'length') {
+            max = Math.min(limits.length_max, limits.width_max);
+            min = Math.max(limits.length_min, limits.width_min);
+            displayLabel = 'Średnica';
+        }
+
+        // Koło: pomijaj walidację width (obsługiwana przez length)
+        if (shape === 'circle' && fieldName === 'width') {
+            if (errorSpan) errorSpan.remove();
+            this.classList.remove('error-outline');
+            return;
+        }
 
         if (!isNaN(val) && (val < min || val > max)) {
             if (!errorSpan) {
@@ -508,7 +526,7 @@ function attachDimensionValidation(form, fieldName, errorClass, label, limitMinK
                 errorSpan.style.marginTop = '4px';
                 this.parentNode.appendChild(errorSpan);
             }
-            errorSpan.textContent = `${label} poza zakresem ${min}-${max} cm.`;
+            errorSpan.textContent = `${displayLabel} poza zakresem ${min}-${max} cm.`;
             this.classList.add('error-outline');
         } else {
             if (errorSpan) errorSpan.remove();
