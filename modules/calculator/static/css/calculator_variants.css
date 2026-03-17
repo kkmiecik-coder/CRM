@@ -190,6 +190,29 @@
     display: flex;
     justify-content: center;
     align-items: center;
+    position: relative;
+}
+
+.edges-preview-toggle-labels {
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    background: none;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    padding: 3px 5px;
+    cursor: pointer;
+    color: #888;
+    line-height: 0;
+}
+
+.edges-preview-toggle-labels:hover {
+    color: #e67e22;
+    border-color: #e67e22;
+}
+
+.edges-preview-toggle-labels.labels-hidden {
+    opacity: 0.4;
 }
 
 .edges-preview-svg {
@@ -207,6 +230,10 @@
 .edges-preview-svg .edges-line { stroke: #999; stroke-width: 2; fill: none; }
 .edges-preview-svg .edges-line.edges-hidden { stroke-dasharray: 4 3; stroke-width: 1.5; stroke: #bbb; }
 .edges-preview-svg .edges-line.active { stroke: #ED6B24; stroke-width: 3; }
+.edges-preview-svg .edges-label circle { fill: #666; stroke: none; }
+.edges-preview-svg .edges-label text { fill: #fff; font-size: 9px; text-anchor: middle; font-weight: 600; }
+.edges-preview-svg .edges-label.active circle { fill: #ED6B24; }
+.edges-preview-svg .edges-labels-hidden .edges-label { display: none; }
 
 .modal-trigger {
     padding: 12px 16px;

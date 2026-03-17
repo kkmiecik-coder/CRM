@@ -230,6 +230,22 @@ const EdgesModule = (function() {
             updateEdgesPreview(form);
         });
 
+        // Przycisk oczka w preview — toggle etykiet
+        document.addEventListener('click', function(e) {
+            var btn = e.target.closest('.edges-preview-toggle-labels');
+            if (!btn) return;
+            e.preventDefault();
+            btn.classList.toggle('labels-hidden');
+            var preview = btn.closest('.edges-preview');
+            var svg = preview ? preview.querySelector('.edges-preview-svg') : null;
+            if (svg) {
+                var labelsG = svg.querySelector('.edges-labels');
+                if (labelsG) labelsG.classList.toggle('edges-labels-hidden');
+            }
+            // Synchronizuj z modalem
+            state.labelsVisible = !btn.classList.contains('labels-hidden');
+        });
+
     }
 
     /**
@@ -499,7 +515,8 @@ const EdgesModule = (function() {
         }
 
         // Re-cache labelsGroup po każdym przebudowaniu SVG
-        elements.labelsGroup = document.getElementById('edgeLabelsGroup');
+        // Re-cache labelsGroup (querySelector bo element jest wewnątrz SVG)
+        elements.labelsGroup = elements.svg ? elements.svg.querySelector('#edgeLabelsGroup') : document.getElementById('edgeLabelsGroup');
 
         // Aktualizuj długości krawędzi w UI
         updateEdgeLengths();
@@ -769,12 +786,20 @@ const EdgesModule = (function() {
     function toggleLabels() {
         state.labelsVisible = !state.labelsVisible;
 
-        if (state.labelsVisible) {
-            elements.labelsGroup.classList.remove('edges-labels-hidden');
-            elements.toggleLabelsBtn.textContent = 'Ukryj etykiety';
-        } else {
-            elements.labelsGroup.classList.add('edges-labels-hidden');
-            elements.toggleLabelsBtn.textContent = 'Pokaż etykiety';
+        // Toggle w modalu
+        if (elements.labelsGroup) {
+            elements.labelsGroup.classList.toggle('edges-labels-hidden', !state.labelsVisible);
+        }
+        if (elements.toggleLabelsBtn) {
+            elements.toggleLabelsBtn.textContent = state.labelsVisible ? 'Ukryj etykiety' : 'Pokaż etykiety';
+        }
+
+        // Synchronizuj preview w formularzu
+        if (state.currentForm) {
+            var previewBtn = state.currentForm.querySelector('.edges-preview-toggle-labels');
+            if (previewBtn) previewBtn.classList.toggle('labels-hidden', !state.labelsVisible);
+            var previewSvg = state.currentForm.querySelector('.edges-preview-svg .edges-labels');
+            if (previewSvg) previewSvg.classList.toggle('edges-labels-hidden', !state.labelsVisible);
         }
     }
 
