@@ -2063,20 +2063,24 @@ const EdgesModule = (function() {
         var shapeW = maxX - minX || 1;
         var shapeH = maxY - minY || 1;
 
-        // Izometryczny rzut (mniejszy kąt niż prostokąt — mniej obrotu na osi X)
-        var isoAngle = 50 * Math.PI / 180;
+        // Izometryczny rzut — dwa niezależne kąty:
+        // angleY: obrót w prawo/lewo (mniejszy = mniej w prawo)
+        // angleX: pochylenie do tyłu (widoczność górnej powierzchni)
+        var angleY = 15 * Math.PI / 180;  // obrót w prawo (stopnie)
+        var angleX = 30 * Math.PI / 180;  // pochylenie do tyłu (stopnie)
         var effectiveThickness = Math.max(thickness, Math.max(shapeW, shapeH) * 0.15);
 
         var workWidth = viewBoxWidth - 2 * margin;
         var workHeight = viewBoxHeight - 2 * margin;
 
-        var projW = (shapeW + shapeH) * Math.cos(isoAngle);
-        var projH = (shapeW + shapeH) * Math.sin(isoAngle) + effectiveThickness;
+        var vecX = { x: Math.cos(angleY), y: Math.sin(angleX) };
+        var vecY = { x: -Math.cos(angleY), y: Math.sin(angleX) };
+
+        var projW = (shapeW + shapeH) * Math.cos(angleY);
+        var projH = (shapeW + shapeH) * Math.sin(angleX) + effectiveThickness;
         var scale = Math.min(workWidth / projW, workHeight / projH) * 0.85;
 
         var T = effectiveThickness * scale;
-        var vecX = { x: Math.cos(isoAngle), y: Math.sin(isoAngle) };
-        var vecY = { x: -Math.cos(isoAngle), y: Math.sin(isoAngle) };
 
         // Oblicz projekcję izometryczną żeby wycentrować
         var totalProjW = shapeW * scale * vecX.x + shapeH * scale * Math.abs(vecY.x);
