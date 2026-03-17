@@ -415,8 +415,9 @@ function updatePrices() {
     else if (isNaN(thickness)) errorMsg = "Brak grub.";
     else if (isNaN(quantity) || quantity < 1) errorMsg = "Brak ilości";
     else if (limits) {
-        if (length < limits.length_min || length > limits.length_max) errorMsg = "Dług. poza zakr.";
-        else if (width < limits.width_min || width > limits.width_max) errorMsg = "Szer. poza zakr.";
+        var shape = activeQuoteForm.dataset.productShape || 'rectangular';
+        if (length < limits.length_min || length > limits.length_max) errorMsg = shape === 'circle' ? "Średnica poza zakr." : "Dług. poza zakr.";
+        else if (shape !== 'circle' && (width < limits.width_min || width > limits.width_max)) errorMsg = "Szer. poza zakr.";
         else if (thickness < limits.thickness_min || thickness > limits.thickness_max) errorMsg = "Grub. poza zakr.";
     }
 
