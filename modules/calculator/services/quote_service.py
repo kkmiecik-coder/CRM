@@ -89,6 +89,8 @@ def load_quote_for_edit(edit_uuid, current_user):
                 "thickness": float(first_item.thickness_cm) if first_item.thickness_cm else 0,
                 "quantity": detail.quantity if detail else 1,
                 "shape": detail.shape if detail else "rectangular",
+                "shape_data": detail.shape_data if detail else None,
+                "shape_svg": detail.shape_svg if detail else None,
                 "round_surcharge_netto": float(detail.round_surcharge_netto) if detail and detail.round_surcharge_netto else 0,
                 "round_surcharge_brutto": float(detail.round_surcharge_brutto) if detail and detail.round_surcharge_brutto else 0,
                 "selectedVariant": product_data["selected_variant"],
@@ -248,9 +250,11 @@ def _update_or_create_product(quote, product_data):
 
     # Ksztalt i doplata
     shape = product_data.get('shape', 'rectangular')
+    shape_data_json = product_data.get('shape_data')  # JSON string z frontendu
+    shape_svg = product_data.get('shape_svg')
     round_surcharge_netto = 0
     round_surcharge_brutto = 0
-    if shape == 'round':
+    if shape in ('round', 'circle', 'ellipse'):
         surcharge_per_unit = _to_decimal(
             CalculatorSetting.get_value('round_shape_surcharge_netto', '50.00')
         )
@@ -317,6 +321,8 @@ def _update_or_create_product(quote, product_data):
         detail.edges_price_brutto = edges_price_brutto
         detail.edges_svg = edges_svg
         detail.shape = shape
+        detail.shape_data = shape_data_json
+        detail.shape_svg = shape_svg
         detail.round_surcharge_netto = round_surcharge_netto
         detail.round_surcharge_brutto = round_surcharge_brutto
     else:
@@ -338,6 +344,8 @@ def _update_or_create_product(quote, product_data):
             edges_price_brutto=edges_price_brutto,
             edges_svg=edges_svg,
             shape=shape,
+            shape_data=shape_data_json,
+            shape_svg=shape_svg,
             round_surcharge_netto=round_surcharge_netto,
             round_surcharge_brutto=round_surcharge_brutto,
         )
@@ -560,11 +568,13 @@ def create_quote(data, user_email):
 
             edges_svg = product.get('edges_svg', '')
 
-            # Kształt produktu i dopłata za okrągły
+            # Kształt produktu i dopłata za okrągły/koło/elipsa
             product_shape = product.get('shape', 'rectangular')
+            product_shape_data = product.get('shape_data')
+            product_shape_svg = product.get('shape_svg')
             round_surcharge_netto = 0
             round_surcharge_brutto = 0
-            if product_shape == 'round':
+            if product_shape in ('round', 'circle', 'ellipse'):
                 surcharge_per_unit = _to_decimal(
                     CalculatorSetting.get_value('round_shape_surcharge_netto', '50.00')
                 )
@@ -573,7 +583,7 @@ def create_quote(data, user_email):
                     _to_decimal(round_surcharge_netto) * Decimal('1.23')
                 )
 
-            # Szczegóły produktu (wykończenie + krawędzie)
+            # Szczegóły produktu (wykończenie + krawędzie + kształt)
             item_details = QuoteItemDetails(
                 quote_id=quote.id,
                 product_index=i + 1,
@@ -592,6 +602,8 @@ def create_quote(data, user_email):
                 edges_price_brutto=edges_price_brutto,
                 edges_svg=edges_svg if edges_svg else None,
                 shape=product_shape,
+                shape_data=product_shape_data,
+                shape_svg=product_shape_svg if product_shape_svg else None,
                 round_surcharge_netto=round_surcharge_netto,
                 round_surcharge_brutto=round_surcharge_brutto,
             )

@@ -573,7 +573,7 @@ class QuoteEditLoader {
             scheduleCheck('MutationObserver: ' + changed);
         });
         forms.forEach(form => {
-            this.datasetObserver.observe(form, { attributes: true, attributeFilter: ['data-finishing-type', 'data-finishing-variant', 'data-finishing-color', 'data-finishing-gloss', 'data-edges-type', 'data-edges-r-value', 'data-edges-angle-value', 'data-edges-brutto', 'data-edges-data', 'data-product-shape'] });
+            this.datasetObserver.observe(form, { attributes: true, attributeFilter: ['data-finishing-type', 'data-finishing-variant', 'data-finishing-color', 'data-finishing-gloss', 'data-edges-type', 'data-edges-r-value', 'data-edges-angle-value', 'data-edges-brutto', 'data-edges-data', 'data-product-shape', 'data-shape-real-area-cm2'] });
         });
     }
 
