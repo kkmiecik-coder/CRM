@@ -2050,6 +2050,7 @@ const EdgesModule = (function() {
         var n = verts.length;
         var viewBoxWidth = 320;
         var viewBoxHeight = 220;
+        var margin = 20;
 
         // Znajdź bbox wierzchołków
         var minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
@@ -2066,21 +2067,31 @@ const EdgesModule = (function() {
         var isoAngle = Math.PI / 6;
         var effectiveThickness = Math.max(thickness, Math.max(shapeW, shapeH) * 0.15);
 
+        var workWidth = viewBoxWidth - 2 * margin;
+        var workHeight = viewBoxHeight - 2 * margin;
+
         var projW = (shapeW + shapeH) * Math.cos(isoAngle);
         var projH = (shapeW + shapeH) * Math.sin(isoAngle) + effectiveThickness;
-        var scale = Math.min((viewBoxWidth - 40) / projW, (viewBoxHeight - 40) / projH) * 0.8;
+        var scale = Math.min(workWidth / projW, workHeight / projH) * 0.85;
 
         var T = effectiveThickness * scale;
         var vecX = { x: Math.cos(isoAngle), y: Math.sin(isoAngle) };
         var vecY = { x: -Math.cos(isoAngle), y: Math.sin(isoAngle) };
 
-        // Przekształć wierzchołki do izometrii
+        // Oblicz projekcję izometryczną żeby wycentrować
+        var totalProjW = shapeW * scale * vecX.x + shapeH * scale * Math.abs(vecY.x);
+        var totalProjH = shapeW * scale * vecX.y + shapeH * scale * vecY.y + T;
+
+        var offsetX = (viewBoxWidth - totalProjW) / 2 + shapeH * scale * Math.abs(vecY.x);
+        var offsetY = (viewBoxHeight - totalProjH) / 2 + T;
+
+        // Przekształć wierzchołki do izometrii (wycentrowane)
         function toIso(px, py) {
             var cx = (px - minX) * scale;
             var cy = (py - minY) * scale;
             return {
-                x: 60 + cx * vecX.x + cy * vecY.x,
-                y: 30 + T + cx * vecX.y + cy * vecY.y
+                x: offsetX + cx * vecX.x + cy * vecY.x,
+                y: offsetY + cx * vecX.y + cy * vecY.y
             };
         }
 
