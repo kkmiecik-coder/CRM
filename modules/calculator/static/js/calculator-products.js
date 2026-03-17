@@ -296,6 +296,10 @@ function duplicateProduct(sourceIndex) {
         finishingColor: null,
         finishingGloss: null,
 
+        // Kształt
+        shape: sourceForm.dataset.productShape || 'rectangular',
+        shapeData: sourceForm._shapeEditor ? sourceForm._shapeEditor.getShapeData() : null,
+
         // Obróbka krawędzi
         edgesData: sourceForm.dataset.edgesData || null,
         edgesNetto: sourceForm.dataset.edgesNetto || null,
@@ -401,8 +405,15 @@ function duplicateProduct(sourceIndex) {
             setDefaultClientType(newForm, false);
         }
 
+        // ✅ Przywróć kształt (przed wymiarami — bo kształt blokuje length/width)
+        if (sourceData.shape && sourceData.shape !== 'rectangular') {
+            var editor = newForm._shapeEditor;
+            if (editor) {
+                editor.restore(sourceData.shape, sourceData.shapeData);
+            }
+        }
+
         // ✅ POPRAWKA: Aktualizuj stan przycisku obróbki krawędzi po wypełnieniu wymiarów
-        // (ustawienie .value programowo nie wywołuje eventu 'input', więc trzeba ręcznie)
         if (typeof EdgesModule !== 'undefined' && EdgesModule.updateButtonState) {
             EdgesModule.updateButtonState(newForm);
         }

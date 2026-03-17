@@ -31,6 +31,9 @@ var ShapeCanvas = (function() {
             height: 0
         };
 
+        // Pozycje wymiarów do obsługi dblclick
+        var dimensionHitAreas = []; // [{x, y, edgeIndex, labelX, labelY}]
+
         // ============================================
         // CANVAS SIZING
         // ============================================
@@ -410,6 +413,7 @@ var ShapeCanvas = (function() {
         // ============================================
 
         function _renderDimensionLines(verts) {
+            dimensionHitAreas = [];
             var n = verts.length;
             for (var i = 0; i < n; i++) {
                 var j = (i + 1) % n;
@@ -419,7 +423,10 @@ var ShapeCanvas = (function() {
                 if (len < 0.1) continue;
                 var dimLabel = (Math.round(len * 10) / 10) + ' cm';
                 var edgeId = 'G' + (i + 1);
-                _renderSingleDimension(verts[i][0], verts[i][1], verts[j][0], verts[j][1], dimLabel, edgeId);
+                var labelPos = _renderSingleDimension(verts[i][0], verts[i][1], verts[j][0], verts[j][1], dimLabel, edgeId);
+                if (labelPos) {
+                    dimensionHitAreas.push({ x: labelPos.x, y: labelPos.y, edgeIndex: i, length: len });
+                }
             }
         }
 
@@ -502,6 +509,7 @@ var ShapeCanvas = (function() {
             }
 
             ctx.restore();
+            return { x: labelX, y: labelY };
         }
 
         // ============================================
@@ -648,6 +656,92 @@ var ShapeCanvas = (function() {
         canvasElement.addEventListener('contextmenu', function(e) {
             e.preventDefault();
         });
+
+        // ============================================
+        // DBLCLICK: INLINE EDIT WYMIARU
+        // ============================================
+
+        canvasElement.addEventListener('dblclick', function(e) {
+            var rect = canvasElement.getBoundingClientRect();
+            var mx = e.clientX - rect.left;
+            var my = e.clientY - rect.top;
+
+            // Szukaj wymiaru w pobliżu kliknięcia
+            var hitRadius = 25;
+            var hit = null;
+            for (var di = 0; di < dimensionHitAreas.length; di++) {
+                var d = dimensionHitAreas[di];
+                if (Math.hypot(mx - d.x, my - d.y) < hitRadius) {
+                    hit = d;
+                    break;
+                }
+            }
+            if (!hit) return;
+
+            // Utwórz inline input nad canvasem
+            var wrapper = canvasElement.parentElement;
+            var input = document.createElement('input');
+            input.type = 'number';
+            input.step = '0.1';
+            input.min = '0.1';
+            input.value = Math.round(hit.length * 10) / 10;
+            input.style.cssText = 'position:absolute;left:' + (hit.x - 35) + 'px;top:' + (hit.y - 12) + 'px;' +
+                'width:70px;height:24px;font-size:12px;text-align:center;border:2px solid #e67e22;' +
+                'border-radius:4px;background:#1a1a2e;color:#e67e22;outline:none;z-index:10;font-weight:bold;';
+            wrapper.appendChild(input);
+            input.focus();
+            input.select();
+
+            var edgeIdx = hit.edgeIndex;
+
+            function applyValue() {
+                var newLen = parseFloat(input.value);
+                if (!isNaN(newLen) && newLen > 0 && state.vertices) {
+                    var vi = edgeIdx;
+                    var vj = (edgeIdx + 1) % state.vertices.length;
+                    var oldDx = state.vertices[vj][0] - state.vertices[vi][0];
+                    var oldDy = state.vertices[vj][1] - state.vertices[vi][1];
+                    var oldLen = Math.sqrt(oldDx * oldDx + oldDy * oldDy);
+                    if (oldLen > 0.01) {
+                        _pushUndo();
+                        var scale = newLen / oldLen;
+                        state.vertices[vj][0] = state.vertices[vi][0] + oldDx * scale;
+                        state.vertices[vj][1] = state.vertices[vi][1] + oldDy * scale;
+                        _emitChange();
+                        render();
+                    }
+                }
+                if (input.parentNode) input.parentNode.removeChild(input);
+            }
+
+            input.addEventListener('blur', applyValue);
+            input.addEventListener('keydown', function(ev) {
+                if (ev.key === 'Enter') { ev.preventDefault(); input.blur(); }
+                if (ev.key === 'Escape') { if (input.parentNode) input.parentNode.removeChild(input); }
+            });
+        });
+
+        // ============================================
+        // SKRÓTY KLAWISZOWE (Ctrl+Z, Ctrl+Shift+Z)
+        // ============================================
+
+        canvasElement.setAttribute('tabindex', '0');
+        canvasElement.style.outline = 'none';
+        canvasElement.addEventListener('keydown', function(e) {
+            var isCtrl = e.ctrlKey || e.metaKey;
+            if (isCtrl && e.key === 'z' && !e.shiftKey) {
+                e.preventDefault();
+                undo();
+            } else if (isCtrl && e.key === 'z' && e.shiftKey) {
+                e.preventDefault();
+                redo();
+            }
+        });
+
+        // Focus canvas po kliknięciu żeby skróty działały
+        canvasElement.addEventListener('mousedown', function() {
+            canvasElement.focus();
+        }, true);
 
         // ============================================
         // VERTEX / EDGE HIT TESTING
