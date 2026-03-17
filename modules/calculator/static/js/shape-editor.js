@@ -84,7 +84,31 @@ var ShapeEditor = (function() {
 
             _syncToMainDimensions();
 
+            // Koło: listener na input length — kopiuje wartość na width
+            _setupCircleSync();
+
             if (typeof updatePrices === 'function') updatePrices();
+        }
+
+        function _setupCircleSync() {
+            var lengthInput = form.querySelector('input[data-field="length"]');
+            var widthInput = form.querySelector('input[data-field="width"]');
+            if (!lengthInput || !widthInput) return;
+
+            // Usuń stary listener jeśli istnieje
+            if (form._circleInputHandler) {
+                lengthInput.removeEventListener('input', form._circleInputHandler);
+                form._circleInputHandler = null;
+            }
+
+            if (currentShape === 'circle') {
+                form._circleInputHandler = function() {
+                    widthInput.value = lengthInput.value;
+                };
+                lengthInput.addEventListener('input', form._circleInputHandler);
+                // Synchronizuj od razu
+                widthInput.value = lengthInput.value;
+            }
         }
 
         // ============================================
