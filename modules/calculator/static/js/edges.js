@@ -2063,50 +2063,63 @@ const EdgesModule = (function() {
         var shapeW = maxX - minX || 1;
         var shapeH = maxY - minY || 1;
 
-        // Izometryczny rzut — dwa niezależne kąty:
-        // angleY: obrót w prawo/lewo (mniejszy = mniej w prawo)
-        // angleX: pochylenie do tyłu (widoczność górnej powierzchni)
-        var angleY = 0 * Math.PI / 180;   // obrót w prawo (stopnie)
-        var angleX = 40 * Math.PI / 180;  // pochylenie do tyłu (stopnie)
+        // Projekcja 3D wzorowana na Illustrator 3D Extrude (42°, 16°, -14°)
+        // Wektory definiują jak osie kształtu mapują na ekran (SVG: Y w dół)
+        // vecShapeX: kształt X (prawo na canvasie) → ekran
+        // vecShapeY: kształt Y (góra na canvasie) → ekran
+        // vecZ: grubość → ekran (w dół)
+        var vecShapeX = { x: 0.95, y: 0 };   // w prawo i lekko w dół
+        var vecShapeY = { x: -0.36, y: -0.75 };  // lekko w lewo i do góry
+        var vecZ = { x: 0.04, y: 0.65 };         // prawie prosto w dół (grubość)
+
         var effectiveThickness = Math.max(thickness, Math.max(shapeW, shapeH) * 0.15);
 
         var workWidth = viewBoxWidth - 2 * margin;
         var workHeight = viewBoxHeight - 2 * margin;
 
-        var vecX = { x: Math.cos(angleY), y: Math.sin(angleX) };
-        var vecY = { x: -Math.cos(angleY), y: Math.sin(angleX) };
-
-        var projW = (shapeW + shapeH) * Math.cos(angleY);
-        var projH = (shapeW + shapeH) * Math.sin(angleX) + effectiveThickness;
+        // Oblicz bounding box projekcji do skalowania
+        var testCorners = [
+            [0, 0, 0], [shapeW, 0, 0], [0, shapeH, 0], [shapeW, shapeH, 0],
+            [0, 0, effectiveThickness], [shapeW, 0, effectiveThickness],
+            [0, shapeH, effectiveThickness], [shapeW, shapeH, effectiveThickness]
+        ];
+        var projMinX = Infinity, projMaxX = -Infinity, projMinY = Infinity, projMaxY = -Infinity;
+        for (var ti = 0; ti < testCorners.length; ti++) {
+            var tpx = testCorners[ti][0] * vecShapeX.x + testCorners[ti][1] * vecShapeY.x + testCorners[ti][2] * vecZ.x;
+            var tpy = testCorners[ti][0] * vecShapeX.y + testCorners[ti][1] * vecShapeY.y + testCorners[ti][2] * vecZ.y;
+            if (tpx < projMinX) projMinX = tpx;
+            if (tpx > projMaxX) projMaxX = tpx;
+            if (tpy < projMinY) projMinY = tpy;
+            if (tpy > projMaxY) projMaxY = tpy;
+        }
+        var projW = projMaxX - projMinX || 1;
+        var projH = projMaxY - projMinY || 1;
         var scale = Math.min(workWidth / projW, workHeight / projH) * 0.85;
 
         var T = effectiveThickness * scale;
 
-        // Oblicz projekcję izometryczną żeby wycentrować
-        var totalProjW = shapeW * scale * vecX.x + shapeH * scale * Math.abs(vecY.x);
-        var totalProjH = shapeW * scale * vecX.y + shapeH * scale * vecY.y + T;
+        // Centrowanie
+        var offsetX = (viewBoxWidth - projW * scale) / 2 - projMinX * scale;
+        var offsetY = (viewBoxHeight - projH * scale) / 2 - projMinY * scale;
 
-        var offsetX = (viewBoxWidth - totalProjW) / 2 + shapeH * scale * Math.abs(vecY.x);
-        var offsetY = (viewBoxHeight - totalProjH) / 2 + T;
-
-        // Przekształć wierzchołki do izometrii (wycentrowane)
-        // Odwrócenie Y: dół canvasu (niskie Y) = przód izometrii (bliżej widza)
-        function toIso(px, py) {
-            var cx = (px - minX) * scale;
-            var cy = (maxY - py) * scale;  // odwrócona oś Y
+        // Projekcja 3D → 2D: Z=0 = górna powierzchnia, Z=thickness = dolna
+        function project3D(px, py, pz) {
+            var sx = (px - minX);
+            var sy = (py - minY);
             return {
-                x: offsetX + cx * vecX.x + cy * vecY.x,
-                y: offsetY + cx * vecX.y + cy * vecY.y
+                x: offsetX + (sx * vecShapeX.x + sy * vecShapeY.x + pz * vecZ.x) * scale,
+                y: offsetY + (sx * vecShapeX.y + sy * vecShapeY.y + pz * vecZ.y) * scale
             };
         }
 
-        // Wierzchołki górnej i dolnej płaszczyzny
+        // Wierzchołki górnej (Z=thickness, bo góra to wyższa warstwa) i dolnej (Z=0) płaszczyzny
         var topPts = [];
         var botPts = [];
         for (var j = 0; j < n; j++) {
-            var iso = toIso(verts[j][0], verts[j][1]);
-            topPts.push({ x: iso.x, y: iso.y - T });
-            botPts.push({ x: iso.x, y: iso.y });
+            var top = project3D(verts[j][0], verts[j][1], 0);
+            var bot = project3D(verts[j][0], verts[j][1], effectiveThickness);
+            topPts.push(top);
+            botPts.push(bot);
         }
 
         // Renderuj SVG

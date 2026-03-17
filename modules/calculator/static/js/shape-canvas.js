@@ -208,29 +208,41 @@ var ShapeCanvas = (function() {
                 var dy = verts[j][1] - verts[i][1];
                 var len = Math.sqrt(dx * dx + dy * dy);
                 if (len < 0.1) continue;
-                var label = (Math.round(len * 10) / 10) + ' cm';
-                _renderSingleDimension(verts[i][0], verts[i][1], verts[j][0], verts[j][1], label);
+                var dimLabel = (Math.round(len * 10) / 10) + ' cm';
+                var edgeId = 'G' + (i + 1);
+                _renderSingleDimension(verts[i][0], verts[i][1], verts[j][0], verts[j][1], dimLabel, edgeId);
             }
         }
 
-        function _renderSingleDimension(x1, y1, x2, y2, label) {
+        function _renderSingleDimension(x1, y1, x2, y2, label, edgeId) {
             var p1 = cmToPixel(x1, y1);
             var p2 = cmToPixel(x2, y2);
             var mx = (p1[0] + p2[0]) / 2;
             var my = (p1[1] + p2[1]) / 2;
 
             ctx.save();
-            ctx.font = '11px sans-serif';
-            ctx.fillStyle = '#e67e22';
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'bottom';
 
             var dx = p2[0] - p1[0], dy = p2[1] - p1[1];
             var len = Math.sqrt(dx * dx + dy * dy);
             if (len < 1) { ctx.restore(); return; }
-            var nx = -dy / len * 14, ny = dx / len * 14;
+            // Offset prostopadły do krawędzi — zwiększony z 14 na 22
+            var nx = -dy / len * 22, ny = dx / len * 22;
 
+            // Wymiar
+            ctx.font = '11px sans-serif';
+            ctx.fillStyle = '#e67e22';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'bottom';
             ctx.fillText(label, mx + nx, my + ny);
+
+            // Oznaczenie boku (G1, G2...) — pod wymiarem
+            if (edgeId) {
+                ctx.font = 'bold 10px sans-serif';
+                ctx.fillStyle = 'rgba(230, 126, 34, 0.6)';
+                ctx.textBaseline = 'top';
+                ctx.fillText(edgeId, mx + nx, my + ny + 2);
+            }
+
             ctx.restore();
         }
 
