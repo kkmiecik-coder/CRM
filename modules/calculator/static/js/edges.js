@@ -2273,6 +2273,17 @@ const EdgesModule = (function() {
             <line class="edges-line edges-corner ${ec('N1')}" data-edge="N1" x1="${pPLG.x}" y1="${pPLG.y}" x2="${pPLD.x}" y2="${pPLD.y}"/>
             <line class="edges-line edges-corner ${ec('N2')}" data-edge="N2" x1="${pPPG.x}" y1="${pPPG.y}" x2="${pPPD.x}" y2="${pPPD.y}"/>
             <line class="edges-line edges-corner ${ec('N4')}" data-edge="N4" x1="${pTPG.x}" y1="${pTPG.y}" x2="${pTPD.x}" y2="${pTPD.y}"/>
+            <g class="edges-labels" id="edgeLabelsGroup">
+                <g class="edges-label ${ec('A')}" data-edge="A"><circle cx="${(pPLG.x+pPPG.x)/2}" cy="${(pPLG.y+pPPG.y)/2-12}" r="10"/><text x="${(pPLG.x+pPPG.x)/2}" y="${(pPLG.y+pPPG.y)/2-8}">A</text></g>
+                <g class="edges-label ${ec('B')}" data-edge="B"><circle cx="${(pTLG.x+pTPG.x)/2}" cy="${(pTLG.y+pTPG.y)/2-12}" r="10"/><text x="${(pTLG.x+pTPG.x)/2}" y="${(pTLG.y+pTPG.y)/2-8}">B</text></g>
+                <g class="edges-label ${ec('C')}" data-edge="C"><circle cx="${(pTLG.x+pPLG.x)/2-14}" cy="${(pTLG.y+pPLG.y)/2}" r="10"/><text x="${(pTLG.x+pPLG.x)/2-14}" y="${(pTLG.y+pPLG.y)/2+4}">C</text></g>
+                <g class="edges-label ${ec('D')}" data-edge="D"><circle cx="${(pTPG.x+pPPG.x)/2+14}" cy="${(pTPG.y+pPPG.y)/2}" r="10"/><text x="${(pTPG.x+pPPG.x)/2+14}" y="${(pTPG.y+pPPG.y)/2+4}">D</text></g>
+                <g class="edges-label ${ec('E')}" data-edge="E"><circle cx="${(pPLD.x+pPPD.x)/2}" cy="${(pPLD.y+pPPD.y)/2+12}" r="10"/><text x="${(pPLD.x+pPPD.x)/2}" y="${(pPLD.y+pPPD.y)/2+16}">E</text></g>
+                <g class="edges-label ${ec('H')}" data-edge="H"><circle cx="${(pTPD.x+pPPD.x)/2+14}" cy="${(pTPD.y+pPPD.y)/2}" r="10"/><text x="${(pTPD.x+pPPD.x)/2+14}" y="${(pTPD.y+pPPD.y)/2+4}">H</text></g>
+                <g class="edges-label edges-label-corner ${ec('N1')}" data-edge="N1"><circle cx="${pPLG.x-14}" cy="${(pPLG.y+pPLD.y)/2}" r="10"/><text x="${pPLG.x-14}" y="${(pPLG.y+pPLD.y)/2+4}">N1</text></g>
+                <g class="edges-label edges-label-corner ${ec('N2')}" data-edge="N2"><circle cx="${pPPG.x+14}" cy="${(pPPG.y+pPPD.y)/2}" r="10"/><text x="${pPPG.x+14}" y="${(pPPG.y+pPPD.y)/2+4}">N2</text></g>
+                <g class="edges-label edges-label-corner ${ec('N4')}" data-edge="N4"><circle cx="${pTPG.x+14}" cy="${(pTPG.y+pTPD.y)/2}" r="10"/><text x="${pTPG.x+14}" y="${(pTPG.y+pTPD.y)/2+4}">N4</text></g>
+            </g>
         `;
     }
 
@@ -2298,6 +2309,10 @@ const EdgesModule = (function() {
             <ellipse class="edges-line${ecKG}" data-edge="KG" cx="${cx}" cy="${cy}" rx="${rx}" ry="${ry}" fill="none"/>
             <line class="edges-line" x1="${cx - rx}" y1="${cy}" x2="${cx - rx}" y2="${cy + sT}"/>
             <line class="edges-line" x1="${cx + rx}" y1="${cy}" x2="${cx + rx}" y2="${cy + sT}"/>
+            <g class="edges-labels" id="edgeLabelsGroup">
+                <g class="edges-label${ecKG}" data-edge="KG"><circle cx="${cx}" cy="${cy - ry - 14}" r="12"/><text x="${cx}" y="${cy - ry - 10}">KG</text></g>
+                <g class="edges-label${ecKD}" data-edge="KD"><circle cx="${cx}" cy="${cy + sT + ry + 14}" r="12"/><text x="${cx}" y="${cy + sT + ry + 18}">KD</text></g>
+            </g>
         `;
     }
 
