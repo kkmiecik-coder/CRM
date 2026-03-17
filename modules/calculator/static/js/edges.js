@@ -2064,7 +2064,7 @@ const EdgesModule = (function() {
         var shapeH = maxY - minY || 1;
 
         // Izometryczny rzut (mniejszy kąt niż prostokąt — mniej obrotu na osi X)
-        var isoAngle = Math.PI / 9;
+        var isoAngle = 50 * Math.PI / 180;
         var effectiveThickness = Math.max(thickness, Math.max(shapeW, shapeH) * 0.15);
 
         var workWidth = viewBoxWidth - 2 * margin;
