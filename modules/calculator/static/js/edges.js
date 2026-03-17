@@ -10,6 +10,11 @@ const EdgesModule = (function() {
     // KONFIGURACJA
     // ==========================================
 
+    // Helper: sprawdza czy kształt jest okrągły/eliptyczny (round, circle, ellipse)
+    function _isRoundShape(shape) {
+        return shape === 'round' || shape === 'circle' || shape === 'ellipse';
+    }
+
     // Ceny domyślne (fallback gdy API niedostępne)
     const DEFAULT_PRICES = {
         chamfer: { per_mb: 15.00, per_corner: 5.00 },
@@ -469,7 +474,7 @@ const EdgesModule = (function() {
         loadSavedState();
 
         // Przełącz UI w zależności od kształtu produktu
-        if (state.productShape === 'round') {
+        if (_isRoundShape(state.productShape)) {
             showRoundEdgesUI();
             generateRoundSVG(
                 state.dimensions.length,
@@ -636,7 +641,7 @@ const EdgesModule = (function() {
     }
 
     function handleQuickAction(action) {
-        if (state.productShape === 'round') {
+        if (_isRoundShape(state.productShape)) {
             // Akcje dla kształtu okrągłego
             switch (action) {
                 case 'select-top':
@@ -689,7 +694,7 @@ const EdgesModule = (function() {
             }
             updateSvgEdge(edge, true);
         });
-        if (state.productShape === 'round') {
+        if (_isRoundShape(state.productShape)) {
             updateRoundSvgHighlights();
         }
     }
@@ -711,7 +716,7 @@ const EdgesModule = (function() {
                 cb.closest('.edges-item')?.classList.remove('selected');
             });
         }
-        if (state.productShape === 'round') {
+        if (_isRoundShape(state.productShape)) {
             updateRoundSvgHighlights();
         }
     }
@@ -1053,7 +1058,7 @@ const EdgesModule = (function() {
         const pricePerMb = getPricePerMb(state.edgeType);
         const pricePerCorner = getPricePerCorner(state.edgeType);
 
-        if (state.productShape === 'round') {
+        if (_isRoundShape(state.productShape)) {
             // Kształt okrągły: krawędzie obwodowe KG/KD
             const perimeterCm = calculateEllipsePerimeterCm(
                 state.dimensions.length, state.dimensions.width
@@ -1133,7 +1138,7 @@ const EdgesModule = (function() {
         // Zbierz dane o wybranych krawędziach
         const edgesData = [];
 
-        if (state.productShape === 'round') {
+        if (_isRoundShape(state.productShape)) {
             // Kształt okrągły: krawędzie obwodowe KG/KD
             const perimeterCm = calculateEllipsePerimeterCm(
                 state.dimensions.length, state.dimensions.width
@@ -1512,7 +1517,7 @@ const EdgesModule = (function() {
             const formShape = form.dataset.productShape || 'rectangular';
 
             edges.forEach(edge => {
-                if (formShape === 'round') {
+                if (_isRoundShape(formShape)) {
                     // Krawędzie obwodowe dla kształtu okrągłego
                     const def = ROUND_EDGES[edge.letter];
                     if (!def) return;
@@ -1925,7 +1930,7 @@ const EdgesModule = (function() {
 
         const shape = form.dataset.productShape || 'rectangular';
 
-        if (shape === 'round') {
+        if (_isRoundShape(shape)) {
             generateRoundPreviewSVG(svgEl, lengthVal, widthVal, thicknessVal, activeEdges);
         } else {
             generateRectPreviewSVG(svgEl, lengthVal, widthVal, thicknessVal, activeEdges);

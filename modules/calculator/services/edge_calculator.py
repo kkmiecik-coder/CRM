@@ -384,3 +384,147 @@ def validate_r_value(edge_type: str, r_value: int) -> tuple:
         return (False, limits['max'], f"Maksymalna wartość R dla {edge_type} to {limits['max']} mm")
 
     return (True, r_value, None)
+
+
+# ============================================
+# DYNAMICZNE KRAWĘDZIE DLA NIEREGULARNYCH KSZTAŁTÓW
+# ============================================
+
+def _load_edge_prices():
+    """Ładuje ceny krawędzi z bazy danych lub zwraca domyślne."""
+    try:
+        from modules.calculator.models import EdgeOption
+        options = EdgeOption.query.filter(
+            (EdgeOption.is_active == True) | (EdgeOption.is_active.is_(None))
+        ).all()
+        prices = {}
+        for opt in options:
+            prices[opt.type] = {
+                'per_mb': Decimal(str(opt.price_per_mb)) if opt.price_per_mb else Decimal('0'),
+                'per_corner': Decimal(str(opt.corner_price)) if opt.corner_price else Decimal('0'),
+            }
+        return prices if prices else DEFAULT_PRICES
+    except Exception:
+        return DEFAULT_PRICES
+
+
+def _generate_edge_definitions(shape_type, shape_data, thickness_cm):
+    """
+    Generuje definicje krawędzi G (góra), D (dół), P (pion) dla nieregularnych kształtów.
+    """
+    edges = []
+    vertices = shape_data.get('vertices')
+    params = shape_data.get('params', {})
+
+    if shape_type in ('circle', 'ellipse'):
+        if shape_type == 'circle':
+            d = params.get('diameter', 0)
+            perimeter = math.pi * d
+        else:
+            a = params.get('axisA', 0) / 2
+            b = params.get('axisB', 0) / 2
+            perimeter = math.pi * (3 * (a + b) - math.sqrt((3 * a + b) * (a + 3 * b)))
+
+        edges.append({'id': 'G1', 'type_label': 'top', 'length_cm': perimeter, 'name': 'Obwód (góra)'})
+        edges.append({'id': 'D1', 'type_label': 'bottom', 'length_cm': perimeter, 'name': 'Obwód (dół)'})
+        edges.append({'id': 'P1', 'type_label': 'vertical', 'length_cm': perimeter, 'name': 'Krawędź boczna (obwód)'})
+        return edges
+
+    if not vertices or len(vertices) < 3:
+        return edges
+
+    n = len(vertices)
+    for i in range(n):
+        j = (i + 1) % n
+        dx = vertices[j][0] - vertices[i][0]
+        dy = vertices[j][1] - vertices[i][1]
+        length = math.sqrt(dx * dx + dy * dy)
+        edges.append({'id': 'G{}'.format(i + 1), 'type_label': 'top', 'length_cm': length, 'name': 'Góra {}'.format(i + 1)})
+        edges.append({'id': 'D{}'.format(i + 1), 'type_label': 'bottom', 'length_cm': length, 'name': 'Dół {}'.format(i + 1)})
+
+    for i in range(n):
+        edges.append({'id': 'P{}'.format(i + 1), 'type_label': 'vertical', 'length_cm': thickness_cm, 'name': 'Pion {}'.format(i + 1)})
+
+    return edges
+
+
+def calculate_dynamic_edges(shape_type, shape_data_json, thickness_cm, edges_config, prices=None):
+    """
+    Oblicza krawędzie dla nieregularnych kształtów.
+    Zwraca szczegóły krawędzi G (góra), D (dół), P (pion) z cenami.
+
+    edges_config format:
+    [{"id": "G1", "type": "chamfer", "r_value": 3}, ...]
+    """
+    import json
+
+    if not shape_data_json:
+        return {"details": [], "total_netto": 0, "total_brutto": 0, "edge_definitions": []}
+
+    shape_data = json.loads(shape_data_json) if isinstance(shape_data_json, str) else shape_data_json
+
+    edge_defs = _generate_edge_definitions(shape_type, shape_data, thickness_cm)
+
+    if not prices:
+        prices = _load_edge_prices()
+
+    total_netto = Decimal('0')
+    total_brutto = Decimal('0')
+    details = []
+
+    for edge_cfg in (edges_config or []):
+        edge_id = edge_cfg.get('id', '')
+        edge_type = edge_cfg.get('type', 'sharp')
+
+        if edge_type == 'sharp':
+            details.append({
+                'id': edge_id, 'type': edge_type,
+                'price_netto': 0, 'price_brutto': 0, 'length_mm': 0
+            })
+            continue
+
+        edge_def = next((e for e in edge_defs if e['id'] == edge_id), None)
+        if not edge_def:
+            continue
+
+        length_mm = edge_def['length_cm'] * 10
+        type_prices = prices.get(edge_type, DEFAULT_PRICES.get(edge_type, {}))
+        per_mb = type_prices.get('per_mb', Decimal('0'))
+
+        price_netto = (Decimal(str(length_mm)) / Decimal('1000') * per_mb).quantize(
+            Decimal('0.01'), rounding=ROUND_HALF_UP
+        )
+
+        price_brutto = (price_netto * VAT_RATE).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+        total_netto += price_netto
+        total_brutto += price_brutto
+
+        details.append({
+            'id': edge_id,
+            'type': edge_type,
+            'edge_type_label': edge_def.get('type_label', ''),
+            'length_mm': float(length_mm),
+            'price_netto': float(price_netto),
+            'price_brutto': float(price_brutto)
+        })
+
+    return {
+        'details': details,
+        'total_netto': float(total_netto.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)),
+        'total_brutto': float(total_brutto.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)),
+        'edge_definitions': edge_defs
+    }
+
+
+def get_dynamic_edge_definitions(shape_type, shape_data_json, thickness_cm):
+    """
+    Zwraca definicje dynamicznych krawędzi (bez kalkulacji cen).
+    Używane przez frontend do renderowania UI wyboru krawędzi.
+    """
+    import json
+
+    if not shape_data_json:
+        return []
+
+    shape_data = json.loads(shape_data_json) if isinstance(shape_data_json, str) else shape_data_json
+    return _generate_edge_definitions(shape_type, shape_data, thickness_cm)
