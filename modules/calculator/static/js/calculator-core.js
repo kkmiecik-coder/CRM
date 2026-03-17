@@ -559,11 +559,23 @@ function updatePrices() {
     } else {
         activeQuoteForm.dataset.orderBrutto = "";
         activeQuoteForm.dataset.orderNetto = "";
-        // Ustaw flagę błędu gdy wybrany wariant nie ma ceny
-        if (selectedRadio) {
+        // Sprawdź czy jakikolwiek wariant ma cenę
+        var anyVariantHasPrice = false;
+        activeQuoteForm.querySelectorAll('.variants input[type="radio"]').forEach(function(r) {
+            if (r.dataset.totalBrutto && parseFloat(r.dataset.totalBrutto) > 0) anyVariantHasPrice = true;
+        });
+
+        if (selectedRadio && !anyVariantHasPrice) {
+            // Żaden wariant nie ma ceny — pełny błąd
             activeQuoteForm.dataset.outOfRange = "true";
+            activeQuoteForm.dataset.errorMessage = "Wszystkie warianty poza zakresem";
+        } else if (selectedRadio) {
+            // Wybrany wariant poza zakresem, ale inne mają cenę
+            activeQuoteForm.dataset.outOfRange = "true";
+            activeQuoteForm.dataset.errorMessage = "Wybrany wariant poza zakresem";
         } else {
             delete activeQuoteForm.dataset.outOfRange;
+            delete activeQuoteForm.dataset.errorMessage;
         }
     }
 
