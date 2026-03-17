@@ -881,6 +881,7 @@ function generateProductDescription(form, index) {
             var errorMap = {
                 'Dług. poza zakr.': 'Długość poza zakresem cennika',
                 'Średnica poza zakr.': 'Średnica poza zakresem cennika',
+                'Śr. poza zakr.': 'Średnica poza zakresem cennika',
                 'Szer. poza zakr.': 'Szerokość poza zakresem cennika',
                 'Grub. poza zakr.': 'Grubość poza zakresem cennika',
                 'Brak dług.': 'Brak długości',

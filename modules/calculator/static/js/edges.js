@@ -495,7 +495,7 @@ const EdgesModule = (function() {
             showRoundEdgesUI();
             generateRoundSVG(
                 state.dimensions.length,
-                state.dimensions.width,
+                state.productShape === 'circle' ? state.dimensions.length : state.dimensions.width,
                 state.dimensions.thickness
             );
         } else if (state.productShape !== 'rectangular' && state.currentForm._shapeEditor) {
@@ -2201,7 +2201,9 @@ const EdgesModule = (function() {
         const shape = form.dataset.productShape || 'rectangular';
 
         if (_isRoundShape(shape)) {
-            generateRoundPreviewSVG(svgEl, lengthVal, widthVal, thicknessVal, activeEdges);
+            // Koło: width = length (średnica)
+            var roundW = (shape === 'circle') ? lengthVal : widthVal;
+            generateRoundPreviewSVG(svgEl, lengthVal, roundW, thicknessVal, activeEdges);
         } else if (shape !== 'rectangular' && form._shapeEditor) {
             // Nieregularny kształt — renderuj z wierzchołków
             var shapeData = form._shapeEditor.getShapeData();

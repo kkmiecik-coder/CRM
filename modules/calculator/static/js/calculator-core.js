@@ -420,8 +420,8 @@ function updatePrices() {
             // Koło: średnica musi mieścić się w obu zakresach (length i width)
             var diameterMax = Math.min(limits.length_max, limits.width_max);
             var diameterMin = Math.max(limits.length_min, limits.width_min);
-            if (length > diameterMax) errorMsg = "Średnica poza zakr. (max " + diameterMax + " cm)";
-            else if (length < diameterMin) errorMsg = "Średnica poza zakr. (min " + diameterMin + " cm)";
+            if (length > diameterMax) errorMsg = "Śr. poza zakr.";
+            else if (length < diameterMin) errorMsg = "Śr. poza zakr.";
             else if (thickness < limits.thickness_min || thickness > limits.thickness_max) errorMsg = "Grub. poza zakr.";
         } else {
             if (length < limits.length_min || length > limits.length_max) errorMsg = "Dług. poza zakr.";
