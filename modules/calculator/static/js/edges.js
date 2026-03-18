@@ -10,9 +10,9 @@ const EdgesModule = (function() {
     // KONFIGURACJA
     // ==========================================
 
-    // Helper: sprawdza czy kształt jest okrągły/eliptyczny (round, circle, ellipse)
+    // Helper: sprawdza czy kształt jest okrągły (round, circle)
     function _isRoundShape(shape) {
-        return shape === 'round' || shape === 'circle' || shape === 'ellipse';
+        return shape === 'round' || shape === 'circle';
     }
 
     // Ceny domyślne (fallback gdy API niedostępne)
@@ -1469,7 +1469,9 @@ const EdgesModule = (function() {
         delete state.currentForm.dataset.edgesCount;
         delete state.currentForm.dataset.edgesType;
         delete state.currentForm.dataset.edgesRValue;
+        delete state.currentForm.dataset.edgesAngleValue;
         delete state.currentForm.dataset.edgesSvg;
+        delete state.currentForm.dataset.edgesQuantity;
 
         // Ukryj wiersz krawędzi w podsumowaniu
         const optionsSummary = state.currentForm.querySelector('.edges-options-summary');

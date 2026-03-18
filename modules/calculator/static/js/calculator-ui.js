@@ -558,9 +558,9 @@ function calculateFinishingCost(form) {
     let surfaceAreaPerPieceM2;
 
     if (formShape === 'round') {
-        // Elipsa: Góra + Dół = 2 * π * a * b
-        // Pasek boczny: obwód elipsy * grubość
-        // Obwód Ramanujan: π * [3(a+b) - sqrt((3a+b)(a+3b))]
+        // Koło: Góra + Dół = 2 * π * r²
+        // Pasek boczny: obwód * grubość
+        // Obwód: π * d
         const a = lengthM / 2, b = widthM / 2;
         const topBottom = 2 * Math.PI * a * b;
         const perimeter = Math.PI * (3 * (a + b) - Math.sqrt((3 * a + b) * (a + 3 * b)));

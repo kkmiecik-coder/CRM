@@ -398,51 +398,113 @@ class QuoteDraftBackup {
     }
 
     generateProductsList(products) {
-        const container = document.getElementById('products-list');
+        var container = document.getElementById('products-list');
         container.innerHTML = '';
 
-        const miss = '<span style="color:#ef4444;font-weight:700;font-size:1.2em">?</span>';
+        var miss = '<span style="color:#ef4444;font-weight:700;font-size:1.2em">?</span>';
 
-        products.forEach((product, index) => {
-            const productDiv = document.createElement('div');
+        products.forEach(function(product, index) {
+            var productDiv = document.createElement('div');
             productDiv.className = 'product-item';
 
-            const l = product.length != null ? product.length : miss;
-            const w = product.width != null ? product.width : miss;
-            const t = product.thickness != null ? product.thickness : miss;
+            var t = product.thickness != null ? product.thickness : miss;
+            var dimStr = this._buildDimensionString(product, miss);
 
-            let description = `Produkt ${index + 1} - ${l}x${w}x${t}cm`;
-
+            // Nazwa produktu lub wariantu
+            var prefix = 'Produkt ' + (index + 1);
             if (product.selectedVariant) {
-                const variantName = this.getVariantDisplayName(product.selectedVariant);
-                description = `${variantName} ${l}x${w}x${t}cm`;
+                prefix = this.getVariantDisplayName(product.selectedVariant);
             }
 
-            if (product.shape === 'round') {
-                description += ' (okragly)';
-            }
+            var description = prefix + ' - ' + dimStr + ' x ' + t + 'cm';
 
+            // Wykończenie
             if (product.finishing && product.finishing.type !== 'Surowe') {
-                description += ` ${product.finishing.type.toLowerCase()}`;
+                description += ' ' + product.finishing.type.toLowerCase();
                 if (product.finishing.variant) {
-                    description += ` ${product.finishing.variant.toLowerCase()}`;
+                    description += ' ' + product.finishing.variant.toLowerCase();
                 }
                 if (product.finishing.color) {
-                    description += ` (${product.finishing.color})`;
+                    description += ' (' + product.finishing.color + ')';
                 }
             } else {
                 description += ' surowy';
             }
 
+            // Krawędzie
             if (product.edges && product.edges.data && product.edges.data.length > 0) {
-                const edgeLetters = product.edges.data.map(e => e.letter).sort().join(', ');
-                const edgeTypeLabel = product.edges.type === 'chamfer' ? 'fazowanie' : 'zaokraglenie';
-                description += ` + ${edgeTypeLabel} R${product.edges.rValue} (${edgeLetters})`;
+                var edgeLetters = product.edges.data.map(function(e) { return e.letter; }).sort().join(', ');
+                var edgeTypeLabel = product.edges.type === 'chamfer' ? 'fazowanie' : 'zaokraglenie';
+                description += ' + ' + edgeTypeLabel + ' R' + product.edges.rValue + ' (' + edgeLetters + ')';
             }
 
             productDiv.innerHTML = description;
             container.appendChild(productDiv);
-        });
+        }.bind(this));
+    }
+
+    /**
+     * Buduje ciąg wymiarów dopasowany do kształtu produktu.
+     * Dla prostokąta: DxS, koła: ∅D, trapezu: P1xP2xW itd.
+     */
+    _buildDimensionString(product, miss) {
+        var shape = product.shape || 'rectangular';
+        var sd = null;
+
+        // Parsuj shape_data jeśli dostępne
+        if (product.shape_data) {
+            try {
+                sd = typeof product.shape_data === 'string'
+                    ? JSON.parse(product.shape_data)
+                    : product.shape_data;
+            } catch (e) {
+                sd = null;
+            }
+        }
+
+        var l = product.length != null ? product.length : miss;
+        var w = product.width != null ? product.width : miss;
+
+        // Pomocnicza — pobiera parametr z shape_data lub zwraca miss
+        function p(key) {
+            return (sd && sd.params && sd.params[key] != null) ? sd.params[key] : miss;
+        }
+
+        switch (shape) {
+            case 'rectangular':
+                return l + ' x ' + w;
+
+            case 'circle':
+            case 'round':
+                return '∅' + p('diameter');
+
+            case 'triangle_right':
+                return p('legA') + ' x ' + p('legB');
+
+            case 'triangle_equilateral':
+                return 'bok ' + p('side');
+
+            case 'triangle_isosceles':
+                return p('base') + ' x ' + p('arm');
+
+            case 'triangle_custom':
+                return p('sideA') + ' x ' + p('sideB') + ' x ' + p('sideC');
+
+            case 'trapezoid_symmetric':
+            case 'trapezoid_asymmetric':
+            case 'trapezoid_custom':
+                return p('baseA') + ' x ' + p('baseB') + ' x h' + p('height');
+
+            case 'parallelogram':
+                return p('sideA') + ' x ' + p('sideB') + ' x ' + p('angle') + '\u00B0';
+
+            case 'polygon':
+                var nPts = (sd && sd.vertices) ? sd.vertices.length : miss;
+                return 'wielokat ' + nPts + 'pkt';
+
+            default:
+                return l + ' x ' + w;
+        }
     }
 
     getVariantDisplayName(variantCode) {
@@ -655,8 +717,12 @@ class QuoteDraftBackup {
         delete form.dataset.edgesData;
         delete form.dataset.edgesType;
         delete form.dataset.edgesRValue;
+        delete form.dataset.edgesAngleValue;
         delete form.dataset.edgesNetto;
         delete form.dataset.edgesBrutto;
+        delete form.dataset.edgesCount;
+        delete form.dataset.edgesSvg;
+        delete form.dataset.edgesQuantity;
 
         const finishingOptionsSummary = form.querySelector('.finishing-options-summary');
         if (finishingOptionsSummary) {
@@ -1204,9 +1270,19 @@ class QuoteDraftBackup {
     }
 
     bindChangeDetection() {
-        const markUnsaved = () => {
-            if (this._ignoreChanges || this.isQuoteSaved) return;
-            if (Date.now() < this._restoredUntil) return;
+        // trusted = true oznacza akcję użytkownika (np. klik, wpisanie tekstu)
+        // trusted = false oznacza programowy dispatch (np. dispatchEvent)
+        const markUnsaved = (trusted) => {
+            if (this.isQuoteSaved) return;
+
+            // Programowe eventy blokujemy w okresie ochronnym po przywróceniu
+            if (!trusted && (this._ignoreChanges || Date.now() < this._restoredUntil)) return;
+
+            // Prawdziwa akcja użytkownika — natychmiast wyłączamy blokadę
+            if (trusted && this._ignoreChanges) {
+                this._ignoreChanges = false;
+                this._restoredUntil = 0;
+            }
 
             this.updateSaveButtonDisabled();
 
@@ -1223,24 +1299,24 @@ class QuoteDraftBackup {
         // Event delegation na kontenerze kalkulatora
         const container = document.querySelector('.calculatorrr');
         if (container) {
-            // Inputy tekstowe/numeryczne
+            // Inputy tekstowe/numeryczne (w tym parametry kształtów data-shape-param)
             container.addEventListener('input', (e) => {
-                if (e.target.matches('input[data-field], textarea')) {
-                    markUnsaved();
+                if (e.target.matches('input[data-field], input[data-shape-param], textarea')) {
+                    markUnsaved(e.isTrusted);
                 }
             });
 
             // Selecty, radio buttony, checkboxy
             container.addEventListener('change', (e) => {
                 if (e.target.matches('select[data-field], input[type="radio"], input[type="checkbox"]')) {
-                    markUnsaved();
+                    markUnsaved(e.isTrusted);
                 }
             });
 
             // Klikniecia w przyciski wykonczenia, wariantow, krawedzi
             container.addEventListener('click', (e) => {
                 if (e.target.closest('.finishing-option-btn, .finishing-btn, .color-btn, .variant-option, .edges-reset-btn')) {
-                    markUnsaved();
+                    markUnsaved(e.isTrusted);
                 }
             });
         }

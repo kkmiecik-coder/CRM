@@ -2560,9 +2560,8 @@ function renderVariantSummary(groupedItemsForIndex, quoteData, productIndex) {
 
     // Badge kształtu
     const shapeLabels = {
-        'rectangular': null,
+        'rectangular': 'Prostokąt',
         'circle': 'Koło',
-        'ellipse': 'Elipsa',
         'round': 'Okrągły',
         'triangle_right': 'Trójkąt prostokątny',
         'triangle_equilateral': 'Trójkąt równoboczny',
@@ -2581,7 +2580,18 @@ function renderVariantSummary(groupedItemsForIndex, quoteData, productIndex) {
 
     // Shape SVG preview
     const shapeSvgHtml = finishing && finishing.shape_svg
-        ? `<div class="shape-svg-preview" style="margin-top:4px">${finishing.shape_svg}</div>`
+        ? `<div class="shape-preview-item"><div class="shape-preview-label">Widok kształtu</div><div class="shape-svg-preview">${finishing.shape_svg}</div></div>`
+        : '';
+
+    // Edges SVG z nagłówkiem
+    const edgesSvgWithLabel = edgesSvgHtml
+        ? `<div class="shape-preview-item"><div class="shape-preview-label">Widok izometryczny</div>${edgesSvgHtml}</div>`
+        : '';
+
+    // Trzecia kolumna: podgląd kształtu (2D + 3D)
+    const hasShapePreview = shapeSvgHtml || edgesSvgWithLabel;
+    const shapePreviewColumn = hasShapePreview
+        ? `<div class="shape-preview-column">${shapeSvgHtml}${edgesSvgWithLabel}</div>`
         : '';
 
     wrap.innerHTML = `
@@ -2590,7 +2600,6 @@ function renderVariantSummary(groupedItemsForIndex, quoteData, productIndex) {
             <div><strong>Wymiary:</strong> ${dims}</div>
             <div><strong>Objętość:</strong> ${volume}</div>
             <div><strong>Ilość:</strong> ${quantity} szt.</div>
-            ${shapeSvgHtml}
         </div>
         <div class="finishing-column">
             <div class="finishing-info">
@@ -2598,8 +2607,8 @@ function renderVariantSummary(groupedItemsForIndex, quoteData, productIndex) {
                 <div><strong>Koszt malowania:</strong> ${finishingCostDisplay}</div>
                 ${edgesInfoHtml}
             </div>
-            ${edgesSvgHtml}
         </div>
+        ${shapePreviewColumn}
     `;
 
     return wrap;

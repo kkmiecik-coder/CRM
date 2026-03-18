@@ -96,9 +96,8 @@
 
 /* Dynamiczne inputy kształtu — wewnątrz sekcji Produkt */
 .shape-param-field {
-    display: flex;
-    flex-direction: column;
-    gap: 3px;
+    position: relative;
+    align-self: stretch;
 }
 
 .shape-param-field input.error-outline {
@@ -119,6 +118,10 @@
     font-size: 11px;
     color: #e74c3c;
     margin-top: 2px;
+}
+
+.shape-validation-error:empty {
+    display: none;
 }
 
 /* Polygon: add/remove point hint */

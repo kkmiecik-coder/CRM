@@ -972,8 +972,14 @@
     border: 1px solid #dcdcdc;
     font-weight: 500;
     display: grid;
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: 1fr 1fr auto;
     align-items: stretch;
+    gap: 16px;
+}
+
+/* Gdy brak podglądu kształtu — 2 kolumny */
+.variant-summary-header:not(:has(.shape-preview-column)) {
+    grid-template-columns: 1fr 1fr;
 }
 
 .variant-summary-header .product-column {
@@ -985,11 +991,10 @@
     line-height: 1.4;
 }
 
-/* Kolumna wykończenia (zawiera też krawędzie) */
+/* Kolumna wykończenia */
 .variant-summary-header .finishing-column {
     display: flex;
-    gap: 16px;
-    align-items: stretch;
+    flex-direction: column;
 }
 
 .variant-summary-header .finishing-column .finishing-info {
@@ -1013,20 +1018,65 @@
     margin: 6px 0;
 }
 
-/* SVG krawędzi - pełna wysokość kontenera */
-.edges-svg-preview {
-    width: 160px;
-    min-height: 110px;
-    flex-shrink: 0;
+/* Kolumna podglądu kształtu (2D + 3D) */
+.shape-preview-column {
+    display: flex;
+    flex-direction: row;
+    gap: 12px;
+    align-items: center;
+    justify-content: center;
+    min-width: 160px;
+    border-left: 1px solid #dcdcdc;
+    padding-left: 16px;
+}
+
+/* SVG kształtu 2D (z canvasu) */
+.shape-preview-column .shape-svg-preview {
     display: flex;
     align-items: center;
     justify-content: center;
+    width: 140px;
+    height: 100px;
+    flex-shrink: 0;
+}
+
+.shape-preview-column .shape-svg-preview svg {
+    width: 100%;
+    height: 100%;
+    display: block;
+}
+
+/* SVG krawędzi 3D izometryczny */
+.shape-preview-column .edges-svg-preview {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 140px;
+    height: 100px;
+    flex-shrink: 0;
 }
 
 .edges-svg-preview svg {
     width: 100%;
-    height: auto;
+    height: 100%;
     display: block;
+}
+
+/* Kontener podglądu z nagłówkiem */
+.shape-preview-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+}
+
+.shape-preview-label {
+    font-size: 10px;
+    font-weight: 600;
+    color: #888;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    white-space: nowrap;
 }
 
 /* Style dla SVG krawędzi w podglądzie */
@@ -1070,14 +1120,22 @@
         grid-template-columns: 1fr;
     }
 
-    .variant-summary-header .finishing-column {
-        flex-direction: column;
-        align-items: center;
+    .variant-summary-header:not(:has(.shape-preview-column)) {
+        grid-template-columns: 1fr;
     }
 
     .variant-summary-header .finishing-column .finishing-info {
         min-width: unset;
         width: 100%;
+    }
+
+    .shape-preview-column {
+        flex-direction: row;
+        border-left: none;
+        border-top: 1px solid #dcdcdc;
+        padding-left: 0;
+        padding-top: 12px;
+        min-width: unset;
     }
 
     .edges-svg-preview {

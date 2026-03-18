@@ -27,15 +27,6 @@ const ShapeGeometry = (function() {
             defaults: { diameter: 80 },
             hasVertices: false
         },
-        ellipse: {
-            label: 'Elipsa',
-            inputs: [
-                { key: 'axisA', label: 'Oś A', unit: 'cm' },
-                { key: 'axisB', label: 'Oś B', unit: 'cm' }
-            ],
-            defaults: { axisA: 100, axisB: 60 },
-            hasVertices: false
-        },
         triangle_right: {
             label: 'Trójkąt prostokątny',
             group: 'Trójkąt',
@@ -156,7 +147,6 @@ const ShapeGeometry = (function() {
             case 'polygon':
                 return _defaultPolygonVertices(params);
             case 'circle':
-            case 'ellipse':
                 return null;
             default:
                 return null;
@@ -233,10 +223,6 @@ const ShapeGeometry = (function() {
             const d = params.diameter || 0;
             return Math.PI * (d / 2) * (d / 2);
         }
-        if (shapeType === 'ellipse') {
-            const a = params.axisA || 0, b = params.axisB || 0;
-            return Math.PI * (a / 2) * (b / 2);
-        }
         if (!vertices || vertices.length < 3) return 0;
         return _shoelaceArea(vertices);
     }
@@ -261,9 +247,6 @@ const ShapeGeometry = (function() {
             const d = params.diameter || 0;
             return { width: d, height: d };
         }
-        if (shapeType === 'ellipse') {
-            return { width: params.axisA || 0, height: params.axisB || 0 };
-        }
         if (!vertices || vertices.length < 2) return { width: 0, height: 0 };
 
         let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
@@ -284,11 +267,6 @@ const ShapeGeometry = (function() {
         if (shapeType === 'circle') {
             const d = params.diameter || 0;
             return [{ id: 'G1', type: 'top', length_cm: Math.PI * d }];
-        }
-        if (shapeType === 'ellipse') {
-            const a = (params.axisA || 0) / 2, b = (params.axisB || 0) / 2;
-            const perimeter = Math.PI * (3 * (a + b) - Math.sqrt((3 * a + b) * (a + 3 * b)));
-            return [{ id: 'G1', type: 'top', length_cm: perimeter }];
         }
         if (!vertices || vertices.length < 3) return [];
 

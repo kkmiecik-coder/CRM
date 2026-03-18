@@ -254,7 +254,7 @@ def _update_or_create_product(quote, product_data):
     shape_svg = product_data.get('shape_svg')
     round_surcharge_netto = 0
     round_surcharge_brutto = 0
-    if shape in ('round', 'circle', 'ellipse'):
+    if shape in ('round', 'circle'):
         surcharge_per_unit = _to_decimal(
             CalculatorSetting.get_value('round_shape_surcharge_netto', '50.00')
         )
@@ -574,7 +574,7 @@ def create_quote(data, user_email):
             product_shape_svg = product.get('shape_svg')
             round_surcharge_netto = 0
             round_surcharge_brutto = 0
-            if product_shape in ('round', 'circle', 'ellipse'):
+            if product_shape in ('round', 'circle'):
                 surcharge_per_unit = _to_decimal(
                     CalculatorSetting.get_value('round_shape_surcharge_netto', '50.00')
                 )

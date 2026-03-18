@@ -243,6 +243,32 @@ function getPricingLimits() {
 }
 
 /**
+ * Wylicza limity wymiarów dla konkretnego wariantu (species + technology + wood_class).
+ * Zwraca null jeśli brak danych dla tego wariantu.
+ */
+function getPricingLimitsForVariant(variantId) {
+    var config = variantMapping[variantId];
+    if (!config) return null;
+    var key = config.species + '::' + config.technology + '::' + config.wood_class;
+    var arr = priceIndex[key] || [];
+    if (arr.length === 0) return null;
+    var limits = {
+        length_min: Infinity, length_max: -Infinity,
+        width_min: Infinity, width_max: -Infinity,
+        thickness_min: Infinity, thickness_max: -Infinity
+    };
+    arr.forEach(function(entry) {
+        if (entry.length_min < limits.length_min) limits.length_min = entry.length_min;
+        if (entry.length_max > limits.length_max) limits.length_max = entry.length_max;
+        if (entry.width_min < limits.width_min) limits.width_min = entry.width_min;
+        if (entry.width_max > limits.width_max) limits.width_max = entry.width_max;
+        if (entry.thickness_min < limits.thickness_min) limits.thickness_min = entry.thickness_min;
+        if (entry.thickness_max > limits.thickness_max) limits.thickness_max = entry.thickness_max;
+    });
+    return limits;
+}
+
+/**
  * Buduje indeks cenowy (priceIndex) na podstawie pricesFromDatabase
  */
 function buildPriceIndex() {
@@ -403,6 +429,8 @@ function updatePrices() {
         showErrorForAllVariants("Brak grupy", variantContainer);
         activeQuoteForm.dataset.orderBrutto = "";
         activeQuoteForm.dataset.orderNetto = "";
+        var selectedRadioNoGroup = activeQuoteForm.querySelector('.variants input[type="radio"]:checked');
+        _updateCanvasColorForVariant(activeQuoteForm, selectedRadioNoGroup, length, width, thickness);
         updateGlobalSummary();
         return;
     }
@@ -458,6 +486,9 @@ function updatePrices() {
         activeQuoteForm.dataset.orderNetto = "";
         activeQuoteForm.dataset.outOfRange = "true";
         activeQuoteForm.dataset.errorMessage = errorMsg;
+        // Canvas: sprawdź kolory na podstawie wybranego wariantu
+        var selectedRadioEarly = activeQuoteForm.querySelector('.variants input[type="radio"]:checked');
+        _updateCanvasColorForVariant(activeQuoteForm, selectedRadioEarly, length, width, thickness);
         updateGlobalSummary();
         return;
     }
@@ -512,9 +543,9 @@ function updatePrices() {
             let effectiveMultiplier = multiplier;
             let unitNetto = singleVolume * basePrice * effectiveMultiplier;
 
-            // Dopłata za kształt okrągły/koło/elipsa (per sztuka) - po mnożniku
+            // Dopłata za kształt okrągły/koło (per sztuka) - po mnożniku
             const productShape = activeQuoteForm.dataset.productShape || 'rectangular';
-            if ((productShape === 'round' || productShape === 'circle' || productShape === 'ellipse') && window._roundShapeSurchargeNetto) {
+            if ((productShape === 'round' || productShape === 'circle') && window._roundShapeSurchargeNetto) {
                 unitNetto += window._roundShapeSurchargeNetto;
             }
 
@@ -602,6 +633,9 @@ function updatePrices() {
         window.EdgesModule.updateEdgesPreview(activeQuoteForm);
     }
 
+    // ======= Aktualizacja kolorów canvasa na podstawie wybranego wariantu =======
+    _updateCanvasColorForVariant(activeQuoteForm, selectedRadio, length, width, thickness);
+
     updateGlobalSummary();
     updateCalculateDeliveryButtonState();
     generateProductsSummary();
@@ -611,6 +645,59 @@ function updatePrices() {
         updatePricesInOtherProducts();
     }
 
+}
+
+/**
+ * Aktualizuje kolor kształtu na canvasie:
+ * - czerwony gdy wybrany wariant nie ma ceny (wymiary poza zakresem)
+ * - pomarańczowy gdy cena jest ok lub brak wybranego wariantu
+ * Dodatkowo koloruje konkretne labele wymiarów bbox na czerwono.
+ */
+function _updateCanvasColorForVariant(form, selectedRadio, length, width, thickness) {
+    var editor = form._shapeEditor;
+    if (!editor) return;
+
+    // Brak wybranego wariantu — canvas normalny
+    if (!selectedRadio) {
+        editor.setColorTheme('normal');
+        editor.setOutOfRangeDims({ length: false, width: false });
+        return;
+    }
+
+    var variantId = selectedRadio.value;
+    var variantLimits = getPricingLimitsForVariant(variantId);
+
+    // Brak danych cennikowych — canvas normalny
+    if (!variantLimits || isNaN(length) || isNaN(width) || isNaN(thickness)) {
+        editor.setColorTheme('normal');
+        editor.setOutOfRangeDims({ length: false, width: false });
+        return;
+    }
+
+    var shape = form.dataset.productShape || 'rectangular';
+
+    // Sprawdź które wymiary są poza zakresem dla wybranego wariantu
+    var lengthOut = false;
+    var widthOut = false;
+
+    if (shape === 'circle') {
+        var diamMax = Math.min(variantLimits.length_max, variantLimits.width_max);
+        var diamMin = Math.max(variantLimits.length_min, variantLimits.width_min);
+        if (length < diamMin || length > diamMax) {
+            lengthOut = true;
+            widthOut = true;
+        }
+    } else {
+        if (length < variantLimits.length_min || length > variantLimits.length_max) lengthOut = true;
+        if (width < variantLimits.width_min || width > variantLimits.width_max) widthOut = true;
+    }
+
+    var thicknessOut = thickness < variantLimits.thickness_min || thickness > variantLimits.thickness_max;
+
+    // Kształt na czerwono jeśli KTÓRYKOLWIEK wymiar poza zakresem
+    var anyOutOfRange = lengthOut || widthOut || thicknessOut;
+    editor.setColorTheme(anyOutOfRange ? 'error' : 'normal');
+    editor.setOutOfRangeDims({ length: lengthOut, width: widthOut });
 }
 
 // ========== FUNKCJA TESTOWA ==========
@@ -722,9 +809,9 @@ function updatePricesInOtherProducts() {
                             const effectiveMultiplier = multiplier;
                             let unitNetto = singleVolume * basePrice * effectiveMultiplier;
 
-                            // Dopłata za kształt okrągły/koło/elipsa
+                            // Dopłata za kształt okrągły/koło
                             const otherProductShape = form.dataset.productShape || 'rectangular';
-                            if ((otherProductShape === 'round' || otherProductShape === 'circle' || otherProductShape === 'ellipse') && window._roundShapeSurchargeNetto) {
+                            if ((otherProductShape === 'round' || otherProductShape === 'circle') && window._roundShapeSurchargeNetto) {
                                 unitNetto += window._roundShapeSurchargeNetto;
                             }
 

@@ -137,12 +137,15 @@ document.addEventListener('DOMContentLoaded', function () {
                 }, 100);
             }
 
-            // Ustaw notatkę jeśli była zapisana
+            // Ustaw notatkę jeśli była zapisana — otwórz sekcję notatki
             const noteTextarea = document.getElementById('quote_note');
             if (noteTextarea && getEditModeData().notes) {
                 noteTextarea.value = getEditModeData().notes;
-                // Odśwież licznik znaków
                 noteTextarea.dispatchEvent(new Event('input'));
+                var noteSection = document.getElementById('noteSection');
+                var toggleBtn = document.getElementById('toggleNoteBtn');
+                if (noteSection) noteSection.style.display = '';
+                if (toggleBtn) toggleBtn.classList.add('active');
             }
 
             // Renderuj podsumowanie
@@ -396,162 +399,127 @@ document.addEventListener('DOMContentLoaded', function () {
         });
     }
 
-    // ===== RENDEROWANIE TABELI PRODUKTÓW =====
+
+    // ===== RENDEROWANIE TABELI PRODUKTOW + PODSUMOWANIA =====
     function renderProductsTable() {
         const data = collectQuoteData();
         if (!data || !data.products) {
-            console.error("[renderProductsTable] Brak danych produktów");
+            console.error('[renderProductsTable] Brak danych produktow');
             return;
         }
         const tableBody = document.getElementById('productsTableBody');
-        if (!tableBody) {
-            return;
-        }
+        if (!tableBody) return;
 
         const hasFinishing = quoteHasFinishing(data);
+        const cols = hasFinishing ? '2fr 1fr 1fr 1fr' : '2fr 1fr';
         const tableHeader = tableBody.closest('.sq-products-table')?.querySelector('.sq-table-header');
 
-        // Ukryj/pokaż kolumny Wykończenie i Suma w nagłówku
+        // Ukryj/pokaz kolumny Wykonczenie i Suma w naglowku
         if (tableHeader) {
             const headers = tableHeader.querySelectorAll(':scope > div');
             if (headers.length >= 4) {
-                headers[2].style.display = hasFinishing ? '' : 'none'; // Wykończenie
-                headers[3].style.display = hasFinishing ? '' : 'none'; // Suma
+                headers[2].style.display = hasFinishing ? '' : 'none';
+                headers[3].style.display = hasFinishing ? '' : 'none';
             }
-            // Zmień grid w zależności od obecności wykończenia
-            tableHeader.style.gridTemplateColumns = hasFinishing ? '2fr 1fr 1fr 1fr' : '2fr 1fr';
+            tableHeader.style.gridTemplateColumns = cols;
         }
 
         let html = '';
-        data.products.forEach((product, idx) => {
+        data.products.forEach(function(product) {
             const selectedVariant = product.variants.find(v => v.is_selected);
-            if (!selectedVariant) return; // Pomijamy produkty bez wybranego wariantu
+            if (!selectedVariant) return;
 
-            // Parsuj variant_code aby wyciągnąć informacje o wariancie
-            // Format: "dab-lity-ab" → Dąb Lity A/B
             const variantCode = selectedVariant.variant_code || '';
             let variantName = '';
 
             if (variantCode) {
                 const parts = variantCode.split('-');
-
-                // Gatunek drewna (pierwszy element)
-                const species = {
-                    'dab': 'Dąb',
-                    'jes': 'Jesion',
-                    'buk': 'Buk'
-                }[parts[0]] || parts[0];
-
-                // Technologia (drugi element)
-                const technology = {
-                    'lity': 'Lity',
-                    'micro': 'Mikrowczep'
-                }[parts[1]] || parts[1];
-
-                // Klasa (trzeci element) - zamień "ab" na "A/B"
+                const species = { 'dab': 'Dąb', 'jes': 'Jesion', 'buk': 'Buk' }[parts[0]] || parts[0];
+                const technology = { 'lity': 'Lity', 'micro': 'Mikrowczep' }[parts[1]] || parts[1];
                 const woodClass = parts[2] ? parts[2].toUpperCase().split('').join('/') : '';
-
-                // Złóż nazwę wariantu
-                variantName = `${species} ${technology}${woodClass ? ' ' + woodClass : ''}`;
+                variantName = species + ' ' + technology + (woodClass ? ' ' + woodClass : '');
             }
 
-            // Buduj nazwę produktu z wykończeniem i obróbką krawędzi
-            let productNameParts = [];
+            // Nazwa produktu
+            var nameParts = [];
+            nameParts.push(variantName + ' ' + product.length + '×' + product.width + '×' + product.thickness + ' cm');
 
-            // Część 1: Gatunek + wymiary
-            productNameParts.push(`${variantName} ${product.length}×${product.width}×${product.thickness} cm`);
-
-            // Część 2: Wykończenie
-            let finishingText = '';
+            // Wykonczenie
             if (product.finishing_type) {
-                // Parsuj finishingType, np. "Lakierowanie|Bezbarwne|Półmat" lub "Olejowanie|Bejca dąb|Satyna"
-                const finishingParts = product.finishing_type.split('|');
-
-                if (finishingParts.length >= 2) {
-                    const mainType = finishingParts[0]; // np. "Lakierowanie"
-                    const variant = finishingParts[1]; // np. "Bezbarwne" lub "Orzech 22-74"
-
-                    finishingText = `${mainType} ${variant}`;
-                } else {
-                    finishingText = product.finishing_type;
-                }
+                var fp = product.finishing_type.split('|');
+                nameParts.push(fp.length >= 2 ? fp[0] + ' ' + fp[1] : product.finishing_type);
             } else {
-                finishingText = 'Surowy';
+                nameParts.push('Surowy');
             }
-            productNameParts.push(finishingText);
 
-            // Część 3: Obróbka krawędzi
+            // Krawedzie
             if (product.edges_type && product.edges_type !== 'none') {
-                let edgesText = '';
-
-                if (product.edges_type === 'rounded') {
-                    edgesText = `Zaokrąglenie R${product.edges_r_value}`;
-                } else if (product.edges_type === 'chamfer') {
-                    edgesText = `Fazowanie R${product.edges_r_value} ${product.edges_angle_value}°`;
-                }
-
-                if (edgesText) {
-                    productNameParts.push(edgesText);
-                }
+                var et = product.edges_type === 'rounded'
+                    ? 'Zaokrąglenie R' + product.edges_r_value
+                    : product.edges_type === 'chamfer'
+                        ? 'Fazowanie R' + product.edges_r_value + ' ' + product.edges_angle_value + '°'
+                        : '';
+                if (et) nameParts.push(et);
             }
 
-            // Część 4: Ilość
-            const productName = `${productNameParts.join(' | ')} | ${product.quantity} szt.`;
-            const rawPrice = selectedVariant.final_price_brutto.toFixed(2);
-            // Wykończenie = finishing + krawędzie (wliczone razem)
-            const finishingWithEdges = product.finishing_brutto + (product.edges_brutto || 0);
-            const finishingPrice = finishingWithEdges.toFixed(2);
-            const totalPrice = (selectedVariant.final_price_brutto + finishingWithEdges).toFixed(2);
+            var productName = nameParts.join(' | ') + ' | ' + product.quantity + ' szt.';
+            var rawPrice = selectedVariant.final_price_brutto.toFixed(2);
+            var finishingWithEdges = product.finishing_brutto + (product.edges_brutto || 0);
+            var finishingPrice = finishingWithEdges.toFixed(2);
+            var totalPrice = (selectedVariant.final_price_brutto + finishingWithEdges).toFixed(2);
 
-            html += `
-            <div class="sq-product-row" style="grid-template-columns: ${hasFinishing ? '2fr 1fr 1fr 1fr' : '2fr 1fr'};">
-                <div class="sq-product-name">${productName}</div>
-                <div class="sq-product-value">${rawPrice} PLN</div>
-                ${hasFinishing ? `<div class="sq-product-value">${finishingPrice} PLN</div>` : ''}
-                ${hasFinishing ? `<div class="sq-product-sum">${totalPrice} PLN</div>` : ''}
-            </div>
-        `;
+            html += '<div class="sq-product-row" style="grid-template-columns: ' + cols + ';">'
+                + '<div class="sq-product-name">' + productName + '</div>'
+                + '<div class="sq-product-value">' + rawPrice + ' PLN</div>'
+                + (hasFinishing ? '<div class="sq-product-value">' + finishingPrice + ' PLN</div>' : '')
+                + (hasFinishing ? '<div class="sq-product-sum">' + totalPrice + ' PLN</div>' : '')
+                + '</div>';
         });
+
         if (html === '') {
             html = '<div class="sq-product-row"><div class="sq-product-name" style="grid-column: 1/-1; text-align: center; color: #999;">Brak produktów z wybranym wariantem</div></div>';
         }
+
+        // Separator + wiersze podsumowania
+        var summary = data.summary || {};
+        var totalFinishing = (summary.finishing_brutto || 0) + (summary.edges_brutto || 0);
+        var hasShipping = summary.shipping_brutto > 0;
+
+        html += '<div class="sq-summary-separator"></div>';
+
+        // Wiersz 1: Sumy (surowe | wykonczenie | razem produkty)
+        var productsBrutto = (summary.products_brutto || 0).toFixed(2);
+        var productsTotal = ((summary.products_brutto || 0) + totalFinishing).toFixed(2);
+
+        html += '<div class="sq-summary-row-inline" style="grid-template-columns: ' + cols + ';">'
+            + '<div class="sq-summary-row-label">' + (hasShipping ? 'Podsuma produktów' : 'Suma produktów') + '</div>'
+            + '<div class="sq-product-value">' + productsBrutto + ' PLN</div>'
+            + (hasFinishing ? '<div class="sq-product-value">' + totalFinishing.toFixed(2) + ' PLN</div>' : '')
+            + (hasFinishing ? '<div class="sq-product-sum">' + productsTotal + ' PLN</div>' : '')
+            + '</div>';
+
+        // Wiersz 2: Wysylka (jesli jest)
+        if (hasShipping) {
+            html += '<div class="sq-summary-row-inline sq-shipping-row" style="grid-template-columns: ' + cols + ';">'
+                + '<div class="sq-summary-row-label">Wysyłka</div>'
+                + '<div class="sq-product-value" style="grid-column: 2 / -1; text-align: right;">' + summary.shipping_brutto.toFixed(2) + ' PLN</div>'
+                + '</div>';
+
+            // Wiersz 3: Suma z wysylka
+            html += '<div class="sq-summary-row-inline sq-grand-total-row" style="grid-template-columns: ' + cols + ';">'
+                + '<div class="sq-summary-row-label">Razem z wysyłką</div>'
+                + '<div class="sq-product-sum sq-grand-total-value" style="grid-column: 2 / -1; text-align: right;">' + (summary.total_brutto || 0).toFixed(2) + ' PLN</div>'
+                + '</div>';
+        }
+
         tableBody.innerHTML = html;
     }
 
-    // ===== RENDEROWANIE PODSUMOWANIA KWOT =====
+    // Zachowana dla kompatybilnosci - renderProductsTable generuje teraz wszystko
     function renderSummaryValues() {
-        const data = collectQuoteData();
-        if (!data || !data.summary) {
-            console.error("[renderSummaryValues] Brak danych summary");
-            return;
-        }
-
-        const summary = data.summary;
-
-        const setText = (id, value) => {
-            const el = document.getElementById(id);
-            if (el) {
-                el.textContent = `${value.toFixed(2)} PLN`;
-            }
-        };
-
-        setText("summary-products-brutto", summary.products_brutto);
-        setText("summary-products-netto", summary.products_netto);
-        // Wykończenie = finishing + krawędzie (wliczone razem)
-        const totalFinishing = summary.finishing_brutto + summary.edges_brutto;
-        setText("summary-finishing-brutto", totalFinishing);
-        setText("summary-finishing-netto", summary.finishing_netto + summary.edges_netto);
-
-        // Ukryj wiersz wykończenia jeśli = 0
-        const finishingRow = document.getElementById('summary-finishing-brutto')?.closest('.sq-summary-row');
-        if (finishingRow) {
-            finishingRow.style.display = totalFinishing > 0 ? '' : 'none';
-        }
-        setText("summary-shipping-brutto", summary.shipping_brutto);
-        setText("summary-shipping-netto", summary.shipping_netto);
-        setText("summary-total-brutto", summary.total_brutto);
-        setText("summary-total-netto", summary.total_netto);
+        renderProductsTable();
     }
+
 
     // ===== WALIDACJA FORMULARZA =====
     function validateForm() {
@@ -956,18 +924,25 @@ document.addEventListener('DOMContentLoaded', function () {
         const quoteId = data.quote_id || getEditModeData().quoteId;
 
         successContent.innerHTML = `
-            <div class="sq-success-icon" style="color: #16a34a;">&#10003;</div>
+            <div class="sq-success-icon">
+                <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="20 6 9 17 4 12"/>
+                </svg>
+            </div>
             <h3 class="sq-success-title">Wycena została zaktualizowana</h3>
             <div class="sq-success-number">${quoteNumber}</div>
             <p class="sq-success-text">
                 Zmiany w wycenie zostały pomyślnie zapisane.
             </p>
             <div class="sq-success-actions">
-                <button id="goToQuoteBtn" class="sq-success-btn sq-btn-primary">
-                    Przejdź do wyceny
-                </button>
                 <button id="backToQuotesBtn" class="sq-success-btn sq-btn-secondary">
                     Wróć do listy wycen
+                </button>
+                <button id="goToQuoteBtn" class="sq-success-btn sq-btn-primary">
+                    Przejdź do wyceny
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M5 12h14M12 5l7 7-7 7"/>
+                    </svg>
                 </button>
             </div>
         `;
@@ -1228,6 +1203,20 @@ function collectQuoteData() {
 
     return result;
 }
+
+// Toggle notatki
+function initNoteToggle() {
+    var btn = document.getElementById('toggleNoteBtn');
+    var section = document.getElementById('noteSection');
+    if (!btn || !section) return;
+
+    btn.addEventListener('click', function() {
+        var isVisible = section.style.display !== 'none';
+        section.style.display = isVisible ? 'none' : '';
+        btn.classList.toggle('active', !isVisible);
+    });
+}
+initNoteToggle();
 
 // Licznik znaków dla notatki
 function initNoteCounter() {

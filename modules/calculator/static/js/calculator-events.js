@@ -559,23 +559,26 @@ function attachQuantityValidation(form) {
     const input = form.querySelector('input[data-field="quantity"]');
     if (!input) return;
 
+    // Kontener .quantity (nie .quantity-stepper) dla error message
+    const quantityWrapper = input.closest('.quantity');
+
     input.removeEventListener('input', input._quantityValidationHandler);
 
     input._quantityValidationHandler = function () {
         const val = parseInt(this.value);
-        let errorSpan = this.parentNode.querySelector('.error-message-quantity');
+        let errorSpan = quantityWrapper ? quantityWrapper.querySelector('.error-message-quantity') : null;
 
         if (this.value === '' || (!isNaN(val) && val < 1)) {
-            if (!errorSpan) {
+            if (!errorSpan && quantityWrapper) {
                 errorSpan = document.createElement('span');
                 errorSpan.classList.add('error-message-quantity');
                 errorSpan.style.color = 'red';
                 errorSpan.style.fontSize = '12px';
                 errorSpan.style.display = 'block';
                 errorSpan.style.marginTop = '4px';
-                this.parentNode.appendChild(errorSpan);
+                quantityWrapper.appendChild(errorSpan);
             }
-            errorSpan.textContent = 'Ilość musi wynosić minimum 1 szt.';
+            if (errorSpan) errorSpan.textContent = 'Ilość musi wynosić minimum 1 szt.';
             this.classList.add('error-outline');
         } else {
             if (errorSpan) errorSpan.remove();
@@ -584,6 +587,30 @@ function attachQuantityValidation(form) {
     };
 
     input.addEventListener('input', input._quantityValidationHandler);
+
+    // Przyciski +/− steppera
+    const minusBtn = form.querySelector('.qty-minus');
+    const plusBtn = form.querySelector('.qty-plus');
+
+    if (minusBtn && !minusBtn._qtyHandler) {
+        minusBtn._qtyHandler = function () {
+            const cur = parseInt(input.value) || 1;
+            if (cur > 1) {
+                input.value = cur - 1;
+                input.dispatchEvent(new Event('input', { bubbles: true }));
+            }
+        };
+        minusBtn.addEventListener('click', minusBtn._qtyHandler);
+    }
+
+    if (plusBtn && !plusBtn._qtyHandler) {
+        plusBtn._qtyHandler = function () {
+            const cur = parseInt(input.value) || 0;
+            input.value = cur + 1;
+            input.dispatchEvent(new Event('input', { bubbles: true }));
+        };
+        plusBtn.addEventListener('click', plusBtn._qtyHandler);
+    }
 }
 
 /**

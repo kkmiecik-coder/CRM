@@ -217,6 +217,9 @@ function checkProductCompleteness(form) {
 
     if (!(length && width && thickness && quantity && variant)) return false;
 
+    // Sprawdź czy wybrany wariant ma cenę (nie "Brak ceny")
+    if (!variant.dataset.totalBrutto || parseFloat(variant.dataset.totalBrutto) <= 0) return false;
+
     // Walidacja wykończenia - wybór musi być kompletny
     if (!checkFinishingCompleteness(form)) return false;
 

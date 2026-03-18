@@ -7,6 +7,22 @@ var ShapeCanvas = (function() {
 
     function create(canvasElement, options) {
         var ctx = canvasElement.getContext('2d');
+        // Palety kolorów: normalny (pomarańczowy) i błędny (czerwony)
+        var COLOR_THEMES = {
+            normal: {
+                shapeFill: 'rgba(230, 126, 34, 0.35)',
+                shapeStroke: '#e67e22',
+                dimLabel: '#e67e22',
+                dimLabelAlpha: 'rgba(230, 126, 34, 0.6)'
+            },
+            error: {
+                shapeFill: 'rgba(220, 38, 38, 0.30)',
+                shapeStroke: '#dc2626',
+                dimLabel: '#dc2626',
+                dimLabelAlpha: 'rgba(220, 38, 38, 0.6)'
+            }
+        };
+
         var state = {
             shapeType: options.shapeType || 'rectangular',
             vertices: null,
@@ -28,7 +44,9 @@ var ShapeCanvas = (function() {
             onShapeTypeChange: options.onShapeTypeChange || function() {},
             dpr: window.devicePixelRatio || 1,
             width: 0,
-            height: 0
+            height: 0,
+            colorTheme: 'normal',
+            outOfRangeDims: { length: false, width: false }  // które wymiary bbox na czerwono
         };
 
         // Pozycje wymiarów do obsługi dblclick
@@ -194,10 +212,12 @@ var ShapeCanvas = (function() {
             }
 
             if (!bottomEdgeOverlaps) {
-                _renderSingleDimension(bMinX, bMinY, bMaxX, bMinY, bboxW + ' cm', 'Formatka');
+                var bboxWColor = state.outOfRangeDims.length ? '#dc2626' : null;
+                _renderSingleDimension(bMinX, bMinY, bMaxX, bMinY, bboxW + ' cm', 'Formatka', undefined, bboxWColor);
             }
             if (!rightEdgeOverlaps) {
-                _renderSingleDimension(bMaxX, bMinY, bMaxX, bMaxY, bboxH + ' cm', 'Formatka', 40);
+                var bboxHColor = state.outOfRangeDims.width ? '#dc2626' : null;
+                _renderSingleDimension(bMaxX, bMinY, bMaxX, bMaxY, bboxH + ' cm', 'Formatka', 40, bboxHColor);
             }
 
             // Klamerki: dla każdego wierzchołka rzutujemy na krawędzie bbox
@@ -332,7 +352,7 @@ var ShapeCanvas = (function() {
         }
 
         function _renderShape() {
-            if (state.shapeType === 'circle' || state.shapeType === 'ellipse') {
+            if (state.shapeType === 'circle') {
                 _renderEllipse();
                 return;
             }
@@ -350,10 +370,11 @@ var ShapeCanvas = (function() {
                 ctx.lineTo(pt[0], pt[1]);
             }
             ctx.closePath();
-            ctx.fillStyle = 'rgba(230, 126, 34, 0.35)';
+            var theme = COLOR_THEMES[state.colorTheme] || COLOR_THEMES.normal;
+            ctx.fillStyle = theme.shapeFill;
             ctx.fill();
 
-            ctx.strokeStyle = '#e67e22';
+            ctx.strokeStyle = theme.shapeStroke;
             ctx.lineWidth = 2;
             ctx.stroke();
 
@@ -373,9 +394,10 @@ var ShapeCanvas = (function() {
 
             ctx.beginPath();
             ctx.ellipse(center[0], center[1], rx, ry, 0, 0, 2 * Math.PI);
-            ctx.fillStyle = 'rgba(230, 126, 34, 0.35)';
+            var theme = COLOR_THEMES[state.colorTheme] || COLOR_THEMES.normal;
+            ctx.fillStyle = theme.shapeFill;
             ctx.fill();
-            ctx.strokeStyle = '#e67e22';
+            ctx.strokeStyle = theme.shapeStroke;
             ctx.lineWidth = 2;
             ctx.stroke();
 
@@ -430,7 +452,7 @@ var ShapeCanvas = (function() {
             }
         }
 
-        function _renderSingleDimension(x1, y1, x2, y2, label, edgeId, offsetOverride) {
+        function _renderSingleDimension(x1, y1, x2, y2, label, edgeId, offsetOverride, colorOverride) {
             var p1 = cmToPixel(x1, y1);
             var p2 = cmToPixel(x2, y2);
 
@@ -495,7 +517,7 @@ var ShapeCanvas = (function() {
 
             // Wymiar
             ctx.font = '11px sans-serif';
-            ctx.fillStyle = '#e67e22';
+            ctx.fillStyle = colorOverride || '#e67e22';
             ctx.textAlign = 'center';
             ctx.textBaseline = 'bottom';
             ctx.fillText(label, labelX, labelY);
@@ -503,7 +525,7 @@ var ShapeCanvas = (function() {
             // Oznaczenie boku (G1, G2...) — pod wymiarem
             if (edgeId) {
                 ctx.font = 'bold 10px sans-serif';
-                ctx.fillStyle = 'rgba(230, 126, 34, 0.6)';
+                ctx.fillStyle = colorOverride ? colorOverride : 'rgba(230, 126, 34, 0.6)';
                 ctx.textBaseline = 'top';
                 ctx.fillText(edgeId, labelX, labelY + 2);
             }
@@ -611,7 +633,7 @@ var ShapeCanvas = (function() {
                 var sx = Math.round(cmPt[0] / snap) * snap;
                 var sy = Math.round(cmPt[1] / snap) * snap;
 
-                if (state.shapeType === 'circle' || state.shapeType === 'ellipse') {
+                if (state.shapeType === 'circle') {
                     _handleEllipseVertexDrag(sx, sy);
                 } else {
                     state.vertices[state.dragVertex] = [_round(sx), _round(sy)];
@@ -749,10 +771,10 @@ var ShapeCanvas = (function() {
 
         function _findVertexAt(px, py) {
             var hitR = 12;
-            if (state.shapeType === 'circle' || state.shapeType === 'ellipse') {
+            if (state.shapeType === 'circle') {
                 var p = state.params;
-                var a = (state.shapeType === 'circle' ? p.diameter : p.axisA) || 0;
-                var b = (state.shapeType === 'circle' ? p.diameter : p.axisB) || 0;
+                var a = p.diameter || 0;
+                var b = p.diameter || 0;
                 var hPt = cmToPixel(a, b / 2);
                 if (Math.hypot(px - hPt[0], py - hPt[1]) < hitR) return 0;
                 return -1;
@@ -978,12 +1000,6 @@ var ShapeCanvas = (function() {
                 var r = (state.params.diameter || 0) / 2;
                 return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ' + w + ' ' + h + '" width="80" height="' + (80 * h / w) + '"><circle cx="' + (r + pad) + '" cy="' + (r + pad) + '" r="' + r + '" fill="rgba(230,126,34,0.2)" stroke="#e67e22" stroke-width="1.5"/></svg>';
             }
-            if (state.shapeType === 'ellipse') {
-                var rx = (state.params.axisA || 0) / 2;
-                var ry = (state.params.axisB || 0) / 2;
-                return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ' + w + ' ' + h + '" width="80" height="' + (80 * h / w) + '"><ellipse cx="' + (rx + pad) + '" cy="' + (ry + pad) + '" rx="' + rx + '" ry="' + ry + '" fill="rgba(230,126,34,0.2)" stroke="#e67e22" stroke-width="1.5"/></svg>';
-            }
-
             if (!state.vertices || state.vertices.length < 3) return '';
             var minX = state.vertices.reduce(function(m, v) { return Math.min(m, v[0]); }, Infinity);
             var minY = state.vertices.reduce(function(m, v) { return Math.min(m, v[1]); }, Infinity);
@@ -1007,6 +1023,21 @@ var ShapeCanvas = (function() {
         if (productSection) resizeObserver.observe(productSection);
         resize();
 
+        function setColorTheme(theme) {
+            if (theme !== state.colorTheme && COLOR_THEMES[theme]) {
+                state.colorTheme = theme;
+                render();
+            }
+        }
+
+        function setOutOfRangeDims(dims) {
+            state.outOfRangeDims = {
+                length: !!(dims && dims.length),
+                width: !!(dims && dims.width)
+            };
+            render();
+        }
+
         return {
             setShape: setShape,
             updateFromParams: updateFromParams,
@@ -1020,6 +1051,8 @@ var ShapeCanvas = (function() {
             exportSVG: exportSVG,
             render: render,
             resize: resize,
+            setColorTheme: setColorTheme,
+            setOutOfRangeDims: setOutOfRangeDims,
             destroy: function() { resizeObserver.disconnect(); }
         };
     }

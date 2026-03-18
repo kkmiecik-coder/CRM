@@ -110,7 +110,7 @@
                                 <h2 class="title-with-underline-h2">Produkt</h2>
                                 <div class="product-inputs">
                                     <div class="client-type">
-                                        <label for="clientType" class="input-txt">Grupa cenowa:</label>
+                                        <label for="clientType" class="input-txt">Grupa cenowa</label>
                                         <select data-field="clientType" id="clientType" class="input-window">
                                             <option value="" disabled selected>Wybierz grupę</option>
                                             <option value="Partner">Partner</option>
@@ -122,10 +122,11 @@
                                     </div>
                                     <!-- Kształt produktu -->
                                     <div class="product-shape">
-                                        <label class="input-txt">Kształt:</label>
+                                        <label class="input-txt">Kształt</label>
                                         <select class="input-window" data-field="shapeSelect">
                                             <option value="rectangular">Prostokąt</option>
                                             <option value="circle">Koło</option>
+                                            {% if user_role in ('admin', 'user') %}
                                             <optgroup label="Trójkąt">
                                                 <option value="triangle_right">Trójkąt prostokątny</option>
                                                 <option value="triangle_equilateral">Trójkąt równoboczny</option>
@@ -139,29 +140,89 @@
                                             </optgroup>
                                             <option value="parallelogram">Równoległobok</option>
                                             <option value="polygon">Wielokąt niestandardowy</option>
+                                            {% endif %}
                                         </select>
                                     </div>
                                     <!-- Długość (ukrywane dla nie-prostokątnych) -->
                                     <div class="lenght" data-dim-field="length-wrapper">
-                                        <label for="length" class="input-txt">Długość (cm):</label>
-                                        <input type="number" step="0.1" data-field="length" id="length" class="input-window">
+                                        <label for="length" class="input-txt">Długość (cm)</label>
+                                        <input type="number" step="0.1" data-field="length" id="length" class="input-window" placeholder=" ">
                                     </div>
                                     <!-- Szerokość (ukrywane dla nie-prostokątnych) -->
                                     <div class="width" data-dim-field="width-wrapper">
-                                        <label for="width" class="input-txt">Szerokość (cm):</label>
-                                        <input type="number" step="0.1" data-field="width" id="width" class="input-window">
+                                        <label for="width" class="input-txt">Szerokość (cm)</label>
+                                        <input type="number" step="0.1" data-field="width" id="width" class="input-window" placeholder=" ">
                                     </div>
-                                    <!-- Dynamiczne inputy kształtu (renderowane przez ShapeEditor) -->
-                                    <div class="shape-dynamic-inputs" data-shape-inputs></div>
+                                    <!-- Inputy kształtów (ukryte domyślnie, JS pokazuje potrzebne) -->
+                                    <div class="shape-param-field" data-shape-param-wrapper="legA" style="display:none">
+                                        <label class="input-txt">Przyprostokątna A (cm)</label>
+                                        <input type="number" step="0.1" min="0.1" data-shape-param="legA" class="input-window" placeholder=" ">
+                                    </div>
+                                    <div class="shape-param-field" data-shape-param-wrapper="legB" style="display:none">
+                                        <label class="input-txt">Przyprostokątna B (cm)</label>
+                                        <input type="number" step="0.1" min="0.1" data-shape-param="legB" class="input-window" placeholder=" ">
+                                    </div>
+                                    <div class="shape-param-field" data-shape-param-wrapper="side" style="display:none">
+                                        <label class="input-txt">Bok (cm)</label>
+                                        <input type="number" step="0.1" min="0.1" data-shape-param="side" class="input-window" placeholder=" ">
+                                    </div>
+                                    <div class="shape-param-field" data-shape-param-wrapper="base" style="display:none">
+                                        <label class="input-txt">Podstawa (cm)</label>
+                                        <input type="number" step="0.1" min="0.1" data-shape-param="base" class="input-window" placeholder=" ">
+                                    </div>
+                                    <div class="shape-param-field" data-shape-param-wrapper="arm" style="display:none">
+                                        <label class="input-txt">Ramię (cm)</label>
+                                        <input type="number" step="0.1" min="0.1" data-shape-param="arm" class="input-window" placeholder=" ">
+                                    </div>
+                                    <div class="shape-param-field" data-shape-param-wrapper="sideA" style="display:none">
+                                        <label class="input-txt">Bok A (cm)</label>
+                                        <input type="number" step="0.1" min="0.1" data-shape-param="sideA" class="input-window" placeholder=" ">
+                                    </div>
+                                    <div class="shape-param-field" data-shape-param-wrapper="sideB" style="display:none">
+                                        <label class="input-txt">Bok B (cm)</label>
+                                        <input type="number" step="0.1" min="0.1" data-shape-param="sideB" class="input-window" placeholder=" ">
+                                    </div>
+                                    <div class="shape-param-field" data-shape-param-wrapper="sideC" style="display:none">
+                                        <label class="input-txt">Bok C (cm)</label>
+                                        <input type="number" step="0.1" min="0.1" data-shape-param="sideC" class="input-window" placeholder=" ">
+                                    </div>
+                                    <div class="shape-param-field" data-shape-param-wrapper="baseA" style="display:none">
+                                        <label class="input-txt">Podstawa A (dłuższa) (cm)</label>
+                                        <input type="number" step="0.1" min="0.1" data-shape-param="baseA" class="input-window" placeholder=" ">
+                                    </div>
+                                    <div class="shape-param-field" data-shape-param-wrapper="baseB" style="display:none">
+                                        <label class="input-txt">Podstawa B (krótsza) (cm)</label>
+                                        <input type="number" step="0.1" min="0.1" data-shape-param="baseB" class="input-window" placeholder=" ">
+                                    </div>
+                                    <div class="shape-param-field" data-shape-param-wrapper="height" style="display:none">
+                                        <label class="input-txt">Wysokość (cm)</label>
+                                        <input type="number" step="0.1" min="0.1" data-shape-param="height" class="input-window" placeholder=" ">
+                                    </div>
+                                    <div class="shape-param-field" data-shape-param-wrapper="offset" style="display:none">
+                                        <label class="input-txt">Przesunięcie (cm)</label>
+                                        <input type="number" step="0.1" min="0.1" data-shape-param="offset" class="input-window" placeholder=" ">
+                                    </div>
+                                    <div class="shape-param-field" data-shape-param-wrapper="angle" style="display:none">
+                                        <label class="input-txt">Kąt (°)</label>
+                                        <input type="number" step="0.1" min="0.1" data-shape-param="angle" class="input-window" placeholder=" ">
+                                    </div>
+                                    <!-- Walidacja kształtu -->
+                                    <div class="shape-validation-error" data-shape-validation style="display:none"></div>
                                     <!-- Grubość -->
                                     <div class="thickness">
-                                        <label for="thickness" class="input-txt">Grubość (cm):</label>
-                                        <input type="number" step="0.1" data-field="thickness" id="thickness" class="input-window">
+                                        <label for="thickness" class="input-txt">Grubość (cm)</label>
+                                        <input type="number" step="0.1" data-field="thickness" id="thickness" class="input-window" placeholder=" ">
                                     </div>
                                     <!-- Ilość -->
                                     <div class="quantity">
-                                        <label for="quantity" class="input-txt">Ilość:</label>
-                                        <input type="number" step="1" data-field="quantity" id="quantity" class="input-window">
+                                        <label for="quantity" class="input-txt">Ilość</label>
+                                        <div class="quantity-stepper">
+                                            <input type="number" step="1" min="1" data-field="quantity" id="quantity" class="input-window qty-input" placeholder=" ">
+                                            <div class="qty-buttons">
+                                                <button type="button" class="qty-btn qty-minus" aria-label="Zmniejsz ilość">&minus;</button>
+                                                <button type="button" class="qty-btn qty-plus" aria-label="Zwiększ ilość">&plus;</button>
+                                            </div>
+                                        </div>
                                     </div>
                                 </div>
                             </section>

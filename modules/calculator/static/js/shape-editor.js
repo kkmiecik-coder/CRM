@@ -1,5 +1,5 @@
 // shape-editor.js
-// Orchestrates: shape dropdown <-> dynamic inputs <-> canvas
+// Orchestrates: shape dropdown <-> static inputs (show/hide) <-> canvas
 // Dependencies: ShapeGeometry, ShapeCanvas
 
 var ShapeEditor = (function() {
@@ -8,7 +8,6 @@ var ShapeEditor = (function() {
     function init(form) {
         var select = form.querySelector('[data-field="shapeSelect"]');
         var editorContainer = form.querySelector('[data-shape-editor]');
-        var inputsColumn = form.querySelector('[data-shape-inputs]');
         var canvasEl = form.querySelector('[data-shape-canvas]');
         var scaleIndicator = form.querySelector('[data-shape-scale]');
         var undoBtn = form.querySelector('[data-shape-undo]');
@@ -17,6 +16,7 @@ var ShapeEditor = (function() {
         var hintEl = form.querySelector('[data-shape-hint]');
         var lengthWrapper = form.querySelector('[data-dim-field="length-wrapper"]');
         var widthWrapper = form.querySelector('[data-dim-field="width-wrapper"]');
+        var validDiv = form.querySelector('[data-shape-validation]');
 
         if (!select || !editorContainer) return null;
 
@@ -24,6 +24,15 @@ var ShapeEditor = (function() {
         var currentShape = select.value || 'rectangular';
         var currentParams = {};
         var isUpdating = false;
+
+        // Wszystkie wrappery inputów kształtów (statyczne w HTML)
+        var allParamWrappers = form.querySelectorAll('[data-shape-param-wrapper]');
+
+        // Podepnij listenery na inputy kształtów — raz, nie na każdą zmianę
+        var allParamInputs = form.querySelectorAll('[data-shape-param-wrapper] input[data-shape-param]');
+        for (var i = 0; i < allParamInputs.length; i++) {
+            allParamInputs[i].addEventListener('input', _onInputChange);
+        }
 
         // ============================================
         // CANVAS INIT (lazy)
@@ -49,6 +58,7 @@ var ShapeEditor = (function() {
         });
 
         function _switchShape(shapeType) {
+            var prevShape = currentShape;
             currentShape = shapeType;
             form.dataset.productShape = shapeType;
 
@@ -64,9 +74,15 @@ var ShapeEditor = (function() {
             if (lengthWrapper) {
                 lengthWrapper.style.display = usesOriginalInputs ? '' : 'none';
                 var lengthLabel = lengthWrapper.querySelector('label');
-                if (lengthLabel) lengthLabel.textContent = (shapeType === 'circle') ? 'Średnica (cm):' : 'Długość (cm):';
+                if (lengthLabel) lengthLabel.textContent = (shapeType === 'circle') ? 'Średnica (cm)' : 'Długość (cm)';
             }
             if (widthWrapper) widthWrapper.style.display = (shapeType === 'rectangular') ? '' : 'none';
+
+            // Wyczyść width gdy przełączamy z koła (gdzie width = średnica) na prostokąt
+            if (prevShape === 'circle' && shapeType === 'rectangular') {
+                var widthInput = form.querySelector('input[data-field="width"]');
+                if (widthInput) widthInput.value = '';
+            }
 
             if (hintEl) {
                 hintEl.style.display = shapeType === 'polygon' ? '' : 'none';
@@ -74,7 +90,7 @@ var ShapeEditor = (function() {
 
             currentParams = Object.assign({}, config.defaults);
 
-            _renderInputs(config);
+            _showShapeInputs(config);
 
             if (!hideCanvas) {
                 _ensureCanvas();
@@ -116,36 +132,40 @@ var ShapeEditor = (function() {
         }
 
         // ============================================
-        // RENDER DYNAMIC INPUTS
+        // SHOW/HIDE SHAPE INPUTS (zamiast innerHTML)
         // ============================================
 
-        function _renderInputs(config) {
-            inputsColumn.innerHTML = '';
-
-            // Prostokąt i koło używają natywnych inputów length/width
-            if (currentShape === 'rectangular' || currentShape === 'circle') return;
-
-            for (var i = 0; i < config.inputs.length; i++) {
-                var input = config.inputs[i];
-                var row = document.createElement('div');
-                row.className = 'shape-param-field';
-                row.innerHTML =
-                    '<label class="input-txt">' + input.label + ' (' + input.unit + '):</label>' +
-                    '<input type="number" step="0.1" min="0.1"' +
-                    ' data-shape-param="' + input.key + '"' +
-                    ' class="input-window"' +
-                    ' value="' + (currentParams[input.key] || '') + '">';
-                inputsColumn.appendChild(row);
+        function _showShapeInputs(config) {
+            // Ukryj wszystkie wrappery inputów kształtów
+            for (var i = 0; i < allParamWrappers.length; i++) {
+                allParamWrappers[i].style.display = 'none';
             }
 
-            var validDiv = document.createElement('div');
-            validDiv.className = 'shape-validation-error';
-            validDiv.setAttribute('data-shape-validation', '');
-            inputsColumn.appendChild(validDiv);
+            // Prostokąt i koło używają natywnych inputów length/width
+            if (currentShape === 'rectangular' || currentShape === 'circle') {
+                if (validDiv) validDiv.style.display = 'none';
+                return;
+            }
 
-            var paramInputs = inputsColumn.querySelectorAll('input[data-shape-param]');
-            for (var j = 0; j < paramInputs.length; j++) {
-                paramInputs[j].addEventListener('input', _onInputChange);
+            // Pokaż inputy potrzebne dla aktualnego kształtu + ustaw wartości
+            for (var j = 0; j < config.inputs.length; j++) {
+                var inp = config.inputs[j];
+                var wrapper = form.querySelector('[data-shape-param-wrapper="' + inp.key + '"]');
+                if (wrapper) {
+                    wrapper.style.display = '';
+                    // Aktualizuj label z konfiguracji (na wypadek współdzielonych kluczy z różnymi labelami)
+                    var label = wrapper.querySelector('label');
+                    if (label) label.textContent = inp.label + ' (' + inp.unit + ')';
+                    // Ustaw wartość domyślną
+                    var inputEl = wrapper.querySelector('input');
+                    if (inputEl) inputEl.value = currentParams[inp.key] || '';
+                }
+            }
+
+            if (validDiv) {
+                // Pokaż validDiv tylko jeśli kształt ma inputy do walidacji
+                validDiv.style.display = config.inputs.length > 0 ? '' : 'none';
+                validDiv.textContent = '';
             }
 
             _updateBboxDisplay();
@@ -159,13 +179,16 @@ var ShapeEditor = (function() {
             if (isUpdating) return;
             isUpdating = true;
 
-            var paramInputs = inputsColumn.querySelectorAll('input[data-shape-param]');
-            for (var i = 0; i < paramInputs.length; i++) {
-                currentParams[paramInputs[i].dataset.shapeParam] = parseFloat(paramInputs[i].value) || 0;
+            var config = ShapeGeometry.SHAPE_CONFIG[currentShape];
+            if (config) {
+                for (var i = 0; i < config.inputs.length; i++) {
+                    var key = config.inputs[i].key;
+                    var inputEl = form.querySelector('[data-shape-param-wrapper="' + key + '"] input');
+                    if (inputEl) currentParams[key] = parseFloat(inputEl.value) || 0;
+                }
             }
 
             var errors = ShapeGeometry.validate(currentShape, currentParams);
-            var validDiv = inputsColumn.querySelector('[data-shape-validation]');
             if (validDiv) validDiv.textContent = errors.length > 0 ? errors[0] : '';
 
             if (canvas && errors.length === 0) {
@@ -193,11 +216,14 @@ var ShapeEditor = (function() {
 
             currentParams = Object.assign({}, params);
 
-            var paramInputs = inputsColumn.querySelectorAll('input[data-shape-param]');
-            for (var i = 0; i < paramInputs.length; i++) {
-                var key = paramInputs[i].dataset.shapeParam;
-                if (params[key] !== undefined) {
-                    paramInputs[i].value = params[key];
+            var config = ShapeGeometry.SHAPE_CONFIG[currentShape];
+            if (config) {
+                for (var i = 0; i < config.inputs.length; i++) {
+                    var key = config.inputs[i].key;
+                    var inputEl = form.querySelector('[data-shape-param-wrapper="' + key + '"] input');
+                    if (inputEl && params[key] !== undefined) {
+                        inputEl.value = params[key];
+                    }
                 }
             }
 
@@ -206,6 +232,9 @@ var ShapeEditor = (function() {
             _updateUndoRedoButtons();
 
             if (typeof updatePrices === 'function') updatePrices();
+
+            // Powiadom system backupu o zmianie z canvasu
+            _notifyBackup();
 
             isUpdating = false;
         }
@@ -254,6 +283,19 @@ var ShapeEditor = (function() {
         // ============================================
         // BBOX DISPLAY
         // ============================================
+
+        // Powiadomienie systemu backupu o zmianie parametrów kształtu
+        function _notifyBackup() {
+            // Emituj event input z pierwszego widocznego inputa kształtu, żeby backup wyłapał zmianę
+            var visibleInput = form.querySelector('[data-shape-param-wrapper]:not([style*="display: none"]) input[data-shape-param]');
+            if (visibleInput) {
+                visibleInput.dispatchEvent(new Event('input', { bubbles: true }));
+            } else {
+                // Fallback: emituj z length inputa
+                var lengthInput = form.querySelector('input[data-field="length"]');
+                if (lengthInput) lengthInput.dispatchEvent(new Event('input', { bubbles: true }));
+            }
+        }
 
         function _updateBboxDisplay() {
             // Wyświetl na canvasie (panel info w lewym dolnym rogu)
@@ -331,16 +373,18 @@ var ShapeEditor = (function() {
                 if (lengthWrapper) {
                     lengthWrapper.style.display = usesOriginalInputs ? '' : 'none';
                     var lengthLabel = lengthWrapper.querySelector('label');
-                    if (lengthLabel) lengthLabel.textContent = (shapeType === 'circle') ? 'Średnica (cm):' : 'Długość (cm):';
+                    if (lengthLabel) lengthLabel.textContent = (shapeType === 'circle') ? 'Średnica (cm)' : 'Długość (cm)';
                 }
                 if (widthWrapper) widthWrapper.style.display = (shapeType === 'rectangular') ? '' : 'none';
                 if (hintEl) hintEl.style.display = shapeType === 'polygon' ? '' : 'none';
 
-                _renderInputs(config);
-                var paramInputs = inputsColumn.querySelectorAll('input[data-shape-param]');
-                for (var i = 0; i < paramInputs.length; i++) {
-                    var key = paramInputs[i].dataset.shapeParam;
-                    if (currentParams[key] !== undefined) paramInputs[i].value = currentParams[key];
+                _showShapeInputs(config);
+
+                // Ustaw wartości z przywróconych danych
+                for (var i = 0; i < config.inputs.length; i++) {
+                    var key = config.inputs[i].key;
+                    var inputEl = form.querySelector('[data-shape-param-wrapper="' + key + '"] input');
+                    if (inputEl && currentParams[key] !== undefined) inputEl.value = currentParams[key];
                 }
 
                 if (!hideCanvas) {
@@ -352,8 +396,17 @@ var ShapeEditor = (function() {
                 }
 
                 _syncToMainDimensions();
+                _setupCircleSync();
                 _updateBboxDisplay();
                 if (typeof updatePrices === 'function') updatePrices();
+            },
+
+            setColorTheme: function(theme) {
+                if (canvas) canvas.setColorTheme(theme);
+            },
+
+            setOutOfRangeDims: function(dims) {
+                if (canvas) canvas.setOutOfRangeDims(dims);
             },
 
             destroy: function() {

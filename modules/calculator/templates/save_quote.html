@@ -47,40 +47,40 @@
                     <h3 class="sq-section-title">Dane klienta</h3>
 
                     <!-- Źródło zapytania -->
-                    <div class="sq-form-group">
-                        <label class="sq-form-label">
-                            <span>Źródło zapytania <span class="sq-optional" style="color: #999;">(opcjonalne)</span></span>
-                        </label>
+                    <div class="sq-form-group sq-has-select">
                         <select name="quote_source" class="sq-form-input" id="quoteSourceSelect">
                             <option value="" disabled selected>Ładowanie źródeł...</option>
                         </select>
+                        <label class="sq-form-label">
+                            Źródło zapytania <span class="sq-optional" style="color: #999;">(opcjonalne)</span>
+                        </label>
                         <span class="sq-error-message"></span>
                     </div>
 
                     <!-- Nazwa klienta + Imię i nazwisko -->
                     <div class="sq-form-row">
                         <div class="sq-form-group">
-                            <label class="sq-form-label">
-                                <span>Nazwa klienta <span class="sq-required">*</span></span>
-                            </label>
                             <input type="text"
                                    name="client_login"
                                    class="sq-form-input"
-                                   placeholder="Min. 3 znaki"
+                                   placeholder=" "
                                    minlength="3"
                                    required
                                    readonly>
+                            <label class="sq-form-label">
+                                Nazwa klienta <span class="sq-required">*</span>
+                            </label>
                             <span class="sq-error-message"></span>
                         </div>
 
                         <div class="sq-form-group">
-                            <label class="sq-form-label">
-                                <span>Imię i nazwisko <span class="sq-optional" style="color: #999;">(opcjonalne)</span></span>
-                            </label>
                             <input type="text"
                                    name="client_name"
                                    class="sq-form-input"
-                                   placeholder="Imię i nazwisko">
+                                   placeholder=" ">
+                            <label class="sq-form-label">
+                                Imię i nazwisko <span class="sq-optional" style="color: #999;">(opcjonalne)</span>
+                            </label>
                             <span class="sq-error-message"></span>
                         </div>
                     </div>
@@ -88,24 +88,24 @@
                     <!-- Telefon + E-mail -->
                     <div class="sq-form-row">
                         <div class="sq-form-group">
-                            <label class="sq-form-label">
-                                Telefon <span class="sq-optional">*</span>
-                            </label>
                             <input type="tel"
                                    name="client_phone"
                                    class="sq-form-input"
-                                   placeholder="+48 123 456 789">
+                                   placeholder=" ">
+                            <label class="sq-form-label">
+                                Telefon <span class="sq-optional">*</span>
+                            </label>
                             <span class="sq-error-message"></span>
                         </div>
 
                         <div class="sq-form-group">
-                            <label class="sq-form-label">
-                                E-mail <span class="sq-optional">*</span>
-                            </label>
                             <input type="email"
                                    name="client_email"
                                    class="sq-form-input"
-                                   placeholder="email@example.com">
+                                   placeholder=" ">
+                            <label class="sq-form-label">
+                                E-mail <span class="sq-optional">*</span>
+                            </label>
                             <span class="sq-error-message"></span>
                         </div>
                     </div>
@@ -116,11 +116,10 @@
                     </p>
                 </div>
 
-                <!-- PRAWA KOLUMNA: Podsumowanie produktów i kwot -->
+                <!-- PRAWA KOLUMNA: Podsumowanie wyceny (scalona tabela) -->
                 <div class="sq-summary-section">
                     <h3 class="sq-section-title">Podsumowanie wyceny</h3>
 
-                    <!-- Tabela produktów -->
                     <div class="sq-products-table">
                         <div class="sq-table-header">
                             <div>Produkt</div>
@@ -129,50 +128,22 @@
                             <div>Suma</div>
                         </div>
                         <div id="productsTableBody" class="sq-table-body">
-                            <!-- Dynamicznie generowane przez JS -->
+                            <!-- Dynamicznie generowane przez JS (produkty + separator + sumy) -->
                         </div>
                     </div>
 
-                    <!-- Podsumowanie całkowite -->
-                    <div class="sq-summary-totals">
-                        <div class="sq-summary-row">
-                            <span class="sq-summary-label">Koszt surowych:</span>
-                            <div class="sq-summary-values">
-                                <span id="summary-products-brutto" class="sq-summary-brutto">0.00 PLN</span>
-                                <span id="summary-products-netto" class="sq-summary-netto">0.00 PLN netto</span>
-                            </div>
-                        </div>
-
-                        <div class="sq-summary-row">
-                            <span class="sq-summary-label">Koszt wykończenia:</span>
-                            <div class="sq-summary-values">
-                                <span id="summary-finishing-brutto" class="sq-summary-brutto">0.00 PLN</span>
-                                <span id="summary-finishing-netto" class="sq-summary-netto">0.00 PLN netto</span>
-                            </div>
-                        </div>
-
-                        <div class="sq-summary-row">
-                            <span class="sq-summary-label">Koszt wysyłki:</span>
-                            <div class="sq-summary-values">
-                                <span id="summary-shipping-brutto" class="sq-summary-brutto">0.00 PLN</span>
-                                <span id="summary-shipping-netto" class="sq-summary-netto">0.00 PLN netto</span>
-                            </div>
-                        </div>
-
-                        <div class="sq-summary-row sq-summary-row-total">
-                            <span class="sq-summary-label">Suma zamówienia:</span>
-                            <div class="sq-summary-values">
-                                <span id="summary-total-brutto" class="sq-summary-brutto">0.00 PLN</span>
-                                <span id="summary-total-netto" class="sq-summary-netto">0.00 PLN netto</span>
-                            </div>
-                        </div>
-                    </div>
+                    <!-- Toggle notatki (pod tabelą, w sekcji podsumowania) -->
+                    <button type="button" class="sq-note-toggle" id="toggleNoteBtn">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M12 5v14M5 12h14"/>
+                        </svg>
+                        Dodaj notatkę
+                    </button>
                 </div>
             </div>
 
-            <!-- Sekcja Notatka -->
-            <div class="sq-note-section">
-                <h3 class="sq-section-title">Notatka do wyceny</h3>
+            <!-- Sekcja Notatka (ukryta domyślnie) -->
+            <div class="sq-note-section" id="noteSection" style="display: none;">
                 <div class="sq-note-wrapper">
                     <textarea name="quote_note"
                               id="quote_note"
@@ -203,7 +174,11 @@
         <!-- KROK 3: Potwierdzenie sukcesu -->
         <div class="sq-step sq-step-success" style="display: none;">
             <div class="sq-success-content">
-                <div class="sq-success-icon">✓</div>
+                <div class="sq-success-icon">
+                    <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+                        <polyline points="20 6 9 17 4 12"/>
+                    </svg>
+                </div>
                 <h3 class="sq-success-title">Wycena została zapisana</h3>
                 <div id="quoteNumberDisplay" class="sq-success-number">--</div>
                 <p class="sq-success-text">
@@ -211,14 +186,14 @@
                 </p>
 
                 <div class="sq-success-actions">
-                    <button id="goToQuoteBtn" class="sq-success-btn sq-btn-primary">
-                        Przejdź do wyceny
-                    </button>
                     <button id="newQuoteBtn" class="sq-success-btn sq-btn-secondary">
                         Nowa wycena
                     </button>
-                    <button id="closeModalBtn" class="sq-success-btn">
-                        Zamknij
+                    <button id="goToQuoteBtn" class="sq-success-btn sq-btn-primary">
+                        Przejdź do wyceny
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M5 12h14M12 5l7 7-7 7"/>
+                        </svg>
                     </button>
                 </div>
             </div>

@@ -416,14 +416,9 @@ def _generate_edge_definitions(shape_type, shape_data, thickness_cm):
     vertices = shape_data.get('vertices')
     params = shape_data.get('params', {})
 
-    if shape_type in ('circle', 'ellipse'):
-        if shape_type == 'circle':
-            d = params.get('diameter', 0)
-            perimeter = math.pi * d
-        else:
-            a = params.get('axisA', 0) / 2
-            b = params.get('axisB', 0) / 2
-            perimeter = math.pi * (3 * (a + b) - math.sqrt((3 * a + b) * (a + 3 * b)))
+    if shape_type == 'circle':
+        d = params.get('diameter', 0)
+        perimeter = math.pi * d
 
         edges.append({'id': 'G1', 'type_label': 'top', 'length_cm': perimeter, 'name': 'Obwód (góra)'})
         edges.append({'id': 'D1', 'type_label': 'bottom', 'length_cm': perimeter, 'name': 'Obwód (dół)'})

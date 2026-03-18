@@ -213,12 +213,16 @@
     transition: flex-basis 0.3s ease;
 }
 
+.product-data > .title-with-underline-h2 {
+    margin-bottom: 20px;
+}
+
 /* [product-inputs] */
 .product-inputs {
     display: flex;
     flex-direction: column;
     align-items: flex-start;
-    gap: 6px;
+    gap: 16px;
     align-self: stretch;
 }
 
@@ -227,18 +231,87 @@
 .width,
 .thickness,
 .quantity {
-    display: flex;
-    flex-direction: column;
-    gap: 3px;
+    position: relative;
     align-self: stretch;
 }
 
-/* [product-shape] */
-.product-shape {
-    display: flex;
-    flex-direction: column;
-    gap: 3px;
+/* [product-shape], [client-type] */
+.product-shape,
+.client-type {
+    position: relative;
     align-self: stretch;
+}
+
+/* ============================================
+   Floating labels — sekcja Produkt
+   ============================================ */
+
+/* Label — stan domyślny (placeholder wewnątrz inputa) */
+.product-inputs .input-txt {
+    position: absolute;
+    left: 14px;
+    top: 50%;
+    transform: translateY(-50%);
+    font-size: 14px;
+    color: #8896A6;
+    pointer-events: none;
+    transition: top 0.2s ease, font-size 0.2s ease, color 0.2s ease;
+    background: transparent;
+    padding: 0 4px;
+    z-index: 1;
+    white-space: nowrap;
+}
+
+/* Label — stan uniesiony (focus lub wartość wpisana) */
+.product-inputs > div:has(.input-window:focus) > .input-txt,
+.product-inputs > div:has(.input-window:not(:placeholder-shown)) > .input-txt {
+    top: 0;
+    transform: translateY(-50%);
+    font-size: 11px;
+    color: #6B7280;
+    background: #FAFBFC;
+}
+
+/* Selekty — label zawsze uniesiony (select zawsze ma wartość) */
+.product-inputs .client-type > .input-txt,
+.product-inputs .product-shape > .input-txt {
+    top: 0;
+    transform: translateY(-50%);
+    font-size: 11px;
+    color: #6B7280;
+    background: #FAFBFC;
+}
+
+/* Ilość — label uniesiony przez quantity-stepper */
+.product-inputs .quantity:has(.qty-input:focus) > .input-txt,
+.product-inputs .quantity:has(.qty-input:not(:placeholder-shown)) > .input-txt {
+    top: 0;
+    transform: translateY(-50%);
+    font-size: 11px;
+    color: #6B7280;
+    background: #FAFBFC;
+}
+
+/* Shape param fields — pozycjonowanie */
+.product-inputs .shape-param-field {
+    position: relative;
+}
+
+/* Shape param fields — floating label */
+.product-inputs .shape-param-field:has(.input-window:focus) > .input-txt,
+.product-inputs .shape-param-field:has(.input-window:not(:placeholder-shown)) > .input-txt {
+    top: 0;
+    transform: translateY(-50%);
+    font-size: 11px;
+    color: #6B7280;
+    background: #FAFBFC;
+}
+
+/* Focus — kolor labela pomarańczowy */
+.product-inputs > div:has(.input-window:focus) > .input-txt,
+.product-inputs .shape-param-field:has(.input-window:focus) > .input-txt,
+.product-inputs .quantity:has(.qty-input:focus) > .input-txt {
+    color: #ED6B24;
 }
 
 
@@ -465,6 +538,66 @@
 .error-outline {
     outline: 1px solid red;
     outline-offset: 0;
+}
+
+/* ============================================
+   Quantity stepper — przyciski +/− po prawej
+   ============================================ */
+
+.quantity-stepper {
+    position: relative;
+    display: flex;
+    align-items: stretch;
+}
+
+.qty-input {
+    padding-right: 78px !important;
+}
+
+.qty-buttons {
+    position: absolute;
+    right: 6px;
+    top: 6px;
+    bottom: 6px;
+    display: flex;
+    gap: 2px;
+}
+
+.qty-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    border: none;
+    background: #F3F4F6;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 16px;
+    font-weight: 600;
+    color: #374151;
+    transition: background 0.15s ease, color 0.15s ease;
+    user-select: none;
+    -webkit-user-select: none;
+}
+
+.qty-btn:hover {
+    background: #E5E7EB;
+    color: #111827;
+}
+
+.qty-btn:active {
+    background: #D1D5DB;
+}
+
+/* Ukryj natywne strzałki spinnera */
+.qty-input::-webkit-inner-spin-button,
+.qty-input::-webkit-outer-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
+.qty-input {
+    -moz-appearance: textfield;
+    appearance: textfield;
 }
 
 /* ============================================
@@ -721,14 +854,39 @@
     }
 
     .product-inputs {
-        display: grid;
-        grid-template-columns: repeat(3, 1fr);
+        display: flex;
+        flex-direction: row;
+        flex-wrap: wrap;
         gap: 10px;
     }
 
+    /* Selekty — zawsze pełna szerokość */
     .product-inputs .client-type,
     .product-inputs .product-shape {
-        grid-column: span 3;
+        flex: 0 0 100%;
+    }
+
+    /* Inputy liczbowe — flex-grow, min-width wynika z labela */
+    .product-inputs .lenght,
+    .product-inputs .width,
+    .product-inputs .thickness,
+    .product-inputs .quantity,
+    .product-inputs .shape-param-field {
+        flex: 1 1 auto;
+        min-width: min-content;
+    }
+
+    /* Walidacja kształtu — pełna szerokość, ukryta gdy pusta */
+    .product-inputs .shape-validation-error:empty {
+        display: none;
+    }
+    .product-inputs .shape-validation-error {
+        flex: 0 0 100%;
+    }
+
+    /* Labele nie łamią się */
+    .product-inputs .input-txt {
+        white-space: nowrap;
     }
 
     .finishing-section,
@@ -810,13 +968,7 @@
     }
 
     .product-inputs {
-        grid-template-columns: repeat(2, 1fr);
-        gap: 8px;
-    }
-
-    .product-inputs .client-type,
-    .product-inputs .product-shape {
-        grid-column: span 2;
+        gap: 10px;
     }
 
     /* Zapobiegaj wylewaniu inputów poza ekran */
