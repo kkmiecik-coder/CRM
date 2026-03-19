@@ -1,102 +1,107 @@
 """
-Generator PDF z wizualizacją obróbki krawędzi dla BaseLinker.
+Generator PDF specyfikacji produktów dla BaseLinker.
 
-Generuje wielostronicowy PDF (format 105x80mm) z wizualizacją krawędzi
-i legendą dla każdego produktu. Dokument techniczny dla produkcji.
-Używa WeasyPrint do renderowania HTML z obrazkiem PNG (konwertowanym z SVG przez CairoSVG).
+Generuje wielostronicowy PDF (format A4) z wizualizacją kształtów i krawędzi.
+Siatka 2x3 — do 6 produktów na stronę.
+Używa WeasyPrint do renderowania HTML z obrazkami PNG (konwertowanymi z SVG przez CairoSVG).
 """
 
 import io
 import re
 import base64
-from weasyprint import HTML, CSS
+from weasyprint import HTML
 import cairosvg
 
 
 class EdgesPdfGenerator:
-    """Generator PDF z wizualizacją obróbki krawędzi dla BaseLinker"""
+    """Generator PDF specyfikacji produktów dla BaseLinker"""
 
-    # Mapowanie typów na polskie nazwy
-    TYPE_NAMES = {
+    # Mapowanie typów krawędzi
+    EDGE_TYPE_NAMES = {
         'round': 'Zaokrąglenie',
         'chamfer': 'Fazowanie'
+    }
+
+    # Mapowanie nazw kształtów
+    SHAPE_NAMES = {
+        'rectangular': 'Prostokąt',
+        'circle': 'Koło',
+        'round': 'Okrągły',
+        'triangle_right': 'Trójkąt prostokątny',
+        'triangle_equilateral': 'Trójkąt równoboczny',
+        'triangle_isosceles': 'Trójkąt równoramienny',
+        'triangle_custom': 'Trójkąt dowolny',
+        'trapezoid_symmetric': 'Trapez symetryczny',
+        'trapezoid_asymmetric': 'Trapez niesymetryczny',
+        'trapezoid_custom': 'Trapez dowolny',
+        'parallelogram': 'Równoległobok',
+        'polygon': 'Wielokąt'
     }
 
     def __init__(self, logger=None):
         self.logger = logger
 
-    def generate_pdf(self, products_with_edges: list) -> bytes:
+    def generate_pdf(self, products: list, quote_number: str = '') -> bytes:
         """
-        Generuje wielostronicowy PDF z wizualizacją krawędzi.
+        Generuje PDF specyfikacji produktów.
 
         Args:
-            products_with_edges: Lista słowników z danymi produktów
+            products: Lista słowników z danymi produktów
+            quote_number: Numer wyceny
 
         Returns:
             bytes: Zawartość PDF jako bajty
         """
-        html_content = self._generate_html(products_with_edges)
+        html_content = self._generate_html(products, quote_number)
 
-        # Generuj PDF z HTML używając WeasyPrint
         pdf_buffer = io.BytesIO()
         HTML(string=html_content).write_pdf(pdf_buffer)
         pdf_buffer.seek(0)
         return pdf_buffer.read()
 
-    def generate_pdf_base64(self, products_with_edges: list) -> dict:
+    def generate_pdf_base64(self, products: list, quote_number: str = '') -> dict:
         """
         Generuje PDF i zwraca w formacie dla BaseLinker API.
 
         Returns:
-            dict: {'title': 'filename.pdf', 'file': 'base64_content...'}
+            dict: {'title': 'filename.pdf', 'file': 'data:base64_content...'}
         """
-        pdf_bytes = self.generate_pdf(products_with_edges)
+        pdf_bytes = self.generate_pdf(products, quote_number)
         pdf_base64 = base64.b64encode(pdf_bytes).decode('utf-8')
 
-        # BaseLinker API wymaga formatu: "data:" + base64 (bez typu MIME)
         return {
-            'title': 'krawedzie.pdf',
+            'title': 'specyfikacja.pdf',
             'file': f'data:{pdf_base64}'
         }
+
+    # ============================================
+    # KONWERSJA SVG
+    # ============================================
 
     def _convert_css_to_svg_attributes(self, svg_html: str) -> str:
         """
         Konwertuje inline CSS styles na atrybuty SVG.
-        WeasyPrint nie obsługuje właściwości SVG (fill, stroke, stroke-width) jako CSS,
-        więc musimy je przekonwertować na natywne atrybuty SVG.
-
-        Przykład: style="fill: rgb(184, 184, 184); stroke: none;"
-        Na: fill="rgb(184, 184, 184)" stroke="none"
+        WeasyPrint nie obsługuje właściwości SVG jako CSS.
         """
         if not svg_html:
             return svg_html
 
-        # Właściwości SVG które trzeba przekonwertować z CSS na atrybuty
-        svg_properties = ['fill', 'stroke', 'stroke-width', 'stroke-dasharray', 'stroke-linecap', 'stroke-linejoin']
+        svg_properties = ['fill', 'stroke', 'stroke-width', 'stroke-dasharray',
+                         'stroke-linecap', 'stroke-linejoin']
 
         def convert_style_to_attrs(match):
-            """Konwertuje style="" na atrybuty SVG"""
             full_tag = match.group(0)
-            tag_name = match.group(1)
-
-            # Znajdź atrybut style
             style_match = re.search(r'style="([^"]*)"', full_tag)
             if not style_match:
                 return full_tag
 
             style_content = style_match.group(1)
-
-            # Wyciągnij właściwości SVG ze stylu
             new_attrs = []
             remaining_styles = []
 
-            # Parsuj style CSS
             for style_part in style_content.split(';'):
                 style_part = style_part.strip()
-                if not style_part:
-                    continue
-
-                if ':' not in style_part:
+                if not style_part or ':' not in style_part:
                     continue
 
                 prop, value = style_part.split(':', 1)
@@ -104,30 +109,22 @@ class EdgesPdfGenerator:
                 value = value.strip()
 
                 if prop in svg_properties:
-                    # Dodaj jako atrybut SVG
                     new_attrs.append(f'{prop}="{value}"')
                 else:
-                    # Zostaw w style
                     remaining_styles.append(f'{prop}: {value}')
 
-            # Usuń stary style i dodaj nowe atrybuty
             new_tag = full_tag
-
-            # Usuń atrybut style
             if remaining_styles:
                 new_style = '; '.join(remaining_styles)
                 new_tag = re.sub(r'style="[^"]*"', f'style="{new_style}"', new_tag)
             else:
                 new_tag = re.sub(r'\s*style="[^"]*"', '', new_tag)
 
-            # Dodaj nowe atrybuty przed zamknięciem tagu
             if new_attrs:
-                # Usuń istniejące atrybuty które będą nadpisane (zapobiega duplikatom)
                 for attr in new_attrs:
                     attr_name = attr.split('=')[0]
                     new_tag = re.sub(rf'\s+{re.escape(attr_name)}="[^"]*"', '', new_tag)
                 attrs_str = ' ' + ' '.join(new_attrs)
-                # Wstaw przed > lub />
                 if new_tag.rstrip().endswith('/>'):
                     new_tag = re.sub(r'\s*/>', f'{attrs_str}/>', new_tag)
                 else:
@@ -135,39 +132,31 @@ class EdgesPdfGenerator:
 
             return new_tag
 
-        # Konwertuj wszystkie tagi SVG które mają style
-        # Dopasuj tagi: <tagname ... style="..." ...> (otwierające lub samozamykające)
         svg_html = re.sub(
-            r'<(polygon|line|rect|circle|ellipse|path|polyline|g)\b([^>]*?)>',
+            r'<(polygon|line|rect|circle|ellipse|path|polyline|g|text)\b([^>]*?)>',
             convert_style_to_attrs,
             svg_html
         )
 
         return svg_html
 
-    def _fix_svg_for_conversion(self, svg_html: str) -> str:
-        """
-        Naprawia SVG przed konwersją na PNG:
-        1. Dodaje width/height w pikselach
-        2. Usuwa puste atrybuty style=""
-        3. Dodaje xmlns jeśli brakuje
-        """
+    def _fix_svg_for_conversion(self, svg_html: str, output_width=300) -> str:
+        """Naprawia SVG przed konwersją na PNG"""
         if not svg_html:
             return svg_html
 
-        # Usuń puste style=""
         svg_html = re.sub(r'\s*style=""', '', svg_html)
 
-        # Dodaj width i height do SVG jeśli brakuje (w pikselach dla CairoSVG)
-        if 'width=' not in svg_html or 'height=' not in svg_html:
-            svg_html = re.sub(
-                r'<svg\s+',
-                '<svg width="300" height="300" ',
-                svg_html,
-                count=1
-            )
+        # Usuń istniejące width/height TYLKO z tagu <svg>, nie z elementów wewnętrznych
+        svg_html = re.sub(r'(<svg\s[^>]*?)\s+width="[^"]*"', r'\1', svg_html)
+        svg_html = re.sub(r'(<svg\s[^>]*?)\s+height="[^"]*"', r'\1', svg_html)
+        svg_html = re.sub(
+            r'<svg\s+',
+            f'<svg width="{output_width}" height="{output_width}" ',
+            svg_html,
+            count=1
+        )
 
-        # Dodaj xmlns jeśli brakuje
         if 'xmlns=' not in svg_html:
             svg_html = re.sub(
                 r'<svg\s+',
@@ -178,29 +167,74 @@ class EdgesPdfGenerator:
 
         return svg_html
 
-    def _svg_to_png_base64(self, svg_html: str) -> str:
-        """
-        Konwertuje SVG na PNG i zwraca jako base64 data URI.
-        Używa CairoSVG który poprawnie obsługuje atrybuty SVG.
-        """
+    def _sanitize_svg_text(self, svg_html: str) -> str:
+        """Zamienia znaki specjalne, fonty i kolory nieobsługiwane przez CairoSVG"""
+        if not svg_html:
+            return svg_html
+
+        # Usuń znak ∅ (U+2300) — CairoSVG nie renderuje tego znaku
+        svg_html = svg_html.replace('\u2300', '')
+
+        # Zamień font Poppins na Arial (CairoSVG nie ma Poppins)
+        svg_html = svg_html.replace('Poppins,sans-serif', 'Arial,sans-serif')
+        svg_html = svg_html.replace('Poppins', 'Arial')
+
+        # Zamień rgba() na odpowiedniki SVG (CairoSVG nie obsługuje rgba w atrybutach)
+        # Zwiększ opacity z 0.15 do 0.3 żeby kształt był widoczny na druku
+        def rgba_to_svg(match):
+            r, g, b = match.group(1), match.group(2), match.group(3)
+            a = float(match.group(4))
+            if a < 0.25:
+                a = 0.3
+            return f'rgb({r},{g},{b})" fill-opacity="{a}'
+        svg_html = re.sub(
+            r'rgba\((\d+),\s*(\d+),\s*(\d+),\s*([\d.]+)\)',
+            rgba_to_svg,
+            svg_html
+        )
+
+        return svg_html
+
+    def _generate_simple_shape_svg(self, shape: str, length: float, width: float) -> str:
+        """Generuje prosty SVG kształtu gdy brak shape_svg z kalkulatora (stare wyceny)"""
+        pad = 5
+        sw = 1.5
+        fill = 'rgb(230,126,34)'
+        fill_op = '0.3'
+        stroke = '#e67e22'
+
+        if shape == 'circle' or shape == 'round':
+            r = length / 2
+            total = length + pad * 2
+            return (f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {total} {total}">'
+                    f'<circle cx="{r + pad}" cy="{r + pad}" r="{r}" '
+                    f'fill="{fill}" fill-opacity="{fill_op}" stroke="{stroke}" stroke-width="{sw}"/>'
+                    f'</svg>')
+
+        # Prostokąt
+        total_w = length + pad * 2
+        total_h = width + pad * 2
+        return (f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {total_w} {total_h}">'
+                f'<rect x="{pad}" y="{pad}" width="{length}" height="{width}" '
+                f'fill="{fill}" fill-opacity="{fill_op}" stroke="{stroke}" stroke-width="{sw}" rx="1"/>'
+                f'</svg>')
+
+    def _svg_to_png_base64(self, svg_html: str, output_width=300) -> str:
+        """Konwertuje SVG na PNG base64 data URI"""
         if not svg_html:
             return None
 
         try:
-            # Najpierw konwertuj CSS styles na atrybuty SVG
+            svg_html = self._sanitize_svg_text(svg_html)
             svg_html = self._convert_css_to_svg_attributes(svg_html)
+            svg_html = self._fix_svg_for_conversion(svg_html, output_width)
 
-            # Napraw SVG dla konwersji
-            svg_html = self._fix_svg_for_conversion(svg_html)
-
-            # Konwertuj SVG na PNG używając CairoSVG
             png_bytes = cairosvg.svg2png(
                 bytestring=svg_html.encode('utf-8'),
-                output_width=300,
-                output_height=300
+                output_width=output_width,
+                output_height=output_width
             )
 
-            # Zakoduj PNG jako base64
             png_base64 = base64.b64encode(png_bytes).decode('utf-8')
             return f'data:image/png;base64,{png_base64}'
 
@@ -210,25 +244,16 @@ class EdgesPdfGenerator:
             return None
 
     def _ensure_dashed_lines(self, svg_html: str) -> str:
-        """
-        Upewnia się, że ukryte krawędzie (F, G, N3) mają linie przerywane.
-        Dodaje stroke-dasharray do linii z klasą 'hidden' jeśli brakuje.
-        """
+        """Dodaje stroke-dasharray do linii ukrytych"""
         if not svg_html:
             return svg_html
 
-        # Najpierw konwertuj CSS styles na atrybuty SVG
         svg_html = self._convert_css_to_svg_attributes(svg_html)
-
-        # Napraw SVG dla konwersji
         svg_html = self._fix_svg_for_conversion(svg_html)
 
-        # Dodaj stroke-dasharray jako atrybut do linii ukrytych
-        # Szukamy linii z klasą zawierającą 'hidden' i dodajemy stroke-dasharray
         def add_dasharray(match):
             tag = match.group(0)
             if 'stroke-dasharray' not in tag:
-                # Dodaj przed zamknięciem tagu
                 tag = re.sub(r'>$', ' stroke-dasharray="5,3">', tag)
             return tag
 
@@ -240,13 +265,36 @@ class EdgesPdfGenerator:
 
         return svg_html
 
-    def _generate_html(self, products_with_edges: list) -> str:
-        """Generuje HTML z wizualizacją krawędzi dla wszystkich produktów"""
+    # ============================================
+    # GENEROWANIE HTML
+    # ============================================
+
+    def _generate_html(self, products: list, quote_number: str = '') -> str:
+        """Generuje HTML z siatką 2x3 produktów na stronę"""
+
+        # Podziel produkty na strony po 6
+        pages = []
+        for i in range(0, len(products), 6):
+            pages.append(products[i:i+6])
 
         pages_html = []
-        for product in products_with_edges:
-            page_html = self._generate_product_page(product)
-            pages_html.append(page_html)
+        for page_products in pages:
+            cells_html = []
+            for product in page_products:
+                cells_html.append(self._generate_product_cell(product))
+
+            # Wypełnij pustymi komórkami jeśli mniej niż 6
+            while len(cells_html) < 6:
+                cells_html.append('<div class="cell empty"></div>')
+
+            pages_html.append(f"""
+            <div class="page">
+                <div class="page-title">Specyfikacja wyceny{' ' + quote_number if quote_number else ''}</div>
+                <div class="grid">
+                    {''.join(cells_html)}
+                </div>
+            </div>
+            """)
 
         html = f"""
 <!DOCTYPE html>
@@ -255,8 +303,8 @@ class EdgesPdfGenerator:
     <meta charset="UTF-8">
     <style>
         @page {{
-            size: 105mm 80mm;
-            margin: 4mm;
+            size: A4;
+            margin: 8mm;
         }}
 
         * {{
@@ -267,79 +315,152 @@ class EdgesPdfGenerator:
 
         body {{
             font-family: Arial, Helvetica, sans-serif;
-            font-size: 12px;
+            font-size: 9px;
             line-height: 1.3;
         }}
 
         .page {{
             page-break-after: always;
-            height: 72mm;
-            padding: 2mm;
+            height: 277mm;
         }}
 
         .page:last-child {{
             page-break-after: avoid;
         }}
 
-        .header {{
-            border-bottom: 1px solid #ccc;
-            padding-bottom: 2mm;
-            margin-bottom: 2mm;
-        }}
-
-        .title {{
+        .page-title {{
             font-size: 14px;
             font-weight: bold;
-            margin-bottom: 1mm;
-        }}
-
-        .dimensions {{
-            font-size: 12px;
-            color: #555;
-        }}
-
-        .content {{
-            display: flex;
-        }}
-
-        .svg-container {{
-            flex-shrink: 0;
-            width: 45mm;
-            height: 45mm;
-            margin-right: 3mm;
-        }}
-
-        .svg-container svg {{
-            width: 45mm;
-            height: 45mm;
-        }}
-
-        .legend {{
-            flex-grow: 1;
-        }}
-
-        .legend-item {{
-            margin-bottom: 1.5mm;
-            font-size: 12px;
-        }}
-
-        .legend-item strong {{
+            text-align: center;
+            padding-bottom: 4mm;
+            margin-bottom: 4mm;
+            border-bottom: 2px solid #ED6B24;
             color: #333;
         }}
 
-        .edges-list {{
-            margin-top: 2mm;
+        .grid {{
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            grid-template-rows: 1fr 1fr 1fr;
+            gap: 4mm;
+            height: calc(277mm - 14mm);
         }}
 
-        .edges-list-title {{
-            font-weight: bold;
+        .cell {{
+            border: 1px solid #ddd;
+            border-radius: 3mm;
+            padding: 3mm;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }}
+
+        .cell.empty {{
+            border-color: transparent;
+        }}
+
+        .cell-header {{
+            padding-bottom: 2mm;
             margin-bottom: 1mm;
-            font-size: 12px;
+            border-bottom: 1px solid #eee;
         }}
 
-        .edge-row {{
-            font-size: 12px;
+        .cell-header-row {{
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }}
+
+        .cell-position {{
+            font-size: 11px;
+            font-weight: bold;
+            color: #ED6B24;
+        }}
+
+        .cell-dims {{
+            font-size: 8px;
+            color: #666;
+            margin-top: 1mm;
+        }}
+
+        .cell-shape-badge {{
+            background: #e67e22;
+            color: #fff;
+            padding: 1px 5px;
+            border-radius: 3px;
+            font-size: 7px;
+            font-weight: bold;
+        }}
+
+        .cell-body {{
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }}
+
+        .cell-preview-labels {{
+            display: flex;
+            gap: 2mm;
+            margin-bottom: 1mm;
+        }}
+
+        .cell-preview-label {{
+            flex: 1;
+            font-size: 6px;
+            font-weight: bold;
+            color: #aaa;
+            text-transform: uppercase;
+            letter-spacing: 0.3px;
+            text-align: center;
+        }}
+
+        .cell-previews {{
+            display: flex;
+            gap: 2mm;
+            align-items: center;
+            justify-content: center;
+            flex: 1;
+            overflow: hidden;
+        }}
+
+        .cell-preview-box {{
+            flex: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+        }}
+
+        .cell-preview-box img {{
+            max-width: 100%;
+            max-height: 35mm;
+            object-fit: contain;
+        }}
+
+        /* Gdy tylko jeden podgląd — większy */
+        .cell-previews .cell-preview-box:only-child img {{
+            max-height: 45mm;
+        }}
+
+        .cell-info {{
+            font-size: 8px;
+            color: #555;
+        }}
+
+        .cell-info div {{
             margin-bottom: 0.5mm;
+        }}
+
+        .cell-info strong {{
+            color: #333;
+        }}
+
+        .cell-note {{
+            font-size: 7px;
+            color: #888;
+            font-style: italic;
+            margin-top: 1mm;
         }}
     </style>
 </head>
@@ -350,54 +471,114 @@ class EdgesPdfGenerator:
 """
         return html
 
-    def _generate_product_page(self, product: dict) -> str:
-        """Generuje HTML dla pojedynczego produktu"""
+    def _generate_product_cell(self, product: dict) -> str:
+        """Generuje HTML komórki dla jednego produktu"""
 
         product_index = product.get('product_index', '?')
         product_name = product.get('product_name', 'Nieznany')
-
-        # Skróć nazwę jeśli za długa
-        if len(product_name) > 35:
-            product_name = product_name[:32] + '...'
+        quantity = product.get('quantity', 1)
 
         dims = product.get('dimensions', {})
         length = dims.get('length', 0)
         width = dims.get('width', 0)
         thickness = dims.get('thickness', 0)
 
-        edge_type = self.TYPE_NAMES.get(product.get('edges_type', ''), product.get('edges_type', ''))
-        r_value = product.get('edges_r_value', 0)
-        angle_value = product.get('edges_angle_value')
+        shape = product.get('shape', 'rectangular')
+        shape_name = self.SHAPE_NAMES.get(shape, shape)
+        shape_badge = f'<span class="cell-shape-badge">{shape_name}</span>'
 
-        # Konwertuj SVG na PNG i osadź jako obrazek
-        svg_html = product.get('edges_svg', '')
-        if svg_html:
-            # Najpierw dodaj linie przerywane do SVG
-            svg_html = self._ensure_dashed_lines(svg_html)
-            # Konwertuj SVG na PNG
-            png_data_uri = self._svg_to_png_base64(svg_html)
-            if png_data_uri:
-                image_html = f'<img src="{png_data_uri}" style="width:45mm;height:45mm;object-fit:contain;" />'
+        # Podgląd kształtu 2D
+        shape_svg = product.get('shape_svg', '')
+        shape_img_html = ''
+        has_shape = False
+
+        # Jeśli brak shape_svg — wygeneruj prosty SVG dla prostokąta/koła
+        if not shape_svg and length > 0 and width > 0:
+            shape_svg = self._generate_simple_shape_svg(shape, length, width)
+
+        if shape_svg:
+            png_uri = self._svg_to_png_base64(shape_svg, 250)
+            if png_uri:
+                has_shape = True
+                shape_img_html = f'<div class="cell-preview-box"><img src="{png_uri}" alt="Kształt" /></div>'
+
+        # Podgląd izometryczny krawędzi 3D
+        edges_svg = product.get('edges_svg', '')
+        edges_img_html = ''
+        has_edges_img = False
+        if edges_svg:
+            svg_fixed = self._ensure_dashed_lines(edges_svg)
+            png_uri = self._svg_to_png_base64(svg_fixed, 250)
+            if png_uri:
+                has_edges_img = True
+                edges_img_html = f'<div class="cell-preview-box"><img src="{png_uri}" alt="Krawędzie" /></div>'
+
+        # Nagłówki podglądów (oddzielone od obrazków)
+        labels_html = ''
+        previews_html = ''
+        if has_shape or has_edges_img:
+            label_items = ''
+            if has_shape:
+                label_items += '<div class="cell-preview-label">Kształt</div>'
+            if has_edges_img:
+                label_items += '<div class="cell-preview-label">Izometria</div>'
+            labels_html = f'<div class="cell-preview-labels">{label_items}</div>'
+            previews_html = f'<div class="cell-previews">{shape_img_html}{edges_img_html}</div>'
+
+        # Info o krawędziach
+        edges_info_html = ''
+        edges_config = product.get('edges_config')
+        if edges_config and len(edges_config) > 0:
+            edge_type = self.EDGE_TYPE_NAMES.get(
+                product.get('edges_type', ''), product.get('edges_type', ''))
+            r_value = product.get('edges_r_value', '-')
+            angle_value = product.get('edges_angle_value')
+            letters = ', '.join(sorted([e.get('letter', '?') for e in edges_config]))
+
+            angle_html = ''
+            if product.get('edges_type') == 'chamfer' and angle_value:
+                angle_html = f' ({angle_value}°)'
+
+            edges_info_html = f"""
+            <div class="cell-info">
+                <div><strong>Obróbka:</strong> {edge_type} R{r_value}{angle_html}</div>
+                <div><strong>Krawędzie:</strong> {letters}</div>
+                <div class="cell-note">Krawędzie zaznaczone kolorem pomarańczowym zostaną poddane obróbce.</div>
+            </div>"""
+
+        # Info o wykończeniu
+        finishing_html = ''
+        finishing_type = product.get('finishing_type')
+        if finishing_type and finishing_type != 'Brak':
+            finishing_variant = product.get('finishing_variant', '')
+            finishing_text = finishing_type
+            if finishing_variant:
+                finishing_text += f' | {finishing_variant}'
+            finishing_html = f'<div><strong>Wykończenie:</strong> {finishing_text}</div>'
+
+        # Złóż info
+        info_html = ''
+        if finishing_html or edges_info_html:
+            info_parts = finishing_html + edges_info_html
+            if finishing_html and not edges_info_html:
+                info_html = f'<div class="cell-info">{finishing_html}</div>'
             else:
-                image_html = '<div style="width:45mm;height:45mm;background:#f5f5f5;display:flex;align-items:center;justify-content:center;font-size:8px;color:#999;">Błąd konwersji</div>'
-        else:
-            image_html = '<div style="width:45mm;height:45mm;background:#f5f5f5;display:flex;align-items:center;justify-content:center;font-size:8px;color:#999;">Brak wizualizacji</div>'
+                info_html = edges_info_html
+                if finishing_html:
+                    info_html = f'<div class="cell-info">{finishing_html}</div>{edges_info_html}'
 
         return f"""
-        <div class="page">
-            <div class="header">
-                <div class="title">#{product_index}: {product_name}</div>
-                <div class="dimensions">{length} × {width} × {thickness} cm</div>
-            </div>
-            <div class="content">
-                <div class="svg-container">
-                    {image_html}
+        <div class="cell">
+            <div class="cell-header">
+                <div class="cell-header-row">
+                    <span class="cell-position">#{product_index}: {product_name}</span>
+                    {shape_badge}
                 </div>
-                <div class="legend">
-                    <div class="legend-item"><strong>Typ:</strong> {edge_type}</div>
-                    <div class="legend-item"><strong>Promień:</strong> R{r_value}</div>
-                    {f'<div class="legend-item"><strong>Kąt:</strong> {angle_value}°</div>' if angle_value and product.get('edges_type') == 'chamfer' else ''}
-                </div>
+                <div class="cell-dims">{length} x {width} x {thickness} cm | {quantity} szt.</div>
             </div>
-        </div>
-"""
+            <div class="cell-body">
+                {labels_html}
+                {previews_html}
+                {info_html}
+            </div>
+        </div>"""

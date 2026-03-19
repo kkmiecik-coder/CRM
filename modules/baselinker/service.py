@@ -858,47 +858,52 @@ class BaselinkerService:
                        payment_type_field_106169=payment_type_value,  # 🆕 NOWE w logowaniu
                        quote_type=quote_type)
 
-        # Generuj PDF z wizualizacją krawędzi (jeśli są produkty z krawędziami)
-        products_with_edges = []
+        # Generuj PDF specyfikacji dla wszystkich produktów
+        spec_products = []
         for item in selected_items:
             finishing_details = QuoteItemDetails.query.filter_by(
                 quote_id=quote.id,
                 product_index=item.product_index
             ).first()
 
-            if finishing_details and finishing_details.edges_config and len(finishing_details.edges_config) > 0:
-                products_with_edges.append({
-                    'product_index': item.product_index,
-                    'product_name': self._translate_variant_code(item.variant_code),
-                    'dimensions': {
-                        'length': float(item.length_cm or 0),
-                        'width': float(item.width_cm or 0),
-                        'thickness': float(item.thickness_cm or 0)
-                    },
-                    'edges_config': finishing_details.edges_config,
-                    'edges_type': finishing_details.edges_type,
-                    'edges_r_value': finishing_details.edges_r_value,
-                    'edges_angle_value': finishing_details.edges_angle_value,
-                    'edges_svg': finishing_details.edges_svg
-                })
+            product_data = {
+                'product_index': item.product_index,
+                'product_name': self._translate_variant_code(item.variant_code),
+                'dimensions': {
+                    'length': float(item.length_cm or 0),
+                    'width': float(item.width_cm or 0),
+                    'thickness': float(item.thickness_cm or 0)
+                },
+                'quantity': finishing_details.quantity if finishing_details and finishing_details.quantity else 1,
+                'shape': finishing_details.shape if finishing_details else 'rectangular',
+                'shape_svg': finishing_details.shape_svg if finishing_details else None,
+                'edges_config': finishing_details.edges_config if finishing_details else None,
+                'edges_type': finishing_details.edges_type if finishing_details else None,
+                'edges_r_value': finishing_details.edges_r_value if finishing_details else None,
+                'edges_angle_value': finishing_details.edges_angle_value if finishing_details else None,
+                'edges_svg': finishing_details.edges_svg if finishing_details else None,
+                'finishing_type': finishing_details.finishing_type if finishing_details else None,
+                'finishing_variant': finishing_details.finishing_variant if finishing_details else None,
+            }
+            spec_products.append(product_data)
 
-        # Dodaj PDF do custom_extra_fields jeśli są krawędzie
-        if products_with_edges:
+        # Dodaj PDF specyfikacji do custom_extra_fields
+        if spec_products:
             try:
                 from modules.baselinker.edges_pdf_generator import EdgesPdfGenerator
 
                 pdf_generator = EdgesPdfGenerator(logger=self.logger)
-                pdf_data = pdf_generator.generate_pdf_base64(products_with_edges)
+                pdf_data = pdf_generator.generate_pdf_base64(spec_products, quote_number=quote.quote_number)
 
                 order_data['custom_extra_fields']['56476'] = pdf_data
 
-                self.logger.info("Wygenerowano PDF z krawędziami",
-                                products_count=len(products_with_edges),
+                self.logger.info("Wygenerowano PDF specyfikacji",
+                                products_count=len(spec_products),
                                 pdf_size_kb=round(len(pdf_data['file']) / 1024, 2))
             except Exception as e:
-                self.logger.error("Błąd generowania PDF krawędzi",
+                self.logger.error("Błąd generowania PDF specyfikacji",
                                 error=str(e),
-                                products_count=len(products_with_edges))
+                                products_count=len(spec_products))
                 # Kontynuuj bez PDF - nie blokuj zamówienia
 
         return order_data

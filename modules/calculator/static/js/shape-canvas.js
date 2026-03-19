@@ -992,23 +992,170 @@ var ShapeCanvas = (function() {
             var bbox = ShapeGeometry.calculateBbox(state.shapeType, state.params, state.vertices);
             if (bbox.width <= 0 || bbox.height <= 0) return '';
 
+            var bw = bbox.width;
+            var bh = bbox.height;
+            var tol = 0.5;
+            var fs = Math.max(5, Math.min(12, Math.min(bw, bh) * 0.15));
+            var tick = fs * 0.6;
+            var gap = fs * 0.4;
+            var levelH = fs * 2.2; // odstęp między poziomami klamerek
             var pad = 5;
-            var w = bbox.width + 2 * pad;
-            var h = bbox.height + 2 * pad;
+            var col = '#888';
+            var colVertex = '#e67e22';
+            var sw = Math.max(0.3, fs * 0.12);
+            var guideCol = 'rgba(150,150,150,0.4)';
+            var guideSw = Math.max(0.3, sw * 0.8);
+
+            // Helpery SVG klamerek
+            function hBracket(x1, x2, y, label, color, textAbove) {
+                var c = color || col;
+                var midX = (x1 + x2) / 2;
+                var by = y + gap;
+                var textY = textAbove ? (by - 2) : (by + tick + fs + 1);
+                return '<line x1="' + x1 + '" y1="' + by + '" x2="' + x1 + '" y2="' + (by + tick) + '" stroke="' + c + '" stroke-width="' + sw + '"/>'
+                    + '<line x1="' + x2 + '" y1="' + by + '" x2="' + x2 + '" y2="' + (by + tick) + '" stroke="' + c + '" stroke-width="' + sw + '"/>'
+                    + '<line x1="' + x1 + '" y1="' + (by + tick / 2) + '" x2="' + x2 + '" y2="' + (by + tick / 2) + '" stroke="' + c + '" stroke-width="' + sw + '"/>'
+                    + '<text x="' + midX + '" y="' + textY + '" text-anchor="middle" font-size="' + fs + '" fill="' + c + '" font-family="Poppins,sans-serif">' + label + '</text>';
+            }
+            // Klamerka pionowa — po prawej stronie
+            function vBracket(y1, y2, x, label, color) {
+                var c = color || col;
+                var midY = (y1 + y2) / 2;
+                var bx = x + gap;
+                return '<line x1="' + bx + '" y1="' + y1 + '" x2="' + (bx + tick) + '" y2="' + y1 + '" stroke="' + c + '" stroke-width="' + sw + '"/>'
+                    + '<line x1="' + bx + '" y1="' + y2 + '" x2="' + (bx + tick) + '" y2="' + y2 + '" stroke="' + c + '" stroke-width="' + sw + '"/>'
+                    + '<line x1="' + (bx + tick / 2) + '" y1="' + y1 + '" x2="' + (bx + tick / 2) + '" y2="' + y2 + '" stroke="' + c + '" stroke-width="' + sw + '"/>'
+                    + '<text x="' + (bx + tick + 2) + '" y="' + (midY + fs * 0.35) + '" font-size="' + fs + '" fill="' + c + '" font-family="Poppins,sans-serif">' + label + '</text>';
+            }
+            // Klamerka pionowa — po lewej stronie
+            function vBracketLeft(y1, y2, x, label, color) {
+                var c = color || col;
+                var midY = (y1 + y2) / 2;
+                var bx = x - gap;
+                return '<line x1="' + (bx - tick) + '" y1="' + y1 + '" x2="' + bx + '" y2="' + y1 + '" stroke="' + c + '" stroke-width="' + sw + '"/>'
+                    + '<line x1="' + (bx - tick) + '" y1="' + y2 + '" x2="' + bx + '" y2="' + y2 + '" stroke="' + c + '" stroke-width="' + sw + '"/>'
+                    + '<line x1="' + (bx - tick / 2) + '" y1="' + y1 + '" x2="' + (bx - tick / 2) + '" y2="' + y2 + '" stroke="' + c + '" stroke-width="' + sw + '"/>'
+                    + '<text x="' + (bx - tick - 2) + '" y="' + (midY + fs * 0.35) + '" text-anchor="end" font-size="' + fs + '" fill="' + c + '" font-family="Poppins,sans-serif">' + label + '</text>';
+            }
+
+            var shapeEl = '';
+            var guides = '';
+            var brackets = '';
 
             if (state.shapeType === 'circle') {
                 var r = (state.params.diameter || 0) / 2;
-                return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ' + w + ' ' + h + '" width="80" height="' + (80 * h / w) + '"><circle cx="' + (r + pad) + '" cy="' + (r + pad) + '" r="' + r + '" fill="rgba(230,126,34,0.2)" stroke="#e67e22" stroke-width="1.5"/></svg>';
+                var d = _round(state.params.diameter || 0) + '';
+                var totalW = bw + pad * 2;
+                var totalH = bh + pad * 2 + levelH;
+                shapeEl = '<circle cx="' + (r + pad) + '" cy="' + (r + pad) + '" r="' + r + '" fill="rgba(230,126,34,0.15)" stroke="#e67e22" stroke-width="1.5"/>';
+                brackets = hBracket(pad, pad + r * 2, pad + r * 2, '\u2300' + d);
+                return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ' + totalW + ' ' + totalH + '">' + shapeEl + brackets + '</svg>';
             }
+
             if (!state.vertices || state.vertices.length < 3) return '';
-            var minX = state.vertices.reduce(function(m, v) { return Math.min(m, v[0]); }, Infinity);
-            var minY = state.vertices.reduce(function(m, v) { return Math.min(m, v[1]); }, Infinity);
-            var maxY = state.vertices.reduce(function(m, v) { return Math.max(m, v[1]); }, -Infinity);
-            // Flip Y axis for SVG (SVG Y goes down, canvas Y goes up)
-            var pts = state.vertices.map(function(v) {
-                return (v[0] - minX + pad) + ',' + (maxY - v[1] + pad);
+
+            var verts = state.vertices;
+            var minX = verts.reduce(function(m, v) { return Math.min(m, v[0]); }, Infinity);
+            var minY = verts.reduce(function(m, v) { return Math.min(m, v[1]); }, Infinity);
+            var maxX = verts.reduce(function(m, v) { return Math.max(m, v[0]); }, -Infinity);
+            var maxY = verts.reduce(function(m, v) { return Math.max(m, v[1]); }, -Infinity);
+
+            // Zbierz unikalne X/Y wewnątrz bbox (nie w rogach) — rzuty wierzchołków
+            var innerXs = [];
+            var innerYs = [];
+            for (var vi = 0; vi < verts.length; vi++) {
+                var vx = verts[vi][0], vy = verts[vi][1];
+                if (Math.abs(vx - minX) > tol && Math.abs(vx - maxX) > tol) {
+                    var dup = false;
+                    for (var xi = 0; xi < innerXs.length; xi++) { if (Math.abs(innerXs[xi] - vx) < tol) { dup = true; break; } }
+                    if (!dup) innerXs.push(vx);
+                }
+                if (Math.abs(vy - minY) > tol && Math.abs(vy - maxY) > tol) {
+                    var dup2 = false;
+                    for (var yi = 0; yi < innerYs.length; yi++) { if (Math.abs(innerYs[yi] - vy) < tol) { dup2 = true; break; } }
+                    if (!dup2) innerYs.push(vy);
+                }
+            }
+            innerXs.sort(function(a, b) { return a - b; });
+            innerYs.sort(function(a, b) { return a - b; });
+
+            // Margines na klamerki: bbox (1 poziom) + wewnętrzne (po jednym na każdy rzut)
+            var topLevels = innerXs.length; // klamerki nad kształtem
+            var rightLevels = innerYs.length; // klamerki po prawej
+            var marginTop = (topLevels + 1) * levelH + pad;
+            var marginRight = rightLevels > 0 ? (rightLevels * levelH + pad) : pad;
+            var marginLeft = levelH + pad; // bbox klamerka wysokości po lewej
+            var oX = marginLeft; // offset X kształtu w SVG
+            var oY = marginTop; // offset Y (zostawiamy miejsce na klamerki u góry)
+            var totalW = bw + oX + pad + marginRight;
+            var totalH = bh + oY + pad + levelH; // + bbox klamerka na dole
+
+            // Kształt (polygon) — flip Y
+            var pts = verts.map(function(v) {
+                return _round(v[0] - minX + oX) + ',' + _round(maxY - v[1] + oY);
             }).join(' ');
-            return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ' + w + ' ' + h + '" width="80" height="' + (80 * h / w) + '"><polygon points="' + pts + '" fill="rgba(230,126,34,0.2)" stroke="#e67e22" stroke-width="1.5"/></svg>';
+            shapeEl = '<polygon points="' + pts + '" fill="rgba(230,126,34,0.15)" stroke="#e67e22" stroke-width="1.5"/>';
+
+            // Bbox przerywany dla nieregularnych
+            if (state.shapeType !== 'rectangular') {
+                shapeEl += '<rect x="' + oX + '" y="' + oY + '" width="' + bw + '" height="' + bh + '" fill="none" stroke="#ccc" stroke-width="0.5" stroke-dasharray="2,2"/>';
+            }
+
+            // Linie prowadzące od wierzchołków do ich klamerek (przerywane)
+            for (var gi = 0; gi < verts.length; gi++) {
+                var gvx = verts[gi][0] - minX;
+                var gvy = maxY - verts[gi][1]; // flipped Y
+                var isCorner = (Math.abs(gvx) < tol || Math.abs(gvx - bw) < tol) && (Math.abs(gvy) < tol || Math.abs(gvy - bh) < tol);
+                if (isCorner) continue;
+
+                var svgX = gvx + oX;
+                var svgY = gvy + oY;
+
+                // Linia w górę — do poziomu odpowiedniej klamerki
+                if (Math.abs(gvx) > tol && Math.abs(gvx - bw) > tol) {
+                    // Znajdź indeks tego X w innerXs
+                    var xIdx = -1;
+                    for (var xi2 = 0; xi2 < innerXs.length; xi2++) {
+                        if (Math.abs(innerXs[xi2] - verts[gi][0]) < tol) { xIdx = xi2; break; }
+                    }
+                    var guideTopY = oY - (xIdx + 1) * levelH;
+                    guides += '<line x1="' + svgX + '" y1="' + svgY + '" x2="' + svgX + '" y2="' + guideTopY + '" stroke="' + guideCol + '" stroke-width="' + guideSw + '" stroke-dasharray="2,2"/>';
+                }
+                // Linia w prawo — do pozycji odpowiedniej klamerki
+                if (Math.abs(gvy) > tol && Math.abs(gvy - bh) > tol) {
+                    // Znajdź indeks tego Y w innerYs (oryginalne Y)
+                    var origY = verts[gi][1];
+                    var yIdx = -1;
+                    for (var yi2 = 0; yi2 < innerYs.length; yi2++) {
+                        if (Math.abs(innerYs[yi2] - origY) < tol) { yIdx = yi2; break; }
+                    }
+                    var guideRightX = oX + bw + yIdx * levelH + gap + tick;
+                    guides += '<line x1="' + svgX + '" y1="' + svgY + '" x2="' + guideRightX + '" y2="' + svgY + '" stroke="' + guideCol + '" stroke-width="' + guideSw + '" stroke-dasharray="2,2"/>';
+                }
+            }
+
+            // Klamerki na górze (od lewego rogu bbox do rzutu wierzchołka) — pomarańczowe
+            for (var ti = 0; ti < innerXs.length; ti++) {
+                var dist = _round(innerXs[ti] - minX);
+                var lvlY = oY - (ti + 1) * levelH;
+                brackets += hBracket(oX, oX + dist, lvlY, dist + '', colVertex, true);
+            }
+
+            // Klamerki po prawej (od dolnego rogu bbox do rzutu wierzchołka) — pomarańczowe
+            for (var ri = 0; ri < innerYs.length; ri++) {
+                var distY = _round(innerYs[ri] - minY);
+                var svgDistY = bh - distY; // flipped
+                var lvlX = oX + bw + ri * levelH;
+                brackets += vBracket(oY + svgDistY, oY + bh, lvlX, distY + '', colVertex);
+            }
+
+            // Bbox klamerki (szare) — dolna (szerokość) i lewa (wysokość)
+            var bboxBottomY = oY + bh;
+            brackets += hBracket(oX, oX + bw, bboxBottomY, _round(bw) + '');
+            brackets += vBracketLeft(oY, oY + bh, oX, _round(bh) + '');
+
+            return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ' + totalW + ' ' + totalH + '">'
+                + guides + shapeEl + brackets + '</svg>';
         }
 
         // ============================================

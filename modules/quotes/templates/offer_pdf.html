@@ -130,6 +130,11 @@
                 border: 1px solid #CCC;
                 padding: 4px;
                 text-align: center;
+                white-space: nowrap;
+            }
+
+            .items-table td.left {
+                white-space: normal;
             }
 
             .items-table th {
@@ -287,6 +292,9 @@
             padding: 12px;
             background: #fafafa;
             page-break-inside: avoid;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
         }
 
         .edge-item-header {
@@ -317,27 +325,96 @@
             font-style: italic;
         }
 
-        .edge-item-content {
+        .edge-item-previews {
             display: flex;
-            align-items: flex-start;
+            gap: 12px;
+            align-items: center;
+            justify-content: center;
+            margin-bottom: 8px;
+            max-height: 150px;
+            overflow: hidden;
+            flex: 1;
+        }
+
+        .edge-item-preview-box {
+            flex: 1;
+            text-align: center;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .edge-item-labels {
+            display: flex;
+            gap: 12px;
+            margin-bottom: 4px;
+        }
+
+        .edge-item-labels .edge-item-preview-label {
+            flex: 1;
+        }
+
+        .edge-item-preview-label {
+            font-size: 8px;
+            font-weight: bold;
+            color: #999;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            text-align: center;
+        }
+
+        .edge-item-svg-inline {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex: 1;
+            max-height: 120px;
+            overflow: hidden;
+        }
+
+        .edge-item-svg-inline svg {
+            width: auto;
+            height: auto;
+            max-width: 180px;
+            max-height: 120px;
         }
 
         .edge-item-svg {
-            flex-shrink: 0;
-            width: 120px;
-            height: 120px;
-            margin-right: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex: 1;
+            max-height: 120px;
+            overflow: hidden;
         }
 
         .edge-item-svg img {
-            width: 120px;
-            height: 120px;
+            width: auto;
+            height: auto;
+            max-width: 180px;
+            max-height: 120px;
             object-fit: contain;
         }
 
+        .edge-item-caption {
+            font-size: 9px;
+            color: #555;
+            margin-top: 6px;
+            text-align: left;
+        }
+
+        .edge-item-caption div {
+            margin-bottom: 2px;
+        }
+
+        .edge-item-caption strong {
+            color: #333;
+        }
+
         .edge-item-info {
-            flex-grow: 1;
             font-size: 10px;
+            border-top: 1px solid #eee;
+            padding-top: 6px;
         }
 
         .edge-item-info div {
@@ -351,7 +428,8 @@
         .edge-note {
             font-style: italic;
             color: #666;
-            margin-top: 8px;
+            margin-top: 4px;
+            font-size: 8px;
         }
     </style>
 </head>
@@ -539,9 +617,6 @@
                         } %}
                         {% if finishing_detail and finishing_detail.shape in shape_labels %}
                         <br><span class="finishing-details" style="color: #e67e22; font-weight: bold;">Kształt: {{ shape_labels[finishing_detail.shape] }}</span>
-                        {% if finishing_detail.shape_svg %}
-                        <div style="margin-top: 4px;">{{ finishing_detail.shape_svg|safe }}</div>
-                        {% endif %}
                         {% endif %}
 
                         <!-- Wykończenie (malowanie) -->
@@ -620,14 +695,14 @@
         <div class="notes-section">
             <div class="notes-section-title">Uwagi i warunki:</div>
             <ul>
-                {% set has_edges = namespace(value=false) %}
+                {% set has_attachment = namespace(value=false) %}
                 {% for detail in finishing_details %}
-                    {% if detail.edges_config and detail.edges_config|length > 0 %}
-                        {% set has_edges.value = true %}
+                    {% if (detail.edges_config and detail.edges_config|length > 0) or detail.shape_svg %}
+                        {% set has_attachment.value = true %}
                     {% endif %}
                 {% endfor %}
-                {% if has_edges.value %}
-                <li><strong>Do oferty dołączono załącznik z wizualizacją obróbki krawędzi - Załącznik nr 1</strong></li>
+                {% if has_attachment.value %}
+                <li><strong>Do oferty dołączono załącznik z wizualizacją produktów - Załącznik nr 1</strong></li>
                 {% endif %}
                 <li>Termin realizacji: do uzgodnienia po potwierdzeniu zamówienia</li>
                 <li>Płatność: przelew bankowy, przelew online</li>
@@ -640,22 +715,23 @@
         </div>
     </div>
 
-    <!-- ========== ZAŁĄCZNIK NR 1 - OBRÓBKA KRAWĘDZI ========== -->
-    {% set edges_items = [] %}
+    <!-- ========== ZAŁĄCZNIK NR 1 - WIZUALIZACJA PRODUKTÓW ========== -->
+    {% set attachment_items = [] %}
     {% for detail in finishing_details %}
-        {% if detail.edges_config and detail.edges_config|length > 0 %}
-            {% set _ = edges_items.append(detail) %}
+        {% if (detail.edges_config and detail.edges_config|length > 0) or detail.shape_svg %}
+            {% set _ = attachment_items.append(detail) %}
         {% endif %}
     {% endfor %}
 
-    {% if edges_items|length > 0 %}
+    {% if attachment_items|length > 0 %}
     <div class="attachment-page">
         <div class="attachment-header">
             <div class="attachment-title">Załącznik nr 1 do wyceny nr {{ quote.quote_number }}</div>
+            <p class="attachment-note">Wizualizacja kształtów i obróbki krawędzi produktów</p>
         </div>
 
         <div class="edges-grid">
-            {% for detail in edges_items %}
+            {% for detail in attachment_items %}
             {% set item = selected_items|selectattr('product_index', 'equalto', detail.product_index)|first %}
             <div class="edge-item">
                 <div class="edge-item-header">
@@ -664,26 +740,49 @@
                     <span class="edge-item-dimensions">{{ "%.1f"|format(item.length_cm) }} × {{ "%.1f"|format(item.width_cm) }} × {{ "%.1f"|format(item.thickness_cm) }} cm</span>
                     {% endif %}
                 </div>
-                <div class="edge-item-content">
+
+                <!-- Nagłówki podglądów — zawsze na górze -->
+                <div class="edge-item-labels">
+                    {% if detail.shape_svg %}
+                    <div class="edge-item-preview-label">Widok kształtu</div>
+                    {% endif %}
                     {% if edges_images and edges_images.get(detail.product_index) %}
-                    <div class="edge-item-svg">
-                        <img src="{{ edges_images[detail.product_index] }}" alt="Wizualizacja krawędzi" />
+                    <div class="edge-item-preview-label">Widok izometryczny</div>
+                    {% endif %}
+                </div>
+
+                <!-- Podglądy: kształt 2D + izometria 3D obok siebie -->
+                <div class="edge-item-previews">
+                    {% if detail.shape_svg %}
+                    <div class="edge-item-preview-box">
+                        <div class="edge-item-svg-inline">{{ detail.shape_svg|safe }}</div>
                     </div>
                     {% endif %}
-                    <div class="edge-item-info">
-                        <div><strong>Typ obróbki:</strong>
-                            {% if detail.edges_type == 'chamfer' %}Fazowanie
-                            {% elif detail.edges_type == 'round' %}Zaokrąglenie
-                            {% else %}{{ detail.edges_type or 'Standardowa' }}
-                            {% endif %}
+                    {% if edges_images and edges_images.get(detail.product_index) %}
+                    <div class="edge-item-preview-box">
+                        <div class="edge-item-svg">
+                            <img src="{{ edges_images[detail.product_index] }}" alt="Wizualizacja krawędzi" />
                         </div>
-                        <div><strong>Promień R:</strong> {{ detail.edges_r_value or '-' }}</div>
-                        {% if detail.edges_type == 'chamfer' and detail.edges_angle_value %}
-                        <div><strong>Kąt ścięcia:</strong> {{ detail.edges_angle_value }}°</div>
-                        {% endif %}
-                        <div class="edge-note">Krawędzie zaznaczone kolorem pomarańczowym zostaną poddane obróbce.</div>
                     </div>
+                    {% endif %}
                 </div>
+
+                <!-- Info o obróbce krawędzi — poza kontenerem podglądów -->
+                {% if detail.edges_config and detail.edges_config|length > 0 %}
+                <div class="edge-item-caption">
+                    <div><strong>Typ:</strong>
+                        {% if detail.edges_type == 'chamfer' %}Fazowanie
+                        {% elif detail.edges_type == 'round' %}Zaokrąglenie
+                        {% else %}{{ detail.edges_type or 'Standardowa' }}
+                        {% endif %}
+                    </div>
+                    <div><strong>Promień:</strong> R{{ detail.edges_r_value or '-' }}
+                        {%- if detail.edges_type == 'chamfer' and detail.edges_angle_value %} ({{ detail.edges_angle_value }}°){% endif %}
+                    </div>
+                    <div><strong>Krawędzie:</strong> {{ detail.edges_config|map(attribute='letter')|list|sort|join(', ') }}</div>
+                    <div class="edge-note">Krawędzie zaznaczone kolorem pomarańczowym zostaną poddane obróbce.</div>
+                </div>
+                {% endif %}
             </div>
             {% endfor %}
         </div>

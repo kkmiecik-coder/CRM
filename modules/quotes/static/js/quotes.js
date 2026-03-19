@@ -1068,26 +1068,26 @@ function updateCostsDisplay(quoteData) {
 
             // Koszt surowych - POPRAWKA: bez nawiasów
             document.getElementById('quotes-details-modal-cost-products-brutto').textContent = `${costs.products.brutto.toFixed(2)} PLN`;
-            document.getElementById('quotes-details-modal-cost-products-netto').textContent = `${costs.products.netto.toFixed(2)} PLN netto`;
+            document.getElementById('quotes-details-modal-cost-products-netto').textContent = `${costs.products.netto.toFixed(2)} PLN`;
 
             // Koszt wykończenia - POPRAWKA: bez nawiasów
             document.getElementById('quotes-details-modal-cost-finishing-brutto').textContent = `${costs.finishing.brutto.toFixed(2)} PLN`;
-            document.getElementById('quotes-details-modal-cost-finishing-netto').textContent = `${costs.finishing.netto.toFixed(2)} PLN netto`;
+            document.getElementById('quotes-details-modal-cost-finishing-netto').textContent = `${costs.finishing.netto.toFixed(2)} PLN`;
 
             // NOWE: Suma produktów bez dostawy (surowe + wykończenie) - POPRAWKA: bez nawiasów
             const productsTotalNetto = costs.products.netto + costs.finishing.netto;
             const productsTotalBrutto = costs.products.brutto + costs.finishing.brutto;
 
             document.getElementById('quotes-details-modal-cost-products-total-brutto').textContent = `${productsTotalBrutto.toFixed(2)} PLN`;
-            document.getElementById('quotes-details-modal-cost-products-total-netto').textContent = `${productsTotalNetto.toFixed(2)} PLN netto`;
+            document.getElementById('quotes-details-modal-cost-products-total-netto').textContent = `${productsTotalNetto.toFixed(2)} PLN`;
 
             // Koszt wysyłki - POPRAWKA: bez nawiasów
             document.getElementById('quotes-details-modal-cost-shipping-brutto').textContent = `${costs.shipping.brutto.toFixed(2)} PLN`;
-            document.getElementById('quotes-details-modal-cost-shipping-netto').textContent = `${costs.shipping.netto.toFixed(2)} PLN netto`;
+            document.getElementById('quotes-details-modal-cost-shipping-netto').textContent = `${costs.shipping.netto.toFixed(2)} PLN`;
 
             // Koszt całkowity - POPRAWKA: bez nawiasów
             document.getElementById('quotes-details-modal-cost-total-brutto').textContent = `${costs.total.brutto.toFixed(2)} PLN`;
-            document.getElementById('quotes-details-modal-cost-total-netto').textContent = `${costs.total.netto.toFixed(2)} PLN netto`;
+            document.getElementById('quotes-details-modal-cost-total-netto').textContent = `${costs.total.netto.toFixed(2)} PLN`;
 
             // Kurier - wypełnij nazwę kuriera
             const courierElement = document.getElementById('quotes-details-modal-courier-name');
@@ -1100,26 +1100,26 @@ function updateCostsDisplay(quoteData) {
 
             // Koszt surowych - POPRAWKA: bez nawiasów
             document.getElementById('quotes-details-modal-cost-products-brutto').textContent = `${costs.products.brutto.toFixed(2)} PLN`;
-            document.getElementById('quotes-details-modal-cost-products-netto').textContent = `${costs.products.netto.toFixed(2)} PLN netto`;
+            document.getElementById('quotes-details-modal-cost-products-netto').textContent = `${costs.products.netto.toFixed(2)} PLN`;
 
             // Koszt wykończenia - POPRAWKA: bez nawiasów
             document.getElementById('quotes-details-modal-cost-finishing-brutto').textContent = `${costs.finishing.brutto.toFixed(2)} PLN`;
-            document.getElementById('quotes-details-modal-cost-finishing-netto').textContent = `${costs.finishing.netto.toFixed(2)} PLN netto`;
+            document.getElementById('quotes-details-modal-cost-finishing-netto').textContent = `${costs.finishing.netto.toFixed(2)} PLN`;
 
             // NOWE: Suma produktów bez dostawy - POPRAWKA: bez nawiasów
             const productsTotalNetto = costs.products.netto + costs.finishing.netto;
             const productsTotalBrutto = costs.products.brutto + costs.finishing.brutto;
 
             document.getElementById('quotes-details-modal-cost-products-total-brutto').textContent = `${productsTotalBrutto.toFixed(2)} PLN`;
-            document.getElementById('quotes-details-modal-cost-products-total-netto').textContent = `${productsTotalNetto.toFixed(2)} PLN netto`;
+            document.getElementById('quotes-details-modal-cost-products-total-netto').textContent = `${productsTotalNetto.toFixed(2)} PLN`;
 
             // Koszt wysyłki - POPRAWKA: bez nawiasów
             document.getElementById('quotes-details-modal-cost-shipping-brutto').textContent = `${costs.shipping.brutto.toFixed(2)} PLN`;
-            document.getElementById('quotes-details-modal-cost-shipping-netto').textContent = `${costs.shipping.netto.toFixed(2)} PLN netto`;
+            document.getElementById('quotes-details-modal-cost-shipping-netto').textContent = `${costs.shipping.netto.toFixed(2)} PLN`;
 
             // Koszt całkowity - POPRAWKA: bez nawiasów
             document.getElementById('quotes-details-modal-cost-total-brutto').textContent = `${costs.total.brutto.toFixed(2)} PLN`;
-            document.getElementById('quotes-details-modal-cost-total-netto').textContent = `${costs.total.netto.toFixed(2)} PLN netto`;
+            document.getElementById('quotes-details-modal-cost-total-netto').textContent = `${costs.total.netto.toFixed(2)} PLN`;
 
             // Kurier - wypełnij nazwę kuriera
             const courierElement = document.getElementById('quotes-details-modal-courier-name');
@@ -1435,7 +1435,7 @@ function buildVariantPriceDisplay(variant, quantity, quoteData) {
                     <div class="qvmd-variant-title">Wariant: <span class="qvmd-variant-name">${variantName}</span></div>
                     <div class="qvmd-price-per-m2-wrapper">
                         <div class="qvmd-price-per-m2-label">Cena za m³:</div>
-                        <div class="qvmd-price-per-m2-value">${pricePerM3.toFixed(2)} PLN netto</div>
+                        <div class="qvmd-price-per-m2-value">${pricePerM3.toFixed(2)} PLN</div>
                     </div>
                 </div>
 
@@ -1463,13 +1463,13 @@ function buildVariantPriceDisplay(variant, quantity, quoteData) {
         if (isNettoMode) {
             // Tryb NETTO - tylko kwoty netto, większe i pogrubione
             cardHTML += `
-                            <div class="qvmd-price-netto qvmd-netto-primary">${unitPriceNetto.toFixed(2)} PLN netto</div>
+                            <div class="qvmd-price-netto qvmd-netto-primary">${unitPriceNetto.toFixed(2)} PLN</div>
             `;
         } else {
             // Tryb BRUTTO - standard: brutto na górze, netto na dole
             cardHTML += `
-                            <div class="qvmd-price-brutto">${unitPriceBrutto.toFixed(2)} PLN brutto</div>
-                            <div class="qvmd-price-netto">${unitPriceNetto.toFixed(2)} PLN netto</div>
+                            <div class="qvmd-price-brutto">${unitPriceBrutto.toFixed(2)} PLN</div>
+                            <div class="qvmd-price-netto">${unitPriceNetto.toFixed(2)} PLN</div>
             `;
         }
 
@@ -1481,13 +1481,13 @@ function buildVariantPriceDisplay(variant, quantity, quoteData) {
         if (isNettoMode) {
             // Tryb NETTO - tylko wykończenie netto
             cardHTML += `
-                            <div class="qvmd-price-netto qvmd-netto-primary qvmd-finishing">${(unitPriceNetto + finishingPriceNetto).toFixed(2)} PLN netto</div>
+                            <div class="qvmd-price-netto qvmd-netto-primary qvmd-finishing">${(unitPriceNetto + finishingPriceNetto).toFixed(2)} PLN</div>
             `;
         } else {
             // Tryb BRUTTO - wykończenie brutto i netto
             cardHTML += `
-                            <div class="qvmd-price-brutto qvmd-finishing">${(unitPriceBrutto + finishingPriceBrutto).toFixed(2)} PLN brutto</div>
-                            <div class="qvmd-price-netto">${(unitPriceNetto + finishingPriceNetto).toFixed(2)} PLN netto</div>
+                            <div class="qvmd-price-brutto qvmd-finishing">${(unitPriceBrutto + finishingPriceBrutto).toFixed(2)} PLN</div>
+                            <div class="qvmd-price-netto">${(unitPriceNetto + finishingPriceNetto).toFixed(2)} PLN</div>
             `;
         }
 
@@ -1504,13 +1504,13 @@ function buildVariantPriceDisplay(variant, quantity, quoteData) {
         if (isNettoMode) {
             // Tryb NETTO - tylko wartość netto
             cardHTML += `
-                            <div class="qvmd-price-netto qvmd-netto-primary">${totalNetto.toFixed(2)} PLN netto</div>
+                            <div class="qvmd-price-netto qvmd-netto-primary">${totalNetto.toFixed(2)} PLN</div>
             `;
         } else {
             // Tryb BRUTTO - wartość brutto i netto
             cardHTML += `
-                            <div class="qvmd-price-brutto">${totalBrutto.toFixed(2)} PLN brutto</div>
-                            <div class="qvmd-price-netto">${totalNetto.toFixed(2)} PLN netto</div>
+                            <div class="qvmd-price-brutto">${totalBrutto.toFixed(2)} PLN</div>
+                            <div class="qvmd-price-netto">${totalNetto.toFixed(2)} PLN</div>
             `;
         }
 
@@ -1522,13 +1522,13 @@ function buildVariantPriceDisplay(variant, quantity, quoteData) {
         if (isNettoMode) {
             // Tryb NETTO - tylko wykończenie wartość netto
             cardHTML += `
-                            <div class="qvmd-price-netto qvmd-netto-primary qvmd-finishing">${(totalNetto + finishingTotalNetto).toFixed(2)} PLN netto</div>
+                            <div class="qvmd-price-netto qvmd-netto-primary qvmd-finishing">${(totalNetto + finishingTotalNetto).toFixed(2)} PLN</div>
             `;
         } else {
             // Tryb BRUTTO - wykończenie wartość brutto i netto
             cardHTML += `
-                            <div class="qvmd-price-brutto qvmd-finishing">${(totalBrutto + finishingTotalBrutto).toFixed(2)} PLN brutto</div>
-                            <div class="qvmd-price-netto">${(totalNetto + finishingTotalNetto).toFixed(2)} PLN netto</div>
+                            <div class="qvmd-price-brutto qvmd-finishing">${(totalBrutto + finishingTotalBrutto).toFixed(2)} PLN</div>
+                            <div class="qvmd-price-netto">${(totalNetto + finishingTotalNetto).toFixed(2)} PLN</div>
             `;
         }
 
@@ -1549,13 +1549,13 @@ function buildVariantPriceDisplay(variant, quantity, quoteData) {
         if (isNettoMode) {
             // Tryb NETTO - tylko cena netto
             cardHTML += `
-                                <div class="qvmd-price-netto qvmd-netto-primary">${unitPriceNetto.toFixed(2)} PLN netto</div>
+                                <div class="qvmd-price-netto qvmd-netto-primary">${unitPriceNetto.toFixed(2)} PLN</div>
             `;
         } else {
             // Tryb BRUTTO - cena brutto i netto
             cardHTML += `
-                                <div class="qvmd-price-brutto">${unitPriceBrutto.toFixed(2)} PLN brutto</div>
-                                <div class="qvmd-price-netto">${unitPriceNetto.toFixed(2)} PLN netto</div>
+                                <div class="qvmd-price-brutto">${unitPriceBrutto.toFixed(2)} PLN</div>
+                                <div class="qvmd-price-netto">${unitPriceNetto.toFixed(2)} PLN</div>
             `;
         }
 
@@ -1570,13 +1570,13 @@ function buildVariantPriceDisplay(variant, quantity, quoteData) {
         if (isNettoMode) {
             // Tryb NETTO - tylko wartość netto
             cardHTML += `
-                                <div class="qvmd-price-netto qvmd-netto-primary">${totalNetto.toFixed(2)} PLN netto</div>
+                                <div class="qvmd-price-netto qvmd-netto-primary">${totalNetto.toFixed(2)} PLN</div>
             `;
         } else {
             // Tryb BRUTTO - wartość brutto i netto
             cardHTML += `
-                                <div class="qvmd-price-brutto">${totalBrutto.toFixed(2)} PLN brutto</div>
-                                <div class="qvmd-price-netto">${totalNetto.toFixed(2)} PLN netto</div>
+                                <div class="qvmd-price-brutto">${totalBrutto.toFixed(2)} PLN</div>
+                                <div class="qvmd-price-netto">${totalNetto.toFixed(2)} PLN</div>
             `;
         }
 
@@ -2480,17 +2480,16 @@ function renderVariantSummary(groupedItemsForIndex, quoteData, productIndex) {
     // Pobierz quantity z finishing details lub z item
     const quantity = finishing ? finishing.quantity || 1 : (item.quantity || 1);
     
-    // Dodaj informacje o wykończeniu: [wykończenie] | [wariant] | [połysk] | [kolor]
-    let finishingDisplay = 'Brak wykończenia';
-    if (finishing && finishing.finishing_type && finishing.finishing_type !== 'Brak') {
-        const finishingParts = [];
-
-        if (finishing.finishing_type) finishingParts.push(finishing.finishing_type);
-        if (finishing.finishing_variant) finishingParts.push(finishing.finishing_variant);
-        if (finishing.finishing_gloss_level) finishingParts.push(finishing.finishing_gloss_level);
-        if (finishing.finishing_color) finishingParts.push(finishing.finishing_color);
-
-        finishingDisplay = finishingParts.length > 0 ? finishingParts.join(' | ') : 'Brak wykończenia';
+    // Wykończenie — osobne wiersze per składowa
+    let finishingRowsHtml = '';
+    const hasFinishing = finishing && finishing.finishing_type && finishing.finishing_type !== 'Brak';
+    if (hasFinishing) {
+        if (finishing.finishing_type) finishingRowsHtml += '<div><span class="vsh-label">Typ:</span> ' + finishing.finishing_type + '</div>';
+        if (finishing.finishing_variant) finishingRowsHtml += '<div><span class="vsh-label">Wariant:</span> ' + finishing.finishing_variant + '</div>';
+        if (finishing.finishing_gloss_level) finishingRowsHtml += '<div><span class="vsh-label">Połysk:</span> ' + finishing.finishing_gloss_level + '</div>';
+        if (finishing.finishing_color) finishingRowsHtml += '<div><span class="vsh-label">Kolor:</span> ' + finishing.finishing_color + '</div>';
+    } else {
+        finishingRowsHtml = '<div class="vsh-empty">Surowy</div>';
     }
 
     // Oblicz ceny z wykończeniem
@@ -2514,20 +2513,12 @@ function renderVariantSummary(groupedItemsForIndex, quoteData, productIndex) {
     const totalBrutto = finalUnitPriceBrutto * quantity;
     const totalNetto = finalUnitPriceNetto * quantity;
 
-    // Oblicz koszt wykończenia (tylko malowanie/olejowanie, bez krawędzi)
-    let finishingCostDisplay = '0.00 PLN';
-    if (finishing) {
-        const finishingCostBrutto = parseFloat(finishing.finishing_price_brutto || 0);
-        const finishingCostNetto = parseFloat(finishing.finishing_price_netto || 0);
-        if (finishingCostBrutto > 0) {
-            finishingCostDisplay = `${finishingCostBrutto.toFixed(2)} PLN <span class="cost-netto">${finishingCostNetto.toFixed(2)} PLN</span>`;
-        }
-    }
 
-    // Przygotuj informacje o obróbce krawędzi
-    let edgesInfoHtml = '';
+    // Przygotuj informacje o obróbce krawędzi — osobna kolumna
+    let edgesRowsHtml = '';
     let edgesSvgHtml = '';
-    if (finishing && finishing.edges_config && finishing.edges_config.length > 0) {
+    const hasEdges = finishing && finishing.edges_config && finishing.edges_config.length > 0;
+    if (hasEdges) {
         const edgesConfig = finishing.edges_config;
         const edgesType = finishing.edges_type === 'chamfer' ? 'Fazowanie' :
                          finishing.edges_type === 'round' ? 'Zaokrąglenie' : finishing.edges_type;
@@ -2535,27 +2526,22 @@ function renderVariantSummary(groupedItemsForIndex, quoteData, productIndex) {
         const edgesAngleValue = finishing.edges_angle_value;
         const edgesPriceBrutto = parseFloat(finishing.edges_price_brutto || 0);
         const edgesPriceNetto = parseFloat(finishing.edges_price_netto || 0);
-
-        // Lista zaznaczonych krawędzi
         const edgeLetters = edgesConfig.map(e => e.letter).sort().join(', ');
 
-        // Opis obróbki: dla fazowania dodaj kąt
-        let edgesDescription = `${edgesType} R${edgesRValue}`;
+        let edgesDescription = edgesType + ' R' + edgesRValue;
         if (finishing.edges_type === 'chamfer' && edgesAngleValue) {
-            edgesDescription += ` (${edgesAngleValue}°)`;
+            edgesDescription += ' (' + edgesAngleValue + '\u00b0)';
         }
 
-        edgesInfoHtml = `
-            <div class="edges-separator"></div>
-            <div><strong>Obróbka krawędzi:</strong> ${edgesDescription}</div>
-            <div><strong>Krawędzie:</strong> ${edgeLetters}</div>
-            <div><strong>Koszt krawędzi:</strong> ${edgesPriceBrutto.toFixed(2)} PLN <span class="cost-netto">${edgesPriceNetto.toFixed(2)} PLN</span></div>
-        `;
+        edgesRowsHtml += '<div><span class="vsh-label">Typ:</span> ' + edgesDescription + '</div>';
+        edgesRowsHtml += '<div><span class="vsh-label">Krawędzie:</span> ' + edgeLetters + '</div>';
+        edgesRowsHtml += '<div><span class="vsh-label">Koszt:</span> ' + edgesPriceBrutto.toFixed(2) + ' PLN <span class="cost-netto">' + edgesPriceNetto.toFixed(2) + ' PLN</span></div>';
 
-        // Przygotuj SVG jeśli istnieje
         if (finishing.edges_svg) {
-            edgesSvgHtml = `<div class="edges-svg-preview">${finishing.edges_svg}</div>`;
+            edgesSvgHtml = '<div class="edges-svg-preview">' + finishing.edges_svg + '</div>';
         }
+    } else {
+        edgesRowsHtml = '<div class="vsh-empty">Brak</div>';
     }
 
     // Badge kształtu
@@ -2578,38 +2564,57 @@ function renderVariantSummary(groupedItemsForIndex, quoteData, productIndex) {
         ? ` <span style="background:#e67e22;color:#fff;padding:1px 6px;border-radius:4px;font-size:11px;margin-left:4px;">${shapeLabel}</span>`
         : '';
 
-    // Shape SVG preview
+    // Shape SVG preview — klikalny z tooltipem
     const shapeSvgHtml = finishing && finishing.shape_svg
-        ? `<div class="shape-preview-item"><div class="shape-preview-label">Widok kształtu</div><div class="shape-svg-preview">${finishing.shape_svg}</div></div>`
+        ? '<div class="shape-preview-item shape-zoomable" data-svg-title="Widok kształtu"><div class="shape-preview-label">Kształt</div><div class="shape-svg-preview">' + finishing.shape_svg + '</div></div>'
         : '';
 
-    // Edges SVG z nagłówkiem
+    // Edges SVG — klikalny z tooltipem + info o obróbce pod spodem
+    var edgesCaption = '';
+    if (hasEdges) {
+        var _et = finishing.edges_type === 'chamfer' ? 'Fazowanie' : finishing.edges_type === 'round' ? 'Zaokrąglenie' : finishing.edges_type;
+        var _desc = _et + ' R' + (finishing.edges_r_value || '-');
+        if (finishing.edges_type === 'chamfer' && finishing.edges_angle_value) _desc += ' (' + finishing.edges_angle_value + '\u00b0)';
+        var _letters = finishing.edges_config.map(function(e) { return e.letter; }).sort().join(', ');
+        edgesCaption = '<div class="vsh-edges-caption">' + _desc + ' — ' + _letters + '</div>';
+    }
     const edgesSvgWithLabel = edgesSvgHtml
-        ? `<div class="shape-preview-item"><div class="shape-preview-label">Widok izometryczny</div>${edgesSvgHtml}</div>`
+        ? '<div class="shape-preview-item shape-zoomable" data-svg-title="Widok izometryczny"><div class="shape-preview-label">Izometria</div>' + edgesSvgHtml + edgesCaption + '</div>'
         : '';
 
-    // Trzecia kolumna: podgląd kształtu (2D + 3D)
+    // Kolumna podglądu (2D + 3D)
     const hasShapePreview = shapeSvgHtml || edgesSvgWithLabel;
-    const shapePreviewColumn = hasShapePreview
-        ? `<div class="shape-preview-column">${shapeSvgHtml}${edgesSvgWithLabel}</div>`
+    const previewColumnHtml = hasShapePreview
+        ? '<div class="vsh-col vsh-preview">' + shapeSvgHtml + edgesSvgWithLabel + '</div>'
         : '';
 
-    wrap.innerHTML = `
-        <div class="product-column">
-            <div><strong>Wariant:</strong> ${translateVariantCode(item.variant_code) || 'Nieznany wariant'}${shapeDisplay}</div>
-            <div><strong>Wymiary:</strong> ${dims}</div>
-            <div><strong>Objętość:</strong> ${volume}</div>
-            <div><strong>Ilość:</strong> ${quantity} szt.</div>
-        </div>
-        <div class="finishing-column">
-            <div class="finishing-info">
-                <div><strong>Wykończenie:</strong> ${finishingDisplay}</div>
-                <div><strong>Koszt malowania:</strong> ${finishingCostDisplay}</div>
-                ${edgesInfoHtml}
-            </div>
-        </div>
-        ${shapePreviewColumn}
-    `;
+    // Koszt wykończenia
+    let finishingCostHtml = '';
+    if (finishing) {
+        const fCostBrutto = parseFloat(finishing.finishing_price_brutto || 0);
+        const fCostNetto = parseFloat(finishing.finishing_price_netto || 0);
+        if (fCostBrutto > 0) {
+            finishingRowsHtml += '<div><span class="vsh-label">Koszt:</span> ' + fCostBrutto.toFixed(2) + ' PLN <span class="cost-netto">' + fCostNetto.toFixed(2) + ' PLN</span></div>';
+        }
+    }
+
+    wrap.innerHTML =
+        '<div class="vsh-col vsh-product">' +
+            '<div class="vsh-col-title">Produkt</div>' +
+            '<div><span class="vsh-label">Wariant:</span> ' + (translateVariantCode(item.variant_code) || 'Nieznany') + shapeDisplay + '</div>' +
+            '<div><span class="vsh-label">Wymiary:</span> ' + dims + '</div>' +
+            '<div><span class="vsh-label">Objętość:</span> ' + volume + '</div>' +
+            '<div><span class="vsh-label">Ilość:</span> ' + quantity + ' szt.</div>' +
+        '</div>' +
+        '<div class="vsh-col vsh-finishing">' +
+            '<div class="vsh-col-title">Wykończenie</div>' +
+            finishingRowsHtml +
+        '</div>' +
+        '<div class="vsh-col vsh-edges">' +
+            '<div class="vsh-col-title">Krawędzie</div>' +
+            edgesRowsHtml +
+        '</div>' +
+        previewColumnHtml;
 
     return wrap;
 }
@@ -3591,12 +3596,12 @@ function formatPriceWithNetto(brutto, netto) {
     
     let html = '';
     if (brutto) {
-        html += `${brutto.toFixed(2)} PLN brutto`;
+        html += `${brutto.toFixed(2)} PLN`;
     }
     if (netto && brutto) {
-        html += ` <span style="font-size: 12px;">• ${netto.toFixed(2)} PLN netto</span>`;
+        html += ` <span style="font-size: 12px;">• ${netto.toFixed(2)} PLN</span>`;
     } else if (netto && !brutto) {
-        html += `${netto.toFixed(2)} PLN netto`;
+        html += `${netto.toFixed(2)} PLN`;
     }
     
     return html;
@@ -4903,3 +4908,89 @@ function editQuoteInCalculator() {
     console.log(`[editQuoteInCalculator] Przekierowanie do kalkulatora: edit_uuid=${editUuid}`);
     window.location.href = `/calculator?edit_quote=${editUuid}`;
 }
+
+// ============================================
+// PODGLĄD SVG — TOOLTIP (hover) + MODAL (click)
+// ============================================
+
+(function() {
+    // Tooltip — powiększony podgląd przy najechaniu
+    var tooltip = document.createElement('div');
+    tooltip.className = 'svg-zoom-tooltip';
+    tooltip.style.display = 'none';
+    document.body.appendChild(tooltip);
+
+    var activeZoomable = null;
+
+    document.addEventListener('mouseover', function(e) {
+        var item = e.target.closest('.shape-zoomable');
+        if (item === activeZoomable) return;
+
+        if (item) {
+            activeZoomable = item;
+            var svg = item.querySelector('svg');
+            if (!svg) return;
+            tooltip.innerHTML = svg.outerHTML;
+            tooltip.style.display = 'block';
+            _positionTooltip(e, tooltip);
+        } else if (activeZoomable) {
+            activeZoomable = null;
+            tooltip.style.display = 'none';
+        }
+    });
+
+    document.addEventListener('mousemove', function(e) {
+        if (!activeZoomable) return;
+        // Sprawdź czy nadal jesteśmy nad elementem
+        var item = e.target.closest('.shape-zoomable');
+        if (item !== activeZoomable) {
+            activeZoomable = null;
+            tooltip.style.display = 'none';
+            return;
+        }
+        _positionTooltip(e, tooltip);
+    });
+
+    function _positionTooltip(e, tip) {
+        var x = e.clientX + 16;
+        var y = e.clientY - tip.offsetHeight / 2;
+        // Nie wychodź poza ekran
+        if (x + tip.offsetWidth > window.innerWidth - 10) x = e.clientX - tip.offsetWidth - 16;
+        if (y < 10) y = 10;
+        if (y + tip.offsetHeight > window.innerHeight - 10) y = window.innerHeight - tip.offsetHeight - 10;
+        tip.style.left = x + 'px';
+        tip.style.top = y + 'px';
+    }
+
+    // Modal — duży podgląd po kliknięciu
+    document.addEventListener('click', function(e) {
+        var item = e.target.closest('.shape-zoomable');
+        if (!item) return;
+        var svg = item.querySelector('svg');
+        if (!svg) return;
+        tooltip.style.display = 'none';
+
+        var title = item.getAttribute('data-svg-title') || 'Podgląd';
+
+        // Stwórz modal
+        var overlay = document.createElement('div');
+        overlay.className = 'svg-zoom-modal-overlay';
+        overlay.innerHTML =
+            '<div class="svg-zoom-modal">' +
+                '<div class="svg-zoom-modal-header">' +
+                    '<span class="svg-zoom-modal-title">' + title + '</span>' +
+                    '<button class="svg-zoom-modal-close">&times;</button>' +
+                '</div>' +
+                '<div class="svg-zoom-modal-body">' + svg.outerHTML + '</div>' +
+            '</div>';
+        document.body.appendChild(overlay);
+
+        // Zamykanie
+        overlay.querySelector('.svg-zoom-modal-close').addEventListener('click', function() {
+            overlay.remove();
+        });
+        overlay.addEventListener('click', function(ev) {
+            if (ev.target === overlay) overlay.remove();
+        });
+    });
+})();

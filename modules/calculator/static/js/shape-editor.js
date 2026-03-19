@@ -348,8 +348,61 @@ var ShapeEditor = (function() {
             },
 
             getShapeSvg: function() {
-                if (!canvas) return '';
-                return canvas.exportSVG();
+                if (canvas) return canvas.exportSVG();
+
+                // Generuj SVG z klamerkami dla prostokąta i koła (canvas nie jest aktywny)
+                var lInput = form.querySelector('input[data-field="length"]');
+                var wInput = form.querySelector('input[data-field="width"]');
+                var l = parseFloat(lInput ? lInput.value : 0) || 0;
+                var w = parseFloat(wInput ? wInput.value : 0) || 0;
+                if (l <= 0 || w <= 0) return '';
+
+                var pad = 5;
+                var fs = Math.max(5, Math.min(12, Math.min(l, w) * 0.15));
+                var bracketM = fs * 3;
+                var bracketCol = '#888';
+                var bs = Math.max(0.3, fs * 0.12);
+                var tick = fs * 0.6;
+                var gap = fs * 0.4;
+
+                if (currentShape === 'circle') {
+                    var r = l / 2;
+                    var d = Math.round(l * 10) / 10;
+                    var totalW = l + pad * 2;
+                    var totalH = l + pad * 2 + bracketM;
+                    var by = pad + l + gap;
+                    var brackets = '<line x1="' + pad + '" y1="' + by + '" x2="' + pad + '" y2="' + (by + tick) + '" stroke="' + bracketCol + '" stroke-width="' + bs + '"/>'
+                        + '<line x1="' + (pad + l) + '" y1="' + by + '" x2="' + (pad + l) + '" y2="' + (by + tick) + '" stroke="' + bracketCol + '" stroke-width="' + bs + '"/>'
+                        + '<line x1="' + pad + '" y1="' + (by + tick / 2) + '" x2="' + (pad + l) + '" y2="' + (by + tick / 2) + '" stroke="' + bracketCol + '" stroke-width="' + bs + '"/>'
+                        + '<text x="' + (pad + r) + '" y="' + (by + tick + fs + 1) + '" text-anchor="middle" font-size="' + fs + '" fill="' + bracketCol + '" font-family="Poppins,sans-serif">\u2300' + d + '</text>';
+                    return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ' + totalW + ' ' + totalH + '">'
+                        + '<circle cx="' + (r + pad) + '" cy="' + (r + pad) + '" r="' + r + '" fill="rgba(230,126,34,0.15)" stroke="#e67e22" stroke-width="1.5"/>'
+                        + brackets + '</svg>';
+                }
+
+                // Prostokąt z klamerkami
+                var totalW = l + pad * 2 + bracketM;
+                var totalH = w + pad * 2 + bracketM;
+                var lLabel = Math.round(l * 10) / 10 + '';
+                var wLabel = Math.round(w * 10) / 10 + '';
+                // Klamerka dolna
+                var byBot = pad + w + gap;
+                var midXBot = pad + l / 2;
+                var bBot = '<line x1="' + pad + '" y1="' + byBot + '" x2="' + pad + '" y2="' + (byBot + tick) + '" stroke="' + bracketCol + '" stroke-width="' + bs + '"/>'
+                    + '<line x1="' + (pad + l) + '" y1="' + byBot + '" x2="' + (pad + l) + '" y2="' + (byBot + tick) + '" stroke="' + bracketCol + '" stroke-width="' + bs + '"/>'
+                    + '<line x1="' + pad + '" y1="' + (byBot + tick / 2) + '" x2="' + (pad + l) + '" y2="' + (byBot + tick / 2) + '" stroke="' + bracketCol + '" stroke-width="' + bs + '"/>'
+                    + '<text x="' + midXBot + '" y="' + (byBot + tick + fs + 1) + '" text-anchor="middle" font-size="' + fs + '" fill="' + bracketCol + '" font-family="Poppins,sans-serif">' + lLabel + '</text>';
+                // Klamerka prawa
+                var bxR = pad + l + gap;
+                var midYR = pad + w / 2;
+                var bRight = '<line x1="' + bxR + '" y1="' + pad + '" x2="' + (bxR + tick) + '" y2="' + pad + '" stroke="' + bracketCol + '" stroke-width="' + bs + '"/>'
+                    + '<line x1="' + bxR + '" y1="' + (pad + w) + '" x2="' + (bxR + tick) + '" y2="' + (pad + w) + '" stroke="' + bracketCol + '" stroke-width="' + bs + '"/>'
+                    + '<line x1="' + (bxR + tick / 2) + '" y1="' + pad + '" x2="' + (bxR + tick / 2) + '" y2="' + (pad + w) + '" stroke="' + bracketCol + '" stroke-width="' + bs + '"/>'
+                    + '<text x="' + (bxR + tick + 2) + '" y="' + (midYR + fs * 0.35) + '" font-size="' + fs + '" fill="' + bracketCol + '" font-family="Poppins,sans-serif">' + wLabel + '</text>';
+
+                return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ' + totalW + ' ' + totalH + '">'
+                    + '<rect x="' + pad + '" y="' + pad + '" width="' + l + '" height="' + w + '" fill="rgba(230,126,34,0.15)" stroke="#e67e22" stroke-width="1.5" rx="1"/>'
+                    + bBot + bRight + '</svg>';
             },
 
             getShapeType: function() {
