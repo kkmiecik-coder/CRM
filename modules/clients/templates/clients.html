@@ -13,13 +13,15 @@
     <div class="app-container clients-app">
         {% include 'sidebar/sidebar.html' %}
         <main class="main-content clients-main">
-            <h1 class="title-with-underline">Klienci</h1>
+            <div class="clients-title-row">
+                <h1 class="title-with-underline">Klienci</h1>
+                <button id="addClientBtn" class="clients-btn-add">+ Dodaj klienta</button>
+            </div>
 
-            <!-- Wiersz: Przyciski (lewo) + Wyszukiwarka (środek) -->
+            <!-- Wiersz: Wyszukiwarka -->
             <div class="clients-top-row">
                 <div class="clients-buttons-left">
-                    <button id="addClientBtn" class="clients-btn-add">+ Dodaj klienta</button>
-                    <button id="searchInDatabaseBtn" class="clients-btn-search">Wyszukaj w bazie</button>
+                    <button id="searchInDatabaseBtn" class="clients-btn-search">Wyszukaj w całej bazie</button>
                 </div>
                 <div class="clients-search-center">
                     <div class="clients-search-box">
@@ -34,6 +36,17 @@
                     </div>
                 </div>
                 <div class="clients-spacer"></div>
+            </div>
+
+            <div class="clients-per-page-top">
+                <span class="clients-per-page-label">Pokaż na stronie:</span>
+                <select id="rows-per-page" class="clients-per-page-select">
+                    <option value="20" selected>20</option>
+                    <option value="50">50</option>
+                    <option value="100">100</option>
+                    <option value="150">150</option>
+                    <option value="200">200</option>
+                </select>
             </div>
 
             <div class="clients-table-wrapper">
@@ -51,21 +64,9 @@
                 </table>
             </div>
 
-            <!-- Paginacja + Select ilości na stronie -->
+            <!-- Paginacja -->
             <div class="clients-bottom-row">
                 <div class="clients-pagination" id="pagination-controls"></div>
-                <div class="clients-per-page">
-                    <label>
-                        Pokaż:
-                        <select id="rows-per-page">
-                            <option value="20" selected>20</option>
-                            <option value="50">50</option>
-                            <option value="100">100</option>
-                            <option value="150">150</option>
-                            <option value="200">200</option>
-                        </select>
-                    </label>
-                </div>
             </div>
         </main>
     </div>

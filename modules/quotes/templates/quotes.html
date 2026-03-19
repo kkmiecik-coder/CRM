@@ -20,9 +20,25 @@
         {% include 'sidebar/sidebar.html' %}
         <main class="main-content">
             <div class="quotes-layout">
+                <!-- Przycisk mobilny otwierający filtry -->
+                <button class="mobile-filters-toggle" id="mobile-filters-toggle" type="button">
+                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                        <line x1="2" y1="4" x2="14" y2="4"/>
+                        <line x1="4" y1="8" x2="12" y2="8"/>
+                        <line x1="6" y1="12" x2="10" y2="12"/>
+                    </svg>
+                    Filtry
+                </button>
+
+                <!-- Overlay mobilny -->
+                <div class="mobile-filters-overlay" id="mobile-filters-overlay"></div>
+
                 <!-- Lewy panel filtrów statusów -->
                 <aside class="quotes-status-panel" id="quotes-status-panel">
-                    <h3 class="title-with-underline-h4">Filtry</h3>
+                    <div class="filters-header-row">
+                        <h3 class="title-with-underline-h4">Filtry</h3>
+                        <button class="mobile-filters-close" id="mobile-filters-close" type="button">&times;</button>
+                    </div>
                     <h4>Status</h4>
                     <div id="status-filters-container"></div>
                     <hr style="margin: 16px 0;">

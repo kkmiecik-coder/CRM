@@ -24,6 +24,18 @@
         font-size: 14px;
     }
 
+/* Nagłówek + przycisk dodawania */
+.clients-title-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 16px;
+}
+
+.clients-title-row .title-with-underline {
+    margin-bottom: 0;
+}
+
 /* ============================================
    GÓRNY PASEK - PRZYCISKI I WYSZUKIWARKA
    ============================================ */
@@ -110,6 +122,7 @@
     .clients-top-row {
         flex-direction: column;
         align-items: stretch;
+        margin-bottom: 0;
     }
 
     .clients-buttons-left {
@@ -123,6 +136,115 @@
     .clients-search-box {
         max-width: 100%;
     }
+
+    /* Tabela → karty mobilne */
+    .clients-table thead {
+        display: none;
+    }
+
+    .clients-table {
+        box-shadow: none;
+        border-radius: 0;
+    }
+
+    .clients-table tbody tr {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 0;
+        padding: 10px 12px;
+        margin-bottom: 6px;
+        border: 1px solid #E0E0E0;
+        border-radius: 8px;
+        background: #fff;
+    }
+
+    .clients-table tbody tr:hover {
+        background-color: #F8F9FA;
+    }
+
+    /* Header karty: Nazwa klienta | Imię i nazwisko */
+    .clients-table td[data-label="Nazwa klienta"] {
+        grid-column: 1;
+        font-weight: 600;
+        font-size: 13px;
+        padding: 0 0 4px;
+        border-bottom: 1px solid #f0f0f0;
+        margin-bottom: 4px;
+        white-space: normal;
+    }
+
+    .clients-table td[data-label="Imię i nazwisko"] {
+        grid-column: 2;
+        font-size: 12px;
+        color: #666;
+        padding: 0 0 4px;
+        border-bottom: 1px solid #f0f0f0;
+        margin-bottom: 4px;
+        text-align: right;
+        white-space: normal;
+        overflow: visible;
+    }
+
+    /* Pozostałe pola — label + wartość */
+    .clients-table td[data-label="Email"],
+    .clients-table td[data-label="Telefon"] {
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+        padding: 2px 0;
+        border-bottom: none;
+        white-space: normal;
+        font-size: 12px;
+        overflow: visible;
+    }
+
+    .clients-table td[data-label="Email"]::before,
+    .clients-table td[data-label="Telefon"]::before {
+        content: attr(data-label);
+        font-size: 11px;
+        color: #888;
+        font-weight: 400;
+        margin-right: 8px;
+        flex-shrink: 0;
+    }
+
+    /* Email i Telefon — obok siebie, z odstępem */
+    .clients-table td[data-label="Email"] {
+        grid-column: 1;
+        padding-right: 8px;
+    }
+
+    .clients-table td[data-label="Telefon"] {
+        grid-column: 2;
+        padding-left: 8px;
+    }
+
+    /* Akcje — pełna szerokość */
+    .clients-table td.clients-actions {
+        grid-column: 1 / -1;
+        padding: 6px 0 0;
+        margin-top: 4px;
+        border-top: 1px solid #f0f0f0;
+        border-bottom: none;
+        text-align: center;
+    }
+
+    .clients-table td.clients-actions button {
+        width: 100%;
+        padding: 6px;
+    }
+
+    /* Paginacja — na środku */
+    .clients-pagination {
+        justify-content: center;
+    }
+
+    /* Bottom row — kolumna */
+    .clients-bottom-row {
+        flex-direction: column;
+        align-items: center;
+        gap: 12px;
+    }
 }
 
 @media (max-width: 480px) {
@@ -135,9 +257,55 @@
     }
 }
 
+/* Selektor "Pokaż na stronie" nad tabelą */
+.clients-per-page-top {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px;
+    margin-bottom: 8px;
+}
+
+.clients-per-page-label {
+    font-size: 0.75rem;
+    color: #666;
+    font-weight: 500;
+    white-space: nowrap;
+}
+
+.clients-per-page-select {
+    min-width: 70px;
+    height: 30px;
+    padding: 0 8px;
+    border: 1px solid #E0E0E0;
+    background: #fff;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: #1F2020;
+    font-family: 'Poppins', sans-serif;
+}
+
+.clients-per-page-select:hover {
+    border-color: #ED6B24;
+}
+
+.clients-per-page-select:focus {
+    outline: none;
+    border-color: #ED6B24;
+    box-shadow: 0 0 0 3px rgba(237, 107, 36, 0.1);
+}
+
+.clients-bottom-row {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
 .clients-table-wrapper {
     overflow-x: auto;
-    margin-bottom: 20px;
 }
 
 .clients-table {
@@ -259,15 +427,12 @@
 .clients-modal-overlay,
 .modal-overlay {
     position: fixed;
-    top: 0;
-    left: 0;
-    width: 100vw;
-    height: 100vh;
+    inset: 0;
     background: rgba(0, 0, 0, 0.6);
     display: none;
     align-items: center;
     justify-content: center;
-    z-index: 9999;
+    z-index: 99999;
 }
 
 .modal-header {
@@ -455,15 +620,12 @@
 .clients-modal-overlay,
 .modal-overlay {
     position: fixed;
-    top: 0;
-    left: 0;
-    width: 100vw;
-    height: 100vh;
+    inset: 0;
     background: rgba(0, 0, 0, 0.6);
     display: none;
     align-items: center;
     justify-content: center;
-    z-index: 9999;
+    z-index: 99999;
 }
 
 .clients-modal.title-with-underline-h2 {
@@ -473,38 +635,55 @@
 .clients-modal,
 .modal-box {
     background: #fff;
-    border-radius: 16px;
+    border-radius: 24px;
     width: 100%;
-    max-width: 720px;
-    max-height: 85vh;
-    overflow-y: auto;
-    box-shadow: 0 0 25px rgba(0,0,0,0.2);
+    max-width: 80%;
+    overflow: hidden;
+    box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+    font-family: 'Poppins', sans-serif;
+    margin: auto;
+    display: flex;
+    flex-direction: column;
 }
 
 .modal-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: 20px;
+    padding: 16px 24px;
+    border-bottom: 1px solid #E0E0E0;
+    background: #fff;
+    flex-shrink: 0;
+    border-radius: 24px 24px 0 0;
 }
 
 .modal-title {
-    font-size: 20px;
+    font-size: 18px;
     font-weight: 600;
     margin: 0;
+    color: #1F2020;
 }
 
-.close-modal {
+.clients-modal .close-modal {
+    position: static;
     background: none;
-    border: none;
-    font-size: 24px;
+    border: 1px solid #E0E0E0;
+    border-radius: 8px;
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 20px;
     cursor: pointer;
     color: #666;
-    transition: color 0.2s;
+    transition: all 0.15s;
 }
 
 .close-modal:hover {
-    color: #000;
+    color: #1F2020;
+    background: #F8F9FA;
+    border-color: #CCC;
 }
 
 @keyframes fadeIn {
@@ -716,53 +895,73 @@
 .edit-section-btn {
     background: none;
     border: none;
-    padding: 6px;
-    border-radius: 6px;
+    padding: 4px;
+    border-radius: 4px;
     cursor: pointer;
-    color: #666;
-    transition: all 0.2s;
+    color: #ECEDEF;
+    transition: all 0.15s;
     display: flex;
     align-items: center;
     justify-content: center;
 }
 
 .edit-section-btn:hover {
-    background-color: #f0f0f0;
-    color: #ED6B24;
+    background-color: rgba(255,255,255,0.15);
+    color: #fff;
 }
 
 .edit-section-btn svg {
-    width: 16px;
-    height: 16px;
+    width: 14px;
+    height: 14px;
 }
 
 .clients-section {
-    margin: 24px;
+    margin: 0 16px 8px;
     border-radius: 8px;
-    background: #fafafa;
-    padding: 16px;
-    border: 1px solid #e5e5e5;
+    background: #fff;
+    padding: 0;
+    border: 1px solid #dcdcdc;
+    overflow: hidden;
 }
 
 .clients-section-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: 16px;
-    padding-bottom: 8px;
+    padding: 8px 14px;
+    background: #999;
+    border-radius: 7px 7px 0 0;
 }
 
-.clients-section-header h3 {
+.clients-section-header h3,
+.clients-section-header .clients-section-title {
     margin: 0;
-    font-size: 16px;
-    font-weight: 600;
-    color: #333;
+    padding: 0;
+    border: none;
+    font-size: 10px;
+    font-weight: 700;
+    color: #ECEDEF;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.clients-section-title {
+    position: relative;
+}
+
+.clients-section-title::after {
+    display: none;
+}
+
+.clients-section-body {
+    padding: 10px 14px;
 }
 
 .grid-2-cols {
     display: grid;
     grid-template-columns: 1fr 1fr;
-    gap: 0 8px;
+    gap: 0 12px;
+    padding: 10px 14px;
 }
 
 .full-width {
@@ -770,24 +969,27 @@
 }
 
 .input-group {
-    margin-bottom: 6px;
+    margin-bottom: 8px;
 }
 
 .input-group label {
     display: block;
     font-weight: 500;
-    color: #555;
-    margin-bottom: 4px;
-    font-size: 14px;
+    color: #888;
+    margin-bottom: 3px;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
 }
 
 .clients-input {
     width: 100%;
-    padding: 10px 12px;
-    border: 2px solid #e0e0e0;
-    border-radius: 8px;
-    font-size: 14px;
-    transition: all 0.2s ease;
+    padding: 8px 10px;
+    border: 1px solid #E0E0E0;
+    border-radius: 6px;
+    font-size: 13px;
+    font-family: 'Poppins', sans-serif;
+    transition: all 0.15s ease;
     background: #fff;
     box-sizing: border-box;
 }
@@ -804,23 +1006,26 @@
 
 /* Przyciski akcji */
 .clients-modal-actions {
-    padding: 20px;
-    border-top: 1px solid #e5e5e5;
+    padding: 12px 16px;
+    border-top: 1px solid #E0E0E0;
     display: flex;
     justify-content: flex-end;
-    gap: 12px;
+    gap: 8px;
+    background: #fff;
+    flex-shrink: 0;
+    border-radius: 0 0 24px 24px;
 }
 
 .clients-btn {
-    padding: 10px 20px;
+    padding: 8px 16px;
     border: none;
-    border-radius: 8px;
-    font-size: 14px;
+    border-radius: 6px;
+    font-size: 13px;
     font-weight: 500;
     font-family: 'Poppins', sans-serif;
     cursor: pointer;
-    transition: all 0.2s;
-    min-width: 120px;
+    transition: all 0.15s;
+    min-width: 100px;
 }
 
 .clients-btn-primary {
@@ -830,18 +1035,16 @@
 
 .clients-btn-primary:hover {
     background-color: #d85d20;
-    transform: translateY(-1px);
-    box-shadow: 0 4px 8px rgba(237, 107, 36, 0.3);
 }
 
 .clients-btn-secondary {
-    background-color: #f5f5f5;
+    background-color: #F8F9FA;
     color: #666;
-    border: 1px solid #ddd;
+    border: 1px solid #E0E0E0;
 }
 
 .clients-btn-secondary:hover {
-    background-color: #e8e8e8;
+    background-color: #ECEDEF;
     color: #333;
 }
 
@@ -849,73 +1052,102 @@
 .clients-quotes-table {
     width: 100%;
     border-collapse: collapse;
-    margin-top: 12px;
-    background: white;
-    border-radius: 8px;
-    overflow: hidden;
-    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    font-size: 12px;
 }
 
-.clients-quotes-table thead {
-    background-color: #f8f9fa;
-}
-
-.clients-quotes-table th {
-    padding: 12px 16px;
+.clients-quotes-table thead th {
+    padding: 6px 14px;
     text-align: left;
-    font-weight: 600;
-    font-size: 14px;
-    color: #333;
-    border-bottom: 2px solid #ED6B24;
+    font-weight: 700;
+    font-size: 10px;
+    color: #999;
+    background: #ECEDEF;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
 }
 
 .clients-quotes-table td {
-    padding: 12px 16px;
-    border-bottom: 1px solid #eee;
-    font-size: 14px;
+    padding: 6px 14px;
+    border-bottom: 1px solid #f0f0f0;
+    font-size: 12px;
+    color: #222;
 }
 
 .clients-quotes-table tbody tr:hover {
-    background-color: #f8f9fa;
+    background-color: #F8F9FA;
 }
 
 .clients-quotes-table tbody tr:last-child td {
     border-bottom: none;
 }
 
-/* Responsywność */
+/* Responsywność modala */
 @media (max-width: 768px) {
     .clients-modal {
-        max-width: 95%;
-        padding: 20px;
+        max-width: 100%;
+        height: 100vh;
+        border-radius: 0;
     }
-    
+
+    .modal-header {
+        border-radius: 0;
+        margin-bottom: 0;
+    }
+
     .grid-2-cols {
         grid-template-columns: 1fr;
     }
-    
+
     .clients-modal-actions {
         flex-direction: column-reverse;
+        border-radius: 0;
+        padding: 8px 0;
     }
-    
+
     .clients-btn {
         width: 100%;
+    }
+
+    .clients-section {
+        margin: 0 8px 6px;
     }
 }
 
 /* Animacje przejść między trybami */
 #view-mode, #edit-mode {
     transition: opacity 0.3s ease-in-out;
+    padding-top: 10px;
+    padding-bottom: 4px;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
+    min-height: 0;
+}
+
+/* Ostatnia sekcja rozciąga się na resztę */
+#view-mode .clients-section:last-child,
+#edit-mode .clients-section:last-child {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+}
+
+#view-mode .clients-section:last-child .clients-section-body,
+#view-mode .clients-section:last-child #clients-quotes-list {
+    flex: 1;
 }
 
 #edit-actions, #view-actions {
     transition: opacity 0.2s ease;
 }
 
-/* Dodatkowe style dla lepszego UX */
+/* Detail rows — kompaktowe */
 .clients-detail-row {
-    padding: 8px 0;
+    display: flex;
+    padding: 5px 14px;
     border-bottom: 1px solid #f0f0f0;
+    font-size: 12px;
 }
 
 .clients-detail-row:last-child {
@@ -923,27 +1155,28 @@
 }
 
 .clients-detail-row .label {
-    font-weight: 500;
-    color: #666;
-    font-size: 14px;
+    width: 130px;
+    flex-shrink: 0;
+    font-weight: 400;
+    color: #888;
+    font-size: 12px;
 }
 
 .clients-detail-row .value {
-    font-weight: 400;
-    color: #333;
-    font-size: 14px;
+    flex: 1;
+    font-weight: 500;
+    color: #222;
+    font-size: 12px;
 }
 
 /* Status badges w tabeli */
 .quote-status {
     font-weight: 600;
-    padding: 6px 12px;
-    border-radius: 16px;
-    font-size: 12px;
+    padding: 3px 8px;
+    border-radius: 4px;
+    font-size: 10px;
     display: inline-block;
     color: #fff;
-    text-shadow: 0 1px 2px rgba(0,0,0,0.2);
-    min-width: 80px;
     text-align: center;
 }
 
@@ -951,25 +1184,22 @@
 .clients-quote-link {
     display: inline-flex;
     align-items: center;
-    gap: 6px;
+    gap: 4px;
     background-color: #ED6B24;
     color: #fff;
-    padding: 6px 14px;
+    padding: 4px 10px;
     border: none;
-    border-radius: 20px;
-    font-size: 12px;
+    border-radius: 4px;
+    font-size: 11px;
     font-weight: 500;
     cursor: pointer;
     text-decoration: none;
-    transition: all 0.2s;
-    min-width: 90px;
-    justify-content: center;
+    transition: all 0.15s;
+    font-family: 'Poppins', sans-serif;
 }
 
 .clients-quote-link:hover {
     background-color: #d85d20;
-    transform: translateY(-1px);
-    box-shadow: 0 3px 6px rgba(237, 107, 36, 0.3);
 }
 
 /* Paginacja */
@@ -1292,7 +1522,6 @@
     font-size: 14px;
     cursor: pointer;
     transition: background-color 0.2s ease;
-    margin-left: 10px;
 }
 
 .clients-btn-search:hover {
@@ -1575,6 +1804,7 @@
 .tabs-nav {
     display: flex;
     margin-top: 16px;
+    margin-bottom: 16px;
     border-bottom: 2px solid #e5e5e5;
     padding-bottom: 0;
 }
@@ -1626,7 +1856,6 @@
 /* Zawartość zakładek */
 .tabs-content {
     min-height: 320px;
-    padding: 30px;
 }
 
 .tab-pane {
@@ -1668,24 +1897,19 @@
 /* Responsywność zakładek */
 @media (max-width: 600px) {
     .tabs-nav {
-        flex-direction: column;
-        gap: 4px;
-        border-bottom: none;
-        padding-bottom: 12px;
-        margin-bottom: 16px;
+        flex-direction: row;
+        gap: 0;
     }
 
     .tab-btn {
-        border-bottom: none;
-        border-left: 3px solid transparent;
-        margin-bottom: 0;
-        padding: 10px 16px;
-        border-radius: 0 8px 8px 0;
+        padding: 8px 6px;
+        font-size: 11px;
+        gap: 4px;
     }
 
-    .tab-btn.active {
-        border-left-color: #ED6B24;
-        border-bottom-color: transparent;
+    .tab-btn svg {
+        width: 14px;
+        height: 14px;
     }
 
     .tab-pane-content.grid-2-cols {
@@ -1693,7 +1917,7 @@
     }
 
     .clients-modal-tabs {
-        padding: 20px;
+        padding: 10px;
     }
 }
 

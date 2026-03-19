@@ -2,7 +2,7 @@
 <div id="clients-details-modal" class="clients-modal-overlay" style="display: none;">
     <div class="clients-modal">
         <div class="modal-header">
-            <h2 class="modal-title title-with-underline-h2" id="modalTitle">Szczegóły klienta</h2>
+            <h2 class="modal-title" id="modalTitle">Szczegóły klienta</h2>
             <button class="close-modal" id="clientsDetailsCloseBtn">&times;</button>
         </div>
 
@@ -11,7 +11,7 @@
             <!-- Sekcja danych klienta -->
             <section class="clients-section">
                 <div class="clients-section-header">
-                    <h3 class="title-with-underline-h4">Dane klienta</h3>
+                    <h3 class="clients-section-title">Dane klienta</h3>
                     <button class="edit-section-btn" onclick="enableEditMode()" title="Edytuj dane">
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
                             <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/>
@@ -42,7 +42,9 @@
 
             <!-- Sekcja historii wycen -->
             <section class="clients-section">
-                <h3 class="title-with-underline-h4">Historia wycen</h3>
+                <div class="clients-section-header">
+                    <h3 class="clients-section-title">Historia wycen</h3>
+                </div>
                 <div class="clients-section-body" id="clients-quotes-list">
                     <table class="clients-quotes-table">
                         <thead>

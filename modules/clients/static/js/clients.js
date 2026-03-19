@@ -188,10 +188,10 @@ function renderTable() {
     clients.forEach(client => {
         const row = document.createElement('tr');
         row.innerHTML = `
-            <td>${client.client_number || '-'}</td>
-            <td>${client.client_name || '-'}</td>
-            <td>${client.email ? `<a href="mailto:${client.email}" title="Wyślij e-mail">${client.email}</a>` : '-'}</td>
-            <td>${client.phone ? `<a href="tel:${client.phone}" title="Zadzwoń">${client.phone}</a>` : '-'}</td>
+            <td data-label="Nazwa klienta">${client.client_number || '-'}</td>
+            <td data-label="Imię i nazwisko">${client.client_name || '-'}</td>
+            <td data-label="Email">${client.email ? `<a href="mailto:${client.email}" title="Wyślij e-mail">${client.email}</a>` : '-'}</td>
+            <td data-label="Telefon">${client.phone ? `<a href="tel:${client.phone}" title="Zadzwoń">${client.phone}</a>` : '-'}</td>
             <td class="clients-actions"></td>
         `;
 
@@ -293,11 +293,6 @@ function renderPagination() {
         paginationControls.appendChild(nextBtn);
     }
 
-    // Info o stronach
-    const pageInfo = document.createElement('span');
-    pageInfo.className = 'pagination-info';
-    pageInfo.textContent = ` Strona ${currentPage} z ${totalPages} (${totalCount} klientów)`;
-    paginationControls.appendChild(pageInfo);
 }
 
 // Wyszukiwanie po kliknięciu przycisku lub Enter
@@ -594,8 +589,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const addBtn = document.getElementById('addClientBtn');
     const addModal = document.getElementById('clients-add-modal');
 
-    if (addBtn && addModal) {
-        addBtn.addEventListener('click', () => {
+    function openAddModal() {
             resetTabs(); // Reset do pierwszej zakładki
             // Reset kraju i województwa przy otwarciu
             if (addDeliveryCountry) addDeliveryCountry.value = 'Polska';
@@ -605,8 +599,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 addDeliveryRegion.classList.remove('disabled-select');
             }
             addModal.style.display = 'flex';
-        });
     }
+
+    if (addBtn) addBtn.addEventListener('click', openAddModal);
 
     const cancelAddBtn = document.getElementById('clientsAddCancelBtn');
     if (cancelAddBtn && addModal) {

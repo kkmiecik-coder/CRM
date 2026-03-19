@@ -29,6 +29,7 @@ document.addEventListener("DOMContentLoaded", () => {
     initClearFiltersButton();
     updateClearFiltersButtonState();
     initEditModals();
+    initMobileFilters();
 
     // Event listeners dla modala
     const closeBtn = document.getElementById("close-details-modal");
@@ -270,8 +271,7 @@ function initializeNoteSection(quoteData) {
     const editNoteBtn = document.getElementById('edit-note-btn');
     const saveNoteBtn = document.getElementById('save-note-btn');
     const cancelNoteBtn = document.getElementById('cancel-note-btn');
-    const noteActions = document.querySelector('.note-actions');
-    const noteCounterWrapper = document.querySelector('.note-counter-wrapper');
+    const noteActionsRow = document.querySelector('.note-actions-row');
     const noteCounter = document.getElementById('quote-note-counter');
     const noteWarning = document.getElementById('note-length-warning');
 
@@ -286,10 +286,9 @@ function initializeNoteSection(quoteData) {
     console.log('[NOTE] Wypełniono notatkę:', quoteData.notes);
 
     // Ukryj elementy edycji na start
-    if (noteActions) noteActions.style.display = 'none';
-    if (noteCounterWrapper) noteCounterWrapper.style.display = 'none';
+    if (noteActionsRow) noteActionsRow.style.display = 'none';
     if (noteWarning) noteWarning.style.display = 'none';
-    if (editNoteBtn) editNoteBtn.style.display = 'flex';
+    if (editNoteBtn) editNoteBtn.disabled = false;
 
     // Usuń poprzednie event listenery (klonowanie elementów)
     if (editNoteBtn) {
@@ -309,12 +308,11 @@ function initializeNoteSection(quoteData) {
             noteTextarea.disabled = false;
             noteTextarea.focus();
             
-            // Pokaż przyciski akcji i licznik
-            if (noteActions) noteActions.style.display = 'flex';
-            if (noteCounterWrapper) noteCounterWrapper.style.display = 'flex';
+            // Pokaż wiersz akcji
+            if (noteActionsRow) noteActionsRow.style.display = 'flex';
             
-            // Ukryj przycisk edycji
-            newEditBtn.style.display = 'none';
+            // Dezaktywuj przycisk edycji
+            newEditBtn.disabled = true;
             
             // Aktualizuj licznik
             updateNoteCounter();
@@ -334,10 +332,10 @@ function initializeNoteSection(quoteData) {
         // Pokaż ostrzeżenie jeśli za długie
         if (currentLength > 180) {
             noteWarning.style.display = 'flex';
-            if (noteCounterWrapper) noteCounterWrapper.classList.add('warning');
+            if (noteCounter) noteCounter.classList.add('warning');
         } else {
             noteWarning.style.display = 'none';
-            if (noteCounterWrapper) noteCounterWrapper.classList.remove('warning');
+            if (noteCounter) noteCounter.classList.remove('warning');
         }
     }
 
@@ -376,11 +374,10 @@ function initializeNoteSection(quoteData) {
                     
                     // Wyłącz tryb edycji
                     newTextarea.disabled = true;
-                    if (noteActions) noteActions.style.display = 'none';
-                    if (noteCounterWrapper) noteCounterWrapper.style.display = 'none';
+                    if (noteActionsRow) noteActionsRow.style.display = 'none';
                     if (noteWarning) noteWarning.style.display = 'none';
                     if (document.getElementById('edit-note-btn')) {
-                        document.getElementById('edit-note-btn').style.display = 'flex';
+                        document.getElementById('edit-note-btn').disabled = false;
                     }
                     
                     console.log('[NOTE] Notatka zapisana pomyślnie');
@@ -409,11 +406,10 @@ function initializeNoteSection(quoteData) {
             
             // Wyłącz tryb edycji
             newTextarea.disabled = true;
-            if (noteActions) noteActions.style.display = 'none';
-            if (noteCounterWrapper) noteCounterWrapper.style.display = 'none';
+            if (noteActionsRow) noteActionsRow.style.display = 'none';
             if (noteWarning) noteWarning.style.display = 'none';
             if (document.getElementById('edit-note-btn')) {
-                document.getElementById('edit-note-btn').style.display = 'flex';
+                document.getElementById('edit-note-btn').disabled = false;
             }
             
             console.log('[NOTE] Anulowano edycję notatki');
@@ -494,6 +490,7 @@ function showDetailsModal(quoteData) {
     document.getElementById('quotes-details-modal-client-name').textContent = quoteData.client?.client_name || '-';
     document.getElementById('quotes-details-modal-client-fullname').textContent = quoteData.client?.first_name || '-';
     document.getElementById('quotes-details-modal-client-company').textContent = quoteData.client?.company_name || '-';
+    document.getElementById('quotes-details-modal-client-nip').textContent = quoteData.client?.nip || '-';
     const clientEmail = quoteData.client?.email;
     const clientPhone = quoteData.client?.phone;
     const emailSpan = document.getElementById('quotes-details-modal-client-email');
@@ -880,49 +877,15 @@ async function reloadQuoteDetailsModal(quoteId) {
     }
 }
 function updateMultiplierDisplay(quoteData) {
-    console.log('[updateMultiplierDisplay] Aktualizuję wyświetlanie mnożnika:', quoteData);
-    
-    // Znajdź lub utwórz element do wyświetlania mnożnika
-    let multiplierElement = document.getElementById('quotes-details-modal-multiplier');
-    
-    if (!multiplierElement) {
-        // Jeśli element nie istnieje, utwórz go i dodaj do sekcji "Dane wyceny"
-        const quoteDataSection = document.querySelector('.modal-block:nth-child(2)'); // Druga kolumna - "Dane wyceny"
-        
-        if (quoteDataSection) {
-            const multiplierParagraph = document.createElement('p');
-            multiplierParagraph.innerHTML = '<strong>Grupa cenowa:</strong> <span id="quotes-details-modal-multiplier">-</span>';
-            
-            // Dodaj po elemencie z pracownikiem
-            const employeeElement = quoteDataSection.querySelector('p:nth-child(5)'); // Element z pracownikiem
-            if (employeeElement) {
-                employeeElement.insertAdjacentElement('afterend', multiplierParagraph);
-            } else {
-                // Fallback - dodaj na końcu sekcji
-                quoteDataSection.appendChild(multiplierParagraph);
-            }
-            
-            multiplierElement = document.getElementById('quotes-details-modal-multiplier');
-        }
-    }
-    
-    if (multiplierElement) {
-        // Wyświetl informacje o grupie cenowej i mnożniku
-        if (quoteData.quote_client_type && quoteData.quote_multiplier) {
-            const multiplierText = `${quoteData.quote_client_type} (${quoteData.quote_multiplier})`;
-            multiplierElement.textContent = multiplierText;
-            console.log('[updateMultiplierDisplay] Wyświetlono mnożnik:', multiplierText);
-        } else if (quoteData.quote_client_type) {
-            // Tylko grupa cenowa bez mnożnika
-            multiplierElement.textContent = quoteData.quote_client_type;
-            console.log('[updateMultiplierDisplay] Wyświetlono grupę cenową:', quoteData.quote_client_type);
-        } else {
-            // Brak informacji o grupie cenowej
-            multiplierElement.textContent = 'Nie określono';
-            console.log('[updateMultiplierDisplay] Brak informacji o grupie cenowej');
-        }
+    const multiplierElement = document.getElementById('quotes-details-modal-multiplier');
+    if (!multiplierElement) return;
+
+    if (quoteData.quote_client_type && quoteData.quote_multiplier) {
+        multiplierElement.textContent = `${quoteData.quote_client_type} (${quoteData.quote_multiplier})`;
+    } else if (quoteData.quote_client_type) {
+        multiplierElement.textContent = quoteData.quote_client_type;
     } else {
-        console.warn('[updateMultiplierDisplay] Nie udało się znaleźć lub utworzyć elementu mnożnika');
+        multiplierElement.textContent = 'Nie określono';
     }
 }
 
@@ -1311,14 +1274,14 @@ function setupStatusDropdown(quoteData, optionsContainer, selectedDiv, dropdownW
     Object.values(quoteData.all_statuses).forEach(s => {
         const opt = document.createElement('div');
         opt.className = 'option';
-        opt.textContent = s.name;
-        opt.style.backgroundColor = s.color || '#999';
         opt.dataset.name = s.name;
+        opt.dataset.color = s.color || '#999';
+        opt.innerHTML = `<span class="status-dot" style="background:${s.color || '#999'}"></span>${s.name}`;
         optionsContainer.appendChild(opt);
 
         if (s.name === quoteData.status_name) {
-            selectedDiv.textContent = s.name;
-            selectedDiv.style.backgroundColor = s.color || '#999';
+            selectedDiv.innerHTML = `<span class="status-dot" style="background:${s.color || '#999'}"></span>${s.name}`;
+            selectedDiv.style.removeProperty('background-color');
         }
     });
 
@@ -1432,7 +1395,7 @@ function buildVariantPriceDisplay(variant, quantity, quoteData) {
             <div class="qvmd-wood-texture" style="background-image: url('/quotes/quotes/static/img/${variant.variant_code}.jpg');"></div>
             <div class="qvmd-variant-content">
                 <div class="qvmd-variant-header">
-                    <div class="qvmd-variant-title">Wariant: <span class="qvmd-variant-name">${variantName}</span></div>
+                    <div class="qvmd-variant-title"><span class="qvmd-variant-name">${variantName}</span></div>
                     <div class="qvmd-price-per-m2-wrapper">
                         <div class="qvmd-price-per-m2-label">Cena za m³:</div>
                         <div class="qvmd-price-per-m2-value">${pricePerM3.toFixed(2)} PLN</div>
@@ -1640,22 +1603,12 @@ function buildVariantPriceDisplay(variant, quantity, quoteData) {
  */
 function buildVariantBadges(variant) {
     let badgesHTML = '';
-    const badges = [];
 
-    // Badge "Niewidoczny"
+    // Badge "Niewidoczny" — wyśrodkowany na górze karty
     if (variant.show_on_client_page === false) {
-        badges.push('<div class="qvmd-badge qvmd-badge-invisible">Niewidoczny</div>');
-    }
-
-    // Badge "Rabat"
-    if (variant.has_discount && variant.discount_percentage !== 0) {
-        badges.push(`<div class="qvmd-badge qvmd-badge-discount">Rabat ${variant.discount_percentage}%</div>`);
-    }
-
-    if (badges.length > 0) {
         badgesHTML = `
             <div class="qvmd-variant-badges">
-                ${badges.join('')}
+                <div class="qvmd-badge qvmd-badge-invisible">Niewidoczny</div>
             </div>
         `;
     }
@@ -1856,6 +1809,19 @@ function filterQuotes(resetPage = true) {
         });
 }
 
+function shortenStatus(name) {
+    const map = {
+        'Nowa wycena': 'Nowa wyc.',
+        'Odrzucone': 'Odrzuc.',
+        'Rezygnacja': 'Rezygn.',
+        'W akceptacji': 'W akcept.',
+        'Wysłano przypomnienie': 'Wysł. przyp.',
+        'Zaakceptowane': 'Zaakcept.',
+        'Zamówione': 'Zam.',
+    };
+    return map[name] || name;
+}
+
 function renderQuotesTable(quotes) {
     const wrapper = document.getElementById("quotes-table-body");
     const noResults = document.getElementById("no-results-message");
@@ -1872,20 +1838,22 @@ function renderQuotesTable(quotes) {
     quotes.forEach(quote => {
         const card = document.createElement("div");
         card.className = "quote-card";
+        const statusShort = shortenStatus(quote.status_name);
         const statusPill = `
             <div class="quote-status-pill" style="background-color: ${quote.status_color}">
-                ${quote.status_name}
+                <span class="status-full">${quote.status_name}</span>
+                <span class="status-short">${statusShort}</span>
             </div>
         `;
         card.innerHTML = `
-            <div class="quote-field">${quote.quote_number}</div>
-            <div class="quote-field">${new Date(quote.created_at).toLocaleDateString()}</div>
-            <div class="quote-field">${quote.client_number || "-"}</div>
-            <div class="quote-field">${quote.client_name || "-"}</div>
-            <div class="quote-field">${quote.client_caretaker_name || "-"}</div>
-            <div class="quote-field">${quote.source || "-"}</div>
-            <div class="quote-field">${statusPill}</div>
-            <div class="quote-field">
+            <div class="quote-field" data-label="Numer">${quote.quote_number}</div>
+            <div class="quote-field" data-label="Data">${new Date(quote.created_at).toLocaleDateString()}</div>
+            <div class="quote-field" data-label="Klient">${quote.client_number || "-"}</div>
+            <div class="quote-field" data-label="Imię i nazwisko">${quote.client_name || "-"}</div>
+            <div class="quote-field" data-label="Opiekun">${quote.client_caretaker_name || "-"}</div>
+            <div class="quote-field" data-label="Źródło">${quote.source || "-"}</div>
+            <div class="quote-field quote-field-status">${statusPill}</div>
+            <div class="quote-field quote-field-actions">
                 <button class="quotes-btn quotes-btn-detail" data-id="${quote.id}">
                     <span>Szczegóły</span>
                 </button>
@@ -2183,37 +2151,59 @@ function renderPagination() {
     }
     paginationDiv.appendChild(nextBtn);
 
-    // Selektor ilości wyników na stronę (po prawej)
-    const selectWrapper = document.createElement("div");
-    selectWrapper.className = "quotes-pagination-select-wrapper";
-
-    const selectLabel = document.createElement("span");
-    selectLabel.textContent = "Wyników na stronę:";
-    selectLabel.className = "pagination-select-label";
-
-    const select = document.createElement("select");
-    select.className = "pagination-select";
-
-    [20, 50, 100, 200].forEach(n => {
-        const opt = document.createElement("option");
-        opt.value = n;
-        opt.textContent = `${n}`;
-        if (n === resultsPerPage) opt.selected = true;
-        select.appendChild(opt);
-    });
-
-    select.addEventListener("change", () => {
-        resultsPerPage = parseInt(select.value);
-        currentPage = 1;
-        fetchQuotes();
-    });
-
-    selectWrapper.appendChild(selectLabel);
-    selectWrapper.appendChild(select);
-
-    // Dodaj do kontenera
+    // Dodaj paginację do kontenera
     container.appendChild(paginationDiv);
-    container.appendChild(selectWrapper);
+
+    // Selektor ilości wyników — nad tabelą
+    renderPerPageSelector();
+}
+
+function renderPerPageSelector() {
+    const quotesMain = document.querySelector(".quotes-main");
+    if (!quotesMain) return;
+
+    let selectWrapper = document.getElementById("per-page-selector");
+    if (!selectWrapper) {
+        selectWrapper = document.createElement("div");
+        selectWrapper.id = "per-page-selector";
+        selectWrapper.className = "quotes-per-page-wrapper";
+
+        const selectLabel = document.createElement("span");
+        selectLabel.textContent = "Wyników na stronę:";
+        selectLabel.className = "pagination-select-label";
+
+        const select = document.createElement("select");
+        select.className = "pagination-select";
+        select.id = "per-page-select";
+
+        [20, 50, 100, 200].forEach(n => {
+            const opt = document.createElement("option");
+            opt.value = n;
+            opt.textContent = `${n}`;
+            select.appendChild(opt);
+        });
+
+        select.addEventListener("change", () => {
+            resultsPerPage = parseInt(select.value);
+            currentPage = 1;
+            fetchQuotes();
+        });
+
+        selectWrapper.appendChild(selectLabel);
+        selectWrapper.appendChild(select);
+
+        // Wstaw przed nagłówkiem tabeli
+        const headerRow = quotesMain.querySelector(".quote-header-row");
+        if (headerRow) {
+            quotesMain.insertBefore(selectWrapper, headerRow);
+        } else {
+            quotesMain.prepend(selectWrapper);
+        }
+    }
+
+    // Aktualizuj wybraną wartość
+    const select = selectWrapper.querySelector("select");
+    if (select) select.value = resultsPerPage;
 }
 
 // Funkcja do przechodzenia na konkretną stronę
@@ -2355,6 +2345,39 @@ function initClearFiltersButton() {
         });
 }
 
+function initMobileFilters() {
+    const toggle = document.getElementById('mobile-filters-toggle');
+    const panel = document.getElementById('quotes-status-panel');
+    const overlay = document.getElementById('mobile-filters-overlay');
+    const closeBtn = document.getElementById('mobile-filters-close');
+    const applyBtn = document.getElementById('apply-filters');
+
+    if (!toggle || !panel || !overlay) return;
+
+    function openFilters() {
+        panel.classList.add('open');
+        overlay.classList.add('active');
+        document.body.style.overflow = 'hidden';
+    }
+
+    function closeFilters() {
+        panel.classList.remove('open');
+        overlay.classList.remove('active');
+        document.body.style.overflow = '';
+    }
+
+    toggle.addEventListener('click', openFilters);
+    overlay.addEventListener('click', closeFilters);
+    if (closeBtn) closeBtn.addEventListener('click', closeFilters);
+
+    // Zamknij po kliknięciu "Filtruj wyceny"
+    if (applyBtn) {
+        applyBtn.addEventListener('click', function() {
+            if (window.innerWidth <= 768) closeFilters();
+        });
+    }
+}
+
 function updateClearFiltersButtonState() {
     const filters = [
         "quote-number-filter", "client-number-filter", "client-name-filter",
@@ -2378,16 +2401,33 @@ function updateClearFiltersButtonState() {
     }
 }
 
+function parseVariantCode(code) {
+    const speciesMap = { 'dab': 'Dąb', 'jes': 'Jesion', 'buk': 'Buk' };
+    const techMap = { 'lity': 'Lity', 'micro': 'Mikrowczep' };
+    const gradeMap = { 'ab': 'A/B', 'bb': 'B/B' };
+
+    if (!code) return { species: '-', technology: '-', grade: '-' };
+    const parts = code.split('-');
+    return {
+        species: speciesMap[parts[0]] || parts[0] || '-',
+        technology: techMap[parts[1]] || parts[1] || '-',
+        grade: gradeMap[parts[2]] || parts[2] || '-'
+    };
+}
+
 function renderSelectedSummary(groupedItems, container) {
     container.innerHTML = "";
     let totalVolume = 0;
     let totalWeight = 0;
+
+    const rows = [];
+
     Object.keys(groupedItems).forEach((index, idx) => {
         const selected = groupedItems[index].find(i => i.is_selected) || groupedItems[index][0];
         if (!selected) return;
 
-        const variant = translateVariantCode(selected.variant_code) || "Nieznany wariant";
-        const dims = `${selected.length_cm}×${selected.width_cm}×${selected.thickness_cm} cm`;
+        const parsed = parseVariantCode(selected.variant_code);
+        const dims = `${selected.length_cm}×${selected.width_cm}×${selected.thickness_cm}`;
 
         // Znajdź szczegóły wykończenia dla tego produktu
         const finishing = window.currentQuoteData ?
@@ -2406,18 +2446,16 @@ function renderSelectedSummary(groupedItems, container) {
 
         if (finishing) {
             const finishingQuantity = finishing.quantity || quantity || 1;
-            // Uwzględnij zarówno wykończenie jak i obróbkę krawędzi
             const totalFinishingBrutto = (parseFloat(finishing.finishing_price_brutto || 0)) + (parseFloat(finishing.edges_price_brutto || 0));
             const totalFinishingNetto = (parseFloat(finishing.finishing_price_netto || 0)) + (parseFloat(finishing.edges_price_netto || 0));
             finalUnitPriceBrutto += totalFinishingBrutto / finishingQuantity;
             finalUnitPriceNetto += totalFinishingNetto / finishingQuantity;
         }
 
-        // Oblicz wartości całkowite (cena jednostkowa × ilość)
         const totalBrutto = finalUnitPriceBrutto * quantity;
         const totalNetto = finalUnitPriceNetto * quantity;
 
-        // Oblicz objętość (m³) i wagę (kg) - używaj rzeczywistej objętości jeśli dostępna
+        // Oblicz objętość (m³) i wagę (kg)
         let itemVolume = 0;
         if (selected.real_volume_m3) {
             itemVolume = parseFloat(selected.real_volume_m3) * quantity;
@@ -2426,41 +2464,113 @@ function renderSelectedSummary(groupedItems, container) {
         } else if (selected.length_cm && selected.width_cm && selected.thickness_cm) {
             itemVolume = (selected.length_cm / 100) * (selected.width_cm / 100) * (selected.thickness_cm / 100) * quantity;
         }
-        const itemWeight = itemVolume * 800; // gęstość drewna
+        const itemWeight = itemVolume * 800;
         totalVolume += itemVolume;
         totalWeight += itemWeight;
 
-        // Przygotuj opis wykończenia dla wyświetlenia
-        let finishingText = '';
+        // Przygotuj opis wykończenia
+        let finishingText = 'Surowe';
         if (finishing && finishing.finishing_type && finishing.finishing_type !== 'Brak' && finishing.finishing_type !== 'Surowe') {
             const finishingParts = [];
-
             if (finishing.finishing_type) finishingParts.push(finishing.finishing_type);
             if (finishing.finishing_variant) finishingParts.push(finishing.finishing_variant);
             if (finishing.finishing_gloss_level) finishingParts.push(finishing.finishing_gloss_level);
             if (finishing.finishing_color) finishingParts.push(finishing.finishing_color);
-
-            finishingText = finishingParts.length > 0 ? ` ${finishingParts.join(' | ')}` : '';
+            finishingText = finishingParts.filter(Boolean).join(', ') || 'Surowe';
         }
 
-        const p = document.createElement("p");
-        p.className = "selected-summary-item";
-        p.innerHTML = `
-            <span class='dot'></span>
-            <span style="font-size: 14px; font-weight: 600;">Produkt ${parseInt(index)}:</span>
-            <span style="font-size: 12px; font-weight: 400;">
-                ${variant} ${dims}${finishingText} • ${quantity} szt. • 
-                ${formatPriceWithNetto(totalBrutto, totalNetto)}
-            </span>
-        `;
-        container.appendChild(p);
+        // Kształt
+        const shapeLabels = {
+            'rectangular': 'Prostokąt',
+            'circle': 'Koło',
+            'round': 'Okrągły',
+            'triangle_right': 'Trójkąt prost.',
+            'triangle_equilateral': 'Trójkąt równob.',
+            'triangle_isosceles': 'Trójkąt równor.',
+            'triangle_custom': 'Trójkąt dowoln.',
+            'trapezoid_symmetric': 'Trapez sym.',
+            'trapezoid_asymmetric': 'Trapez asym.',
+            'trapezoid_custom': 'Trapez dowoln.',
+            'parallelogram': 'Równoległobok',
+            'polygon': 'Wielokąt'
+        };
+        const shapeText = finishing && finishing.shape ? (shapeLabels[finishing.shape] || finishing.shape) : 'Prostokąt';
+
+        rows.push(`
+            <tr>
+                <td data-label="Produkt ${parseInt(index)}">${parseInt(index)}</td>
+                <td data-label="Kształt">${shapeText}</td>
+                <td data-label="Gatunek">${parsed.species}</td>
+                <td data-label="Technologia">${parsed.technology}</td>
+                <td data-label="Klasa">${parsed.grade}</td>
+                <td data-label="Wymiary">${dims}</td>
+                <td data-label="Wykończenie">${finishingText}</td>
+                <td data-label="Ilość">${quantity}</td>
+                <td data-label="Netto" class="num">${totalNetto.toFixed(2)} zł</td>
+                <td data-label="VAT" class="num vat">${(totalBrutto - totalNetto).toFixed(2)} zł</td>
+                <td data-label="Brutto" class="num">${totalBrutto.toFixed(2)} zł</td>
+            </tr>
+        `);
     });
 
-    // Dodaj podsumowanie łącznej objętości i wagi
-    const totals = document.createElement('p');
-    totals.className = 'summary-totals';
-    totals.innerHTML = `<span style="font-weight: 600;">Łączna objętość:</span>${formatVolumeDisplay(totalVolume)} <span style="font-weight: 600;">Łączna waga:</span>${formatWeightDisplay(totalWeight)}`;
-    container.appendChild(totals);
+    const table = document.createElement("table");
+    table.className = "summary-table";
+    table.innerHTML = `
+        <thead>
+            <tr>
+                <th>LP.</th>
+                <th>Kształt</th>
+                <th>Gatunek</th>
+                <th>Technologia</th>
+                <th>Klasa</th>
+                <th>Wymiary</th>
+                <th>Wykończenie</th>
+                <th>Ilość</th>
+                <th class="num">Netto</th>
+                <th class="num">VAT</th>
+                <th class="num">Brutto</th>
+            </tr>
+        </thead>
+        <tbody>${rows.join('')}</tbody>
+    `;
+    // Kolumna podsumowania po prawej
+    const totalsCol = document.createElement("div");
+    totalsCol.className = "summary-totals-col";
+    totalsCol.innerHTML = `
+        <table class="costs-table">
+            <thead><tr><th colspan="2">Podsumowanie</th></tr></thead>
+            <tbody>
+                <tr><td>Objętość</td><td>${formatVolumeDisplay(totalVolume)}</td></tr>
+                <tr><td>Waga</td><td>${formatWeightDisplay(totalWeight)}</td></tr>
+            </tbody>
+        </table>
+    `;
+
+    // Wrapper: tabela + podsumowanie obok siebie
+    const tableRow = document.createElement("div");
+    tableRow.className = "summary-table-row";
+    tableRow.appendChild(table);
+    tableRow.appendChild(totalsCol);
+    container.appendChild(tableRow);
+
+    // Ukryj wiersze > 5 i dodaj przycisk "Pokaż więcej"
+    const MAX_VISIBLE = 4;
+    const tbodyRows = table.querySelectorAll('tbody tr');
+    if (tbodyRows.length > MAX_VISIBLE) {
+        const hiddenCount = tbodyRows.length - MAX_VISIBLE;
+        tbodyRows.forEach((tr, i) => {
+            if (i >= MAX_VISIBLE) tr.style.display = 'none';
+        });
+
+        const showMoreBtn = document.createElement('button');
+        showMoreBtn.className = 'summary-table-show-more';
+        showMoreBtn.textContent = `Pokaż ${hiddenCount} więcej`;
+        showMoreBtn.addEventListener('click', () => {
+            tbodyRows.forEach(tr => tr.style.display = '');
+            showMoreBtn.remove();
+        });
+        container.appendChild(showMoreBtn);
+    }
 }
 
 // Updated renderVariantSummary function with quantity editing functionality
@@ -2482,7 +2592,7 @@ function renderVariantSummary(groupedItemsForIndex, quoteData, productIndex) {
     
     // Wykończenie — osobne wiersze per składowa
     let finishingRowsHtml = '';
-    const hasFinishing = finishing && finishing.finishing_type && finishing.finishing_type !== 'Brak';
+    const hasFinishing = finishing && finishing.finishing_type && finishing.finishing_type !== 'Brak' && finishing.finishing_type !== 'Surowe';
     if (hasFinishing) {
         if (finishing.finishing_type) finishingRowsHtml += '<div><span class="vsh-label">Typ:</span> ' + finishing.finishing_type + '</div>';
         if (finishing.finishing_variant) finishingRowsHtml += '<div><span class="vsh-label">Wariant:</span> ' + finishing.finishing_variant + '</div>';
@@ -2514,34 +2624,11 @@ function renderVariantSummary(groupedItemsForIndex, quoteData, productIndex) {
     const totalNetto = finalUnitPriceNetto * quantity;
 
 
-    // Przygotuj informacje o obróbce krawędzi — osobna kolumna
-    let edgesRowsHtml = '';
+    // Dane krawędzi
     let edgesSvgHtml = '';
     const hasEdges = finishing && finishing.edges_config && finishing.edges_config.length > 0;
-    if (hasEdges) {
-        const edgesConfig = finishing.edges_config;
-        const edgesType = finishing.edges_type === 'chamfer' ? 'Fazowanie' :
-                         finishing.edges_type === 'round' ? 'Zaokrąglenie' : finishing.edges_type;
-        const edgesRValue = finishing.edges_r_value || '-';
-        const edgesAngleValue = finishing.edges_angle_value;
-        const edgesPriceBrutto = parseFloat(finishing.edges_price_brutto || 0);
-        const edgesPriceNetto = parseFloat(finishing.edges_price_netto || 0);
-        const edgeLetters = edgesConfig.map(e => e.letter).sort().join(', ');
-
-        let edgesDescription = edgesType + ' R' + edgesRValue;
-        if (finishing.edges_type === 'chamfer' && edgesAngleValue) {
-            edgesDescription += ' (' + edgesAngleValue + '\u00b0)';
-        }
-
-        edgesRowsHtml += '<div><span class="vsh-label">Typ:</span> ' + edgesDescription + '</div>';
-        edgesRowsHtml += '<div><span class="vsh-label">Krawędzie:</span> ' + edgeLetters + '</div>';
-        edgesRowsHtml += '<div><span class="vsh-label">Koszt:</span> ' + edgesPriceBrutto.toFixed(2) + ' PLN <span class="cost-netto">' + edgesPriceNetto.toFixed(2) + ' PLN</span></div>';
-
-        if (finishing.edges_svg) {
-            edgesSvgHtml = '<div class="edges-svg-preview">' + finishing.edges_svg + '</div>';
-        }
-    } else {
-        edgesRowsHtml = '<div class="vsh-empty">Brak</div>';
+    if (hasEdges && finishing.edges_svg) {
+        edgesSvgHtml = '<div class="edges-svg-preview">' + finishing.edges_svg + '</div>';
     }
 
     // Badge kształtu
@@ -2588,33 +2675,77 @@ function renderVariantSummary(groupedItemsForIndex, quoteData, productIndex) {
         ? '<div class="vsh-col vsh-preview">' + shapeSvgHtml + edgesSvgWithLabel + '</div>'
         : '';
 
-    // Koszt wykończenia
-    let finishingCostHtml = '';
-    if (finishing) {
-        const fCostBrutto = parseFloat(finishing.finishing_price_brutto || 0);
-        const fCostNetto = parseFloat(finishing.finishing_price_netto || 0);
-        if (fCostBrutto > 0) {
-            finishingRowsHtml += '<div><span class="vsh-label">Koszt:</span> ' + fCostBrutto.toFixed(2) + ' PLN <span class="cost-netto">' + fCostNetto.toFixed(2) + ' PLN</span></div>';
+    // Buduj tabelę Produkt
+    let productTableHtml =
+        '<table class="costs-table vsh-table">' +
+            '<thead><tr><th colspan="2">Produkt</th></tr></thead>' +
+            '<tbody>' +
+                '<tr><td>Wariant</td><td>' + (translateVariantCode(item.variant_code) || 'Nieznany') + shapeDisplay + '</td></tr>' +
+                '<tr><td>Wymiary</td><td>' + dims + '</td></tr>' +
+                '<tr><td>Objętość</td><td>' + volume + '</td></tr>' +
+                '<tr><td>Ilość</td><td>' + quantity + ' szt.</td></tr>' +
+            '</tbody>' +
+        '</table>';
+
+    // Buduj tabelę Wykończenie
+    let finishingTableRows = '';
+    if (hasFinishing) {
+        if (finishing.finishing_type) finishingTableRows += '<tr><td>Typ</td><td>' + finishing.finishing_type + '</td></tr>';
+        if (finishing.finishing_variant) finishingTableRows += '<tr><td>Wariant</td><td>' + finishing.finishing_variant + '</td></tr>';
+        if (finishing.finishing_gloss_level) finishingTableRows += '<tr><td>Połysk</td><td>' + finishing.finishing_gloss_level + '</td></tr>';
+        if (finishing.finishing_color) finishingTableRows += '<tr><td>Kolor</td><td>' + finishing.finishing_color + '</td></tr>';
+        if (finishing) {
+            const fCostBrutto = parseFloat(finishing.finishing_price_brutto || 0);
+            const fCostNetto = parseFloat(finishing.finishing_price_netto || 0);
+            if (fCostBrutto > 0) {
+                finishingTableRows += '<tr><td>Koszt</td><td>' + fCostBrutto.toFixed(2) + ' PLN <span class="cost-netto">' + fCostNetto.toFixed(2) + ' PLN</span></td></tr>';
+            }
         }
+    } else {
+        finishingTableRows =
+            '<tr><td>Typ</td><td>Surowe</td></tr>' +
+            '<tr><td>Wariant</td><td>Brak</td></tr>' +
+            '<tr><td>Połysk</td><td>Brak</td></tr>' +
+            '<tr><td>Kolor</td><td>Brak</td></tr>' +
+            '<tr><td>Koszt</td><td>0.00 PLN <span class="cost-netto">0.00 PLN</span></td></tr>';
+    }
+    let finishingTableHtml =
+        '<table class="costs-table vsh-table">' +
+            '<thead><tr><th colspan="2">Wykończenie</th></tr></thead>' +
+            '<tbody>' + finishingTableRows + '</tbody>' +
+        '</table>';
+
+    // Buduj tabelę Krawędzie
+    let edgesTableRows = '';
+    if (hasEdges) {
+        const edgesConfig = finishing.edges_config;
+        const edgesType = finishing.edges_type === 'chamfer' ? 'Fazowanie' :
+                         finishing.edges_type === 'round' ? 'Zaokrąglenie' : finishing.edges_type;
+        const edgesRValue = finishing.edges_r_value || '-';
+        const edgesAngleValue = finishing.edges_angle_value;
+        const edgesPriceBrutto = parseFloat(finishing.edges_price_brutto || 0);
+        const edgesPriceNetto = parseFloat(finishing.edges_price_netto || 0);
+        const edgeLetters = edgesConfig.map(e => e.letter).sort().join(', ');
+
+        let edgesDescription = edgesType + ' R' + edgesRValue;
+        if (finishing.edges_type === 'chamfer' && edgesAngleValue) {
+            edgesDescription += ' (' + edgesAngleValue + '\u00b0)';
+        }
+
+        edgesTableRows += '<tr><td>Typ</td><td>' + edgesDescription + '</td></tr>';
+        edgesTableRows += '<tr><td>Krawędzie</td><td>' + edgeLetters + '</td></tr>';
+        edgesTableRows += '<tr><td>Koszt</td><td>' + edgesPriceBrutto.toFixed(2) + ' PLN <span class="cost-netto">' + edgesPriceNetto.toFixed(2) + ' PLN</span></td></tr>';
+    }
+    let edgesTableHtml = '';
+    if (hasEdges) {
+        edgesTableHtml =
+            '<table class="costs-table vsh-table">' +
+                '<thead><tr><th colspan="2">Krawędzie</th></tr></thead>' +
+                '<tbody>' + edgesTableRows + '</tbody>' +
+            '</table>';
     }
 
-    wrap.innerHTML =
-        '<div class="vsh-col vsh-product">' +
-            '<div class="vsh-col-title">Produkt</div>' +
-            '<div><span class="vsh-label">Wariant:</span> ' + (translateVariantCode(item.variant_code) || 'Nieznany') + shapeDisplay + '</div>' +
-            '<div><span class="vsh-label">Wymiary:</span> ' + dims + '</div>' +
-            '<div><span class="vsh-label">Objętość:</span> ' + volume + '</div>' +
-            '<div><span class="vsh-label">Ilość:</span> ' + quantity + ' szt.</div>' +
-        '</div>' +
-        '<div class="vsh-col vsh-finishing">' +
-            '<div class="vsh-col-title">Wykończenie</div>' +
-            finishingRowsHtml +
-        '</div>' +
-        '<div class="vsh-col vsh-edges">' +
-            '<div class="vsh-col-title">Krawędzie</div>' +
-            edgesRowsHtml +
-        '</div>' +
-        previewColumnHtml;
+    wrap.innerHTML = productTableHtml + finishingTableHtml + edgesTableHtml + previewColumnHtml;
 
     return wrap;
 }
@@ -3195,9 +3326,8 @@ function initializeNoteSection(quoteData) {
     const editBtn = document.getElementById('edit-note-btn');
     const saveBtn = document.getElementById('save-note-btn');
     const cancelBtn = document.getElementById('cancel-note-btn');
-    const counterWrapper = document.querySelector('.note-counter-wrapper');
+    const actionsRow = document.querySelector('.note-actions-row');
     const counter = document.getElementById('quote-note-counter');
-    const actionsDiv = document.querySelector('.note-actions');
     const warningDiv = document.getElementById('note-length-warning');
 
     if (!textarea || !editBtn || !saveBtn || !cancelBtn) {
@@ -3214,14 +3344,10 @@ function initializeNoteSection(quoteData) {
     const isOrdered = quoteData.base_linker_order_id && quoteData.base_linker_order_id.trim() !== '';
 
     if (isOrdered) {
-        // Jeśli zamówienie złożone, wyłącz edycję całkowicie
         editBtn.disabled = true;
-        editBtn.style.display = 'none';
         console.log('[NOTE] Wycena złożona w Baselinker - edycja wyłączona');
     } else {
-        // Włącz możliwość edycji
         editBtn.disabled = false;
-        editBtn.style.display = 'flex';
     }
 
     // Sprawdź długość notatki i pokaż ostrzeżenie jeśli > 180
@@ -3232,7 +3358,7 @@ function initializeNoteSection(quoteData) {
     editBtn.parentNode.replaceChild(newEditBtn, editBtn);
 
     newEditBtn.addEventListener('click', () => {
-        enableNoteEdit(textarea, newEditBtn, actionsDiv, counterWrapper, counter);
+        enableNoteEdit(textarea, newEditBtn, actionsRow, counter);
     });
 
     // Event: Zapisz notatkę
@@ -3240,7 +3366,7 @@ function initializeNoteSection(quoteData) {
     saveBtn.parentNode.replaceChild(newSaveBtn, saveBtn);
 
     newSaveBtn.addEventListener('click', () => {
-        saveNoteEdit(quoteData.id, textarea, newEditBtn, actionsDiv, counterWrapper, warningDiv);
+        saveNoteEdit(quoteData.id, textarea, newEditBtn, actionsRow, warningDiv);
     });
 
     // Event: Anuluj edycję
@@ -3248,7 +3374,7 @@ function initializeNoteSection(quoteData) {
     cancelBtn.parentNode.replaceChild(newCancelBtn, cancelBtn);
 
     newCancelBtn.addEventListener('click', () => {
-        cancelNoteEdit(textarea, newEditBtn, actionsDiv, counterWrapper, warningDiv);
+        cancelNoteEdit(textarea, newEditBtn, actionsRow, warningDiv);
     });
 
     // Event: Licznik znaków podczas pisania
@@ -3263,31 +3389,29 @@ function initializeNoteSection(quoteData) {
     });
 }
 
-function enableNoteEdit(textarea, editBtn, actionsDiv, counterWrapper, counter) {
+function enableNoteEdit(textarea, editBtn, actionsRow, counter) {
     console.log('[NOTE] Włączanie trybu edycji notatki');
 
     textarea.disabled = false;
     textarea.focus();
-    editBtn.style.display = 'none';
-    actionsDiv.style.display = 'flex';
-    counterWrapper.style.display = 'flex';
+    editBtn.disabled = true;
+    if (actionsRow) actionsRow.style.display = 'flex';
 
     updateNoteCounter(textarea, counter);
 }
 
-function cancelNoteEdit(textarea, editBtn, actionsDiv, counterWrapper, warningDiv) {
+function cancelNoteEdit(textarea, editBtn, actionsRow, warningDiv) {
     console.log('[NOTE] Anulowanie edycji notatki');
 
     textarea.value = originalNoteValue;
     textarea.disabled = true;
-    editBtn.style.display = 'flex';
-    actionsDiv.style.display = 'none';
-    counterWrapper.style.display = 'none';
+    editBtn.disabled = false;
+    if (actionsRow) actionsRow.style.display = 'none';
 
     updateNoteLengthWarning(originalNoteValue, warningDiv);
 }
 
-async function saveNoteEdit(quoteId, textarea, editBtn, actionsDiv, counterWrapper, warningDiv) {
+async function saveNoteEdit(quoteId, textarea, editBtn, actionsRow, warningDiv) {
     console.log('[NOTE] Zapisywanie notatki dla wyceny:', quoteId);
 
     const newNote = textarea.value.trim();
@@ -3310,9 +3434,8 @@ async function saveNoteEdit(quoteId, textarea, editBtn, actionsDiv, counterWrapp
         // Sukces - zaktualizuj wartość oryginalną i wyłącz edycję
         originalNoteValue = newNote;
         textarea.disabled = true;
-        editBtn.style.display = 'flex';
-        actionsDiv.style.display = 'none';
-        counterWrapper.style.display = 'none';
+        editBtn.disabled = false;
+        if (actionsRow) actionsRow.style.display = 'none';
 
         // Zaktualizuj currentQuoteData
         if (currentQuoteData) {
@@ -4685,12 +4808,13 @@ function updateOrderPageLink(orderPageUrl) {
         return;
     }
 
+    const pageRow = document.getElementById('baselinker-order-page-row');
     if (orderPageUrl) {
         pageBtn.href = orderPageUrl;
-        pageBtn.style.display = 'inline-flex';
+        if (pageRow) pageRow.style.display = '';
         console.log('[SalesDocuments] Order page: link ustawiony');
     } else {
-        pageBtn.style.display = 'none';
+        if (pageRow) pageRow.style.display = 'none';
         console.log('[SalesDocuments] Order page: brak URL - ukryto');
     }
 }

@@ -2,46 +2,84 @@
 <div id="quote-details-modal" class="quotes-details-modal-overlay">
     <div class="quotes-details-modal-box">
         <div class="quotes-details-modal-header sticky-header">
-            <h2 class="quotes-details-modal-title title-with-underline-h2">Szczegóły wyceny</h2>
+            <div class="header-top-row">
+                <h2 class="quotes-details-modal-title title-with-underline-h2">Szczegóły wyceny</h2>
+                <button class="quotes-details-modal-close" id="close-details-modal">&times;</button>
+            </div>
             <div class="quotes-details-modal-header-actions">
-
-                <button class="quotes-btn quotes-btn-download" data-token="" id="download-details-btn">Pobierz</button>
-                <button id="quote-order-btn" class="quotes-btn quotes-btn-order">Zamów</button>
+                <button class="quotes-btn quotes-btn-download" data-token="" id="download-details-btn">
+                    <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+                        <path d="M2.75 14A1.75 1.75 0 011 12.25v-2.5a.75.75 0 011.5 0v2.5c0 .138.112.25.25.25h10.5a.25.25 0 00.25-.25v-2.5a.75.75 0 011.5 0v2.5A1.75 1.75 0 0113.25 14H2.75z"/>
+                        <path d="M7.25 7.689V2a.75.75 0 011.5 0v5.689l1.97-1.969a.749.749 0 111.06 1.06l-3.25 3.25a.749.749 0 01-1.06 0L4.22 6.78a.749.749 0 111.06-1.06l1.97 1.969z"/>
+                    </svg>
+                    Pobierz
+                </button>
+                <button id="quote-order-btn" class="quotes-btn quotes-btn-order">
+                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="6" cy="13.5" r="1"/>
+                        <circle cx="13" cy="13.5" r="1"/>
+                        <path d="M1 1h2.5l1.8 9h8.4l1.8-6.5H5"/>
+                    </svg>
+                    Zamów
+                </button>
                 <div class="quotes-client-sfere">
                     <button id="quote-client-page-btn" class="quotes-btn quotes-btn-client-page" data-quote-number="" data-token="">
+                        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                            <rect x="2" y="2" width="12" height="12" rx="2"/>
+                            <path d="M2 6h12"/>
+                            <path d="M6 14V6"/>
+                        </svg>
                         Strona klienta
                     </button>
-                    <button id="quote-link-copy-btn" class="quotes-btn-client-page-copy" data-quote-number="" data-token="" title="Skopiuj link do strony klienta">
-                        <img src="{{ url_for('static', filename='icons/copy_link.svg') }}"
-                             alt="Kopiuj link"
-                             class="quote-icon-copy" />
+                    <button id="quote-link-copy-btn" class="quotes-btn quotes-btn-copy-link" data-quote-number="" data-token="" title="Skopiuj link do strony klienta">
+                        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M6.5 8.5a3 3 0 004.243 0l2-2a3 3 0 00-4.243-4.243l-1 1"/>
+                            <path d="M9.5 7.5a3 3 0 00-4.243 0l-2 2a3 3 0 004.243 4.243l1-1"/>
+                        </svg>
                     </button>
                     <button id="quote-user-accept-btn"
                             class="quotes-btn quotes-btn-accept"
                             data-quote-id=""
                             title="Zaakceptuj wycenę jako opiekun oferty"
                             style="display: none;">
+                        <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+                            <path d="M13.78 4.22a.75.75 0 010 1.06l-7.25 7.25a.75.75 0 01-1.06 0L2.22 9.28a.751.751 0 011.042-1.08l2.72 2.72 6.718-6.72a.75.75 0 011.06.02z"/>
+                        </svg>
                         Akceptuj
                     </button>
                 </div>
                 <button id="quote-preview3d-btn" class="quotes-btn quotes-btn-preview3d" title="Podgląd wybranego wariantu w 3D/AR">
-                    <span>3D</span>
+                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M8 1.5L14 5v6l-6 3.5L2 11V5l6-3.5z"/>
+                        <path d="M8 8.5V15"/>
+                        <path d="M2 5l6 3.5L14 5"/>
+                    </svg>
+                    3D
                 </button>
                 <button id="total-discount-btn"
                         class="quotes-btn total-discount-btn"
                         title="Zastosuj rabat do wszystkich produktów">
-                    <span>Rabat całkowity</span>
+                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                        <line x1="12" y1="4" x2="4" y2="12"/>
+                        <circle cx="5" cy="5" r="1.5" fill="currentColor" stroke="none"/>
+                        <circle cx="11" cy="11" r="1.5" fill="currentColor" stroke="none"/>
+                    </svg>
+                    Rabat całkowity
                 </button>
-                <button class="quotes-btn quotes-btn-full-screen" id="toggle-fullscreen-modal">Pełny ekran</button>
+                <button class="quotes-btn quotes-btn-full-screen" id="toggle-fullscreen-modal">
+                    <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+                        <path d="M1.75 10a.75.75 0 01.75.75v2.5c0 .138.112.25.25.25h2.5a.75.75 0 010 1.5h-2.5A1.75 1.75 0 011 13.25v-2.5a.75.75 0 01.75-.75zm12.5 0a.75.75 0 01.75.75v2.5A1.75 1.75 0 0113.25 15h-2.5a.75.75 0 010-1.5h2.5a.25.25 0 00.25-.25v-2.5a.75.75 0 01.75-.75zM2.75 1A1.75 1.75 0 001 2.75v2.5a.75.75 0 001.5 0v-2.5a.25.25 0 01.25-.25h2.5a.75.75 0 000-1.5h-2.5zm7.5 0a.75.75 0 000 1.5h2.5a.25.25 0 01.25.25v2.5a.75.75 0 001.5 0v-2.5A1.75 1.75 0 0013.25 1h-2.5z"/>
+                    </svg>
+                    Pełny ekran
+                </button>
                 <button class="modal-action-btn edit-quote-btn"
                         onclick="editQuoteInCalculator()"
                         type="button">
-                    <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-                        <path d="M11.013 1.427a1.75 1.75 0 012.474 0l1.086 1.086a1.75 1.75 0 010 2.474l-8.61 8.61c-.21.21-.47.364-.756.445l-3.251.93a.75.75 0 01-.927-.928l.929-3.25a1.75 1.75 0 01.445-.758l8.61-8.61zm1.414 1.06a.25.25 0 00-.354 0L10.811 3.75l1.439 1.44 1.263-1.263a.25.25 0 000-.354l-1.086-1.086zM11.189 6.25L9.75 4.81l-6.286 6.287a.25.25 0 00-.064.108l-.558 1.953 1.953-.558a.25.25 0 00.108-.064l6.286-6.286z" />
+                    <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+                        <path d="M11.013 1.427a1.75 1.75 0 012.474 0l1.086 1.086a1.75 1.75 0 010 2.474l-8.61 8.61c-.21.21-.47.364-.756.445l-3.251.93a.75.75 0 01-.927-.928l.929-3.25a1.75 1.75 0 01.445-.758l8.61-8.61zm1.414 1.06a.25.25 0 00-.354 0L10.811 3.75l1.439 1.44 1.263-1.263a.25.25 0 000-.354l-1.086-1.086zM11.189 6.25L9.75 4.81l-6.286 6.287a.25.25 0 00-.064.108l-.558 1.953 1.953-.558a.25.25 0 00.108-.064l6.286-6.286z"/>
                     </svg>
                     Edytuj wycenę
                 </button>
-                <button class="quotes-details-modal-close" id="close-details-modal">&times;</button>
             </div>
         </div>
 
@@ -52,176 +90,235 @@
 
         <!-- Sekcja: dane klienta i wyceny w jednej siatce -->
         <div class="quotes-details-modal-section quotes-details-modal-grid">
-            <div class="modal-block">
-                <h3 class="quotes-details-modal-subtitle">Dane klienta</h3>
-                <!-- POLA KLIENTA -->
-                <p><strong>Nazwa klienta:</strong> <span id="quotes-details-modal-client-name"></span></p>
-                <p><strong>Imię i nazwisko:</strong> <span id="quotes-details-modal-client-fullname"></span></p>
-                <p><strong>Firma:</strong> <span id="quotes-details-modal-client-company"></span></p>
-                <p><strong>E-mail:</strong> <span id="quotes-details-modal-client-email"></span></p>
-                <p><strong>Telefon:</strong> <span id="quotes-details-modal-client-phone"></span></p>
+            <div class="modal-block modal-block-costs">
+                <h3 class="quotes-details-modal-subtitle">Klient</h3>
+                <table class="costs-table">
+                    <tbody>
+                        <tr>
+                            <td>Nazwa klienta</td>
+                            <td id="quotes-details-modal-client-name"></td>
+                        </tr>
+                        <tr>
+                            <td>Imię i nazwisko</td>
+                            <td id="quotes-details-modal-client-fullname"></td>
+                        </tr>
+                        <tr>
+                            <td>Firma</td>
+                            <td id="quotes-details-modal-client-company"></td>
+                        </tr>
+                        <tr>
+                            <td>NIP</td>
+                            <td id="quotes-details-modal-client-nip"></td>
+                        </tr>
+                        <tr>
+                            <td>E-mail</td>
+                            <td id="quotes-details-modal-client-email"></td>
+                        </tr>
+                        <tr>
+                            <td>Telefon</td>
+                            <td id="quotes-details-modal-client-phone"></td>
+                        </tr>
+                    </tbody>
+                </table>
             </div>
 
-            <div class="modal-block">
-                <h3 class="quotes-details-modal-subtitle">Dane wyceny</h3>
-                <p><strong>Numer wyceny:</strong> <span id="quotes-details-modal-quote-number"></span></p>
-                <p><strong>Data złożenia:</strong> <span id="quotes-details-modal-quote-date"></span></p>
-                <p><strong>Źródło:</strong> <span id="quotes-details-modal-quote-source"></span></p>
-                <!-- POLE PRACOWNIKA -->
-                <p><strong>Opiekun oferty: </strong><span id="quotes-details-modal-employee-name"></span></p>
-
-                <!-- NOWE: Toggle trybu wyceny -->
-                <div class="quotes-details-modal-quote-type-wrapper">
-                    <strong>Tryb wyceny:</strong>
-                    <div class="quote-type-toggle" id="quote-type-toggle-container">
-                        <input type="radio" name="quoteType" id="quoteTypeBrutto" value="brutto" checked>
-                        <label for="quoteTypeBrutto" class="toggle-option">Brutto</label>
-
-                        <input type="radio" name="quoteType" id="quoteTypeNetto" value="netto">
-                        <label for="quoteTypeNetto" class="toggle-option">Netto</label>
-
-                        <div class="toggle-slider"></div>
-                    </div>
-                </div>
-
-                <div class="quotes-details-modal-status-wrapper">
-                    <strong>Status:</strong>
-                    <div id="quotes-details-modal-status-dropdown" class="custom-status-dropdown">
-                        <div class="dropdown-toggle" id="custom-status-selected">Wybierz status</div>
-                        <div class="dropdown-options" id="custom-status-options"></div>
-                    </div>
-                </div>
+            <div class="modal-block modal-block-costs">
+                <h3 class="quotes-details-modal-subtitle">Wycena</h3>
+                <table class="costs-table">
+                    <tbody>
+                        <tr>
+                            <td>Numer wyceny</td>
+                            <td id="quotes-details-modal-quote-number"></td>
+                        </tr>
+                        <tr>
+                            <td>Tryb wyceny</td>
+                            <td class="costs-interactive-cell">
+                                <div class="quote-type-toggle" id="quote-type-toggle-container">
+                                    <input type="radio" name="quoteType" id="quoteTypeBrutto" value="brutto" checked>
+                                    <label for="quoteTypeBrutto" class="toggle-option">Brutto</label>
+                                    <input type="radio" name="quoteType" id="quoteTypeNetto" value="netto">
+                                    <label for="quoteTypeNetto" class="toggle-option">Netto</label>
+                                    <div class="toggle-slider"></div>
+                                </div>
+                            </td>
+                        </tr>
+                        <tr>
+                            <td>Data złożenia</td>
+                            <td id="quotes-details-modal-quote-date"></td>
+                        </tr>
+                        <tr>
+                            <td>Źródło</td>
+                            <td id="quotes-details-modal-quote-source"></td>
+                        </tr>
+                        <tr>
+                            <td>Opiekun oferty</td>
+                            <td id="quotes-details-modal-employee-name"></td>
+                        </tr>
+                        <tr>
+                            <td>Grupa cenowa</td>
+                            <td id="quotes-details-modal-multiplier">-</td>
+                        </tr>
+                        <tr>
+                            <td>Status</td>
+                            <td class="costs-interactive-cell">
+                                <div id="quotes-details-modal-status-dropdown" class="custom-status-dropdown">
+                                    <div class="dropdown-toggle" id="custom-status-selected">Wybierz status</div>
+                                    <div class="dropdown-options" id="custom-status-options"></div>
+                                </div>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
             </div>
 
-            <div class="modal-block">
+            <div class="modal-block modal-block-costs">
                 <h3 class="quotes-details-modal-subtitle">Koszty</h3>
-
-                <!-- Koszt surowych -->
-                <p>
-                    <strong>Koszt surowych:</strong>
-                    <span id="quotes-details-modal-cost-products-brutto"></span>
-                    <span id="quotes-details-modal-cost-products-netto" class="cost-netto"></span>
-                </p>
-
-                <!-- Koszt wykończenia -->
-                <p style="margin-bottom: 4px; padding-bottom: 4px; border-bottom: 1px dotted #808080">
-                    <strong>Koszt wykończenia:</strong>
-                    <span id="quotes-details-modal-cost-finishing-brutto"></span>
-                    <span id="quotes-details-modal-cost-finishing-netto" class="cost-netto"></span>
-                </p>
-
-                <!-- NOWE: Suma produktów bez dostawy -->
-                <p style="margin-bottom: 4px;padding-bottom: 4px; border-bottom: 1px solid #b1b1b1">
-                    <strong>Koszt produktów:</strong>
-                    <span id="quotes-details-modal-cost-products-total-brutto"></span>
-                    <span id="quotes-details-modal-cost-products-total-netto" class="cost-netto"></span>
-                </p>
-
-                <!-- Kurier -->
-                <p><strong>Kurier:</strong> <span id="quotes-details-modal-courier-name"></span></p>
-
-                <!-- Koszt wysyłki -->
-                <p style="margin-bottom: 4px;padding-bottom: 4px; border-bottom: 2px solid #000">
-                    <strong>Koszt wysyłki:</strong>
-                    <span id="quotes-details-modal-cost-shipping-brutto"></span>
-                    <span id="quotes-details-modal-cost-shipping-netto" class="cost-netto"></span>
-                </p>
-
-                <!-- Całkowity koszt -->
-                <p>
-                    <strong>Suma:</strong>
-                    <span id="quotes-details-modal-cost-total-brutto"></span>
-                    <span id="quotes-details-modal-cost-total-netto" class="cost-netto"></span>
-                </p>
+                <div class="costs-wrapper">
+                    <table class="costs-table costs-table-top">
+                        <thead>
+                            <tr>
+                                <th>Pozycje</th>
+                                <th class="num">Netto</th>
+                                <th class="num">Brutto</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td>Surowe</td>
+                                <td class="num cost-netto" id="quotes-details-modal-cost-products-netto"></td>
+                                <td class="num" id="quotes-details-modal-cost-products-brutto"></td>
+                            </tr>
+                            <tr>
+                                <td>Wykończenie</td>
+                                <td class="num cost-netto" id="quotes-details-modal-cost-finishing-netto"></td>
+                                <td class="num" id="quotes-details-modal-cost-finishing-brutto"></td>
+                            </tr>
+                        </tbody>
+                    </table>
+                    <table class="costs-table costs-table-bottom">
+                        <tbody>
+                            <tr class="costs-subtotal">
+                                <td>Produkty</td>
+                                <td class="num cost-netto" id="quotes-details-modal-cost-products-total-netto"></td>
+                                <td class="num" id="quotes-details-modal-cost-products-total-brutto"></td>
+                            </tr>
+                            <tr>
+                                <td>Wysyłka <span class="costs-courier-label">(<span id="quotes-details-modal-courier-name"></span>)</span></td>
+                                <td class="num cost-netto" id="quotes-details-modal-cost-shipping-netto"></td>
+                                <td class="num" id="quotes-details-modal-cost-shipping-brutto"></td>
+                            </tr>
+                        </tbody>
+                        <tfoot>
+                            <tr>
+                                <td>Suma</td>
+                                <td class="num" id="quotes-details-modal-cost-total-netto"></td>
+                                <td class="num" id="quotes-details-modal-cost-total-brutto"></td>
+                            </tr>
+                        </tfoot>
+                    </table>
+                </div>
             </div>
 
             <!-- NOWA SEKCJA: Dane zamówienia -->
-            <div id="baselinker-order-block" class="modal-block" style="display: none;">
-                <h3 class="quotes-details-modal-subtitle">Dane zamówienia</h3>
-                <p>
-                    <strong>Numer zamówienia:</strong>
-                    <a id="baselinker-order-link" href="#" target="_blank" style="color: #4284F3; text-decoration: none;">
-                        <span id="baselinker-order-number">-</span>
-                    </a>
-                </p>
-                <p><strong>Status BL:</strong> <span id="baselinker-order-status">Pobieranie...</span></p>
-
-                <p><strong>Dok. sprzedaży:</strong></p>
-                <div class="sales-documents-list">
-                    <!-- Faktura -->
-                    <button id="baselinker-invoice-btn"
-                            class="doc-btn doc-loading"
-                            data-status="loading"
-                            disabled>
-                        <span class="doc-icon">📄</span>
-                        <span class="doc-label">Faktura:</span>
-                        <span id="baselinker-invoice-value" class="doc-value">Ładowanie...</span>
-                    </button>
-
-                    <!-- Korekta (ukryta domyślnie) -->
-                    <button id="baselinker-correction-btn"
-                            class="doc-btn doc-loading"
-                            data-status="loading"
-                            style="display: none;"
-                            disabled>
-                        <span class="doc-icon">⚠️</span>
-                        <span class="doc-label">Korekta:</span>
-                        <span id="baselinker-correction-value" class="doc-value">Ładowanie...</span>
-                    </button>
-
-                    <!-- E-paragon (ukryty domyślnie) -->
-                    <button id="baselinker-receipt-btn"
-                            class="doc-btn doc-loading"
-                            data-status="loading"
-                            style="display: none;"
-                            disabled>
-                        <span class="doc-icon">🧾</span>
-                        <span class="doc-label">E-paragon:</span>
-                        <span id="baselinker-receipt-value" class="doc-value">Ładowanie...</span>
-                    </button>
+            <div id="baselinker-order-block" class="modal-block modal-block-costs" style="display: none;">
+                <h3 class="quotes-details-modal-subtitle">Zamówienie Base.</h3>
+                <div class="costs-wrapper">
+                    <table class="costs-table costs-table-top">
+                        <tbody>
+                            <tr>
+                                <td>Numer zamówienia</td>
+                                <td>
+                                    <a id="baselinker-order-link" href="#" target="_blank" style="color: #4284F3; text-decoration: none;">
+                                        <span id="baselinker-order-number">-</span>
+                                    </a>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td>Status BL</td>
+                                <td id="baselinker-order-status">Pobieranie...</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                    <table class="costs-table costs-table-bottom">
+                        <tbody>
+                            <tr>
+                                <td colspan="2" class="costs-docs-cell">
+                                    <div class="sales-documents-list">
+                                        <button id="baselinker-invoice-btn"
+                                                class="doc-btn doc-loading"
+                                                data-status="loading"
+                                                disabled>
+                                            <span class="doc-icon">📄</span>
+                                            <span class="doc-label">Faktura:</span>
+                                            <span id="baselinker-invoice-value" class="doc-value">Ładowanie...</span>
+                                        </button>
+                                        <button id="baselinker-correction-btn"
+                                                class="doc-btn doc-loading"
+                                                data-status="loading"
+                                                style="display: none;"
+                                                disabled>
+                                            <span class="doc-icon">⚠️</span>
+                                            <span class="doc-label">Korekta:</span>
+                                            <span id="baselinker-correction-value" class="doc-value">Ładowanie...</span>
+                                        </button>
+                                        <button id="baselinker-receipt-btn"
+                                                class="doc-btn doc-loading"
+                                                data-status="loading"
+                                                style="display: none;"
+                                                disabled>
+                                            <span class="doc-icon">🧾</span>
+                                            <span class="doc-label">E-paragon:</span>
+                                            <span id="baselinker-receipt-value" class="doc-value">Ładowanie...</span>
+                                        </button>
+                                    </div>
+                                </td>
+                            </tr>
+                            <tr id="baselinker-order-page-row" style="display: none;">
+                                <td colspan="2" class="costs-docs-cell">
+                                    <a id="baselinker-order-page-btn"
+                                       href="#"
+                                       target="_blank"
+                                       rel="noopener noreferrer"
+                                       class="quotes-btn quotes-btn-secondary">
+                                        📋 Strona informacyjna zamówienia
+                                    </a>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
                 </div>
-
-                <!-- Strona informacyjna -->
-                <p style="margin-top: 15px;">
-                    <a id="baselinker-order-page-btn"
-                       href="#"
-                       target="_blank"
-                       rel="noopener noreferrer"
-                       class="quotes-btn quotes-btn-secondary"
-                       style="display: none;">
-                        📋 Strona informacyjna zamówienia
-                    </a>
-                </p>
             </div>
 
-            <div class="modal-block modal-block-note">
-                <div class="note-header">
+            <div class="modal-block modal-block-costs modal-block-note">
+                <div class="note-title-row">
                     <h3 class="quotes-details-modal-subtitle">Notatka</h3>
                     <button id="edit-note-btn" class="edit-note-btn" title="Edytuj notatkę" type="button">
-                        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                        <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
                             <path d="M11.013 1.427a1.75 1.75 0 012.474 0l1.086 1.086a1.75 1.75 0 010 2.474l-8.61 8.61c-.21.21-.47.364-.756.445l-3.251.93a.75.75 0 01-.927-.928l.929-3.25a1.75 1.75 0 01.445-.758l8.61-8.61zm1.414 1.06a.25.25 0 00-.354 0L10.811 3.75l1.439 1.44 1.263-1.263a.25.25 0 000-.354l-1.086-1.086zM11.189 6.25L9.75 4.81l-6.286 6.287a.25.25 0 00-.064.108l-.558 1.953 1.953-.558a.25.25 0 00.108-.064l6.286-6.286z" />
                         </svg>
                     </button>
                 </div>
-                <textarea id="quote-note-textarea"
-                          class="quote-note-textarea"
-                          placeholder="Notatka do tego zamówienia..."
-                          maxlength="180"
-                          disabled></textarea>
-                <div class="note-counter-wrapper" style="display: none;">
-                    <span class="note-counter">
-                        <span id="quote-note-counter">180</span> znaków pozostało
-                    </span>
-                </div>
-                <div class="note-actions" style="display: none;">
-                    <button id="save-note-btn" class="btn-save-note" type="button">Zapisz</button>
-                    <button id="cancel-note-btn" class="btn-cancel-note" type="button">Anuluj</button>
-                </div>
-                <div class="note-warning" id="note-length-warning" style="display: none;">
-                    <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-                        <path d="M8.982 1.566a1.13 1.13 0 0 0-1.96 0L.165 13.233c-.457.778.091 1.767.98 1.767h13.713c.889 0 1.438-.99.98-1.767L8.982 1.566zM8 5c.535 0 .954.462.9.995l-.35 3.507a.552.552 0 0 1-1.1 0L7.1 5.995A.905.905 0 0 1 8 5zm.002 6a1 1 0 1 1 0 2 1 1 0 0 1 0-2z" />
-                    </svg>
-                    <span>Notatka jest za długa i nie zmieści się w zamówieniu Baselinker (limit 180 znaków)</span>
+                <div class="note-body">
+                    <textarea id="quote-note-textarea"
+                              class="quote-note-textarea"
+                              placeholder="Notatka do tego zamówienia..."
+                              maxlength="180"
+                              disabled></textarea>
+                    <div class="note-actions-row" style="display: none;">
+                        <span class="note-counter">
+                            Pozostało <span id="quote-note-counter">180</span> znaków
+                        </span>
+                        <div class="note-actions-buttons">
+                            <button id="save-note-btn" class="btn-save-note" type="button">Zapisz</button>
+                            <button id="cancel-note-btn" class="btn-cancel-note" type="button">Anuluj</button>
+                        </div>
+                    </div>
+                    <div class="note-warning" id="note-length-warning" style="display: none;">
+                        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                            <path d="M8.982 1.566a1.13 1.13 0 0 0-1.96 0L.165 13.233c-.457.778.091 1.767.98 1.767h13.713c.889 0 1.438-.99.98-1.767L8.982 1.566zM8 5c.535 0 .954.462.9.995l-.35 3.507a.552.552 0 0 1-1.1 0L7.1 5.995A.905.905 0 0 1 8 5zm.002 6a1 1 0 1 1 0 2 1 1 0 0 1 0-2z" />
+                        </svg>
+                        <span>Notatka jest za długa i nie zmieści się w zamówieniu Baselinker (limit 180 znaków)</span>
+                    </div>
                 </div>
             </div>
 
@@ -238,7 +335,7 @@
                 <!-- Przycisk masowej zmiany wariantów -->
                 <div class="bulk-variant-change-container">
                     <button id="bulk-variant-change-btn" class="bulk-variant-change-btn" type="button">
-                        <span>Zmień wszystkie warianty</span>
+                        <span>Zmień wariant wszystkich produktów</span>
                         <svg class="bulk-variant-chevron" width="16" height="16" viewBox="0 0 16 16" fill="none">
                             <path d="M4 6L8 10L12 6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
                         </svg>
