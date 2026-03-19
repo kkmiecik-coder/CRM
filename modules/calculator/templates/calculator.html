@@ -585,5 +585,511 @@
     <script src="{{ url_for('calculator.static', filename='js/calculator-init.js') }}"></script>
     <script src="{{ url_for('calculator.static', filename='js/save_quote.js') }}"></script>
     <script src="{{ url_for('calculator.static', filename='js/edges.js') }}"></script>
+
+    <!-- Easter egg: pink mode -->
+    <style>
+        body.pink-transition,
+        body.pink-transition *,
+        body.pink-transition *::before,
+        body.pink-transition *::after {
+            transition: background-color 0.6s ease, border-color 0.6s ease, color 0.6s ease, box-shadow 0.6s ease, fill 0.6s ease, stroke 0.6s ease !important;
+        }
+
+        body.pink-mode {
+            --pk: #E91E63;
+            --pk-light: #FCE4EC;
+            --pk-lighter: #FFF0F3;
+            --pk-bg: #FFF5F7;
+            --pk-dark: #C2185B;
+            --pk-hover: #F06292;
+            --pk-border: #F8BBD0;
+            --pk-border-light: #FCE4EC;
+            --pk-tint: rgba(233, 30, 99, 0.08);
+            --pk-tint-active: rgba(233, 30, 99, 0.15);
+        }
+
+        /* === GLOBAL BACKGROUNDS === */
+        body.pink-mode { background: var(--pk-bg) !important; }
+        body.pink-mode .main-content { background: var(--pk-bg) !important; }
+        body.pink-mode .calculatorrr { background: var(--pk-bg) !important; }
+        body.pink-mode .product-card,
+        body.pink-mode .modal-content,
+        body.pink-mode .modal-body,
+        body.pink-mode .delivery-modal-content,
+        body.pink-mode .save-modal-content { background: var(--pk-lighter) !important; }
+
+        /* === SIDEBAR === */
+        body.pink-mode .sidebar { background: var(--pk-lighter) !important; }
+        body.pink-mode .sidebar .logo-section { background: var(--pk-lighter) !important; }
+        body.pink-mode .sidebar .footer-section { border-color: var(--pk-border) !important; }
+        body.pink-mode .sidebar-toggle { background: var(--pk) !important; }
+        body.pink-mode .sidebar-toggle:hover { background: var(--pk-dark) !important; }
+
+        /* Sidebar icons */
+        body.pink-mode .sidebar-icon { color: var(--pk-hover) !important; }
+
+        /* Sidebar menu hover */
+        body.pink-mode .menu-options:hover { background: var(--pk-light) !important; }
+        body.pink-mode .sidebar.collapsed .menu-options:hover { background: var(--pk-light) !important; }
+
+        /* Sidebar menu active */
+        body.pink-mode .menu-options.active { background: var(--pk-light) !important; }
+        body.pink-mode .menu-options.active .option-txt { color: var(--pk) !important; }
+        body.pink-mode .menu-options.active .sidebar-icon { color: var(--pk) !important; }
+        body.pink-mode .sidebar.collapsed .menu-options.active { background: var(--pk-light) !important; }
+
+        /* Sidebar texts */
+        body.pink-mode .option-txt { color: var(--pk-hover) !important; }
+
+        /* Shortcuts */
+        body.pink-mode .shorts-title { color: var(--pk-hover) !important; }
+        body.pink-mode .short-txt { color: var(--pk-hover) !important; }
+        body.pink-mode .short-main svg { color: var(--pk-hover) !important; fill: var(--pk-hover) !important; }
+        body.pink-mode img.short-icon,
+        body.pink-mode img.link-icon { filter: grayscale(100%) sepia(100%) hue-rotate(290deg) saturate(5) brightness(0.8) !important; }
+        body.pink-mode .shorts-link:hover img.short-icon,
+        body.pink-mode .shorts-link:hover img.link-icon { filter: grayscale(100%) sepia(100%) hue-rotate(290deg) saturate(7) brightness(0.7) !important; }
+        body.pink-mode .shorts-link:hover { background: var(--pk-light) !important; }
+
+        /* Footer / logout */
+        body.pink-mode .footer { border-color: var(--pk-border) !important; }
+        body.pink-mode .footer-menu-item { color: var(--pk-hover) !important; }
+        body.pink-mode .footer-menu-item svg { color: var(--pk-hover) !important; fill: var(--pk-hover) !important; }
+        body.pink-mode .footer-menu-item:hover { background: var(--pk-light) !important; color: var(--pk) !important; }
+        body.pink-mode .footer-menu-item:hover svg { color: var(--pk) !important; fill: var(--pk) !important; }
+
+        /* === BUTTONS === */
+        body.pink-mode .btn-primary { background: var(--pk) !important; border-color: var(--pk) !important; }
+        body.pink-mode .btn-primary:hover { background: var(--pk-dark) !important; border-color: var(--pk-dark) !important; }
+        body.pink-mode .add-product-btn { border-color: var(--pk) !important; color: var(--pk) !important; background: var(--pk-lighter) !important; }
+        body.pink-mode .add-product-btn:hover { background: var(--pk) !important; color: #fff !important; }
+
+        /* === PRODUCT CARDS === */
+        body.pink-mode .product-card { border-color: var(--pk-border) !important; }
+        body.pink-mode .product-card:hover { border-color: var(--pk-hover) !important; }
+        body.pink-mode .product-card.active { border-color: var(--pk) !important; box-shadow: 0 0 0 1px var(--pk) !important; }
+        body.pink-mode .product-header { background: var(--pk-light) !important; }
+
+        /* === TITLES & TEXT === */
+        body.pink-mode .title-with-underline::after { background: var(--pk) !important; }
+        body.pink-mode .modal-header h3 { color: var(--pk) !important; }
+        body.pink-mode .page-title { cursor: default; }
+
+        /* === PRICES === */
+        body.pink-mode .hide-netto .unit-brutto,
+        body.pink-mode .hide-netto .total-brutto,
+        body.pink-mode .hide-netto .order-brutto,
+        body.pink-mode .hide-brutto .unit-netto,
+        body.pink-mode .hide-brutto .total-netto,
+        body.pink-mode .hide-brutto .order-netto,
+        body.pink-mode .sq-summary-brutto,
+        body.pink-mode .sq-summary-netto { color: var(--pk) !important; }
+
+        /* === TOGGLE SWITCH === */
+        body.pink-mode .toggle-slider { background: var(--pk) !important; }
+
+        /* === VARIANTS === */
+        body.pink-mode .variant-input:checked + .variant-label { background: var(--pk) !important; border-color: var(--pk) !important; }
+        body.pink-mode .variant-option { border-color: var(--pk-border) !important; }
+        body.pink-mode .variant-option:hover { border-color: var(--pk-hover) !important; }
+
+        /* === EDGES SVG === */
+        body.pink-mode .edges-preview-svg .edges-line.active { stroke: var(--pk) !important; }
+        body.pink-mode .edges-preview-svg .edges-label.active circle { fill: var(--pk) !important; }
+        body.pink-mode .edges-preview-toggle-labels { background: var(--pk-lighter) !important; border-color: var(--pk) !important; color: var(--pk) !important; }
+        body.pink-mode .edges-preview-toggle-labels:hover { box-shadow: 0 2px 4px rgba(233, 30, 99, 0.2) !important; }
+        body.pink-mode .edges-preview-toggle-labels.labels-hidden { border-color: var(--pk-border) !important; color: var(--pk-hover) !important; }
+        body.pink-mode .edges-preview-toggle-labels.labels-hidden:hover { border-color: var(--pk) !important; color: var(--pk) !important; }
+
+        /* === FORM CONTROLS === */
+        body.pink-mode input[type="radio"],
+        body.pink-mode input[type="checkbox"],
+        body.pink-mode input[type="range"] { accent-color: var(--pk) !important; }
+        body.pink-mode input:focus,
+        body.pink-mode select:focus,
+        body.pink-mode textarea:focus { border-color: var(--pk) !important; outline-color: var(--pk) !important; }
+        body.pink-mode input,
+        body.pink-mode select,
+        body.pink-mode textarea { border-color: var(--pk-border) !important; background: var(--pk-lighter) !important; }
+
+        /* === BORDERS GLOBAL === */
+        body.pink-mode .product-card .form-row,
+        body.pink-mode .section-divider,
+        body.pink-mode hr { border-color: var(--pk-border-light) !important; }
+
+        /* === TABLES & SUMMARY === */
+        body.pink-mode .products-summary-container { background: var(--pk-lighter) !important; border-color: var(--pk-border) !important; }
+        body.pink-mode .products-summary-container::-webkit-scrollbar-thumb { background: var(--pk) !important; }
+        body.pink-mode .summary-table th { background: var(--pk-light) !important; }
+        body.pink-mode .summary-table td { border-color: var(--pk-border-light) !important; }
+
+        /* === DELIVERY === */
+        body.pink-mode .delivery-method { border-color: var(--pk-border) !important; }
+        body.pink-mode .delivery-method:hover { border-color: var(--pk-hover) !important; }
+        body.pink-mode .delivery-method.selected { border-color: var(--pk) !important; background: var(--pk-tint) !important; }
+
+        /* === TOOLTIPS & DROPDOWNS === */
+        body.pink-mode .dropdown-options { background: var(--pk-lighter) !important; border-color: var(--pk-border) !important; }
+        body.pink-mode .dropdown-options .option:hover { background: var(--pk-light) !important; }
+
+        /* === SAVE MODAL === */
+        body.pink-mode .sq-modal-container { background: var(--pk-bg) !important; }
+        body.pink-mode .sq-modal-header { border-color: var(--pk) !important; }
+        body.pink-mode .sq-modal-title { color: var(--pk-dark) !important; }
+        body.pink-mode .sq-step.active { border-color: var(--pk) !important; }
+        body.pink-mode .sq-step-number { background: var(--pk-light) !important; color: var(--pk) !important; }
+        body.pink-mode .sq-step.active .sq-step-number { background: var(--pk) !important; color: #fff !important; }
+        body.pink-mode .sq-step-label { color: var(--pk-dark) !important; }
+
+        /* Form inputs */
+        body.pink-mode .sq-form-input { border-color: var(--pk-border) !important; background: var(--pk-bg) !important; }
+        body.pink-mode .sq-form-input:focus { border-color: var(--pk) !important; box-shadow: 0 0 0 3px rgba(233, 30, 99, 0.15) !important; }
+        body.pink-mode .sq-form-label { color: var(--pk-hover) !important; }
+        body.pink-mode .sq-form-group:has(.sq-form-input:focus) > .sq-form-label,
+        body.pink-mode .sq-form-group.sq-has-select:has(.sq-form-input:focus) > .sq-form-label { color: var(--pk) !important; }
+        body.pink-mode .sq-section-title { color: var(--pk-dark) !important; border-color: var(--pk) !important; }
+
+        /* Search results */
+        body.pink-mode .sq-search-result:hover { background: var(--pk-lighter) !important; }
+        body.pink-mode .sq-search-result-name { color: var(--pk-dark) !important; }
+        body.pink-mode .sq-search-result-contact { color: var(--pk-hover) !important; }
+
+        /* Przycisk "+Utwórz nowego" */
+        body.pink-mode .sq-create-new-btn { background: var(--pk) !important; }
+        body.pink-mode .sq-create-new-btn:hover:not(:disabled) { background: var(--pk-dark) !important; }
+
+        /* Badge "Klient utworzony przez innego handlowca" */
+        body.pink-mode .sq-other-client-badge { background: var(--pk-light) !important; color: var(--pk-dark) !important; }
+
+        /* Products list */
+        body.pink-mode .sq-product-item { background: var(--pk-lighter) !important; }
+        body.pink-mode .sq-product-item:hover { background: var(--pk-light) !important; }
+        body.pink-mode .sq-product-price { color: var(--pk) !important; }
+        body.pink-mode .sq-product-name { color: var(--pk-dark) !important; }
+
+        /* Summary */
+        body.pink-mode .sq-summary-section { border-color: var(--pk) !important; }
+        body.pink-mode .sq-summary-row-inline { background: var(--pk-lighter) !important; border-color: var(--pk-border) !important; }
+        body.pink-mode .sq-summary-header { background: var(--pk-light) !important; border-color: var(--pk-border) !important; }
+        body.pink-mode .sq-grand-total-row { border-color: var(--pk-border) !important; }
+        body.pink-mode .sq-grand-total-row .sq-summary-row-label { color: var(--pk) !important; }
+        body.pink-mode .sq-summary-row-label { color: var(--pk-dark) !important; }
+        body.pink-mode .sq-summary-row-value { color: var(--pk-dark) !important; }
+        body.pink-mode .sq-grand-total-value { color: var(--pk) !important; }
+
+        /* Note toggle & section */
+        body.pink-mode .sq-note-toggle { border-color: var(--pk-border) !important; color: var(--pk) !important; }
+        body.pink-mode .sq-note-toggle.active { background: var(--pk-lighter) !important; border-color: var(--pk) !important; color: var(--pk) !important; }
+        body.pink-mode .sq-note-section { background: var(--pk-lighter) !important; border-color: var(--pk-border) !important; }
+        body.pink-mode .sq-note-textarea { border-color: var(--pk-border) !important; background: var(--pk-bg) !important; }
+        body.pink-mode .sq-note-textarea:focus { border-color: var(--pk) !important; box-shadow: 0 0 0 3px rgba(233, 30, 99, 0.1) !important; }
+
+        /* Submit button — "Zapisz wycenę" */
+        body.pink-mode .sq-save-btn { background: var(--pk) !important; border-color: var(--pk) !important; }
+        body.pink-mode .sq-save-btn:hover { background: var(--pk-dark) !important; box-shadow: 0 4px 12px rgba(233, 30, 99, 0.3) !important; }
+
+        /* Success screen (modal 3) */
+        body.pink-mode .sq-success-icon { background: var(--pk) !important; color: #fff !important; }
+        body.pink-mode .sq-success-title { color: var(--pk-dark) !important; }
+        body.pink-mode .sq-success-number { color: var(--pk) !important; }
+        body.pink-mode .sq-success-text { color: var(--pk-hover) !important; }
+        body.pink-mode .sq-success-btn.sq-btn-primary { background: var(--pk) !important; border-color: var(--pk) !important; color: #fff !important; }
+        body.pink-mode .sq-success-btn.sq-btn-primary:hover { background: var(--pk-dark) !important; }
+        body.pink-mode .sq-success-btn.sq-btn-secondary { border-color: var(--pk) !important; background: var(--pk-lighter) !important; color: var(--pk) !important; }
+
+        /* Multiplier select */
+        body.pink-mode .sq-multiplier-select:focus { border-color: var(--pk) !important; box-shadow: 0 0 0 3px rgba(233, 30, 99, 0.1) !important; }
+        body.pink-mode .sq-multiplier-badge { color: var(--pk) !important; }
+
+        /* Globalne teksty w modalu zapisu */
+        body.pink-mode .sq-modal-container label,
+        body.pink-mode .sq-modal-container .sq-step-desc,
+        body.pink-mode .sq-modal-container p { color: var(--pk-dark) !important; }
+
+        /* === GRADIENT BUTTONS === */
+        body.pink-mode [style*="linear-gradient"] { background: linear-gradient(135deg, var(--pk) 0%, var(--pk-hover) 100%) !important; }
+
+        /* === DRAFT STATUS === */
+        body.pink-mode .draft-save-btn { background: var(--pk) !important; border-color: var(--pk) !important; }
+        body.pink-mode .draft-save-btn:hover { background: var(--pk-dark) !important; }
+
+        /* === MAIN SECTIONS (Produkt, Produkty, Kalkulacja, Wykończenie, Podsumowanie) === */
+        body.pink-mode .product-data,
+        body.pink-mode .products-summary-main,
+        body.pink-mode .calculations-main,
+        body.pink-mode .finishing-section,
+        body.pink-mode .quote-summary,
+        body.pink-mode .edges-section,
+        body.pink-mode .edges-header { background: var(--pk-light) !important; }
+
+        /* === INNER SECTION BACKGROUNDS === */
+        body.pink-mode .brutto-netto-section,
+        body.pink-mode .edges-controls,
+        body.pink-mode .edges-preview-container,
+        body.pink-mode .variant-list,
+        body.pink-mode .variant-list li,
+        body.pink-mode .variant-details,
+        body.pink-mode .delivery-modal-form-grid,
+        body.pink-mode .delivery-modal-packing-info,
+        body.pink-mode .sq-form-group,
+        body.pink-mode .sq-summary-row,
+        body.pink-mode .options-summary,
+        body.pink-mode .finishing-options-summary,
+        body.pink-mode .edges-options-summary { background: var(--pk-lighter) !important; }
+
+        body.pink-mode .product-footer,
+        body.pink-mode .edges-row,
+        body.pink-mode .edges-input-group,
+        body.pink-mode .dimension-row,
+        body.pink-mode .shape-canvas-wrapper,
+        body.pink-mode .shape-controls { background: var(--pk-bg) !important; }
+
+        /* === ALL GRAY BACKGROUNDS → pudrowy róż === */
+        body.pink-mode [style*="background: #f5f5f5"],
+        body.pink-mode [style*="background: #F5F5F5"],
+        body.pink-mode [style*="background: #f8f9fa"],
+        body.pink-mode [style*="background: #F8F9FA"],
+        body.pink-mode [style*="background: #fafafa"],
+        body.pink-mode [style*="background: #FAFAFA"],
+        body.pink-mode [style*="background: #f9f9f9"] { background: var(--pk-lighter) !important; }
+
+        /* === WHITE BACKGROUNDS → pudrowy róż === */
+        body.pink-mode .modal-overlay,
+        body.pink-mode .modal-content { background: var(--pk-bg) !important; }
+
+        /* === H2 & ALL TITLE UNDERLINES === */
+        body.pink-mode .title-with-underline-h2::after,
+        body.pink-mode .title-with-underline-h4::after { background: var(--pk) !important; }
+
+        /* === GRAY TEXT → pink-toned === */
+        body.pink-mode .form-label,
+        body.pink-mode .field-label,
+        body.pink-mode .helper-text,
+        body.pink-mode .sq-form-label,
+        body.pink-mode .delivery-modal-form-label,
+        body.pink-mode .product-subtitle,
+        body.pink-mode .edge-label,
+        body.pink-mode .info-text,
+        body.pink-mode .note-text,
+        body.pink-mode .input-txt-bold,
+        body.pink-mode .input-txt,
+        body.pink-mode .options-summary-label,
+        body.pink-mode .products-summary-header span,
+        body.pink-mode .variant-label,
+        body.pink-mode .finishing-option-label { color: #AD1457 !important; }
+
+        body.pink-mode h2,
+        body.pink-mode .title-with-underline-h2 { color: var(--pk-dark) !important; }
+
+        body.pink-mode .sq-form-group:has(.sq-form-input:focus) > .sq-form-label,
+        body.pink-mode .sq-form-group.sq-has-select:has(.sq-form-input:focus) > .sq-form-label { color: var(--pk) !important; }
+
+        /* === SECONDARY/OUTLINE BUTTONS === */
+        body.pink-mode .btn-secondary,
+        body.pink-mode .btn-outline,
+        body.pink-mode .modal-action-btn,
+        body.pink-mode .edges-header .modal-trigger { color: var(--pk) !important; border-color: var(--pk-border) !important; }
+        body.pink-mode .btn-secondary:hover,
+        body.pink-mode .btn-outline:hover,
+        body.pink-mode .modal-action-btn:hover,
+        body.pink-mode .edges-header .modal-trigger:hover { background: var(--pk-light) !important; border-color: var(--pk) !important; }
+
+        /* === BRUTTO/NETTO TOGGLE === */
+        body.pink-mode .calculator-controls { background: var(--pk-light) !important; border-color: var(--pk-border) !important; }
+        body.pink-mode .toggle-switch { background: var(--pk-border) !important; }
+        body.pink-mode .brutto-netto-toggle { background: var(--pk-light) !important; }
+        body.pink-mode .brutto-netto-toggle label { color: var(--pk-dark) !important; }
+
+        /* === SAVE MODAL EXTRAS === */
+        body.pink-mode .sq-form-input { border-color: var(--pk-border) !important; background: var(--pk-lighter) !important; }
+        body.pink-mode .sq-form-input:focus { border-color: var(--pk) !important; }
+        body.pink-mode .sq-section-title { color: var(--pk-dark) !important; }
+        body.pink-mode .sq-section-title::after { background: var(--pk) !important; }
+
+        /* === DELIVERY EXTRAS === */
+        body.pink-mode .delivery-modal-content { background: var(--pk-bg) !important; }
+        body.pink-mode .delivery-modal-btn { background: var(--pk) !important; }
+        body.pink-mode .delivery-modal-btn:hover { background: var(--pk-dark) !important; }
+        body.pink-mode .delivery-modal-back { color: var(--pk) !important; }
+        body.pink-mode .delivery-modal-back:hover { background: var(--pk-light) !important; }
+
+        /* === EDGES MODAL === */
+        body.pink-mode .edges-modal-container { background: var(--pk-bg) !important; }
+        body.pink-mode .edges-modal-header { background: var(--pk) !important; }
+        body.pink-mode .edges-modal-body { background: var(--pk-bg) !important; }
+        body.pink-mode .edges-modal-footer { background: var(--pk-lighter) !important; border-color: var(--pk-border) !important; }
+        body.pink-mode .edges-apply-btn { background: var(--pk) !important; }
+        body.pink-mode .edges-apply-btn:hover { background: var(--pk-dark) !important; }
+
+        /* Quick actions */
+        body.pink-mode .edges-quick-btn { background: var(--pk-lighter) !important; border-color: var(--pk-border) !important; }
+        body.pink-mode .edges-quick-btn:hover { background: var(--pk) !important; color: #fff !important; border-color: var(--pk) !important; }
+        body.pink-mode .edges-quick-btn-deselect:hover { background: var(--pk-dark) !important; border-color: var(--pk-dark) !important; }
+
+        /* Type selector & params */
+        body.pink-mode .edges-type-selector { background: var(--pk-lighter) !important; }
+        body.pink-mode .edges-type-selector select { background: var(--pk-bg) !important; border-color: var(--pk-border) !important; }
+        body.pink-mode .edges-type-selector select:focus { border-color: var(--pk) !important; }
+        body.pink-mode .edges-params-group { background: var(--pk-lighter) !important; }
+        body.pink-mode .edges-param input { border-color: var(--pk-border) !important; background: var(--pk-bg) !important; }
+        body.pink-mode .edges-param input:focus { border-color: var(--pk) !important; }
+        body.pink-mode .edges-param span { color: var(--pk-hover) !important; }
+        body.pink-mode .edges-angle-param { border-color: var(--pk-border) !important; }
+        body.pink-mode .edges-angle-btn { border-color: var(--pk-border) !important; background: var(--pk-bg) !important; }
+        body.pink-mode .edges-angle-btn:hover { border-color: var(--pk) !important; background: var(--pk-lighter) !important; }
+        body.pink-mode .edges-angle-btn.active { background: var(--pk) !important; border-color: var(--pk) !important; color: #fff !important; }
+
+        /* Section headers */
+        body.pink-mode .edges-modal-body .edges-section h4 { border-color: var(--pk) !important; color: var(--pk-dark) !important; }
+        body.pink-mode .edges-modal-body .edges-group h5 { color: var(--pk) !important; }
+
+        /* Labels & text */
+        body.pink-mode .edges-type-selector label,
+        body.pink-mode .edges-param label { color: var(--pk-dark) !important; }
+        body.pink-mode .edges-quick-btn { color: var(--pk-dark) !important; }
+
+        /* Edge items */
+        body.pink-mode .edges-item { background: var(--pk-lighter) !important; border-color: var(--pk-border) !important; }
+        body.pink-mode .edges-item:hover,
+        body.pink-mode .edges-item.hover { background: var(--pk-light) !important; border-color: var(--pk) !important; }
+        body.pink-mode .edges-item.selected { background: var(--pk-light) !important; border-color: var(--pk) !important; }
+        body.pink-mode .edges-item.selected:hover,
+        body.pink-mode .edges-item.selected.hover { background: var(--pk-border) !important; }
+        body.pink-mode .edges-item:hover .edges-letter,
+        body.pink-mode .edges-item.hover .edges-letter,
+        body.pink-mode .edges-item.selected .edges-letter { background: var(--pk) !important; }
+        body.pink-mode .edges-checkbox input[type="checkbox"] { accent-color: var(--pk) !important; }
+        body.pink-mode .edges-letter { background: var(--pk-hover) !important; }
+        body.pink-mode .edges-name { color: var(--pk-dark) !important; }
+        body.pink-mode .edges-length { color: var(--pk-hover) !important; }
+
+        /* Footer kwoty */
+        body.pink-mode .edges-price-brutto { color: var(--pk) !important; }
+        body.pink-mode .edges-price-netto { color: var(--pk-dark) !important; }
+        body.pink-mode .edges-price-label { color: var(--pk-hover) !important; }
+
+        /* Przycisk Ukryj etykiety w modalu */
+        body.pink-mode .edges-toggle-labels { background: var(--pk-lighter) !important; border-color: var(--pk-border) !important; color: var(--pk-dark) !important; }
+        body.pink-mode .edges-toggle-labels:hover { background: var(--pk-light) !important; }
+
+        /* Inline edges in calculator */
+        body.pink-mode .edges-input,
+        body.pink-mode .edges-select { background: var(--pk-lighter) !important; border-color: var(--pk-border) !important; }
+        body.pink-mode .edges-input:focus,
+        body.pink-mode .edges-select:focus { border-color: var(--pk) !important; }
+
+        /* === DRAFT STATUS BADGE === */
+        body.pink-mode .draft-status-badge { background: var(--pk-lighter) !important; border-color: var(--pk-border) !important; }
+
+        /* === BORDERS CATCH-ALL === */
+        body.pink-mode .costs-table td,
+        body.pink-mode .costs-table th,
+        body.pink-mode table td,
+        body.pink-mode table th { border-color: var(--pk-border-light) !important; }
+
+        /* === ORANGE TINTED BACKGROUNDS → pink tint === */
+        body.pink-mode .product-card.active .product-header { background: var(--pk-tint-active) !important; }
+
+        /* === "Łącznie" w sekcji Produkty === */
+        body.pink-mode .products-total-summary { background: var(--pk-light) !important; border-color: var(--pk-border) !important; }
+        body.pink-mode .products-total-summary:hover { background: var(--pk-border) !important; border-color: var(--pk) !important; }
+        body.pink-mode .products-total-details { color: var(--pk) !important; }
+        body.pink-mode .products-total-title { color: var(--pk-dark) !important; }
+
+        /* === Floating labels w sekcji Produkt (tło na uniesionej etykiecie) === */
+        body.pink-mode .product-inputs > div:has(.input-window:focus) > .input-txt,
+        body.pink-mode .product-inputs > div:has(.input-window:not(:placeholder-shown)) > .input-txt,
+        body.pink-mode .product-inputs .client-type > .input-txt,
+        body.pink-mode .product-inputs .product-shape > .input-txt,
+        body.pink-mode .product-inputs .quantity:has(.qty-input:focus) > .input-txt,
+        body.pink-mode .product-inputs .quantity:has(.qty-input:not(:placeholder-shown)) > .input-txt { background: var(--pk-light) !important; color: var(--pk-dark) !important; }
+
+        /* === H2 w sekcji Krawędzie === */
+        body.pink-mode .edges-section h2,
+        body.pink-mode .edges-section .title-with-underline-h2 { color: var(--pk-dark) !important; }
+
+        /* === Nagłówki tabeli wariantów w Kalkulacji === */
+        body.pink-mode .variants-header { background: var(--pk-light) !important; border-color: var(--pk-border) !important; }
+        body.pink-mode .variant-option.selected { background: var(--pk-lighter) !important; border-left-color: var(--pk) !important; border-bottom-color: var(--pk) !important; }
+        body.pink-mode .variant-option.selected .option-title { color: var(--pk-dark) !important; }
+
+        /* === Podsumowanie wyceny — bordy wierszy === */
+        body.pink-mode .order-summary,
+        body.pink-mode .finishing-summary { border-color: var(--pk-border) !important; }
+        body.pink-mode .delivery-summary { border-color: var(--pk) !important; }
+
+        /* === Kwoty — kalkulacja + podsumowanie === */
+        body.pink-mode .unit-brutto,
+        body.pink-mode .unit-netto,
+        body.pink-mode .total-brutto,
+        body.pink-mode .total-netto,
+        body.pink-mode .order-brutto,
+        body.pink-mode .order-netto,
+        body.pink-mode .finishing-brutto,
+        body.pink-mode .finishing-netto,
+        body.pink-mode .delivery-brutto,
+        body.pink-mode .delivery-netto,
+        body.pink-mode .final-brutto,
+        body.pink-mode .final-netto,
+        body.pink-mode .courier { color: var(--pk) !important; }
+
+        /* === Przyciski Wykończenie === */
+        body.pink-mode .finishing-btn { background: var(--pk-lighter) !important; border-color: var(--pk-border) !important; }
+        body.pink-mode .finishing-btn:hover { background: var(--pk-light) !important; border-color: var(--pk-hover) !important; }
+        body.pink-mode .finishing-btn.active { background: var(--pk) !important; color: #fff !important; border-color: var(--pk) !important; }
+
+        /* === Przyciski koloru wykończenia === */
+        body.pink-mode .color-btn { border-color: var(--pk-border) !important; background: var(--pk-lighter) !important; }
+        body.pink-mode .color-btn:hover { border-color: var(--pk-hover) !important; }
+        body.pink-mode .color-btn.active { border-color: var(--pk) !important; background: var(--pk-light) !important; }
+
+        /* === GLOBAL: szare obrysy → różowe === */
+        body.pink-mode .product-data,
+        body.pink-mode .calculations-main,
+        body.pink-mode .finishing-section,
+        body.pink-mode .quote-summary,
+        body.pink-mode .edges-section,
+        body.pink-mode .products-summary-main,
+        body.pink-mode .products-summary-container,
+        body.pink-mode .variant-option,
+        body.pink-mode .finishing-level,
+        body.pink-mode .workspace-row { border-color: var(--pk-border) !important; }
+
+        /* === Quantity +/- buttons === */
+        body.pink-mode .qty-btn { background: var(--pk-light) !important; color: var(--pk-dark) !important; }
+        body.pink-mode .qty-btn:hover { background: var(--pk-border) !important; color: var(--pk-dark) !important; }
+        body.pink-mode .qty-btn:active { background: var(--pk) !important; color: #fff !important; }
+
+        /* === Disabled buttons === */
+        body.pink-mode button:disabled,
+        body.pink-mode button.disabled,
+        body.pink-mode .btn-primary:disabled,
+        body.pink-mode .finishing-btn:disabled,
+        body.pink-mode .finishing-btn.disabled,
+        body.pink-mode input:disabled,
+        body.pink-mode select:disabled { background: var(--pk-bg) !important; border-color: var(--pk-border-light) !important; color: var(--pk-border) !important; opacity: 0.6; }
+
+        /* === SCROLLBARS === */
+        body.pink-mode ::-webkit-scrollbar-thumb { background: var(--pk-hover) !important; }
+        body.pink-mode ::-webkit-scrollbar-track { background: var(--pk-light) !important; }
+    </style>
+    <script>
+    (function() {
+        if (localStorage.getItem('pink-mode') === 'true') {
+            document.body.classList.add('pink-mode');
+        }
+
+        var h1 = document.querySelector('.calculator-header-row .page-title');
+        if (!h1) return;
+        h1.addEventListener('dblclick', function() {
+            document.body.classList.add('pink-transition');
+            document.body.classList.toggle('pink-mode');
+            localStorage.setItem('pink-mode', document.body.classList.contains('pink-mode'));
+            setTimeout(function() {
+                document.body.classList.remove('pink-transition');
+            }, 700);
+        });
+    })();
+    </script>
 </body>
 </html>
