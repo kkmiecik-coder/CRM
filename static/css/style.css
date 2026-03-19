@@ -1941,7 +1941,7 @@ select.select-input {
 /* === MAIN MODULES === */
 .main-modules {
     display: flex;
-    padding: 0px 30px 30px 30px;
+    padding: 0px 30px 8px;
     flex-direction: column;
     align-items: flex-start;
     gap: 4px;
@@ -1950,7 +1950,7 @@ select.select-input {
 }
 
 .sidebar.collapsed .main-modules {
-    padding: 0px 16px 30px 16px;
+    padding: 0px 16px 8px 16px;
 }
 
 .menu-options-list {
@@ -2045,7 +2045,7 @@ select.select-input {
 }
 
 .sidebar.collapsed .extra-modules {
-    padding: 30px 16px;
+    padding: 8px 16px;
 }
 
 /* === SHORTS SECTION === */
@@ -2075,7 +2075,7 @@ select.select-input {
 }
 
 .sidebar.collapsed .shorts-title {
-    opacity: 0;
+    display: none;
     pointer-events: none;
 }
 

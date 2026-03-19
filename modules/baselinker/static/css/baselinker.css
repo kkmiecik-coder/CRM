@@ -1289,6 +1289,15 @@
         box-shadow: 0 4px 12px rgba(66, 132, 243, 0.2);
     }
 
+@media (max-width: 768px) {
+    .quotes-details-modal-box.quote-ordered {
+        border: none !important;
+        border-top: 3px solid #4284F3 !important;
+        box-shadow: none !important;
+        border-radius: 0;
+    }
+}
+
 /* ===================================
    UTILITY CLASSES
    =================================== */

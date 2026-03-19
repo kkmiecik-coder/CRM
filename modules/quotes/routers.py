@@ -820,7 +820,8 @@ def get_quote_details(quote_id):
                 "first_name": quote.client.client_name if quote.client else None,  # Imię i nazwisko
                 "last_name": "",  # W bazie nie ma oddzielnych pól
                 "email": quote.client.email if quote.client else None,
-                "phone": quote.client.phone if quote.client else None
+                "phone": quote.client.phone if quote.client else None,
+                "nip": quote.client.invoice_nip if quote.client else None
             },
             "user": {
                 "id": quote.user.id if quote.user else None,
