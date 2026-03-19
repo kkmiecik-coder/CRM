@@ -953,6 +953,35 @@
     border: none;
 }
 
+@media (min-width: 769px) {
+    .quotes-details-modal-grid {
+        gap: 0;
+        border: 1px solid #dcdcdc;
+        border-radius: 8px;
+        overflow-x: clip;
+        overflow-y: visible;
+    }
+
+    .quotes-details-modal-grid .modal-block {
+        border-radius: 0;
+        border: none;
+        border-right: 1px solid #ececec;
+        border-bottom: 1px solid #ececec;
+    }
+
+    .quotes-details-modal-grid .modal-block:last-child {
+        border-right: none;
+    }
+
+    .quotes-details-modal-grid .modal-block-costs .quotes-details-modal-subtitle {
+        border-radius: 0;
+    }
+
+    .quotes-details-modal-grid .note-title-row {
+        border-radius: 0;
+    }
+}
+
 .modal-block {
     display: flex;
     flex-direction: column;
@@ -5458,7 +5487,7 @@
     font-family: inherit;
     font-size: 12px;
     line-height: 1.5;
-    resize: vertical;
+    resize: none;
     transition: all 0.2s ease;
     flex: 1;
 }

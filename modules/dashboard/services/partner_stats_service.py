@@ -23,7 +23,8 @@ def get_partner_dashboard_stats(user):
     
     try:
         now = datetime.now()
-        
+        prev_month = now.replace(day=1) - timedelta(days=1)
+
         # Wszystkie wyceny partnera z tego miesiąca
         month_quotes = Quote.query.filter(
             Quote.user_id == user.id,
@@ -45,18 +46,25 @@ def get_partner_dashboard_stats(user):
         # Zamówione (mają base_linker_order_id)
         ordered_quotes = [q for q in month_quotes if q.base_linker_order_id is not None]
         ordered_count = len(ordered_quotes)
-        
+
+        # Statusy wykluczone z wartości netto (anulowane/błędne zamówienia)
+        excluded_statuses = {'Odrzucone', 'Rezygnacja'}
+        excluded_status_ids = {s.id for s in QuoteStatus.query.filter(QuoteStatus.name.in_(excluded_statuses)).all()}
+
         # Oblicz współczynniki
         acceptance_rate = 0.0
         ordered_rate = 0.0
-        
+
         if month_count > 0:
             acceptance_rate = (accepted_count / month_count) * 100
             ordered_rate = (ordered_count / month_count) * 100
-        
+
         # Oblicz wartość netto zamówień (produkty + wykończenie, bez wysyłki)
+        # Pomijamy wyceny odrzucone/rezygnacja (anulowane lub błędnie złożone)
         ordered_value_net = 0.0
         for quote in ordered_quotes:
+            if quote.status_id in excluded_status_ids:
+                continue
             # Produkty netto
             selected_items = quote.items.filter_by(is_selected=True).all()
             quote_products_net = sum(item.get_total_price_netto() for item in selected_items)
@@ -69,7 +77,28 @@ def get_partner_dashboard_stats(user):
             )
 
             ordered_value_net += quote_products_net + quote_finishing_net
-        
+
+        # Wartość netto za poprzedni miesiąc (ta sama logika)
+        prev_ordered_quotes = Quote.query.filter(
+            Quote.user_id == user.id,
+            Quote.base_linker_order_id.isnot(None),
+            extract('year', Quote.created_at) == prev_month.year,
+            extract('month', Quote.created_at) == prev_month.month
+        ).all()
+
+        prev_ordered_value_net = 0.0
+        for quote in prev_ordered_quotes:
+            if quote.status_id in excluded_status_ids:
+                continue
+            selected_items = quote.items.filter_by(is_selected=True).all()
+            quote_products_net = sum(item.get_total_price_netto() for item in selected_items)
+            finishing_details = db.session.query(QuoteItemDetails).filter_by(quote_id=quote.id).all()
+            quote_finishing_net = sum(
+                float(d.finishing_price_netto or 0) + float(d.edges_price_netto or 0)
+                for d in finishing_details
+            )
+            prev_ordered_value_net += quote_products_net + quote_finishing_net
+
         # Ostatnie wyceny partnera (5 najnowszych)
         recent_quotes = Quote.query.filter_by(user_id=user.id)\
             .order_by(Quote.created_at.desc())\
@@ -106,7 +135,8 @@ def get_partner_dashboard_stats(user):
                 'acceptance_rate': round(acceptance_rate, 1),
                 'ordered_count': ordered_count,
                 'ordered_rate': round(ordered_rate, 1),
-                'ordered_value_net': round(ordered_value_net, 2)
+                'ordered_value_net': round(ordered_value_net, 2),
+                'prev_ordered_value_net': round(prev_ordered_value_net, 2)
             },
             'recent': {
                 'quotes': recent_quotes_data
@@ -129,7 +159,8 @@ def get_partner_dashboard_stats(user):
                 'acceptance_rate': 0.0,
                 'ordered_count': 0,
                 'ordered_rate': 0.0,
-                'ordered_value_net': 0.0
+                'ordered_value_net': 0.0,
+                'prev_ordered_value_net': 0.0
             },
             'recent': {'quotes': []}
         }
