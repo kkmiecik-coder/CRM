@@ -1,5 +1,5 @@
 # modules/quotes/routers.py
-from flask import render_template, jsonify, request, make_response, current_app, send_file, Blueprint, session, redirect, url_for, flash, abort
+from flask import render_template, jsonify, request, make_response, current_app, send_file, send_from_directory, Blueprint, session, redirect, url_for, flash, abort
 from . import quotes_bp
 from modules.calculator.models import Quote, User, QuoteItemDetails, QuoteItem, QuoteLog, Multiplier
 from modules.clients.models import Client
@@ -1518,6 +1518,129 @@ def update_quote_note(quote_id):
             "error": "Błąd podczas aktualizacji notatki",
             "message": str(e)
         }), 500
+
+
+@quotes_bp.route('/api/quotes/<int:quote_id>/attachment', methods=['PATCH'])
+@require_module_access('quotes')
+def upload_quote_attachment(quote_id):
+    """Upload lub podmiana załącznika wyceny"""
+    try:
+        quote = Quote.query.get_or_404(quote_id)
+
+        if quote.base_linker_order_id:
+            return jsonify({
+                "error": "Nie można zmieniać załącznika - zamówienie zostało już złożone w Baselinker"
+            }), 403
+
+        file = request.files.get('attachment')
+        if not file:
+            return jsonify({"error": "Nie przesłano pliku"}), 400
+
+        from modules.quotes.services.attachment_service import save_attachment
+        success, error = save_attachment(file, quote)
+        if not success:
+            return jsonify({"error": error}), 400
+
+        # Logowanie
+        user_email = session.get('user_email')
+        user = db.session.execute(
+            text("SELECT id FROM users WHERE email = :email"),
+            {'email': user_email}
+        ).fetchone()
+
+        if user:
+            log_entry = QuoteLog(
+                quote_id=quote_id,
+                user_id=user.id,
+                description=f"Dodano/zmieniono załącznik: {quote.attachment_filename}"
+            )
+            db.session.add(log_entry)
+
+        db.session.commit()
+
+        return jsonify({
+            "message": "Załącznik został zapisany",
+            "attachment": {
+                "filename": quote.attachment_filename
+            }
+        })
+
+    except Exception as e:
+        db.session.rollback()
+        print(f"[upload_quote_attachment] Błąd: {e}", file=sys.stderr)
+        return jsonify({"error": "Błąd podczas zapisywania załącznika"}), 500
+
+
+@quotes_bp.route('/api/quotes/<int:quote_id>/attachment', methods=['DELETE'])
+@require_module_access('quotes')
+def delete_quote_attachment(quote_id):
+    """Usunięcie załącznika wyceny"""
+    try:
+        quote = Quote.query.get_or_404(quote_id)
+
+        if quote.base_linker_order_id:
+            return jsonify({
+                "error": "Nie można usunąć załącznika - zamówienie zostało już złożone w Baselinker"
+            }), 403
+
+        if not quote.attachment_filename:
+            return jsonify({"error": "Wycena nie ma załącznika"}), 404
+
+        from modules.quotes.services.attachment_service import delete_attachment
+        old_filename = quote.attachment_filename
+        delete_attachment(quote)
+
+        # Logowanie
+        user_email = session.get('user_email')
+        user = db.session.execute(
+            text("SELECT id FROM users WHERE email = :email"),
+            {'email': user_email}
+        ).fetchone()
+
+        if user:
+            log_entry = QuoteLog(
+                quote_id=quote_id,
+                user_id=user.id,
+                description=f"Usunięto załącznik: {old_filename}"
+            )
+            db.session.add(log_entry)
+
+        db.session.commit()
+
+        return jsonify({"message": "Załącznik został usunięty"})
+
+    except Exception as e:
+        db.session.rollback()
+        print(f"[delete_quote_attachment] Błąd: {e}", file=sys.stderr)
+        return jsonify({"error": "Błąd podczas usuwania załącznika"}), 500
+
+
+@quotes_bp.route('/api/quotes/<int:quote_id>/attachment', methods=['GET'])
+@require_module_access('quotes')
+def get_quote_attachment(quote_id):
+    """Serwuje plik załącznika do pobrania/wyświetlenia"""
+    try:
+        quote = Quote.query.get_or_404(quote_id)
+
+        if not quote.attachment_stored_name:
+            return jsonify({"error": "Wycena nie ma załącznika"}), 404
+
+        from modules.quotes.services.attachment_service import UPLOAD_FOLDER
+        filepath = os.path.join(UPLOAD_FOLDER, quote.attachment_stored_name)
+
+        if not os.path.exists(filepath):
+            return jsonify({"error": "Plik załącznika nie został znaleziony na serwerze"}), 404
+
+        return send_from_directory(
+            UPLOAD_FOLDER,
+            quote.attachment_stored_name,
+            download_name=quote.attachment_filename,
+            as_attachment=False
+        )
+
+    except Exception as e:
+        print(f"[get_quote_attachment] Błąd: {e}", file=sys.stderr)
+        return jsonify({"error": "Błąd podczas pobierania załącznika"}), 500
 
 
 @quotes_bp.route('/api/quotes/<int:quote_id>/reassign-client', methods=['PATCH'])
