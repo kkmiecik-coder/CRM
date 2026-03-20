@@ -744,6 +744,72 @@ select.sq-form-input {
    NOTE SECTION
    ================================ */
 
+/* Attachment section in save modal */
+.sq-attachment-section {
+    margin-top: 12px;
+}
+.sq-attachment-wrapper {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+.sq-attachment-label {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-secondary, #6b7280);
+}
+.sq-attachment-input-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.sq-attachment-file-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    border: 1px solid var(--border-color, #d1d5db);
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 13px;
+    color: var(--text-secondary, #6b7280);
+    background: var(--bg-secondary, #f9fafb);
+    transition: all 0.15s ease;
+    white-space: nowrap;
+}
+.sq-attachment-file-btn:hover {
+    border-color: var(--primary-color, #3b82f6);
+    color: var(--primary-color, #3b82f6);
+}
+.sq-attachment-filename {
+    font-size: 13px;
+    color: var(--text-primary, #374151);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 200px;
+}
+.sq-attachment-remove {
+    background: none;
+    border: none;
+    color: var(--text-secondary, #9ca3af);
+    cursor: pointer;
+    font-size: 16px;
+    padding: 2px 6px;
+    border-radius: 4px;
+    transition: color 0.15s ease;
+}
+.sq-attachment-remove:hover {
+    color: #ef4444;
+}
+.sq-attachment-info {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: var(--text-tertiary, #9ca3af);
+}
+
 .sq-note-section {
     margin-top: 24px;
     padding: 20px;

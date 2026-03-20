@@ -26,6 +26,95 @@ document.addEventListener('DOMContentLoaded', function () {
     let quoteSources = null;
     let quoteSourcesLoaded = false;
 
+    // ===== ATTACHMENT HANDLING =====
+    const ATTACHMENT_MAX_SIZE = 1 * 1024 * 1024;
+    const ATTACHMENT_BLOCKED_EXT = new Set([
+        'exe','bat','sh','php','py','js','cmd','ps1','vbs','com','msi','scr',
+        'cgi','pl','rb','jar','war','bash','zsh','fish','pif','application',
+        'gadget','hta','inf','reg','rgs','sct','shb','ws','wsf','wsh'
+    ]);
+
+    let selectedAttachmentFile = null;
+    let existingAttachmentName = null;
+    let attachmentRemoved = false;
+
+    function initAttachment() {
+        const fileInput = document.getElementById('attachmentFileInput');
+        const filenameSpan = document.getElementById('attachmentFilename');
+        const removeBtn = document.getElementById('attachmentRemoveBtn');
+        if (!fileInput) return;
+
+        fileInput.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+            const ext = file.name.split('.').pop().toLowerCase();
+            if (ATTACHMENT_BLOCKED_EXT.has(ext)) {
+                showGlobalError(`Niedozwolone rozszerzenie pliku: .${ext}`);
+                fileInput.value = '';
+                return;
+            }
+            if (file.size > ATTACHMENT_MAX_SIZE) {
+                showGlobalError(`Plik jest za duży (${Math.round(file.size/1024)} KB). Maks. 1 MB.`);
+                fileInput.value = '';
+                return;
+            }
+            selectedAttachmentFile = file;
+            attachmentRemoved = false;
+            filenameSpan.textContent = file.name;
+            filenameSpan.style.display = 'inline';
+            removeBtn.style.display = 'inline';
+        });
+
+        removeBtn.addEventListener('click', () => {
+            selectedAttachmentFile = null;
+            attachmentRemoved = true;
+            fileInput.value = '';
+            filenameSpan.style.display = 'none';
+            removeBtn.style.display = 'none';
+        });
+    }
+
+    async function uploadAttachmentAfterSave(quoteId) {
+        if (attachmentRemoved && existingAttachmentName) {
+            try {
+                await fetch(`/quotes/api/quotes/${quoteId}/attachment`, { method: 'DELETE' });
+            } catch (err) {
+                console.error('[save_quote] Błąd usuwania załącznika:', err);
+            }
+            return;
+        }
+        if (!selectedAttachmentFile) return;
+        try {
+            const formData = new FormData();
+            formData.append('attachment', selectedAttachmentFile);
+            const resp = await fetch(`/quotes/api/quotes/${quoteId}/attachment`, {
+                method: 'PATCH',
+                body: formData
+            });
+            if (!resp.ok) {
+                const data = await resp.json();
+                console.error('[save_quote] Błąd uploadu załącznika:', data.error);
+            }
+        } catch (err) {
+            console.error('[save_quote] Błąd uploadu załącznika:', err);
+        }
+    }
+
+    function resetAttachmentState() {
+        selectedAttachmentFile = null;
+        existingAttachmentName = null;
+        attachmentRemoved = false;
+        const fileInput = document.getElementById('attachmentFileInput');
+        const filenameSpan = document.getElementById('attachmentFilename');
+        const removeBtn = document.getElementById('attachmentRemoveBtn');
+        if (fileInput) fileInput.value = '';
+        if (filenameSpan) { filenameSpan.style.display = 'none'; filenameSpan.textContent = ''; }
+        if (removeBtn) removeBtn.style.display = 'none';
+    }
+
+    // Initialize attachment handling
+    initAttachment();
+
     // ===== DEBOUNCE HELPER =====
     function debounce(func, delay) {
         let timeout;
@@ -110,6 +199,7 @@ document.addEventListener('DOMContentLoaded', function () {
     openBtn?.addEventListener('click', async () => {
         modal.style.display = 'flex';
         clearAllErrors();
+        resetAttachmentState();
 
         // Załaduj źródła wycen (tylko przy pierwszym otwarciu)
         await loadQuoteSources();
@@ -146,6 +236,18 @@ document.addEventListener('DOMContentLoaded', function () {
                 var toggleBtn = document.getElementById('toggleNoteBtn');
                 if (noteSection) noteSection.style.display = '';
                 if (toggleBtn) toggleBtn.classList.add('active');
+            }
+
+            // Załaduj istniejący załącznik w trybie edycji
+            if (window.quoteEditMode && window.quoteEditMode.attachmentFilename) {
+                existingAttachmentName = window.quoteEditMode.attachmentFilename;
+                const filenameSpan = document.getElementById('attachmentFilename');
+                const removeBtn = document.getElementById('attachmentRemoveBtn');
+                if (filenameSpan) {
+                    filenameSpan.textContent = existingAttachmentName;
+                    filenameSpan.style.display = 'inline';
+                }
+                if (removeBtn) removeBtn.style.display = 'inline';
             }
 
             // Renderuj podsumowanie
@@ -806,6 +908,10 @@ document.addEventListener('DOMContentLoaded', function () {
                 } else {
                     // Sukces - przejdź do kroku 3
                     showStep(stepSuccess);
+                    // Upload/usunięcie załącznika po aktualizacji wyceny
+                    if (data.quote_id) {
+                        await uploadAttachmentAfterSave(data.quote_id);
+                    }
                     showEditSuccessStep(data);
                 }
 
@@ -858,6 +964,11 @@ document.addEventListener('DOMContentLoaded', function () {
                 } else {
                     // Sukces - przejdź do kroku 3
                     showStep(stepSuccess);
+
+                    // Upload załącznika po zapisaniu wyceny
+                    if (data.quote_id) {
+                        await uploadAttachmentAfterSave(data.quote_id);
+                    }
 
                     // Wyświetl numer wyceny
                     const quoteNumberDisplay = document.getElementById('quoteNumberDisplay');

@@ -159,6 +159,7 @@ def load_quote_for_edit(edit_uuid, current_user):
                     "shippingBrutto": float(quote.shipping_cost_brutto) if quote.shipping_cost_brutto else 0,
                     "notes": quote.notes or "",
                     "source": quote.source,
+                    "attachment_filename": quote.attachment_filename,
                 },
                 "products": products,
             }

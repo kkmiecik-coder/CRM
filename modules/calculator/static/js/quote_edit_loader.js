@@ -458,6 +458,7 @@ class QuoteEditLoader {
             client: this.quoteData.client,
             notes: this.quoteData.settings.notes,
             source: this.quoteData.settings.source,
+            attachmentFilename: this.quoteData.settings.attachment_filename || null,
         };
 
         // Klasa na body
