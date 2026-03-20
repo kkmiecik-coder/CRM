@@ -1041,7 +1041,7 @@
     color: #ECEDEF;
     text-transform: uppercase;
     letter-spacing: 0.5px;
-    padding: 9px 10px;
+    padding: 8px 10px;
     border-bottom: 1px solid #ececec;
     text-align: left;
     white-space: nowrap;
@@ -5423,17 +5423,12 @@
 }
 
 /* Attachment section */
-.attachment-body {
-    margin-top: 12px;
-    padding-top: 12px;
-    border-top: 1px solid var(--border-color, #e5e7eb);
-}
-
 .attachment-display {
     display: flex;
     align-items: center;
     justify-content: space-between;
     gap: 8px;
+    padding: 10px;
 }
 
 .attachment-info {
@@ -5490,22 +5485,29 @@
     color: #ef4444;
 }
 
-.attachment-upload-label {
-    display: inline-flex;
+.attachment-upload-cell {
+    display: flex;
     align-items: center;
-    gap: 6px;
-    padding: 6px 10px;
-    border: 1px dashed var(--border-color, #d1d5db);
-    border-radius: 6px;
+    justify-content: center;
+    gap: 8px;
+    width: 100%;
+    padding: 15px;
+    border-radius: 0 0 6px 0;
     cursor: pointer;
     font-size: 13px;
     color: var(--text-secondary, #6b7280);
     transition: all 0.15s ease;
 }
 
-.attachment-upload-label:hover {
-    border-color: var(--primary-color, #3b82f6);
-    color: var(--primary-color, #3b82f6);
+.attachment-upload-cell:hover {
+    background: var(--primary-color, #3b82f6);
+    color: #fff;
+}
+
+@media (max-width: 768px) {
+    .attachment-upload-cell {
+        border-radius: 0 0 6px 6px;
+    }
 }
 
 .note-title-row {

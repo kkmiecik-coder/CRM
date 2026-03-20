@@ -562,7 +562,6 @@ select.sq-form-input {
 .sq-note-toggle {
     display: inline-flex;
     align-items: center;
-    align-self: flex-end;
     gap: 6px;
     padding: 8px 16px;
     border: 1.5px solid #D0D5DD;
@@ -744,24 +743,28 @@ select.sq-form-input {
    NOTE SECTION
    ================================ */
 
-/* Attachment section in save modal */
-.sq-attachment-section {
-    margin-top: 12px;
+/* Attachment + note row in save modal */
+.sq-attachment-note-row {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
 }
-.sq-attachment-wrapper {
+.sq-attachment-inline {
     display: flex;
     flex-direction: column;
-    gap: 6px;
+    gap: 4px;
+}
+.sq-attachment-controls {
+    display: flex;
+    align-items: center;
+    gap: 8px;
 }
 .sq-attachment-label {
     font-size: 13px;
     font-weight: 500;
     color: var(--text-secondary, #6b7280);
-}
-.sq-attachment-input-row {
-    display: flex;
-    align-items: center;
-    gap: 8px;
+    white-space: nowrap;
 }
 .sq-attachment-file-btn {
     display: inline-flex;
@@ -808,6 +811,7 @@ select.sq-form-input {
     gap: 6px;
     font-size: 12px;
     color: var(--text-tertiary, #9ca3af);
+    margin-top: 4px;
 }
 
 .sq-note-section {

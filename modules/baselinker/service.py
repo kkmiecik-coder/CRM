@@ -923,7 +923,7 @@ class BaselinkerService:
 
                     order_data['custom_extra_fields']['159647'] = {
                         'title': quote.attachment_filename,
-                        'file': f'data:{mime_type};base64,{b64_content}'
+                        'file': f'data:{b64_content}'
                     }
 
                     self.logger.info("Dodano załącznik wyceny do zamówienia",

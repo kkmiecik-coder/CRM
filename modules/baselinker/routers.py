@@ -807,6 +807,7 @@ def get_order_modal_data(quote_id):
                 'notes': quote.notes or '',
                 'quote_type': quote_type,
                 'attachment_filename': quote.attachment_filename,
+                'attachment_stored_name': quote.attachment_stored_name,
             },
             'client': client_data,
             'products': products,

@@ -1114,7 +1114,7 @@ class BaselinkerModal {
             fileRow.style.display = 'flex';
             uploadRow.style.display = 'none';
             link.textContent = quote.attachment_filename;
-            link.href = `/quotes/api/quotes/${quote.id}/attachment`;
+            link.href = `/quotes/api/attachment/${quote.attachment_stored_name}`;
             checkbox.checked = true;
         } else {
             fileRow.style.display = 'none';

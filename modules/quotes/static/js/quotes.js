@@ -3516,13 +3516,13 @@ function initializeAttachmentSection(quoteData) {
         displaySection.style.display = 'flex';
         uploadSection.style.display = 'none';
         link.textContent = quoteData.attachment_filename;
-        link.href = `/quotes/api/quotes/${quoteData.id}/attachment`;
+        link.href = `/quotes/api/attachment/${quoteData.attachment_stored_name}`;
         if (isOrdered && editActions) {
             editActions.style.display = 'none';
         }
     } else {
         displaySection.style.display = 'none';
-        uploadSection.style.display = isOrdered ? 'none' : 'block';
+        uploadSection.style.display = isOrdered ? 'none' : 'flex';
     }
 
     if (uploadInput) {
@@ -3572,8 +3572,10 @@ async function uploadAttachment(quoteId, file) {
         const link = document.getElementById('attachment-link');
         displaySection.style.display = 'flex';
         uploadSection.style.display = 'none';
+        const editActions = document.getElementById('attachment-edit-actions');
+        if (editActions) editActions.style.display = 'flex';
         link.textContent = data.attachment.filename;
-        link.href = `/quotes/api/quotes/${quoteId}/attachment`;
+        link.href = `/quotes/api/attachment/${data.attachment.stored_name}`;
         if (currentQuoteData) {
             currentQuoteData.attachment_filename = data.attachment.filename;
         }
@@ -3596,7 +3598,7 @@ async function deleteAttachment(quoteId) {
         const displaySection = document.getElementById('attachment-display');
         const uploadSection = document.getElementById('attachment-upload-section');
         displaySection.style.display = 'none';
-        uploadSection.style.display = 'block';
+        uploadSection.style.display = 'flex';
         if (currentQuoteData) {
             currentQuoteData.attachment_filename = null;
         }

@@ -132,13 +132,33 @@
                         </div>
                     </div>
 
-                    <!-- Toggle notatki (pod tabelą, w sekcji podsumowania) -->
-                    <button type="button" class="sq-note-toggle" id="toggleNoteBtn">
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                            <path d="M12 5v14M5 12h14"/>
-                        </svg>
-                        Dodaj notatkę
-                    </button>
+                    <!-- Wiersz: Załącznik + Dodaj notatkę -->
+                    <div class="sq-attachment-note-row">
+                        <div class="sq-attachment-inline" id="attachmentSection">
+                            <div class="sq-attachment-controls">
+                                <label class="sq-attachment-label">Załącznik:</label>
+                                <label class="sq-attachment-file-btn" id="attachmentFileBtn">
+                                    <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" style="opacity:0.6">
+                                        <path d="M4.5 3a2.5 2.5 0 0 1 5 0v9a1.5 1.5 0 0 1-3 0V5a.5.5 0 0 1 1 0v7a.5.5 0 0 0 1 0V3a1.5 1.5 0 1 0-3 0v9a2.5 2.5 0 0 0 5 0V5a.5.5 0 0 1 1 0v7a3.5 3.5 0 1 1-7 0V3z"/>
+                                    </svg>
+                                    Wybierz plik
+                                    <input type="file" id="attachmentFileInput" style="display:none;">
+                                </label>
+                                <span class="sq-attachment-filename" id="attachmentFilename" style="display:none;"></span>
+                                <button type="button" class="sq-attachment-remove" id="attachmentRemoveBtn" style="display:none;" title="Usuń załącznik">✕</button>
+                            </div>
+                            <div class="sq-attachment-info">
+                                <span class="sq-info-icon">ℹ️</span>
+                                <span>Maks. 1 MB. Załącznik zostanie zapisany z wyceną.</span>
+                            </div>
+                        </div>
+                        <button type="button" class="sq-note-toggle" id="toggleNoteBtn">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M12 5v14M5 12h14"/>
+                            </svg>
+                            Dodaj notatkę
+                        </button>
+                    </div>
                 </div>
             </div>
 
@@ -158,28 +178,6 @@
                     <div class="sq-note-info">
                         <span class="sq-info-icon">ℹ️</span>
                         <span>Przy składaniu zamówienia ta notatka zostanie przekazana do Base.</span>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Sekcja Załącznik -->
-            <div class="sq-attachment-section" id="attachmentSection">
-                <div class="sq-attachment-wrapper">
-                    <label class="sq-attachment-label">Załącznik</label>
-                    <div class="sq-attachment-input-row">
-                        <label class="sq-attachment-file-btn" id="attachmentFileBtn">
-                            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" style="opacity:0.6">
-                                <path d="M4.5 3a2.5 2.5 0 0 1 5 0v9a1.5 1.5 0 0 1-3 0V5a.5.5 0 0 1 1 0v7a.5.5 0 0 0 1 0V3a1.5 1.5 0 1 0-3 0v9a2.5 2.5 0 0 0 5 0V5a.5.5 0 0 1 1 0v7a3.5 3.5 0 1 1-7 0V3z"/>
-                            </svg>
-                            Wybierz plik
-                            <input type="file" id="attachmentFileInput" style="display:none;">
-                        </label>
-                        <span class="sq-attachment-filename" id="attachmentFilename" style="display:none;"></span>
-                        <button type="button" class="sq-attachment-remove" id="attachmentRemoveBtn" style="display:none;" title="Usuń załącznik">✕</button>
-                    </div>
-                    <div class="sq-attachment-info">
-                        <span class="sq-info-icon">ℹ️</span>
-                        <span>Maks. 1 MB. Załącznik zostanie zapisany z wyceną.</span>
                     </div>
                 </div>
             </div>

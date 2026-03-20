@@ -771,6 +771,7 @@ def get_quote_details(quote_id):
             "public_url": quote.get_public_url(),
             "notes": quote.notes or "",
             "attachment_filename": quote.attachment_filename,
+            "attachment_stored_name": quote.attachment_stored_name,
             
             # ✅ NOWE: Informacja o trybie wyceny (brutto/netto)
             "quote_type": quote.quote_type if quote.quote_type else "brutto",
@@ -1521,12 +1522,28 @@ def update_quote_note(quote_id):
         }), 500
 
 
+def _check_quote_access(quote):
+    """Sprawdza czy aktualny użytkownik ma dostęp do wyceny. Partner widzi tylko swoje."""
+    user_id = session.get('user_id')
+    if not user_id:
+        return False
+    user = User.query.get(user_id)
+    if not user:
+        return False
+    if user.role == 'partner' and quote.user_id != user_id:
+        return False
+    return True
+
+
 @quotes_bp.route('/api/quotes/<int:quote_id>/attachment', methods=['PATCH'])
 @require_module_access('quotes')
 def upload_quote_attachment(quote_id):
     """Upload lub podmiana załącznika wyceny"""
     try:
         quote = Quote.query.get_or_404(quote_id)
+
+        if not _check_quote_access(quote):
+            return jsonify({"error": "Brak dostępu do tej wyceny"}), 403
 
         if quote.base_linker_order_id:
             return jsonify({
@@ -1562,7 +1579,8 @@ def upload_quote_attachment(quote_id):
         return jsonify({
             "message": "Załącznik został zapisany",
             "attachment": {
-                "filename": quote.attachment_filename
+                "filename": quote.attachment_filename,
+                "stored_name": quote.attachment_stored_name
             }
         })
 
@@ -1578,6 +1596,9 @@ def delete_quote_attachment(quote_id):
     """Usunięcie załącznika wyceny"""
     try:
         quote = Quote.query.get_or_404(quote_id)
+
+        if not _check_quote_access(quote):
+            return jsonify({"error": "Brak dostępu do tej wyceny"}), 403
 
         if quote.base_linker_order_id:
             return jsonify({
@@ -1616,15 +1637,17 @@ def delete_quote_attachment(quote_id):
         return jsonify({"error": "Błąd podczas usuwania załącznika"}), 500
 
 
-@quotes_bp.route('/api/quotes/<int:quote_id>/attachment', methods=['GET'])
+@quotes_bp.route('/api/attachment/<path:stored_name>', methods=['GET'])
 @require_module_access('quotes')
-def get_quote_attachment(quote_id):
-    """Serwuje plik załącznika do pobrania/wyświetlenia"""
+def get_quote_attachment(stored_name):
+    """Serwuje plik załącznika po nazwie pliku na dysku (UUID + nazwa)"""
     try:
-        quote = Quote.query.get_or_404(quote_id)
+        quote = Quote.query.filter_by(attachment_stored_name=stored_name).first()
+        if not quote:
+            return jsonify({"error": "Załącznik nie został znaleziony"}), 404
 
-        if not quote.attachment_stored_name:
-            return jsonify({"error": "Wycena nie ma załącznika"}), 404
+        if not _check_quote_access(quote):
+            return jsonify({"error": "Brak dostępu do tej wyceny"}), 403
 
         from modules.quotes.services.attachment_service import UPLOAD_FOLDER
         filepath = os.path.join(UPLOAD_FOLDER, quote.attachment_stored_name)
