@@ -196,6 +196,8 @@ modules/partner_academy/static/media/nda_users/
 modules/sales/static/media/nda_users/
 modules/preview3d_ar/static/ar-models/temp/
 modules/preview3d_ar/static/ar-models/cache/
+modules/quotes/uploads/quote_attachments/*
+!modules/quotes/uploads/quote_attachments/.gitkeep
 
 # IDE / Edytory
 .claude/
