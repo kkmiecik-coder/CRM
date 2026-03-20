@@ -906,6 +906,35 @@ class BaselinkerService:
                                 products_count=len(spec_products))
                 # Kontynuuj bez PDF - nie blokuj zamówienia
 
+        # Dodaj załącznik z wyceny do custom_extra_fields (jeśli zaznaczono)
+        if config.get('include_attachment') and quote.attachment_stored_name:
+            try:
+                from modules.quotes.services.attachment_service import get_attachment_path
+                import base64
+                import mimetypes
+
+                att_path = get_attachment_path(quote)
+                if att_path:
+                    with open(att_path, 'rb') as f:
+                        file_content = f.read()
+
+                    mime_type = mimetypes.guess_type(quote.attachment_filename)[0] or 'application/octet-stream'
+                    b64_content = base64.b64encode(file_content).decode('utf-8')
+
+                    order_data['custom_extra_fields']['159647'] = {
+                        'title': quote.attachment_filename,
+                        'file': f'data:{mime_type};base64,{b64_content}'
+                    }
+
+                    self.logger.info("Dodano załącznik wyceny do zamówienia",
+                                    filename=quote.attachment_filename,
+                                    size_kb=round(len(file_content) / 1024, 2))
+            except Exception as e:
+                self.logger.error("Błąd dodawania załącznika do zamówienia",
+                                error=str(e),
+                                filename=quote.attachment_filename)
+                # Kontynuuj bez załącznika - nie blokuj zamówienia
+
         return order_data
     
     def _generate_sku(self, item, finishing_details=None):

@@ -103,6 +103,34 @@
                                 <span class="bl-delivery-option" data-value="Transport WoodPower">Transport WoodPower</span>
                             </div>
                         </div>
+
+                        <div class="bl-style-form-group bl-attachment-group" id="bl-attachment-group">
+                            <div class="bl-attachment-row">
+                                <label class="bl-style-checkbox-label">
+                                    <input type="checkbox" id="bl-attach-file-checkbox" checked>
+                                    <span>Załącz plik do zamówienia</span>
+                                </label>
+                            </div>
+                            <div class="bl-attachment-file-row" id="bl-attachment-file-row">
+                                <a id="bl-attachment-link" href="#" target="_blank" class="bl-attachment-filename"></a>
+                                <label class="bl-attachment-change-btn" title="Zmień załącznik">
+                                    <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
+                                        <path d="M11.013 1.427a1.75 1.75 0 012.474 0l1.086 1.086a1.75 1.75 0 010 2.474l-8.61 8.61c-.21.21-.47.364-.756.445l-3.251.93a.75.75 0 01-.927-.928l.929-3.25a1.75 1.75 0 01.445-.758l8.61-8.61z" />
+                                    </svg>
+                                    <input type="file" id="bl-attachment-file-input" style="display:none;">
+                                </label>
+                                <button type="button" id="bl-attachment-remove-btn" class="bl-attachment-remove-btn" title="Usuń">&#10005;</button>
+                            </div>
+                            <div class="bl-attachment-upload-row" id="bl-attachment-upload-row" style="display:none;">
+                                <label class="bl-attachment-upload-btn">
+                                    <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" style="opacity:0.6">
+                                        <path d="M4.5 3a2.5 2.5 0 0 1 5 0v9a1.5 1.5 0 0 1-3 0V5a.5.5 0 0 1 1 0v7a.5.5 0 0 0 1 0V3a1.5 1.5 0 1 0-3 0v9a2.5 2.5 0 0 0 5 0V5a.5.5 0 0 1 1 0v7a3.5 3.5 0 1 1-7 0V3z"/>
+                                    </svg>
+                                    Dodaj załącznik
+                                    <input type="file" id="bl-attachment-new-input" style="display:none;">
+                                </label>
+                            </div>
+                        </div>
                     </div>
                 </div>
 

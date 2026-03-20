@@ -1009,6 +1009,9 @@ class BaselinkerModal {
         // 5. SETUP EVENT LISTENERS - POPRAWIONY
         this.setupConfigurationEventListeners();
 
+        // 5b. ATTACHMENT SECTION
+        this.initAttachmentSection();
+
         // 6. OPÓŹNIONA WALIDACJA I SETUP
         setTimeout(() => {
             // Debug wartości
@@ -1087,6 +1090,92 @@ class BaselinkerModal {
                 }
             });
         });
+    }
+
+    initAttachmentSection() {
+        const group = document.getElementById('bl-attachment-group');
+        const checkbox = document.getElementById('bl-attach-file-checkbox');
+        const fileRow = document.getElementById('bl-attachment-file-row');
+        const uploadRow = document.getElementById('bl-attachment-upload-row');
+        const link = document.getElementById('bl-attachment-link');
+        const changeInput = document.getElementById('bl-attachment-file-input');
+        const removeBtn = document.getElementById('bl-attachment-remove-btn');
+        const newInput = document.getElementById('bl-attachment-new-input');
+
+        if (!group) return;
+
+        const quote = this.modalData.quote;
+        const hasAttachment = !!quote.attachment_filename;
+
+        this._attachmentFile = null;
+        this._attachmentRemoved = false;
+
+        if (hasAttachment) {
+            fileRow.style.display = 'flex';
+            uploadRow.style.display = 'none';
+            link.textContent = quote.attachment_filename;
+            link.href = `/quotes/api/quotes/${quote.id}/attachment`;
+            checkbox.checked = true;
+        } else {
+            fileRow.style.display = 'none';
+            uploadRow.style.display = 'block';
+            checkbox.checked = false;
+        }
+
+        const validateFile = (file) => {
+            const ext = file.name.split('.').pop().toLowerCase();
+            const blocked = new Set([
+                'exe','bat','sh','php','py','js','cmd','ps1','vbs','com','msi','scr',
+                'cgi','pl','rb','jar','war','bash','zsh','fish','pif','application',
+                'gadget','hta','inf','reg','rgs','sct','shb','ws','wsf','wsh'
+            ]);
+            if (blocked.has(ext)) return `Niedozwolone rozszerzenie: .${ext}`;
+            if (file.size > 1024 * 1024) return `Plik za duży (${Math.round(file.size/1024)} KB). Maks. 1 MB.`;
+            return null;
+        };
+
+        if (changeInput) {
+            changeInput.addEventListener('change', (e) => {
+                const file = e.target.files[0];
+                if (!file) return;
+                const err = validateFile(file);
+                if (err) { this.showAlert(err, 'error'); changeInput.value = ''; return; }
+                this._attachmentFile = file;
+                this._attachmentRemoved = false;
+                link.textContent = file.name;
+                fileRow.style.display = 'flex';
+                uploadRow.style.display = 'none';
+                checkbox.checked = true;
+                changeInput.value = '';
+            });
+        }
+
+        if (removeBtn) {
+            removeBtn.addEventListener('click', () => {
+                this._attachmentFile = null;
+                this._attachmentRemoved = true;
+                fileRow.style.display = 'none';
+                uploadRow.style.display = 'block';
+                checkbox.checked = false;
+            });
+        }
+
+        if (newInput) {
+            newInput.addEventListener('change', (e) => {
+                const file = e.target.files[0];
+                if (!file) return;
+                const err = validateFile(file);
+                if (err) { this.showAlert(err, 'error'); newInput.value = ''; return; }
+                this._attachmentFile = file;
+                this._attachmentRemoved = false;
+                link.textContent = file.name;
+                link.href = '#';
+                fileRow.style.display = 'flex';
+                uploadRow.style.display = 'none';
+                checkbox.checked = true;
+                newInput.value = '';
+            });
+        }
     }
 
     populateClientData() {
@@ -1484,6 +1573,32 @@ class BaselinkerModal {
                 // NOWE: Dodaj dane klienta do zamówienia
                 client_data: currentClientData
             };
+
+            // Upload/delete attachment before creating order
+            const attachCheckbox = document.getElementById('bl-attach-file-checkbox');
+            const includeAttachment = attachCheckbox && attachCheckbox.checked;
+            const quoteId = this.modalData.quote.id;
+
+            if (this._attachmentFile) {
+                const formData = new FormData();
+                formData.append('attachment', this._attachmentFile);
+                try {
+                    await fetch(`/quotes/api/quotes/${quoteId}/attachment`, {
+                        method: 'PATCH',
+                        body: formData
+                    });
+                } catch (err) {
+                    console.error('[Baselinker] Błąd uploadu załącznika:', err);
+                }
+            } else if (this._attachmentRemoved) {
+                try {
+                    await fetch(`/quotes/api/quotes/${quoteId}/attachment`, { method: 'DELETE' });
+                } catch (err) {
+                    console.error('[Baselinker] Błąd usuwania załącznika:', err);
+                }
+            }
+
+            orderData.include_attachment = includeAttachment && !this._attachmentRemoved;
 
             console.log('[Baselinker] 📤 FINALNE dane zamówienia z danymi klienta:', orderData);
 

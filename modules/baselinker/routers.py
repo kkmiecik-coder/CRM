@@ -805,7 +805,8 @@ def get_order_modal_data(quote_id):
                 'status_name': quote.quote_status.name if quote.quote_status else 'Nieznany',
                 'status_id': quote.status_id,
                 'notes': quote.notes or '',
-                'quote_type': quote_type
+                'quote_type': quote_type,
+                'attachment_filename': quote.attachment_filename,
             },
             'client': client_data,
             'products': products,

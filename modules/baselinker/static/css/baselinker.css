@@ -1635,3 +1635,65 @@
         gap: 16px;
     }
 }
+
+/* Attachment in order modal */
+.bl-attachment-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 6px;
+}
+.bl-attachment-file-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.bl-attachment-filename {
+    font-size: 13px;
+    color: var(--primary-color, #3b82f6);
+    text-decoration: none;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 200px;
+}
+.bl-attachment-filename:hover {
+    text-decoration: underline;
+}
+.bl-attachment-change-btn {
+    cursor: pointer;
+    color: var(--text-secondary, #6b7280);
+    padding: 2px 4px;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+}
+.bl-attachment-change-btn:hover {
+    color: var(--primary-color, #3b82f6);
+}
+.bl-attachment-remove-btn {
+    background: none;
+    border: none;
+    color: var(--text-secondary, #9ca3af);
+    cursor: pointer;
+    font-size: 14px;
+    padding: 2px 4px;
+}
+.bl-attachment-remove-btn:hover {
+    color: #ef4444;
+}
+.bl-attachment-upload-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 10px;
+    border: 1px dashed var(--border-color, #d1d5db);
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 13px;
+    color: var(--text-secondary, #6b7280);
+}
+.bl-attachment-upload-btn:hover {
+    border-color: var(--primary-color, #3b82f6);
+    color: var(--primary-color, #3b82f6);
+}
