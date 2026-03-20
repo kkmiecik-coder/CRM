@@ -419,6 +419,10 @@ class Quote(db.Model):
     # Notatki
     notes = db.Column(db.Text)
 
+    # Załącznik
+    attachment_filename = db.Column(db.String(255), nullable=True)
+    attachment_stored_name = db.Column(db.String(255), nullable=True)
+
     # UUID do edycji - bezpieczny identyfikator zamiast ID w URL
     edit_uuid = db.Column(db.String(36), unique=True, nullable=True, default=lambda: str(uuid.uuid4()))
 
