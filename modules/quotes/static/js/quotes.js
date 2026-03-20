@@ -690,6 +690,7 @@ function showDetailsModal(quoteData) {
 
     // Inicjalizacja sekcji notatki
     initializeNoteSection(quoteData);
+    initializeAttachmentSection(quoteData);
 
     modal.classList.add('active');
     console.log('[MODAL] Modal powinien być teraz widoczny! Data:', quoteData);
@@ -3470,6 +3471,139 @@ function updateNoteCounter(textarea, counter, warningDiv) {
     // Zaktualizuj ostrzeżenie o długości
     if (warningDiv) {
         updateNoteLengthWarning(textarea.value, warningDiv);
+    }
+}
+
+// ===== ATTACHMENT SECTION =====
+
+const ATTACHMENT_MAX_SIZE = 1 * 1024 * 1024; // 1 MB
+const ATTACHMENT_BLOCKED_EXTENSIONS = new Set([
+    'exe', 'bat', 'sh', 'php', 'py', 'js', 'cmd', 'ps1',
+    'vbs', 'com', 'msi', 'scr', 'cgi', 'pl', 'rb', 'jar', 'war',
+    'bash', 'zsh', 'fish', 'pif', 'application', 'gadget',
+    'hta', 'inf', 'reg', 'rgs', 'sct', 'shb', 'ws', 'wsf', 'wsh'
+]);
+
+function validateAttachmentFile(file) {
+    if (!file) return 'Nie wybrano pliku';
+    const ext = file.name.split('.').pop().toLowerCase();
+    if (ATTACHMENT_BLOCKED_EXTENSIONS.has(ext)) {
+        return `Niedozwolone rozszerzenie pliku: .${ext}`;
+    }
+    if (file.size > ATTACHMENT_MAX_SIZE) {
+        const sizeKB = Math.round(file.size / 1024);
+        return `Plik jest za duży (${sizeKB} KB). Maksymalny rozmiar to 1 MB.`;
+    }
+    if (file.size === 0) return 'Plik jest pusty';
+    return null;
+}
+
+function initializeAttachmentSection(quoteData) {
+    const displaySection = document.getElementById('attachment-display');
+    const uploadSection = document.getElementById('attachment-upload-section');
+    const editActions = document.getElementById('attachment-edit-actions');
+    const link = document.getElementById('attachment-link');
+    const deleteBtn = document.getElementById('delete-attachment-btn');
+    const replaceInput = document.getElementById('attachment-replace-input');
+    const uploadInput = document.getElementById('attachment-upload-input');
+
+    if (!displaySection || !uploadSection) return;
+
+    const isOrdered = !!quoteData.base_linker_order_id;
+    const hasAttachment = !!quoteData.attachment_filename;
+
+    if (hasAttachment) {
+        displaySection.style.display = 'flex';
+        uploadSection.style.display = 'none';
+        link.textContent = quoteData.attachment_filename;
+        link.href = `/quotes/api/quotes/${quoteData.id}/attachment`;
+        if (isOrdered && editActions) {
+            editActions.style.display = 'none';
+        }
+    } else {
+        displaySection.style.display = 'none';
+        uploadSection.style.display = isOrdered ? 'none' : 'block';
+    }
+
+    if (uploadInput) {
+        uploadInput.addEventListener('change', async (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+            const error = validateAttachmentFile(file);
+            if (error) { showToast(error, 'error'); uploadInput.value = ''; return; }
+            await uploadAttachment(quoteData.id, file);
+            uploadInput.value = '';
+        });
+    }
+
+    if (replaceInput) {
+        replaceInput.addEventListener('change', async (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+            const error = validateAttachmentFile(file);
+            if (error) { showToast(error, 'error'); replaceInput.value = ''; return; }
+            await uploadAttachment(quoteData.id, file);
+            replaceInput.value = '';
+        });
+    }
+
+    if (deleteBtn) {
+        deleteBtn.addEventListener('click', async () => {
+            if (!confirm('Czy na pewno chcesz usunąć załącznik?')) return;
+            await deleteAttachment(quoteData.id);
+        });
+    }
+}
+
+async function uploadAttachment(quoteId, file) {
+    try {
+        const formData = new FormData();
+        formData.append('attachment', file);
+        const response = await fetch(`/quotes/api/quotes/${quoteId}/attachment`, {
+            method: 'PATCH',
+            body: formData
+        });
+        const data = await response.json();
+        if (!response.ok) {
+            throw new Error(data.error || 'Błąd podczas zapisywania załącznika');
+        }
+        const displaySection = document.getElementById('attachment-display');
+        const uploadSection = document.getElementById('attachment-upload-section');
+        const link = document.getElementById('attachment-link');
+        displaySection.style.display = 'flex';
+        uploadSection.style.display = 'none';
+        link.textContent = data.attachment.filename;
+        link.href = `/quotes/api/quotes/${quoteId}/attachment`;
+        if (currentQuoteData) {
+            currentQuoteData.attachment_filename = data.attachment.filename;
+        }
+        showToast('Załącznik został zapisany', 'success');
+    } catch (error) {
+        console.error('[ATTACHMENT] Błąd uploadu:', error);
+        showToast(error.message || 'Błąd podczas zapisywania załącznika', 'error');
+    }
+}
+
+async function deleteAttachment(quoteId) {
+    try {
+        const response = await fetch(`/quotes/api/quotes/${quoteId}/attachment`, {
+            method: 'DELETE'
+        });
+        const data = await response.json();
+        if (!response.ok) {
+            throw new Error(data.error || 'Błąd podczas usuwania załącznika');
+        }
+        const displaySection = document.getElementById('attachment-display');
+        const uploadSection = document.getElementById('attachment-upload-section');
+        displaySection.style.display = 'none';
+        uploadSection.style.display = 'block';
+        if (currentQuoteData) {
+            currentQuoteData.attachment_filename = null;
+        }
+        showToast('Załącznik został usunięty', 'success');
+    } catch (error) {
+        console.error('[ATTACHMENT] Błąd usuwania:', error);
+        showToast(error.message || 'Błąd podczas usuwania załącznika', 'error');
     }
 }
 

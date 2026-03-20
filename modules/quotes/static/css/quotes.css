@@ -5422,6 +5422,92 @@
     flex-direction: column;
 }
 
+/* Attachment section */
+.attachment-body {
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border-color, #e5e7eb);
+}
+
+.attachment-display {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.attachment-info {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+}
+
+.attachment-icon {
+    flex-shrink: 0;
+    opacity: 0.6;
+}
+
+.attachment-filename {
+    color: var(--primary-color, #3b82f6);
+    text-decoration: none;
+    font-size: 13px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.attachment-filename:hover {
+    text-decoration: underline;
+}
+
+.attachment-actions {
+    display: flex;
+    gap: 4px;
+    flex-shrink: 0;
+}
+
+.attachment-replace-btn,
+.attachment-delete-btn {
+    background: none;
+    border: 1px solid var(--border-color, #e5e7eb);
+    border-radius: 4px;
+    padding: 4px 6px;
+    cursor: pointer;
+    color: var(--text-secondary, #6b7280);
+    display: flex;
+    align-items: center;
+    transition: all 0.15s ease;
+}
+
+.attachment-replace-btn:hover {
+    border-color: var(--primary-color, #3b82f6);
+    color: var(--primary-color, #3b82f6);
+}
+
+.attachment-delete-btn:hover {
+    border-color: #ef4444;
+    color: #ef4444;
+}
+
+.attachment-upload-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 10px;
+    border: 1px dashed var(--border-color, #d1d5db);
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 13px;
+    color: var(--text-secondary, #6b7280);
+    transition: all 0.15s ease;
+}
+
+.attachment-upload-label:hover {
+    border-color: var(--primary-color, #3b82f6);
+    color: var(--primary-color, #3b82f6);
+}
+
 .note-title-row {
     display: flex;
     justify-content: space-between;

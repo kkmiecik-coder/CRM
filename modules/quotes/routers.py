@@ -770,6 +770,7 @@ def get_quote_details(quote_id):
             "base_linker_order_id": quote.base_linker_order_id,
             "public_url": quote.get_public_url(),
             "notes": quote.notes or "",
+            "attachment_filename": quote.attachment_filename,
             
             # ✅ NOWE: Informacja o trybie wyceny (brutto/netto)
             "quote_type": quote.quote_type if quote.quote_type else "brutto",
