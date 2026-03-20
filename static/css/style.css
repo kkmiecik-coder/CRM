@@ -1,6 +1,10 @@
 /* ============================================
    Reset i Globalne Style
    ============================================ */
+:root {
+    --sidebar-collapsed-width: 80px;
+}
+
 * {
     margin: 0;
     padding: 0;
@@ -318,37 +322,6 @@ p {
     text-align: left;
 }
 
-/* Extra-modules � kontener opcji extra (np. "Zg�o� b��d", "Pomoc") */
-.extra-modules {
-    display: flex;
-    padding: 30px;
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 3px;
-    align-self: stretch;
-    border-top: 1px solid #E3E3E3; /* dodane obramowanie */
-}
-
-/* [sidebar] � g��wny kontener sidebaru */
-.sidebar {
-    position: fixed;
-    left: 0;
-    top: 0;
-    width: 308px; /* lub inna sta�a szeroko�� */
-    height: 100vh;
-    display: flex;
-    flex-direction: column;
-    justify-content: space-between; /* rozdziela panel i stopk� */
-    background: #FFF;
-    box-shadow: -2px 4px 23px -4px rgba(0, 0, 0, 0.25);
-    z-index: 1000;
-    transition: width 0.3s ease;
-}
-
-    /* Klasa dodawana przy zw�onym sidebarze */
-    .sidebar.collapsed {
-        width: 56px;
-    }
 
 /* [panel] � kontener wewn�trzny */
 .panel {
@@ -356,38 +329,6 @@ p {
     flex-direction: column;
     align-items: center;
     align-self: stretch;
-}
-
-/* [logo-section] */
-.logo-section {
-    display: flex;
-    padding: 24px 32px;
-    flex-direction: column;
-    justify-content: center;
-    align-items: center;
-    gap: 10px;
-    align-self: stretch;
-}
-
-/* [logo] */
-.logo {
-    display: flex;
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 10px;
-}
-
-.beta-tag {
-    display: inline-block;
-    padding: 5px 12px;
-    border-radius: 16px;
-    background: #ED6B24;
-    color: #FFF;
-    font-size: 12px;
-    font-family: 'Poppins', sans-serif;
-    font-weight: 600;
-    line-height: 1;
-    vertical-align: middle;
 }
 
 .panel {
@@ -411,49 +352,6 @@ p {
     cursor: pointer;
 }
 
-/* [main-modules] � kontener g��wnego menu */
-.main-modules {
-    display: flex;
-    padding: 0px 30px 30px 30px;
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 4px;
-    align-self: stretch;
-}
-
-/* [menu-options] � pojedyncza opcja menu (normalny stan) */
-.menu-options {
-    display: flex;
-    width: 248px;
-    padding: 9px 16px;
-    align-items: center;
-    gap: 12px;
-    border-radius: 26px;
-    cursor: pointer;
-    transition: background 0.2s ease;
-}
-
-.menu-options a {
-    display: flex;          /* Link staje si� kontenerem flex */
-    align-items: center;    /* Wyr�wnanie pionowe w �rodku */
-    gap: 8px;               /* Odst�p mi�dzy ikon� a tekstem */
-    text-decoration: none;  /* Usuwa podkre�lenie */
-    color: inherit;         /* Dziedziczy kolor z rodzica */
-    width: 100%;            /* Ca�y link wype�nia obszar listy */
-    height: 100%;           /* Opcjonalnie, aby obj�� ca�y element */
-}
-
-
-/* Tekst w opcji menu */
-.option-txt {
-    color: #7E7E7E;
-    font-family: Poppins, sans-serif;
-    font-size: 12px;
-    font-style: normal;
-    font-weight: 600;
-    line-height: normal;
-}
-
 /* Hover (rozszerzony sidebar) � menu-options */
 .menu-options:hover {
     background: #F2F2F2;
@@ -464,18 +362,17 @@ p {
     background: #FFE6D9;
 }
 
-    .menu-options.active .option-txt {
-        color: #ED6B24;
-    }
-
-/* Wersja collapsed (sidebar zw�ony) */
+/* Wersja collapsed (sidebar zwinięty) */
 .sidebar.collapsed .menu-options {
-    display: inline-flex;
+    display: flex;
     padding: 9px 16px;
+    justify-content: center;
 }
 
     .sidebar.collapsed .menu-options .option-txt {
         display: none;
+        pointer-events: none;
+        overflow: hidden;
     }
 
     .sidebar.collapsed .menu-options:hover {
@@ -485,29 +382,6 @@ p {
     .sidebar.collapsed .menu-options.active {
         background: #FFE6D9;
     }
-
-/* Shorts � kontener skr�t�w */
-.shorts {
-    display: flex;
-    padding: 30px 30px 0px 30px;
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 8px;
-    align-self: stretch;
-    border-top: 1px solid #E3E3E3;
-}
-
-/* Nag��wek skr�t�w */
-.shorts-title {
-    align-self: stretch;
-    color: #7E7E7E;
-    text-align: center;
-    font-family: Poppins, sans-serif;
-    font-size: 12px;
-    font-weight: 500;
-    line-height: normal;
-    margin-bottom: 8px;
-}
 
 /* Link skr�tu � ca�a linia klikalna */
 .shorts-link {
@@ -524,12 +398,6 @@ p {
     .shorts-link:hover {
         background: #F2F2F2;
     }
-
-.short-main {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-}
 
 .shorts-link .short-txt {
     margin-left: 4px;
@@ -550,23 +418,25 @@ p {
 /* Normalny stan � sidebar rozwini�ty */
 .shorts-options {
     display: flex;
-    width: 248px;
+    width: 100%;
     padding: 3px 0px;
     justify-content: space-between;
     align-items: center;
     border-radius: 26px;
     cursor: pointer;
     transition: background 0.2s ease;
+    box-sizing: border-box;
 }
 
     .shorts-options:hover {
         background: #F2F2F2;
     }
 
-/* Wersja collapsed � sidebar zw�ony */
+/* Wersja collapsed — sidebar zwinięty */
 .sidebar.collapsed .shorts-options {
-    width: 56px;
+    width: 100%;
     padding: 3px 16px;
+    justify-content: center;
 }
 
 /* Ikona skr�tu (serwisu) */
@@ -575,72 +445,6 @@ p {
     height: 24px;
     flex-shrink: 0;
 }
-
-/* Tekst skr�tu */
-.short-txt {
-    color: #7E7E7E;
-    font-family: Poppins, sans-serif;
-    font-size: 12px;
-    font-weight: 400;
-    line-height: normal;
-    margin-left: 4px;
-}
-
-/* Wersja collapsed � opcje skr�t�w, tekst ukryty */
-.sidebar.collapsed .short-txt {
-    display: none;
-}
-
-/* [footer] � stopka sidebaru */
-.footer {
-    width: 100%; /* stopka zajmuje pełną szerokość sidebara */
-    flex-shrink: 0; /* nie kurczy się */
-    display: flex;
-    align-items: center;
-    padding: 16px 10px;
-    border-top: 1px solid #E3E3E3;
-}
-
-.footer-menu {
-    display: flex;
-    flex-direction: row;
-    width: 100%;
-}
-
-.footer-menu-item {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    padding: 9px 16px;
-    border-radius: 26px;
-    text-decoration: none;
-    color: #7E7E7E;
-    transition: background 0.2s ease, color 0.2s ease;
-    cursor: pointer;
-}
-
-    .footer-menu-item:hover {
-        background: #F2F2F2;
-        color: #ED6B24;
-    }
-
-    .footer-menu-item:active {
-        background: #FFE6D9;
-    }
-
-.footer-icon {
-    display: inline-block;
-    width: 24px;
-    height: 24px;
-    flex-shrink: 0;
-    color: inherit;
-}
-
-    .footer-icon svg {
-        width: 100%;
-        height: 100%;
-        fill: currentColor;
-    }
 
 .footer-icon:has(.sidebar-avatar) {
     width: 36px;
@@ -654,16 +458,6 @@ p {
     object-fit: cover;
 }
 
-/* [footer-menu-text] – tekst w stopce */
-.footer-menu-text {
-    color: inherit;
-    font-family: Poppins, sans-serif;
-    font-size: 12px;
-    font-weight: 600;
-    line-height: normal;
-}
-
-
 /* Styl kontenera g��wnego dla modu�u zg�oszenia b��du */
 .app-container {
     display: flex;
@@ -673,11 +467,11 @@ p {
 
 /* G��wna zawarto�� modu�u */
 .main-content {
-    margin-left: 308px; /* szeroko�� sidebaru */
+    margin-left: 260px; /* fallback, overridden by JS */
     flex: 1;
     min-height: 100vh; /* sekcja g��wna przynajmniej na wysoko�� ekranu */
     overflow-y: auto; /* pionowe przewijanie, je�li zawarto�� jest wi�ksza */
-    padding: 32px 40px;
+    padding: 10px 32px;
 }
 
 /* Styl grupy formularzowej */
@@ -1297,14 +1091,6 @@ p {
         transition: all 0.2s ease;
     }
 
-.sidebar-icon {
-    display: inline-block;
-    color: #7E7E7E;
-    width: 24px;
-    height: 24px;
-    transition: color 0.2s ease;
-}
-
 .menu-options.active .sidebar-icon {
     color: #ED6B24;
 }
@@ -1807,20 +1593,52 @@ select.select-input {
 
 /* Główna zawartość - dostosowuje się do szerokości sidebara */
 .main-content {
-    margin-left: 308px;
     transition: margin-left 0.3s ease;
 }
 
     .main-content.sidebar-collapsed {
-        margin-left: 110px;
+        margin-left: var(--sidebar-collapsed-width);
     }
+
+/* Pre-JS collapsed state — applied instantly from inline script to prevent flash */
+html.sidebar-is-collapsed .sidebar {
+    width: var(--sidebar-collapsed-width);
+}
+
+html.sidebar-is-collapsed .main-content {
+    margin-left: var(--sidebar-collapsed-width);
+}
+
+html.sidebar-is-collapsed .option-txt,
+html.sidebar-is-collapsed .short-txt,
+html.sidebar-is-collapsed .link-icon,
+html.sidebar-is-collapsed .footer-menu-text,
+html.sidebar-is-collapsed .shorts-title {
+    opacity: 0;
+    width: 0;
+    overflow: hidden;
+}
+
+html.sidebar-is-collapsed .logo-main {
+    opacity: 0;
+    position: absolute;
+}
+
+html.sidebar-is-collapsed .logo-sygnet {
+    opacity: 1;
+    position: static;
+}
+
+html.sidebar-is-collapsed .sidebar-toggle {
+    transform: rotate(180deg);
+}
 
 /* === SIDEBAR === */
 .sidebar {
     position: fixed;
     left: 0;
     top: 0;
-    width: 308px;
+    width: fit-content;
     height: 100vh;
     display: flex;
     flex-direction: column;
@@ -1832,7 +1650,7 @@ select.select-input {
 }
 
     .sidebar.collapsed {
-        width: 110px;
+        width: var(--sidebar-collapsed-width);
     }
 
 /* Panel główny */
@@ -1846,7 +1664,7 @@ select.select-input {
 /* === LOGO SECTION === */
 .logo-section {
     display: flex;
-    padding: 24px 32px;
+    padding: 24px;
     flex-direction: column;
     justify-content: center;
     align-items: center;
@@ -1860,39 +1678,56 @@ select.select-input {
 }
 
 .logo {
+    position: relative;
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 10px;
+    justify-content: center;
+    height: 50px;
+    gap: 8px;
+    overflow: visible;
 }
 
-    .logo img {
-        transition: opacity 0.3s ease;
-        max-width: 100%;
-        height: auto;
-        width: 200px;
-    }
+.logo-main,
+.logo-sygnet {
+    transition: opacity 0.3s ease;
+    max-width: 100%;
+    height: auto;
+}
 
 .logo-main {
-    display: block;
+    width: 190px;
+    opacity: 1;
 }
 
 .logo-sygnet {
-    display: none;
-}
-
-.sidebar.collapsed .logo-main {
-    display: none;
-}
-
-.sidebar.collapsed .logo-sygnet {
-    display: block;
     width: 42px;
+    position: absolute;
+    opacity: 0;
+}
+
+.sidebar.logo-swap .logo-main {
+    opacity: 0;
+    position: absolute;
+}
+
+.sidebar.logo-swap .logo-sygnet {
+    opacity: 1;
+    position: static;
+}
+
+/* Fade tekstu — dodawana natychmiast przy zwijaniu, usuwana przy rozwijaniu */
+.sidebar.text-fade .option-txt,
+.sidebar.text-fade .short-txt,
+.sidebar.text-fade .link-icon,
+.sidebar.text-fade .footer-menu-text,
+.sidebar.text-fade .shorts-title {
+    opacity: 0;
 }
 
 .beta-tag {
     display: inline-block;
-    padding: 5px 12px;
+    padding: 7px 12px 4px;
     border-radius: 16px;
     background: #ED6B24;
     color: #FFF;
@@ -1906,6 +1741,7 @@ select.select-input {
     pointer-events: none;
     padding: 5px 8px;
     font-size: 11px;
+    text-align: center;
 }
 
 /* Przycisk toggle - pozycjonowanie na granicy sidebara */
@@ -1941,16 +1777,16 @@ select.select-input {
 /* === MAIN MODULES === */
 .main-modules {
     display: flex;
-    padding: 0px 30px 8px;
+    padding: 0px 16px 8px;
     flex-direction: column;
     align-items: flex-start;
-    gap: 4px;
     align-self: stretch;
     overflow: hidden;
 }
 
 .sidebar.collapsed .main-modules {
     padding: 0px 16px 8px 16px;
+    align-items: center;
 }
 
 .menu-options-list {
@@ -1965,7 +1801,7 @@ select.select-input {
 
 .menu-options {
     display: flex;
-    width: 248px;
+    width: 100%;
     padding: 9px 16px;
     align-items: center;
     gap: 12px;
@@ -1973,10 +1809,11 @@ select.select-input {
     cursor: pointer;
     transition: background 0.2s ease;
     position: relative;
+    box-sizing: border-box;
 }
 
 .sidebar.collapsed .menu-options {
-    width: 68px;
+    width: 100%;
     padding: 9px 16px;
     justify-content: center;
 }
@@ -2011,13 +1848,6 @@ select.select-input {
     white-space: nowrap;
 }
 
-.sidebar.collapsed .option-txt {
-    opacity: 0;
-    pointer-events: none;
-    position: absolute;
-    left: -9999px;
-}
-
 /* Hover states */
 .menu-options:hover {
     background: #F2F2F2;
@@ -2035,7 +1865,7 @@ select.select-input {
 /* === EXTRA MODULES === */
 .extra-modules {
     display: flex;
-    padding: 30px;
+    padding: 8px 16px;
     flex-direction: column;
     align-items: flex-start;
     gap: 3px;
@@ -2046,22 +1876,18 @@ select.select-input {
 
 .sidebar.collapsed .extra-modules {
     padding: 8px 16px;
+    align-items: center;
 }
 
 /* === SHORTS SECTION === */
 .shorts {
     display: flex;
-    padding: 30px 30px 0px 30px;
+    padding: 16px;
     flex-direction: column;
     align-items: flex-start;
-    gap: 8px;
     align-self: stretch;
     border-top: 1px solid #E3E3E3;
     overflow: hidden;
-}
-
-.sidebar.collapsed .shorts {
-    padding: 30px 16px 0px 16px;
 }
 
 .shorts-title {
@@ -2070,7 +1896,6 @@ select.select-input {
     text-align: center;
     font-size: 12px;
     font-weight: 500;
-    margin-bottom: 8px;
     transition: opacity 0.3s ease;
 }
 
@@ -2088,17 +1913,18 @@ select.select-input {
 
 .shorts-options {
     display: flex;
-    width: 248px;
+    width: 100%;
     padding: 3px 0px;
     justify-content: space-between;
     align-items: center;
     border-radius: 26px;
     cursor: pointer;
     transition: background 0.2s ease;
+    box-sizing: border-box;
 }
 
 .sidebar.collapsed .shorts-options {
-    width: 68px;
+    width: 100%;
     padding: 3px 16px;
     justify-content: center;
 }
@@ -2144,10 +1970,9 @@ select.select-input {
 }
 
 .sidebar.collapsed .short-txt {
-    opacity: 0;
+    display: none;
     pointer-events: none;
-    position: absolute;
-    left: -9999px;
+    overflow: hidden;
 }
 
 .link-icon {
@@ -2161,8 +1986,8 @@ select.select-input {
 .sidebar.collapsed .link-icon {
     opacity: 0;
     pointer-events: none;
-    position: absolute;
-    left: -9999px;
+    width: 0;
+    overflow: hidden;
 }
 
 /* === FOOTER === */
@@ -2170,33 +1995,62 @@ select.select-input {
     width: 100%;
     flex-shrink: 0;
     display: flex;
-    align-items: center;
-    padding: 16px 10px;
+    flex-direction: column;
+    padding: 0;
     border-top: 1px solid #E3E3E3;
+    overflow: hidden;
+}
+
+.footer-settings-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 30px;
+    text-decoration: none;
+    color: #7E7E7E;
+    transition: background 0.2s ease, color 0.2s ease;
+    cursor: pointer;
+    border-bottom: 1px solid #E3E3E3;
+    justify-content: center;
+}
+
+.footer-settings-item:hover {
+    background: #F2F2F2;
+    color: #ED6B24;
+}
+
+.sidebar.collapsed .footer-settings-item {
+    justify-content: center;
+    padding: 10px 16px;
+}
+
+.sidebar.collapsed .footer-settings-item .footer-menu-text {
+    opacity: 0;
+    pointer-events: none;
+    width: 0;
     overflow: hidden;
 }
 
 .footer-menu {
     display: flex;
     flex-direction: row;
-    flex-wrap: wrap;
-    justify-content: center;
     width: 100%;
-    gap: 6px 12px;
+    gap: 0;
 }
 
 .sidebar.collapsed .footer-menu {
     flex-direction: column;
-    flex-wrap: nowrap;
-    gap: 12px;
+    gap: 0;
 }
 
 .footer-menu-item {
     display: flex;
+    flex: 1;
     align-items: center;
+    justify-content: center;
     gap: 12px;
-    padding: 9px 16px;
-    border-radius: 26px;
+    padding: 12px 8px;
+    border-radius: 0;
     text-decoration: none;
     color: #7E7E7E;
     transition: background 0.2s ease, color 0.2s ease;
@@ -2205,16 +2059,23 @@ select.select-input {
 
 .sidebar.collapsed .footer-menu-item {
     justify-content: center;
-    padding: 9px;
+    padding: 12px 8px;
+    border-top: 1px solid #E3E3E3;
 }
 
-.footer-menu-item:hover {
-    background: #F2F2F2;
-    color: #ED6B24;
-}
+    .footer-menu-item:hover {
+        background: #F2F2F2;
+        color: #ED6B24;
+    }
 
-.footer-menu-item:active {
-    background: #FFE6D9;
+    .footer-menu-item:active {
+        background: #FFE6D9;
+    }
+
+.footer-menu-item--logout {
+    flex: 0 0 auto;
+    padding: 12px 22px;
+    border-left: 1px solid #E3E3E3;
 }
 
 .footer-icon {
@@ -2240,10 +2101,9 @@ select.select-input {
 }
 
 .sidebar.collapsed .footer-menu-text {
-    opacity: 0;
+    display: none;
     pointer-events: none;
-    position: absolute;
-    left: -9999px;
+    overflow: hidden;
 }
 
 /* === TOOLTIPS === */
@@ -2281,23 +2141,7 @@ select.select-input {
     }
 
 /* === RESPONSYWNOŚĆ === */
-@media (max-width: 1024px) {
-    .sidebar {
-        width: 280px;
-    }
-
-        .sidebar.collapsed {
-            width: 80px;
-        }
-
-    .main-content {
-        margin-left: 280px;
-    }
-
-        .main-content.sidebar-collapsed {
-            margin-left: 80px;
-        }
-}
+/* sidebar is fit-content, no width override needed for tablet */
 
 /* ============================================
    MOBILE RESPONSIVE - STICKY TOPBAR + SLIDE-OUT MENU
@@ -2567,24 +2411,7 @@ select.select-input {
     }
 }
 
-/* Tablet specific */
-@media (max-width: 1024px) and (min-width: 769px) {
-    .sidebar {
-        width: 280px;
-    }
-    
-    .sidebar.collapsed {
-        width: 80px;
-    }
-    
-    .main-content {
-        margin-left: 280px;
-    }
-    
-    .main-content.sidebar-collapsed {
-        margin-left: 80px;
-    }
-}
+/* Tablet specific - sidebar is fit-content, no width override needed */
 
 /* Small mobile */
 @media (max-width: 480px) {

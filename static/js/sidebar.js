@@ -55,8 +55,13 @@ document.addEventListener('DOMContentLoaded', function () {
 
             if (betaTags.length > 0 && data.version) {
                 console.log('[SIDEBAR] Aktualizuję wersję na:', data.version);
+                const isCollapsed = document.querySelector('.sidebar')?.classList.contains('collapsed')
+                    || document.documentElement.classList.contains('sidebar-is-collapsed');
                 betaTags.forEach(tag => {
-                    tag.textContent = `BETA ${data.version}`;
+                    tag.dataset.version = data.version;
+                    tag.dataset.fullText = `BETA ${data.version}`;
+                    tag.dataset.shortText = `B${data.version}`;
+                    tag.textContent = isCollapsed ? `B${data.version}` : `BETA ${data.version}`;
                 });
             } else {
                 console.log('[SIDEBAR] Brak beta-tag lub wersji w danych');
@@ -69,38 +74,134 @@ document.addEventListener('DOMContentLoaded', function () {
 
 // === FUNKCJE ZWIJANIA SIDEBARA ===
 
-function toggleSidebar() {
+// Zmierz naturalną (fit-content) szerokość sidebara
+function measureExpandedWidth() {
+    const sidebar = document.querySelector('.sidebar');
+    if (!sidebar) return 260;
+
+    // Tymczasowo usuń collapsed i fixed width, żeby zmierzyć fit-content
+    const wasCollapsed = sidebar.classList.contains('collapsed');
+    const prevWidth = sidebar.style.width;
+    const prevTransition = sidebar.style.transition;
+
+    sidebar.style.transition = 'none';
+    sidebar.classList.remove('collapsed');
+    sidebar.style.width = 'fit-content';
+
+    const expandedWidth = sidebar.getBoundingClientRect().width;
+
+    // Przywróć stan
+    sidebar.style.width = prevWidth;
+    if (wasCollapsed) sidebar.classList.add('collapsed');
+    // Force reflow przed przywróceniem transition
+    sidebar.offsetHeight;
+    sidebar.style.transition = prevTransition;
+
+    return Math.ceil(expandedWidth);
+}
+
+function getCollapsedWidth() {
+    return parseInt(getComputedStyle(document.documentElement).getPropertyValue('--sidebar-collapsed-width')) || 80;
+}
+
+function updateBetaTagText(collapsed) {
+    document.querySelectorAll('.beta-tag').forEach(tag => {
+        if (tag.dataset.shortText && tag.dataset.fullText) {
+            tag.textContent = collapsed ? tag.dataset.shortText : tag.dataset.fullText;
+        }
+    });
+}
+
+function applySidebarState(collapsed, animate) {
     const sidebar = document.querySelector('.sidebar');
     const mainContent = document.querySelector('.main-content');
+    if (!sidebar) return;
 
-    if (sidebar.classList.contains('collapsed')) {
-        // Rozwiń sidebar
-        sidebar.classList.remove('collapsed');
-        if (mainContent) {
-            mainContent.classList.remove('sidebar-collapsed');
-        }
-        localStorage.setItem('sidebarCollapsed', 'false');
+    const expandedWidth = measureExpandedWidth();
+    const collapsedWidth = getCollapsedWidth();
+
+    updateBetaTagText(collapsed);
+
+    // Logo swap + text fade — natychmiast przy każdej zmianie stanu
+    if (collapsed) {
+        sidebar.classList.add('logo-swap', 'text-fade');
     } else {
-        // Zwiń sidebar
-        sidebar.classList.add('collapsed');
-        if (mainContent) {
-            mainContent.classList.add('sidebar-collapsed');
+        sidebar.classList.remove('logo-swap', 'text-fade');
+    }
+
+    if (!animate) {
+        // Bez animacji — ustaw wszystko natychmiast
+        sidebar.style.transition = 'none';
+        if (mainContent) mainContent.style.transition = 'none';
+        sidebar.offsetHeight;
+
+        if (collapsed) {
+            sidebar.classList.add('collapsed');
+            sidebar.style.width = collapsedWidth + 'px';
+            if (mainContent) {
+                mainContent.classList.add('sidebar-collapsed');
+                mainContent.style.marginLeft = collapsedWidth + 'px';
+            }
+        } else {
+            sidebar.classList.remove('collapsed');
+            sidebar.style.width = expandedWidth + 'px';
+            if (mainContent) {
+                mainContent.classList.remove('sidebar-collapsed');
+                mainContent.style.marginLeft = expandedWidth + 'px';
+            }
         }
-        localStorage.setItem('sidebarCollapsed', 'true');
+
+        requestAnimationFrame(() => {
+            sidebar.style.transition = '';
+            if (mainContent) mainContent.style.transition = '';
+        });
+        return;
+    }
+
+    // Z animacją
+    if (collapsed) {
+        // ZWIJANIE: najpierw animuj szerokość, .collapsed dodaj po zakończeniu
+        sidebar.style.width = collapsedWidth + 'px';
+        if (mainContent) mainContent.style.marginLeft = collapsedWidth + 'px';
+
+        sidebar.addEventListener('transitionend', function onEnd(e) {
+            if (e.propertyName !== 'width') return;
+            sidebar.removeEventListener('transitionend', onEnd);
+            sidebar.classList.add('collapsed');
+            if (mainContent) mainContent.classList.add('sidebar-collapsed');
+        });
+    } else {
+        // ROZWIJANIE: najpierw usuń .collapsed (pokaż labele), potem animuj szerokość
+        sidebar.classList.remove('collapsed');
+        if (mainContent) mainContent.classList.remove('sidebar-collapsed');
+
+        // Force reflow żeby przeglądarka zobaczyła zmianę klasy przed animacją
+        sidebar.offsetHeight;
+
+        sidebar.style.width = expandedWidth + 'px';
+        if (mainContent) mainContent.style.marginLeft = expandedWidth + 'px';
     }
 }
 
-function initializeSidebar() {
+function toggleSidebar() {
     const sidebar = document.querySelector('.sidebar');
-    const mainContent = document.querySelector('.main-content');
+    if (!sidebar) return;
+
+    const isCollapsed = sidebar.classList.contains('collapsed');
+    const newState = !isCollapsed;
+
+    localStorage.setItem('sidebarCollapsed', newState ? 'true' : 'false');
+    applySidebarState(newState, true);
+}
+
+function initializeSidebar() {
     const isCollapsed = localStorage.getItem('sidebarCollapsed') === 'true';
 
-    if (isCollapsed) {
-        sidebar.classList.add('collapsed');
-        if (mainContent) {
-            mainContent.classList.add('sidebar-collapsed');
-        }
-    }
+    // Zastosuj stan bez animacji
+    applySidebarState(isCollapsed, false);
+
+    // Usuń klasę pre-JS
+    document.documentElement.classList.remove('sidebar-is-collapsed');
 }
 
 // === FUNKCJE TOOLTIPÓW ===
@@ -143,9 +244,9 @@ function showTooltip(event) {
 
     // Pozycjonowanie tooltip - zawsze po prawej stronie sidebara
     const rect = this.getBoundingClientRect();
-    const sidebarWidth = 100; // szerokość zwiniętego sidebara
+    const sidebarWidth = sidebar.getBoundingClientRect().width;
 
-    tooltip.style.left = sidebarWidth + 15 + 'px'; // 15px odstępu od sidebara
+    tooltip.style.left = sidebarWidth + 15 + 'px';
     tooltip.style.top = rect.top + (rect.height / 2) - (tooltip.offsetHeight / 2) + 'px';
 
     // Event listenery dla tooltipa

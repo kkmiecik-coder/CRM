@@ -1,3 +1,13 @@
+<script>
+// Natychmiast zastosuj stan sidebara PRZED renderowaniem — eliminuje flash
+(function() {
+    var collapsed = localStorage.getItem('sidebarCollapsed') === 'true';
+    if (collapsed) {
+        document.documentElement.classList.add('sidebar-is-collapsed');
+    }
+})();
+</script>
+
 <!-- Mobile Topbar (widoczny tylko na mobile) -->
 <div class="mobile-topbar">
     <button class="mobile-topbar-toggle" id="mobileTopbarToggle">
@@ -47,6 +57,7 @@
                     <span>Klienci</span>
                 </a>
             </li>
+            {% if user_role in ['admin', 'user'] %}
             <li class="mobile-menu-item {% if request.endpoint == 'reports.reports_home' %}active{% endif %}">
                 <a href="{{ url_for('reports.reports_home') }}">
                     <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M21.4,2.6c-.9-.9-2.1-1.4-3.3-1.4,0,0,0,0,0,0s0,0,0,0H6C3,1.3,1.2,3,1.2,6v15c0,.7.4,1.3,1,1.6.6.3,1.3.2,1.8-.2l1.7-1.3c.1,0,.2,0,.3,0l1.7,1.7c.3.3.8.5,1.2.5s.9-.2,1.2-.5l1.7-1.7c0,0,.2,0,.3,0l1.7,1.3c.5.4,1.2.5,1.8.2.6-.3,1-.9,1-1.6v-9.2h2.7c2,0,3.3-1.3,3.3-3.3v-2.4c0-1.3-.5-2.5-1.4-3.4ZM15.2,21c0,.1,0,.2-.1.2,0,0-.2,0-.3,0l-1.7-1.3c-.7-.5-1.7-.5-2.3.2l-1.7,1.7c0,0-.3,0-.4,0l-1.7-1.7c-.3-.3-.8-.5-1.2-.5s-.7.1-1.1.4l-1.7,1.3c-.1,0-.2,0-.3,0,0,0-.1,0-.1-.2V6c0-2.2,1-3.2,3.2-3.2h9.6s0,0,0,.1c0,0,0,.2-.1.3,0,0,0,.2,0,.3,0,.2,0,.4,0,.5,0,0,0,0,0,0h0v17ZM21.2,8.4c0,1.2-.7,1.8-1.8,1.8h-2.7v-6.2c0-.7.6-1.3,1.3-1.3.9,0,1.7.3,2.3.9.6.6,1,1.4,1,2.3v2.4Z"/><path d="M12,12.3h-3c-.4,0-.8.3-.8.8s.3.8.8.8h3c.4,0,.8-.3.8-.8s-.3-.8-.8-.8Z"/><path d="M12,8.3h-3c-.4,0-.8.3-.8.8s.3.8.8.8h3c.4,0,.8-.3.8-.8s-.3-.8-.8-.8Z"/><path d="M6,12h0c-.6,0-1,.4-1,1s.5,1,1,1,1-.4,1-1-.4-1-1-1Z"/><path d="M6,8h0c-.6,0-1,.4-1,1s.5,1,1,1,1-.4,1-1-.4-1-1-1Z"/></svg>
@@ -59,10 +70,12 @@
                     <span>Produkcja</span>
                 </a>
             </li>
+            {% endif %}
         </ul>
 
         <div class="mobile-menu-divider"></div>
 
+        {% if user_role in ['admin', 'user'] %}
         <ul class="mobile-menu-list mobile-menu-secondary">
             <li class="mobile-menu-item {% if request.endpoint and request.endpoint.startswith('partner_academy.admin') %}active{% endif %}">
                 <a href="{{ url_for('partner_academy.admin_dashboard') }}">
@@ -97,6 +110,7 @@
                 </a>
             </li>
         </ul>
+        {% endif %}
 
         <div class="mobile-menu-divider"></div>
 
@@ -206,6 +220,7 @@
                     </a>
                 </li>
 
+                {% if user_role in ['admin', 'user'] %}
                 <!-- Raport -->
                 <li class="menu-options {% if request.endpoint == 'reports.reports_home' %}active{% endif %}" data-sidebar-tooltip="Raport sprzedażowy">
                     <a href="{{ url_for('reports.reports_home') }}">
@@ -242,10 +257,12 @@
                         <span class="option-txt">Panel Produkcji</span>
                     </a>
                 </li>
+                {% endif %}
 
             </ul>
         </div>
 
+        {% if user_role in ['admin', 'user'] %}
         <!-- Sekcja modułów wewnętrznych -->
         <div class="extra-modules">
             <ul class="menu-options-list">
@@ -304,6 +321,7 @@
                 </li>
             </ul>
         </div>
+        {% endif %}
 
         <!-- Sekcja extra-modules (np. "Zgłoś błąd" i "Pomoc") -->
         <div class="extra-modules">
@@ -337,8 +355,8 @@
 
         <!-- Sekcja skrótów (shorts) -->
         <div class="shorts">
-            <div class="shorts-title">Skróty</div>
             <ul class="shorts-options-list">
+                {% if user_role in ['admin', 'user'] %}
                 <li class="shorts-options" data-sidebar-tooltip="Baselinker">
                     <a href="https://panel-f.baselinker.com/orders.php#status:all" target="_blank" class="shorts-link">
                         <div class="short-main">
@@ -357,6 +375,7 @@
                         <img class="link-icon" src="{{ url_for('static', filename='icons/shorts-icon/link.svg') }}" alt="Link">
                     </a>
                 </li>
+                {% endif %}
                 <li class="shorts-options" data-sidebar-tooltip="woodpower.pl">
                     <a href="https://woodpower.pl" target="_blank" class="shorts-link">
                         <div class="short-main">
@@ -372,19 +391,19 @@
 
     <!-- Sekcja stopki -->
     <div class="footer">
-        <div class="footer-menu">
-            <!-- Przycisk Ustawienia aplikacji (tylko admin) -->
-            {% if user_role == 'admin' %}
-            <a href="{{ url_for('settings.index') }}" class="footer-menu-item" data-sidebar-tooltip="Ustawienia">
-                <span class="footer-icon">
-                    <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
-                        <path d="M19.14,12.94c0.04-0.3,0.06-0.61,0.06-0.94c0-0.32-0.02-0.64-0.07-0.94l2.03-1.58c0.18-0.14,0.23-0.41,0.12-0.61 l-1.92-3.32c-0.12-0.22-0.37-0.29-0.59-0.22l-2.39,0.96c-0.5-0.38-1.03-0.7-1.62-0.94L14.4,2.81c-0.04-0.24-0.24-0.41-0.48-0.41 h-3.84c-0.24,0-0.43,0.17-0.47,0.41L9.25,5.35C8.66,5.59,8.12,5.92,7.63,6.29L5.24,5.33c-0.22-0.08-0.47,0-0.59,0.22L2.74,8.87 C2.62,9.08,2.66,9.34,2.86,9.48l2.03,1.58C4.84,11.36,4.8,11.69,4.8,12s0.02,0.64,0.07,0.94l-2.03,1.58 c-0.18,0.14-0.23,0.41-0.12,0.61l1.92,3.32c0.12,0.22,0.37,0.29,0.59,0.22l2.39-0.96c0.5,0.38,1.03,0.7,1.62,0.94l0.36,2.54 c0.05,0.24,0.24,0.41,0.48,0.41h3.84c0.24,0,0.44-0.17,0.47-0.41l0.36-2.54c0.59-0.24,1.13-0.56,1.62-0.94l2.39,0.96 c0.22,0.08,0.47,0,0.59-0.22l1.92-3.32c0.12-0.22,0.07-0.47-0.12-0.61L19.14,12.94z M12,15.6c-1.98,0-3.6-1.62-3.6-3.6 s1.62-3.6,3.6-3.6s3.6,1.62,3.6,3.6S13.98,15.6,12,15.6z" />
-                    </svg>
-                </span>
-                <span class="footer-menu-text">Ustawienia</span>
-            </a>
-            {% endif %}
+        <!-- Przycisk Ustawienia aplikacji (tylko admin) — osobny wiersz nad profil/wyloguj -->
+        {% if user_role == 'admin' %}
+        <a href="{{ url_for('settings.index') }}" class="footer-settings-item" data-sidebar-tooltip="Ustawienia">
+            <span class="footer-icon">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M19.14,12.94c0.04-0.3,0.06-0.61,0.06-0.94c0-0.32-0.02-0.64-0.07-0.94l2.03-1.58c0.18-0.14,0.23-0.41,0.12-0.61 l-1.92-3.32c-0.12-0.22-0.37-0.29-0.59-0.22l-2.39,0.96c-0.5-0.38-1.03-0.7-1.62-0.94L14.4,2.81c-0.04-0.24-0.24-0.41-0.48-0.41 h-3.84c-0.24,0-0.43,0.17-0.47,0.41L9.25,5.35C8.66,5.59,8.12,5.92,7.63,6.29L5.24,5.33c-0.22-0.08-0.47,0-0.59,0.22L2.74,8.87 C2.62,9.08,2.66,9.34,2.86,9.48l2.03,1.58C4.84,11.36,4.8,11.69,4.8,12s0.02,0.64,0.07,0.94l-2.03,1.58 c-0.18,0.14-0.23,0.41-0.12,0.61l1.92,3.32c0.12,0.22,0.37,0.29,0.59,0.22l2.39-0.96c0.5,0.38,1.03,0.7,1.62,0.94l0.36,2.54 c0.05,0.24,0.24,0.41,0.48,0.41h3.84c0.24,0,0.44-0.17,0.47-0.41l0.36-2.54c0.59-0.24,1.13-0.56,1.62-0.94l2.39,0.96 c0.22,0.08,0.47,0,0.59-0.22l1.92-3.32c0.12-0.22,0.07-0.47-0.12-0.61L19.14,12.94z M12,15.6c-1.98,0-3.6-1.62-3.6-3.6 s1.62-3.6,3.6-3.6s3.6,1.62,3.6,3.6S13.98,15.6,12,15.6z" />
+                </svg>
+            </span>
+            <span class="footer-menu-text">Ustawienia</span>
+        </a>
+        {% endif %}
 
+        <div class="footer-menu">
             <!-- Przycisk Mój profil -->
             <a href="{{ url_for('users.profile') }}" class="footer-menu-item" data-sidebar-tooltip="Mój profil">
                 <span class="footer-icon">
@@ -394,13 +413,12 @@
             </a>
 
             <!-- Przycisk Wyloguj się -->
-            <a href="{{ url_for('logged_out') }}" class="footer-menu-item" data-sidebar-tooltip="Wyloguj się">
+            <a href="{{ url_for('logged_out') }}" class="footer-menu-item footer-menu-item--logout" data-sidebar-tooltip="Wyloguj się">
                 <span class="footer-icon">
                     <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
                         <path d="M16,17V14H9V10H16V7L21,12L16,17M14,2A2,2 0 0,1 16,4V6H14V4H5V20H14V18H16V20A2,2 0 0,1 14,22H5A2,2 0 0,1 3,20V4A2,2 0 0,1 5,2H14Z" />
                     </svg>
                 </span>
-                <span class="footer-menu-text">Wyloguj się</span>
             </a>
         </div>
     </div>
