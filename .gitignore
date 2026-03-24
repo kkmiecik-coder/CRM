@@ -236,3 +236,5 @@ static/images/avatars/custom/user_1_1773666058_12345.jpg
 # Pliki .md i .xlsx w głównym katalogu (głębiej pozwalaj)
 /*.md
 /*.xlsx
+docs/superpowers/plans/2026-03-20-quote-attachment.md
+docs/superpowers/specs/2026-03-20-quote-attachment-design.md
