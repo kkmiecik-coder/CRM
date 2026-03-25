@@ -90,13 +90,15 @@
                         <section class="products-summary-main">
                             <div class="products-summary-header">
                                 <h2 class="title-with-underline-h2">Produkty</h2>
+                                {% if user_role in ('admin', 'user') %}
+                                <button type="button" class="add-product-btn import-dxf-btn" id="import-dxf-btn">
+                                    <span class="add-product-icon" style="font-weight:normal;">&#8679;</span>
+                                    <span class="add-product-text">Import DXF</span>
+                                </button>
+                                {% endif %}
                                 <button type="button" class="add-product-btn" id="add-product-btn">
                                     <span class="add-product-icon">+</span>
                                     <span class="add-product-text">Dodaj produkt</span>
-                                </button>
-                                <button type="button" class="add-product-btn" id="import-dxf-btn" style="border-color:#2196F3; color:#2196F3;">
-                                    <span class="add-product-icon" style="font-weight:normal;">&#8679;</span>
-                                    <span class="add-product-text">Importuj DXF</span>
                                 </button>
                             </div>
                             <div class="products-summary-container" id="products-summary-container">

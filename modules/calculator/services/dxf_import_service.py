@@ -5,6 +5,8 @@ All internal coordinates are normalized to centimeters.
 """
 
 import math
+import os
+import tempfile
 from io import BytesIO, StringIO
 
 import ezdxf
@@ -232,11 +234,22 @@ def _process_lwpolyline(entity, scale_to_cm):
     Processes an LWPOLYLINE entity.
     Returns a product dict or None if the polyline is not closed / degenerate.
     """
-    # Only process closed polylines
-    if not entity.is_closed:
+    raw_pts = [(float(pt[0]), float(pt[1])) for pt in entity.get_points('xy')]
+    if len(raw_pts) < 3:
         return None
 
-    raw_pts = [(pt[0], pt[1]) for pt in entity.get_points('xy')]
+    # Handle implicitly closed polylines (first point == last point)
+    is_closed = entity.is_closed
+    if not is_closed and len(raw_pts) >= 4:
+        dist = math.sqrt((raw_pts[0][0] - raw_pts[-1][0]) ** 2 +
+                         (raw_pts[0][1] - raw_pts[-1][1]) ** 2)
+        if dist < 1.0:  # within 1 unit tolerance
+            is_closed = True
+            raw_pts = raw_pts[:-1]  # remove duplicate closing point
+
+    if not is_closed:
+        return None
+
     if len(raw_pts) < 3:
         return None
 
@@ -298,9 +311,17 @@ def parse_dxf(file_bytes):
             - units: detected unit string ('mm', 'cm', 'm', or None)
             - layer_names: sorted list of unique layer names found
     """
-    # ezdxf.read() requires a text stream (TextIO), not binary
-    text = file_bytes.decode('utf-8', errors='surrogateescape')
-    doc = ezdxf.read(StringIO(text))
+    # Use tempfile + ezdxf.readfile() for robust encoding/format auto-detection
+    tmp_fd, tmp_path = tempfile.mkstemp(suffix='.dxf')
+    try:
+        with os.fdopen(tmp_fd, 'wb') as tmp:
+            tmp.write(file_bytes)
+        doc = ezdxf.readfile(tmp_path)
+    finally:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
 
     unit_name, scale_to_cm = _get_unit_info(doc)
 

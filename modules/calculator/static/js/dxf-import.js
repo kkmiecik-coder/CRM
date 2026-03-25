@@ -386,6 +386,30 @@
         btn.addEventListener('click', onConfirmImport);
     }
 
+    // ---- Restore overlay helpers (reuses #restore-overlay from backup system) ----
+
+    function showRestoreOverlay(message) {
+        var overlay = document.getElementById('restore-overlay');
+        if (overlay) {
+            var textEl = document.getElementById('restoreLoadingText');
+            if (textEl) textEl.textContent = message;
+            overlay.style.display = 'flex';
+        }
+    }
+
+    function updateRestoreProgress(percent) {
+        var fill = document.getElementById('restoreProgressFill');
+        var text = document.getElementById('restoreProgressPercent');
+        if (fill) fill.style.width = percent + '%';
+        if (text) text.textContent = Math.round(percent) + '%';
+    }
+
+    function hideRestoreOverlay() {
+        var overlay = document.getElementById('restore-overlay');
+        if (overlay) overlay.style.display = 'none';
+        updateRestoreProgress(0);
+    }
+
     function onConfirmImport() {
         // Collect selected cards
         var selected = state.cards.filter(function (c) {
@@ -411,20 +435,49 @@
             if (!ok) return;
         }
 
-        // Close modal before injecting
+        // Close DXF modal, show restore overlay
         closeModal();
+        showRestoreOverlay('Przygotowanie importu DXF...');
+        updateRestoreProgress(0);
 
-        // Inject each product with staggered delays
-        var delay = 0;
-        selected.forEach(function (cardData, i) {
-            setTimeout(function () {
-                injectProduct(cardData);
-            }, delay);
-            delay += 350;
-        });
+        // Inject products sequentially with progress
+        var total = selected.length;
+        var idx = 0;
+
+        function nextProduct() {
+            if (idx >= total) {
+                showRestoreOverlay('Finalizacja...');
+                updateRestoreProgress(100);
+                setTimeout(function () {
+                    hideRestoreOverlay();
+                    if (typeof window.activateProductCard === 'function') {
+                        // Activate first imported product (skip product 0 which existed before)
+                        var allForms = document.querySelectorAll('.quote-forms .quote-form');
+                        var firstImported = allForms.length - total;
+                        if (firstImported >= 0) window.activateProductCard(firstImported);
+                    }
+                    if (typeof window.generateProductsSummary === 'function') window.generateProductsSummary();
+                    if (typeof window.updatePrices === 'function') window.updatePrices();
+                }, 400);
+                return;
+            }
+
+            var current = idx + 1;
+            showRestoreOverlay('Importowanie produktu ' + current + ' z ' + total + '...');
+            updateRestoreProgress(Math.round((idx / total) * 90));
+
+            injectProduct(selected[idx], function () {
+                idx++;
+                updateRestoreProgress(Math.round((idx / total) * 90));
+                setTimeout(nextProduct, 150);
+            });
+        }
+
+        // Start after a brief delay so overlay renders
+        setTimeout(nextProduct, 100);
     }
 
-    function injectProduct(cardData) {
+    function injectProduct(cardData, onDone) {
         // Read user-edited values from card
         var dimA      = parseFloat(cardData.inputDimA.value) || 0;
         var dimB      = cardData.inputDimB ? (parseFloat(cardData.inputDimB.value) || 0) : 0;
@@ -442,6 +495,7 @@
             window.addNewProduct();
         } else {
             console.error('[DXF Import] window.addNewProduct not found');
+            if (onDone) onDone();
             return;
         }
 
@@ -450,11 +504,12 @@
             var container = document.querySelector('.quote-forms');
             if (!container) {
                 console.error('[DXF Import] .quote-forms not found');
+                if (onDone) onDone();
                 return;
             }
 
             var forms = container.querySelectorAll('.quote-form');
-            if (!forms.length) return;
+            if (!forms.length) { if (onDone) onDone(); return; }
             var form = forms[forms.length - 1];
 
             // Set basic dimension fields
@@ -473,7 +528,6 @@
                     // Wait for shape editor to initialise, then restore shape params
                     setTimeout(function () {
                         if (form._shapeEditor && typeof form._shapeEditor.restore === 'function') {
-                            // Build params for restore - use user-edited dimA/dimB merged with original params
                             var restoreParams = Object.assign({}, cardData.params);
                             if (isCircle) {
                                 restoreParams.diameter = dimA;
@@ -488,20 +542,13 @@
                             });
                         }
 
-                        // Recalc after shape restore
-                        setTimeout(function () {
-                            if (typeof window.updatePrices === 'function') window.updatePrices();
-                            if (typeof window.generateProductsSummary === 'function') window.generateProductsSummary();
-                        }, 200);
-
+                        if (onDone) onDone();
                     }, 150);
+                } else {
+                    if (onDone) onDone();
                 }
             } else {
-                // Rectangular — just recalc
-                setTimeout(function () {
-                    if (typeof window.updatePrices === 'function') window.updatePrices();
-                    if (typeof window.generateProductsSummary === 'function') window.generateProductsSummary();
-                }, 200);
+                if (onDone) onDone();
             }
 
         }, 200);

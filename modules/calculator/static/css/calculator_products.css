@@ -20,6 +20,7 @@
     display: flex;
     justify-content: space-between;
     align-items: center;
+    gap: 8px;
     margin: 0 0 10px 0;
     align-self: stretch;
 }
@@ -53,6 +54,18 @@
         transform: translateY(-1px);
         box-shadow: 0 2px 4px rgba(237, 107, 36, 0.2);
     }
+
+/* Import DXF — niebieski wariant */
+.add-product-btn.import-dxf-btn {
+    border-color: #2196F3;
+    color: #2196F3;
+}
+
+.add-product-btn.import-dxf-btn:hover {
+    background: #2196F3;
+    color: white;
+    box-shadow: 0 2px 4px rgba(33, 150, 243, 0.25);
+}
 
 .add-product-icon {
     font-size: 14px;
