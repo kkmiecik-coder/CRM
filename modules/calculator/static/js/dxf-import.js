@@ -62,6 +62,9 @@
         state.currentUnit = 'mm';
         state.cards = [];
 
+        // Hide tooltip
+        if (tooltipEl) tooltipEl.style.display = 'none';
+
         // Hide dynamic sections
         if (els.loading)      { els.loading.classList.remove('active'); }
         if (els.unitBar)      { els.unitBar.style.display = 'none'; }
@@ -373,6 +376,45 @@
 
     function _r(n) { return Math.round(n * 100) / 100; }
 
+    /* ---- Preview tooltip on hover ---- */
+
+    var tooltipEl = null;
+
+    function _ensureTooltip() {
+        if (tooltipEl) return tooltipEl;
+        tooltipEl = document.createElement('div');
+        tooltipEl.className = 'dxf-preview-tooltip';
+        document.body.appendChild(tooltipEl);
+        return tooltipEl;
+    }
+
+    function _attachPreviewTooltip(previewDiv, svgStr) {
+        previewDiv.addEventListener('mouseenter', function (e) {
+            var tip = _ensureTooltip();
+            tip.innerHTML = svgStr;
+            tip.style.display = 'block';
+            _positionTooltip(e);
+        });
+        previewDiv.addEventListener('mousemove', _positionTooltip);
+        previewDiv.addEventListener('mouseleave', function () {
+            if (tooltipEl) tooltipEl.style.display = 'none';
+        });
+    }
+
+    function _positionTooltip(e) {
+        if (!tooltipEl) return;
+        var x = e.clientX + 16;
+        var y = e.clientY - 60;
+        // Keep within viewport
+        var maxX = window.innerWidth - 440;
+        var maxY = window.innerHeight - 400;
+        if (x > maxX) x = e.clientX - 440;
+        if (y < 10) y = 10;
+        if (y > maxY) y = maxY;
+        tooltipEl.style.left = x + 'px';
+        tooltipEl.style.top = y + 'px';
+    }
+
     function buildCardData(product, idx) {
         var shapeType  = product.shape_type || 'rectangular';
         var isCircle   = (shapeType === 'circle');
@@ -392,9 +434,9 @@
             dimB = parseFloat(params.width  || (product.bbox_height_mm / 10) || 0);
         }
 
-        // Round to 4 decimal places for cleanliness
-        dimA = Math.round(dimA * 10000) / 10000;
-        dimB = Math.round(dimB * 10000) / 10000;
+        // Round to 1 decimal place
+        dimA = Math.round(dimA * 10) / 10;
+        dimB = Math.round(dimB * 10) / 10;
 
         // Build card element
         var card = document.createElement('div');
@@ -452,12 +494,13 @@
 
         cardBody.appendChild(inputsRow);
 
-        // Right: SVG preview
+        // Right: SVG preview with hover tooltip
         var svgStr = buildShapeSvg(shapeType, verticesCm, params, product.bbox_width_mm, product.bbox_height_mm);
         if (svgStr) {
             var previewDiv = document.createElement('div');
             previewDiv.className = 'dxf-card-preview';
             previewDiv.innerHTML = svgStr;
+            _attachPreviewTooltip(previewDiv, svgStr);
             cardBody.appendChild(previewDiv);
         }
 

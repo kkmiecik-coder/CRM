@@ -306,15 +306,43 @@
 
 /* Card SVG preview — right side */
 .dxf-card-preview {
-    flex: 0 0 160px;
+    flex: 0 0 220px;
     background: #fafbfc;
     border: 1px solid #eee;
     border-radius: 6px;
-    padding: 8px;
+    padding: 10px;
     display: flex;
     align-items: center;
     justify-content: center;
     min-height: 100px;
+    cursor: pointer;
+    position: relative;
+    transition: border-color 0.15s;
+}
+
+.dxf-card-preview:hover {
+    border-color: #90caf9;
+}
+
+/* Tooltip — powiększony podgląd */
+.dxf-preview-tooltip {
+    display: none;
+    position: fixed;
+    z-index: 10001;
+    background: #fff;
+    border: 1px solid #ccc;
+    border-radius: 10px;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.22);
+    padding: 16px;
+    pointer-events: none;
+    max-width: 420px;
+    max-height: 380px;
+}
+
+.dxf-preview-tooltip svg {
+    width: 100%;
+    height: auto;
+    max-height: 340px;
 }
 
 .dxf-card-preview svg {
@@ -451,7 +479,7 @@
 
     .dxf-card-preview {
         flex: 0 0 auto;
-        max-height: 120px;
+        max-height: 140px;
     }
 
     .dxf-card-inputs {
