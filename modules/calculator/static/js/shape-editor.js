@@ -96,6 +96,11 @@ var ShapeEditor = (function() {
                 _ensureCanvas();
                 var vertices = ShapeGeometry.generateVertices(shapeType, currentParams);
                 canvas.setShape(shapeType, currentParams, vertices);
+            } else if (canvas) {
+                // Zniszcz canvas przy przełączeniu na prostokąt/koło,
+                // żeby getShapeSvg() nie zwracał starego kształtu
+                canvas.destroy();
+                canvas = null;
             }
 
             _syncToMainDimensions();
@@ -446,6 +451,9 @@ var ShapeEditor = (function() {
                         ? shapeData.vertices
                         : ShapeGeometry.generateVertices(shapeType, currentParams);
                     canvas.setShape(shapeType, currentParams, vertices);
+                } else if (canvas) {
+                    canvas.destroy();
+                    canvas = null;
                 }
 
                 _syncToMainDimensions();
