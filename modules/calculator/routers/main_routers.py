@@ -4,7 +4,8 @@ Główne routery kalkulatora - strona główna i ustawienia.
 """
 
 import json
-from flask import render_template, session, jsonify, current_app
+import traceback
+from flask import render_template, session, jsonify, current_app, request
 from sqlalchemy import text
 from extensions import db
 from modules.calculator.models import Multiplier, User, CalculatorSetting
@@ -83,3 +84,32 @@ def register_routes(bp):
         except Exception as e:
             current_app.logger.error(f"[get_calculator_settings] Błąd: {str(e)}")
             return jsonify({'round_shape_surcharge_netto': 50.00})
+
+    @bp.route('/api/import-dxf', methods=['POST'])
+    def import_dxf():
+        """Importuje plik DXF i zwraca listę produktów."""
+        try:
+            if 'file' not in request.files:
+                return jsonify({'error': 'Brak pliku w żądaniu.'}), 400
+
+            file = request.files['file']
+
+            if not file.filename or not file.filename.lower().endswith('.dxf'):
+                return jsonify({'error': 'Nieprawidłowy format pliku. Wymagany plik .dxf.'}), 400
+
+            file_bytes = file.read()
+
+            max_size = 10 * 1024 * 1024  # 10 MB
+            if len(file_bytes) > max_size:
+                return jsonify({'error': 'Plik jest za duży. Maksymalny rozmiar to 10 MB.'}), 400
+
+            from modules.calculator.services.dxf_import_service import parse_dxf
+            result = parse_dxf(file_bytes)
+
+            return jsonify(result)
+
+        except Exception as e:
+            current_app.logger.error(
+                f"[import_dxf] Błąd podczas importu DXF: {str(e)}\n{traceback.format_exc()}"
+            )
+            return jsonify({'error': f'Błąd podczas przetwarzania pliku DXF: {str(e)}'}), 500
