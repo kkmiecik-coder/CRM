@@ -82,7 +82,7 @@ var ShapeCanvas = (function() {
             }
             // Mobile (<768): fallback 400px
 
-            state.height = Math.min(Math.max(targetH, 200), 800);
+            state.height = Math.min(Math.max(targetH, 200), 600);
             canvasElement.width = state.width * state.dpr;
             canvasElement.height = state.height * state.dpr;
             canvasElement.style.height = state.height + 'px';

@@ -301,13 +301,30 @@ const EdgesModule = (function() {
      * Ustawia nasłuchiwanie na zmiany wymiarów
      */
     function setupDimensionWatchers() {
-        // Event delegation dla inputów wymiarów
+        // Event delegation dla inputów wymiarów — reset krawędzi przy zmianie
         document.addEventListener('input', function(e) {
             const input = e.target;
             if (input.matches('input[data-field="length"], input[data-field="width"], input[data-field="thickness"]')) {
                 const form = input.closest('.quote-form');
                 if (form) {
                     updateButtonState(form);
+                    // Reset krawędzi — wymiary się zmieniły
+                    if (form.dataset.edgesData) {
+                        state.currentForm = form;
+                        resetEdges();
+                    }
+                }
+            }
+        });
+
+        // Reset krawędzi przy zmianie kształtu
+        document.addEventListener('change', function(e) {
+            var select = e.target;
+            if (select.matches('[data-field="shapeSelect"]')) {
+                var form = select.closest('.quote-form');
+                if (form && form.dataset.edgesData) {
+                    state.currentForm = form;
+                    resetEdges();
                 }
             }
         });
@@ -1150,9 +1167,8 @@ const EdgesModule = (function() {
                 if (!def) return;
 
                 if (def.group === 'vertical') {
-                    // Krawędzie pionowe — cena za grubość
-                    const lengthMb = def.length_cm / 100;
-                    totalNetto += lengthMb * pricePerMb;
+                    // Krawędzie pionowe = narożniki — osobny cennik
+                    totalNetto += pricePerCorner;
                     cornerCount++;
                 } else {
                     // Krawędzie górne/dolne — cena za długość
@@ -1261,9 +1277,11 @@ const EdgesModule = (function() {
                 const def = state.dynamicEdgeDefs[edge];
                 if (!def) return;
 
+                const isVertical = def.group === 'vertical';
                 const lengthCm = def.length_cm;
                 const lengthMm = lengthCm * 10;
-                const priceNetto = (lengthCm / 100) * pricePerMb;
+                // Krawędzie pionowe (P*) = narożniki — osobny cennik
+                const priceNetto = isVertical ? pricePerCorner : (lengthCm / 100) * pricePerMb;
 
                 edgesData.push({
                     letter: edge,
@@ -1272,7 +1290,7 @@ const EdgesModule = (function() {
                     angle_value: state.edgeType === 'chamfer' ? state.angleValue : null,
                     length_mm: Math.round(lengthMm * 100) / 100,
                     length_cm: Math.round(lengthCm * 100) / 100,
-                    is_corner: def.group === 'vertical',
+                    is_corner: isVertical,
                     price_netto: Math.round(priceNetto * 100) / 100,
                     price_brutto: Math.round(priceNetto * CONFIG.VAT_RATE * 100) / 100
                 });
@@ -1372,7 +1390,9 @@ const EdgesModule = (function() {
         state.currentForm.dataset.edgesRValue = state.rValue;
         state.currentForm.dataset.edgesAngleValue = state.edgeType === 'chamfer' ? state.angleValue : '';
         state.currentForm.dataset.edgesSvg = edgesSvg;
-        state.currentForm.dataset.edgesQuantity = quantity; // Zapisz ilość dla debugowania
+        state.currentForm.dataset.edgesQuantity = quantity;
+        // Zapamiętaj wymiary przy których krawędzie zostały obliczone
+        state.currentForm.dataset.edgesDimHash = state.dimensions.length + '|' + state.dimensions.width + '|' + state.dimensions.thickness + '|' + (state.currentForm.dataset.productShape || 'rectangular');
 
         // Aktualizuj przycisk (pokazuj cenę łączną z uwzględnieniem ilości)
         updateOpenButton(state.currentForm, totalPrices);
@@ -1472,6 +1492,7 @@ const EdgesModule = (function() {
         delete state.currentForm.dataset.edgesAngleValue;
         delete state.currentForm.dataset.edgesSvg;
         delete state.currentForm.dataset.edgesQuantity;
+        delete state.currentForm.dataset.edgesDimHash;
 
         // Ukryj wiersz krawędzi w podsumowaniu
         const optionsSummary = state.currentForm.querySelector('.edges-options-summary');
@@ -1594,7 +1615,7 @@ const EdgesModule = (function() {
         if (!form) return;
 
         const savedData = form.dataset.edgesData;
-        if (!savedData) return; // Brak zapisanych krawędzi - nic do przeliczenia
+        if (!savedData) return;
 
         // Pobierz aktualne wymiary z formularza
         const lengthInput = form.querySelector('input[data-field="length"]');
@@ -1616,6 +1637,16 @@ const EdgesModule = (function() {
             return;
         }
 
+        // Sprawdź czy wymiary lub kształt się zmieniły — jeśli tak, resetuj krawędzie
+        var formShape = form.dataset.productShape || 'rectangular';
+        var currentDimHash = dimensions.length + '|' + dimensions.width + '|' + dimensions.thickness + '|' + formShape;
+        var savedDimHash = form.dataset.edgesDimHash || '';
+        if (savedDimHash && currentDimHash !== savedDimHash) {
+            state.currentForm = form;
+            resetEdges();
+            return;
+        }
+
         try {
             const edges = JSON.parse(savedData);
             const edgeType = form.dataset.edgesType || 'round';
@@ -1628,59 +1659,56 @@ const EdgesModule = (function() {
             let totalNetto = 0;
             const updatedEdgesData = [];
 
-            const formShape = form.dataset.productShape || 'rectangular';
-
             edges.forEach(edge => {
+                let lengthCm = 0;
+                let isCorner = false;
+                let isRoundPerimeter = false;
+
                 if (_isRoundShape(formShape)) {
-                    // Krawędzie obwodowe dla kształtu okrągłego
+                    // Krawędzie obwodowe — przelicz z aktualnych wymiarów
                     const def = ROUND_EDGES[edge.letter];
                     if (!def) return;
-
-                    const perimeterCm = calculateEllipsePerimeterCm(dimensions.length, dimensions.width);
-                    const perimeterMm = perimeterCm * 10;
-                    const priceNetto = (perimeterCm / 100) * pricePerMb;
-
-                    totalNetto += priceNetto;
-
-                    updatedEdgesData.push({
-                        letter: edge.letter,
-                        type: edgeType,
-                        r_value: rValue,
-                        length_mm: Math.round(perimeterMm * 100) / 100,
-                        length_cm: Math.round(perimeterCm * 100) / 100,
-                        is_corner: false,
-                        is_round_perimeter: true,
-                        price_netto: Math.round(priceNetto * 100) / 100,
-                        price_brutto: Math.round(priceNetto * CONFIG.VAT_RATE * 100) / 100
-                    });
-                } else {
-                    // Standardowe krawędzie prostokątne
+                    lengthCm = calculateEllipsePerimeterCm(dimensions.length, dimensions.width);
+                    isRoundPerimeter = true;
+                } else if (EDGES[edge.letter]) {
+                    // Prostokąt — przelicz z aktualnych wymiarów
                     const def = EDGES[edge.letter];
-                    if (!def) return;
-
-                    const lengthCm = dimensions[def.dimension] || 0;
-                    const lengthMm = lengthCm * 10;
-
-                    let priceNetto = 0;
-                    if (def.group === 'corner') {
-                        priceNetto = pricePerCorner;
+                    isCorner = def.group === 'corner';
+                    lengthCm = isCorner ? dimensions.thickness : (dimensions[def.dimension] || 0);
+                } else if (edge.length_cm !== undefined) {
+                    // Kształt nieregularny (G1,D1,P1...) — użyj zapisanej długości
+                    // Krawędzie pionowe (P*) = narożniki, osobny cennik jak N1-N4
+                    if (edge.letter && edge.letter.startsWith('P')) {
+                        lengthCm = dimensions.thickness || edge.length_cm;
+                        isCorner = true;
                     } else {
-                        priceNetto = (lengthCm / 100) * pricePerMb;
+                        // Krawędzie G*/D* — długość zależy od kształtu, zachowaj z danych
+                        lengthCm = edge.length_cm;
                     }
-
-                    totalNetto += priceNetto;
-
-                    updatedEdgesData.push({
-                        letter: edge.letter,
-                        type: edgeType,
-                        r_value: rValue,
-                        length_mm: lengthMm,
-                        length_cm: lengthCm,
-                        is_corner: def.group === 'corner',
-                        price_netto: Math.round(priceNetto * 100) / 100,
-                        price_brutto: Math.round(priceNetto * CONFIG.VAT_RATE * 100) / 100
-                    });
+                } else {
+                    return; // Nieznana krawędź
                 }
+
+                let priceNetto = 0;
+                if (isCorner && !isRoundPerimeter) {
+                    priceNetto = pricePerCorner;
+                } else {
+                    priceNetto = (lengthCm / 100) * pricePerMb;
+                }
+
+                totalNetto += priceNetto;
+
+                updatedEdgesData.push({
+                    letter: edge.letter,
+                    type: edgeType,
+                    r_value: rValue,
+                    length_mm: Math.round(lengthCm * 10 * 100) / 100,
+                    length_cm: Math.round(lengthCm * 100) / 100,
+                    is_corner: isCorner,
+                    is_round_perimeter: isRoundPerimeter || false,
+                    price_netto: Math.round(priceNetto * 100) / 100,
+                    price_brutto: Math.round(priceNetto * CONFIG.VAT_RATE * 100) / 100
+                });
             });
 
             const totalBrutto = totalNetto * CONFIG.VAT_RATE;
@@ -1694,6 +1722,7 @@ const EdgesModule = (function() {
             form.dataset.edgesNetto = totalNettoWithQuantity;
             form.dataset.edgesBrutto = totalBruttoWithQuantity;
             form.dataset.edgesQuantity = quantity;
+            form.dataset.edgesDimHash = currentDimHash;
 
             // Zaktualizuj wizualne podsumowanie (pokazuj cenę łączną z uwzględnieniem ilości)
             const optionsSummary = form.querySelector('.edges-options-summary');
