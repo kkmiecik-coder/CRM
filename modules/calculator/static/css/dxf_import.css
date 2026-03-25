@@ -288,6 +288,24 @@
     white-space: nowrap;
 }
 
+/* Card SVG preview */
+.dxf-card-preview {
+    background: #fafbfc;
+    border: 1px solid #eee;
+    border-radius: 6px;
+    padding: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    max-height: 140px;
+    overflow: hidden;
+}
+
+.dxf-card-preview svg {
+    max-height: 120px;
+    width: auto;
+}
+
 /* Card inputs row */
 .dxf-card-inputs {
     display: flex;
