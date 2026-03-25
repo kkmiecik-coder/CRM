@@ -613,6 +613,9 @@
         showRestoreOverlay('Przygotowanie importu DXF...');
         updateRestoreProgress(0);
 
+        // Check if first product form is empty — reuse it instead of creating new
+        var firstFormEmpty = _isFirstFormEmpty();
+
         // Inject products sequentially with progress
         var total = selected.length;
         var idx = 0;
@@ -639,7 +642,8 @@
             showRestoreOverlay('Importowanie produktu ' + current + ' z ' + total + '...');
             updateRestoreProgress(Math.round((idx / total) * 90));
 
-            injectProduct(selected[idx], function () {
+            var reuseFirst = (idx === 0 && firstFormEmpty);
+            injectProduct(selected[idx], reuseFirst, function () {
                 idx++;
                 updateRestoreProgress(Math.round((idx / total) * 90));
                 setTimeout(nextProduct, 150);
@@ -650,21 +654,38 @@
         setTimeout(nextProduct, 100);
     }
 
-    function injectProduct(cardData, onDone) {
-        // Read user-edited values from card
-        var dimA      = parseFloat(cardData.inputDimA.value) || 0;
-        var dimB      = cardData.inputDimB ? (parseFloat(cardData.inputDimB.value) || 0) : 0;
-        var thickness = parseFloat(cardData.inputThickness.value) || 0;
+    function _isFirstFormEmpty() {
+        var container = document.querySelector('.quote-forms');
+        if (!container) return false;
+        var forms = container.querySelectorAll('.quote-form');
+        if (forms.length !== 1) return false;
+        var form = forms[0];
+        var l = form.querySelector('[data-field="length"]');
+        var w = form.querySelector('[data-field="width"]');
+        var t = form.querySelector('[data-field="thickness"]');
+        return (!l || !l.value) && (!w || !w.value) && (!t || !t.value);
+    }
+
+    function _round1(val) {
+        return Math.round(val * 10) / 10;
+    }
+
+    function injectProduct(cardData, reuseExisting, onDone) {
+        // Read user-edited values from card, round to 1 decimal
+        var dimA      = _round1(parseFloat(cardData.inputDimA.value) || 0);
+        var dimB      = cardData.inputDimB ? _round1(parseFloat(cardData.inputDimB.value) || 0) : 0;
+        var thickness = _round1(parseFloat(cardData.inputThickness.value) || 0);
         var qty       = parseInt(cardData.inputQty.value, 10) || 1;
         var shapeType = cardData.shapeType;
         var isCircle  = cardData.isCircle;
 
-        // For length/width injection: circle uses diameter in both length slot
         var length = isCircle ? dimA : dimA;
         var width  = isCircle ? dimA : dimB;
 
-        // Step 1: add new product form
-        if (typeof window.addNewProduct === 'function') {
+        // Step 1: reuse first empty form or add new product
+        if (reuseExisting) {
+            // Use existing first form — no need to add new
+        } else if (typeof window.addNewProduct === 'function') {
             window.addNewProduct();
         } else {
             console.error('[DXF Import] window.addNewProduct not found');
@@ -683,7 +704,7 @@
 
             var forms = container.querySelectorAll('.quote-form');
             if (!forms.length) { if (onDone) onDone(); return; }
-            var form = forms[forms.length - 1];
+            var form = reuseExisting ? forms[0] : forms[forms.length - 1];
 
             // Set basic dimension fields
             setField(form, 'length',    length);
@@ -701,7 +722,12 @@
                     // Wait for shape editor to initialise, then restore shape params
                     setTimeout(function () {
                         if (form._shapeEditor && typeof form._shapeEditor.restore === 'function') {
-                            var restoreParams = Object.assign({}, cardData.params);
+                            // Round all params to 1 decimal
+                            var rawParams = cardData.params || {};
+                            var restoreParams = {};
+                            for (var pk in rawParams) {
+                                restoreParams[pk] = (typeof rawParams[pk] === 'number') ? _round1(rawParams[pk]) : rawParams[pk];
+                            }
                             if (isCircle) {
                                 restoreParams.diameter = dimA;
                             } else {
@@ -709,9 +735,14 @@
                                 if (restoreParams.width !== undefined) restoreParams.width = dimB;
                             }
 
+                            // Round vertices to 1 decimal
+                            var roundedVerts = (cardData.verticesCm || []).map(function(v) {
+                                return [_round1(v[0]), _round1(v[1])];
+                            });
+
                             form._shapeEditor.restore(shapeType, {
                                 params:   restoreParams,
-                                vertices: cardData.verticesCm
+                                vertices: roundedVerts
                             });
                         }
 
