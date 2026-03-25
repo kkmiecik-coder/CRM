@@ -333,16 +333,15 @@
     border: 1px solid #ccc;
     border-radius: 10px;
     box-shadow: 0 8px 32px rgba(0,0,0,0.22);
-    padding: 16px;
+    padding: 20px;
     pointer-events: none;
-    max-width: 420px;
-    max-height: 380px;
+    width: 560px;
+    height: 460px;
 }
 
 .dxf-preview-tooltip svg {
     width: 100%;
-    height: auto;
-    max-height: 340px;
+    height: 100%;
 }
 
 .dxf-card-preview svg {

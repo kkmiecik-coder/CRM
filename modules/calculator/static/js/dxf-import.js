@@ -279,10 +279,11 @@
         var tick = 5;       // bracket tick height
         var fs = 9;         // font size
         var sw = 1;         // stroke width for brackets
-        var bracketSpace = tick + fs + 6; // total space for a bracket row
+        var bracketSpace = tick + fs + 8;     // space for bottom bracket (below)
+        var bracketSpaceR = tick + fs * 4.5;  // space for right bracket (text "XX.X cm" wider)
 
         if (shapeType === 'circle') {
-            return _buildCircleSvg(params, pad, bracketGap, tick, fs, sw, bracketSpace);
+            return _buildCircleSvg(params, pad, bracketGap, tick, fs, sw, bracketSpaceR);
         }
 
         var verts = verticesCm;
@@ -305,7 +306,7 @@
         if (shapeW <= 0 || shapeH <= 0) return '';
 
         // SVG dimensions — fit shape + brackets
-        var totalW = shapeW + pad * 2 + bracketSpace;
+        var totalW = shapeW + pad * 2 + bracketSpaceR;
         var totalH = shapeH + pad * 2 + bracketSpace;
 
         // Build polygon points (flip Y: SVG y=0 is top)
@@ -403,14 +404,13 @@
 
     function _positionTooltip(e) {
         if (!tooltipEl) return;
-        var x = e.clientX + 16;
-        var y = e.clientY - 60;
+        var tipW = 600, tipH = 500;
+        var x = e.clientX + 20;
+        var y = e.clientY - 100;
         // Keep within viewport
-        var maxX = window.innerWidth - 440;
-        var maxY = window.innerHeight - 400;
-        if (x > maxX) x = e.clientX - 440;
+        if (x + tipW > window.innerWidth) x = e.clientX - tipW - 20;
         if (y < 10) y = 10;
-        if (y > maxY) y = maxY;
+        if (y + tipH > window.innerHeight) y = window.innerHeight - tipH - 10;
         tooltipEl.style.left = x + 'px';
         tooltipEl.style.top = y + 'px';
     }
