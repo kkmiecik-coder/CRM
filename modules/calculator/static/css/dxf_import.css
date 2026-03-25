@@ -288,8 +288,25 @@
     white-space: nowrap;
 }
 
-/* Card SVG preview */
+/* Card body: inputs left, preview right */
+.dxf-card-body {
+    display: flex;
+    gap: 14px;
+    align-items: stretch;
+}
+
+/* Card inputs — 2-column grid, left side */
+.dxf-card-inputs {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    flex: 1 1 0;
+    align-content: start;
+}
+
+/* Card SVG preview — right side */
 .dxf-card-preview {
+    flex: 0 0 160px;
     background: #fafbfc;
     border: 1px solid #eee;
     border-radius: 6px;
@@ -297,21 +314,13 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    max-height: 140px;
-    overflow: hidden;
+    min-height: 100px;
 }
 
 .dxf-card-preview svg {
-    max-height: 120px;
-    width: auto;
-}
-
-/* Card inputs row */
-.dxf-card-inputs {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 10px;
-    align-items: flex-end;
+    max-height: 130px;
+    max-width: 100%;
+    height: auto;
 }
 
 .dxf-input-group {
@@ -436,13 +445,17 @@
         width: 100%;
     }
 
-    .dxf-card-inputs {
+    .dxf-card-body {
         flex-direction: column;
     }
 
-    .dxf-input-group {
-        flex: 1 1 100%;
-        min-width: unset;
+    .dxf-card-preview {
+        flex: 0 0 auto;
+        max-height: 120px;
+    }
+
+    .dxf-card-inputs {
+        grid-template-columns: 1fr 1fr;
     }
 
     .dxf-dropzone {

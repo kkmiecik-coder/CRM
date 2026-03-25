@@ -425,16 +425,11 @@
 
         card.appendChild(topRow);
 
-        // --- SVG preview ---
-        var svgStr = buildShapeSvg(shapeType, verticesCm, params, product.bbox_width_mm, product.bbox_height_mm);
-        if (svgStr) {
-            var previewDiv = document.createElement('div');
-            previewDiv.className = 'dxf-card-preview';
-            previewDiv.innerHTML = svgStr;
-            card.appendChild(previewDiv);
-        }
+        // --- Card body: inputs (left) + preview (right) ---
+        var cardBody = document.createElement('div');
+        cardBody.className = 'dxf-card-body';
 
-        // --- Inputs row ---
+        // Left: inputs in 2-column grid
         var inputsRow = document.createElement('div');
         inputsRow.className = 'dxf-card-inputs';
 
@@ -455,7 +450,18 @@
         inputsRow.appendChild(inputThickness.wrapper);
         inputsRow.appendChild(inputQty.wrapper);
 
-        card.appendChild(inputsRow);
+        cardBody.appendChild(inputsRow);
+
+        // Right: SVG preview
+        var svgStr = buildShapeSvg(shapeType, verticesCm, params, product.bbox_width_mm, product.bbox_height_mm);
+        if (svgStr) {
+            var previewDiv = document.createElement('div');
+            previewDiv.className = 'dxf-card-preview';
+            previewDiv.innerHTML = svgStr;
+            cardBody.appendChild(previewDiv);
+        }
+
+        card.appendChild(cardBody);
 
         // --- Checkbox toggles .selected class ---
         checkbox.addEventListener('change', function () {
