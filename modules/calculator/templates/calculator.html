@@ -10,6 +10,7 @@
     <link rel="stylesheet" href="{{ url_for('calculator.static', filename='css/save_quote.css') }}">
     <link rel="stylesheet" href="{{ url_for('calculator.static', filename='css/edges.css') }}">
     <link rel="stylesheet" href="{{ url_for('calculator.static', filename='css/shape_canvas.css') }}">
+    <link rel="stylesheet" href="{{ url_for('calculator.static', filename='css/dxf_import.css') }}">
     <script id="prices-data" type="application/json">{{ prices_json|safe }}</script>
     <script id="multipliers-data" type="application/json">{{ multipliers_json|safe }}</script>
 </head>
@@ -92,6 +93,10 @@
                                 <button type="button" class="add-product-btn" id="add-product-btn">
                                     <span class="add-product-icon">+</span>
                                     <span class="add-product-text">Dodaj produkt</span>
+                                </button>
+                                <button type="button" class="add-product-btn" id="import-dxf-btn" style="border-color:#2196F3; color:#2196F3;">
+                                    <span class="add-product-icon" style="font-weight:normal;">&#8679;</span>
+                                    <span class="add-product-text">Importuj DXF</span>
                                 </button>
                             </div>
                             <div class="products-summary-container" id="products-summary-container">
@@ -570,6 +575,41 @@
     {% include 'save_quote.html' %}
     {% include 'download_quote_modal.html' %}
     {% include 'partials/edges_modal.html' %}
+<!-- DXF Import Modal -->
+<div class="dxf-import-overlay" id="dxf-import-overlay">
+    <div class="dxf-import-modal">
+        <div class="dxf-import-header">
+            <h3>Importuj plik DXF</h3>
+            <button class="dxf-import-close" id="dxf-import-close">&times;</button>
+        </div>
+        <div class="dxf-import-body">
+            <div class="dxf-dropzone" id="dxf-dropzone">
+                <input type="file" id="dxf-file-input" accept=".dxf" hidden>
+                <div class="dxf-dropzone-icon">&#128194;</div>
+                <div class="dxf-dropzone-text">Kliknij aby wybrać plik DXF</div>
+                <div class="dxf-dropzone-hint">lub przeciągnij i upuść (max 10 MB)</div>
+            </div>
+            <div class="dxf-loading" id="dxf-loading">
+                <div class="dxf-spinner"></div>
+                <div class="dxf-loading-text">Analizowanie pliku DXF...</div>
+            </div>
+            <div class="dxf-unit-bar" id="dxf-unit-bar">
+                <label>Jednostka pliku:</label>
+                <div class="dxf-unit-toggle" id="dxf-unit-toggle">
+                    <button type="button" data-unit="mm">mm</button>
+                    <button type="button" data-unit="cm" class="active">cm</button>
+                </div>
+                <span style="font-size:12px;color:#999;">(kalkulator pracuje w cm)</span>
+            </div>
+            <div class="dxf-products-list" id="dxf-products-list"></div>
+        </div>
+        <div class="dxf-import-footer" id="dxf-import-footer" style="display:none;">
+            <button type="button" class="dxf-btn dxf-btn-cancel" id="dxf-cancel-btn">Anuluj</button>
+            <button type="button" class="dxf-btn dxf-btn-import" id="dxf-confirm-btn">Dodaj do kalkulatora</button>
+        </div>
+    </div>
+</div>
+
     <script src="{{ url_for('static', filename='js/sidebar.js') }}"></script>
     <script src="{{ url_for('calculator.static', filename='js/qdraft_backup.js') }}"></script>
     <script src="{{ url_for('calculator.static', filename='js/shape-geometry.js') }}"></script>
@@ -585,6 +625,7 @@
     <script src="{{ url_for('calculator.static', filename='js/calculator-init.js') }}"></script>
     <script src="{{ url_for('calculator.static', filename='js/save_quote.js') }}"></script>
     <script src="{{ url_for('calculator.static', filename='js/edges.js') }}"></script>
+    <script src="{{ url_for('calculator.static', filename='js/dxf-import.js') }}"></script>
 
     <!-- Easter egg: pink mode -->
     <style>
