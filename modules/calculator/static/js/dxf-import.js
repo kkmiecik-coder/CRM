@@ -34,7 +34,7 @@
         els.dropzone     = document.getElementById('dxf-dropzone');
         els.fileInput    = document.getElementById('dxf-file-input');
         els.loading      = document.getElementById('dxf-loading');
-        els.unitBar      = document.getElementById('dxf-unit-bar');
+        els.toolbar      = document.getElementById('dxf-toolbar');
         els.productsList = document.getElementById('dxf-products-list');
         els.footer       = document.getElementById('dxf-import-footer');
         els.cancelBtn    = document.getElementById('dxf-cancel-btn');
@@ -67,9 +67,15 @@
 
         // Hide dynamic sections
         if (els.loading)      { els.loading.classList.remove('active'); }
-        if (els.unitBar)      { els.unitBar.style.display = 'none'; }
+        if (els.toolbar)      { els.toolbar.style.display = 'none'; }
         if (els.footer)       { els.footer.style.display = 'none'; }
         if (els.productsList) { els.productsList.innerHTML = ''; }
+
+        // Hide popovers
+        var tp = document.getElementById('dxf-thickness-popover');
+        var vp = document.getElementById('dxf-variant-popover');
+        if (tp) tp.style.display = 'none';
+        if (vp) vp.style.display = 'none';
 
         // Show dropzone again
         if (els.dropzone) { els.dropzone.style.display = ''; }
@@ -206,9 +212,9 @@
             return;
         }
 
-        // Show unit bar and set active button
-        if (els.unitBar) {
-            els.unitBar.style.display = '';
+        // Show toolbar and set active unit
+        if (els.toolbar) {
+            els.toolbar.style.display = '';
             updateUnitButtons();
         }
 
@@ -222,23 +228,22 @@
        ============================================================ */
 
     function setupUnitToggle() {
-        var bar = els.unitBar;
-        if (!bar) return;
+        var sw = document.getElementById('dxf-unit-switch');
+        if (!sw) return;
 
-        bar.addEventListener('click', function (e) {
-            var btn = e.target.closest('.dxf-unit-btn');
+        sw.addEventListener('click', function (e) {
+            var btn = e.target.closest('.dxf-unit-opt');
             if (!btn) return;
             var unit = btn.getAttribute('data-unit');
             if (unit === state.currentUnit) return;
             state.currentUnit = unit;
             updateUnitButtons();
-            // Re-render cards to update displayed dimension labels (values stay in cm)
             renderProductCards();
         });
     }
 
     function updateUnitButtons() {
-        var btns = els.unitBar ? els.unitBar.querySelectorAll('.dxf-unit-btn') : [];
+        var btns = document.querySelectorAll('#dxf-unit-switch .dxf-unit-opt');
         btns.forEach(function (btn) {
             btn.classList.toggle('active', btn.getAttribute('data-unit') === state.currentUnit);
         });
@@ -471,28 +476,62 @@
         var cardBody = document.createElement('div');
         cardBody.className = 'dxf-card-body';
 
-        // Left: inputs in 2-column grid
-        var inputsRow = document.createElement('div');
-        inputsRow.className = 'dxf-card-inputs';
+        // Left: inputs
+        var inputsCol = document.createElement('div');
+        inputsCol.className = 'dxf-card-inputs';
 
         var inputDimA, inputDimB, inputThickness, inputQty;
 
+        // Row 1: dimensions
+        var row1 = document.createElement('div');
+        row1.className = 'dxf-card-row';
+
         if (isCircle) {
             inputDimA = createInputGroup('Średnica (cm)', dimA, 'dimA', false);
+            inputThickness = createInputGroup('Grub. (cm)', '', 'thickness', false);
+            row1.appendChild(inputDimA.wrapper);
+            row1.appendChild(inputThickness.wrapper);
         } else {
             inputDimA = createInputGroup('Dł. (cm)', dimA, 'dimA', false);
             inputDimB = createInputGroup('Szer. (cm)', dimB, 'dimB', false);
+            inputThickness = createInputGroup('Grub. (cm)', '', 'thickness', false);
+            row1.appendChild(inputDimA.wrapper);
+            row1.appendChild(inputDimB.wrapper);
+            row1.appendChild(inputThickness.wrapper);
+            row1.style.gridTemplateColumns = '1fr 1fr 1fr';
         }
 
-        inputThickness = createInputGroup('Grub. (cm)', '', 'thickness', false);
-        inputQty       = createInputGroup('Ilość', 1, 'qty', true);
+        inputsCol.appendChild(row1);
 
-        inputsRow.appendChild(inputDimA.wrapper);
-        if (inputDimB) inputsRow.appendChild(inputDimB.wrapper);
-        inputsRow.appendChild(inputThickness.wrapper);
-        inputsRow.appendChild(inputQty.wrapper);
+        // Row 2: quantity + variant
+        var row2 = document.createElement('div');
+        row2.className = 'dxf-card-row';
 
-        cardBody.appendChild(inputsRow);
+        inputQty = createInputGroup('Ilość', 1, 'qty', true);
+        row2.appendChild(inputQty.wrapper);
+
+        var variantWrap = document.createElement('div');
+        variantWrap.className = 'dxf-card-variant';
+        var variantLabel = document.createElement('label');
+        variantLabel.textContent = 'Wariant';
+        var variantSelect = document.createElement('select');
+        variantSelect.innerHTML =
+            '<option value="">— wybierz —</option>' +
+            '<option value="dab-lity-ab">Dąb Lity A/B</option>' +
+            '<option value="dab-lity-bb">Dąb Lity B/B</option>' +
+            '<option value="dab-micro-ab">Dąb Mikrowczep A/B</option>' +
+            '<option value="dab-micro-bb">Dąb Mikrowczep B/B</option>' +
+            '<option value="jes-lity-ab">Jesion Lity A/B</option>' +
+            '<option value="jes-micro-ab">Jesion Mikrowczep A/B</option>' +
+            '<option value="buk-lity-ab">Buk Lity A/B</option>' +
+            '<option value="buk-micro-ab">Buk Mikrowczep A/B</option>';
+        variantWrap.appendChild(variantLabel);
+        variantWrap.appendChild(variantSelect);
+        row2.appendChild(variantWrap);
+
+        inputsCol.appendChild(row2);
+
+        cardBody.appendChild(inputsCol);
 
         // Right: SVG preview with hover tooltip
         var svgStr = buildShapeSvg(shapeType, verticesCm, params, product.bbox_width_mm, product.bbox_height_mm);
@@ -518,6 +557,7 @@
             inputDimB:     inputDimB ? inputDimB.input : null,
             inputThickness: inputThickness.input,
             inputQty:      inputQty.input,
+            variantSelect: variantSelect,
             product:       product,
             shapeType:     shapeType,
             isCircle:      isCircle,
@@ -552,6 +592,76 @@
     /* ============================================================
        IMPORT ACTION
        ============================================================ */
+
+    /* ============================================================
+       TOOLBAR: thickness popover, variant popover
+       ============================================================ */
+
+    function setupToolbar() {
+        // Thickness popover toggle
+        var thBtn = document.getElementById('dxf-thickness-btn');
+        var thPop = document.getElementById('dxf-thickness-popover');
+        var thInput = document.getElementById('dxf-thickness-input');
+        var thApply = document.getElementById('dxf-thickness-apply');
+
+        if (thBtn && thPop) {
+            thBtn.addEventListener('click', function (e) {
+                e.stopPropagation();
+                var vrPop = document.getElementById('dxf-variant-popover');
+                if (vrPop) vrPop.style.display = 'none';
+                thPop.style.display = thPop.style.display === 'none' ? 'flex' : 'none';
+                if (thPop.style.display !== 'none' && thInput) thInput.focus();
+            });
+        }
+
+        if (thApply && thInput) {
+            thApply.addEventListener('click', function () {
+                var val = thInput.value;
+                if (!val) return;
+                // Apply to all product cards
+                state.cards.forEach(function (c) {
+                    c.inputThickness.value = val;
+                });
+                thPop.style.display = 'none';
+            });
+        }
+
+        // Variant popover toggle
+        var vrBtn = document.getElementById('dxf-variant-btn');
+        var vrPop = document.getElementById('dxf-variant-popover');
+        var vrSelect = document.getElementById('dxf-variant-select');
+        var vrApply = document.getElementById('dxf-variant-apply');
+
+        if (vrBtn && vrPop) {
+            vrBtn.addEventListener('click', function (e) {
+                e.stopPropagation();
+                if (thPop) thPop.style.display = 'none';
+                vrPop.style.display = vrPop.style.display === 'none' ? 'flex' : 'none';
+            });
+        }
+
+        if (vrApply && vrSelect) {
+            vrApply.addEventListener('click', function () {
+                var val = vrSelect.value;
+                if (!val) return;
+                // Apply to all product cards
+                state.cards.forEach(function (c) {
+                    if (c.variantSelect) c.variantSelect.value = val;
+                });
+                vrPop.style.display = 'none';
+            });
+        }
+
+        // Close popovers on outside click
+        document.addEventListener('click', function (e) {
+            if (thPop && !e.target.closest('#dxf-thickness-popover') && !e.target.closest('#dxf-thickness-btn')) {
+                thPop.style.display = 'none';
+            }
+            if (vrPop && !e.target.closest('#dxf-variant-popover') && !e.target.closest('#dxf-variant-btn')) {
+                vrPop.style.display = 'none';
+            }
+        });
+    }
 
     function setupImportBtn() {
         var btn = els.confirmBtn;
@@ -676,6 +786,7 @@
         var dimB      = cardData.inputDimB ? _round1(parseFloat(cardData.inputDimB.value) || 0) : 0;
         var thickness = _round1(parseFloat(cardData.inputThickness.value) || 0);
         var qty       = parseInt(cardData.inputQty.value, 10) || 1;
+        var variantId = cardData.variantSelect ? cardData.variantSelect.value : '';
         var shapeType = cardData.shapeType;
         var isCircle  = cardData.isCircle;
 
@@ -711,6 +822,18 @@
             setField(form, 'width',     width);
             setField(form, 'thickness', thickness);
             setField(form, 'quantity',  qty);
+
+            // Select variant (radio button) if specified
+            if (variantId) {
+                var radio = form.querySelector('.variants input[type="radio"][value="' + variantId + '"]');
+                if (!radio) {
+                    radio = form.querySelector('.variants input[id*="' + variantId + '"]');
+                }
+                if (radio) {
+                    radio.checked = true;
+                    radio.dispatchEvent(new Event('change', { bubbles: true }));
+                }
+            }
 
             // Step 3: handle non-rectangular shapes
             if (shapeType !== 'rectangular') {
@@ -808,6 +931,7 @@
 
         setupDropzone();
         setupUnitToggle();
+        setupToolbar();
         setupImportBtn();
     }
 
