@@ -1,0 +1,32 @@
+<!-- DXF Import Modal -->
+<div class="dxf-import-overlay" id="dxf-import-overlay">
+    <div class="dxf-modal">
+        <div class="dxf-modal-header">
+            <h3 class="dxf-modal-title">Importuj plik DXF</h3>
+            <button class="dxf-modal-close" id="dxf-import-close">&times;</button>
+        </div>
+        <div class="dxf-modal-body">
+            <div class="dxf-dropzone" id="dxf-dropzone">
+                <input type="file" id="dxf-file-input" accept=".dxf" hidden>
+                <div class="dxf-dropzone-icon">&#128194;</div>
+                <div class="dxf-dropzone-text">Kliknij aby wybrać plik DXF</div>
+                <div class="dxf-dropzone-hint">lub przeciągnij i upuść (max 10 MB)</div>
+            </div>
+            <div class="dxf-loading" id="dxf-loading">
+                <div class="dxf-spinner"></div>
+                <div class="dxf-loading-text">Analizowanie pliku DXF...</div>
+            </div>
+            <div class="dxf-unit-bar" id="dxf-unit-bar" style="display:none;">
+                <span class="dxf-unit-label">Jednostka pliku:</span>
+                <button type="button" class="dxf-unit-btn" data-unit="mm">mm</button>
+                <button type="button" class="dxf-unit-btn active" data-unit="cm">cm</button>
+                <span style="font-size:12px;color:#999;margin-left:4px;">(kalkulator pracuje w cm)</span>
+            </div>
+            <div class="dxf-products-list" id="dxf-products-list"></div>
+        </div>
+        <div class="dxf-modal-footer" id="dxf-import-footer" style="display:none;">
+            <button type="button" class="dxf-btn dxf-btn-cancel" id="dxf-cancel-btn">Anuluj</button>
+            <button type="button" class="dxf-btn dxf-btn-import" id="dxf-confirm-btn">Dodaj do kalkulatora</button>
+        </div>
+    </div>
+</div>
