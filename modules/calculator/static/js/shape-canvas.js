@@ -59,11 +59,30 @@ var ShapeCanvas = (function() {
         function resize() {
             var rect = canvasElement.parentElement.getBoundingClientRect();
             state.width = rect.width;
-            // Dopasuj wysokość do sekcji Produkt
+
             var form = canvasElement.closest('.quote-form');
-            var productSection = form ? form.querySelector('.product-data') : null;
-            var productH = productSection ? productSection.offsetHeight : 0;
-            state.height = productH > 50 ? productH : 400;
+            var viewW = window.innerWidth;
+            var targetH = 400; // fallback
+
+            if (viewW > 1200) {
+                // Desktop: dopasuj do sekcji Kalkulacja (+ hint pod canvasem)
+                var calcSection = form ? form.querySelector('.calculations-main') : null;
+                var hintEl = canvasElement.closest('.shape-editor-container')
+                    ? canvasElement.closest('.shape-editor-container').querySelector('.shape-canvas-hint') : null;
+                var hintH = (hintEl && hintEl.offsetHeight) ? hintEl.offsetHeight + 4 : 0;
+                if (calcSection && calcSection.offsetHeight > 50) {
+                    targetH = calcSection.offsetHeight - hintH;
+                }
+            } else if (viewW > 768) {
+                // Tablet: dopasuj do sekcji Produkt
+                var productSection = form ? form.querySelector('.product-data') : null;
+                if (productSection && productSection.offsetHeight > 50) {
+                    targetH = productSection.offsetHeight;
+                }
+            }
+            // Mobile (<768): fallback 400px
+
+            state.height = Math.max(targetH, 200);
             canvasElement.width = state.width * state.dpr;
             canvasElement.height = state.height * state.dpr;
             canvasElement.style.height = state.height + 'px';
