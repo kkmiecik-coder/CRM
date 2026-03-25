@@ -86,7 +86,72 @@ document.addEventListener("DOMContentLoaded", () => {
             }
         });
     }
+
+    // --- DXF Dropdown ---
+    const dxfToggle = document.getElementById('dxf-dropdown-toggle');
+    const dxfMenu = document.getElementById('dxf-dropdown-menu');
+
+    if (dxfToggle && dxfMenu) {
+        dxfToggle.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const isOpen = dxfMenu.style.display === 'block';
+            dxfMenu.style.display = isOpen ? 'none' : 'block';
+        });
+
+        // Zamknij dropdown po kliknięciu poza nim
+        document.addEventListener('click', (e) => {
+            if (!e.target.closest('.dxf-dropdown-wrapper')) {
+                dxfMenu.style.display = 'none';
+            }
+        });
+
+        document.getElementById('dxf-download-zip').addEventListener('click', () => {
+            const token = document.getElementById('dxf-dropdown-wrapper').dataset.token;
+            if (!token) { alert('Brak tokenu wyceny'); return; }
+            window.location.href = `/quotes/api/quotes/${token}/dxf-zip`;
+            dxfMenu.style.display = 'none';
+        });
+    }
 });
+
+// --- DXF: Mapowanie wariantów na czytelne nazwy ---
+const DXF_VARIANT_LABELS = {
+    'dab-lity-ab': 'Dąb Lity A/B',
+    'dab-lity-bb': 'Dąb Lity B/B',
+    'dab-micro-ab': 'Dąb Mikrowczep A/B',
+    'dab-micro-bb': 'Dąb Mikrowczep B/B',
+    'jes-lity-ab': 'Jesion Lity A/B',
+    'jes-micro-ab': 'Jesion Mikrowczep A/B',
+    'buk-lity-ab': 'Buk Lity A/B',
+    'buk-micro-ab': 'Buk Mikrowczep A/B',
+};
+
+function populateDxfProductSubmenu(quoteData, token) {
+    const submenu = document.getElementById('dxf-products-submenu');
+    if (!submenu) return;
+
+    submenu.innerHTML = '';
+    const items = (quoteData.items || []).filter(i => i.is_selected);
+
+    // Grupuj po product_index (unikalne produkty)
+    const seen = new Set();
+    items.forEach(item => {
+        if (seen.has(item.product_index)) return;
+        seen.add(item.product_index);
+
+        const label = DXF_VARIANT_LABELS[item.variant_code] || item.variant_code || '?';
+        const dims = `${item.length_cm || '?'}×${item.width_cm || '?'}×${item.thickness_cm || '?'}`;
+
+        const btn = document.createElement('button');
+        btn.className = 'dxf-submenu-item';
+        btn.textContent = `${item.product_index}. ${label} (${dims} cm)`;
+        btn.addEventListener('click', () => {
+            window.location.href = `/quotes/api/quotes/${token}/dxf/${item.product_index}`;
+            document.getElementById('dxf-dropdown-menu').style.display = 'none';
+        });
+        submenu.appendChild(btn);
+    });
+}
 
 // Inicjalizacja modali edycji - dodaj do DOMContentLoaded
 function initEditModals() {
@@ -558,8 +623,19 @@ function showDetailsModal(quoteData) {
         
         downloadBtn.dataset.token = token;
         delete downloadBtn.dataset.id;
-        
+
         console.log('[MODAL] Ustawiono dataset.token:', downloadBtn.dataset.token);
+
+        // DXF button — widoczny tylko gdy zamówienie ma numer BaseLinker
+        const dxfWrapper = document.getElementById('dxf-dropdown-wrapper');
+        if (dxfWrapper) {
+            const hasOrder = quoteData.base_linker_order_id && String(quoteData.base_linker_order_id).trim() !== '';
+            dxfWrapper.style.display = hasOrder ? 'inline-flex' : 'none';
+            if (hasOrder && token) {
+                dxfWrapper.dataset.token = token;
+                populateDxfProductSubmenu(quoteData, token);
+            }
+        }
     }
 
     updateCostsDisplay(quoteData);

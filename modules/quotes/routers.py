@@ -2589,3 +2589,131 @@ def download_correction(quote_id):
             'error': 'Błąd pobierania korekty',
             'details': str(e)
         }), 500
+
+
+# ============================================
+# DXF / CNC ENDPOINTS
+# ============================================
+
+@quotes_bp.route("/api/quotes/<token>/dxf", methods=["GET"])
+@require_module_access('quotes')
+def generate_quote_dxf_single(token):
+    """Generuje jeden plik DXF ze wszystkimi produktami wyceny."""
+    from modules.calculator.services.dxf_service import generate_single_dxf
+
+    quote = Quote.query.filter_by(public_token=token).first()
+    if not quote:
+        return jsonify({"error": "Wycena nie znaleziona"}), 404
+
+    if not quote.base_linker_order_id:
+        return jsonify({"error": "Wycena nie ma zamówienia BaseLinker"}), 400
+
+    selected_items = [item for item in quote.items if item.is_selected]
+    if not selected_items:
+        return jsonify({"error": "Brak wybranych produktów"}), 400
+
+    details_map = {}
+    all_details = QuoteItemDetails.query.filter_by(quote_id=quote.id).all()
+    for d in all_details:
+        details_map[d.product_index] = d
+
+    items_with_details = []
+    for item in selected_items:
+        detail = details_map.get(item.product_index)
+        items_with_details.append((item, detail))
+
+    try:
+        buf = generate_single_dxf(quote, items_with_details)
+        safe_number = (quote.quote_number or "wycena").replace("/", "-")
+        filename = f"CNC_{safe_number}.dxf"
+
+        return make_response(buf.read(), 200, {
+            "Content-Type": "application/dxf",
+            "Content-Disposition": f'attachment; filename="{filename}"',
+        })
+    except Exception as e:
+        print(f"[DXF] Błąd generowania: {e}", file=sys.stderr)
+        import traceback
+        traceback.print_exc(file=sys.stderr)
+        return jsonify({"error": "Błąd generowania pliku DXF", "details": str(e)}), 500
+
+
+@quotes_bp.route("/api/quotes/<token>/dxf/<int:product_index>", methods=["GET"])
+@require_module_access('quotes')
+def generate_quote_dxf_product(token, product_index):
+    """Generuje plik DXF dla pojedynczego produktu wyceny."""
+    from modules.calculator.services.dxf_service import generate_product_dxf, generate_product_filename
+
+    quote = Quote.query.filter_by(public_token=token).first()
+    if not quote:
+        return jsonify({"error": "Wycena nie znaleziona"}), 404
+
+    if not quote.base_linker_order_id:
+        return jsonify({"error": "Wycena nie ma zamówienia BaseLinker"}), 400
+
+    item = next((i for i in quote.items if i.product_index == product_index and i.is_selected), None)
+    if not item:
+        return jsonify({"error": f"Produkt {product_index} nie znaleziony"}), 404
+
+    detail = QuoteItemDetails.query.filter_by(quote_id=quote.id, product_index=product_index).first()
+
+    try:
+        buf = generate_product_dxf(item, detail, quote.quote_number)
+        filename = generate_product_filename(item, detail, product_index)
+
+        return make_response(buf.read(), 200, {
+            "Content-Type": "application/dxf",
+            "Content-Disposition": f'attachment; filename="{filename}"',
+        })
+    except Exception as e:
+        print(f"[DXF] Błąd generowania produktu {product_index}: {e}", file=sys.stderr)
+        import traceback
+        traceback.print_exc(file=sys.stderr)
+        return jsonify({"error": "Błąd generowania pliku DXF", "details": str(e)}), 500
+
+
+@quotes_bp.route("/api/quotes/<token>/dxf-zip", methods=["GET"])
+@require_module_access('quotes')
+def generate_quote_dxf_zip(token):
+    """Generuje ZIP z osobnymi plikami DXF per produkt."""
+    import zipfile
+    from modules.calculator.services.dxf_service import generate_product_dxf, generate_product_filename
+
+    quote = Quote.query.filter_by(public_token=token).first()
+    if not quote:
+        return jsonify({"error": "Wycena nie znaleziona"}), 404
+
+    if not quote.base_linker_order_id:
+        return jsonify({"error": "Wycena nie ma zamówienia BaseLinker"}), 400
+
+    selected_items = [item for item in quote.items if item.is_selected]
+    if not selected_items:
+        return jsonify({"error": "Brak wybranych produktów"}), 400
+
+    details_map = {}
+    all_details = QuoteItemDetails.query.filter_by(quote_id=quote.id).all()
+    for d in all_details:
+        details_map[d.product_index] = d
+
+    try:
+        zip_buf = BytesIO()
+        with zipfile.ZipFile(zip_buf, 'w', zipfile.ZIP_DEFLATED) as zf:
+            for item in selected_items:
+                detail = details_map.get(item.product_index)
+                dxf_buf = generate_product_dxf(item, detail, quote.quote_number)
+                fname = generate_product_filename(item, detail, item.product_index)
+                zf.writestr(fname, dxf_buf.read())
+
+        zip_buf.seek(0)
+        safe_number = (quote.quote_number or "wycena").replace("/", "-")
+        filename = f"CNC_{safe_number}.zip"
+
+        return make_response(zip_buf.read(), 200, {
+            "Content-Type": "application/zip",
+            "Content-Disposition": f'attachment; filename="{filename}"',
+        })
+    except Exception as e:
+        print(f"[DXF-ZIP] Błąd generowania: {e}", file=sys.stderr)
+        import traceback
+        traceback.print_exc(file=sys.stderr)
+        return jsonify({"error": "Błąd generowania archiwum DXF", "details": str(e)}), 500

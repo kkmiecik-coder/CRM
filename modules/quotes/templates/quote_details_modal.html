@@ -48,6 +48,33 @@
                         Akceptuj
                     </button>
                 </div>
+                <div class="dxf-dropdown-wrapper" id="dxf-dropdown-wrapper" style="display: none; position: relative;">
+                    <button class="quotes-btn quotes-btn-dxf" id="dxf-dropdown-toggle" title="Pobierz pliki DXF do CNC">
+                        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M2 9v4h12V9"/>
+                            <path d="M8 2v8"/>
+                            <path d="M5 7l3 3 3-3"/>
+                        </svg>
+                        DXF
+                        <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor" style="margin-left:2px;">
+                            <path d="M2 4l3 3 3-3"/>
+                        </svg>
+                    </button>
+                    <div class="dxf-dropdown-menu" id="dxf-dropdown-menu" style="display: none;">
+                        <div class="dxf-dropdown-item dxf-has-submenu" id="dxf-products-item">
+                            Produkty
+                            <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor" class="dxf-submenu-arrow">
+                                <path d="M3 2l4 3-4 3"/>
+                            </svg>
+                            <div class="dxf-submenu" id="dxf-products-submenu">
+                                <!-- dynamicznie uzupełniane z JS -->
+                            </div>
+                        </div>
+                        <button class="dxf-dropdown-item" id="dxf-download-zip">
+                            Wszystkie produkty
+                        </button>
+                    </div>
+                </div>
                 <button id="quote-preview3d-btn" class="quotes-btn quotes-btn-preview3d" title="Podgląd wybranego wariantu w 3D/AR">
                     <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round">
                         <path d="M8 1.5L14 5v6l-6 3.5L2 11V5l6-3.5z"/>
