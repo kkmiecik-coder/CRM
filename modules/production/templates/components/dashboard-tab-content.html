@@ -1,405 +1,355 @@
-<!-- dashboard-tab-content.html - POPRAWIONY Z PRAWDZIWYMI DANYMI I ID -->
-<!-- Quick Actions Bar -->
-<div class="quick-actions-bar">
-    <div class="quick-actions-list">
-        <button id="manual-sync-btn" class="btn btn-success"
-                data-bs-toggle="modal"
-                data-bs-target="#baselinkerSyncModal"
-                title="Ręczna synchronizacja z Baselinker">
-            <i class="fas fa-sync-alt me-2"></i>
-            Synchronizuj z Baselinker
-        </button>
-    </div>
+{# Dashboard Tab Content - Industrial Light Theme #}
+
+{# ─── HEADER ─── #}
+<div class="il-dashboard-header">
+  <h1>Produkcja — Dashboard</h1>
+  <div class="il-header-meta">
+    <span>
+      <span class="il-status-dot" id="health-indicator" style="background: var(--il-status-ok); box-shadow: 0 0 0 3px rgba(22,163,106,0.15);"></span>
+      System aktywny
+    </span>
+    <span>Ostatni sync: <span id="last-sync-time">{{ dashboard_stats.system_health.last_sync|default('--:--', true) }}</span></span>
+    <button class="il-btn-refresh" id="refresh-dashboard-btn" title="Odśwież dane">↻ Odśwież</button>
+  </div>
 </div>
 
-<!-- Dashboard Grid -->
+{# ─── MAIN GRID: Stations (left 60%) | Right stack (40%) ─── #}
 <div class="production-dashboard-grid">
-    <!-- Statystyki Stanowisk -->
-    <div class="widget stations-overview">
-        <div class="widget-header">
-            <h3>Przegląd stanowisk</h3>
-            <span class="last-updated" id="stations-updated">Aktualizacja...</span>
-        </div>
-        <div class="widget-content">
-            <div class="stations-grid">
-                <!-- CUTTING STATION - POPRAWIONE DANE -->
-                <div class="station-card cutting-station"
-                     data-station="cutting"
-                     data-station-url="{{ url_for('production.production_stations.cutting_station') }}">
-                    <div class="station-icon">🪚</div>
-                    <div class="station-info">
-                        <h4>Wycinanie</h4>
-                        <div class="station-stats">
-                            <div class="stat">
-                                <span class="stat-value" id="cutting-pending">{{ dashboard_stats.stations.cutting.pending_count or 0 }}</span>
-                                <span class="stat-label">Oczekujące</span>
-                            </div>
-                            <div class="stat">
-                                <span class="stat-value" id="cutting-today-m3">{{ "%.3f"|format(dashboard_stats.stations.cutting.today_m3 or 0) }}</span>
-                                <span class="stat-label">m3 dzisiaj</span>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="station-status" id="cutting-status">
-                        <span class="status-dot {% if dashboard_stats.stations.cutting.pending_count > 15 %}danger{% elif dashboard_stats.stations.cutting.pending_count > 5 %}warning{% elif dashboard_stats.stations.cutting.pending_count > 0 %}active{% endif %}"></span>
-                    </div>
-                </div>
 
-                <!-- ASSEMBLY STATION - POPRAWIONE DANE -->
-                <div class="station-card assembly-station"
-                     data-station="assembly"
-                     data-station-url="{{ url_for('production.production_stations.assembly_station') }}">
-                    <div class="station-icon">🔧</div>
-                    <div class="station-info">
-                        <h4>Składanie</h4>
-                        <div class="station-stats">
-                            <div class="stat">
-                                <span class="stat-value" id="assembly-pending">{{ dashboard_stats.stations.assembly.pending_count or 0 }}</span>
-                                <span class="stat-label">Oczekujące</span>
-                            </div>
-                            <div class="stat">
-                                <span class="stat-value" id="assembly-today-m3">{{ "%.3f"|format(dashboard_stats.stations.assembly.today_m3 or 0) }}</span>
-                                <span class="stat-label">m3 dzisiaj</span>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="station-status" id="assembly-status">
-                        <span class="status-dot {% if dashboard_stats.stations.assembly.pending_count > 15 %}danger{% elif dashboard_stats.stations.assembly.pending_count > 5 %}warning{% elif dashboard_stats.stations.assembly.pending_count > 0 %}active{% endif %}"></span>
-                    </div>
-                </div>
+  {# ═══ LEFT: STATIONS ═══ #}
+  <div class="dashboard-card stations-card">
+    <div class="dashboard-card-header">Stanowiska produkcyjne</div>
+    <div class="dashboard-card-body">
+      <div class="il-stations-grid">
 
-                <!-- GLUING STATION -->
-                <div class="station-card gluing-station"
-                     data-station="gluing"
-                     data-station-url="{{ url_for('production.production_stations.gluing_station') }}">
-                    <div class="station-icon">🧲</div>
-                    <div class="station-info">
-                        <h4>Sklejanie</h4>
-                        <div class="station-stats">
-                            <div class="stat">
-                                <span class="stat-value" id="gluing-pending">{{ dashboard_stats.stations.gluing.pending_count or 0 }}</span>
-                                <span class="stat-label">Oczekujące</span>
-                            </div>
-                            <div class="stat">
-                                <span class="stat-value" id="gluing-today-m3">{{ "%.3f"|format(dashboard_stats.stations.gluing.today_m3 or 0) }}</span>
-                                <span class="stat-label">m3 dzisiaj</span>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="station-status" id="gluing-status">
-                        <span class="status-dot {% if dashboard_stats.stations.gluing.pending_count > 15 %}danger{% elif dashboard_stats.stations.gluing.pending_count > 5 %}warning{% elif dashboard_stats.stations.gluing.pending_count > 0 %}active{% endif %}"></span>
-                    </div>
-                </div>
-
-                <!-- FORMATTING STATION -->
-                <div class="station-card formatting-station"
-                     data-station="formatting"
-                     data-station-url="{{ url_for('production.production_stations.formatting_station') }}">
-                    <div class="station-icon">📐</div>
-                    <div class="station-info">
-                        <h4>Formatowanie</h4>
-                        <div class="station-stats">
-                            <div class="stat">
-                                <span class="stat-value" id="formatting-pending">{{ dashboard_stats.stations.formatting.pending_count or 0 }}</span>
-                                <span class="stat-label">Oczekujące</span>
-                            </div>
-                            <div class="stat">
-                                <span class="stat-value" id="formatting-today-m3">{{ "%.3f"|format(dashboard_stats.stations.formatting.today_m3 or 0) }}</span>
-                                <span class="stat-label">m3 dzisiaj</span>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="station-status" id="formatting-status">
-                        <span class="status-dot {% if dashboard_stats.stations.formatting.pending_count > 15 %}danger{% elif dashboard_stats.stations.formatting.pending_count > 5 %}warning{% elif dashboard_stats.stations.formatting.pending_count > 0 %}active{% endif %}"></span>
-                    </div>
-                </div>
-
-                <!-- FINISHING STATION -->
-                <div class="station-card finishing-station"
-                     data-station="finishing"
-                     data-station-url="{{ url_for('production.production_stations.finishing_station') }}">
-                    <div class="station-icon">✨</div>
-                    <div class="station-info">
-                        <h4>Wykańczanie</h4>
-                        <div class="station-stats">
-                            <div class="stat">
-                                <span class="stat-value" id="finishing-pending">{{ dashboard_stats.stations.finishing.pending_count or 0 }}</span>
-                                <span class="stat-label">Oczekujące</span>
-                            </div>
-                            <div class="stat">
-                                <span class="stat-value" id="finishing-today-m3">{{ "%.3f"|format(dashboard_stats.stations.finishing.today_m3 or 0) }}</span>
-                                <span class="stat-label">m3 dzisiaj</span>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="station-status" id="finishing-status">
-                        <span class="status-dot {% if dashboard_stats.stations.finishing.pending_count > 15 %}danger{% elif dashboard_stats.stations.finishing.pending_count > 5 %}warning{% elif dashboard_stats.stations.finishing.pending_count > 0 %}active{% endif %}"></span>
-                    </div>
-                </div>
-
-                <!-- PACKAGING STATION - POPRAWIONE DANE -->
-                <div class="station-card packaging-station"
-                     data-station="packaging"
-                     data-station-url="{{ url_for('production.production_stations.packaging_station') }}">
-                    <div class="station-icon">📦</div>
-                    <div class="station-info">
-                        <h4>Pakowanie</h4>
-                        <div class="station-stats">
-                            <div class="stat">
-                                <span class="stat-value" id="packaging-pending">{{ dashboard_stats.stations.packaging.pending_count or 0 }}</span>
-                                <span class="stat-label">Oczekujące</span>
-                            </div>
-                            <div class="stat">
-                                <span class="stat-value" id="packaging-today-m3">{{ "%.3f"|format(dashboard_stats.stations.packaging.today_m3 or 0) }}</span>
-                                <span class="stat-label">m3 dzisiaj</span>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="station-status" id="packaging-status">
-                        <span class="status-dot {% if dashboard_stats.stations.packaging.pending_count > 15 %}danger{% elif dashboard_stats.stations.packaging.pending_count > 5 %}warning{% elif dashboard_stats.stations.packaging.pending_count > 0 %}active{% endif %}"></span>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- Dzisiejsze Podsumowanie - POPRAWIONE DANE Z WSZYSTKIMI ID -->
-    <div class="widget today-summary">
-        <div class="widget-header">
-            <h3>Dzisiejsze podsumowanie</h3>
-            <span class="date-info" id="today-date">{{ moment().strftime('%A, %d %B %Y') if moment else '' }}</span>
-        </div>
-        <div class="widget-content">
-            <div class="summary-stats">
-                <div class="summary-card completed-orders">
-                    <div class="summary-icon">✅</div>
-                    <div class="summary-data">
-                        <span class="summary-value" id="today-completed">{{ dashboard_stats.today_totals.completed_orders or 0 }}</span>
-                        <span class="summary-label">Ukończone zamówienia</span>
-                    </div>
-                </div>
-                <div class="summary-card total-volume">
-                    <div class="summary-icon">📊</div>
-                    <div class="summary-data">
-                        <span class="summary-value" id="today-total-m3">{{ "%.3f"|format(dashboard_stats.today_totals.total_m3 or 0) }}</span>
-                        <span class="summary-label">Całkowity wolumen m³</span>
-                    </div>
-                </div>
-                <div class="summary-card avg-deadline">
-                    <div class="summary-icon">⏱️</div>
-                    <div class="summary-data">
-                        <span class="summary-value" id="today-avg-deadline">{{ "%.0f"|format(dashboard_stats.today_totals.avg_deadline_distance or 0) }}</span>
-                        <span class="summary-label">Średni deadline (dni)</span>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- Alerty Terminów - POPRAWIONE DANE -->
-    <div class="widget deadline-alerts">
-        <div class="widget-header">
-            <h3>Alerty Terminów</h3>
-            <span class="alert-count" id="alerts-count">{{ dashboard_stats.deadline_alerts|length }}</span>
-        </div>
-        <div class="widget-content">
-            <div class="alerts-list" id="alerts-list">
-                {% if dashboard_stats.deadline_alerts %}
-                {% for alert in dashboard_stats.deadline_alerts %}
-                <div class="alert-item {% if alert.days_remaining <= 0 %}alert-overdue{% elif alert.days_remaining <= 1 %}alert-critical{% elif alert.days_remaining <= 2 %}alert-warning{% else %}alert-normal{% endif %}">
-                    <div class="alert-icon">{% if alert.days_remaining <= 0 %}🚨{% elif alert.days_remaining <= 1 %}⚠️{% elif alert.days_remaining <= 2 %}⏳{% else %}⏰{% endif %}</div>
-                    <div class="alert-content">
-                        <div class="alert-row-main">
-                            <span class="alert-client-name">{{ alert.client_name or 'Brak danych' }}</span>
-                            <span class="alert-days">{{ alert.days_remaining }} dni</span>
-                        </div>
-                        <div class="alert-row-ids">
-                            {% if alert.baselinker_order_id %}<span class="alert-id baselinker">BL-{{ alert.baselinker_order_id }}</span>{% endif %}
-                            {% if alert.short_product_id %}<span class="alert-id system">{{ alert.short_product_id }}</span>{% endif %}
-                            {% if alert.client_order_number %}<span class="alert-id internal">{{ alert.client_order_number }}</span>{% endif %}
-                        </div>
-                        {% if alert.product_name %}<div class="alert-row-product" title="{{ alert.product_name }}">{{ alert.product_name }}{% if alert.quantity and alert.quantity > 1 %} - <strong>{{ alert.quantity }} szt.</strong>{% endif %}</div>{% endif %}
-                    </div>
-                </div>
-                {% endfor %}
-                {% else %}
-                <div class="no-alerts-state" id="alerts-empty">
-                    <div class="no-alerts-icon">✅</div>
-                    <p class="no-alerts-text">Brak pilnych alertów</p>
-                    <small class="text-muted">Wszystkie produkty zgodne z terminem</small>
-                </div>
-                {% endif %}
-            </div>
-        </div>
-    </div>
-
-    <!-- System Health - POPRAWIONE Z STATUSAMI -->
-    <div class="widget system-health">
-        <div class="widget-header">
-            <h3>Status systemu</h3>
-            <span class="health-indicator" id="health-indicator">
-                <span class="health-dot {% if dashboard_stats.system_health.sync_status == 'success' %}success{% else %}warning{% endif %}"></span>
+        {# CUTTING #}
+        <div class="il-station {% if not dashboard_stats.stations.cutting.tablet_status.active|default(false) %}station-inactive{% endif %}" data-station="cutting">
+          <div class="il-station-header">
+            <span class="il-station-name">Wycinanie</span>
+            <span class="il-station-badge {% if dashboard_stats.stations.cutting.tablet_status.active|default(false) %}active{% else %}inactive{% endif %}" id="cutting-tablet-badge">
+              {{ dashboard_stats.stations.cutting.tablet_status.status_label|default('Niedostępne') }}
             </span>
-        </div>
-        <div class="widget-content">
-            <div class="health-items">
-                <!-- Ostatnia synchronizacja -->
-                <div class="health-item" id="sync-health">
-                    <div class="health-left">
-                        <div class="health-label">Ostatnia synch.</div>
-                        <div class="health-value" id="last-sync-time">
-                            {% if dashboard_stats.system_health.last_sync %}
-                            {{ dashboard_stats.system_health.last_sync[:19] | replace('T', ' ') }}
-                            {% else %}
-                            Brak danych
-                            {% endif %}
-                        </div>
-                    </div>
-                    <div class="health-right">
-                        <div class="health-status {% if dashboard_stats.system_health.sync_status == 'success' %}status-success{% else %}status-warning{% endif %}" id="sync-status">
-                            {% if dashboard_stats.system_health.sync_status == 'success' %}
-                            SUCCESS
-                            {% elif dashboard_stats.system_health.sync_status == 'warning' %}
-                            WARNING
-                            {% else %}
-                            ERROR
-                            {% endif %}
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Baza danych -->
-                <div class="health-item" id="database-health">
-                    <div class="health-left">
-                        <div class="health-label">Baza danych</div>
-                        <div class="health-value" id="db-response-time">{{ dashboard_stats.system_health.database_status or 'connected' }}</div>
-                    </div>
-                    <div class="health-right">
-                        <div class="health-status {% if dashboard_stats.system_health.database_status == 'connected' %}status-success{% else %}status-error{% endif %}" id="db-status">
-                            {% if dashboard_stats.system_health.database_status == 'connected' %}
-                            OK
-                            {% else %}
-                            ERROR
-                            {% endif %}
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Base API -->
-                <div class="health-item" id="api-health">
-                    <div class="health-left">
-                        <div class="health-label">Base. API</div>
-                        <div class="health-value" id="api-response-time">OK</div>
-                    </div>
-                    <div class="health-right">
-                        <div class="health-status status-success" id="api-status">OK</div>
-                    </div>
-                </div>
-
-                <!-- Błędy systemu -->
-                <div class="health-item" id="errors-health">
-                    <div class="health-left">
-                        <div class="health-label">Błędy systemu</div>
-                        <div class="health-value">{{ dashboard_stats.system_health.errors_24h or 0 }}</div>
-                    </div>
-                    <div class="health-right">
-                        <div class="health-status {% if (dashboard_stats.system_health.errors_24h or 0) == 0 %}status-success{% elif (dashboard_stats.system_health.errors_24h or 0) > 5 %}status-error{% else %}status-warning{% endif %}" id="errors-status">
-                            {% set errors = dashboard_stats.system_health.errors_24h or 0 %}
-                            {% if errors == 0 %}
-                            OK
-                            {% elif errors > 5 %}
-                            HIGH
-                            {% else %}
-                            MEDIUM
-                            {% endif %}
-                        </div>
-                    </div>
-                </div>
+          </div>
+          <div class="il-station-body">
+            <div class="il-station-stats">
+              <div class="il-station-stat">
+                <div class="il-station-stat-value" id="cutting-pending">{{ dashboard_stats.stations.cutting.pending_count|default(0) }}</div>
+                <div class="il-station-stat-label">Oczekuje</div>
+              </div>
+              <div class="il-station-stat">
+                <div class="il-station-stat-value" id="cutting-completed-today">{{ dashboard_stats.stations.cutting.completed_today|default(0) }}</div>
+                <div class="il-station-stat-label">Ukończ.</div>
+              </div>
+              <div class="il-station-stat">
+                <div class="il-station-stat-value" id="cutting-today-m3">{{ dashboard_stats.stations.cutting.today_m3|default(0.0) }}</div>
+                <div class="il-station-stat-label">m³ dziś</div>
+              </div>
+              <div class="il-station-stat">
+                <div class="il-station-stat-value" id="cutting-pending-m3">{{ dashboard_stats.stations.cutting.pending_m3|default(0.0) }}</div>
+                <div class="il-station-stat-label">m³ ocz.</div>
+              </div>
             </div>
-
-            {% if current_user.role in ['admin', 'administrator'] %}
-            <div class="health-actions">
-                <button class="health-action-btn error-details-btn" id="show-errors-btn" type="button">
-                    👁️ Pokaż błędy
-                </button>
-                <button class="health-action-btn" id="clear-errors-btn" type="button">
-                    🧹 Wyczyść błędy
-                </button>
+            <div class="il-station-progress">
+              <div class="il-station-bar"><div class="il-station-bar-fill" id="cutting-bar-fill" style="width: 0%;"></div></div>
+              <span class="il-station-bar-pct" id="cutting-bar-pct">0%</span>
             </div>
-            {% endif %}
+          </div>
         </div>
+
+        {# ASSEMBLY #}
+        <div class="il-station {% if not dashboard_stats.stations.assembly.tablet_status.active|default(false) %}station-inactive{% endif %}" data-station="assembly">
+          <div class="il-station-header">
+            <span class="il-station-name">Składanie</span>
+            <span class="il-station-badge {% if dashboard_stats.stations.assembly.tablet_status.active|default(false) %}active{% else %}inactive{% endif %}" id="assembly-tablet-badge">
+              {{ dashboard_stats.stations.assembly.tablet_status.status_label|default('Niedostępne') }}
+            </span>
+          </div>
+          <div class="il-station-body">
+            <div class="il-station-stats">
+              <div class="il-station-stat">
+                <div class="il-station-stat-value" id="assembly-pending">{{ dashboard_stats.stations.assembly.pending_count|default(0) }}</div>
+                <div class="il-station-stat-label">Oczekuje</div>
+              </div>
+              <div class="il-station-stat">
+                <div class="il-station-stat-value" id="assembly-completed-today">{{ dashboard_stats.stations.assembly.completed_today|default(0) }}</div>
+                <div class="il-station-stat-label">Ukończ.</div>
+              </div>
+              <div class="il-station-stat">
+                <div class="il-station-stat-value" id="assembly-today-m3">{{ dashboard_stats.stations.assembly.today_m3|default(0.0) }}</div>
+                <div class="il-station-stat-label">m³ dziś</div>
+              </div>
+              <div class="il-station-stat">
+                <div class="il-station-stat-value" id="assembly-pending-m3">{{ dashboard_stats.stations.assembly.pending_m3|default(0.0) }}</div>
+                <div class="il-station-stat-label">m³ ocz.</div>
+              </div>
+            </div>
+            <div class="il-station-progress">
+              <div class="il-station-bar"><div class="il-station-bar-fill" id="assembly-bar-fill" style="width: 0%;"></div></div>
+              <span class="il-station-bar-pct" id="assembly-bar-pct">0%</span>
+            </div>
+          </div>
+        </div>
+
+        {# GLUING #}
+        <div class="il-station {% if not dashboard_stats.stations.gluing.tablet_status.active|default(false) %}station-inactive{% endif %}" data-station="gluing">
+          <div class="il-station-header">
+            <span class="il-station-name">Sklejanie</span>
+            <span class="il-station-badge {% if dashboard_stats.stations.gluing.tablet_status.active|default(false) %}active{% else %}inactive{% endif %}" id="gluing-tablet-badge">
+              {{ dashboard_stats.stations.gluing.tablet_status.status_label|default('Niedostępne') }}
+            </span>
+          </div>
+          <div class="il-station-body">
+            <div class="il-station-stats">
+              <div class="il-station-stat">
+                <div class="il-station-stat-value" id="gluing-pending">{{ dashboard_stats.stations.gluing.pending_count|default(0) }}</div>
+                <div class="il-station-stat-label">Oczekuje</div>
+              </div>
+              <div class="il-station-stat">
+                <div class="il-station-stat-value" id="gluing-completed-today">{{ dashboard_stats.stations.gluing.completed_today|default(0) }}</div>
+                <div class="il-station-stat-label">Ukończ.</div>
+              </div>
+              <div class="il-station-stat">
+                <div class="il-station-stat-value" id="gluing-today-m3">{{ dashboard_stats.stations.gluing.today_m3|default(0.0) }}</div>
+                <div class="il-station-stat-label">m³ dziś</div>
+              </div>
+              <div class="il-station-stat">
+                <div class="il-station-stat-value" id="gluing-pending-m3">{{ dashboard_stats.stations.gluing.pending_m3|default(0.0) }}</div>
+                <div class="il-station-stat-label">m³ ocz.</div>
+              </div>
+            </div>
+            <div class="il-station-progress">
+              <div class="il-station-bar"><div class="il-station-bar-fill" id="gluing-bar-fill" style="width: 0%;"></div></div>
+              <span class="il-station-bar-pct" id="gluing-bar-pct">0%</span>
+            </div>
+          </div>
+        </div>
+
+        {# FORMATTING #}
+        <div class="il-station {% if not dashboard_stats.stations.formatting.tablet_status.active|default(false) %}station-inactive{% endif %}" data-station="formatting">
+          <div class="il-station-header">
+            <span class="il-station-name">Formatowanie</span>
+            <span class="il-station-badge {% if dashboard_stats.stations.formatting.tablet_status.active|default(false) %}active{% else %}inactive{% endif %}" id="formatting-tablet-badge">
+              {{ dashboard_stats.stations.formatting.tablet_status.status_label|default('Niedostępne') }}
+            </span>
+          </div>
+          <div class="il-station-body">
+            <div class="il-station-stats">
+              <div class="il-station-stat">
+                <div class="il-station-stat-value" id="formatting-pending">{{ dashboard_stats.stations.formatting.pending_count|default(0) }}</div>
+                <div class="il-station-stat-label">Oczekuje</div>
+              </div>
+              <div class="il-station-stat">
+                <div class="il-station-stat-value" id="formatting-completed-today">{{ dashboard_stats.stations.formatting.completed_today|default(0) }}</div>
+                <div class="il-station-stat-label">Ukończ.</div>
+              </div>
+              <div class="il-station-stat">
+                <div class="il-station-stat-value" id="formatting-today-m3">{{ dashboard_stats.stations.formatting.today_m3|default(0.0) }}</div>
+                <div class="il-station-stat-label">m³ dziś</div>
+              </div>
+              <div class="il-station-stat">
+                <div class="il-station-stat-value" id="formatting-pending-m3">{{ dashboard_stats.stations.formatting.pending_m3|default(0.0) }}</div>
+                <div class="il-station-stat-label">m³ ocz.</div>
+              </div>
+            </div>
+            <div class="il-station-progress">
+              <div class="il-station-bar"><div class="il-station-bar-fill" id="formatting-bar-fill" style="width: 0%;"></div></div>
+              <span class="il-station-bar-pct" id="formatting-bar-pct">0%</span>
+            </div>
+          </div>
+        </div>
+
+        {# FINISHING #}
+        <div class="il-station {% if not dashboard_stats.stations.finishing.tablet_status.active|default(false) %}station-inactive{% endif %}" data-station="finishing">
+          <div class="il-station-header">
+            <span class="il-station-name">Wykańczanie</span>
+            <span class="il-station-badge {% if dashboard_stats.stations.finishing.tablet_status.active|default(false) %}active{% else %}inactive{% endif %}" id="finishing-tablet-badge">
+              {{ dashboard_stats.stations.finishing.tablet_status.status_label|default('Niedostępne') }}
+            </span>
+          </div>
+          <div class="il-station-body">
+            <div class="il-station-stats">
+              <div class="il-station-stat">
+                <div class="il-station-stat-value" id="finishing-pending">{{ dashboard_stats.stations.finishing.pending_count|default(0) }}</div>
+                <div class="il-station-stat-label">Oczekuje</div>
+              </div>
+              <div class="il-station-stat">
+                <div class="il-station-stat-value" id="finishing-completed-today">{{ dashboard_stats.stations.finishing.completed_today|default(0) }}</div>
+                <div class="il-station-stat-label">Ukończ.</div>
+              </div>
+              <div class="il-station-stat">
+                <div class="il-station-stat-value" id="finishing-today-m3">{{ dashboard_stats.stations.finishing.today_m3|default(0.0) }}</div>
+                <div class="il-station-stat-label">m³ dziś</div>
+              </div>
+              <div class="il-station-stat">
+                <div class="il-station-stat-value" id="finishing-pending-m3">{{ dashboard_stats.stations.finishing.pending_m3|default(0.0) }}</div>
+                <div class="il-station-stat-label">m³ ocz.</div>
+              </div>
+            </div>
+            <div class="il-station-progress">
+              <div class="il-station-bar"><div class="il-station-bar-fill" id="finishing-bar-fill" style="width: 0%;"></div></div>
+              <span class="il-station-bar-pct" id="finishing-bar-pct">0%</span>
+            </div>
+          </div>
+        </div>
+
+        {# PACKAGING #}
+        <div class="il-station {% if not dashboard_stats.stations.packaging.tablet_status.active|default(false) %}station-inactive{% endif %}" data-station="packaging">
+          <div class="il-station-header">
+            <span class="il-station-name">Pakowanie</span>
+            <span class="il-station-badge {% if dashboard_stats.stations.packaging.tablet_status.active|default(false) %}active{% else %}inactive{% endif %}" id="packaging-tablet-badge">
+              {{ dashboard_stats.stations.packaging.tablet_status.status_label|default('Niedostępne') }}
+            </span>
+          </div>
+          <div class="il-station-body">
+            <div class="il-station-stats">
+              <div class="il-station-stat">
+                <div class="il-station-stat-value" id="packaging-pending">{{ dashboard_stats.stations.packaging.pending_count|default(0) }}</div>
+                <div class="il-station-stat-label">Oczekuje</div>
+              </div>
+              <div class="il-station-stat">
+                <div class="il-station-stat-value" id="packaging-completed-today">{{ dashboard_stats.stations.packaging.completed_today|default(0) }}</div>
+                <div class="il-station-stat-label">Ukończ.</div>
+              </div>
+              <div class="il-station-stat">
+                <div class="il-station-stat-value" id="packaging-today-m3">{{ dashboard_stats.stations.packaging.today_m3|default(0.0) }}</div>
+                <div class="il-station-stat-label">m³ dziś</div>
+              </div>
+              <div class="il-station-stat">
+                <div class="il-station-stat-value" id="packaging-pending-m3">{{ dashboard_stats.stations.packaging.pending_m3|default(0.0) }}</div>
+                <div class="il-station-stat-label">m³ ocz.</div>
+              </div>
+            </div>
+            <div class="il-station-progress">
+              <div class="il-station-bar"><div class="il-station-bar-fill" id="packaging-bar-fill" style="width: 0%;"></div></div>
+              <span class="il-station-bar-pct" id="packaging-bar-pct">0%</span>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  {# ═══ RIGHT STACK ═══ #}
+  <div class="il-right-stack">
+
+    {# KPIs #}
+    <div class="il-kpi-row">
+      <div class="il-kpi">
+        <div class="il-kpi-label">Zakończone<br>całkowicie dziś</div>
+        <div class="il-kpi-value" id="today-completed">{{ dashboard_stats.today_totals.completed_orders|default(0) }}</div>
+      </div>
+      <div class="il-kpi">
+        <div class="il-kpi-label">Zakończona całkowicie<br>objętość</div>
+        <div class="il-kpi-value" id="today-total-m3">{{ dashboard_stats.today_totals.total_m3|default(0.0) }} <span class="il-kpi-unit">m³</span></div>
+      </div>
     </div>
 
-
-    <!-- Wykres Wydajności -->
-    <div class="col-lg-12">
-        <div class="widget performance-chart">
-            <div class="widget-header">
-                <h5 class="widget-title">
-                    <i class="fas fa-chart-line me-2"></i>
-                    Wydajność dzienna
-                </h5>
-                <!-- NOWE: Kontrolki wykresu z rozwijaną listą -->
-                <div class="chart-controls">
-                    <select id="chart-period-select" class="form-select form-select-sm">
-                        <option value="7" selected>7 dni</option>
-                        <option value="14">14 dni</option>
-                        <option value="30">30 dni</option>
-                        <option value="90">3 miesiące</option>
-                        <option value="180">6 miesięcy</option>
-                        <option value="365">12 miesięcy</option>
-                    </select>
-                    <button id="chart-refresh-btn" class="btn btn-outline-primary btn-sm" title="Odśwież wykres">
-                        <i class="fas fa-sync-alt"></i>
-                    </button>
-                </div>
-            </div>
-            <div class="widget-content">
-                <canvas id="performance-chart-canvas"></canvas>
-                <div class="chart-loader" aria-hidden="true">
-                    <div class="spinner"></div>
-                    <span>Ładowanie danych wykresu...</span>
-                </div>
-            </div>
+    {# IN PRODUCTION NOW #}
+    <div class="il-in-production">
+      <div class="il-in-production-header">W produkcji teraz</div>
+      <div class="il-in-production-stats">
+        <div class="il-in-production-stat">
+          <div class="il-in-production-stat-value" id="in-production-orders">{{ dashboard_stats.in_production.orders|default(0) }}</div>
+          <div class="il-in-production-stat-label">Zamówień</div>
         </div>
+        <div class="il-in-production-stat">
+          <div class="il-in-production-stat-value" id="in-production-products">{{ dashboard_stats.in_production.products|default(0) }}</div>
+          <div class="il-in-production-stat-label">Produktów</div>
+        </div>
+        <div class="il-in-production-stat">
+          <div class="il-in-production-stat-value" id="in-production-m3">{{ dashboard_stats.in_production.m3|default(0.0) }}</div>
+          <div class="il-in-production-stat-label">m³</div>
+        </div>
+      </div>
     </div>
+
+    {# ALERTS #}
+    <div class="dashboard-card" style="flex: 1;">
+      <div class="dashboard-card-header">Alerty terminów <span id="alerts-count" class="ms-2" style="color: var(--il-status-danger);">{{ dashboard_stats.deadline_alerts|length }}</span></div>
+      <div class="dashboard-card-body">
+        <div class="il-alert-list" id="alerts-list">
+          {% if dashboard_stats.deadline_alerts %}
+            {% for alert in dashboard_stats.deadline_alerts %}
+              <div class="il-alert-item">
+                <div class="il-alert-dot {% if alert.days_remaining < 0 %}danger{% elif alert.days_remaining <= 1 %}warn{% else %}info{% endif %}"></div>
+                <div class="il-alert-info">
+                  <div class="il-alert-client">{{ alert.client_name|default('Brak danych') }}</div>
+                  <div class="il-alert-order">{{ alert.baselinker_order_id|default('') }} · {{ alert.current_station|default('') }}</div>
+                </div>
+                <div class="il-alert-right">
+                  <div class="il-alert-days" style="color: {% if alert.days_remaining < 0 %}var(--il-status-danger){% elif alert.days_remaining <= 1 %}var(--il-status-warn){% else %}var(--il-status-info){% endif %};">
+                    {% if alert.days_remaining < 0 %}{{ alert.days_remaining }} dni{% elif alert.days_remaining == 0 %}Dziś{% elif alert.days_remaining == 1 %}1 dzień{% else %}{{ alert.days_remaining }} dni{% endif %}
+                  </div>
+                  <div class="il-alert-date">{{ alert.deadline_date_formatted|default('') }}</div>
+                </div>
+              </div>
+            {% endfor %}
+          {% else %}
+            <div class="il-no-alerts" id="no-alerts-state">Brak pilnych alertów</div>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+
+    {# SYSTEM STATUS #}
+    <div class="dashboard-card">
+      <div class="dashboard-card-header">Status systemu</div>
+      <div class="dashboard-card-body">
+        <div class="il-system-list">
+          <div class="il-system-item">
+            <div class="il-system-item-left">
+              <div class="il-system-dot" id="sync-health" style="background: {% if dashboard_stats.system_health.sync_status == 'success' %}var(--il-status-ok){% elif dashboard_stats.system_health.sync_status == 'warning' %}var(--il-status-warn){% else %}var(--il-status-danger){% endif %};"></div>
+              <span class="il-system-label">Sync BaseLinker</span>
+            </div>
+            <span class="il-system-value" id="last-sync-display">{{ dashboard_stats.system_health.last_sync|default('--') }}</span>
+          </div>
+          <div class="il-system-item">
+            <div class="il-system-item-left">
+              <div class="il-system-dot" id="database-health" style="background: var(--il-status-ok);"></div>
+              <span class="il-system-label">Baza danych</span>
+            </div>
+            <span class="il-system-value" id="db-status" style="color: var(--il-status-ok); font-weight: 600;">OK</span>
+          </div>
+          <div class="il-system-item">
+            <div class="il-system-item-left">
+              <div class="il-system-dot" id="api-health" style="background: var(--il-status-ok);"></div>
+              <span class="il-system-label">API BaseLinker</span>
+            </div>
+            <span class="il-system-value" id="api-status" style="color: var(--il-status-ok); font-weight: 600;">OK</span>
+          </div>
+          <div class="il-system-item">
+            <div class="il-system-item-left">
+              <div class="il-system-dot" id="errors-health" style="background: {% if dashboard_stats.system_health.errors_24h > 0 %}var(--il-status-danger){% else %}var(--il-status-ok){% endif %};"></div>
+              <span class="il-system-label">Błędy 24h</span>
+            </div>
+            <span class="il-system-value" id="errors-count">{{ dashboard_stats.system_health.errors_24h|default(0) }}</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
 </div>
 
-<!-- Modal błędów systemu -->
-<div class="modal fade" id="systemErrorsModal" tabindex="-1">
-    <div class="modal-dialog modal-lg">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title">Błędy systemu</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Zamknij"></button>
-            </div>
-            <div class="modal-body">
-                <div class="errors-loading" id="errors-loading" style="display:none;">
-                    <div class="text-center">
-                        <div class="spinner-border text-primary" role="status"></div>
-                        <p class="mt-2">Ładowanie błędów...</p>
-                    </div>
-                </div>
-                <div class="errors-empty" id="errors-empty" style="display:none;">
-                    <div class="text-center text-muted">
-                        <i class="fas fa-check-circle fa-3x mb-3 text-success"></i>
-                        <h5>Brak błędów!</h5>
-                        <p>System działa bez błędów.</p>
-                    </div>
-                </div>
-                <div class="errors-list" id="errors-list">
-                    <!-- Błędy zostaną załadowane dynamicznie -->
-                </div>
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Zamknij</button>
-                <button type="button" class="btn btn-danger" id="clear-all-errors-btn">
-                    🧹 Wyczyść wszystkie błędy
-                </button>
-            </div>
-        </div>
+{# ═══ CHART ═══ #}
+<div class="dashboard-card">
+  <div class="dashboard-card-header">
+    <div class="il-chart-header">
+      <span>Wydajność dzienna</span>
+      <div class="il-chart-periods">
+        <button class="il-chart-period inactive" data-period="7">7D</button>
+        <button class="il-chart-period inactive" data-period="14">14D</button>
+        <button class="il-chart-period active" data-period="30">30D</button>
+        <button class="il-chart-period inactive" data-period="90">90D</button>
+        <button class="il-chart-period inactive" data-period="180">180D</button>
+        <button class="il-chart-period inactive" data-period="365">365D</button>
+      </div>
     </div>
+  </div>
+  <div class="dashboard-card-body">
+    <div style="position: relative; height: 200px;">
+      <canvas id="performance-chart-canvas"></canvas>
+    </div>
+  </div>
 </div>
-
-<!-- Include modal synchronizacji z Baselinker -->
-{% include 'components/dashboard_bl_sync_modal.html' %}
