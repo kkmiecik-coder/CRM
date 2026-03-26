@@ -742,7 +742,8 @@ class DashboardModule {
         console.log('[Dashboard Module] Initializing performance chart...');
 
         try {
-            const chartContainer = document.querySelector('.widget.performance-chart');
+            const canvas = document.getElementById('performance-chart-canvas');
+            const chartContainer = canvas ? canvas.closest('.dashboard-card') || canvas.closest('.widget.performance-chart') : null;
             if (!chartContainer) {
                 console.warn('[Dashboard Module] Chart container not found');
                 return;
@@ -755,7 +756,7 @@ class DashboardModule {
             this.initChartControls(chartContainer);
 
             // Load chart data
-            await this.loadChartData(7); // Default 7 days
+            await this.loadChartData(30); // Default 30 days
 
         } catch (error) {
             console.error('[Dashboard Module] Chart initialization failed:', error);
@@ -975,7 +976,8 @@ class DashboardModule {
     }
 
     showChartError(message) {
-        const chartContainer = document.querySelector('.widget.performance-chart .widget-content');
+        const canvas = document.getElementById('performance-chart-canvas');
+        const chartContainer = canvas ? canvas.parentElement : document.querySelector('.widget.performance-chart .widget-content');
         if (chartContainer) {
             chartContainer.innerHTML = `
             <div class="alert alert-danger">
@@ -986,8 +988,8 @@ class DashboardModule {
     }
 
     toggleChartLoader(show) {
-        const loader = document.querySelector('.widget.performance-chart .chart-loader');
         const canvas = document.getElementById('performance-chart-canvas');
+        const loader = canvas ? canvas.closest('.dashboard-card')?.querySelector('.chart-loader') : document.querySelector('.widget.performance-chart .chart-loader');
 
         console.log('[Dashboard Module] Toggle chart loader:', show);
 
