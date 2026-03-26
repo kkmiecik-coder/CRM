@@ -176,6 +176,24 @@ class DashboardModule {
             const data = await this.shared.apiClient.getDashboardData();
             if (data.success) {
                 this.updateStationsWidget(data.data.stations);
+                // Update extended station data
+                if (data.data.stations) {
+                    if (Array.isArray(data.data.stations)) {
+                        data.data.stations.forEach(s => {
+                            this.updateElementText(`${s.code}-pending`, s.active_orders || 0);
+                            if (s.tablet_status) this.updateStationTabletStatus(s.code, s.tablet_status);
+                            if (s.completed_today !== undefined) {
+                                this.updateElementText(`${s.code}-completed-today`, s.completed_today || 0);
+                                this.updateElementText(`${s.code}-pending-m3`, s.pending_m3 || 0);
+                                this.updateStationProgress(s.code, {pending_count: s.active_orders, completed_today: s.completed_today});
+                            }
+                        });
+                    }
+                }
+                // Update in_production if available
+                if (data.data.in_production) {
+                    this.updateInProductionWidget(data.data.in_production);
+                }
             }
         });
 
@@ -287,6 +305,25 @@ class DashboardModule {
                 this.updateAlertsWidget(initialData.deadline_alerts);
             }
 
+            // Update "In Production Now" widget
+            if (initialData.in_production) {
+                this.updateInProductionWidget(initialData.in_production);
+            }
+
+            // Update station extended data (completed_today, pending_m3, tablet status, progress bars)
+            if (initialData.stations) {
+                const stations = ['cutting', 'assembly', 'gluing', 'formatting', 'finishing', 'packaging'];
+                stations.forEach(station => {
+                    const stationData = initialData.stations[station];
+                    if (stationData) {
+                        this.updateElementText(`${station}-completed-today`, stationData.completed_today || 0);
+                        this.updateElementText(`${station}-pending-m3`, stationData.pending_m3 || 0);
+                        this.updateStationTabletStatus(station, stationData.tablet_status);
+                        this.updateStationProgress(station, stationData);
+                    }
+                });
+            }
+
         } catch (error) {
             console.error('[Dashboard Module] Error updating widgets with initial data:', error);
         }
@@ -393,6 +430,26 @@ class DashboardModule {
         this.components.alertsWidget = this.initAlertsWidget();
         this.components.systemHealthWidget = this.initSystemHealthWidget();
 
+        // Refresh dashboard button
+        const refreshBtn = document.getElementById('refresh-dashboard-btn');
+        if (refreshBtn) {
+            refreshBtn.addEventListener('click', () => {
+                this.refreshDataOnly();
+            });
+        }
+
+        // Chart period buttons (Industrial Light template)
+        const periodBtns = document.querySelectorAll('.il-chart-period');
+        periodBtns.forEach(btn => {
+            btn.addEventListener('click', () => {
+                periodBtns.forEach(b => { b.classList.remove('active'); b.classList.add('inactive'); });
+                btn.classList.remove('inactive');
+                btn.classList.add('active');
+                const period = btn.getAttribute('data-period');
+                this.loadChartData(parseInt(period));
+            });
+        });
+
         // POPRAWKA: Użyj setTimeout żeby DOM był w pełni gotowy
         setTimeout(() => {
             console.log('[Dashboard Module] DOM ready, updating widgets...');
@@ -408,11 +465,11 @@ class DashboardModule {
     }
 
     initStationsWidget() {
-        const stationsGrid = document.querySelector('.stations-grid');
+        const stationsGrid = document.querySelector('.il-stations-grid') || document.querySelector('.stations-grid');
         if (!stationsGrid) return null;
 
         // Initialize station cards click handlers
-        const stationCards = stationsGrid.querySelectorAll('.station-card');
+        const stationCards = stationsGrid.querySelectorAll('.il-station') || stationsGrid.querySelectorAll('.station-card');
         stationCards.forEach(card => {
             card.addEventListener('click', () => {
                 const stationUrl = card.getAttribute('data-station-url');
@@ -432,7 +489,8 @@ class DashboardModule {
     }
 
     initTodayTotalsWidget() {
-        const todayWidget = document.querySelector('.widget.today-summary');
+        const todayWidget = document.getElementById('today-completed') ||
+            document.querySelector('.widget.today-summary');
         if (!todayWidget) return null;
 
         return {
@@ -445,7 +503,9 @@ class DashboardModule {
     }
 
     initAlertsWidget() {
-        const alertsWidget = document.querySelector('.widget.deadline-alerts');
+        const alertsWidget = document.getElementById('alerts-list') ||
+            document.querySelector('.il-alert-list') ||
+            document.querySelector('.widget.deadline-alerts');
         if (!alertsWidget) return null;
 
         return {
@@ -458,7 +518,8 @@ class DashboardModule {
     }
 
     initSystemHealthWidget() {
-        const healthWidget = document.querySelector('.widget.system-health');
+        const healthWidget = document.querySelector('.il-system-list') ||
+            document.querySelector('.widget.system-health');
         if (!healthWidget) return null;
 
         return {
@@ -615,11 +676,46 @@ class DashboardModule {
 
         if (alertsList) {
             if (!alertsData || alertsData.length === 0) {
-                alertsList.innerHTML = this.getNoAlertsHTML();
+                // Try IL template first, fall back to old template
+                if (document.querySelector('.il-alert-list') || alertsList.closest('[class*="il-"]')) {
+                    alertsList.innerHTML = '<div class="il-no-alerts">Brak pilnych alertów</div>';
+                } else {
+                    alertsList.innerHTML = this.getNoAlertsHTML();
+                }
             } else {
-                alertsList.innerHTML = alertsData.map(alert =>
-                    this.createAlertHTML(alert)
-                ).join('');
+                // Detect which template is active
+                const isIL = document.querySelector('.il-stations-grid') !== null;
+                if (isIL) {
+                    const alerts = alertsData;
+                    const alertHtml = alerts.map(alert => {
+                        const days = alert.days_remaining || 0;
+                        let dotClass = 'info';
+                        let daysColor = 'var(--il-status-info)';
+                        if (days < 0) { dotClass = 'danger'; daysColor = 'var(--il-status-danger)'; }
+                        else if (days <= 1) { dotClass = 'warn'; daysColor = 'var(--il-status-warn)'; }
+
+                        const daysText = days < 0 ? `${days} dni` : days === 0 ? 'Dziś' : days === 1 ? '1 dzień' : `${days} dni`;
+
+                        return `
+                            <div class="il-alert-item">
+                                <div class="il-alert-dot ${dotClass}"></div>
+                                <div class="il-alert-info">
+                                    <div class="il-alert-client">${alert.client_name || 'Brak danych'}</div>
+                                    <div class="il-alert-order">${alert.baselinker_order_id || ''} · ${alert.current_station || ''}</div>
+                                </div>
+                                <div class="il-alert-right">
+                                    <div class="il-alert-days" style="color: ${daysColor};">${daysText}</div>
+                                    <div class="il-alert-date">${alert.deadline_date_formatted || ''}</div>
+                                </div>
+                            </div>
+                        `;
+                    }).join('');
+                    alertsList.innerHTML = alertHtml || '<div class="il-no-alerts">Brak pilnych alertów</div>';
+                } else {
+                    alertsList.innerHTML = alertsData.map(alert =>
+                        this.createAlertHTML(alert)
+                    ).join('');
+                }
             }
         }
     }
@@ -2287,6 +2383,46 @@ class DashboardModule {
                 <small class="text-muted">Wszystkie produkty zgodne z terminem</small>
             </div>
         `;
+    }
+
+    // ========================================================================
+    // INDUSTRIAL LIGHT WIDGET HELPERS
+    // ========================================================================
+
+    updateInProductionWidget(data) {
+        this.updateElementText('in-production-orders', data.orders || 0);
+        this.updateElementText('in-production-products', data.products || 0);
+        this.updateElementText('in-production-m3', data.m3 || 0);
+    }
+
+    updateStationTabletStatus(station, tabletStatus) {
+        if (!tabletStatus) return;
+        const badge = document.getElementById(`${station}-tablet-badge`);
+        const card = badge ? badge.closest('.il-station') : null;
+        if (badge) {
+            badge.textContent = tabletStatus.status_label || 'Niedostępne';
+            badge.className = 'il-station-badge ' + (tabletStatus.active ? 'active' : 'inactive');
+        }
+        if (card) {
+            card.classList.toggle('station-inactive', !tabletStatus.active);
+        }
+    }
+
+    updateStationProgress(station, data) {
+        const barFill = document.getElementById(`${station}-bar-fill`);
+        const barPct = document.getElementById(`${station}-bar-pct`);
+        if (!barFill || !barPct) return;
+        const pending = parseInt(data.pending_count) || 0;
+        const completed = parseInt(data.completed_today) || 0;
+        const total = pending + completed;
+        const pct = total > 0 ? Math.round((completed / total) * 100) : 0;
+        barFill.style.width = pct + '%';
+        barPct.textContent = pct + '%';
+    }
+
+    updateElementText(id, value) {
+        const el = document.getElementById(id);
+        if (el) el.textContent = value;
     }
 
     createAlertHTML(alert) {
