@@ -350,3 +350,43 @@
     </div>
   </div>
 </div>
+
+{# ─── MODALS ─── #}
+
+{# Modal błędów systemu #}
+<div class="modal fade" id="systemErrorsModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Błędy systemu</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Zamknij"></button>
+            </div>
+            <div class="modal-body">
+                <div class="errors-loading" id="errors-loading" style="display:none;">
+                    <div class="text-center">
+                        <div class="spinner-border text-primary" role="status"></div>
+                        <p class="mt-2">Ładowanie błędów...</p>
+                    </div>
+                </div>
+                <div class="errors-empty" id="errors-empty" style="display:none;">
+                    <div class="text-center text-muted">
+                        <i class="fas fa-check-circle fa-3x mb-3 text-success"></i>
+                        <h5>Brak błędów!</h5>
+                        <p>System działa bez błędów.</p>
+                    </div>
+                </div>
+                <div class="errors-list" id="errors-list">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Zamknij</button>
+                <button type="button" class="btn btn-danger" id="clear-all-errors-btn">
+                    Wyczyść wszystkie błędy
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+{# Modal synchronizacji z Baselinker #}
+{% include 'components/dashboard_bl_sync_modal.html' %}
