@@ -24,6 +24,7 @@ from flask import Blueprint, render_template, request, redirect, url_for, jsonif
 from datetime import datetime, date, timedelta
 from modules.logging import get_structured_logger
 from extensions import db
+from modules.production.services.station_heartbeat import record_heartbeat
 import traceback
 
 # Utworzenie Blueprint dla interfejsów stanowisk
@@ -1989,14 +1990,14 @@ def production_monitor():
 def ajax_get_products(station_code):
     """
     AJAX endpoint dla odświeżania listy produktów
-    
+
     Args:
         station_code: cutting|assembly|packaging
-        
+
     Query params:
         sort: priority|deadline|created_at
         limit: max liczba produktów
-        
+
     Returns:
         JSON: Lista produktów
     """
@@ -2006,7 +2007,8 @@ def ajax_get_products(station_code):
                 'success': False,
                 'error': 'Invalid station code'
             }), 400
-        
+
+        record_heartbeat(station_code)
         sort_by = request.args.get('sort', 'priority')
         limit = min(int(request.args.get('limit', 50)), 100)
         
@@ -3109,6 +3111,8 @@ def ajax_station_today_m3(station_code):
                 'success': False,
                 'error': f'Nieprawidłowy station_code. Dozwolone: cutting, assembly, gluing, formatting, finishing, packaging'
             }), 400
+
+        record_heartbeat(station_code)
 
         from ..models import ProductionItem
 
