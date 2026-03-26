@@ -233,11 +233,11 @@
     {# KPIs #}
     <div class="il-kpi-row">
       <div class="il-kpi">
-        <div class="il-kpi-label">Zakończone<br>całkowicie dziś</div>
+        <div class="il-kpi-label">Zakończone całkowicie dziś</div>
         <div class="il-kpi-value" id="today-completed">{{ dashboard_stats.today_totals.completed_orders|default(0) }}</div>
       </div>
       <div class="il-kpi">
-        <div class="il-kpi-label">Zakończona całkowicie<br>objętość</div>
+        <div class="il-kpi-label">Zakończona całkowicie objętość</div>
         <div class="il-kpi-value" id="today-total-m3">{{ dashboard_stats.today_totals.total_m3|default(0.0) }} <span class="il-kpi-unit">m³</span></div>
       </div>
     </div>
@@ -344,10 +344,8 @@
       </div>
     </div>
   </div>
-  <div class="dashboard-card-body">
-    <div style="position: relative; height: 200px;">
-      <canvas id="performance-chart-canvas"></canvas>
-    </div>
+  <div class="dashboard-card-body" style="padding-bottom: 6px;">
+    <canvas id="performance-chart-canvas" height="350"></canvas>
   </div>
 </div>
 

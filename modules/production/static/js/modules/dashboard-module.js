@@ -884,24 +884,24 @@ class DashboardModule {
                 options: {
                     responsive: true,
                     maintainAspectRatio: false,
+                    layout: {
+                        padding: { top: 0, right: 0, bottom: 0, left: 0 }
+                    },
                     interaction: {
                         mode: 'index',
                         intersect: false
                     },
                     plugins: {
                         title: {
-                            display: true,
-                            text: chartTitle,
-                            font: { size: 14, weight: 'bold' },
-                            padding: { top: 10, bottom: 20 }
+                            display: false
                         },
                         legend: {
                             display: true,
                             position: 'top',
                             labels: {
                                 usePointStyle: true,
-                                padding: 15,
-                                font: { size: 12 }
+                                padding: 10,
+                                font: { size: 11, family: "'JetBrains Mono', monospace" }
                             }
                         },
                         tooltip: {

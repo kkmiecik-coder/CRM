@@ -2577,6 +2577,10 @@ body {
   padding: 12px 14px;
   box-shadow: inset 0 -2px 0 var(--il-inset-shadow);
   font-family: 'JetBrains Mono', monospace;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
 }
 .il-kpi-label {
   color: var(--il-text-secondary);
@@ -2590,8 +2594,8 @@ body {
   font-size: 36px;
   font-weight: 700;
   color: var(--il-text-primary);
-  margin-top: 4px;
   line-height: 1;
+  white-space: nowrap;
 }
 .il-kpi-unit {
   font-size: 17px;
