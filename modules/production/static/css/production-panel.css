@@ -2731,6 +2731,17 @@ body {
 }
 .il-btn-refresh:hover { color: var(--il-text-primary); border-color: var(--il-text-secondary); }
 
+/* ─── Quick Actions ─── */
+.il-quick-actions {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+  font-family: 'JetBrains Mono', monospace;
+}
+.il-quick-actions .il-btn-refresh i {
+  margin-right: 6px;
+}
+
 /* ─── No Alerts State ─── */
 .il-no-alerts {
   text-align: center;

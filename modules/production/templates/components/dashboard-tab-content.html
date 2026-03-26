@@ -1,16 +1,13 @@
 {# Dashboard Tab Content - Industrial Light Theme #}
 
-{# ─── HEADER ─── #}
-<div class="il-dashboard-header">
-  <h1>Produkcja — Dashboard</h1>
-  <div class="il-header-meta">
-    <span>
-      <span class="il-status-dot" id="health-indicator" style="background: var(--il-status-ok); box-shadow: 0 0 0 3px rgba(22,163,106,0.15);"></span>
-      System aktywny
-    </span>
-    <span>Ostatni sync: <span id="last-sync-time">{{ dashboard_stats.system_health.last_sync|default('--:--', true) }}</span></span>
-    <button class="il-btn-refresh" id="refresh-dashboard-btn" title="Odśwież dane">↻ Odśwież</button>
-  </div>
+{# ─── QUICK ACTIONS BAR ─── #}
+<div class="il-quick-actions">
+  <button id="manual-sync-btn" class="il-btn-refresh"
+          data-bs-toggle="modal"
+          data-bs-target="#baselinkerSyncModal"
+          title="Ręczna synchronizacja z Baselinker">
+    <i class="fas fa-sync-alt"></i> Synchronizuj z Baselinker
+  </button>
 </div>
 
 {# ─── MAIN GRID: Stations (left 60%) | Right stack (40%) ─── #}
