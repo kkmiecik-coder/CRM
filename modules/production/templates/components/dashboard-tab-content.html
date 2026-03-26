@@ -299,7 +299,7 @@
               <div class="il-system-dot" id="sync-health" style="background: {% if dashboard_stats.system_health.sync_status == 'success' %}var(--il-status-ok){% elif dashboard_stats.system_health.sync_status == 'warning' %}var(--il-status-warn){% else %}var(--il-status-danger){% endif %};"></div>
               <span class="il-system-label">Sync BaseLinker</span>
             </div>
-            <span class="il-system-value" id="last-sync-display">{{ dashboard_stats.system_health.last_sync|default('--') }}</span>
+            <span class="il-system-value" id="last-sync-display">{% if dashboard_stats.system_health.last_sync %}{{ dashboard_stats.system_health.last_sync[:16]|replace('T', ' ') }}{% else %}--{% endif %}</span>
           </div>
           <div class="il-system-item">
             <div class="il-system-item-left">
