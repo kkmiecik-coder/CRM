@@ -1,447 +1,192 @@
-<!-- products-tab-content.html -->
-<!-- ============================================================================
-     PRODUCTS TAB CONTENT - NOWA STRUKTURA - RESTRUKTURYZACJA 2025
-     ============================================================================
+{# Products Tab Content - Industrial Light Theme - Order Grouped #}
+<div id="products-module-container">
 
-     Zawiera:
-     - Mini statystyki nad filtrami
-     - Text search z fuzzy + 5 multi-select dropdownów
-     - System badges aktywnych filtrów
-     - Virtual scrolling container
-     - Template tags dla komponentów
-     - Loading states i error states
-     - Bulk actions bar
-     ============================================================================ -->
-<!-- CONTAINER GŁÓWNY -->
-<div id="products-module-container" class="products-module-container">
+  {# ─── STATS BAR ─── #}
+  <div class="il-stats-bar">
+    <div class="il-stat-card">
+      <span class="il-stat-label">Zamówienia</span>
+      <span class="il-stat-value" id="il-stats-orders">0</span>
+    </div>
+    <div class="il-stat-card">
+      <span class="il-stat-label">Produkty</span>
+      <span class="il-stat-value" id="il-stats-products">0</span>
+    </div>
+    <div class="il-stat-card">
+      <span class="il-stat-label">Objętość</span>
+      <span class="il-stat-value" id="il-stats-volume">0 m³</span>
+    </div>
+    <div class="il-stat-card">
+      <span class="il-stat-label">Wartość netto</span>
+      <span class="il-stat-value" id="il-stats-value">0 zł</span>
+    </div>
+    <div class="il-stat-card">
+      <span class="il-stat-label">Pilne</span>
+      <span class="il-stat-value" id="il-stats-urgent">0</span>
+    </div>
+  </div>
 
-    <!-- MINI STATYSTYKI NAD FILTRAMI -->
-    <div class="products-stats-bar" id="products-stats-bar">
-        <div class="row g-3">
-            <div class="col-md-3">
-                <div class="stat-card stat-card-sm">
-                    <div class="stat-value" id="stats-total-count">0</div>
-                    <div class="stat-label">Pozycji</div>
-                </div>
-            </div>
-            <div class="col-md-3">
-                <div class="stat-card stat-card-sm">
-                    <div class="stat-value text-info" id="stats-total-volume">0.000</div>
-                    <div class="stat-label">m³</div>
-                </div>
-            </div>
-            <div class="col-md-3">
-                <div class="stat-card stat-card-sm">
-                    <div class="stat-value text-success" id="stats-total-value">0</div>
-                    <div class="stat-label">zł wartość</div>
-                </div>
-            </div>
-            <div class="col-md-3">
-                <div class="stat-card stat-card-sm">
-                    <div class="stat-value text-warning" id="stats-urgent-count">0</div>
-                    <div class="stat-label">pilnych</div>
-                </div>
-            </div>
-        </div>
+  {# ─── FILTERS ─── #}
+  <div class="il-filters-bar">
+    <input type="text" class="il-filter-search" id="il-products-search" placeholder="Szukaj: nr zamówienia, klient, produkt..." autocomplete="off">
+
+    <div class="il-multiselect" id="filter-wood-species">
+      <div class="il-filter-dropdown" data-filter="wood-species">
+        <i class="fas fa-tree"></i> Gatunek <i class="fas fa-chevron-down il-chevron"></i>
+      </div>
+      <div class="il-multiselect-options" id="dropdown-wood-species" style="display:none;">
+        <input type="text" class="il-multiselect-search" placeholder="Szukaj...">
+        <label class="il-multiselect-option"><input type="checkbox" value="__all__"> Zaznacz wszystkie</label>
+        {# Options populated by JS #}
+      </div>
     </div>
 
-    <!-- SEKCJA FILTRÓW -->
-    <div class="products-filters-container" id="products-filters-container">
-        <div class="filtr-main-conteiner">
-            <!-- TEXT SEARCH z FUZZY -->
-            <div class="filtr-conteiner">
-                <label for="products-text-search" class="form-label">
-                    <i class="fas fa-search me-1"></i>Wyszukaj produkt
-                </label>
-                <div class="input-group">
-                    <input type="text"
-                           id="products-text-search"
-                           class="form-control"
-                           placeholder="Numer zamówienia, ID produktu, klient..."
-                           autocomplete="off">
-                    <span class="input-group-text search-spinner d-none">
-                        <i class="fas fa-spinner fa-spin"></i>
-                    </span>
-                </div>
-            </div>
-
-            <!-- MULTI-SELECT 1: GATUNEK DREWNA -->
-            <div class="filtr-conteiner">
-                <label class="form-label">Gatunek drewna</label>
-                <div class="multi-select-wrapper">
-                    <div class="multi-select-display" id="filter-wood-species" tabindex="0">
-                        <span class="multi-select-placeholder">Wszystkie</span>
-                        <i class="fas fa-chevron-down multi-select-arrow"></i>
-                    </div>
-                    <div class="multi-select-dropdown" id="dropdown-wood-species">
-                        <div class="multi-select-search">
-                            <input type="text" placeholder="Szukaj gatunku..." class="form-control form-control-sm">
-                        </div>
-                        <div class="multi-select-options">
-                            <div class="multi-select-option multi-select-all">
-                                <input type="checkbox" id="wood-species-all">
-                                <label for="wood-species-all">Zaznacz wszystkie</label>
-                            </div>
-                            <!-- Opcje będą ładowane dynamicznie -->
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- MULTI-SELECT 2: TECHNOLOGIA -->
-            <div class="filtr-conteiner">
-                <label class="form-label">Technologia</label>
-                <div class="multi-select-wrapper">
-                    <div class="multi-select-display" id="filter-technology" tabindex="0">
-                        <span class="multi-select-placeholder">Wszystkie</span>
-                        <i class="fas fa-chevron-down multi-select-arrow"></i>
-                    </div>
-                    <div class="multi-select-dropdown" id="dropdown-technology">
-                        <div class="multi-select-search">
-                            <input type="text" placeholder="Szukaj technologii..." class="form-control form-control-sm">
-                        </div>
-                        <div class="multi-select-options">
-                            <div class="multi-select-option multi-select-all">
-                                <input type="checkbox" id="technology-all">
-                                <label for="technology-all">Zaznacz wszystkie</label>
-                            </div>
-                            <!-- Opcje będą ładowane dynamicznie -->
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- MULTI-SELECT 3: KLASA DREWNA -->
-            <div class="filtr-conteiner">
-                <label class="form-label">Klasa drewna</label>
-                <div class="multi-select-wrapper">
-                    <div class="multi-select-display" id="filter-wood-class" tabindex="0">
-                        <span class="multi-select-placeholder">Wszystkie</span>
-                        <i class="fas fa-chevron-down multi-select-arrow"></i>
-                    </div>
-                    <div class="multi-select-dropdown" id="dropdown-wood-class">
-                        <div class="multi-select-search">
-                            <input type="text" placeholder="Szukaj klasy..." class="form-control form-control-sm">
-                        </div>
-                        <div class="multi-select-options">
-                            <div class="multi-select-option multi-select-all">
-                                <input type="checkbox" id="wood-class-all">
-                                <label for="wood-class-all">Zaznacz wszystkie</label>
-                            </div>
-                            <!-- Opcje będą ładowane dynamicznie -->
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- MULTI-SELECT 4: GRUBOŚĆ -->
-            <div class="filtr-conteiner">
-                <label class="form-label">Grubość</label>
-                <div class="multi-select-wrapper">
-                    <div class="multi-select-display" id="filter-thickness" tabindex="0">
-                        <span class="multi-select-placeholder">Wszystkie</span>
-                        <i class="fas fa-chevron-down multi-select-arrow"></i>
-                    </div>
-                    <div class="multi-select-dropdown" id="dropdown-thickness">
-                        <div class="multi-select-search">
-                            <input type="text" placeholder="Szukaj grubości..." class="form-control form-control-sm">
-                        </div>
-                        <div class="multi-select-options">
-                            <div class="multi-select-option multi-select-all">
-                                <input type="checkbox" id="thickness-all">
-                                <label for="thickness-all">Zaznacz wszystkie</label>
-                            </div>
-                            <!-- Opcje będą ładowane dynamicznie -->
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- MULTI-SELECT 5: STATUS -->
-            <div class="filtr-conteiner">
-                <label class="form-label">Status</label>
-                <div class="multi-select-wrapper">
-                    <div class="multi-select-display" id="filter-status" tabindex="0">
-                        <span class="multi-select-placeholder">Wszystkie</span>
-                        <i class="fas fa-chevron-down multi-select-arrow"></i>
-                    </div>
-                    <div class="multi-select-dropdown" id="dropdown-status">
-                        <div class="multi-select-search">
-                            <input type="text" placeholder="Szukaj statusu..." class="form-control form-control-sm">
-                        </div>
-                        <div class="multi-select-options">
-                            <div class="multi-select-option multi-select-all">
-                                <input type="checkbox" id="status-all">
-                                <label for="status-all">Zaznacz wszystkie</label>
-                            </div>
-                            <!-- Opcje będą ładowane dynamicznie -->
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- KEYBOARD SHORTCUTS INFO -->
-            <div class="filtr-conteiner">
-                <label class="form-label">&nbsp;</label>
-                <div class="text-muted small">
-                    <i class="fas fa-keyboard me-1"></i>
-                    <kbd>Ctrl+A</kbd> zaznacz wszystkie |
-                    <kbd>Ctrl+E</kbd> export |
-                    <kbd>ESC</kbd> zamknij modal
-                </div>
-            </div>
-
-        </div>
+    <div class="il-multiselect" id="filter-technology">
+      <div class="il-filter-dropdown" data-filter="technology">
+        <i class="fas fa-cogs"></i> Technologia <i class="fas fa-chevron-down il-chevron"></i>
+      </div>
+      <div class="il-multiselect-options" id="dropdown-technology" style="display:none;">
+        <input type="text" class="il-multiselect-search" placeholder="Szukaj...">
+        <label class="il-multiselect-option"><input type="checkbox" value="__all__"> Zaznacz wszystkie</label>
+      </div>
     </div>
 
-    <!-- SYSTEM BADGES AKTYWNYCH FILTRÓW -->
-    <div class="active-filters-container" id="active-filters-container" style="display: none;">
-        <div>
-            <div class="active-filters-header">
-                <h6 class="active-filters-title">
-                    <i class="fas fa-filter me-1"></i>Aktywne filtry
-                </h6>
-            </div>
-            <div class="filter-badges" id="filter-badges">
-                <!-- Badges będą dodawane dynamicznie przez JavaScript -->
-            </div>
-        </div>
-
-        <button class="clear-all-filters" id="clear-all-filters">
-            <i class="fas fa-times me-1"></i>Wyczyść wszystkie
-        </button>
+    <div class="il-multiselect" id="filter-wood-class">
+      <div class="il-filter-dropdown" data-filter="wood-class">
+        <i class="fas fa-layer-group"></i> Klasa <i class="fas fa-chevron-down il-chevron"></i>
+      </div>
+      <div class="il-multiselect-options" id="dropdown-wood-class" style="display:none;">
+        <input type="text" class="il-multiselect-search" placeholder="Szukaj...">
+        <label class="il-multiselect-option"><input type="checkbox" value="__all__"> Zaznacz wszystkie</label>
+      </div>
     </div>
 
-    <!-- VIRTUAL SCROLLING CONTAINER -->
-    <div class="virtual-scroll-container" id="virtual-scroll-container">
-
-        <!-- NAGŁÓWEK LISTY PRODUKTÓW -->
-        <div class="prod_list-header">
-            <!-- 1. Checkbox -->
-            <div class="prod_list-header-cell">
-                <input type="checkbox" id="select-all-products" class="form-check-input">
-                <span class="sr-only">Zaznacz wszystkie produkty</span>
-            </div>
-            <!-- 2. Gwiazdka priorytetu -->
-            <div class="prod_list-header-cell prod_list-star-header">
-                <i class="fas fa-star text-muted" title="Oznacz jako priorytetowe"></i>
-                <span class="sr-only">Priorytet (gwiazdka)</span>
-            </div>
-            <!-- 3. Drag handle -->
-            <div class="prod_list-header-cell">
-                <i class="fas fa-arrows-alt text-muted" title="Przeciągnij aby zmienić priorytet"></i>
-                <span class="sr-only">Drag handle</span>
-            </div>
-            <!-- 5. Priorytet (numer) -->
-            <div class="prod_list-header-cell prod_list-sortable-header sortable-header" data-sort="priority_rank" tabindex="0">
-                Priorytet <i class="fas fa-sort"></i>
-            </div>
-            <!-- 6. Klient -->
-            <div class="prod_list-header-cell prod_list-sortable-header sortable-header" data-sort="client_name" tabindex="0">
-                Klient <i class="fas fa-sort"></i>
-            </div>
-            <!-- 7. Produkt -->
-            <div class="prod_list-header-cell prod_list-sortable-header sortable-header" data-sort="original_product_name" tabindex="0">
-                Produkt <i class="fas fa-sort"></i>
-            </div>
-            <!-- 8. Ilość -->
-            <div class="prod_list-header-cell prod_list-sortable-header sortable-header" data-sort="quantity" tabindex="0">
-                Ilość <i class="fas fa-sort"></i>
-            </div>
-            <!-- 9. Objętość -->
-            <div class="prod_list-header-cell prod_list-sortable-header sortable-header" data-sort="volume_m3" tabindex="0">
-                Objętość <i class="fas fa-sort"></i>
-            </div>
-            <!-- 10. Status -->
-            <div class="prod_list-header-cell prod_list-sortable-header sortable-header" data-sort="current_status" tabindex="0">
-                Status <i class="fas fa-sort"></i>
-            </div>
-            <!-- 11. Deadline -->
-            <div class="prod_list-header-cell prod_list-sortable-header sortable-header" data-sort="deadline_date" tabindex="0">
-                Deadline <i class="fas fa-sort"></i>
-            </div>
-            <!-- 12. Akcje -->
-            <div class="prod_list-header-cell">
-                Akcje
-            </div>
-        </div>
-
-        <!-- VIRTUAL SCROLL SPACER TOP -->
-        <div class="virtual-scroll-spacer-top" id="virtual-scroll-spacer-top"></div>
-
-        <!-- VIRTUAL SCROLL VIEWPORT -->
-        <div class="virtual-scroll-viewport" id="virtual-scroll-viewport">
-            <!-- Wiersze produktów będą renderowane tutaj przez JavaScript -->
-        </div>
-
-        <!-- VIRTUAL SCROLL SPACER BOTTOM -->
-        <div class="virtual-scroll-spacer-bottom" id="virtual-scroll-spacer-bottom"></div>
-
-        <!-- LOADING STATE -->
-        <div class="products-loading" id="products-loading" style="display: none;">
-            <div class="spinner"></div>
-            <h5>Ładowanie produktów...</h5>
-            <p>Pobieranie danych z serwera</p>
-        </div>
-
-        <!-- EMPTY STATE -->
-        <div class="products-empty-state" id="products-empty-state" style="display: none;">
-            <div class="empty-icon">
-                <i class="fas fa-inbox"></i>
-            </div>
-            <h4>Lista produktów jest pusta</h4>
-            <p class="empty-description">Brak produktów do wyświetlenia.</p>
-            <p class="empty-hint">
-                <i class="fas fa-lightbulb me-2"></i>
-                <span id="empty-reason">Nie znaleziono produktów spełniających aktywne kryteria filtrowania.</span>
-            </p>
-            <button class="btn btn-outline-primary" id="clear-filters-empty" style="display: none;">
-                <i class="fas fa-times me-1"></i>Wyczyść filtry
-            </button>
-        </div>
-
-        <!-- ERROR STATE -->
-        <div class="products-error-state" id="products-error-state" style="display: none;">
-            <div class="empty-icon text-danger">
-                <i class="fas fa-exclamation-triangle"></i>
-            </div>
-            <h4 class="text-danger">Błąd ładowania</h4>
-            <p id="error-message">Wystąpił błąd podczas pobierania danych produktów.</p>
-            <button class="btn btn-outline-primary" id="retry-load-products">
-                <i class="fas fa-redo me-1"></i>Spróbuj ponownie
-            </button>
-        </div>
-
+    <div class="il-multiselect" id="filter-thickness">
+      <div class="il-filter-dropdown" data-filter="thickness">
+        <i class="fas fa-ruler"></i> Grubość <i class="fas fa-chevron-down il-chevron"></i>
+      </div>
+      <div class="il-multiselect-options" id="dropdown-thickness" style="display:none;">
+        <input type="text" class="il-multiselect-search" placeholder="Szukaj...">
+        <label class="il-multiselect-option"><input type="checkbox" value="__all__"> Zaznacz wszystkie</label>
+      </div>
     </div>
+
+    <div class="il-multiselect" id="filter-status">
+      <div class="il-filter-dropdown" data-filter="status">
+        <i class="fas fa-flag"></i> Status <i class="fas fa-chevron-down il-chevron"></i>
+      </div>
+      <div class="il-multiselect-options" id="dropdown-status" style="display:none;">
+        <input type="text" class="il-multiselect-search" placeholder="Szukaj...">
+        <label class="il-multiselect-option"><input type="checkbox" value="__all__"> Zaznacz wszystkie</label>
+      </div>
+    </div>
+  </div>
+
+  {# ─── ACTIVE FILTERS ─── #}
+  <div class="il-active-filters" id="il-active-filters" style="display:none;">
+    <div class="il-filter-badges" id="il-filter-badges"></div>
+    <button class="il-clear-filters" id="il-clear-all-filters">Wyczyść filtry</button>
+  </div>
+
+  {# ─── COLUMN HEADERS ─── #}
+  <div class="il-orders-header">
+    <span></span>
+    <span><input type="checkbox" id="il-select-all" class="il-order-checkbox" title="Zaznacz wszystkie"></span>
+    <span></span>
+    <span></span>
+    <span>Klient / Zamówienie</span>
+    <span>Pozycje</span>
+    <span>Objętość</span>
+    <span>Wartość netto</span>
+    <span style="text-align:center;">Status</span>
+    <span>Termin</span>
+    <span>Akcje</span>
+  </div>
+
+  {# ─── ORDERS LIST ─── #}
+  <div id="il-orders-list">
+    {# Loading state #}
+    <div id="il-products-loading" class="il-products-loading" style="display:none;">
+      <div class="il-loading-spinner"></div>
+      <p>Ładowanie produktów...</p>
+    </div>
+
+    {# Empty state #}
+    <div id="il-products-empty" class="il-products-empty" style="display:none;">
+      <i class="fas fa-inbox" style="font-size: 36px; color: #9ba3b0; margin-bottom: 12px;"></i>
+      <p id="il-empty-reason">Brak produktów do wyświetlenia</p>
+      <button class="il-btn-secondary" id="il-clear-filters-empty" style="display:none;">Wyczyść filtry</button>
+    </div>
+
+    {# Error state #}
+    <div id="il-products-error" class="il-products-error" style="display:none;">
+      <i class="fas fa-exclamation-triangle" style="color: #dc2626;"></i>
+      <span id="il-error-message">Błąd ładowania</span>
+      <button class="il-btn-secondary" id="il-retry-load">Ponów</button>
+    </div>
+
+    {# Orders rendered here by JS #}
+  </div>
+
+  {# ─── BULK ACTIONS BAR ─── #}
+  <div id="il-bulk-bar" class="il-bulk-bar" style="display:none;">
+    <span class="il-bulk-count">0 zaznaczone</span>
+    <button class="il-bulk-btn" data-action="status"><i class="fas fa-exchange-alt"></i> Zmień status</button>
+    <button class="il-bulk-btn" data-action="export"><i class="fas fa-file-export"></i> Eksport</button>
+    <button class="il-bulk-btn danger" data-action="delete"><i class="fas fa-trash"></i> Usuń</button>
+  </div>
 
 </div>
 
-<!-- BULK ACTIONS BAR - POJAWIA SIĘ PO ZAZNACZENIU PRODUKTÓW (POZA KONTENEREM GŁÓWNYM) -->
-<div class="bulk-actions-bar" id="bulk-actions-bar" style="display: none;">
-    <div class="bulk-selection-info">
-        <i class="fas fa-check-square me-2"></i>
-        <span id="bulk-selected-count">0</span> produktów zaznaczonych
-    </div>
-    <div class="bulk-actions">
-        <button class="btn btn-sm btn-outline-light me-2" id="bulk-change-status">
-            <i class="fas fa-exchange-alt me-1"></i>Zmień status
-        </button>
-        <button class="btn btn-sm btn-outline-light me-2" id="bulk-export-selected">
-            <i class="fas fa-download me-1"></i>Eksportuj
-        </button>
-        <button class="btn btn-sm btn-outline-light" id="bulk-delete">
-            <i class="fas fa-trash me-1"></i>Usuń
-        </button>
-    </div>
-</div>
+{# ─── TEMPLATES (for JS cloneNode) ─── #}
 
-<!-- ============================================================================
-     TEMPLATE TAGS DLA KOMPONENTÓW (POZA GŁÓWNYM KONTENEREM)
-     ============================================================================ -->
-<!-- TEMPLATE: WIERSZ PRODUKTU -->
-<template id="product-row-template">
-    <div class="prod_list-product-row" data-product-id="" data-priority="" data-status="" data-is-priority="false" data-order-number="">
-        <!-- 1. Checkbox -->
-        <div class="prod_list-checkbox-cell">
-            <input type="checkbox" class="form-check-input prod_list-product-checkbox" />
-        </div>
-        <!-- 2. Gwiazdka priorytetu -->
-        <div class="prod_list-star-cell">
-            <button class="prod_list-star-btn" title="Oznacz jako priorytetowe">
-                <i class="fas fa-star"></i>
-            </button>
-        </div>
-        <!-- 3. Chwytak (drag) -->
-        <div class="prod_list-drag-cell" draggable="true">
-            <i class="fas fa-grip-vertical"></i>
-        </div>
-        <!-- 4. Priorytet (numer) -->
-        <div class="prod_list-priority-cell">
-            <div class="prod_list-priority-rank">0</div>
-        </div>
-        <!-- 5. Klient (nazwa + numery zamówień) -->
-        <div class="prod_list-client-cell">
-            <div class="prod_list-client-name"></div>
-            <div class="prod_list-order-numbers">
-                <span class="prod_list-client-order-number"></span>
-                <span class="prod_list-bl-order-number"></span>
-            </div>
-        </div>
-        <!-- 6. Produkt (nazwa + ID systemowy) -->
-        <div class="prod_list-product-info">
-            <div class="prod_list-product-name"></div>
-            <div class="prod_list-product-id"></div>
-        </div>
-        <!-- 7. Ilość -->
-        <div class="prod_list-quantity-cell">
-            <div class="prod_list-quantity-value"></div>
-        </div>
-        <!-- 8. Objętość -->
-        <div class="prod_list-volume-cell">
-            <div class="prod_list-volume-value"></div>
-        </div>
-        <!-- 9. Status -->
-        <div class="prod_list-status-cell">
-            <span class="prod_list-status-badge"></span>
-        </div>
-        <!-- 10. Deadline -->
-        <div class="prod_list-deadline-cell">
-            <span class="prod_list-deadline-value"></span>
-        </div>
-        <!-- 11. Akcje -->
-        <div class="prod_list-actions-cell">
-            <span class="prod_list-attachment-icon" title="Produkt ma załącznik" style="display: none;">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                    <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                </svg>
-            </span>
-            <button class="prod_list-action-btn prod_list-details-btn" title="Szczegóły produktu">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                    <path d="M12 9C10.3431 9 9 10.3431 9 12C9 13.6569 10.3431 15 12 15C13.6569 15 15 13.6569 15 12C15 10.3431 13.6569 9 12 9Z" stroke="currentColor" stroke-width="2"/>
-                    <path d="M21 12C21 12 18 18 12 18C6 18 3 12 3 12C3 12 6 6 12 6C18 6 21 12 21 12Z" stroke="currentColor" stroke-width="2"/>
-                </svg>
-            </button>
-            <button class="prod_list-action-btn prod_list-baselinker-btn" title="Otwórz w Baselinker">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                    <path d="M18 13V19C18 19.5304 17.7893 20.0391 17.4142 20.4142C17.0391 20.7893 16.5304 21 16 21H5C4.46957 21 3.96086 20.7893 3.58579 20.4142C3.21071 20.0391 3 19.5304 3 19V8C3 7.46957 3.21071 6.96086 3.58579 6.58579C3.96086 6.21071 4.46957 6 5 6H11" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                    <path d="M15 3H21V9" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                    <path d="M10 14L21 3" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                </svg>
-            </button>
-            <button class="prod_list-action-btn prod_list-delete-btn" title="Usuń produkt">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                    <path d="M3 6H5H21" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                    <path d="M8 6V4C8 3.46957 8.21071 2.96086 8.58579 2.58579C8.96086 2.21071 9.46957 2 10 2H14C14.5304 2 15.0391 2.21071 15.4142 2.58579C15.7893 2.96086 16 3.46957 16 4V6M19 6V20C19 20.5304 18.7893 21.0391 18.4142 21.4142C18.0391 21.7893 17.5304 22 17 22H7C6.46957 22 5.96086 21.7893 5.58579 21.4142C5.21071 21.0391 5 20.5304 5 20V6H19Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                    <path d="M10 11V17" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                    <path d="M14 11V17" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                </svg>
-            </button>
-        </div>
+<template id="il-order-template">
+  <div class="il-order-card">
+    <div class="il-order-header">
+      <span class="il-drag-handle"><i class="fas fa-grip-vertical"></i></span>
+      <input type="checkbox" class="il-order-checkbox">
+      <span class="il-star-btn"><i class="far fa-star"></i></span>
+      <span class="il-order-expand">▶</span>
+      <div class="il-order-info">
+        <span class="il-order-client"></span>
+        <div class="il-order-ids"></div>
+      </div>
+      <span class="il-order-cell il-order-positions"></span>
+      <span class="il-order-cell il-order-volume"></span>
+      <span class="il-order-cell il-order-value"></span>
+      <span class="il-order-status-badge"></span>
+      <span class="il-order-deadline"></span>
+      <div class="il-order-actions">
+        <button class="il-order-action-btn" data-action="attachment" title="Załączniki"><i class="fas fa-paperclip"></i></button>
+        <button class="il-order-action-btn" data-action="comment" title="Notatki"><i class="fas fa-comment"></i></button>
+        <button class="il-order-action-btn" data-action="details" title="Szczegóły"><i class="fas fa-eye"></i></button>
+        <button class="il-order-action-btn" data-action="baselinker" title="Baselinker"><i class="fas fa-external-link-alt"></i></button>
+      </div>
     </div>
+    <div class="il-order-products collapsed"></div>
+  </div>
 </template>
 
-<!-- TEMPLATE: BADGE FILTRA -->
-<template id="filter-badge-template">
-    <span class="filter-badge" data-filter-type="" data-filter-value="">
-        <span class="filter-badge-label"></span>
-        <i class="fas fa-times remove-filter"></i>
-    </span>
+<template id="il-product-template">
+  <div class="il-product-row">
+    <input type="checkbox" class="il-product-checkbox">
+    <div class="il-product-name">
+      <div class="il-product-name-text"></div>
+      <div class="il-product-name-id"></div>
+    </div>
+    <div class="il-product-spec"></div>
+    <span class="il-product-qty"></span>
+    <span class="il-product-volume"></span>
+  </div>
 </template>
 
-<!-- TEMPLATE: TOOLTIP WYBORU GWIAZDKI (dla zamówień z wieloma produktami) -->
-<template id="star-tooltip-template">
-    <div class="prod_list-star-tooltip" data-order-number="">
-        <div class="star-tooltip-header">Oznacz jako priorytetowe</div>
-        <div class="star-tooltip-buttons">
-            <button class="star-tooltip-btn star-tooltip-order" type="button">
-                <i class="fas fa-boxes me-1"></i>Całe zamówienie
-            </button>
-            <button class="star-tooltip-btn star-tooltip-product" type="button">
-                <i class="fas fa-cube me-1"></i>Ten produkt
-            </button>
-        </div>
-    </div>
+<template id="il-filter-badge-template">
+  <div class="il-filter-badge">
+    <span class="il-filter-badge-text"></span>
+    <span class="il-filter-badge-remove">✕</span>
+  </div>
 </template>
+
+{# ─── EXISTING MODAL TEMPLATES (preserved from original) ─── #}
 
 <!-- TEMPLATE: MODAL AKCJI GRUPOWYCH -->
 <template id="bulk-actions-modal-template">
@@ -561,7 +306,7 @@
     <div class="modal fade products-modal product-modal" id="product-details-modal" tabindex="-1">
         <div class="modal-dialog modal-xl">
             <div class="modal-content">
-                
+
                 <!-- HEADER REDESIGN -->
                 <div class="modal-header-redesign">
                     <div class="header-content">
@@ -598,10 +343,10 @@
 
                 <!-- BODY REDESIGN -->
                 <div class="modal-body-redesign">
-                    
+
                     <!-- LEWA SEKCJA - SZCZEGÓŁY -->
                     <div class="details-section">
-                        
+
                         <!-- Statystyki na górze -->
                         <div class="stats-row">
                             <div class="stat-card">
@@ -746,7 +491,7 @@
 
                     <!-- PRAWA SEKCJA - TIMELINE I AKCJE -->
                     <div class="sidebar-section">
-                        
+
                         <!-- Timeline produkcji -->
                         <div class="mb-4">
                             <h6 class="mb-3 d-flex align-items-center justify-content-between">
