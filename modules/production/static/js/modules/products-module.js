@@ -118,6 +118,11 @@ class ProductsModule {
             sortColumn: null,
             sortDirection: 'asc',
 
+            // Order grouping
+            orders: [],           // Grouped orders
+            filteredOrders: [],   // After filtering
+            expandedOrders: new Set(),  // Track which orders are expanded
+
             // Auto-refresh
             lastUpdate: null,
             refreshInterval: null,
@@ -238,8 +243,6 @@ class ProductsModule {
 
             await this.loadProductsData();
             this.applyAllFilters();
-            this.renderProductsList();
-            this.updateStats();
 
             console.log('[ProductsModule] Data refreshed successfully');
 
@@ -271,16 +274,16 @@ class ProductsModule {
         try {
             console.log('[ProductsModule] Initializing components...');
 
-            // Pobierz elementy DOM
+            // Pobierz elementy DOM - try new IL IDs first, fallback to old IDs
             this.elements = {
-                container: document.getElementById('virtual-scroll-container'),
-                viewport: document.getElementById('virtual-scroll-viewport'),
-                loadingState: document.getElementById('products-loading'),
-                emptyState: document.getElementById('products-empty-state'),
-                errorState: document.getElementById('products-error-state'),
-                textSearch: document.getElementById('products-text-search'),
-                selectAllCheckbox: document.getElementById('select-all-products'),
-                productsCount: document.getElementById('products-count')
+                container: document.getElementById('il-orders-list') || document.getElementById('virtual-scroll-container'),
+                viewport: document.getElementById('il-orders-list') || document.getElementById('virtual-scroll-viewport'),
+                loadingState: document.getElementById('il-products-loading') || document.getElementById('products-loading'),
+                emptyState: document.getElementById('il-products-empty') || document.getElementById('products-empty-state'),
+                errorState: document.getElementById('il-products-error') || document.getElementById('products-error-state'),
+                textSearch: document.getElementById('il-products-search') || document.getElementById('products-text-search'),
+                selectAllCheckbox: document.getElementById('il-select-all') || document.getElementById('select-all-products'),
+                productsCount: document.getElementById('il-stats-products') || document.getElementById('products-count')
             };
 
             // Walidacja kluczowych elementów
@@ -294,11 +297,35 @@ class ProductsModule {
             if (spacerTop) spacerTop.style.display = 'none';
             if (spacerBottom) spacerBottom.style.display = 'none';
 
-            // Ustaw CSS dla prostego renderowania
-            this.elements.container.style.overflow = 'auto';
-            this.elements.container.style.maxHeight = '70vh';
-            this.elements.viewport.style.position = 'relative';
-            this.elements.viewport.style.display = 'block';
+            // Setup select-all handler for new IL template
+            const selectAll = document.getElementById('il-select-all');
+            if (selectAll) {
+                selectAll.addEventListener('change', () => {
+                    this.state.filteredOrders.forEach(order => {
+                        order.products.forEach(p => {
+                            const id = p.unique_id || String(p.id);
+                            if (selectAll.checked) {
+                                this.state.selectedProducts.add(id);
+                            } else {
+                                this.state.selectedProducts.delete(id);
+                            }
+                        });
+                    });
+                    // Sync all visible checkboxes
+                    document.querySelectorAll('.il-order-checkbox, .il-product-checkbox').forEach(cb => {
+                        cb.checked = selectAll.checked;
+                    });
+                    this.toggleBulkActionsVisibility();
+                });
+            }
+
+            // Ustaw CSS dla prostego renderowania (only for old layout)
+            if (document.getElementById('virtual-scroll-container')) {
+                this.elements.container.style.overflow = 'auto';
+                this.elements.container.style.maxHeight = '70vh';
+                this.elements.viewport.style.position = 'relative';
+                this.elements.viewport.style.display = 'block';
+            }
 
             // Inicjalizuj fuzzy search
             this.initializeFuzzySearch();
@@ -571,10 +598,8 @@ class ProductsModule {
             this.updateCustomMultiSelectFromState(filterType, value, false);
         }
 
-        // Zastosuj filtry
+        // Zastosuj filtry (applyAllFilters now renders + updates stats)
         this.applyAllFilters();
-        this.renderProductsList();
-        this.updateStats();
     }
 
     updateCustomMultiSelectFromState(filterType, value, isSelected) {
@@ -645,10 +670,8 @@ class ProductsModule {
         // WAŻNE: Aktualizuj badges po wyczyszczeniu filtrów
         this.updateFilterBadges();
 
-        // Zastosuj filtry
+        // Zastosuj filtry (applyAllFilters now renders + updates stats)
         this.applyAllFilters();
-        this.renderProductsList();
-        this.updateStats();
     }
 
     initializeDragDrop() {
@@ -807,10 +830,8 @@ class ProductsModule {
             // Załaduj opcje filtrów (po załadowaniu produktów)
             await this.loadFiltersData();
 
-            // Zastosuj filtry i wyrenderuj
+            // Zastosuj filtry i wyrenderuj (applyAllFilters now calls renderOrdersList + updateStats)
             this.applyAllFilters();
-            this.renderProductsList();
-            this.updateStats();
 
             // Ukryj loading
             this.hideAllStates();
@@ -845,6 +866,7 @@ class ProductsModule {
 
                 if (data.success && data.initial_data && data.initial_data.products) {
                     this.state.products = data.initial_data.products;
+                    this.state.orders = this.groupProductsIntoOrders(this.state.products);
                     this.state.lastUpdate = new Date().toISOString();
 
                 } else {
@@ -880,6 +902,7 @@ class ProductsModule {
 
                 if (data.success && data.products) {
                     this.state.products = data.products;  // ZMIANA: data.products zamiast data.initial_data.products
+                    this.state.orders = this.groupProductsIntoOrders(this.state.products);
                     this.state.lastUpdate = new Date().toISOString();
 
                     console.log(`[ProductsModule] Loaded ${data.products.length} products via direct GET`);
@@ -1067,10 +1090,8 @@ class ProductsModule {
         
         // WAŻNE: Aktualizuj badges po "select all"
         this.updateFilterBadges();
-        
+
         this.applyAllFilters();
-        this.renderProductsList();
-        this.updateStats();
     }
 
     handleOptionChange(filterType, value, isChecked) {
@@ -1199,8 +1220,6 @@ class ProductsModule {
             clearTimeout(this.filterUpdateTimeout);
             this.filterUpdateTimeout = setTimeout(() => {
                 this.applyAllFilters();
-                this.renderProductsList();
-                this.updateStats();
             }, 150);
         });
 
@@ -1280,7 +1299,450 @@ class ProductsModule {
         }
     }
 
+    // ========================================================================
+    // ORDER GROUPING & RENDERING (IL Theme)
+    // ========================================================================
+
+    groupProductsIntoOrders(products) {
+        const ordersMap = new Map();
+
+        products.forEach(product => {
+            const orderKey = product.internal_order_number || product.baselinker_order_id || `single-${product.id}`;
+
+            if (!ordersMap.has(orderKey)) {
+                ordersMap.set(orderKey, {
+                    orderKey: orderKey,
+                    clientName: product.client_name || 'Brak danych',
+                    baselinkerOrderId: product.baselinker_order_id,
+                    clientOrderNumber: product.client_order_number,
+                    internalOrderNumber: product.internal_order_number,
+                    products: [],
+                    totalVolume: 0,
+                    totalValue: 0,
+                    productCount: 0,
+                    status: null,
+                    deadline: null,
+                    isPriority: false,
+                    productionNotes: product.production_notes || '',
+                    attachmentUrl: null
+                });
+            }
+
+            const order = ordersMap.get(orderKey);
+            order.products.push(product);
+            order.productCount++;
+            order.totalVolume += (parseFloat(product.volume_m3) || 0) * (product.quantity || 1);
+            order.totalValue += parseFloat(product.total_value_net) || 0;
+
+            if (product.is_priority) order.isPriority = true;
+            if (product.attachment_file_url) order.attachmentUrl = product.attachment_file_url;
+
+            // Earliest deadline
+            if (product.deadline_date) {
+                if (!order.deadline || product.deadline_date < order.deadline) {
+                    order.deadline = product.deadline_date;
+                }
+            }
+        });
+
+        // Calculate order-level status
+        ordersMap.forEach(order => {
+            const statuses = [...new Set(order.products.map(p => p.current_status))];
+            if (statuses.length === 1) {
+                order.status = statuses[0];
+                order.statusLabel = this.getStatusDisplayName(statuses[0]);
+            } else {
+                const completedCount = order.products.filter(p => p.current_status === 'spakowane').length;
+                order.status = 'mixed';
+                order.statusLabel = `Różne (${completedCount}/${order.productCount})`;
+            }
+
+            // Round totals
+            order.totalVolume = Math.round(order.totalVolume * 1000) / 1000;
+            order.totalValue = Math.round(order.totalValue * 100) / 100;
+        });
+
+        return Array.from(ordersMap.values());
+    }
+
+    renderOrdersList() {
+        const container = document.getElementById('il-orders-list');
+        if (!container) return;
+
+        // Clear existing content (keep loading/empty/error states)
+        container.querySelectorAll('.il-order-card').forEach(el => el.remove());
+
+        if (this.state.filteredOrders.length === 0) {
+            this.showEmptyState();
+            return;
+        }
+
+        this.hideEmptyState();
+
+        const fragment = document.createDocumentFragment();
+
+        this.state.filteredOrders.forEach(order => {
+            const orderElement = this.createOrderCard(order);
+            fragment.appendChild(orderElement);
+        });
+
+        container.appendChild(fragment);
+        this.updateProductsCount();
+        this.syncAllCheckboxes();
+    }
+
+    hideEmptyState() {
+        if (this.elements.emptyState) {
+            this.elements.emptyState.style.display = 'none';
+        }
+    }
+
+    createOrderCard(order) {
+        const template = document.getElementById('il-order-template');
+        if (!template) {
+            console.warn('[ProductsModule] il-order-template not found, falling back');
+            return document.createElement('div');
+        }
+        const clone = template.content.cloneNode(true);
+        const card = clone.querySelector('.il-order-card');
+
+        card.setAttribute('data-order-key', order.orderKey);
+
+        // Populate header
+        const header = card.querySelector('.il-order-header');
+        this.populateOrderHeader(header, order);
+
+        // Populate products
+        const productsContainer = card.querySelector('.il-order-products');
+        order.products.forEach(product => {
+            const productRow = this.createProductRow(product);
+            productsContainer.appendChild(productRow);
+        });
+
+        // Expand/collapse state
+        if (this.state.expandedOrders.has(order.orderKey)) {
+            productsContainer.classList.remove('collapsed');
+            header.classList.add('expanded');
+            header.querySelector('.il-order-expand').classList.add('open');
+        }
+
+        // Attach event listeners
+        this.attachOrderEventListeners(card, order);
+
+        return card;
+    }
+
+    populateOrderHeader(header, order) {
+        // Status left border
+        const stationClass = this.getStationClassFromStatus(order.status);
+        header.classList.add(stationClass);
+
+        // Star
+        const star = header.querySelector('.il-star-btn');
+        if (order.isPriority) {
+            star.classList.add('active');
+            star.querySelector('i').className = 'fas fa-star';
+        }
+
+        // Client info
+        header.querySelector('.il-order-client').textContent = order.clientName;
+        const idsContainer = header.querySelector('.il-order-ids');
+        if (order.baselinkerOrderId) {
+            idsContainer.innerHTML += `<span class="il-order-id-tag">BL-${order.baselinkerOrderId}</span>`;
+        }
+        if (order.clientOrderNumber) {
+            idsContainer.innerHTML += `<span class="il-order-id-tag">${order.clientOrderNumber}</span>`;
+        }
+
+        // Metrics
+        header.querySelector('.il-order-positions').textContent = order.productCount;
+        header.querySelector('.il-order-volume').textContent = `${order.totalVolume.toFixed(3)} m³`;
+        header.querySelector('.il-order-value').textContent = `${order.totalValue.toLocaleString('pl-PL')} zł`;
+
+        // Status badge
+        const badge = header.querySelector('.il-order-status-badge');
+        badge.textContent = order.statusLabel;
+        badge.className = `il-order-status-badge ${this.getStatusBadgeClass(order.status)}`;
+
+        // Deadline
+        const deadlineEl = header.querySelector('.il-order-deadline');
+        if (order.deadline) {
+            const days = this.calculateDaysUntilDeadline(order.deadline);
+            const dateStr = new Date(order.deadline).toLocaleDateString('pl-PL', {day: '2-digit', month: '2-digit'});
+            deadlineEl.textContent = `${days < 0 ? days : days} ${Math.abs(days) === 1 ? 'dzień' : 'dni'} (${dateStr})`;
+            deadlineEl.className = `il-order-deadline ${days < 0 ? 'deadline-overdue' : days <= 1 ? 'deadline-urgent' : 'deadline-normal'}`;
+        } else {
+            deadlineEl.textContent = '—';
+            deadlineEl.className = 'il-order-deadline deadline-normal';
+        }
+    }
+
+    attachOrderEventListeners(card, order) {
+        const header = card.querySelector('.il-order-header');
+        const productsContainer = card.querySelector('.il-order-products');
+
+        // Expand/collapse on header click
+        header.addEventListener('click', (e) => {
+            if (e.target.closest('.il-order-checkbox') ||
+                e.target.closest('.il-star-btn') ||
+                e.target.closest('.il-order-actions') ||
+                e.target.closest('.il-drag-handle')) return;
+
+            const isExpanded = this.state.expandedOrders.has(order.orderKey);
+            if (isExpanded) {
+                this.state.expandedOrders.delete(order.orderKey);
+                productsContainer.classList.add('collapsed');
+                header.classList.remove('expanded');
+                header.querySelector('.il-order-expand').classList.remove('open');
+            } else {
+                this.state.expandedOrders.add(order.orderKey);
+                productsContainer.classList.remove('collapsed');
+                header.classList.add('expanded');
+                header.querySelector('.il-order-expand').classList.add('open');
+            }
+        });
+
+        // Order checkbox — selects all products in order
+        const orderCheckbox = header.querySelector('.il-order-checkbox');
+        orderCheckbox.addEventListener('change', (e) => {
+            e.stopPropagation();
+            order.products.forEach(p => {
+                const id = p.unique_id || String(p.id);
+                if (orderCheckbox.checked) {
+                    this.state.selectedProducts.add(id);
+                } else {
+                    this.state.selectedProducts.delete(id);
+                }
+            });
+            // Sync product checkboxes in this card
+            card.querySelectorAll('.il-product-checkbox').forEach((cb, i) => {
+                cb.checked = orderCheckbox.checked;
+            });
+            this.toggleBulkActionsVisibility();
+        });
+
+        // Product checkboxes
+        card.querySelectorAll('.il-product-checkbox').forEach((cb, i) => {
+            cb.addEventListener('change', () => {
+                const product = order.products[i];
+                const id = product.unique_id || String(product.id);
+                if (cb.checked) {
+                    this.state.selectedProducts.add(id);
+                } else {
+                    this.state.selectedProducts.delete(id);
+                }
+                // Update order checkbox
+                const allChecked = order.products.every(p =>
+                    this.state.selectedProducts.has(p.unique_id || String(p.id)));
+                orderCheckbox.checked = allChecked;
+                this.toggleBulkActionsVisibility();
+            });
+        });
+
+        // Star button
+        header.querySelector('.il-star-btn').addEventListener('click', (e) => {
+            e.stopPropagation();
+            this.handleStarClick(order);
+        });
+
+        // Action buttons
+        header.querySelectorAll('.il-order-action-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const action = btn.getAttribute('data-action');
+                switch(action) {
+                    case 'details':
+                        this.showProductDetails(order.products[0].id || order.products[0].unique_id);
+                        break;
+                    case 'baselinker':
+                        if (order.baselinkerOrderId) {
+                            window.open(`https://panel.baselinker.com/orders/order/${order.baselinkerOrderId}`, '_blank');
+                        }
+                        break;
+                    case 'attachment':
+                        this.showAttachment(order);
+                        break;
+                    case 'comment':
+                        this.showCommentTooltip(btn, order);
+                        break;
+                }
+            });
+        });
+
+        // Drag handle
+        const dragHandle = header.querySelector('.il-drag-handle');
+        if (dragHandle) {
+            card.setAttribute('draggable', 'true');
+            card.addEventListener('dragstart', (e) => {
+                e.dataTransfer.setData('text/plain', order.orderKey);
+                card.classList.add('dragging');
+            });
+            card.addEventListener('dragend', () => {
+                card.classList.remove('dragging');
+            });
+        }
+    }
+
+    showCommentTooltip(btn, order) {
+        // Remove existing tooltips
+        document.querySelectorAll('.il-comment-tooltip').forEach(el => el.remove());
+
+        if (!order.productionNotes) {
+            // Show "Brak notatek" tooltip briefly
+            const tooltip = document.createElement('div');
+            tooltip.className = 'il-comment-tooltip';
+            tooltip.textContent = 'Brak notatek';
+            btn.style.position = 'relative';
+            btn.appendChild(tooltip);
+            setTimeout(() => tooltip.remove(), 2000);
+            return;
+        }
+
+        const tooltip = document.createElement('div');
+        tooltip.className = 'il-comment-tooltip';
+        tooltip.textContent = order.productionNotes;
+        btn.style.position = 'relative';
+        btn.appendChild(tooltip);
+
+        // Close on click outside
+        const closeHandler = (e) => {
+            if (!tooltip.contains(e.target)) {
+                tooltip.remove();
+                document.removeEventListener('click', closeHandler);
+            }
+        };
+        setTimeout(() => document.addEventListener('click', closeHandler), 10);
+    }
+
+    showAttachment(order) {
+        if (order.attachmentUrl) {
+            // Use existing attachment modal if available
+            if (typeof window.openAttachmentModalAdmin === 'function') {
+                window.openAttachmentModalAdmin(order.attachmentUrl);
+            } else {
+                window.open(order.attachmentUrl, '_blank');
+            }
+        }
+    }
+
+    getStationClassFromStatus(status) {
+        const map = {
+            'czeka_na_wyciecie': 'status-cutting',
+            'czeka_na_skladanie': 'status-assembly',
+            'czeka_na_sklejanie': 'status-gluing',
+            'czeka_na_formatowanie': 'status-formatting',
+            'czeka_na_wykanczanie': 'status-finishing',
+            'czeka_na_pakowanie': 'status-packaging',
+            'spakowane': 'status-completed',
+            'w_realizacji': 'status-inprogress',
+            'wstrzymane': 'status-paused',
+            'anulowane': 'status-cancelled',
+            'mixed': 'status-mixed'
+        };
+        return map[status] || 'status-completed';
+    }
+
+    getStatusBadgeClass(status) {
+        const map = {
+            'czeka_na_wyciecie': 'badge-cutting',
+            'czeka_na_skladanie': 'badge-assembly',
+            'czeka_na_sklejanie': 'badge-gluing',
+            'czeka_na_formatowanie': 'badge-formatting',
+            'czeka_na_wykanczanie': 'badge-finishing',
+            'czeka_na_pakowanie': 'badge-packaging',
+            'spakowane': 'badge-completed',
+            'w_realizacji': 'badge-assembly',
+            'wstrzymane': 'badge-paused',
+            'anulowane': 'badge-cancelled',
+            'mixed': 'badge-mixed'
+        };
+        return map[status] || 'badge-completed';
+    }
+
+    sortOrders() {
+        const col = this.state.sortColumn;
+        const dir = this.state.sortDirection === 'asc' ? 1 : -1;
+
+        if (!col) {
+            // Default: sort by deadline (most urgent first)
+            this.state.filteredOrders.sort((a, b) => {
+                if (!a.deadline) return 1;
+                if (!b.deadline) return -1;
+                return a.deadline.localeCompare(b.deadline);
+            });
+            return;
+        }
+
+        this.state.filteredOrders.sort((a, b) => {
+            let valA, valB;
+            switch(col) {
+                case 'client': valA = a.clientName; valB = b.clientName; break;
+                case 'positions': valA = a.productCount; valB = b.productCount; break;
+                case 'volume': valA = a.totalVolume; valB = b.totalVolume; break;
+                case 'value': valA = a.totalValue; valB = b.totalValue; break;
+                case 'status':
+                    valA = a.statusLabel; valB = b.statusLabel; break;
+                case 'deadline':
+                    valA = a.deadline || 'z'; valB = b.deadline || 'z'; break;
+                default: return 0;
+            }
+            if (typeof valA === 'string') return valA.localeCompare(valB) * dir;
+            return (valA - valB) * dir;
+        });
+    }
+
+    // New createProductRow for IL template
     createProductRow(product, index) {
+        // Try new IL template first
+        const template = document.getElementById('il-product-template');
+        if (template) {
+            return this._createILProductRow(product);
+        }
+        // Fallback to old template
+        return this._createOldProductRow(product, index);
+    }
+
+    _createILProductRow(product) {
+        const template = document.getElementById('il-product-template');
+        const clone = template.content.cloneNode(true);
+        const row = clone.querySelector('.il-product-row');
+
+        row.setAttribute('data-product-id', product.id || product.unique_id);
+
+        // Dimmed state for filtered products
+        if (product._dimmed) {
+            row.classList.add('il-product-dimmed');
+        }
+
+        // Checkbox
+        const checkbox = row.querySelector('.il-product-checkbox');
+        checkbox.checked = this.state.selectedProducts.has(product.unique_id || String(product.id));
+
+        // Name
+        row.querySelector('.il-product-name-text').textContent = product.original_product_name || '—';
+        row.querySelector('.il-product-name-id').textContent = product.short_product_id || '';
+
+        // Spec tags
+        const specContainer = row.querySelector('.il-product-spec');
+        const specs = [
+            product.parsed_wood_species,
+            product.parsed_technology,
+            product.parsed_wood_class,
+            product.parsed_thickness_cm ? `${product.parsed_thickness_cm}mm` : null
+        ].filter(Boolean);
+        specContainer.innerHTML = specs.map(s => `<span class="il-product-spec-tag">${s}</span>`).join('');
+
+        // Quantity
+        row.querySelector('.il-product-qty').textContent = `${product.quantity || 1} szt.`;
+
+        // Volume
+        const vol = ((product.volume_m3 || 0) * (product.quantity || 1)).toFixed(4);
+        row.querySelector('.il-product-volume').textContent = `${vol} m³`;
+
+        return row;
+    }
+
+    _createOldProductRow(product, index) {
         try {
             const template = document.getElementById('product-row-template');
             if (!template) {
@@ -1464,10 +1926,9 @@ class ProductsModule {
             this.state.products = this.state.products.filter(p => p.id != productId);
             this.state.filteredProducts = this.state.filteredProducts.filter(p => p.id != productId);
             this.state.selectedProducts.delete(productId);
-            
+
             // Przerenderuj listę
-            this.renderProductsList();
-            this.updateStats();
+            this.applyAllFilters();
             this.toggleBulkActionsVisibility();
             
             if (this.shared?.toastSystem) {
@@ -1905,32 +2366,52 @@ class ProductsModule {
     applyAllFilters() {
         try {
             console.log('[ProductsModule] Applying all filters...');
-            
-            let filtered = [...this.state.products];
 
-            // Text search z fuzzy matching
-            if (this.state.currentFilters.textSearch) {
-                filtered = this.components.fuzzySearchEngine.search(
-                    this.state.currentFilters.textSearch,
-                    filtered,
-                    {
-                        fields: ['original_product_name', 'short_product_id', 'client_name', 'baselinker_order_id', 'client_order_number'],
-                        threshold: 2
-                    }
-                );
+            // Step 1: Group ALL products into orders first
+            const allOrders = this.groupProductsIntoOrders(this.state.products);
+
+            // Step 2: Determine which products match filters
+            let matchingProductIds = new Set();
+            let productsToCheck = [...this.state.products];
+
+            const textSearch = this.state.currentFilters.textSearch?.trim();
+            if (textSearch && this.components.fuzzySearchEngine) {
+                productsToCheck = this.components.fuzzySearchEngine.search(textSearch, productsToCheck, {
+                    fields: ['original_product_name', 'short_product_id', 'client_name', 'baselinker_order_id', 'client_order_number'],
+                    threshold: 2
+                });
             }
+            productsToCheck = this.applyMultiSelectFilters(productsToCheck);
+            productsToCheck.forEach(p => matchingProductIds.add(p.unique_id || String(p.id)));
 
-            // Multi-select filtry (gdy będą zaimplementowane)
-            filtered = this.applyMultiSelectFilters(filtered);
+            // Step 3: Filter orders — show order if ANY product matches
+            // Mark non-matching products with _dimmed flag for CSS dimming
+            const hasFilters = this.hasActiveFilters();
+            this.state.filteredOrders = allOrders.filter(order => {
+                const hasMatch = order.products.some(p => matchingProductIds.has(p.unique_id || String(p.id)));
+                if (!hasMatch && hasFilters) return false;
 
-            this.state.filteredProducts = filtered;
+                // Mark products for dimming
+                order.products.forEach(p => {
+                    p._dimmed = hasFilters && !matchingProductIds.has(p.unique_id || String(p.id));
+                });
+                return true;
+            });
+
+            // Step 4: Filtered products for stats = only matching products
+            this.state.filteredProducts = productsToCheck;
+
+            this.sortOrders();
             this.updateFilterBadges();
+            this.updateStats();
+            this.renderOrdersList();
 
-            console.log(`[ProductsModule] Filters applied. ${filtered.length}/${this.state.products.length} products match`);
+            console.log(`[ProductsModule] Filters applied. ${productsToCheck.length}/${this.state.products.length} products match, ${this.state.filteredOrders.length} orders`);
 
         } catch (error) {
             console.error('[ProductsModule] Error applying filters:', error);
             this.state.filteredProducts = [...this.state.products];
+            this.state.filteredOrders = this.groupProductsIntoOrders(this.state.products);
         }
     }
 
@@ -1993,10 +2474,8 @@ class ProductsModule {
         this.state.currentFilters.thicknesses = [];
         this.state.currentFilters.statuses = [];
 
-        // Zastosuj filtry
+        // Zastosuj filtry (applyAllFilters now renders + updates stats)
         this.applyAllFilters();
-        this.renderProductsList();
-        this.updateStats();
     }
 
     /**
@@ -2041,10 +2520,8 @@ class ProductsModule {
             } catch (error) {
                 console.error('[ProductsModule] Error in updateFilterBadges():', error);
             }
-            
+
             this.applyAllFilters();
-            this.renderProductsList();
-            this.updateStats();
         }, 300);
     }
 
@@ -2060,8 +2537,6 @@ class ProductsModule {
 
         this.debounceTimers.filtersUpdate = setTimeout(() => {
             this.applyAllFilters();
-            this.renderProductsList();
-            this.updateStats();
         }, 150);
     }
 
@@ -2127,9 +2602,10 @@ class ProductsModule {
             this.state.sortDirection = 'asc';
         }
 
-        // Sortuj produkty
+        // Sortuj produkty/zamówienia
         this.sortProducts();
-        this.renderProductsList();
+        this.sortOrders();
+        this.renderOrdersList();
         this.updateSortIndicators();
     }
 
@@ -2487,8 +2963,21 @@ class ProductsModule {
 
     toggleBulkActionsVisibility() {
         const selectedCount = this.state.selectedProducts.size;
+
+        // New IL bulk bar
+        const ilBar = document.getElementById('il-bulk-bar');
+        if (ilBar) {
+            if (selectedCount > 0) {
+                ilBar.style.display = 'flex';
+                const countEl = ilBar.querySelector('.il-bulk-count');
+                if (countEl) countEl.textContent = `${selectedCount} zaznaczone`;
+            } else {
+                ilBar.style.display = 'none';
+            }
+        }
+
+        // Legacy bulk actions bar (fallback)
         const bulkActionsBar = document.getElementById('bulk-actions-bar');
-        
         if (bulkActionsBar) {
             if (selectedCount > 0) {
                 bulkActionsBar.style.display = 'flex';
@@ -2557,13 +3046,19 @@ class ProductsModule {
 
     updateStats() {
         const products = this.state.filteredProducts;
+        const orders = this.state.filteredOrders;
 
         this.state.stats = {
-            totalCount: this.state.products.length,
+            orderCount: orders.length,
+            totalCount: products.length,
             filteredCount: products.length,
             totalQuantity: products.reduce((sum, p) => sum + (parseInt(p.quantity) || 1), 0),
-            totalVolume: products.reduce((sum, p) => sum + (parseFloat(p.volume_m3) || 0), 0),
-            totalValue: products.reduce((sum, p) => sum + (parseFloat(p.total_value_net) || 0), 0),
+            totalVolume: orders.reduce((sum, o) => sum + o.totalVolume, 0),
+            totalValue: orders.reduce((sum, o) => sum + o.totalValue, 0),
+            urgentCount: orders.filter(o => {
+                if (!o.deadline) return false;
+                return this.calculateDaysUntilDeadline(o.deadline) <= 3;
+            }).length,
             statusBreakdown: this.calculateStatusBreakdown(products)
         };
 
@@ -2581,41 +3076,48 @@ class ProductsModule {
     }
 
     updateStatsDisplay() {
-        // Aktualizuj liczniki w UI - POPRAWIONE SELEKTORY
+        const s = this.state.stats;
+
+        // New IL stats elements
+        this.updateElementText('il-stats-orders', s.orderCount);
+        this.updateElementText('il-stats-products', s.totalCount);
+        this.updateElementText('il-stats-volume', `${s.totalVolume.toFixed(3)} m³`);
+        this.updateElementText('il-stats-value', `${s.totalValue.toLocaleString('pl-PL', {minimumFractionDigits: 2})} zł`);
+
+        const urgentEl = document.getElementById('il-stats-urgent');
+        if (urgentEl) {
+            urgentEl.textContent = s.urgentCount;
+            urgentEl.closest('.il-stat-card')?.classList.toggle('danger', s.urgentCount > 0);
+        }
+
+        // Legacy stats elements (fallback)
         const totalCountEl = document.getElementById('stats-total-count');
         const volumeEl = document.getElementById('stats-total-volume');
         const valueEl = document.getElementById('stats-total-value');
-        const urgentEl = document.getElementById('stats-urgent-count');
+        const urgentLegacyEl = document.getElementById('stats-urgent-count');
 
-        // ZMIANA: Wyświetl pozycje / sztuki gdy różne
         if (totalCountEl) {
-            const positions = this.state.stats.filteredCount;
-            const quantity = this.state.stats.totalQuantity;
+            const positions = s.filteredCount;
+            const quantity = s.totalQuantity;
             if (quantity > positions) {
                 totalCountEl.innerHTML = `${positions} <small style="opacity:0.7">/ ${quantity} szt.</small>`;
             } else {
                 totalCountEl.textContent = positions;
             }
         }
-        if (volumeEl) volumeEl.textContent = this.state.stats.totalVolume.toFixed(3);
+        if (volumeEl) volumeEl.textContent = s.totalVolume.toFixed(3);
         if (valueEl) {
-            valueEl.textContent = this.state.stats.totalValue.toLocaleString('pl-PL', {
+            valueEl.textContent = s.totalValue.toLocaleString('pl-PL', {
                 minimumFractionDigits: 0,
                 maximumFractionDigits: 0
             });
         }
+        if (urgentLegacyEl) urgentLegacyEl.textContent = s.urgentCount;
+    }
 
-        // Oblicz pilne produkty (deadline <= 3 dni)
-        const urgentCount = this.state.filteredProducts.filter(p => {
-            if (!p.deadline_date) return false;
-            const deadline = new Date(p.deadline_date);
-            const today = new Date();
-            const diffTime = deadline.getTime() - today.getTime();
-            const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-            return diffDays <= 3;
-        }).length;
-
-        if (urgentEl) urgentEl.textContent = urgentCount;
+    updateElementText(id, value) {
+        const el = document.getElementById(id);
+        if (el) el.textContent = value;
     }
 
     // ========================================================================
@@ -2735,6 +3237,7 @@ class ProductsModule {
                 if (data.products && data.products.length > 0) {
                     // Zaktualizuj cache nowymi danymi
                     this.state.products = data.products;
+                    this.state.orders = this.groupProductsIntoOrders(this.state.products);
                     this.state.filteredProducts = data.products;
 
                     // Znajdź produkt z odświeżonych danych
