@@ -2,470 +2,132 @@
 <html lang="pl">
 <head>
     <meta charset="UTF-8">
-    <title>Wybór Stanowiska - WoodPower</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Stanowisko — WoodPower</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='images/favicon.png') }}">
     <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
+        *{margin:0;padding:0;box-sizing:border-box}
+
+        body{
+            font-family:-apple-system,system-ui,sans-serif;
+            background:#111;
+            color:#fff;
+            height:100vh;
+            display:flex;
+            flex-direction:column;
+            overflow:hidden;
+            -webkit-tap-highlight-color:transparent;
+            -webkit-touch-callout:none;
+            -webkit-user-select:none;
+            user-select:none;
         }
 
-        body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            margin: 0;
-            padding: 20px;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            min-height: 100vh;
-            display: flex;
-            flex-direction: column;
-            justify-content: center;
-            align-items: center;
+        /* ── Header ── */
+        .hdr{
+            display:flex;
+            flex-direction:column;
+            align-items:center;
+            gap:6px;
+            padding:18px 24px 14px;
+            border-bottom:1px solid #222;
+        }
+        .hdr img{height:36px;width:auto;opacity:.85}
+        .hdr h1{font-size:1rem;font-weight:500;color:#555;letter-spacing:.05em;text-transform:uppercase}
+
+        /* ── Grid ── */
+        .grid{
+            flex:1;
+            display:grid;
+            grid-template-columns:repeat(3,1fr);
+            grid-template-rows:repeat(2,1fr);
+            gap:12px;
+            padding:12px;
         }
 
-        .container {
-            max-width: 1200px;
-            width: 100%;
-            text-align: center;
-            animation: fadeIn 0.5s ease-in;
+        /* ── Station card ── */
+        .s{
+            display:flex;
+            flex-direction:column;
+            align-items:center;
+            justify-content:center;
+            gap:10px;
+            background:#1a1a1a;
+            border:2px solid #252525;
+            border-left:5px solid var(--c);
+            text-decoration:none;
+            color:#fff;
+            position:relative;
+        }
+        .s:active{background:#222}
+
+        .s .nm{font-size:2rem;font-weight:700;letter-spacing:.02em;color:var(--c)}
+        .s .desc{font-size:.9rem;color:#666;font-weight:400}
+
+        /* ── Station colors ── */
+        .s.cut{--c:#e67e22}
+        .s.asm{--c:#3498db}
+        .s.glu{--c:#9b59b6}
+        .s.fmt{--c:#e74c3c}
+        .s.fin{--c:#1abc9c}
+        .s.pak{--c:#27ae60}
+
+        /* ── Color bar glow on active ── */
+        .s:active{border-left-color:var(--c);background:#1f1f1f}
+
+        /* ── Footer ── */
+        .ftr{
+            padding:10px 24px;
+            border-top:1px solid #222;
+            text-align:center;
+            font-size:.72rem;
+            color:#444;
+            letter-spacing:.04em;
         }
 
-        @keyframes fadeIn {
-            from {
-                opacity: 0;
-                transform: translateY(-20px);
-            }
-
-            to {
-                opacity: 1;
-                transform: translateY(0);
-            }
-        }
-
-        .header {
-            margin-bottom: 3rem;
-        }
-
-        .logo-container {
-            margin-bottom: 2rem;
-            animation: fadeIn 0.6s ease-in;
-        }
-
-        .logo {
-            height: 80px;
-            width: auto;
-            filter: drop-shadow(0 4px 8px rgba(0,0,0,0.2));
-            transition: transform 0.3s ease;
-        }
-
-        h1 {
-            color: white;
-            font-size: 2.8rem;
-            margin-bottom: 1rem;
-            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
-            font-weight: 700;
-        }
-
-        .subtitle {
-            color: rgba(255, 255, 255, 0.9);
-            font-size: 1.2rem;
-            font-weight: 300;
-        }
-
-        .stations {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-            gap: 2rem;
-            margin-top: 2rem;
-            padding: 0 1rem;
-        }
-
-        .station-card {
-            background: white;
-            border-radius: 20px;
-            padding: 3rem 2rem;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
-            transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-            cursor: pointer;
-            border: 3px solid transparent;
-            text-decoration: none;
-            color: inherit;
-            position: relative;
-            overflow: hidden;
-        }
-
-            .station-card::before {
-                content: '';
-                position: absolute;
-                top: 0;
-                left: 0;
-                right: 0;
-                height: 6px;
-                transition: all 0.3s ease;
-            }
-
-            .station-card:hover {
-                transform: translateY(-10px) scale(1.02);
-                box-shadow: 0 20px 40px rgba(0,0,0,0.3);
-            }
-
-            .station-card:active {
-                transform: translateY(-5px) scale(0.98);
-            }
-
-            .station-card.cutting::before {
-                background: linear-gradient(90deg, #fd7e14 0%, #ff9800 100%);
-            }
-
-            .station-card.cutting:hover {
-                border-color: #fd7e14;
-                background: linear-gradient(to bottom, #fff 0%, #fff4e6 100%);
-            }
-
-            .station-card.assembly::before {
-                background: linear-gradient(90deg, #007bff 0%, #0056b3 100%);
-            }
-
-            .station-card.assembly:hover {
-                border-color: #007bff;
-                background: linear-gradient(to bottom, #fff 0%, #e6f2ff 100%);
-            }
-
-            .station-card.gluing::before {
-                background: linear-gradient(90deg, #9c27b0 0%, #ba68c8 100%);
-            }
-
-            .station-card.gluing:hover {
-                border-color: #9c27b0;
-                background: linear-gradient(to bottom, #fff 0%, #f3e5f5 100%);
-            }
-
-            .station-card.formatting::before {
-                background: linear-gradient(90deg, #ff5722 0%, #ff7043 100%);
-            }
-
-            .station-card.formatting:hover {
-                border-color: #ff5722;
-                background: linear-gradient(to bottom, #fff 0%, #fbe9e7 100%);
-            }
-
-            .station-card.finishing::before {
-                background: linear-gradient(90deg, #00bcd4 0%, #26c6da 100%);
-            }
-
-            .station-card.finishing:hover {
-                border-color: #00bcd4;
-                background: linear-gradient(to bottom, #fff 0%, #e0f7fa 100%);
-            }
-
-            .station-card.packaging::before {
-                background: linear-gradient(90deg, #28a745 0%, #20c997 100%);
-            }
-
-            .station-card.packaging:hover {
-                border-color: #28a745;
-                background: linear-gradient(to bottom, #fff 0%, #e6f7e6 100%);
-            }
-
-        .station-icon {
-            font-size: 5rem;
-            margin-bottom: 1.5rem;
-            filter: drop-shadow(0 4px 6px rgba(0,0,0,0.1));
-            animation: float 3s ease-in-out infinite;
-        }
-
-        @keyframes float {
-            0%, 100% {
-                transform: translateY(0px);
-            }
-
-            50% {
-                transform: translateY(-10px);
-            }
-        }
-
-        .station-card:hover .station-icon {
-            animation: bounce 0.6s ease;
-        }
-
-        @keyframes bounce {
-            0%, 100% {
-                transform: translateY(0) scale(1);
-            }
-
-            25% {
-                transform: translateY(-15px) scale(1.1);
-            }
-
-            50% {
-                transform: translateY(0) scale(1.05);
-            }
-
-            75% {
-                transform: translateY(-7px) scale(1.08);
-            }
-        }
-
-        .station-name {
-            font-size: 1.8rem;
-            font-weight: 700;
-            color: #2c3e50;
-            margin-bottom: 0.8rem;
-            letter-spacing: -0.5px;
-        }
-
-        .station-description {
-            color: #7f8c8d;
-            font-size: 1.1rem;
-            line-height: 1.6;
-            font-weight: 400;
-        }
-
-        .station-badge {
-            display: inline-block;
-            margin-top: 1rem;
-            padding: 0.5rem 1.2rem;
-            border-radius: 20px;
-            font-size: 0.85rem;
-            font-weight: 600;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-            opacity: 0;
-            transform: translateY(10px);
-            transition: all 0.3s ease;
-        }
-
-        .station-card:hover .station-badge {
-            opacity: 1;
-            transform: translateY(0);
-        }
-
-        .cutting .station-badge {
-            background: #fff4e6;
-            color: #fd7e14;
-        }
-
-        .assembly .station-badge {
-            background: #e6f2ff;
-            color: #007bff;
-        }
-
-        .gluing .station-badge {
-            background: #f3e5f5;
-            color: #9c27b0;
-        }
-
-        .formatting .station-badge {
-            background: #fbe9e7;
-            color: #ff5722;
-        }
-
-        .finishing .station-badge {
-            background: #e0f7fa;
-            color: #00bcd4;
-        }
-
-        .packaging .station-badge {
-            background: #e6f7e6;
-            color: #28a745;
-        }
-
-        .footer {
-            margin-top: 4rem;
-            color: rgba(255, 255, 255, 0.8);
-            font-size: 0.95rem;
-            font-weight: 300;
-        }
-
-        .footer-badge {
-            display: inline-block;
-            background: rgba(255, 255, 255, 0.15);
-            padding: 0.5rem 1.5rem;
-            border-radius: 25px;
-            font-weight: 500;
-            backdrop-filter: blur(10px);
-            margin-top: 1rem;
-        }
-
-        /* Tablet optimization */
-        @media (max-width: 768px) {
-            .logo {
-                height: 60px;
-            }
-
-            h1 {
-                font-size: 2.2rem;
-            }
-
-            .subtitle {
-                font-size: 1rem;
-            }
-
-            .stations {
-                grid-template-columns: 1fr;
-                gap: 1.5rem;
-            }
-
-            .station-card {
-                padding: 2.5rem 2rem;
-            }
-
-            .station-icon {
-                font-size: 4rem;
-            }
-
-            .station-name {
-                font-size: 1.6rem;
-            }
-        }
-
-        /* Touch-friendly improvements for tablets */
-        @media (hover: none) and (pointer: coarse) {
-            .station-card {
-                padding: 3.5rem 2rem;
-            }
-
-            .station-badge {
-                opacity: 1;
-                transform: translateY(0);
-            }
-        }
-
-        /* Loading animation */
-        .loading {
-            display: inline-block;
-            width: 20px;
-            height: 20px;
-            border: 3px solid rgba(255,255,255,.3);
-            border-radius: 50%;
-            border-top-color: white;
-            animation: spin 1s ease-in-out infinite;
-        }
-
-        @keyframes spin {
-            to {
-                transform: rotate(360deg);
+        /* ── Tablet portrait fallback ── */
+        @media(max-aspect-ratio:1/1){
+            .grid{
+                grid-template-columns:repeat(2,1fr);
+                grid-template-rows:repeat(3,1fr);
             }
         }
     </style>
 </head>
 <body>
-    <div class="container">
-        <div class="header">
-            <div class="logo-container">
-                <img src="/static/images/crm-logo.svg" alt="WoodPower Logo" class="logo">
-            </div>
-            <h1>Wybór stanowiska produkcyjnego</h1>
-            <p class="subtitle">Wybierz stanowisko, aby rozpocząć pracę</p>
-        </div>
 
-        <div class="stations">
-            <!-- POPRAWIONE URL: dodano /stations/ -->
-            <a href="/production/stations/cutting" class="station-card cutting">
-                <div class="station-icon">🪚</div>
-                <div class="station-name">Wycinanie</div>
-                <div class="station-description">Cięcie i przygotowanie materiału</div>
-                <span class="station-badge">Przejdź do stanowiska</span>
-            </a>
-
-            <a href="/production/stations/assembly" class="station-card assembly">
-                <div class="station-icon">🔧</div>
-                <div class="station-name">Składanie</div>
-                <div class="station-description">Montaż i łączenie elementów</div>
-                <span class="station-badge">Przejdź do stanowiska</span>
-            </a>
-
-            <a href="/production/stations/gluing" class="station-card gluing">
-                <div class="station-icon">🧲</div>
-                <div class="station-name">Sklejanie</div>
-                <div class="station-description">Łączenie i sklejanie elementów</div>
-                <span class="station-badge">Przejdź do stanowiska</span>
-            </a>
-
-            <a href="/production/stations/formatting" class="station-card formatting">
-                <div class="station-icon">📐</div>
-                <div class="station-name">Formatowanie</div>
-                <div class="station-description">Obróbka i formatowanie produktów</div>
-                <span class="station-badge">Przejdź do stanowiska</span>
-            </a>
-
-            <a href="/production/stations/finishing" class="station-card finishing">
-                <div class="station-icon">✨</div>
-                <div class="station-name">Wykańczanie</div>
-                <div class="station-description">Finalna obróbka i wykończenie</div>
-                <span class="station-badge">Przejdź do stanowiska</span>
-            </a>
-
-            <a href="/production/stations/packaging" class="station-card packaging">
-                <div class="station-icon">📦</div>
-                <div class="station-name">Pakowanie</div>
-                <div class="station-description">Pakowanie gotowych produktów</div>
-                <span class="station-badge">Przejdź do stanowiska</span>
-            </a>
-        </div>
-
-        <div class="footer">
-            <div class="footer-badge">
-                WoodPower CRM - System Produkcji
-            </div>
-        </div>
+    <div class="hdr">
+        <img src="/static/images/crm-logo.svg" alt="WP">
+        <h1>WYBÓR STANOWISKA</h1>
     </div>
 
-    <script>
-        // Dodaj efekt kliknięcia i feedback dla touch devices
-        document.querySelectorAll('.station-card').forEach(card => {
-            card.addEventListener('click', function (e) {
-                // Dodaj efekt ripple przy kliknięciu
-                const ripple = document.createElement('div');
-                ripple.style.cssText = `
-                        position: absolute;
-                        border-radius: 50%;
-                        background: rgba(255,255,255,0.6);
-                        width: 100px;
-                        height: 100px;
-                        margin-left: -50px;
-                        margin-top: -50px;
-                        animation: ripple 0.6s;
-                        pointer-events: none;
-                    `;
-                ripple.style.left = e.clientX - this.getBoundingClientRect().left + 'px';
-                ripple.style.top = e.clientY - this.getBoundingClientRect().top + 'px';
+    <div class="grid">
+        <a href="/production/stations/cutting" class="s cut">
+            <span class="nm">Wycinanie</span>
+            <span class="desc">Cięcie i przygotowanie materiału</span>
+        </a>
+        <a href="/production/stations/assembly" class="s asm">
+            <span class="nm">Składanie</span>
+            <span class="desc">Montaż i łączenie elementów</span>
+        </a>
+        <a href="/production/stations/gluing" class="s glu">
+            <span class="nm">Sklejanie</span>
+            <span class="desc">Łączenie i sklejanie elementów</span>
+        </a>
+        <a href="/production/stations/formatting" class="s fmt">
+            <span class="nm">Formatowanie</span>
+            <span class="desc">Obróbka i formatowanie produktów</span>
+        </a>
+        <a href="/production/stations/finishing" class="s fin">
+            <span class="nm">Wykańczanie</span>
+            <span class="desc">Finalna obróbka i wykończenie</span>
+        </a>
+        <a href="/production/stations/packaging" class="s pak">
+            <span class="nm">Pakowanie</span>
+            <span class="desc">Pakowanie gotowych produktów</span>
+        </a>
+    </div>
 
-                this.appendChild(ripple);
+    <div class="ftr">WOODPOWER CRM — SYSTEM PRODUKCJI</div>
 
-                setTimeout(() => ripple.remove(), 600);
-            });
-        });
-
-        // Dodaj animację ripple do CSS
-        const style = document.createElement('style');
-        style.textContent = `
-                @keyframes ripple {
-                    from {
-                        opacity: 1;
-                        transform: scale(0);
-                    }
-                    to {
-                        opacity: 0;
-                        transform: scale(4);
-                    }
-                }
-            `;
-        document.head.appendChild(style);
-
-        // Preload następnych stron dla szybszego ładowania
-        const links = document.querySelectorAll('.station-card');
-        links.forEach(link => {
-            const preload = document.createElement('link');
-            preload.rel = 'prefetch';
-            preload.href = link.href;
-            document.head.appendChild(preload);
-        });
-
-        // Debug info (opcjonalne - usuń w produkcji)
-        console.log('Station Select loaded successfully');
-        console.log('Available stations:', Array.from(links).map(l => l.href));
-    </script>
 </body>
 </html>
