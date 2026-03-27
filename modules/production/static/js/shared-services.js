@@ -261,16 +261,6 @@ class ApiClient {
         return this.request(`/products-filtered?${params.toString()}`);
     }
 
-    async updateProductPriority(productId, priority) {
-        return this.request('/update-priority', {
-            method: 'POST',
-            body: JSON.stringify({
-                product_id: productId,
-                new_priority: priority
-            })
-        });
-    }
-
     async triggerManualSync(options = {}) {
         const {
             syncType = 'incremental',
