@@ -14,9 +14,9 @@ window.MONITOR_STATE = {
     isOnline: true,
     secondsLeft: 30,
 
-    // Infinity scroll state
+    // Auto-scroll state
     autoScroll: {
-        enabled: false,           // Domyślnie wyłączony, włączany gdy gotowy
+        enabled: false,
         isRunning: false,
         isPaused: false,
         animationId: null,
@@ -26,19 +26,18 @@ window.MONITOR_STATE = {
 
         // Konfiguracja
         scrollSpeed: 30,           // Pikseli na sekundę
-        pauseDuration: 10000,      // Jak długo trwa pauza (10 sekund)
-        pauseEveryNRows: 2,        // Pauza co N wierszy
+        pauseDuration: 10000,      // Pauza 10 sekund
+        pauseEveryPx: 0,           // Co ile px pauzować (obliczane dynamicznie)
 
         // Stan
-        currentOffset: 0,          // Aktualny offset scrollowania
-        rowHeight: 0,              // Wysokość wiersza (karta + gap)
-        columnsCount: 1,           // Liczba kolumn w gridzie
-        rowsMoved: 0,              // Licznik przeniesionych wierszy
-        pauseCountdown: 0,         // Odliczanie pauzy
-        lastFrameTime: 0,          // Czas ostatniej klatki animacji
+        rowHeight: 0,
+        columnsCount: 1,
+        rowsMoved: 0,
+        pauseCountdown: 0,
+        lastFrameTime: 0,
 
         // Cache aktualnych zamówień (dla inkrementalnego update)
-        currentOrders: new Map()   // order_number -> order data
+        currentOrders: new Map()
     }
 };
 
@@ -461,301 +460,180 @@ function updateElement(id, value) {
 }
 
 /* ============================================================================
-   INFINITY SCROLL - Smooth row-based scrolling
+   AUTO-SCROLL — scrollTop-based, no DOM manipulation
+   Scrolluje monitor-content w dół. Po dojechaniu do końca wraca na początek.
+   Pauza co 2 wiersze (obliczane dynamicznie z rowHeight).
    ============================================================================ */
 
 /**
  * Schedule auto-scroll initialization after page is fully ready
  */
 function scheduleAutoScrollInit() {
-    const state = window.MONITOR_STATE.autoScroll;
-
-    // Wyczyść poprzedni timer jeśli istnieje
-    if (state.initTimer) {
-        clearTimeout(state.initTimer);
-    }
-
-    // Czekaj 500ms po DOMContentLoaded, potem sprawdzaj
-    state.initTimer = setTimeout(() => {
-        tryInitAutoScroll();
-    }, 500);
+    var state = window.MONITOR_STATE.autoScroll;
+    if (state.initTimer) clearTimeout(state.initTimer);
+    state.initTimer = setTimeout(tryInitAutoScroll, 500);
 }
 
 /**
- * Try to initialize auto-scroll (sprawdza czy strona jest gotowa)
+ * Try to initialize auto-scroll
  */
 function tryInitAutoScroll() {
-    const grid = document.querySelector('.orders-grid');
-    if (!grid) {
-        console.log('[Monitor] Grid not found, retrying in 1s...');
+    var grid = document.querySelector('.orders-grid');
+    if (!grid || grid.querySelectorAll('.order-card').length === 0) {
         setTimeout(tryInitAutoScroll, 1000);
         return;
     }
 
-    const cards = grid.querySelectorAll('.order-card');
-    if (cards.length === 0) {
-        console.log('[Monitor] No cards found, retrying in 1s...');
-        setTimeout(tryInitAutoScroll, 1000);
-        return;
-    }
-
-    // Sprawdź czy karty mają wymiary (są wyrenderowane)
-    const firstCard = cards[0];
-    const cardRect = firstCard.getBoundingClientRect();
-
-    if (cardRect.height === 0 || cardRect.width === 0) {
-        console.log('[Monitor] Cards not rendered yet, retrying in 500ms...');
+    var firstCard = grid.querySelector('.order-card');
+    if (!firstCard || firstCard.getBoundingClientRect().height === 0) {
         setTimeout(tryInitAutoScroll, 500);
         return;
     }
 
-    // Strona gotowa - oblicz wymiary i sprawdź czy potrzebny scroll
-    console.log('[Monitor] Page ready, initializing auto-scroll...');
     calculateGridDimensions();
-
-    // Krótkie opóźnienie 1.5s żeby użytkownik zobaczył pierwszą stronę
-    setTimeout(() => {
-        checkAutoScrollNeeded();
-    }, 1500);
+    setTimeout(checkAutoScrollNeeded, 1500);
 }
 
 /**
- * Check if auto-scroll is needed and start/stop accordingly
- */
-function checkAutoScrollNeeded() {
-    const grid = document.querySelector('.orders-grid');
-    if (!grid) return;
-
-    const state = window.MONITOR_STATE.autoScroll;
-    const cards = grid.querySelectorAll('.order-card');
-
-    if (cards.length === 0 || state.columnsCount === 0 || state.rowHeight === 0) {
-        console.log(`[Monitor] Check scroll skipped: cards=${cards.length}, cols=${state.columnsCount}, rowH=${state.rowHeight}`);
-        return;
-    }
-
-    const totalRows = Math.ceil(cards.length / state.columnsCount);
-    const visibleRows = getVisibleRowCount();
-
-    // Sprawdź też czy grid jest wyższy niż viewport (fallback)
-    const gridHeight = grid.scrollHeight;
-    const header = document.querySelector('.monitor-header');
-    const headerHeight = header ? header.getBoundingClientRect().height : 140;
-    const viewportHeight = window.innerHeight - headerHeight;
-    const needsScrollByHeight = gridHeight > viewportHeight;
-
-    console.log(`[Monitor] Check scroll: ${cards.length} cards, ${state.columnsCount} cols, ${totalRows} total rows, ${visibleRows} visible, gridH=${gridHeight}px, viewH=${viewportHeight}px, needsByHeight=${needsScrollByHeight}`);
-
-    if (totalRows > visibleRows || needsScrollByHeight) {
-        // Potrzebny scroll
-        if (!state.isRunning) {
-            startAutoScroll();
-        }
-    } else {
-        // Nie potrzebny scroll
-        if (state.isRunning) {
-            stopAutoScroll();
-        }
-    }
-}
-
-/**
- * Calculate grid dimensions (columns, row height)
+ * Calculate grid dimensions
  */
 function calculateGridDimensions() {
-    const grid = document.querySelector('.orders-grid');
+    var grid = document.querySelector('.orders-grid');
     if (!grid) return;
 
-    const cards = grid.querySelectorAll('.order-card');
+    var cards = grid.querySelectorAll('.order-card');
     if (cards.length === 0) return;
 
-    const state = window.MONITOR_STATE.autoScroll;
-    const gridStyle = window.getComputedStyle(grid);
-    const gap = parseInt(gridStyle.gap) || 12;
-
-    // Pobierz wymiary pierwszej karty
-    const firstCard = cards[0];
-    const cardRect = firstCard.getBoundingClientRect();
+    var state = window.MONITOR_STATE.autoScroll;
+    var gridStyle = window.getComputedStyle(grid);
+    var gap = parseInt(gridStyle.gap) || 6;
+    var firstCard = cards[0];
+    var cardRect = firstCard.getBoundingClientRect();
+    var gridRect = grid.getBoundingClientRect();
 
     if (cardRect.height > 0) {
         state.rowHeight = cardRect.height + gap;
     }
-
-    // Oblicz liczbę kolumn
-    const gridRect = grid.getBoundingClientRect();
     if (cardRect.width > 0) {
         state.columnsCount = Math.max(1, Math.round(gridRect.width / (cardRect.width + gap)));
     }
 
-    console.log(`[Monitor] Grid dimensions: rowHeight=${state.rowHeight}px, columns=${state.columnsCount}`);
+    // Oblicz co ile px pauzować (2 wiersze)
+    state.pauseEveryPx = state.rowHeight * 2;
 }
 
 /**
- * Get visible row count (based on viewport, not content height)
+ * Check if auto-scroll is needed
  */
-function getVisibleRowCount() {
-    const content = document.querySelector('.monitor-content');
-    if (!content) return 3;
+function checkAutoScrollNeeded() {
+    var content = document.querySelector('.monitor-content');
+    if (!content) return;
 
-    const state = window.MONITOR_STATE.autoScroll;
-    if (!state.rowHeight || state.rowHeight === 0) return 3;
+    var state = window.MONITOR_STATE.autoScroll;
+    var scrollable = content.scrollHeight > content.clientHeight;
 
-    // Użyj wysokości widocznego obszaru (viewport minus header)
-    const header = document.querySelector('.monitor-header');
-    const headerHeight = header ? header.getBoundingClientRect().height : 140;
-    const viewportHeight = window.innerHeight - headerHeight;
-
-    // Padding kontenera
-    const contentStyle = window.getComputedStyle(content);
-    const paddingTop = parseInt(contentStyle.paddingTop) || 16;
-
-    const availableHeight = viewportHeight - paddingTop;
-    const visibleRows = Math.floor(availableHeight / state.rowHeight);
-
-    console.log(`[Monitor] Viewport calc: viewportH=${viewportHeight}px, availableH=${availableHeight}px, rowH=${state.rowHeight}px, visibleRows=${visibleRows}`);
-
-    return visibleRows;
+    if (scrollable && !state.isRunning) {
+        startAutoScroll();
+    } else if (!scrollable && state.isRunning) {
+        stopAutoScroll();
+    }
 }
 
 /**
  * Create scroll indicator element
  */
 function createScrollIndicator() {
-    // Usuń jeśli istnieje
-    const existing = document.querySelector('.auto-scroll-indicator');
+    var existing = document.querySelector('.auto-scroll-indicator');
     if (existing) existing.remove();
 
-    const indicator = document.createElement('div');
+    var indicator = document.createElement('div');
     indicator.className = 'auto-scroll-indicator';
-    indicator.style.display = 'none'; // Domyślnie ukryty
-    indicator.innerHTML = `
-        <svg class="scroll-icon animated" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M12 5v14M5 12l7 7 7-7"/>
-        </svg>
-        <span class="scroll-status">Auto-scroll</span>
-        <span class="pause-countdown" style="display: none;"></span>
-    `;
-
+    indicator.style.display = 'none';
+    indicator.innerHTML =
+        '<svg class="scroll-icon animated" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">' +
+        '<path d="M12 5v14M5 12l7 7 7-7"/>' +
+        '</svg>' +
+        '<span class="scroll-status">Auto-scroll</span>' +
+        '<span class="pause-countdown" style="display:none;"></span>';
     document.body.appendChild(indicator);
 }
 
 /**
- * Start auto-scroll animation
+ * Start auto-scroll
  */
 function startAutoScroll() {
-    const state = window.MONITOR_STATE.autoScroll;
+    var state = window.MONITOR_STATE.autoScroll;
+    if (state.isRunning) return;
 
-    if (state.isRunning) {
-        console.log('[Monitor] Auto-scroll already running');
-        return;
-    }
-
-    if (state.animationId) {
-        cancelAnimationFrame(state.animationId);
-    }
+    if (state.animationId) cancelAnimationFrame(state.animationId);
 
     state.enabled = true;
     state.isRunning = true;
     state.isPaused = false;
+    state.rowsMoved = 0;
     state.lastFrameTime = performance.now();
 
-    console.log(`[Monitor] Starting smooth auto-scroll (${state.scrollSpeed}px/s, pause every ${state.pauseEveryNRows} rows)`);
-
     updateScrollIndicator(false);
-
-    // Start animation loop
     animateScroll();
 }
 
 /**
- * Animation loop for smooth scrolling
+ * Animation loop — uses scrollTop on .monitor-content
  */
 function animateScroll() {
-    const state = window.MONITOR_STATE.autoScroll;
-
+    var state = window.MONITOR_STATE.autoScroll;
     if (!state.enabled || !state.isRunning) return;
 
-    const now = performance.now();
-    const deltaTime = (now - state.lastFrameTime) / 1000; // w sekundach
+    var now = performance.now();
+    var deltaTime = (now - state.lastFrameTime) / 1000;
     state.lastFrameTime = now;
 
-    if (!state.isPaused && state.rowHeight > 0) {
-        // Oblicz przesunięcie
-        const pixelsToMove = state.scrollSpeed * deltaTime;
-        state.currentOffset += pixelsToMove;
+    if (!state.isPaused) {
+        var content = document.querySelector('.monitor-content');
+        if (content) {
+            var maxScroll = content.scrollHeight - content.clientHeight;
+            var pixelsToMove = state.scrollSpeed * deltaTime;
+            var prevScroll = content.scrollTop;
+            content.scrollTop += pixelsToMove;
 
-        // Zastosuj transform do grida
-        applyScrollTransform();
+            // Sprawdź czy przekroczyliśmy próg pauzy (co 2 wiersze)
+            if (state.pauseEveryPx > 0 && state.rowHeight > 0) {
+                var prevRow = Math.floor(prevScroll / state.pauseEveryPx);
+                var currRow = Math.floor(content.scrollTop / state.pauseEveryPx);
+                if (currRow > prevRow && content.scrollTop < maxScroll) {
+                    state.animationId = requestAnimationFrame(animateScroll);
+                    pauseAutoScroll();
+                    return;
+                }
+            }
 
-        // Sprawdź czy trzeba przenieść wiersz
-        if (state.currentOffset >= state.rowHeight) {
-            moveTopRowToBottom();
+            // Dojechaliśmy do końca — pauza i reset na początek
+            if (content.scrollTop >= maxScroll) {
+                pauseAutoScroll(function() {
+                    content.scrollTop = 0;
+                });
+                return;
+            }
         }
     }
 
-    // Kontynuuj animację
     state.animationId = requestAnimationFrame(animateScroll);
 }
 
 /**
- * Apply CSS transform to grid for smooth scrolling
- */
-function applyScrollTransform() {
-    const grid = document.querySelector('.orders-grid');
-    if (!grid) return;
-
-    const state = window.MONITOR_STATE.autoScroll;
-    grid.style.transform = `translateY(-${state.currentOffset}px)`;
-}
-
-/**
- * Move top row of cards to bottom
- */
-function moveTopRowToBottom() {
-    const grid = document.querySelector('.orders-grid');
-    if (!grid) return;
-
-    const state = window.MONITOR_STATE.autoScroll;
-    const cards = grid.querySelectorAll('.order-card');
-
-    if (cards.length < state.columnsCount) return;
-
-    // Przenieś tyle kart ile jest kolumn (cały wiersz)
-    for (let i = 0; i < state.columnsCount && i < cards.length; i++) {
-        grid.appendChild(cards[i]);
-    }
-
-    // Reset offset (odejmij wysokość wiersza)
-    state.currentOffset -= state.rowHeight;
-
-    // Natychmiast zastosuj nową pozycję żeby nie było skoku
-    grid.style.transform = `translateY(-${state.currentOffset}px)`;
-
-    // Zwiększ licznik wierszy
-    state.rowsMoved++;
-
-    // Sprawdź czy czas na pauzę
-    if (state.rowsMoved >= state.pauseEveryNRows) {
-        pauseAutoScroll();
-    }
-}
-
-/**
- * Stop auto-scroll completely
+ * Stop auto-scroll
  */
 function stopAutoScroll() {
-    const state = window.MONITOR_STATE.autoScroll;
+    var state = window.MONITOR_STATE.autoScroll;
 
     if (state.animationId) {
         cancelAnimationFrame(state.animationId);
         state.animationId = null;
     }
-
     if (state.pauseTimer) {
         clearTimeout(state.pauseTimer);
         state.pauseTimer = null;
     }
-
     if (state.pauseCountdownTimer) {
         clearInterval(state.pauseCountdownTimer);
         state.pauseCountdownTimer = null;
@@ -764,55 +642,40 @@ function stopAutoScroll() {
     state.enabled = false;
     state.isRunning = false;
     state.isPaused = false;
-    state.currentOffset = 0;
     state.rowsMoved = 0;
 
-    // Reset transform
-    const grid = document.querySelector('.orders-grid');
-    if (grid) {
-        grid.style.transform = '';
-    }
+    var content = document.querySelector('.monitor-content');
+    if (content) content.scrollTop = 0;
 
-    // Ukryj indicator
-    const indicator = document.querySelector('.auto-scroll-indicator');
-    if (indicator) {
-        indicator.style.display = 'none';
-    }
-
-    console.log('[Monitor] Auto-scroll stopped');
+    var indicator = document.querySelector('.auto-scroll-indicator');
+    if (indicator) indicator.style.display = 'none';
 }
 
 /**
- * Pause auto-scroll with countdown
+ * Pause auto-scroll with countdown, then resume
+ * @param {Function} onResumeCallback — optional, called right before resuming
  */
-function pauseAutoScroll() {
-    const state = window.MONITOR_STATE.autoScroll;
-
+function pauseAutoScroll(onResumeCallback) {
+    var state = window.MONITOR_STATE.autoScroll;
     state.isPaused = true;
     state.pauseCountdown = Math.ceil(state.pauseDuration / 1000);
 
-    console.log(`[Monitor] Auto-scroll paused for ${state.pauseCountdown}s`);
-
     updateScrollIndicator(true);
 
-    // Odliczanie pauzy
-    state.pauseCountdownTimer = setInterval(() => {
+    state.pauseCountdownTimer = setInterval(function() {
         state.pauseCountdown--;
         updatePauseCountdown();
-
         if (state.pauseCountdown <= 0) {
             clearInterval(state.pauseCountdownTimer);
             state.pauseCountdownTimer = null;
         }
     }, 1000);
 
-    // Timer do wznowienia
-    state.pauseTimer = setTimeout(() => {
+    state.pauseTimer = setTimeout(function() {
+        if (onResumeCallback) onResumeCallback();
         state.isPaused = false;
-        state.rowsMoved = 0;
-        state.lastFrameTime = performance.now(); // Reset time to avoid jump
+        state.lastFrameTime = performance.now();
         updateScrollIndicator(false);
-        console.log('[Monitor] Auto-scroll resumed');
     }, state.pauseDuration);
 }
 
@@ -820,14 +683,14 @@ function pauseAutoScroll() {
  * Update scroll indicator UI
  */
 function updateScrollIndicator(isPaused) {
-    const indicator = document.querySelector('.auto-scroll-indicator');
+    var indicator = document.querySelector('.auto-scroll-indicator');
     if (!indicator) return;
 
     indicator.style.display = 'flex';
 
-    const statusText = indicator.querySelector('.scroll-status');
-    const countdown = indicator.querySelector('.pause-countdown');
-    const icon = indicator.querySelector('.scroll-icon');
+    var statusText = indicator.querySelector('.scroll-status');
+    var countdown = indicator.querySelector('.pause-countdown');
+    var icon = indicator.querySelector('.scroll-icon');
 
     if (isPaused) {
         indicator.classList.add('paused');
@@ -849,10 +712,10 @@ function updateScrollIndicator(isPaused) {
  * Update pause countdown display
  */
 function updatePauseCountdown() {
-    const indicator = document.querySelector('.auto-scroll-indicator');
+    var indicator = document.querySelector('.auto-scroll-indicator');
     if (!indicator) return;
 
-    const countdown = indicator.querySelector('.pause-countdown');
+    var countdown = indicator.querySelector('.pause-countdown');
     if (countdown) {
         countdown.textContent = window.MONITOR_STATE.autoScroll.pauseCountdown + 's';
     }

@@ -192,18 +192,20 @@ body {
 .monitor-content {
     flex: 1;
     padding: 8px;
-    overflow: hidden;
+    overflow-y: auto;
+    overflow-x: hidden;
     position: relative;
+    /* Ukryj scrollbar — scroll sterowany przez JS */
+    scrollbar-width: none;
+    -ms-overflow-style: none;
 }
+.monitor-content::-webkit-scrollbar { display: none; }
 
 /* ── ORDERS GRID — 3 columns ── */
 .orders-grid {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
     gap: 6px;
-    position: relative;
-    will-change: transform;
-    backface-visibility: hidden;
 }
 
 /* ── ORDER CARD ── */
