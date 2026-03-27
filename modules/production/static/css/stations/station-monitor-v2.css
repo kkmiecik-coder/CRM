@@ -238,6 +238,12 @@ body {
     font-weight: 700;
 }
 
+.order-client-number {
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--text-secondary);
+}
+
 .order-baselinker {
     font-size: 15px;
     color: var(--text-muted);
