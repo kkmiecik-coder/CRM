@@ -1457,7 +1457,7 @@ class ProductsModule {
         // Metrics
         header.querySelector('.il-order-positions').textContent = order.productCount;
         header.querySelector('.il-order-volume').textContent = `${order.totalVolume.toFixed(3)} m³`;
-        header.querySelector('.il-order-value').textContent = `${order.totalValue.toLocaleString('pl-PL')} zł`;
+        header.querySelector('.il-order-value').textContent = `${order.totalValue.toLocaleString('pl-PL', {minimumFractionDigits: 2, maximumFractionDigits: 2})} zł`;
 
         // Status badge
         const badge = header.querySelector('.il-order-status-badge');
@@ -3783,12 +3783,7 @@ class ProductsModule {
         };
     }
 
-    /**
-     * Zwraca tylko klasę CSS dla badge statusu
-     */
-    getStatusBadgeClass(status) {
-        return this.getStatusConfig(status).badgeClass;
-    }
+    // getStatusBadgeClass — see new implementation above (line ~1645)
 
     /**
      * Zwraca przyjazną nazwę statusu dla wyświetlenia
