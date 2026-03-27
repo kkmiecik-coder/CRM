@@ -54,7 +54,7 @@ document.addEventListener('DOMContentLoaded', function() {
         window.MONITOR_STATE.config = {
             refreshInterval: window.MONITOR_CONFIG.refreshInterval || 30,
             debugMode: window.MONITOR_CONFIG.debugMode || false,
-            ajaxUrl: '/production/stations/ajax/monitor',
+            ajaxUrl: (window.MONITOR_CONFIG && window.MONITOR_CONFIG.ajaxUrl) || '/production/stations/ajax/monitor',
             // Auto-scroll config
             autoScrollSpeed: window.MONITOR_CONFIG.autoScrollSpeed || 30,
             autoScrollPauseDuration: window.MONITOR_CONFIG.autoScrollPauseDuration || 10000,
@@ -304,7 +304,7 @@ async function refreshMonitorData() {
     console.log('[Monitor] Refreshing data (incremental)...');
 
     try {
-        const response = await fetch('/production/stations/ajax/monitor', {
+        const response = await fetch(MONITOR_STATE.config.ajaxUrl, {
             method: 'GET',
             headers: {
                 'Accept': 'application/json'
@@ -320,6 +320,19 @@ async function refreshMonitorData() {
         if (data.success) {
             // Update stats
             updateStats(data.stats);
+
+        // Update species stats
+        if (data.species_stats) {
+            data.species_stats.forEach(function(sp, idx) {
+                var el = document.getElementById('species-' + (idx + 1));
+                if (el) {
+                    var valueEl = el.querySelector('.stat-value');
+                    if (valueEl) {
+                        valueEl.innerHTML = sp.count + ' szt &middot; ' + sp.volume.toFixed(3) + ' m<sup>3</sup>';
+                    }
+                }
+            });
+        }
 
             // Inkrementalne odświeżenie zamówień (BEZ resetowania scrollu)
             incrementalUpdateOrders(data.orders);
