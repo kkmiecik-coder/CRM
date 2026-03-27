@@ -32,8 +32,8 @@
         <div class="stats-bar">
             <div class="stat-item">
                 <div class="stat-content">
-                    <div class="stat-label">{{ ['Poniedziałek','Wtorek','Środa','Czwartek','Piątek','Sobota','Niedziela'][now.weekday()] }}</div>
-                    <div class="stat-value" id="current-datetime">{{ now.strftime('%d.%m.%Y %H:%M:%S') }}</div>
+                    <div class="stat-label"><span id="current-day">{{ ['Poniedziałek','Wtorek','Środa','Czwartek','Piątek','Sobota','Niedziela'][now.weekday()] }}</span>, <span id="current-date">{{ now.strftime('%d.%m.%Y') }}</span></div>
+                    <div class="stat-value" id="current-time">{{ now.strftime('%H:%M:%S') }}</div>
                 </div>
             </div>
 

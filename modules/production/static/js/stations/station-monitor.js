@@ -105,12 +105,8 @@ document.addEventListener('DOMContentLoaded', function() {
  * Update current datetime display
  */
 function updateCurrentDatetime() {
-    const datetimeElement = document.getElementById('current-datetime');
-    if (!datetimeElement) return;
-
     const now = new Date();
     const days = ['Niedziela', 'Poniedziałek', 'Wtorek', 'Środa', 'Czwartek', 'Piątek', 'Sobota'];
-    const dayName = days[now.getDay()];
 
     const date = now.toLocaleDateString('pl-PL', {
         day: '2-digit',
@@ -124,13 +120,13 @@ function updateCurrentDatetime() {
         second: '2-digit'
     });
 
-    datetimeElement.textContent = `${date} ${time}`;
+    var dayEl = document.getElementById('current-day');
+    var dateEl = document.getElementById('current-date');
+    var timeEl = document.getElementById('current-time');
 
-    // Update day label if exists
-    const labelElement = datetimeElement.previousElementSibling;
-    if (labelElement && labelElement.classList.contains('stat-label')) {
-        labelElement.textContent = dayName;
-    }
+    if (dayEl) dayEl.textContent = days[now.getDay()];
+    if (dateEl) dateEl.textContent = date;
+    if (timeEl) timeEl.textContent = time;
 }
 
 /**
