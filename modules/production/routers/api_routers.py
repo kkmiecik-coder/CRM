@@ -161,7 +161,7 @@ def dashboard_stats():
         status_stats = db.session.query(
             ProductionItem.current_status,
             func.count(ProductionItem.id).label('count'),
-            func.avg(ProductionItem.priority_score).label('avg_priority')
+            func.avg(ProductionItem.priority_rank).label('avg_priority')
         ).group_by(ProductionItem.current_status).all()
         
         stations_stats = {}
@@ -192,7 +192,7 @@ def dashboard_stats():
         
         # Produkty z wysokim priorytetem (>=150)
         high_priority_count = ProductionItem.query.filter(
-            ProductionItem.priority_score >= 150
+            ProductionItem.priority_rank.isnot(None), ProductionItem.priority_rank <= 10
         ).count()
         
         # Produkty przeterminowane
@@ -291,7 +291,7 @@ def dashboard_stats():
             priority_products = ProductionItem.query.filter(
                 ProductionItem.current_status != 'spakowane'
             ).order_by(
-                desc(ProductionItem.priority_score),
+                ProductionItem.priority_rank.asc(),
                 ProductionItem.deadline_date.asc()
             ).limit(limit).all()
             
@@ -307,7 +307,7 @@ def dashboard_stats():
                     'internal_order_number': product.internal_order_number,
                     'original_product_name': product.original_product_name[:50] + '...' if len(product.original_product_name) > 50 else product.original_product_name,
                     'current_status': product.current_status,
-                    'priority_score': product.priority_score or 0,
+                    'priority_rank': product.priority_rank or 0,
                     'deadline_date': product.deadline_date.isoformat() if product.deadline_date else None,
                     'days_to_deadline': days_to_deadline,
                     'is_overdue': days_to_deadline is not None and days_to_deadline < 0,
