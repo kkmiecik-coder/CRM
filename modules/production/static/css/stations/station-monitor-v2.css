@@ -27,7 +27,7 @@
 * { margin: 0; padding: 0; box-sizing: border-box; }
 
 html {
-    font-size: 24px;
+    font-size: 31px;
     -webkit-font-smoothing: antialiased;
 }
 
@@ -56,7 +56,7 @@ body {
 }
 
 .header-left { display: flex; align-items: center; flex: 1; }
-.monitor-logo { height: 48px; width: auto; }
+.monitor-logo { height: 62px; width: auto; }
 
 .header-center {
     position: absolute;
@@ -65,7 +65,7 @@ body {
 }
 
 .monitor-title {
-    font-size: 30px;
+    font-size: 39px;
     font-weight: 700;
     letter-spacing: -0.3px;
     white-space: nowrap;
@@ -86,7 +86,7 @@ body {
     background: rgba(34, 197, 94, 0.15);
     border: 1px solid rgba(34, 197, 94, 0.3);
     border-radius: 4px;
-    font-size: 16px;
+    font-size: 21px;
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.5px;
@@ -161,7 +161,7 @@ body {
 }
 
 .stat-label {
-    font-size: 13px;
+    font-size: 17px;
     font-weight: 600;
     color: var(--text-muted);
     text-transform: uppercase;
@@ -169,12 +169,12 @@ body {
 }
 
 .stat-value {
-    font-size: 20px;
+    font-size: 26px;
     font-weight: 700;
     color: var(--text-primary);
 }
 
-.stat-value sup { font-size: 13px; }
+.stat-value sup { font-size: 17px; }
 
 .stat-detail {
     font-size: 16px;
@@ -234,18 +234,18 @@ body {
 }
 
 .order-number {
-    font-size: 22px;
+    font-size: 29px;
     font-weight: 700;
 }
 
 .order-client-number {
-    font-size: 18px;
+    font-size: 23px;
     font-weight: 600;
     color: var(--text-secondary);
 }
 
 .order-baselinker {
-    font-size: 15px;
+    font-size: 20px;
     color: var(--text-muted);
     background: var(--bg-secondary);
     padding: 2px 6px;
@@ -261,9 +261,9 @@ body {
 
 .status-badge {
     display: inline-flex;
-    padding: 3px 10px;
+    padding: 4px 12px;
     border-radius: 3px;
-    font-size: 13px;
+    font-size: 17px;
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.3px;
@@ -286,9 +286,9 @@ body {
 
 /* Progress bar */
 .progress-bar {
-    height: 6px;
+    height: 8px;
     background: var(--bg-secondary);
-    border-radius: 3px;
+    border-radius: 4px;
     overflow: hidden;
 }
 
@@ -306,17 +306,17 @@ body {
 }
 
 .progress-text {
-    font-size: 16px;
+    font-size: 21px;
     color: var(--text-secondary);
 }
 
 .order-volume {
-    font-size: 16px;
+    font-size: 21px;
     font-weight: 700;
 }
 
 .volume-unit {
-    font-size: 13px;
+    font-size: 17px;
     color: var(--text-muted);
 }
 
@@ -407,7 +407,7 @@ body {
 
 /* ── 4K scaling ── */
 @media (min-width: 3840px) {
-    html { font-size: 33px; }
+    html { font-size: 43px; }
     .orders-grid { gap: 10px; }
     .order-card { padding: 16px; }
 }
