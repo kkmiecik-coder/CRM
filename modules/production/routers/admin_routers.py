@@ -107,7 +107,7 @@ def get_admin_dashboard_data():
         # Produkty o wysokim priorytecie
         high_priority_products = ProductionItem.query.filter(
             and_(
-                ProductionItem.priority_score >= 150,
+                ProductionItem.priority_rank.isnot(None), ProductionItem.priority_rank <= 10,
                 ProductionItem.current_status.in_([
                     'czeka_na_wyciecie', 'czeka_na_skladanie', 'czeka_na_pakowanie'
                 ])
@@ -440,9 +440,9 @@ def priority_management():
             ])
         ).group_by(
             func.case([
-                (ProductionItem.priority_score >= 200, 'critical'),
-                (ProductionItem.priority_score >= 150, 'high'),
-                (ProductionItem.priority_score >= 100, 'normal')
+                (ProductionItem.priority_rank <= 10, 'critical'),
+                (ProductionItem.priority_rank <= 50, 'high'),
+                (ProductionItem.priority_rank <= 100, 'normal')
             ], else_='low')
         ).all()
         
@@ -561,67 +561,25 @@ def recalculate_all_priorities():
         Redirect: Powrót do zarządzania priorytetami
     """
     try:
-        from ..models import ProductionItem
         from ..services.priority_service import get_priority_calculator
-        
+
         priority_calc = get_priority_calculator()
         if not priority_calc:
             flash('Kalkulator priorytetów niedostępny', 'error')
             return redirect(url_for('production_admin.priority_management'))
-        
-        # Pobierz aktywne produkty
-        active_products = ProductionItem.query.filter(
-            ProductionItem.current_status.in_([
-                'czeka_na_wyciecie',
-                'czeka_na_skladanie', 
-                'czeka_na_pakowanie'
-            ])
-        ).all()
-        
-        updated_count = 0
-        error_count = 0
-        
-        for product in active_products:
-            try:
-                # Przygotowanie danych do obliczenia
-                product_data = {
-                    'deadline_date': product.deadline_date,
-                    'total_value_net': float(product.total_value_net or 0),
-                    'volume_m3': float(product.volume_m3 or 0),
-                    'created_at': product.created_at,
-                    'wood_class': product.parsed_wood_class
-                }
-                
-                # Obliczenie nowego priorytetu
-                new_priority = priority_calc.calculate_priority(product_data)
-                
-                if new_priority != product.priority_score:
-                    product.priority_score = new_priority
-                    product.updated_at = get_local_now()
-                    updated_count += 1
-                    
-            except Exception as e:
-                error_count += 1
-                logger.warning("Błąd przeliczania priorytetu produktu", extra={
-                    'product_id': product.short_product_id,
-                    'error': str(e)
-                })
-                continue
-        
-        db.session.commit()
-        
-        logger.info("Przeliczono priorytety produktów", extra={
-            'total_products': len(active_products),
-            'updated_count': updated_count,
-            'error_count': error_count,
-            'user_id': current_user.id
-        })
-        
-        if error_count > 0:
-            flash(f'Przeliczono priorytety: {updated_count} zaktualizowanych, {error_count} błędów', 'warning')
+
+        result = priority_calc.recalculate_all_priorities()
+
+        if result['success']:
+            flash(f'Przeliczono priorytety: {result["products_prioritized"]} produktów zaktualizowanych z {result["products_processed"]} sprawdzonych', 'success')
         else:
-            flash(f'Przeliczono priorytety: {updated_count} produktów zaktualizowanych z {len(active_products)} sprawdzonych', 'success')
-        
+            flash(f'Błąd przeliczania priorytetów: {result.get("error", "Nieznany błąd")}', 'error')
+
+        logger.info("Przeliczono priorytety produktów (admin)", extra={
+            'user_id': current_user.id,
+            'result': result
+        })
+
     except Exception as e:
         db.session.rollback()
         logger.error("Błąd przeliczania priorytetów", extra={
@@ -1249,14 +1207,14 @@ def detailed_stats():
             ProductionItem.current_status.in_([
                 'czeka_na_wyciecie', 'czeka_na_skladanie', 'czeka_na_pakowanie'
             ])
-        ).order_by(ProductionItem.priority_score.desc()).limit(10).all()
+        ).order_by(ProductionItem.priority_rank.asc()).limit(10).all()
         
         # Statystyki per gatunek drewna
         wood_species_stats = db.session.query(
             ProductionItem.parsed_wood_species,
             func.count(ProductionItem.id).label('count'),
             func.sum(ProductionItem.volume_m3).label('volume'),
-            func.avg(ProductionItem.priority_score).label('avg_priority')
+            func.avg(ProductionItem.priority_rank).label('avg_priority')
         ).filter(
             and_(
                 ProductionItem.parsed_wood_species.isnot(None),
@@ -1302,7 +1260,7 @@ def detailed_stats():
                 {
                     'id': p.short_product_id,
                     'name': p.original_product_name[:50] + '...' if len(p.original_product_name) > 50 else p.original_product_name,
-                    'priority': p.priority_score,
+                    'priority': p.priority_rank,
                     'status': p.current_status,
                     'deadline': p.deadline_date.isoformat() if p.deadline_date else None
                 }
