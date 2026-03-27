@@ -31,10 +31,6 @@
         <!-- STATS BAR -->
         <div class="stats-bar">
             <div class="stat-item">
-                <svg class="stat-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <circle cx="12" cy="12" r="10"></circle>
-                    <polyline points="12 6 12 12 16 14"></polyline>
-                </svg>
                 <div class="stat-content">
                     <div class="stat-label">{{ now.strftime('%A') }}</div>
                     <div class="stat-value" id="current-datetime">{{ now.strftime('%d.%m.%Y %H:%M:%S') }}</div>
@@ -42,10 +38,6 @@
             </div>
 
             <div class="stat-item">
-                <svg class="stat-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <rect x="3" y="3" width="18" height="18" rx="2"></rect>
-                    <path d="M3 9h18"></path>
-                </svg>
                 <div class="stat-content">
                     <div class="stat-label">Zamówienia</div>
                     <div class="stat-value" id="total-orders">{{ monitor_stats.total_orders }}</div>
