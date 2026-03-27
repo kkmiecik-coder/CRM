@@ -97,7 +97,6 @@
                 </div>
                 <div class="order-meta">
                     <span class="status-badge {{ order.status_class }}">{{ order.status_label }}</span>
-                    <span class="order-species">{{ order.wood_species }} · {{ order.technology }} · {{ order.wood_class }}</span>
                 </div>
                 <div class="progress-bar">
                     <div class="progress-fill" style="width: {{ (order.completed_products / order.total_products * 100) if order.total_products > 0 else 0 }}%"></div>

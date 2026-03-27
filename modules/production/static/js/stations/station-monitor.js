@@ -227,7 +227,6 @@ function generateOrderCardHTML(order) {
             </div>
             <div class="order-meta">
                 <span class="status-badge ${order.status_class}">${order.status_label}</span>
-                <span class="order-species">${order.wood_species || '—'} · ${order.technology || '—'} · ${order.wood_class || '—'}</span>
             </div>
             <div class="progress-bar">
                 <div class="progress-fill" style="width: ${progressPercent}%"></div>
@@ -260,12 +259,6 @@ function updateOrderCard(card, order) {
         currentClasses.forEach(c => badge.classList.remove(c));
         if (order.status_class) badge.classList.add(order.status_class);
         badge.textContent = order.status_label;
-    }
-
-    // Update species
-    const species = card.querySelector('.order-species');
-    if (species) {
-        species.textContent = `${order.wood_species || '—'} · ${order.technology || '—'} · ${order.wood_class || '—'}`;
     }
 
     // Update progress
