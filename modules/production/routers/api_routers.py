@@ -7073,7 +7073,6 @@ def set_manual_product_priority(product_id):
         
         # Zapisz stare wartości dla logowania
         old_priority_rank = product.priority_rank
-        old_priority_score = product.priority_score
         old_manual_override = product.priority_manual_override
         
         # Ustaw nowy priorytet używając metody z modelu
@@ -7092,8 +7091,6 @@ def set_manual_product_priority(product_id):
             'product_short_id': product.short_product_id,
             'old_priority_rank': old_priority_rank,
             'new_priority_rank': priority_rank,
-            'old_priority_score': old_priority_score,
-            'new_priority_score': product.priority_score,
             'reason': reason,
             'client_ip': request.remote_addr
         })
@@ -7106,12 +7103,10 @@ def set_manual_product_priority(product_id):
                 'short_product_id': product.short_product_id,
                 'old_priority': {
                     'rank': old_priority_rank,
-                    'score': old_priority_score,
                     'manual_override': old_manual_override
                 },
                 'new_priority': {
                     'rank': product.priority_rank,
-                    'score': product.priority_score,
                     'manual_override': product.priority_manual_override
                 },
                 'reason': reason,
