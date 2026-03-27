@@ -293,6 +293,7 @@ class NewPriorityCalculator:
         """
         stats = {
             'species': defaultdict(int),
+            'technology': defaultdict(int),
             'finish_state': defaultdict(int),
             'thickness_group': defaultdict(int),
             'wood_class': defaultdict(int)
@@ -302,7 +303,11 @@ class NewPriorityCalculator:
             # Zliczanie gatunków
             if product.species:
                 stats['species'][product.species] += 1
-                
+
+            # Zliczanie technologii
+            if getattr(product, 'parsed_technology', None):
+                stats['technology'][product.parsed_technology] += 1
+
             # Zliczanie stanów wykończenia  
             if product.finish_state:
                 stats['finish_state'][product.finish_state] += 1
@@ -375,7 +380,7 @@ class NewPriorityCalculator:
         Returns:
             List: Posortowana lista produktów
         """
-        logger.info("DEBUG: Group priorities calculated", extra={
+        logger.debug("Group priorities calculated", extra={
             'group_priorities': group_priorities,
             'products_count': len(products)
         })
@@ -394,7 +399,7 @@ class NewPriorityCalculator:
             7. ID produktu - final tie-breaker dla stabilności sortowania
             """
 
-            logger.info(f"DEBUG: Product {product.id} sort data", extra={
+            logger.debug(f"Product {product.id} sort data", extra={
                 'product_id': product.id,
                 'deadline_date': product.deadline_date,
                 'parsed_wood_species': getattr(product, 'parsed_wood_species', 'NONE'),
