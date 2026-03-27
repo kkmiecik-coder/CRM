@@ -613,13 +613,17 @@ function animateScroll() {
                 }
             }
 
-            // Dojechaliśmy do końca — pauza, reset na początek, restart animacji
+            // Dojechaliśmy do końca — pauza na dole, reset, pauza na górze, restart
             if (content.scrollTop >= maxScroll) {
+                // Pierwsza pauza (na dole)
                 pauseAutoScroll(function() {
                     content.scrollTop = 0;
                     state.subPixelAccum = 0;
-                    state.lastFrameTime = performance.now();
-                    animateScroll();
+                    // Druga pauza (na górze)
+                    pauseAutoScroll(function() {
+                        state.lastFrameTime = performance.now();
+                        animateScroll();
+                    });
                 });
                 return;
             }
