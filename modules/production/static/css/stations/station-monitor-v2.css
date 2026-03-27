@@ -2,6 +2,7 @@
    MONITOR STANOWISKA - CSS v2
    TV 55" 4K (3840x2160), 16:9, odległość 4-7m
    3 kolumny, szczegółowe karty, pasek statystyk gatunków
+   Wszystkie fonty x1.5 vs oryginał
    ============================================================================ */
 
 :root {
@@ -26,7 +27,7 @@
 * { margin: 0; padding: 0; box-sizing: border-box; }
 
 html {
-    font-size: 16px;
+    font-size: 24px;
     -webkit-font-smoothing: antialiased;
 }
 
@@ -48,14 +49,14 @@ body {
 }
 
 .header-content {
-    padding: 8px 24px;
+    padding: 10px 24px;
     display: flex;
     justify-content: space-between;
     align-items: center;
 }
 
 .header-left { display: flex; align-items: center; flex: 1; }
-.monitor-logo { height: 32px; width: auto; }
+.monitor-logo { height: 48px; width: auto; }
 
 .header-center {
     position: absolute;
@@ -64,7 +65,7 @@ body {
 }
 
 .monitor-title {
-    font-size: 20px;
+    font-size: 30px;
     font-weight: 700;
     letter-spacing: -0.3px;
     white-space: nowrap;
@@ -80,12 +81,12 @@ body {
 .connection-status {
     display: flex;
     align-items: center;
-    gap: 6px;
-    padding: 4px 10px;
+    gap: 8px;
+    padding: 6px 14px;
     background: rgba(34, 197, 94, 0.15);
     border: 1px solid rgba(34, 197, 94, 0.3);
     border-radius: 4px;
-    font-size: 11px;
+    font-size: 16px;
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.5px;
@@ -99,8 +100,8 @@ body {
 }
 
 .status-dot {
-    width: 7px;
-    height: 7px;
+    width: 10px;
+    height: 10px;
     border-radius: 50%;
     background: currentColor;
     animation: pulse 2s infinite;
@@ -116,31 +117,31 @@ body {
 /* ── STATS BAR ── */
 .stats-bar {
     background: var(--bg-secondary);
-    padding: 6px 24px;
+    padding: 8px 24px;
     display: flex;
     align-items: center;
-    gap: 6px;
     border-top: 1px solid var(--border-color);
     flex-shrink: 0;
-    overflow-x: auto;
 }
 
 .stat-item {
+    flex: 1;
     display: flex;
     align-items: center;
-    gap: 8px;
-    padding: 4px 12px;
-    background: var(--bg-card);
-    border-radius: 4px;
-    border: 1px solid var(--border-color);
+    gap: 10px;
+    padding: 4px 14px;
     white-space: nowrap;
-    flex-shrink: 0;
+    border-right: 1px solid var(--border-color);
+}
+
+.stat-item:last-child {
+    border-right: none;
 }
 
 .stat-icon {
     color: var(--accent-orange);
-    width: 16px;
-    height: 16px;
+    width: 24px;
+    height: 24px;
     flex-shrink: 0;
 }
 
@@ -160,7 +161,7 @@ body {
 }
 
 .stat-label {
-    font-size: 9px;
+    font-size: 13px;
     font-weight: 600;
     color: var(--text-muted);
     text-transform: uppercase;
@@ -168,23 +169,24 @@ body {
 }
 
 .stat-value {
-    font-size: 13px;
+    font-size: 20px;
     font-weight: 700;
     color: var(--text-primary);
 }
 
-.stat-value sup { font-size: 9px; }
+.stat-value sup { font-size: 13px; }
 
 .stat-detail {
-    font-size: 11px;
+    font-size: 16px;
     font-weight: 400;
     color: var(--text-secondary);
     margin-left: 4px;
 }
 
 /* ── Species stat color coding ── */
-.stat-item.species { border-left: 3px solid var(--species-color, var(--accent-orange)); }
+.stat-item.species { border-left: 3px solid var(--species-color, var(--accent-orange)); padding-left: 12px; }
 .stat-item.species .stat-value { color: var(--species-color, var(--text-primary)); }
+.stat-item.species .stat-label { color: var(--species-color, var(--text-muted)); }
 
 /* ── MAIN CONTENT ── */
 .monitor-content {
@@ -210,7 +212,7 @@ body {
     border: 1px solid var(--border-color);
     border-left: 4px solid var(--border-color);
     border-radius: 4px;
-    padding: 10px 10px;
+    padding: 12px 12px;
     display: flex;
     flex-direction: column;
     gap: 6px;
@@ -232,15 +234,15 @@ body {
 }
 
 .order-number {
-    font-size: 15px;
+    font-size: 22px;
     font-weight: 700;
 }
 
 .order-baselinker {
-    font-size: 10px;
+    font-size: 15px;
     color: var(--text-muted);
     background: var(--bg-secondary);
-    padding: 1px 5px;
+    padding: 2px 6px;
     border-radius: 2px;
 }
 
@@ -253,9 +255,9 @@ body {
 
 .status-badge {
     display: inline-flex;
-    padding: 2px 8px;
+    padding: 3px 10px;
     border-radius: 3px;
-    font-size: 9px;
+    font-size: 13px;
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.3px;
@@ -272,22 +274,22 @@ body {
 .status-badge.status-completed { background: rgba(34, 197, 94, 0.2); color: var(--status-completed); }
 
 .order-species {
-    font-size: 11px;
+    font-size: 16px;
     color: var(--text-secondary);
 }
 
 /* Progress bar */
 .progress-bar {
-    height: 4px;
+    height: 6px;
     background: var(--bg-secondary);
-    border-radius: 2px;
+    border-radius: 3px;
     overflow: hidden;
 }
 
 .progress-fill {
     height: 100%;
     background: var(--accent-orange);
-    border-radius: 2px;
+    border-radius: 3px;
 }
 
 /* Row 3: quantity + volume */
@@ -298,21 +300,21 @@ body {
 }
 
 .progress-text {
-    font-size: 11px;
+    font-size: 16px;
     color: var(--text-secondary);
 }
 
 .order-volume {
-    font-size: 11px;
+    font-size: 16px;
     font-weight: 700;
 }
 
 .volume-unit {
-    font-size: 9px;
+    font-size: 13px;
     color: var(--text-muted);
 }
 
-.volume-unit sup { font-size: 7px; }
+.volume-unit sup { font-size: 10px; }
 
 /* ── EMPTY STATE ── */
 .empty-state {
@@ -325,14 +327,14 @@ body {
 }
 
 .empty-state h2 {
-    font-size: 24px;
+    font-size: 36px;
     font-weight: 600;
     color: var(--text-primary);
     margin-bottom: 8px;
 }
 
 .empty-state p {
-    font-size: 14px;
+    font-size: 21px;
 }
 
 /* ── OFFLINE BANNER ── */
@@ -354,21 +356,21 @@ body {
 }
 
 .offline-icon {
-    width: 32px;
-    height: 32px;
+    width: 40px;
+    height: 40px;
     background: rgba(255, 255, 255, 0.2);
     border-radius: 50%;
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 16px;
+    font-size: 24px;
     font-weight: 700;
     color: white;
 }
 
 .offline-text { color: white; }
-.offline-text strong { font-size: 14px; font-weight: 700; }
-.offline-text p { font-size: 12px; opacity: 0.9; margin: 0; }
+.offline-text strong { font-size: 21px; font-weight: 700; }
+.offline-text p { font-size: 18px; opacity: 0.9; margin: 0; }
 
 /* ── AUTO-SCROLL INDICATOR ── */
 .auto-scroll-indicator {
@@ -382,7 +384,7 @@ body {
     background: var(--bg-card);
     border: 1px solid var(--border-color);
     border-radius: 6px;
-    font-size: 11px;
+    font-size: 16px;
     font-weight: 500;
     color: var(--text-secondary);
     z-index: 50;
@@ -394,12 +396,12 @@ body {
     color: #eab308;
 }
 
-.scroll-icon { width: 14px; height: 14px; color: var(--accent-orange); }
-.pause-countdown { font-weight: 700; color: var(--accent-orange); min-width: 16px; text-align: center; }
+.scroll-icon { width: 20px; height: 20px; color: var(--accent-orange); }
+.pause-countdown { font-weight: 700; color: var(--accent-orange); min-width: 20px; text-align: center; }
 
 /* ── 4K scaling ── */
 @media (min-width: 3840px) {
-    html { font-size: 22px; }
+    html { font-size: 33px; }
     .orders-grid { gap: 10px; }
-    .order-card { padding: 14px; }
+    .order-card { padding: 16px; }
 }
