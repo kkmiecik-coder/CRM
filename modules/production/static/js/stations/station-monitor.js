@@ -670,6 +670,17 @@ function stopAutoScroll() {
  */
 function pauseAutoScroll(onResumeCallback) {
     var state = window.MONITOR_STATE.autoScroll;
+
+    // Wyczyść poprzednie timery (ważne przy zagnieżdżonych pauzach)
+    if (state.pauseCountdownTimer) {
+        clearInterval(state.pauseCountdownTimer);
+        state.pauseCountdownTimer = null;
+    }
+    if (state.pauseTimer) {
+        clearTimeout(state.pauseTimer);
+        state.pauseTimer = null;
+    }
+
     state.isPaused = true;
     state.pauseCountdown = Math.ceil(state.pauseDuration / 1000);
 
