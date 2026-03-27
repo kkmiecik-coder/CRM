@@ -18,13 +18,7 @@ ALGORYTM ENHANCED PRIORITY SYSTEM 2.0:
 5. Sortowanie wielopoziomowe:
    payment_date ASC → species → thickness_group → finish_state → wood_class
 6. Przypisywanie numeracji sekwencyjnej 1,2,3,4... z pomijaniem manual overrides
-7. Aktualizacja priority_score dla kompatybilności ze starym systemem
-
-ZACHOWANA KOMPATYBILNOŚĆ:
-- Singleton pattern i helper functions
-- Threading i logging infrastructure  
-- Podstawowe metody API (calculate_priority, calculate_priorities_batch)
-- Format response i error handling
+7. Przypisywanie numeracji sekwencyjnej priority_rank
 
 Autor: Konrad Kmiecik
 Wersja: 2.0 (Enhanced Priority System - Payment Date + Weekly Grouping)
@@ -565,146 +559,17 @@ class NewPriorityCalculator:
     def validate_product_for_prioritization(self, product) -> Tuple[bool, List[str]]:
         """
         Sprawdza czy produkt może uczestniczyć w priorytetyzacji
-        
+
         Args:
             product: Instancja ProductionItem
-            
+
         Returns:
             Tuple[bool, List[str]]: (is_valid, missing_fields)
         """
         return product.validate_for_prioritization()
-    
-    # ============================================================================
-    # KOMPATYBILNOŚĆ Z POPRZEDNIM API - ZACHOWANE METODY
-    # ============================================================================
-    
-    def calculate_priority(self, product_data: Dict[str, Any]) -> int:
-        """
-        KOMPATYBILNOŚĆ: Oblicza priorytet pojedynczego produktu - ZMODYFIKOWANY
-    
-        ZMIANA: Zwraca priority_rank zamiast priority_score
-        """
-        try:
-            product_id = product_data.get('short_product_id')
-            if not product_id:
-                return 999  # ZMIANA: wysoki rank = niski priorytet
-        
-            # Spróbuj znaleźć produkt w bazie
-            from ..models import ProductionItem
-            product = ProductionItem.query.filter_by(short_product_id=product_id).first()
-        
-            if product and product.priority_rank:
-                return product.priority_rank  # ZMIANA: zwróć priority_rank
-        
-            # ZMIANA: Domyślny rank (niski priorytet)
-            return 999
-        
-        except Exception as e:
-            logger.warning("Błąd obliczania priorytetu single product", extra={
-                'product_id': product_data.get('short_product_id'),
-                'error': str(e)
-            })
-            return 999
-    
-    def calculate_priorities_batch(self, products_data: List[Dict[str, Any]]) -> List[Tuple[str, int]]:
-        """
-        KOMPATYBILNOŚĆ: Oblicza priorytety dla wielu produktów - ZMODYFIKOWANY
-    
-        ZMIANA: Zwraca priority_rank zamiast priority_score
-        """
-        try:
-            # Wywołaj pełne przeliczenie priorytetów
-            result = self.recalculate_all_priorities()
-        
-            if not result['success']:
-                logger.error("Batch priority calculation failed")
-                # ZMIANA: fallback do rank 999
-                return [(p.get('short_product_id', 'unknown'), 999) for p in products_data]
-        
-            # ZMIANA: Pobierz zaktualizowane priority_rank
-            from ..models import ProductionItem
-            results = []
-        
-            for product_data in products_data:
-                product_id = product_data.get('short_product_id')
-                if not product_id:
-                    results.append(('unknown', 999))
-                    continue
-            
-                product = ProductionItem.query.filter_by(short_product_id=product_id).first()
-                priority_rank = product.priority_rank if product else 999  # ZMIANA
-                results.append((product_id, priority_rank))  # ZMIANA
-        
-            return results
-        
-        except Exception as e:
-            logger.error("Błąd batch priority calculation", extra={'error': str(e)})
-            # ZMIANA: fallback do rank 999
-            return [(p.get('short_product_id', 'unknown'), 999) for p in products_data]
-    
-    def invalidate_cache(self):
-        """KOMPATYBILNOŚĆ: W nowym systemie nie ma cache do invalidacji"""
-        logger.debug("Cache invalidation - no-op w nowym systemie")
-        pass
-    
-    def get_criteria_weights(self) -> Dict[str, int]:
-        """
-        KOMPATYBILNOŚĆ: Zwraca pseudowagi dla nowego algorytmu
-    
-        UWAGA: W nowym systemie priority_rank nie używa wag procentowych
-    
-        Returns:
-            Dict[str, int]: Pseudowagi dla kompatybilności
-        """
-        return {
-            'payment_date': 100,  # Główne kryterium sortowania
-            'weekly_grouping': 100,  # Grupowanie tygodniowe
-            'frequency_analysis': 100,  # Analiza częstotliwości 
-            'sequential_ranking': 100,  # Numeracja sekwencyjna
-            'manual_overrides': 100  # Manual overrides respektowane
-        }
-    
-    def simulate_priority_calculation(self, product_data: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        KOMPATYBILNOŚĆ: Symulacja obliczenia priorytetu - ZAKTUALIZOWANY
-        """
-        product_id = product_data.get('short_product_id', 'unknown')
-    
-        return {
-            'product_id': product_id,
-            'algorithm_version': '2.0',
-            'algorithm_type': 'payment_date_weekly_grouping_rank_only',  # ZMIANA
-            'final_priority_rank': self.calculate_priority(product_data),  # ZMIANA: nazwa pola
-            'system_info': {
-                'uses_priority_score': False,  # ZMIANA
-                'uses_priority_rank': True,    # ZMIANA
-                'ranking_direction': 'ascending',  # ZMIANA: 1,2,3,4...
-                'manual_overrides_supported': True
-            },
-            'criteria_breakdown': {
-                'payment_date': 'Primary sorting key (earliest first)',
-                'weekly_grouping': 'Products grouped by payment week',
-                'frequency_analysis': 'Species/finish/thickness/class frequency within week',
-                'sequential_ranking': 'Sequential numbers 1,2,3,4... assigned globally'
-            },
-            'notes': [
-                'System v2.0 używa TYLKO priority_rank (1,2,3,4...)',
-                'Niższa liczba = wyższy priorytet (1 = najwyższy)',
-                'Brak limitów - system obsługuje nieskończoną liczbę produktów',
-                'Manual overrides są w pełni respektowane',
-                'priority_score nie jest już używany'
-            ]
-        }
 
 # ============================================================================
-# BACKWARD COMPATIBILITY ALIAS - KRYTYCZNE DLA IMPORTÓW
-# ============================================================================
-
-# ALIAS dla zachowania kompatybilności z istniejącym kodem
-PriorityCalculator = NewPriorityCalculator
-
-# ============================================================================
-# SINGLETON PATTERN - ZACHOWANY DLA KOMPATYBILNOŚCI
+# SINGLETON PATTERN
 # ============================================================================
 
 _priority_calculator_instance = None
@@ -731,24 +596,20 @@ def get_priority_calculator() -> NewPriorityCalculator:
 # HELPER FUNCTIONS - ZACHOWANE DLA KOMPATYBILNOŚCI
 # ============================================================================
 
-def calculate_priority(product_data: Dict[str, Any]) -> int:
-    """Helper function dla obliczania priorytetu - KOMPATYBILNOŚĆ"""
-    return get_priority_calculator().calculate_priority(product_data)
+def recalculate_priorities() -> Dict[str, Any]:
+    """
+    Przelicza priorytety wszystkich aktywnych produktów
 
-def calculate_priorities_batch(products_data: List[Dict[str, Any]]) -> List[Tuple[str, int]]:
-    """Helper function dla obliczania priorytetów batch - KOMPATYBILNOŚĆ"""
-    return get_priority_calculator().calculate_priorities_batch(products_data)
-
-def invalidate_priority_cache():
-    """Helper function dla invalidacji cache priorytetów - KOMPATYBILNOŚĆ"""
-    get_priority_calculator().invalidate_cache()
-
-def simulate_priority_calculation(product_data: Dict[str, Any]) -> Dict[str, Any]:
-    """Helper function dla symulacji obliczenia priorytetu - KOMPATYBILNOŚĆ"""
-    return get_priority_calculator().simulate_priority_calculation(product_data)
+    Returns:
+        dict: Rezultat przeliczenia
+    """
+    calculator = get_priority_calculator()
+    if not calculator:
+        return {'success': False, 'error': 'Calculator unavailable'}
+    return calculator.recalculate_all_priorities()
 
 # ============================================================================
-# NOWE HELPER FUNCTIONS DLA ENHANCED PRIORITY SYSTEM 2.0
+# HELPER FUNCTIONS DLA ENHANCED PRIORITY SYSTEM 2.0
 # ============================================================================
 
 def recalculate_all_priorities() -> Dict[str, Any]:

@@ -39,7 +39,7 @@ try:
     from .services.security_service import IPSecurityService
     from .services.config_service import ProductionConfigService
     from .services.parser_service import ProductNameParser
-    from .services.priority_service import PriorityCalculator
+    from .services.priority_service import NewPriorityCalculator
     from .services.sync_service import BaselinkerSyncService
     
     logger.info("Zaimportowano wszystkie serwisy modułu production")

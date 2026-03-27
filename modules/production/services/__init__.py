@@ -8,7 +8,7 @@ Centralna inicjalizacja wszystkich serwisów biznesowych modułu produkcyjnego:
 - IPSecurityService - zabezpieczenia IP dla stanowisk produkcyjnych
 - ProductionConfigService - cache konfiguracji z automatycznym odświeżaniem
 - ProductNameParser - parsowanie nazw produktów z Baselinker
-- PriorityCalculator - obliczanie priorytetów na podstawie konfiguracji
+- NewPriorityCalculator - obliczanie priorytetów v2.0 (payment date + weekly grouping)
 - BaselinkerSyncService - synchronizacja z API Baselinker
 
 Autor: Konrad Kmiecik
@@ -51,11 +51,11 @@ except ImportError as e:
     ProductNameParser = None
 
 try:
-    from .priority_service import PriorityCalculator
-    logger.debug("Zaimportowano PriorityCalculator")
+    from .priority_service import NewPriorityCalculator
+    logger.debug("Zaimportowano NewPriorityCalculator")
 except ImportError as e:
-    logger.warning(f"Nie można zaimportować PriorityCalculator: {e}")
-    PriorityCalculator = None
+    logger.warning(f"Nie można zaimportować NewPriorityCalculator: {e}")
+    NewPriorityCalculator = None
 
 try:
     from .sync_service import BaselinkerSyncService
@@ -101,17 +101,17 @@ def get_parser_service():
 
 def get_priority_calculator():
     """
-    Pobiera singleton instance PriorityCalculator
-    
+    Pobiera singleton instance NewPriorityCalculator
+
     Returns:
-        PriorityCalculator: Kalkulator priorytetów
+        NewPriorityCalculator: Kalkulator priorytetów v2.0
     """
     global _priority_calculator_instance
-    
-    if _priority_calculator_instance is None and PriorityCalculator:
-        _priority_calculator_instance = PriorityCalculator()
-        logger.info("Utworzono singleton PriorityCalculator")
-    
+
+    if _priority_calculator_instance is None and NewPriorityCalculator:
+        _priority_calculator_instance = NewPriorityCalculator()
+        logger.info("Utworzono singleton NewPriorityCalculator v2.0")
+
     return _priority_calculator_instance
 
 def invalidate_caches():
@@ -134,14 +134,6 @@ def invalidate_caches():
         try:
             _parser_instance.invalidate_cache()
             logger.info("Zinvalidowano cache ProductNameParser")
-        except AttributeError:
-            pass
-    
-    # Invalidacja cache kalkulatora priorytetów
-    if _priority_calculator_instance:
-        try:
-            _priority_calculator_instance.invalidate_cache()
-            logger.info("Zinvalidowano cache PriorityCalculator")
         except AttributeError:
             pass
     
@@ -241,29 +233,23 @@ def parse_product_name(product_name):
         })
         return {}
 
-def calculate_priority(product_data):
+def recalculate_priorities():
     """
-    Szybkie obliczenie priorytetu produktu
-    
-    Args:
-        product_data (dict): Dane produktu do oceny
-        
+    Przelicza priorytety wszystkich aktywnych produktów
+
     Returns:
-        int: Wynik priorytetu (wyższy = wyższy priorytet)
+        dict: Rezultat przeliczenia
     """
     calculator = get_priority_calculator()
     if not calculator:
-        logger.error("PriorityCalculator nie jest dostępny")
-        return 100  # Domyślny priorytet
-        
+        logger.error("NewPriorityCalculator nie jest dostępny")
+        return {'success': False, 'error': 'Calculator unavailable'}
+
     try:
-        return calculator.calculate_priority(product_data)
+        return calculator.recalculate_all_priorities()
     except Exception as e:
-        logger.error("Błąd obliczania priorytetu", extra={
-            'product_data': product_data,
-            'error': str(e)
-        })
-        return 100
+        logger.error("Błąd przeliczania priorytetów", extra={'error': str(e)})
+        return {'success': False, 'error': str(e)}
 
 def get_config_value(key, default=None):
     """
@@ -303,7 +289,7 @@ def health_check():
         'IPSecurityService': IPSecurityService is not None,
         'ProductionConfigService': ProductionConfigService is not None,
         'ProductNameParser': ProductNameParser is not None,
-        'PriorityCalculator': PriorityCalculator is not None,
+        'NewPriorityCalculator': NewPriorityCalculator is not None,
         'BaselinkerSyncService': BaselinkerSyncService is not None,
         'config_service_instance': _config_service_instance is not None,
         'parser_instance': _parser_instance is not None,
@@ -330,7 +316,7 @@ __all__ = [
     'IPSecurityService', 
     'ProductionConfigService',
     'ProductNameParser',
-    'PriorityCalculator',
+    'NewPriorityCalculator',
     'BaselinkerSyncService',
     
     # Singleton gettery
@@ -346,7 +332,7 @@ __all__ = [
     'generate_product_id',
     'check_ip_access',
     'parse_product_name',
-    'calculate_priority',
+    'recalculate_priorities',
     'get_config_value',
     
     # Middleware
