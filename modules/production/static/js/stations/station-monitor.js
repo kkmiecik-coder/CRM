@@ -221,26 +221,23 @@ function generateOrderCardHTML(order) {
     return `
         <div class="order-card ${order.status_class}" data-order="${order.order_number}">
             <div class="order-main">
-                <div class="order-ids">
-                    <span class="order-number">${order.order_number}</span>
-                    ${order.client_order_number ? `<span class="order-client-number">${order.client_order_number}</span>` : ''}
-                    ${order.baselinker_order_id ? `<span class="order-baselinker">BL-${order.baselinker_order_id}</span>` : ''}
-                </div>
-                <div class="order-status">
-                    <span class="status-badge ${order.status_class}">${order.status_label}</span>
-                </div>
+                <span class="order-number">${order.order_number}</span>
+                ${order.client_order_number ? `<span class="order-client-number">${order.client_order_number}</span>` : ''}
+                ${order.baselinker_order_id ? `<span class="order-baselinker">BL-${order.baselinker_order_id}</span>` : ''}
+            </div>
+            <div class="order-meta">
+                <span class="status-badge ${order.status_class}">${order.status_label}</span>
+                <span class="order-species">${order.wood_species || '—'} · ${order.technology || '—'} · ${order.wood_class || '—'}</span>
+            </div>
+            <div class="progress-bar">
+                <div class="progress-fill" style="width: ${progressPercent}%"></div>
             </div>
             <div class="order-details">
-                <div class="order-progress">
-                    <span class="progress-text">${order.completed_products} / ${order.total_products}</span>
-                    <div class="progress-bar">
-                        <div class="progress-fill" style="width: ${progressPercent}%"></div>
-                    </div>
-                </div>
-                <div class="order-volume">
-                    <span class="volume-value">${orderVolume.toFixed(3)}</span>
+                <span class="progress-text">${order.completed_products}/${order.total_products} szt</span>
+                <span class="order-volume">
+                    <span class="volume-value">${orderVolume.toFixed(4)}</span>
                     <span class="volume-unit">m<sup>3</sup></span>
-                </div>
+                </span>
             </div>
         </div>
     `;
@@ -265,10 +262,16 @@ function updateOrderCard(card, order) {
         badge.textContent = order.status_label;
     }
 
+    // Update species
+    const species = card.querySelector('.order-species');
+    if (species) {
+        species.textContent = `${order.wood_species || '—'} · ${order.technology || '—'} · ${order.wood_class || '—'}`;
+    }
+
     // Update progress
     const progressText = card.querySelector('.progress-text');
     if (progressText) {
-        progressText.textContent = `${order.completed_products} / ${order.total_products}`;
+        progressText.textContent = `${order.completed_products}/${order.total_products} szt`;
     }
 
     const progressFill = card.querySelector('.progress-fill');
@@ -283,7 +286,7 @@ function updateOrderCard(card, order) {
     const volumeValue = card.querySelector('.volume-value');
     if (volumeValue) {
         const vol = parseFloat(order.total_volume) || 0;
-        volumeValue.textContent = vol.toFixed(3);
+        volumeValue.textContent = vol.toFixed(4);
     }
 }
 
