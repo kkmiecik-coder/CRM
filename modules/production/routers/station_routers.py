@@ -457,6 +457,30 @@ def station_select():
         ), 500
 
 # ============================================================================
+# ROUTERS - MONITORING ZLECEŃ
+# ============================================================================
+
+@station_bp.route('/monitors')
+@station_bp.route('/monitors/')
+def monitors_select():
+    """Wybór stanowiska do monitoringu zleceń na TV"""
+    try:
+        logger.info("Dostęp do wyboru monitoringu", extra={
+            'client_ip': request.remote_addr
+        })
+        return render_template('stations/monitors_select.html')
+    except Exception as e:
+        logger.error("Błąd wyboru monitoringu", extra={
+            'error': str(e)
+        })
+        return render_template(
+            'stations/access_denied.html',
+            error_message="Błąd ładowania wyboru monitoringu",
+            error_details=str(e),
+            back_url=None
+        ), 500
+
+# ============================================================================
 # ROUTERS - STANOWISKO WYCINANIA (CUTTING)
 # ============================================================================
 
