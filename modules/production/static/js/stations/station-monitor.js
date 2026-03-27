@@ -35,6 +35,7 @@ window.MONITOR_STATE = {
         rowsMoved: 0,
         pauseCountdown: 0,
         lastFrameTime: 0,
+        subPixelAccum: 0,          // Akumulator sub-pixelowy
 
         // Cache aktualnych zamówień (dla inkrementalnego update)
         currentOrders: new Map()
@@ -571,6 +572,7 @@ function startAutoScroll() {
     state.isRunning = true;
     state.isPaused = false;
     state.rowsMoved = 0;
+    state.subPixelAccum = 0;
     state.lastFrameTime = performance.now();
 
     updateScrollIndicator(false);
@@ -592,9 +594,15 @@ function animateScroll() {
         var content = document.querySelector('.monitor-content');
         if (content) {
             var maxScroll = content.scrollHeight - content.clientHeight;
-            var pixelsToMove = state.scrollSpeed * deltaTime;
+            state.subPixelAccum += state.scrollSpeed * deltaTime;
+            var wholePixels = Math.floor(state.subPixelAccum);
+            if (wholePixels < 1) {
+                state.animationId = requestAnimationFrame(animateScroll);
+                return;
+            }
+            state.subPixelAccum -= wholePixels;
             var prevScroll = content.scrollTop;
-            content.scrollTop += pixelsToMove;
+            content.scrollTop += wholePixels;
 
             // Sprawdź czy przekroczyliśmy próg pauzy (co 2 wiersze)
             if (state.pauseEveryPx > 0 && state.rowHeight > 0) {
