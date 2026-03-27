@@ -5462,11 +5462,11 @@ def products_filtered():
 @login_required
 def update_priority():
     """
-    API endpoint dla aktualizacji priorytetów produktów - ZMODYFIKOWANY
-    
-    Obsługuje oba formaty:
-    - Stary: priority_score
-    - Nowy: priority_rank (z drag & drop)
+    API endpoint dla aktualizacji priorytetów produktów (priority_rank)
+
+    Formaty:
+    - Batch: {"products": [{"id": 1, "priority_rank": 3}, ...]}
+    - Single: {"product_id": 1, "priority_rank": 3}
     """
     try:
         data = request.get_json()
@@ -5481,49 +5481,37 @@ def update_priority():
             
             for product_data in products_data:
                 product_id = product_data.get('id')
-                # ZMIANA: obsłuż zarówno priority_rank jak i priority (kompatybilność)
                 new_priority_rank = product_data.get('priority_rank')
-                new_priority_score = product_data.get('priority')  # fallback
-                
-                if product_id is None:
+
+                if product_id is None or new_priority_rank is None:
                     continue
-                
+
                 product = ProductionItem.query.get(product_id)
                 if product:
-                    # ZMIANA: priorytet dla priority_rank
-                    if new_priority_rank is not None:
-                        product.priority_rank = new_priority_rank
-                        product.priority_manual_override = True  # Drag&drop = manual
-                        updated_products.append({
-                            'id': product_id, 
-                            'new_priority_rank': new_priority_rank
-                        })
-                    # KOMPATYBILNOŚĆ: stary system priority_score
-                    elif new_priority_score is not None and hasattr(product, 'priority_score'):
-                        product.priority_score = new_priority_score
-                        updated_products.append({
-                            'id': product_id, 
-                            'new_priority': new_priority_score
-                        })
+                    product.priority_rank = new_priority_rank
+                    product.priority_manual_override = True  # Drag&drop = manual
+                    updated_products.append({
+                        'id': product_id,
+                        'new_priority_rank': new_priority_rank
+                    })
         
         elif 'product_id' in data:
-            # Pojedynczy produkt - zachowaj istniejącą logikę
             product_id = data.get('product_id')
-            new_priority = data.get('new_priority')
-            
-            if product_id is None or new_priority is None:
-                return jsonify({'success': False, 'error': 'Wymagane: product_id i new_priority'}), 400
-            
+            new_priority_rank = data.get('priority_rank')
+
+            if product_id is None or new_priority_rank is None:
+                return jsonify({'success': False, 'error': 'Wymagane: product_id i priority_rank'}), 400
+
             product = ProductionItem.query.get(product_id)
             if not product:
                 return jsonify({'success': False, 'error': f'Produkt {product_id} nie znaleziony'}), 404
-            
-            if hasattr(product, 'priority_score'):
-                product.priority_score = new_priority
-                updated_products.append({'id': product_id, 'new_priority': new_priority})
+
+            product.priority_rank = new_priority_rank
+            product.priority_manual_override = True
+            updated_products.append({'id': product_id, 'new_priority_rank': new_priority_rank})
         
         else:
-            return jsonify({'success': False, 'error': 'Wymagane: product_id+new_priority LUB products'}), 400
+            return jsonify({'success': False, 'error': 'Wymagane: product_id+priority_rank LUB products'}), 400
         
         # Zapisz zmiany
         db.session.commit()
