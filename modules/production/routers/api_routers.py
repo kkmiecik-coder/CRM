@@ -2946,8 +2946,6 @@ def products_tab_content():
         sort_column = None
         if sort_by == 'priority_rank' and hasattr(ProductionItem, 'priority_rank'):
             sort_column = ProductionItem.priority_rank
-        elif sort_by == 'priority_score' and hasattr(ProductionItem, 'priority_score'):
-            sort_column = ProductionItem.priority_score
         elif sort_by == 'created_at' and hasattr(ProductionItem, 'created_at'):
             sort_column = ProductionItem.created_at
         elif sort_by == 'deadline_date' and hasattr(ProductionItem, 'deadline_date'):
@@ -3241,8 +3239,7 @@ def products_paginated():
                 products_query = products_query.filter(or_(*search_conditions))
 
         # Sortowanie
-        if hasattr(ProductionItem, 'priority_score'):
-            products_query = products_query.order_by(ProductionItem.priority_score.desc())
+        products_query = products_query.order_by(ProductionItem.priority_rank.asc())
         
         # Paginacja
         paginated = products_query.paginate(
@@ -3260,7 +3257,7 @@ def products_paginated():
                 'short_product_id': getattr(product, 'short_product_id', ''),
                 'original_product_name': getattr(product, 'original_product_name', ''),
                 'current_status': getattr(product, 'current_status', 'nieznany'),
-                'priority_score': getattr(product, 'priority_score', 0),
+                'priority_rank': getattr(product, 'priority_rank', None),
                 'unique_id': f"{getattr(product, 'short_product_id', '')}-{product.id}"
                 # ... reszta pól
             }
