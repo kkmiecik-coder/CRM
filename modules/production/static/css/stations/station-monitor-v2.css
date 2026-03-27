@@ -393,8 +393,8 @@ body {
 }
 
 .auto-scroll-indicator.paused {
-    background: rgba(234, 179, 8, 0.15);
-    border-color: rgba(234, 179, 8, 0.3);
+    background: #3d3200;
+    border-color: #5c4b00;
     color: #eab308;
 }
 
