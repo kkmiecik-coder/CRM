@@ -56,7 +56,7 @@ body {
 }
 
 .header-left { display: flex; align-items: center; flex: 1; }
-.monitor-logo { height: 62px; width: auto; }
+.monitor-logo { height: 31px; width: auto; }
 
 .header-center {
     position: absolute;
