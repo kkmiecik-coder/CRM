@@ -1,0 +1,405 @@
+/* ============================================================================
+   MONITOR STANOWISKA - CSS v2
+   TV 55" 4K (3840x2160), 16:9, odległość 4-7m
+   3 kolumny, szczegółowe karty, pasek statystyk gatunków
+   ============================================================================ */
+
+:root {
+    --bg-primary: #0d0d0d;
+    --bg-secondary: #1a1a1a;
+    --bg-card: #1f1f1f;
+    --bg-header: #141414;
+    --text-primary: #ffffff;
+    --text-secondary: #b0b0b0;
+    --text-muted: #666666;
+    --border-color: #2a2a2a;
+    --accent-orange: #ED6B24;
+    --status-cutting: #f59e0b;
+    --status-assembly: #3b82f6;
+    --status-gluing: #8b5cf6;
+    --status-formatting: #ec4899;
+    --status-finishing: #06b6d4;
+    --status-packaging: #f97316;
+    --status-completed: #22c55e;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+html {
+    font-size: 16px;
+    -webkit-font-smoothing: antialiased;
+}
+
+body {
+    font-family: -apple-system, system-ui, sans-serif;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    height: 100vh;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+}
+
+/* ── HEADER ── */
+.monitor-header {
+    background: var(--bg-header);
+    border-bottom: 1px solid var(--border-color);
+    flex-shrink: 0;
+}
+
+.header-content {
+    padding: 8px 24px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.header-left { display: flex; align-items: center; flex: 1; }
+.monitor-logo { height: 32px; width: auto; }
+
+.header-center {
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
+}
+
+.monitor-title {
+    font-size: 20px;
+    font-weight: 700;
+    letter-spacing: -0.3px;
+    white-space: nowrap;
+}
+
+.header-right {
+    display: flex;
+    align-items: center;
+    flex: 1;
+    justify-content: flex-end;
+}
+
+.connection-status {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    background: rgba(34, 197, 94, 0.15);
+    border: 1px solid rgba(34, 197, 94, 0.3);
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: #22c55e;
+}
+
+.connection-status.offline {
+    background: rgba(239, 68, 68, 0.15);
+    border-color: rgba(239, 68, 68, 0.3);
+    color: #ef4444;
+}
+
+.status-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: currentColor;
+    animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+}
+
+.connection-status.offline .status-dot { animation: none; }
+
+/* ── STATS BAR ── */
+.stats-bar {
+    background: var(--bg-secondary);
+    padding: 6px 24px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    border-top: 1px solid var(--border-color);
+    flex-shrink: 0;
+    overflow-x: auto;
+}
+
+.stat-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 12px;
+    background: var(--bg-card);
+    border-radius: 4px;
+    border: 1px solid var(--border-color);
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+.stat-icon {
+    color: var(--accent-orange);
+    width: 16px;
+    height: 16px;
+    flex-shrink: 0;
+}
+
+.stat-icon.refresh-icon.spinning {
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
+.stat-content {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+}
+
+.stat-label {
+    font-size: 9px;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+}
+
+.stat-value {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--text-primary);
+}
+
+.stat-value sup { font-size: 9px; }
+
+.stat-detail {
+    font-size: 11px;
+    font-weight: 400;
+    color: var(--text-secondary);
+    margin-left: 4px;
+}
+
+/* ── Species stat color coding ── */
+.stat-item.species { border-left: 3px solid var(--species-color, var(--accent-orange)); }
+.stat-item.species .stat-value { color: var(--species-color, var(--text-primary)); }
+
+/* ── MAIN CONTENT ── */
+.monitor-content {
+    flex: 1;
+    padding: 8px;
+    overflow: hidden;
+    position: relative;
+}
+
+/* ── ORDERS GRID — 3 columns ── */
+.orders-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 6px;
+    position: relative;
+    will-change: transform;
+    backface-visibility: hidden;
+}
+
+/* ── ORDER CARD ── */
+.order-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-left: 4px solid var(--border-color);
+    border-radius: 4px;
+    padding: 10px 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.order-card.status-cutting { border-left-color: var(--status-cutting); }
+.order-card.status-assembly { border-left-color: var(--status-assembly); }
+.order-card.status-gluing { border-left-color: var(--status-gluing); }
+.order-card.status-formatting { border-left-color: var(--status-formatting); }
+.order-card.status-finishing { border-left-color: var(--status-finishing); }
+.order-card.status-packaging { border-left-color: var(--status-packaging); }
+.order-card.status-completed { border-left-color: var(--status-completed); }
+
+/* Row 1: order number + BL ID */
+.order-main {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.order-number {
+    font-size: 15px;
+    font-weight: 700;
+}
+
+.order-baselinker {
+    font-size: 10px;
+    color: var(--text-muted);
+    background: var(--bg-secondary);
+    padding: 1px 5px;
+    border-radius: 2px;
+}
+
+/* Row 2: status badge + species */
+.order-meta {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.status-badge {
+    display: inline-flex;
+    padding: 2px 8px;
+    border-radius: 3px;
+    font-size: 9px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+    background: rgba(255, 255, 255, 0.1);
+    white-space: nowrap;
+}
+
+.status-badge.status-cutting { background: rgba(245, 158, 11, 0.2); color: var(--status-cutting); }
+.status-badge.status-assembly { background: rgba(59, 130, 246, 0.2); color: var(--status-assembly); }
+.status-badge.status-gluing { background: rgba(139, 92, 246, 0.2); color: var(--status-gluing); }
+.status-badge.status-formatting { background: rgba(236, 72, 153, 0.2); color: var(--status-formatting); }
+.status-badge.status-finishing { background: rgba(6, 182, 212, 0.2); color: var(--status-finishing); }
+.status-badge.status-packaging { background: rgba(249, 115, 22, 0.2); color: var(--status-packaging); }
+.status-badge.status-completed { background: rgba(34, 197, 94, 0.2); color: var(--status-completed); }
+
+.order-species {
+    font-size: 11px;
+    color: var(--text-secondary);
+}
+
+/* Progress bar */
+.progress-bar {
+    height: 4px;
+    background: var(--bg-secondary);
+    border-radius: 2px;
+    overflow: hidden;
+}
+
+.progress-fill {
+    height: 100%;
+    background: var(--accent-orange);
+    border-radius: 2px;
+}
+
+/* Row 3: quantity + volume */
+.order-details {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.progress-text {
+    font-size: 11px;
+    color: var(--text-secondary);
+}
+
+.order-volume {
+    font-size: 11px;
+    font-weight: 700;
+}
+
+.volume-unit {
+    font-size: 9px;
+    color: var(--text-muted);
+}
+
+.volume-unit sup { font-size: 7px; }
+
+/* ── EMPTY STATE ── */
+.empty-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 60vh;
+    color: var(--text-secondary);
+}
+
+.empty-state h2 {
+    font-size: 24px;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 8px;
+}
+
+.empty-state p {
+    font-size: 14px;
+}
+
+/* ── OFFLINE BANNER ── */
+.offline-banner {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background: #dc2626;
+    padding: 10px 24px;
+    z-index: 1000;
+}
+
+.offline-banner-content {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+}
+
+.offline-icon {
+    width: 32px;
+    height: 32px;
+    background: rgba(255, 255, 255, 0.2);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 16px;
+    font-weight: 700;
+    color: white;
+}
+
+.offline-text { color: white; }
+.offline-text strong { font-size: 14px; font-weight: 700; }
+.offline-text p { font-size: 12px; opacity: 0.9; margin: 0; }
+
+/* ── AUTO-SCROLL INDICATOR ── */
+.auto-scroll-indicator {
+    position: fixed;
+    bottom: 12px;
+    right: 12px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 10px;
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--text-secondary);
+    z-index: 50;
+}
+
+.auto-scroll-indicator.paused {
+    background: rgba(234, 179, 8, 0.15);
+    border-color: rgba(234, 179, 8, 0.3);
+    color: #eab308;
+}
+
+.scroll-icon { width: 14px; height: 14px; color: var(--accent-orange); }
+.pause-countdown { font-weight: 700; color: var(--accent-orange); min-width: 16px; text-align: center; }
+
+/* ── 4K scaling ── */
+@media (min-width: 3840px) {
+    html { font-size: 22px; }
+    .orders-grid { gap: 10px; }
+    .order-card { padding: 14px; }
+}
