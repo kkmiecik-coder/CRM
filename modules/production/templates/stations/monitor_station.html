@@ -32,7 +32,7 @@
         <div class="stats-bar">
             <div class="stat-item">
                 <div class="stat-content">
-                    <div class="stat-label">{{ now.strftime('%A') }}</div>
+                    <div class="stat-label">{{ ['Poniedziałek','Wtorek','Środa','Czwartek','Piątek','Sobota','Niedziela'][now.weekday()] }}</div>
                     <div class="stat-value" id="current-datetime">{{ now.strftime('%d.%m.%Y %H:%M:%S') }}</div>
                 </div>
             </div>

@@ -109,7 +109,7 @@ function updateCurrentDatetime() {
     if (!datetimeElement) return;
 
     const now = new Date();
-    const days = ['Niedziela', 'Poniedzialek', 'Wtorek', 'Sroda', 'Czwartek', 'Piatek', 'Sobota'];
+    const days = ['Niedziela', 'Poniedziałek', 'Wtorek', 'Środa', 'Czwartek', 'Piątek', 'Sobota'];
     const dayName = days[now.getDay()];
 
     const date = now.toLocaleDateString('pl-PL', {
