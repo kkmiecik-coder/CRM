@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta http-equiv="refresh" content="{{ config.fallback_refresh_interval | default(300) }}">
+    <title>{{ page_title }} - WoodPower CRM</title>
+    <link rel="stylesheet" href="{{ url_for('production.static', filename='css/stations/station-monitor-v2.css') }}">
+    <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='images/favicon.png') }}">
+</head>
+<body>
+    <!-- HEADER -->
+    <header class="monitor-header">
+        <div class="header-content">
+            <div class="header-left">
+                <img src="{{ url_for('static', filename='images/logo-light.svg') }}" class="monitor-logo" alt="WoodPower">
+            </div>
+            <div class="header-center">
+                <h1 class="monitor-title">Monitor — {{ station_label }}</h1>
+            </div>
+            <div class="header-right">
+                <div id="connection-status" class="connection-status online">
+                    <span class="status-dot"></span>
+                    <span class="status-text">ONLINE</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- STATS BAR -->
+        <div class="stats-bar">
+            <div class="stat-item">
+                <svg class="stat-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <circle cx="12" cy="12" r="10"></circle>
+                    <polyline points="12 6 12 12 16 14"></polyline>
+                </svg>
+                <div class="stat-content">
+                    <div class="stat-label">{{ now.strftime('%A') }}</div>
+                    <div class="stat-value" id="current-datetime">{{ now.strftime('%d.%m.%Y %H:%M:%S') }}</div>
+                </div>
+            </div>
+
+            <div class="stat-item">
+                <svg class="stat-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect x="3" y="3" width="18" height="18" rx="2"></rect>
+                    <path d="M3 9h18"></path>
+                </svg>
+                <div class="stat-content">
+                    <div class="stat-label">Zamówienia</div>
+                    <div class="stat-value" id="total-orders">{{ monitor_stats.total_orders }}</div>
+                </div>
+            </div>
+
+            {% for sp in species_stats %}
+            <div class="stat-item species" id="species-{{ loop.index }}" style="--species-color: {{ ['#f59e0b','#3b82f6','#22c55e','#06b6d4','#ec4899','#f97316','#8b5cf6','#ef4444'][loop.index0 % 8] }}">
+                <div class="stat-content">
+                    <div class="stat-label">{{ sp.species }} {{ sp.technology }}</div>
+                    <div class="stat-value">{{ sp.count }} szt · {{ "%.3f"|format(sp.volume) }} m<sup>3</sup></div>
+                </div>
+            </div>
+            {% endfor %}
+
+            <div class="stat-item">
+                <svg class="stat-icon refresh-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <polyline points="23 4 23 10 17 10"></polyline>
+                    <polyline points="1 20 1 14 7 14"></polyline>
+                    <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+                </svg>
+                <div class="stat-content">
+                    <div class="stat-label">Odświeżenie za</div>
+                    <div class="stat-value" id="refresh-countdown">{{ config.refresh_interval }}s</div>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- MAIN CONTENT -->
+    <main class="monitor-content">
+        {% if orders|length == 0 %}
+        <div class="empty-state">
+            <h2>Brak zleceń na stanowisku {{ station_label }}</h2>
+            <p>Aktualnie nie ma zleceń oczekujących na tym stanowisku.</p>
+        </div>
+        {% else %}
+        <div class="orders-grid">
+            {% for order in orders %}
+            <div class="order-card {{ order.status_class }}" data-order="{{ order.order_number }}">
+                <div class="order-main">
+                    <span class="order-number">{{ order.order_number }}</span>
+                    {% if order.baselinker_order_id %}
+                    <span class="order-baselinker">BL-{{ order.baselinker_order_id }}</span>
+                    {% endif %}
+                </div>
+                <div class="order-meta">
+                    <span class="status-badge {{ order.status_class }}">{{ order.status_label }}</span>
+                    <span class="order-species">{{ order.wood_species }} · {{ order.technology }} · {{ order.wood_class }}</span>
+                </div>
+                <div class="progress-bar">
+                    <div class="progress-fill" style="width: {{ (order.completed_products / order.total_products * 100) if order.total_products > 0 else 0 }}%"></div>
+                </div>
+                <div class="order-details">
+                    <span class="progress-text">{{ order.completed_products }}/{{ order.total_products }} szt</span>
+                    <span class="order-volume">
+                        <span class="volume-value">{{ "%.4f"|format(order.total_volume) }}</span>
+                        <span class="volume-unit">m<sup>3</sup></span>
+                    </span>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+        {% endif %}
+    </main>
+
+    <!-- OFFLINE BANNER -->
+    <div id="offline-banner" class="offline-banner" style="display: none;">
+        <div class="offline-banner-content">
+            <span class="offline-icon">!</span>
+            <div class="offline-text">
+                <strong>BRAK POŁĄCZENIA Z SERWEREM</strong>
+                <p>Dane mogą być nieaktualne. Oczekiwanie na połączenie...</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- SCRIPTS -->
+    <script>
+        window.MONITOR_CONFIG = {
+            refreshInterval: {{ config.refresh_interval }},
+            debugMode: {{ 'true' if config.debug_frontend else 'false' }},
+            ajaxUrl: '/production/stations/ajax/monitors/{{ station_code }}'
+        };
+    </script>
+    <script src="{{ url_for('production.static', filename='js/stations/station-monitor.js') }}"></script>
+</body>
+</html>
