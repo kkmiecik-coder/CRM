@@ -3859,7 +3859,6 @@ def stations_tab_content():
                         'short_id': p.short_product_id,
                         'product_name': p.original_product_name[:50] + '...' if len(p.original_product_name or '') > 50 else (p.original_product_name or ''),
                         'priority_rank': p.priority_rank,
-                        'priority_score': p.priority_rank,  # Alias dla kompatybilności z template
                         'deadline_date': p.deadline_date.isoformat() if p.deadline_date else None,
                         'days_remaining': (p.deadline_date - today).days if p.deadline_date else 0,
                         'volume_m3': float(p.volume_m3 or 0),
@@ -4163,7 +4162,7 @@ def bulk_action():
                 elif action == 'update_priority':
                     new_priority = parameters.get('new_priority')
                     if new_priority is not None:
-                        product.priority_score = int(new_priority)
+                        product.priority_rank = int(new_priority)
                         results['processed_count'] += 1
                 
                 elif action == 'delete':
@@ -5095,10 +5094,10 @@ def get_filters_data():
         
         # Zakres priorytetów
         priority_stats = db.session.query(
-            func.min(ProductionItem.priority_score),
-            func.max(ProductionItem.priority_score),
-            func.avg(ProductionItem.priority_score)
-        ).filter(ProductionItem.priority_score.isnot(None)).first()
+            func.min(ProductionItem.priority_rank),
+            func.max(ProductionItem.priority_rank),
+            func.avg(ProductionItem.priority_rank)
+        ).filter(ProductionItem.priority_rank.isnot(None)).first()
         
         priority_range = {
             'min': int(priority_stats[0]) if priority_stats[0] else 0,
@@ -5266,9 +5265,6 @@ def products_filtered():
         sort_column = None
         if sort_by == 'priority_rank' and hasattr(ProductionItem, 'priority_rank'):
             sort_column = ProductionItem.priority_rank
-        elif sort_by == 'priority_score' and hasattr(ProductionItem, 'priority_score'):
-            # KOMPATYBILNOŚĆ: nadal obsługuj priority_score requests
-            sort_column = ProductionItem.priority_score
         elif sort_by == 'deadline_date' and hasattr(ProductionItem, 'deadline_date'):
             sort_column = ProductionItem.deadline_date
         elif sort_by == 'created_at' and hasattr(ProductionItem, 'created_at'):
@@ -5317,8 +5313,6 @@ def products_filtered():
                 'current_status': getattr(item, 'current_status', 'unknown'),
                 # ZMIANA: priority_rank jako główne pole priorytetów
                 'priority_rank': getattr(item, 'priority_rank', None),
-                # KOMPATYBILNOŚĆ: zachowaj priority_score dla starych klientów
-                'priority_score': float(getattr(item, 'priority_score', 0) or 0),
                 'volume_m3': float(getattr(item, 'volume_m3', 0) or 0),
                 'total_value_net': float(getattr(item, 'total_value_net', getattr(item, 'total_value', 0)) or 0),
                 'total_value': float(getattr(item, 'total_value_net', getattr(item, 'total_value', 0)) or 0),
@@ -5414,8 +5408,7 @@ def products_filtered():
             'total_value': sum(float(p['total_value']) for p in products_data),
             # ZMIANA: avg_priority_rank zamiast avg_priority_score
             'avg_priority_rank': sum(float(p['priority_rank'] or 0) for p in products_data) / len(products_data) if products_data else 0,
-            # KOMPATYBILNOŚĆ: zachowaj dla starych dashboardów
-            'avg_priority': sum(float(p['priority_score']) for p in products_data) / len(products_data) if products_data else 0,
+            'avg_priority': sum(float(p['priority_rank'] or 0) for p in products_data) / len(products_data) if products_data else 0,
             'overdue_count': len([p for p in products_data if p['days_to_deadline'] is not None and p['days_to_deadline'] < 0])
         }
         
