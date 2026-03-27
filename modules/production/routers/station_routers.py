@@ -480,6 +480,203 @@ def monitors_select():
             back_url=None
         ), 500
 
+
+# Mapowanie kodu stanowiska na status w bazie i etykietę
+MONITOR_STATION_MAP = {
+    'cutting': {
+        'status': 'czeka_na_wyciecie',
+        'quantity_col': 'quantity_done_cutting',
+        'label': 'Wycinanie',
+        'css_class': 'status-cutting',
+    },
+    'assembly': {
+        'status': 'czeka_na_skladanie',
+        'quantity_col': 'quantity_done_assembly',
+        'label': 'Składanie',
+        'css_class': 'status-assembly',
+    },
+    'gluing': {
+        'status': 'czeka_na_sklejanie',
+        'quantity_col': 'quantity_done_gluing',
+        'label': 'Sklejanie',
+        'css_class': 'status-gluing',
+    },
+    'formatting': {
+        'status': 'czeka_na_formatowanie',
+        'quantity_col': 'quantity_done_formatting',
+        'label': 'Formatowanie',
+        'css_class': 'status-formatting',
+    },
+    'finishing': {
+        'status': 'czeka_na_wykanczanie',
+        'quantity_col': 'quantity_done_finishing',
+        'label': 'Wykańczanie',
+        'css_class': 'status-finishing',
+    },
+    'packaging': {
+        'status': 'czeka_na_pakowanie',
+        'quantity_col': 'quantity_done_packaging',
+        'label': 'Pakowanie',
+        'css_class': 'status-packaging',
+    },
+}
+
+
+def _get_monitor_station_data(station_code):
+    """
+    Pobiera zamówienia i statystyki dla danego stanowiska monitora.
+    Filtruje prod_items po current_status odpowiadającym stanowisku.
+    Returns: (orders, monitor_stats, species_stats)
+    """
+    from ..models import ProductionItem
+
+    station_info = MONITOR_STATION_MAP[station_code]
+    target_status = station_info['status']
+    quantity_col = station_info['quantity_col']
+
+    # Pobierz unikalne zamówienia na tym stanowisku
+    items_on_station = ProductionItem.query.filter(
+        ProductionItem.current_status == target_status,
+        ProductionItem.internal_order_number.isnot(None)
+    ).all()
+
+    # Grupuj po zamówieniu
+    orders_map = {}
+    for item in items_on_station:
+        key = item.internal_order_number
+        if key not in orders_map:
+            orders_map[key] = {
+                'order_number': key,
+                'baselinker_order_id': item.baselinker_order_id,
+                'client_order_number': item.client_order_number,
+                'items': [],
+            }
+        orders_map[key]['items'].append(item)
+
+    orders = []
+    for key, data in orders_map.items():
+        items = data['items']
+        total_products = sum(i.quantity for i in items)
+        completed_products = sum(getattr(i, quantity_col, 0) for i in items)
+        total_volume = sum((i.volume_m3 or 0) * i.quantity for i in items)
+
+        # Pobierz gatunek/technologię/klasę z pierwszego itemu
+        first = items[0]
+        wood_species = first.parsed_wood_species or '—'
+        technology = first.parsed_technology or '—'
+        wood_class = first.parsed_wood_class or '—'
+
+        orders.append({
+            'order_number': data['order_number'],
+            'baselinker_order_id': data['baselinker_order_id'],
+            'client_order_number': data['client_order_number'],
+            'total_products': total_products,
+            'completed_products': completed_products,
+            'total_volume': total_volume,
+            'wood_species': wood_species,
+            'technology': technology,
+            'wood_class': wood_class,
+            'status_label': station_info['label'],
+            'status_class': station_info['css_class'],
+        })
+
+    # Sortuj: najpierw z najwyższym postępem
+    orders.sort(key=lambda x: (
+        -x['completed_products'] / max(x['total_products'], 1),
+        x['order_number']
+    ))
+
+    # Stats ogólne
+    monitor_stats = {
+        'total_orders': len(orders),
+        'total_products': sum(o['total_products'] for o in orders),
+        'total_volume': sum(o['total_volume'] for o in orders),
+    }
+
+    # Stats per gatunek+technologia
+    species_map = {}
+    for item in items_on_station:
+        key = f"{item.parsed_wood_species or '—'}|{item.parsed_technology or '—'}"
+        if key not in species_map:
+            species_map[key] = {'species': item.parsed_wood_species or '—', 'technology': item.parsed_technology or '—', 'count': 0, 'volume': 0.0}
+        species_map[key]['count'] += item.quantity
+        species_map[key]['volume'] += (item.volume_m3 or 0) * item.quantity
+
+    species_stats = sorted(species_map.values(), key=lambda x: -x['count'])
+
+    return orders, monitor_stats, species_stats
+
+
+@station_bp.route('/monitors/<station_code>')
+def monitor_station(station_code):
+    """Monitor zleceń dla konkretnego stanowiska (widok TV)"""
+    try:
+        if station_code not in MONITOR_STATION_MAP:
+            return render_template(
+                'stations/access_denied.html',
+                error_message=f"Nieznane stanowisko: {station_code}",
+                error_details="Dostępne: cutting, assembly, gluing, formatting, finishing, packaging",
+                back_url=url_for('production.production_stations.monitors_select')
+            ), 404
+
+        station_info = MONITOR_STATION_MAP[station_code]
+        orders, monitor_stats, species_stats = _get_monitor_station_data(station_code)
+        config = get_station_config()
+        now = datetime.utcnow()
+
+        return render_template(
+            'stations/monitor_station.html',
+            orders=orders,
+            monitor_stats=monitor_stats,
+            species_stats=species_stats,
+            station_code=station_code,
+            station_label=station_info['label'],
+            station_css_class=station_info['css_class'],
+            config=config,
+            now=now,
+            page_title=f"Monitor — {station_info['label']}"
+        )
+
+    except Exception as e:
+        logger.error("Błąd monitora stanowiska", extra={
+            'station': station_code,
+            'error': str(e),
+            'traceback': traceback.format_exc()
+        })
+        return render_template(
+            'stations/error.html',
+            error_message=f"Błąd monitora stanowiska {station_code}",
+            error_details=str(e),
+            back_url=url_for('production.production_stations.monitors_select')
+        ), 500
+
+
+@station_bp.route('/ajax/monitors/<station_code>')
+def ajax_monitor_station_data(station_code):
+    """AJAX endpoint dla monitora stanowiska — zwraca JSON z zamówieniami i stats"""
+    try:
+        if station_code not in MONITOR_STATION_MAP:
+            return jsonify({'success': False, 'error': f'Unknown station: {station_code}'}), 404
+
+        orders, monitor_stats, species_stats = _get_monitor_station_data(station_code)
+
+        return jsonify({
+            'success': True,
+            'orders': orders,
+            'stats': monitor_stats,
+            'species_stats': species_stats,
+            'last_updated': datetime.utcnow().isoformat()
+        })
+
+    except Exception as e:
+        logger.error("Błąd AJAX monitor stanowiska", extra={
+            'station': station_code,
+            'error': str(e),
+            'traceback': traceback.format_exc()
+        })
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 # ============================================================================
 # ROUTERS - STANOWISKO WYCINANIA (CUTTING)
 # ============================================================================
