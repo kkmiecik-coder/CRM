@@ -609,16 +609,17 @@ function animateScroll() {
                 var prevRow = Math.floor(prevScroll / state.pauseEveryPx);
                 var currRow = Math.floor(content.scrollTop / state.pauseEveryPx);
                 if (currRow > prevRow && content.scrollTop < maxScroll) {
-                    state.animationId = requestAnimationFrame(animateScroll);
                     pauseAutoScroll();
-                    return;
                 }
             }
 
-            // Dojechaliśmy do końca — pauza i reset na początek
+            // Dojechaliśmy do końca — pauza, reset na początek, restart animacji
             if (content.scrollTop >= maxScroll) {
                 pauseAutoScroll(function() {
                     content.scrollTop = 0;
+                    state.subPixelAccum = 0;
+                    state.lastFrameTime = performance.now();
+                    animateScroll();
                 });
                 return;
             }
