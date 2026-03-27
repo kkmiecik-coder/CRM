@@ -558,7 +558,7 @@ def _get_monitor_station_data(station_code):
         items = data['items']
         total_products = sum(i.quantity for i in items)
         completed_products = sum(getattr(i, quantity_col, 0) for i in items)
-        total_volume = sum((i.volume_m3 or 0) * i.quantity for i in items)
+        total_volume = sum(float(i.volume_m3 or 0) * i.quantity for i in items)
 
         # Pobierz gatunek/technologię/klasę z pierwszego itemu
         first = items[0]
@@ -600,7 +600,7 @@ def _get_monitor_station_data(station_code):
         if key not in species_map:
             species_map[key] = {'species': item.parsed_wood_species or '—', 'technology': item.parsed_technology or '—', 'count': 0, 'volume': 0.0}
         species_map[key]['count'] += item.quantity
-        species_map[key]['volume'] += (item.volume_m3 or 0) * item.quantity
+        species_map[key]['volume'] += float(item.volume_m3 or 0) * item.quantity
 
     species_stats = sorted(species_map.values(), key=lambda x: -x['count'])
 
