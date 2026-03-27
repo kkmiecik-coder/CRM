@@ -685,10 +685,13 @@ function pauseAutoScroll(onResumeCallback) {
     }, 1000);
 
     state.pauseTimer = setTimeout(function() {
-        if (onResumeCallback) onResumeCallback();
         state.isPaused = false;
         state.lastFrameTime = performance.now();
-        updateScrollIndicator(false);
+        if (onResumeCallback) {
+            onResumeCallback();
+        } else {
+            updateScrollIndicator(false);
+        }
     }, state.pauseDuration);
 }
 
