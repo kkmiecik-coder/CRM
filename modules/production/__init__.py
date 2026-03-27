@@ -139,7 +139,8 @@ def get_high_priority_items_count():
         from extensions import db
         
         count = db.session.query(ProductionItem).filter(
-            ProductionItem.priority_score >= 150,
+            ProductionItem.priority_rank.isnot(None),
+            ProductionItem.priority_rank <= 10,
             ProductionItem.current_status.in_([
                 'czeka_na_wyciecie', 
                 'czeka_na_skladanie', 

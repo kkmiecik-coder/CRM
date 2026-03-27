@@ -72,8 +72,8 @@
                         {% for product in station.pending_products[:5] %}
                         <tr onclick="viewProductDetails('{{ product.short_id }}')">
                             <td class="td-priority">
-                                <span class="priority-value priority-{{ 'high' if product.priority_score >= 150 else 'normal' if product.priority_score >= 100 else 'low' }}">
-                                    {{ product.priority_score }}
+                                <span class="priority-value priority-{{ 'critical' if product.priority_rank and product.priority_rank <= 10 else 'high' if product.priority_rank and product.priority_rank <= 50 else 'normal' if product.priority_rank and product.priority_rank <= 100 else 'low' }}">
+                                    {{ product.priority_rank or '-' }}
                                 </span>
                             </td>
                             <td class="td-id">{{ product.short_id }}</td>
@@ -121,7 +121,7 @@
     {% set all_priority_products = [] %}
     {% for station_key, station in stations_data.items() %}
         {% for product in station.pending_products %}
-            {% if product.priority_score >= 150 %}
+            {% if product.priority_rank and product.priority_rank <= 10 %}
                 {% set _ = all_priority_products.append({
                     'station_key': station_key,
                     'station_name': station.name,
@@ -132,7 +132,7 @@
         {% endfor %}
     {% endfor %}
 
-    {% set sorted_priority_products = all_priority_products|sort(attribute='product.priority_score', reverse=True) %}
+    {% set sorted_priority_products = all_priority_products|sort(attribute='product.priority_rank') %}
 
     {% if sorted_priority_products|length > 0 %}
     <div class="priority-section">
@@ -157,7 +157,7 @@
                 {% for item in sorted_priority_products[:15] %}
                 <tr>
                     <td>
-                        <span class="priority-value priority-high">{{ item.product.priority_score }}</span>
+                        <span class="priority-value priority-critical">{{ item.product.priority_rank }}</span>
                     </td>
                     <td>
                         <span class="station-label">

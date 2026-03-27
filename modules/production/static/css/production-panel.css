@@ -1390,7 +1390,7 @@ body {
     gap: 0.5rem;
 }
 
-.priority-score {
+.priority-rank {
     font-weight: 600;
     padding: 0.25rem 0.5rem;
     border-radius: 0.25rem;
@@ -1401,7 +1401,7 @@ body {
     text-align: center;
 }
 
-.priority-score:hover {
+.priority-rank:hover {
     transform: scale(1.05);
 }
 

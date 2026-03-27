@@ -1764,7 +1764,7 @@ class ProductsModule {
             rowElement.style.marginBottom = '6px';
             rowElement.classList.add('simple-row');
             rowElement.setAttribute('data-product-id', product.id);
-            rowElement.setAttribute('data-priority', product.priority_rank || product.priority_score || 0);
+            rowElement.setAttribute('data-priority', product.priority_rank || 0);
             rowElement.setAttribute('data-status', product.current_status || '');
             rowElement.setAttribute('data-index', index);
             rowElement.setAttribute('data-is-priority', product.is_priority ? 'true' : 'false');
@@ -1806,7 +1806,7 @@ class ProductsModule {
             // 3. Priority rank
             const priorityElement = rowElement.querySelector('.prod_list-priority-rank');
             if (priorityElement) {
-                const priority = parseInt(product.priority_rank) || parseInt(product.priority_score) || 100;
+                const priority = parseInt(product.priority_rank) || 100;
                 priorityElement.textContent = priority;
             }
 
@@ -3193,7 +3193,7 @@ class ProductsModule {
 
     updatePriorityColor(element, priority) {
         const score = parseInt(priority) || 100;
-        element.className = 'priority-score';
+        element.className = 'priority-rank';
         
         if (score >= 180) element.classList.add('priority-critical');
         else if (score >= 140) element.classList.add('priority-high');
@@ -3357,7 +3357,7 @@ class ProductsModule {
         }
 
         if (priorityIndicator) {
-            const priority = parseInt(product.priority_rank) || parseInt(product.priority_score) || 100;
+            const priority = parseInt(product.priority_rank) || 100;
             priorityIndicator.className = `priority-indicator ${this.getPriorityClass(priority)}`;
         }
     }
