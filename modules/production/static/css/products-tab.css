@@ -297,7 +297,7 @@
 .il-orders-header,
 .orders-header {
     display: grid;
-    grid-template-columns: 20px 24px 24px 20px 2fr 55px 80px 100px 120px 120px 130px;
+    grid-template-columns: 20px 24px 24px 20px 2fr 55px 80px 100px 120px 150px 130px;
     align-items: center;
     gap: 8px;
     padding: 6px 14px 6px 18px;
@@ -338,7 +338,7 @@
 .order-header {
     padding: 10px 14px;
     display: grid;
-    grid-template-columns: 20px 24px 24px 20px 2fr 55px 80px 100px 120px 120px 130px;
+    grid-template-columns: 20px 24px 24px 20px 2fr 55px 80px 100px 120px 150px 130px;
     align-items: center;
     gap: 8px;
     cursor: pointer;
@@ -545,17 +545,21 @@
     font-size: 13px;
     font-weight: 600;
     white-space: nowrap;
-    text-align: right;
+    text-align: center;
+    justify-self: center;
 }
 
-.il-deadline-overdue,
-.deadline-overdue { color: var(--il-status-danger); }
+.il-order-card .deadline-overdue,
+.il-order-card .deadline-urgent,
+.il-order-card .deadline-normal {
+    background: none;
+    border: none;
+    padding: 0;
+}
 
-.il-deadline-urgent,
-.deadline-urgent  { color: var(--il-status-warn); }
-
-.il-deadline-normal,
-.deadline-normal  { color: var(--il-text-secondary); }
+.il-order-card .deadline-overdue { color: var(--il-status-danger); }
+.il-order-card .deadline-urgent  { color: var(--il-status-warn); }
+.il-order-card .deadline-normal  { color: var(--il-text-secondary); }
 
 /* Actions column */
 .il-order-actions,
@@ -579,8 +583,15 @@
     line-height: 1;
 }
 
-.il-order-action-btn:hover,
-.order-action-btn:hover {
+.il-order-action-btn.disabled,
+.order-action-btn.disabled {
+    opacity: 0.3;
+    cursor: not-allowed;
+    pointer-events: none;
+}
+
+.il-order-action-btn:hover:not(.disabled),
+.order-action-btn:hover:not(.disabled) {
     background: var(--il-bg-base);
     color: var(--il-text-primary);
 }
@@ -631,8 +642,14 @@
 
 /* Checkbox */
 .il-order-checkbox,
-.order-checkbox {
+.order-checkbox,
+.il-product-checkbox,
+.product-checkbox,
+#il-select-all {
     accent-color: var(--il-status-info);
+    width: 18px;
+    height: 18px;
+    cursor: pointer;
     cursor: pointer;
 }
 
@@ -1100,4 +1117,721 @@
     .product-spec {
         display: none;
     }
+}
+
+/* ============================================================================
+   PRODUCT DETAILS MODAL — Industrial Light Theme
+   ============================================================================ */
+
+/* Modal container */
+.products-modal .modal-content {
+    font-family: var(--il-font);
+    border: 1px solid var(--il-border);
+    border-radius: var(--il-radius);
+    overflow: hidden;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+}
+
+.products-modal .modal-dialog {
+    max-width: 1100px;
+}
+
+/* Header */
+.modal-header-redesign {
+    background: var(--il-text-primary);
+    color: #fff;
+    padding: 16px 24px;
+    border-bottom: none;
+}
+
+.modal-header-redesign .header-content {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    width: 100%;
+}
+
+.modal-header-redesign .header-left {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+}
+
+.modal-header-redesign .product-icon {
+    width: 40px;
+    height: 40px;
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: var(--il-radius);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 18px;
+    color: #fff;
+}
+
+.modal-header-redesign .header-info {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.modal-header-redesign .product-id-display {
+    font-size: 18px;
+    font-weight: 700;
+    margin: 0;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: #fff;
+}
+
+.modal-header-redesign .header-subtitle {
+    font-size: 12px;
+    color: rgba(255, 255, 255, 0.6);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.modal-header-redesign .header-right {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+}
+
+.modal-header-redesign .status-badge-large {
+    padding: 6px 14px;
+    border-radius: var(--il-radius);
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    background: rgba(255, 255, 255, 0.15);
+    color: #fff;
+    display: flex;
+    align-items: center;
+}
+
+.modal-header-redesign .priority-indicator {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    margin-left: 8px;
+}
+
+.modal-header-redesign .priority-high { background: var(--il-status-danger); }
+.modal-header-redesign .priority-medium { background: var(--il-status-warn); }
+.modal-header-redesign .priority-low { background: var(--il-status-ok); }
+
+.modal-header-redesign .btn-close-white {
+    filter: invert(1);
+    opacity: 0.6;
+}
+
+.modal-header-redesign .btn-close-white:hover {
+    opacity: 1;
+}
+
+/* Products navigation bar */
+.products-navigation {
+    background: var(--il-bg-base);
+    padding: 10px 24px;
+    border-bottom: 1px solid var(--il-border);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.products-nav-title {
+    font-size: 12px;
+    color: var(--il-text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    font-weight: 600;
+}
+
+.products-buttons {
+    display: flex;
+    gap: 4px;
+}
+
+.products-buttons .product-nav-btn {
+    background: var(--il-bg-card);
+    border: 1px solid var(--il-border);
+    border-radius: var(--il-radius);
+    padding: 4px 10px;
+    font-family: var(--il-font);
+    font-size: 11px;
+    color: var(--il-text-secondary);
+    cursor: pointer;
+}
+
+.products-buttons .product-nav-btn:hover,
+.products-buttons .product-nav-btn.active {
+    background: var(--il-text-primary);
+    color: #fff;
+    border-color: var(--il-text-primary);
+}
+
+/* Body layout */
+.modal-body-redesign {
+    display: grid;
+    grid-template-columns: 1fr 320px;
+    gap: 0;
+    padding: 0;
+    height: 70vh;
+    overflow: hidden;
+}
+
+.modal-body-redesign .details-section {
+    padding: 20px 24px;
+    overflow-y: auto;
+    height: 100%;
+}
+
+.modal-body-redesign .sidebar-section {
+    padding: 20px;
+    background: var(--il-bg-base);
+    border-left: 1px solid var(--il-border);
+    overflow-y: auto;
+    height: 100%;
+}
+
+/* Stats row */
+.stats-row {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 20px;
+}
+
+.stats-row .stat-card {
+    flex: 1;
+    background: var(--il-bg-base);
+    border: 1px solid var(--il-border);
+    border-radius: var(--il-radius);
+    padding: 12px 14px;
+    text-align: center;
+    box-shadow: inset 0 -2px 0 var(--il-inset-shadow);
+}
+
+.stats-row .stat-value {
+    font-size: 20px;
+    font-weight: 700;
+    color: var(--il-text-primary);
+}
+
+.stats-row .stat-label {
+    font-size: 10px;
+    color: var(--il-text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-top: 4px;
+}
+
+/* Detail cards */
+.detail-card {
+    border: 1px solid var(--il-border);
+    border-radius: var(--il-radius);
+    margin-bottom: 14px;
+    background: var(--il-bg-card);
+    overflow: hidden;
+}
+
+.detail-card .card-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 14px;
+    background: var(--il-bg-base);
+    border-bottom: 1px solid var(--il-border);
+    font-size: 12px;
+}
+
+.detail-card .card-header i {
+    color: var(--il-text-secondary);
+    font-size: 13px;
+}
+
+.detail-card .card-title {
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--il-text-secondary);
+    margin: 0;
+}
+
+.detail-card .card-body {
+    padding: 14px;
+}
+
+/* Fields grid */
+.fields-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+}
+
+.field-group {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+
+.field-label {
+    font-size: 10px;
+    color: var(--il-text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    font-weight: 600;
+}
+
+.field-value {
+    font-size: 14px;
+    color: var(--il-text-primary);
+    font-weight: 500;
+}
+
+.field-value.highlight {
+    font-weight: 700;
+    color: var(--il-text-primary);
+}
+
+.field-value.currency {
+    font-weight: 700;
+}
+
+.deadline-field {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.attachment-link {
+    color: var(--il-status-info);
+    text-decoration: none;
+    font-size: 13px;
+}
+
+.attachment-link:hover {
+    text-decoration: underline;
+}
+
+/* Production timeline */
+.production-timeline {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    position: relative;
+    padding-left: 0;
+}
+
+/* Vertical line — through center of icons, stops at last icon */
+.production-timeline::before {
+    content: '';
+    position: absolute;
+    left: 17px;
+    top: 26px;
+    bottom: 26px;
+    width: 2px;
+    background: var(--il-border);
+    z-index: 0;
+}
+
+/* Timeline item */
+.timeline-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 14px;
+    padding: 8px 0;
+    position: relative;
+}
+
+/* Timeline icon — circle on the line */
+.timeline-icon {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+    flex-shrink: 0;
+    z-index: 1;
+    transition: all 0.2s;
+}
+
+/* ─── COMPLETED — filled in station color ─── */
+.timeline-item.timeline-completed .timeline-icon {
+    color: #fff;
+    border: none;
+}
+.timeline-item.timeline-completed .timeline-icon.cutting-theme { background: var(--il-cutting); }
+.timeline-item.timeline-completed .timeline-icon.assembly-theme { background: var(--il-assembly); }
+.timeline-item.timeline-completed .timeline-icon.gluing-theme { background: var(--il-gluing); }
+.timeline-item.timeline-completed .timeline-icon.formatting-theme { background: var(--il-formatting); }
+.timeline-item.timeline-completed .timeline-icon.finishing-theme { background: var(--il-finishing); }
+.timeline-item.timeline-completed .timeline-icon.packaging-theme { background: var(--il-packaging); }
+
+/* ─── ACTIVE — larger, filled, with glow ─── */
+.timeline-item.timeline-active .timeline-icon {
+    width: 44px;
+    height: 44px;
+    font-size: 17px;
+    color: #fff;
+    border: none;
+    margin-left: -4px;
+    margin-right: -4px;
+}
+.timeline-item.timeline-active .timeline-icon.cutting-theme { background: var(--il-cutting); box-shadow: 0 0 0 5px rgba(45, 138, 62, 0.2), 0 2px 8px rgba(45, 138, 62, 0.3); }
+.timeline-item.timeline-active .timeline-icon.assembly-theme { background: var(--il-assembly); box-shadow: 0 0 0 5px rgba(37, 99, 235, 0.2), 0 2px 8px rgba(37, 99, 235, 0.3); }
+.timeline-item.timeline-active .timeline-icon.gluing-theme { background: var(--il-gluing); box-shadow: 0 0 0 5px rgba(147, 51, 234, 0.2), 0 2px 8px rgba(147, 51, 234, 0.3); }
+.timeline-item.timeline-active .timeline-icon.formatting-theme { background: var(--il-formatting); box-shadow: 0 0 0 5px rgba(217, 119, 6, 0.2), 0 2px 8px rgba(217, 119, 6, 0.3); }
+.timeline-item.timeline-active .timeline-icon.finishing-theme { background: var(--il-finishing); box-shadow: 0 0 0 5px rgba(8, 145, 178, 0.2), 0 2px 8px rgba(8, 145, 178, 0.3); }
+.timeline-item.timeline-active .timeline-icon.packaging-theme { background: var(--il-packaging); box-shadow: 0 0 0 5px rgba(22, 163, 74, 0.2), 0 2px 8px rgba(22, 163, 74, 0.3); }
+
+.timeline-item.timeline-active .timeline-content {
+    padding-top: 6px;
+}
+
+/* ─── PENDING — gray, muted ─── */
+.timeline-item.timeline-pending .timeline-icon {
+    border: 2px solid var(--il-border);
+    color: var(--il-text-muted);
+    background: var(--il-bg-base);
+}
+
+.timeline-item.timeline-pending .timeline-content {
+    opacity: 0.45;
+}
+
+/* Timeline content */
+.timeline-content {
+    flex: 1;
+    min-width: 0;
+    padding-top: 4px;
+}
+
+.timeline-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 3px;
+}
+
+.timeline-title {
+    font-size: 13px;
+    font-weight: 700;
+    margin: 0;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+/* Title colors — completed and active get station color, pending gets gray */
+.timeline-item.timeline-completed .timeline-title.cutting-theme,
+.timeline-item.timeline-active .timeline-title.cutting-theme { color: var(--il-cutting); }
+.timeline-item.timeline-completed .timeline-title.assembly-theme,
+.timeline-item.timeline-active .timeline-title.assembly-theme { color: var(--il-assembly); }
+.timeline-item.timeline-completed .timeline-title.gluing-theme,
+.timeline-item.timeline-active .timeline-title.gluing-theme { color: var(--il-gluing); }
+.timeline-item.timeline-completed .timeline-title.formatting-theme,
+.timeline-item.timeline-active .timeline-title.formatting-theme { color: var(--il-formatting); }
+.timeline-item.timeline-completed .timeline-title.finishing-theme,
+.timeline-item.timeline-active .timeline-title.finishing-theme { color: var(--il-finishing); }
+.timeline-item.timeline-completed .timeline-title.packaging-theme,
+.timeline-item.timeline-active .timeline-title.packaging-theme { color: var(--il-packaging); }
+
+.timeline-item.timeline-pending .timeline-title {
+    color: var(--il-text-muted) !important;
+}
+
+.timeline-quantity {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--il-text-secondary);
+    background: var(--il-bg-base);
+    border: 1px solid var(--il-border);
+    padding: 1px 8px;
+    border-radius: var(--il-radius);
+    white-space: nowrap;
+}
+
+.timeline-item.timeline-completed .timeline-quantity {
+    background: rgba(22, 163, 74, 0.08);
+    border-color: rgba(22, 163, 74, 0.2);
+    color: var(--il-status-ok);
+}
+
+.timeline-details {
+    font-size: 11px;
+    color: var(--il-text-secondary);
+    margin: 2px 0 0;
+    line-height: 1.4;
+}
+
+.timeline-status {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    font-weight: 600;
+    margin-top: 2px;
+    display: inline-block;
+}
+
+.timeline-item.timeline-completed .timeline-status {
+    color: var(--il-status-ok);
+}
+
+.timeline-item.timeline-active .timeline-status {
+    color: var(--il-status-info);
+}
+
+.timeline-item.timeline-pending .timeline-status {
+    color: var(--il-text-muted);
+}
+
+/* Quantity badge */
+#quantityBadge {
+    font-family: var(--il-font);
+    font-size: 11px;
+    background: var(--il-status-info);
+    border-radius: var(--il-radius);
+    padding: 2px 8px;
+}
+
+/* Action buttons in sidebar */
+.action-buttons {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.btn-action {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 8px 14px;
+    border-radius: var(--il-radius);
+    font-family: var(--il-font);
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    cursor: pointer;
+    text-decoration: none;
+    border: 1px solid var(--il-border);
+    transition: all 0.15s;
+}
+
+.btn-secondary-custom {
+    background: var(--il-bg-card);
+    color: var(--il-text-secondary);
+}
+
+.btn-secondary-custom:hover {
+    background: var(--il-bg-base);
+    color: var(--il-text-primary);
+}
+
+.btn-primary-custom {
+    background: var(--il-status-info);
+    color: #fff;
+    border-color: var(--il-status-info);
+}
+
+.btn-primary-custom:hover {
+    background: #1d4ed8;
+}
+
+/* Notes */
+.notes-display .field-value {
+    font-size: 13px;
+    line-height: 1.5;
+    color: var(--il-text-secondary);
+    white-space: pre-wrap;
+}
+
+.notes-edit textarea {
+    font-family: var(--il-font);
+    font-size: 13px;
+    border: 1px solid var(--il-border);
+    border-radius: var(--il-radius);
+    resize: vertical;
+}
+
+.notes-edit textarea:focus {
+    border-color: var(--il-status-info);
+    outline: none;
+    box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15);
+}
+
+/* Sidebar headings */
+.sidebar-section h6 {
+    font-family: var(--il-font);
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--il-text-secondary);
+    font-weight: 600;
+}
+
+/* Modal footer (if exists) */
+.products-modal .modal-footer {
+    background: var(--il-bg-base);
+    border-top: 2px solid var(--il-border);
+    padding: 14px 24px;
+}
+
+/* Responsive modal */
+@media (max-width: 900px) {
+    .modal-body-redesign {
+        grid-template-columns: 1fr;
+    }
+
+    .modal-body-redesign .sidebar-section {
+        border-left: none;
+        border-top: 1px solid var(--il-border);
+    }
+
+    .fields-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* ============================================================================
+   BULK STATUS DROPDOWN — Industrial Light Theme
+   ============================================================================ */
+
+.bulk-status-dropdown {
+    position: fixed;
+    bottom: 70px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--il-bg-card);
+    border: 1px solid var(--il-border);
+    border-radius: var(--il-radius);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
+    z-index: 10001;
+    min-width: 280px;
+    font-family: var(--il-font);
+    opacity: 0;
+    transition: opacity 0.15s;
+}
+
+.bulk-status-dropdown.show {
+    opacity: 1;
+}
+
+.bulk-status-dropdown .dropdown-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 14px;
+    background: var(--il-bg-base);
+    border-bottom: 1px solid var(--il-border);
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--il-text-secondary);
+}
+
+.bulk-status-dropdown .dropdown-body {
+    padding: 6px;
+    max-height: 300px;
+    overflow-y: auto;
+}
+
+.bulk-status-dropdown .status-item {
+    display: block;
+    width: 100%;
+    padding: 8px 12px;
+    border: none;
+    background: none;
+    text-align: left;
+    cursor: pointer;
+    border-radius: var(--il-radius);
+    font-family: var(--il-font);
+    font-size: 13px;
+    transition: background 0.1s;
+}
+
+.bulk-status-dropdown .status-item:hover {
+    opacity: 0.85;
+    filter: brightness(0.95);
+}
+
+.bulk-status-dropdown .status-item.badge-cutting { background: rgba(45, 138, 62, 0.1); color: var(--il-cutting); border-left: 3px solid var(--il-cutting); }
+.bulk-status-dropdown .status-item.badge-assembly { background: rgba(37, 99, 235, 0.1); color: var(--il-assembly); border-left: 3px solid var(--il-assembly); }
+.bulk-status-dropdown .status-item.badge-gluing { background: rgba(147, 51, 234, 0.1); color: var(--il-gluing); border-left: 3px solid var(--il-gluing); }
+.bulk-status-dropdown .status-item.badge-formatting { background: rgba(217, 119, 6, 0.1); color: var(--il-formatting); border-left: 3px solid var(--il-formatting); }
+.bulk-status-dropdown .status-item.badge-finishing { background: rgba(8, 145, 178, 0.1); color: var(--il-finishing); border-left: 3px solid var(--il-finishing); }
+.bulk-status-dropdown .status-item.badge-packaging { background: rgba(22, 163, 74, 0.1); color: var(--il-packaging); border-left: 3px solid var(--il-packaging); }
+.bulk-status-dropdown .status-item.badge-completed { background: var(--il-bg-base); color: var(--il-text-muted); border-left: 3px solid var(--il-border); }
+.bulk-status-dropdown .status-item.badge-paused { background: rgba(217, 119, 6, 0.1); color: var(--il-paused); border-left: 3px solid var(--il-paused); }
+.bulk-status-dropdown .status-item.badge-cancelled { background: rgba(220, 38, 38, 0.1); color: var(--il-cancelled); border-left: 3px solid var(--il-cancelled); }
+
+/* ============================================================================
+   BULK ACTIONS MODAL — Industrial Light Theme
+   ============================================================================ */
+
+#bulk-actions-modal .modal-content {
+    font-family: var(--il-font);
+    border: 1px solid var(--il-border);
+    border-radius: var(--il-radius);
+}
+
+#bulk-actions-modal .modal-header {
+    background: var(--il-bg-base);
+    border-bottom: 2px solid var(--il-border);
+    padding: 14px 20px;
+}
+
+#bulk-actions-modal .modal-title {
+    font-size: 16px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--il-text-primary);
+}
+
+#bulk-actions-modal .modal-body {
+    padding: 20px;
+}
+
+#bulk-actions-modal .modal-footer {
+    background: var(--il-bg-base);
+    border-top: 2px solid var(--il-border);
+    padding: 14px 20px;
+}
+
+/* ============================================================================
+   BASELINKER COMPARE MODAL — Industrial Light Theme
+   ============================================================================ */
+
+#baselinkerCompareModal .modal-content {
+    font-family: var(--il-font);
+    border: 1px solid var(--il-border);
+    border-radius: var(--il-radius);
+}
+
+#baselinkerCompareModal .modal-header {
+    background: var(--il-bg-base);
+    border-bottom: 2px solid var(--il-border);
+    padding: 14px 20px;
+}
+
+#baselinkerCompareModal .modal-title {
+    font-size: 16px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--il-text-primary);
+}
+
+#baselinkerCompareModal .modal-body {
+    padding: 20px;
+}
+
+#baselinkerCompareModal .modal-footer {
+    background: var(--il-bg-base);
+    border-top: 2px solid var(--il-border);
+    padding: 14px 20px;
 }

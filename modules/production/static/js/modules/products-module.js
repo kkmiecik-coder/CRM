@@ -24,10 +24,14 @@ class ProductsModule {
 
     // Mapowanie statusów na przyjazne nazwy
     static STATUS_TRANSLATIONS = {
-        'czeka_na_wyciecie': 'Czeka na wycięcie',
-        'czeka_na_skladanie': 'Czeka na składanie', 
-        'czeka_na_pakowanie': 'Czeka na pakowanie',
+        'czeka_na_wyciecie': 'Wycinanie',
+        'czeka_na_skladanie': 'Składanie',
+        'czeka_na_sklejanie': 'Sklejanie',
+        'czeka_na_formatowanie': 'Formatowanie',
+        'czeka_na_wykanczanie': 'Wykańczanie',
+        'czeka_na_pakowanie': 'Pakowanie',
         'spakowane': 'Spakowane',
+        'w_realizacji': 'W realizacji',
         'wstrzymane': 'Wstrzymane',
         'anulowane': 'Anulowane'
     };
@@ -984,37 +988,40 @@ class ProductsModule {
 
         // Close dropdowns when clicking outside
         document.addEventListener('click', (e) => {
-            if (!e.target.closest('.multi-select-wrapper')) {
+            if (!e.target.closest('.il-multiselect') && !e.target.closest('.multi-select-wrapper')) {
                 this.closeAllDropdowns();
             }
         });
     }
 
     setupCustomMultiSelect(displayId, dropdownId, filterType) {
-        const display = document.getElementById(displayId);
+        const displayEl = document.getElementById(displayId);
         const dropdown = document.getElementById(dropdownId);
-        
-        if (!display || !dropdown) {
+
+        if (!displayEl || !dropdown) {
             console.warn(`[ProductsModule] Multi-select elements not found: ${displayId}, ${dropdownId}`);
             return;
         }
 
-        // Toggle dropdown on display click
-        display.addEventListener('click', (e) => {
+        // Find the clickable trigger — either .il-filter-dropdown or .multi-select-display inside
+        const trigger = displayEl.querySelector('.il-filter-dropdown') || displayEl.querySelector('.multi-select-display') || displayEl;
+
+        // Toggle dropdown on trigger click
+        trigger.addEventListener('click', (e) => {
             e.stopPropagation();
             this.toggleDropdown(dropdownId);
         });
 
-        // Search within dropdown
-        const searchInput = dropdown.querySelector('.multi-select-search input');
+        // Search within dropdown (support both old and new class names)
+        const searchInput = dropdown.querySelector('.il-multiselect-search') || dropdown.querySelector('.multi-select-search input');
         if (searchInput) {
             searchInput.addEventListener('input', (e) => {
                 this.filterDropdownOptions(dropdownId, e.target.value);
             });
         }
 
-        // "Select all" functionality
-        const selectAllOption = dropdown.querySelector('.multi-select-all input');
+        // "Select all" functionality (support both old and new markup)
+        const selectAllOption = dropdown.querySelector('.il-multiselect-option input[value="__all__"]') || dropdown.querySelector('.multi-select-all input');
         if (selectAllOption) {
             selectAllOption.addEventListener('change', (e) => {
                 this.handleSelectAllChange(dropdownId, filterType, e.target.checked);
@@ -1024,16 +1031,17 @@ class ProductsModule {
 
     toggleDropdown(dropdownId) {
         // Close all other dropdowns first
-        this.closeAllDropdowns();
-        
+        this.closeAllDropdowns(dropdownId);
+
         const dropdown = document.getElementById(dropdownId);
         if (dropdown) {
-            const isOpen = dropdown.classList.contains('show');
+            const isOpen = dropdown.style.display !== 'none' && dropdown.style.display !== '';
+            dropdown.style.display = isOpen ? 'none' : 'block';
             dropdown.classList.toggle('show', !isOpen);
-            
-            // Update arrow direction
-            const display = dropdown.parentElement.querySelector('.multi-select-display');
-            const arrow = display?.querySelector('.multi-select-arrow');
+
+            // Update arrow direction (support both old and new)
+            const parent = dropdown.closest('.il-multiselect') || dropdown.parentElement;
+            const arrow = parent?.querySelector('.il-chevron') || parent?.querySelector('.multi-select-arrow');
             if (arrow) {
                 arrow.classList.toggle('fa-chevron-up', !isOpen);
                 arrow.classList.toggle('fa-chevron-down', isOpen);
@@ -1041,14 +1049,16 @@ class ProductsModule {
         }
     }
 
-    closeAllDropdowns() {
-        const dropdowns = document.querySelectorAll('.multi-select-dropdown');
+    closeAllDropdowns(exceptId) {
+        const dropdowns = document.querySelectorAll('.il-multiselect-options, .multi-select-dropdown');
         dropdowns.forEach(dropdown => {
+            if (exceptId && dropdown.id === exceptId) return;
+            dropdown.style.display = 'none';
             dropdown.classList.remove('show');
         });
         
         // Reset all arrows
-        const arrows = document.querySelectorAll('.multi-select-arrow');
+        const arrows = document.querySelectorAll('.il-chevron, .multi-select-arrow');
         arrows.forEach(arrow => {
             arrow.classList.remove('fa-chevron-up');
             arrow.classList.add('fa-chevron-down');
@@ -1059,16 +1069,14 @@ class ProductsModule {
         const dropdown = document.getElementById(dropdownId);
         if (!dropdown) return;
 
-        const options = dropdown.querySelectorAll('.multi-select-option:not(.multi-select-all)');
+        const options = dropdown.querySelectorAll('.il-multiselect-option, .multi-select-option:not(.multi-select-all)');
         const searchLower = searchTerm.toLowerCase();
 
         options.forEach(option => {
-            const label = option.querySelector('label');
-            if (label) {
-                const text = label.textContent.toLowerCase();
-                const matches = text.includes(searchLower);
-                option.style.display = matches ? 'flex' : 'none';
-            }
+            const input = option.querySelector('input');
+            if (input && input.value === '__all__') return; // skip "select all"
+            const text = option.textContent.toLowerCase();
+            option.style.display = text.includes(searchLower) ? 'flex' : 'none';
         });
     }
 
@@ -1076,10 +1084,11 @@ class ProductsModule {
         const dropdown = document.getElementById(dropdownId);
         if (!dropdown) return;
 
-        const options = dropdown.querySelectorAll('.multi-select-option:not(.multi-select-all) input[type="checkbox"]');
-        const visibleOptions = Array.from(options).filter(option => 
-            option.closest('.multi-select-option').style.display !== 'none'
-        );
+        const options = dropdown.querySelectorAll('.il-multiselect-option input[type="checkbox"]:not([value="__all__"]), .multi-select-option:not(.multi-select-all) input[type="checkbox"]');
+        const visibleOptions = Array.from(options).filter(option => {
+            const parent = option.closest('.il-multiselect-option') || option.closest('.multi-select-option');
+            return parent && parent.style.display !== 'none';
+        });
 
         visibleOptions.forEach(checkbox => {
             checkbox.checked = isChecked;
@@ -1158,18 +1167,18 @@ class ProductsModule {
             return;
         }
 
-        const optionsContainer = dropdown.querySelector('.multi-select-options');
-        if (!optionsContainer) {
-            console.warn(`[ProductsModule] Options container not found in: ${dropdownId}`);
-            return;
-        }
+        // Support both new IL and old template structure
+        const optionsContainer = dropdown.querySelector('.multi-select-options') || dropdown;
 
-        // Preserve the "select all" option
-        const selectAllOption = optionsContainer.querySelector('.multi-select-all');
-        
-        // Clear existing options (except select all)
-        const existingOptions = optionsContainer.querySelectorAll('.multi-select-option:not(.multi-select-all)');
-        existingOptions.forEach(option => option.remove());
+        // Clear existing options (except select all and search)
+        const existingOptions = optionsContainer.querySelectorAll('.multi-select-option:not(.multi-select-all), .il-multiselect-option:not(:first-child)');
+        existingOptions.forEach(option => {
+            // Don't remove "select all" option or search input
+            const input = option.querySelector('input');
+            if (input && input.value === '__all__') return;
+            if (option.classList.contains('il-multiselect-search')) return;
+            option.remove();
+        });
 
         // Add new options
         options.forEach((option, index) => {
@@ -1181,8 +1190,8 @@ class ProductsModule {
     }
 
     createCustomOption(option, filterType, index) {
-        const optionDiv = document.createElement('div');
-        optionDiv.className = 'multi-select-option';
+        const optionDiv = document.createElement('label');
+        optionDiv.className = 'il-multiselect-option multi-select-option';
 
         let value, label;
         if (typeof option === 'string') {
@@ -1506,6 +1515,8 @@ class ProductsModule {
         const orderCheckbox = header.querySelector('.il-order-checkbox');
         orderCheckbox.addEventListener('change', (e) => {
             e.stopPropagation();
+            // Reset indeterminate — user explicitly clicked
+            orderCheckbox.indeterminate = false;
             order.products.forEach(p => {
                 const id = p.unique_id || String(p.id);
                 if (orderCheckbox.checked) {
@@ -1531,10 +1542,8 @@ class ProductsModule {
                 } else {
                     this.state.selectedProducts.delete(id);
                 }
-                // Update order checkbox
-                const allChecked = order.products.every(p =>
-                    this.state.selectedProducts.has(p.unique_id || String(p.id)));
-                orderCheckbox.checked = allChecked;
+                // Update order checkbox — support indeterminate state
+                this._updateOrderCheckboxState(orderCheckbox, order);
                 this.toggleBulkActionsVisibility();
             });
         });
@@ -1545,18 +1554,35 @@ class ProductsModule {
             this.handleStarClick(order);
         });
 
-        // Action buttons
+        // Action buttons — set disabled state based on data availability
         header.querySelectorAll('.il-order-action-btn').forEach(btn => {
+            const action = btn.getAttribute('data-action');
+
+            // Set disabled state
+            if (action === 'attachment' && !order.attachmentUrl) {
+                btn.classList.add('disabled');
+                btn.setAttribute('disabled', 'true');
+            }
+            if (action === 'comment' && !order.productionNotes) {
+                btn.classList.add('disabled');
+                btn.setAttribute('disabled', 'true');
+            }
+            if (action === 'baselinker' && !order.baselinkerOrderId) {
+                btn.classList.add('disabled');
+                btn.setAttribute('disabled', 'true');
+            }
+
             btn.addEventListener('click', (e) => {
                 e.stopPropagation();
-                const action = btn.getAttribute('data-action');
+                if (btn.classList.contains('disabled')) return;
+
                 switch(action) {
                     case 'details':
                         this.showProductDetails(order.products[0].id || order.products[0].unique_id);
                         break;
                     case 'baselinker':
                         if (order.baselinkerOrderId) {
-                            window.open(`https://panel.baselinker.com/orders/order/${order.baselinkerOrderId}`, '_blank');
+                            window.open(`https://panel-f.baselinker.com/orders.php#order:${order.baselinkerOrderId}`, '_blank');
                         }
                         break;
                     case 'attachment':
@@ -1639,7 +1665,8 @@ class ProductsModule {
             'anulowane': 'status-cancelled',
             'mixed': 'status-mixed'
         };
-        return map[status] || 'status-completed';
+        const normalized = status ? status.toLowerCase() : '';
+        return map[normalized] || map[status] || 'status-completed';
     }
 
     getStatusBadgeClass(status) {
@@ -1656,7 +1683,8 @@ class ProductsModule {
             'anulowane': 'badge-cancelled',
             'mixed': 'badge-mixed'
         };
-        return map[status] || 'badge-completed';
+        const normalized = status ? status.toLowerCase() : '';
+        return map[normalized] || map[status] || 'badge-completed';
     }
 
     sortOrders() {
@@ -2100,7 +2128,7 @@ class ProductsModule {
                 baselinkerBtn.addEventListener('click', (e) => {
                     e.stopPropagation();
                     if (product.baselinker_order_id) {
-                        const baselinkerUrl = `https://panel.baselinker.com/orders.php?order_id=${product.baselinker_order_id}`;
+                        const baselinkerUrl = `https://panel-f.baselinker.com/orders.php#order:${product.baselinker_order_id}`;
                         window.open(baselinkerUrl, '_blank');
                     }
                 });
@@ -2667,12 +2695,12 @@ class ProductsModule {
         }
         
         const statuses = [
-            { value: 'czeka_na_wyciecie', label: 'Czeka na wycięcie' },
-            { value: 'w_trakcie_ciecia', label: 'W trakcie cięcia' },
-            { value: 'czeka_na_skladanie', label: 'Czeka na składanie' },
-            { value: 'w_trakcie_skladania', label: 'W trakcie składania' },
-            { value: 'czeka_na_pakowanie', label: 'Czeka na pakowanie' },
-            { value: 'w_trakcie_pakowania', label: 'W trakcie pakowania' },
+            { value: 'czeka_na_wyciecie', label: 'Wycinanie' },
+            { value: 'czeka_na_skladanie', label: 'Składanie' },
+            { value: 'czeka_na_sklejanie', label: 'Sklejanie' },
+            { value: 'czeka_na_formatowanie', label: 'Formatowanie' },
+            { value: 'czeka_na_wykanczanie', label: 'Wykańczanie' },
+            { value: 'czeka_na_pakowanie', label: 'Pakowanie' },
             { value: 'spakowane', label: 'Spakowane' },
             { value: 'wstrzymane', label: 'Wstrzymane' },
             { value: 'anulowane', label: 'Anulowane' }
@@ -2686,8 +2714,8 @@ class ProductsModule {
                 </div>
                 <div class="dropdown-body">
                     ${statuses.map(status => `
-                        <button class="dropdown-item status-item" data-status="${status.value}">
-                            <span class="status-badge ${this.getStatusClass(status.value)}">${status.label}</span>
+                        <button class="dropdown-item status-item ${this.getStatusBadgeClass(status.value)}" data-status="${status.value}">
+                            ${status.label}
                         </button>
                     `).join('')}
                 </div>
@@ -2695,7 +2723,7 @@ class ProductsModule {
         `;
 
         // Get bulk actions bar position
-        const bulkActionsBar = document.getElementById('bulk-actions-bar');
+        const bulkActionsBar = document.getElementById('il-bulk-bar') || document.getElementById('bulk-actions-bar');
         if (!bulkActionsBar) return;
 
         // Insert dropdown above bulk actions bar
@@ -2714,29 +2742,27 @@ class ProductsModule {
             dropdown.classList.add('show');
         }, 10);
         
-        // Close on outside click
-        document.addEventListener('click', this.closeBulkStatusDropdownOnOutsideClick.bind(this), { once: true });
+        // Close on outside click — delay to avoid catching the opening click
+        setTimeout(() => {
+            this._bulkStatusOutsideHandler = (e) => {
+                const dropdown = document.getElementById('bulk-status-dropdown');
+                const bulkBar = document.getElementById('il-bulk-bar') || document.getElementById('bulk-actions-bar');
+                if (dropdown && !dropdown.contains(e.target) && (!bulkBar || !bulkBar.contains(e.target))) {
+                    this.closeBulkStatusDropdown();
+                    document.removeEventListener('click', this._bulkStatusOutsideHandler);
+                }
+            };
+            document.addEventListener('click', this._bulkStatusOutsideHandler);
+        }, 100);
     }
 
     positionBulkStatusDropdown(dropdown, bulkActionsBar) {
         const barRect = bulkActionsBar.getBoundingClientRect();
-        
-        dropdown.style.cssText = `
-            position: fixed;
-            bottom: ${window.innerHeight - barRect.top + 10}px;
-            left: ${barRect.left}px;
-            right: ${window.innerWidth - barRect.right}px;
-            z-index: 1050;
-            background: white;
-            border: 1px solid #dee2e6;
-            border-radius: 8px;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-            opacity: 0;
-            transform: translateY(10px);
-            transition: all 0.2s ease;
-            max-height: 300px;
-            overflow-y: auto;
-        `;
+        // Position above bulk bar — CSS class handles styling
+        dropdown.style.bottom = `${window.innerHeight - barRect.top + 10}px`;
+        dropdown.style.left = `${barRect.left}px`;
+        dropdown.style.position = 'fixed';
+        dropdown.style.zIndex = '10001';
     }
 
     setupBulkStatusDropdownEvents(dropdown, selectedIds) {
@@ -2767,6 +2793,10 @@ class ProductsModule {
     }
 
     closeBulkStatusDropdown() {
+        if (this._bulkStatusOutsideHandler) {
+            document.removeEventListener('click', this._bulkStatusOutsideHandler);
+            this._bulkStatusOutsideHandler = null;
+        }
         const dropdown = document.getElementById('bulk-status-dropdown');
         if (dropdown) {
             dropdown.classList.remove('show');
@@ -2776,42 +2806,126 @@ class ProductsModule {
         }
     }
 
-    executeBulkStatusChange(selectedIds, newStatus) {
+    async executeBulkStatusChange(selectedIds, newStatus) {
         console.log(`[ProductsModule] Changing status to ${newStatus} for ${selectedIds.length} products`);
-        
-        // Close dropdown
         this.closeBulkStatusDropdown();
-        
-        // TODO: Implementacja API call w przyszłych krokach
-        const statusName = this.getStatusDisplayName(newStatus);
-        alert(`Status zostanie zmieniony na "${statusName}" dla ${selectedIds.length} produktów\n(Implementacja API w kolejnych krokach)`);
-    }
-
-    handleExportSelected(selectedIds) {
-        console.log(`[ProductsModule] Export selected: ${selectedIds.length} products`);
-        
-        if (this.state.isExporting) return;
-        
-        this.state.isExporting = true;
-        
-        // TODO: Implementacja exportu Excel w kroku 7
-        alert(`Export ${selectedIds.length} produktów do Excel\n(Implementacja w kroku 7 - Export Excel)`);
-        
-        setTimeout(() => {
-            this.state.isExporting = false;
-        }, 1000);
-    }
-
-    showBulkDeleteConfirmation(selectedIds) {
-        console.log(`[ProductsModule] Showing delete confirmation for ${selectedIds.length} products`);
-        
-        const confirmMessage = `Czy na pewno chcesz usunąć ${selectedIds.length} produktów?\n\nTa operacja jest nieodwracalna.`;
-        
-        if (confirm(confirmMessage)) {
-            console.log(`Confirmed delete for ${selectedIds.length} products`);
-            // TODO: Implementacja API call delete w przyszłych krokach
-            alert(`${selectedIds.length} produktów zostanie usuniętych\n(Implementacja API delete endpoint w kolejnych krokach)`);
+        const productIds = this._resolveProductIds(selectedIds);
+        try {
+            const response = await fetch('/production/api/products/bulk-action', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'update_status', product_ids: productIds, parameters: { new_status: newStatus } })
+            });
+            const result = await response.json();
+            if (result.success) {
+                const statusName = this.getStatusDisplayName(newStatus);
+                if (this.shared?.toastSystem) this.shared.toastSystem.show(`Status zmieniony na "${statusName}" dla ${result.processed_count} produktów`, 'success');
+                else alert(`Status zmieniony na "${statusName}" dla ${result.processed_count} produktów`);
+                this.state.selectedProducts.clear();
+                this.toggleBulkActionsVisibility();
+                if (this.shared?.apiClient) this.shared.apiClient.clearCache();
+                await this.refresh();
+            } else {
+                alert(`Błąd: ${result.error}`);
+            }
+        } catch (error) {
+            console.error('[ProductsModule] Bulk status change failed:', error);
+            alert(`Błąd zmiany statusu: ${error.message}`);
         }
+    }
+
+    async handleExportSelected(selectedIds) {
+        console.log(`[ProductsModule] Export selected: ${selectedIds.length} products`);
+        if (this.state.isExporting) return;
+        this.state.isExporting = true;
+        const productIds = this._resolveProductIds(selectedIds);
+        try {
+            const response = await fetch('/production/api/products/export', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ product_ids: productIds, format: 'excel' })
+            });
+            if (response.ok) {
+                const blob = await response.blob();
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `produkty_export_${new Date().toISOString().slice(0,10)}.xlsx`;
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+                window.URL.revokeObjectURL(url);
+                if (this.shared?.toastSystem) this.shared.toastSystem.show(`Wyeksportowano ${productIds.length} produktów`, 'success');
+            } else {
+                const result = await response.json();
+                alert(`Błąd eksportu: ${result.error}`);
+            }
+        } catch (error) {
+            console.error('[ProductsModule] Export failed:', error);
+            alert(`Błąd eksportu: ${error.message}`);
+        } finally {
+            this.state.isExporting = false;
+        }
+    }
+
+    async showBulkDeleteConfirmation(selectedIds) {
+        const confirmMessage = `Czy na pewno chcesz usunąć ${selectedIds.length} produktów?\n\nTa operacja jest nieodwracalna.`;
+        if (!confirm(confirmMessage)) return;
+        const productIds = this._resolveProductIds(selectedIds);
+        try {
+            const response = await fetch('/production/api/products/bulk-action', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'delete', product_ids: productIds, parameters: {} })
+            });
+            const result = await response.json();
+            if (result.success) {
+                if (this.shared?.toastSystem) this.shared.toastSystem.show(`Usunięto ${result.processed_count} produktów`, 'success');
+                else alert(`Usunięto ${result.processed_count} produktów`);
+                this.state.selectedProducts.clear();
+                this.toggleBulkActionsVisibility();
+                if (this.shared?.apiClient) this.shared.apiClient.clearCache();
+                await this.refresh();
+            } else {
+                alert(`Błąd usuwania: ${result.error}`);
+            }
+        } catch (error) {
+            console.error('[ProductsModule] Bulk delete failed:', error);
+            alert(`Błąd usuwania: ${error.message}`);
+        }
+    }
+
+    _updateOrderCheckboxState(orderCheckbox, order) {
+        const checkedCount = order.products.filter(p =>
+            this.state.selectedProducts.has(p.unique_id || String(p.id))
+        ).length;
+        const total = order.products.length;
+
+        if (checkedCount === 0) {
+            orderCheckbox.checked = false;
+            orderCheckbox.indeterminate = false;
+        } else if (checkedCount === total) {
+            orderCheckbox.checked = true;
+            orderCheckbox.indeterminate = false;
+        } else {
+            orderCheckbox.checked = false;
+            orderCheckbox.indeterminate = true;
+        }
+    }
+
+    _resolveProductIds(selectedUniqueIds) {
+        const ids = [];
+        selectedUniqueIds.forEach(uid => {
+            const product = this.state.products.find(p => (p.unique_id || String(p.id)) === uid);
+            if (product && product.id) {
+                ids.push(product.id);
+            } else {
+                const parts = uid.split('-');
+                const numId = parseInt(parts[parts.length - 1]);
+                if (!isNaN(numId)) ids.push(numId);
+            }
+        });
+        return ids;
     }
 
     handleExport() {
@@ -2971,6 +3085,27 @@ class ProductsModule {
                 ilBar.style.display = 'flex';
                 const countEl = ilBar.querySelector('.il-bulk-count');
                 if (countEl) countEl.textContent = `${selectedCount} zaznaczone`;
+
+                // Bind click handlers (only once)
+                if (!ilBar._listenersAttached) {
+                    ilBar._listenersAttached = true;
+                    ilBar.querySelectorAll('.il-bulk-btn').forEach(btn => {
+                        btn.addEventListener('click', () => {
+                            const action = btn.getAttribute('data-action');
+                            switch(action) {
+                                case 'status':
+                                    this.handleBulkAction('change-status');
+                                    break;
+                                case 'export':
+                                    this.handleBulkAction('export-selected');
+                                    break;
+                                case 'delete':
+                                    this.handleBulkAction('delete');
+                                    break;
+                            }
+                        });
+                    });
+                }
             } else {
                 ilBar.style.display = 'none';
             }
@@ -3170,18 +3305,9 @@ class ProductsModule {
     }
 
     getStatusDisplayName(status) {
-        const statusNames = {
-            'czeka_na_wyciecie': 'Czeka na wycięcie',
-            'w_trakcie_ciecia': 'W trakcie cięcia',
-            'czeka_na_skladanie': 'Czeka na składanie',
-            'w_trakcie_skladania': 'W trakcie składania',
-            'czeka_na_pakowanie': 'Czeka na pakowanie',
-            'w_trakcie_pakowania': 'W trakcie pakowania',
-            'spakowane': 'Spakowane',
-            'anulowane': 'Anulowane',
-            'wstrzymane': 'Wstrzymane'
-        };
-        return statusNames[status] || status;
+        if (!status) return 'Nieznany';
+        const normalized = status.toLowerCase();
+        return ProductsModule.STATUS_TRANSLATIONS[normalized] || ProductsModule.STATUS_TRANSLATIONS[status] || status;
     }
 
     getDeadlineClass(daysUntilDeadline) {
@@ -3785,12 +3911,7 @@ class ProductsModule {
 
     // getStatusBadgeClass — see new implementation above (line ~1645)
 
-    /**
-     * Zwraca przyjazną nazwę statusu dla wyświetlenia
-     */
-    getStatusDisplayName(status) {
-        return this.getStatusConfig(status).displayName;
-    }
+    // getStatusDisplayName — see unified version above (line ~3287) using STATUS_TRANSLATIONS
 
     /**
      * Konfiguruje obsługę notatek produkcyjnych
