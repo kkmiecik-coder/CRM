@@ -313,6 +313,40 @@ def create_app():
 
     register_blueprints_lazy(app)
 
+    # =========================================================================
+    # Auto-login przez HTTP Basic Auth (dla Fully Kiosk Browser na tabletach)
+    # =========================================================================
+    @app.before_request
+    def auto_login_basic_auth():
+        """Automatyczne logowanie przez HTTP Basic Auth (nagłówek Authorization).
+        Fully Kiosk Browser wysyła te dane z każdym requestem."""
+        from flask_login import current_user
+
+        if current_user.is_authenticated:
+            return
+
+        auth = request.authorization
+        if not auth or not auth.username or not auth.password:
+            return
+
+        user = User.query.filter_by(email=auth.username).first()
+        if not user or not user.active:
+            return
+
+        try:
+            if not check_password_hash(user.password, auth.password):
+                return
+        except ValueError:
+            return
+
+        # Zaloguj użytkownika
+        session['user_email'] = user.email
+        session['user_id'] = user.id
+        session.permanent = True
+        login_user(user, remember=True)
+
+        current_app.logger.info(f"[BasicAuth] Auto-login: {user.email} (tablet/kiosk)")
+
     # Cache trybu konserwacji (aby nie odpytywać DB przy każdym requeście)
     _maintenance_cache = {'enabled': False, 'checked_at': 0}
 
@@ -499,6 +533,11 @@ def create_app():
 
     @app.route('/login', methods=['GET', 'POST'])
     def login():
+        from flask_login import current_user
+        # Jeśli już zalogowany (np. przez Basic Auth z tabletu) — przekieruj
+        if current_user.is_authenticated:
+            return redirect(url_for('dashboard.index'))
+
         if request.method == 'POST':
             email = request.form.get('email')
             password = request.form.get('password')
