@@ -299,7 +299,7 @@
               <div class="il-system-dot" id="sync-health" style="background: {% if dashboard_stats.system_health.sync_status == 'success' %}var(--il-status-ok){% elif dashboard_stats.system_health.sync_status == 'warning' %}var(--il-status-warn){% else %}var(--il-status-danger){% endif %};"></div>
               <span class="il-system-label">Sync BaseLinker</span>
             </div>
-            <span class="il-system-value" id="last-sync-display">Ostatnia: {% if dashboard_stats.system_health.last_sync %}{{ dashboard_stats.system_health.last_sync[:16]|replace('T', ' ') }}{% else %}--{% endif %}</span>
+            <span class="il-system-value" id="last-sync-display">Ostatnia: {% if dashboard_stats.system_health.last_sync %}<span class="sync-date-value" data-sync-time="{{ dashboard_stats.system_health.last_sync }}">{{ dashboard_stats.system_health.last_sync[:16]|replace('T', ' ') }}</span>{% else %}--{% endif %}</span>
           </div>
           <div class="il-system-item">
             <div class="il-system-item-left">
@@ -388,3 +388,21 @@
 
 {# Modal synchronizacji z Baselinker #}
 {% include 'components/dashboard_bl_sync_modal.html' %}
+
+<script>
+(function() {
+    const el = document.querySelector('.sync-date-value');
+    if (!el || !el.dataset.syncTime) return;
+
+    const syncTime = new Date(el.dataset.syncTime);
+    const hoursAgo = (Date.now() - syncTime.getTime()) / (1000 * 60 * 60);
+
+    if (hoursAgo < 24) {
+        el.classList.add('sync-fresh');
+    } else if (hoursAgo < 48) {
+        el.classList.add('sync-warning');
+    } else {
+        el.classList.add('sync-stale');
+    }
+})();
+</script>
