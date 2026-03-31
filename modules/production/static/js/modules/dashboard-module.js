@@ -666,13 +666,15 @@ class DashboardModule {
                         else if (days <= 1) { dotClass = 'warn'; daysColor = 'var(--il-status-warn)'; }
 
                         const daysText = days < 0 ? `${days} dni` : days === 0 ? 'Dziś' : days === 1 ? '1 dzień' : `${days} dni`;
+                        const count = alert.products_count || 1;
+                        const prodLabel = count === 1 ? 'produkt' : (count >= 2 && count <= 4 ? 'produkty' : 'produktów');
 
                         return `
                             <div class="il-alert-item">
                                 <div class="il-alert-dot ${dotClass}"></div>
                                 <div class="il-alert-info">
                                     <div class="il-alert-client">${alert.client_name || 'Brak danych'}</div>
-                                    <div class="il-alert-order">${alert.baselinker_order_id || ''} · ${alert.current_station || ''}</div>
+                                    <div class="il-alert-order">${alert.baselinker_order_id || ''} · ${count} ${prodLabel}</div>
                                 </div>
                                 <div class="il-alert-right">
                                     <div class="il-alert-days" style="color: ${daysColor};">${daysText}</div>

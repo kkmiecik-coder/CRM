@@ -1040,26 +1040,32 @@ def dashboard_tab_content():
             'm3': round(sum(float(item.volume_m3 or 0) for item in in_production_items), 2)
         }
 
-        deadline_alerts = ProductionItem.query.filter(
+        deadline_items = ProductionItem.query.filter(
             ProductionItem.deadline_date <= (today + timedelta(days=3)),
             ProductionItem.current_status != 'spakowane'
         ).order_by(ProductionItem.deadline_date.asc()).all()
 
-        dashboard_stats['deadline_alerts'] = [
-            {
-                'short_product_id': alert.short_product_id,
-                'deadline_date': alert.deadline_date.isoformat() if alert.deadline_date else None,
-                'deadline_date_formatted': alert.deadline_date.strftime('%d.%m.%Y') if alert.deadline_date else '',
-                'days_remaining': (alert.deadline_date - today).days if alert.deadline_date else 0,
-                'current_station': alert.current_status.replace('czeka_na_', '') if alert.current_status else 'unknown',
-                'client_name': alert.client_name or 'Brak danych',
-                'client_order_number': alert.client_order_number or '',
-                'baselinker_order_id': alert.baselinker_order_id,
-                'product_name': alert.original_product_name or '',
-                'quantity': alert.quantity or 1
-            }
-            for alert in deadline_alerts
-        ]
+        # Group by order (baselinker_order_id)
+        orders_map = {}
+        for item in deadline_items:
+            oid = item.baselinker_order_id or item.short_product_id
+            if oid not in orders_map:
+                orders_map[oid] = {
+                    'baselinker_order_id': item.baselinker_order_id,
+                    'client_name': item.client_name or 'Brak danych',
+                    'deadline_date': item.deadline_date,
+                    'deadline_date_formatted': item.deadline_date.strftime('%d.%m.%Y') if item.deadline_date else '',
+                    'days_remaining': (item.deadline_date - today).days if item.deadline_date else 0,
+                    'products_count': 0,
+                }
+            orders_map[oid]['products_count'] += 1
+            # Use earliest deadline for the order
+            if item.deadline_date and (orders_map[oid]['deadline_date'] is None or item.deadline_date < orders_map[oid]['deadline_date']):
+                orders_map[oid]['deadline_date'] = item.deadline_date
+                orders_map[oid]['deadline_date_formatted'] = item.deadline_date.strftime('%d.%m.%Y')
+                orders_map[oid]['days_remaining'] = (item.deadline_date - today).days
+
+        dashboard_stats['deadline_alerts'] = sorted(orders_map.values(), key=lambda x: x.get('days_remaining', 0))
 
         errors_24h = ProductionError.query.filter(
             ProductionError.error_occurred_at >= (get_local_now() - timedelta(hours=24)),
@@ -1310,26 +1316,32 @@ def dashboard_data():
             })
 
         today = date.today()
-        deadline_alerts = ProductionItem.query.filter(
+        deadline_items = ProductionItem.query.filter(
             ProductionItem.deadline_date <= (today + timedelta(days=3)),
             ProductionItem.current_status != 'spakowane'
         ).order_by(ProductionItem.deadline_date.asc()).all()
 
-        alerts_data = [
-            {
-                'short_product_id': alert.short_product_id,
-                'deadline_date': alert.deadline_date.isoformat() if alert.deadline_date else None,
-                'deadline_date_formatted': alert.deadline_date.strftime('%d.%m.%Y') if alert.deadline_date else '',
-                'days_remaining': (alert.deadline_date - today).days if alert.deadline_date else 0,
-                'current_station': alert.current_status.replace('czeka_na_', '') if alert.current_status else 'unknown',
-                'client_name': alert.client_name or 'Brak danych',
-                'client_order_number': alert.client_order_number or '',
-                'baselinker_order_id': alert.baselinker_order_id,
-                'product_name': alert.original_product_name or '',
-                'quantity': alert.quantity or 1
-            }
-            for alert in deadline_alerts
-        ]
+        # Group by order (baselinker_order_id)
+        orders_map = {}
+        for item in deadline_items:
+            oid = item.baselinker_order_id or item.short_product_id
+            if oid not in orders_map:
+                orders_map[oid] = {
+                    'baselinker_order_id': item.baselinker_order_id,
+                    'client_name': item.client_name or 'Brak danych',
+                    'deadline_date': item.deadline_date.isoformat() if item.deadline_date else None,
+                    'deadline_date_formatted': item.deadline_date.strftime('%d.%m.%Y') if item.deadline_date else '',
+                    'days_remaining': (item.deadline_date - today).days if item.deadline_date else 0,
+                    'products_count': 0,
+                }
+            orders_map[oid]['products_count'] += 1
+            # Use earliest deadline for the order
+            if item.deadline_date and item.deadline_date.isoformat() < (orders_map[oid]['deadline_date'] or '9999'):
+                orders_map[oid]['deadline_date'] = item.deadline_date.isoformat()
+                orders_map[oid]['deadline_date_formatted'] = item.deadline_date.strftime('%d.%m.%Y')
+                orders_map[oid]['days_remaining'] = (item.deadline_date - today).days
+
+        alerts_data = sorted(orders_map.values(), key=lambda x: x.get('days_remaining', 0))
 
         in_production_active_statuses = [
             'czeka_na_wyciecie', 'czeka_na_skladanie', 'czeka_na_sklejanie',
