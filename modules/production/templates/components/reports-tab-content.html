@@ -2,29 +2,31 @@
 <!-- Komponent zawartości taba Raporty -->
 
 <style>
-/* Główny kontener raportów */
+/* ═══ REPORTS TAB — Industrial Light Design System ═══ */
 #reports-tab-wrapper {
-    padding: 20px;
+    padding: 16px 14px;
 }
 
-/* Podsumowanie tygodniowe */
+/* ─── KPI Summary Cards ─── */
 .reports-summary {
-    margin-bottom: 24px;
+    margin-bottom: 16px;
 }
 
 .summary-card {
-    background: white;
-    border-radius: 12px;
-    padding: 20px;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+    background: var(--il-bg-card, #fff);
+    border: 1px solid var(--il-border, #c8cdd5);
+    border-radius: var(--il-radius, 3px);
+    padding: 14px 16px;
     display: flex;
     align-items: center;
-    gap: 16px;
+    gap: 14px;
     height: 100%;
+    box-shadow: inset 0 -2px 0 var(--il-inset-shadow, #d4d9e1);
 }
 
 .summary-icon {
-    font-size: 2.5rem;
+    font-size: 1.6rem;
+    opacity: 0.8;
 }
 
 .summary-data {
@@ -32,26 +34,29 @@
 }
 
 .summary-value {
-    font-size: 1.8rem;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 24px;
     font-weight: 700;
-    color: #212529;
+    color: var(--il-text-primary, #1a1a2e);
     line-height: 1.2;
 }
 
 .summary-label {
-    font-size: 0.85rem;
-    color: #6c757d;
-    margin-top: 4px;
+    font-size: 11px;
+    color: var(--il-text-secondary, #7a8291);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-top: 2px;
 }
 
-/* Widgety wykresów */
+/* ─── Widget Base ─── */
 .performance-widget,
 .status-breakdown-widget,
 .analytics-widget,
 .sync-history-widget {
-    background: white;
-    border-radius: 12px;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+    background: var(--il-bg-card, #fff);
+    border: 1px solid var(--il-border, #c8cdd5);
+    border-radius: var(--il-radius, 3px);
     overflow: hidden;
 }
 
@@ -62,9 +67,8 @@
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 16px 20px;
-    border-bottom: 1px solid #e9ecef;
-    background: linear-gradient(135deg, #fafafa 0%, #f5f5f5 100%);
+    padding: 10px 14px;
+    border-bottom: 2px solid var(--il-bg-base, #eef0f4);
 }
 
 .performance-widget .widget-header h4,
@@ -72,53 +76,77 @@
 .analytics-widget .widget-header h4,
 .sync-history-widget .widget-header h4 {
     margin: 0;
-    font-size: 1.1rem;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 14px;
     font-weight: 600;
-    color: #212529;
+    color: var(--il-text-secondary, #7a8291);
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
 }
 
 .performance-widget .widget-content,
 .status-breakdown-widget .widget-content,
 .analytics-widget .widget-content,
 .sync-history-widget .widget-content {
-    padding: 20px;
+    padding: 14px;
 }
 
-/* Wrapper dla wykresów - upewnij się że ma wysokość */
+/* ─── Chart Wrapper ─── */
 .chart-wrapper {
     position: relative;
     min-height: 250px;
 }
 
-/* Widget wydajności dziennej - wyróżniony */
+/* ─── Performance Widget ─── */
 .performance-widget {
-    margin-bottom: 24px;
+    margin-bottom: 16px;
 }
 
 .performance-widget .widget-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
     flex-wrap: wrap;
-    gap: 12px;
+    gap: 10px;
 }
 
 .performance-widget .widget-header h4 {
     display: flex;
     align-items: center;
-    margin: 0;
-    font-size: 1.1rem;
 }
 
 .performance-widget .chart-controls {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 6px;
 }
 
 .performance-widget .chart-controls .form-select {
     width: auto;
-    min-width: 120px;
+    min-width: 110px;
+    font-size: 12px;
+    padding: 4px 28px 4px 8px;
+    border: 1px solid var(--il-border, #c8cdd5);
+    border-radius: var(--il-radius, 3px);
+    background-color: var(--il-bg-card, #fff);
+    color: var(--il-text-primary, #1a1a2e);
+}
+
+.performance-widget .chart-controls .form-select:focus {
+    border-color: var(--il-status-info, #2563eb);
+    box-shadow: none;
+    outline: none;
+}
+
+.performance-widget .chart-controls .btn {
+    padding: 4px 8px;
+    font-size: 12px;
+    border: 1px solid var(--il-border, #c8cdd5);
+    border-radius: var(--il-radius, 3px);
+    color: var(--il-text-secondary, #7a8291);
+    background: var(--il-bg-card, #fff);
+}
+
+.performance-widget .chart-controls .btn:hover {
+    color: var(--il-status-info, #2563eb);
+    border-color: var(--il-status-info, #2563eb);
 }
 
 .performance-widget .chart-wrapper {
@@ -140,13 +168,41 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    background: rgba(255, 255, 255, 0.9);
-    padding: 20px;
-    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.92);
+    padding: 16px;
+    border-radius: var(--il-radius, 3px);
     z-index: 10;
+    font-size: 13px;
+    color: var(--il-text-secondary, #7a8291);
 }
 
-/* Style dla wykresów analitycznych */
+/* ─── Summary Card (inside performance widget) ─── */
+#reports-chart-summary .card {
+    border: 1px solid var(--il-border-light, #e2e5ea);
+    border-radius: var(--il-radius, 3px);
+    box-shadow: none;
+}
+
+#reports-chart-summary .card-header {
+    background: var(--il-bg-base, #eef0f4);
+    border-bottom: 1px solid var(--il-border-light, #e2e5ea);
+    padding: 8px 14px;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--il-text-secondary, #7a8291);
+}
+
+#reports-chart-summary .card-body {
+    padding: 8px 14px;
+}
+
+#reports-chart-summary .table {
+    font-size: 13px;
+    margin: 0;
+}
+
+/* ─── Analytics Charts Legend ─── */
 .chart-legend {
     max-height: 180px;
     overflow-y: auto;
@@ -157,48 +213,123 @@
     align-items: center;
     gap: 6px;
     padding: 2px 0;
-    color: #333 !important;
+    font-size: 12px;
+    color: var(--il-text-primary, #1a1a2e);
+}
+
+.legend-item strong {
+    font-family: 'JetBrains Mono', monospace;
 }
 
 .legend-color {
-    width: 12px;
-    height: 12px;
+    width: 10px;
+    height: 10px;
     border-radius: 2px;
     flex-shrink: 0;
 }
 
 .analytics-widget h6 {
-    color: #6c757d;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
     font-weight: 600;
+    color: var(--il-text-secondary, #7a8291);
+    text-transform: uppercase;
+    letter-spacing: 1px;
 }
 
-.analytics-widget .chart-legend {
-    color: #333;
+/* ─── Tables ─── */
+.status-breakdown-widget .table,
+.sync-history-widget .table {
+    font-size: 13px;
+    margin: 0;
 }
 
-.analytics-widget .legend-item {
-    color: #333 !important;
+.status-breakdown-widget .table th,
+.sync-history-widget .table th {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--il-text-secondary, #7a8291);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    border-bottom: 2px solid var(--il-bg-base, #eef0f4);
+    padding: 8px 10px;
 }
 
-.analytics-widget .legend-item strong {
-    color: #000;
+.status-breakdown-widget .table td,
+.sync-history-widget .table td {
+    padding: 7px 10px;
+    color: var(--il-text-primary, #1a1a2e);
+    border-bottom: 1px solid var(--il-bg-base, #eef0f4);
+    vertical-align: middle;
 }
 
-/* Akcje raportów */
+.sync-history-widget .table-striped > tbody > tr:nth-of-type(odd) > td {
+    background-color: rgba(0, 0, 0, 0.015);
+}
+
+/* ─── Status Badges ─── */
+.status-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    font-size: 11px;
+    font-weight: 600;
+    border-radius: 2px;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+}
+
+/* ─── Export Actions ─── */
 .reports-actions .card {
-    border-radius: 12px;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+    border: 1px solid var(--il-border, #c8cdd5);
+    border-radius: var(--il-radius, 3px);
+    box-shadow: none;
 }
 
 .reports-actions .card-header {
-    background: linear-gradient(135deg, #fafafa 0%, #f5f5f5 100%);
-    border-bottom: 1px solid #e9ecef;
-    padding: 16px 20px;
+    background: var(--il-bg-base, #eef0f4);
+    border-bottom: 2px solid var(--il-border-light, #e2e5ea);
+    padding: 10px 14px;
 }
 
 .reports-actions .card-header h5 {
     margin: 0;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 14px;
     font-weight: 600;
+    color: var(--il-text-secondary, #7a8291);
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+}
+
+.reports-actions .card-body {
+    padding: 14px;
+}
+
+.reports-actions .btn {
+    font-size: 13px;
+    padding: 8px 16px;
+    border-radius: var(--il-radius, 3px);
+}
+
+/* ─── Sync Widget Button ─── */
+.sync-history-widget .btn {
+    font-size: 12px;
+    padding: 4px 10px;
+    border: 1px solid var(--il-border, #c8cdd5);
+    border-radius: var(--il-radius, 3px);
+    color: var(--il-text-secondary, #7a8291);
+    background: var(--il-bg-card, #fff);
+}
+
+.sync-history-widget .btn:hover {
+    color: var(--il-status-info, #2563eb);
+    border-color: var(--il-status-info, #2563eb);
+}
+
+/* ─── Spacing between widgets ─── */
+.widget.mt-4 {
+    margin-top: 16px !important;
 }
 </style>
 
