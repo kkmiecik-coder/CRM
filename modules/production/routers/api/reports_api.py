@@ -25,7 +25,7 @@ def reports_tab_content():
             'user_role': getattr(current_user, 'role', 'unknown')
         })
         
-        from ..models import ProductionItem, ProductionSyncLog
+        from ...models import ProductionItem, ProductionSyncLog
         
         # Przygotuj dane dla raportów
         today = date.today()

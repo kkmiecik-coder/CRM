@@ -24,7 +24,7 @@ def stations_tab_content():
             'user_role': getattr(current_user, 'role', 'unknown')
         })
         
-        from ..models import ProductionItem
+        from ...models import ProductionItem
         
         # Dane dla każdego stanowiska
         stations_data = {}

@@ -74,7 +74,7 @@ def update_config():
             'user_id': current_user.id
         })
         
-        from ..models import ProductionConfig
+        from ...models import ProductionConfig
         
         # Użycie metody z modelu dla aktualizacji konfiguracji
         ProductionConfig.set_config(
@@ -138,7 +138,7 @@ def config_tab_content():
         from types import SimpleNamespace
         import json
 
-        from ..models import ProductionConfig, ProductionPriorityConfig
+        from ...models import ProductionConfig, ProductionPriorityConfig
         from ..services.config_service import get_config_service
 
         def _parse_value(raw_value: str, cfg_type: str):
@@ -667,7 +667,7 @@ def get_config_info(config_key: str):
         JSON: Informacje o konfiguracji
     """
     try:
-        from ..models import ProductionConfig
+        from ...models import ProductionConfig
         from ..services.config_service import get_config_service
         
         config_service = get_config_service()

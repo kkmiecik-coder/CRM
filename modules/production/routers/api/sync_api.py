@@ -557,14 +557,14 @@ def health_check():
         
         # Test połączenia z bazą danych
         try:
-            from ..models import ProductionItem
+            from ...models import ProductionItem
             
             # Proste zapytanie testowe
             db.session.execute(db.text('SELECT 1')).scalar()
             health_data['database'] = 'connected'
             
             # Sprawdzenie liczby oczekujących błędów
-            from ..models import ProductionError
+            from ...models import ProductionError
             pending_errors = ProductionError.query.filter_by(is_resolved=False).count()
             health_data['pending_errors'] = pending_errors
             
@@ -625,7 +625,7 @@ def health_check():
         # Dodatkowe informacje diagnostyczne dla adminów
         if hasattr(current_user, 'role') and current_user.role.lower() in ['admin', 'administrator']:
             try:
-                from ..models import ProductionItem
+                from ...models import ProductionItem
                 
                 # Statystyki produktów
                 active_products = ProductionItem.query.filter(
@@ -843,7 +843,7 @@ def fetch_orders_preview():
         filtered_orders = []
 
         # Pobierz istniejące zamówienia z bazy danych
-        from ..models import ProductionItem
+        from ...models import ProductionItem
 
         # Zbierz wszystkie baselinker_order_id z pobranych zamówień
         baselinker_ids = [order.get('order_id') for order in all_orders if order.get('order_id')]

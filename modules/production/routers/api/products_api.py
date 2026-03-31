@@ -65,7 +65,7 @@ def complete_task():
             'client_ip': request.remote_addr
         })
         
-        from ..models import ProductionItem
+        from ...models import ProductionItem
         
         # Znajdź produkt
         product = ProductionItem.query.filter_by(short_product_id=product_id).first()
@@ -190,7 +190,7 @@ def toggle_product_done():
             'client_ip': request.remote_addr
         })
 
-        from ..models import ProductionItem
+        from ...models import ProductionItem
 
         # Znajdź produkt
         product = ProductionItem.query.filter_by(short_product_id=product_id).first()
@@ -305,7 +305,7 @@ def update_quantity_done():
             'client_ip': request.remote_addr
         })
 
-        from ..models import ProductionItem
+        from ...models import ProductionItem
 
         # Znajdź produkt
         product = ProductionItem.query.filter_by(short_product_id=product_id).first()
@@ -403,7 +403,7 @@ def get_cutting_progress():
         if not isinstance(product_ids, list):
             return jsonify({'success': False, 'error': 'product_ids musi być listą'}), 400
 
-        from ..models import ProductionItem
+        from ...models import ProductionItem
 
         products = ProductionItem.query.filter(
             ProductionItem.short_product_id.in_(product_ids)
@@ -474,7 +474,7 @@ def get_assembly_progress():
         if not isinstance(product_ids, list):
             return jsonify({'success': False, 'error': 'product_ids musi być listą'}), 400
 
-        from ..models import ProductionItem
+        from ...models import ProductionItem
 
         products = ProductionItem.query.filter(
             ProductionItem.short_product_id.in_(product_ids)
@@ -966,7 +966,7 @@ def admin_update_quantity_done():
             'user_email': current_user.email
         })
 
-        from ..models import ProductionItem
+        from ...models import ProductionItem
 
         # Znajdź produkt
         product = ProductionItem.query.filter_by(short_product_id=product_id).first()
@@ -1227,7 +1227,7 @@ def bulk_action():
         if action not in valid_actions:
             return jsonify({'success': False, 'error': f'Nieprawidłowa akcja. Dostępne: {valid_actions}'}), 400
         
-        from ..models import ProductionItem
+        from ...models import ProductionItem
         
         # Pobierz produkty
         products = ProductionItem.query.filter(ProductionItem.id.in_(product_ids)).all()
@@ -1343,7 +1343,7 @@ def export_products():
         if export_format not in valid_formats:
             return jsonify({'success': False, 'error': f'Nieprawidłowy format. Dostępne: {valid_formats}'}), 400
 
-        from ..models import ProductionItem
+        from ...models import ProductionItem
 
         # Buduj query na podstawie selekcji
         query = ProductionItem.query
@@ -2137,7 +2137,7 @@ def get_filters_data():
     Returns: JSON z listami unikalnych wartości
     """
     try:
-        from ..models import ProductionItem
+        from ...models import ProductionItem
         from sqlalchemy import func, distinct
         
         # Pobierz unikalne wartości dla filtrów
@@ -2255,7 +2255,7 @@ def update_single_product_priority(product_id):
         if not isinstance(new_priority, int) or new_priority < 1:
             return jsonify({'success': False, 'error': 'Priority rank musi być liczbą >= 1'}), 400
         
-        from ..models import ProductionItem
+        from ...models import ProductionItem
         
         product = ProductionItem.query.get_or_404(product_id)
         old_priority = product.priority_rank
@@ -2656,7 +2656,7 @@ def complete_packaging():
             'client_ip': request.remote_addr
         })
         
-        from ..models import ProductionItem
+        from ...models import ProductionItem
         from ..services.sync_service import get_sync_service
 
         # Walidacja i przygotowanie listy produktów do aktualizacji
@@ -2861,7 +2861,7 @@ def update_product_notes(product_id):
     Returns: JSON z rezultatem operacji
     """
     try:
-        from ..models import ProductionItem
+        from ...models import ProductionItem
         
         # Pobierz dane z request
         data = request.get_json()
@@ -2933,7 +2933,7 @@ def get_order_products(product_id):
     Returns: JSON z listą produktów z zamówienia
     """
     try:
-        from ..models import ProductionItem
+        from ...models import ProductionItem
         
         # Znajdź produkt
         product = ProductionItem.query.get_or_404(product_id)
@@ -3076,7 +3076,7 @@ def reset_all_priorities():
         })
         
         from ..services.priority_service import get_priority_calculator
-        from ..models import ProductionItem
+        from ...models import ProductionItem
         
         # Sprawdź ile produktów ma manual override przed resetem
         manual_overrides_before = ProductionItem.query.filter_by(priority_manual_override=True).count()
@@ -3196,7 +3196,7 @@ def set_manual_product_priority(product_id):
                 'error': 'priority_rank musi być liczbą między 1 a 1000'
             }), 400
         
-        from ..models import ProductionItem
+        from ...models import ProductionItem
         
         # Znajdź produkt
         product = ProductionItem.query.get_or_404(product_id)
@@ -3302,7 +3302,7 @@ def get_priority_statistics():
             'endpoint': 'priority-statistics'
         })
         
-        from ..models import ProductionItem
+        from ...models import ProductionItem
         from sqlalchemy import func, desc
         from datetime import datetime, timedelta
         
