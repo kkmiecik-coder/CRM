@@ -1043,7 +1043,7 @@ def dashboard_tab_content():
         deadline_alerts = ProductionItem.query.filter(
             ProductionItem.deadline_date <= (today + timedelta(days=3)),
             ProductionItem.current_status != 'spakowane'
-        ).order_by(ProductionItem.deadline_date.asc()).limit(5).all()
+        ).order_by(ProductionItem.deadline_date.asc()).all()
 
         dashboard_stats['deadline_alerts'] = [
             {
@@ -1313,7 +1313,7 @@ def dashboard_data():
         deadline_alerts = ProductionItem.query.filter(
             ProductionItem.deadline_date <= (today + timedelta(days=3)),
             ProductionItem.current_status != 'spakowane'
-        ).order_by(ProductionItem.deadline_date.asc()).limit(10).all()
+        ).order_by(ProductionItem.deadline_date.asc()).all()
 
         alerts_data = [
             {

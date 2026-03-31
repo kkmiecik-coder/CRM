@@ -265,7 +265,7 @@
     <div class="dashboard-card" style="flex: 1;">
       <div class="dashboard-card-header">Alerty terminów <span id="alerts-count" class="ms-2" style="color: var(--il-status-danger);">{{ dashboard_stats.deadline_alerts|length }}</span></div>
       <div class="dashboard-card-body">
-        <div class="il-alert-list" id="alerts-list">
+        <div class="il-alert-list" id="alerts-list" style="max-height: 370px; overflow-y: auto;">
           {% if dashboard_stats.deadline_alerts %}
             {% for alert in dashboard_stats.deadline_alerts %}
               <div class="il-alert-item">
