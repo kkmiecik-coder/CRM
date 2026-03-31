@@ -68,8 +68,7 @@ def get_available_routers():
     return {
         'api_routers': api_bp is not None,
         'station_routers': station_bp is not None,
-        'admin_routers': admin_bp is not None,
-        'test_routers': test_bp is not None
+        'admin_routers': admin_bp is not None
     }
 
 def register_production_routers(main_blueprint):
