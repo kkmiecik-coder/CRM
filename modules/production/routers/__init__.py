@@ -36,16 +36,7 @@ except ImportError as e:
 api_bp = None
 station_bp = None
 admin_bp = None
-test_bp = None
 
-try:
-    from .test_routers import test_bp as imported_test_bp
-    test_bp = imported_test_bp
-    logger.info("Zaimportowano Test routers")
-except ImportError as e:
-    logger.warning(f"Nie można zaimportować Test routers: {e}")
-
-# Import routerów (będą dodawane postupnie)
 try:
     from .api import api_bp as imported_api_bp
     api_bp = imported_api_bp
@@ -119,15 +110,9 @@ def register_production_routers(main_blueprint):
         registered_count += 1
         logger.info("Zarejestrowano Admin routers pod /production/admin")
 
-    # TEST routes
-    if test_bp:
-        main_blueprint.register_blueprint(test_bp, url_prefix='/test')
-        registered_count += 1
-        logger.info("Zarejestrowano Test routers pod /production/test")
-
     logger.info("Zakończono rejestrację routerów", extra={
         'registered_count': registered_count,
-        'total_possible': 5  # ← Teraz jest 5 routerów (dodałeś main_bp)
+        'total_possible': 4
     })
 
     return registered_count
@@ -209,9 +194,6 @@ URL_PATTERNS = {
         '/admin/users',                # Zarządzanie użytkownikami stanowisk
         '/admin/stats',                # Szczegółowe statystyki
     ],
-    'test_routers': [
-        '/test/backend',               # Test backendu
-    ]
 }
 
 def get_all_url_patterns():
@@ -336,8 +318,7 @@ __all__ = [
     'api_bp',
     'station_bp', 
     'admin_bp',
-    'test_bp',
-    'main_bp',  # Dodaj jeśli nie ma
+    'main_bp',
     'get_available_routers',
     'register_production_routers',  # Główna funkcja
     'register_production_routes',   # Alias dla kompatybilności - DODAJ TO
@@ -351,7 +332,7 @@ __all__ = [
 
 # Metadata routerów
 __version__ = '1.2.0'
-__total_routers__ = 4
+__total_routers__ = 3
 __description__ = 'Production module routers with security and monitoring'
 
 logger.info("Zainicjalizowano moduł routerów production", extra={
