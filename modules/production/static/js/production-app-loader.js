@@ -599,6 +599,9 @@ class ProductionApp {
             try {
                 await this.refreshActiveTab();
                 this.resetAutoRefreshTimer();
+                this.shared.toastSystem.show('Dane odświeżone', 'success');
+            } catch (error) {
+                this.shared.toastSystem.show('Błąd odświeżania: ' + error.message, 'error');
             } finally {
                 btn.classList.remove('refreshing');
             }

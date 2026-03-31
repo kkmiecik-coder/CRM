@@ -386,14 +386,10 @@ class DashboardModule {
     // ========================================================================
 
     async initializeProductionStatus() {
-        console.log('[Dashboard Module] Initializing production status...');
-        
-        try {
-            await this.updateProductionStatus();
-        } catch (error) {
-            console.error('[Dashboard Module] Failed to initialize production status:', error);
-            this.showProductionStatusError('Błąd ładowania statusu systemu');
-        }
+        // Production status widget was removed from main template.
+        // Sync date coloring is now handled by inline script in dashboard-tab-content.html
+        // and by the production-status refresh handler in setupDataRefreshHandlers().
+        console.log('[Dashboard Module] Production status initialized (sync date coloring)');
     }
 
     initializeWidgets() {
