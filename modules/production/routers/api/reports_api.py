@@ -47,6 +47,7 @@ def reports_tab_content():
             
             volume = db.session.query(db.func.sum(ProductionItem.volume_m3))\
                               .filter(
+                                  ProductionItem.current_status == 'spakowane',
                                   ProductionItem.packaging_completed_at >= day_start,
                                   ProductionItem.packaging_completed_at <= day_end
                               ).scalar() or 0.0
@@ -57,19 +58,23 @@ def reports_tab_content():
                 'total_volume': float(volume)
             })
         
-        # Raport statusów
-        status_report = []
-        statuses = ['czeka_na_wyciecie', 'czeka_na_skladanie', 'czeka_na_pakowanie', 'spakowane', 'wstrzymane']
-        for status in statuses:
-            count = ProductionItem.query.filter_by(current_status=status).count()
-            volume = db.session.query(db.func.sum(ProductionItem.volume_m3))\
-                              .filter_by(current_status=status).scalar() or 0.0
-            
-            status_report.append({
-                'status': status,
-                'count': count,
-                'volume': float(volume)
-            })
+        # Raport statusów - dynamicznie ze wszystkich istniejących w bazie
+        status_stats = db.session.query(
+            ProductionItem.current_status,
+            func.count(ProductionItem.id).label('count'),
+            func.sum(ProductionItem.volume_m3).label('volume')
+        ).filter(
+            ProductionItem.current_status.isnot(None)
+        ).group_by(ProductionItem.current_status).all()
+
+        status_report = [
+            {
+                'status': row[0],
+                'count': row[1],
+                'volume': float(row[2] or 0)
+            }
+            for row in status_stats
+        ]
         
         # Historia synchronizacji (ostatnie 10)
         sync_history = ProductionSyncLog.query\
