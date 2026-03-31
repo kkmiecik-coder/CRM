@@ -122,22 +122,17 @@ class ProductionApp {
     // ========================================================================
 
     async prefetchHotTabs(initialTab) {
-        // Prioritize the initial tab, then load other hot tabs
-        const prioritized = [initialTab, ...this.HOT_TABS.filter(t => t !== initialTab)];
-        // Only prefetch hot tabs
-        const toPrefetch = prioritized.filter(t => this.HOT_TABS.includes(t));
+        const isHot = this.HOT_TABS.includes(initialTab);
 
-        console.log(`[ProductionApp] Prefetching hot tabs: ${toPrefetch.join(', ')}`);
+        // Always load the initial tab first (user sees it)
+        console.log(`[ProductionApp] Loading initial tab: ${initialTab}`);
+        await this.loadTabContent(initialTab);
 
-        // Load initial tab first (user sees it)
-        if (toPrefetch.length > 0) {
-            await this.loadTabContent(toPrefetch[0]);
-        }
-
-        // Then load remaining hot tabs in background
-        const remaining = toPrefetch.slice(1);
-        if (remaining.length > 0) {
-            Promise.all(remaining.map(tab => this.loadTabContent(tab))).catch(err => {
+        // Then prefetch remaining hot tabs in background
+        const remainingHot = this.HOT_TABS.filter(t => t !== initialTab);
+        if (remainingHot.length > 0) {
+            console.log(`[ProductionApp] Prefetching hot tabs: ${remainingHot.join(', ')}`);
+            Promise.all(remainingHot.map(tab => this.loadTabContent(tab))).catch(err => {
                 console.warn('[ProductionApp] Background prefetch error:', err);
             });
         }
