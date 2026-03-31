@@ -202,11 +202,21 @@ class DashboardModule {
             }
         });
 
-        // Handler dla statusu produkcji
+        // Handler dla statusu produkcji (aktualizuje sync date coloring w Status systemu)
         this.dataRefresh.registerRefreshHandler('production-status', async () => {
             const data = await this.shared.apiClient.getProductionStatusData();
-            if (data.success) {
-                this.updateProductionStatusWidget(data.data);
+            if (data.success && data.data) {
+                // Update sync date coloring in dashboard
+                const syncEl = document.querySelector('.sync-date-value');
+                if (syncEl && data.data.last_sync) {
+                    const syncTime = new Date(data.data.last_sync);
+                    const hoursAgo = (Date.now() - syncTime.getTime()) / (1000 * 60 * 60);
+                    syncEl.classList.remove('sync-fresh', 'sync-warning', 'sync-stale');
+                    if (hoursAgo < 24) syncEl.classList.add('sync-fresh');
+                    else if (hoursAgo < 48) syncEl.classList.add('sync-warning');
+                    else syncEl.classList.add('sync-stale');
+                    syncEl.textContent = data.data.last_sync.substring(0, 16).replace('T', ' ');
+                }
             }
         });
 
