@@ -109,13 +109,6 @@ body {
     min-width: 700px;
 }
 
-.user-greeting {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    align-items: flex-end;
-}
-
 /* ============================================================================
    WIDGET BASE STYLES
    ============================================================================ */
@@ -774,167 +767,6 @@ body {
     background: linear-gradient(135deg, #5a6268, #495057);
     transform: translateY(-1px);
 }
-
-/* ============================================================================
-   PRODUCTION STATUS (header)
-   ============================================================================ */
-.production-status {
-    border: 1px solid #e5e7eb;
-    border-radius: 6px;
-    padding: 12px 32px 12px 24px;
-    background: #ffffff;
-    transition: all 0.3s ease;
-    max-width: 100%;
-    overflow: hidden;
-}
-
-/* ============================================================================
-   SYSTEM REFRESH SECTION
-   ============================================================================ */
-.system-refresh-section {
-    margin-top: var(--spacing-sm);
-}
-
-/* Ulepszone style dla przycisku refresh z timerami */
-
-.refresh-system-btn {
-    background: linear-gradient(135deg, #17a2b8, #138496);
-    color: white;
-    border: none;
-    border-radius: var(--border-radius-sm);
-    padding: 8px;
-    font-size: var(--font-size-sm);
-    font-weight: var(--font-weight-medium);
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    gap: var(--spacing-xs);
-    transition: all 0.3s ease;
-    box-shadow: var(--shadow-sm);
-    width: 275px;
-    justify-content: center;
-}
-
-    .refresh-system-btn:hover:not(:disabled) {
-        transform: translateY(-1px);
-        box-shadow: var(--shadow-md);
-    }
-
-    .refresh-system-btn:disabled {
-        opacity: 0.8;
-        cursor: not-allowed;
-        transform: none;
-    }
-
-        .refresh-system-btn:disabled:hover {
-            transform: none !important;
-        }
-
-/* Elementy wewnętrzne przycisku */
-.refresh-icon {
-    font-size: 16px;
-    line-height: 1;
-    transition: transform 0.3s ease;
-}
-
-.refresh-text {
-    font-size: 14px;
-    font-weight: 500;
-    white-space: nowrap;
-}
-
-.refresh-timer {
-    font-size: 12px;
-    font-weight: 400;
-    font-family: monospace;
-    color: rgba(255, 255, 255, 0.9);
-    border-radius: 3px;
-    margin-left: 4px;
-    white-space: nowrap;
-    transition: all 0.3s ease;
-}
-
-/* Timer w stanie normalnym (countdown) */
-.refresh-system-btn:not(:disabled) .refresh-timer {
-    color: rgba(255, 255, 255, 0.85);
-}
-
-/* Timer podczas refresh (czas trwania) */
-.refresh-system-btn:disabled .refresh-timer {
-    color: rgba(255, 255, 255, 0.95);
-    animation: pulse-timer 1.5s ease-in-out infinite;
-}
-
-/* Animacja dla timera podczas refresh */
-@keyframes pulse-timer {
-    0%, 100% {
-        opacity: 1;
-        transform: scale(1);
-    }
-
-    50% {
-        opacity: 0.8;
-        transform: scale(1.02);
-    }
-}
-
-/* Animacja dla ikony podczas refresh */
-@keyframes spin {
-    from {
-        transform: rotate(0deg);
-    }
-
-    to {
-        transform: rotate(360deg);
-    }
-}
-
-.refresh-system-btn:disabled .refresh-icon {
-    animation: spin 1s linear infinite;
-    color: rgba(255, 255, 255, 0.9);
-}
-
-/* Responsywność */
-@media (max-width: 768px) {
-    .refresh-system-btn {
-        min-width: 160px;
-        padding: 6px 10px 8px;
-    }
-
-    .refresh-text {
-        font-size: 13px;
-    }
-
-    .refresh-timer {
-        font-size: 11px;
-        padding: 1px 4px;
-    }
-}
-
-@media (max-width: 576px) {
-    .refresh-system-btn {
-        min-width: 140px;
-        padding: 6px 8px;
-    }
-
-    .refresh-text {
-        display: none; /* Ukryj tekst na bardzo małych ekranach */
-    }
-
-    .refresh-timer {
-        margin-left: 2px;
-        font-size: 10px;
-    }
-}
-
-/* Stan sukcesu (krótkotrwały) */
-.refresh-system-btn.success {
-    transition: background 0.5s ease;
-}
-
-    .refresh-system-btn.success .refresh-timer {
-        color: rgba(255, 255, 255, 1);
-    }
 
 /* ============================================================================
    PERFORMANCE CHART WIDGET
@@ -1874,7 +1706,6 @@ body {
 @media (max-width: 768px) {
     .production-dashboard-grid {
         grid-template-columns: 1fr;
-        padding: var(--spacing-md);
         grid-gap: var(--spacing-md);
     }
 
@@ -1951,11 +1782,6 @@ body {
     .products-table th:nth-child(n+7),
     .products-table td:nth-child(n+7) {
         display: none;
-    }
-
-    .refresh-system-btn {
-        padding: var(--spacing-xs) var(--spacing-sm);
-        font-size: 11px;
     }
 
     .widget.performance-chart .widget-header {
@@ -2769,4 +2595,193 @@ body {
   .il-in-production-stats { gap: 4px; }
   .il-stations-grid { grid-template-columns: 1fr; }
   .il-kpi-value { font-size: 30px; }
+}
+
+/* ========================================
+   SKELETON LOADING
+   ======================================== */
+@keyframes skeleton-pulse {
+    0% { opacity: 0.6; }
+    50% { opacity: 0.3; }
+    100% { opacity: 0.6; }
+}
+
+.skeleton {
+    background: #e2e8f0;
+    border-radius: 4px;
+    animation: skeleton-pulse 1.5s ease-in-out infinite;
+}
+
+.skeleton-text {
+    height: 14px;
+    margin-bottom: 8px;
+    border-radius: 4px;
+}
+
+.skeleton-text.short { width: 40%; }
+.skeleton-text.medium { width: 65%; }
+.skeleton-text.long { width: 90%; }
+
+.skeleton-heading {
+    height: 22px;
+    width: 50%;
+    margin-bottom: 12px;
+}
+
+.skeleton-stat {
+    height: 36px;
+    width: 80px;
+    border-radius: 6px;
+}
+
+.skeleton-card {
+    background: #fff;
+    border-radius: var(--border-radius-md, 8px);
+    padding: 16px;
+    box-shadow: var(--shadow-sm, 0 1px 3px rgba(0,0,0,0.1));
+}
+
+.skeleton-row {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    padding: 10px 0;
+    border-bottom: 1px solid #f1f5f9;
+}
+
+.skeleton-row:last-child { border-bottom: none; }
+
+.skeleton-avatar {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+
+.skeleton-badge {
+    width: 64px;
+    height: 22px;
+    border-radius: 12px;
+}
+
+/* Skeleton -> content transition */
+.tab-skeleton {
+    transition: opacity 0.15s ease;
+}
+
+.tab-skeleton.hidden {
+    opacity: 0;
+    pointer-events: none;
+    position: absolute;
+}
+
+.tab-content-wrapper {
+    transition: opacity 0.15s ease;
+}
+
+.tab-content-wrapper.fade-in {
+    opacity: 1;
+}
+
+/* ========================================
+   SYNC DATE COLORING
+   ======================================== */
+.sync-fresh { color: var(--status-active, #28a745); font-weight: 600; }
+.sync-warning { color: var(--status-warning, #ffc107); font-weight: 600; }
+.sync-stale { color: var(--status-danger, #dc3545); font-weight: 600; }
+
+/* ========================================
+   TAB BAR REDESIGN
+   ======================================== */
+.production-tabs-bar {
+    display: flex;
+    align-items: center;
+    gap: 0;
+    border-bottom: 2px solid #e2e8f0;
+    padding: 0;
+    background: transparent;
+}
+
+.production-tabs-bar .nav-tabs {
+    border-bottom: none;
+    flex: 1;
+    gap: 0;
+}
+
+.production-tabs-bar .nav-link {
+    border: none;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -2px;
+    padding: 10px 18px;
+    font-size: 13px;
+    font-weight: 500;
+    color: #64748b;
+    background: transparent;
+    transition: color 0.2s, border-color 0.2s;
+    white-space: nowrap;
+}
+
+.production-tabs-bar .nav-link:hover {
+    color: var(--production-primary, #2c5530);
+    border-bottom-color: #cbd5e1;
+}
+
+.production-tabs-bar .nav-link.active {
+    color: var(--production-primary, #2c5530);
+    border-bottom-color: var(--production-primary, #2c5530);
+    font-weight: 600;
+    background: transparent;
+}
+
+.production-tabs-bar .nav-link i {
+    font-size: 12px;
+}
+
+.tab-refresh-btn {
+    background: none;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    padding: 6px 10px;
+    color: #64748b;
+    cursor: pointer;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13px;
+    margin-left: auto;
+    flex-shrink: 0;
+}
+
+.tab-refresh-btn:hover {
+    background: #f1f5f9;
+    color: var(--production-primary, #2c5530);
+    border-color: #cbd5e1;
+}
+
+.tab-refresh-btn.refreshing {
+    pointer-events: none;
+    opacity: 0.6;
+}
+
+.tab-refresh-btn.refreshing .refresh-icon {
+    animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
+/* Full height tab content */
+.production-tab-content {
+    flex: 1;
+    min-height: 0;
+}
+
+.production-dashboard-tabs {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
 }
