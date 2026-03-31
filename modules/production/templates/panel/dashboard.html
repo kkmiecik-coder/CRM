@@ -11,7 +11,6 @@
     <link rel="stylesheet" href="{{ url_for('production.static', filename='css/products-tab.css') }}">
     <link rel="stylesheet" href="{{ url_for('production.static', filename='css/production-panel.css') }}">
     <link rel="stylesheet" href="{{ url_for('production.static', filename='css/config-tab.css') }}">
-    <link rel="stylesheet" href="{{ url_for('production.static', filename='css/stations-tab.css') }}">
     <!-- CSS dla komponentów -->
     <link rel="stylesheet" href="{{ url_for('production.static', filename='css/dashboard_bl_sync_modal.css') }}">
     <!-- CSS uzupełniające -->
@@ -54,15 +53,6 @@
                             aria-controls="reports-tab-content"
                             aria-selected="false">
                         <i class="fas fa-chart-bar me-2"></i>Raporty
-                    </button>
-                    <button class="nav-link"
-                            id="stations-tab"
-                            data-bs-toggle="tab"
-                            data-bs-target="#stations-tab-content"
-                            type="button" role="tab"
-                            aria-controls="stations-tab-content"
-                            aria-selected="false">
-                        <i class="fas fa-industry me-2"></i>Stanowiska
                     </button>
                     <button class="nav-link"
                             id="config-tab"
@@ -190,35 +180,6 @@
                         </div>
                     </div>
 
-                    <!-- Stations Tab -->
-                    <div class="tab-pane fade"
-                         id="stations-tab-content"
-                         role="tabpanel"
-                         aria-labelledby="stations-tab">
-
-                        <div class="tab-loading" id="stations-tab-loading">
-                            <div class="text-center py-5">
-                                <div class="spinner-border text-primary" role="status" style="width: 3rem; height: 3rem;"></div>
-                                <p class="mt-3 text-muted">Ładowanie stanowisk...</p>
-                            </div>
-                        </div>
-
-                        <div class="tab-content-wrapper" id="stations-tab-wrapper" style="display:none;">
-                            <!-- Zawartość stanowisk zostanie załadowana przez AJAX -->
-                        </div>
-
-                        <div class="tab-error" id="stations-tab-error" style="display:none;">
-                            <div class="alert alert-danger" role="alert">
-                                <i class="fas fa-exclamation-triangle me-2"></i>
-                                <strong>Błąd ładowania stanowisk!</strong>
-                                <span id="stations-tab-error-message"></span>
-                                <button class="btn btn-outline-danger btn-sm ms-2" onclick="ProductionApp.forceRefresh()">
-                                    <i class="fas fa-redo me-1"></i>Spróbuj ponownie
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-
                     <!-- Config Tab (tylko admin) -->
                     <div class="tab-pane fade"
                          id="config-tab-content"
@@ -277,7 +238,6 @@
             dashboardTabContent: '{{ url_for("production.production_api.dashboard_tab_content") }}',
             productsTabContent: '{{ url_for("production.production_api.products_tab_content") }}',
             reportsTabContent: '{{ url_for("production.production_api.reports_tab_content") }}',
-            stationsTabContent: '{{ url_for("production.production_api.stations_tab_content") }}',
             configTabContent: '{{ url_for("production.production_api.config_tab_content") }}',
             chartData: '{{ url_for("production.production_api.chart_data") }}',
             manualSync: '{{ url_for("production.production_api.manual_sync") }}',

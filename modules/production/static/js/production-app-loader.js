@@ -95,7 +95,7 @@ class ProductionApp {
         const tabParam = params.get('tab');
         if (tabParam) {
             const tabName = tabParam.endsWith('-tab') ? tabParam : `${tabParam}-tab`;
-            const validTabs = ['dashboard-tab', 'products-tab', 'reports-tab', 'stations-tab', 'config-tab'];
+            const validTabs = ['dashboard-tab', 'products-tab', 'reports-tab', 'config-tab'];
             if (validTabs.includes(tabName)) {
                 return tabName;
             }
@@ -271,7 +271,6 @@ class ProductionApp {
             case 'dashboard-tab': await this.loadDashboardTab(); break;
             case 'products-tab': await this.loadProductsTab(); break;
             case 'reports-tab': await this.loadReportsTab(); break;
-            case 'stations-tab': await this.loadStationsTab(); break;
             case 'config-tab': await this.loadConfigTab(); break;
             default: throw new Error(`Unknown tab: ${normalizedTabName}`);
         }
@@ -374,33 +373,7 @@ class ProductionApp {
         }
     }
 
-    async loadStationsTab() {
-        console.log('[ProductionApp] Loading stations tab...');
 
-        try {
-            const response = await this.shared.apiClient.getStationsTabContent();
-
-            if (response.success) {
-                const wrapper = document.getElementById('stations-tab-wrapper');
-                const loading = document.getElementById('stations-tab-loading');
-
-                if (wrapper) {
-                    wrapper.innerHTML = response.html;
-                    wrapper.style.display = 'block';
-                }
-
-                if (loading) {
-                    loading.style.display = 'none';
-                }
-            } else {
-                throw new Error(response.error || 'Failed to load stations');
-            }
-        } catch (error) {
-            console.error('[ProductionApp] Stations loading failed:', error);
-            this.showTabError('stations-tab', error.message);
-            throw error;
-        }
-    }
 
     async loadConfigTab() {
         console.log('[ProductionApp] Loading config tab...');
