@@ -29,7 +29,7 @@ def cron_sync():
             'limit': limit
         })
         
-        from ..services.sync_service import get_sync_service
+        from ...services.sync_service import get_sync_service
         
         sync_service = get_sync_service()
         
@@ -137,7 +137,7 @@ def baselinker_manual_sync_modal():
             }
         )
 
-        from ..services.sync_service import manual_sync_with_filtering as run_manual_sync_with_filtering
+        from ...services.sync_service import manual_sync_with_filtering as run_manual_sync_with_filtering
 
         result = run_manual_sync_with_filtering(payload)
 
@@ -221,7 +221,7 @@ def manual_sync():
                 'error': 'Limit musi być liczbą między 1 a 5000'
             }), 400
         
-        from ..services.sync_service import get_sync_service
+        from ...services.sync_service import get_sync_service
         
         # Sprawdź czy synchronizacja już nie jest w toku
         sync_service = get_sync_service()
@@ -575,7 +575,7 @@ def health_check():
         
         # Status ostatniej synchronizacji
         try:
-            from ..services.sync_service import get_sync_status
+            from ...services.sync_service import get_sync_status
             
             sync_status = get_sync_status()
             if sync_status.get('last_sync'):
@@ -600,7 +600,7 @@ def health_check():
         
         # Status cache (sprawdzenie config_service)
         try:
-            from ..services.config_service import get_config_service
+            from ...services.config_service import get_config_service
             
             config_service = get_config_service()
             if config_service:
@@ -709,7 +709,7 @@ def baselinker_statuses():
         })
         
         # Użyj dedykowanego serwisu cache statusów
-        from ..services.baselinker_status_service import get_baselinker_statuses
+        from ...services.baselinker_status_service import get_baselinker_statuses
         
         statuses, cached, cache_age_hours = get_baselinker_statuses(user_id=current_user.id)
         
@@ -1005,7 +1005,7 @@ def save_selected_orders():
         
         # Sprawdź czy sync service jest dostępny
         try:
-            from ..services.sync_service import manual_sync_with_filtering, get_sync_service
+            from ...services.sync_service import manual_sync_with_filtering, get_sync_service
             
             # Test czy serwis się inicjalizuje
             sync_service_test = get_sync_service()
@@ -1224,7 +1224,7 @@ def clear_cache():
         })
         
         # Pobierz serwis konfiguracji
-        from ..services.config_service import get_config_service
+        from ...services.config_service import get_config_service
         config_service = get_config_service()
         
         # Pobierz statystyki przed czyszczeniem

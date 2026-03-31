@@ -1098,7 +1098,7 @@ def admin_compare_baselinker_order():
             'user_id': current_user.id
         })
 
-        from ..services.sync_service import BaselinkerSyncService
+        from ...services.sync_service import BaselinkerSyncService
 
         sync_service = BaselinkerSyncService()
         result = sync_service.compare_order_with_baselinker(baselinker_order_id)
@@ -1169,7 +1169,7 @@ def admin_apply_baselinker_changes():
             }
         })
 
-        from ..services.sync_service import BaselinkerSyncService
+        from ...services.sync_service import BaselinkerSyncService
 
         sync_service = BaselinkerSyncService()
         result = sync_service.apply_baselinker_changes(baselinker_order_id, changes)
@@ -2657,7 +2657,7 @@ def complete_packaging():
         })
         
         from ...models import ProductionItem
-        from ..services.sync_service import get_sync_service
+        from ...services.sync_service import get_sync_service
 
         # Walidacja i przygotowanie listy produktów do aktualizacji
         products_to_complete = []
@@ -3075,7 +3075,7 @@ def reset_all_priorities():
             'client_ip': request.remote_addr
         })
         
-        from ..services.priority_service import get_priority_calculator
+        from ...services.priority_service import get_priority_calculator
         from ...models import ProductionItem
         
         # Sprawdź ile produktów ma manual override przed resetem

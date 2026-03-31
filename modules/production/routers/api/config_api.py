@@ -139,7 +139,7 @@ def config_tab_content():
         import json
 
         from ...models import ProductionConfig, ProductionPriorityConfig
-        from ..services.config_service import get_config_service
+        from ...services.config_service import get_config_service
 
         def _parse_value(raw_value: str, cfg_type: str):
             """Konwersja wartości z bazy na Pythonowe typy."""
@@ -339,7 +339,7 @@ def get_config_days_range():
             'endpoint': 'get_config_days_range'
         })
         
-        from ..services.config_service import ProductionConfigService
+        from ...services.config_service import ProductionConfigService
         config_service = ProductionConfigService()
         
         # Pobierz zakres dni z konfiguracji (domyślnie 7)
@@ -461,7 +461,7 @@ def update_configs():
         })
         
         # Pobierz serwis konfiguracji
-        from ..services.config_service import get_config_service
+        from ...services.config_service import get_config_service
         config_service = get_config_service()
         
         # Walidacja przed zapisem
@@ -548,7 +548,7 @@ def reset_configs():
         })
         
         # Pobierz serwis konfiguracji  
-        from ..services.config_service import get_config_service
+        from ...services.config_service import get_config_service
         config_service = get_config_service()
         
         # Wykonaj reset
@@ -623,7 +623,7 @@ def validate_config():
             }), 400
         
         # Pobierz serwis konfiguracji
-        from ..services.config_service import get_config_service
+        from ...services.config_service import get_config_service
         config_service = get_config_service()
         
         # Waliduj pojedynczą konfigurację
@@ -668,7 +668,7 @@ def get_config_info(config_key: str):
     """
     try:
         from ...models import ProductionConfig
-        from ..services.config_service import get_config_service
+        from ...services.config_service import get_config_service
         
         config_service = get_config_service()
         
