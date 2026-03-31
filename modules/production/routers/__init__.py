@@ -47,9 +47,9 @@ except ImportError as e:
 
 # Import routerów (będą dodawane postupnie)
 try:
-    from .api_routers import api_bp as imported_api_bp
+    from .api import api_bp as imported_api_bp
     api_bp = imported_api_bp
-    logger.info("Zaimportowano API routers")
+    logger.info("Zaimportowano API routers (sub-package)")
 except ImportError as e:
     logger.warning(f"Nie można zaimportować API routers: {e}")
 
