@@ -25,92 +25,63 @@
 
         <!-- Main Content -->
         <main class="main-content">
-            <!-- Header -->
-            <div class="dashboard-header">
-                <div class="header-top">
-                    <h1 class="page-title title-with-underline">Dashboard Produkcji</h1>
-
-                    <div class="user-greeting">
-                        <div class="production-status" id="production-status">
-                            <span class="status-indicator" id="status-indicator"></span>
-                            <span class="status-text" id="status-text">Ładowanie...</span>
-                        </div>
-                        <div class="system-status">
-                            <div class="system-refresh-section">
-                                <button class="refresh-system-btn" id="refresh-system-btn">
-                                    <span class="refresh-icon">🔄</span>
-                                    <span class="refresh-text">Odśwież system</span>
-                                    <span class="refresh-timer" id="refresh-timer">(auto za 60s)</span>
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Production Dashboard Tabs -->
-            <div class="production-dashboard-tabs">
-                <!-- Tab Navigation -->
-                <nav class="nav nav-tabs dashboard-nav-tabs" id="productionDashboardTabs" role="tablist">
+            <!-- Production Tabs Bar -->
+            <div class="production-tabs-bar">
+                <nav class="nav nav-tabs" id="productionDashboardTabs" role="tablist">
                     <button class="nav-link active"
                             id="dashboard-tab"
                             data-bs-toggle="tab"
                             data-bs-target="#dashboard-tab-content"
-                            type="button"
-                            role="tab"
+                            type="button" role="tab"
                             aria-controls="dashboard-tab-content"
                             aria-selected="true">
-                        <i class="fas fa-tachometer-alt me-2"></i>
-                        Dashboard
+                        <i class="fas fa-tachometer-alt me-2"></i>Dashboard
                     </button>
-
                     <button class="nav-link"
                             id="products-tab"
                             data-bs-toggle="tab"
                             data-bs-target="#products-tab-content"
-                            type="button"
-                            role="tab"
+                            type="button" role="tab"
                             aria-controls="products-tab-content"
                             aria-selected="false">
-                        <i class="fas fa-list me-2"></i>
-                        Lista produktów
+                        <i class="fas fa-list me-2"></i>Lista produktów
                     </button>
-
                     <button class="nav-link"
                             id="reports-tab"
                             data-bs-toggle="tab"
                             data-bs-target="#reports-tab-content"
-                            type="button"
-                            role="tab"
+                            type="button" role="tab"
                             aria-controls="reports-tab-content"
                             aria-selected="false">
-                        <i class="fas fa-chart-bar me-2"></i>
-                        Raporty
+                        <i class="fas fa-chart-bar me-2"></i>Raporty
                     </button>
-
                     <button class="nav-link"
                             id="stations-tab"
                             data-bs-toggle="tab"
                             data-bs-target="#stations-tab-content"
-                            type="button"
-                            role="tab"
+                            type="button" role="tab"
                             aria-controls="stations-tab-content"
                             aria-selected="false">
-                        <i class="fas fa-industry me-2"></i>
-                        Stanowiska
+                        <i class="fas fa-industry me-2"></i>Stanowiska
                     </button>
                     <button class="nav-link"
                             id="config-tab"
                             data-bs-toggle="tab"
                             data-bs-target="#config-tab-content"
-                            type="button"
-                            role="tab"
+                            type="button" role="tab"
                             aria-controls="config-tab-content"
                             aria-selected="false">
-                        <i class="fas fa-cog me-2"></i>
-                        Konfiguracja
+                        <i class="fas fa-cog me-2"></i>Konfiguracja
                     </button>
                 </nav>
+                <button class="tab-refresh-btn" id="tab-refresh-btn" title="Odśwież aktywną zakładkę">
+                    <i class="fas fa-sync-alt refresh-icon"></i>
+                    <span>Odśwież</span>
+                </button>
+            </div>
+
+            <!-- Production Dashboard Tabs -->
+            <div class="production-dashboard-tabs">
 
                 <!-- Tab Content Container -->
                 <div class="tab-content production-tab-content" id="productionDashboardTabContent">
@@ -121,10 +92,16 @@
                          role="tabpanel"
                          aria-labelledby="dashboard-tab">
 
-                        <div class="tab-loading" id="dashboard-tab-loading">
-                            <div class="text-center py-5">
-                                <div class="spinner-border text-primary" role="status" style="width: 3rem; height: 3rem;"></div>
-                                <p class="mt-3 text-muted">Ładowanie dashboard...</p>
+                        <div class="tab-skeleton" id="dashboard-tab-skeleton">
+                            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; padding: 16px 0;">
+                                <div class="skeleton-card"><div class="skeleton skeleton-text short"></div><div class="skeleton skeleton-stat"></div></div>
+                                <div class="skeleton-card"><div class="skeleton skeleton-text short"></div><div class="skeleton skeleton-stat"></div></div>
+                                <div class="skeleton-card"><div class="skeleton skeleton-text short"></div><div class="skeleton skeleton-stat"></div></div>
+                                <div class="skeleton-card"><div class="skeleton skeleton-text short"></div><div class="skeleton skeleton-stat"></div></div>
+                            </div>
+                            <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 16px;">
+                                <div class="skeleton-card" style="min-height: 200px;"><div class="skeleton skeleton-heading"></div><div class="skeleton skeleton-text long"></div><div class="skeleton skeleton-text medium"></div><div class="skeleton skeleton-text long"></div></div>
+                                <div class="skeleton-card" style="min-height: 200px;"><div class="skeleton skeleton-heading"></div><div class="skeleton skeleton-text medium"></div><div class="skeleton skeleton-text short"></div><div class="skeleton skeleton-text medium"></div></div>
                             </div>
                         </div>
 
@@ -150,10 +127,21 @@
                          role="tabpanel"
                          aria-labelledby="products-tab">
 
-                        <div class="tab-loading" id="products-tab-loading">
-                            <div class="text-center py-5">
-                                <div class="spinner-border text-primary" role="status" style="width: 3rem; height: 3rem;"></div>
-                                <p class="mt-3 text-muted">Ładowanie listy produktów...</p>
+                        <div class="tab-skeleton" id="products-tab-skeleton">
+                            <div style="padding: 16px 0;">
+                                <div style="display: flex; gap: 12px; margin-bottom: 16px;">
+                                    <div class="skeleton skeleton-badge" style="width: 120px; height: 32px;"></div>
+                                    <div class="skeleton skeleton-badge" style="width: 100px; height: 32px;"></div>
+                                    <div class="skeleton skeleton-badge" style="width: 160px; height: 32px; margin-left: auto;"></div>
+                                </div>
+                                <div class="skeleton-card">
+                                    <div class="skeleton-row"><div class="skeleton skeleton-avatar"></div><div class="skeleton skeleton-text long" style="flex:1;margin:0;"></div><div class="skeleton skeleton-badge"></div></div>
+                                    <div class="skeleton-row"><div class="skeleton skeleton-avatar"></div><div class="skeleton skeleton-text long" style="flex:1;margin:0;"></div><div class="skeleton skeleton-badge"></div></div>
+                                    <div class="skeleton-row"><div class="skeleton skeleton-avatar"></div><div class="skeleton skeleton-text long" style="flex:1;margin:0;"></div><div class="skeleton skeleton-badge"></div></div>
+                                    <div class="skeleton-row"><div class="skeleton skeleton-avatar"></div><div class="skeleton skeleton-text long" style="flex:1;margin:0;"></div><div class="skeleton skeleton-badge"></div></div>
+                                    <div class="skeleton-row"><div class="skeleton skeleton-avatar"></div><div class="skeleton skeleton-text long" style="flex:1;margin:0;"></div><div class="skeleton skeleton-badge"></div></div>
+                                    <div class="skeleton-row"><div class="skeleton skeleton-avatar"></div><div class="skeleton skeleton-text long" style="flex:1;margin:0;"></div><div class="skeleton skeleton-badge"></div></div>
+                                </div>
                             </div>
                         </div>
 
