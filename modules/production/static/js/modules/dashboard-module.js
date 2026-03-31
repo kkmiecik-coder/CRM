@@ -23,8 +23,6 @@ class DashboardModule {
         this.templateLoaded = false;  // Czy template HTML został załadowany
         this.dataRefresh = null;      // Instance DataRefreshService - inicjalizowane w load()
 
-        this.autoRefreshInterval = null;
-        this.productionStatusInterval = null;
         this.chartInstance = null;
         this.systemErrorsModalInstance = null;
         this.systemErrorsModalElement = null;
@@ -37,12 +35,6 @@ class DashboardModule {
         this.onClearAllErrorsClick = this.clearAllSystemErrors.bind(this);
         this.onSystemErrorsModalHidden = this.resetSystemErrorsModal.bind(this);
         this.onSystemErrorsModalCloseClick = this.handleSystemErrorsModalClose.bind(this);
-        this.onRefreshSystemClick = this.handleRefreshSystem.bind(this);
-
-        this.autoRefreshTimer = null; // Timer pokazujący pozostały czas do auto-refresh
-        this.autoRefreshCountdown = 60; // 60 sekund (1 minuta)
-        this.refreshDuration = 0; // Czas trwania ostatniego odświeżenia
-
         // State
         this.state = {
             lastRefresh: null,
@@ -118,9 +110,6 @@ class DashboardModule {
             this.initializeWidgets();
             this.setupEventListeners();
             this.setupDataRefreshHandlers(); // NOWA METODA - będzie w kroku 3.5
-
-            // Setup auto-refresh
-            this.setupAutoRefresh();
 
             // Initialize charts for all users
             await this.initializePerformanceChart();
@@ -339,22 +328,6 @@ class DashboardModule {
         );
     }
 
-    updateProductionStatusWidget(statusData) {
-        console.log('[Dashboard Module] Updating production status widget...', statusData);
-
-        // Aktualizuj wskaźnik statusu w header
-        const indicator = document.getElementById('status-indicator');
-        const text = document.getElementById('status-text');
-
-        if (indicator) {
-            indicator.className = `status-indicator ${statusData.indicator_class || 'status-idle'}`;
-        }
-
-        if (text) {
-            text.textContent = statusData.status_text || 'Status nieznany';
-        }
-    }
-
     async unload() {
         console.log('[Dashboard Module] Unloading dashboard...');
 
@@ -365,16 +338,8 @@ class DashboardModule {
     }
 
     async refresh() {
-        console.log('[Dashboard Module] Refresh called...');
-
-        // NOWA LOGIKA - sprawdź czy template jest załadowany
-        if (!this.templateLoaded) {
-            console.log('[Dashboard Module] Template not loaded yet - doing full load');
-            return this.load(); // Pierwsze ładowanie
-        } else {
-            console.log('[Dashboard Module] Template already loaded - refreshing data only');
-            return this.refreshDataOnly(); // Tylko dane
-        }
+        console.log('[DashboardModule] Refresh triggered by ProductionApp');
+        await this.refreshDataOnly();
     }
 
     // ========================================================================
@@ -1045,14 +1010,6 @@ class DashboardModule {
             clearAllErrorsBtn.addEventListener('click', this.onClearAllErrorsClick);
         }
 
-        const refreshSystemBtn = document.getElementById('refresh-system-btn');
-        if (refreshSystemBtn) {
-            refreshSystemBtn.addEventListener('click', this.onRefreshSystemClick);
-            console.log('[Dashboard Module] Refresh system button listener attached');
-        } else {
-            console.warn('[Dashboard Module] Refresh system button not found');
-        }
-
         const modalElement = document.getElementById('systemErrorsModal');
         if (modalElement) {
             this.systemErrorsModalElement = modalElement;
@@ -1099,13 +1056,6 @@ class DashboardModule {
         const clearAllErrorsBtn = document.getElementById('clear-all-errors-btn');
         if (clearAllErrorsBtn) {
             clearAllErrorsBtn.removeEventListener('click', this.onClearAllErrorsClick);
-        }
-
-        // DODAJ: Refresh system button
-        const refreshSystemBtn = document.getElementById('refresh-system-btn');
-        if (refreshSystemBtn) {
-            refreshSystemBtn.removeEventListener('click', this.onRefreshSystemClick);
-            console.log('[Dashboard Module] Refresh system button listener removed');
         }
 
         // System errors modal
@@ -1765,202 +1715,6 @@ class DashboardModule {
         }
     }
 
-    async handleRefreshSystem() {
-        console.log('[Dashboard Module] Manual refresh system triggered');
-
-        if (this.state.isRefreshing) {
-            console.log('[Dashboard Module] Refresh already in progress, ignoring request');
-            return;
-        }
-
-        const refreshBtn = document.getElementById('refresh-system-btn');
-        const refreshIcon = refreshBtn?.querySelector('.refresh-icon');
-        const refreshText = refreshBtn?.querySelector('.refresh-text');
-        const refreshTimer = document.getElementById('refresh-timer');
-
-        // Reset countdown po ręcznym refresh
-        this.autoRefreshCountdown = 60;
-
-        const startTime = Date.now();
-        let durationTimer;
-
-        try {
-            // Ustaw stan odświeżania
-            this.state.isRefreshing = true;
-            this.refreshDuration = 0;
-
-            // Aktualizuj UI przycisku
-            if (refreshBtn) {
-                refreshBtn.disabled = true;
-                refreshBtn.style.opacity = '0.7';
-            }
-
-            if (refreshIcon) {
-                refreshIcon.style.animation = 'spin 1s linear infinite';
-                refreshIcon.style.transformOrigin = 'center';
-            }
-
-            // Timer pokazujący czas trwania refresh (aktualizowany co 0.1s)
-            durationTimer = setInterval(() => {
-                this.refreshDuration = (Date.now() - startTime) / 1000;
-                this.updateRefreshButtonText();
-            }, 100);
-
-            console.log('[Dashboard Module] Starting manual data refresh...');
-
-            // Wyczyść cache API
-            this.shared.apiClient.clearCache();
-
-            // Wykonaj odświeżenie danych
-            await this.refreshDataOnly();
-
-            // Zapisz czas ostatniego ręcznego odświeżenia
-            this.state.lastManualRefresh = new Date();
-
-            const totalDuration = (Date.now() - startTime) / 1000;
-
-            // Pokaż toast o sukcesie z czasem
-            this.shared.toastSystem.show(
-                `Dane zostały odświeżone pomyślnie (${totalDuration.toFixed(1)}s)`,
-                'success'
-            );
-
-            console.log(`[Dashboard Module] Manual refresh completed in ${totalDuration.toFixed(1)}s`);
-
-        } catch (error) {
-            console.error('[Dashboard Module] Manual refresh failed:', error);
-
-            this.shared.toastSystem.show(
-                'Błąd podczas odświeżania: ' + error.message,
-                'error'
-            );
-        } finally {
-            // Wyczyść timer duration
-            if (durationTimer) {
-                clearInterval(durationTimer);
-            }
-
-            // Przywróć stan przycisku
-            this.state.isRefreshing = false;
-
-            if (refreshBtn) {
-                refreshBtn.disabled = false;
-                refreshBtn.style.opacity = '1';
-            }
-
-            if (refreshIcon) {
-                refreshIcon.style.animation = 'none';
-            }
-
-            // Przywróć normalny tekst (z countdown)
-            this.updateRefreshButtonText();
-        }
-    }
-
-    // ========================================================================
-    // AUTO REFRESH
-    // ========================================================================
-
-    setupAutoRefresh() {
-        console.log('[Dashboard Module] Setting up auto-refresh with countdown...');
-
-        // Wyczyść poprzednie timery jeśli istnieją
-        if (this.autoRefreshInterval) {
-            clearInterval(this.autoRefreshInterval);
-        }
-        if (this.productionStatusInterval) {
-            clearInterval(this.productionStatusInterval);
-        }
-        if (this.autoRefreshTimer) {
-            clearInterval(this.autoRefreshTimer);
-        }
-
-        // Timer odliczający do następnego auto-refresh (aktualizowany co sekundę)
-        this.setupAutoRefreshCountdown();
-
-        // Główny auto-refresh co minutę
-        this.autoRefreshInterval = setInterval(() => {
-            if (!document.hidden && !this.state.isLoading && this.templateLoaded && !this.state.isRefreshing) {
-                console.log('[Dashboard Module] Auto-refresh: starting...');
-                this.performAutoRefresh();
-            }
-        }, 60 * 1000); // 60 sekund = 1 minuta
-
-        // Production status refresh co 30 sekund  
-        this.productionStatusInterval = setInterval(() => {
-            if (!document.hidden && !this.state.isLoading && this.templateLoaded && !this.state.isRefreshing) {
-                console.log('[Dashboard Module] Auto-refresh: production status...');
-                this.dataRefresh.refreshWidget('production-status').catch(error => {
-                    console.error('[Dashboard Module] Production status refresh failed:', error);
-                });
-            }
-        }, 30000); // 30 sekund
-
-        console.log('[Dashboard Module] Auto-refresh setup complete');
-    }
-
-    setupAutoRefreshCountdown() {
-        this.autoRefreshCountdown = 60; // Reset countdown
-
-        this.autoRefreshTimer = setInterval(() => {
-            if (!this.state.isRefreshing) {
-                this.autoRefreshCountdown--;
-                this.updateRefreshButtonText();
-
-                if (this.autoRefreshCountdown <= 0) {
-                    this.autoRefreshCountdown = 60; // Reset na kolejny cykl
-                }
-            }
-        }, 1000); // Co sekundę
-    }
-
-    // NOWA metoda - aktualizacja tekstu przycisku
-    updateRefreshButtonText() {
-        const refreshText = document.querySelector('.refresh-text');
-        const refreshTimer = document.getElementById('refresh-timer');
-
-        if (!refreshText || !refreshTimer) return;
-
-        if (this.state.isRefreshing) {
-            // Podczas refresh - pokaż czas trwania
-            refreshText.textContent = 'Odświeżanie...';
-            const duration = Math.floor(this.refreshDuration);
-            refreshTimer.textContent = `(${duration}s)`;
-            refreshTimer.style.display = 'inline';
-        } else {
-            // Normalny stan - pokaż countdown do auto-refresh
-            refreshText.textContent = 'Odśwież system';
-            refreshTimer.textContent = `(auto za ${this.autoRefreshCountdown}s)`;
-            refreshTimer.style.display = 'inline';
-            refreshTimer.style.color = '#ffffff';
-            refreshTimer.style.opacity = '0.8';
-        }
-    }
-
-    // NOWA metoda - wykonanie auto-refresh z pomiarem czasu
-    async performAutoRefresh() {
-        const startTime = Date.now();
-
-        try {
-            console.log('[Dashboard Module] Starting auto-refresh...');
-
-            // Wyczyść cache API
-            this.shared.apiClient.clearCache();
-
-            // Wykonaj odświeżenie danych
-            await this.refreshDataOnly();
-
-            const duration = (Date.now() - startTime) / 1000;
-            console.log(`[Dashboard Module] Auto-refresh completed in ${duration.toFixed(1)}s`);
-
-            // Pokaż krótką informację o sukcesie (tylko w konsoli)
-            console.log('[Dashboard Module] Auto-refresh successful');
-
-        } catch (error) {
-            console.error('[Dashboard Module] Auto-refresh failed:', error);
-        }
-    }
-
     // NOWA METODA - destroy() (główna metoda cleanup)
     destroy() {
         console.log('[Dashboard Module] Destroying dashboard module...');
@@ -2000,26 +1754,6 @@ class DashboardModule {
     // NOWA METODA - wyczyść wszystkie timery
     clearAllTimers() {
         console.log('[Dashboard Module] Clearing all timers...');
-
-        // Główne timery auto-refresh
-        if (this.autoRefreshInterval) {
-            clearInterval(this.autoRefreshInterval);
-            this.autoRefreshInterval = null;
-            console.log('[Dashboard Module] Auto-refresh interval cleared');
-        }
-
-        if (this.productionStatusInterval) {
-            clearInterval(this.productionStatusInterval);
-            this.productionStatusInterval = null;
-            console.log('[Dashboard Module] Production status interval cleared');
-        }
-
-        // Timer countdown do auto-refresh (z nowego kodu)
-        if (this.autoRefreshTimer) {
-            clearInterval(this.autoRefreshTimer);
-            this.autoRefreshTimer = null;
-            console.log('[Dashboard Module] Auto-refresh timer cleared');
-        }
 
         // Ewentualne inne timery
         if (this.chartRefreshTimer) {
@@ -2112,9 +1846,6 @@ class DashboardModule {
             lastManualRefresh: null
         };
 
-        // Reset właściwości z nowego kodu timerów
-        this.autoRefreshCountdown = 60;
-        this.refreshDuration = 0;
     }
 
     // ========================================================================
