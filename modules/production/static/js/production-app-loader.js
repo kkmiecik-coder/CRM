@@ -1,16 +1,16 @@
 /**
  * Production App Loader - Główny kontroler aplikacji - production-app-loader.js
  * ==================================================
- * 
+ *
  * Odpowiedzialności:
  * - Inicjalizacja aplikacji
  * - Zarządzanie systemem tabów AJAX
  * - Ładowanie modułów na żądanie
  * - Koordynacja między modułami
  * - Zarządzanie stanem globalnym
- * 
+ *
  * Autor: Konrad Kmiecik
- * Wersja: 1.0
+ * Wersja: 2.0
  * Data: 2025-01-15
  */
 
@@ -30,18 +30,23 @@ if (typeof DashboardModule === 'undefined') {
 
 class ProductionApp {
     constructor() {
+        this.shared = window.ProductionShared;
+
         this.state = {
-            currentTab: 'dashboard-tab',
+            currentTab: null,
             isInitialized: false,
             loadedModules: new Map(),
-            isLoading: false
+            isLoading: false,
+            tabCache: new Map(), // tracks which tabs have been loaded
         };
 
-        this.config = window.PRODUCTION_CONFIG || {};
-        this.shared = window.ProductionShared;
-        this.modules = {}; // Mapa modułów dla poszczególnych tabów
+        this.modules = {};
+        this.autoRefreshTimer = null;
+        this.AUTO_REFRESH_INTERVAL = 60000; // 60 seconds
 
-        // Bind methods
+        // Hot tabs loaded on page entry
+        this.HOT_TABS = ['dashboard-tab', 'products-tab'];
+
         this.handleTabClick = this.handleTabClick.bind(this);
         this.handleVisibilityChange = this.handleVisibilityChange.bind(this);
         this.handleBeforeUnload = this.handleBeforeUnload.bind(this);
@@ -57,38 +62,84 @@ class ProductionApp {
             return;
         }
 
-        console.log('[ProductionApp] Initializing application...');
+        console.log('[ProductionApp] Initializing...');
 
-        try {
-            // 1. Setup global event listeners
-            this.setupEventListeners();
+        this.setupEventListeners();
+        this.initTabSystem();
 
-            // 2. Initialize tab system
-            this.initTabSystem();
+        // Determine initial tab from URL param or default
+        const initialTab = this.getInitialTabFromURL();
+        this.updateTabUI(initialTab);
+        this.state.currentTab = initialTab;
 
-            // 3. Setup automatic refresh
-            this.setupAutoRefresh();
+        // Prefetch hot tabs in parallel
+        await this.prefetchHotTabs(initialTab);
 
-            // 4. Load initial tab (dashboard)
-            await this.loadInitialTab();
+        // Setup global auto-refresh
+        this.setupAutoRefresh();
 
-            // 5. Mark as initialized
-            this.state.isInitialized = true;
+        // Setup refresh button
+        this.setupRefreshButton();
 
-            // 6. Emit ready event
-            this.shared.eventBus.emit('app:ready', {
-                currentTab: this.state.currentTab,
-                user: this.config.user
+        this.state.isInitialized = true;
+        this.shared.eventBus.emit('app:ready', { tab: initialTab });
+        console.log('[ProductionApp] Initialized successfully');
+    }
+
+    // ========================================================================
+    // URL SYNC
+    // ========================================================================
+
+    getInitialTabFromURL() {
+        const params = new URLSearchParams(window.location.search);
+        const tabParam = params.get('tab');
+        if (tabParam) {
+            const tabName = tabParam.endsWith('-tab') ? tabParam : `${tabParam}-tab`;
+            const validTabs = ['dashboard-tab', 'products-tab', 'reports-tab', 'stations-tab', 'config-tab'];
+            if (validTabs.includes(tabName)) {
+                return tabName;
+            }
+        }
+        return 'dashboard-tab';
+    }
+
+    updateURL(tabName) {
+        const shortName = tabName.replace('-tab', '');
+        const params = new URLSearchParams(window.location.search);
+        if (shortName === 'dashboard') {
+            params.delete('tab');
+        } else {
+            params.set('tab', shortName);
+        }
+        const newURL = params.toString()
+            ? `${window.location.pathname}?${params.toString()}`
+            : window.location.pathname;
+        history.replaceState(null, '', newURL);
+    }
+
+    // ========================================================================
+    // PREFETCH HOT TABS
+    // ========================================================================
+
+    async prefetchHotTabs(initialTab) {
+        // Prioritize the initial tab, then load other hot tabs
+        const prioritized = [initialTab, ...this.HOT_TABS.filter(t => t !== initialTab)];
+        // Only prefetch hot tabs
+        const toPrefetch = prioritized.filter(t => this.HOT_TABS.includes(t));
+
+        console.log(`[ProductionApp] Prefetching hot tabs: ${toPrefetch.join(', ')}`);
+
+        // Load initial tab first (user sees it)
+        if (toPrefetch.length > 0) {
+            await this.loadTabContent(toPrefetch[0]);
+        }
+
+        // Then load remaining hot tabs in background
+        const remaining = toPrefetch.slice(1);
+        if (remaining.length > 0) {
+            Promise.all(remaining.map(tab => this.loadTabContent(tab))).catch(err => {
+                console.warn('[ProductionApp] Background prefetch error:', err);
             });
-
-            console.log('[ProductionApp] Application initialized successfully');
-
-        } catch (error) {
-            console.error('[ProductionApp] Initialization failed:', error);
-            this.shared.toastSystem.show(
-                'Błąd inicjalizacji aplikacji: ' + error.message,
-                'error'
-            );
         }
     }
 
@@ -142,7 +193,6 @@ class ProductionApp {
     }
 
     async switchToTab(tabName) {
-        // POPRAWKA: Walidacja parametrów
         if (!tabName) {
             console.error('[ProductionApp] switchToTab called with null/undefined tabName');
             return;
@@ -158,37 +208,26 @@ class ProductionApp {
             return;
         }
 
-        console.log(`[ProductionApp] Switching from ${this.state.currentTab || 'null'} to ${tabName}`);
+        console.log(`[ProductionApp] Switching to ${tabName}`);
 
         try {
-            this.state.isLoading = true;
+            // 1. Update UI immediately (tabs + panes)
+            this.updateTabUI(tabName);
+            this.state.currentTab = tabName;
+            this.updateURL(tabName);
 
-            // 1. Cleanup previous tab (only if there was one)
-            if (this.state.currentTab) {
-                await this.cleanupTab(this.state.currentTab);
+            // 2. If tab not cached, load it
+            if (!this.state.tabCache.has(tabName)) {
+                this.state.isLoading = true;
+                await this.loadTabContent(tabName);
             }
 
-            // 2. Update UI state
-            this.updateTabUI(tabName);
-
-            // 3. Load new tab content
-            await this.loadTabContent(tabName);
-
-            // 4. Update state
-            this.state.currentTab = tabName;
-
-            // 5. Emit event
-            this.shared.eventBus.emit('tab:changed', {
-                from: this.state.currentTab,
-                to: tabName
-            });
+            // 3. Emit event
+            this.shared.eventBus.emit('tab:changed', { tab: tabName });
 
         } catch (error) {
             console.error(`[ProductionApp] Error switching to tab ${tabName}:`, error);
-            this.shared.toastSystem.show(
-                `Błąd ładowania zakładki: ${error.message}`,
-                'error'
-            );
+            this.shared.toastSystem.show(`Błąd ładowania zakładki: ${error.message}`, 'error');
         } finally {
             this.state.isLoading = false;
         }
@@ -218,57 +257,31 @@ class ProductionApp {
     }
 
     async loadTabContent(tabName) {
-        // Sprawdź czy modal jest aktywny przed jakimkolwiek refresh
+        // Check if Baselinker sync modal is active
         if (typeof window.isBaselinkerSyncModalActive === 'function' && window.isBaselinkerSyncModalActive()) {
-            console.log('[ProductionApp] Nie można załadować taba - modal synchronizacji jest aktywny');
+            console.log('[ProductionApp] Cannot load tab - sync modal active');
             return;
         }
 
-        const loadingContext = `tab-${tabName}`;
-
-        try {
-            this.shared.loadingManager.show(loadingContext, `Ładowanie ${tabName}...`);
-
-            // Show tab-specific loading state
-            this.showTabLoading(tabName);
-
-            // POPRAWKA: Normalizuj nazwę taba
-            const normalizedTabName = tabName.endsWith('-tab') ? tabName : `${tabName}-tab`;
-
-            switch (normalizedTabName) {
-                case 'dashboard-tab':
-                    await this.loadDashboardTab();
-                    break;
-
-                case 'products-tab':
-                    await this.loadProductsTab();
-                    break;
-
-                case 'reports-tab':
-                    await this.loadReportsTab();
-                    break;
-
-                case 'stations-tab':
-                    await this.loadStationsTab();
-                    break;
-
-                case 'config-tab':
-                    await this.loadConfigTab();
-                    break;
-
-                default:
-                    throw new Error(`Unknown tab: ${normalizedTabName}`);
-            }
-
-            this.hideTabLoading(tabName);
-
-        } catch (error) {
-            this.hideTabLoading(tabName);
-            this.showTabError(tabName, error.message);
-            throw error;
-        } finally {
-            this.shared.loadingManager.hide(loadingContext);
+        if (this.state.tabCache.has(tabName)) {
+            console.log(`[ProductionApp] Tab ${tabName} already cached`);
+            return;
         }
+
+        console.log(`[ProductionApp] Loading tab content: ${tabName}`);
+
+        const normalizedTabName = tabName.endsWith('-tab') ? tabName : `${tabName}-tab`;
+
+        switch (normalizedTabName) {
+            case 'dashboard-tab': await this.loadDashboardTab(); break;
+            case 'products-tab': await this.loadProductsTab(); break;
+            case 'reports-tab': await this.loadReportsTab(); break;
+            case 'stations-tab': await this.loadStationsTab(); break;
+            case 'config-tab': await this.loadConfigTab(); break;
+            default: throw new Error(`Unknown tab: ${normalizedTabName}`);
+        }
+
+        this.state.tabCache.set(tabName, true);
     }
 
     // ========================================================================
@@ -277,70 +290,47 @@ class ProductionApp {
 
     async loadDashboardTab() {
         console.log('[ProductionApp] Loading dashboard tab...');
-
         try {
-            const loadingContext = `tab-dashboard-tab`;
-            
-            this.shared.loadingManager.show(loadingContext, 'Ładowanie dashboard...');
-            
-            // Load dashboard content from API
             const response = await this.shared.apiClient.getDashboardTabContent();
-            
-            if (!response.success) {
-                throw new Error(response.error || 'Failed to load dashboard content');
-            }
-            
-            // Update DOM with content
+            if (!response.success) throw new Error(response.error || 'Failed to load dashboard');
+
             const wrapper = document.getElementById('dashboard-tab-wrapper');
-            const loading = document.getElementById('dashboard-tab-loading');
-            
+            const skeleton = document.getElementById('dashboard-tab-skeleton');
+
             if (wrapper) {
                 wrapper.innerHTML = response.html;
                 wrapper.style.display = 'block';
+                wrapper.classList.add('fade-in');
             }
-            
-            if (loading) {
-                loading.style.display = 'none';
-            }
+            if (skeleton) skeleton.classList.add('hidden');
 
-            // NOWE: Inicjalizuj DashboardModule po załadowaniu HTML
             await this.initializeDashboardModule();
-            
-            console.log('[ProductionApp] Dashboard tab loaded successfully');
-            
+            console.log('[ProductionApp] Dashboard tab loaded');
         } catch (error) {
             console.error('[ProductionApp] Dashboard loading failed:', error);
             this.showTabError('dashboard-tab', error.message);
             throw error;
-        } finally {
-            this.shared.loadingManager.hide(`tab-dashboard-tab`);
         }
     }
 
     async loadProductsTab() {
         console.log('[ProductionApp] Loading products tab...');
-
         try {
             const response = await this.shared.apiClient.getProductsTabContent();
+            if (!response.success) throw new Error(response.error || 'Failed to load products');
 
-            if (response.success) {
-                const wrapper = document.getElementById('products-tab-wrapper');
-                const loading = document.getElementById('products-tab-loading');
-                
-                if (wrapper) {
-                    wrapper.innerHTML = response.html;
-                    wrapper.style.display = 'block';
-                }
-                
-                if (loading) {
-                    loading.style.display = 'none';
-                }
+            const wrapper = document.getElementById('products-tab-wrapper');
+            const skeleton = document.getElementById('products-tab-skeleton');
 
-                // Inicjalizuj ProductsModule podobnie jak DashboardModule
-                await this.initializeProductsModule();
-            } else {
-                throw new Error(response.error || 'Failed to load products');
+            if (wrapper) {
+                wrapper.innerHTML = response.html;
+                wrapper.style.display = 'block';
+                wrapper.classList.add('fade-in');
             }
+            if (skeleton) skeleton.classList.add('hidden');
+
+            await this.initializeProductsModule();
+            console.log('[ProductionApp] Products tab loaded');
         } catch (error) {
             console.error('[ProductionApp] Products loading failed:', error);
             this.showTabError('products-tab', error.message);
@@ -398,12 +388,12 @@ class ProductionApp {
             if (response.success) {
                 const wrapper = document.getElementById('stations-tab-wrapper');
                 const loading = document.getElementById('stations-tab-loading');
-                
+
                 if (wrapper) {
                     wrapper.innerHTML = response.html;
                     wrapper.style.display = 'block';
                 }
-                
+
                 if (loading) {
                     loading.style.display = 'none';
                 }
@@ -468,14 +458,14 @@ class ProductionApp {
 
         // NOWE: Określ nazwę modułu na podstawie taba
         let moduleName = tabName.replace('-tab', '');
-        
+
         // Specjalne mapowanie jeśli potrzebne
         if (moduleName === 'dashboard') {
             moduleName = 'dashboard';
         }
-        
+
         const module = this.state.loadedModules.get(moduleName);
-        
+
         if (module && typeof module.unload === 'function') {
             try {
                 await module.unload();
@@ -548,48 +538,71 @@ class ProductionApp {
     }
 
     // ========================================================================
-    // AUTO REFRESH
+    // GLOBAL AUTO REFRESH
     // ========================================================================
 
     setupAutoRefresh() {
-        // Auto-refresh every 3 minutes if page is visible
-        setInterval(() => {
-            if (!document.hidden && !this.state.isLoading) {
-                this.refreshCurrentTab();
-            }
-        }, 180000); // 3 minutes
+        if (this.autoRefreshTimer) clearInterval(this.autoRefreshTimer);
 
-        console.log('[ProductionApp] Auto-refresh setup complete');
+        this.autoRefreshTimer = setInterval(() => {
+            if (!document.hidden && !this.state.isLoading) {
+                this.refreshActiveTab();
+            }
+        }, this.AUTO_REFRESH_INTERVAL);
+
+        console.log(`[ProductionApp] Global auto-refresh: ${this.AUTO_REFRESH_INTERVAL / 1000}s`);
     }
 
-    async refreshCurrentTab() {
-        // POPRAWKA: Sprawdź czy jest aktywny tab
-        if (this.state.isLoading || !this.state.currentTab) {
-            console.log('[ProductionApp] Skipping refresh - no current tab or loading');
-            return;
-        }
+    resetAutoRefreshTimer() {
+        this.setupAutoRefresh(); // restart the interval
+    }
 
-        // NOWA POPRAWKA: Sprawdź czy modal synchronizacji jest aktywny
+    async refreshActiveTab() {
+        const tabName = this.state.currentTab;
+        if (!tabName || this.state.isLoading) return;
+
         if (typeof window.isBaselinkerSyncModalActive === 'function' && window.isBaselinkerSyncModalActive()) {
-            console.log('[ProductionApp] Skipping refresh - modal synchronizacji jest aktywny');
+            console.log('[ProductionApp] Skipping refresh - sync modal active');
             return;
         }
 
-        console.log(`[ProductionApp] Auto-refreshing current tab: ${this.state.currentTab}`);
+        console.log(`[ProductionApp] Refreshing active tab: ${tabName}`);
+
         try {
-            // ZMIANA: Deleguj odświeżanie do modułu zamiast przeładowywania całego taba
-            const module = this.modules[this.state.currentTab];
+            // Delegate to module if it has a refresh method
+            const moduleName = tabName.replace('-tab', '');
+            const module = this.state.loadedModules.get(moduleName);
             if (module && typeof module.refresh === 'function') {
-                console.log(`[ProductionApp] Delegating refresh to module: ${this.state.currentTab}`);
-                await module.refresh(); // Moduł sam zdecyduje - template vs dane
+                await module.refresh();
             } else {
-                console.log(`[ProductionApp] No refresh method found for module: ${this.state.currentTab}`);
-                // Fallback do starego systemu dla innych tabów
-                await this.loadTabContent(this.state.currentTab, true);
+                // Fallback: reload tab HTML
+                this.state.tabCache.delete(tabName);
+                await this.loadTabContent(tabName);
             }
         } catch (error) {
-            console.error(`[ProductionApp] Tab refresh failed: ${this.state.currentTab}`, error);
+            console.error(`[ProductionApp] Refresh failed for ${tabName}:`, error);
         }
+    }
+
+    // ========================================================================
+    // REFRESH BUTTON
+    // ========================================================================
+
+    setupRefreshButton() {
+        const btn = document.getElementById('tab-refresh-btn');
+        if (!btn) return;
+
+        btn.addEventListener('click', async () => {
+            if (btn.classList.contains('refreshing')) return;
+
+            btn.classList.add('refreshing');
+            try {
+                await this.refreshActiveTab();
+                this.resetAutoRefreshTimer();
+            } finally {
+                btn.classList.remove('refreshing');
+            }
+        });
     }
 
     // ========================================================================
@@ -615,13 +628,10 @@ class ProductionApp {
 
     handleVisibilityChange() {
         if (document.hidden) {
-            console.log('[ProductionApp] Page hidden - pausing auto-refresh');
+            console.log('[ProductionApp] Page hidden');
         } else {
-            console.log('[ProductionApp] Page visible - resuming auto-refresh');
-            // Refresh current tab after returning to page
-            setTimeout(() => {
-                this.refreshCurrentTab();
-            }, 1000);
+            console.log('[ProductionApp] Page visible - scheduling refresh');
+            setTimeout(() => this.refreshActiveTab(), 1000);
         }
     }
 
@@ -642,7 +652,7 @@ class ProductionApp {
         // Ctrl+R - refresh current tab
         if (event.ctrlKey && event.key === 'r') {
             event.preventDefault();
-            this.refreshCurrentTab();
+            this.refreshActiveTab();
         }
 
         // Tab navigation shortcuts (Ctrl+1, Ctrl+2, etc.)
@@ -663,14 +673,14 @@ class ProductionApp {
 
     async initializeDashboardModule() {
         console.log('[ProductionApp] Initializing DashboardModule...');
-        
+
         try {
             // Sprawdź czy DashboardModule jest dostępny
             if (typeof DashboardModule === 'undefined') {
                 console.error('[ProductionApp] DashboardModule class not found! Make sure dashboard-module.js is loaded.');
                 return;
             }
-            
+
             // Usuń poprzednią instancję jeśli istnieje
             if (this.state.loadedModules.has('dashboard')) {
                 const existingModule = this.state.loadedModules.get('dashboard');
@@ -678,7 +688,7 @@ class ProductionApp {
                     await existingModule.unload();
                 }
             }
-            
+
             // Utwórz nową instancję DashboardModule
             const dashboardModule = new DashboardModule(this.shared, this.config);
 
@@ -690,7 +700,7 @@ class ProductionApp {
             this.modules['dashboard-tab'] = dashboardModule;
 
             console.log('[ProductionApp] DashboardModule initialized successfully');
-            
+
         } catch (error) {
             console.error('[ProductionApp] Failed to initialize DashboardModule:', error);
             throw error;
@@ -726,54 +736,6 @@ class ProductionApp {
         }
     }
 
-    async loadInitialTab() {
-        // Determine initial tab from URL hash or active tab
-        let initialTab = 'dashboard-tab';
-
-        // Check URL hash
-        if (window.location.hash) {
-            const hashTab = window.location.hash.substring(1);
-            if (hashTab.endsWith('-tab')) {
-                initialTab = hashTab;
-            } else {
-                initialTab = hashTab + '-tab';
-            }
-        }
-
-        // Check for active tab in DOM
-        const activeTab = document.querySelector('[data-bs-toggle="tab"].active');
-        if (activeTab) {
-            const tabName = this.extractTabNameFromButton(activeTab);
-            if (tabName) {
-                initialTab = tabName;
-            }
-        }
-
-        console.log(`[ProductionApp] Loading initial tab: ${initialTab}`);
-        
-        // POPRAWKA: Bezpośrednio załaduj zawartość bez switchToTab
-        try {
-            this.state.isLoading = true;
-            
-            // Update UI state
-            this.updateTabUI(initialTab);
-            
-            // Load tab content
-            await this.loadTabContent(initialTab);
-            
-            // Set current tab AFTER successful loading
-            this.state.currentTab = initialTab;
-            
-            console.log(`[ProductionApp] Initial tab ${initialTab} loaded successfully`);
-            
-        } catch (error) {
-            console.error(`[ProductionApp] Error loading initial tab ${initialTab}:`, error);
-            this.shared.toastSystem.show(`Błąd ładowania: ${error.message}`, 'error');
-        } finally {
-            this.state.isLoading = false;
-        }
-    }
-
     // ========================================================================
     // PUBLIC API
     // ========================================================================
@@ -791,7 +753,8 @@ class ProductionApp {
     }
 
     async forceRefresh() {
-        await this.refreshCurrentTab();
+        await this.refreshActiveTab();
+        this.resetAutoRefreshTimer();
     }
 
     debugModuleState() {
@@ -799,10 +762,11 @@ class ProductionApp {
         console.log('- Loaded modules:', Array.from(this.state.loadedModules.keys()));
         console.log('- Current tab:', this.state.currentTab);
         console.log('- Is loading:', this.state.isLoading);
-        
+        console.log('- Tab cache:', Array.from(this.state.tabCache.keys()));
+
         // Sprawdź czy DashboardModule istnieje globalnie
         console.log('- DashboardModule available:', typeof DashboardModule !== 'undefined');
-        
+
         // Sprawdź czy dashboard module jest załadowany
         const dashboardModule = this.state.loadedModules.get('dashboard');
         if (dashboardModule) {
