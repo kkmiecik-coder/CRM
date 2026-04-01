@@ -82,9 +82,13 @@ Lista zamówień ze statusem `czeka_na_logistyke`, pogrupowana po zamówieniach.
 - Łączna objętość m³
 - Notatka produkcyjna (`production_notes`) — edytowalna
 
+**Oryginalna metoda dostawy:**
+- Wyświetlona statycznie jako tekst informacyjny (np. "Klient wybrał: Kurier DPD") — read-only, żeby operator widział co było ustawione
+
 **Decyzja:**
-- Select/radio z opcjami: "Kurier (z Baselinker)", "Transport WoodPower"
-- Przycisk "Zatwierdź i prześlij na pakowanie"
+- Select z opcjami: "— Wybierz sposób transportu —" (placeholder, domyślnie pusty), "Kurier (z Baselinker)", "Transport WoodPower"
+- Przycisk "Zatwierdź i prześlij na pakowanie" — disabled dopóki select jest pusty
+- Wymusza świadomy wybór — brak domyślnej wartości, operator musi aktywnie wybrać
 
 **Styl:** IL design system (jak reszta dashboardu — karty, monospace headers, 3px radius, brak cieni).
 
