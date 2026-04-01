@@ -1438,7 +1438,6 @@
     border-radius: var(--il-radius);
     font-size: 12px;
     font-weight: 600;
-    text-transform: uppercase;
     letter-spacing: 0.5px;
     background: rgba(255, 255, 255, 0.15);
     color: #fff;

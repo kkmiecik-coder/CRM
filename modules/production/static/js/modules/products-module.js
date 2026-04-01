@@ -3984,9 +3984,10 @@ class ProductsModule {
             }
         };
 
-        return configs[status] || {
+        const normalizedStatus = status ? status.toLowerCase().trim() : '';
+        return configs[normalizedStatus] || {
             icon: 'fa-question-circle',
-            displayName: status ? status.replace('czeka_na_', '').replace(/_/g, ' ') : 'Nieznany',
+            displayName: normalizedStatus ? normalizedStatus.replace('czeka_na_', '').replace(/_/g, ' ').replace(/^\w/, c => c.toUpperCase()) : 'Nieznany',
             color: 'text-muted',
             cssClass: 'unknown'
         };
