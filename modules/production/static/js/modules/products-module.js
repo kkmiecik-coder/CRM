@@ -4808,49 +4808,7 @@ class ProductsModule {
         return 'priority-low';
     }
 
-    /**
-     * Zwraca konfigurację statusu
-     */
-    getStatusConfig(status) {
-        const configs = {
-            'czeka_na_wyciecie': {
-                icon: 'fa-cut',
-                displayName: 'Wycinanie',
-                color: 'cutting-theme'
-            },
-            'czeka_na_skladanie': {
-                icon: 'fa-hammer',
-                displayName: 'Składanie',
-                color: 'assembly-theme'
-            },
-            'czeka_na_pakowanie': {
-                icon: 'fa-box',
-                displayName: 'Pakowanie',
-                color: 'packaging-theme'
-            },
-            'spakowane': {
-                icon: 'fa-check',
-                displayName: 'Spakowane',
-                color: 'text-success'
-            },
-            'wstrzymane': {
-                icon: 'fa-pause',
-                displayName: 'Wstrzymane',
-                color: 'text-warning'
-            },
-            'anulowane': {
-                icon: 'fa-times',
-                displayName: 'Anulowane',
-                color: 'text-danger'
-            }
-        };
-
-        return configs[status] || {
-            icon: 'fa-question',
-            displayName: status || 'Nieznany',
-            color: 'text-muted'
-        };
-    }
+    // getStatusConfig — single definition at line ~3907, removed duplicate here
 
     // ========================================================================
     // DRAG & DROP PUBLIC API
