@@ -3025,10 +3025,21 @@ def _format_product_for_navigation(product):
     # Połącz specyfikację
     specification = " ".join(spec_parts) if spec_parts else product.original_product_name
     
+    # Wymiary jako osobne pole
+    dim_parts = []
+    if product.parsed_width_cm:
+        dim_parts.append(f"{int(product.parsed_width_cm)}")
+    if product.parsed_thickness_cm:
+        dim_parts.append(f"{int(product.parsed_thickness_cm)}")
+    if product.parsed_length_cm:
+        dim_parts.append(f"{int(product.parsed_length_cm)}")
+    dimensions_str = "×".join(dim_parts) + " cm" if dim_parts else ''
+
     return {
         'id': product.id,
         'short_product_id': product.short_product_id,
         'specification': specification,
+        'dimensions': dimensions_str,
         'sequence': product.product_sequence_in_order,
         'status': product.current_status,
         'priority': product.priority_rank or 100

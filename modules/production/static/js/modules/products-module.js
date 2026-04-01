@@ -4160,11 +4160,12 @@ class ProductsModule {
                 const isActive = product.id == currentProductId;
                 
                 buttonsHtml += `
-                    <button class="product-nav-btn ${isActive ? 'active' : ''}" 
+                    <button class="product-nav-btn ${isActive ? 'active' : ''}"
                             data-product-id="${product.id}"
                             onclick="window.productsModule?.switchToProduct(${product.id})"
                             title="Przełącz na produkt ${product.short_product_id}">
-                        <div class="product-nav-spec">${product.specification}</div>
+                        <div class="product-nav-spec">${product.specification || ''}</div>
+                        <div class="product-nav-dim">${product.dimensions || ''}</div>
                         <div class="product-nav-id">${product.short_product_id}</div>
                     </button>
                 `;

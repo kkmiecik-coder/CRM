@@ -1552,12 +1552,24 @@
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+    font-weight: 600;
+    font-size: 11px;
+}
+
+.products-buttons .product-nav-btn .product-nav-dim {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-size: 10px;
+    opacity: 0.7;
 }
 
 .products-buttons .product-nav-btn .product-nav-id {
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+    font-size: 10px;
+    opacity: 0.6;
 }
 
 /* Body layout */
