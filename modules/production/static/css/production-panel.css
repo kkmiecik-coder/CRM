@@ -2053,6 +2053,11 @@ body {
 
 /* Responsive adjustments */
 @media (max-width: 768px) {
+    .production-tab-content,
+    .main-content {
+        padding: 0 !important;
+    }
+
     .modal-xl {
         max-width: 95%;
         margin: 1rem;

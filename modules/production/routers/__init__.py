@@ -45,9 +45,9 @@ except ImportError as e:
     logger.warning(f"Nie można zaimportować API routers: {e}")
 
 try:
-    from .station_routers import station_bp as imported_station_bp
+    from .stations import station_bp as imported_station_bp
     station_bp = imported_station_bp
-    logger.info("Zaimportowano Station routers")
+    logger.info("Zaimportowano Station routers (sub-package)")
 except ImportError as e:
     logger.warning(f"Nie można zaimportować Station routers: {e}")
 

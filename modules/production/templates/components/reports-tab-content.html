@@ -7,12 +7,42 @@
     padding: 16px 14px;
 }
 
-/* ─── KPI Summary Cards ─── */
-.reports-summary {
+/* ─── KPI Summary Row ─── */
+.reports-summary-row {
+    display: flex;
+    gap: 12px;
     margin-bottom: 16px;
+    align-items: stretch;
+}
+
+.summary-export {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    min-width: 100px;
+    background: var(--il-bg-card, #fff);
+    border: 1px solid var(--il-border, #c8cdd5);
+    border-radius: var(--il-radius, 3px);
+    padding: 10px 14px;
+}
+
+.summary-export .summary-label {
+    text-align: center;
+}
+
+@media (max-width: 768px) {
+    .reports-summary-row {
+        flex-wrap: wrap;
+    }
+    .reports-summary-row .summary-card,
+    .reports-summary-row .summary-export {
+        flex: 1 1 calc(50% - 6px);
+        min-width: 140px;
+    }
 }
 
 .summary-card {
+    flex: 1;
     background: var(--il-bg-card, #fff);
     border: 1px solid var(--il-border, #c8cdd5);
     border-radius: var(--il-radius, 3px);
@@ -20,7 +50,6 @@
     display: flex;
     align-items: center;
     gap: 14px;
-    height: 100%;
     box-shadow: none;
 }
 
@@ -268,7 +297,7 @@
 .sync-history-widget .table td {
     padding: 7px 10px;
     color: var(--il-text-primary, #1a1a2e);
-    border-bottom: 1px solid var(--il-bg-base, #eef0f4);
+    border-bottom: 3px solid var(--il-border, #c8cdd5);
     vertical-align: middle;
 }
 
@@ -386,6 +415,8 @@
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 10px;
+    overflow: hidden;
+    max-width: 320px;
 }
 
 .status-chart-card {
@@ -405,6 +436,12 @@
 .status-chart-canvas {
     position: relative;
     height: 130px;
+    overflow: hidden;
+}
+
+.status-chart-canvas canvas {
+    max-width: 100% !important;
+    max-height: 100% !important;
 }
 
 @media (max-width: 900px) {
@@ -412,7 +449,7 @@
         grid-template-columns: 1fr;
     }
     .status-charts-grid {
-        grid-template-columns: repeat(4, 1fr);
+        display: none;
     }
 }
 
@@ -428,36 +465,37 @@
 }
 </style>
 
-<!-- Podsumowanie tygodniowe -->
-<div class="reports-summary">
-    <div class="row g-3 mb-4">
-        <div class="col-md-4">
-            <div class="summary-card">
-                <div class="summary-icon">📈</div>
-                <div class="summary-data">
-                    <div class="summary-value">{{ reports_data['summary']['week_completed'] }}</div>
-                    <div class="summary-label">Ukończone w tygodniu</div>
-                </div>
-            </div>
+<!-- Podsumowanie tygodniowe + Eksport -->
+<div class="reports-summary-row">
+    <div class="summary-card">
+        <div class="summary-icon">📈</div>
+        <div class="summary-data">
+            <div class="summary-value">{{ reports_data['summary']['week_completed'] }}</div>
+            <div class="summary-label">Ukończone w tygodniu</div>
         </div>
-        <div class="col-md-4">
-            <div class="summary-card">
-                <div class="summary-icon">📊</div>
-                <div class="summary-data">
-                    <div class="summary-value">{{ "%.2f"|format(reports_data['summary']['week_volume']) }}</div>
-                    <div class="summary-label">m³ w tygodniu</div>
-                </div>
-            </div>
+    </div>
+    <div class="summary-card">
+        <div class="summary-icon">📊</div>
+        <div class="summary-data">
+            <div class="summary-value">{{ "%.2f"|format(reports_data['summary']['week_volume']) }}</div>
+            <div class="summary-label">m³ w tygodniu</div>
         </div>
-        <div class="col-md-4">
-            <div class="summary-card">
-                <div class="summary-icon">🏭</div>
-                <div class="summary-data">
-                    <div class="summary-value">{{ reports_data['summary']['total_in_system'] }}</div>
-                    <div class="summary-label">Produktów w systemie</div>
-                </div>
-            </div>
+    </div>
+    <div class="summary-card">
+        <div class="summary-icon">🏭</div>
+        <div class="summary-data">
+            <div class="summary-value">{{ reports_data['summary']['total_in_system'] }}</div>
+            <div class="summary-label">Produktów w systemie</div>
         </div>
+    </div>
+    <div class="summary-export">
+        <div class="summary-label" style="margin-bottom: 6px;">Pobierz</div>
+        <button class="btn btn-outline-success btn-sm" onclick="exportToExcel()" style="width: 100%; margin-bottom: 4px;">
+            <i class="fas fa-file-excel me-1"></i> Excel
+        </button>
+        <button class="btn btn-outline-danger btn-sm" onclick="exportToPDF()" style="width: 100%;">
+            <i class="fas fa-file-pdf me-1"></i> PDF
+        </button>
     </div>
 </div>
 
@@ -708,31 +746,6 @@
                     {% endfor %}
                 </tbody>
             </table>
-        </div>
-    </div>
-</div>
-
-<!-- Eksport danych -->
-<div class="reports-actions mt-4">
-    <div class="card">
-        <div class="card-header">
-            <h5>Eksport raportów</h5>
-        </div>
-        <div class="card-body">
-            <div class="row g-3">
-                <div class="col-md-6">
-                    <button class="btn btn-outline-success w-100" onclick="exportToExcel()">
-                        <i class="fas fa-file-excel me-2"></i>
-                        Eksportuj do Excel
-                    </button>
-                </div>
-                <div class="col-md-6">
-                    <button class="btn btn-outline-danger w-100" onclick="exportToPDF()">
-                        <i class="fas fa-file-pdf me-2"></i>
-                        Eksportuj do PDF
-                    </button>
-                </div>
-            </div>
         </div>
     </div>
 </div>

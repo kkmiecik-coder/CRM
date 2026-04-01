@@ -1800,7 +1800,7 @@ def _export_excel(products, timestamp):
 
 
 def _export_pdf(products, timestamp, report_type='full'):
-    """Eksport do PDF z pełnymi danymi analitycznymi"""
+    """Eksport do PDF — czytelny raport produkcji"""
     import io
     import os
     from collections import defaultdict
@@ -1809,318 +1809,207 @@ def _export_pdf(products, timestamp, report_type='full'):
         from reportlab.lib import colors
         from reportlab.lib.pagesizes import A4, landscape
         from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-        from reportlab.lib.units import cm, mm
-        from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, PageBreak
+        from reportlab.lib.units import cm
+        from reportlab.platypus import (SimpleDocTemplate, Table, TableStyle,
+                                        Paragraph, Spacer, PageBreak, KeepTogether)
         from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
         from reportlab.pdfbase import pdfmetrics
         from reportlab.pdfbase.ttfonts import TTFont
     except ImportError:
         logger.error("reportlab niedostępne")
-        return jsonify({'success': False, 'error': 'Biblioteka PDF niedostępna. Zainstaluj: pip install reportlab'}), 501
+        return jsonify({'success': False, 'error': 'Biblioteka PDF niedostępna'}), 501
 
-    # Rejestracja fontu z polskimi znakami
-    font_registered = False
+    # Font z polskimi znakami
     font_name = 'Helvetica'
-
-    font_paths = [
-        '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',
-        '/usr/share/fonts/dejavu/DejaVuSans.ttf',
-        '/usr/share/fonts/TTF/DejaVuSans.ttf',
-        'C:/Windows/Fonts/arial.ttf',
-    ]
-
-    for font_path in font_paths:
-        if os.path.exists(font_path):
+    for path in ['/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',
+                 '/usr/share/fonts/dejavu/DejaVuSans.ttf',
+                 'C:/Windows/Fonts/arial.ttf']:
+        if os.path.exists(path):
             try:
-                pdfmetrics.registerFont(TTFont('DejaVuSans', font_path))
+                pdfmetrics.registerFont(TTFont('DejaVuSans', path))
                 font_name = 'DejaVuSans'
-                font_registered = True
                 break
-            except Exception as e:
+            except Exception:
                 pass
 
     output = io.BytesIO()
+    doc = SimpleDocTemplate(output, pagesize=landscape(A4),
+                            rightMargin=1.2*cm, leftMargin=1.2*cm,
+                            topMargin=1.2*cm, bottomMargin=1.2*cm)
 
-    doc = SimpleDocTemplate(
-        output,
-        pagesize=landscape(A4),
-        rightMargin=1*cm,
-        leftMargin=1*cm,
-        topMargin=1.5*cm,
-        bottomMargin=1.5*cm
-    )
+    # -- Kolory i style --
+    C_PRIMARY = colors.HexColor('#1a1a2e')
+    C_HEADER = colors.HexColor('#2c5530')
+    C_SECTION = colors.HexColor('#334155')
+    C_BORDER = colors.HexColor('#e2e5ea')
+    C_ALT_ROW = colors.HexColor('#f8f9fa')
+    C_MUTED = colors.HexColor('#64748b')
 
-    # Style
     styles = getSampleStyleSheet()
+    s_title = ParagraphStyle('T', parent=styles['Heading1'], fontName=font_name,
+                             fontSize=18, textColor=C_PRIMARY, alignment=TA_LEFT, spaceAfter=2)
+    s_subtitle = ParagraphStyle('ST', parent=styles['Normal'], fontName=font_name,
+                                fontSize=9, textColor=C_MUTED, spaceAfter=14)
+    s_section = ParagraphStyle('S', parent=styles['Heading2'], fontName=font_name,
+                               fontSize=11, textColor=C_SECTION, spaceBefore=14, spaceAfter=6,
+                               borderWidth=0, leading=14)
+    s_footer = ParagraphStyle('F', parent=styles['Normal'], fontName=font_name,
+                              fontSize=7, textColor=C_MUTED, alignment=TA_RIGHT)
 
-    title_style = ParagraphStyle(
-        'CustomTitle', parent=styles['Heading1'], fontName=font_name,
-        fontSize=20, textColor=colors.HexColor('#2E7D32'), alignment=TA_CENTER, spaceAfter=6
-    )
-    subtitle_style = ParagraphStyle(
-        'CustomSubtitle', parent=styles['Normal'], fontName=font_name,
-        fontSize=10, textColor=colors.HexColor('#666666'), alignment=TA_CENTER, spaceAfter=12
-    )
-    section_style = ParagraphStyle(
-        'SectionHeader', parent=styles['Heading2'], fontName=font_name,
-        fontSize=13, textColor=colors.HexColor('#1565C0'), spaceBefore=15, spaceAfter=8
-    )
-    footer_style = ParagraphStyle(
-        'Footer', parent=styles['Normal'], fontName=font_name,
-        fontSize=8, textColor=colors.HexColor('#999999'), alignment=TA_RIGHT
-    )
+    def _table_style(header_color=C_HEADER):
+        return TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), header_color),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+            ('FONTNAME', (0, 0), (-1, -1), font_name),
+            ('FONTSIZE', (0, 0), (-1, 0), 8),
+            ('FONTSIZE', (0, 1), (-1, -1), 8),
+            ('ALIGN', (1, 0), (-1, -1), 'RIGHT'),
+            ('ALIGN', (0, 0), (0, -1), 'LEFT'),
+            ('LINEBELOW', (0, 0), (-1, 0), 1, header_color),
+            ('LINEBELOW', (0, 1), (-1, -2), 0.3, C_BORDER),
+            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, C_ALT_ROW]),
+            ('TOPPADDING', (0, 0), (-1, -1), 4),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+            ('LEFTPADDING', (0, 0), (-1, -1), 6),
+            ('RIGHTPADDING', (0, 0), (-1, -1), 6),
+        ])
 
-    # =========================================================================
-    # PRZYGOTOWANIE DANYCH ANALITYCZNYCH
-    # =========================================================================
+    # -- Dane analityczne --
     total_volume = sum(float(p.volume_m3 or 0) for p in products)
-    total_qty = sum(p.quantity for p in products)
+    total_qty = sum(p.quantity or 1 for p in products)
+    total_value = sum(float(p.total_value_net or 0) for p in products)
 
-    status_stats = defaultdict(lambda: {'count': 0, 'qty': 0, 'volume': 0.0})
-    species_stats = defaultdict(lambda: {'count': 0, 'qty': 0, 'volume': 0.0})
-    technology_stats = defaultdict(lambda: {'count': 0, 'qty': 0, 'volume': 0.0})
-    wood_class_stats = defaultdict(lambda: {'count': 0, 'qty': 0, 'volume': 0.0})
-    thickness_stats = defaultdict(lambda: {'count': 0, 'qty': 0, 'volume': 0.0})
+    buckets = {
+        'status': defaultdict(lambda: {'count': 0, 'qty': 0, 'volume': 0.0}),
+        'species': defaultdict(lambda: {'count': 0, 'qty': 0, 'volume': 0.0}),
+        'technology': defaultdict(lambda: {'count': 0, 'qty': 0, 'volume': 0.0}),
+        'wood_class': defaultdict(lambda: {'count': 0, 'qty': 0, 'volume': 0.0}),
+        'thickness': defaultdict(lambda: {'count': 0, 'qty': 0, 'volume': 0.0}),
+    }
 
     for p in products:
         vol = float(p.volume_m3 or 0)
         qty = p.quantity or 1
-
-        status_stats[p.current_status]['count'] += 1
-        status_stats[p.current_status]['qty'] += qty
-        status_stats[p.current_status]['volume'] += vol
-
-        species = p.parsed_wood_species or 'Nieokreslony'
-        species_stats[species]['count'] += 1
-        species_stats[species]['qty'] += qty
-        species_stats[species]['volume'] += vol
-
-        tech = p.parsed_technology or 'Nieokreslona'
-        technology_stats[tech]['count'] += 1
-        technology_stats[tech]['qty'] += qty
-        technology_stats[tech]['volume'] += vol
-
-        wood_class = p.parsed_wood_class or 'Nieokreslona'
-        wood_class_stats[wood_class]['count'] += 1
-        wood_class_stats[wood_class]['qty'] += qty
-        wood_class_stats[wood_class]['volume'] += vol
-
-        thickness = f"{float(p.parsed_thickness_cm):.1f} cm" if p.parsed_thickness_cm else 'Nieokreslona'
-        thickness_stats[thickness]['count'] += 1
-        thickness_stats[thickness]['qty'] += qty
-        thickness_stats[thickness]['volume'] += vol
-
-    status_colors_map = {
-        'czeka_na_wyciecie': '#FFF3E0', 'czeka_na_skladanie': '#E3F2FD',
-        'czeka_na_sklejanie': '#F3E5F5', 'czeka_na_formatowanie': '#E8F5E9',
-        'czeka_na_wykanczanie': '#FFF8E1', 'czeka_na_pakowanie': '#E0F7FA',
-        'spakowane': '#C8E6C9', 'anulowane': '#FFCDD2', 'wstrzymane': '#CFD8DC'
-    }
+        for key, field in [('status', p.current_status),
+                           ('species', p.parsed_wood_species or 'Nieokreslony'),
+                           ('technology', p.parsed_technology or 'Nieokreslona'),
+                           ('wood_class', p.parsed_wood_class or 'Nieokreslona'),
+                           ('thickness', f"{float(p.parsed_thickness_cm):.1f} cm" if p.parsed_thickness_cm else 'Nieokreslona')]:
+            buckets[key][field]['count'] += 1
+            buckets[key][field]['qty'] += qty
+            buckets[key][field]['volume'] += vol
 
     elements = []
 
-    # =========================================================================
-    # STRONA 1: PODSUMOWANIE
-    # =========================================================================
-    elements.append(Paragraph("RAPORT PRODUKCJI", title_style))
+    # ===================== STRONA 1: PODSUMOWANIE =====================
+    elements.append(Paragraph("Raport produkcji — WoodPower", s_title))
     elements.append(Paragraph(
-        f"Wygenerowano: {datetime.now().strftime('%d.%m.%Y %H:%M')} | Liczba pozycji: {len(products)} | {total_qty} szt. | {total_volume:.3f} m3",
-        subtitle_style
-    ))
+        f"{datetime.now().strftime('%d.%m.%Y %H:%M')}  |  "
+        f"{len(products)} pozycji  |  {total_qty} szt.  |  "
+        f"{total_volume:.3f} m\u00b3  |  "
+        f"{total_value:,.2f} PLN".replace(',', ' '),
+        s_subtitle))
 
-    # Podsumowanie ogólne
-    elements.append(Paragraph("Podsumowanie ogolne", section_style))
-    summary_data = [
-        ['Parametr', 'Wartosc'],
-        ['Liczba pozycji', str(len(products))],
-        ['Laczna ilosc sztuk', str(total_qty)],
-        ['Laczna objetosc', f"{total_volume:.3f} m3"],
+    # -- KPI --
+    kpi_data = [
+        ['Pozycje', 'Sztuki', 'Objetosc m\u00b3', 'Wartosc netto'],
+        [str(len(products)), str(total_qty), f"{total_volume:.3f}", f"{total_value:,.2f} PLN".replace(',', ' ')]
     ]
-    summary_table = Table(summary_data, colWidths=[7*cm, 5*cm])
-    summary_table.setStyle(TableStyle([
-        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#2E7D32')),
-        ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
-        ('FONTNAME', (0, 0), (-1, -1), font_name),
-        ('FONTSIZE', (0, 0), (-1, -1), 10),
-        ('ALIGN', (1, 0), (1, -1), 'RIGHT'),
-        ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#CCCCCC')),
-        ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#F5F5F5')]),
-        ('TOPPADDING', (0, 0), (-1, -1), 6),
-        ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
-    ]))
-    elements.append(summary_table)
-    elements.append(Spacer(1, 0.5*cm))
-
-    # Rozkład statusów
-    elements.append(Paragraph("Rozklad wedlug statusow", section_style))
-    status_data = [['Status', 'Pozycje', 'Sztuki', 'Objetosc (m3)', '% pozycji']]
-    for status, data in sorted(status_stats.items(), key=lambda x: x[1]['count'], reverse=True):
-        pct = (data['count'] / len(products) * 100) if products else 0
-        status_data.append([
-            _format_status(status), str(data['count']), str(data['qty']),
-            f"{data['volume']:.3f}", f"{pct:.1f}%"
-        ])
-
-    status_table = Table(status_data, colWidths=[5.5*cm, 2.5*cm, 2.5*cm, 3.5*cm, 2.5*cm])
-    status_table.setStyle(TableStyle([
-        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1565C0')),
-        ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
-        ('FONTNAME', (0, 0), (-1, -1), font_name),
-        ('FONTSIZE', (0, 0), (-1, -1), 9),
-        ('ALIGN', (1, 0), (-1, -1), 'RIGHT'),
-        ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#CCCCCC')),
-        ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#F5F5F5')]),
-        ('TOPPADDING', (0, 0), (-1, -1), 5),
-        ('BOTTOMPADDING', (0, 0), (-1, -1), 5),
-    ]))
-    elements.append(status_table)
-    elements.append(Spacer(1, 0.5*cm))
-
-    # =========================================================================
-    # TABELE ANALITYCZNE (2 kolumny obok siebie)
-    # =========================================================================
-
-    # Helper do tworzenia małych tabel analitycznych
-    def create_analysis_table(title, data_dict, total_vol, label='Kategoria'):
-        rows = [[label, 'Poz.', 'Szt.', 'Obj. m3', '%']]
-        for name, data in sorted(data_dict.items(), key=lambda x: x[1]['volume'], reverse=True)[:8]:
-            pct = (data['volume'] / total_vol * 100) if total_vol else 0
-            rows.append([name[:20], str(data['count']), str(data['qty']), f"{data['volume']:.2f}", f"{pct:.0f}%"])
-        return rows
-
-    # Gatunki drewna
-    elements.append(Paragraph("Analiza wedlug gatunkow drewna", section_style))
-    species_rows = create_analysis_table('Gatunki', species_stats, total_volume, 'Gatunek')
-    species_table = Table(species_rows, colWidths=[5*cm, 2*cm, 2*cm, 3*cm, 2*cm])
-    species_table.setStyle(TableStyle([
-        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#4CAF50')),
-        ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
-        ('FONTNAME', (0, 0), (-1, -1), font_name),
-        ('FONTSIZE', (0, 0), (-1, -1), 8),
-        ('ALIGN', (1, 0), (-1, -1), 'RIGHT'),
-        ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#CCCCCC')),
-        ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#F5F5F5')]),
-        ('TOPPADDING', (0, 0), (-1, -1), 4),
-        ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
-    ]))
-    elements.append(species_table)
-    elements.append(Spacer(1, 0.4*cm))
-
-    # Technologie
-    elements.append(Paragraph("Analiza wedlug technologii", section_style))
-    tech_rows = create_analysis_table('Technologie', technology_stats, total_volume, 'Technologia')
-    tech_table = Table(tech_rows, colWidths=[5*cm, 2*cm, 2*cm, 3*cm, 2*cm])
-    tech_table.setStyle(TableStyle([
-        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#FF9800')),
-        ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
-        ('FONTNAME', (0, 0), (-1, -1), font_name),
-        ('FONTSIZE', (0, 0), (-1, -1), 8),
-        ('ALIGN', (1, 0), (-1, -1), 'RIGHT'),
-        ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#CCCCCC')),
-        ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#F5F5F5')]),
-        ('TOPPADDING', (0, 0), (-1, -1), 4),
-        ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
-    ]))
-    elements.append(tech_table)
-    elements.append(Spacer(1, 0.4*cm))
-
-    # Klasy drewna
-    elements.append(Paragraph("Analiza wedlug klas drewna", section_style))
-    class_rows = create_analysis_table('Klasy', wood_class_stats, total_volume, 'Klasa')
-    class_table = Table(class_rows, colWidths=[5*cm, 2*cm, 2*cm, 3*cm, 2*cm])
-    class_table.setStyle(TableStyle([
-        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#795548')),
-        ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
-        ('FONTNAME', (0, 0), (-1, -1), font_name),
-        ('FONTSIZE', (0, 0), (-1, -1), 8),
-        ('ALIGN', (1, 0), (-1, -1), 'RIGHT'),
-        ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#CCCCCC')),
-        ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#F5F5F5')]),
-        ('TOPPADDING', (0, 0), (-1, -1), 4),
-        ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
-    ]))
-    elements.append(class_table)
-    elements.append(Spacer(1, 0.4*cm))
-
-    # Grubości
-    elements.append(Paragraph("Analiza wedlug grubosci", section_style))
-    thick_rows = create_analysis_table('Grubosci', thickness_stats, total_volume, 'Grubosc')
-    thick_table = Table(thick_rows, colWidths=[5*cm, 2*cm, 2*cm, 3*cm, 2*cm])
-    thick_table.setStyle(TableStyle([
-        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#607D8B')),
-        ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
-        ('FONTNAME', (0, 0), (-1, -1), font_name),
-        ('FONTSIZE', (0, 0), (-1, -1), 8),
-        ('ALIGN', (1, 0), (-1, -1), 'RIGHT'),
-        ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#CCCCCC')),
-        ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#F5F5F5')]),
-        ('TOPPADDING', (0, 0), (-1, -1), 4),
-        ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
-    ]))
-    elements.append(thick_table)
-
-    # =========================================================================
-    # STRONA 2+: LISTA PRODUKTÓW
-    # =========================================================================
-    elements.append(PageBreak())
-    elements.append(Paragraph("Szczegolowa lista produktow", section_style))
-
-    # Nagłówki
-    table_data = [['Lp.', 'ID Produktu', 'Zamowienie', 'Nazwa produktu', 'Status',
-                   'Prio.', 'Szt.', 'Gatunek', 'Wymiary', 'Obj. m3']]
-
-    for idx, p in enumerate(products, 1):
-        name = p.original_product_name or ''
-        if len(name) > 30:
-            name = name[:30] + '...'
-
-        table_data.append([
-            str(idx),
-            p.short_product_id,
-            p.internal_order_number or '',
-            name,
-            _format_status(p.current_status),
-            str(p.priority_rank) if p.priority_rank else '-',
-            str(p.quantity),
-            (p.parsed_wood_species or '')[:10],
-            f"{p.parsed_length_cm or 0}x{p.parsed_width_cm or 0}x{p.parsed_thickness_cm or 0}",
-            f"{float(p.volume_m3):.3f}" if p.volume_m3 else '0.000'
-        ])
-
-    col_widths = [1*cm, 2.3*cm, 2*cm, 5.5*cm, 3*cm, 1*cm, 1*cm, 2.2*cm, 3.5*cm, 2*cm]
-
-    main_table = Table(table_data, colWidths=col_widths, repeatRows=1)
-    main_table.setStyle(TableStyle([
-        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#2E7D32')),
+    kpi = Table(kpi_data, colWidths=[6*cm, 5*cm, 5*cm, 6.5*cm])
+    kpi.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), C_HEADER),
         ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
         ('FONTNAME', (0, 0), (-1, -1), font_name),
         ('FONTSIZE', (0, 0), (-1, 0), 8),
+        ('FONTSIZE', (0, 1), (-1, 1), 14),
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+        ('TOPPADDING', (0, 0), (-1, -1), 6),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
+        ('LINEBELOW', (0, 0), (-1, 0), 1, C_HEADER),
+    ]))
+    elements.append(kpi)
+    elements.append(Spacer(1, 0.6*cm))
+
+    # -- Statusy --
+    elements.append(Paragraph("Rozklad wedlug stanowisk", s_section))
+    rows = [['Stanowisko', 'Pozycje', 'Sztuki', 'Objetosc m\u00b3', '% obj.']]
+    for status, d in sorted(buckets['status'].items(), key=lambda x: -x[1]['volume']):
+        pct = (d['volume'] / total_volume * 100) if total_volume else 0
+        rows.append([_format_status(status), str(d['count']), str(d['qty']),
+                     f"{d['volume']:.3f}", f"{pct:.1f}%"])
+    t = Table(rows, colWidths=[6.5*cm, 3*cm, 3*cm, 4.5*cm, 3*cm])
+    t.setStyle(_table_style())
+    elements.append(KeepTogether([t]))
+    elements.append(Spacer(1, 0.4*cm))
+
+    # -- Helper dla tabel analitycznych --
+    def _analysis_section(title, data_dict, label='Kategoria'):
+        s_rows = [[label, 'Poz.', 'Szt.', 'Obj. m\u00b3', '% obj.']]
+        for name, d in sorted(data_dict.items(), key=lambda x: -x[1]['volume']):
+            pct = (d['volume'] / total_volume * 100) if total_volume else 0
+            s_rows.append([name[:25], str(d['count']), str(d['qty']),
+                          f"{d['volume']:.3f}", f"{pct:.1f}%"])
+        tbl = Table(s_rows, colWidths=[6.5*cm, 2.5*cm, 2.5*cm, 4*cm, 3*cm])
+        tbl.setStyle(_table_style(C_SECTION))
+        return KeepTogether([Paragraph(title, s_section), tbl, Spacer(1, 0.3*cm)])
+
+    elements.append(_analysis_section("Gatunki drewna", buckets['species'], 'Gatunek'))
+    elements.append(_analysis_section("Technologie", buckets['technology'], 'Technologia'))
+    elements.append(_analysis_section("Klasy drewna", buckets['wood_class'], 'Klasa'))
+    elements.append(_analysis_section("Grubosci", buckets['thickness'], 'Grubosc'))
+
+    # ===================== STRONA 2+: LISTA PRODUKTÓW =====================
+    elements.append(PageBreak())
+    elements.append(Paragraph("Lista produktow", s_section))
+
+    hdr = ['Lp.', 'ID', 'Zamowienie', 'Nazwa', 'Status', 'Prio.', 'Szt.', 'Gatunek', 'Wymiary', 'Obj. m\u00b3']
+    tdata = [hdr]
+    for i, p in enumerate(products, 1):
+        name = (p.original_product_name or '')[:35]
+        if len(p.original_product_name or '') > 35:
+            name += '...'
+        dims = f"{p.parsed_length_cm or 0}x{p.parsed_width_cm or 0}x{p.parsed_thickness_cm or 0}"
+        tdata.append([
+            str(i), p.short_product_id or '', p.internal_order_number or '',
+            Paragraph(name, ParagraphStyle('cell', fontName=font_name, fontSize=7, leading=9)),
+            _format_status(p.current_status),
+            str(p.priority_rank) if p.priority_rank else '-',
+            str(p.quantity or 1),
+            (p.parsed_wood_species or '')[:12],
+            dims,
+            f"{float(p.volume_m3 or 0):.3f}"
+        ])
+
+    cw = [0.9*cm, 2.2*cm, 2.2*cm, 5.5*cm, 2.8*cm, 1*cm, 0.9*cm, 2.2*cm, 3.2*cm, 1.8*cm]
+    mt = Table(tdata, colWidths=cw, repeatRows=1, splitInRow=1)
+    mt.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), C_HEADER),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+        ('FONTNAME', (0, 0), (-1, -1), font_name),
+        ('FONTSIZE', (0, 0), (-1, 0), 7),
         ('FONTSIZE', (0, 1), (-1, -1), 7),
         ('ALIGN', (0, 0), (0, -1), 'CENTER'),
         ('ALIGN', (5, 0), (6, -1), 'CENTER'),
         ('ALIGN', (-1, 0), (-1, -1), 'RIGHT'),
-        ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#CCCCCC')),
+        ('LINEBELOW', (0, 0), (-1, 0), 1, C_HEADER),
+        ('LINEBELOW', (0, 1), (-1, -2), 0.3, C_BORDER),
+        ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, C_ALT_ROW]),
         ('TOPPADDING', (0, 0), (-1, -1), 3),
         ('BOTTOMPADDING', (0, 0), (-1, -1), 3),
-        ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#FAFAFA')]),
+        ('LEFTPADDING', (0, 0), (-1, -1), 4),
+        ('RIGHTPADDING', (0, 0), (-1, -1), 4),
+        ('VALIGN', (0, 0), (-1, -1), 'TOP'),
     ]))
-    elements.append(main_table)
+    elements.append(mt)
 
     # Stopka
-    elements.append(Spacer(1, 1*cm))
+    elements.append(Spacer(1, 0.8*cm))
     elements.append(Paragraph(
-        f"System CRM Produkcja | Raport wygenerowany automatycznie | {datetime.now().strftime('%d.%m.%Y %H:%M:%S')}",
-        footer_style
-    ))
+        f"WoodPower CRM | {datetime.now().strftime('%d.%m.%Y %H:%M:%S')}",
+        s_footer))
 
-    # Generuj PDF
     doc.build(elements)
     output.seek(0)
-
-    logger.info("Export PDF wygenerowany (pelny raport)", extra={
-        'user_id': current_user.id,
-        'products_count': len(products)
-    })
 
     from flask import Response
     response = Response(output.getvalue(), mimetype='application/pdf')
