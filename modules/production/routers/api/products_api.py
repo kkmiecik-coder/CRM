@@ -669,7 +669,10 @@ def products_tab_content():
                 'baselinker_order_id': get_attr(product, 'baselinker_order_id', None),
                 'baselinker_product_id': get_attr(product, 'baselinker_product_id', ''),
                 'product_sequence_in_order': get_attr(product, 'product_sequence_in_order', 1),
-                
+                'total_products_in_order': db.session.query(func.count(ProductionItem.id)).filter(
+                    ProductionItem.internal_order_number == product.internal_order_number
+                ).scalar() if product.internal_order_number else 1,
+
                 # POPRAWIONE: Specyfikacja produktu - PARSOWANE POLA z bazy danych
                 'parsed_wood_species': get_attr(product, 'parsed_wood_species', None),
                 'parsed_technology': get_attr(product, 'parsed_technology', None),
