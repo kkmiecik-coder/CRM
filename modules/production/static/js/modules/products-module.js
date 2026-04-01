@@ -4171,6 +4171,22 @@ class ProductsModule {
             });
 
             buttonsContainer.innerHTML = buttonsHtml;
+
+            // Setup scroll arrows
+            const leftArrow = document.getElementById('productsNavLeft');
+            const rightArrow = document.getElementById('productsNavRight');
+            const scrollAmount = 210;
+
+            if (leftArrow) {
+                leftArrow.addEventListener('click', () => {
+                    buttonsContainer.scrollBy({ left: -scrollAmount, behavior: 'smooth' });
+                });
+            }
+            if (rightArrow) {
+                rightArrow.addEventListener('click', () => {
+                    buttonsContainer.scrollBy({ left: scrollAmount, behavior: 'smooth' });
+                });
+            }
         }
 
         const sequenceField = document.querySelector('[data-field="sequence_display"]');
