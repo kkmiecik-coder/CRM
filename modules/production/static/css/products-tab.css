@@ -1983,7 +1983,11 @@
 
 /* Responsive modal */
 @media (max-width: 900px) {
-    /* Modal takes full screen on mobile */
+    /* Modal takes full screen on mobile, above topbar */
+    .products-modal {
+        z-index: 10001 !important;
+    }
+
     .products-modal .modal-dialog {
         margin: 0;
         max-width: 100%;
