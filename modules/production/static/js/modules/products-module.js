@@ -3721,9 +3721,8 @@ class ProductsModule {
         if (!badge) return;
 
         const quantity = product.quantity || 1;
-
-        // Mapowanie station code -> completed_at field
-        const stationEndFields = {
+        const stations = ['cutting', 'assembly', 'gluing', 'formatting', 'finishing', 'packaging'];
+        const endFields = {
             'cutting': 'cutting_completed_at',
             'assembly': 'assembly_completed_at',
             'gluing': 'gluing_completed_at',
@@ -3731,25 +3730,40 @@ class ProductsModule {
             'finishing': 'finishing_completed_at',
             'packaging': 'packaging_completed_at'
         };
+        const statusMap = {
+            'cutting': 'czeka_na_wyciecie',
+            'assembly': 'czeka_na_skladanie',
+            'gluing': 'czeka_na_sklejanie',
+            'formatting': 'czeka_na_formatowanie',
+            'finishing': 'czeka_na_wykanczanie',
+            'packaging': 'czeka_na_pakowanie'
+        };
 
-        // Oblicz całkowity postęp
-        const stations = ['cutting', 'assembly', 'gluing', 'formatting', 'finishing', 'packaging'];
+        const currentStatus = (product.current_status || '').toLowerCase();
 
-        // Oblicz sumaryczny postęp z fallbackiem dla starych danych
-        let totalDone = 0;
-        let totalMax = quantity * stations.length;
-        stations.forEach(station => {
-            let done = product[`quantity_done_${station}`] || 0;
-            // Fallback: jeśli stanowisko zakończone ale quantity_done = 0
-            const completedAt = product[stationEndFields[station]];
-            if (completedAt && done === 0) {
-                done = quantity;
+        // Count completed + skipped + active stations
+        let passedStations = 0;
+        stations.forEach((station, index) => {
+            if (product[endFields[station]]) {
+                // Completed
+                passedStations++;
+            } else if (currentStatus === statusMap[station]) {
+                // Currently active — count as half done
+                passedStations += 0.5;
+            } else {
+                // Check if skipped (later station has progress)
+                const laterStations = stations.slice(index + 1);
+                const skipped = laterStations.some(later =>
+                    product[endFields[later]] || currentStatus === statusMap[later]
+                );
+                if (skipped) passedStations++;
             }
-            totalDone += done;
         });
-        const totalPercent = Math.round((totalDone / totalMax) * 100);
 
-        // Badge z całkowitym postępem i ilością
+        // Spakowane = 100%
+        if (currentStatus === 'spakowane') passedStations = 6;
+
+        const totalPercent = Math.round((passedStations / stations.length) * 100);
         badge.textContent = `${quantity} szt. • ${totalPercent}%`;
     }
 
