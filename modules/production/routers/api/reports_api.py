@@ -75,7 +75,41 @@ def reports_tab_content():
             }
             for row in status_stats
         ]
-        
+
+        # Species+technology breakdown per status
+        species_by_status_raw = db.session.query(
+            ProductionItem.current_status,
+            ProductionItem.parsed_wood_species,
+            ProductionItem.parsed_technology,
+            func.sum(ProductionItem.volume_m3).label('volume')
+        ).filter(
+            ProductionItem.current_status.isnot(None),
+            ProductionItem.parsed_wood_species.isnot(None)
+        ).group_by(
+            ProductionItem.current_status,
+            ProductionItem.parsed_wood_species,
+            ProductionItem.parsed_technology
+        ).all()
+
+        species_by_status = {}
+        for row in species_by_status_raw:
+            status = row[0]
+            species = row[1] or '—'
+            tech = row[2] or ''
+            label = f"{species} {tech}".strip()
+            vol = float(row[3] or 0)
+            if status not in species_by_status:
+                species_by_status[status] = []
+            species_by_status[status].append({'label': label, 'volume': round(vol, 3)})
+
+        # Sort each status's species list by volume desc
+        for status in species_by_status:
+            species_by_status[status].sort(key=lambda x: -x['volume'])
+
+        # Attach to status_report
+        for item in status_report:
+            item['species_breakdown'] = species_by_status.get(item['status'], [])
+
         # Historia synchronizacji (ostatnie 10)
         sync_history = ProductionSyncLog.query\
                                        .order_by(ProductionSyncLog.sync_started_at.desc())\

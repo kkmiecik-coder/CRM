@@ -335,6 +335,33 @@
     border-color: var(--il-status-info, #2563eb);
 }
 
+/* ─── Species breakdown in status table ─── */
+.species-breakdown-cell {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    max-width: 300px;
+}
+
+.species-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    background: var(--il-bg-base, #eef0f4);
+    border: 1px solid var(--il-border-light, #e2e5ea);
+    border-radius: var(--il-radius, 3px);
+    padding: 1px 6px;
+    font-size: 11px;
+    color: var(--il-text-primary, #1a1a2e);
+    white-space: nowrap;
+}
+
+.species-tag strong {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    color: var(--il-text-secondary, #7a8291);
+}
+
 /* ─── Spacing between widgets ─── */
 .widget.mt-4 {
     margin-top: 16px !important;
@@ -446,7 +473,7 @@
     </div>
     <div class="widget-content">
         <div class="row">
-            <div class="col-md-8">
+            <div class="col-12">
                 <div class="table-responsive">
                     <table class="table table-sm">
                         <thead>
@@ -455,6 +482,7 @@
                                 <th>Ilość</th>
                                 <th>Objętość (m³)</th>
                                 <th>% całości</th>
+                                <th>Gatunki m³</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -471,15 +499,19 @@
                                     {% set percentage = (item['count'] / reports_data['summary']['total_in_system'] * 100) if reports_data['summary']['total_in_system'] > 0 else 0 %}
                                     {{ "%.1f"|format(percentage) }}%
                                 </td>
+                                <td class="species-breakdown-cell">
+                                    {% if item.get('species_breakdown') %}
+                                        {% for sp in item['species_breakdown'] %}
+                                        <span class="species-tag">{{ sp.label }} <strong>{{ sp.volume }} m³</strong></span>
+                                        {% endfor %}
+                                    {% else %}
+                                        <span class="text-muted">—</span>
+                                    {% endif %}
+                                </td>
                             </tr>
                             {% endfor %}
                         </tbody>
                     </table>
-                </div>
-            </div>
-            <div class="col-md-4">
-                <div class="chart-wrapper" style="position: relative; height: 250px;">
-                    <canvas id="status-breakdown-chart"></canvas>
                 </div>
             </div>
         </div>
