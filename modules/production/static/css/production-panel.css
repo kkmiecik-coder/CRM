@@ -2279,6 +2279,25 @@ body {
   justify-content: space-between;
   align-items: center;
 }
+.il-station-link {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: var(--il-radius, 3px);
+  background: rgba(255, 255, 255, 0.2);
+  color: rgba(255, 255, 255, 0.8);
+  font-size: 10px;
+  text-decoration: none;
+  transition: all 0.15s ease;
+  flex-shrink: 0;
+  margin-left: 6px;
+}
+.il-station-link:hover {
+  background: rgba(255, 255, 255, 0.35);
+  color: #fff;
+}
 .il-station-name {
   font-size: 15px;
   font-weight: 700;
