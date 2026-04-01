@@ -308,6 +308,13 @@ def dashboard():
                             page_title="Dashboard Produkcji")
 
 
+@main_bp.route('/logistics')
+@login_required
+def logistics():
+    """Strona stanowiska Logistyka — decyzja o transporcie"""
+    return render_template('logistics/logistics.html')
+
+
 @main_bp.route('/config')
 @require_module_access('production')
 def config_panel():

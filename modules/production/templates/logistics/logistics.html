@@ -1,0 +1,726 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Logistyka - WoodPower CRM</title>
+    <link rel="icon" href="{{ url_for('static', filename='images/favicon.png') }}" type="image/png">
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="stylesheet" href="{{ url_for('production.static', filename='css/production-panel.css') }}">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <style>
+        /* ── Logistics Page — IL Design System ── */
+
+        .logistics-page {
+            padding: 24px;
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        /* Header */
+        .logistics-header {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            margin-bottom: 24px;
+            flex-wrap: wrap;
+        }
+
+        .logistics-back {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 12px;
+            font-weight: 500;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: var(--il-text-secondary, #7a8291);
+            text-decoration: none;
+            padding: 6px 10px;
+            border: 1px solid var(--il-border, #c8cdd5);
+            border-radius: var(--il-radius, 3px);
+            background: var(--il-bg-card, #ffffff);
+            transition: color 0.15s, border-color 0.15s;
+        }
+
+        .logistics-back:hover {
+            color: var(--il-text-primary, #1a1a2e);
+            border-color: var(--il-text-primary, #1a1a2e);
+            text-decoration: none;
+        }
+
+        .logistics-title {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 20px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: var(--il-text-primary, #1a1a2e);
+            margin: 0;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .logistics-title i {
+            color: var(--il-text-secondary, #7a8291);
+            font-size: 18px;
+        }
+
+        .logistics-counter {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: var(--il-text-secondary, #7a8291);
+            background: var(--il-bg-base, #eef0f4);
+            border: 1px solid var(--il-border, #c8cdd5);
+            border-radius: var(--il-radius, 3px);
+            padding: 4px 10px;
+            margin-left: auto;
+        }
+
+        /* Orders Container */
+        .logistics-orders {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+
+        /* Order Card */
+        .logistics-card {
+            background: var(--il-bg-card, #ffffff);
+            border: 1px solid var(--il-border, #c8cdd5);
+            border-radius: var(--il-radius, 3px);
+            overflow: hidden;
+            transition: opacity 0.3s, transform 0.3s;
+        }
+
+        .logistics-card.card-removing {
+            opacity: 0;
+            transform: translateX(40px);
+            max-height: 0;
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            transition: opacity 0.3s, transform 0.3s, max-height 0.4s 0.15s, margin 0.4s 0.15s;
+        }
+
+        .logistics-card-header {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            padding: 12px 16px;
+            border-bottom: 1px solid var(--il-border-light, #e2e5ea);
+            background: var(--il-bg-base, #eef0f4);
+            flex-wrap: wrap;
+        }
+
+        .logistics-card-client {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 13px;
+            font-weight: 700;
+            color: var(--il-text-primary, #1a1a2e);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .logistics-card-orders {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 11px;
+            color: var(--il-text-secondary, #7a8291);
+            display: flex;
+            gap: 12px;
+        }
+
+        .logistics-card-deadline {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 11px;
+            font-weight: 600;
+            margin-left: auto;
+            padding: 3px 8px;
+            border-radius: var(--il-radius, 3px);
+        }
+
+        .deadline-urgent {
+            color: #fff;
+            background: var(--il-status-danger, #dc2626);
+        }
+
+        .deadline-soon {
+            color: #fff;
+            background: var(--il-status-warn, #d97706);
+        }
+
+        .deadline-ok {
+            color: var(--il-text-secondary, #7a8291);
+            background: var(--il-bg-card, #ffffff);
+            border: 1px solid var(--il-border, #c8cdd5);
+        }
+
+        /* Card Body — two columns */
+        .logistics-card-body {
+            display: grid;
+            grid-template-columns: 1fr 320px;
+            gap: 0;
+        }
+
+        .logistics-card-context {
+            padding: 16px;
+            border-right: 1px solid var(--il-border-light, #e2e5ea);
+        }
+
+        .logistics-card-decision {
+            padding: 16px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        /* Labels */
+        .logistics-label {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 10px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.8px;
+            color: var(--il-text-muted, #9ba3b0);
+            margin-bottom: 4px;
+        }
+
+        .logistics-value {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 12px;
+            color: var(--il-text-primary, #1a1a2e);
+            margin-bottom: 12px;
+            line-height: 1.5;
+        }
+
+        .logistics-value:last-child {
+            margin-bottom: 0;
+        }
+
+        /* Delivery method (read-only) */
+        .logistics-delivery-original {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 12px;
+            color: var(--il-status-info, #2563eb);
+            background: rgba(37, 99, 235, 0.06);
+            border: 1px solid rgba(37, 99, 235, 0.15);
+            border-radius: var(--il-radius, 3px);
+            padding: 6px 10px;
+            margin-bottom: 12px;
+        }
+
+        /* Products list */
+        .logistics-products-list {
+            list-style: none;
+            padding: 0;
+            margin: 0 0 12px 0;
+        }
+
+        .logistics-products-list li {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 11px;
+            color: var(--il-text-primary, #1a1a2e);
+            padding: 4px 0;
+            border-bottom: 1px solid var(--il-border-light, #e2e5ea);
+            display: flex;
+            justify-content: space-between;
+            gap: 8px;
+        }
+
+        .logistics-products-list li:last-child {
+            border-bottom: none;
+        }
+
+        .product-name {
+            flex: 1;
+            min-width: 0;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .product-meta {
+            flex-shrink: 0;
+            color: var(--il-text-secondary, #7a8291);
+            font-size: 10px;
+        }
+
+        .logistics-volume-total {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--il-text-primary, #1a1a2e);
+            margin-bottom: 12px;
+        }
+
+        /* Notes textarea */
+        .logistics-notes-area {
+            width: 100%;
+            min-height: 60px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 11px;
+            color: var(--il-text-primary, #1a1a2e);
+            background: var(--il-bg-card, #ffffff);
+            border: 1px solid var(--il-border, #c8cdd5);
+            border-radius: var(--il-radius, 3px);
+            padding: 8px 10px;
+            resize: vertical;
+            transition: border-color 0.15s;
+        }
+
+        .logistics-notes-area:focus {
+            outline: none;
+            border-color: var(--il-status-info, #2563eb);
+        }
+
+        .logistics-notes-save {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 10px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: var(--il-text-secondary, #7a8291);
+            background: var(--il-bg-base, #eef0f4);
+            border: 1px solid var(--il-border, #c8cdd5);
+            border-radius: var(--il-radius, 3px);
+            padding: 4px 10px;
+            cursor: pointer;
+            margin-top: 4px;
+            transition: color 0.15s, border-color 0.15s;
+        }
+
+        .logistics-notes-save:hover {
+            color: var(--il-text-primary, #1a1a2e);
+            border-color: var(--il-text-primary, #1a1a2e);
+        }
+
+        /* Decision column */
+        .logistics-select-label {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 10px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.8px;
+            color: var(--il-text-muted, #9ba3b0);
+            margin-bottom: 6px;
+        }
+
+        .logistics-select {
+            width: 100%;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 12px;
+            color: var(--il-text-primary, #1a1a2e);
+            background: var(--il-bg-card, #ffffff);
+            border: 1px solid var(--il-border, #c8cdd5);
+            border-radius: var(--il-radius, 3px);
+            padding: 8px 10px;
+            cursor: pointer;
+            appearance: auto;
+            transition: border-color 0.15s;
+        }
+
+        .logistics-select:focus {
+            outline: none;
+            border-color: var(--il-status-info, #2563eb);
+        }
+
+        .logistics-approve-btn {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 12px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.8px;
+            color: #fff;
+            background: var(--il-status-ok, #16a34a);
+            border: 1px solid var(--il-status-ok, #16a34a);
+            border-radius: var(--il-radius, 3px);
+            padding: 10px 16px;
+            cursor: pointer;
+            width: 100%;
+            margin-top: auto;
+            transition: opacity 0.15s;
+        }
+
+        .logistics-approve-btn:hover:not(:disabled) {
+            opacity: 0.85;
+        }
+
+        .logistics-approve-btn:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+        }
+
+        /* Empty state */
+        .logistics-empty {
+            text-align: center;
+            padding: 80px 24px;
+            font-family: 'JetBrains Mono', monospace;
+            color: var(--il-text-secondary, #7a8291);
+        }
+
+        .logistics-empty i {
+            font-size: 36px;
+            margin-bottom: 16px;
+            display: block;
+            color: var(--il-text-muted, #9ba3b0);
+        }
+
+        .logistics-empty-text {
+            font-size: 13px;
+            font-weight: 500;
+        }
+
+        /* Loading */
+        .logistics-loading {
+            text-align: center;
+            padding: 60px 24px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 12px;
+            color: var(--il-text-secondary, #7a8291);
+        }
+
+        /* Toast */
+        .logistics-toast {
+            position: fixed;
+            bottom: 24px;
+            right: 24px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 12px;
+            font-weight: 600;
+            color: #fff;
+            background: var(--il-status-ok, #16a34a);
+            border-radius: var(--il-radius, 3px);
+            padding: 12px 20px;
+            z-index: 9999;
+            opacity: 0;
+            transform: translateY(10px);
+            transition: opacity 0.25s, transform 0.25s;
+            pointer-events: none;
+        }
+
+        .logistics-toast.visible {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        .logistics-toast.toast-error {
+            background: var(--il-status-danger, #dc2626);
+        }
+
+        /* ── Responsive ── */
+        @media (max-width: 768px) {
+            .logistics-page {
+                padding: 16px;
+            }
+
+            .logistics-header {
+                gap: 10px;
+            }
+
+            .logistics-counter {
+                margin-left: 0;
+            }
+
+            .logistics-card-body {
+                grid-template-columns: 1fr;
+            }
+
+            .logistics-card-context {
+                border-right: none;
+                border-bottom: 1px solid var(--il-border-light, #e2e5ea);
+            }
+
+            .logistics-card-header {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 6px;
+            }
+
+            .logistics-card-deadline {
+                margin-left: 0;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="app-container">
+        {% include 'sidebar/sidebar.html' %}
+
+        <main class="main-content">
+            <div class="logistics-page">
+                <!-- Header -->
+                <div class="logistics-header">
+                    <a href="/production/" class="logistics-back">
+                        <i class="fas fa-arrow-left"></i> Produkcja
+                    </a>
+                    <h1 class="logistics-title">
+                        <i class="fas fa-truck"></i> Logistyka
+                    </h1>
+                    <span class="logistics-counter" id="logistics-counter">
+                        <i class="fas fa-spinner fa-spin"></i> Wczytywanie...
+                    </span>
+                </div>
+
+                <!-- Orders Container -->
+                <div id="logistics-orders" class="logistics-orders">
+                    <div class="logistics-loading">
+                        <i class="fas fa-spinner fa-spin"></i> Pobieranie zamowien...
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Toast -->
+    <div class="logistics-toast" id="logistics-toast"></div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="{{ url_for('static', filename='js/sidebar.js') }}"></script>
+    <script>
+    (function() {
+        const API_BASE = '/production/api/logistics';
+        const REFRESH_INTERVAL = 60000;
+        let refreshTimer = null;
+
+        // ── Helpers ──
+        function showToast(message, isError) {
+            const el = document.getElementById('logistics-toast');
+            el.textContent = message;
+            el.classList.toggle('toast-error', !!isError);
+            el.classList.add('visible');
+            setTimeout(() => el.classList.remove('visible'), 3000);
+        }
+
+        function formatDeadline(isoDate) {
+            if (!isoDate) return null;
+            const d = new Date(isoDate);
+            const day = String(d.getDate()).padStart(2, '0');
+            const month = String(d.getMonth() + 1).padStart(2, '0');
+            const year = d.getFullYear();
+            return `${day}.${month}.${year}`;
+        }
+
+        function deadlineClass(isoDate) {
+            if (!isoDate) return 'deadline-ok';
+            const now = new Date();
+            now.setHours(0,0,0,0);
+            const dl = new Date(isoDate);
+            dl.setHours(0,0,0,0);
+            const diff = (dl - now) / (1000 * 60 * 60 * 24);
+            if (diff <= 1) return 'deadline-urgent';
+            if (diff <= 3) return 'deadline-soon';
+            return 'deadline-ok';
+        }
+
+        function escapeHtml(str) {
+            if (!str) return '';
+            const div = document.createElement('div');
+            div.textContent = str;
+            return div.innerHTML;
+        }
+
+        // ── Render ──
+        function renderOrders(orders) {
+            const container = document.getElementById('logistics-orders');
+            const counter = document.getElementById('logistics-counter');
+
+            counter.innerHTML = orders.length + ' oczekujac' + (orders.length === 1 ? 'e' : 'ych');
+
+            if (!orders.length) {
+                container.innerHTML =
+                    '<div class="logistics-empty">' +
+                    '<i class="fas fa-check-circle"></i>' +
+                    '<div class="logistics-empty-text">Brak zamowien oczekujacych na decyzje transportowa</div>' +
+                    '</div>';
+                return;
+            }
+
+            container.innerHTML = orders.map(function(order) {
+                const addr = order.delivery_address || {};
+                const addressParts = [addr.address, addr.postcode, addr.city, addr.country_code].filter(Boolean);
+                const addressStr = addressParts.length ? escapeHtml(addressParts.join(', ')) : '<span style="color:var(--il-text-muted)">Brak adresu</span>';
+
+                const dlFormatted = formatDeadline(order.earliest_deadline);
+                const dlClass = deadlineClass(order.earliest_deadline);
+                const dlLabel = dlFormatted || 'Brak terminu';
+
+                const productsHtml = order.products.map(function(p) {
+                    return '<li>' +
+                        '<span class="product-name">' + escapeHtml(p.original_product_name || p.short_product_id) + '</span>' +
+                        '<span class="product-meta">x' + p.quantity + ' &middot; ' + p.volume_m3.toFixed(4) + ' m&sup3;</span>' +
+                        '</li>';
+                }).join('');
+
+                const notesVal = escapeHtml(order.production_notes || '');
+
+                return '<div class="logistics-card" data-order="' + escapeHtml(order.order_number) + '">' +
+                    '<div class="logistics-card-header">' +
+                        '<span class="logistics-card-client">' + escapeHtml(order.client_name || 'Brak klienta') + '</span>' +
+                        '<span class="logistics-card-orders">' +
+                            '<span><i class="fas fa-hashtag"></i> ' + escapeHtml(order.order_number) + '</span>' +
+                            (order.baselinker_order_id ? '<span>BL ' + escapeHtml(String(order.baselinker_order_id)) + '</span>' : '') +
+                        '</span>' +
+                        '<span class="logistics-card-deadline ' + dlClass + '">' +
+                            '<i class="fas fa-calendar-alt"></i> ' + dlLabel +
+                        '</span>' +
+                    '</div>' +
+                    '<div class="logistics-card-body">' +
+                        '<div class="logistics-card-context">' +
+                            '<div class="logistics-label">Adres dostawy</div>' +
+                            '<div class="logistics-value">' + addressStr + '</div>' +
+
+                            '<div class="logistics-label">Sposob dostawy</div>' +
+                            '<div class="logistics-delivery-original">' +
+                                'Klient wybral: ' + escapeHtml(order.delivery_method || 'Nieznany') +
+                            '</div>' +
+
+                            '<div class="logistics-label">Produkty (' + order.total_products + ')</div>' +
+                            '<ul class="logistics-products-list">' + productsHtml + '</ul>' +
+                            '<div class="logistics-volume-total">Lacznie: ' + order.total_volume.toFixed(4) + ' m&sup3;</div>' +
+
+                            '<div class="logistics-label">Notatka produkcyjna</div>' +
+                            '<textarea class="logistics-notes-area" data-order="' + escapeHtml(order.order_number) + '">' + notesVal + '</textarea>' +
+                            '<button class="logistics-notes-save" onclick="saveNotes(\'' + escapeHtml(order.order_number) + '\', this)">Zapisz notatke</button>' +
+                        '</div>' +
+                        '<div class="logistics-card-decision">' +
+                            '<div class="logistics-select-label">Sposob transportu</div>' +
+                            '<select class="logistics-select" data-order="' + escapeHtml(order.order_number) + '" onchange="toggleApprove(this)">' +
+                                '<option value="">&mdash; Wybierz sposob transportu &mdash;</option>' +
+                                '<option value="kurier_baselinker">Kurier (z Baselinker)</option>' +
+                                '<option value="transport_woodpower">Transport WoodPower</option>' +
+                            '</select>' +
+                            '<button class="logistics-approve-btn" data-order="' + escapeHtml(order.order_number) + '" disabled onclick="approveOrder(\'' + escapeHtml(order.order_number) + '\', this)">' +
+                                '<i class="fas fa-check"></i> Zatwierdz i przeslij na pakowanie' +
+                            '</button>' +
+                        '</div>' +
+                    '</div>' +
+                '</div>';
+            }).join('');
+        }
+
+        // ── Fetch ──
+        function fetchOrders() {
+            fetch(API_BASE + '/orders', { credentials: 'same-origin' })
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    if (data.success) {
+                        renderOrders(data.orders);
+                    } else {
+                        showToast('Blad pobierania zamowien: ' + (data.error || ''), true);
+                    }
+                })
+                .catch(function(err) {
+                    showToast('Blad polaczenia z serwerem', true);
+                    console.error('Logistics fetch error:', err);
+                });
+        }
+
+        // ── Toggle approve button ──
+        window.toggleApprove = function(selectEl) {
+            var orderNum = selectEl.dataset.order;
+            var btn = document.querySelector('.logistics-approve-btn[data-order="' + orderNum + '"]');
+            if (btn) btn.disabled = !selectEl.value;
+        };
+
+        // ── Approve ──
+        window.approveOrder = function(orderNumber, btnEl) {
+            var selectEl = document.querySelector('.logistics-select[data-order="' + orderNumber + '"]');
+            if (!selectEl || !selectEl.value) return;
+
+            btnEl.disabled = true;
+            btnEl.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Zatwierdzanie...';
+
+            fetch(API_BASE + '/approve', {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    order_number: orderNumber,
+                    transport_method: selectEl.value
+                })
+            })
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (data.success) {
+                    showToast('Zamowienie ' + orderNumber + ' zatwierdzone — przekazano na pakowanie');
+                    var card = document.querySelector('.logistics-card[data-order="' + orderNumber + '"]');
+                    if (card) {
+                        card.classList.add('card-removing');
+                        setTimeout(function() {
+                            card.remove();
+                            // Update counter
+                            var remaining = document.querySelectorAll('.logistics-card').length;
+                            var counter = document.getElementById('logistics-counter');
+                            counter.textContent = remaining + ' oczekujac' + (remaining === 1 ? 'e' : 'ych');
+                            if (remaining === 0) {
+                                document.getElementById('logistics-orders').innerHTML =
+                                    '<div class="logistics-empty">' +
+                                    '<i class="fas fa-check-circle"></i>' +
+                                    '<div class="logistics-empty-text">Brak zamowien oczekujacych na decyzje transportowa</div>' +
+                                    '</div>';
+                            }
+                        }, 450);
+                    }
+                } else {
+                    showToast('Blad: ' + (data.error || 'Nieznany blad'), true);
+                    btnEl.disabled = false;
+                    btnEl.innerHTML = '<i class="fas fa-check"></i> Zatwierdz i przeslij na pakowanie';
+                }
+            })
+            .catch(function(err) {
+                showToast('Blad polaczenia z serwerem', true);
+                btnEl.disabled = false;
+                btnEl.innerHTML = '<i class="fas fa-check"></i> Zatwierdz i przeslij na pakowanie';
+                console.error('Logistics approve error:', err);
+            });
+        };
+
+        // ── Save notes ──
+        window.saveNotes = function(orderNumber, btnEl) {
+            var textarea = document.querySelector('.logistics-notes-area[data-order="' + orderNumber + '"]');
+            if (!textarea) return;
+
+            btnEl.disabled = true;
+            btnEl.textContent = 'Zapisywanie...';
+
+            fetch(API_BASE + '/update-notes', {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    order_number: orderNumber,
+                    notes: textarea.value
+                })
+            })
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (data.success) {
+                    showToast('Notatka zapisana');
+                } else {
+                    showToast('Blad zapisu notatki: ' + (data.error || ''), true);
+                }
+                btnEl.disabled = false;
+                btnEl.textContent = 'Zapisz notatke';
+            })
+            .catch(function(err) {
+                showToast('Blad polaczenia z serwerem', true);
+                btnEl.disabled = false;
+                btnEl.textContent = 'Zapisz notatke';
+                console.error('Notes save error:', err);
+            });
+        };
+
+        // ── Init ──
+        fetchOrders();
+        refreshTimer = setInterval(fetchOrders, REFRESH_INTERVAL);
+    })();
+    </script>
+</body>
+</html>
