@@ -240,7 +240,11 @@ class ProductionItem(db.Model):
                                     comment='Timestamp ukończenia wszystkich sztuk na wykańczaniu')
     packaging_completed_at = Column(DateTime, index=True,
                                     comment='Timestamp ukończenia wszystkich sztuk na pakowaniu')
-    
+
+    # Logistyka - decyzja o transporcie
+    override_delivery_method = Column(String(255), nullable=True, comment='Nadpisanie metody dostawy (kurier_baselinker / transport_woodpower)')
+    logistics_completed_at = Column(DateTime, nullable=True, index=True, comment='Timestamp zatwierdzenia decyzji logistycznej')
+
     # UWAGI I PROBLEMY
     production_notes = Column(Text)
     quality_issues = Column(Text)
@@ -604,7 +608,7 @@ class ProductionItem(db.Model):
             'assembly': 'czeka_na_sklejanie',
             'gluing': 'czeka_na_formatowanie',
             'formatting': 'czeka_na_wykanczanie',
-            'finishing': 'czeka_na_pakowanie',
+            'finishing': 'czeka_na_logistyke',
             'packaging': 'spakowane'
         }
 
@@ -626,7 +630,7 @@ class ProductionItem(db.Model):
             # Z formatowania przechodzą bezpośrednio do pakowania
             skipped_finishing = False
             if station_code == 'formatting' and self.should_skip_finishing():
-                next_status = 'czeka_na_pakowanie'
+                next_status = 'czeka_na_logistyke'
                 skipped_finishing = True
 
                 # Oznacz stanowisko finishing jako ukończone (pominięte)
@@ -639,6 +643,11 @@ class ProductionItem(db.Model):
                     'product_id': self.short_product_id,
                     'finish_state': self.parsed_finish_state
                 })
+
+            # Logistyka — odbiór osobisty omija stanowisko logistyki
+            if next_status == 'czeka_na_logistyke' and self.is_personal_pickup:
+                next_status = 'czeka_na_pakowanie'
+                self.logistics_completed_at = now
 
             self.current_status = next_status
 
