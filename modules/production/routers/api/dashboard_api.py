@@ -73,6 +73,11 @@ def dashboard_stats():
                     'waiting_count': count,
                     'avg_priority': round(avg_priority or 0, 1)
                 }
+            elif status == 'czeka_na_logistyke':
+                stations_stats['logistics'] = {
+                    'waiting_count': count,
+                    'avg_priority': round(avg_priority or 0, 1)
+                }
 
         # ============================================================================
         # DODATKOWE STATYSTYKI (nowe)
@@ -967,6 +972,13 @@ def dashboard_tab_content():
         ).scalar() or 0.0
         dashboard_stats['stations']['packaging']['completed_today'] = packaging_completed_today
         dashboard_stats['stations']['packaging']['pending_m3'] = float(packaging_pending_m3)
+
+        logistics_pending = ProductionItem.query.filter(
+            ProductionItem.current_status == 'czeka_na_logistyke'
+        ).count()
+        dashboard_stats['logistics'] = {
+            'pending_count': logistics_pending
+        }
 
         # Dzisiejsze sumy
         today_start = datetime.combine(today, datetime.min.time())

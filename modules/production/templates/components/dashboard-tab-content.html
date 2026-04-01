@@ -241,6 +241,20 @@
           </div>
         </div>
 
+        {# LOGISTICS — light card #}
+        <div class="il-logistics-card">
+          <div class="il-logistics-header">
+            <span class="il-logistics-name"><i class="fas fa-truck me-2"></i>Logistyka</span>
+            <div class="il-station-actions">
+              <span class="il-logistics-count" id="logistics-pending-count">{{ dashboard_stats.logistics.pending_count|default(0) }}</span>
+              <a href="{{ url_for('production.production_main.logistics') }}" class="il-station-link" title="Otwórz stanowisko"><i class="fas fa-external-link-alt"></i></a>
+            </div>
+          </div>
+          <div class="il-logistics-body">
+            <span class="il-logistics-label">zamówień oczekuje na decyzję transportową</span>
+          </div>
+        </div>
+
       </div>
     </div>
   </div>
