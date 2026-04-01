@@ -581,23 +581,19 @@
                 </div>
             </div>
 
-            <!-- Right: 2x2 charts grid -->
+            <!-- Right: charts -->
             <div class="status-charts-grid">
                 <div class="status-chart-card">
-                    <h6>Ilość</h6>
+                    <h6>Ilość wg stanowisk</h6>
                     <div class="status-chart-canvas"><canvas id="status-count-chart"></canvas></div>
                 </div>
                 <div class="status-chart-card">
-                    <h6>Objętość</h6>
+                    <h6>Objętość wg stanowisk</h6>
                     <div class="status-chart-canvas"><canvas id="status-volume-chart"></canvas></div>
                 </div>
-                <div class="status-chart-card">
-                    <h6>% całości</h6>
-                    <div class="status-chart-canvas"><canvas id="status-breakdown-chart"></canvas></div>
-                </div>
-                <div class="status-chart-card">
+                <div class="status-chart-card" style="grid-column: 1 / -1;">
                     <h6>Gatunki m³</h6>
-                    <div class="status-chart-canvas"><canvas id="species-volume-chart"></canvas></div>
+                    <div class="status-chart-canvas" style="height: 160px;"><canvas id="species-volume-chart"></canvas></div>
                 </div>
             </div>
         </div>
@@ -744,7 +740,6 @@
 <script>
 // JavaScript dla taba raportów
 let dailyChart = null;
-let statusChart = null;
 let statusCountChart = null;
 let statusVolumeChart = null;
 let speciesVolumeChart = null;
@@ -758,7 +753,6 @@ function initReportsTab() {
 
     // Inicjalizuj wykresy
     initializeDailyChart();
-    initializeStatusChart();
     initializeStatusCountChart();
     initializeStatusVolumeChart();
     initializeSpeciesVolumeChart();
@@ -1129,90 +1123,80 @@ function updateChartSummary(summary) {
     }
 }
 
-function initializeStatusChart() {
-    const canvas = document.getElementById('status-breakdown-chart');
-    if (!canvas) {
-        console.error('[Reports Tab] Canvas status-breakdown-chart not found!');
-        return;
-    }
-
-    if (typeof Chart === 'undefined') {
-        setTimeout(initializeStatusChart, 100);
-        return;
-    }
-
-    const ctx = canvas.getContext('2d');
+function _getStatusChartData() {
     const statusData = {{ reports_data['status_breakdown']|tojson }};
-
-    if (statusChart) {
-        statusChart.destroy();
-        statusChart = null;
-    }
-
-    try {
-        statusChart = new Chart(ctx, {
-            type: 'doughnut',
-            data: {
-                labels: statusData.map(item => item.status.replace('czeka_na_', '').replace('_', ' ').charAt(0).toUpperCase() + item.status.replace('czeka_na_', '').replace('_', ' ').slice(1)),
-                datasets: [{
-                    data: statusData.map(item => item.count),
-                    backgroundColor: [
-                        '#FF6384',
-                        '#36A2EB',
-                        '#FFCE56',
-                        '#4BC0C0',
-                        '#9966FF'
-                    ]
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false
-            }
-        });
-        console.log('[Reports Tab] Status chart initialized');
-    } catch (error) {
-        console.error('[Reports Tab] Error creating status chart:', error);
-    }
+    const colorMap = {
+        'czeka_na_wyciecie': '#2d8a3e', 'czeka_na_skladanie': '#2563eb',
+        'czeka_na_sklejanie': '#9333ea', 'czeka_na_formatowanie': '#d97706',
+        'czeka_na_wykanczanie': '#0891b2', 'czeka_na_pakowanie': '#16a34a',
+        'spakowane': '#22c55e', 'wstrzymane': '#f59e0b',
+        'anulowane': '#dc2626', 'w_realizacji': '#3b82f6'
+    };
+    const labels = statusData.map(i => {
+        let name = i.status.replace('czeka_na_', '').replace(/_/g, ' ');
+        return name.charAt(0).toUpperCase() + name.slice(1);
+    });
+    const colors = statusData.map(i => colorMap[i.status] || '#64748b');
+    return { statusData, labels, colors };
 }
 
 function initializeStatusCountChart() {
     const canvas = document.getElementById('status-count-chart');
     if (!canvas || typeof Chart === 'undefined') return;
-    const ctx = canvas.getContext('2d');
-    const statusData = {{ reports_data['status_breakdown']|tojson }};
-    const colors = ['#2d8a3e','#2563eb','#9333ea','#d97706','#0891b2','#16a34a','#dc2626','#64748b'];
-    const labels = statusData.map(i => i.status.replace('czeka_na_','').replace(/_/g,' '));
-    if (statusCountChart) { statusCountChart.destroy(); }
-    statusCountChart = new Chart(ctx, {
+    const { statusData, labels, colors } = _getStatusChartData();
+    if (statusCountChart) statusCountChart.destroy();
+    statusCountChart = new Chart(canvas.getContext('2d'), {
         type: 'doughnut',
         data: { labels, datasets: [{ data: statusData.map(i => i.count), backgroundColor: colors }] },
-        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } }
+        options: {
+            responsive: true, maintainAspectRatio: false,
+            plugins: {
+                legend: { display: false },
+                tooltip: {
+                    callbacks: {
+                        label: (ctx) => {
+                            const total = ctx.dataset.data.reduce((a, b) => a + b, 0);
+                            const pct = Math.round(ctx.raw / total * 100);
+                            return `${ctx.label}: ${ctx.raw} szt. (${pct}%)`;
+                        }
+                    }
+                }
+            }
+        }
     });
 }
 
 function initializeStatusVolumeChart() {
     const canvas = document.getElementById('status-volume-chart');
     if (!canvas || typeof Chart === 'undefined') return;
-    const ctx = canvas.getContext('2d');
-    const statusData = {{ reports_data['status_breakdown']|tojson }};
-    const colors = ['#2d8a3e','#2563eb','#9333ea','#d97706','#0891b2','#16a34a','#dc2626','#64748b'];
-    const labels = statusData.map(i => i.status.replace('czeka_na_','').replace(/_/g,' '));
-    if (statusVolumeChart) { statusVolumeChart.destroy(); }
-    statusVolumeChart = new Chart(ctx, {
+    const { statusData, labels, colors } = _getStatusChartData();
+    if (statusVolumeChart) statusVolumeChart.destroy();
+    statusVolumeChart = new Chart(canvas.getContext('2d'), {
         type: 'doughnut',
         data: { labels, datasets: [{ data: statusData.map(i => i.volume), backgroundColor: colors }] },
-        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } }
+        options: {
+            responsive: true, maintainAspectRatio: false,
+            plugins: {
+                legend: { display: false },
+                tooltip: {
+                    callbacks: {
+                        label: (ctx) => {
+                            const total = ctx.dataset.data.reduce((a, b) => a + b, 0);
+                            const pct = Math.round(ctx.raw / total * 100);
+                            return `${ctx.label}: ${ctx.raw.toFixed(3)} m³ (${pct}%)`;
+                        }
+                    }
+                }
+            }
+        }
     });
 }
 
 function initializeSpeciesVolumeChart() {
     const canvas = document.getElementById('species-volume-chart');
     if (!canvas || typeof Chart === 'undefined') return;
-    const ctx = canvas.getContext('2d');
     const statusData = {{ reports_data['status_breakdown']|tojson }};
-    const colors = ['#f59e0b','#3b82f6','#22c55e','#06b6d4','#ec4899','#f97316','#8b5cf6','#ef4444'];
-    // Flatten all species across statuses
+    const speciesColors = ['#f59e0b','#3b82f6','#22c55e','#06b6d4','#ec4899','#f97316','#8b5cf6','#ef4444','#64748b','#dc2626'];
     const speciesMap = {};
     statusData.forEach(s => {
         (s.species_breakdown || []).forEach(sp => {
@@ -1220,11 +1204,28 @@ function initializeSpeciesVolumeChart() {
         });
     });
     const entries = Object.entries(speciesMap).sort((a, b) => b[1] - a[1]);
-    if (speciesVolumeChart) { speciesVolumeChart.destroy(); }
-    speciesVolumeChart = new Chart(ctx, {
+    if (speciesVolumeChart) speciesVolumeChart.destroy();
+    speciesVolumeChart = new Chart(canvas.getContext('2d'), {
         type: 'doughnut',
-        data: { labels: entries.map(e => e[0]), datasets: [{ data: entries.map(e => e[1]), backgroundColor: colors }] },
-        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } }
+        data: {
+            labels: entries.map(e => e[0]),
+            datasets: [{ data: entries.map(e => Math.round(e[1] * 1000) / 1000), backgroundColor: speciesColors }]
+        },
+        options: {
+            responsive: true, maintainAspectRatio: false,
+            plugins: {
+                legend: { display: false },
+                tooltip: {
+                    callbacks: {
+                        label: (ctx) => {
+                            const total = ctx.dataset.data.reduce((a, b) => a + b, 0);
+                            const pct = Math.round(ctx.raw / total * 100);
+                            return `${ctx.label}: ${ctx.raw.toFixed(3)} m³ (${pct}%)`;
+                        }
+                    }
+                }
+            }
+        }
     });
 }
 
