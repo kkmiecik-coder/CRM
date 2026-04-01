@@ -1475,6 +1475,9 @@ class ProductsModule {
         // Client info
         header.querySelector('.il-order-client').textContent = order.clientName;
         const idsContainer = header.querySelector('.il-order-ids');
+        if (order.internalOrderNumber) {
+            idsContainer.innerHTML += `<span class="il-order-id-tag">${order.internalOrderNumber}</span>`;
+        }
         if (order.baselinkerOrderId) {
             idsContainer.innerHTML += `<span class="il-order-id-tag">BL-${order.baselinkerOrderId}</span>`;
         }
@@ -3094,8 +3097,36 @@ class ProductsModule {
         }
     }
 
+    /**
+     * Checks if all selected products form complete orders (no partial selections)
+     */
+    areCompleteOrdersSelected() {
+        if (this.state.selectedProducts.size === 0) return false;
+
+        const selectedIds = this.state.selectedProducts;
+        // Group selected products by order
+        const orderProductCounts = new Map();
+        const orderTotalCounts = new Map();
+
+        this.state.filteredProducts.forEach(p => {
+            const key = p.internal_order_number || p.baselinker_order_id || `single-${p.id}`;
+            orderTotalCounts.set(key, (orderTotalCounts.get(key) || 0) + 1);
+            const pid = p.unique_id || String(p.id);
+            if (selectedIds.has(pid) || selectedIds.has(p.id)) {
+                orderProductCounts.set(key, (orderProductCounts.get(key) || 0) + 1);
+            }
+        });
+
+        // Every order that has any selection must be fully selected
+        for (const [key, selected] of orderProductCounts) {
+            if (selected !== orderTotalCounts.get(key)) return false;
+        }
+        return true;
+    }
+
     toggleBulkActionsVisibility() {
         const selectedCount = this.state.selectedProducts.size;
+        const completeOrders = selectedCount > 0 ? this.areCompleteOrdersSelected() : false;
 
         // New IL bulk bar
         const ilBar = document.getElementById('il-bulk-bar');
@@ -3105,11 +3136,26 @@ class ProductsModule {
                 const countEl = ilBar.querySelector('.il-bulk-count');
                 if (countEl) countEl.textContent = `${selectedCount} zaznaczone`;
 
+                // Enable/disable status change button
+                const statusBtn = ilBar.querySelector('.il-bulk-btn[data-action="status"]');
+                if (statusBtn) {
+                    if (completeOrders) {
+                        statusBtn.disabled = false;
+                        statusBtn.title = 'Zmień status zaznaczonych zamówień';
+                        statusBtn.style.opacity = '';
+                    } else {
+                        statusBtn.disabled = true;
+                        statusBtn.title = 'Zaznacz wszystkie produkty w zamówieniu, aby zmienić status';
+                        statusBtn.style.opacity = '0.4';
+                    }
+                }
+
                 // Bind click handlers (only once)
                 if (!ilBar._listenersAttached) {
                     ilBar._listenersAttached = true;
                     ilBar.querySelectorAll('.il-bulk-btn').forEach(btn => {
                         btn.addEventListener('click', () => {
+                            if (btn.disabled) return;
                             const action = btn.getAttribute('data-action');
                             switch(action) {
                                 case 'status':
@@ -3138,6 +3184,15 @@ class ProductsModule {
                 const countSpan = document.getElementById('bulk-selected-count');
                 if (countSpan) {
                     countSpan.textContent = selectedCount;
+                }
+                // Disable status change if not complete orders
+                const legacyStatusBtn = document.getElementById('bulk-change-status');
+                if (legacyStatusBtn) {
+                    legacyStatusBtn.disabled = !completeOrders;
+                    legacyStatusBtn.title = completeOrders
+                        ? 'Zmień status'
+                        : 'Zaznacz wszystkie produkty w zamówieniu, aby zmienić status';
+                    legacyStatusBtn.style.opacity = completeOrders ? '' : '0.4';
                 }
             } else {
                 bulkActionsBar.style.display = 'none';
