@@ -337,29 +337,59 @@
 
 /* ─── Species breakdown in status table ─── */
 .species-breakdown-cell {
+    padding: 0 !important;
+    vertical-align: top !important;
+}
+
+.species-list {
     display: flex;
-    flex-wrap: wrap;
-    gap: 4px;
-    max-width: 300px;
+    flex-direction: column;
+    gap: 0;
 }
 
-.species-tag {
-    display: inline-flex;
+.species-row {
+    display: flex;
+    justify-content: space-between;
     align-items: center;
-    gap: 4px;
-    background: var(--il-bg-base, #eef0f4);
-    border: 1px solid var(--il-border-light, #e2e5ea);
-    border-radius: var(--il-radius, 3px);
-    padding: 1px 6px;
+    padding: 2px 10px;
     font-size: 11px;
-    color: var(--il-text-primary, #1a1a2e);
-    white-space: nowrap;
+    border-bottom: 1px solid var(--il-bg-base, #eef0f4);
 }
 
-.species-tag strong {
+.species-row:last-child { border-bottom: none; }
+
+.species-row .species-name {
+    color: var(--il-text-primary, #1a1a2e);
+}
+
+.species-row .species-vol {
     font-family: 'JetBrains Mono', monospace;
     font-size: 10px;
     color: var(--il-text-secondary, #7a8291);
+    margin-left: 12px;
+    white-space: nowrap;
+}
+
+/* ─── Status charts row ─── */
+.status-charts-row {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 12px;
+    margin-top: 16px;
+}
+
+.status-chart-card {
+    text-align: center;
+}
+
+.status-chart-card h6 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--il-text-secondary, #7a8291);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 8px;
 }
 
 /* ─── Spacing between widgets ─── */
@@ -472,46 +502,75 @@
         <h4>Rozkład produktów według statusów</h4>
     </div>
     <div class="widget-content">
-        <div class="row">
-            <div class="col-12">
-                <div class="table-responsive">
-                    <table class="table table-sm">
-                        <thead>
-                            <tr>
-                                <th>Status</th>
-                                <th>Ilość</th>
-                                <th>Objętość (m³)</th>
-                                <th>% całości</th>
-                                <th>Gatunki m³</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {% for item in reports_data['status_breakdown'] %}
-                            <tr>
-                                <td>
-                                    <span class="status-badge status-{{ item['status'].replace('czeka_na_', '').replace('_', '-') }}">
-                                        {{ item['status'].replace('czeka_na_', '').replace('_', ' ').title() }}
-                                    </span>
-                                </td>
-                                <td><strong>{{ item['count'] }}</strong></td>
-                                <td>{{ "%.3f"|format(item['volume']) }}</td>
-                                <td>
-                                    {% set percentage = (item['count'] / reports_data['summary']['total_in_system'] * 100) if reports_data['summary']['total_in_system'] > 0 else 0 %}
-                                    {{ "%.1f"|format(percentage) }}%
-                                </td>
-                                <td class="species-breakdown-cell">
-                                    {% if item.get('species_breakdown') %}
-                                        {% for sp in item['species_breakdown'] %}
-                                        <span class="species-tag">{{ sp.label }} <strong>{{ sp.volume }} m³</strong></span>
-                                        {% endfor %}
-                                    {% else %}
-                                        <span class="text-muted">—</span>
-                                    {% endif %}
-                                </td>
-                            </tr>
-                            {% endfor %}
-                        </tbody>
-                    </table>
+        <div class="table-responsive">
+            <table class="table table-sm">
+                <thead>
+                    <tr>
+                        <th>Status</th>
+                        <th>Ilość</th>
+                        <th>Objętość (m³)</th>
+                        <th>% całości</th>
+                        <th>Gatunki m³</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for item in reports_data['status_breakdown'] %}
+                    <tr>
+                        <td>
+                            <span class="status-badge status-{{ item['status'].replace('czeka_na_', '').replace('_', '-') }}">
+                                {{ item['status'].replace('czeka_na_', '').replace('_', ' ').title() }}
+                            </span>
+                        </td>
+                        <td><strong>{{ item['count'] }}</strong></td>
+                        <td>{{ "%.3f"|format(item['volume']) }}</td>
+                        <td>
+                            {% set percentage = (item['count'] / reports_data['summary']['total_in_system'] * 100) if reports_data['summary']['total_in_system'] > 0 else 0 %}
+                            {{ "%.1f"|format(percentage) }}%
+                        </td>
+                        <td class="species-breakdown-cell">
+                            {% if item.get('species_breakdown') %}
+                            <div class="species-list">
+                                {% for sp in item['species_breakdown'] %}
+                                <div class="species-row">
+                                    <span class="species-name">{{ sp.label }}</span>
+                                    <span class="species-vol">{{ sp.volume }} m³</span>
+                                </div>
+                                {% endfor %}
+                            </div>
+                            {% else %}
+                                <span class="text-muted">—</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        <!-- Wykresy kołowe per kolumna -->
+        <div class="status-charts-row">
+            <div class="status-chart-card">
+                <h6>Ilość wg statusu</h6>
+                <div style="position: relative; height: 180px;">
+                    <canvas id="status-count-chart"></canvas>
+                </div>
+            </div>
+            <div class="status-chart-card">
+                <h6>Objętość wg statusu</h6>
+                <div style="position: relative; height: 180px;">
+                    <canvas id="status-volume-chart"></canvas>
+                </div>
+            </div>
+            <div class="status-chart-card">
+                <h6>% całości</h6>
+                <div style="position: relative; height: 180px;">
+                    <canvas id="status-breakdown-chart"></canvas>
+                </div>
+            </div>
+            <div class="status-chart-card">
+                <h6>Gatunki m³</h6>
+                <div style="position: relative; height: 180px;">
+                    <canvas id="species-volume-chart"></canvas>
                 </div>
             </div>
         </div>
@@ -659,6 +718,9 @@
 // JavaScript dla taba raportów
 let dailyChart = null;
 let statusChart = null;
+let statusCountChart = null;
+let statusVolumeChart = null;
+let speciesVolumeChart = null;
 let woodClassChart = null;
 let speciesChart = null;
 let thicknessChart = null;
@@ -670,6 +732,9 @@ function initReportsTab() {
     // Inicjalizuj wykresy
     initializeDailyChart();
     initializeStatusChart();
+    initializeStatusCountChart();
+    initializeStatusVolumeChart();
+    initializeSpeciesVolumeChart();
     initializeSpeciesChart();
     initializeThicknessChart();
     initializeTechnologyChart();
@@ -1082,6 +1147,58 @@ function initializeStatusChart() {
     } catch (error) {
         console.error('[Reports Tab] Error creating status chart:', error);
     }
+}
+
+function initializeStatusCountChart() {
+    const canvas = document.getElementById('status-count-chart');
+    if (!canvas || typeof Chart === 'undefined') return;
+    const ctx = canvas.getContext('2d');
+    const statusData = {{ reports_data['status_breakdown']|tojson }};
+    const colors = ['#2d8a3e','#2563eb','#9333ea','#d97706','#0891b2','#16a34a','#dc2626','#64748b'];
+    const labels = statusData.map(i => i.status.replace('czeka_na_','').replace(/_/g,' '));
+    if (statusCountChart) { statusCountChart.destroy(); }
+    statusCountChart = new Chart(ctx, {
+        type: 'doughnut',
+        data: { labels, datasets: [{ data: statusData.map(i => i.count), backgroundColor: colors }] },
+        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } }
+    });
+}
+
+function initializeStatusVolumeChart() {
+    const canvas = document.getElementById('status-volume-chart');
+    if (!canvas || typeof Chart === 'undefined') return;
+    const ctx = canvas.getContext('2d');
+    const statusData = {{ reports_data['status_breakdown']|tojson }};
+    const colors = ['#2d8a3e','#2563eb','#9333ea','#d97706','#0891b2','#16a34a','#dc2626','#64748b'];
+    const labels = statusData.map(i => i.status.replace('czeka_na_','').replace(/_/g,' '));
+    if (statusVolumeChart) { statusVolumeChart.destroy(); }
+    statusVolumeChart = new Chart(ctx, {
+        type: 'doughnut',
+        data: { labels, datasets: [{ data: statusData.map(i => i.volume), backgroundColor: colors }] },
+        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } }
+    });
+}
+
+function initializeSpeciesVolumeChart() {
+    const canvas = document.getElementById('species-volume-chart');
+    if (!canvas || typeof Chart === 'undefined') return;
+    const ctx = canvas.getContext('2d');
+    const statusData = {{ reports_data['status_breakdown']|tojson }};
+    const colors = ['#f59e0b','#3b82f6','#22c55e','#06b6d4','#ec4899','#f97316','#8b5cf6','#ef4444'];
+    // Flatten all species across statuses
+    const speciesMap = {};
+    statusData.forEach(s => {
+        (s.species_breakdown || []).forEach(sp => {
+            speciesMap[sp.label] = (speciesMap[sp.label] || 0) + sp.volume;
+        });
+    });
+    const entries = Object.entries(speciesMap).sort((a, b) => b[1] - a[1]);
+    if (speciesVolumeChart) { speciesVolumeChart.destroy(); }
+    speciesVolumeChart = new Chart(ctx, {
+        type: 'doughnut',
+        data: { labels: entries.map(e => e[0]), datasets: [{ data: entries.map(e => e[1]), backgroundColor: colors }] },
+        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } }
+    });
 }
 
 function initializeSpeciesChart() {
