@@ -370,12 +370,22 @@
     white-space: nowrap;
 }
 
-/* ─── Status charts row ─── */
-.status-charts-row {
+/* ─── Status breakdown layout: table left, charts right ─── */
+.status-breakdown-layout {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-    gap: 12px;
-    margin-top: 16px;
+    grid-template-columns: 1fr 320px;
+    gap: 16px;
+    align-items: start;
+}
+
+.status-breakdown-table {
+    min-width: 0;
+}
+
+.status-charts-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
 }
 
 .status-chart-card {
@@ -384,12 +394,32 @@
 
 .status-chart-card h6 {
     font-family: 'JetBrains Mono', monospace;
-    font-size: 11px;
+    font-size: 10px;
     font-weight: 600;
     color: var(--il-text-secondary, #7a8291);
     text-transform: uppercase;
     letter-spacing: 0.5px;
-    margin-bottom: 8px;
+    margin-bottom: 6px;
+}
+
+.status-chart-canvas {
+    position: relative;
+    height: 130px;
+}
+
+@media (max-width: 900px) {
+    .status-breakdown-layout {
+        grid-template-columns: 1fr;
+    }
+    .status-charts-grid {
+        grid-template-columns: repeat(4, 1fr);
+    }
+}
+
+@media (max-width: 600px) {
+    .status-charts-grid {
+        grid-template-columns: 1fr;
+    }
 }
 
 /* ─── Spacing between widgets ─── */
@@ -502,75 +532,72 @@
         <h4>Rozkład produktów według statusów</h4>
     </div>
     <div class="widget-content">
-        <div class="table-responsive">
-            <table class="table table-sm">
-                <thead>
-                    <tr>
-                        <th>Status</th>
-                        <th>Ilość</th>
-                        <th>Objętość (m³)</th>
-                        <th>% całości</th>
-                        <th>Gatunki m³</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for item in reports_data['status_breakdown'] %}
-                    <tr>
-                        <td>
-                            <span class="status-badge status-{{ item['status'].replace('czeka_na_', '').replace('_', '-') }}">
-                                {{ item['status'].replace('czeka_na_', '').replace('_', ' ').title() }}
-                            </span>
-                        </td>
-                        <td><strong>{{ item['count'] }}</strong></td>
-                        <td>{{ "%.3f"|format(item['volume']) }}</td>
-                        <td>
-                            {% set percentage = (item['count'] / reports_data['summary']['total_in_system'] * 100) if reports_data['summary']['total_in_system'] > 0 else 0 %}
-                            {{ "%.1f"|format(percentage) }}%
-                        </td>
-                        <td class="species-breakdown-cell">
-                            {% if item.get('species_breakdown') %}
-                            <div class="species-list">
-                                {% for sp in item['species_breakdown'] %}
-                                <div class="species-row">
-                                    <span class="species-name">{{ sp.label }}</span>
-                                    <span class="species-vol">{{ sp.volume }} m³</span>
-                                </div>
-                                {% endfor %}
-                            </div>
-                            {% else %}
-                                <span class="text-muted">—</span>
-                            {% endif %}
-                        </td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        </div>
+        <div class="status-breakdown-layout">
+            <!-- Left: table -->
+            <div class="status-breakdown-table">
+                <div class="table-responsive">
+                    <table class="table table-sm">
+                        <thead>
+                            <tr>
+                                <th>Status</th>
+                                <th>Ilość</th>
+                                <th>Objętość (m³)</th>
+                                <th>% całości</th>
+                                <th>Gatunki m³</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for item in reports_data['status_breakdown'] %}
+                            <tr>
+                                <td>
+                                    <span class="status-badge status-{{ item['status'].replace('czeka_na_', '').replace('_', '-') }}">
+                                        {{ item['status'].replace('czeka_na_', '').replace('_', ' ').title() }}
+                                    </span>
+                                </td>
+                                <td><strong>{{ item['count'] }}</strong></td>
+                                <td>{{ "%.3f"|format(item['volume']) }}</td>
+                                <td>
+                                    {% set percentage = (item['count'] / reports_data['summary']['total_in_system'] * 100) if reports_data['summary']['total_in_system'] > 0 else 0 %}
+                                    {{ "%.1f"|format(percentage) }}%
+                                </td>
+                                <td class="species-breakdown-cell">
+                                    {% if item.get('species_breakdown') %}
+                                    <div class="species-list">
+                                        {% for sp in item['species_breakdown'] %}
+                                        <div class="species-row">
+                                            <span class="species-name">{{ sp.label }}</span>
+                                            <span class="species-vol">{{ sp.volume }} m³</span>
+                                        </div>
+                                        {% endfor %}
+                                    </div>
+                                    {% else %}
+                                        <span class="text-muted">—</span>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
 
-        <!-- Wykresy kołowe per kolumna -->
-        <div class="status-charts-row">
-            <div class="status-chart-card">
-                <h6>Ilość wg statusu</h6>
-                <div style="position: relative; height: 180px;">
-                    <canvas id="status-count-chart"></canvas>
+            <!-- Right: 2x2 charts grid -->
+            <div class="status-charts-grid">
+                <div class="status-chart-card">
+                    <h6>Ilość</h6>
+                    <div class="status-chart-canvas"><canvas id="status-count-chart"></canvas></div>
                 </div>
-            </div>
-            <div class="status-chart-card">
-                <h6>Objętość wg statusu</h6>
-                <div style="position: relative; height: 180px;">
-                    <canvas id="status-volume-chart"></canvas>
+                <div class="status-chart-card">
+                    <h6>Objętość</h6>
+                    <div class="status-chart-canvas"><canvas id="status-volume-chart"></canvas></div>
                 </div>
-            </div>
-            <div class="status-chart-card">
-                <h6>% całości</h6>
-                <div style="position: relative; height: 180px;">
-                    <canvas id="status-breakdown-chart"></canvas>
+                <div class="status-chart-card">
+                    <h6>% całości</h6>
+                    <div class="status-chart-canvas"><canvas id="status-breakdown-chart"></canvas></div>
                 </div>
-            </div>
-            <div class="status-chart-card">
-                <h6>Gatunki m³</h6>
-                <div style="position: relative; height: 180px;">
-                    <canvas id="species-volume-chart"></canvas>
+                <div class="status-chart-card">
+                    <h6>Gatunki m³</h6>
+                    <div class="status-chart-canvas"><canvas id="species-volume-chart"></canvas></div>
                 </div>
             </div>
         </div>
