@@ -692,7 +692,12 @@ def products_tab_content():
                 'packaging_started_at': get_attr(product, 'packaging_started_at').isoformat() if get_attr(product, 'packaging_started_at') else None,
                 'packaging_completed_at': get_attr(product, 'packaging_completed_at').isoformat() if get_attr(product, 'packaging_completed_at') else None,
                 'packaging_duration_minutes': get_attr(product, 'packaging_duration_minutes', None),
-                
+
+                # Logistyka
+                'logistics_completed_at': get_attr(product, 'logistics_completed_at').isoformat() if get_attr(product, 'logistics_completed_at') else None,
+                'override_delivery_method': get_attr(product, 'override_delivery_method', None),
+                'is_personal_pickup': product.is_personal_pickup,
+
                 # Przypisani pracownicy
                 'cutting_assigned_worker_id': get_attr(product, 'cutting_assigned_worker_id', None),
                 'assembly_assigned_worker_id': get_attr(product, 'assembly_assigned_worker_id', None),
@@ -2342,6 +2347,11 @@ def products_filtered():
                 'packaging_started_at': getattr(item, 'packaging_started_at', None),
                 'packaging_completed_at': getattr(item, 'packaging_completed_at', None),
                 'packaging_duration_minutes': getattr(item, 'packaging_duration_minutes', None),
+
+                # Logistyka
+                'logistics_completed_at': getattr(item, 'logistics_completed_at').isoformat() if getattr(item, 'logistics_completed_at', None) else None,
+                'override_delivery_method': getattr(item, 'override_delivery_method', None),
+                'is_personal_pickup': getattr(item, 'is_personal_pickup', False),
 
                 # NOWE: Ilość i liczniki quantity_done per stanowisko
                 'quantity': getattr(item, 'quantity', 1),
