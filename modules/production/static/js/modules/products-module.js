@@ -29,6 +29,7 @@ class ProductsModule {
         'czeka_na_sklejanie': 'Sklejanie',
         'czeka_na_formatowanie': 'Formatowanie',
         'czeka_na_wykanczanie': 'Wykańczanie',
+        'czeka_na_logistyke': 'Logistyka',
         'czeka_na_pakowanie': 'Pakowanie',
         'spakowane': 'Spakowane',
         'w_realizacji': 'W realizacji',
@@ -48,6 +49,7 @@ class ProductsModule {
         'w_trakcie_formatowania': { icon: 'fa-ruler-combined', displayName: 'Formatowanie', color: 'formatting-theme', badgeClass: 'badge-formatting' },
         'czeka_na_wykanczanie': { icon: 'fa-star', displayName: 'Wykańczanie', color: 'finishing-theme', badgeClass: 'badge-finishing' },
         'w_trakcie_wykanczania': { icon: 'fa-star', displayName: 'Wykańczanie', color: 'finishing-theme', badgeClass: 'badge-finishing' },
+        'czeka_na_logistyke': { icon: 'fa-truck', displayName: 'Logistyka', color: 'logistics-theme', badgeClass: 'badge-logistics' },
         'czeka_na_pakowanie': { icon: 'fa-box', displayName: 'Pakowanie', color: 'packaging-theme', badgeClass: 'badge-packaging' },
         'w_trakcie_pakowania': { icon: 'fa-box', displayName: 'Pakowanie', color: 'packaging-theme', badgeClass: 'badge-packaging' },
         'spakowane': { icon: 'fa-check-circle', displayName: 'Spakowane', color: 'text-success', badgeClass: 'badge-success' },
@@ -3720,6 +3722,16 @@ class ProductsModule {
                 durationField: 'finishing_duration_minutes'
             },
             {
+                code: 'logistics',
+                name: 'Logistyka',
+                status: 'czeka_na_logistyke',
+                icon: 'fas fa-truck',
+                color: 'logistics-theme',
+                startField: null,
+                endField: 'logistics_completed_at',
+                durationField: null
+            },
+            {
                 code: 'packaging',
                 name: 'Pakowanie',
                 status: 'czeka_na_pakowanie',
@@ -3776,13 +3788,14 @@ class ProductsModule {
         if (!badge) return;
 
         const quantity = product.quantity || 1;
-        const stations = ['cutting', 'assembly', 'gluing', 'formatting', 'finishing', 'packaging'];
+        const stations = ['cutting', 'assembly', 'gluing', 'formatting', 'finishing', 'logistics', 'packaging'];
         const endFields = {
             'cutting': 'cutting_completed_at',
             'assembly': 'assembly_completed_at',
             'gluing': 'gluing_completed_at',
             'formatting': 'formatting_completed_at',
             'finishing': 'finishing_completed_at',
+            'logistics': 'logistics_completed_at',
             'packaging': 'packaging_completed_at'
         };
         const statusMap = {
@@ -3791,6 +3804,7 @@ class ProductsModule {
             'gluing': 'czeka_na_sklejanie',
             'formatting': 'czeka_na_formatowanie',
             'finishing': 'czeka_na_wykanczanie',
+            'logistics': 'czeka_na_logistyke',
             'packaging': 'czeka_na_pakowanie'
         };
 
@@ -3816,7 +3830,7 @@ class ProductsModule {
         });
 
         // Spakowane = 100%
-        if (currentStatus === 'spakowane') passedStations = 6;
+        if (currentStatus === 'spakowane') passedStations = stations.length;
 
         const totalPercent = Math.round((passedStations / stations.length) * 100);
         badge.textContent = `${quantity} szt. • ${totalPercent}%`;
@@ -3826,13 +3840,14 @@ class ProductsModule {
      * Określa stan timeline dla stacji
      */
     getTimelineState(station, product) {
-        const stationOrder = ['cutting', 'assembly', 'gluing', 'formatting', 'finishing', 'packaging'];
+        const stationOrder = ['cutting', 'assembly', 'gluing', 'formatting', 'finishing', 'logistics', 'packaging'];
         const endFields = {
             'cutting': 'cutting_completed_at',
             'assembly': 'assembly_completed_at',
             'gluing': 'gluing_completed_at',
             'formatting': 'formatting_completed_at',
             'finishing': 'finishing_completed_at',
+            'logistics': 'logistics_completed_at',
             'packaging': 'packaging_completed_at'
         };
         const statusMap = {
@@ -3841,6 +3856,7 @@ class ProductsModule {
             'gluing': 'czeka_na_sklejanie',
             'formatting': 'czeka_na_formatowanie',
             'finishing': 'czeka_na_wykanczanie',
+            'logistics': 'czeka_na_logistyke',
             'packaging': 'czeka_na_pakowanie'
         };
 
@@ -4014,6 +4030,12 @@ class ProductsModule {
                 displayName: 'Wykańczanie',
                 color: 'finishing-theme',
                 cssClass: 'finishing'
+            },
+            'czeka_na_logistyke': {
+                icon: 'fa-truck',
+                displayName: 'Logistyka',
+                color: 'logistics-theme',
+                cssClass: 'logistics'
             },
             'czeka_na_pakowanie': {
                 icon: 'fa-box',
