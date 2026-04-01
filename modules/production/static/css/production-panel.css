@@ -2279,6 +2279,12 @@ body {
   justify-content: space-between;
   align-items: center;
 }
+.il-station-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+}
 .il-station-link {
   display: flex;
   align-items: center;
@@ -2292,7 +2298,6 @@ body {
   text-decoration: none;
   transition: all 0.15s ease;
   flex-shrink: 0;
-  margin-left: 6px;
 }
 .il-station-link:hover {
   background: rgba(255, 255, 255, 0.35);
