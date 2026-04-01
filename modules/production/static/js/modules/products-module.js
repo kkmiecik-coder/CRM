@@ -1417,6 +1417,10 @@ class ProductsModule {
 
         card.setAttribute('data-order-key', order.orderKey);
 
+        // Add status class to card for mobile border-left
+        const stationClass = this.getStationClassFromStatus(order.status);
+        card.classList.add(stationClass);
+
         // Populate header
         const header = card.querySelector('.il-order-header');
         this.populateOrderHeader(header, order);
@@ -1435,10 +1439,45 @@ class ProductsModule {
             header.querySelector('.il-order-expand').classList.add('open');
         }
 
+        // Populate mobile card meta
+        this.populateCardMeta(card, order);
+
         // Attach event listeners
         this.attachOrderEventListeners(card, order);
 
         return card;
+    }
+
+    populateCardMeta(card, order) {
+        const meta = card.querySelector('.il-order-card-meta');
+        if (!meta) return;
+
+        const parts = [];
+
+        // Status
+        if (order.statusLabel) {
+            const badgeClass = this.getStatusBadgeClass(order.status);
+            parts.push(`<span class="il-order-status-badge ${badgeClass}">${order.statusLabel}</span>`);
+        }
+
+        // Positions + Volume
+        const metrics = [];
+        if (order.productCount) metrics.push(`${order.productCount} poz.`);
+        if (order.totalVolume) metrics.push(`${order.totalVolume.toFixed(3)} m³`);
+        if (order.totalValue) metrics.push(`${order.totalValue.toLocaleString('pl-PL', {minimumFractionDigits: 2, maximumFractionDigits: 2})} zł`);
+        if (metrics.length) {
+            parts.push(`<span class="il-card-meta-metrics">${metrics.join(' · ')}</span>`);
+        }
+
+        // Deadline
+        if (order.deadline) {
+            const days = this.calculateDaysUntilDeadline(order.deadline);
+            const dateStr = new Date(order.deadline).toLocaleDateString('pl-PL', {day: '2-digit', month: '2-digit'});
+            const cls = days < 0 ? 'deadline-overdue' : days <= 1 ? 'deadline-urgent' : 'deadline-normal';
+            parts.push(`<span class="il-card-meta-deadline ${cls}"><i class="fas fa-calendar-alt"></i> ${days} ${Math.abs(days) === 1 ? 'dzień' : 'dni'} (${dateStr})</span>`);
+        }
+
+        meta.innerHTML = parts.join('');
     }
 
     populateOrderHeader(header, order) {
@@ -3738,6 +3777,15 @@ class ProductsModule {
      * Określa stan timeline dla stacji
      */
     getTimelineState(station, product) {
+        const stationOrder = ['cutting', 'assembly', 'gluing', 'formatting', 'finishing', 'packaging'];
+        const endFields = {
+            'cutting': 'cutting_completed_at',
+            'assembly': 'assembly_completed_at',
+            'gluing': 'gluing_completed_at',
+            'formatting': 'formatting_completed_at',
+            'finishing': 'finishing_completed_at',
+            'packaging': 'packaging_completed_at'
+        };
         const statusMap = {
             'cutting': 'czeka_na_wyciecie',
             'assembly': 'czeka_na_skladanie',
@@ -3747,39 +3795,52 @@ class ProductsModule {
             'packaging': 'czeka_na_pakowanie'
         };
 
-        const expectedStatus = statusMap[station.code];
         const currentStatus = product.current_status;
+        const expectedStatus = statusMap[station.code];
 
-        // Specjalna logika dla cutting: "Pominięto" gdy brak cutting_completed_at ale jest assembly_completed_at
-        if (station.code === 'cutting') {
-            const cuttingCompleted = product['cutting_completed_at'];
-            const assemblyCompleted = product['assembly_completed_at'];
-
-            if (!cuttingCompleted && assemblyCompleted) {
-                // Wycinanie zostało pominięte - produkt poszedł bezpośrednio na składanie
-                return {
-                    cssClass: 'timeline-skipped',
-                    statusText: 'Pominięto'
-                };
-            }
-        }
-
+        // Completed — this station has a completed_at timestamp
         if (product[station.endField]) {
             return {
                 cssClass: 'timeline-completed',
                 statusText: 'Zakończone'
             };
-        } else if (currentStatus === expectedStatus) {
+        }
+
+        // Active — product is currently at this station
+        if (currentStatus === expectedStatus) {
             return {
                 cssClass: 'timeline-active',
                 statusText: 'W trakcie'
             };
-        } else {
+        }
+
+        // Check if a LATER station has completed_at or is the current station
+        // If so, this station was skipped
+        const currentIndex = stationOrder.indexOf(station.code);
+        const laterStations = stationOrder.slice(currentIndex + 1);
+
+        const laterHasProgress = laterStations.some(laterCode => {
+            // Later station has completed_at
+            if (product[endFields[laterCode]]) return true;
+            // Product is currently at a later station
+            if (currentStatus === statusMap[laterCode]) return true;
+            // Product is already packed
+            if (currentStatus === 'spakowane') return true;
+            return false;
+        });
+
+        if (laterHasProgress) {
             return {
-                cssClass: 'timeline-pending',
-                statusText: 'Oczekuje'
+                cssClass: 'timeline-skipped',
+                statusText: 'Pominięto'
             };
         }
+
+        // Default — waiting
+        return {
+            cssClass: 'timeline-pending',
+            statusText: 'Oczekuje'
+        };
     }
 
     /**
