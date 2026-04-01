@@ -38,42 +38,22 @@ class ProductsModule {
 
     // Mapowanie statusów na ikony i kolory
     static STATUS_CONFIG = {
-        'czeka_na_wyciecie': {
-            icon: 'fa-cut',
-            displayName: 'Czeka na wycięcie',
-            color: 'cutting-theme',
-            badgeClass: 'badge-warning'
-        },
-        'czeka_na_skladanie': {
-            icon: 'fa-hammer',
-            displayName: 'Czeka na składanie',
-            color: 'assembly-theme', 
-            badgeClass: 'badge-info'
-        },
-        'czeka_na_pakowanie': {
-            icon: 'fa-box',
-            displayName: 'Czeka na pakowanie',
-            color: 'packaging-theme',
-            badgeClass: 'badge-primary'
-        },
-        'spakowane': {
-            icon: 'fa-check',
-            displayName: 'Spakowane',
-            color: 'text-success',
-            badgeClass: 'badge-success'
-        },
-        'wstrzymane': {
-            icon: 'fa-pause',
-            displayName: 'Wstrzymane',
-            color: 'text-warning',
-            badgeClass: 'badge-warning'
-        },
-        'anulowane': {
-            icon: 'fa-times',
-            displayName: 'Anulowane',
-            color: 'text-danger',
-            badgeClass: 'badge-danger'
-        }
+        'czeka_na_wyciecie': { icon: 'fa-cut', displayName: 'Wycinanie', color: 'cutting-theme', badgeClass: 'badge-cutting' },
+        'w_trakcie_ciecia': { icon: 'fa-cut', displayName: 'Wycinanie', color: 'cutting-theme', badgeClass: 'badge-cutting' },
+        'czeka_na_skladanie': { icon: 'fa-hammer', displayName: 'Składanie', color: 'assembly-theme', badgeClass: 'badge-assembly' },
+        'w_trakcie_skladania': { icon: 'fa-hammer', displayName: 'Składanie', color: 'assembly-theme', badgeClass: 'badge-assembly' },
+        'czeka_na_sklejanie': { icon: 'fa-compress-arrows-alt', displayName: 'Sklejanie', color: 'gluing-theme', badgeClass: 'badge-gluing' },
+        'w_trakcie_sklejania': { icon: 'fa-compress-arrows-alt', displayName: 'Sklejanie', color: 'gluing-theme', badgeClass: 'badge-gluing' },
+        'czeka_na_formatowanie': { icon: 'fa-ruler-combined', displayName: 'Formatowanie', color: 'formatting-theme', badgeClass: 'badge-formatting' },
+        'w_trakcie_formatowania': { icon: 'fa-ruler-combined', displayName: 'Formatowanie', color: 'formatting-theme', badgeClass: 'badge-formatting' },
+        'czeka_na_wykanczanie': { icon: 'fa-star', displayName: 'Wykańczanie', color: 'finishing-theme', badgeClass: 'badge-finishing' },
+        'w_trakcie_wykanczania': { icon: 'fa-star', displayName: 'Wykańczanie', color: 'finishing-theme', badgeClass: 'badge-finishing' },
+        'czeka_na_pakowanie': { icon: 'fa-box', displayName: 'Pakowanie', color: 'packaging-theme', badgeClass: 'badge-packaging' },
+        'w_trakcie_pakowania': { icon: 'fa-box', displayName: 'Pakowanie', color: 'packaging-theme', badgeClass: 'badge-packaging' },
+        'spakowane': { icon: 'fa-check-circle', displayName: 'Spakowane', color: 'text-success', badgeClass: 'badge-success' },
+        'w_realizacji': { icon: 'fa-cog', displayName: 'W realizacji', color: 'text-info', badgeClass: 'badge-info' },
+        'wstrzymane': { icon: 'fa-pause-circle', displayName: 'Wstrzymane', color: 'text-warning', badgeClass: 'badge-warning' },
+        'anulowane': { icon: 'fa-times-circle', displayName: 'Anulowane', color: 'text-danger', badgeClass: 'badge-danger' }
     };
 
     constructor(shared, config) {
@@ -3908,65 +3888,107 @@ class ProductsModule {
         const configs = {
             'czeka_na_wyciecie': {
                 icon: 'fa-cut',
-                displayName: 'Czeka na wycięcie',
+                displayName: 'Wycinanie',
                 color: 'cutting-theme',
-                cssClass: 'cutting'  // ← DODAJ TO
+                cssClass: 'cutting'
             },
             'w_trakcie_ciecia': {
                 icon: 'fa-cut',
-                displayName: 'W trakcie cięcia',
+                displayName: 'Wycinanie',
                 color: 'cutting-theme',
-                cssClass: 'cutting'  // ← DODAJ TO
+                cssClass: 'cutting'
             },
             'czeka_na_skladanie': {
                 icon: 'fa-hammer',
-                displayName: 'Czeka na składanie',
+                displayName: 'Składanie',
                 color: 'assembly-theme',
-                cssClass: 'assembly'  // ← DODAJ TO
+                cssClass: 'assembly'
             },
             'w_trakcie_skladania': {
                 icon: 'fa-hammer',
-                displayName: 'W trakcie składania',
+                displayName: 'Składanie',
                 color: 'assembly-theme',
-                cssClass: 'assembly'  // ← DODAJ TO
+                cssClass: 'assembly'
+            },
+            'czeka_na_sklejanie': {
+                icon: 'fa-compress-arrows-alt',
+                displayName: 'Sklejanie',
+                color: 'gluing-theme',
+                cssClass: 'gluing'
+            },
+            'w_trakcie_sklejania': {
+                icon: 'fa-compress-arrows-alt',
+                displayName: 'Sklejanie',
+                color: 'gluing-theme',
+                cssClass: 'gluing'
+            },
+            'czeka_na_formatowanie': {
+                icon: 'fa-ruler-combined',
+                displayName: 'Formatowanie',
+                color: 'formatting-theme',
+                cssClass: 'formatting'
+            },
+            'w_trakcie_formatowania': {
+                icon: 'fa-ruler-combined',
+                displayName: 'Formatowanie',
+                color: 'formatting-theme',
+                cssClass: 'formatting'
+            },
+            'czeka_na_wykanczanie': {
+                icon: 'fa-star',
+                displayName: 'Wykańczanie',
+                color: 'finishing-theme',
+                cssClass: 'finishing'
+            },
+            'w_trakcie_wykanczania': {
+                icon: 'fa-star',
+                displayName: 'Wykańczanie',
+                color: 'finishing-theme',
+                cssClass: 'finishing'
             },
             'czeka_na_pakowanie': {
                 icon: 'fa-box',
-                displayName: 'Czeka na pakowanie',
+                displayName: 'Pakowanie',
                 color: 'packaging-theme',
-                cssClass: 'packaging'  // ← DODAJ TO
+                cssClass: 'packaging'
             },
             'w_trakcie_pakowania': {
                 icon: 'fa-box',
-                displayName: 'W trakcie pakowania',
+                displayName: 'Pakowanie',
                 color: 'packaging-theme',
-                cssClass: 'packaging'  // ← DODAJ TO
+                cssClass: 'packaging'
             },
             'spakowane': {
-                icon: 'fa-check',
+                icon: 'fa-check-circle',
                 displayName: 'Spakowane',
                 color: 'text-success',
-                cssClass: 'completed'  // ← DODAJ TO
+                cssClass: 'completed'
+            },
+            'w_realizacji': {
+                icon: 'fa-cog',
+                displayName: 'W realizacji',
+                color: 'text-info',
+                cssClass: 'in-progress'
             },
             'wstrzymane': {
-                icon: 'fa-pause',
+                icon: 'fa-pause-circle',
                 displayName: 'Wstrzymane',
                 color: 'text-warning',
-                cssClass: 'paused'  // ← DODAJ TO
+                cssClass: 'paused'
             },
             'anulowane': {
-                icon: 'fa-times',
+                icon: 'fa-times-circle',
                 displayName: 'Anulowane',
                 color: 'text-danger',
-                cssClass: 'cancelled'  // ← DODAJ TO
+                cssClass: 'cancelled'
             }
         };
 
         return configs[status] || {
-            icon: 'fa-question',
-            displayName: status || 'Nieznany',
+            icon: 'fa-question-circle',
+            displayName: status ? status.replace('czeka_na_', '').replace(/_/g, ' ') : 'Nieznany',
             color: 'text-muted',
-            cssClass: 'paused'  // ← DODAJ TO
+            cssClass: 'unknown'
         };
     }
 
