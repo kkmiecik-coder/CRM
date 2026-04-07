@@ -1,15 +1,16 @@
 /**
  * ============================================================================
- * STATION GLUING - QUANTITY-BASED VERSION
+ * STATION GLUING - WERSJA Z PŁASKIMI KAFELKAMI PRODUKTÓW
  * ============================================================================
  *
- * Wersja z quantity buttons (+/-) zamiast checkboxów
+ * Wersja z kafelkami produktów zamiast grupowanych kart zamówień.
+ * Każdy kafelek to .order-card[data-product-id].
  *
  * Funkcjonalność:
  * - Przyciski +/- do zmiany quantity_done
  * - Przyciski +10/-10 dla ilości >= 10
  * - Natychmiastowy zapis do API (rate limiting 200ms)
- * - Bulk completion całych zamówień z countdown 10s
+ * - Completion pojedynczych produktów z countdown 10s
  * - Optimistic UI z error recovery
  * - Smart merge podczas auto-refresh
  * - Zegar odświeżany co sekundę
@@ -17,21 +18,21 @@
  *
  * @author: Konrad Kmiecik
  * @date: 2025-11
- * @version: 3.0
+ * @version: 4.0
  */
 
 (function() {
     'use strict';
 
     // ========================================================================
-    // STATE
+    // STAN APLIKACJI
     // ========================================================================
 
     const state = {
         config: null,
         refreshTimer: null,
         countdownTimer: null,
-        activeCountdowns: new Map(), // orderNumber -> { timerId, secondsLeft }
+        activeCountdowns: new Map(), // productId -> { timerId, secondsLeft }
         pendingRequests: new Map(),  // productId -> timeoutId (rate limiting)
         lastRequestTime: new Map()   // productId -> timestamp
     };
@@ -39,11 +40,11 @@
     const RATE_LIMIT_MS = 200; // Minimalny odstęp między requestami dla tego samego produktu
 
     // ========================================================================
-    // INITIALIZATION
+    // INICJALIZACJA
     // ========================================================================
 
     document.addEventListener('DOMContentLoaded', function() {
-        console.log('[Gluing] Initializing QUANTITY-BASED station v3.0...');
+        console.log('[Gluing] Inicjalizacja stacji FLAT PRODUCT TILES v4.0...');
         initializeGluingStation();
     });
 
@@ -51,66 +52,66 @@
         const config = window.STATION_CONFIG;
 
         if (!config || config.stationCode !== 'gluing') {
-            console.error('[Gluing] Invalid station config');
+            console.error('[Gluing] Nieprawidłowa konfiguracja stacji');
             return;
         }
 
         state.config = config;
-        console.log('[Gluing] Station config loaded:', config);
+        console.log('[Gluing] Konfiguracja stacji załadowana:', config);
 
-        // Attach event listeners to existing order cards
-        const existingCards = document.querySelectorAll('.order-card');
-        console.log(`[Gluing] Found ${existingCards.length} order cards`);
+        // Podpięcie listenerów do istniejących kafelków produktów
+        const existingCards = document.querySelectorAll('.order-card[data-product-id]');
+        console.log(`[Gluing] Znaleziono ${existingCards.length} kafelków produktów`);
 
         existingCards.forEach(card => {
-            initializeOrderCard(card);
+            initializeProductTile(card);
         });
 
-        // Fetch today's m³
+        // Pobranie dzisiejszych m³
         fetchTodayM3();
 
-        // Start datetime clock (updates every second)
+        // Zegar aktualizowany co sekundę
         setInterval(updateCurrentDatetime, 1000);
         updateCurrentDatetime();
 
-        // Start auto-refresh with countdown
+        // Auto-refresh z odliczaniem
         if (config.refreshInterval && config.refreshInterval > 0) {
             startAutoRefresh(config.refreshInterval);
             startRefreshCountdown(config.refreshInterval);
         }
 
-        // Theme toggle
+        // Przełącznik motywu
         setupThemeToggle();
 
-        // Initialize connection monitor
+        // Monitor połączenia
         if (window.StationCommon && window.StationCommon.initConnectionMonitor) {
             window.StationCommon.initConnectionMonitor();
-            console.log('[Gluing] Connection monitor initialized');
+            console.log('[Gluing] Monitor połączenia zainicjalizowany');
 
-            // Register listener for connection changes
+            // Rejestracja listenera zmian połączenia
             if (window.StationCommon.onConnectionChange) {
                 window.StationCommon.onConnectionChange(handleConnectionChange);
-                console.log('[Gluing] Connection change listener registered');
+                console.log('[Gluing] Listener zmian połączenia zarejestrowany');
             }
         }
 
-        // Initialize expand icons for fullscreen mode
+        // Inicjalizacja ikon powiększenia dla trybu pełnoekranowego
         if (typeof window.initExpandIcons === 'function') {
             window.initExpandIcons();
-            console.log('[Gluing] Expand icons initialized');
+            console.log('[Gluing] Ikony powiększenia zainicjalizowane');
         }
 
-        // Initialize order search button
+        // Inicjalizacja przycisku wyszukiwania zamówień
         if (typeof window.initOrderSearchButton === 'function') {
             window.initOrderSearchButton();
-            console.log('[Gluing] Order search button initialized');
+            console.log('[Gluing] Przycisk wyszukiwania zamówień zainicjalizowany');
         }
 
-        console.log('[Gluing] Station initialized successfully');
+        console.log('[Gluing] Stacja zainicjalizowana pomyślnie');
     }
 
     // ========================================================================
-    // DATETIME UPDATES
+    // AKTUALIZACJA DATY I CZASU
     // ========================================================================
 
     function updateCurrentDatetime() {
@@ -135,7 +136,7 @@
 
         datetimeElement.textContent = `${date} • ${time}`;
 
-        // Update day label
+        // Aktualizacja etykiety dnia
         const labelElement = datetimeElement.previousElementSibling;
         if (labelElement && labelElement.classList.contains('stat-label')) {
             labelElement.textContent = dayName;
@@ -143,7 +144,7 @@
     }
 
     // ========================================================================
-    // REFRESH COUNTDOWN
+    // ODLICZANIE DO ODŚWIEŻENIA
     // ========================================================================
 
     function startRefreshCountdown(intervalSeconds) {
@@ -159,14 +160,14 @@
             if (countdownElement) {
                 countdownElement.textContent = `${secondsLeft}s`;
 
-                // Add warning class when < 10s
+                // Klasa ostrzeżenia gdy < 10s
                 if (secondsLeft <= 10) {
                     countdownElement.classList.add('warning');
                 } else {
                     countdownElement.classList.remove('warning');
                 }
 
-                // Spin icon when <= 5s
+                // Animacja ikony gdy <= 5s
                 if (secondsLeft <= 5) {
                     if (refreshIcon) refreshIcon.classList.add('spinning');
                 } else {
@@ -187,143 +188,126 @@
             updateCountdown();
         }, 1000);
 
-        console.log(`[Gluing] Refresh countdown started: ${intervalSeconds}s`);
+        console.log(`[Gluing] Odliczanie do odświeżenia uruchomione: ${intervalSeconds}s`);
     }
 
     // ========================================================================
-    // ORDER CARD INITIALIZATION
+    // INICJALIZACJA KAFELKA PRODUKTU
     // ========================================================================
 
-    function initializeOrderCard(card) {
-        const orderNumber = card.dataset.orderNumber;
+    function initializeProductTile(card) {
+        const productId = card.dataset.productId;
 
-        if (!orderNumber) {
-            console.warn('[Gluing] Order card missing order number');
+        if (!productId) {
+            console.warn('[Gluing] Kafelek produktu bez product ID');
             return;
         }
 
-        console.log(`[Gluing] Initializing order card: ${orderNumber}`);
+        console.log(`[Gluing] Inicjalizacja kafelka produktu: ${productId}`);
 
-        // Hide empty product-params containers
+        // Ukryj puste kontenery parametrów
         hideEmptyProductParams(card);
 
-        // Attach quantity button listeners
-        const quantityButtons = card.querySelectorAll('.btn-qty');
-        quantityButtons.forEach(button => {
-            button.addEventListener('click', function(e) {
+        // Podpięcie listenerów przycisków ilości
+        card.querySelectorAll('.btn-qty').forEach(button => {
+            button.addEventListener('click', (e) => {
                 e.preventDefault();
-                handleQuantityButtonClick(card, orderNumber, this);
+                handleQuantityButtonClick(card, productId, button);
             });
         });
 
-        // Attach complete button listener
+        // Podpięcie przycisku zakończenia
         const completeBtn = card.querySelector('.btn-complete');
         if (completeBtn) {
-            completeBtn.addEventListener('click', function() {
-                handleCompleteClick(card, orderNumber);
+            completeBtn.addEventListener('click', (e) => {
+                e.preventDefault();
+                handleCompleteClick(card, productId);
             });
         }
 
-        // Initial button state update
+        // Początkowy stan przycisków
         updateCompleteButtonState(card);
-        updateOrderCounter(card);
     }
 
     // ========================================================================
-    // HIDE EMPTY PRODUCT PARAMS
+    // UKRYWANIE PUSTYCH PARAMETRÓW PRODUKTU
     // ========================================================================
 
     function hideEmptyProductParams(card) {
-        const productRows = card.querySelectorAll('.product-row');
+        // Kafelek sam zawiera product-params
+        const paramsContainer = card.querySelector('.product-params');
+        if (!paramsContainer) return;
 
-        productRows.forEach(row => {
-            const paramsContainer = row.querySelector('.product-params');
-            if (!paramsContainer) return;
+        // Sprawdź czy są jakieś badge wewnątrz
+        const badges = paramsContainer.querySelectorAll('.badge');
 
-            // Check if there are any badges inside
-            const badges = paramsContainer.querySelectorAll('.badge');
-
-            // If no badges exist, hide the container
-            if (badges.length === 0) {
-                paramsContainer.style.display = 'none';
-            }
-        });
+        // Jeśli brak badge, ukryj kontener
+        if (badges.length === 0) {
+            paramsContainer.style.display = 'none';
+        }
     }
 
     // ========================================================================
-    // QUANTITY BUTTON HANDLING
+    // OBSŁUGA PRZYCISKÓW ILOŚCI
     // ========================================================================
 
-    async function handleQuantityButtonClick(card, orderNumber, button) {
-        const productId = button.dataset.productId;
+    async function handleQuantityButtonClick(card, productId, button) {
         const action = button.dataset.action;
-        const productRow = button.closest('.product-row');
 
-        if (!productId || !action || !productRow) {
-            console.warn('[Gluing] Invalid button data');
+        if (!action) {
+            console.warn('[Gluing] Brak akcji na przycisku');
             return;
         }
 
-        // Check online status
+        // Sprawdzenie statusu połączenia
         const isOnline = window.StationCommon && window.StationCommon.isOnline ? window.StationCommon.isOnline() : true;
         if (!isOnline) {
             showToast('warning', 'Brak połączenia - nie można zapisać zmiany');
             return;
         }
 
-        // Get current values
-        const qtyDoneEl = productRow.querySelector('.qty-done');
-        const qtyTotalEl = productRow.querySelector('.qty-total');
+        // Pobranie aktualnych wartości z kafelka
+        const qtyDoneEl = card.querySelector('.product-body .qty-done');
+        const qtyTotalEl = card.querySelector('.product-body .qty-total');
 
         if (!qtyDoneEl || !qtyTotalEl) return;
 
-        let qtyDone = parseInt(qtyDoneEl.textContent) || 0;
-        const qtyTotal = parseInt(qtyTotalEl.textContent) || 0;
+        const qtyDone = parseInt(qtyDoneEl.textContent) || 0;
+        const qtyTotal = parseInt(qtyTotalEl.textContent) || 1;
 
-        // Calculate new value based on action
+        // Obliczenie nowej wartości
         let newQtyDone = qtyDone;
-        switch (action) {
-            case 'increment':
-                newQtyDone = Math.min(qtyDone + 1, qtyTotal);
-                break;
-            case 'decrement':
-                newQtyDone = Math.max(qtyDone - 1, 0);
-                break;
-            case 'increment10':
-                newQtyDone = Math.min(qtyDone + 10, qtyTotal);
-                break;
-            case 'decrement10':
-                newQtyDone = Math.max(qtyDone - 10, 0);
-                break;
-        }
+        if (action === 'increment') newQtyDone = Math.min(qtyDone + 1, qtyTotal);
+        else if (action === 'decrement') newQtyDone = Math.max(qtyDone - 1, 0);
+        else if (action === 'increment10') newQtyDone = Math.min(qtyDone + 10, qtyTotal);
+        else if (action === 'decrement10') newQtyDone = Math.max(qtyDone - 10, 0);
 
-        // Skip if no change
-        if (newQtyDone === qtyDone) {
-            return;
-        }
+        // Pomiń jeśli bez zmian
+        if (newQtyDone === qtyDone) return;
 
-        // Optimistic UI update
+        // Optymistyczna aktualizacja UI
         qtyDoneEl.textContent = newQtyDone;
-        productRow.dataset.quantityDone = newQtyDone;
+        card.dataset.quantityDone = newQtyDone;
 
-        // Update button states
-        updateProductButtonStates(productRow, newQtyDone, qtyTotal);
+        // Aktualizacja ilości w nagłówku
+        const headerQtyDone = card.querySelector('.order-stats .qty-done');
+        if (headerQtyDone) headerQtyDone.textContent = newQtyDone;
 
-        // Update order counter and complete button
-        updateOrderCounter(card);
+        // Aktualizacja stanów przycisków
+        updateProductButtonStates(card, newQtyDone, qtyTotal);
         updateCompleteButtonState(card);
 
-        // Send to API with rate limiting
-        await sendQuantityUpdate(productId, action, productRow, qtyDone, card);
+        // Wysłanie do API z rate limitingiem
+        await sendQuantityUpdate(productId, action, card, qtyDone);
     }
 
-    async function sendQuantityUpdate(productId, action, productRow, previousValue, card) {
-        // Rate limiting - cancel pending request for this product
+    async function sendQuantityUpdate(productId, action, card, previousValue) {
+        // Rate limiting - anuluj oczekujący request dla tego produktu
         if (state.pendingRequests.has(productId)) {
             clearTimeout(state.pendingRequests.get(productId));
         }
 
-        // Check if we need to wait
+        // Sprawdź czy trzeba poczekać
         const lastRequest = state.lastRequestTime.get(productId) || 0;
         const timeSinceLastRequest = Date.now() - lastRequest;
         const delay = Math.max(0, RATE_LIMIT_MS - timeSinceLastRequest);
@@ -349,29 +333,38 @@
                 }
 
                 const result = await response.json();
-                console.log(`[Gluing] Product ${productId} quantity updated:`, result);
+                console.log(`[Gluing] Produkt ${productId} ilość zaktualizowana:`, result);
 
-                // Update UI with server response
-                const qtyDoneEl = productRow.querySelector('.qty-done');
+                // Aktualizacja UI z odpowiedzi serwera
+                const qtyDoneEl = card.querySelector('.product-body .qty-done');
                 if (qtyDoneEl && result.quantity_done !== undefined) {
                     qtyDoneEl.textContent = result.quantity_done;
-                    productRow.dataset.quantityDone = result.quantity_done;
-                    updateProductButtonStates(productRow, result.quantity_done, result.quantity);
-                    updateOrderCounter(card);
+                    card.dataset.quantityDone = result.quantity_done;
+
+                    // Aktualizacja ilości w nagłówku
+                    const headerQtyDone = card.querySelector('.order-stats .qty-done');
+                    if (headerQtyDone) headerQtyDone.textContent = result.quantity_done;
+
+                    updateProductButtonStates(card, result.quantity_done, result.quantity);
                     updateCompleteButtonState(card);
                 }
 
             } catch (error) {
-                console.error('[Gluing] Failed to update quantity:', error);
+                console.error('[Gluing] Błąd aktualizacji ilości:', error);
 
-                // Revert UI on error
-                const qtyDoneEl = productRow.querySelector('.qty-done');
+                // Przywrócenie UI przy błędzie
+                const qtyDoneEl = card.querySelector('.product-body .qty-done');
                 if (qtyDoneEl) {
                     qtyDoneEl.textContent = previousValue;
-                    productRow.dataset.quantityDone = previousValue;
-                    const qtyTotal = parseInt(productRow.querySelector('.qty-total').textContent) || 0;
-                    updateProductButtonStates(productRow, previousValue, qtyTotal);
-                    updateOrderCounter(card);
+                    card.dataset.quantityDone = previousValue;
+
+                    // Przywrócenie ilości w nagłówku
+                    const headerQtyDone = card.querySelector('.order-stats .qty-done');
+                    if (headerQtyDone) headerQtyDone.textContent = previousValue;
+
+                    const qtyTotalEl = card.querySelector('.product-body .qty-total');
+                    const qtyTotal = parseInt(qtyTotalEl ? qtyTotalEl.textContent : '0') || 0;
+                    updateProductButtonStates(card, previousValue, qtyTotal);
                     updateCompleteButtonState(card);
                 }
 
@@ -382,73 +375,31 @@
         state.pendingRequests.set(productId, timeoutId);
     }
 
-    function updateProductButtonStates(productRow, qtyDone, qtyTotal) {
-        const btnMinus = productRow.querySelector('.btn-minus');
-        const btnPlus = productRow.querySelector('.btn-plus');
-        const btnMinus10 = productRow.querySelector('.btn-minus-10');
-        const btnPlus10 = productRow.querySelector('.btn-plus-10');
+    function updateProductButtonStates(card, qtyDone, qtyTotal) {
+        const btnMinus = card.querySelector('.btn-minus');
+        const btnPlus = card.querySelector('.btn-plus');
+        const btnMinus10 = card.querySelector('.btn-minus-10');
+        const btnPlus10 = card.querySelector('.btn-plus-10');
 
-        if (btnMinus) {
-            btnMinus.disabled = qtyDone <= 0;
-        }
-        if (btnPlus) {
-            btnPlus.disabled = qtyDone >= qtyTotal;
-        }
-        if (btnMinus10) {
-            btnMinus10.disabled = qtyDone < 10;
-        }
-        if (btnPlus10) {
-            btnPlus10.disabled = (qtyTotal - qtyDone) < 10;
-        }
-
-        // Update row styling if complete
-        if (qtyDone === qtyTotal) {
-            productRow.classList.add('product-complete');
-        } else {
-            productRow.classList.remove('product-complete');
-        }
+        if (btnMinus) btnMinus.disabled = qtyDone <= 0;
+        if (btnPlus) btnPlus.disabled = qtyDone >= qtyTotal;
+        if (btnMinus10) btnMinus10.disabled = qtyDone < 10;
+        if (btnPlus10) btnPlus10.disabled = (qtyTotal - qtyDone) < 10;
     }
 
     // ========================================================================
-    // ORDER COUNTER UPDATE
-    // ========================================================================
-
-    function updateOrderCounter(card) {
-        const orderNumber = card.dataset.orderNumber;
-        const productRows = card.querySelectorAll('.product-row');
-
-        let totalDone = 0;
-        let totalQuantity = 0;
-
-        productRows.forEach(row => {
-            const qtyDone = parseInt(row.dataset.quantityDone) || 0;
-            const qtyTotal = parseInt(row.dataset.quantity) || 0;
-            totalDone += qtyDone;
-            totalQuantity += qtyTotal;
-        });
-
-        // Update counter in header
-        const counterElement = document.querySelector(`.products-checked[data-order="${orderNumber}"]`);
-        if (counterElement) {
-            counterElement.textContent = totalDone;
-        }
-
-        console.log(`[Gluing] Updated counter for ${orderNumber}: ${totalDone}/${totalQuantity}`);
-    }
-
-    // ========================================================================
-    // CONNECTION STATUS HANDLING
+    // STATUS POŁĄCZENIA
     // ========================================================================
 
     function handleConnectionChange(isOnline) {
-        console.log(`[Gluing] Connection status changed: ${isOnline ? 'ONLINE' : 'OFFLINE'}`);
+        console.log(`[Gluing] Zmiana statusu połączenia: ${isOnline ? 'ONLINE' : 'OFFLINE'}`);
 
-        // Update all complete buttons
-        const allCards = document.querySelectorAll('.order-card');
+        // Aktualizacja wszystkich przycisków
+        const allCards = document.querySelectorAll('.order-card[data-product-id]');
         allCards.forEach(card => {
             updateCompleteButtonState(card);
 
-            // Disable/enable quantity buttons
+            // Wyłącz/włącz przyciski ilości
             const qtyButtons = card.querySelectorAll('.btn-qty');
             qtyButtons.forEach(btn => {
                 if (!isOnline) {
@@ -461,16 +412,14 @@
     }
 
     // ========================================================================
-    // COMPLETE BUTTON STATE
+    // STAN PRZYCISKU ZAKOŃCZENIA
     // ========================================================================
 
     function updateCompleteButtonState(card) {
         const completeBtn = card.querySelector('.btn-complete');
-        if (!completeBtn) {
-            return;
-        }
+        if (!completeBtn) return;
 
-        // Check if offline first
+        // Sprawdź czy offline
         const isOnline = window.StationCommon && window.StationCommon.isOnline ? window.StationCommon.isOnline() : true;
 
         if (!isOnline) {
@@ -480,77 +429,48 @@
             return;
         }
 
-        // Remove offline styling if previously set
+        // Usunięcie stylowania offline jeśli było ustawione
         completeBtn.classList.remove('offline');
         completeBtn.textContent = 'ZAKOŃCZ SKLEJANIE';
 
-        // Check if all products are complete (quantity_done == quantity)
-        const productRows = card.querySelectorAll('.product-row');
-        let allComplete = true;
-        let hasProducts = false;
-
-        productRows.forEach(row => {
-            hasProducts = true;
-            const qtyDone = parseInt(row.dataset.quantityDone) || 0;
-            const qtyTotal = parseInt(row.dataset.quantity) || 0;
-            if (qtyDone < qtyTotal) {
-                allComplete = false;
-            }
-        });
-
-        // Enable button only if ALL products are complete
-        if (allComplete && hasProducts) {
-            completeBtn.disabled = false;
-        } else {
-            completeBtn.disabled = true;
-        }
+        // Przycisk dostępny gdy ilość wykonana >= ilość całkowita
+        const qtyDone = parseInt(card.dataset.quantityDone) || 0;
+        const qtyTotal = parseInt(card.dataset.quantity) || 1;
+        completeBtn.disabled = (qtyDone < qtyTotal);
     }
 
     // ========================================================================
     // COUNTDOWN 10 SEKUND PRZED ZAKOŃCZENIEM
     // ========================================================================
 
-    function handleCompleteClick(card, orderNumber) {
-        console.log(`[Gluing] Complete button clicked for order: ${orderNumber}`);
+    function handleCompleteClick(card, productId) {
+        console.log(`[Gluing] Kliknięto zakończenie dla produktu: ${productId}`);
 
-        // Check online status first
+        // Sprawdź status połączenia
         if (!window.StationCommon.isOnline()) {
-            console.warn('[Gluing] Offline - cannot complete orders');
-            showToast('warning', 'Brak połączenia - nie możesz zakończyć zamówienia');
+            console.warn('[Gluing] Offline - nie można zakończyć produktu');
+            showToast('warning', 'Brak połączenia - nie możesz zakończyć produktu');
             return;
         }
 
-        // Get all product IDs
-        const productIds = [];
-        const productRows = card.querySelectorAll('.product-row');
-        productRows.forEach(row => {
-            productIds.push(row.dataset.productId);
-        });
-
-        if (productIds.length === 0) {
-            console.warn('[Gluing] No products found');
-            showToast('warning', 'Brak produktów w zamówieniu');
-            return;
-        }
-
-        // Mark card as in-progress
+        // Oznacz kafelek jako przetwarzany
         card.dataset.inProgress = 'true';
         card.classList.add('processing');
 
-        // Start 10-second countdown
-        startCountdown(card, orderNumber, productIds);
+        // Uruchom 10-sekundowe odliczanie
+        startCountdown(card, productId);
     }
 
-    function startCountdown(card, orderNumber, productIds) {
-        console.log(`[Gluing] Starting 10-second countdown for ${orderNumber}`);
+    function startCountdown(card, productId) {
+        console.log(`[Gluing] Rozpoczęcie 10-sekundowego odliczania dla ${productId}`);
 
         const actionContainer = card.querySelector('.order-action');
         if (!actionContainer) {
-            console.error('[Gluing] No action container found');
+            console.error('[Gluing] Brak kontenera akcji');
             return;
         }
 
-        // Replace button with countdown UI
+        // Zamiana przycisku na UI odliczania
         actionContainer.innerHTML = `
             <div class="action-countdown">
                 <button class="btn-complete processing">
@@ -579,70 +499,70 @@
             if (secondsLeft > 0) {
                 updateCountdownText();
             } else {
-                // Countdown complete - execute bulk completion
+                // Odliczanie zakończone - wykonaj completion
                 clearInterval(timerId);
-                state.activeCountdowns.delete(orderNumber);
-                completeOrder(card, orderNumber, productIds);
+                state.activeCountdowns.delete(productId);
+                completeProduct(card, productId);
             }
         }, 1000);
 
-        // Store timer ID
-        state.activeCountdowns.set(orderNumber, { timerId, secondsLeft });
+        // Zapisz ID timera
+        state.activeCountdowns.set(productId, { timerId, secondsLeft });
 
-        // Cancel button listener
+        // Listener przycisku anulowania
         cancelBtn.addEventListener('click', function(event) {
             event.preventDefault();
             event.stopPropagation();
-            cancelCountdown(card, orderNumber, timerId);
+            cancelCountdown(card, productId, timerId);
         });
 
-        console.log(`[Gluing] Countdown started for ${orderNumber}`);
+        console.log(`[Gluing] Odliczanie rozpoczęte dla ${productId}`);
     }
 
-    function cancelCountdown(card, orderNumber, timerId) {
-        console.log(`[Gluing] Countdown cancelled for ${orderNumber}`);
+    function cancelCountdown(card, productId, timerId) {
+        console.log(`[Gluing] Odliczanie anulowane dla ${productId}`);
 
-        // Clear timer
+        // Wyczyść timer
         if (timerId) {
             clearInterval(timerId);
-            state.activeCountdowns.delete(orderNumber);
+            state.activeCountdowns.delete(productId);
         }
 
-        // Reset card state
+        // Reset stanu kafelka
         card.dataset.inProgress = 'false';
         card.classList.remove('processing');
 
-        // Restore original button
+        // Przywrócenie oryginalnego przycisku
         const actionContainer = card.querySelector('.order-action');
         if (actionContainer) {
-            actionContainer.innerHTML = '<button class="btn-complete" data-action="complete" disabled>ZAKOŃCZ SKLEJANIE</button>';
+            actionContainer.innerHTML = `<button class="btn-complete" data-product-id="${productId}" data-action="complete" disabled>ZAKOŃCZ SKLEJANIE</button>`;
 
-            // Re-attach listener
+            // Ponowne podpięcie listenera
             const completeBtn = actionContainer.querySelector('.btn-complete');
             if (completeBtn) {
                 completeBtn.addEventListener('click', function() {
-                    handleCompleteClick(card, orderNumber);
+                    handleCompleteClick(card, productId);
                 });
 
-                // Update button state
+                // Aktualizacja stanu przycisku
                 updateCompleteButtonState(card);
             }
         }
 
-        showToast('info', 'Anulowano sklejanie zamówienia');
+        showToast('info', 'Anulowano sklejanie produktu');
     }
 
     // ========================================================================
-    // BULK COMPLETION - Optimistic UI
+    // COMPLETION PRODUKTU - Optimistic UI
     // ========================================================================
 
-    async function completeOrder(card, orderNumber, productIds) {
-        console.log(`[Gluing] Starting bulk completion for ${orderNumber}`, productIds);
+    async function completeProduct(card, productId) {
+        console.log(`[Gluing] Rozpoczęcie completion dla produktu ${productId}`);
 
-        // BACKUP before removal
+        // BACKUP przed usunięciem
         const cardBackup = card.cloneNode(true);
 
-        // Show processing state
+        // Stan przetwarzania
         const actionContainer = card.querySelector('.order-action');
         if (actionContainer) {
             actionContainer.innerHTML = `
@@ -661,9 +581,9 @@
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    order_number: orderNumber,
-                    product_ids: productIds,
-                    station: 'gluing',
+                    order_number: productId,  // ponowne użycie nazwy pola dla kompatybilności wstecznej
+                    product_ids: [productId],
+                    station: window.STATION_CONFIG.stationCode,
                     action: 'complete'
                 }),
                 signal: controller.signal
@@ -678,24 +598,24 @@
 
             const result = await response.json();
 
-            console.log('[Gluing] Order completed successfully:', result);
+            console.log('[Gluing] Produkt zakończony pomyślnie:', result);
 
-            // SUCCESS - show success state
+            // SUKCES - pokaż stan sukcesu
             if (actionContainer) {
                 actionContainer.innerHTML = '<button class="btn-complete success">Zapisano</button>';
             }
 
-            showToast('success', `Zamówienie ${orderNumber} ukończone`);
+            showToast('success', `Produkt ${productId} ukończony`);
 
-            // Update today's m³ statistics
+            // Aktualizacja statystyk dzisiejszych m³
             fetchTodayM3();
 
-            // Close fullscreen if active
+            // Zamknij tryb pełnoekranowy jeśli aktywny
             if (typeof window.closeFullscreenIfActive === 'function') {
-                window.closeFullscreenIfActive(orderNumber);
+                window.closeFullscreenIfActive(productId);
             }
 
-            // Wait 1 second, then remove card with animation
+            // Poczekaj 1 sekundę, potem usuń kafelek z animacją
             setTimeout(() => {
                 card.classList.add('removing');
                 setTimeout(() => {
@@ -705,17 +625,17 @@
             }, 1000);
 
         } catch (error) {
-            // ERROR - restore card
-            console.error('[Gluing] Failed to complete order:', error);
+            // BŁĄD - przywróć kafelek
+            console.error('[Gluing] Błąd completion produktu:', error);
 
             const ordersList = document.getElementById('orders-list');
 
             if (ordersList) {
-                // Re-insert card
+                // Ponowne wstawienie kafelka
                 ordersList.insertBefore(cardBackup, ordersList.firstChild);
 
-                // Re-initialize the restored card
-                initializeOrderCard(cardBackup);
+                // Ponowna inicjalizacja przywróconego kafelka
+                initializeProductTile(cardBackup);
             }
 
             let errorMessage = error.message;
@@ -728,50 +648,46 @@
     }
 
     // ========================================================================
-    // STATS UPDATE
+    // AKTUALIZACJA STATYSTYK
     // ========================================================================
 
     function updateStatsAfterRemoval() {
-        // Check if empty state should be shown
-        const remainingCards = document.querySelectorAll('.order-card').length;
+        // Policz pozostałe kafelki
+        const remaining = document.querySelectorAll('.order-card[data-product-id]:not(.removing)');
+        const el = document.getElementById('total-orders');
+        if (el) el.textContent = remaining.length;
 
-        if (remainingCards === 0) {
+        // Sprawdź czy pokazać empty state
+        if (remaining.length === 0) {
             showEmptyState();
         }
 
-        // Update header statistics
-        updateHeaderStats();
-
-        console.log(`[Gluing] Remaining cards: ${remainingCards}`);
+        console.log(`[Gluing] Pozostałe kafelki: ${remaining.length}`);
     }
 
     function updateHeaderStats() {
-        const allCards = document.querySelectorAll('.order-card');
+        const allCards = document.querySelectorAll('.order-card[data-product-id]');
 
-        let totalProducts = 0;
         let totalVolume = 0;
 
         allCards.forEach(card => {
-            const cardTotalProducts = parseInt(card.dataset.totalProducts) || 0;
             const cardTotalVolume = parseFloat(card.dataset.totalVolume) || 0;
-
-            totalProducts += cardTotalProducts;
             totalVolume += cardTotalVolume;
         });
 
-        // Update DOM
-        const totalProductsElement = document.getElementById('total-products');
+        // Aktualizacja DOM
+        const totalOrdersElement = document.getElementById('total-orders');
         const totalVolumeElement = document.getElementById('total-volume');
 
-        if (totalProductsElement) {
-            totalProductsElement.textContent = totalProducts;
+        if (totalOrdersElement) {
+            totalOrdersElement.textContent = allCards.length;
         }
 
         if (totalVolumeElement) {
             totalVolumeElement.textContent = totalVolume.toFixed(4);
         }
 
-        console.log(`[Gluing] Updated header stats: ${totalProducts} products, ${totalVolume.toFixed(4)} m³`);
+        console.log(`[Gluing] Zaktualizowano statystyki nagłówka: ${allCards.length} produktów, ${totalVolume.toFixed(4)} m³`);
     }
 
     function showEmptyState() {
@@ -784,27 +700,27 @@
         ordersList.innerHTML = `
             <div class="empty-state">
                 <div class="empty-state-icon">✅</div>
-                <h2>Brak zamówień do sklejania</h2>
-                <p>Świetna robota! Wszystkie zamówienia zostały sklejone.</p>
+                <h2>Brak produktów do sklejania</h2>
+                <p>Świetna robota! Wszystkie produkty zostały sklejone.</p>
             </div>
         `;
 
-        console.log('[Gluing] Showing empty state');
+        console.log('[Gluing] Wyświetlanie pustego stanu');
     }
 
     // ========================================================================
-    // TOAST NOTIFICATIONS
+    // POWIADOMIENIA TOAST
     // ========================================================================
 
     function showToast(type, message) {
         const prefix = type === 'success' ? '✅' : type === 'error' ? '❌' : type === 'warning' ? '⚠️' : 'ℹ️';
         console.log(`[Gluing] ${prefix} ${message}`);
 
-        // TODO: Implement visual toast notifications if needed
+        // TODO: Implementacja wizualnych powiadomień toast jeśli potrzebne
     }
 
     // ========================================================================
-    // AUTO-REFRESH WITH SMART MERGE
+    // AUTO-REFRESH ZE SMART MERGE
     // ========================================================================
 
     function startAutoRefresh(intervalSeconds) {
@@ -812,7 +728,7 @@
             clearInterval(state.refreshTimer);
         }
 
-        console.log(`[Gluing] Starting auto-refresh every ${intervalSeconds}s`);
+        console.log(`[Gluing] Rozpoczęcie auto-refresh co ${intervalSeconds}s`);
 
         state.refreshTimer = setInterval(async () => {
             await performAutoRefresh();
@@ -820,7 +736,7 @@
     }
 
     async function performAutoRefresh() {
-        console.log('[Gluing] Performing auto-refresh...');
+        console.log('[Gluing] Wykonywanie auto-refresh...');
 
         try {
             const response = await fetch('/production/stations/ajax/orders/gluing?sort=priority');
@@ -831,266 +747,292 @@
 
             const result = await response.json();
 
-            if (!result.success || !result.data || !result.data.orders) {
-                throw new Error('Invalid response format');
+            if (!result.success || !result.data || !result.data.products) {
+                throw new Error('Nieprawidłowy format odpowiedzi');
             }
 
-            console.log(`[Gluing] Fetched ${result.data.orders.length} orders`);
+            console.log(`[Gluing] Pobrano ${result.data.products.length} produktów`);
 
-            smartMergeOrders(result.data.orders);
+            smartMergeProducts(result.data.products);
 
-            // Update header statistics from API data (more reliable than DOM)
-            updateHeaderStatsFromAPI(result.data.orders);
+            // Aktualizacja statystyk nagłówka z danych API (bardziej wiarygodne niż DOM)
+            updateHeaderStatsFromAPI(result.data.products);
 
-            // Update today's m³ statistics
+            // Aktualizacja statystyk dzisiejszych m³
             fetchTodayM3();
 
         } catch (error) {
-            console.error('[Gluing] Auto-refresh failed:', error);
+            console.error('[Gluing] Auto-refresh nieudany:', error);
         }
     }
 
-    function updateHeaderStatsFromAPI(orders) {
-        let totalOrders = orders.length;
+    function updateHeaderStatsFromAPI(products) {
+        const totalTiles = products.length;
         let totalVolume = 0;
+        products.forEach(p => { totalVolume += p.volume_m3 || 0; });
 
-        orders.forEach(order => {
-            totalVolume += order.total_volume || 0;
-        });
+        const el = document.getElementById('total-orders');
+        if (el) el.textContent = totalTiles;
 
-        const totalOrdersElement = document.getElementById('total-orders');
-        const totalVolumeElement = document.getElementById('total-volume');
+        const volEl = document.getElementById('total-volume');
+        if (volEl) volEl.textContent = totalVolume.toFixed(4);
 
-        if (totalOrdersElement) {
-            totalOrdersElement.textContent = totalOrders;
-        }
-
-        if (totalVolumeElement) {
-            totalVolumeElement.textContent = totalVolume.toFixed(4);
-        }
-
-        console.log(`[Gluing] Updated header stats from API: ${totalOrders} orders, ${totalVolume.toFixed(4)} m³`);
+        console.log(`[Gluing] Zaktualizowano statystyki z API: ${totalTiles} produktów, ${totalVolume.toFixed(4)} m³`);
     }
 
-    function smartMergeOrders(newOrders) {
+    function smartMergeProducts(newProducts) {
         const ordersList = document.getElementById('orders-list');
 
         if (!ordersList) {
             return;
         }
 
-        const existingCards = ordersList.querySelectorAll('.order-card');
-        const existingOrderNumbers = new Set();
+        const existingCards = ordersList.querySelectorAll('.order-card[data-product-id]');
+        const existingProductIds = new Set();
 
         existingCards.forEach(card => {
-            existingOrderNumbers.add(card.dataset.orderNumber);
+            existingProductIds.add(card.dataset.productId);
         });
 
-        // Stwórz zbiór numerów zamówień z API
-        const apiOrderNumbers = new Set(newOrders.map(order => order.order_number));
+        // Zbiór ID produktów z API
+        const apiProductIds = new Set(newProducts.map(product => String(product.id)));
 
-        // Add only NEW orders (that don't exist yet)
-        newOrders.forEach(order => {
-            if (!existingOrderNumbers.has(order.order_number)) {
-                console.log(`[Gluing] Adding new order: ${order.order_number}`);
-                addOrderCard(order);
+        // Dodaj tylko NOWE produkty (których jeszcze nie ma)
+        newProducts.forEach(product => {
+            const productIdStr = String(product.id);
+            if (!existingProductIds.has(productIdStr)) {
+                console.log(`[Gluing] Dodawanie nowego produktu: ${product.id}`);
+                addProductTile(product);
             } else {
-                // Update existing order's quantity data
-                updateExistingOrderCard(order);
+                // Aktualizacja istniejącego kafelka
+                updateExistingProductTile(product);
             }
         });
 
-        // Remove cards that are no longer in API response (but not if user is working on them)
+        // Usunięcie kafelków nieobecnych w odpowiedzi API (ale nie jeśli użytkownik nad nimi pracuje)
         existingCards.forEach(card => {
-            const orderNumber = card.dataset.orderNumber;
-            if (!apiOrderNumbers.has(orderNumber)) {
-                // Sprawdź czy karta nie jest w trakcie przetwarzania (countdown aktywny)
-                const hasActiveCountdown = state.activeCountdowns.has(orderNumber);
+            const productId = card.dataset.productId;
+            if (!apiProductIds.has(productId)) {
+                // Sprawdź czy kafelek nie jest w trakcie przetwarzania (aktywne odliczanie)
+                const hasActiveCountdown = state.activeCountdowns.has(productId);
                 const isProcessing = card.classList.contains('processing');
 
                 if (!hasActiveCountdown && !isProcessing) {
-                    console.log(`[Gluing] Removing order no longer on station: ${orderNumber}`);
+                    console.log(`[Gluing] Usuwanie produktu nieobecnego na stanowisku: ${productId}`);
                     card.classList.add('removing');
                     setTimeout(() => {
                         card.remove();
-                        // Jeśli nie ma już żadnych kart, pokaż empty state
+                        // Jeśli nie ma już żadnych kafelków, pokaż empty state
                         checkAndShowEmptyState();
                     }, 300);
                 } else {
-                    console.log(`[Gluing] Keeping order ${orderNumber} - user is working on it`);
+                    console.log(`[Gluing] Zachowanie produktu ${productId} - użytkownik nad nim pracuje`);
                 }
             }
         });
 
-        console.log('[Gluing] Smart merge completed');
+        console.log('[Gluing] Smart merge zakończony');
     }
 
-    function updateExistingOrderCard(orderData) {
-        const card = document.querySelector(`[data-order-number="${orderData.order_number}"]`);
+    function updateExistingProductTile(productData) {
+        const card = document.querySelector(`.order-card[data-product-id="${productData.id}"]`);
         if (!card) return;
 
-        // Skip if card is being processed
+        // Pomiń jeśli kafelek jest przetwarzany
         if (card.dataset.inProgress === 'true') return;
 
-        // Update each product's quantity data and priority
-        orderData.products.forEach(product => {
-            const productRow = card.querySelector(`[data-product-id="${product.id}"]`);
-            if (productRow) {
-                const currentQtyDone = parseInt(productRow.dataset.quantityDone) || 0;
-                const serverQtyDone = product.quantity_done || 0;
+        const productId = String(productData.id);
+        const currentQtyDone = parseInt(card.dataset.quantityDone) || 0;
+        const serverQtyDone = productData.quantity_done || 0;
 
-                // Only update if server value is different and no pending request
-                if (currentQtyDone !== serverQtyDone && !state.pendingRequests.has(product.id)) {
-                    productRow.dataset.quantityDone = serverQtyDone;
-                    const qtyDoneEl = productRow.querySelector('.qty-done');
-                    if (qtyDoneEl) {
-                        qtyDoneEl.textContent = serverQtyDone;
-                    }
-                    updateProductButtonStates(productRow, serverQtyDone, product.quantity);
-                }
+        // Aktualizuj tylko jeśli wartość serwera jest inna i nie ma oczekującego requestu
+        if (currentQtyDone !== serverQtyDone && !state.pendingRequests.has(productId)) {
+            card.dataset.quantityDone = serverQtyDone;
 
-                // Update priority status
-                const currentPriority = productRow.dataset.isPriority === 'true';
-                const serverPriority = product.is_priority || false;
-                if (currentPriority !== serverPriority) {
-                    productRow.dataset.isPriority = serverPriority ? 'true' : 'false';
-                    if (serverPriority) {
-                        productRow.classList.add('priority-product');
-                    } else {
-                        productRow.classList.remove('priority-product');
-                    }
-                }
+            // Aktualizacja ilości w ciele kafelka
+            const qtyDoneEl = card.querySelector('.product-body .qty-done');
+            if (qtyDoneEl) {
+                qtyDoneEl.textContent = serverQtyDone;
             }
-        });
 
-        // Update order-level priority classes
-        const allProductsPriority = orderData.products.length > 0 && orderData.products.every(p => p.is_priority);
-        const anyProductPriority = orderData.products.some(p => p.is_priority);
+            // Aktualizacja ilości w nagłówku
+            const headerQtyDone = card.querySelector('.order-stats .qty-done');
+            if (headerQtyDone) {
+                headerQtyDone.textContent = serverQtyDone;
+            }
 
-        card.dataset.allPriority = allProductsPriority ? 'true' : 'false';
-        card.dataset.anyPriority = anyProductPriority ? 'true' : 'false';
-
-        if (allProductsPriority) {
-            card.classList.add('priority-order');
-        } else {
-            card.classList.remove('priority-order');
+            updateProductButtonStates(card, serverQtyDone, productData.quantity);
+            updateCompleteButtonState(card);
         }
 
-        updateOrderCounter(card);
-        updateCompleteButtonState(card);
+        // Aktualizacja statusu priorytetu
+        const currentPriority = card.dataset.isPriority === 'true';
+        const serverPriority = productData.is_priority || false;
+        if (currentPriority !== serverPriority) {
+            card.dataset.isPriority = serverPriority ? 'true' : 'false';
+            if (serverPriority) {
+                card.classList.add('priority-order');
+            } else {
+                card.classList.remove('priority-order');
+            }
+        }
     }
 
     function checkAndShowEmptyState() {
         const ordersList = document.getElementById('orders-list');
         if (!ordersList) return;
 
-        const remainingCards = ordersList.querySelectorAll('.order-card:not(.removing)');
+        const remainingCards = ordersList.querySelectorAll('.order-card[data-product-id]:not(.removing)');
         if (remainingCards.length === 0) {
             const emptyState = ordersList.querySelector('.empty-state');
             if (!emptyState) {
                 ordersList.innerHTML = `
                     <div class="empty-state">
                         <div class="empty-state-icon">✅</div>
-                        <h2>Brak zamówień do sklejania</h2>
-                        <p>Świetna robota! Wszystkie zamówienia zostały sklejone.</p>
+                        <h2>Brak produktów do sklejania</h2>
+                        <p>Świetna robota! Wszystkie produkty zostały sklejone.</p>
                     </div>
                 `;
             }
         }
     }
 
-    function addOrderCard(orderData) {
+    function addProductTile(product) {
         const ordersList = document.getElementById('orders-list');
 
         if (!ordersList) {
             return;
         }
 
-        // Remove empty state if present
+        // Usunięcie empty state jeśli obecny
         const emptyState = ordersList.querySelector('.empty-state');
         if (emptyState) {
             emptyState.remove();
         }
 
-        // Create card HTML
-        const cardHTML = createOrderCardHTML(orderData);
+        // Stworzenie HTML kafelka
+        const tileHTML = createProductTileHTML(product);
 
-        // Insert at the beginning (highest priority)
-        ordersList.insertAdjacentHTML('afterbegin', cardHTML);
+        // Wstawienie na początek (najwyższy priorytet)
+        ordersList.insertAdjacentHTML('afterbegin', tileHTML);
 
-        // Initialize the new card
-        const newCard = ordersList.querySelector(`[data-order-number="${orderData.order_number}"]`);
+        // Inicjalizacja nowego kafelka
+        const newCard = ordersList.querySelector(`.order-card[data-product-id="${product.id}"]`);
         if (newCard) {
-            initializeOrderCard(newCard);
+            initializeProductTile(newCard);
 
-            // Re-initialize attachment handlers for the new card
+            // Ponowna inicjalizacja handlerów załączników
             if (typeof window.reinitializeAttachmentHandlers === 'function') {
                 window.reinitializeAttachmentHandlers();
             }
 
-            // Re-initialize expand icons for the new card
+            // Ponowna inicjalizacja ikon powiększenia
             if (typeof window.initExpandIcons === 'function') {
                 window.initExpandIcons();
             }
         }
     }
 
-    function createOrderCardHTML(order) {
-        const productsHTML = order.products.map(product => {
-            const quantity = product.quantity || 1;
-            const quantityDone = product.quantity_done || 0;
-            const hasLargeQty = quantity >= 10;
+    function createProductTileHTML(product) {
+        const quantity = product.quantity || 1;
+        const quantityDone = product.quantity_done || 0;
+        const hasLargeQty = quantity >= 10;
 
-            // Małe badges z parametrami
-            const paramsHTML = `
-                ${product.wood_species ? `<span class="badge badge-species">${product.wood_species}</span>` : ''}
-                ${product.technology ? `<span class="badge badge-technology">${product.technology}</span>` : ''}
-                ${product.wood_class ? `<span class="badge badge-class">${product.wood_class}</span>` : ''}
+        // Badge z parametrami - tylko gatunek/technologia/klasa (bez badge-assembled)
+        let paramsHTML = '';
+        if (product.wood_species) paramsHTML += `<span class="badge badge-species">${product.wood_species}</span>`;
+        if (product.technology) paramsHTML += `<span class="badge badge-technology">${product.technology}</span>`;
+        if (product.wood_class) paramsHTML += `<span class="badge badge-class">${product.wood_class}</span>`;
+
+        // Wymiary - badge
+        let dimensionsBadge = '';
+        if (product.dimensions) {
+            const formattedDimensions = product.dimensions.replace(/x/g, ' x ').replace(/×/g, ' × ');
+            dimensionsBadge = `<span class="badge badge-dimensions">${formattedDimensions}</span>`;
+        } else if (product.original_name) {
+            dimensionsBadge = `<span class="badge badge-dimensions">${product.original_name}</span>`;
+        } else if (product.attachment_file_url) {
+            dimensionsBadge = `<span class="badge badge-dimensions">Zgodnie z załącznikiem</span>`;
+        }
+
+        // Przyciski ilości
+        const minusDisabled = quantityDone <= 0 ? 'disabled' : '';
+        const plusDisabled = quantityDone >= quantity ? 'disabled' : '';
+        const minus10Disabled = quantityDone < 10 ? 'disabled' : '';
+        const plus10Disabled = (quantity - quantityDone) < 10 ? 'disabled' : '';
+
+        const gridClass = hasLargeQty ? ' grid-layout' : '';
+
+        const quantityButtonsHTML = hasLargeQty ? `
+            <button class="btn-qty btn-minus" data-action="decrement" ${minusDisabled}>−</button>
+            <button class="btn-qty btn-minus-10" data-action="decrement10" ${minus10Disabled}>−10</button>
+            <button class="btn-qty btn-plus-10" data-action="increment10" ${plus10Disabled}>+10</button>
+            <button class="btn-qty btn-plus" data-action="increment" ${plusDisabled}>+</button>
+        ` : `
+            <button class="btn-qty btn-minus" data-action="decrement" ${minusDisabled}>−</button>
+            <button class="btn-qty btn-plus" data-action="increment" ${plusDisabled}>+</button>
+        `;
+
+        // Ikony nagłówka
+        let iconsHTML = '';
+
+        if (product.attachment_file_url) {
+            const attachmentType = product.attachment_file_name && product.attachment_file_name.toLowerCase().endsWith('.pdf') ? 'pdf' : 'image';
+            iconsHTML += `
+                <div class="header-icon-wrapper attachment-icon-wrapper"
+                     data-attachment-url="${product.attachment_file_url}"
+                     data-attachment-name="${product.attachment_file_name || ''}"
+                     data-attachment-type="${attachmentType}">
+                    <svg class="header-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path>
+                    </svg>
+                </div>
             `;
-
-            // Dimensions row - badge format matching HTML template
-            let dimensionsBadge = '';
-            if (product.dimensions) {
-                const formattedDimensions = product.dimensions.replace(/x/g, ' x ').replace(/×/g, ' × ');
-                dimensionsBadge = `<span class="badge badge-dimensions">${formattedDimensions}</span>`;
-            } else if (product.original_name) {
-                dimensionsBadge = `<span class="badge badge-dimensions">${product.original_name}</span>`;
-            } else if (product.attachment_file_url) {
-                dimensionsBadge = `<span class="badge badge-dimensions">Zgodnie z załącznikiem</span>`;
-            }
-
-            // Quantity buttons
-            const minusDisabled = quantityDone <= 0 ? 'disabled' : '';
-            const plusDisabled = quantityDone >= quantity ? 'disabled' : '';
-            const minus10Disabled = quantityDone < 10 ? 'disabled' : '';
-            const plus10Disabled = (quantity - quantityDone) < 10 ? 'disabled' : '';
-
-            // Grid layout class for >=10 items
-            const gridClass = hasLargeQty ? ' grid-layout' : '';
-
-            const quantityButtonsHTML = hasLargeQty ? `
-                <button class="btn-qty btn-minus" data-product-id="${product.id}" data-action="decrement" ${minusDisabled}>−</button>
-                <button class="btn-qty btn-minus-10" data-product-id="${product.id}" data-action="decrement10" ${minus10Disabled}>−10</button>
-                <button class="btn-qty btn-plus-10" data-product-id="${product.id}" data-action="increment10" ${plus10Disabled}>+10</button>
-                <button class="btn-qty btn-plus" data-product-id="${product.id}" data-action="increment" ${plusDisabled}>+</button>
-            ` : `
-                <button class="btn-qty btn-minus" data-product-id="${product.id}" data-action="decrement" ${minusDisabled}>−</button>
-                <button class="btn-qty btn-plus" data-product-id="${product.id}" data-action="increment" ${plusDisabled}>+</button>
+        }
+        if (product.order_notes) {
+            const truncatedNotes = product.order_notes.length > 100
+                ? product.order_notes.substring(0, 100) + '...'
+                : product.order_notes;
+            iconsHTML += `
+                <div class="header-icon-wrapper notes-icon-wrapper"
+                     data-notes="${product.order_notes.replace(/"/g, '&quot;')}"
+                     title="${truncatedNotes.replace(/"/g, '&quot;')}">
+                    <svg class="header-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+                    </svg>
+                </div>
             `;
+        }
 
-            const completeClass = quantityDone === quantity ? 'product-complete' : '';
-            const priorityClass = product.is_priority ? ' priority-product' : '';
+        // Deadline badge
+        const deadlineBadge = product.deadline ? `<span class="deadline-badge">${product.deadline}</span>` : '';
 
-            return `
-                <div class="product-row ${completeClass}${priorityClass}"
-                     data-product-id="${product.id}"
-                     data-quantity="${quantity}"
-                     data-quantity-done="${quantityDone}"
-                     data-status="${product.current_status}"
-                     data-species="${product.wood_species || ''}"
-                     data-technology="${product.technology || ''}"
-                     data-wood-class="${product.wood_class || ''}"
-                     data-is-priority="${product.is_priority ? 'true' : 'false'}">
+        // Klient
+        const clientLabel = product.client_name || '';
+
+        // Klasa priorytetu
+        const priorityClass = product.is_priority ? ' priority-order' : '';
+
+        return `
+            <div class="order-card${priorityClass}"
+                 data-product-id="${product.id}"
+                 data-quantity="${quantity}"
+                 data-quantity-done="${quantityDone}"
+                 data-in-progress="false"
+                 data-is-priority="${product.is_priority ? 'true' : 'false'}">
+                <div class="order-header">
+                    <div class="order-header-row order-ids-row">
+                        <span class="order-number">${product.id}</span>
+                        ${deadlineBadge}
+                    </div>
+                    <div class="order-header-row order-stats-row">
+                        <div class="order-stats">
+                            <span class="qty-done">${quantityDone}</span>/<span class="qty-total">${quantity}</span> szt.
+                        </div>
+                        <div class="order-icons">${iconsHTML}</div>
+                    </div>
+                </div>
+                <div class="product-body">
                     <div class="product-left-col">
                         <div class="product-params">${paramsHTML}</div>
                         <div class="product-dimensions-row">${dimensionsBadge}</div>
@@ -1106,106 +1048,15 @@
                         </div>
                     </div>
                 </div>
-            `;
-        }).join('');
-
-        // Build header icons HTML
-        const firstProduct = order.products[0];
-        let iconsHTML = '';
-
-        if (firstProduct) {
-            if (firstProduct.attachment_file_url) {
-                const attachmentType = firstProduct.attachment_file_name && firstProduct.attachment_file_name.toLowerCase().endsWith('.pdf') ? 'pdf' : 'image';
-                iconsHTML += `
-                    <div class="header-icon-wrapper attachment-icon-wrapper"
-                         data-attachment-url="${firstProduct.attachment_file_url}"
-                         data-attachment-name="${firstProduct.attachment_file_name || ''}"
-                         data-attachment-type="${attachmentType}">
-                        <svg class="header-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path>
-                        </svg>
-                    </div>
-                `;
-            }
-            if (firstProduct.order_notes) {
-                const truncatedNotes = firstProduct.order_notes.length > 100
-                    ? firstProduct.order_notes.substring(0, 100) + '...'
-                    : firstProduct.order_notes;
-                iconsHTML += `
-                    <div class="header-icon-wrapper notes-icon-wrapper"
-                         data-notes="${firstProduct.order_notes.replace(/"/g, '&quot;')}"
-                         title="${truncatedNotes.replace(/"/g, '&quot;')}">
-                        <svg class="header-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
-                        </svg>
-                    </div>
-                `;
-            }
-        }
-
-        // Ikona powiększenia (zawsze)
-        iconsHTML += `
-            <div class="header-icon-wrapper expand-icon-wrapper" title="Powiększ zamówienie">
-                <svg class="header-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <polyline points="15 3 21 3 21 9"></polyline>
-                    <polyline points="9 21 3 21 3 15"></polyline>
-                    <line x1="21" y1="3" x2="14" y2="10"></line>
-                    <line x1="3" y1="21" x2="10" y2="14"></line>
-                </svg>
-            </div>
-        `;
-
-        const clientOrderBadge = order.client_order_number ? `<span class="order-client-number">${order.client_order_number}</span>` : '';
-        const blBadge = order.baselinker_order_id ? `<span class="order-baselinker">BL-${order.baselinker_order_id}</span>` : '';
-
-        // Calculate total done
-        let totalDone = 0;
-        let totalQty = 0;
-        order.products.forEach(p => {
-            totalDone += (p.quantity_done || 0);
-            totalQty += (p.quantity || 1);
-        });
-
-        // Calculate priority flags for order card
-        const allProductsPriority = order.products.length > 0 && order.products.every(p => p.is_priority);
-        const anyProductPriority = order.products.some(p => p.is_priority);
-        const orderPriorityClass = allProductsPriority ? ' priority-order' : '';
-
-        return `
-            <div class="order-card${orderPriorityClass}"
-                 data-order-number="${order.order_number}"
-                 data-priority-rank="${order.best_priority_rank}"
-                 data-total-products="${order.total_products}"
-                 data-total-quantity="${totalQty}"
-                 data-total-volume="${order.total_volume}"
-                 data-in-progress="false"
-                 data-all-priority="${allProductsPriority ? 'true' : 'false'}"
-                 data-any-priority="${anyProductPriority ? 'true' : 'false'}">
-                <div class="order-header">
-                    <div class="order-header-row order-ids-row">
-                        <span class="order-number">${order.order_number}</span>
-                        ${clientOrderBadge}
-                        ${blBadge}
-                    </div>
-                    <div class="order-header-row order-stats-row">
-                        <div class="order-stats">
-                            <span class="products-checked" data-order="${order.order_number}">${totalDone}</span>/<span class="products-total" data-order="${order.order_number}">${totalQty}</span> szt. • ${order.total_volume.toFixed(4)} m³
-                        </div>
-                        <div class="order-icons">${iconsHTML}</div>
-                    </div>
-                </div>
-                <div class="products-list">
-                    ${productsHTML}
-                </div>
                 <div class="order-action">
-                    <button class="btn-complete" data-action="complete" disabled>ZAKOŃCZ SKLEJANIE</button>
+                    <button class="btn-complete" data-product-id="${product.id}" data-action="complete" disabled>ZAKOŃCZ SKLEJANIE</button>
                 </div>
             </div>
         `;
     }
 
     // ========================================================================
-    // FETCH TODAY'S M³
+    // POBRANIE DZISIEJSZYCH M³
     // ========================================================================
 
     async function fetchTodayM3() {
@@ -1224,16 +1075,16 @@
                     todayM3Element.textContent = result.data.today_m3.toFixed(4);
                 }
 
-                console.log(`[Gluing] Today's m³: ${result.data.today_m3}`);
+                console.log(`[Gluing] Dzisiejsze m³: ${result.data.today_m3}`);
             }
 
         } catch (error) {
-            console.error('[Gluing] Failed to fetch today m³:', error);
+            console.error('[Gluing] Błąd pobierania dzisiejszych m³:', error);
         }
     }
 
     // ========================================================================
-    // THEME TOGGLE
+    // PRZEŁĄCZNIK MOTYWU
     // ========================================================================
 
     function setupThemeToggle() {
@@ -1264,7 +1115,7 @@
             localStorage.setItem('theme', isLight ? 'light' : 'dark');
         });
 
-        // Load saved theme
+        // Załaduj zapisany motyw
         const savedTheme = localStorage.getItem('theme');
         if (savedTheme === 'light') {
             themeToggle.click();
@@ -1272,34 +1123,34 @@
     }
 
     // ========================================================================
-    // CLEANUP
+    // CZYSZCZENIE PRZY ZAMKNIĘCIU
     // ========================================================================
 
     window.addEventListener('beforeunload', function() {
         if (state.refreshTimer) {
             clearInterval(state.refreshTimer);
-            console.log('[Gluing] Cleared auto-refresh interval');
+            console.log('[Gluing] Wyczyszczono interwał auto-refresh');
         }
 
         if (state.countdownTimer) {
             clearInterval(state.countdownTimer);
-            console.log('[Gluing] Cleared countdown timer');
+            console.log('[Gluing] Wyczyszczono timer odliczania');
         }
 
-        // Clear all active order countdowns
-        state.activeCountdowns.forEach((countdown, orderNumber) => {
+        // Wyczyść wszystkie aktywne odliczania produktów
+        state.activeCountdowns.forEach((countdown, productId) => {
             if (countdown.timerId) {
                 clearInterval(countdown.timerId);
-                console.log(`[Gluing] Cleared countdown for ${orderNumber}`);
+                console.log(`[Gluing] Wyczyszczono odliczanie dla ${productId}`);
             }
         });
 
-        // Clear pending requests
+        // Wyczyść oczekujące requesty
         state.pendingRequests.forEach((timeoutId) => {
             clearTimeout(timeoutId);
         });
     });
 
-    console.log('[Gluing] Module loaded v3.0 (quantity-based with +/- buttons)');
+    console.log('[Gluing] Moduł załadowany v4.0 (kafelki produktów z przyciskami +/-)');
 
 })();
