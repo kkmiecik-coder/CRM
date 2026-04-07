@@ -709,6 +709,52 @@ body.light-mode .offline-text p {
 
 
 /* ============================================================================
+   CIALO KAFELKA PRODUKTU (plskie stanowiska: wycinanie/skladanie/sklejanie)
+   ============================================================================ */
+
+/* Cialo kafelka produktu dla stanowisk plaskich (wycinanie/skladanie/sklejanie) */
+.product-body {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    align-items: center;
+    gap: 16px;
+    padding: 14px 20px;
+}
+
+.product-body .product-left-col {
+    min-width: 0;
+}
+
+.product-body .product-params {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 6px;
+}
+
+.product-body .product-dimensions-row {
+    margin-top: 4px;
+}
+
+/* Badge terminu w naglowku kafelka */
+.deadline-badge {
+    font-size: 12px;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 4px;
+    background: var(--bg-secondary);
+    color: var(--text-secondary);
+    white-space: nowrap;
+}
+
+.deadline-badge.deadline-priority-critical,
+.deadline-badge.deadline-priority-high {
+    background: rgba(220, 53, 69, 0.15);
+    color: #dc3545;
+}
+
+
+/* ============================================================================
    RESPONSIVE
    ============================================================================ */
 
