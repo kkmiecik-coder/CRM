@@ -721,6 +721,39 @@
             });
         }
 
+        // ── Map → List: highlight card ──
+        function highlightCard(orderNumber) {
+            // Remove previous highlight
+            document.querySelectorAll('.logistics-card.card-highlighted').forEach(function(el) {
+                el.classList.remove('card-highlighted');
+            });
+            if (highlightTimeout) clearTimeout(highlightTimeout);
+
+            var card = document.querySelector('.logistics-card[data-order="' + orderNumber + '"]');
+            if (!card) return;
+
+            card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            card.classList.add('card-highlighted');
+
+            highlightTimeout = setTimeout(function() {
+                card.classList.remove('card-highlighted');
+            }, 3000);
+        }
+
+        // ── List → Map: fly to pin ──
+        window.locateOnMap = function(orderNumber) {
+            var entry = orderMarkers[orderNumber];
+            if (!entry) return;
+
+            map.flyTo([entry.latLng.lat, entry.latLng.lng], 12, { duration: 0.8 });
+
+            // Replace icon with pulsing version
+            entry.marker.setIcon(createPinIcon(true));
+            setTimeout(function() {
+                entry.marker.setIcon(createPinIcon(false));
+            }, 1500);
+        };
+
         // ── Helpers ──
         function showToast(message, isError) {
             const el = document.getElementById('logistics-toast');
