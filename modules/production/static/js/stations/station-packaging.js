@@ -547,7 +547,8 @@
 
     function updateOrderCounter(card) {
         const orderNumber = card.dataset.orderNumber;
-        const productRows = card.querySelectorAll('.product-row');
+        // Liczymy tylko aktywne produkty (nie-disabled)
+        const productRows = card.querySelectorAll('.product-row:not(.product-disabled)');
 
         let totalDone = 0;
         let totalQuantity = 0;
@@ -616,8 +617,8 @@
         completeBtn.classList.remove('offline');
         completeBtn.textContent = 'ZAKOŃCZ PAKOWANIE';
 
-        // Check if all products are complete (quantity_done == quantity)
-        const productRows = card.querySelectorAll('.product-row');
+        // Sprawdzamy tylko aktywne produkty (nie-disabled)
+        const productRows = card.querySelectorAll('.product-row:not(.product-disabled)');
         let allComplete = true;
         let hasProducts = false;
 
@@ -1167,12 +1168,41 @@
         }
     }
 
+    // Helper: badge HTML informujący, na której stacji aktualnie jest produkt
+    function getStationBadgeHTML(status) {
+        const stationMap = {
+            'czeka_na_wyciecie':     { code: 'cutting',    label: 'Wycinanie' },
+            'czeka_na_skladanie':    { code: 'assembly',   label: 'Składanie' },
+            'czeka_na_sklejanie':    { code: 'gluing',     label: 'Sklejanie' },
+            'czeka_na_formatowanie': { code: 'formatting', label: 'Formatowanie' },
+            'czeka_na_wykanczanie':  { code: 'finishing',  label: 'Wykańczanie' },
+            'czeka_na_logistyke':    { code: 'logistics',  label: 'Logistyka' },
+        };
+        const station = stationMap[status];
+        if (!station) return '';
+        const icons = {
+            cutting:    '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><line x1="20" y1="4" x2="8.12" y2="15.88"/><line x1="14.47" y1="14.48" x2="20" y2="20"/><line x1="8.12" y1="8.12" x2="12" y2="12"/></svg>',
+            assembly:   '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><line x1="20" y1="4" x2="8.12" y2="15.88"/><line x1="14.47" y1="14.48" x2="20" y2="20"/><line x1="8.12" y1="8.12" x2="12" y2="12"/></svg>',
+            gluing:     '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2C12 2 5 10 5 15a7 7 0 0 0 14 0C19 10 12 2 12 2z"/></svg>',
+            formatting: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21L21 3"/><path d="M6 3h15v3H9z" fill="none"/><path d="M9 3v3"/><path d="M12 3v3"/><path d="M15 3v3"/><path d="M18 3v3"/></svg>',
+            finishing:  '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18.37 2.63L14 7l-1.59-1.59a2 2 0 00-2.82 0L8 7l9 9 1.59-1.59a2 2 0 000-2.82L17 10l4.37-4.37a2.12 2.12 0 10-3-3z"/><path d="M9 8C5.49 12 1 21 1 21s9-4.49 13-8"/></svg>',
+            logistics:  '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="3" width="15" height="13"/><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>',
+        };
+        const icon = icons[station.code] || '';
+        return `<span class="badge badge-station badge-station-${station.code}">${icon} ${station.label}</span>`;
+    }
+
     function createOrderCardHTML(order) {
         const productsHTML = order.products.map(product => {
             const quantity = product.quantity || 1;
             const quantityDone = product.quantity_done || 0;
             const hasLargeQty = quantity >= 10;
             const isNotReady = product.current_status !== 'czeka_na_pakowanie';
+
+            // Produkt disabled = nie jest na tej stacji (wyszarzenie)
+            const isDisabled = product.current_status !== 'czeka_na_pakowanie';
+            const disabledClass = isDisabled ? ' product-disabled' : '';
+            const stationBadgeHTML = isDisabled ? getStationBadgeHTML(product.current_status) : '';
 
             // Małe badges z parametrami
             const paramsHTML = `
@@ -1215,11 +1245,12 @@
             const priorityClass = product.is_priority ? ' priority-product' : '';
 
             return `
-                <div class="product-row ${completeClass} ${notReadyClass}${priorityClass}"
+                <div class="product-row ${completeClass} ${notReadyClass}${disabledClass}${priorityClass}"
                      data-product-id="${product.id}"
                      data-quantity="${quantity}"
                      data-quantity-done="${quantityDone}"
                      data-status="${product.current_status}"
+                     data-disabled="${isDisabled}"
                      data-species="${product.wood_species || ''}"
                      data-technology="${product.technology || ''}"
                      data-wood-class="${product.wood_class || ''}"
@@ -1229,7 +1260,7 @@
                      data-thickness="${product.parsed_thickness_cm || 0}"
                      data-volume="${product.volume_m3 || 0}">
                     <div class="product-left-col">
-                        <div class="product-params">${paramsHTML}</div>
+                        <div class="product-params">${stationBadgeHTML}${paramsHTML}</div>
                         <div class="product-dimensions-row">${dimensionsBadge}</div>
                     </div>
                     <div class="quantity-controls">
