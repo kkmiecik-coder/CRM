@@ -280,27 +280,6 @@
             border-color: var(--il-status-info, #2563eb);
         }
 
-        .logistics-notes-save {
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 10px;
-            font-weight: 600;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-            color: var(--il-text-secondary, #7a8291);
-            background: var(--il-bg-base, #eef0f4);
-            border: 1px solid var(--il-border, #c8cdd5);
-            border-radius: var(--il-radius, 3px);
-            padding: 4px 10px;
-            cursor: pointer;
-            margin-top: 4px;
-            transition: color 0.15s, border-color 0.15s;
-        }
-
-        .logistics-notes-save:hover {
-            color: var(--il-text-primary, #1a1a2e);
-            border-color: var(--il-text-primary, #1a1a2e);
-        }
-
         /* Decision column */
         .logistics-select-label {
             font-family: 'JetBrains Mono', monospace;
@@ -312,23 +291,65 @@
             margin-bottom: 6px;
         }
 
-        .logistics-select {
-            width: 100%;
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 12px;
-            color: var(--il-text-primary, #1a1a2e);
-            background: var(--il-bg-card, #ffffff);
-            border: 1px solid var(--il-border, #c8cdd5);
-            border-radius: var(--il-radius, 3px);
-            padding: 8px 10px;
-            cursor: pointer;
-            appearance: auto;
-            transition: border-color 0.15s;
+        .logistics-radio-group {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            margin-bottom: 12px;
         }
 
-        .logistics-select:focus {
-            outline: none;
+        .logistics-radio {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            cursor: pointer;
+            padding: 6px 8px;
+            border: 1px solid var(--il-border, #c8cdd5);
+            border-radius: var(--il-radius, 3px);
+            transition: border-color 0.15s, background 0.15s;
+        }
+
+        .logistics-radio:hover {
             border-color: var(--il-status-info, #2563eb);
+            background: rgba(37, 99, 235, 0.03);
+        }
+
+        .logistics-radio input[type="radio"] {
+            display: none;
+        }
+
+        .logistics-radio-box {
+            width: 24px;
+            height: 24px;
+            min-width: 24px;
+            border: 2px solid var(--il-border, #c8cdd5);
+            border-radius: var(--il-radius, 3px);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.15s;
+        }
+
+        .logistics-radio input[type="radio"]:checked + .logistics-radio-box {
+            background: var(--il-status-info, #2563eb);
+            border-color: var(--il-status-info, #2563eb);
+        }
+
+        .logistics-radio input[type="radio"]:checked + .logistics-radio-box::after {
+            content: '✓';
+            color: #fff;
+            font-size: 14px;
+            font-weight: 700;
+        }
+
+        .logistics-radio input[type="radio"]:checked ~ .logistics-radio-label {
+            color: var(--il-text-primary, #1a1a2e);
+            font-weight: 600;
+        }
+
+        .logistics-radio-label {
+            font-size: 13px;
+            color: var(--il-text-secondary, #7a8291);
         }
 
         .logistics-approve-btn {
@@ -587,15 +608,21 @@
 
                             '<div class="logistics-label">Notatka produkcyjna</div>' +
                             '<textarea class="logistics-notes-area" data-order="' + escapeHtml(order.order_number) + '">' + notesVal + '</textarea>' +
-                            '<button class="logistics-notes-save" onclick="saveNotes(\'' + escapeHtml(order.order_number) + '\', this)">Zapisz notatkę</button>' +
                         '</div>' +
                         '<div class="logistics-card-decision">' +
                             '<div class="logistics-select-label">Sposób transportu</div>' +
-                            '<select class="logistics-select" data-order="' + escapeHtml(order.order_number) + '" onchange="toggleApprove(this)">' +
-                                '<option value="">&mdash; Wybierz sposób transportu &mdash;</option>' +
-                                '<option value="kurier_baselinker">Kurier (z Baselinker)</option>' +
-                                '<option value="transport_woodpower">Transport WoodPower</option>' +
-                            '</select>' +
+                            '<div class="logistics-radio-group" data-order="' + escapeHtml(order.order_number) + '">' +
+                                '<label class="logistics-radio">' +
+                                    '<input type="radio" name="transport_' + escapeHtml(order.order_number) + '" value="kurier_baselinker" onchange="toggleApproveRadio(\'' + escapeHtml(order.order_number) + '\')">' +
+                                    '<span class="logistics-radio-box"></span>' +
+                                    '<span class="logistics-radio-label">Kurier (z Baselinker)</span>' +
+                                '</label>' +
+                                '<label class="logistics-radio">' +
+                                    '<input type="radio" name="transport_' + escapeHtml(order.order_number) + '" value="transport_woodpower" onchange="toggleApproveRadio(\'' + escapeHtml(order.order_number) + '\')">' +
+                                    '<span class="logistics-radio-box"></span>' +
+                                    '<span class="logistics-radio-label">Transport WoodPower</span>' +
+                                '</label>' +
+                            '</div>' +
                             '<button class="logistics-approve-btn" data-order="' + escapeHtml(order.order_number) + '" disabled onclick="approveOrder(\'' + escapeHtml(order.order_number) + '\', this)">' +
                                 '<i class="fas fa-check"></i> Zatwierdź i prześlij na pakowanie' +
                             '</button>' +
@@ -622,29 +649,43 @@
                 });
         }
 
-        // ── Toggle approve button ──
-        window.toggleApprove = function(selectEl) {
-            var orderNum = selectEl.dataset.order;
-            var btn = document.querySelector('.logistics-approve-btn[data-order="' + orderNum + '"]');
-            if (btn) btn.disabled = !selectEl.value;
+        // ── Toggle approve button (radio) ──
+        window.toggleApproveRadio = function(orderNumber) {
+            var checked = document.querySelector('input[name="transport_' + orderNumber + '"]:checked');
+            var btn = document.querySelector('.logistics-approve-btn[data-order="' + orderNumber + '"]');
+            if (btn) btn.disabled = !checked;
         };
 
-        // ── Approve ──
+        // ── Approve (saves notes too) ──
         window.approveOrder = function(orderNumber, btnEl) {
-            var selectEl = document.querySelector('.logistics-select[data-order="' + orderNumber + '"]');
-            if (!selectEl || !selectEl.value) return;
+            var checked = document.querySelector('input[name="transport_' + orderNumber + '"]:checked');
+            if (!checked || !checked.value) return;
+
+            // Save notes together with approval
+            var textarea = document.querySelector('.logistics-notes-area[data-order="' + orderNumber + '"]');
+            var notes = textarea ? textarea.value : '';
 
             btnEl.disabled = true;
             btnEl.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Zatwierdzanie…';
 
-            fetch(API_BASE + '/approve', {
+            // Save notes first, then approve
+            var notesPromise = notes !== '' ? fetch(API_BASE + '/update-notes', {
                 method: 'POST',
                 credentials: 'same-origin',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    order_number: orderNumber,
-                    transport_method: selectEl.value
-                })
+                body: JSON.stringify({ order_number: orderNumber, notes: notes })
+            }) : Promise.resolve();
+
+            notesPromise.then(function() {
+                return fetch(API_BASE + '/approve', {
+                    method: 'POST',
+                    credentials: 'same-origin',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        order_number: orderNumber,
+                        transport_method: checked.value
+                    })
+                });
             })
             .then(function(r) { return r.json(); })
             .then(function(data) {
@@ -682,40 +723,7 @@
             });
         };
 
-        // ── Save notes ──
-        window.saveNotes = function(orderNumber, btnEl) {
-            var textarea = document.querySelector('.logistics-notes-area[data-order="' + orderNumber + '"]');
-            if (!textarea) return;
-
-            btnEl.disabled = true;
-            btnEl.textContent = 'Zapisywanie...';
-
-            fetch(API_BASE + '/update-notes', {
-                method: 'POST',
-                credentials: 'same-origin',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    order_number: orderNumber,
-                    notes: textarea.value
-                })
-            })
-            .then(function(r) { return r.json(); })
-            .then(function(data) {
-                if (data.success) {
-                    showToast('Notatka zapisana');
-                } else {
-                    showToast('Błąd zapisu notatki: ' + (data.error || ''), true);
-                }
-                btnEl.disabled = false;
-                btnEl.textContent = 'Zapisz notatkę';
-            })
-            .catch(function(err) {
-                showToast('Błąd połączenia z serwerem', true);
-                btnEl.disabled = false;
-                btnEl.textContent = 'Zapisz notatkę';
-                console.error('Notes save error:', err);
-            });
-        };
+        // Notes are saved together with approval — no separate save function needed
 
         // ── Init ──
         fetchOrders();
