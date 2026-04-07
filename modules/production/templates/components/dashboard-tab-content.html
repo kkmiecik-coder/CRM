@@ -204,6 +204,41 @@
           </div>
         </div>
 
+        {# LOGISTICS #}
+        <div class="il-station" data-station="logistics">
+          <div class="il-station-header">
+            <span class="il-station-name">Logistyka</span>
+            <div class="il-station-actions">
+              <span class="il-station-badge active" id="logistics-tablet-badge">Aktywne</span>
+              <a href="{{ url_for('production.production_main.logistics') }}" class="il-station-link" title="Otwórz stanowisko"><i class="fas fa-external-link-alt"></i></a>
+            </div>
+          </div>
+          <div class="il-station-body">
+            <div class="il-station-stats">
+              <div class="il-station-stat">
+                <div class="il-station-stat-value" id="logistics-pending">{{ dashboard_stats.logistics.pending_count|default(0) }}</div>
+                <div class="il-station-stat-label">Oczekuje</div>
+              </div>
+              <div class="il-station-stat">
+                <div class="il-station-stat-value">—</div>
+                <div class="il-station-stat-label">Ukończ.</div>
+              </div>
+              <div class="il-station-stat">
+                <div class="il-station-stat-value">—</div>
+                <div class="il-station-stat-label">m³ dziś</div>
+              </div>
+              <div class="il-station-stat">
+                <div class="il-station-stat-value">—</div>
+                <div class="il-station-stat-label">m³ ocz.</div>
+              </div>
+            </div>
+            <div class="il-station-progress">
+              <div class="il-station-bar"><div class="il-station-bar-fill" id="logistics-bar-fill" style="width: 0%;"></div></div>
+              <span class="il-station-bar-pct" id="logistics-bar-pct">0%</span>
+            </div>
+          </div>
+        </div>
+
         {# PACKAGING #}
         <div class="il-station {% if not dashboard_stats.stations.packaging.tablet_status.active|default(false) %}station-inactive{% endif %}" data-station="packaging">
           <div class="il-station-header">
@@ -238,20 +273,6 @@
               <div class="il-station-bar"><div class="il-station-bar-fill" id="packaging-bar-fill" style="width: 0%;"></div></div>
               <span class="il-station-bar-pct" id="packaging-bar-pct">0%</span>
             </div>
-          </div>
-        </div>
-
-        {# LOGISTICS — light card #}
-        <div class="il-logistics-card">
-          <div class="il-logistics-header">
-            <span class="il-logistics-name"><i class="fas fa-truck me-2"></i>Logistyka</span>
-            <div class="il-station-actions">
-              <span class="il-logistics-count" id="logistics-pending-count">{{ dashboard_stats.logistics.pending_count|default(0) }}</span>
-              <a href="{{ url_for('production.production_main.logistics') }}" class="il-station-link" title="Otwórz stanowisko"><i class="fas fa-external-link-alt"></i></a>
-            </div>
-          </div>
-          <div class="il-logistics-body">
-            <span class="il-logistics-label">zamówień oczekuje na decyzję transportową</span>
           </div>
         </div>
 
