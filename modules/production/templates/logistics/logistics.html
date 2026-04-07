@@ -754,6 +754,11 @@
             }, 1500);
         };
 
+        // ── Map resize ──
+        window.addEventListener('resize', function() {
+            map.invalidateSize();
+        });
+
         // ── Helpers ──
         function showToast(message, isError) {
             const el = document.getElementById('logistics-toast');
@@ -943,6 +948,11 @@
                         card.classList.add('card-removing');
                         setTimeout(function() {
                             card.remove();
+                            // Remove pin from map
+                            if (orderMarkers[orderNumber]) {
+                                markersLayer.removeLayer(orderMarkers[orderNumber].marker);
+                                delete orderMarkers[orderNumber];
+                            }
                             // Update counter
                             var remaining = document.querySelectorAll('.logistics-card').length;
                             var counter = document.getElementById('logistics-counter');
