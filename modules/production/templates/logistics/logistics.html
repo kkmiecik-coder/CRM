@@ -16,8 +16,6 @@
 
         .logistics-page {
             padding: 24px;
-            max-width: 1400px;
-            margin: 0 auto;
         }
 
         /* Header */
@@ -107,7 +105,7 @@
 
         .logistics-map {
             width: 100%;
-            height: calc(100vh - 120px);
+            aspect-ratio: 1 / 1;
             border: 1px solid var(--il-border, #c8cdd5);
             border-radius: var(--il-radius, 3px);
             overflow: hidden;
@@ -116,6 +114,41 @@
 
         .logistics-orders-column {
             min-width: 0;
+        }
+
+        /* Map geocoding progress */
+        .logistics-map-progress {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            height: 3px;
+            background: rgba(37, 99, 235, 0.15);
+            z-index: 1000;
+            overflow: hidden;
+        }
+
+        .logistics-map-progress-bar {
+            height: 100%;
+            background: var(--il-status-info, #2563eb);
+            transition: width 0.3s ease;
+            width: 0%;
+        }
+
+        .logistics-map-progress-label {
+            position: absolute;
+            bottom: 8px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 1000;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 10px;
+            font-weight: 600;
+            color: var(--il-text-secondary, #7a8291);
+            background: rgba(255, 255, 255, 0.9);
+            padding: 2px 8px;
+            border-radius: var(--il-radius, 3px);
+            border: 1px solid var(--il-border, #c8cdd5);
         }
 
         /* Card highlight when selected from map */
@@ -327,9 +360,8 @@
         .product-name {
             flex: 1;
             min-width: 0;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            white-space: nowrap;
+            overflow-wrap: break-word;
+            word-break: break-word;
         }
 
         .product-meta {
@@ -591,6 +623,10 @@
                 <div class="logistics-layout">
                     <div class="logistics-map-column">
                         <div id="logistics-map" class="logistics-map"></div>
+                        <div id="map-progress" class="logistics-map-progress" style="display:none;">
+                            <div id="map-progress-bar" class="logistics-map-progress-bar"></div>
+                        </div>
+                        <div id="map-progress-label" class="logistics-map-progress-label" style="display:none;"></div>
                     </div>
                     <div class="logistics-orders-column">
                         <div id="logistics-orders" class="logistics-orders">
@@ -636,32 +672,49 @@
         // orderNumber → { marker, latLng } for interaction
         const orderMarkers = {};
 
-        // ── Geocoding ──
-        const geocodeCache = {};
+        // ── Geocoding with localStorage cache ──
+        const GEOCODE_STORAGE_KEY = 'logistics_geocode_cache';
+
+        function getGeoCache() {
+            try {
+                return JSON.parse(localStorage.getItem(GEOCODE_STORAGE_KEY)) || {};
+            } catch(e) { return {}; }
+        }
+
+        function setGeoCache(cache) {
+            try {
+                localStorage.setItem(GEOCODE_STORAGE_KEY, JSON.stringify(cache));
+            } catch(e) {}
+        }
 
         function geocodeAddress(city, postcode, countryCode) {
             const key = [city, postcode, countryCode].filter(Boolean).join('|');
-            if (geocodeCache[key]) return geocodeCache[key];
+
+            // Check localStorage first
+            var cache = getGeoCache();
+            if (cache[key]) return Promise.resolve(cache[key]);
 
             const params = new URLSearchParams({ format: 'json', limit: '1' });
             if (city) params.set('city', city);
             if (postcode) params.set('postalcode', postcode);
             params.set('countrycodes', countryCode || 'PL');
 
-            const promise = fetch('https://nominatim.openstreetmap.org/search?' + params.toString(), {
+            return fetch('https://nominatim.openstreetmap.org/search?' + params.toString(), {
                 headers: { 'Accept-Language': 'pl', 'User-Agent': 'WoodPowerCRM/1.0 (crm.woodpower.pl)' }
             })
             .then(function(r) { return r.json(); })
             .then(function(results) {
                 if (results && results.length > 0) {
-                    return { lat: parseFloat(results[0].lat), lng: parseFloat(results[0].lon) };
+                    var coords = { lat: parseFloat(results[0].lat), lng: parseFloat(results[0].lon) };
+                    // Persist to localStorage
+                    var c = getGeoCache();
+                    c[key] = coords;
+                    setGeoCache(c);
+                    return coords;
                 }
                 return null;
             })
             .catch(function() { return null; });
-
-            geocodeCache[key] = promise;
-            return promise;
         }
 
         function createPinIcon(pulsing) {
@@ -675,28 +728,68 @@
 
         let highlightTimeout = null;
 
+        function showMapProgress(current, total) {
+            var bar = document.getElementById('map-progress');
+            var fill = document.getElementById('map-progress-bar');
+            var label = document.getElementById('map-progress-label');
+            if (total === 0) { bar.style.display = 'none'; label.style.display = 'none'; return; }
+            bar.style.display = '';
+            label.style.display = '';
+            fill.style.width = Math.round((current / total) * 100) + '%';
+            label.textContent = 'Geokodowanie ' + current + ' / ' + total;
+        }
+
+        function hideMapProgress() {
+            document.getElementById('map-progress').style.display = 'none';
+            document.getElementById('map-progress-label').style.display = 'none';
+        }
+
         function placeMarkers(orders) {
             markersLayer.clearLayers();
             Object.keys(orderMarkers).forEach(function(k) { delete orderMarkers[k]; });
 
-            // Sequential geocoding (1 req/s Nominatim limit)
-            let chain = Promise.resolve();
+            // Filter orders that need geocoding
+            var geocodable = [];
             orders.forEach(function(order) {
-                const addr = order.delivery_address || {};
+                var addr = order.delivery_address || {};
                 if (!addr.city) {
-                    // Mark card as no-address after render
                     setTimeout(function() {
                         var card = document.querySelector('.logistics-card[data-order="' + CSS.escape(order.order_number) + '"]');
                         if (card) card.classList.add('card-no-address');
                     }, 0);
-                    return;
+                } else {
+                    geocodable.push(order);
                 }
+            });
+
+            if (geocodable.length === 0) { hideMapProgress(); return; }
+
+            // Check which need Nominatim vs cached
+            var cache = getGeoCache();
+            var needFetch = 0;
+            geocodable.forEach(function(order) {
+                var addr = order.delivery_address || {};
+                var key = [addr.city, addr.postcode, addr.country_code].filter(Boolean).join('|');
+                if (!cache[key]) needFetch++;
+            });
+
+            var processed = 0;
+            var total = geocodable.length;
+            if (needFetch > 0) showMapProgress(0, total);
+
+            var chain = Promise.resolve();
+            geocodable.forEach(function(order) {
+                var addr = order.delivery_address || {};
+                var key = [addr.city, addr.postcode, addr.country_code].filter(Boolean).join('|');
+                var wasCached = !!getGeoCache()[key];
 
                 chain = chain.then(function() {
                     return geocodeAddress(addr.city, addr.postcode, addr.country_code);
                 }).then(function(coords) {
+                    processed++;
+                    if (needFetch > 0) showMapProgress(processed, total);
+
                     if (!coords) {
-                        // Geocoding failed — mark card
                         var card = document.querySelector('.logistics-card[data-order="' + CSS.escape(order.order_number) + '"]');
                         if (card) card.classList.add('card-no-address');
                         return;
@@ -710,17 +803,21 @@
 
                     orderMarkers[order.order_number] = { marker: marker, latLng: coords };
 
-                    // Map → List interaction
                     marker.on('click', function() {
                         highlightCard(order.order_number);
                     });
 
-                    // Throttle Nominatim: wait 1.1s between requests
-                    return new Promise(function(resolve) { setTimeout(resolve, 1100); });
+                    // Throttle only for Nominatim requests, skip for cached
+                    if (!wasCached) {
+                        return new Promise(function(resolve) { setTimeout(resolve, 1100); });
+                    }
                 });
             });
 
-            chain.catch(function(err) {
+            chain.then(function() {
+                hideMapProgress();
+            }).catch(function(err) {
+                hideMapProgress();
                 console.warn('Geocoding chain error:', err);
             });
         }

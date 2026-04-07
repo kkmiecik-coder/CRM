@@ -2080,9 +2080,8 @@ class BaselinkerSyncService:
                                     continue
 
                                 # Generuj ID produktu
-                                year_suffix = str(datetime.now().year)[2:]
                                 order_num = existing_product.internal_order_number
-                                short_product_id = f"{year_suffix}_{order_num}_{seq_num}"
+                                short_product_id = f"{order_num}_{seq_num}"
 
                                 # Parsuj dane produktu
                                 parsed = parser.parse_product_name(bl_product.get('name', ''))

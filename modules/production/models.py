@@ -93,8 +93,8 @@ class ProductionItem(db.Model):
     id = Column(Integer, primary_key=True)
     
     # IDENTYFIKATORY SYSTEMU
-    short_product_id = Column(String(16), unique=True, nullable=False, index=True)
-    internal_order_number = Column(String(8), nullable=False, index=True)
+    short_product_id = Column(String(20), unique=True, nullable=False, index=True)
+    internal_order_number = Column(String(20), nullable=False, index=True)
     product_sequence_in_order = Column(Integer, nullable=False)
     
     # DANE BASELINKER
@@ -262,11 +262,11 @@ class ProductionItem(db.Model):
     
     @validates('short_product_id')
     def validate_product_id(self, key, product_id):
-        """Walidacja formatu Product ID: YY_NNNNN_S"""
+        """Walidacja formatu Product ID: N_S"""
         import re
-        pattern = r'^\d{2}_\d{5}_\d+$'
+        pattern = r'^\d+_\d+$'
         if not re.match(pattern, product_id):
-            raise ValueError(f"Product ID musi być w formacie YY_NNNNN_S, otrzymano: {product_id}")
+            raise ValueError(f"Product ID musi być w formacie N_S, otrzymano: {product_id}")
         return product_id
     
     # ============================================================================
