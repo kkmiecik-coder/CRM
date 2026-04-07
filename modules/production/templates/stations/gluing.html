@@ -84,7 +84,7 @@
                     <div class="stat-label">Produkty</div>
                     <div class="stat-value">
                         <span id="total-orders">{{ station_stats.total_tiles }}</span> /
-                        <span id="total-volume">{{ "%.4f"|format(products|map(attribute='volume_m3')|sum) }}</span> m³
+                        <span id="total-volume">{{ "%.4f"|format(products_flat|map(attribute='volume_m3')|sum) }}</span> m³
                     </div>
                 </div>
             </div>
@@ -135,6 +135,7 @@
             {% set priority_class = 'priority-order' if product.is_priority else '' %}
             <div class="order-card {{ priority_class }}"
                  data-product-id="{{ product.id }}"
+                 data-internal-order="{{ product.internal_order }}"
                  data-priority-rank="{{ product.priority_rank }}"
                  data-quantity="{{ product.quantity }}"
                  data-quantity-done="{{ product.quantity_done }}"

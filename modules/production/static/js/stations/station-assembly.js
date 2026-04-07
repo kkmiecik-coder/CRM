@@ -723,7 +723,7 @@
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    order_number: productId,  // ponowne użycie nazwy pola dla kompatybilności wstecznej
+                    order_number: card.dataset.internalOrder,  // wysylamy internal_order_number (np. "25/123") zamiast productId
                     product_ids: [productId],
                     station: window.STATION_CONFIG.stationCode,
                     action: 'complete'
@@ -1158,11 +1158,11 @@
             `;
         }
 
-        // Deadline badge
-        const deadlineBadge = product.deadline ? `<span class="deadline-badge">${product.deadline}</span>` : '';
+        // Deadline badge - uzywamy display_deadline z AJAX zamiast nieistniejacego product.deadline
+        const deadlineBadge = product.display_deadline ? `<span class="deadline-badge">${product.display_deadline}</span>` : '';
 
-        // Klient
-        const clientLabel = product.client_name || '';
+        // Numer zamowienia klienta
+        const clientOrderHTML = product.client_order_number ? `<span class="order-client-number">${product.client_order_number}</span>` : '';
 
         // Klasa priorytetu
         const priorityClass = product.is_priority ? ' priority-order' : '';
@@ -1170,6 +1170,7 @@
         return `
             <div class="order-card${priorityClass}"
                  data-product-id="${product.id}"
+                 data-internal-order="${product.internal_order || ''}"
                  data-quantity="${quantity}"
                  data-quantity-done="${quantityDone}"
                  data-in-progress="false"
@@ -1177,6 +1178,7 @@
                 <div class="order-header">
                     <div class="order-header-row order-ids-row">
                         <span class="order-number">${product.id}</span>
+                        ${clientOrderHTML}
                         ${deadlineBadge}
                     </div>
                     <div class="order-header-row order-stats-row">

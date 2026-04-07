@@ -460,6 +460,7 @@ def get_products_for_station(station_code, limit=50, sort_by='priority'):
 
                 # Klient
                 'client_name': product.client_name,
+                'client_order_number': product.client_order_number,
 
                 # Zalaczniki
                 'attachment_file_name': product.attachment_file_name,

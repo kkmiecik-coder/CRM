@@ -435,9 +435,10 @@ def gluing_station():
         if not order_numbers:
             products = []
         else:
-            # Pobierz WSZYSTKIE produkty z tych zamowien
+            # Pobierz TYLKO produkty ze statusem czeka_na_sklejanie (nie wszystkie z zamowienia)
             query = ProductionItem.query.filter(
-                ProductionItem.internal_order_number.in_(order_numbers)
+                ProductionItem.internal_order_number.in_(order_numbers),
+                ProductionItem.current_status == 'czeka_na_sklejanie'
             )
 
             # Sortowanie
