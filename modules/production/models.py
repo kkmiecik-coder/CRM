@@ -170,11 +170,12 @@ class ProductionItem(db.Model):
         'czeka_na_sklejanie',
         'czeka_na_formatowanie',
         'czeka_na_wykanczanie',
+        'czeka_na_logistyke',
         'czeka_na_pakowanie',
         'spakowane',
         'anulowane',
         'wstrzymane',
-        'w_realizacji',  # dodatkowy status
+        'w_realizacji',
         name='production_status'
     ), default='czeka_na_wyciecie', nullable=False, index=True)
     
