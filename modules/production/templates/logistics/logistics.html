@@ -458,7 +458,7 @@
                 <!-- Header -->
                 <div class="logistics-header">
                     <a href="/production/" class="logistics-back">
-                        <i class="fas fa-arrow-left"></i> Produkcja
+                        <i class="fas fa-arrow-left"></i> Dashboard
                     </a>
                     <h1 class="logistics-title">
                         <i class="fas fa-truck"></i> Logistyka
@@ -471,7 +471,7 @@
                 <!-- Orders Container -->
                 <div id="logistics-orders" class="logistics-orders">
                     <div class="logistics-loading">
-                        <i class="fas fa-spinner fa-spin"></i> Pobieranie zamowien...
+                        <i class="fas fa-spinner fa-spin"></i> Pobieranie zamówień...
                     </div>
                 </div>
             </div>
@@ -537,7 +537,7 @@
                 container.innerHTML =
                     '<div class="logistics-empty">' +
                     '<i class="fas fa-check-circle"></i>' +
-                    '<div class="logistics-empty-text">Brak zamowien oczekujacych na decyzje transportowa</div>' +
+                    '<div class="logistics-empty-text">Brak zamówień oczekujących na decyzję transportową</div>' +
                     '</div>';
                 return;
             }
@@ -576,28 +576,28 @@
                             '<div class="logistics-label">Adres dostawy</div>' +
                             '<div class="logistics-value">' + addressStr + '</div>' +
 
-                            '<div class="logistics-label">Sposob dostawy</div>' +
+                            '<div class="logistics-label">Sposób dostawy</div>' +
                             '<div class="logistics-delivery-original">' +
-                                'Klient wybral: ' + escapeHtml(order.delivery_method || 'Nieznany') +
+                                'Klient wybrał: ' + escapeHtml(order.delivery_method || 'Nieznany') +
                             '</div>' +
 
                             '<div class="logistics-label">Produkty (' + order.total_products + ')</div>' +
                             '<ul class="logistics-products-list">' + productsHtml + '</ul>' +
-                            '<div class="logistics-volume-total">Lacznie: ' + order.total_volume.toFixed(4) + ' m&sup3;</div>' +
+                            '<div class="logistics-volume-total">Łącznie: ' + order.total_volume.toFixed(4) + ' m&sup3;</div>' +
 
                             '<div class="logistics-label">Notatka produkcyjna</div>' +
                             '<textarea class="logistics-notes-area" data-order="' + escapeHtml(order.order_number) + '">' + notesVal + '</textarea>' +
-                            '<button class="logistics-notes-save" onclick="saveNotes(\'' + escapeHtml(order.order_number) + '\', this)">Zapisz notatke</button>' +
+                            '<button class="logistics-notes-save" onclick="saveNotes(\'' + escapeHtml(order.order_number) + '\', this)">Zapisz notatkę</button>' +
                         '</div>' +
                         '<div class="logistics-card-decision">' +
-                            '<div class="logistics-select-label">Sposob transportu</div>' +
+                            '<div class="logistics-select-label">Sposób transportu</div>' +
                             '<select class="logistics-select" data-order="' + escapeHtml(order.order_number) + '" onchange="toggleApprove(this)">' +
-                                '<option value="">&mdash; Wybierz sposob transportu &mdash;</option>' +
+                                '<option value="">&mdash; Wybierz sposób transportu &mdash;</option>' +
                                 '<option value="kurier_baselinker">Kurier (z Baselinker)</option>' +
                                 '<option value="transport_woodpower">Transport WoodPower</option>' +
                             '</select>' +
                             '<button class="logistics-approve-btn" data-order="' + escapeHtml(order.order_number) + '" disabled onclick="approveOrder(\'' + escapeHtml(order.order_number) + '\', this)">' +
-                                '<i class="fas fa-check"></i> Zatwierdz i przeslij na pakowanie' +
+                                '<i class="fas fa-check"></i> Zatwierdź i prześlij na pakowanie' +
                             '</button>' +
                         '</div>' +
                     '</div>' +
@@ -613,11 +613,11 @@
                     if (data.success) {
                         renderOrders(data.orders);
                     } else {
-                        showToast('Blad pobierania zamowien: ' + (data.error || ''), true);
+                        showToast('Błąd pobierania zamówień: ' + (data.error || ''), true);
                     }
                 })
                 .catch(function(err) {
-                    showToast('Blad polaczenia z serwerem', true);
+                    showToast('Błąd połączenia z serwerem', true);
                     console.error('Logistics fetch error:', err);
                 });
         }
@@ -635,7 +635,7 @@
             if (!selectEl || !selectEl.value) return;
 
             btnEl.disabled = true;
-            btnEl.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Zatwierdzanie...';
+            btnEl.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Zatwierdzanie…';
 
             fetch(API_BASE + '/approve', {
                 method: 'POST',
@@ -649,7 +649,7 @@
             .then(function(r) { return r.json(); })
             .then(function(data) {
                 if (data.success) {
-                    showToast('Zamowienie ' + orderNumber + ' zatwierdzone — przekazano na pakowanie');
+                    showToast('Zamówienie ' + orderNumber + ' zatwierdzone — przekazano na pakowanie');
                     var card = document.querySelector('.logistics-card[data-order="' + orderNumber + '"]');
                     if (card) {
                         card.classList.add('card-removing');
@@ -663,21 +663,21 @@
                                 document.getElementById('logistics-orders').innerHTML =
                                     '<div class="logistics-empty">' +
                                     '<i class="fas fa-check-circle"></i>' +
-                                    '<div class="logistics-empty-text">Brak zamowien oczekujacych na decyzje transportowa</div>' +
+                                    '<div class="logistics-empty-text">Brak zamówień oczekujących na decyzję transportową</div>' +
                                     '</div>';
                             }
                         }, 450);
                     }
                 } else {
-                    showToast('Blad: ' + (data.error || 'Nieznany blad'), true);
+                    showToast('Błąd: ' + (data.error || 'Nieznany błąd'), true);
                     btnEl.disabled = false;
-                    btnEl.innerHTML = '<i class="fas fa-check"></i> Zatwierdz i przeslij na pakowanie';
+                    btnEl.innerHTML = '<i class="fas fa-check"></i> Zatwierdź i prześlij na pakowanie';
                 }
             })
             .catch(function(err) {
-                showToast('Blad polaczenia z serwerem', true);
+                showToast('Błąd połączenia z serwerem', true);
                 btnEl.disabled = false;
-                btnEl.innerHTML = '<i class="fas fa-check"></i> Zatwierdz i przeslij na pakowanie';
+                btnEl.innerHTML = '<i class="fas fa-check"></i> Zatwierdź i prześlij na pakowanie';
                 console.error('Logistics approve error:', err);
             });
         };
@@ -704,15 +704,15 @@
                 if (data.success) {
                     showToast('Notatka zapisana');
                 } else {
-                    showToast('Blad zapisu notatki: ' + (data.error || ''), true);
+                    showToast('Błąd zapisu notatki: ' + (data.error || ''), true);
                 }
                 btnEl.disabled = false;
-                btnEl.textContent = 'Zapisz notatke';
+                btnEl.textContent = 'Zapisz notatkę';
             })
             .catch(function(err) {
-                showToast('Blad polaczenia z serwerem', true);
+                showToast('Błąd połączenia z serwerem', true);
                 btnEl.disabled = false;
-                btnEl.textContent = 'Zapisz notatke';
+                btnEl.textContent = 'Zapisz notatkę';
                 console.error('Notes save error:', err);
             });
         };
