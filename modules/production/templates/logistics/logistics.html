@@ -616,6 +616,26 @@
         const REFRESH_INTERVAL = 60000;
         let refreshTimer = null;
 
+        // ── Map ──
+        const POLAND_BOUNDS = L.latLngBounds(
+            L.latLng(49.0, 14.1),  // SW corner
+            L.latLng(54.9, 24.2)   // NE corner
+        );
+
+        const map = L.map('logistics-map', {
+            zoomControl: true,
+            attributionControl: false
+        }).fitBounds(POLAND_BOUNDS, { padding: [20, 20] });
+
+        L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png?lang=pl', {
+            maxZoom: 19,
+            subdomains: 'abcd'
+        }).addTo(map);
+
+        const markersLayer = L.layerGroup().addTo(map);
+        // orderNumber → { marker, latLng } for interaction
+        const orderMarkers = {};
+
         // ── Helpers ──
         function showToast(message, isError) {
             const el = document.getElementById('logistics-toast');
