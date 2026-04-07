@@ -480,8 +480,14 @@ body.light-mode .product-row.product-complete {
 .product-params .badge {
     flex: 1;
     min-width: 0;
-    text-align: center;
 }
+
+/* Badge stanowiska — dopasowuje sie do zawartosci, nie rozciaga */
+.product-params .badge-station {
+    flex: 0 0 auto;
+    text-align: left;
+}
+
 
 .badge {
     padding: 6px 12px;

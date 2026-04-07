@@ -474,6 +474,12 @@ body.light-mode .product-row.product-complete {
     text-align: center;
 }
 
+/* Badge stanowiska — dopasowuje sie do zawartosci, nie rozciaga */
+.product-params .badge-station {
+    flex: 0 0 auto;
+    text-align: left;
+}
+
 .badge {
     padding: 6px 12px;
     border-radius: 8px;
