@@ -1944,11 +1944,19 @@ body.light-mode .product-row.priority-product.product-complete .qty-done {
     opacity: 0.5;
 }
 
-/* Badge stanowiska — ikona + nazwa gdzie aktualnie jest produkt */
+/* Badge'e parametrow (gatunek, technologia, klasa) — rozciagaja sie rownomiernie */
+.product-params .badge-species,
+.product-params .badge-technology,
+.product-params .badge-class {
+    flex: 1;
+}
+
+/* Badge stanowiska — ikona + nazwa, dopasowuje sie do zawartosci */
 .badge-station {
     display: inline-flex;
     align-items: center;
     gap: 4px;
+    flex: 0 0 auto;
     font-size: 11px;
     font-weight: 600;
     padding: 3px 8px;
