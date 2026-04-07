@@ -636,6 +636,91 @@
         // orderNumber → { marker, latLng } for interaction
         const orderMarkers = {};
 
+        // ── Geocoding ──
+        const geocodeCache = {};
+
+        function geocodeAddress(city, postcode, countryCode) {
+            const key = [city, postcode, countryCode].filter(Boolean).join('|');
+            if (geocodeCache[key]) return geocodeCache[key];
+
+            const params = new URLSearchParams({ format: 'json', limit: '1' });
+            if (city) params.set('city', city);
+            if (postcode) params.set('postalcode', postcode);
+            params.set('countrycodes', countryCode || 'PL');
+
+            const promise = fetch('https://nominatim.openstreetmap.org/search?' + params.toString(), {
+                headers: { 'Accept-Language': 'pl' }
+            })
+            .then(function(r) { return r.json(); })
+            .then(function(results) {
+                if (results && results.length > 0) {
+                    return { lat: parseFloat(results[0].lat), lng: parseFloat(results[0].lon) };
+                }
+                return null;
+            })
+            .catch(function() { return null; });
+
+            geocodeCache[key] = promise;
+            return promise;
+        }
+
+        function createPinIcon(pulsing) {
+            return L.divIcon({
+                className: '',
+                html: '<div class="logistics-pin' + (pulsing ? ' pin-pulsing' : '') + '" style="width:14px;height:14px;background:#2563eb;border:2.5px solid #fff;border-radius:50%;box-shadow:0 1px 4px rgba(0,0,0,0.3);"></div>',
+                iconSize: [14, 14],
+                iconAnchor: [7, 7]
+            });
+        }
+
+        let highlightTimeout = null;
+
+        function placeMarkers(orders) {
+            markersLayer.clearLayers();
+            Object.keys(orderMarkers).forEach(function(k) { delete orderMarkers[k]; });
+
+            // Sequential geocoding (1 req/s Nominatim limit)
+            let chain = Promise.resolve();
+            orders.forEach(function(order) {
+                const addr = order.delivery_address || {};
+                if (!addr.city) {
+                    // Mark card as no-address after render
+                    setTimeout(function() {
+                        var card = document.querySelector('.logistics-card[data-order="' + order.order_number + '"]');
+                        if (card) card.classList.add('card-no-address');
+                    }, 0);
+                    return;
+                }
+
+                chain = chain.then(function() {
+                    return geocodeAddress(addr.city, addr.postcode, addr.country_code);
+                }).then(function(coords) {
+                    if (!coords) {
+                        // Geocoding failed — mark card
+                        var card = document.querySelector('.logistics-card[data-order="' + order.order_number + '"]');
+                        if (card) card.classList.add('card-no-address');
+                        return;
+                    }
+
+                    var marker = L.marker([coords.lat, coords.lng], { icon: createPinIcon(false) }).addTo(markersLayer);
+                    marker.bindTooltip(
+                        escapeHtml(order.client_name || 'Brak klienta') + '<br><b>' + escapeHtml(order.order_number) + '</b>',
+                        { direction: 'top', offset: [0, -10] }
+                    );
+
+                    orderMarkers[order.order_number] = { marker: marker, latLng: coords };
+
+                    // Map → List interaction
+                    marker.on('click', function() {
+                        highlightCard(order.order_number);
+                    });
+
+                    // Throttle Nominatim: wait 1.1s between requests
+                    return new Promise(function(resolve) { setTimeout(resolve, 1100); });
+                });
+            });
+        }
+
         // ── Helpers ──
         function showToast(message, isError) {
             const el = document.getElementById('logistics-toast');
@@ -714,9 +799,11 @@
                             '<span><i class="fas fa-hashtag"></i> ' + escapeHtml(order.order_number) + '</span>' +
                             (order.baselinker_order_id ? '<span>BL ' + escapeHtml(String(order.baselinker_order_id)) + '</span>' : '') +
                         '</span>' +
+                        ((!addr.city) ? '<span class="logistics-no-address-badge"><i class="fas fa-exclamation-triangle"></i> Brak adresu dostawy</span>' : '') +
                         '<span class="logistics-card-deadline ' + dlClass + '">' +
                             '<i class="fas fa-calendar-alt"></i> ' + dlLabel +
                         '</span>' +
+                        (addr.city ? '<button class="logistics-locate-btn" onclick="locateOnMap(\'' + escapeHtml(order.order_number) + '\')" title="Pokaż na mapie"><i class="fas fa-map-marker-alt"></i> Mapa</button>' : '') +
                     '</div>' +
                     '<div class="logistics-card-body">' +
                         '<div class="logistics-card-context">' +
@@ -765,6 +852,7 @@
                 .then(function(data) {
                     if (data.success) {
                         renderOrders(data.orders);
+                        placeMarkers(data.orders);
                     } else {
                         showToast('Błąd pobierania zamówień: ' + (data.error || ''), true);
                     }
