@@ -950,6 +950,31 @@
                     updateProductButtonStates(productRow, serverQtyDone, product.quantity);
                 }
 
+                // Aktualizacja statusu — wlaczenie/wylaczenie wyszarzenia
+                const currentStatus = productRow.dataset.status;
+                const serverStatus = product.current_status;
+                if (currentStatus !== serverStatus) {
+                    productRow.dataset.status = serverStatus;
+                    const isDisabled = serverStatus !== 'czeka_na_formatowanie';
+                    productRow.dataset.disabled = isDisabled ? 'true' : 'false';
+
+                    if (isDisabled) {
+                        productRow.classList.add('product-disabled');
+                        // Dodaj badge stanowiska jesli go nie ma
+                        if (!productRow.querySelector('.badge-station')) {
+                            const paramsDiv = productRow.querySelector('.product-params');
+                            if (paramsDiv) {
+                                paramsDiv.insertAdjacentHTML('afterbegin', getStationBadgeHTML(serverStatus));
+                            }
+                        }
+                    } else {
+                        productRow.classList.remove('product-disabled');
+                        // Usun badge stanowiska
+                        const stationBadge = productRow.querySelector('.badge-station');
+                        if (stationBadge) stationBadge.remove();
+                    }
+                }
+
                 // Update priority status
                 const currentPriority = productRow.dataset.isPriority === 'true';
                 const serverPriority = product.is_priority || false;
