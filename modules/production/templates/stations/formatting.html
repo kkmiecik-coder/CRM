@@ -207,9 +207,9 @@
                 <div class="products-list">
                     {# Mapa stanowisk - mapowanie statusu na kod i nazwę stanowiska #}
                     {% set station_map = {
-                        'czeka_na_wyciecie': ('cutting', 'Wycinanie'),
-                        'czeka_na_skladanie': ('assembly', 'Składanie'),
-                        'czeka_na_sklejanie': ('gluing', 'Sklejanie'),
+                        'czeka_na_wyciecie': ('cutting', 'WYCIN'),
+                        'czeka_na_skladanie': ('assembly', 'SKŁAD'),
+                        'czeka_na_sklejanie': ('gluing', 'SKLEJ'),
                     } %}
                     {% for product in order.products %}
                     {# Sprawdzenie czy produkt nie jest gotowy na formatowanie #}

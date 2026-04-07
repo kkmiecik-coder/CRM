@@ -1039,12 +1039,12 @@
     // Mapowanie statusu na ikone stanowiska
     function getStationBadgeHTML(status) {
         const stationMap = {
-            'czeka_na_wyciecie':     { code: 'cutting',    label: 'Wycinanie' },
-            'czeka_na_skladanie':    { code: 'assembly',   label: 'Składanie' },
-            'czeka_na_sklejanie':    { code: 'gluing',     label: 'Sklejanie' },
-            'czeka_na_formatowanie': { code: 'formatting', label: 'Formatowanie' },
-            'czeka_na_wykanczanie':  { code: 'finishing',  label: 'Wykańczanie' },
-            'czeka_na_logistyke':    { code: 'logistics',  label: 'Logistyka' },
+            'czeka_na_wyciecie':     { code: 'cutting',    label: 'WYCIN' },
+            'czeka_na_skladanie':    { code: 'assembly',   label: 'SKŁAD' },
+            'czeka_na_sklejanie':    { code: 'gluing',     label: 'SKLEJ' },
+            'czeka_na_formatowanie': { code: 'formatting', label: 'FORMA' },
+            'czeka_na_wykanczanie':  { code: 'finishing',  label: 'WYKAŃ' },
+            'czeka_na_logistyke':    { code: 'logistics',  label: 'LOGIS' },
         };
 
         const station = stationMap[status];
