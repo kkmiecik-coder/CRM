@@ -1930,6 +1930,40 @@ body.light-mode .product-row.priority-product.product-complete .qty-done {
     color: #1e7e34 !important;
 }
 
+/* Wyszarzone produkty — nie dotarly jeszcze na stanowisko */
+.product-row.product-disabled {
+    opacity: 0.35;
+}
+
+.product-row.product-disabled .btn-qty {
+    pointer-events: none;
+    cursor: not-allowed;
+}
+
+.product-row.product-disabled .quantity-counter {
+    opacity: 0.5;
+}
+
+/* Badge stanowiska — ikona + nazwa gdzie aktualnie jest produkt */
+.badge-station {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 11px;
+    font-weight: 600;
+    padding: 3px 8px;
+    border-radius: 6px;
+    background: rgba(108, 117, 125, 0.15);
+    color: var(--text-secondary);
+    white-space: nowrap;
+}
+
+.badge-station svg {
+    width: 14px;
+    height: 14px;
+    flex-shrink: 0;
+}
+
 /* --- ZAMÓWIENIE PRIORYTETOWE (pomarańczowe) - gdy wszystkie produkty są priorytetowe --- */
 /* Dark mode */
 .order-card.priority-order {
