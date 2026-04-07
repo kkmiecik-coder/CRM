@@ -214,27 +214,11 @@
             </div>
           </div>
           <div class="il-station-body">
-            <div class="il-station-stats">
-              <div class="il-station-stat">
+            <div class="il-station-stats" style="display: flex;">
+              <div class="il-station-stat" style="flex: 1;">
                 <div class="il-station-stat-value" id="logistics-pending">{{ dashboard_stats.logistics.pending_count|default(0) }}</div>
-                <div class="il-station-stat-label">Oczekuje</div>
+                <div class="il-station-stat-label">Oczekuje na decyzję</div>
               </div>
-              <div class="il-station-stat">
-                <div class="il-station-stat-value">—</div>
-                <div class="il-station-stat-label">Ukończ.</div>
-              </div>
-              <div class="il-station-stat">
-                <div class="il-station-stat-value">—</div>
-                <div class="il-station-stat-label">m³ dziś</div>
-              </div>
-              <div class="il-station-stat">
-                <div class="il-station-stat-value">—</div>
-                <div class="il-station-stat-label">m³ ocz.</div>
-              </div>
-            </div>
-            <div class="il-station-progress">
-              <div class="il-station-bar"><div class="il-station-bar-fill" id="logistics-bar-fill" style="width: 0%;"></div></div>
-              <span class="il-station-bar-pct" id="logistics-bar-pct">0%</span>
             </div>
           </div>
         </div>
