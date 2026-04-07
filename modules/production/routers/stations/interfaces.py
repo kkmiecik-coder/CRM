@@ -124,87 +124,66 @@ def cutting_station():
 
                 products.append(product_data)
 
-        # Grupowanie produktow po zamowieniach
-        orders_grouped = {}
-        for product in products:
-            order_number = product['internal_order']
-            if order_number not in orders_grouped:
-                orders_grouped[order_number] = {
-                    'order_number': order_number,
-                    'baselinker_order_id': product.get('baselinker_order_id'),
-                    'client_order_number': product.get('client_order_number'),
-                    'products': [],
-                    'total_products': 0,
-                    'total_quantity': 0,
-                    'total_quantity_done': 0,
-                    'total_volume': 0,
-                    'best_priority_rank': 999,
-                    'worst_deadline': None
-                }
-
-            order = orders_grouped[order_number]
-            order['products'].append(product)
-            order['total_products'] += 1
-            order['total_quantity'] += product.get('quantity', 1) or 1
-            order['total_quantity_done'] += product.get('quantity_done', 0) or 0
-            order['total_volume'] += product['volume_m3'] or 0
-
-            # Najlepszy priorytet z zamowienia
-            if product['priority_rank'] < order['best_priority_rank']:
-                order['best_priority_rank'] = product['priority_rank']
-
-            # Najgorszy deadline (najpozniejszy)
-            if product['deadline_date']:
-                if order['worst_deadline'] is None or product['deadline_date'] > order['worst_deadline']:
-                    order['worst_deadline'] = product['deadline_date']
-
-        # Sortuj produkty wewnatrz zamowienia po product_sequence_in_order
-        for order in orders_grouped.values():
-            order['products'].sort(key=lambda p: p['product_sequence_in_order'])
-
-        # Dodaj display_deadline do kazdego zamowienia
+        # =========================================
+        # KROK 4: Flat product list (no order grouping)
+        # =========================================
         today = date.today()
-        for order in orders_grouped.values():
-            if order['worst_deadline']:
-                days_diff = (order['worst_deadline'] - today).days
+        products_flat = []
+
+        for product in products:
+            # Display deadline per product
+            if product['deadline_date']:
+                days_diff = (product['deadline_date'] - today).days
                 if days_diff < 0:
-                    order['display_deadline'] = f"Opoznione o {abs(days_diff)} dni"
+                    product['display_deadline'] = f"Opóźnione o {abs(days_diff)} dni"
                 elif days_diff == 0:
-                    order['display_deadline'] = "Dzis!"
+                    product['display_deadline'] = "Dziś!"
                 elif days_diff == 1:
-                    order['display_deadline'] = "Jutro"
+                    product['display_deadline'] = "Jutro"
                 else:
-                    order['display_deadline'] = f"Za {days_diff} dni"
+                    product['display_deadline'] = f"Za {days_diff} dni"
             else:
-                order['display_deadline'] = "Brak terminu"
+                product['display_deadline'] = "Brak terminu"
 
-        # Sortowanie zamowien
+            # Priority class per product
+            rank = product['priority_rank']
+            if rank <= 10:
+                product['priority_class'] = 'priority-critical'
+                product['priority_label'] = 'KRYTYCZNY'
+            elif rank <= 50:
+                product['priority_class'] = 'priority-high'
+                product['priority_label'] = 'WYSOKI'
+            elif rank <= 100:
+                product['priority_class'] = 'priority-normal'
+                product['priority_label'] = 'NORMALNY'
+            else:
+                product['priority_class'] = 'priority-low'
+                product['priority_label'] = 'NISKI'
+
+            products_flat.append(product)
+
+        # Sort flat products
         if sort_by == 'priority':
-            orders_list = sorted(orders_grouped.values(), key=lambda x: x['best_priority_rank'])
+            products_flat.sort(key=lambda x: x['priority_rank'])
         elif sort_by == 'deadline':
-            orders_list = sorted(orders_grouped.values(), key=lambda x: x['worst_deadline'] or date(9999, 12, 31))
-        else:
-            orders_list = list(orders_grouped.values())
+            products_flat.sort(key=lambda x: x['deadline_date'] or date(9999, 12, 31))
 
-        # Konfiguracja interfejsu
+        # =========================================
+        # KROK 5: Station statistics
+        # =========================================
         config = get_station_config()
 
-        # Statystyki stanowiska - liczba sztuk (total_quantity), nie pozycji
-        total_products = sum(order['total_quantity'] for order in orders_list)
-        high_priority_count = sum(1 for order in orders_list if order['best_priority_rank'] <= 50)
-
         station_stats = {
-            'total_products': total_products,
-            'total_orders': len(orders_list),
-            'high_priority_count': high_priority_count
+            'total_products': sum((p.get('quantity', 1) or 1) for p in products_flat),
+            'total_tiles': len(products_flat),
+            'high_priority_count': sum(1 for p in products_flat if p['priority_rank'] <= 50)
         }
 
         now = datetime.utcnow()
 
         return render_template(
             'stations/cutting.html',
-            orders_grouped=orders_list,
-            products=products,  # Dla kompatybilnosci wstecznej
+            products_flat=products_flat,
             station_code='cutting',
             station_name='Wycinanie',
             station_stats=station_stats,
@@ -336,87 +315,66 @@ def assembly_station():
 
                 products.append(product_data)
 
-        # Grupowanie produktow po zamowieniach
-        orders_grouped = {}
-        for product in products:
-            order_number = product['internal_order']
-            if order_number not in orders_grouped:
-                orders_grouped[order_number] = {
-                    'order_number': order_number,
-                    'baselinker_order_id': product.get('baselinker_order_id'),
-                    'client_order_number': product.get('client_order_number'),
-                    'products': [],
-                    'total_products': 0,
-                    'total_quantity': 0,
-                    'total_quantity_done': 0,
-                    'total_volume': 0,
-                    'best_priority_rank': 999,
-                    'worst_deadline': None
-                }
-
-            order = orders_grouped[order_number]
-            order['products'].append(product)
-            order['total_products'] += 1
-            order['total_quantity'] += product.get('quantity', 1) or 1
-            order['total_quantity_done'] += product.get('quantity_done', 0) or 0
-            order['total_volume'] += product['volume_m3'] or 0
-
-            # Najlepszy priorytet z zamowienia
-            if product['priority_rank'] < order['best_priority_rank']:
-                order['best_priority_rank'] = product['priority_rank']
-
-            # Najgorszy deadline (najpozniejszy)
-            if product['deadline_date']:
-                if order['worst_deadline'] is None or product['deadline_date'] > order['worst_deadline']:
-                    order['worst_deadline'] = product['deadline_date']
-
-        # Sortuj produkty wewnatrz zamowienia po product_sequence_in_order
-        for order in orders_grouped.values():
-            order['products'].sort(key=lambda p: p['product_sequence_in_order'])
-
-        # Dodaj display_deadline do kazdego zamowienia
+        # =========================================
+        # KROK 4: Flat product list (no order grouping)
+        # =========================================
         today = date.today()
-        for order in orders_grouped.values():
-            if order['worst_deadline']:
-                days_diff = (order['worst_deadline'] - today).days
+        products_flat = []
+
+        for product in products:
+            # Display deadline per product
+            if product['deadline_date']:
+                days_diff = (product['deadline_date'] - today).days
                 if days_diff < 0:
-                    order['display_deadline'] = f"Opoznione o {abs(days_diff)} dni"
+                    product['display_deadline'] = f"Opóźnione o {abs(days_diff)} dni"
                 elif days_diff == 0:
-                    order['display_deadline'] = "Dzis!"
+                    product['display_deadline'] = "Dziś!"
                 elif days_diff == 1:
-                    order['display_deadline'] = "Jutro"
+                    product['display_deadline'] = "Jutro"
                 else:
-                    order['display_deadline'] = f"Za {days_diff} dni"
+                    product['display_deadline'] = f"Za {days_diff} dni"
             else:
-                order['display_deadline'] = "Brak terminu"
+                product['display_deadline'] = "Brak terminu"
 
-        # Sortowanie zamowien
+            # Priority class per product
+            rank = product['priority_rank']
+            if rank <= 10:
+                product['priority_class'] = 'priority-critical'
+                product['priority_label'] = 'KRYTYCZNY'
+            elif rank <= 50:
+                product['priority_class'] = 'priority-high'
+                product['priority_label'] = 'WYSOKI'
+            elif rank <= 100:
+                product['priority_class'] = 'priority-normal'
+                product['priority_label'] = 'NORMALNY'
+            else:
+                product['priority_class'] = 'priority-low'
+                product['priority_label'] = 'NISKI'
+
+            products_flat.append(product)
+
+        # Sort flat products
         if sort_by == 'priority':
-            orders_list = sorted(orders_grouped.values(), key=lambda x: x['best_priority_rank'])
+            products_flat.sort(key=lambda x: x['priority_rank'])
         elif sort_by == 'deadline':
-            orders_list = sorted(orders_grouped.values(), key=lambda x: x['worst_deadline'] or date(9999, 12, 31))
-        else:
-            orders_list = list(orders_grouped.values())
+            products_flat.sort(key=lambda x: x['deadline_date'] or date(9999, 12, 31))
 
-        # Konfiguracja interfejsu
+        # =========================================
+        # KROK 5: Station statistics
+        # =========================================
         config = get_station_config()
 
-        # Statystyki stanowiska - liczba sztuk (total_quantity), nie pozycji
-        total_products = sum(order['total_quantity'] for order in orders_list)
-        high_priority_count = sum(1 for order in orders_list if order['best_priority_rank'] <= 50)
-
         station_stats = {
-            'total_products': total_products,
-            'total_orders': len(orders_list),
-            'high_priority_count': high_priority_count
+            'total_products': sum((p.get('quantity', 1) or 1) for p in products_flat),
+            'total_tiles': len(products_flat),
+            'high_priority_count': sum(1 for p in products_flat if p['priority_rank'] <= 50)
         }
 
         now = datetime.utcnow()
 
         return render_template(
             'stations/assembly.html',
-            orders_grouped=orders_list,
-            products=products,  # Dla kompatybilnosci wstecznej
+            products_flat=products_flat,
             station_code='assembly',
             station_name='Skladanie',
             station_stats=station_stats,
@@ -537,80 +495,66 @@ def gluing_station():
 
                 products.append(product_data)
 
-        # Grupowanie produktow po zamowieniach
-        orders_grouped = {}
-        for product in products:
-            order_number = product['internal_order']
-            if order_number not in orders_grouped:
-                orders_grouped[order_number] = {
-                    'order_number': order_number,
-                    'baselinker_order_id': product.get('baselinker_order_id'),
-                    'client_order_number': product.get('client_order_number'),
-                    'products': [],
-                    'total_products': 0,
-                    'total_quantity': 0,
-                    'total_quantity_done': 0,
-                    'total_volume': 0,
-                    'best_priority_rank': 999,
-                    'worst_deadline': None
-                }
-
-            order = orders_grouped[order_number]
-            order['products'].append(product)
-            order['total_products'] += 1
-            order['total_quantity'] += product.get('quantity', 1) or 1
-            order['total_quantity_done'] += product.get('quantity_done', 0) or 0
-            order['total_volume'] += product['volume_m3'] or 0
-
-            if product['priority_rank'] < order['best_priority_rank']:
-                order['best_priority_rank'] = product['priority_rank']
-
-            if product['deadline_date']:
-                if order['worst_deadline'] is None or product['deadline_date'] > order['worst_deadline']:
-                    order['worst_deadline'] = product['deadline_date']
-
-        for order in orders_grouped.values():
-            order['products'].sort(key=lambda p: p['product_sequence_in_order'])
-
+        # =========================================
+        # KROK 4: Flat product list (no order grouping)
+        # =========================================
         today = date.today()
-        for order in orders_grouped.values():
-            if order['worst_deadline']:
-                days_diff = (order['worst_deadline'] - today).days
+        products_flat = []
+
+        for product in products:
+            # Display deadline per product
+            if product['deadline_date']:
+                days_diff = (product['deadline_date'] - today).days
                 if days_diff < 0:
-                    order['display_deadline'] = f"Opoznione o {abs(days_diff)} dni"
+                    product['display_deadline'] = f"Opóźnione o {abs(days_diff)} dni"
                 elif days_diff == 0:
-                    order['display_deadline'] = "Dzis!"
+                    product['display_deadline'] = "Dziś!"
                 elif days_diff == 1:
-                    order['display_deadline'] = "Jutro"
+                    product['display_deadline'] = "Jutro"
                 else:
-                    order['display_deadline'] = f"Za {days_diff} dni"
+                    product['display_deadline'] = f"Za {days_diff} dni"
             else:
-                order['display_deadline'] = "Brak terminu"
+                product['display_deadline'] = "Brak terminu"
 
+            # Priority class per product
+            rank = product['priority_rank']
+            if rank <= 10:
+                product['priority_class'] = 'priority-critical'
+                product['priority_label'] = 'KRYTYCZNY'
+            elif rank <= 50:
+                product['priority_class'] = 'priority-high'
+                product['priority_label'] = 'WYSOKI'
+            elif rank <= 100:
+                product['priority_class'] = 'priority-normal'
+                product['priority_label'] = 'NORMALNY'
+            else:
+                product['priority_class'] = 'priority-low'
+                product['priority_label'] = 'NISKI'
+
+            products_flat.append(product)
+
+        # Sort flat products
         if sort_by == 'priority':
-            orders_list = sorted(orders_grouped.values(), key=lambda x: x['best_priority_rank'])
+            products_flat.sort(key=lambda x: x['priority_rank'])
         elif sort_by == 'deadline':
-            orders_list = sorted(orders_grouped.values(), key=lambda x: x['worst_deadline'] or date(9999, 12, 31))
-        else:
-            orders_list = list(orders_grouped.values())
+            products_flat.sort(key=lambda x: x['deadline_date'] or date(9999, 12, 31))
 
+        # =========================================
+        # KROK 5: Station statistics
+        # =========================================
         config = get_station_config()
 
-        total_products = sum(order['total_quantity'] for order in orders_list)
-        high_priority_count = sum(1 for order in orders_list if order['best_priority_rank'] <= 50)
-
         station_stats = {
-            'total_products': total_products,
-            'total_orders': len(orders_list),
-            'high_priority_count': high_priority_count
+            'total_products': sum((p.get('quantity', 1) or 1) for p in products_flat),
+            'total_tiles': len(products_flat),
+            'high_priority_count': sum(1 for p in products_flat if p['priority_rank'] <= 50)
         }
 
         now = datetime.utcnow()
 
         return render_template(
             'stations/gluing.html',
-            orders_grouped=orders_list,
-            products=products,
+            products_flat=products_flat,
             station_code='gluing',
             station_name='Sklejanie',
             station_stats=station_stats,
