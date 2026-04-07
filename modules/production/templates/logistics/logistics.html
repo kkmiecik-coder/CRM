@@ -649,7 +649,7 @@
             params.set('countrycodes', countryCode || 'PL');
 
             const promise = fetch('https://nominatim.openstreetmap.org/search?' + params.toString(), {
-                headers: { 'Accept-Language': 'pl' }
+                headers: { 'Accept-Language': 'pl', 'User-Agent': 'WoodPowerCRM/1.0 (crm.woodpower.pl)' }
             })
             .then(function(r) { return r.json(); })
             .then(function(results) {
@@ -686,7 +686,7 @@
                 if (!addr.city) {
                     // Mark card as no-address after render
                     setTimeout(function() {
-                        var card = document.querySelector('.logistics-card[data-order="' + order.order_number + '"]');
+                        var card = document.querySelector('.logistics-card[data-order="' + CSS.escape(order.order_number) + '"]');
                         if (card) card.classList.add('card-no-address');
                     }, 0);
                     return;
@@ -697,7 +697,7 @@
                 }).then(function(coords) {
                     if (!coords) {
                         // Geocoding failed — mark card
-                        var card = document.querySelector('.logistics-card[data-order="' + order.order_number + '"]');
+                        var card = document.querySelector('.logistics-card[data-order="' + CSS.escape(order.order_number) + '"]');
                         if (card) card.classList.add('card-no-address');
                         return;
                     }
@@ -719,6 +719,10 @@
                     return new Promise(function(resolve) { setTimeout(resolve, 1100); });
                 });
             });
+
+            chain.catch(function(err) {
+                console.warn('Geocoding chain error:', err);
+            });
         }
 
         // ── Map → List: highlight card ──
@@ -729,7 +733,7 @@
             });
             if (highlightTimeout) clearTimeout(highlightTimeout);
 
-            var card = document.querySelector('.logistics-card[data-order="' + orderNumber + '"]');
+            var card = document.querySelector('.logistics-card[data-order="' + CSS.escape(orderNumber) + '"]');
             if (!card) return;
 
             card.scrollIntoView({ behavior: 'smooth', block: 'center' });
