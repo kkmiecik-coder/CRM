@@ -18,15 +18,15 @@ from . import station_bp, logger, get_station_config, _format_dimension
 @station_bp.route('/cutting')
 def cutting_station():
     """
-    Interfejs stanowiska wycinania - ORDER-BASED VERSION
+    Interfejs stanowiska wycinania - FLAT PRODUCT LIST VERSION
 
-    Pokazuje CALE zamowienia (grouped by internal_order_number)
+    Zwraca splaszczona liste produktow (bez grupowania po zamowieniu).
 
     Query params:
         sort: priority|deadline|created_at (default: priority)
 
     Returns:
-        HTML: Interfejs stanowiska wycinania z pogrupowanymi zamowieniami
+        HTML: Interfejs stanowiska wycinania z lista produktow
     """
     try:
         from ...models import ProductionItem
@@ -78,7 +78,6 @@ def cutting_station():
 
             # Przygotuj dane produktow
             products = []
-            today = date.today()
 
             for product in products_db:
                 priority_rank = product.priority_rank if product.priority_rank else 999
@@ -126,9 +125,10 @@ def cutting_station():
 
         # =========================================
         # KROK 4: Flat product list (no order grouping)
+        # Enriches each product dict in-place with display fields,
+        # then assigns products_flat = products (same list, no copy needed).
         # =========================================
         today = date.today()
-        products_flat = []
 
         for product in products:
             # Display deadline per product
@@ -160,7 +160,7 @@ def cutting_station():
                 product['priority_class'] = 'priority-low'
                 product['priority_label'] = 'NISKI'
 
-            products_flat.append(product)
+        products_flat = products
 
         # Sort flat products
         if sort_by == 'priority':
@@ -215,15 +215,15 @@ def cutting_station():
 @station_bp.route('/assembly')
 def assembly_station():
     """
-    Interfejs stanowiska skladania - ORDER-BASED VERSION
+    Interfejs stanowiska skladania - FLAT PRODUCT LIST VERSION
 
-    Pokazuje CALE zamowienia (grouped by internal_order_number)
+    Zwraca splaszczona liste produktow (bez grupowania po zamowieniu).
 
     Query params:
         sort: priority|deadline|created_at (default: priority)
 
     Returns:
-        HTML: Interfejs stanowiska skladania z pogrupowanymi zamowieniami
+        HTML: Interfejs stanowiska skladania z lista produktow
     """
     try:
         from ...models import ProductionItem
@@ -269,7 +269,6 @@ def assembly_station():
 
             # Przygotuj dane produktow
             products = []
-            today = date.today()
 
             for product in products_db:
                 priority_rank = product.priority_rank if product.priority_rank else 999
@@ -317,9 +316,10 @@ def assembly_station():
 
         # =========================================
         # KROK 4: Flat product list (no order grouping)
+        # Enriches each product dict in-place with display fields,
+        # then assigns products_flat = products (same list, no copy needed).
         # =========================================
         today = date.today()
-        products_flat = []
 
         for product in products:
             # Display deadline per product
@@ -351,7 +351,7 @@ def assembly_station():
                 product['priority_class'] = 'priority-low'
                 product['priority_label'] = 'NISKI'
 
-            products_flat.append(product)
+        products_flat = products
 
         # Sort flat products
         if sort_by == 'priority':
@@ -407,14 +407,15 @@ def assembly_station():
 @station_bp.route('/gluing')
 def gluing_station():
     """
-    Interfejs stanowiska sklejania - ORDER-BASED VERSION
-    Pokazuje CALE zamowienia (grouped by internal_order_number)
+    Interfejs stanowiska sklejania - FLAT PRODUCT LIST VERSION
+
+    Zwraca splaszczona liste produktow (bez grupowania po zamowieniu).
 
     Query params:
         sort: priority|deadline|created_at (default: priority)
 
     Returns:
-        HTML: Interfejs stanowiska sklejania z pogrupowanymi zamowieniami
+        HTML: Interfejs stanowiska sklejania z lista produktow
     """
     try:
         from ...models import ProductionItem
@@ -451,7 +452,6 @@ def gluing_station():
 
             # Przygotuj dane produktow
             products = []
-            today = date.today()
 
             for product in products_db:
                 priority_rank = product.priority_rank if product.priority_rank else 999
@@ -497,9 +497,10 @@ def gluing_station():
 
         # =========================================
         # KROK 4: Flat product list (no order grouping)
+        # Enriches each product dict in-place with display fields,
+        # then assigns products_flat = products (same list, no copy needed).
         # =========================================
         today = date.today()
-        products_flat = []
 
         for product in products:
             # Display deadline per product
@@ -531,7 +532,7 @@ def gluing_station():
                 product['priority_class'] = 'priority-low'
                 product['priority_label'] = 'NISKI'
 
-            products_flat.append(product)
+        products_flat = products
 
         # Sort flat products
         if sort_by == 'priority':
