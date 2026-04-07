@@ -92,6 +92,91 @@
             gap: 16px;
         }
 
+        /* Two-column layout */
+        .logistics-layout {
+            display: grid;
+            grid-template-columns: 2fr 3fr;
+            gap: 20px;
+            align-items: start;
+        }
+
+        .logistics-map-column {
+            position: sticky;
+            top: 20px;
+        }
+
+        .logistics-map {
+            width: 100%;
+            height: calc(100vh - 120px);
+            border: 1px solid var(--il-border, #c8cdd5);
+            border-radius: var(--il-radius, 3px);
+            overflow: hidden;
+            background: var(--il-bg-base, #eef0f4);
+        }
+
+        .logistics-orders-column {
+            min-width: 0;
+        }
+
+        /* Card highlight when selected from map */
+        .logistics-card.card-highlighted {
+            border-color: var(--il-status-info, #2563eb);
+            background: rgba(37, 99, 235, 0.05);
+            box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15);
+            transition: border-color 0.3s, background 0.3s, box-shadow 0.3s;
+        }
+
+        /* Card missing address */
+        .logistics-card.card-no-address {
+            border-left: 3px solid var(--il-status-danger, #dc2626);
+        }
+
+        .logistics-no-address-badge {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 10px;
+            font-weight: 600;
+            color: var(--il-status-danger, #dc2626);
+            background: rgba(220, 38, 38, 0.08);
+            border: 1px solid rgba(220, 38, 38, 0.2);
+            border-radius: var(--il-radius, 3px);
+            padding: 2px 6px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        /* Locate on map button */
+        .logistics-locate-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 10px;
+            font-weight: 500;
+            color: var(--il-status-info, #2563eb);
+            background: none;
+            border: 1px solid var(--il-status-info, #2563eb);
+            border-radius: var(--il-radius, 3px);
+            padding: 3px 8px;
+            cursor: pointer;
+            transition: background 0.15s, color 0.15s;
+        }
+
+        .logistics-locate-btn:hover {
+            background: var(--il-status-info, #2563eb);
+            color: #fff;
+        }
+
+        /* Pin pulse animation */
+        @keyframes pin-pulse {
+            0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(37, 99, 235, 0.5); }
+            50% { transform: scale(1.4); box-shadow: 0 0 0 8px rgba(37, 99, 235, 0); }
+            100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(37, 99, 235, 0); }
+        }
+
+        .pin-pulsing {
+            animation: pin-pulse 0.6s ease-out 2;
+        }
+
         /* Order Card */
         .logistics-card {
             background: var(--il-bg-card, #ffffff);
@@ -438,6 +523,18 @@
 
         /* ── Responsive ── */
         @media (max-width: 768px) {
+            .logistics-layout {
+                grid-template-columns: 1fr;
+            }
+
+            .logistics-map-column {
+                position: static;
+            }
+
+            .logistics-map {
+                height: 300px;
+            }
+
             .logistics-page {
                 padding: 16px;
             }
