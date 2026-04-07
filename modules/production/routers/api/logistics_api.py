@@ -32,7 +32,7 @@ def logistics_orders():
         items = (
             ProductionItem.query
             .filter(ProductionItem.current_status == 'czeka_na_logistyke')
-            .order_by(ProductionItem.deadline_date.asc().nullslast())
+            .order_by(db.case((ProductionItem.deadline_date.is_(None), 1), else_=0), ProductionItem.deadline_date.asc())
             .all()
         )
 
