@@ -1104,6 +1104,7 @@
                 ${product.wood_species ? `<span class="badge badge-species">${product.wood_species}</span>` : ''}
                 ${product.technology ? `<span class="badge badge-technology">${product.technology}</span>` : ''}
                 ${product.wood_class ? `<span class="badge badge-class">${product.wood_class}</span>` : ''}
+                ${product.finish_state ? `<span class="badge badge-finish">${product.finish_state}</span>` : ''}
             `;
 
             // Dimensions row - badge format matching HTML template

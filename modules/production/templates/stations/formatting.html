@@ -242,6 +242,7 @@
                                 {% if product.wood_species %}<span class="badge badge-species">{{ product.wood_species }}</span>{% endif %}
                                 {% if product.technology %}<span class="badge badge-technology">{{ product.technology }}</span>{% endif %}
                                 {% if product.wood_class %}<span class="badge badge-class">{{ product.wood_class }}</span>{% endif %}
+                                {% if product.finish_state %}<span class="badge badge-finish">{{ product.finish_state }}</span>{% endif %}
                             </div>
                             <div class="product-dimensions-row">
                                 {% if product.dimensions %}<span class="badge badge-dimensions">{{ product.dimensions | replace('x', ' x ') | replace('×', ' × ') }}</span>
