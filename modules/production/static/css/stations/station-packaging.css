@@ -44,7 +44,6 @@
     border: 2px solid var(--border-color);
     border-radius: 12px;
     overflow: visible; /* ZMIENIONE: było hidden - obcinało tooltips */
-    transition: var(--transition-base);
     box-shadow: var(--shadow-sm);
     display: flex;
     flex-direction: column;
@@ -58,27 +57,11 @@
         opacity: 0.7;
     }
 
-    .order-card.removing {
-        animation: fadeOut 0.3s ease-out forwards;
-    }
-
-@keyframes fadeOut {
-    from {
-        opacity: 1;
-        transform: scale(1);
-    }
-
-    to {
-        opacity: 0;
-        transform: scale(0.95);
-    }
-}
-
 /* ============================================================================
    ORDER HEADER - 2 ROWS LAYOUT
    ============================================================================ */
 .order-header {
-    background: var(--bg-header);
+    background: var(--bg-card-header);
     border-bottom: 1px solid var(--border-color);
     display: flex;
     flex-direction: column;
@@ -126,10 +109,6 @@
     font-weight: 600;
     color: #ffffff;
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-}
-
-body.light-mode .order-client-number {
-    color: #212529;
 }
 
 .order-stats {
@@ -181,7 +160,6 @@ body.light-mode .order-client-number {
     gap: 16px;
     padding: 14px 20px;
     border-bottom: 1px solid var(--border-color-light);
-    transition: background var(--transition-fast);
     position: relative;
     overflow: visible;
 }
@@ -198,10 +176,6 @@ body.light-mode .order-client-number {
         background: rgba(220, 53, 69, 0.1);
         opacity: 0.6;
     }
-
-body.light-mode .product-row.product-not-ready {
-    background: rgba(220, 53, 69, 0.05);
-}
 
 /* LEFT COLUMN: Product Info (badges stack vertically) */
 .product-left-col {
@@ -298,7 +272,6 @@ body.light-mode .product-row.product-not-ready {
     font-size: 24px;
     font-weight: bold;
     cursor: pointer;
-    transition: all var(--transition-fast);
     user-select: none;
     -webkit-tap-highlight-color: transparent;
 }
@@ -306,11 +279,6 @@ body.light-mode .product-row.product-not-ready {
 .btn-qty:hover:not(:disabled) {
     border-color: var(--accent-orange);
     background: var(--bg-tertiary);
-    transform: scale(1.05);
-}
-
-.btn-qty:active:not(:disabled) {
-    transform: scale(0.95);
 }
 
 .btn-qty:disabled {
@@ -370,22 +338,6 @@ body.light-mode .product-row.product-not-ready {
 }
 
 /* Light mode adjustments */
-body.light-mode .btn-qty {
-    background: var(--bg-card);
-}
-
-body.light-mode .btn-qty:hover:not(:disabled) {
-    background: var(--bg-tertiary);
-}
-
-body.light-mode .btn-minus {
-    border-color: rgba(220, 53, 69, 0.5);
-}
-
-body.light-mode .btn-plus {
-    border-color: rgba(40, 167, 69, 0.5);
-}
-
 /* Produkt ukończony - podświetlenie */
 .product-row.product-complete {
     background: rgba(40, 167, 69, 0.08);
@@ -396,27 +348,7 @@ body.light-mode .btn-plus {
     color: #28a745;
 }
 
-body.light-mode .product-row.product-complete {
-    background: rgba(40, 167, 69, 0.1);
-}
-
 /* Animacja aktualizacji licznika */
-@keyframes quantity-pulse {
-    0% {
-        transform: scale(1);
-    }
-    50% {
-        transform: scale(1.15);
-    }
-    100% {
-        transform: scale(1);
-    }
-}
-
-.qty-done.updating {
-    animation: quantity-pulse 0.2s ease-out;
-}
-
 /* Disabled podczas offline */
 .btn-qty.offline-disabled {
     opacity: 0.3;
@@ -488,7 +420,6 @@ body.light-mode .product-row.product-complete {
     text-align: left;
 }
 
-
 .badge {
     padding: 6px 12px;
     border-radius: 8px;
@@ -528,23 +459,11 @@ body.light-mode .product-row.product-complete {
     text-overflow: ellipsis;
 }
 
-body.light-mode .product-dimensions-row .badge-dimensions {
-    background: #e9ecef;
-    border-color: #ced4da;
-    color: #495057;
-}
-
 /* Gatunek drewna - BUK (domyślny brązowy) */
 .badge-species {
     background: #4a3000;
     border-color: #806000;
     color: #ffd966;
-}
-
-body.light-mode .badge-species {
-    background: #fff3cd;
-    border-color: #ffc107;
-    color: #856404;
 }
 
 /* DĄB - ciemny brązowy */
@@ -557,14 +476,6 @@ body.light-mode .badge-species {
     color: #ffcc80;
 }
 
-body.light-mode [data-species*="dąb"] .badge-species,
-body.light-mode [data-species*="DĄB"] .badge-species,
-body.light-mode [data-species*="dab"] .badge-species {
-    background: #ffe5b4;
-    border-color: #d4a574;
-    color: #6b4423;
-}
-
 /* JESION - żółty */
 [data-species*="jesion"] .badge-species,
 [data-species*="JESION"] .badge-species {
@@ -573,24 +484,11 @@ body.light-mode [data-species*="dab"] .badge-species {
     color: #ffff66;
 }
 
-body.light-mode [data-species*="jesion"] .badge-species,
-body.light-mode [data-species*="JESION"] .badge-species {
-    background: #fffacd;
-    border-color: #e6db00;
-    color: #7a7700;
-}
-
 /* Technologia - LITY (domyślny zielony) */
 .badge-technology {
     background: #1a3a1f;
     border-color: #2d5f31;
     color: #66bb6a;
-}
-
-body.light-mode .badge-technology {
-    background: #d4edda;
-    border-color: #28a745;
-    color: #155724;
 }
 
 /* MIKROWCZEP - niebieski */
@@ -601,13 +499,6 @@ body.light-mode .badge-technology {
     color: #64b5f6;
 }
 
-body.light-mode [data-technology*="mikrowczep"] .badge-technology,
-body.light-mode [data-technology*="MIKROWCZEP"] .badge-technology {
-    background: #cce5ff;
-    border-color: #0066cc;
-    color: #004085;
-}
-
 /* KLEJONY - pomarańczowy */
 [data-technology*="klejony"] .badge-technology,
 [data-technology*="KLEJONY"] .badge-technology {
@@ -616,24 +507,11 @@ body.light-mode [data-technology*="MIKROWCZEP"] .badge-technology {
     color: #ffab40;
 }
 
-body.light-mode [data-technology*="klejony"] .badge-technology,
-body.light-mode [data-technology*="KLEJONY"] .badge-technology {
-    background: #ffe0b2;
-    border-color: #ff9800;
-    color: #e65100;
-}
-
 /* Klasa drewna - A/B (domyślny żółty) */
 .badge-class {
     background: #4a4a00;
     border-color: #7d7d00;
     color: #fff176;
-}
-
-body.light-mode .badge-class {
-    background: #fff59d;
-    border-color: #fdd835;
-    color: #6b6b00;
 }
 
 /* A/A - ciemnozielony */
@@ -644,26 +522,12 @@ body.light-mode .badge-class {
     color: #81c784;
 }
 
-body.light-mode [data-wood-class*="A/A"] .badge-class,
-body.light-mode [data-wood-class*="AA"] .badge-class {
-    background: #c8e6c9;
-    border-color: #4caf50;
-    color: #1b5e20;
-}
-
 /* B/B - czerwony */
 [data-wood-class*="B/B"] .badge-class,
 [data-wood-class*="BB"] .badge-class {
     background: #4a1f1f;
     border-color: #7d3535;
     color: #ff8a65;
-}
-
-body.light-mode [data-wood-class*="B/B"] .badge-class,
-body.light-mode [data-wood-class*="BB"] .badge-class {
-    background: #ffccbc;
-    border-color: #ff5722;
-    color: #bf360c;
 }
 
 /* Wykończenie - fioletowy */
@@ -673,24 +537,12 @@ body.light-mode [data-wood-class*="BB"] .badge-class {
     color: #ce93d8;
 }
 
-body.light-mode .badge-finish {
-    background: #f3e5f5;
-    border-color: #9c27b0;
-    color: #6a1b9a;
-}
-
 /* Wymiary - szary/neutralny */
 .badge-dimensions {
     background: var(--bg-tertiary);
     border-color: var(--border-color);
     color: var(--text-primary);
     font-family: 'Courier New', monospace;
-}
-
-body.light-mode .badge-dimensions {
-    background: #e9ecef;
-    border-color: #ced4da;
-    color: #495057;
 }
 
 /* ============================================================================
@@ -703,53 +555,18 @@ body.light-mode .badge-dimensions {
 }
 
 .btn-complete {
-    width: 100%;
-    padding: 14px 24px;
-    font-size: 16px;
-    font-weight: bold;
-    border-radius: 8px;
-    border: none;
-    cursor: pointer;
-    transition: all var(--transition-fast);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 2px;
     text-transform: uppercase;
-    letter-spacing: 1px;
-    background: var(--accent-orange);
-    color: white;
+    color: var(--text-muted);
+    background: var(--bg-inset);
+    border: none;
+    padding: 9px 12px;
+    cursor: pointer;
+    width: 100%;
 }
-
-    .btn-complete:hover:not(:disabled):not(.processing):not(.saving):not(.success) {
-        background: #ff8833;
-        box-shadow: var(--shadow-md);
-    }
-
-    .btn-complete:active:not(:disabled):not(.processing):not(.saving):not(.success) {
-        transform: translateY(0);
-    }
-
-    .btn-complete:disabled {
-        opacity: 0.4;
-        cursor: not-allowed;
-        background: var(--bg-tertiary);
-        color: var(--text-disabled);
-    }
-
-    .btn-complete.processing {
-        background: var(--accent-orange);
-        cursor: default;
-        pointer-events: none;
-    }
-
-    .btn-complete.saving {
-        background: var(--accent-blue);
-        cursor: wait;
-        pointer-events: none;
-    }
-
-    .btn-complete.success {
-        background: var(--accent-green);
-        cursor: default;
-        pointer-events: none;
-    }
 
 /* ============================================================================
    RESPONSIVE
@@ -840,7 +657,6 @@ body.light-mode .badge-dimensions {
     background: rgba(255, 193, 7, 0.15);
     border: 1px solid rgba(255, 193, 7, 0.3);
     cursor: pointer;
-    transition: all var(--transition-fast);
     position: relative;
     flex-shrink: 0;
 }
@@ -848,25 +664,14 @@ body.light-mode .badge-dimensions {
 .notes-icon-wrapper:hover {
     background: rgba(255, 193, 7, 0.25);
     border-color: rgba(255, 193, 7, 0.5);
-    transform: scale(1.05);
 }
 
 .notes-icon {
     color: #ffc107;
-    transition: color var(--transition-fast);
 }
 
 .notes-icon-wrapper:hover .notes-icon {
     color: #ffca2c;
-}
-
-body.light-mode .notes-icon-wrapper {
-    background: rgba(255, 193, 7, 0.2);
-    border-color: rgba(255, 193, 7, 0.4);
-}
-
-body.light-mode .notes-icon {
-    color: #d39e00;
 }
 
 /* Tooltip na hover */
@@ -889,7 +694,6 @@ body.light-mode .notes-icon {
     border: 1px solid var(--border-color);
     opacity: 0;
     visibility: hidden;
-    transition: opacity 0.2s ease, visibility 0.2s ease;
     z-index: 1000;
     pointer-events: none;
 }
@@ -959,7 +763,6 @@ body.light-mode .notes-icon {
     display: flex;
     align-items: center;
     justify-content: center;
-    transition: all var(--transition-fast);
 }
 
 .notes-modal-close:hover {
@@ -978,14 +781,6 @@ body.light-mode .notes-icon {
 }
 
 /* Light mode */
-body.light-mode .notes-modal-content {
-    background: #ffffff;
-}
-
-body.light-mode .notes-modal-header {
-    background: #f8f9fa;
-}
-
 /* ============================================================================
    DELIVERY BADGE & MODAL - Informacje o dostawie (2025-12)
    ============================================================================ */
@@ -1022,23 +817,11 @@ body.light-mode .notes-modal-header {
     color: #28a745;
 }
 
-body.light-mode .delivery-badge.delivery-pickup {
-    background: rgba(40, 167, 69, 0.12);
-    border-color: rgba(40, 167, 69, 0.5);
-    color: #1e7e34;
-}
-
 /* Badge - Kurier (niebieski) */
 .delivery-badge.delivery-courier {
     background: rgba(0, 123, 255, 0.15);
     border: 1px solid rgba(0, 123, 255, 0.4);
     color: #007bff;
-}
-
-body.light-mode .delivery-badge.delivery-courier {
-    background: rgba(0, 123, 255, 0.12);
-    border-color: rgba(0, 123, 255, 0.5);
-    color: #0056b3;
 }
 
 /* Ikona dostawy w headerze */
@@ -1052,23 +835,16 @@ body.light-mode .delivery-badge.delivery-courier {
     background: rgba(0, 123, 255, 0.15);
     border: 1px solid rgba(0, 123, 255, 0.3);
     cursor: pointer;
-    transition: all var(--transition-fast);
     flex-shrink: 0;
 }
 
 .header-icon-wrapper.delivery-icon-wrapper:hover {
     background: rgba(0, 123, 255, 0.25);
     border-color: rgba(0, 123, 255, 0.5);
-    transform: scale(1.05);
 }
 
 .header-icon-wrapper.delivery-icon-wrapper .header-icon {
     stroke: #007bff;
-}
-
-body.light-mode .header-icon-wrapper.delivery-icon-wrapper {
-    background: rgba(0, 123, 255, 0.1);
-    border-color: rgba(0, 123, 255, 0.4);
 }
 
 /* ============================================================================
@@ -1141,7 +917,6 @@ body.light-mode .header-icon-wrapper.delivery-icon-wrapper {
     display: flex;
     align-items: center;
     justify-content: center;
-    transition: all var(--transition-fast);
 }
 
 .delivery-modal-close:hover {
@@ -1190,14 +965,6 @@ body.light-mode .header-icon-wrapper.delivery-icon-wrapper {
 }
 
 /* Light mode */
-body.light-mode .delivery-modal-content {
-    background: #ffffff;
-}
-
-body.light-mode .delivery-modal-header {
-    background: #f8f9fa;
-}
-
 /* Responsive */
 @media (max-width: 767px) {
     .delivery-badge {
@@ -1274,7 +1041,6 @@ body.light-mode .delivery-modal-header {
     font-size: 16px;
     background: var(--bg-secondary);
     color: var(--text-primary);
-    transition: border-color 0.2s, box-shadow 0.2s;
 }
 
 .dim-row input:focus {
@@ -1297,16 +1063,10 @@ body.light-mode .delivery-modal-header {
     border: none;
     border-radius: 10px;
     cursor: pointer;
-    transition: transform 0.15s, box-shadow 0.15s, opacity 0.15s;
 }
 
 .btn-submit-shipment:hover {
-    transform: translateY(-2px);
     box-shadow: 0 6px 20px rgba(16, 185, 129, 0.3);
-}
-
-.btn-submit-shipment:active {
-    transform: translateY(0);
 }
 
 .btn-submit-shipment:disabled {
@@ -1337,16 +1097,6 @@ body.light-mode .delivery-modal-header {
 .overlimit-message span {
     font-size: 14px;
     line-height: 1.5;
-}
-
-body.light-mode .overlimit-message {
-    background: #fef3c7;
-    border-color: #f59e0b;
-    color: #92400e;
-}
-
-body.light-mode .overlimit-message svg {
-    color: #f59e0b;
 }
 
 /* === SEKCJA ZGŁOSZONEJ PRZESYŁKI (2025-12) === */
@@ -1411,26 +1161,11 @@ body.light-mode .overlimit-message svg {
     font-size: 14px;
     font-weight: 500;
     cursor: pointer;
-    transition: all 0.2s ease;
 }
 
 .btn-download-label-small:hover {
     background: linear-gradient(135deg, #2563eb, #1d4ed8);
-    transform: translateY(-1px);
     box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);
-}
-
-body.light-mode .shipping-info-section {
-    background: rgba(16, 185, 129, 0.1);
-    border-color: rgba(16, 185, 129, 0.4);
-}
-
-body.light-mode .shipping-info-header {
-    color: #059669;
-}
-
-body.light-mode .shipping-info-header svg {
-    color: #059669;
 }
 
 /* === MODALE WYSYŁKI === */
@@ -1459,18 +1194,6 @@ body.light-mode .shipping-info-header svg {
     max-width: 500px;
     width: 100%;
     box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
-    animation: modalSlideIn 0.3s ease;
-}
-
-@keyframes modalSlideIn {
-    from {
-        opacity: 0;
-        transform: translateY(-20px) scale(0.95);
-    }
-    to {
-        opacity: 1;
-        transform: translateY(0) scale(1);
-    }
 }
 
 /* Modal wymiarów */
@@ -1512,7 +1235,6 @@ body.light-mode .shipping-info-header svg {
     display: flex;
     align-items: center;
     justify-content: center;
-    transition: all 0.15s;
 }
 
 .shipping-modal-close:hover {
@@ -1550,13 +1272,7 @@ body.light-mode .shipping-info-header svg {
 }
 
 .shipping-progress-content .spinner-icon {
-    animation: spin 1.5s linear infinite;
     color: var(--accent-color, #3b82f6);
-}
-
-@keyframes spin {
-    from { transform: rotate(0deg); }
-    to { transform: rotate(360deg); }
 }
 
 .shipping-steps {
@@ -1569,7 +1285,6 @@ body.light-mode .shipping-info-header svg {
     padding: 14px 0;
     border-bottom: 1px solid var(--border-color-light);
     opacity: 0.4;
-    transition: all 0.3s ease;
 }
 
 .shipping-steps .step:last-child {
@@ -1659,7 +1374,6 @@ body.light-mode .shipping-info-header svg {
 
 .step.active .step-status::after {
     content: '...';
-    animation: dots 1.5s infinite;
 }
 
 .step.completed .step-status::after {
@@ -1672,12 +1386,6 @@ body.light-mode .shipping-info-header svg {
     content: '✗';
     color: #ef4444;
     font-weight: bold;
-}
-
-@keyframes dots {
-    0%, 20% { content: '.'; }
-    40% { content: '..'; }
-    60%, 100% { content: '...'; }
 }
 
 .step-details {
@@ -1701,13 +1409,6 @@ body.light-mode .shipping-info-header svg {
 
 .success-icon svg {
     color: #10b981;
-    animation: successPop 0.5s ease;
-}
-
-@keyframes successPop {
-    0% { transform: scale(0); }
-    50% { transform: scale(1.2); }
-    100% { transform: scale(1); }
 }
 
 .shipping-success-content h3 {
@@ -1768,11 +1469,9 @@ body.light-mode .shipping-info-header svg {
     border: none;
     border-radius: 10px;
     cursor: pointer;
-    transition: transform 0.15s, box-shadow 0.15s;
 }
 
 .btn-download-label:hover {
-    transform: translateY(-2px);
     box-shadow: 0 6px 20px rgba(59, 130, 246, 0.3);
 }
 
@@ -1785,7 +1484,6 @@ body.light-mode .shipping-info-header svg {
     border: 1px solid var(--border-color);
     border-radius: 10px;
     cursor: pointer;
-    transition: background 0.15s, color 0.15s;
 }
 
 .btn-close-modal:hover {
@@ -1804,13 +1502,6 @@ body.light-mode .shipping-info-header svg {
 
 .error-icon svg {
     color: #ef4444;
-    animation: shake 0.5s ease;
-}
-
-@keyframes shake {
-    0%, 100% { transform: translateX(0); }
-    25% { transform: translateX(-10px); }
-    75% { transform: translateX(10px); }
 }
 
 .shipping-error-content h3 {
@@ -1881,11 +1572,9 @@ body.light-mode .shipping-info-header svg {
     border: none;
     border-radius: 10px;
     cursor: pointer;
-    transition: transform 0.15s, box-shadow 0.15s;
 }
 
 .btn-retry:hover {
-    transform: translateY(-2px);
     box-shadow: 0 6px 20px rgba(245, 158, 11, 0.3);
 }
 
@@ -2052,12 +1741,10 @@ body.light-mode .shipping-info-header svg {
     border: none;
     border-radius: 10px;
     cursor: pointer;
-    transition: transform 0.15s, box-shadow 0.15s;
     width: 100%;
 }
 
 .btn-confirm-shipment:hover {
-    transform: translateY(-2px);
     box-shadow: 0 6px 20px rgba(34, 197, 94, 0.3);
 }
 
@@ -2081,7 +1768,6 @@ body.light-mode .shipping-info-header svg {
     border: 1px solid var(--border-color);
     border-radius: 10px;
     cursor: pointer;
-    transition: background 0.15s, color 0.15s;
     width: 100%;
 }
 
@@ -2091,44 +1777,7 @@ body.light-mode .shipping-info-header svg {
 }
 
 /* Light mode dla modalu potwierdzenia */
-body.light-mode .selected-quote-box {
-    background: #f8fafc;
-}
-
-body.light-mode .multi-package-details {
-    background: #f3f4f6;
-}
-
-body.light-mode .package-item {
-    background: #ffffff;
-}
-
-body.light-mode .quote-dimensions {
-    background: #f3f4f6;
-}
-
 /* Light mode dla modali wysyłki */
-body.light-mode .shipping-modal-content {
-    background: #ffffff;
-}
-
-body.light-mode .step-details {
-    background: #f3f4f6;
-}
-
-body.light-mode .shipment-details {
-    background: #f3f4f6;
-}
-
-body.light-mode .error-details {
-    background: #fef2f2;
-    border-color: #fecaca;
-}
-
-body.light-mode .error-details pre {
-    background: #ffffff;
-}
-
 /* Responsive dla modali wysyłki */
 @media (max-width: 767px) {
     .shipping-modal-content {

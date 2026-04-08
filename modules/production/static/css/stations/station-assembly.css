@@ -44,7 +44,6 @@
     border: 2px solid var(--border-color);
     border-radius: 12px;
     overflow: visible; /* ZMIENIONE: było hidden - obcinało tooltips */
-    transition: var(--transition-base);
     box-shadow: var(--shadow-sm);
     display: flex;
     flex-direction: column;
@@ -58,27 +57,11 @@
         opacity: 0.7;
     }
 
-    .order-card.removing {
-        animation: fadeOut 0.3s ease-out forwards;
-    }
-
-@keyframes fadeOut {
-    from {
-        opacity: 1;
-        transform: scale(1);
-    }
-
-    to {
-        opacity: 0;
-        transform: scale(0.95);
-    }
-}
-
 /* ============================================================================
    ORDER HEADER - 2 ROWS LAYOUT
    ============================================================================ */
 .order-header {
-    background: var(--bg-header);
+    background: var(--bg-card-header);
     border-bottom: 1px solid var(--border-color);
     display: flex;
     flex-direction: column;
@@ -126,10 +109,6 @@
     font-weight: 600;
     color: #ffffff;
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-}
-
-body.light-mode .order-client-number {
-    color: #212529;
 }
 
 .order-stats {
@@ -181,7 +160,6 @@ body.light-mode .order-client-number {
     gap: 16px;
     padding: 14px 20px;
     border-bottom: 1px solid var(--border-color-light);
-    transition: background var(--transition-fast);
     position: relative;
     overflow: visible;
 }
@@ -289,7 +267,6 @@ body.light-mode .order-client-number {
     font-size: 24px;
     font-weight: bold;
     cursor: pointer;
-    transition: all var(--transition-fast);
     user-select: none;
     -webkit-tap-highlight-color: transparent;
 }
@@ -297,11 +274,6 @@ body.light-mode .order-client-number {
 .btn-qty:hover:not(:disabled) {
     border-color: var(--accent-orange);
     background: var(--bg-tertiary);
-    transform: scale(1.05);
-}
-
-.btn-qty:active:not(:disabled) {
-    transform: scale(0.95);
 }
 
 .btn-qty:disabled {
@@ -361,22 +333,6 @@ body.light-mode .order-client-number {
 }
 
 /* Light mode adjustments */
-body.light-mode .btn-qty {
-    background: var(--bg-card);
-}
-
-body.light-mode .btn-qty:hover:not(:disabled) {
-    background: var(--bg-tertiary);
-}
-
-body.light-mode .btn-minus {
-    border-color: rgba(220, 53, 69, 0.5);
-}
-
-body.light-mode .btn-plus {
-    border-color: rgba(40, 167, 69, 0.5);
-}
-
 /* Produkt ukończony - podświetlenie */
 .product-row.product-complete {
     background: rgba(40, 167, 69, 0.08);
@@ -387,27 +343,7 @@ body.light-mode .btn-plus {
     color: #28a745;
 }
 
-body.light-mode .product-row.product-complete {
-    background: rgba(40, 167, 69, 0.1);
-}
-
 /* Animacja aktualizacji licznika */
-@keyframes quantity-pulse {
-    0% {
-        transform: scale(1);
-    }
-    50% {
-        transform: scale(1.15);
-    }
-    100% {
-        transform: scale(1);
-    }
-}
-
-.qty-done.updating {
-    animation: quantity-pulse 0.2s ease-out;
-}
-
 /* Disabled podczas offline */
 .btn-qty.offline-disabled {
     opacity: 0.3;
@@ -513,12 +449,6 @@ body.light-mode .product-row.product-complete {
     text-overflow: ellipsis;
 }
 
-body.light-mode .product-dimensions-row .badge-dimensions {
-    background: #e9ecef;
-    border-color: #ced4da;
-    color: #495057;
-}
-
 /* ============================================================================
    BADGE WYCINANIA (dla stanowiska składanie - pokazuje postęp wycinania)
    ============================================================================ */
@@ -539,19 +469,9 @@ body.light-mode .product-dimensions-row .badge-dimensions {
     flex-shrink: 0;
 }
 
-body.light-mode .badge-cut {
-    background: #ffe4c4;
-    border-color: #cd853f;
-    color: #8b4513;
-}
-
 /* Produkt z wycinaniem - subtelne wyróżnienie */
 .product-row.has-cutting {
     border-left: 3px solid #8b4513;
-}
-
-body.light-mode .product-row.has-cutting {
-    border-left: 3px solid #cd853f;
 }
 
 /* Gatunek drewna - BUK (domyślny brązowy) */
@@ -559,12 +479,6 @@ body.light-mode .product-row.has-cutting {
     background: #4a3000;
     border-color: #806000;
     color: #ffd966;
-}
-
-body.light-mode .badge-species {
-    background: #fff3cd;
-    border-color: #ffc107;
-    color: #856404;
 }
 
 /* DĄB - ciemny brązowy */
@@ -577,14 +491,6 @@ body.light-mode .badge-species {
     color: #ffcc80;
 }
 
-body.light-mode [data-species*="dąb"] .badge-species,
-body.light-mode [data-species*="DĄB"] .badge-species,
-body.light-mode [data-species*="dab"] .badge-species {
-    background: #ffe5b4;
-    border-color: #d4a574;
-    color: #6b4423;
-}
-
 /* JESION - żółty */
 [data-species*="jesion"] .badge-species,
 [data-species*="JESION"] .badge-species {
@@ -593,24 +499,11 @@ body.light-mode [data-species*="dab"] .badge-species {
     color: #ffff66;
 }
 
-body.light-mode [data-species*="jesion"] .badge-species,
-body.light-mode [data-species*="JESION"] .badge-species {
-    background: #fffacd;
-    border-color: #e6db00;
-    color: #7a7700;
-}
-
 /* Technologia - LITY (domyślny zielony) */
 .badge-technology {
     background: #1a3a1f;
     border-color: #2d5f31;
     color: #66bb6a;
-}
-
-body.light-mode .badge-technology {
-    background: #d4edda;
-    border-color: #28a745;
-    color: #155724;
 }
 
 /* MIKROWCZEP - niebieski */
@@ -621,13 +514,6 @@ body.light-mode .badge-technology {
     color: #64b5f6;
 }
 
-body.light-mode [data-technology*="mikrowczep"] .badge-technology,
-body.light-mode [data-technology*="MIKROWCZEP"] .badge-technology {
-    background: #cce5ff;
-    border-color: #0066cc;
-    color: #004085;
-}
-
 /* KLEJONY - pomarańczowy */
 [data-technology*="klejony"] .badge-technology,
 [data-technology*="KLEJONY"] .badge-technology {
@@ -636,24 +522,11 @@ body.light-mode [data-technology*="MIKROWCZEP"] .badge-technology {
     color: #ffab40;
 }
 
-body.light-mode [data-technology*="klejony"] .badge-technology,
-body.light-mode [data-technology*="KLEJONY"] .badge-technology {
-    background: #ffe0b2;
-    border-color: #ff9800;
-    color: #e65100;
-}
-
 /* Klasa drewna - A/B (domyślny żółty) */
 .badge-class {
     background: #4a4a00;
     border-color: #7d7d00;
     color: #fff176;
-}
-
-body.light-mode .badge-class {
-    background: #fff59d;
-    border-color: #fdd835;
-    color: #6b6b00;
 }
 
 /* A/A - ciemnozielony */
@@ -664,13 +537,6 @@ body.light-mode .badge-class {
     color: #81c784;
 }
 
-body.light-mode [data-wood-class*="A/A"] .badge-class,
-body.light-mode [data-wood-class*="AA"] .badge-class {
-    background: #c8e6c9;
-    border-color: #4caf50;
-    color: #1b5e20;
-}
-
 /* B/B - czerwony */
 [data-wood-class*="B/B"] .badge-class,
 [data-wood-class*="BB"] .badge-class {
@@ -679,25 +545,12 @@ body.light-mode [data-wood-class*="AA"] .badge-class {
     color: #ff8a65;
 }
 
-body.light-mode [data-wood-class*="B/B"] .badge-class,
-body.light-mode [data-wood-class*="BB"] .badge-class {
-    background: #ffccbc;
-    border-color: #ff5722;
-    color: #bf360c;
-}
-
 /* Wymiary - szary/neutralny */
 .badge-dimensions {
     background: var(--bg-tertiary);
     border-color: var(--border-color);
     color: var(--text-primary);
     font-family: 'Courier New', monospace;
-}
-
-body.light-mode .badge-dimensions {
-    background: #e9ecef;
-    border-color: #ced4da;
-    color: #495057;
 }
 
 /* ============================================================================
@@ -710,53 +563,18 @@ body.light-mode .badge-dimensions {
 }
 
 .btn-complete {
-    width: 100%;
-    padding: 14px 24px;
-    font-size: 16px;
-    font-weight: bold;
-    border-radius: 8px;
-    border: none;
-    cursor: pointer;
-    transition: all var(--transition-fast);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 2px;
     text-transform: uppercase;
-    letter-spacing: 1px;
-    background: var(--accent-orange);
-    color: white;
+    color: var(--text-muted);
+    background: var(--bg-inset);
+    border: none;
+    padding: 9px 12px;
+    cursor: pointer;
+    width: 100%;
 }
-
-    .btn-complete:hover:not(:disabled):not(.processing):not(.saving):not(.success) {
-        background: #ff8833;
-        box-shadow: var(--shadow-md);
-    }
-
-    .btn-complete:active:not(:disabled):not(.processing):not(.saving):not(.success) {
-        transform: translateY(0);
-    }
-
-    .btn-complete:disabled {
-        opacity: 0.4;
-        cursor: not-allowed;
-        background: var(--bg-tertiary);
-        color: var(--text-disabled);
-    }
-
-    .btn-complete.processing {
-        background: var(--accent-orange);
-        cursor: default;
-        pointer-events: none;
-    }
-
-    .btn-complete.saving {
-        background: var(--accent-blue);
-        cursor: wait;
-        pointer-events: none;
-    }
-
-    .btn-complete.success {
-        background: var(--accent-green);
-        cursor: default;
-        pointer-events: none;
-    }
 
 /* ============================================================================
    RESPONSIVE
@@ -847,7 +665,6 @@ body.light-mode .badge-dimensions {
     background: rgba(255, 193, 7, 0.15);
     border: 1px solid rgba(255, 193, 7, 0.3);
     cursor: pointer;
-    transition: all var(--transition-fast);
     position: relative;
     flex-shrink: 0;
 }
@@ -855,25 +672,14 @@ body.light-mode .badge-dimensions {
 .notes-icon-wrapper:hover {
     background: rgba(255, 193, 7, 0.25);
     border-color: rgba(255, 193, 7, 0.5);
-    transform: scale(1.05);
 }
 
 .notes-icon {
     color: #ffc107;
-    transition: color var(--transition-fast);
 }
 
 .notes-icon-wrapper:hover .notes-icon {
     color: #ffca2c;
-}
-
-body.light-mode .notes-icon-wrapper {
-    background: rgba(255, 193, 7, 0.2);
-    border-color: rgba(255, 193, 7, 0.4);
-}
-
-body.light-mode .notes-icon {
-    color: #d39e00;
 }
 
 /* Tooltip na hover */
@@ -896,7 +702,6 @@ body.light-mode .notes-icon {
     border: 1px solid var(--border-color);
     opacity: 0;
     visibility: hidden;
-    transition: opacity 0.2s ease, visibility 0.2s ease;
     z-index: 1000;
     pointer-events: none;
 }
@@ -966,7 +771,6 @@ body.light-mode .notes-icon {
     display: flex;
     align-items: center;
     justify-content: center;
-    transition: all var(--transition-fast);
 }
 
 .notes-modal-close:hover {
@@ -985,10 +789,3 @@ body.light-mode .notes-icon {
 }
 
 /* Light mode */
-body.light-mode .notes-modal-content {
-    background: #ffffff;
-}
-
-body.light-mode .notes-modal-header {
-    background: #f8f9fa;
-}
