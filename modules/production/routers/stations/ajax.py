@@ -891,7 +891,7 @@ def ajax_station_today_m3(station_code):
     """
     try:
         # Walidacja station_code
-        if station_code not in ['cutting', 'assembly', 'gluing', 'formatting', 'finishing', 'packaging']:
+        if station_code not in ['cutting', 'assembly', 'gluing', 'formatting', 'finishing', 'painting', 'packaging']:
             return jsonify({
                 'success': False,
                 'error': f'Nieprawidlowy station_code. Dozwolone: cutting, assembly, gluing, formatting, finishing, packaging'
@@ -914,6 +914,7 @@ def ajax_station_today_m3(station_code):
                 'gluing': ProductionItem.gluing_completed_at,
                 'formatting': ProductionItem.formatting_completed_at,
                 'finishing': ProductionItem.finishing_completed_at,
+                'painting': ProductionItem.painting_completed_at,
                 'packaging': ProductionItem.packaging_completed_at
             }
 
