@@ -567,7 +567,7 @@
     width: 100%;
 }
 
-.btn-complete:hover:not(:disabled) {
+.btn-complete:hover:not(:disabled):not(.processing):not(.saving) {
     background: var(--btn-primary-hover);
 }
 
