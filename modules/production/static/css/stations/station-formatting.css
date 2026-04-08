@@ -525,6 +525,20 @@ body.light-mode .product-dimensions-row .badge-dimensions {
     color: #495057;
 }
 
+/* Numer pozycji w zamówieniu */
+.badge-sequence {
+    background: #1a1a2e;
+    border-color: #4a4a6a;
+    color: #a0a0cc;
+    font-weight: 600;
+}
+
+body.light-mode .badge-sequence {
+    background: #e8e8f0;
+    border-color: #b0b0cc;
+    color: #4a4a6a;
+}
+
 /* Gatunek drewna - BUK (domyslny brazowy) */
 .badge-species {
     background: #4a3000;

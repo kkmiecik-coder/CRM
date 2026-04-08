@@ -239,6 +239,7 @@
                                         {{ station_info[1] }}
                                     </span>
                                 {% endif %}
+                                {% if product.product_sequence_in_order %}<span class="badge badge-sequence">poz. {{ product.product_sequence_in_order }}</span>{% endif %}
                                 {% if product.wood_species %}<span class="badge badge-species">{{ product.wood_species }}</span>{% endif %}
                                 {% if product.technology %}<span class="badge badge-technology">{{ product.technology }}</span>{% endif %}
                                 {% if product.wood_class %}<span class="badge badge-class">{{ product.wood_class }}</span>{% endif %}
