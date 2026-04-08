@@ -81,10 +81,10 @@
                     <path d="M9 21V9"></path>
                 </svg>
                 <div class="stat-content">
-                    <div class="stat-label">Zamówienia</div>
+                    <div class="stat-label">Produkty</div>
                     <div class="stat-value">
-                        <span id="total-orders">{{ station_stats.total_orders }}</span> /
-                        <span id="total-volume">{{ "%.4f"|format(products|map(attribute='volume_m3')|sum) }}</span> m³
+                        <span id="total-orders">{{ station_stats.total_count }}</span> /
+                        <span id="total-volume">{{ "%.4f"|format(products_flat|map(attribute='volume_m3')|sum) }}</span> m³
                     </div>
                 </div>
             </div>
