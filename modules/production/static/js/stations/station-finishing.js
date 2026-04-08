@@ -555,9 +555,82 @@
         state.refreshTimer = setInterval(performAutoRefresh, intervalMs);
     }
 
-    function performAutoRefresh() {
-        // Przeładowanie strony — prostsze niż AJAX merge dla flat cards
-        window.location.reload();
+    async function performAutoRefresh() {
+        try {
+            const stationCode = state.config ? state.config.stationCode : 'finishing';
+            const response = await fetch(`/production/stations/ajax/products/${stationCode}?sort=priority`);
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+            const result = await response.json();
+            if (!result.success || !result.data || !result.data.products) throw new Error('Invalid response');
+
+            smartMergeProducts(result.data.products);
+            fetchTodayM3();
+        } catch (error) {
+            console.error('[Finishing] Auto-refresh failed:', error);
+        }
+    }
+
+    function smartMergeProducts(newProducts) {
+        const ordersList = document.getElementById('orders-list');
+        if (!ordersList) return;
+
+        const existingCards = ordersList.querySelectorAll('.order-card');
+        const existingIds = new Set();
+        existingCards.forEach(card => existingIds.add(card.dataset.productId));
+
+        const apiIds = new Set(newProducts.map(p => p.id));
+
+        // Nowe produkty — dodaj
+        newProducts.forEach(product => {
+            if (!existingIds.has(product.id)) {
+                // Nowy produkt — przeładuj stronę żeby go wyświetlić
+                // (prostsze niż budowanie HTML dynamicznie)
+                window.location.reload();
+            }
+        });
+
+        // Aktualizuj istniejące
+        newProducts.forEach(product => {
+            const card = ordersList.querySelector(`[data-product-id="${product.id}"]`);
+            if (!card) return;
+
+            // Nie aktualizuj karty w trakcie przetwarzania
+            if (card.classList.contains('processing')) return;
+
+            // Aktualizuj quantity_done jeśli nie ma oczekujących requestów
+            if (!state.pendingRequests.has(product.id)) {
+                const currentQtyDone = parseInt(card.dataset.quantityDone) || 0;
+                const serverQtyDone = product.quantity_done || 0;
+
+                if (currentQtyDone !== serverQtyDone) {
+                    card.dataset.quantityDone = serverQtyDone;
+                    const qtyDoneEl = card.querySelector('.qty-done');
+                    if (qtyDoneEl) qtyDoneEl.textContent = serverQtyDone;
+                    syncHeaderQty(card, serverQtyDone);
+                    updateButtonStates(card, serverQtyDone, product.quantity);
+                    updateCompleteButtonState(card);
+                }
+            }
+
+            // Aktualizuj priorytet
+            const serverPriority = product.is_priority || false;
+            if (serverPriority) card.classList.add('priority-order');
+            else card.classList.remove('priority-order');
+        });
+
+        // Usunięte produkty — usuń kafelki
+        existingCards.forEach(card => {
+            const productId = card.dataset.productId;
+            if (!apiIds.has(productId) && !card.classList.contains('processing')) {
+                card.classList.add('removing');
+                setTimeout(() => {
+                    card.remove();
+                    const remaining = ordersList.querySelectorAll('.order-card');
+                    if (remaining.length === 0) showEmptyState();
+                }, 300);
+            }
+        });
     }
 
     // ========================================================================

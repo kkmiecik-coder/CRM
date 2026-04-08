@@ -32,7 +32,7 @@ def ajax_get_products(station_code):
         JSON: Lista produktow
     """
     try:
-        if station_code not in ['cutting', 'assembly', 'packaging']:
+        if station_code not in ['cutting', 'assembly', 'finishing', 'painting', 'packaging']:
             return jsonify({
                 'success': False,
                 'error': 'Invalid station code'

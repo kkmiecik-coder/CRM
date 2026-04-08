@@ -335,6 +335,8 @@ def get_products_for_station(station_code, limit=50, sort_by='priority'):
         status_map = {
             'cutting': 'czeka_na_wyciecie',
             'assembly': 'czeka_na_skladanie',
+            'finishing': 'czeka_na_wykanczanie',
+            'painting': 'czeka_na_lakiernie',
             'packaging': 'czeka_na_pakowanie'
         }
 
@@ -471,6 +473,12 @@ def get_products_for_station(station_code, limit=50, sort_by='priority'):
                 'quantity_done': getattr(product, f'quantity_done_{station_code}', 0),
                 'is_complete': getattr(product, f'quantity_done_{station_code}', 0) == product.quantity,
                 'is_priority': product.is_priority,
+
+                # Notatki
+                'order_notes': product.order_notes,
+
+                # Obróbka krawędzi
+                'parsed_edge_processing': product.parsed_edge_processing,
 
                 # Formatowane teksty dla UI
                 'display_name': _format_product_display_name(product),
