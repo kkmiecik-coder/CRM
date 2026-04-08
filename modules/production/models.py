@@ -592,21 +592,18 @@ class ProductionItem(db.Model):
         Ukończenie pracy na stanowisku - przejście do następnego statusu
         Wywoływane gdy wszystkie produkty w zamówieniu mają quantity_done == quantity
 
-        UWAGA: Produkty z wykończeniem "Surowe" pomijają stanowisko "finishing"
-        i przechodzą bezpośrednio z "formatting" do "packaging".
-
-        UWAGA: Stanowiska cutting i assembly mają specjalną logikę:
-        - Cutting: kończy wycinanie, produkt przechodzi do czeka_na_skladanie
-        - Assembly: kończy składanie (niezależnie czy było wycięte), przechodzi do czeka_na_sklejanie
-          Jeśli produkt był w czeka_na_wyciecie (pominięto wycinanie), assembly też go przepuszcza
+        PRZEPŁYW: Stanowiska cutting i assembly są równoległe.
+        - cutting (mikrowczep) → sklejanie
+        - assembly (lity) → sklejanie
+        Produkty z wykończeniem "Surowe" pomijają stanowisko "finishing"
+        i przechodzą bezpośrednio z "formatting" do logistyki.
         """
         now = get_local_now()
-        skipped_cutting = False
 
         # Mapowanie stanowisko -> następny status
         next_status_map = {
-            'cutting': 'czeka_na_skladanie',
-            'assembly': 'czeka_na_sklejanie',
+            'cutting': 'czeka_na_sklejanie',    # Wycinanie → Sklejanie (równoległy przepływ)
+            'assembly': 'czeka_na_sklejanie',   # Składanie → Sklejanie (równoległy przepływ)
             'gluing': 'czeka_na_formatowanie',
             'formatting': 'czeka_na_wykanczanie',
             'finishing': 'czeka_na_logistyke',
@@ -615,17 +612,6 @@ class ProductionItem(db.Model):
 
         if station_code in next_status_map:
             next_status = next_status_map[station_code]
-
-            # Specjalna logika dla assembly: jeśli produkt jest w czeka_na_wyciecie
-            # (pominięto wycinanie), to assembly przepuszcza go dalej
-            if station_code == 'assembly' and self.current_status == 'czeka_na_wyciecie':
-                # Wycinanie zostało pominięte - nie ustawiamy cutting_completed_at
-                # (pozostaje NULL co oznacza "pominięto")
-                skipped_cutting = True
-                logger.info("Produkt pominął wycinanie - złożony bez wycinania", extra={
-                    'product_id': self.short_product_id,
-                    'quantity_done_cutting': self.quantity_done_cutting
-                })
 
             # Specjalna logika: produkty "Surowe" pomijają stanowisko wykańczania
             # Z formatowania przechodzą bezpośrednio do pakowania
@@ -663,7 +649,6 @@ class ProductionItem(db.Model):
             'product_id': self.short_product_id,
             'station': station_code,
             'new_status': self.current_status,
-            'skipped_cutting': skipped_cutting,
             'skipped_finishing': skipped_finishing if 'skipped_finishing' in locals() else False
         })
 
