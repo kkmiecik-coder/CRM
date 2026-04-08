@@ -1066,10 +1066,10 @@ def complete_order_bulk():
                 'error': 'Wymagane pola: order_number, product_ids, station, action'
             }), 400
 
-        if station not in ['cutting', 'assembly', 'gluing', 'formatting', 'finishing', 'packaging']:
+        if station not in ['cutting', 'assembly', 'gluing', 'formatting', 'finishing', 'painting', 'packaging']:
             return jsonify({
                 'success': False,
-                'error': f'Nieprawidlowe stanowisko: {station}. Dozwolone: cutting, assembly, gluing, formatting, finishing, packaging'
+                'error': f'Nieprawidlowe stanowisko: {station}. Dozwolone: cutting, assembly, gluing, formatting, finishing, painting, packaging'
             }), 400
 
         if action != 'complete':
@@ -1114,6 +1114,7 @@ def complete_order_bulk():
             'gluing': ['czeka_na_sklejanie'],
             'formatting': ['czeka_na_formatowanie'],
             'finishing': ['czeka_na_wykanczanie'],
+            'painting': ['czeka_na_lakiernie'],
             'packaging': ['czeka_na_pakowanie']
         }
         expected_statuses = expected_status_map[station]

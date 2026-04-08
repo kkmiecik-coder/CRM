@@ -283,7 +283,7 @@ def update_quantity_done():
             }), 400
 
         # Walidacja station
-        valid_stations = ['cutting', 'assembly', 'gluing', 'formatting', 'finishing', 'packaging']
+        valid_stations = ['cutting', 'assembly', 'gluing', 'formatting', 'finishing', 'painting', 'packaging']
         if station not in valid_stations:
             return jsonify({
                 'success': False,
@@ -681,7 +681,8 @@ def products_tab_content():
                 'parsed_width_cm': parsed_width_cm,
                 'parsed_thickness_cm': parsed_thickness_cm,
                 'parsed_finish_state': get_attr(product, 'parsed_finish_state', None),
-                
+                'parsed_edge_processing': get_attr(product, 'parsed_edge_processing', False),
+
                 # Produkcja - statusy i czasami
                 'cutting_started_at': get_attr(product, 'cutting_started_at').isoformat() if get_attr(product, 'cutting_started_at') else None,
                 'cutting_completed_at': get_attr(product, 'cutting_completed_at').isoformat() if get_attr(product, 'cutting_completed_at') else None,
@@ -695,6 +696,7 @@ def products_tab_content():
 
                 # Logistyka
                 'logistics_completed_at': get_attr(product, 'logistics_completed_at').isoformat() if get_attr(product, 'logistics_completed_at') else None,
+                'painting_completed_at': get_attr(product, 'painting_completed_at').isoformat() if get_attr(product, 'painting_completed_at') else None,
                 'override_delivery_method': get_attr(product, 'override_delivery_method', None),
                 'is_personal_pickup': product.is_personal_pickup,
 
@@ -723,6 +725,7 @@ def products_tab_content():
                 'quantity_done_gluing': get_attr(product, 'quantity_done_gluing', 0),
                 'quantity_done_formatting': get_attr(product, 'quantity_done_formatting', 0),
                 'quantity_done_finishing': get_attr(product, 'quantity_done_finishing', 0),
+                'quantity_done_painting': get_attr(product, 'quantity_done_painting', 0),
                 'quantity_done_packaging': get_attr(product, 'quantity_done_packaging', 0),
 
                 # Dodatkowe pola z zamówienia

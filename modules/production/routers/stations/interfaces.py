@@ -11,6 +11,33 @@ import traceback
 from . import station_bp, logger, get_station_config, _format_dimension
 
 
+def _extract_edge_description(product_name):
+    """Wyciąga opis obróbki krawędzi z nazwy produktu (do tooltipa)"""
+    import re
+    if not product_name:
+        return None
+
+    name_lower = product_name.lower()
+    descriptions = []
+
+    r_match = re.search(r'(zaokrąglenie\s+R\d+|R\d+)', product_name, re.IGNORECASE)
+    if r_match:
+        descriptions.append(r_match.group(0))
+
+    faza_match = re.search(r'(faz(?:owanie|a)\s*\d*\s*(?:mm)?)', product_name, re.IGNORECASE)
+    if faza_match:
+        descriptions.append(faza_match.group(0).strip())
+
+    if 'frezowanie' in name_lower and not descriptions:
+        descriptions.append('frezowanie')
+
+    kat_match = re.search(r'(kąt\s*\d*°?)', product_name, re.IGNORECASE)
+    if kat_match:
+        descriptions.append(kat_match.group(0).strip())
+
+    return ', '.join(descriptions) if descriptions else 'obróbka krawędzi'
+
+
 # ============================================================================
 # STANOWISKO WYCINANIA (CUTTING)
 # ============================================================================
@@ -756,175 +783,154 @@ def formatting_station():
 @station_bp.route('/finishing')
 def finishing_station():
     """
-    Interfejs stanowiska wykonczania - ORDER-BASED VERSION
-    Pokazuje CALE zamowienia (grouped by internal_order_number)
+    Interfejs stanowiska wykańczania — podzielony na zakładki Produkcja / Lakiernia.
+    Obie zakładki renderują produkty jako osobne kafelki (flat, jak cutting).
 
     Query params:
+        tab: production|painting (default: production)
         sort: priority|deadline|created_at (default: priority)
-
-    Returns:
-        HTML: Interfejs stanowiska wykonczania z pogrupowanymi zamowieniami
     """
     try:
         from ...models import ProductionItem
-        from sqlalchemy import asc, desc
+        from sqlalchemy import asc, func
 
+        tab = request.args.get('tab', 'production')
         sort_by = request.args.get('sort', 'priority')
 
-        # Znajdz zamowienia ktore maja choc 1 produkt do wykonczania
-        orders_with_finishing = db.session.query(
-            ProductionItem.internal_order_number
-        ).filter(
-            ProductionItem.current_status == 'czeka_na_wykanczanie'
-        ).distinct().all()
-
-        order_numbers = [order[0] for order in orders_with_finishing if order[0]]
-
-        if not order_numbers:
-            products = []
+        # Filtruj wg zakładki
+        if tab == 'painting':
+            status_filter = 'czeka_na_lakiernie'
+            station_code = 'painting'
+            quantity_done_field = 'quantity_done_painting'
         else:
-            query = ProductionItem.query.filter(
-                ProductionItem.internal_order_number.in_(order_numbers)
-            )
+            status_filter = 'czeka_na_wykanczanie'
+            station_code = 'finishing'
+            quantity_done_field = 'quantity_done_finishing'
 
-            if sort_by == 'priority':
-                query = query.order_by(asc(ProductionItem.priority_rank))
-            elif sort_by == 'deadline':
-                query = query.order_by(asc(ProductionItem.deadline_date))
-            else:
-                query = query.order_by(asc(ProductionItem.created_at))
+        # Zliczaj produkty w obu zakładkach (do wyświetlenia w belce)
+        production_count = ProductionItem.query.filter(
+            ProductionItem.current_status == 'czeka_na_wykanczanie'
+        ).count()
+        painting_count = ProductionItem.query.filter(
+            ProductionItem.current_status == 'czeka_na_lakiernie'
+        ).count()
 
-            products_db = query.all()
-
-            products = []
-            today = date.today()
-
-            for product in products_db:
-                priority_rank = product.priority_rank if product.priority_rank else 999
-
-                dimensions_parts = []
-                if product.parsed_length_cm:
-                    dimensions_parts.append(_format_dimension(product.parsed_length_cm))
-                if product.parsed_width_cm:
-                    dimensions_parts.append(_format_dimension(product.parsed_width_cm))
-                if product.parsed_thickness_cm:
-                    dimensions_parts.append(_format_dimension(product.parsed_thickness_cm))
-                dimensions_text = '×'.join(dimensions_parts) + ' cm' if dimensions_parts else None
-
-                volume_m3 = float(product.volume_m3) if product.volume_m3 else 0.0
-
-                product_data = {
-                    'id': product.short_product_id,
-                    'internal_order': product.internal_order_number,
-                    'baselinker_order_id': product.baselinker_order_id,
-                    'original_name': product.original_product_name,
-                    'current_status': product.current_status,
-                    'priority_rank': priority_rank,
-                    'deadline_date': product.deadline_date,
-                    'volume_m3': volume_m3,
-                    'wood_species': product.parsed_wood_species,
-                    'technology': product.parsed_technology,
-                    'wood_class': product.parsed_wood_class,
-                    'finish_state': product.parsed_finish_state,
-                    'dimensions': dimensions_text,
-                    'attachment_file_name': product.attachment_file_name,
-                    'attachment_file_url': product.attachment_file_url,
-                    'product_sequence_in_order': product.product_sequence_in_order,
-                    'quantity': product.quantity,
-                    'quantity_done': product.quantity_done_finishing,
-                    'is_complete': product.quantity_done_finishing == product.quantity,
-                    'is_priority': product.is_priority,
-                    'order_notes': product.order_notes,
-                    'client_order_number': product.client_order_number
-                }
-
-                products.append(product_data)
-
-        orders_grouped = {}
-        for product in products:
-            order_number = product['internal_order']
-            if order_number not in orders_grouped:
-                orders_grouped[order_number] = {
-                    'order_number': order_number,
-                    'baselinker_order_id': product.get('baselinker_order_id'),
-                    'client_order_number': product.get('client_order_number'),
-                    'products': [],
-                    'total_products': 0,
-                    'total_quantity': 0,
-                    'total_quantity_done': 0,
-                    'total_volume': 0,
-                    'best_priority_rank': 999,
-                    'worst_deadline': None
-                }
-
-            order = orders_grouped[order_number]
-            order['products'].append(product)
-            order['total_products'] += 1
-            order['total_quantity'] += product.get('quantity', 1) or 1
-            order['total_quantity_done'] += product.get('quantity_done', 0) or 0
-            order['total_volume'] += product['volume_m3'] or 0
-
-            if product['priority_rank'] < order['best_priority_rank']:
-                order['best_priority_rank'] = product['priority_rank']
-
-            if product['deadline_date']:
-                if order['worst_deadline'] is None or product['deadline_date'] > order['worst_deadline']:
-                    order['worst_deadline'] = product['deadline_date']
-
-        for order in orders_grouped.values():
-            order['products'].sort(key=lambda p: p['product_sequence_in_order'])
-
-        today = date.today()
-        for order in orders_grouped.values():
-            if order['worst_deadline']:
-                days_diff = (order['worst_deadline'] - today).days
-                if days_diff < 0:
-                    order['display_deadline'] = f"Opoznione o {abs(days_diff)} dni"
-                elif days_diff == 0:
-                    order['display_deadline'] = "Dzis!"
-                elif days_diff == 1:
-                    order['display_deadline'] = "Jutro"
-                else:
-                    order['display_deadline'] = f"Za {days_diff} dni"
-            else:
-                order['display_deadline'] = "Brak terminu"
+        # Pobierz produkty dla aktywnej zakładki
+        query = ProductionItem.query.filter(
+            ProductionItem.current_status == status_filter
+        )
 
         if sort_by == 'priority':
-            orders_list = sorted(orders_grouped.values(), key=lambda x: x['best_priority_rank'])
+            query = query.order_by(asc(ProductionItem.priority_rank))
         elif sort_by == 'deadline':
-            orders_list = sorted(orders_grouped.values(), key=lambda x: x['worst_deadline'] or date(9999, 12, 31))
+            query = query.order_by(asc(ProductionItem.deadline_date))
         else:
-            orders_list = list(orders_grouped.values())
+            query = query.order_by(asc(ProductionItem.created_at))
+
+        products_db = query.all()
+
+        products_flat = []
+        today = date.today()
+
+        for product in products_db:
+            priority_rank = product.priority_rank if product.priority_rank else 999
+
+            dimensions_parts = []
+            if product.parsed_length_cm:
+                dimensions_parts.append(_format_dimension(product.parsed_length_cm))
+            if product.parsed_width_cm:
+                dimensions_parts.append(_format_dimension(product.parsed_width_cm))
+            if product.parsed_thickness_cm:
+                dimensions_parts.append(_format_dimension(product.parsed_thickness_cm))
+            dimensions_text = '×'.join(dimensions_parts) + ' cm' if dimensions_parts else None
+
+            volume_m3 = float(product.volume_m3) if product.volume_m3 else 0.0
+
+            qty_done = getattr(product, quantity_done_field, 0) or 0
+
+            edge_description = _extract_edge_description(product.original_product_name) if product.parsed_edge_processing else None
+
+            if product.deadline_date:
+                days_diff = (product.deadline_date - today).days
+                if days_diff < 0:
+                    display_deadline = f"Opóźnione o {abs(days_diff)} dni"
+                    priority_class = 'overdue'
+                elif days_diff == 0:
+                    display_deadline = "Dziś!"
+                    priority_class = 'urgent'
+                elif days_diff == 1:
+                    display_deadline = "Jutro"
+                    priority_class = 'warning'
+                elif days_diff <= 3:
+                    display_deadline = f"Za {days_diff} dni"
+                    priority_class = 'warning'
+                else:
+                    display_deadline = f"Za {days_diff} dni"
+                    priority_class = 'normal'
+            else:
+                display_deadline = "Brak terminu"
+                priority_class = 'none'
+
+            product_data = {
+                'id': product.short_product_id,
+                'internal_order': product.internal_order_number,
+                'baselinker_order_id': product.baselinker_order_id,
+                'original_name': product.original_product_name,
+                'current_status': product.current_status,
+                'priority_rank': priority_rank,
+                'deadline_date': product.deadline_date,
+                'display_deadline': display_deadline,
+                'priority_class': priority_class,
+                'volume_m3': volume_m3,
+                'wood_species': product.parsed_wood_species,
+                'technology': product.parsed_technology,
+                'wood_class': product.parsed_wood_class,
+                'finish_state': product.parsed_finish_state,
+                'dimensions': dimensions_text,
+                'attachment_file_name': product.attachment_file_name,
+                'attachment_file_url': product.attachment_file_url,
+                'quantity': product.quantity,
+                'quantity_done': qty_done,
+                'is_complete': qty_done == product.quantity,
+                'is_priority': product.is_priority,
+                'order_notes': product.order_notes,
+                'client_order_number': product.client_order_number,
+                'parsed_edge_processing': product.parsed_edge_processing,
+                'edge_description': edge_description,
+                'quantity_done_assembly': product.quantity_done_assembly,
+            }
+
+            products_flat.append(product_data)
 
         config = get_station_config()
 
-        total_products = sum(order['total_quantity'] for order in orders_list)
-        high_priority_count = sum(1 for order in orders_list if order['best_priority_rank'] <= 50)
+        total_products = sum(p['quantity'] for p in products_flat)
 
         station_stats = {
             'total_products': total_products,
-            'total_orders': len(orders_list),
-            'high_priority_count': high_priority_count
+            'total_count': len(products_flat),
         }
 
         now = datetime.utcnow()
 
         return render_template(
             'stations/finishing.html',
-            orders_grouped=orders_list,
-            products=products,
-            station_code='finishing',
-            station_name='Wykonczanie',
+            products_flat=products_flat,
+            station_code=station_code,
+            station_name='Wykańczanie',
             station_stats=station_stats,
             config=config,
             sort_by=sort_by,
+            tab=tab,
+            production_count=production_count,
+            painting_count=painting_count,
             now=now,
             last_updated=datetime.utcnow(),
-            page_title="Stanowisko Wykonczania"
+            page_title="Stanowisko Wykańczania"
         )
 
     except Exception as e:
-        logger.error("Blad interfejsu wykonczania", extra={
+        logger.error("Błąd interfejsu wykańczania", extra={
             'client_ip': request.remote_addr,
             'error': str(e),
             'traceback': traceback.format_exc()
@@ -932,7 +938,7 @@ def finishing_station():
 
         return render_template(
             'stations/error.html',
-            error_message="Blad ladowania stanowiska wykonczania",
+            error_message="Błąd ładowania stanowiska wykańczania",
             error_details=str(e),
             back_url=url_for('production.production_stations.station_select')
         ), 500
