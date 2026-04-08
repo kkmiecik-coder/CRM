@@ -1403,9 +1403,10 @@ body {
 /* Przycisk zamówienia w modalu wyszukiwania */
 .order-search-btn {
     display: flex;
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 4px;
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
     padding: 12px 14px;
     background: var(--bg-secondary);
     border: 1px solid var(--border-color);
