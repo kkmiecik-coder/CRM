@@ -305,14 +305,73 @@
         completeBtn.disabled = (qtyDone < qtyTotal);
     }
 
-    async function completeProduct(card, productId) {
+    function completeProduct(card, productId) {
         const isOnline = window.StationCommon && window.StationCommon.isOnline ? window.StationCommon.isOnline() : true;
         if (!isOnline) {
             showToast('warning', 'Brak połączenia - nie możesz zakończyć produktu');
             return;
         }
 
-        console.log(`[Finishing] Rozpoczęcie completion dla produktu ${productId}`);
+        // Uruchom odliczanie z opcją anulowania
+        startCompletionCountdown(card, productId);
+    }
+
+    function startCompletionCountdown(card, productId) {
+        const actionContainer = card.querySelector('.order-action');
+        if (!actionContainer) return;
+
+        card.classList.add('processing');
+
+        const isPainting = state.config && state.config.stationCode === 'painting';
+        const stationLabel = isPainting ? 'lakiernię' : 'wykańczanie';
+
+        actionContainer.innerHTML = `
+            <div class="action-countdown">
+                <button class="btn-complete processing">
+                    <span class="spinner"></span>
+                    <span class="countdown-text">Zapisuje... 10s</span>
+                </button>
+                <button class="btn-cancel">ANULUJ</button>
+            </div>
+        `;
+
+        const countdownText = actionContainer.querySelector('.countdown-text');
+        const cancelBtn = actionContainer.querySelector('.btn-cancel');
+
+        let secondsLeft = 10;
+
+        const timerId = setInterval(() => {
+            secondsLeft--;
+            if (secondsLeft > 0) {
+                countdownText.textContent = `Zapisuje... ${secondsLeft}s`;
+            } else {
+                clearInterval(timerId);
+                sendCompleteRequest(card, productId);
+            }
+        }, 1000);
+
+        cancelBtn.addEventListener('click', function(e) {
+            e.preventDefault();
+            clearInterval(timerId);
+            card.classList.remove('processing');
+
+            const btnLabel = isPainting ? 'ZAKOŃCZ LAKIERNIĘ' : 'ZAKOŃCZ WYKAŃCZANIE';
+            actionContainer.innerHTML = `<button class="btn-complete" data-product-id="${productId}" data-action="complete" disabled>${btnLabel}</button>`;
+
+            const completeBtn = actionContainer.querySelector('.btn-complete');
+            if (completeBtn) {
+                completeBtn.addEventListener('click', function() {
+                    completeProduct(card, productId);
+                });
+                updateCompleteButtonState(card);
+            }
+
+            showToast('info', 'Anulowano zakończenie produktu');
+        });
+    }
+
+    async function sendCompleteRequest(card, productId) {
+        console.log(`[Finishing] Wysyłanie completion dla produktu ${productId}`);
 
         const cardBackup = card.cloneNode(true);
 
@@ -359,6 +418,10 @@
             showToast('success', `Produkt ${productId} ukończony`);
             fetchTodayM3();
 
+            // Aktualizuj liczniki zakładek
+            const nextStatus = result.data ? result.data.next_status : null;
+            updateTabCounts(nextStatus);
+
             // Zamknij fullscreen jeśli aktywny
             if (typeof window.closeFullscreenIfActive === 'function') {
                 window.closeFullscreenIfActive(productId);
@@ -378,11 +441,40 @@
 
             const ordersList = document.getElementById('orders-list');
             if (ordersList) {
+                card.classList.remove('processing');
                 ordersList.insertBefore(cardBackup, ordersList.firstChild);
                 initializeProductTile(cardBackup);
             }
 
             showToast('error', `Błąd ukończenia: ${error.message}`);
+        }
+    }
+
+    function updateTabCounts(nextStatus) {
+        // Aktualizuj liczniki w belce zakładek po zakończeniu produktu
+        const tabBtns = document.querySelectorAll('.tab-btn .tab-count');
+        if (tabBtns.length < 2) return;
+
+        const productionCountEl = tabBtns[0]; // Produkcja
+        const paintingCountEl = tabBtns[1];   // Lakiernia
+
+        const activeTab = state.config ? state.config.tab : 'production';
+
+        // Zmniejsz licznik aktywnej zakładki o 1
+        const activeCountEl = activeTab === 'production' ? productionCountEl : paintingCountEl;
+        const activeMatch = activeCountEl.textContent.match(/\((\d+)\)/);
+        if (activeMatch) {
+            const newCount = Math.max(0, parseInt(activeMatch[1]) - 1);
+            activeCountEl.textContent = `(${newCount})`;
+        }
+
+        // Jeśli produkt trafił do lakierni, zwiększ licznik lakierni
+        if (nextStatus === 'czeka_na_lakiernie') {
+            const paintingMatch = paintingCountEl.textContent.match(/\((\d+)\)/);
+            if (paintingMatch) {
+                const newCount = parseInt(paintingMatch[1]) + 1;
+                paintingCountEl.textContent = `(${newCount})`;
+            }
         }
     }
 
