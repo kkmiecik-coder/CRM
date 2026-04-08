@@ -278,12 +278,18 @@
             margin: 0;
         }
 
-        /* Grid dla produktów z krawędziami - ~5 na stronę */
-        .edges-grid {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 15px;
+        /* Tabela 2-kolumnowa dla produktów z krawędziami */
+        .edges-grid-table {
+            width: 100%;
+            border-collapse: separate;
+            border-spacing: 15px;
             margin-top: 15px;
+        }
+
+        .edges-grid-table td {
+            width: 50%;
+            vertical-align: top;
+            padding: 0;
         }
 
         .edge-item {
@@ -730,9 +736,11 @@
             <p class="attachment-note">Wizualizacja kształtów i obróbki krawędzi produktów</p>
         </div>
 
-        <div class="edges-grid">
+        <table class="edges-grid-table">
             {% for detail in attachment_items %}
             {% set item = selected_items|selectattr('product_index', 'equalto', detail.product_index)|first %}
+            {% if loop.index is odd %}<tr>{% endif %}
+            <td>
             <div class="edge-item">
                 <div class="edge-item-header">
                     <span class="edge-item-position">Pozycja {{ detail.product_index }}</span>
@@ -790,8 +798,13 @@
                 </div>
                 {% endif %}
             </div>
+            </td>
+            {% if loop.index is even or loop.last %}
+            {% if loop.last and loop.index is odd %}<td></td>{% endif %}
+            </tr>
+            {% endif %}
             {% endfor %}
-        </div>
+        </table>
     </div>
     {% endif %}
 
