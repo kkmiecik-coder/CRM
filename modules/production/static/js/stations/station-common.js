@@ -966,12 +966,14 @@ function openFullscreenOrder(sourceCard) {
     }
 
     const orderNumber = sourceCard.dataset.orderNumber;
-    console.log(`[Fullscreen] Opening order: ${orderNumber}`);
+    const productId = sourceCard.dataset.productId;
+    console.log(`[Fullscreen] Opening order: ${orderNumber || productId}`);
 
     // Zapisz stan
     FULLSCREEN_STATE.isActive = true;
     FULLSCREEN_STATE.sourceCard = sourceCard;
     FULLSCREEN_STATE.sourceOrderNumber = orderNumber;
+    FULLSCREEN_STATE.sourceProductId = productId;
 
     // Przyciemnij oryginalną kartę
     sourceCard.classList.add('fullscreen-source');
@@ -1046,6 +1048,7 @@ function closeFullscreenOrder() {
     FULLSCREEN_STATE.isActive = false;
     FULLSCREEN_STATE.sourceCard = null;
     FULLSCREEN_STATE.sourceOrderNumber = null;
+    FULLSCREEN_STATE.sourceProductId = null;
     FULLSCREEN_STATE.overlay = null;
     FULLSCREEN_STATE.container = null;
 
@@ -1056,8 +1059,9 @@ function closeFullscreenOrder() {
  * Zamyka fullscreen po pomyślnym zakończeniu zamówienia
  * @param {string} orderNumber - Numer zamówienia
  */
-function closeFullscreenIfActive(orderNumber) {
-    if (FULLSCREEN_STATE.isActive && FULLSCREEN_STATE.sourceOrderNumber === orderNumber) {
+function closeFullscreenIfActive(identifier) {
+    if (FULLSCREEN_STATE.isActive &&
+        (FULLSCREEN_STATE.sourceOrderNumber === identifier || FULLSCREEN_STATE.sourceProductId === identifier)) {
         closeFullscreenOrder();
     }
 }
