@@ -517,6 +517,7 @@ def ajax_get_orders_cutting():
                 'is_priority': product.is_priority,
                 'order_notes': product.order_notes,
                 'client_order_number': product.client_order_number,
+                'baselinker_order_id': product.baselinker_order_id,
             }
 
             products_list.append(product_data)
@@ -670,6 +671,7 @@ def ajax_get_orders_assembly():
                 'is_priority': product.is_priority,
                 'order_notes': product.order_notes,
                 'client_order_number': product.client_order_number,
+                'baselinker_order_id': product.baselinker_order_id,
             }
 
             products_list.append(product_data)
@@ -821,6 +823,7 @@ def ajax_get_orders_gluing():
                 'is_priority': product.is_priority,
                 'order_notes': product.order_notes,
                 'client_order_number': product.client_order_number,
+                'baselinker_order_id': product.baselinker_order_id,
             }
 
             products_list.append(product_data)

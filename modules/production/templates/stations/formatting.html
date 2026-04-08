@@ -139,8 +139,8 @@
                     <!-- Row 1: Order IDs with space-between -->
                     <div class="order-header-row order-ids-row">
                         <span class="order-number">{{ order.order_number }}</span>
-                        {% if order.client_order_number %}
-                        <span class="order-client-number">{{ order.client_order_number }}</span>
+                        {% if order.baselinker_order_id %}
+                        <span class="order-baselinker">BL-{{ order.baselinker_order_id }}</span>
                         {% endif %}
                         {% if order.baselinker_order_id %}
                         <span class="order-baselinker">BL-{{ order.baselinker_order_id }}</span>

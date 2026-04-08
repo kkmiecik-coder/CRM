@@ -1030,8 +1030,8 @@
             `;
         }
 
-        // Numer zamowienia klienta
-        const clientOrderHTML = product.client_order_number ? `<span class="order-client-number">${product.client_order_number}</span>` : '';
+        // Numer BaseLinker
+        const clientOrderHTML = product.baselinker_order_id ? `<span class="order-baselinker">BL-${product.baselinker_order_id}</span>` : '';
 
         // Klasa priorytetu
         const priorityClass = product.is_priority ? ' priority-order' : '';
