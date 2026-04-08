@@ -15,9 +15,9 @@ Z obu stanowisk pozycje przechodzą na Sklejanie. Dalsza ścieżka bez zmian.
 ## Nowy przepływ
 
 ```
-┌─ Wycinanie - mikro (parsed_technology == 'mikrowczep') ─┐
-│                                                           ├→ Sklejanie → Formatowanie → Wykańczanie → Logistyka → Pakowanie
-└─ Składanie - lite  (parsed_technology == 'lity')        ─┘
+┌─ Wycinanie - mikro (parsed_technology == 'mikrowczep') ─┐                    ┌→ Wykańczanie → Logistyka ─┐
+│                                                           ├→ Sklejanie → Formatowanie ─┤                          ├→ Pakowanie
+└─ Składanie - lite  (parsed_technology == 'lity')        ─┘                    └→ Logistyka (surowe) ─────┘
 ```
 
 Istniejące skip-y zostają:
