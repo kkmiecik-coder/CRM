@@ -1036,6 +1036,12 @@ function closeFullscreenOrder() {
         FULLSCREEN_STATE.container.remove();
     }
 
+    // Wyczyść observer jeśli aktywny
+    if (FULLSCREEN_STATE._actionObserver) {
+        FULLSCREEN_STATE._actionObserver.disconnect();
+        FULLSCREEN_STATE._actionObserver = null;
+    }
+
     // Resetuj stan
     FULLSCREEN_STATE.isActive = false;
     FULLSCREEN_STATE.sourceCard = null;
@@ -1098,16 +1104,35 @@ function reinitializeClonedCard(clonedCard, sourceCard) {
         });
     });
 
-    // Przycisk complete
+    // Przycisk complete — synchronizuj UI countdown/saving z source do klona
     const completeBtn = clonedCard.querySelector('.btn-complete[data-action="complete"]');
     if (completeBtn) {
         completeBtn.addEventListener('click', function(e) {
             e.preventDefault();
 
-            // Wywołaj kliknięcie na oryginalnym przycisku
             const originalCompleteBtn = sourceCard.querySelector('.btn-complete[data-action="complete"]');
             if (originalCompleteBtn && !originalCompleteBtn.disabled) {
                 originalCompleteBtn.click();
+
+                // Obserwuj zmiany w order-action source i kopiuj do klona
+                const sourceAction = sourceCard.querySelector('.order-action');
+                const clonedAction = clonedCard.querySelector('.order-action');
+                if (sourceAction && clonedAction) {
+                    const observer = new MutationObserver(() => {
+                        clonedAction.innerHTML = sourceAction.innerHTML;
+                        // Podepnij cancel na klonie
+                        const clonedCancel = clonedAction.querySelector('.btn-cancel');
+                        if (clonedCancel) {
+                            clonedCancel.addEventListener('click', () => {
+                                const sourceCancel = sourceAction.querySelector('.btn-cancel');
+                                if (sourceCancel) sourceCancel.click();
+                            });
+                        }
+                    });
+                    observer.observe(sourceAction, { childList: true, subtree: true, characterData: true });
+                    // Zatrzymaj po zamknięciu fullscreen
+                    FULLSCREEN_STATE._actionObserver = observer;
+                }
             }
         });
     }
