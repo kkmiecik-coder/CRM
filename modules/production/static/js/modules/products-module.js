@@ -3642,6 +3642,21 @@ class ProductsModule {
             }
         });
 
+        // Obsługa pola obróbki krawędzi - pokaż tylko gdy produkt ma obróbkę krawędzi
+        const edgeFieldGroup = modalElement.querySelector('#edge-processing-field-group');
+        if (edgeFieldGroup) {
+            if (product.parsed_edge_processing) {
+                edgeFieldGroup.style.display = '';
+                const edgeValue = edgeFieldGroup.querySelector('[data-field="parsed_edge_processing"]');
+                if (edgeValue) {
+                    edgeValue.textContent = 'Tak';
+                    edgeValue.classList.add('text-success');
+                }
+            } else {
+                edgeFieldGroup.style.display = 'none';
+            }
+        }
+
         // Obsługa pola załączników w specyfikacji technicznej - pokaż/ukryj w zależności od obecności załącznika
         const attachmentFieldGroup = modalElement.querySelector('#attachment-field-group');
         console.log('[ProductsModule] Attachment field group:', attachmentFieldGroup);
@@ -3670,9 +3685,19 @@ class ProductsModule {
      */
     getStationsForProduct(product) {
         const technology = (product.parsed_technology || '').toLowerCase();
+        const finishState = (product.parsed_finish_state || '').toLowerCase();
+
+        // Sprawdź czy produkt wymaga lakierni (olejowane, lakierowane, bejcowane)
+        const needsPainting = ['olej', 'lakier', 'bejc'].some(k => finishState.includes(k));
 
         // Wspólne stanowiska (od sklejania dalej)
-        const commonStations = ['gluing', 'formatting', 'finishing', 'logistics', 'packaging'];
+        const commonStations = ['gluing', 'formatting', 'finishing'];
+
+        if (needsPainting) {
+            commonStations.push('painting');
+        }
+
+        commonStations.push('logistics', 'packaging');
 
         if (technology === 'mikrowczep') {
             return ['cutting', ...commonStations];
@@ -3743,6 +3768,17 @@ class ProductsModule {
                 durationField: 'finishing_duration_minutes'
             },
             {
+                code: 'painting',
+                name: 'Lakiernia',
+                status: 'czeka_na_lakiernie',
+                icon: 'fas fa-paint-roller',
+                color: 'finishing-theme',
+                startField: null,
+                endField: 'painting_completed_at',
+                durationField: null,
+                isSubstep: true
+            },
+            {
                 code: 'logistics',
                 name: 'Logistyka',
                 status: 'czeka_na_logistyke',
@@ -3785,8 +3821,11 @@ class ProductsModule {
             }
             const quantityInfo = `${quantityDone}/${quantity} szt.`;
 
+            const isSubstep = station.isSubstep || false;
+            const substepClass = isSubstep ? 'timeline-substep' : '';
+
             html += `
-                <div class="timeline-item ${timelineState.cssClass}">
+                <div class="timeline-item ${timelineState.cssClass} ${substepClass}">
                     <div class="timeline-icon ${station.color}">
                         <i class="${station.icon}"></i>
                     </div>
@@ -3865,13 +3904,14 @@ class ProductsModule {
      * Określa stan timeline dla stacji
      */
     getTimelineState(station, product) {
-        const stationOrder = ['cutting', 'assembly', 'gluing', 'formatting', 'finishing', 'logistics', 'packaging'];
+        const stationOrder = ['cutting', 'assembly', 'gluing', 'formatting', 'finishing', 'painting', 'logistics', 'packaging'];
         const endFields = {
             'cutting': 'cutting_completed_at',
             'assembly': 'assembly_completed_at',
             'gluing': 'gluing_completed_at',
             'formatting': 'formatting_completed_at',
             'finishing': 'finishing_completed_at',
+            'painting': 'painting_completed_at',
             'logistics': 'logistics_completed_at',
             'packaging': 'packaging_completed_at'
         };
@@ -3881,6 +3921,7 @@ class ProductsModule {
             'gluing': 'czeka_na_sklejanie',
             'formatting': 'czeka_na_formatowanie',
             'finishing': 'czeka_na_wykanczanie',
+            'painting': 'czeka_na_lakiernie',
             'logistics': 'czeka_na_logistyke',
             'packaging': 'czeka_na_pakowanie'
         };

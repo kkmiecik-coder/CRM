@@ -2200,3 +2200,16 @@
     border-top: 2px solid var(--il-border);
     padding: 14px 20px;
 }
+
+/* Podkrok timeline (np. Lakiernia jako substep Wykańczania) */
+.timeline-substep {
+    margin-left: 24px;
+    border-left: 2px dashed var(--border-color, #dee2e6);
+    padding-left: 12px;
+}
+
+.timeline-substep .timeline-icon {
+    width: 28px;
+    height: 28px;
+    font-size: 0.75rem;
+}
