@@ -1070,15 +1070,30 @@ function reinitializeClonedCard(clonedCard, sourceCard) {
             const productId = this.dataset.productId;
             const action = this.dataset.action;
 
-            // Znajdź odpowiedni przycisk w oryginalnej karcie i wywołaj jego kliknięcie
+            // Natychmiastowa aktualizacja UI klona
+            const counterEl = clonedCard.querySelector('.quantity-counter .qty-done') ||
+                              (productId ? clonedCard.querySelector(`[data-product-id="${productId}"] .qty-done`) : null);
+            const totalEl = clonedCard.querySelector('.quantity-counter .qty-total') ||
+                            (productId ? clonedCard.querySelector(`[data-product-id="${productId}"] .qty-total`) : null);
+
+            if (counterEl && totalEl) {
+                let done = parseInt(counterEl.textContent) || 0;
+                const total = parseInt(totalEl.textContent) || 1;
+                if (action === 'increment' && done < total) done++;
+                else if (action === 'decrement' && done > 0) done--;
+                else if (action === 'increment10' && done + 10 <= total) done += 10;
+                else if (action === 'decrement10' && done >= 10) done -= 10;
+                counterEl.textContent = done;
+            }
+
+            // Deleguj do source card (API call + pełna logika)
             const originalBtn = sourceCard.querySelector(`.btn-qty[data-product-id="${productId}"][data-action="${action}"]`);
             if (originalBtn) {
                 originalBtn.click();
-
-                // Synchronizuj UI po krótkim opóźnieniu (czas na optimistic update)
+                // Pełna synchronizacja po API response
                 setTimeout(() => {
                     syncClonedCardUI(clonedCard, sourceCard);
-                }, 300);
+                }, 500);
             }
         });
     });
