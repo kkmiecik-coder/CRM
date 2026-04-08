@@ -57,8 +57,6 @@
             startRefreshCountdown(config.refreshInterval);
         }
 
-        setupThemeToggle();
-
         if (window.StationCommon && window.StationCommon.initConnectionMonitor) {
             window.StationCommon.initConnectionMonitor();
             if (window.StationCommon.onConnectionChange) {
@@ -651,39 +649,6 @@
         } catch (error) {
             console.error('[Finishing] Failed to fetch today m³:', error);
         }
-    }
-
-    // ========================================================================
-    // THEME TOGGLE
-    // ========================================================================
-
-    function setupThemeToggle() {
-        const themeToggle = document.getElementById('theme-toggle');
-        if (!themeToggle) return;
-
-        themeToggle.addEventListener('click', function() {
-            document.body.classList.toggle('light-mode');
-            const isLight = document.body.classList.contains('light-mode');
-
-            const sunIcon = themeToggle.querySelector('.sun-icon');
-            const moonIcon = themeToggle.querySelector('.moon-icon');
-            const themeText = themeToggle.querySelector('.theme-text');
-
-            if (isLight) {
-                if (sunIcon) sunIcon.style.display = 'none';
-                if (moonIcon) moonIcon.style.display = 'block';
-                if (themeText) themeText.textContent = 'Tryb ciemny';
-            } else {
-                if (sunIcon) sunIcon.style.display = 'block';
-                if (moonIcon) moonIcon.style.display = 'none';
-                if (themeText) themeText.textContent = 'Tryb jasny';
-            }
-
-            localStorage.setItem('theme', isLight ? 'light' : 'dark');
-        });
-
-        const savedTheme = localStorage.getItem('theme');
-        if (savedTheme === 'light') themeToggle.click();
     }
 
     // ========================================================================

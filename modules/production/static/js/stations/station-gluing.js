@@ -80,9 +80,6 @@
             startRefreshCountdown(config.refreshInterval);
         }
 
-        // Przełącznik motywu
-        setupThemeToggle();
-
         // Monitor połączenia
         if (window.StationCommon && window.StationCommon.initConnectionMonitor) {
             window.StationCommon.initConnectionMonitor();
@@ -983,9 +980,7 @@
                      data-attachment-url="${product.attachment_file_url}"
                      data-attachment-name="${product.attachment_file_name || ''}"
                      data-attachment-type="${attachmentType}">
-                    <svg class="header-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path>
-                    </svg>
+                    <svg class="header-icon" width="18" height="18"><use href="${window.STATION_CONFIG.iconsUrl}#icon-attachment"/></svg>
                 </div>
             `;
         }
@@ -997,15 +992,10 @@
                 <div class="header-icon-wrapper notes-icon-wrapper"
                      data-notes="${product.order_notes.replace(/"/g, '&quot;')}"
                      title="${truncatedNotes.replace(/"/g, '&quot;')}">
-                    <svg class="header-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
-                    </svg>
+                    <svg class="header-icon" width="18" height="18"><use href="${window.STATION_CONFIG.iconsUrl}#icon-notes"/></svg>
                 </div>
             `;
         }
-
-        // Deadline badge - uzywamy display_deadline z AJAX zamiast nieistniejacego product.deadline
-        const deadlineBadge = product.display_deadline ? `<span class="deadline-badge">${product.display_deadline}</span>` : '';
 
         // Numer zamowienia klienta
         const clientOrderHTML = product.client_order_number ? `<span class="order-client-number">${product.client_order_number}</span>` : '';
@@ -1025,7 +1015,6 @@
                     <div class="order-header-row order-ids-row">
                         <span class="order-number">${product.id}</span>
                         ${clientOrderHTML}
-                        ${deadlineBadge}
                     </div>
                     <div class="order-header-row order-stats-row">
                         <div class="order-stats">
@@ -1082,45 +1071,6 @@
 
         } catch (error) {
             console.error('[Gluing] Błąd pobierania dzisiejszych m³:', error);
-        }
-    }
-
-    // ========================================================================
-    // PRZEŁĄCZNIK MOTYWU
-    // ========================================================================
-
-    function setupThemeToggle() {
-        const themeToggle = document.getElementById('theme-toggle');
-
-        if (!themeToggle) {
-            return;
-        }
-
-        themeToggle.addEventListener('click', function() {
-            document.body.classList.toggle('light-mode');
-            const isLight = document.body.classList.contains('light-mode');
-
-            const sunIcon = themeToggle.querySelector('.sun-icon');
-            const moonIcon = themeToggle.querySelector('.moon-icon');
-            const themeText = themeToggle.querySelector('.theme-text');
-
-            if (isLight) {
-                sunIcon.style.display = 'none';
-                moonIcon.style.display = 'block';
-                themeText.textContent = 'Tryb ciemny';
-            } else {
-                sunIcon.style.display = 'block';
-                moonIcon.style.display = 'none';
-                themeText.textContent = 'Tryb jasny';
-            }
-
-            localStorage.setItem('theme', isLight ? 'light' : 'dark');
-        });
-
-        // Załaduj zapisany motyw
-        const savedTheme = localStorage.getItem('theme');
-        if (savedTheme === 'light') {
-            themeToggle.click();
         }
     }
 

@@ -79,9 +79,6 @@
             startRefreshCountdown(config.refreshInterval);
         }
 
-        // Theme toggle
-        setupThemeToggle();
-
         // Initialize connection monitor
         if (window.StationCommon && window.StationCommon.initConnectionMonitor) {
             window.StationCommon.initConnectionMonitor();
@@ -1350,12 +1347,7 @@
                      data-delivery-city="${(order.delivery_city || '').replace(/"/g, '&quot;')}"
                      data-delivery-country="${(order.delivery_country_code || 'PL').replace(/"/g, '&quot;')}"
                      title="Pokaż adres dostawy">
-                    <svg class="header-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <rect x="1" y="3" width="15" height="13"></rect>
-                        <polygon points="16 8 20 8 23 11 23 16 16 16 16 8"></polygon>
-                        <circle cx="5.5" cy="18.5" r="2.5"></circle>
-                        <circle cx="18.5" cy="18.5" r="2.5"></circle>
-                    </svg>
+                    <svg class="header-icon" width="18" height="18"><use href="${window.STATION_CONFIG.iconsUrl}#icon-delivery"/></svg>
                 </div>
             `;
         }
@@ -1368,9 +1360,7 @@
                          data-attachment-url="${firstProduct.attachment_file_url}"
                          data-attachment-name="${firstProduct.attachment_file_name || ''}"
                          data-attachment-type="${attachmentType}">
-                        <svg class="header-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path>
-                        </svg>
+                        <svg class="header-icon" width="18" height="18"><use href="${window.STATION_CONFIG.iconsUrl}#icon-attachment"/></svg>
                     </div>
                 `;
             }
@@ -1382,9 +1372,7 @@
                     <div class="header-icon-wrapper notes-icon-wrapper"
                          data-notes="${firstProduct.order_notes.replace(/"/g, '&quot;')}"
                          title="${truncatedNotes.replace(/"/g, '&quot;')}">
-                        <svg class="header-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
-                        </svg>
+                        <svg class="header-icon" width="18" height="18"><use href="${window.STATION_CONFIG.iconsUrl}#icon-notes"/></svg>
                     </div>
                 `;
             }
@@ -1393,19 +1381,12 @@
         // Ikona powiększenia (zawsze)
         iconsHTML += `
             <div class="header-icon-wrapper expand-icon-wrapper" title="Powiększ zamówienie">
-                <svg class="header-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <polyline points="15 3 21 3 21 9"></polyline>
-                    <polyline points="9 21 3 21 3 15"></polyline>
-                    <line x1="21" y1="3" x2="14" y2="10"></line>
-                    <line x1="3" y1="21" x2="10" y2="14"></line>
-                </svg>
+                <svg class="header-icon" width="18" height="18"><use href="${window.STATION_CONFIG.iconsUrl}#icon-expand"/></svg>
             </div>
         `;
 
         const clientOrderBadge = order.client_order_number ? `<span class="order-client-number">${order.client_order_number}</span>` : '';
         const blBadge = order.baselinker_order_id ? `<span class="order-baselinker">BL-${order.baselinker_order_id}</span>` : '';
-        const deadlineBadge = order.display_deadline ? `<span class="deadline-info">${order.display_deadline}</span>` : '';
-
         // Calculate total done
         let totalDone = 0;
         let totalQty = 0;
@@ -1434,7 +1415,6 @@
                         <span class="order-number">${order.order_number}</span>
                         ${clientOrderBadge}
                         ${blBadge}
-                        ${deadlineBadge}
                     </div>
                     <div class="order-header-row order-stats-row">
                         <div class="order-stats">
@@ -1479,45 +1459,6 @@
 
         } catch (error) {
             console.error('[Packaging] Failed to fetch today m³:', error);
-        }
-    }
-
-    // ========================================================================
-    // THEME TOGGLE
-    // ========================================================================
-
-    function setupThemeToggle() {
-        const themeToggle = document.getElementById('theme-toggle');
-
-        if (!themeToggle) {
-            return;
-        }
-
-        themeToggle.addEventListener('click', function() {
-            document.body.classList.toggle('light-mode');
-            const isLight = document.body.classList.contains('light-mode');
-
-            const sunIcon = themeToggle.querySelector('.sun-icon');
-            const moonIcon = themeToggle.querySelector('.moon-icon');
-            const themeText = themeToggle.querySelector('.theme-text');
-
-            if (isLight) {
-                sunIcon.style.display = 'none';
-                moonIcon.style.display = 'block';
-                themeText.textContent = 'Tryb ciemny';
-            } else {
-                sunIcon.style.display = 'block';
-                moonIcon.style.display = 'none';
-                themeText.textContent = 'Tryb jasny';
-            }
-
-            localStorage.setItem('theme', isLight ? 'light' : 'dark');
-        });
-
-        // Load saved theme
-        const savedTheme = localStorage.getItem('theme');
-        if (savedTheme === 'light') {
-            themeToggle.click();
         }
     }
 

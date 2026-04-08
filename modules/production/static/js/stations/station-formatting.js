@@ -79,9 +79,6 @@
             startRefreshCountdown(config.refreshInterval);
         }
 
-        // Theme toggle
-        setupThemeToggle();
-
         // Initialize connection monitor
         if (window.StationCommon && window.StationCommon.initConnectionMonitor) {
             window.StationCommon.initConnectionMonitor();
@@ -1185,9 +1182,7 @@
                          data-attachment-url="${firstProduct.attachment_file_url}"
                          data-attachment-name="${firstProduct.attachment_file_name || ''}"
                          data-attachment-type="${attachmentType}">
-                        <svg class="header-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path>
-                        </svg>
+                        <svg class="header-icon" width="18" height="18"><use href="${window.STATION_CONFIG.iconsUrl}#icon-attachment"/></svg>
                     </div>
                 `;
             }
@@ -1199,9 +1194,7 @@
                     <div class="header-icon-wrapper notes-icon-wrapper"
                          data-notes="${firstProduct.order_notes.replace(/"/g, '&quot;')}"
                          title="${truncatedNotes.replace(/"/g, '&quot;')}">
-                        <svg class="header-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
-                        </svg>
+                        <svg class="header-icon" width="18" height="18"><use href="${window.STATION_CONFIG.iconsUrl}#icon-notes"/></svg>
                     </div>
                 `;
             }
@@ -1210,12 +1203,7 @@
         // Ikona powiększenia (zawsze)
         iconsHTML += `
             <div class="header-icon-wrapper expand-icon-wrapper" title="Powiększ zamówienie">
-                <svg class="header-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <polyline points="15 3 21 3 21 9"></polyline>
-                    <polyline points="9 21 3 21 3 15"></polyline>
-                    <line x1="21" y1="3" x2="14" y2="10"></line>
-                    <line x1="3" y1="21" x2="10" y2="14"></line>
-                </svg>
+                <svg class="header-icon" width="18" height="18"><use href="${window.STATION_CONFIG.iconsUrl}#icon-expand"/></svg>
             </div>
         `;
 
@@ -1293,45 +1281,6 @@
 
         } catch (error) {
             console.error('[Formatting] Failed to fetch today m³:', error);
-        }
-    }
-
-    // ========================================================================
-    // THEME TOGGLE
-    // ========================================================================
-
-    function setupThemeToggle() {
-        const themeToggle = document.getElementById('theme-toggle');
-
-        if (!themeToggle) {
-            return;
-        }
-
-        themeToggle.addEventListener('click', function() {
-            document.body.classList.toggle('light-mode');
-            const isLight = document.body.classList.contains('light-mode');
-
-            const sunIcon = themeToggle.querySelector('.sun-icon');
-            const moonIcon = themeToggle.querySelector('.moon-icon');
-            const themeText = themeToggle.querySelector('.theme-text');
-
-            if (isLight) {
-                sunIcon.style.display = 'none';
-                moonIcon.style.display = 'block';
-                themeText.textContent = 'Tryb ciemny';
-            } else {
-                sunIcon.style.display = 'block';
-                moonIcon.style.display = 'none';
-                themeText.textContent = 'Tryb jasny';
-            }
-
-            localStorage.setItem('theme', isLight ? 'light' : 'dark');
-        });
-
-        // Load saved theme
-        const savedTheme = localStorage.getItem('theme');
-        if (savedTheme === 'light') {
-            themeToggle.click();
         }
     }
 
