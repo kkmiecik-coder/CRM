@@ -385,9 +385,10 @@ class EdgesPdfGenerator:
         }}
 
         .cell-header-table .cell-badge-col {{
-            width: 1px;
+            width: 30%;
             white-space: nowrap;
             vertical-align: middle;
+            text-align: right;
         }}
 
         .cell-position {{
