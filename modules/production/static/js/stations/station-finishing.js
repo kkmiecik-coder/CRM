@@ -322,18 +322,20 @@
         completeBtn.classList.remove('offline');
         completeBtn.textContent = 'ZAKOŃCZ WYKAŃCZANIE';
 
-        const productRows = card.querySelectorAll('.product-row');
+        const activeProductRows = card.querySelectorAll('.product-row:not(.product-disabled)');
+        const disabledProductRows = card.querySelectorAll('.product-row.product-disabled');
         let allComplete = true;
         let hasProducts = false;
+        let hasDisabledProducts = disabledProductRows.length > 0;
 
-        productRows.forEach(row => {
+        activeProductRows.forEach(row => {
             hasProducts = true;
             const qtyDone = parseInt(row.dataset.quantityDone) || 0;
             const qtyTotal = parseInt(row.dataset.quantity) || 0;
             if (qtyDone < qtyTotal) allComplete = false;
         });
 
-        completeBtn.disabled = !(allComplete && hasProducts);
+        completeBtn.disabled = !(allComplete && hasProducts && !hasDisabledProducts);
     }
 
     function handleCompleteClick(card, orderNumber) {

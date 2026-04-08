@@ -617,12 +617,15 @@
         completeBtn.classList.remove('offline');
         completeBtn.textContent = 'ZAKOŃCZ PAKOWANIE';
 
-        // Sprawdzamy tylko aktywne produkty (nie-disabled)
-        const productRows = card.querySelectorAll('.product-row:not(.product-disabled)');
+        // Sprawdzamy WSZYSTKIE produkty zamówienia
+        const activeProductRows = card.querySelectorAll('.product-row:not(.product-disabled)');
+        const disabledProductRows = card.querySelectorAll('.product-row.product-disabled');
         let allComplete = true;
         let hasProducts = false;
+        // Zamówienie niekompletne jeśli ma produkty na wcześniejszych stanowiskach
+        let hasDisabledProducts = disabledProductRows.length > 0;
 
-        productRows.forEach(row => {
+        activeProductRows.forEach(row => {
             hasProducts = true;
             const qtyDone = parseInt(row.dataset.quantityDone) || 0;
             const qtyTotal = parseInt(row.dataset.quantity) || 0;
@@ -631,8 +634,8 @@
             }
         });
 
-        // Enable button only if ALL products are complete
-        if (allComplete && hasProducts) {
+        // Przycisk aktywny tylko gdy WSZYSTKIE aktywne produkty ukończone i brak wyszarzonych
+        if (allComplete && hasProducts && !hasDisabledProducts) {
             completeBtn.disabled = false;
         } else {
             completeBtn.disabled = true;
