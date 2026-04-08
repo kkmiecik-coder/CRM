@@ -573,9 +573,10 @@
 
 .btn-complete:disabled {
     
+    opacity: 0.3;
     cursor: not-allowed;
-    background: var(--bg-primary);
-    color: var(--text-tertiary);
+    background: var(--bg-tertiary);
+    color: var(--text-muted);
 }
 
 .btn-complete.saving,
