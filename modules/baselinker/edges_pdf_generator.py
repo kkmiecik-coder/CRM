@@ -601,9 +601,10 @@ class EdgesPdfGenerator:
         <div class="cell">
             <div class="cell-header">
                 <div class="cell-header-row">
-                    <span class="cell-position">#{product_index}: {product_name}<br/><span class="cell-dims">{length} x {width} x {thickness} cm | {quantity} szt.</span></span>
+                    <span class="cell-position">#{product_index}: {product_name}</span>
                     {shape_badge}
                 </div>
+                <div class="cell-dims">{length} x {width} x {thickness} cm | {quantity} szt.</div>
             </div>
             <div class="cell-body">
                 {labels_html}
