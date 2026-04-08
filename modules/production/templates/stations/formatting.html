@@ -226,12 +226,9 @@
                          data-disabled="{{ 'true' if is_disabled else 'false' }}">
 
                         <div class="product-left-col">
-                            {% if product.product_sequence_in_order %}
-                            <div class="product-sequence-row">
-                                <span class="product-sequence-number">{{ product.id }}</span>
-                            </div>
-                            {% endif %}
                             <div class="product-params">
+                                {# Numer produktu — pomarańczowy badge #}
+                                <span class="badge badge-product-id">{{ product.id }}</span>
                                 {# Plakietka stanowiska dla produktów nie gotowych na formatowanie #}
                                 {% if is_disabled %}
                                     {% set station_info = station_map.get(product.current_status, ('unknown', 'Nieznane')) %}
