@@ -13,6 +13,7 @@ from sqlalchemy import text
 
 from . import api_bp, logger, ProductionItem, ProductionError, ProductionSyncLog, ProductionConfig, get_local_now
 from .common_api import admin_required, cron_secret_required
+from modules.production.services.parser_service import parse_product_name
 
 
 @api_bp.route('/sync-cron', methods=['GET'])
@@ -890,6 +891,11 @@ def fetch_orders_preview():
                         if not already_exists:
                             has_new_products = True
 
+                        # Parsuj technologię produktu z nazwy
+                        parsed_result = parse_product_name(product_name)
+                        parsed_technology = parsed_result.get('technology')
+                        is_valid_technology = parsed_technology in ('mikrowczep', 'lity')
+
                         processed_products.append({
                             'name': product_name,
                             'sku': product.get('sku', ''),
@@ -897,7 +903,9 @@ def fetch_orders_preview():
                             'quantity': float(product.get('quantity', 0)),
                             'price': float(product.get('price_brutto', 0)),
                             'unit': product.get('unit', 'szt.'),
-                            'already_in_db': already_exists
+                            'already_in_db': already_exists,
+                            'parsed_technology': parsed_technology,       # Technologia sparsowana z nazwy produktu
+                            'unknown_technology': not is_valid_technology  # Flaga błędu: nieznana technologia
                         })
 
                     order['products'] = processed_products
@@ -915,6 +923,12 @@ def fetch_orders_preview():
                     else:
                         order['partially_exists'] = False
                         order['existing_products_count'] = 0
+
+                # Sprawdź czy zamówienie ma błąd technologii (wśród wszystkich produktów)
+                has_technology_error = any(
+                    p.get('unknown_technology', False) for p in processed_products
+                )
+                order['technology_error'] = has_technology_error
 
                 # Dodaj dodatkowe pola dla frontendu
                 order['id'] = baselinker_order_id
