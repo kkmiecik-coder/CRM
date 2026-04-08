@@ -1314,7 +1314,7 @@ class ProductsModule {
                     status: null,
                     deadline: null,
                     isPriority: false,
-                    productionNotes: product.production_notes || '',
+                    orderNotes: product.order_notes || '',
                     attachmentUrl: null
                 });
             }
@@ -1326,7 +1326,7 @@ class ProductsModule {
             order.totalValue += parseFloat(product.total_value_net) || 0;
 
             if (product.is_priority) order.isPriority = true;
-            if (product.production_notes && !order.productionNotes) order.productionNotes = product.production_notes;
+            if (product.order_notes && !order.orderNotes) order.orderNotes = product.order_notes;
             if (product.attachment_file_url) order.attachmentUrl = product.attachment_file_url;
 
             // Earliest deadline
@@ -1595,7 +1595,7 @@ class ProductsModule {
                 btn.setAttribute('disabled', 'true');
             }
             if (action === 'comment') {
-                if (!order.productionNotes) {
+                if (!order.orderNotes) {
                     btn.classList.add('disabled');
                     btn.setAttribute('disabled', 'true');
                 } else {
@@ -1648,11 +1648,11 @@ class ProductsModule {
         // Remove existing tooltips
         document.querySelectorAll('.il-comment-tooltip').forEach(el => el.remove());
 
-        if (!order.productionNotes) {
-            // Show "Brak notatek" tooltip briefly
+        if (!order.orderNotes) {
+            // Show "Brak komentarza" tooltip briefly
             const tooltip = document.createElement('div');
             tooltip.className = 'il-comment-tooltip';
-            tooltip.textContent = 'Brak notatek';
+            tooltip.textContent = 'Brak komentarza';
             btn.style.position = 'relative';
             btn.appendChild(tooltip);
             setTimeout(() => tooltip.remove(), 2000);
@@ -1661,7 +1661,7 @@ class ProductsModule {
 
         const tooltip = document.createElement('div');
         tooltip.className = 'il-comment-tooltip';
-        tooltip.textContent = order.productionNotes;
+        tooltip.textContent = order.orderNotes;
         btn.style.position = 'relative';
         btn.appendChild(tooltip);
 
