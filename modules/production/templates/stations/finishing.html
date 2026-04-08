@@ -206,7 +206,7 @@
                 <!-- PRODUCTS LIST -->
                 <div class="products-list">
                     {% for product in order.products %}
-                    <div class="product-row{% if product.is_priority %} priority-product{% endif %}"
+                    <div class="product-row{% if product.is_priority %} priority-product{% endif %}{% if product.quantity_done == product.quantity %} product-complete{% endif %}"
                          data-product-id="{{ product.id }}"
                          data-quantity="{{ product.quantity }}"
                          data-quantity-done="{{ product.quantity_done }}"
