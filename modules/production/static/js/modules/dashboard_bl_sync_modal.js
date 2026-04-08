@@ -948,12 +948,23 @@ class DashboardBLSyncModal {
                 </span>`;
             }
 
+            // Badge błędu technologii
+            let technologyBadge = '';
+            if (order.technology_error === true) {
+                technologyBadge = `<span class="sync-order-tech-error-badge" title="Co najmniej jeden produkt ma nierozpoznaną technologię">
+                    <span style="color: #dc2626; font-size: 12px; padding: 2px 6px; background: rgba(220, 38, 38, 0.1); border-radius: 4px; margin-left: 8px;">
+                        ⚠ Nierozpoznana technologia
+                    </span>
+                </span>`;
+            }
+
             html += `
-                <div class="sync-order-item ${isSelected ? 'selected' : ''} ${isPartiallyExists ? 'partially-exists' : ''}" data-order-id="${order.id || index}">
-                    <div class="sync-order-header" onclick="window.dashboardBLSyncModal.toggleOrderSelection(${index})">
+                <div class="sync-order-item ${isSelected ? 'selected' : ''} ${isPartiallyExists ? 'partially-exists' : ''} ${order.technology_error === true ? 'technology-error' : ''}" data-order-id="${order.id || index}">
+                    <div class="sync-order-header" ${order.technology_error === true ? '' : `onclick="window.dashboardBLSyncModal.toggleOrderSelection(${index})"`}>
                         <input type="checkbox"
                                class="sync-order-checkbox"
                                ${isSelected ? 'checked' : ''}
+                               ${order.technology_error === true ? 'disabled' : ''}
                                onclick="event.stopPropagation(); window.dashboardBLSyncModal.toggleOrderSelection(${index})">
 
                         <div class="sync-order-info">
@@ -961,6 +972,7 @@ class DashboardBLSyncModal {
                                 <div class="sync-order-id">
                                     Zamówienie #${order.baselinker_order_id || order.id || `TEMP-${index}`}
                                     ${partialBadge}
+                                    ${technologyBadge}
                                 </div>
                                 <div class="sync-order-customer">
                                     ${order.customer_name || order.delivery_fullname || 'Brak nazwy klienta'}
@@ -1030,11 +1042,26 @@ class DashboardBLSyncModal {
                 statusLabel = '<small style="color: #10b981;">✓ w bazie</small>';
             }
 
+            // Badge technologii
+            let techBadge = '';
+            if (!isFiltered) {
+                if (product.unknown_technology) {
+                    statusLabel = '<small style="color: #dc2626; font-weight: 600;">(nieznana technologia)</small>';
+                    itemClasses += ' tech-error';
+                }
+
+                if (product.parsed_technology) {
+                    const techLabel = product.parsed_technology === 'lity' ? 'lite' : product.parsed_technology;
+                    techBadge = `<span class="sync-product-tech-badge" style="font-size: 11px; padding: 1px 5px; background: rgba(99,102,241,0.1); color: #6366f1; border-radius: 3px; margin-left: 6px;">${techLabel}</span>`;
+                }
+            }
+
             html += `
                 <div class="${itemClasses}">
                     <div class="sync-product-info">
                         <div class="sync-product-name">
                             ${product.name || 'Bez nazwy'}
+                            ${techBadge}
                             ${statusLabel}
                         </div>
                         <div class="sync-product-details">
@@ -1122,11 +1149,18 @@ class DashboardBLSyncModal {
      * Zaznaczenie wszystkich zamówień
      */
     selectAllOrders() {
-        this.selectedOrders = [...this.fetchedOrders];
+        // Pomijaj zamówienia z błędem technologii — są zablokowane
+        this.fetchedOrders.forEach(order => {
+            if (!order.technology_error) {
+                if (!this.selectedOrders.includes(order)) {
+                    this.selectedOrders.push(order);
+                }
+            }
+        });
         this.updateAllOrdersUI();
         this.updateSelectedStats();
         this.updateStep3SaveButton();
-        console.log('[BL Sync Modal v2] Zaznaczono wszystkie zamówienia');
+        console.log('[BL Sync Modal v2] Zaznaczono wszystkie zamówienia (z pominięciem błędów technologii)');
     }
 
     /**
