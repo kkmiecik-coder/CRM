@@ -1309,6 +1309,9 @@ function openOrderSearchModal() {
                 <h3>Wyszukaj zamówienie</h3>
                 <button class="order-search-modal-close">&times;</button>
             </div>
+            <div class="order-search-input-wrapper">
+                <input type="text" class="order-search-input" placeholder="Wpisz numer zamówienia lub BL..." autofocus>
+            </div>
             <div class="order-search-modal-body">
                 ${ordersHTML}
             </div>
@@ -1322,13 +1325,24 @@ function openOrderSearchModal() {
     // Event listener dla zamknięcia
     modal.querySelector('.order-search-modal-close').addEventListener('click', closeOrderSearchModal);
 
+    // Filtrowanie po wpisaniu
+    const searchInput = modal.querySelector('.order-search-input');
+    const allButtons = modal.querySelectorAll('.order-search-btn');
+    searchInput.addEventListener('input', function() {
+        const query = this.value.toLowerCase().trim();
+        allButtons.forEach(btn => {
+            const text = btn.textContent.toLowerCase();
+            btn.style.display = (!query || text.includes(query)) ? '' : 'none';
+        });
+    });
+    searchInput.focus();
+
     // Event listenery dla przycisków zamówień
-    modal.querySelectorAll('.order-search-btn').forEach((btn, index) => {
+    allButtons.forEach((btn, index) => {
         btn.addEventListener('click', function() {
             const order = orders[index];
             if (order && order.card) {
                 closeOrderSearchModal();
-                // Otwórz zamówienie w fullscreen
                 openFullscreenOrder(order.card);
             }
         });
