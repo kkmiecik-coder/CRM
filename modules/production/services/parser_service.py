@@ -333,6 +333,10 @@ class ProductNameParser:
                 # Domyślnie surowe jeśli nie znaleziono wykończenia
                 result['finish_state'] = 'surowe'
             
+            # 5b. Parsowanie obróbki krawędzi
+            edge_processing = self._parse_edge_processing(normalized_name)
+            result['edge_processing'] = edge_processing
+
             # 6. Parsowanie klasy drewna
             wood_class = self._parse_wood_class(normalized_name)
             if wood_class:
@@ -515,6 +519,32 @@ class ProductNameParser:
 
         return None
 
+    def _parse_edge_processing(self, name: str) -> bool:
+        """
+        Sprawdza czy nazwa produktu zawiera informację o obróbce krawędzi.
+
+        Wykrywane frazy: fazowanie, faza, frezowanie, R(liczba), kąt, zaokrąglenie
+
+        Args:
+            name (str): Znormalizowana nazwa produktu (lowercase)
+
+        Returns:
+            bool: True jeśli wykryto obróbkę krawędzi
+        """
+        import re
+
+        edge_keywords = ['fazowanie', 'faza', 'frezowanie', 'kąt', 'zaokrąglenie', 'zaokraglenie']
+
+        for keyword in edge_keywords:
+            if keyword in name:
+                return True
+
+        # R + liczba (np. R30, R15)
+        if re.search(r'\bR\d+\b', name, re.IGNORECASE):
+            return True
+
+        return False
+
     def _parse_lacquer_finish(self, name: str) -> str:
         """
         Parsuje szczegółowe wykończenie lakierowane (bezbarwny vs barwny + kolor)
@@ -654,6 +684,7 @@ class ProductNameParser:
             'width_cm': None,
             'thickness_cm': None,
             'finish_state': 'surowe',  # Domyślne wykończenie
+            'edge_processing': False,
             'volume_m3': None,
             'parsing_success': False,
             'parsing_confidence': 0.0,

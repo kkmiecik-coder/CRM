@@ -1230,6 +1230,7 @@ class BaselinkerSyncService:
                 'parsed_width_cm': parsed_data.get('width_cm'),
                 'parsed_thickness_cm': parsed_data.get('thickness_cm'),
                 'parsed_finish_state': parsed_data.get('finish_state'),
+                'parsed_edge_processing': parsed_data.get('edge_processing', False),
                 'volume_m3': volume_m3
             })
     
