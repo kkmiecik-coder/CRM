@@ -1004,6 +1004,11 @@
                 </div>
             `;
         }
+        iconsHTML += `
+            <div class="header-icon-wrapper expand-icon-wrapper">
+                <svg class="header-icon" width="18" height="18"><use href="${window.STATION_CONFIG.iconsUrl}#icon-expand"/></svg>
+            </div>
+        `;
 
         // Numer BaseLinker
         const clientOrderHTML = product.baselinker_order_id ? `<span class="order-baselinker">BL-${product.baselinker_order_id}</span>` : '';

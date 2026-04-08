@@ -1075,10 +1075,10 @@ function reinitializeClonedCard(clonedCard, sourceCard) {
             if (originalBtn) {
                 originalBtn.click();
 
-                // Synchronizuj UI po krótkim opóźnieniu
+                // Synchronizuj UI po krótkim opóźnieniu (czas na optimistic update)
                 setTimeout(() => {
                     syncClonedCardUI(clonedCard, sourceCard);
-                }, 50);
+                }, 300);
             }
         });
     });
@@ -1132,31 +1132,27 @@ function reinitializeClonedCard(clonedCard, sourceCard) {
  * @param {HTMLElement} sourceCard - Oryginalna karta
  */
 function syncClonedCardUI(clonedCard, sourceCard) {
-    // Synchronizuj quantity counters
+    // Synchronizuj quantity counters - order-grouped (packaging/formatting)
     const sourceRows = sourceCard.querySelectorAll('.product-row');
     sourceRows.forEach(sourceRow => {
         const productId = sourceRow.dataset.productId;
         const clonedRow = clonedCard.querySelector(`[data-product-id="${productId}"]`);
 
         if (clonedRow) {
-            // Synchronizuj quantity done
             const sourceQtyDone = sourceRow.querySelector('.qty-done');
             const clonedQtyDone = clonedRow.querySelector('.qty-done');
             if (sourceQtyDone && clonedQtyDone) {
                 clonedQtyDone.textContent = sourceQtyDone.textContent;
             }
 
-            // Synchronizuj data attribute
             clonedRow.dataset.quantityDone = sourceRow.dataset.quantityDone;
 
-            // Synchronizuj klasy (product-complete)
             if (sourceRow.classList.contains('product-complete')) {
                 clonedRow.classList.add('product-complete');
             } else {
                 clonedRow.classList.remove('product-complete');
             }
 
-            // Synchronizuj stany przycisków
             const sourceButtons = sourceRow.querySelectorAll('.btn-qty');
             sourceButtons.forEach(sourceBtn => {
                 const action = sourceBtn.dataset.action;
@@ -1168,11 +1164,38 @@ function syncClonedCardUI(clonedCard, sourceCard) {
         }
     });
 
-    // Synchronizuj header counter
+    // Synchronizuj quantity counters - flat stations (cutting/assembly/gluing/finishing)
+    if (sourceRows.length === 0) {
+        // Flat station: qty-done/qty-total bezpośrednio w karcie
+        const sourceQtyDones = sourceCard.querySelectorAll('.qty-done');
+        const clonedQtyDones = clonedCard.querySelectorAll('.qty-done');
+        sourceQtyDones.forEach((src, i) => {
+            if (clonedQtyDones[i]) clonedQtyDones[i].textContent = src.textContent;
+        });
+
+        // Synchronizuj stany przycisków
+        const sourceButtons = sourceCard.querySelectorAll('.btn-qty');
+        const clonedButtons = clonedCard.querySelectorAll('.btn-qty');
+        sourceButtons.forEach((srcBtn, i) => {
+            if (clonedButtons[i]) clonedButtons[i].disabled = srcBtn.disabled;
+        });
+
+        // Synchronizuj data attributes
+        clonedCard.dataset.quantityDone = sourceCard.dataset.quantityDone;
+    }
+
+    // Synchronizuj header counter (order-grouped)
     const sourceCounter = sourceCard.querySelector('.products-checked');
     const clonedCounter = clonedCard.querySelector('.products-checked');
     if (sourceCounter && clonedCounter) {
         clonedCounter.textContent = sourceCounter.textContent;
+    }
+
+    // Synchronizuj header stats (flat stations)
+    const sourceStats = sourceCard.querySelector('.order-stats');
+    const clonedStats = clonedCard.querySelector('.order-stats');
+    if (sourceStats && clonedStats) {
+        clonedStats.innerHTML = sourceStats.innerHTML;
     }
 
     // Synchronizuj przycisk complete
