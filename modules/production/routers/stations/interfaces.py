@@ -191,7 +191,7 @@ def cutting_station():
             sort_by=sort_by,
             now=now,
             last_updated=datetime.utcnow(),
-            page_title="Stanowisko Wycinania"
+            page_title="Stanowisko Wycinania - mikro"
         )
 
     except Exception as e:
@@ -382,7 +382,7 @@ def assembly_station():
             sort_by=sort_by,
             now=now,
             last_updated=datetime.utcnow(),
-            page_title="Stanowisko Skladania"
+            page_title="Stanowisko Składania - lite"
         )
 
     except Exception as e:
