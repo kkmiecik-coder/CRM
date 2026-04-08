@@ -1326,6 +1326,7 @@ class ProductsModule {
             order.totalValue += parseFloat(product.total_value_net) || 0;
 
             if (product.is_priority) order.isPriority = true;
+            if (product.production_notes && !order.productionNotes) order.productionNotes = product.production_notes;
             if (product.attachment_file_url) order.attachmentUrl = product.attachment_file_url;
 
             // Earliest deadline
@@ -1573,9 +1574,15 @@ class ProductsModule {
         });
 
         // Star button
-        header.querySelector('.il-star-btn').addEventListener('click', (e) => {
+        const starBtn = header.querySelector('.il-star-btn');
+        if (order.products.some(p => p.is_priority)) {
+            starBtn.classList.add('active');
+            starBtn.querySelector('i').classList.replace('far', 'fas');
+        }
+        starBtn.addEventListener('click', (e) => {
             e.stopPropagation();
-            this.handleStarClick(order);
+            const firstProduct = order.products[0];
+            this.handleStarClick(starBtn, firstProduct);
         });
 
         // Action buttons — set disabled state based on data availability
@@ -1587,9 +1594,13 @@ class ProductsModule {
                 btn.classList.add('disabled');
                 btn.setAttribute('disabled', 'true');
             }
-            if (action === 'comment' && !order.productionNotes) {
-                btn.classList.add('disabled');
-                btn.setAttribute('disabled', 'true');
+            if (action === 'comment') {
+                if (!order.productionNotes) {
+                    btn.classList.add('disabled');
+                    btn.setAttribute('disabled', 'true');
+                } else {
+                    btn.classList.add('has-comment');
+                }
             }
             if (action === 'baselinker' && !order.baselinkerOrderId) {
                 btn.classList.add('disabled');
@@ -2261,7 +2272,7 @@ class ProductsModule {
         });
 
         // Dodaj tooltip do komórki gwiazdki
-        const starCell = starBtn.closest('.prod_list-star-cell');
+        const starCell = starBtn.closest('.prod_list-star-cell') || starBtn.parentElement;
         if (starCell) {
             starCell.appendChild(tooltip);
         }
@@ -2376,13 +2387,10 @@ class ProductsModule {
         if (!updatedProducts) return;
 
         updatedProducts.forEach(updated => {
-            // Znajdź wiersz produktu
+            // Znajdź wiersz produktu (widok flat)
             const row = document.querySelector(`.prod_list-product-row[data-product-id="${updated.id}"]`);
             if (row) {
-                // Zaktualizuj data-is-priority
                 row.setAttribute('data-is-priority', updated.is_priority ? 'true' : 'false');
-
-                // Zaktualizuj klasę przycisku gwiazdki
                 const starBtn = row.querySelector('.prod_list-star-btn');
                 if (starBtn) {
                     if (updated.is_priority) {
@@ -2391,6 +2399,24 @@ class ProductsModule {
                         starBtn.classList.remove('active');
                     }
                 }
+            }
+        });
+
+        // Aktualizuj gwiazdki w widoku grouped (order cards)
+        document.querySelectorAll('.il-order-card').forEach(card => {
+            const starBtn = card.querySelector('.il-star-btn');
+            if (!starBtn) return;
+            const orderProducts = card.querySelectorAll('.il-order-products [data-product-id]');
+            const orderProductIds = Array.from(orderProducts).map(el => parseInt(el.getAttribute('data-product-id')));
+            const hasAnyPriority = updatedProducts.some(u => orderProductIds.includes(u.id) && u.is_priority)
+                || this.state.products.some(p => orderProductIds.includes(p.id) && p.is_priority);
+            const icon = starBtn.querySelector('i');
+            if (hasAnyPriority) {
+                starBtn.classList.add('active');
+                if (icon) icon.classList.replace('far', 'fas');
+            } else {
+                starBtn.classList.remove('active');
+                if (icon) icon.classList.replace('fas', 'far');
             }
         });
     }

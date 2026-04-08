@@ -616,6 +616,12 @@
     color: var(--il-text-primary);
 }
 
+.il-order-action-btn.has-comment {
+    color: var(--il-status-info, #3b82f6);
+    border-color: var(--il-status-info, #3b82f6);
+    opacity: 1;
+}
+
 /* Drag handle */
 .il-drag-handle,
 .product-drag-handle {
