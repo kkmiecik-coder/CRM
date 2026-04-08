@@ -979,15 +979,24 @@
         const minus10Disabled = quantityDone < 10 ? 'disabled' : '';
         const plus10Disabled = (quantity - quantityDone) < 10 ? 'disabled' : '';
 
-        const gridClass = hasLargeQty ? ' grid-layout' : '';
-
-        const quantityButtonsHTML = hasLargeQty ? `
-            <button class="btn-qty btn-minus" data-action="decrement" ${minusDisabled}>−</button>
+        // Przyciski wokol countera: [-10] [-] [counter] [+] [+10]
+        const quantityControlsHTML = hasLargeQty ? `
             <button class="btn-qty btn-minus-10" data-action="decrement10" ${minus10Disabled}>−10</button>
-            <button class="btn-qty btn-plus-10" data-action="increment10" ${plus10Disabled}>+10</button>
+            <button class="btn-qty btn-minus" data-action="decrement" ${minusDisabled}>−</button>
+            <div class="quantity-counter">
+                <span class="qty-done">${quantityDone}</span>
+                <span class="qty-separator">/</span>
+                <span class="qty-total">${quantity}</span>
+            </div>
             <button class="btn-qty btn-plus" data-action="increment" ${plusDisabled}>+</button>
+            <button class="btn-qty btn-plus-10" data-action="increment10" ${plus10Disabled}>+10</button>
         ` : `
             <button class="btn-qty btn-minus" data-action="decrement" ${minusDisabled}>−</button>
+            <div class="quantity-counter">
+                <span class="qty-done">${quantityDone}</span>
+                <span class="qty-separator">/</span>
+                <span class="qty-total">${quantity}</span>
+            </div>
             <button class="btn-qty btn-plus" data-action="increment" ${plusDisabled}>+</button>
         `;
 
@@ -1049,14 +1058,7 @@
                     <div class="product-dimensions-row">
                         ${dimensionsBadge}
                         <div class="quantity-controls">
-                            <div class="quantity-counter">
-                                <span class="qty-done">${quantityDone}</span>
-                                <span class="qty-separator">/</span>
-                                <span class="qty-total">${quantity}</span>
-                            </div>
-                            <div class="quantity-buttons${gridClass}">
-                                ${quantityButtonsHTML}
-                            </div>
+                            ${quantityControlsHTML}
                         </div>
                     </div>
                 </div>
