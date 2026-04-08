@@ -283,16 +283,16 @@ class EdgesPdfGenerator:
             for product in page_products:
                 cells_html.append(self._generate_product_cell(product))
 
-            # Wypełnij pustymi komórkami jeśli mniej niż 6
-            while len(cells_html) < 6:
-                cells_html.append('<div class="cell empty"></div>')
-
-            # Siatka 2x3 jako tabela (kompatybilna ze starszym WeasyPrint)
+            # Siatka 2xN jako tabela (kompatybilna ze starszym WeasyPrint)
+            # Tylko tyle wierszy ile potrzeba (bez pustych)
             rows_html = ''
-            for row_idx in range(3):
-                c1 = cells_html[row_idx * 2]
-                c2 = cells_html[row_idx * 2 + 1]
-                rows_html += f'<tr><td>{c1}</td><td>{c2}</td></tr>'
+            for row_idx in range(0, len(cells_html), 2):
+                c1 = cells_html[row_idx]
+                c2 = cells_html[row_idx + 1] if row_idx + 1 < len(cells_html) else '<td></td>'
+                if row_idx + 1 < len(cells_html):
+                    rows_html += f'<tr><td>{c1}</td><td>{c2}</td></tr>'
+                else:
+                    rows_html += f'<tr><td>{c1}</td><td></td></tr>'
 
             pages_html.append(f"""
             <div class="page">
@@ -328,7 +328,6 @@ class EdgesPdfGenerator:
 
         .page {{
             page-break-after: always;
-            height: 277mm;
         }}
 
         .page:last-child {{
@@ -347,14 +346,12 @@ class EdgesPdfGenerator:
 
         .grid-table {{
             width: 100%;
-            height: 263mm;
             border-collapse: separate;
             border-spacing: 4mm 4mm;
         }}
 
         .grid-table td {{
             width: 50%;
-            height: 85mm;
             vertical-align: top;
             padding: 0;
         }}
@@ -377,16 +374,20 @@ class EdgesPdfGenerator:
             border-bottom: 1px solid #eee;
         }}
 
-        .cell-header-row {{
-            overflow: hidden;
+        .cell-header-table {{
+            width: 100%;
+            border-collapse: collapse;
         }}
 
-        .cell-header-row .cell-position {{
-            float: left;
+        .cell-header-table td {{
+            padding: 0;
+            vertical-align: top;
         }}
 
-        .cell-header-row .cell-shape-badge {{
-            float: right;
+        .cell-header-table .cell-badge-col {{
+            width: 1px;
+            white-space: nowrap;
+            vertical-align: middle;
         }}
 
         .cell-position {{
@@ -600,11 +601,13 @@ class EdgesPdfGenerator:
         return f"""
         <div class="cell">
             <div class="cell-header">
-                <div class="cell-header-row">
-                    <span class="cell-position">#{product_index}: {product_name}</span>
-                    {shape_badge}
-                </div>
-                <div class="cell-dims">{length} x {width} x {thickness} cm | {quantity} szt.</div>
+                <table class="cell-header-table"><tr>
+                    <td>
+                        <div class="cell-position">#{product_index}: {product_name}</div>
+                        <div class="cell-dims">{length} x {width} x {thickness} cm | {quantity} szt.</div>
+                    </td>
+                    <td class="cell-badge-col">{shape_badge}</td>
+                </tr></table>
             </div>
             <div class="cell-body">
                 {labels_html}
