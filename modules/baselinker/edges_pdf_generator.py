@@ -287,12 +287,19 @@ class EdgesPdfGenerator:
             while len(cells_html) < 6:
                 cells_html.append('<div class="cell empty"></div>')
 
+            # Siatka 2x3 jako tabela (kompatybilna ze starszym WeasyPrint)
+            rows_html = ''
+            for row_idx in range(3):
+                c1 = cells_html[row_idx * 2]
+                c2 = cells_html[row_idx * 2 + 1]
+                rows_html += f'<tr><td>{c1}</td><td>{c2}</td></tr>'
+
             pages_html.append(f"""
             <div class="page">
                 <div class="page-title">Specyfikacja wyceny{' ' + quote_number if quote_number else ''}</div>
-                <div class="grid">
-                    {''.join(cells_html)}
-                </div>
+                <table class="grid-table">
+                    {rows_html}
+                </table>
             </div>
             """)
 
@@ -338,12 +345,18 @@ class EdgesPdfGenerator:
             color: #333;
         }}
 
-        .grid {{
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            grid-template-rows: 1fr 1fr 1fr;
-            gap: 4mm;
-            height: calc(277mm - 14mm);
+        .grid-table {{
+            width: 100%;
+            height: 263mm;
+            border-collapse: separate;
+            border-spacing: 4mm 4mm;
+        }}
+
+        .grid-table td {{
+            width: 50%;
+            height: 85mm;
+            vertical-align: top;
+            padding: 0;
         }}
 
         .cell {{
@@ -351,8 +364,7 @@ class EdgesPdfGenerator:
             border-radius: 3mm;
             padding: 3mm;
             overflow: hidden;
-            display: flex;
-            flex-direction: column;
+            height: 100%;
         }}
 
         .cell.empty {{
@@ -366,9 +378,15 @@ class EdgesPdfGenerator:
         }}
 
         .cell-header-row {{
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
+            overflow: hidden;
+        }}
+
+        .cell-header-row .cell-position {{
+            float: left;
+        }}
+
+        .cell-header-row .cell-shape-badge {{
+            float: right;
         }}
 
         .cell-position {{
@@ -393,20 +411,17 @@ class EdgesPdfGenerator:
         }}
 
         .cell-body {{
-            flex: 1;
-            display: flex;
-            flex-direction: column;
             overflow: hidden;
         }}
 
         .cell-preview-labels {{
-            display: flex;
-            gap: 2mm;
+            overflow: hidden;
             margin-bottom: 1mm;
         }}
 
         .cell-preview-label {{
-            flex: 1;
+            width: 48%;
+            float: left;
             font-size: 6px;
             font-weight: bold;
             color: #aaa;
@@ -415,21 +430,24 @@ class EdgesPdfGenerator:
             text-align: center;
         }}
 
+        .cell-preview-label + .cell-preview-label {{
+            margin-left: 4%;
+        }}
+
         .cell-previews {{
-            display: flex;
-            gap: 2mm;
-            align-items: center;
-            justify-content: center;
-            flex: 1;
             overflow: hidden;
+            text-align: center;
         }}
 
         .cell-preview-box {{
-            flex: 1;
-            display: flex;
-            align-items: center;
-            justify-content: center;
+            width: 48%;
+            float: left;
+            text-align: center;
             overflow: hidden;
+        }}
+
+        .cell-preview-box + .cell-preview-box {{
+            margin-left: 4%;
         }}
 
         .cell-preview-box img {{
@@ -439,7 +457,11 @@ class EdgesPdfGenerator:
         }}
 
         /* Gdy tylko jeden podgląd — większy */
-        .cell-previews .cell-preview-box:only-child img {{
+        .cell-preview-box.single {{
+            width: 100%;
+        }}
+
+        .cell-preview-box.single img {{
             max-height: 45mm;
         }}
 
@@ -512,6 +534,14 @@ class EdgesPdfGenerator:
             if png_uri:
                 has_edges_img = True
                 edges_img_html = f'<div class="cell-preview-box"><img src="{png_uri}" alt="Krawędzie" /></div>'
+
+        # Jeśli tylko jeden podgląd — dodaj klasę single (większy obrazek)
+        only_one = has_shape != has_edges_img
+        if only_one:
+            if has_shape:
+                shape_img_html = shape_img_html.replace('cell-preview-box', 'cell-preview-box single')
+            if has_edges_img:
+                edges_img_html = edges_img_html.replace('cell-preview-box', 'cell-preview-box single')
 
         # Nagłówki podglądów (oddzielone od obrazków)
         labels_html = ''
