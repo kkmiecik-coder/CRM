@@ -126,9 +126,6 @@ body:not(.dark-mode) .tab-btn.active {
         box-shadow: var(--shadow-md);
     }
 
-    .order-card.processing {
-        background: var(--bg-primary);
-    }
 
 /* ============================================================================
    ORDER HEADER - 2 ROWS LAYOUT

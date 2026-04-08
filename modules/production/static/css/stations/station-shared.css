@@ -238,10 +238,6 @@ body {
     border-color: var(--border-color-light);
 }
 
-    .product-card.processing,
-    .order-card.processing {
-        background: var(--bg-primary);
-    }
 
 /* ============================================================================
    CARD HEADER
