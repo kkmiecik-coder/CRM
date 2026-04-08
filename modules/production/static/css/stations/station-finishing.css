@@ -467,10 +467,14 @@ body:not(.dark-mode) .tab-btn.active {
 
 .product-dimensions-row .badge-dimensions {
     flex: 1;
+    min-height: 48px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
     padding: 8px 16px;
     border-radius: 0;
     font-size: 18px;
-    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    font-family: 'JetBrains Mono', monospace;
     font-weight: 600;
     background: var(--bg-tertiary);
     border: 2px solid var(--border-color);
@@ -559,14 +563,15 @@ body:not(.dark-mode) .tab-btn.active {
 
 .btn-complete {
     font-family: 'JetBrains Mono', monospace;
-    font-size: 11px;
+    font-size: 13px;
     font-weight: 600;
     letter-spacing: 2px;
     text-transform: uppercase;
-    color: var(--text-muted);
+    color: var(--text-secondary);
     background: var(--bg-inset);
     border: none;
-    padding: 9px 12px;
+    min-height: 48px;
+    padding: 12px 16px;
     cursor: pointer;
     width: 100%;
 }
