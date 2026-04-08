@@ -151,11 +151,10 @@
    PRODUCT ROW
    ============================================================================ */
 .product-row {
-    display: grid;
-    grid-template-columns: 1fr auto;
-    align-items: center;
-    gap: 16px;
-    padding: 14px 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 10px 12px;
     border-bottom: 1px solid var(--border-color-light);
     position: relative;
     overflow: visible;
@@ -668,9 +667,8 @@
 /* Mobile (max-width: 767px) */
 @media (max-width: 767px) {
     .product-row {
-        grid-template-columns: 1fr auto;
-        gap: 12px;
-        padding: 12px 16px;
+        gap: 6px;
+        padding: 8px 10px;
     }
 
     /* Quantity controls - kompaktowe na mobile */
