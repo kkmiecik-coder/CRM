@@ -1,13 +1,14 @@
 /**
  * ============================================================================
- * STATION FINISHING - QUANTITY-BASED VERSION
+ * STATION FINISHING - PER-PRODUCT VERSION (Produkcja / Lakiernia)
  * ============================================================================
  *
- * Wersja z quantity buttons (+/-) zamiast checkboxów
+ * Wersja z flat product cards i per-product completion.
+ * Obsługuje zakładki: tab=production (finishing) i tab=painting (lakiernia).
  *
  * @author: Konrad Kmiecik
  * @date: 2025-11
- * @version: 3.0
+ * @version: 4.0
  */
 
 (function() {
@@ -17,7 +18,6 @@
         config: null,
         refreshTimer: null,
         countdownTimer: null,
-        activeCountdowns: new Map(),
         pendingRequests: new Map(),
         lastRequestTime: new Map()
     };
@@ -25,14 +25,14 @@
     const RATE_LIMIT_MS = 200;
 
     document.addEventListener('DOMContentLoaded', function() {
-        console.log('[Finishing] Initializing QUANTITY-BASED station v3.0...');
+        console.log('[Finishing] Initializing PER-PRODUCT station v4.0...');
         initializeFinishingStation();
     });
 
     function initializeFinishingStation() {
         const config = window.STATION_CONFIG;
 
-        if (!config || config.stationCode !== 'finishing') {
+        if (!config || (config.stationCode !== 'finishing' && config.stationCode !== 'painting')) {
             console.error('[Finishing] Invalid station config');
             return;
         }
@@ -41,21 +41,16 @@
         console.log('[Finishing] Station config loaded:', config);
 
         const existingCards = document.querySelectorAll('.order-card');
-        console.log(`[Finishing] Found ${existingCards.length} order cards`);
+        console.log(`[Finishing] Found ${existingCards.length} product cards`);
 
         existingCards.forEach(card => {
-            initializeOrderCard(card);
+            initializeProductTile(card);
         });
 
         fetchTodayM3();
 
         setInterval(updateCurrentDatetime, 1000);
         updateCurrentDatetime();
-
-        if (existingCards.length === 0) {
-            console.log('[Finishing] Performing initial fetch...');
-            performAutoRefresh();
-        }
 
         if (config.refreshInterval && config.refreshInterval > 0) {
             startAutoRefresh(config.refreshInterval);
@@ -71,16 +66,14 @@
             }
         }
 
-        // Initialize expand icons for fullscreen mode
+        // Inicjalizacja ikon powiększenia (fullscreen)
         if (typeof window.initExpandIcons === 'function') {
             window.initExpandIcons();
-            console.log('[Finishing] Expand icons initialized');
         }
 
-        // Initialize order search button
+        // Inicjalizacja przycisku szukania zamówień
         if (typeof window.initOrderSearchButton === 'function') {
             window.initOrderSearchButton();
-            console.log('[Finishing] Order search button initialized');
         }
 
         console.log('[Finishing] Station initialized successfully');
@@ -105,9 +98,10 @@
         }
     }
 
-    function startRefreshCountdown(intervalSeconds) {
+    function startRefreshCountdown(intervalMs) {
         if (state.countdownTimer) clearInterval(state.countdownTimer);
 
+        const intervalSeconds = Math.round(intervalMs / 1000);
         let secondsLeft = intervalSeconds;
         const countdownElement = document.getElementById('refresh-countdown');
         const refreshIcon = document.querySelector('.refresh-icon');
@@ -131,47 +125,50 @@
         }, 1000);
     }
 
-    function initializeOrderCard(card) {
-        const orderNumber = card.dataset.orderNumber;
-        if (!orderNumber) return;
+    // ========================================================================
+    // INICJALIZACJA KAFELKA PRODUKTU
+    // ========================================================================
 
-        hideEmptyProductParams(card);
+    function initializeProductTile(card) {
+        const productId = card.dataset.productId;
+        if (!productId) return;
 
+        // Ukryj puste sekcje parametrów
+        const paramsContainer = card.querySelector('.product-params');
+        if (paramsContainer) {
+            const badges = paramsContainer.querySelectorAll('.badge');
+            if (badges.length === 0) paramsContainer.style.display = 'none';
+        }
+
+        // Przyciski ilości
         const quantityButtons = card.querySelectorAll('.btn-qty');
         quantityButtons.forEach(button => {
             button.addEventListener('click', function(e) {
                 e.preventDefault();
-                handleQuantityButtonClick(card, orderNumber, this);
+                handleQuantityButtonClick(card, this);
             });
         });
 
+        // Przycisk zakończenia
         const completeBtn = card.querySelector('.btn-complete');
         if (completeBtn) {
             completeBtn.addEventListener('click', function() {
-                handleCompleteClick(card, orderNumber);
+                completeProduct(card, productId);
             });
         }
 
         updateCompleteButtonState(card);
-        updateOrderCounter(card);
     }
 
-    function hideEmptyProductParams(card) {
-        const productRows = card.querySelectorAll('.product-row');
-        productRows.forEach(row => {
-            const paramsContainer = row.querySelector('.product-params');
-            if (!paramsContainer) return;
-            const badges = paramsContainer.querySelectorAll('.badge');
-            if (badges.length === 0) paramsContainer.style.display = 'none';
-        });
-    }
+    // ========================================================================
+    // OBSŁUGA ILOŚCI
+    // ========================================================================
 
-    async function handleQuantityButtonClick(card, orderNumber, button) {
+    async function handleQuantityButtonClick(card, button) {
         const productId = button.dataset.productId;
         const action = button.dataset.action;
-        const productRow = button.closest('.product-row');
 
-        if (!productId || !action || !productRow) return;
+        if (!productId || !action) return;
 
         const isOnline = window.StationCommon && window.StationCommon.isOnline ? window.StationCommon.isOnline() : true;
         if (!isOnline) {
@@ -179,8 +176,8 @@
             return;
         }
 
-        const qtyDoneEl = productRow.querySelector('.qty-done');
-        const qtyTotalEl = productRow.querySelector('.qty-total');
+        const qtyDoneEl = card.querySelector('.qty-done');
+        const qtyTotalEl = card.querySelector('.qty-total');
         if (!qtyDoneEl || !qtyTotalEl) return;
 
         let qtyDone = parseInt(qtyDoneEl.textContent) || 0;
@@ -196,17 +193,17 @@
 
         if (newQtyDone === qtyDone) return;
 
+        // Optimistic update
         qtyDoneEl.textContent = newQtyDone;
-        productRow.dataset.quantityDone = newQtyDone;
+        card.dataset.quantityDone = newQtyDone;
 
-        updateProductButtonStates(productRow, newQtyDone, qtyTotal);
-        updateOrderCounter(card);
+        updateButtonStates(card, newQtyDone, qtyTotal);
         updateCompleteButtonState(card);
 
-        await sendQuantityUpdate(productId, action, productRow, qtyDone, card);
+        await sendQuantityUpdate(productId, action, card, qtyDone);
     }
 
-    async function sendQuantityUpdate(productId, action, productRow, previousValue, card) {
+    async function sendQuantityUpdate(productId, action, card, previousValue) {
         if (state.pendingRequests.has(productId)) {
             clearTimeout(state.pendingRequests.get(productId));
         }
@@ -223,7 +220,11 @@
                 const response = await fetch('/production/api/update-quantity-done', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ product_id: productId, station: 'finishing', action: action })
+                    body: JSON.stringify({
+                        product_id: productId,
+                        station: state.config.stationCode,
+                        action: action
+                    })
                 });
 
                 if (!response.ok) {
@@ -234,24 +235,24 @@
                 const result = await response.json();
                 console.log(`[Finishing] Product ${productId} quantity updated:`, result);
 
-                const qtyDoneEl = productRow.querySelector('.qty-done');
+                // Sync z serwerem
+                const qtyDoneEl = card.querySelector('.qty-done');
                 if (qtyDoneEl && result.quantity_done !== undefined) {
                     qtyDoneEl.textContent = result.quantity_done;
-                    productRow.dataset.quantityDone = result.quantity_done;
-                    updateProductButtonStates(productRow, result.quantity_done, result.quantity);
-                    updateOrderCounter(card);
+                    card.dataset.quantityDone = result.quantity_done;
+                    updateButtonStates(card, result.quantity_done, result.quantity);
                     updateCompleteButtonState(card);
                 }
 
             } catch (error) {
                 console.error('[Finishing] Failed to update quantity:', error);
-                const qtyDoneEl = productRow.querySelector('.qty-done');
+                // Rollback
+                const qtyDoneEl = card.querySelector('.qty-done');
                 if (qtyDoneEl) {
                     qtyDoneEl.textContent = previousValue;
-                    productRow.dataset.quantityDone = previousValue;
-                    const qtyTotal = parseInt(productRow.querySelector('.qty-total').textContent) || 0;
-                    updateProductButtonStates(productRow, previousValue, qtyTotal);
-                    updateOrderCounter(card);
+                    card.dataset.quantityDone = previousValue;
+                    const qtyTotal = parseInt(card.dataset.quantity) || 0;
+                    updateButtonStates(card, previousValue, qtyTotal);
                     updateCompleteButtonState(card);
                 }
                 showToast('error', `Błąd zapisu: ${error.message}`);
@@ -261,50 +262,24 @@
         state.pendingRequests.set(productId, timeoutId);
     }
 
-    function updateProductButtonStates(productRow, qtyDone, qtyTotal) {
-        const btnMinus = productRow.querySelector('.btn-minus');
-        const btnPlus = productRow.querySelector('.btn-plus');
-        const btnMinus10 = productRow.querySelector('.btn-minus-10');
-        const btnPlus10 = productRow.querySelector('.btn-plus-10');
+    function updateButtonStates(card, qtyDone, qtyTotal) {
+        const btnMinus = card.querySelector('.btn-minus');
+        const btnPlus = card.querySelector('.btn-plus');
+        const btnMinus10 = card.querySelector('.btn-minus-10');
+        const btnPlus10 = card.querySelector('.btn-plus-10');
 
         if (btnMinus) btnMinus.disabled = qtyDone <= 0;
         if (btnPlus) btnPlus.disabled = qtyDone >= qtyTotal;
         if (btnMinus10) btnMinus10.disabled = qtyDone < 10;
         if (btnPlus10) btnPlus10.disabled = (qtyTotal - qtyDone) < 10;
 
-        if (qtyDone === qtyTotal) productRow.classList.add('product-complete');
-        else productRow.classList.remove('product-complete');
+        if (qtyDone === qtyTotal) card.classList.add('product-complete');
+        else card.classList.remove('product-complete');
     }
 
-    function updateOrderCounter(card) {
-        const orderNumber = card.dataset.orderNumber;
-        const productRows = card.querySelectorAll('.product-row');
-
-        let totalDone = 0;
-        let totalQuantity = 0;
-
-        productRows.forEach(row => {
-            totalDone += parseInt(row.dataset.quantityDone) || 0;
-            totalQuantity += parseInt(row.dataset.quantity) || 0;
-        });
-
-        const counterElement = document.querySelector(`.products-checked[data-order="${orderNumber}"]`);
-        if (counterElement) counterElement.textContent = totalDone;
-    }
-
-    function handleConnectionChange(isOnline) {
-        console.log(`[Finishing] Connection status changed: ${isOnline ? 'ONLINE' : 'OFFLINE'}`);
-
-        const allCards = document.querySelectorAll('.order-card');
-        allCards.forEach(card => {
-            updateCompleteButtonState(card);
-            const qtyButtons = card.querySelectorAll('.btn-qty');
-            qtyButtons.forEach(btn => {
-                if (!isOnline) btn.classList.add('offline-disabled');
-                else btn.classList.remove('offline-disabled');
-            });
-        });
-    }
+    // ========================================================================
+    // ZAKOŃCZENIE PRODUKTU
+    // ========================================================================
 
     function updateCompleteButtonState(card) {
         const completeBtn = card.querySelector('.btn-complete');
@@ -320,109 +295,25 @@
         }
 
         completeBtn.classList.remove('offline');
-        completeBtn.textContent = 'ZAKOŃCZ WYKAŃCZANIE';
 
-        const activeProductRows = card.querySelectorAll('.product-row:not(.product-disabled)');
-        const disabledProductRows = card.querySelectorAll('.product-row.product-disabled');
-        let allComplete = true;
-        let hasProducts = false;
-        let hasDisabledProducts = disabledProductRows.length > 0;
+        const isPainting = state.config && state.config.stationCode === 'painting';
+        completeBtn.textContent = isPainting ? 'ZAKOŃCZ LAKIERNIĘ' : 'ZAKOŃCZ WYKAŃCZANIE';
 
-        activeProductRows.forEach(row => {
-            hasProducts = true;
-            const qtyDone = parseInt(row.dataset.quantityDone) || 0;
-            const qtyTotal = parseInt(row.dataset.quantity) || 0;
-            if (qtyDone < qtyTotal) allComplete = false;
-        });
+        const qtyDone = parseInt(card.querySelector('.qty-done')?.textContent) || 0;
+        const qtyTotal = parseInt(card.dataset.quantity) || 1;
 
-        completeBtn.disabled = !(allComplete && hasProducts && !hasDisabledProducts);
+        completeBtn.disabled = (qtyDone < qtyTotal);
     }
 
-    function handleCompleteClick(card, orderNumber) {
-        if (!window.StationCommon.isOnline()) {
-            showToast('warning', 'Brak połączenia - nie możesz zakończyć zamówienia');
+    async function completeProduct(card, productId) {
+        const isOnline = window.StationCommon && window.StationCommon.isOnline ? window.StationCommon.isOnline() : true;
+        if (!isOnline) {
+            showToast('warning', 'Brak połączenia - nie możesz zakończyć produktu');
             return;
         }
 
-        const productIds = [];
-        card.querySelectorAll('.product-row').forEach(row => {
-            productIds.push(row.dataset.productId);
-        });
+        console.log(`[Finishing] Rozpoczęcie completion dla produktu ${productId}`);
 
-        if (productIds.length === 0) {
-            showToast('warning', 'Brak produktów w zamówieniu');
-            return;
-        }
-
-        card.dataset.inProgress = 'true';
-        card.classList.add('processing');
-
-        startCountdown(card, orderNumber, productIds);
-    }
-
-    function startCountdown(card, orderNumber, productIds) {
-        const actionContainer = card.querySelector('.order-action');
-        if (!actionContainer) return;
-
-        actionContainer.innerHTML = `
-            <div class="action-countdown">
-                <button class="btn-complete processing">
-                    <span class="spinner"></span>
-                    <span class="countdown-text">Zapisuje... 10s</span>
-                </button>
-                <button class="btn-cancel">ANULUJ</button>
-            </div>
-        `;
-
-        const countdownText = actionContainer.querySelector('.countdown-text');
-        const cancelBtn = actionContainer.querySelector('.btn-cancel');
-
-        let secondsLeft = 10;
-
-        const timerId = setInterval(() => {
-            secondsLeft--;
-            if (secondsLeft > 0) {
-                countdownText.textContent = `Zapisuje... ${secondsLeft}s`;
-            } else {
-                clearInterval(timerId);
-                state.activeCountdowns.delete(orderNumber);
-                completeOrder(card, orderNumber, productIds);
-            }
-        }, 1000);
-
-        state.activeCountdowns.set(orderNumber, { timerId, secondsLeft });
-
-        cancelBtn.addEventListener('click', function(event) {
-            event.preventDefault();
-            cancelCountdown(card, orderNumber, timerId);
-        });
-    }
-
-    function cancelCountdown(card, orderNumber, timerId) {
-        if (timerId) {
-            clearInterval(timerId);
-            state.activeCountdowns.delete(orderNumber);
-        }
-
-        card.dataset.inProgress = 'false';
-        card.classList.remove('processing');
-
-        const actionContainer = card.querySelector('.order-action');
-        if (actionContainer) {
-            actionContainer.innerHTML = '<button class="btn-complete" data-action="complete" disabled>ZAKOŃCZ WYKAŃCZANIE</button>';
-            const completeBtn = actionContainer.querySelector('.btn-complete');
-            if (completeBtn) {
-                completeBtn.addEventListener('click', function() {
-                    handleCompleteClick(card, orderNumber);
-                });
-                updateCompleteButtonState(card);
-            }
-        }
-
-        showToast('info', 'Anulowano wykończenie zamówienia');
-    }
-
-    async function completeOrder(card, orderNumber, productIds) {
         const cardBackup = card.cloneNode(true);
 
         const actionContainer = card.querySelector('.order-action');
@@ -443,9 +334,9 @@
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    order_number: orderNumber,
-                    product_ids: productIds,
-                    station: 'finishing',
+                    order_number: card.dataset.internalOrder,
+                    product_ids: [productId],
+                    station: state.config.stationCode,
                     action: 'complete'
                 }),
                 signal: controller.signal
@@ -459,20 +350,21 @@
             }
 
             const result = await response.json();
-            console.log('[Finishing] Order completed:', result);
+            console.log('[Finishing] Produkt zakończony pomyślnie:', result);
 
             if (actionContainer) {
                 actionContainer.innerHTML = '<button class="btn-complete success">Zapisano</button>';
             }
 
-            showToast('success', `Zamówienie ${orderNumber} ukończone`);
+            showToast('success', `Produkt ${productId} ukończony`);
             fetchTodayM3();
 
-            // Close fullscreen if active
+            // Zamknij fullscreen jeśli aktywny
             if (typeof window.closeFullscreenIfActive === 'function') {
-                window.closeFullscreenIfActive(orderNumber);
+                window.closeFullscreenIfActive(productId);
             }
 
+            // Usuń kafelek z animacją
             setTimeout(() => {
                 card.classList.add('removing');
                 setTimeout(() => {
@@ -482,50 +374,69 @@
             }, 1000);
 
         } catch (error) {
-            console.error('[Finishing] Failed to complete order:', error);
+            console.error('[Finishing] Błąd completion produktu:', error);
 
             const ordersList = document.getElementById('orders-list');
             if (ordersList) {
                 ordersList.insertBefore(cardBackup, ordersList.firstChild);
-                initializeOrderCard(cardBackup);
+                initializeProductTile(cardBackup);
             }
 
             showToast('error', `Błąd ukończenia: ${error.message}`);
         }
     }
 
+    // ========================================================================
+    // CONNECTION MONITOR
+    // ========================================================================
+
+    function handleConnectionChange(isOnline) {
+        console.log(`[Finishing] Connection status: ${isOnline ? 'ONLINE' : 'OFFLINE'}`);
+
+        const allCards = document.querySelectorAll('.order-card');
+        allCards.forEach(card => {
+            updateCompleteButtonState(card);
+            const qtyButtons = card.querySelectorAll('.btn-qty');
+            qtyButtons.forEach(btn => {
+                if (!isOnline) btn.classList.add('offline-disabled');
+                else btn.classList.remove('offline-disabled');
+            });
+        });
+    }
+
+    // ========================================================================
+    // STATYSTYKI I STANY
+    // ========================================================================
+
     function updateStatsAfterRemoval() {
-        const remainingCards = document.querySelectorAll('.order-card').length;
-        if (remainingCards === 0) showEmptyState();
+        const remainingCards = document.querySelectorAll('.order-card');
+        if (remainingCards.length === 0) showEmptyState();
         updateHeaderStats();
     }
 
     function updateHeaderStats() {
         const allCards = document.querySelectorAll('.order-card');
         let totalProducts = 0;
-        let totalVolume = 0;
 
         allCards.forEach(card => {
-            totalProducts += parseInt(card.dataset.totalProducts) || 0;
-            totalVolume += parseFloat(card.dataset.totalVolume) || 0;
+            totalProducts += parseInt(card.dataset.quantity) || 1;
         });
 
         const totalProductsElement = document.getElementById('total-products');
-        const totalVolumeElement = document.getElementById('total-volume');
-
         if (totalProductsElement) totalProductsElement.textContent = totalProducts;
-        if (totalVolumeElement) totalVolumeElement.textContent = totalVolume.toFixed(4);
     }
 
     function showEmptyState() {
         const ordersList = document.getElementById('orders-list');
         if (!ordersList) return;
 
+        const isPainting = state.config && state.config.stationCode === 'painting';
+
         ordersList.innerHTML = `
             <div class="empty-state">
                 <div class="empty-state-icon">✅</div>
-                <h2>Brak zamówień do wykańczania</h2>
-                <p>Świetna robota! Wszystkie zamówienia zostały wykończone.</p>
+                <h2>${isPainting ? 'Brak produktów w lakierni' : 'Brak produktów do wykańczania'}</h2>
+                <p>Świetna robota! ${isPainting ? 'Wszystkie produkty zostały polakierowane.' : 'Wszystkie produkty zostały wykończone.'}</p>
             </div>
         `;
     }
@@ -535,295 +446,28 @@
         console.log(`[Finishing] ${prefix} ${message}`);
     }
 
-    function startAutoRefresh(intervalSeconds) {
+    // ========================================================================
+    // AUTO-REFRESH (przeładowanie strony)
+    // ========================================================================
+
+    function startAutoRefresh(intervalMs) {
         if (state.refreshTimer) clearInterval(state.refreshTimer);
-        state.refreshTimer = setInterval(performAutoRefresh, intervalSeconds * 1000);
+        state.refreshTimer = setInterval(performAutoRefresh, intervalMs);
     }
 
-    async function performAutoRefresh() {
-        try {
-            const response = await fetch('/production/stations/ajax/orders/finishing?sort=priority');
-            if (!response.ok) throw new Error(`HTTP ${response.status}`);
-
-            const result = await response.json();
-            if (!result.success || !result.data || !result.data.orders) throw new Error('Invalid response');
-
-            smartMergeOrders(result.data.orders);
-            updateHeaderStatsFromAPI(result.data.orders);
-            fetchTodayM3();
-        } catch (error) {
-            console.error('[Finishing] Auto-refresh failed:', error);
-        }
+    function performAutoRefresh() {
+        // Przeładowanie strony — prostsze niż AJAX merge dla flat cards
+        window.location.reload();
     }
 
-    function updateHeaderStatsFromAPI(orders) {
-        let totalOrders = orders.length;
-        let totalVolume = 0;
-
-        orders.forEach(order => {
-            totalVolume += order.total_volume || 0;
-        });
-
-        const totalOrdersElement = document.getElementById('total-orders');
-        const totalVolumeElement = document.getElementById('total-volume');
-
-        if (totalOrdersElement) totalOrdersElement.textContent = totalOrders;
-        if (totalVolumeElement) totalVolumeElement.textContent = totalVolume.toFixed(4);
-    }
-
-    function smartMergeOrders(newOrders) {
-        const ordersList = document.getElementById('orders-list');
-        if (!ordersList) return;
-
-        const existingCards = ordersList.querySelectorAll('.order-card');
-        const existingOrderNumbers = new Set();
-        existingCards.forEach(card => existingOrderNumbers.add(card.dataset.orderNumber));
-
-        const apiOrderNumbers = new Set(newOrders.map(o => o.order_number));
-
-        newOrders.forEach(order => {
-            if (!existingOrderNumbers.has(order.order_number)) {
-                addOrderCard(order);
-            } else {
-                updateExistingOrderCard(order);
-            }
-        });
-
-        existingCards.forEach(card => {
-            const orderNumber = card.dataset.orderNumber;
-            if (!apiOrderNumbers.has(orderNumber)) {
-                const hasActiveCountdown = state.activeCountdowns.has(orderNumber);
-                const isProcessing = card.classList.contains('processing');
-
-                if (!hasActiveCountdown && !isProcessing) {
-                    card.classList.add('removing');
-                    setTimeout(() => {
-                        card.remove();
-                        checkAndShowEmptyState();
-                    }, 300);
-                }
-            }
-        });
-    }
-
-    function updateExistingOrderCard(orderData) {
-        const card = document.querySelector(`[data-order-number="${orderData.order_number}"]`);
-        if (!card || card.dataset.inProgress === 'true') return;
-
-        orderData.products.forEach(product => {
-            const productRow = card.querySelector(`[data-product-id="${product.id}"]`);
-            if (productRow) {
-                const currentQtyDone = parseInt(productRow.dataset.quantityDone) || 0;
-                const serverQtyDone = product.quantity_done || 0;
-
-                if (currentQtyDone !== serverQtyDone && !state.pendingRequests.has(product.id)) {
-                    productRow.dataset.quantityDone = serverQtyDone;
-                    const qtyDoneEl = productRow.querySelector('.qty-done');
-                    if (qtyDoneEl) qtyDoneEl.textContent = serverQtyDone;
-                    updateProductButtonStates(productRow, serverQtyDone, product.quantity);
-                }
-
-                // Update priority status
-                const currentPriority = productRow.dataset.isPriority === 'true';
-                const serverPriority = product.is_priority || false;
-                if (currentPriority !== serverPriority) {
-                    productRow.dataset.isPriority = serverPriority ? 'true' : 'false';
-                    if (serverPriority) {
-                        productRow.classList.add('priority-product');
-                    } else {
-                        productRow.classList.remove('priority-product');
-                    }
-                }
-            }
-        });
-
-        // Update order-level priority classes
-        const allProductsPriority = orderData.products.length > 0 && orderData.products.every(p => p.is_priority);
-        const anyProductPriority = orderData.products.some(p => p.is_priority);
-
-        card.dataset.allPriority = allProductsPriority ? 'true' : 'false';
-        card.dataset.anyPriority = anyProductPriority ? 'true' : 'false';
-
-        if (allProductsPriority) {
-            card.classList.add('priority-order');
-        } else {
-            card.classList.remove('priority-order');
-        }
-
-        updateOrderCounter(card);
-        updateCompleteButtonState(card);
-    }
-
-    function checkAndShowEmptyState() {
-        const ordersList = document.getElementById('orders-list');
-        if (!ordersList) return;
-
-        const remainingCards = ordersList.querySelectorAll('.order-card:not(.removing)');
-        if (remainingCards.length === 0) {
-            const emptyState = ordersList.querySelector('.empty-state');
-            if (!emptyState) showEmptyState();
-        }
-    }
-
-    function addOrderCard(orderData) {
-        const ordersList = document.getElementById('orders-list');
-        if (!ordersList) return;
-
-        const emptyState = ordersList.querySelector('.empty-state');
-        if (emptyState) emptyState.remove();
-
-        const cardHTML = createOrderCardHTML(orderData);
-        ordersList.insertAdjacentHTML('afterbegin', cardHTML);
-
-        const newCard = ordersList.querySelector(`[data-order-number="${orderData.order_number}"]`);
-        if (newCard) {
-            initializeOrderCard(newCard);
-            if (typeof window.reinitializeAttachmentHandlers === 'function') {
-                window.reinitializeAttachmentHandlers();
-            }
-            // Re-initialize expand icons for the new card
-            if (typeof window.initExpandIcons === 'function') {
-                window.initExpandIcons();
-            }
-        }
-    }
-
-    function createOrderCardHTML(order) {
-        const productsHTML = order.products.map(product => {
-            const quantity = product.quantity || 1;
-            const quantityDone = product.quantity_done || 0;
-            const hasLargeQty = quantity >= 10;
-
-            const attachmentHTML = product.attachment_file_url ? `
-                <div class="attachment-icon-wrapper"
-                     data-attachment-url="${product.attachment_file_url}"
-                     data-attachment-name="${product.attachment_file_name}"
-                     data-attachment-type="${product.attachment_file_name.toLowerCase().endsWith('.pdf') ? 'pdf' : 'image'}">
-                    <svg class="attachment-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path>
-                    </svg>
-                </div>
-            ` : '';
-
-            const paramsHTML = `
-                ${product.wood_species ? `<span class="badge badge-species">${product.wood_species}</span>` : ''}
-                ${product.technology ? `<span class="badge badge-technology">${product.technology}</span>` : ''}
-                ${product.wood_class ? `<span class="badge badge-class">${product.wood_class}</span>` : ''}
-            `;
-
-            let dimensionsRowHTML = '';
-            if (product.dimensions) {
-                dimensionsRowHTML = `<div class="product-dimensions">${product.dimensions.replace(/x/g, ' x ').replace(/×/g, ' × ')}</div>`;
-            } else if (product.original_name) {
-                dimensionsRowHTML = `<div class="product-dimensions product-name-label">${product.original_name}</div>`;
-            } else if (product.attachment_file_url) {
-                dimensionsRowHTML = `<div class="product-dimensions product-attachment-label">Zgodnie z załącznikiem</div>`;
-            }
-
-            const minusDisabled = quantityDone <= 0 ? 'disabled' : '';
-            const plusDisabled = quantityDone >= quantity ? 'disabled' : '';
-            const minus10Disabled = quantityDone < 10 ? 'disabled' : '';
-            const plus10Disabled = (quantity - quantityDone) < 10 ? 'disabled' : '';
-
-            // Grid layout class for >=10 items
-            const gridClass = hasLargeQty ? ' grid-layout' : '';
-
-            const quantityButtonsHTML = hasLargeQty ? `
-                <button class="btn-qty btn-minus" data-product-id="${product.id}" data-action="decrement" ${minusDisabled}>−</button>
-                <button class="btn-qty btn-minus-10" data-product-id="${product.id}" data-action="decrement10" ${minus10Disabled}>−10</button>
-                <button class="btn-qty btn-plus-10" data-product-id="${product.id}" data-action="increment10" ${plus10Disabled}>+10</button>
-                <button class="btn-qty btn-plus" data-product-id="${product.id}" data-action="increment" ${plusDisabled}>+</button>
-            ` : `
-                <button class="btn-qty btn-minus" data-product-id="${product.id}" data-action="decrement" ${minusDisabled}>−</button>
-                <button class="btn-qty btn-plus" data-product-id="${product.id}" data-action="increment" ${plusDisabled}>+</button>
-            `;
-
-            const completeClass = quantityDone === quantity ? 'product-complete' : '';
-            const priorityClass = product.is_priority ? ' priority-product' : '';
-
-            return `
-                <div class="product-row ${completeClass}${priorityClass}"
-                     data-product-id="${product.id}"
-                     data-quantity="${quantity}"
-                     data-quantity-done="${quantityDone}"
-                     data-status="${product.current_status}"
-                     data-species="${product.wood_species || ''}"
-                     data-technology="${product.technology || ''}"
-                     data-wood-class="${product.wood_class || ''}"
-                     data-is-priority="${product.is_priority ? 'true' : 'false'}">
-                    <div class="product-left-col">
-                        <div class="product-id-line"><span class="product-id">${product.id}</span></div>
-                        <div class="product-params">${paramsHTML}</div>
-                        <div class="product-dimensions-row">${attachmentHTML}${dimensionsRowHTML}</div>
-                    </div>
-                    <div class="quantity-controls">
-                        <div class="quantity-counter">
-                            <span class="qty-done">${quantityDone}</span>
-                            <span class="qty-separator">/</span>
-                            <span class="qty-total">${quantity}</span>
-                        </div>
-                        <div class="quantity-buttons${gridClass}">${quantityButtonsHTML}</div>
-                    </div>
-                </div>
-            `;
-        }).join('');
-
-        const blBadge = order.baselinker_order_id ? `<span class="order-baselinker">BL-${order.baselinker_order_id}</span>` : '';
-
-        // Ikona powiększenia
-        const expandIcon = `
-            <div class="header-icon-wrapper expand-icon-wrapper" title="Powiększ zamówienie">
-                <svg class="header-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <polyline points="15 3 21 3 21 9"></polyline>
-                    <polyline points="9 21 3 21 3 15"></polyline>
-                    <line x1="21" y1="3" x2="14" y2="10"></line>
-                    <line x1="3" y1="21" x2="10" y2="14"></line>
-                </svg>
-            </div>
-        `;
-
-        let totalDone = 0;
-        let totalQty = 0;
-        order.products.forEach(p => {
-            totalDone += (p.quantity_done || 0);
-            totalQty += (p.quantity || 1);
-        });
-
-        // Calculate priority flags for order card
-        const allProductsPriority = order.products.length > 0 && order.products.every(p => p.is_priority);
-        const anyProductPriority = order.products.some(p => p.is_priority);
-        const orderPriorityClass = allProductsPriority ? ' priority-order' : '';
-
-        return `
-            <div class="order-card${orderPriorityClass}"
-                 data-order-number="${order.order_number}"
-                 data-priority-rank="${order.best_priority_rank}"
-                 data-total-products="${order.total_products}"
-                 data-total-volume="${order.total_volume}"
-                 data-in-progress="false"
-                 data-all-priority="${allProductsPriority ? 'true' : 'false'}"
-                 data-any-priority="${anyProductPriority ? 'true' : 'false'}">
-                <div class="order-header">
-                    <div class="order-ids">
-                        <span class="order-number">${order.order_number}</span>
-                        ${blBadge}
-                    </div>
-                    <div class="order-stats">
-                        <span class="products-checked" data-order="${order.order_number}">${totalDone}</span>/${totalQty} szt. • ${order.total_volume.toFixed(4)} m³
-                    </div>
-                    <div class="order-icons">${expandIcon}</div>
-                </div>
-                <div class="products-list">${productsHTML}</div>
-                <div class="order-action">
-                    <button class="btn-complete" data-action="complete" disabled>ZAKOŃCZ WYKAŃCZANIE</button>
-                </div>
-            </div>
-        `;
-    }
+    // ========================================================================
+    // TODAY M³
+    // ========================================================================
 
     async function fetchTodayM3() {
         try {
-            const response = await fetch('/production/stations/ajax/station-today-m3/finishing');
+            const stationCode = state.config ? state.config.stationCode : 'finishing';
+            const response = await fetch(`/production/stations/ajax/station-today-m3/${stationCode}`);
             if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
             const result = await response.json();
@@ -835,6 +479,10 @@
             console.error('[Finishing] Failed to fetch today m³:', error);
         }
     }
+
+    // ========================================================================
+    // THEME TOGGLE
+    // ========================================================================
 
     function setupThemeToggle() {
         const themeToggle = document.getElementById('theme-toggle');
@@ -849,13 +497,13 @@
             const themeText = themeToggle.querySelector('.theme-text');
 
             if (isLight) {
-                sunIcon.style.display = 'none';
-                moonIcon.style.display = 'block';
-                themeText.textContent = 'Tryb ciemny';
+                if (sunIcon) sunIcon.style.display = 'none';
+                if (moonIcon) moonIcon.style.display = 'block';
+                if (themeText) themeText.textContent = 'Tryb ciemny';
             } else {
-                sunIcon.style.display = 'block';
-                moonIcon.style.display = 'none';
-                themeText.textContent = 'Tryb jasny';
+                if (sunIcon) sunIcon.style.display = 'block';
+                if (moonIcon) moonIcon.style.display = 'none';
+                if (themeText) themeText.textContent = 'Tryb jasny';
             }
 
             localStorage.setItem('theme', isLight ? 'light' : 'dark');
@@ -865,12 +513,18 @@
         if (savedTheme === 'light') themeToggle.click();
     }
 
+    // ========================================================================
+    // CLEANUP
+    // ========================================================================
+
     window.addEventListener('beforeunload', function() {
         if (state.refreshTimer) clearInterval(state.refreshTimer);
         if (state.countdownTimer) clearInterval(state.countdownTimer);
-        state.activeCountdowns.forEach(c => { if (c.timerId) clearInterval(c.timerId); });
         state.pendingRequests.forEach(t => clearTimeout(t));
     });
 
-    console.log('[Finishing] Module loaded v3.0');
+    // Eksportuj initializeProductTile dla ewentualnego użycia zewnętrznego
+    window.initializeProductTile = initializeProductTile;
+
+    console.log('[Finishing] Module loaded v4.0');
 })();
