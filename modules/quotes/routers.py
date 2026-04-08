@@ -401,15 +401,29 @@ def generate_quote_pdf(token, format):
         edges_images = {}
         shape_images = {}
         for fd in finishing_details:
+            print(f"[PDF] Poz {fd.product_index}: edges_svg={'TAK' if fd.edges_svg else 'BRAK'}, shape_svg={'TAK' if fd.shape_svg else 'BRAK'}", file=sys.stderr)
             if fd.edges_svg:
-                svg_fixed = pdf_gen._ensure_dashed_lines(fd.edges_svg)
-                png_data_uri = pdf_gen._svg_to_png_base64(svg_fixed, 300)
-                if png_data_uri:
-                    edges_images[fd.product_index] = png_data_uri
+                try:
+                    svg_fixed = pdf_gen._ensure_dashed_lines(fd.edges_svg)
+                    png_data_uri = pdf_gen._svg_to_png_base64(svg_fixed, 300)
+                    if png_data_uri:
+                        edges_images[fd.product_index] = png_data_uri
+                        print(f"[PDF] Poz {fd.product_index}: edges PNG OK ({len(png_data_uri)} znaków)", file=sys.stderr)
+                    else:
+                        print(f"[PDF] Poz {fd.product_index}: edges PNG zwrócił None", file=sys.stderr)
+                except Exception as e:
+                    print(f"[PDF] Poz {fd.product_index}: edges PNG BŁĄD: {e}", file=sys.stderr)
             if fd.shape_svg:
-                png_data_uri = pdf_gen._svg_to_png_base64(fd.shape_svg, 300)
-                if png_data_uri:
-                    shape_images[fd.product_index] = png_data_uri
+                try:
+                    png_data_uri = pdf_gen._svg_to_png_base64(fd.shape_svg, 300)
+                    if png_data_uri:
+                        shape_images[fd.product_index] = png_data_uri
+                        print(f"[PDF] Poz {fd.product_index}: shape PNG OK ({len(png_data_uri)} znaków)", file=sys.stderr)
+                    else:
+                        print(f"[PDF] Poz {fd.product_index}: shape PNG zwrócił None", file=sys.stderr)
+                except Exception as e:
+                    print(f"[PDF] Poz {fd.product_index}: shape PNG BŁĄD: {e}", file=sys.stderr)
+        print(f"[PDF] Wynik: edges_images={list(edges_images.keys())}, shape_images={list(shape_images.keys())}", file=sys.stderr)
 
         cost_products_netto = round(sum(item.get_total_price_netto() for item in selected_items), 2)
         cost_finishing_netto = round(sum(float(d.finishing_price_netto or 0) + float(d.edges_price_netto or 0) for d in finishing_details), 2)
