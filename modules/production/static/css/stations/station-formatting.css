@@ -531,6 +531,10 @@ body.light-mode .product-dimensions-row .badge-dimensions {
     border-color: var(--accent-orange);
     color: var(--accent-orange);
     font-weight: 700;
+    max-width: 70px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 /* Gatunek drewna - BUK (domyslny brazowy) */
@@ -627,6 +631,10 @@ body.light-mode [data-technology*="KLEJONY"] .badge-technology {
     background: #4a4a00;
     border-color: #7d7d00;
     color: #fff176;
+    max-width: 60px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 body.light-mode .badge-class {
