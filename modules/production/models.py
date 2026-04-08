@@ -111,7 +111,9 @@ class ProductionItem(db.Model):
     parsed_width_cm = Column(Numeric(10, 2))
     parsed_thickness_cm = Column(Numeric(10, 2))  # bazowe dla thickness_group
     parsed_finish_state = Column(String(50))   # finish_state dla algorytmu
-    
+    parsed_edge_processing = Column(Boolean, default=False, nullable=False,
+                                     comment='Czy produkt posiada obróbkę krawędzi (fazowanie, frezowanie, R(X), kąt, zaokrąglenie, faza)')
+
     # KALKULACJE BIZNESOWE
     volume_m3 = Column(Numeric(10, 4))
     unit_price_net = Column(Numeric(10, 2))
@@ -170,6 +172,7 @@ class ProductionItem(db.Model):
         'czeka_na_sklejanie',
         'czeka_na_formatowanie',
         'czeka_na_wykanczanie',
+        'czeka_na_lakiernie',
         'czeka_na_logistyke',
         'czeka_na_pakowanie',
         'spakowane',
@@ -217,6 +220,8 @@ class ProductionItem(db.Model):
                                       comment='Ile sztuk wykonano na stanowisku formatowania')
     quantity_done_finishing = Column(Integer, default=0, nullable=False,
                                      comment='Ile sztuk wykonano na stanowisku wykańczania')
+    quantity_done_painting = Column(Integer, default=0, nullable=False,
+                                    comment='Ile sztuk wykonano na stanowisku lakierni')
     quantity_done_packaging = Column(Integer, default=0, nullable=False,
                                      comment='Ile sztuk wykonano na stanowisku pakowania')
 
@@ -239,6 +244,8 @@ class ProductionItem(db.Model):
                                      comment='Timestamp ukończenia wszystkich sztuk na formatowaniu')
     finishing_completed_at = Column(DateTime, index=True,
                                     comment='Timestamp ukończenia wszystkich sztuk na wykańczaniu')
+    painting_completed_at = Column(DateTime, index=True,
+                                   comment='Timestamp ukończenia wszystkich sztuk na lakierni')
     packaging_completed_at = Column(DateTime, index=True,
                                     comment='Timestamp ukończenia wszystkich sztuk na pakowaniu')
 
@@ -573,63 +580,71 @@ class ProductionItem(db.Model):
     def should_skip_finishing(self):
         """
         Sprawdza czy produkt powinien pominąć stanowisko wykańczania.
-        Produkty z wykończeniem "Surowe" nie wymagają wykańczania.
-
-        Returns:
-            bool: True jeśli produkt powinien pominąć stanowisko finishing
+        Produkty surowe BEZ obróbki krawędzi nie wymagają wykańczania.
+        Produkty surowe Z obróbką krawędzi trafiają na wykańczanie.
         """
         if not self.parsed_finish_state:
             return False
 
-        # Normalizuj do lowercase dla porównania
         finish_state_lower = self.parsed_finish_state.lower().strip()
 
-        # Produkty surowe pomijają wykańczanie
-        return finish_state_lower == 'surowe'
+        # Produkty surowe pomijają wykańczanie TYLKO jeśli nie mają obróbki krawędzi
+        if finish_state_lower == 'surowe':
+            return not self.parsed_edge_processing
+
+        return False
 
     def complete_task(self, station_code):
         """
         Ukończenie pracy na stanowisku - przejście do następnego statusu
-        Wywoływane gdy wszystkie produkty w zamówieniu mają quantity_done == quantity
 
-        PRZEPŁYW: Stanowiska cutting i assembly są równoległe.
+        PRZEPŁYW:
         - cutting (mikrowczep) → sklejanie
         - assembly (lity) → sklejanie
-        Produkty z wykończeniem "Surowe" pomijają stanowisko "finishing"
-        i przechodzą bezpośrednio z "formatting" do logistyki.
+        - formatting → wykańczanie (chyba że surowe bez obróbki krawędzi → logistyka)
+        - finishing → lakiernia (jeśli lakierowane/olejowane/bejcowane) LUB logistyka (tylko krawędź)
+        - painting → logistyka
         """
         now = get_local_now()
 
-        # Mapowanie stanowisko -> następny status
         next_status_map = {
-            'cutting': 'czeka_na_sklejanie',    # Wycinanie → Sklejanie (równoległy przepływ)
-            'assembly': 'czeka_na_sklejanie',   # Składanie → Sklejanie (równoległy przepływ)
+            'cutting': 'czeka_na_sklejanie',
+            'assembly': 'czeka_na_sklejanie',
             'gluing': 'czeka_na_formatowanie',
             'formatting': 'czeka_na_wykanczanie',
             'finishing': 'czeka_na_logistyke',
+            'painting': 'czeka_na_logistyke',
             'packaging': 'spakowane'
         }
 
         if station_code in next_status_map:
             next_status = next_status_map[station_code]
 
-            # Specjalna logika: produkty "Surowe" pomijają stanowisko wykańczania
-            # Z formatowania przechodzą bezpośrednio do pakowania
+            # Formatowanie → surowe bez obróbki krawędzi pomija wykańczanie
             skipped_finishing = False
             if station_code == 'formatting' and self.should_skip_finishing():
                 next_status = 'czeka_na_logistyke'
                 skipped_finishing = True
-
-                # Oznacz stanowisko finishing jako ukończone (pominięte)
-                # żeby zachować spójność danych
                 self.quantity_done_finishing = self.quantity
                 if self.finishing_completed_at is None:
                     self.finishing_completed_at = now
-
-                logger.info("Produkt 'Surowe' - pomijam stanowisko wykańczania", extra={
+                logger.info("Produkt 'Surowe' bez obróbki krawędzi - pomijam wykańczanie", extra={
                     'product_id': self.short_product_id,
                     'finish_state': self.parsed_finish_state
                 })
+
+            # Wykańczanie → lakiernia jeśli lakierowane/olejowane/bejcowane
+            if station_code == 'finishing':
+                finish_lower = (self.parsed_finish_state or '').lower().strip()
+                needs_painting = any(keyword in finish_lower for keyword in [
+                    'olejow', 'lakier', 'bejc'
+                ])
+                if needs_painting:
+                    next_status = 'czeka_na_lakiernie'
+                    logger.info("Produkt wymaga lakierni", extra={
+                        'product_id': self.short_product_id,
+                        'finish_state': self.parsed_finish_state
+                    })
 
             # Logistyka — odbiór osobisty omija stanowisko logistyki
             if next_status == 'czeka_na_logistyke' and self.is_personal_pickup:
@@ -640,7 +655,7 @@ class ProductionItem(db.Model):
 
             # Upewnij się że completed_at jest ustawione
             completed_attr = f'{station_code}_completed_at'
-            if getattr(self, completed_attr) is None:
+            if getattr(self, completed_attr, None) is None:
                 setattr(self, completed_attr, now)
 
         self.updated_at = now
