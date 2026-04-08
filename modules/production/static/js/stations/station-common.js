@@ -1257,17 +1257,18 @@ function openOrderSearchModal() {
     const orders = [];
 
     orderCards.forEach(card => {
+        const productId = card.dataset.productId || '';
         const orderNumber = card.dataset.orderNumber || '';
-        const clientNumber = card.querySelector('.order-client-number')?.textContent || '';
         const baselinkerText = card.querySelector('.order-baselinker')?.textContent || '';
+        // Numer systemowy: product ID (flat) lub order number (grouped)
+        const systemNumber = productId || orderNumber || '';
 
         // Wyciągnij numer BL do sortowania
         const blMatch = baselinkerText.match(/BL-(\d+)/);
         const blNumber = blMatch ? parseInt(blMatch[1], 10) : 0;
 
         orders.push({
-            orderNumber,
-            clientNumber,
+            systemNumber,
             baselinkerText,
             blNumber,
             card
@@ -1295,8 +1296,7 @@ function openOrderSearchModal() {
         orders.forEach((order, index) => {
             ordersHTML += `
                 <button class="order-search-btn" data-order-index="${index}">
-                    <span class="order-number">${order.orderNumber}</span>
-                    ${order.clientNumber ? `<span class="order-client-number">${order.clientNumber}</span>` : ''}
+                    <span class="order-number">${order.systemNumber}</span>
                     ${order.baselinkerText ? `<span class="order-baselinker">${order.baselinkerText}</span>` : ''}
                 </button>
             `;

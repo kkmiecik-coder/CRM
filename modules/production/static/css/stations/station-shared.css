@@ -1393,26 +1393,27 @@ body {
 }
 
 .order-search-modal-body {
-    padding: 20px;
+    padding: 16px;
     overflow-y: auto;
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 6px;
 }
 
 /* Przycisk zamówienia w modalu wyszukiwania */
 .order-search-btn {
     display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12px;
-    padding: 14px 18px;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+    padding: 12px 14px;
     background: var(--bg-secondary);
     border: 1px solid var(--border-color);
     border-radius: 0;
     cursor: pointer;
     width: 100%;
     text-align: left;
+    min-height: 48px;
 }
 
 .order-search-btn:hover {
@@ -1421,23 +1422,17 @@ body {
 }
 
 .order-search-btn .order-number {
-    font-size: 18px;
+    font-size: 13px;
     font-weight: 700;
     color: var(--accent-orange);
-    font-family: 'Courier New', monospace;
-}
-
-.order-search-btn .order-client-number {
-    font-size: 18px;
-    font-weight: 600;
-    color: var(--text-primary);
+    font-family: 'JetBrains Mono', monospace;
 }
 
 .order-search-btn .order-baselinker {
-    font-size: 18px;
-    font-weight: 700;
+    font-size: 13px;
+    font-weight: 600;
     color: var(--accent-blue);
-    font-family: 'Courier New', monospace;
+    font-family: 'JetBrains Mono', monospace;
 }
 
 /* Pusta lista zamówień */
@@ -1445,6 +1440,7 @@ body {
     text-align: center;
     padding: 40px 20px;
     color: var(--text-secondary);
+    grid-column: 1 / -1;
 }
 
 .order-search-empty-icon {
@@ -1478,19 +1474,21 @@ body {
         max-height: 90vh;
     }
 
-    .order-search-btn {
-        flex-wrap: wrap;
-        gap: 8px;
+    .order-search-modal-body {
+        grid-template-columns: 1fr;
     }
 
     .order-search-btn .order-number,
-    .order-search-btn .order-client-number,
     .order-search-btn .order-baselinker {
         font-size: 12px;
     }
 }
 
-@media (max-width: 1080px) {
+@media (min-width: 769px) and (max-width: 1080px) {
+    .order-search-modal-body {
+        grid-template-columns: repeat(2, 1fr);
+    }
+
     .search-orders-btn {
         padding: 6px 12px;
         font-size: 12px;
