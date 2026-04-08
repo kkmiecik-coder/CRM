@@ -107,38 +107,7 @@
             console.log('[Assembly] Order search button initialized');
         }
 
-        // Polling postępu wycinania (synchronizacja z stanowiskiem wycinania)
-        startCuttingProgressPolling();
-
         console.log('[Assembly] Station initialized successfully');
-    }
-
-    // ========================================================================
-    // CUTTING PROGRESS POLLING (synchronizacja z stanowiskiem wycinania)
-    // ========================================================================
-
-    let cuttingPollingInterval = null;
-
-    function startCuttingProgressPolling() {
-        // Odpytuj co 2.5 sekundy
-        const POLLING_INTERVAL_MS = 2500;
-
-        cuttingPollingInterval = setInterval(async () => {
-            await fetchCuttingProgress();
-        }, POLLING_INTERVAL_MS);
-
-        console.log(`[Assembly] Cutting progress polling started (${POLLING_INTERVAL_MS}ms)`);
-
-        // Wykonaj pierwsze odpytanie od razu
-        fetchCuttingProgress();
-    }
-
-    function stopCuttingProgressPolling() {
-        if (cuttingPollingInterval) {
-            clearInterval(cuttingPollingInterval);
-            cuttingPollingInterval = null;
-            console.log('[Assembly] Cutting progress polling stopped');
-        }
     }
 
     function getVisibleProductIds() {
@@ -152,104 +121,6 @@
             }
         });
         return ids;
-    }
-
-    async function fetchCuttingProgress() {
-        const productIds = getVisibleProductIds();
-
-        if (productIds.length === 0) {
-            return;
-        }
-
-        // Sprawdź czy online
-        if (window.StationCommon && !window.StationCommon.isOnline()) {
-            return;
-        }
-
-        try {
-            const response = await fetch('/production/api/get-cutting-progress', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({ product_ids: productIds })
-            });
-
-            if (!response.ok) {
-                console.warn('[Assembly] Cutting progress fetch failed:', response.status);
-                return;
-            }
-
-            const data = await response.json();
-
-            if (data.success && data.progress) {
-                updateCuttingCounters(data.progress);
-            }
-        } catch (error) {
-            console.warn('[Assembly] Cutting progress fetch error:', error);
-        }
-    }
-
-    function updateCuttingCounters(progress) {
-        for (const [productId, data] of Object.entries(progress)) {
-            // Kafelek produktu ma data-product-id bezpośrednio na .order-card
-            const card = document.querySelector(`.order-card[data-product-id="${productId}"]`);
-
-            if (!card) continue;
-
-            const currentCuttingDone = parseInt(card.dataset.quantityDoneCutting || '0');
-            const newCuttingDone = data.quantity_done_cutting || 0;
-
-            // Jeśli wartość się zmieniła, zaktualizuj UI
-            if (currentCuttingDone !== newCuttingDone) {
-                card.dataset.quantityDoneCutting = newCuttingDone;
-
-                // Znajdź badge-cut lub stwórz nowy
-                let badgeCut = card.querySelector('.badge-cut');
-                const productParams = card.querySelector('.product-params');
-
-                if (newCuttingDone > 0) {
-                    // Dodaj lub zaktualizuj badge
-                    if (!badgeCut && productParams) {
-                        // Stwórz nowy badge
-                        badgeCut = document.createElement('span');
-                        badgeCut.className = 'badge badge-cut';
-                        badgeCut.innerHTML = `
-                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                <circle cx="6" cy="6" r="3"></circle>
-                                <circle cx="6" cy="18" r="3"></circle>
-                                <line x1="20" y1="4" x2="8.12" y2="15.88"></line>
-                                <line x1="14.47" y1="14.48" x2="20" y2="20"></line>
-                                <line x1="8.12" y1="8.12" x2="12" y2="12"></line>
-                            </svg>
-                            <span class="cut-counter">${newCuttingDone}/${data.quantity}</span>
-                        `;
-                        // Wstaw jako pierwszy element w product-params
-                        productParams.insertBefore(badgeCut, productParams.firstChild);
-                        card.classList.add('has-cutting');
-                    } else if (badgeCut) {
-                        // Zaktualizuj istniejący badge
-                        const counterSpan = badgeCut.querySelector('.cut-counter');
-                        if (counterSpan) {
-                            counterSpan.textContent = `${newCuttingDone}/${data.quantity}`;
-                        } else {
-                            // Starszy format bez span - zaktualizuj cały tekst
-                            const textNode = Array.from(badgeCut.childNodes).find(n => n.nodeType === Node.TEXT_NODE);
-                            if (textNode) {
-                                textNode.textContent = `${newCuttingDone}/${data.quantity}`;
-                            }
-                        }
-                    }
-                    badgeCut.title = `Wycięte: ${newCuttingDone}/${data.quantity}`;
-                } else if (badgeCut) {
-                    // Usuń badge jeśli cutting = 0
-                    badgeCut.remove();
-                    card.classList.remove('has-cutting');
-                }
-
-                console.log(`[Assembly] Updated cutting progress for ${productId}: ${currentCuttingDone} -> ${newCuttingDone}`);
-            }
-        }
     }
 
     // ========================================================================

@@ -180,10 +180,6 @@
                 <div class="product-body">
                     <div class="product-left-col">
                         <div class="product-params">
-                            <!-- Badge wyciecia (jesli cos wycieto) -->
-                            {% if product.quantity_done_cutting is defined and product.quantity_done_cutting and product.quantity_done_cutting > 0 %}
-                                <span class="badge badge-cut" title="Wycieto">✂ {{ product.quantity_done_cutting }}/{{ product.quantity }}</span>
-                            {% endif %}
                             {% if product.wood_species %}
                                 <span class="badge badge-species">{{ product.wood_species }}</span>
                             {% endif %}
