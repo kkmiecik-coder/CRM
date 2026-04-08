@@ -143,9 +143,6 @@
                         {% if order.baselinker_order_id %}
                         <span class="order-baselinker">BL-{{ order.baselinker_order_id }}</span>
                         {% endif %}
-                        {% if order.baselinker_order_id %}
-                        <span class="order-baselinker">BL-{{ order.baselinker_order_id }}</span>
-                        {% endif %}
                     </div>
                     <!-- Row 2: Stats left, Delivery badge, Icons right -->
                     <div class="order-header-row order-stats-row">
@@ -253,50 +250,46 @@
                          data-volume="{{ product.volume_m3 or 0 }}"
                          data-disabled="{{ 'true' if is_disabled else 'false' }}">
 
-                        <div class="product-left-col">
-                            <div class="product-params">
-                                {# Plakietka stanowiska dla produktów nie gotowych na pakowanie #}
-                                {% if is_disabled %}
-                                    {% set station_info = station_map.get(product.current_status, ('unknown', 'Nieznane')) %}
-                                    <span class="badge badge-station badge-station-{{ station_info[0] }}">
-                                        {% if station_info[0] in ['cutting', 'assembly'] %}
-                                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><line x1="20" y1="4" x2="8.12" y2="15.88"/><line x1="14.47" y1="14.48" x2="20" y2="20"/><line x1="8.12" y1="8.12" x2="12" y2="12"/></svg>
-                                        {% elif station_info[0] == 'gluing' %}
-                                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2C12 2 5 10 5 15a7 7 0 0 0 14 0C19 10 12 2 12 2z"/></svg>
-                                        {% elif station_info[0] == 'formatting' %}
-                                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21L21 3"/><path d="M6 3h15v3H9z" fill="none"/><path d="M9 3v3"/><path d="M12 3v3"/><path d="M15 3v3"/><path d="M18 3v3"/></svg>
-                                        {% elif station_info[0] == 'finishing' %}
-                                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18.37 2.63L14 7l-1.59-1.59a2 2 0 00-2.82 0L8 7l9 9 1.59-1.59a2 2 0 000-2.82L17 10l4.37-4.37a2.12 2.12 0 10-3-3z"/><path d="M9 8C5.49 12 1 21 1 21s9-4.49 13-8"/></svg>
-                                        {% elif station_info[0] == 'logistics' %}
-                                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="3" width="15" height="13"/><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>
-                                        {% endif %}
-                                        {{ station_info[1] }}
-                                    </span>
-                                {% endif %}
-                                {% if product.wood_species %}<span class="badge badge-species">{{ product.wood_species }}</span>{% endif %}
-                                {% if product.technology %}<span class="badge badge-technology">{{ product.technology }}</span>{% endif %}
-                                {% if product.wood_class %}<span class="badge badge-class">{{ product.wood_class }}</span>{% endif %}
-                                {% if product.finish_state %}<span class="badge badge-finish">{{ product.finish_state }}</span>{% endif %}
-                            </div>
-                            <div class="product-dimensions-row">
-                                {% if product.dimensions %}<span class="badge badge-dimensions">{{ product.dimensions }}</span>
-                                {% elif product.original_name %}<span class="badge badge-dimensions">{{ product.original_name }}</span>{% endif %}
-                            </div>
+                        <div class="product-params">
+                            {% if is_disabled %}
+                                {% set station_info = station_map.get(product.current_status, ('unknown', 'Nieznane')) %}
+                                <span class="badge badge-station badge-station-{{ station_info[0] }}">
+                                    {% if station_info[0] in ['cutting', 'assembly'] %}
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><line x1="20" y1="4" x2="8.12" y2="15.88"/><line x1="14.47" y1="14.48" x2="20" y2="20"/><line x1="8.12" y1="8.12" x2="12" y2="12"/></svg>
+                                    {% elif station_info[0] == 'gluing' %}
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2C12 2 5 10 5 15a7 7 0 0 0 14 0C19 10 12 2 12 2z"/></svg>
+                                    {% elif station_info[0] == 'formatting' %}
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21L21 3"/><path d="M6 3h15v3H9z" fill="none"/><path d="M9 3v3"/><path d="M12 3v3"/><path d="M15 3v3"/><path d="M18 3v3"/></svg>
+                                    {% elif station_info[0] == 'finishing' %}
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18.37 2.63L14 7l-1.59-1.59a2 2 0 00-2.82 0L8 7l9 9 1.59-1.59a2 2 0 000-2.82L17 10l4.37-4.37a2.12 2.12 0 10-3-3z"/><path d="M9 8C5.49 12 1 21 1 21s9-4.49 13-8"/></svg>
+                                    {% elif station_info[0] == 'logistics' %}
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="3" width="15" height="13"/><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>
+                                    {% endif %}
+                                    {{ station_info[1] }}
+                                </span>
+                            {% endif %}
+                            {% if product.wood_species %}<span class="badge badge-species">{{ product.wood_species }}</span>{% endif %}
+                            {% if product.technology %}<span class="badge badge-technology">{{ product.technology }}</span>{% endif %}
+                            {% if product.wood_class %}<span class="badge badge-class">{{ product.wood_class }}</span>{% endif %}
+                            {% if product.finish_state %}<span class="badge badge-finish">{{ product.finish_state }}</span>{% endif %}
                         </div>
-
-                        <div class="quantity-controls">
-                            <div class="quantity-counter">
-                                <span class="qty-done">{{ product.quantity_done }}</span>
-                                <span class="qty-separator">/</span>
-                                <span class="qty-total">{{ product.quantity }}</span>
-                            </div>
-                            <div class="quantity-buttons{% if product.quantity >= 10 %} grid-layout{% endif %}">
-                                <button class="btn-qty btn-minus" data-product-id="{{ product.id }}" data-action="decrement" {% if product.quantity_done == 0 or product.current_status != 'czeka_na_pakowanie' %}disabled{% endif %}>−</button>
+                        <div class="product-dimensions-row">
+                            {% if product.dimensions %}<span class="badge badge-dimensions">{{ product.dimensions }}</span>
+                            {% elif product.original_name %}<span class="badge badge-dimensions">{{ product.original_name }}</span>{% endif %}
+                            <div class="quantity-controls">
                                 {% if product.quantity >= 10 %}
                                 <button class="btn-qty btn-minus-10" data-product-id="{{ product.id }}" data-action="decrement10" {% if product.quantity_done < 10 or product.current_status != 'czeka_na_pakowanie' %}disabled{% endif %}>−10</button>
+                                {% endif %}
+                                <button class="btn-qty btn-minus" data-product-id="{{ product.id }}" data-action="decrement" {% if product.quantity_done == 0 or product.current_status != 'czeka_na_pakowanie' %}disabled{% endif %}>−</button>
+                                <div class="quantity-counter">
+                                    <span class="qty-done">{{ product.quantity_done }}</span>
+                                    <span class="qty-separator">/</span>
+                                    <span class="qty-total">{{ product.quantity }}</span>
+                                </div>
+                                <button class="btn-qty btn-plus" data-product-id="{{ product.id }}" data-action="increment" {% if product.quantity_done == product.quantity or product.current_status != 'czeka_na_pakowanie' %}disabled{% endif %}>+</button>
+                                {% if product.quantity >= 10 %}
                                 <button class="btn-qty btn-plus-10" data-product-id="{{ product.id }}" data-action="increment10" {% if product.quantity - product.quantity_done < 10 or product.current_status != 'czeka_na_pakowanie' %}disabled{% endif %}>+10</button>
                                 {% endif %}
-                                <button class="btn-qty btn-plus" data-product-id="{{ product.id }}" data-action="increment" {% if product.quantity_done == product.quantity or product.current_status != 'czeka_na_pakowanie' %}disabled{% endif %}>+</button>
                             </div>
                         </div>
                     </div>

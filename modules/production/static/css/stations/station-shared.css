@@ -619,6 +619,31 @@ body {
     gap: 6px;
 }
 
+/* Te same reguły dla product-row (order-grouped: packaging/formatting) */
+.product-row .product-params {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.product-row .product-dimensions-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 6px;
+}
+
+.product-row .product-dimensions-row .badge-dimensions {
+    flex: 1;
+}
+
+.product-row .quantity-controls {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
 /* Badge terminu w naglowku kafelka */
 .deadline-badge {
     font-size: 12px;
