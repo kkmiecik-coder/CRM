@@ -226,6 +226,11 @@
                          data-disabled="{{ 'true' if is_disabled else 'false' }}">
 
                         <div class="product-left-col">
+                            {% if product.product_sequence_in_order %}
+                            <div class="product-sequence-row">
+                                <span class="product-sequence-number">Pozycja {{ product.product_sequence_in_order }}</span>
+                            </div>
+                            {% endif %}
                             <div class="product-params">
                                 {# Plakietka stanowiska dla produktów nie gotowych na formatowanie #}
                                 {% if is_disabled %}
@@ -239,7 +244,6 @@
                                         {{ station_info[1] }}
                                     </span>
                                 {% endif %}
-                                {% if product.product_sequence_in_order %}<span class="badge badge-sequence">poz. {{ product.product_sequence_in_order }}</span>{% endif %}
                                 {% if product.wood_species %}<span class="badge badge-species">{{ product.wood_species }}</span>{% endif %}
                                 {% if product.technology %}<span class="badge badge-technology">{{ product.technology }}</span>{% endif %}
                                 {% if product.wood_class %}<span class="badge badge-class">{{ product.wood_class }}</span>{% endif %}
