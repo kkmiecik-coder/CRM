@@ -394,76 +394,20 @@ def generate_quote_pdf(token, format):
         selected_items = [item for item in quote.items if item.is_selected]
         finishing_details = db.session.query(QuoteItemDetails).filter_by(quote_id=quote.id).all()
 
-        # Konwertuj SVG na PNG dla każdego finishing_detail
-        # WeasyPrint ma problemy z renderowaniem inline SVG, więc używamy CairoSVG
-        def convert_svg_to_png_data_uri(svg_html):
-            """Konwertuje SVG na PNG i zwraca jako base64 data URI"""
-            if not svg_html:
-                return None
-            try:
-                import re as regex
-                # Konwertuj CSS styles na atrybuty SVG
-                svg_properties = ['fill', 'stroke', 'stroke-width', 'stroke-dasharray']
-
-                def convert_style_to_attrs(match):
-                    full_tag = match.group(0)
-                    style_match = regex.search(r'style="([^"]*)"', full_tag)
-                    if not style_match:
-                        return full_tag
-
-                    style_content = style_match.group(1)
-                    new_attrs = []
-
-                    for style_part in style_content.split(';'):
-                        style_part = style_part.strip()
-                        if not style_part or ':' not in style_part:
-                            continue
-                        prop, value = style_part.split(':', 1)
-                        prop = prop.strip()
-                        value = value.strip()
-                        if prop in svg_properties:
-                            new_attrs.append(f'{prop}="{value}"')
-
-                    new_tag = regex.sub(r'\s*style="[^"]*"', '', full_tag)
-                    if new_attrs:
-                        attrs_str = ' ' + ' '.join(new_attrs)
-                        new_tag = regex.sub(r'>$', f'{attrs_str}>', new_tag)
-                    return new_tag
-
-                svg_html = regex.sub(
-                    r'<(polygon|line|rect|circle|ellipse|path|polyline|g)\b([^>]*?)>',
-                    convert_style_to_attrs,
-                    svg_html
-                )
-
-                # Usuń puste style=""
-                svg_html = regex.sub(r'\s*style=""', '', svg_html)
-
-                # Dodaj width/height jeśli brakuje
-                if 'width=' not in svg_html or 'height=' not in svg_html:
-                    svg_html = regex.sub(r'<svg\s+', '<svg width="300" height="300" ', svg_html, count=1)
-
-                # Dodaj xmlns jeśli brakuje
-                if 'xmlns=' not in svg_html:
-                    svg_html = regex.sub(r'<svg\s+', '<svg xmlns="http://www.w3.org/2000/svg" ', svg_html, count=1)
-
-                # Konwertuj na PNG
-                png_bytes = cairosvg.svg2png(bytestring=svg_html.encode('utf-8'), output_width=300, output_height=300)
-                png_base64 = base64.b64encode(png_bytes).decode('utf-8')
-                return f'data:image/png;base64,{png_base64}'
-            except Exception as e:
-                print(f"[PDF] Błąd konwersji SVG na PNG: {e}", file=sys.stderr)
-                return None
+        # Konwersja SVG → PNG za pomocą EdgesPdfGenerator (sprawdzona metoda)
+        from modules.baselinker.edges_pdf_generator import EdgesPdfGenerator
+        pdf_gen = EdgesPdfGenerator()
 
         edges_images = {}
         shape_images = {}
         for fd in finishing_details:
             if fd.edges_svg:
-                png_data_uri = convert_svg_to_png_data_uri(fd.edges_svg)
+                svg_fixed = pdf_gen._ensure_dashed_lines(fd.edges_svg)
+                png_data_uri = pdf_gen._svg_to_png_base64(svg_fixed, 300)
                 if png_data_uri:
                     edges_images[fd.product_index] = png_data_uri
             if fd.shape_svg:
-                png_data_uri = convert_svg_to_png_data_uri(fd.shape_svg)
+                png_data_uri = pdf_gen._svg_to_png_base64(fd.shape_svg, 300)
                 if png_data_uri:
                     shape_images[fd.product_index] = png_data_uri
 
