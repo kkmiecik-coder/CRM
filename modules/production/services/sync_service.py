@@ -1458,11 +1458,13 @@ class BaselinkerSyncService:
                             quantity_value = 1
                         else:
                             stats['products_skipped'] += 1
+                            add_log(f'Pominięto produkt "{product_name}" w zamówieniu {order_id_val} — ilość <= 0.', 'warning')
                             continue
 
                     name_lower = product_name.lower()
                     if excluded_keywords and any(keyword in name_lower for keyword in excluded_keywords):
                         stats['products_skipped'] += quantity_value
+                        add_log(f'Pominięto produkt "{product_name}" w zamówieniu {order_id_val} — wykluczony keyword.', 'warning')
                         continue
 
                     if reports_parser:
@@ -1473,6 +1475,7 @@ class BaselinkerSyncService:
                             product_type = ''
                         if product_type and product_type in excluded_product_types:
                             stats['products_skipped'] += quantity_value
+                            add_log(f'Pominięto produkt "{product_name}" w zamówieniu {order_id_val} — wykluczony typ: {product_type}.', 'warning')
                             continue
 
                     sanitized_product = dict(product)
