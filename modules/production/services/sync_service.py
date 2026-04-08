@@ -427,8 +427,13 @@ class BaselinkerSyncService:
                 order_products_created = 0
                 order_errors = 0
                 current_sequence = 1
+                # Flaga: czy zamówienie zostało odrzucone z powodu nieznanej technologii
+                order_rejected_unknown_technology = False
 
                 for product_data in products:
+                    if order_rejected_unknown_technology:
+                        break
+
                     try:
                         quantity = int(product_data.get('quantity', 1))
 
@@ -468,6 +473,58 @@ class BaselinkerSyncService:
 
                             current_sequence += 1
 
+                        except ValueError as tech_error:
+                            # Nierozpoznana technologia — odrzucamy całe zamówienie
+                            logger.error("Nierozpoznana technologia — odrzucenie zamówienia", extra={
+                                'order_id': order_id,
+                                'product_name': product_data.get('name', 'unknown')[:50],
+                                'sequence': current_sequence,
+                                'error': str(tech_error)
+                            })
+
+                            # Cofnij wszystkie pozycje tego zamówienia dodane do sesji
+                            db.session.rollback()
+                            order_rejected_unknown_technology = True
+
+                            # Cofnij liczniki już dodanych pozycji tego zamówienia
+                            processing_stats['products_created'] -= order_products_created
+                            order_products_created = 0
+
+                            # Zapisz błąd do rejestru prod_errors
+                            try:
+                                from ..models import ProductionError
+                                production_error = ProductionError(
+                                    error_type='validation_error',
+                                    error_message=str(tech_error),
+                                    error_details_json={
+                                        'order_id': order_id,
+                                        'product_name': product_data.get('name', 'unknown'),
+                                        'sequence': current_sequence,
+                                        'error_subtype': 'unknown_technology'
+                                    },
+                                    related_order_id=order_id
+                                )
+                                db.session.add(production_error)
+                                db.session.commit()
+                            except Exception as err_log_error:
+                                logger.error("Błąd zapisu ProductionError", extra={
+                                    'order_id': order_id,
+                                    'error': str(err_log_error)
+                                })
+                                try:
+                                    db.session.rollback()
+                                except Exception:
+                                    pass
+
+                            processing_stats['errors_count'] += 1
+                            error_details.append({
+                                'order_id': order_id,
+                                'product_name': product_data.get('name', 'unknown'),
+                                'sequence': current_sequence,
+                                'error_type': 'unknown_technology',
+                                'error_message': str(tech_error)
+                            })
+
                         except Exception as item_error:
                             logger.error("Błąd tworzenia pozycji", extra={
                                 'order_id': order_id,
@@ -496,8 +553,13 @@ class BaselinkerSyncService:
                         order_errors += 1
                         processing_stats['products_skipped'] += 1
                         current_sequence += 1
-            
-                if order_products_created > 0:
+
+                if order_rejected_unknown_technology:
+                    # Zamówienie odrzucone — nie zmieniamy statusu w BaseLinker
+                    logger.warning("Zamówienie odrzucone z powodu nieznanej technologii", extra={
+                        'order_id': order_id
+                    })
+                elif order_products_created > 0:
                     try:
                         db.session.commit()
                         logger.info("Produkty zamówienia zapisane", extra={
@@ -672,6 +734,9 @@ class BaselinkerSyncService:
         
             return production_item
         
+        except ValueError:
+            # Nierozpoznana technologia — propaguj błąd wyżej, aby odrzucić całe zamówienie
+            raise
         except Exception as e:
             logger.error("Błąd tworzenia produktu", extra={
                 'error': str(e),
@@ -1059,6 +1124,24 @@ class BaselinkerSyncService:
             logger.error("CRON: Błąd pobierania zamówień", extra={'error': str(e)})
             raise SyncError(f'Błąd pobierania zamówień CRON: {str(e)}')
 
+    def _get_initial_station_by_technology(self, technology):
+        """
+        Zwraca początkowy status produkcyjny na podstawie technologii.
+        - mikrowczep → czeka_na_wyciecie (stanowisko Wycinanie)
+        - lity → czeka_na_skladanie (stanowisko Składanie)
+
+        Raises:
+            ValueError: Gdy technologia nie jest rozpoznana
+        """
+        technology_to_station = {
+            'mikrowczep': 'czeka_na_wyciecie',
+            'lity': 'czeka_na_skladanie',
+        }
+        station = technology_to_station.get(technology)
+        if station is None:
+            raise ValueError(f"Nierozpoznana technologia: '{technology}' — dozwolone: mikrowczep, lity")
+        return station
+
     def _prepare_product_data_enhanced(self, order: Dict[str, Any], product: Dict[str, Any],
                              product_id: str, id_result: Dict[str, Any],
                              parsed_data: Dict[str, Any], client_data: Dict[str, str],
@@ -1088,7 +1171,7 @@ class BaselinkerSyncService:
             'delivery_postcode': client_data.get('delivery_postcode'),
             'delivery_country_code': client_data.get('delivery_country_code'),
             'deadline_date': deadline_date,
-            'current_status': 'czeka_na_wyciecie',
+            'current_status': self._get_initial_station_by_technology(parsed_data.get('technology')),
             'sync_source': sync_source,
             'quantity': quantity  # NOWE: ilość sztuk z zamówienia
         }
