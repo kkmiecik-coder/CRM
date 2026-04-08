@@ -553,7 +553,8 @@
     color: var(--text-muted);
 }
 
-.btn-complete.saving {
+.btn-complete.saving,
+.btn-complete.processing {
     background: var(--btn-processing);
     color: var(--text-primary);
     cursor: wait;
@@ -564,13 +565,15 @@
     gap: 8px;
 }
 
-.btn-complete.saving:hover {
+.btn-complete.saving:hover,
+.btn-complete.processing:hover {
     background: var(--btn-processing);
 }
 
-.btn-complete.saving .spinner {
-    width: 16px;
-    height: 16px;
+.btn-complete.saving .spinner,
+.btn-complete.processing .spinner {
+    width: 18px;
+    height: 18px;
     border: 2px solid rgba(255,255,255,0.3);
     border-top-color: #fff;
     border-radius: 50%;
@@ -579,6 +582,33 @@
 
 @keyframes spin {
     to { transform: rotate(360deg); }
+
+.action-countdown {
+    display: flex;
+    gap: 4px;
+}
+
+.action-countdown .btn-complete {
+    flex: 1;
+}
+
+.btn-cancel {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: var(--text-primary);
+    background: var(--btn-cancel);
+    border: none;
+    min-height: 48px;
+    padding: 12px 16px;
+    cursor: pointer;
+}
+
+.btn-cancel:hover {
+    background: var(--btn-cancel-hover);
+}
 }
 
 /* ============================================================================
