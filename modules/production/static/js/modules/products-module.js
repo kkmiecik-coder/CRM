@@ -3664,6 +3664,27 @@ class ProductsModule {
     }
 
     /**
+     * Zwraca listę kodów stanowisk dla danej technologii produktu.
+     * mikrowczep → wycinanie + wspólne stanowiska
+     * lity → składanie + wspólne stanowiska
+     */
+    getStationsForProduct(product) {
+        const technology = (product.parsed_technology || '').toLowerCase();
+
+        // Wspólne stanowiska (od sklejania dalej)
+        const commonStations = ['gluing', 'formatting', 'finishing', 'logistics', 'packaging'];
+
+        if (technology === 'mikrowczep') {
+            return ['cutting', ...commonStations];
+        } else if (technology === 'lity') {
+            return ['assembly', ...commonStations];
+        }
+
+        // Fallback — pokaż oba (dla starych danych lub braku technologii)
+        return ['cutting', 'assembly', ...commonStations];
+    }
+
+    /**
      * Generuje timeline produkcji
      */
     generateProductionTimeline(modalElement, product) {
@@ -3743,10 +3764,14 @@ class ProductsModule {
             }
         ];
 
+        // Filtruj stanowiska wg technologii produktu
+        const allowedCodes = this.getStationsForProduct(product);
+        const filteredStations = stations.filter(s => allowedCodes.includes(s.code));
+
         let html = '';
         const quantity = product.quantity || 1;
 
-        stations.forEach(station => {
+        filteredStations.forEach(station => {
             const timelineState = this.getTimelineState(station, product);
             const details = this.getTimelineDetails(station, product);
 
@@ -3788,7 +3813,7 @@ class ProductsModule {
         if (!badge) return;
 
         const quantity = product.quantity || 1;
-        const stations = ['cutting', 'assembly', 'gluing', 'formatting', 'finishing', 'logistics', 'packaging'];
+        const stations = this.getStationsForProduct(product);
         const endFields = {
             'cutting': 'cutting_completed_at',
             'assembly': 'assembly_completed_at',
@@ -3916,18 +3941,6 @@ class ProductsModule {
         const endDate = product[station.endField];
         const duration = product[station.durationField];
 
-        // Specjalna logika dla cutting: "Pominięto" gdy brak cutting_completed_at ale jest assembly_completed_at
-        if (station.code === 'cutting') {
-            const cuttingCompleted = product['cutting_completed_at'];
-            const assemblyCompleted = product['assembly_completed_at'];
-
-            if (!cuttingCompleted && assemblyCompleted) {
-                return {
-                    text: 'Produkt złożony bez wycinania'
-                };
-            }
-        }
-
         if (endDate) {
             const endFormatted = new Date(endDate).toLocaleString('pl-PL');
             const durationText = duration ? this.formatDuration(duration) : '';
@@ -3944,13 +3957,8 @@ class ProductsModule {
                 text: `Rozpoczęto: ${startFormatted}, czas: ${elapsedText}`
             };
         } else {
-            const prevStations = {
-                'assembly': 'wycięcie',
-                'packaging': 'składanie'
-            };
-            const prevStation = prevStations[station.code];
             return {
-                text: prevStation ? `Oczekuje na ${prevStation}` : 'Oczekuje na rozpoczęcie'
+                text: 'Oczekuje na rozpoczęcie'
             };
         }
     }
