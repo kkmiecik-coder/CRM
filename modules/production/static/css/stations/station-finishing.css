@@ -253,7 +253,7 @@ body:not(.dark-mode) .tab-btn.active {
 
 .quantity-controls {
     display: flex;
-    flex-direction: column;
+    flex-direction: row;
     align-items: center;
     gap: 8px;
     flex-shrink: 0;
@@ -261,10 +261,6 @@ body:not(.dark-mode) .tab-btn.active {
     z-index: 1;
 }
 
-.quantity-controls:has(.grid-layout) {
-    flex-direction: row;
-    gap: 12px;
-}
 
 .quantity-counter {
     display: flex;
@@ -300,17 +296,7 @@ body:not(.dark-mode) .tab-btn.active {
     gap: 6px;
 }
 
-.quantity-buttons.grid-layout {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    grid-template-rows: 1fr 1fr;
-    gap: 4px;
-}
 
-.quantity-buttons.grid-layout .btn-minus { order: 1; }
-.quantity-buttons.grid-layout .btn-plus { order: 2; }
-.quantity-buttons.grid-layout .btn-minus-10 { order: 3; }
-.quantity-buttons.grid-layout .btn-plus-10 { order: 4; }
 
 .btn-qty {
     display: flex;

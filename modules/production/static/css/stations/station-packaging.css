@@ -194,7 +194,7 @@
 /* Domyślny układ: pionowy (licznik nad przyciskami) dla małych ilości */
 .quantity-controls {
     display: flex;
-    flex-direction: column;
+    flex-direction: row;
     align-items: center;
     gap: 8px;
     flex-shrink: 0;
@@ -203,10 +203,6 @@
 }
 
 /* Układ poziomy dla dużych ilości (>=10) */
-.quantity-controls:has(.grid-layout) {
-    flex-direction: row;
-    gap: 12px;
-}
 
 /* Licznik ilości */
 .quantity-counter {
@@ -245,18 +241,8 @@
 }
 
 /* Grid 2x2 dla dużych ilości (>=10 szt) */
-.quantity-buttons.grid-layout {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    grid-template-rows: 1fr 1fr;
-    gap: 4px;
-}
 
 /* Kolejność w grid: -, + na górze; -10, +10 na dole */
-.quantity-buttons.grid-layout .btn-minus { order: 1; }
-.quantity-buttons.grid-layout .btn-plus { order: 2; }
-.quantity-buttons.grid-layout .btn-minus-10 { order: 3; }
-.quantity-buttons.grid-layout .btn-plus-10 { order: 4; }
 
 /* Przyciski +/- */
 .btn-qty {
