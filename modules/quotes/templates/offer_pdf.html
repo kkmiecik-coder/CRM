@@ -346,6 +346,12 @@
             margin-right: 0;
         }
 
+        .edge-item-preview-box.single {
+            width: 100%;
+            float: none;
+            margin-right: 0;
+        }
+
         .edge-item-preview-box img {
             max-width: 100%;
             max-height: 120px;
@@ -363,6 +369,12 @@
         }
 
         .edge-item-labels .edge-item-preview-label:last-child {
+            margin-right: 0;
+        }
+
+        .edge-item-labels .edge-item-preview-label:only-child {
+            width: 100%;
+            float: none;
             margin-right: 0;
         }
 
@@ -755,18 +767,21 @@
                 </div>
 
                 <!-- Podglądy: kształt 2D + izometria 3D obok siebie -->
+                {% set has_shape = (shape_images and shape_images.get(detail.product_index)) or detail.shape_svg %}
+                {% set has_edges = edges_images and edges_images.get(detail.product_index) %}
+                {% set single_preview = has_shape != has_edges %}
                 <div class="edge-item-previews">
                     {% if shape_images and shape_images.get(detail.product_index) %}
-                    <div class="edge-item-preview-box">
+                    <div class="edge-item-preview-box{{ ' single' if single_preview else '' }}">
                         <img src="{{ shape_images[detail.product_index] }}" alt="Kształt" />
                     </div>
                     {% elif detail.shape_svg %}
-                    <div class="edge-item-preview-box">
+                    <div class="edge-item-preview-box{{ ' single' if single_preview else '' }}">
                         {{ detail.shape_svg|safe }}
                     </div>
                     {% endif %}
-                    {% if edges_images and edges_images.get(detail.product_index) %}
-                    <div class="edge-item-preview-box">
+                    {% if has_edges %}
+                    <div class="edge-item-preview-box{{ ' single' if single_preview else '' }}">
                         <img src="{{ edges_images[detail.product_index] }}" alt="Wizualizacja krawędzi" />
                     </div>
                     {% endif %}
