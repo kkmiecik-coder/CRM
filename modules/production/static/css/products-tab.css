@@ -297,7 +297,7 @@
 .il-orders-header,
 .orders-header {
     display: grid;
-    grid-template-columns: 20px 24px 24px 20px 2fr 55px 80px 100px 120px 150px 130px;
+    grid-template-columns: 20px 24px 24px 20px 2fr 55px 80px 100px 160px 150px 130px;
     align-items: center;
     gap: 8px;
     padding: 6px 14px 6px 18px;
@@ -363,7 +363,7 @@
 .order-header {
     padding: 10px 14px;
     display: grid;
-    grid-template-columns: 20px 24px 24px 20px 2fr 55px 80px 100px 120px 150px 130px;
+    grid-template-columns: 20px 24px 24px 20px 2fr 55px 80px 100px 160px 150px 130px;
     align-items: center;
     gap: 8px;
     cursor: pointer;
