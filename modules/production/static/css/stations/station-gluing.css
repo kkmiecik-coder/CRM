@@ -42,7 +42,7 @@
 .order-card {
     background: var(--bg-card);
     border: 2px solid var(--border-color);
-    border-radius: 12px;
+    border-radius: 0;
     overflow: visible; /* ZMIENIONE: było hidden - obcinało tooltips */
     box-shadow: var(--shadow-sm);
     display: flex;
@@ -261,7 +261,7 @@
     width: 44px;
     height: 44px;
     border: 2px solid var(--border-color);
-    border-radius: 8px;
+    border-radius: 0;
     background: var(--bg-secondary);
     color: var(--text-primary);
     font-size: 24px;
@@ -412,7 +412,7 @@
 
 .badge {
     padding: 6px 12px;
-    border-radius: 8px;
+    border-radius: 0;
     font-size: 14px;
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
     font-weight: 700;
@@ -436,7 +436,7 @@
 .product-dimensions-row .badge-dimensions {
     flex: 1;
     padding: 8px 16px;
-    border-radius: 8px;
+    border-radius: 0;
     font-size: 18px;
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
     font-weight: 600;
@@ -636,7 +636,7 @@
     justify-content: center;
     width: 32px;
     height: 32px;
-    border-radius: 6px;
+    border-radius: 0;
     background: rgba(255, 193, 7, 0.15);
     border: 1px solid rgba(255, 193, 7, 0.3);
     cursor: pointer;
@@ -667,7 +667,7 @@
     background: var(--bg-secondary);
     color: var(--text-primary);
     padding: 8px 12px;
-    border-radius: 6px;
+    border-radius: 0;
     font-size: 12px;
     white-space: nowrap;
     max-width: 300px;
@@ -707,7 +707,7 @@
 
 .notes-modal-content {
     background: var(--bg-card);
-    border-radius: 16px;
+    border-radius: 0;
     max-width: 600px;
     width: 100%;
     max-height: 80vh;
@@ -742,7 +742,7 @@
     color: var(--text-secondary);
     font-size: 24px;
     cursor: pointer;
-    border-radius: 8px;
+    border-radius: 0;
     display: flex;
     align-items: center;
     justify-content: center;

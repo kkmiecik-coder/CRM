@@ -224,20 +224,23 @@ def create_app():
     app.config.setdefault('RUN_DB_SETUP', False)
 
     # Dodajemy ustawienia utrzymujące połączenie z bazą:
-    app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
-        'pool_pre_ping': True,              # Sprawdź połączenie przed użyciem
-        'pool_recycle': 280,                # Recycle połączeń przed MySQL timeout (300s)
-        'pool_size': 10,                    # ZWIĘKSZONE: więcej równoległych połączeń
-        'max_overflow': 20,                 # ZWIĘKSZONE: więcej overflow connections
-        'pool_timeout': 30,                 # Timeout oczekiwania na połączenie
-        'echo': False,                      # Wyłącz echo SQL (performance)
-        'echo_pool': False,                 # Wyłącz echo pool events
-        'connect_args': {
-            'connect_timeout': 10,          # MySQL connection timeout
-            'charset': 'utf8mb4',           # UTF-8 support
-            'use_unicode': True
+    if 'sqlite' in app.config.get('DATABASE_URI', ''):
+        app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {}
+    else:
+        app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
+            'pool_pre_ping': True,              # Sprawdź połączenie przed użyciem
+            'pool_recycle': 280,                # Recycle połączeń przed MySQL timeout (300s)
+            'pool_size': 10,                    # ZWIĘKSZONE: więcej równoległych połączeń
+            'max_overflow': 20,                 # ZWIĘKSZONE: więcej overflow connections
+            'pool_timeout': 30,                 # Timeout oczekiwania na połączenie
+            'echo': False,                      # Wyłącz echo SQL (performance)
+            'echo_pool': False,                 # Wyłącz echo pool events
+            'connect_args': {
+                'connect_timeout': 10,          # MySQL connection timeout
+                'charset': 'utf8mb4',           # UTF-8 support
+                'use_unicode': True
+            }
         }
-    }
     app.config['SQLALCHEMY_DATABASE_URI'] = app.config["DATABASE_URI"]
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 

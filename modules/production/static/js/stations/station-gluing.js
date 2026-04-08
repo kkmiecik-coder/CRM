@@ -1024,18 +1024,18 @@
                     </div>
                 </div>
                 <div class="product-body">
-                    <div class="product-left-col">
-                        <div class="product-params">${paramsHTML}</div>
-                        <div class="product-dimensions-row">${dimensionsBadge}</div>
-                    </div>
-                    <div class="quantity-controls">
-                        <div class="quantity-counter">
-                            <span class="qty-done">${quantityDone}</span>
-                            <span class="qty-separator">/</span>
-                            <span class="qty-total">${quantity}</span>
-                        </div>
-                        <div class="quantity-buttons${gridClass}">
-                            ${quantityButtonsHTML}
+                    <div class="product-params">${paramsHTML}</div>
+                    <div class="product-dimensions-row">
+                        ${dimensionsBadge}
+                        <div class="quantity-controls">
+                            <div class="quantity-counter">
+                                <span class="qty-done">${quantityDone}</span>
+                                <span class="qty-separator">/</span>
+                                <span class="qty-total">${quantity}</span>
+                            </div>
+                            <div class="quantity-buttons${gridClass}">
+                                ${quantityButtonsHTML}
+                            </div>
                         </div>
                     </div>
                 </div>

@@ -133,7 +133,7 @@ body {
     padding: 12px 24px;
     background: rgba(255, 255, 255, 0.1);
     border: 2px solid rgba(255, 255, 255, 0.2);
-    border-radius: 10px;
+    border-radius: 0;
     color: var(--text-primary);
     font-size: 14px;
     font-weight: 600;
@@ -228,7 +228,7 @@ body {
 .product-card {
     background: var(--bg-card);
     border: 1px solid var(--border-color);
-    border-radius: 12px;
+    border-radius: 0;
     box-shadow: var(--shadow-sm);
     display: flex;
     flex-direction: column;
@@ -300,7 +300,7 @@ body {
 
 .badge {
     padding: 6px 8px;
-    border-radius: 10px;
+    border-radius: 0;
     font-size: 15px;
     font-weight: bold;
     text-transform: uppercase;
@@ -356,7 +356,7 @@ body {
     border: 2px solid var(--dims-border);
     color: var(--text-primary);
     padding: 8px 12px;
-    border-radius: 12px;
+    border-radius: 0;
     font-size: 26px;
     font-weight: bold;
     text-align: center;
@@ -389,7 +389,7 @@ body {
     background: var(--btn-primary);
     color: white;
     border: none;
-    border-radius: 10px;
+    border-radius: 0;
     font-size: 16px;
     font-weight: bold;
     cursor: pointer;
@@ -432,7 +432,7 @@ body {
     background: var(--btn-cancel);
     color: white;
     border: none;
-    border-radius: 10px;
+    border-radius: 0;
     font-size: 15px;
     font-weight: bold;
     cursor: pointer;
@@ -501,7 +501,7 @@ body {
     align-items: center;
     gap: 8px;
     padding: 10px 20px;
-    border-radius: 8px;
+    border-radius: 0;
     font-size: 14px;
     font-weight: 600;
     letter-spacing: 0.5px;
@@ -593,28 +593,38 @@ body {
    CIALO KAFELKA PRODUKTU (plskie stanowiska: wycinanie/skladanie/sklejanie)
    ============================================================================ */
 
-/* Cialo kafelka produktu dla stanowisk plaskich (wycinanie/skladanie/sklejanie) */
+/* Cialo kafelka produktu dla stanowisk plaskich (wycinanie/skladanie/sklejanie)
+   Layout: badge'e na gorze, wymiary + counter + przyciski w jednym wierszu na dole */
 .product-body {
-    display: grid;
-    grid-template-columns: 1fr auto;
-    align-items: center;
-    gap: 16px;
-    padding: 14px 20px;
-}
-
-.product-body .product-left-col {
-    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 10px 12px;
 }
 
 .product-body .product-params {
     display: flex;
     flex-wrap: wrap;
     gap: 6px;
-    margin-bottom: 6px;
 }
 
+/* Wymiary + counter w jednym wierszu */
 .product-body .product-dimensions-row {
-    margin-top: 4px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.product-body .product-dimensions-row .badge-dimensions {
+    flex: 1;
+}
+
+/* Counter + przyciski */
+.product-body .quantity-controls {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    gap: 6px;
 }
 
 /* Badge terminu w naglowku kafelka */
@@ -622,7 +632,7 @@ body {
     font-size: 12px;
     font-weight: 600;
     padding: 2px 8px;
-    border-radius: 4px;
+    border-radius: 0;
     background: var(--bg-secondary);
     color: var(--text-secondary);
     white-space: nowrap;
@@ -877,7 +887,7 @@ body {
     cursor: pointer;
     position: relative;
     padding: 4px;
-    border-radius: 4px;
+    border-radius: 0;
 }
 
 .attachment-icon-wrapper:hover {
@@ -901,7 +911,7 @@ body {
     margin-top: 3px;
     background-color: var(--bg-secondary);
     border: 1px solid var(--border-color);
-    border-radius: 8px;
+    border-radius: 0;
     padding: 8px;
     box-shadow: var(--shadow-md);
     z-index: 10000;
@@ -921,7 +931,7 @@ body {
 .attachment-tooltip img {
     max-width: 300px;
     max-height: 200px;
-    border-radius: 4px;
+    border-radius: 0;
     display: block;
 }
 
@@ -929,7 +939,7 @@ body {
     width: 380px; /* ZMIENIONE: było 700px, za szerokie */
     height: 480px; /* ZMIENIONE: było 600px, proporcjonalnie mniejsze */
     max-width: calc(100vw - 40px); /* ZMIENIONE: 90vw -> margines 20px z każdej strony */
-    border-radius: 4px;
+    border-radius: 0;
     display: block;
 }
 
@@ -994,14 +1004,14 @@ body {
     max-width: 90%;
     max-height: 85vh;
     object-fit: contain;
-    border-radius: 8px;
+    border-radius: 0;
 }
 
 #attachmentModal iframe {
     width: 90vw;
     height: 90vh;
     border: none;
-    border-radius: 8px;
+    border-radius: 0;
 }
 
 /* Packaging station - dostosowanie dla product-id-wrapper */
@@ -1034,7 +1044,7 @@ body {
     justify-content: center;
     width: 32px;
     height: 32px;
-    border-radius: 6px;
+    border-radius: 0;
     cursor: pointer;
     flex-shrink: 0;
     position: relative;
@@ -1093,7 +1103,7 @@ body {
     justify-content: center;
     width: 32px;
     height: 32px;
-    border-radius: 6px;
+    border-radius: 0;
     background: rgba(255, 193, 7, 0.15);
     border: 1px solid rgba(255, 193, 7, 0.3);
     cursor: pointer;
@@ -1124,7 +1134,7 @@ body {
     background: var(--bg-secondary);
     color: var(--text-primary);
     padding: 8px 12px;
-    border-radius: 6px;
+    border-radius: 0;
     font-size: 12px;
     white-space: nowrap;
     max-width: 300px;
@@ -1164,7 +1174,7 @@ body {
 
 .notes-modal-content {
     background: var(--bg-card);
-    border-radius: 16px;
+    border-radius: 0;
     max-width: 600px;
     width: 100%;
     max-height: 80vh;
@@ -1199,7 +1209,7 @@ body {
     color: var(--text-secondary);
     font-size: 24px;
     cursor: pointer;
-    border-radius: 8px;
+    border-radius: 0;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -1306,7 +1316,7 @@ body {
     padding: 12px 24px;
     background: rgba(255, 255, 255, 0.1);
     border: 2px solid rgba(255, 255, 255, 0.2);
-    border-radius: 10px;
+    border-radius: 0;
     color: var(--text-primary);
     font-size: 14px;
     font-weight: 600;
@@ -1344,7 +1354,7 @@ body {
 
 .order-search-modal-content {
     background: var(--bg-card);
-    border-radius: 16px;
+    border-radius: 0;
     max-width: 800px;
     width: 100%;
     max-height: 80vh;
@@ -1379,7 +1389,7 @@ body {
     color: var(--text-secondary);
     font-size: 24px;
     cursor: pointer;
-    border-radius: 8px;
+    border-radius: 0;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -1407,7 +1417,7 @@ body {
     padding: 14px 18px;
     background: var(--bg-secondary);
     border: 1px solid var(--border-color);
-    border-radius: 10px;
+    border-radius: 0;
     cursor: pointer;
     width: 100%;
     text-align: left;
@@ -1681,7 +1691,7 @@ body {
     font-size: 11px;
     font-weight: 600;
     padding: 3px 8px;
-    border-radius: 6px;
+    border-radius: 0;
     background: rgba(108, 117, 125, 0.15);
     color: var(--text-secondary);
     white-space: nowrap;

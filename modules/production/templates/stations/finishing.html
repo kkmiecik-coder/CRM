@@ -175,32 +175,29 @@
                     </div>
                 </div>
                 <div class="product-body">
-                    <div class="product-left-col">
-                        <div class="product-params">
-                            {% if product.wood_species %}
-                                <span class="badge badge-species">{{ product.wood_species }}</span>
-                            {% endif %}
-                            {% if product.technology %}
-                                <span class="badge badge-technology">{{ product.technology }}</span>
-                            {% endif %}
-                            {% if product.wood_class %}
-                                <span class="badge badge-class">{{ product.wood_class }}</span>
-                            {% endif %}
-                            {% if product.finish_state %}
-                                <span class="badge badge-finish">{{ product.finish_state }}</span>
-                            {% endif %}
-                        </div>
-                        <div class="product-dimensions-row">
-                            {% if product.dimensions %}
-                                <span class="badge badge-dimensions">{{ product.dimensions }}</span>
-                            {% elif product.original_name %}
-                                <span class="badge badge-dimensions">{{ product.original_name }}</span>
-                            {% elif product.attachment_file_url %}
-                                <span class="badge badge-dimensions">Zgodnie z załącznikiem</span>
-                            {% endif %}
-                        </div>
+                    <div class="product-params">
+                        {% if product.wood_species %}
+                            <span class="badge badge-species">{{ product.wood_species }}</span>
+                        {% endif %}
+                        {% if product.technology %}
+                            <span class="badge badge-technology">{{ product.technology }}</span>
+                        {% endif %}
+                        {% if product.wood_class %}
+                            <span class="badge badge-class">{{ product.wood_class }}</span>
+                        {% endif %}
+                        {% if product.finish_state %}
+                            <span class="badge badge-finish">{{ product.finish_state }}</span>
+                        {% endif %}
                     </div>
-                    <div class="quantity-controls">
+                    <div class="product-dimensions-row">
+                        {% if product.dimensions %}
+                            <span class="badge badge-dimensions">{{ product.dimensions }}</span>
+                        {% elif product.original_name %}
+                            <span class="badge badge-dimensions">{{ product.original_name }}</span>
+                        {% elif product.attachment_file_url %}
+                            <span class="badge badge-dimensions">Zgodnie z załącznikiem</span>
+                        {% endif %}
+                        <div class="quantity-controls">
                         <div class="quantity-counter">
                             <span class="qty-done">{{ product.quantity_done }}</span>
                             <span class="qty-separator">/</span>
@@ -215,6 +212,7 @@
                             <button class="btn-qty btn-plus" data-product-id="{{ product.id }}" data-action="increment" {% if product.quantity_done >= product.quantity %}disabled{% endif %}>+</button>
                         </div>
                     </div>
+                </div>
                 </div>
                 <div class="order-action">
                     <button class="btn-complete" data-product-id="{{ product.id }}" data-action="complete" disabled>
