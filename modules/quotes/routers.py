@@ -7,15 +7,9 @@ from modules.baselinker.service import BaselinkerService
 from modules.baselinker.models import BaselinkerConfig
 from modules.users.decorators import require_module_access
 from extensions import db, mail
-try:
-    from weasyprint import HTML
-except OSError:
-    HTML = None  # WeasyPrint unavailable - PDF generation disabled
+from weasyprint import HTML
 from io import BytesIO
-try:
-    import cairosvg
-except OSError:
-    cairosvg = None  # Cairo unavailable - SVG conversion disabled
+import cairosvg
 from flask_mail import Message
 from functools import wraps
 import logging

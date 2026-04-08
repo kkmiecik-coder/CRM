@@ -224,10 +224,7 @@ def create_app():
     app.config.setdefault('RUN_DB_SETUP', False)
 
     # Dodajemy ustawienia utrzymujące połączenie z bazą:
-    if 'sqlite' in app.config.get('DATABASE_URI', ''):
-        app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {}
-    else:
-        app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
+    app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
             'pool_pre_ping': True,              # Sprawdź połączenie przed użyciem
             'pool_recycle': 280,                # Recycle połączeń przed MySQL timeout (300s)
             'pool_size': 10,                    # ZWIĘKSZONE: więcej równoległych połączeń
@@ -240,7 +237,7 @@ def create_app():
                 'charset': 'utf8mb4',           # UTF-8 support
                 'use_unicode': True
             }
-        }
+    }
     app.config['SQLALCHEMY_DATABASE_URI'] = app.config["DATABASE_URI"]
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
