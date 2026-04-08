@@ -321,9 +321,9 @@ body:not(.dark-mode) .tab-btn.active {
 }
 
 .btn-qty:disabled {
-    opacity: 0.3;
+    
     cursor: not-allowed;
-    background: var(--bg-primary);
+    background: var(--bg-primary); border-color: var(--border-color);
 }
 
 .btn-minus {
@@ -581,10 +581,10 @@ body:not(.dark-mode) .tab-btn.active {
 }
 
 .btn-complete:disabled {
-    opacity: 0.3;
+    
     cursor: not-allowed;
-    background: var(--bg-tertiary);
-    color: var(--text-muted);
+    background: var(--bg-primary);
+    color: var(--text-tertiary);
 }
 
 .btn-complete.saving,

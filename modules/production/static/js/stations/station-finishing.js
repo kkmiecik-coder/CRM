@@ -335,7 +335,7 @@
             <div class="action-countdown">
                 <button class="btn-complete processing">
                     <span class="spinner"></span>
-                    <span class="countdown-text">Zapisuje... 10s</span>
+                    <span class="countdown-text">Zapisuje... 5s</span>
                 </button>
                 <button class="btn-cancel">ANULUJ</button>
             </div>
@@ -344,7 +344,7 @@
         const countdownText = actionContainer.querySelector('.countdown-text');
         const cancelBtn = actionContainer.querySelector('.btn-cancel');
 
-        let secondsLeft = 10;
+        let secondsLeft = 5;
 
         const timerId = setInterval(() => {
             secondsLeft--;

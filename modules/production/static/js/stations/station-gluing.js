@@ -472,7 +472,7 @@
             <div class="action-countdown">
                 <button class="btn-complete processing">
                     <span class="spinner"></span>
-                    <span class="countdown-text">Zapisuje... 10s</span>
+                    <span class="countdown-text">Zapisuje... 5s</span>
                 </button>
                 <button class="btn-cancel">ANULUJ</button>
             </div>
@@ -482,7 +482,7 @@
         const cancelBtn = actionContainer.querySelector('.btn-cancel');
         const countdownText = processingBtn.querySelector('.countdown-text');
 
-        let secondsLeft = 10;
+        let secondsLeft = 5;
 
         const updateCountdownText = () => {
             if (countdownText) {
