@@ -329,53 +329,30 @@
             font-style: italic;
         }
 
-        .edge-item-previews {
-            overflow: hidden;
+        .edge-item-previews-table {
+            width: 100%;
+            border-collapse: collapse;
             margin-bottom: 8px;
         }
 
-        .edge-item-preview-box {
-            width: 48%;
-            float: left;
+        .edge-item-previews-table td {
             text-align: center;
-            overflow: hidden;
-            margin-right: 4%;
+            vertical-align: middle;
+            padding: 4px;
         }
 
-        .edge-item-preview-box:last-child {
-            margin-right: 0;
+        .edge-item-previews-table .preview-label {
+            font-size: 8px;
+            font-weight: bold;
+            color: #999;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            padding-bottom: 4px;
         }
 
-        .edge-item-preview-box.single {
-            width: 100%;
-            float: none;
-            margin-right: 0;
-        }
-
-        .edge-item-preview-box img {
+        .edge-item-previews-table img {
             max-width: 100%;
             max-height: 120px;
-        }
-
-        .edge-item-labels {
-            overflow: hidden;
-            margin-bottom: 4px;
-        }
-
-        .edge-item-labels .edge-item-preview-label {
-            width: 48%;
-            float: left;
-            margin-right: 4%;
-        }
-
-        .edge-item-labels .edge-item-preview-label:last-child {
-            margin-right: 0;
-        }
-
-        .edge-item-labels .edge-item-preview-label:only-child {
-            width: 100%;
-            float: none;
-            margin-right: 0;
         }
 
         .edge-item-preview-label {
@@ -756,36 +733,27 @@
                     {% endif %}
                 </div>
 
-                <!-- Nagłówki podglądów — zawsze na górze -->
-                <div class="edge-item-labels">
-                    {% if detail.shape_svg or (shape_images and shape_images.get(detail.product_index)) %}
-                    <div class="edge-item-preview-label">Widok kształtu</div>
-                    {% endif %}
-                    {% if edges_images and edges_images.get(detail.product_index) %}
-                    <div class="edge-item-preview-label">Widok izometryczny</div>
-                    {% endif %}
-                </div>
-
-                <!-- Podglądy: kształt 2D + izometria 3D obok siebie -->
+                <!-- Podglądy: nagłówki + obrazki w tabeli -->
                 {% set has_shape = (shape_images and shape_images.get(detail.product_index)) or detail.shape_svg %}
                 {% set has_edges = edges_images and edges_images.get(detail.product_index) %}
-                {% set single_preview = has_shape != has_edges %}
-                <div class="edge-item-previews">
-                    {% if shape_images and shape_images.get(detail.product_index) %}
-                    <div class="edge-item-preview-box{{ ' single' if single_preview else '' }}">
-                        <img src="{{ shape_images[detail.product_index] }}" alt="Kształt" />
-                    </div>
-                    {% elif detail.shape_svg %}
-                    <div class="edge-item-preview-box{{ ' single' if single_preview else '' }}">
-                        {{ detail.shape_svg|safe }}
-                    </div>
-                    {% endif %}
-                    {% if has_edges %}
-                    <div class="edge-item-preview-box{{ ' single' if single_preview else '' }}">
-                        <img src="{{ edges_images[detail.product_index] }}" alt="Wizualizacja krawędzi" />
-                    </div>
-                    {% endif %}
-                </div>
+                {% if has_shape or has_edges %}
+                <table class="edge-item-previews-table">
+                    <tr>
+                        {% if has_shape %}<td class="preview-label">Widok kształtu</td>{% endif %}
+                        {% if has_edges %}<td class="preview-label">Widok izometryczny</td>{% endif %}
+                    </tr>
+                    <tr>
+                        {% if shape_images and shape_images.get(detail.product_index) %}
+                        <td><img src="{{ shape_images[detail.product_index] }}" alt="Kształt" /></td>
+                        {% elif detail.shape_svg %}
+                        <td>{{ detail.shape_svg|safe }}</td>
+                        {% endif %}
+                        {% if has_edges %}
+                        <td><img src="{{ edges_images[detail.product_index] }}" alt="Wizualizacja krawędzi" /></td>
+                        {% endif %}
+                    </tr>
+                </table>
+                {% endif %}
 
                 <!-- Info o obróbce krawędzi — poza kontenerem podglądów -->
                 {% if detail.edges_config and detail.edges_config|length > 0 %}
