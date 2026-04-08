@@ -181,8 +181,8 @@ def production_monitor():
         }
 
         status_labels = {
-            'czeka_na_wyciecie': 'Wycinanie',
-            'czeka_na_skladanie': 'Skladanie',
+            'czeka_na_wyciecie': 'Wycinanie - mikro',
+            'czeka_na_skladanie': 'Składanie - lite',
             'czeka_na_sklejanie': 'Sklejanie',
             'czeka_na_formatowanie': 'Formatowanie',
             'czeka_na_wykanczanie': 'Wykonczanie',
@@ -327,8 +327,8 @@ def ajax_production_monitor():
         }
 
         status_labels = {
-            'czeka_na_wyciecie': 'Wycinanie',
-            'czeka_na_skladanie': 'Skladanie',
+            'czeka_na_wyciecie': 'Wycinanie - mikro',
+            'czeka_na_skladanie': 'Składanie - lite',
             'czeka_na_sklejanie': 'Sklejanie',
             'czeka_na_formatowanie': 'Formatowanie',
             'czeka_na_wykanczanie': 'Wykonczanie',

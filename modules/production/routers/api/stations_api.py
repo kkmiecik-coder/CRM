@@ -90,8 +90,8 @@ def stations_tab_content():
             # POPRAWIONE: twórz słowniki zamiast obiektów z .days_diff
             stations_data[station] = {
                 'name': {
-                    'cutting': 'Wycinanie',
-                    'assembly': 'Składanie',
+                    'cutting': 'Wycinanie - mikro',
+                    'assembly': 'Składanie - lite',
                     'gluing': 'Sklejanie',
                     'formatting': 'Formatowanie',
                     'finishing': 'Wykańczanie',

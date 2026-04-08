@@ -301,8 +301,8 @@ def chart_data():
         }
 
         station_labels = {
-            'cutting': 'Wycinanie',
-            'assembly': 'Składanie',
+            'cutting': 'Wycinanie - mikro',
+            'assembly': 'Składanie - lite',
             'gluing': 'Sklejanie',
             'formatting': 'Formatowanie',
             'finishing': 'Wykańczanie',
@@ -500,7 +500,7 @@ def chart_data():
             'labels': [],
             'datasets': [
                 {
-                    'label': 'Wycinanie',
+                    'label': 'Wycinanie - mikro',
                     'data': [],
                     'borderColor': '#fd7e14',
                     'backgroundColor': 'rgba(253, 126, 20, 0.1)',
@@ -508,7 +508,7 @@ def chart_data():
                     'fill': True
                 },
                 {
-                    'label': 'Składanie',
+                    'label': 'Składanie - lite',
                     'data': [],
                     'borderColor': '#007bff',
                     'backgroundColor': 'rgba(0, 123, 255, 0.1)',
@@ -1162,7 +1162,7 @@ def dashboard_data():
 
         stations_data.append({
             'code': 'cutting',
-            'name': 'Wycinanie',
+            'name': 'Wycinanie - mikro',
             'status': 'active' if cutting_count > 0 else 'idle',
             'status_class': 'station-active' if cutting_count > 0 else 'station-idle',
             'active_orders': cutting_count,
@@ -1187,7 +1187,7 @@ def dashboard_data():
 
         stations_data.append({
             'code': 'assembly',
-            'name': 'Składanie',
+            'name': 'Składanie - lite',
             'status': 'active' if assembly_count > 0 else 'idle',
             'status_class': 'station-active' if assembly_count > 0 else 'station-idle',
             'active_orders': assembly_count,

@@ -602,8 +602,8 @@ def get_station_summary():
         }
 
         station_names = {
-            'cutting': 'Wycinanie',
-            'assembly': 'Skladanie',
+            'cutting': 'Wycinanie - mikro',
+            'assembly': 'Składanie - lite',
             'packaging': 'Pakowanie'
         }
 
@@ -644,8 +644,8 @@ def get_station_summary():
     except Exception as e:
         logger.error("Blad pobierania podsumowania stanowisk", extra={'error': str(e)})
         return {
-            'cutting': {'name': 'Wycinanie', 'count': 0, 'volume_m3': 0.0, 'avg_priority_rank': 999, 'status_class': 'station-empty'},
-            'assembly': {'name': 'Skladanie', 'count': 0, 'volume_m3': 0.0, 'avg_priority_rank': 999, 'status_class': 'station-empty'},
+            'cutting': {'name': 'Wycinanie - mikro', 'count': 0, 'volume_m3': 0.0, 'avg_priority_rank': 999, 'status_class': 'station-empty'},
+            'assembly': {'name': 'Składanie - lite', 'count': 0, 'volume_m3': 0.0, 'avg_priority_rank': 999, 'status_class': 'station-empty'},
             'packaging': {'name': 'Pakowanie', 'count': 0, 'volume_m3': 0.0, 'avg_priority_rank': 999, 'status_class': 'station-empty'}
         }
 
@@ -655,13 +655,13 @@ MONITOR_STATION_MAP = {
     'cutting': {
         'status': 'czeka_na_wyciecie',
         'quantity_col': 'quantity_done_cutting',
-        'label': 'Wycinanie',
+        'label': 'Wycinanie - mikro',
         'css_class': 'status-cutting',
     },
     'assembly': {
         'status': 'czeka_na_skladanie',
         'quantity_col': 'quantity_done_assembly',
-        'label': 'Skladanie',
+        'label': 'Składanie - lite',
         'css_class': 'status-assembly',
     },
     'gluing': {
