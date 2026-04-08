@@ -24,8 +24,8 @@ class ProductsModule {
 
     // Mapowanie statusów na przyjazne nazwy
     static STATUS_TRANSLATIONS = {
-        'czeka_na_wyciecie': 'Wycinanie',
-        'czeka_na_skladanie': 'Składanie',
+        'czeka_na_wyciecie': 'Wycinanie - mikro',
+        'czeka_na_skladanie': 'Składanie - lite',
         'czeka_na_sklejanie': 'Sklejanie',
         'czeka_na_formatowanie': 'Formatowanie',
         'czeka_na_wykanczanie': 'Wykańczanie',
@@ -39,10 +39,10 @@ class ProductsModule {
 
     // Mapowanie statusów na ikony i kolory
     static STATUS_CONFIG = {
-        'czeka_na_wyciecie': { icon: 'fa-cut', displayName: 'Wycinanie', color: 'cutting-theme', badgeClass: 'badge-cutting' },
-        'w_trakcie_ciecia': { icon: 'fa-cut', displayName: 'Wycinanie', color: 'cutting-theme', badgeClass: 'badge-cutting' },
-        'czeka_na_skladanie': { icon: 'fa-hammer', displayName: 'Składanie', color: 'assembly-theme', badgeClass: 'badge-assembly' },
-        'w_trakcie_skladania': { icon: 'fa-hammer', displayName: 'Składanie', color: 'assembly-theme', badgeClass: 'badge-assembly' },
+        'czeka_na_wyciecie': { icon: 'fa-cut', displayName: 'Wycinanie - mikro', color: 'cutting-theme', badgeClass: 'badge-cutting' },
+        'w_trakcie_ciecia': { icon: 'fa-cut', displayName: 'Wycinanie - mikro', color: 'cutting-theme', badgeClass: 'badge-cutting' },
+        'czeka_na_skladanie': { icon: 'fa-hammer', displayName: 'Składanie - lite', color: 'assembly-theme', badgeClass: 'badge-assembly' },
+        'w_trakcie_skladania': { icon: 'fa-hammer', displayName: 'Składanie - lite', color: 'assembly-theme', badgeClass: 'badge-assembly' },
         'czeka_na_sklejanie': { icon: 'fa-compress-arrows-alt', displayName: 'Sklejanie', color: 'gluing-theme', badgeClass: 'badge-gluing' },
         'w_trakcie_sklejania': { icon: 'fa-compress-arrows-alt', displayName: 'Sklejanie', color: 'gluing-theme', badgeClass: 'badge-gluing' },
         'czeka_na_formatowanie': { icon: 'fa-ruler-combined', displayName: 'Formatowanie', color: 'formatting-theme', badgeClass: 'badge-formatting' },
@@ -2719,8 +2719,8 @@ class ProductsModule {
         }
         
         const statuses = [
-            { value: 'czeka_na_wyciecie', label: 'Wycinanie' },
-            { value: 'czeka_na_skladanie', label: 'Składanie' },
+            { value: 'czeka_na_wyciecie', label: 'Wycinanie - mikro' },
+            { value: 'czeka_na_skladanie', label: 'Składanie - lite' },
             { value: 'czeka_na_sklejanie', label: 'Sklejanie' },
             { value: 'czeka_na_formatowanie', label: 'Formatowanie' },
             { value: 'czeka_na_wykanczanie', label: 'Wykańczanie' },
@@ -3673,7 +3673,7 @@ class ProductsModule {
         const stations = [
             {
                 code: 'cutting',
-                name: 'Wycięcie',
+                name: 'Wycinanie - mikro',
                 status: 'czeka_na_wyciecie',
                 icon: 'fas fa-cut',
                 color: 'cutting-theme',
@@ -3683,7 +3683,7 @@ class ProductsModule {
             },
             {
                 code: 'assembly',
-                name: 'Składanie',
+                name: 'Składanie - lite',
                 status: 'czeka_na_skladanie',
                 icon: 'fas fa-hammer',
                 color: 'assembly-theme',
@@ -3973,25 +3973,25 @@ class ProductsModule {
         const configs = {
             'czeka_na_wyciecie': {
                 icon: 'fa-cut',
-                displayName: 'Wycinanie',
+                displayName: 'Wycinanie - mikro',
                 color: 'cutting-theme',
                 cssClass: 'cutting'
             },
             'w_trakcie_ciecia': {
                 icon: 'fa-cut',
-                displayName: 'Wycinanie',
+                displayName: 'Wycinanie - mikro',
                 color: 'cutting-theme',
                 cssClass: 'cutting'
             },
             'czeka_na_skladanie': {
                 icon: 'fa-hammer',
-                displayName: 'Składanie',
+                displayName: 'Składanie - lite',
                 color: 'assembly-theme',
                 cssClass: 'assembly'
             },
             'w_trakcie_skladania': {
                 icon: 'fa-hammer',
-                displayName: 'Składanie',
+                displayName: 'Składanie - lite',
                 color: 'assembly-theme',
                 cssClass: 'assembly'
             },

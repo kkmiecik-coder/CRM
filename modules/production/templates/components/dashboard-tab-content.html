@@ -22,7 +22,7 @@
         {# CUTTING #}
         <div class="il-station {% if not dashboard_stats.stations.cutting.tablet_status.active|default(false) %}station-inactive{% endif %}" data-station="cutting">
           <div class="il-station-header">
-            <span class="il-station-name">Wycinanie</span>
+            <span class="il-station-name">Wycinanie - mikro</span>
             <div class="il-station-actions">
               <span class="il-station-badge {% if dashboard_stats.stations.cutting.tablet_status.active|default(false) %}active{% else %}inactive{% endif %}" id="cutting-tablet-badge">
                 {{ dashboard_stats.stations.cutting.tablet_status.status_label|default('Niedostępne') }}
@@ -59,7 +59,7 @@
         {# ASSEMBLY #}
         <div class="il-station {% if not dashboard_stats.stations.assembly.tablet_status.active|default(false) %}station-inactive{% endif %}" data-station="assembly">
           <div class="il-station-header">
-            <span class="il-station-name">Składanie</span>
+            <span class="il-station-name">Składanie - lite</span>
             <div class="il-station-actions">
               <span class="il-station-badge {% if dashboard_stats.stations.assembly.tablet_status.active|default(false) %}active{% else %}inactive{% endif %}" id="assembly-tablet-badge">
                 {{ dashboard_stats.stations.assembly.tablet_status.status_label|default('Niedostępne') }}

@@ -283,7 +283,7 @@ class DashboardModule {
                 // Konwertuj format ze słownika na array dla updateStationsWidget
                 const stationsArray = Object.keys(initialData.stations).map(key => ({
                     code: key,
-                    name: key === 'cutting' ? 'Wycinanie' : key === 'assembly' ? 'Składanie' : 'Pakowanie',
+                    name: key === 'cutting' ? 'Wycinanie - mikro' : key === 'assembly' ? 'Składanie - lite' : 'Pakowanie',
                     active_orders: initialData.stations[key].pending_count,
                     status: initialData.stations[key].status,
                     status_class: initialData.stations[key].status_class
