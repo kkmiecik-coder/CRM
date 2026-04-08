@@ -7,6 +7,11 @@
     <meta name="mobile-web-app-capable" content="yes">
     <title>{{ page_title }} - WoodPower CRM</title>
 
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
+
     <!-- CSS -->
     <link rel="stylesheet" href="{{ url_for('production.static', filename='css/stations/station-shared.css') }}">
     <link rel="stylesheet" href="{{ url_for('production.static', filename='css/stations/station-formatting.css') }}">
@@ -19,36 +24,13 @@
     <header class="station-header">
         <div class="header-content">
             <img src="{{ url_for('static', filename='images/logo-light.svg') }}"
-                 class="station-logo logo-dark"
-                 alt="WoodPower">
-            <img src="{{ url_for('static', filename='images/logo.svg') }}"
-                 class="station-logo logo-light"
+                 class="station-logo"
                  alt="WoodPower">
             <h1 class="station-title">Stanowisko formatowania</h1>
             <div class="header-buttons">
-                <button class="theme-toggle-btn" id="theme-toggle">
-                    <svg class="theme-icon sun-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <circle cx="12" cy="12" r="5"></circle>
-                        <line x1="12" y1="1" x2="12" y2="3"></line>
-                        <line x1="12" y1="21" x2="12" y2="23"></line>
-                        <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
-                        <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
-                        <line x1="1" y1="12" x2="3" y2="12"></line>
-                        <line x1="21" y1="12" x2="23" y2="12"></line>
-                        <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
-                        <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
-                    </svg>
-                    <svg class="theme-icon moon-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display: none;">
-                        <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
-                    </svg>
-                    <span class="theme-text">Tryb jasny</span>
-                </button>
                 <!-- SEARCH ORDERS BUTTON -->
                 <button class="search-orders-btn" id="search-orders-btn">
-                    <svg class="search-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                        <circle cx="11" cy="11" r="8"></circle>
-                        <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
-                    </svg>
+                    <svg class="search-icon" width="20" height="20"><use href="{{ url_for('production.static', filename='icons/station-icons.svg') }}#icon-search"/></svg>
                     <span class="search-text">Szukaj</span>
                 </button>
                 <!-- CONNECTION STATUS BADGE -->
@@ -176,18 +158,14 @@
                                  data-attachment-url="{{ first_product['attachment_file_url'] }}"
                                  data-attachment-name="{{ first_product['attachment_file_name'] }}"
                                  data-attachment-type="{{ 'pdf' if first_product['attachment_file_name'].lower().endswith('.pdf') else 'image' }}">
-                                <svg class="header-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                    <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path>
-                                </svg>
+                                <svg class="header-icon" width="18" height="18"><use href="{{ url_for('production.static', filename='icons/station-icons.svg') }}#icon-attachment"/></svg>
                             </div>
                             {% endif %}
                             {% if first_product and first_product.get('order_notes') %}
                             <div class="header-icon-wrapper notes-icon-wrapper"
                                  data-notes="{{ first_product['order_notes'] }}"
                                  title="{{ first_product['order_notes'][:100] }}{% if first_product['order_notes']|length > 100 %}...{% endif %}">
-                                <svg class="header-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
-                                </svg>
+                                <svg class="header-icon" width="18" height="18"><use href="{{ url_for('production.static', filename='icons/station-icons.svg') }}#icon-notes"/></svg>
                             </div>
                             {% endif %}
                             <!-- Ikona powiększenia -->
@@ -314,7 +292,8 @@
             stationCode: 'formatting',
             stationName: 'Formatowanie',
             refreshInterval: {{ config['refresh_interval'] }},
-            debugMode: {{ 'true' if config['debug_frontend'] else 'false' }}
+            debugMode: {{ 'true' if config['debug_frontend'] else 'false' }},
+            iconsUrl: '{{ url_for("production.static", filename="icons/station-icons.svg") }}'
         };
     </script>
     <script src="{{ url_for('production.static', filename='js/stations/station-common.js') }}"></script>
