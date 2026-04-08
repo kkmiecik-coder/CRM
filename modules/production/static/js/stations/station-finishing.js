@@ -193,8 +193,9 @@
 
         if (newQtyDone === qtyDone) return;
 
-        // Optimistic update
+        // Optimistic update — counter + header
         qtyDoneEl.textContent = newQtyDone;
+        syncHeaderQty(card, newQtyDone);
         card.dataset.quantityDone = newQtyDone;
 
         updateButtonStates(card, newQtyDone, qtyTotal);
@@ -239,6 +240,7 @@
                 const qtyDoneEl = card.querySelector('.qty-done');
                 if (qtyDoneEl && result.quantity_done !== undefined) {
                     qtyDoneEl.textContent = result.quantity_done;
+                    syncHeaderQty(card, result.quantity_done);
                     card.dataset.quantityDone = result.quantity_done;
                     updateButtonStates(card, result.quantity_done, result.quantity);
                     updateCompleteButtonState(card);
@@ -250,6 +252,7 @@
                 const qtyDoneEl = card.querySelector('.qty-done');
                 if (qtyDoneEl) {
                     qtyDoneEl.textContent = previousValue;
+                    syncHeaderQty(card, previousValue);
                     card.dataset.quantityDone = previousValue;
                     const qtyTotal = parseInt(card.dataset.quantity) || 0;
                     updateButtonStates(card, previousValue, qtyTotal);
@@ -260,6 +263,11 @@
         }, delay);
 
         state.pendingRequests.set(productId, timeoutId);
+    }
+
+    function syncHeaderQty(card, qtyDone) {
+        const headerQtyDone = card.querySelector('.header-qty-done');
+        if (headerQtyDone) headerQtyDone.textContent = qtyDone;
     }
 
     function updateButtonStates(card, qtyDone, qtyTotal) {
