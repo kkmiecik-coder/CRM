@@ -332,32 +332,35 @@
         }
 
         .edge-item-previews {
-            display: flex;
-            gap: 12px;
-            align-items: center;
-            justify-content: center;
-            margin-bottom: 8px;
-            max-height: 150px;
             overflow: hidden;
-            flex: 1;
+            margin-bottom: 8px;
         }
 
         .edge-item-preview-box {
-            flex: 1;
+            width: 48%;
+            float: left;
             text-align: center;
-            display: flex;
-            flex-direction: column;
             overflow: hidden;
+            margin-right: 4%;
+        }
+
+        .edge-item-preview-box:last-child {
+            margin-right: 0;
         }
 
         .edge-item-labels {
-            display: flex;
-            gap: 12px;
+            overflow: hidden;
             margin-bottom: 4px;
         }
 
         .edge-item-labels .edge-item-preview-label {
-            flex: 1;
+            width: 48%;
+            float: left;
+            margin-right: 4%;
+        }
+
+        .edge-item-labels .edge-item-preview-label:last-child {
+            margin-right: 0;
         }
 
         .edge-item-preview-label {
@@ -370,10 +373,7 @@
         }
 
         .edge-item-svg-inline {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            flex: 1;
+            text-align: center;
             max-height: 120px;
             overflow: hidden;
         }
@@ -386,10 +386,7 @@
         }
 
         .edge-item-svg {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            flex: 1;
+            text-align: center;
             max-height: 120px;
             overflow: hidden;
         }
