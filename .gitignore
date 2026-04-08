@@ -233,9 +233,10 @@ cennik_prices_kantowki.xlsx
 static/images/avatars/custom/user_1_1773664089_profilowe.png
 static/images/avatars/custom/user_1_1773666058_12345.jpg
 
-# Pliki .md i .xlsx w głównym katalogu (głębiej pozwalaj)
+# Pliki .md, .xlsx i .pdf w głównym katalogu (głębiej pozwalaj)
 /*.md
 /*.xlsx
+/*.pdf
 docs/superpowers/
 
 # Superpowers brainstorm sessions
