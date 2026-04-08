@@ -1468,11 +1468,15 @@ class ProductsModule {
         const stationClass = this.getStationClassFromStatus(order.status);
         header.classList.add(stationClass);
 
-        // Star
+        // Star — all priority = active+filled, some = partial (border only)
         const star = header.querySelector('.il-star-btn');
-        if (order.isPriority) {
+        const allPriority = order.products.length > 0 && order.products.every(p => p.is_priority);
+        const anyPriority = order.products.some(p => p.is_priority);
+        if (allPriority) {
             star.classList.add('active');
             star.querySelector('i').className = 'fas fa-star';
+        } else if (anyPriority) {
+            star.classList.add('partial');
         }
 
         // Client info
@@ -1573,16 +1577,11 @@ class ProductsModule {
             });
         });
 
-        // Star button
+        // Star button (order-level)
         const starBtn = header.querySelector('.il-star-btn');
-        if (order.products.some(p => p.is_priority)) {
-            starBtn.classList.add('active');
-            starBtn.querySelector('i').classList.replace('far', 'fas');
-        }
         starBtn.addEventListener('click', (e) => {
             e.stopPropagation();
-            const firstProduct = order.products[0];
-            this.handleStarClick(starBtn, firstProduct);
+            this.toggleOrderPriority(order);
         });
 
         // Action buttons — set disabled state based on data availability
@@ -1645,29 +1644,28 @@ class ProductsModule {
     }
 
     showCommentTooltip(btn, order) {
-        // Remove existing tooltips
-        document.querySelectorAll('.il-comment-tooltip').forEach(el => el.remove());
-
-        if (!order.orderNotes) {
-            // Show "Brak komentarza" tooltip briefly
-            const tooltip = document.createElement('div');
-            tooltip.className = 'il-comment-tooltip';
-            tooltip.textContent = 'Brak komentarza';
-            btn.style.position = 'relative';
-            btn.appendChild(tooltip);
-            setTimeout(() => tooltip.remove(), 2000);
+        // Toggle — jeśli tooltip jest już otwarty, zamknij
+        const existing = document.querySelector('.il-comment-tooltip');
+        if (existing) {
+            existing.remove();
             return;
         }
+
+        if (!order.orderNotes) return;
 
         const tooltip = document.createElement('div');
         tooltip.className = 'il-comment-tooltip';
         tooltip.textContent = order.orderNotes;
-        btn.style.position = 'relative';
-        btn.appendChild(tooltip);
+        document.body.appendChild(tooltip);
 
-        // Close on click outside
+        // Pozycjonuj przy przycisku
+        const rect = btn.getBoundingClientRect();
+        tooltip.style.top = (rect.bottom + window.scrollY + 4) + 'px';
+        tooltip.style.left = (rect.left + window.scrollX) + 'px';
+
+        // Zamknij po kliknięciu gdziekolwiek
         const closeHandler = (e) => {
-            if (!tooltip.contains(e.target)) {
+            if (!tooltip.contains(e.target) && e.target !== btn && !btn.contains(e.target)) {
                 tooltip.remove();
                 document.removeEventListener('click', closeHandler);
             }
@@ -1780,6 +1778,19 @@ class ProductsModule {
         // Checkbox
         const checkbox = row.querySelector('.il-product-checkbox');
         checkbox.checked = this.state.selectedProducts.has(product.unique_id || String(product.id));
+
+        // Star (product-level)
+        const productStar = row.querySelector('.il-product-star');
+        if (productStar) {
+            if (product.is_priority) {
+                productStar.classList.add('active');
+                productStar.querySelector('i').classList.replace('far', 'fas');
+            }
+            productStar.addEventListener('click', (e) => {
+                e.stopPropagation();
+                this.toggleProductPriority(product, productStar);
+            });
+        }
 
         // Name
         row.querySelector('.il-product-name-text').textContent = product.original_product_name || '—';
@@ -2216,114 +2227,31 @@ class ProductsModule {
     // ========================================================================
 
     /**
-     * Obsługuje kliknięcie w gwiazdkę priorytetu
+     * Toggle priorytetu pojedynczego produktu (klik w gwiazdkę produktu)
      */
-    async handleStarClick(starBtn, product) {
-        const orderNumber = product.internal_order_number;
-        const productId = product.id;
-        const currentPriority = product.is_priority;
-        const newPriority = !currentPriority;
-
-        // Sprawdź ile produktów jest w zamówieniu
-        const productsInOrder = this.state.products.filter(
-            p => p.internal_order_number === orderNumber
-        );
-
-        if (productsInOrder.length > 1 && !currentPriority) {
-            // Więcej niż 1 produkt - pokaż tooltip z wyborem
-            this.showStarTooltip(starBtn, product, newPriority);
-        } else {
-            // Jeden produkt lub wyłączanie gwiazdki - bezpośrednia akcja
-            await this.setPriority(productId, null, 'product', newPriority);
-        }
+    async toggleProductPriority(product, starBtn) {
+        const newPriority = !product.is_priority;
+        await this._sendPriorityUpdate(product.id, null, 'product', newPriority);
     }
 
     /**
-     * Pokazuje tooltip z wyborem: całe zamówienie vs pojedynczy produkt
+     * Toggle priorytetu całego zamówienia (klik w gwiazdkę zamówienia)
      */
-    showStarTooltip(starBtn, product, newPriority) {
-        // Zamknij istniejące tooltipe
-        this.closeAllStarTooltips();
-
-        const template = document.getElementById('star-tooltip-template');
-        if (!template) {
-            console.error('[ProductsModule] Star tooltip template not found');
-            return;
-        }
-
-        const tooltip = template.content.cloneNode(true).querySelector('.prod_list-star-tooltip');
-        tooltip.setAttribute('data-order-number', product.internal_order_number);
-        tooltip.setAttribute('data-product-id', product.id);
-
-        // Event: Całe zamówienie
-        const orderBtn = tooltip.querySelector('.star-tooltip-order');
-        orderBtn.addEventListener('click', async (e) => {
-            e.stopPropagation();
-            this.closeAllStarTooltips();
-            await this.setPriority(null, product.internal_order_number, 'order', newPriority);
-        });
-
-        // Event: Tylko ten produkt
-        const productBtn = tooltip.querySelector('.star-tooltip-product');
-        productBtn.addEventListener('click', async (e) => {
-            e.stopPropagation();
-            this.closeAllStarTooltips();
-            await this.setPriority(product.id, null, 'product', newPriority);
-        });
-
-        // Dodaj tooltip do komórki gwiazdki
-        const starCell = starBtn.closest('.prod_list-star-cell') || starBtn.parentElement;
-        if (starCell) {
-            starCell.appendChild(tooltip);
-        }
-
-        // Zamknij tooltip po kliknięciu poza nim
-        setTimeout(() => {
-            document.addEventListener('click', this.handleOutsideTooltipClick.bind(this), { once: true });
-        }, 10);
+    async toggleOrderPriority(order) {
+        const allHavePriority = order.products.every(p => p.is_priority);
+        const newPriority = !allHavePriority;
+        const orderNumber = order.internalOrderNumber || order.products[0]?.internal_order_number;
+        await this._sendPriorityUpdate(null, orderNumber, 'order', newPriority);
     }
 
     /**
-     * Zamyka tooltip po kliknięciu poza nim
+     * Wysyła żądanie zmiany priorytetu do API i aktualizuje UI
      */
-    handleOutsideTooltipClick(e) {
-        if (!e.target.closest('.prod_list-star-tooltip') && !e.target.closest('.prod_list-star-btn')) {
-            this.closeAllStarTooltips();
-        }
-    }
-
-    /**
-     * Zamyka wszystkie otwarte tooltipe gwiazdek
-     */
-    closeAllStarTooltips() {
-        document.querySelectorAll('.prod_list-star-tooltip').forEach(t => t.remove());
-    }
-
-    /**
-     * Wywołuje API do ustawienia priorytetu
-     */
-    async setPriority(productId, orderNumber, mode, isPriority) {
+    async _sendPriorityUpdate(productId, orderNumber, mode, isPriority) {
         try {
-            // Znajdź przyciski do załadowania
-            let affectedButtons = [];
-            if (mode === 'order' && orderNumber) {
-                affectedButtons = document.querySelectorAll(
-                    `.prod_list-star-btn[data-order-number="${orderNumber}"]`
-                );
-            } else if (productId) {
-                affectedButtons = document.querySelectorAll(
-                    `.prod_list-star-btn[data-product-id="${productId}"]`
-                );
-            }
-
-            // Pokaż loading state
-            affectedButtons.forEach(btn => btn.classList.add('loading'));
-
             const response = await fetch('/production/api/set-priority', {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
+                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     product_id: productId,
                     order_number: orderNumber,
@@ -2333,90 +2261,78 @@ class ProductsModule {
             });
 
             const data = await response.json();
+            if (!data.success) throw new Error(data.error || 'Nieznany błąd');
 
-            if (data.success) {
-                // Aktualizuj lokalne dane
-                if (data.updated_products) {
-                    data.updated_products.forEach(updated => {
-                        const localProduct = this.state.products.find(p => p.id === updated.id);
-                        if (localProduct) {
-                            localProduct.is_priority = updated.is_priority;
-                        }
-                        const filteredProduct = this.state.filteredProducts.find(p => p.id === updated.id);
-                        if (filteredProduct) {
-                            filteredProduct.is_priority = updated.is_priority;
-                        }
-                    });
-                }
+            // Aktualizuj lokalne dane
+            if (data.updated_products) {
+                data.updated_products.forEach(updated => {
+                    const localProduct = this.state.products.find(p => p.id === updated.id);
+                    if (localProduct) localProduct.is_priority = updated.is_priority;
+                    const filteredProduct = this.state.filteredProducts.find(p => p.id === updated.id);
+                    if (filteredProduct) filteredProduct.is_priority = updated.is_priority;
+                });
+            }
 
-                // Aktualizuj UI
-                this.updateStarButtonsUI(data.updated_products, isPriority);
+            // Aktualizuj UI
+            this.refreshStarUI();
 
-                // Toast
-                if (this.shared?.toastSystem) {
-                    const count = data.updated_products?.length || 1;
-                    const msg = isPriority
-                        ? `Oznaczono ${count} produkt(ów) jako priorytetowe`
-                        : `Usunięto priorytet dla ${count} produktu(ów)`;
-                    this.shared.toastSystem.show(msg, 'success', 3000);
-                }
-
-            } else {
-                throw new Error(data.error || 'Nieznany błąd');
+            if (this.shared?.toastSystem) {
+                const count = data.updated_products?.length || 1;
+                const msg = isPriority
+                    ? `Oznaczono ${count} produkt(ów) jako priorytetowe`
+                    : `Usunięto priorytet dla ${count} produktu(ów)`;
+                this.shared.toastSystem.show(msg, 'success', 3000);
             }
 
         } catch (error) {
             console.error('[ProductsModule] Error setting priority:', error);
             if (this.shared?.toastSystem) {
                 this.shared.toastSystem.show(`Błąd: ${error.message}`, 'error', 5000);
-            } else {
-                alert(`Błąd: ${error.message}`);
             }
-        } finally {
-            // Usuń loading state
-            document.querySelectorAll('.prod_list-star-btn.loading').forEach(btn => {
-                btn.classList.remove('loading');
-            });
         }
     }
 
     /**
-     * Aktualizuje UI przycisków gwiazdek po zmianie priorytetu
+     * Odświeża stan gwiazdek w całym widoku (produkty + nagłówki zamówień)
      */
-    updateStarButtonsUI(updatedProducts, isPriority) {
-        if (!updatedProducts) return;
-
-        updatedProducts.forEach(updated => {
-            // Znajdź wiersz produktu (widok flat)
-            const row = document.querySelector(`.prod_list-product-row[data-product-id="${updated.id}"]`);
-            if (row) {
-                row.setAttribute('data-is-priority', updated.is_priority ? 'true' : 'false');
-                const starBtn = row.querySelector('.prod_list-star-btn');
-                if (starBtn) {
-                    if (updated.is_priority) {
-                        starBtn.classList.add('active');
-                    } else {
-                        starBtn.classList.remove('active');
-                    }
-                }
+    refreshStarUI() {
+        // Gwiazdki na produktach (il-product-row)
+        document.querySelectorAll('.il-product-row[data-product-id]').forEach(row => {
+            const productId = parseInt(row.getAttribute('data-product-id'));
+            const product = this.state.products.find(p => p.id === productId);
+            if (!product) return;
+            const star = row.querySelector('.il-product-star');
+            if (!star) return;
+            const icon = star.querySelector('i');
+            if (product.is_priority) {
+                star.classList.add('active');
+                if (icon) icon.classList.replace('far', 'fas');
+            } else {
+                star.classList.remove('active');
+                if (icon) icon.classList.replace('fas', 'far');
             }
         });
 
-        // Aktualizuj gwiazdki w widoku grouped (order cards)
+        // Gwiazdki na nagłówkach zamówień
         document.querySelectorAll('.il-order-card').forEach(card => {
-            const starBtn = card.querySelector('.il-star-btn');
-            if (!starBtn) return;
-            const orderProducts = card.querySelectorAll('.il-order-products [data-product-id]');
-            const orderProductIds = Array.from(orderProducts).map(el => parseInt(el.getAttribute('data-product-id')));
-            const hasAnyPriority = updatedProducts.some(u => orderProductIds.includes(u.id) && u.is_priority)
-                || this.state.products.some(p => orderProductIds.includes(p.id) && p.is_priority);
-            const icon = starBtn.querySelector('i');
-            if (hasAnyPriority) {
-                starBtn.classList.add('active');
+            const orderStar = card.querySelector('.il-order-header > .il-star-btn');
+            if (!orderStar) return;
+            const productRows = card.querySelectorAll('.il-product-row[data-product-id]');
+            const productIds = Array.from(productRows).map(el => parseInt(el.getAttribute('data-product-id')));
+            const orderProducts = this.state.products.filter(p => productIds.includes(p.id));
+
+            const anyPriority = orderProducts.some(p => p.is_priority);
+            const allPriority = orderProducts.length > 0 && orderProducts.every(p => p.is_priority);
+            const icon = orderStar.querySelector('i');
+
+            orderStar.classList.remove('active', 'partial');
+            if (icon) icon.classList.replace('fas', 'far');
+
+            if (allPriority) {
+                orderStar.classList.add('active');
                 if (icon) icon.classList.replace('far', 'fas');
-            } else {
-                starBtn.classList.remove('active');
-                if (icon) icon.classList.replace('fas', 'far');
+            } else if (anyPriority) {
+                orderStar.classList.add('partial');
             }
         });
     }
