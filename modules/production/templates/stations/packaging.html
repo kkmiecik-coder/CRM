@@ -232,8 +232,10 @@
                         'czeka_na_wykanczanie': ('finishing', 'WYKAŃ'),
                         'czeka_na_logistyke': ('logistics', 'LOGIS'),
                     } %}
-                    {% for product in order.products %}
-                    {# Sprawdzenie czy produkt nie jest gotowy na pakowanie #}
+                    {# Sortowanie: aktywne (czeka_na_pakowanie) najpierw, potem nieaktywne #}
+                    {% set active_products = order.products|selectattr('current_status', 'equalto', 'czeka_na_pakowanie')|list|sort(attribute='id') %}
+                    {% set inactive_products = order.products|rejectattr('current_status', 'equalto', 'czeka_na_pakowanie')|list|sort(attribute='id') %}
+                    {% for product in active_products + inactive_products %}
                     {% set is_disabled = product.current_status != 'czeka_na_pakowanie' %}
                     <div class="product-row{% if product.is_priority %} priority-product{% endif %}{% if is_disabled %} product-disabled{% endif %}{% if product.quantity_done == product.quantity and not is_disabled %} product-complete{% endif %}"
                          data-product-id="{{ product.id }}"

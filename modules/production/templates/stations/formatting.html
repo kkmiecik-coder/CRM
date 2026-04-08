@@ -180,8 +180,10 @@
                         'czeka_na_skladanie': ('assembly', 'SKŁAD'),
                         'czeka_na_sklejanie': ('gluing', 'SKLEJ'),
                     } %}
-                    {% for product in order.products %}
-                    {# Sprawdzenie czy produkt nie jest gotowy na formatowanie #}
+                    {# Sortowanie: aktywne (czeka_na_formatowanie) najpierw, potem nieaktywne #}
+                    {% set active_products = order.products|selectattr('current_status', 'equalto', 'czeka_na_formatowanie')|list|sort(attribute='id') %}
+                    {% set inactive_products = order.products|rejectattr('current_status', 'equalto', 'czeka_na_formatowanie')|list|sort(attribute='id') %}
+                    {% for product in active_products + inactive_products %}
                     {% set is_disabled = product.current_status != 'czeka_na_formatowanie' %}
                     <div class="product-row{% if product.is_priority %} priority-product{% endif %}{% if is_disabled %} product-disabled{% endif %}{% if product.quantity_done == product.quantity and not is_disabled %} product-complete{% endif %}"
                          data-product-id="{{ product.id }}"

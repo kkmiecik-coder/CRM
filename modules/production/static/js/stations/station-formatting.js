@@ -1090,7 +1090,14 @@
     }
 
     function createOrderCardHTML(order) {
-        const productsHTML = order.products.map(product => {
+        // Sortowanie: aktywne (czeka_na_formatowanie) najpierw, potem nieaktywne, w ramach grup po ID
+        const sortedProducts = [...order.products].sort((a, b) => {
+            const aActive = a.current_status === 'czeka_na_formatowanie' ? 0 : 1;
+            const bActive = b.current_status === 'czeka_na_formatowanie' ? 0 : 1;
+            if (aActive !== bActive) return aActive - bActive;
+            return (a.id || '').localeCompare(b.id || '');
+        });
+        const productsHTML = sortedProducts.map(product => {
             const quantity = product.quantity || 1;
             const quantityDone = product.quantity_done || 0;
             const hasLargeQty = quantity >= 10;
