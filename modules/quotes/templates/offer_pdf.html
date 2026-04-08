@@ -278,18 +278,12 @@
             margin: 0;
         }
 
-        /* Tabela dla produktów z krawędziami - 2 kolumny */
-        .edges-grid-table {
-            width: 100%;
-            border-collapse: separate;
-            border-spacing: 15px;
+        /* Grid dla produktów z krawędziami - ~5 na stronę */
+        .edges-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
             margin-top: 15px;
-        }
-
-        .edges-grid-table td {
-            width: 50%;
-            vertical-align: top;
-            padding: 0;
         }
 
         .edge-item {
@@ -299,21 +293,17 @@
             background: #fafafa;
             page-break-inside: avoid;
             overflow: hidden;
+            display: flex;
+            flex-direction: column;
         }
 
         .edge-item-header {
-            overflow: hidden;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
             margin-bottom: 10px;
             padding-bottom: 8px;
             border-bottom: 1px solid #eee;
-        }
-
-        .edge-item-header .edge-item-position {
-            float: left;
-        }
-
-        .edge-item-header .edge-item-dimensions {
-            float: right;
         }
 
         .edge-item-position {
@@ -336,35 +326,32 @@
         }
 
         .edge-item-previews {
-            overflow: hidden;
+            display: flex;
+            gap: 12px;
+            align-items: center;
+            justify-content: center;
             margin-bottom: 8px;
             max-height: 150px;
-            text-align: center;
+            overflow: hidden;
+            flex: 1;
         }
 
         .edge-item-preview-box {
-            width: 48%;
-            float: left;
+            flex: 1;
             text-align: center;
+            display: flex;
+            flex-direction: column;
             overflow: hidden;
-        }
-
-        .edge-item-preview-box + .edge-item-preview-box {
-            margin-left: 4%;
         }
 
         .edge-item-labels {
-            overflow: hidden;
+            display: flex;
+            gap: 12px;
             margin-bottom: 4px;
         }
 
         .edge-item-labels .edge-item-preview-label {
-            width: 48%;
-            float: left;
-        }
-
-        .edge-item-labels .edge-item-preview-label + .edge-item-preview-label {
-            margin-left: 4%;
+            flex: 1;
         }
 
         .edge-item-preview-label {
@@ -377,7 +364,10 @@
         }
 
         .edge-item-svg-inline {
-            text-align: center;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex: 1;
             max-height: 120px;
             overflow: hidden;
         }
@@ -390,7 +380,10 @@
         }
 
         .edge-item-svg {
-            text-align: center;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex: 1;
             max-height: 120px;
             overflow: hidden;
         }
@@ -737,12 +730,10 @@
             <p class="attachment-note">Wizualizacja kształtów i obróbki krawędzi produktów</p>
         </div>
 
-        <table class="edges-grid-table">
+        <div class="edges-grid">
             {% for detail in attachment_items %}
             {% set item = selected_items|selectattr('product_index', 'equalto', detail.product_index)|first %}
-            {% if loop.index is odd %}<tr>{% endif %}
-                <td>
-                <div class="edge-item">
+            <div class="edge-item">
                 <div class="edge-item-header">
                     <span class="edge-item-position">Pozycja {{ detail.product_index }}</span>
                     {% if item %}
@@ -752,7 +743,7 @@
 
                 <!-- Nagłówki podglądów — zawsze na górze -->
                 <div class="edge-item-labels">
-                    {% if detail.shape_svg %}
+                    {% if detail.shape_svg or (shape_images and shape_images.get(detail.product_index)) %}
                     <div class="edge-item-preview-label">Widok kształtu</div>
                     {% endif %}
                     {% if edges_images and edges_images.get(detail.product_index) %}
@@ -762,7 +753,13 @@
 
                 <!-- Podglądy: kształt 2D + izometria 3D obok siebie -->
                 <div class="edge-item-previews">
-                    {% if detail.shape_svg %}
+                    {% if shape_images and shape_images.get(detail.product_index) %}
+                    <div class="edge-item-preview-box">
+                        <div class="edge-item-svg">
+                            <img src="{{ shape_images[detail.product_index] }}" alt="Kształt" />
+                        </div>
+                    </div>
+                    {% elif detail.shape_svg %}
                     <div class="edge-item-preview-box">
                         <div class="edge-item-svg-inline">{{ detail.shape_svg|safe }}</div>
                     </div>
@@ -793,13 +790,8 @@
                 </div>
                 {% endif %}
             </div>
-                </td>
-            {% if loop.index is even or loop.last %}
-            {% if loop.last and loop.index is odd %}<td></td>{% endif %}
-            </tr>
-            {% endif %}
             {% endfor %}
-        </table>
+        </div>
     </div>
     {% endif %}
 

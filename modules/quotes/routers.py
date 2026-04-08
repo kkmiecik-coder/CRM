@@ -456,11 +456,16 @@ def generate_quote_pdf(token, format):
                 return None
 
         edges_images = {}
+        shape_images = {}
         for fd in finishing_details:
             if fd.edges_svg:
                 png_data_uri = convert_svg_to_png_data_uri(fd.edges_svg)
                 if png_data_uri:
                     edges_images[fd.product_index] = png_data_uri
+            if fd.shape_svg:
+                png_data_uri = convert_svg_to_png_data_uri(fd.shape_svg)
+                if png_data_uri:
+                    shape_images[fd.product_index] = png_data_uri
 
         cost_products_netto = round(sum(item.get_total_price_netto() for item in selected_items), 2)
         cost_finishing_netto = round(sum(float(d.finishing_price_netto or 0) + float(d.edges_price_netto or 0) for d in finishing_details), 2)
@@ -519,6 +524,7 @@ def generate_quote_pdf(token, format):
                                  selected_items=selected_items,  # Dodaj selected_items
                                  finishing_details=finishing_details,  # Dodaj finishing_details
                                  edges_images=edges_images,  # PNG obrazy krawędzi
+                                 shape_images=shape_images,  # PNG obrazy kształtów
                                  icons=icons)
                 
         # Utwórz HTML object z base_url dla względnych ścieżek
