@@ -34,18 +34,11 @@ def cutting_station():
 
         sort_by = request.args.get('sort', 'priority')
 
-        # NOWA LOGIKA: Znajdz zamowienia ktore maja choc 1 produkt do wyciecia
-        # Wycinanie widzi: czeka_na_wyciecie ORAZ czeka_na_skladanie (gdzie cutting_completed_at IS NULL)
+        # Wycinanie widzi tylko produkty ze statusem czeka_na_wyciecie (technologia mikrowczep)
         orders_with_cutting = db.session.query(
             ProductionItem.internal_order_number
         ).filter(
-            db.or_(
-                ProductionItem.current_status == 'czeka_na_wyciecie',
-                db.and_(
-                    ProductionItem.current_status == 'czeka_na_skladanie',
-                    ProductionItem.cutting_completed_at.is_(None)
-                )
-            )
+            ProductionItem.current_status == 'czeka_na_wyciecie'
         ).distinct().all()
 
         order_numbers = [order[0] for order in orders_with_cutting if order[0]]
@@ -53,17 +46,9 @@ def cutting_station():
         if not order_numbers:
             products = []
         else:
-            # Pobierz produkty z tych zamowien ktore pasuja do kryteriow wycinania
-            # (czeka_na_wyciecie LUB czeka_na_skladanie z cutting_completed_at IS NULL)
             query = ProductionItem.query.filter(
                 ProductionItem.internal_order_number.in_(order_numbers),
-                db.or_(
-                    ProductionItem.current_status == 'czeka_na_wyciecie',
-                    db.and_(
-                        ProductionItem.current_status == 'czeka_na_skladanie',
-                        ProductionItem.cutting_completed_at.is_(None)
-                    )
-                )
+                ProductionItem.current_status == 'czeka_na_wyciecie'
             )
 
             # Sortowanie
@@ -231,15 +216,11 @@ def assembly_station():
 
         sort_by = request.args.get('sort', 'priority')
 
-        # NOWA LOGIKA: Znajdz zamowienia ktore maja choc 1 produkt do skladania
-        # Skladanie widzi: czeka_na_wyciecie ORAZ czeka_na_skladanie (wszystkie)
+        # Składanie widzi tylko produkty ze statusem czeka_na_skladanie (technologia lity)
         orders_with_assembly = db.session.query(
             ProductionItem.internal_order_number
         ).filter(
-            db.or_(
-                ProductionItem.current_status == 'czeka_na_wyciecie',
-                ProductionItem.current_status == 'czeka_na_skladanie'
-            )
+            ProductionItem.current_status == 'czeka_na_skladanie'
         ).distinct().all()
 
         order_numbers = [order[0] for order in orders_with_assembly if order[0]]
@@ -247,14 +228,9 @@ def assembly_station():
         if not order_numbers:
             products = []
         else:
-            # Pobierz produkty z tych zamowien ktore pasuja do kryteriow skladania
-            # (czeka_na_wyciecie LUB czeka_na_skladanie)
             query = ProductionItem.query.filter(
                 ProductionItem.internal_order_number.in_(order_numbers),
-                db.or_(
-                    ProductionItem.current_status == 'czeka_na_wyciecie',
-                    ProductionItem.current_status == 'czeka_na_skladanie'
-                )
+                ProductionItem.current_status == 'czeka_na_skladanie'
             )
 
             # Sortowanie

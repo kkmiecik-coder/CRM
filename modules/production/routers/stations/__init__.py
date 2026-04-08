@@ -1107,10 +1107,10 @@ def complete_order_bulk():
                     'error': f'Produkt {product.short_product_id} nie nalezy do zamowienia {order_number}'
                 }), 400
 
-        # KROK 3: Walidacja statusow
+        # KROK 3: Walidacja statusow — stanowiska równoległe, każde widzi tylko swój status
         expected_status_map = {
-            'cutting': ['czeka_na_wyciecie', 'czeka_na_skladanie'],
-            'assembly': ['czeka_na_wyciecie', 'czeka_na_skladanie'],
+            'cutting': ['czeka_na_wyciecie'],
+            'assembly': ['czeka_na_skladanie'],
             'gluing': ['czeka_na_sklejanie'],
             'formatting': ['czeka_na_formatowanie'],
             'finishing': ['czeka_na_wykanczanie'],
@@ -1120,19 +1120,7 @@ def complete_order_bulk():
 
         invalid_products = []
         for product in products:
-            is_valid = False
-
-            if station == 'cutting':
-                if product.current_status == 'czeka_na_wyciecie':
-                    is_valid = True
-                elif product.current_status == 'czeka_na_skladanie' and product.cutting_completed_at is None:
-                    is_valid = True
-            elif station == 'assembly':
-                if product.current_status in expected_statuses:
-                    is_valid = True
-            else:
-                if product.current_status in expected_statuses:
-                    is_valid = True
+            is_valid = product.current_status in expected_statuses
 
             if not is_valid:
                 invalid_products.append({

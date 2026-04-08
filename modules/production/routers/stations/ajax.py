@@ -420,15 +420,9 @@ def ajax_get_orders_cutting():
 
         sort_by = request.args.get('sort', 'priority')
 
-        # KROK 1: Pobierz produkty pasujace do kryteriow wycinania
+        # Wycinanie widzi tylko produkty ze statusem czeka_na_wyciecie (technologia mikrowczep)
         query = ProductionItem.query.filter(
-            db.or_(
-                ProductionItem.current_status == 'czeka_na_wyciecie',
-                db.and_(
-                    ProductionItem.current_status == 'czeka_na_skladanie',
-                    ProductionItem.cutting_completed_at.is_(None)
-                )
-            )
+            ProductionItem.current_status == 'czeka_na_wyciecie'
         )
 
         # Sortowanie
@@ -578,12 +572,9 @@ def ajax_get_orders_assembly():
 
         sort_by = request.args.get('sort', 'priority')
 
-        # KROK 1: Pobierz produkty pasujace do kryteriow skladania
+        # Składanie widzi tylko produkty ze statusem czeka_na_skladanie (technologia lity)
         query = ProductionItem.query.filter(
-            db.or_(
-                ProductionItem.current_status == 'czeka_na_wyciecie',
-                ProductionItem.current_status == 'czeka_na_skladanie'
-            )
+            ProductionItem.current_status == 'czeka_na_skladanie'
         )
 
         # Sortowanie
