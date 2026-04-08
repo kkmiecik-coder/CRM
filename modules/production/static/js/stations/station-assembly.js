@@ -10,7 +10,7 @@
  * - Przyciski +/- do zmiany quantity_done
  * - Przyciski +10/-10 dla ilości >= 10
  * - Natychmiastowy zapis do API (rate limiting 200ms)
- * - Completion pojedynczych produktów z countdown 10s
+ * - Completion pojedynczych produktów z countdown 5s
  * - Optimistic UI z error recovery
  * - Smart merge podczas auto-refresh
  * - Zegar odświeżany co sekundę

@@ -127,7 +127,7 @@ body:not(.dark-mode) .tab-btn.active {
     }
 
     .order-card.processing {
-        opacity: 0.7;
+        background: var(--bg-primary);
     }
 
 /* ============================================================================

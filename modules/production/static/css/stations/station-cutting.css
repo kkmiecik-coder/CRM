@@ -54,7 +54,7 @@
     }
 
     .order-card.processing {
-        opacity: 0.7;
+        background: var(--bg-primary);
     }
 
 /* ============================================================================
@@ -259,9 +259,9 @@
 }
 
 .btn-qty:disabled {
-    
+    opacity: 0.3;
     cursor: not-allowed;
-    background: var(--bg-primary); border-color: var(--border-color);
+    background: var(--bg-primary);
 }
 
 /* Przycisk minus - czerwonawy akcent */
@@ -563,15 +563,15 @@
     width: 100%;
 }
 
-.btn-complete:hover:not(:disabled):not(.processing):not(.saving) {
+.btn-complete:hover:not(:disabled) {
     background: var(--btn-primary-hover);
 }
 
 .btn-complete:disabled {
-    
+    opacity: 0.3;
     cursor: not-allowed;
-    background: var(--bg-primary);
-    color: var(--text-tertiary);
+    background: var(--bg-tertiary);
+    color: var(--text-muted);
 }
 
 .btn-complete.saving,

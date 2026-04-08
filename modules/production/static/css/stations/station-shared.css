@@ -238,14 +238,10 @@ body {
     border-color: var(--border-color-light);
 }
 
-    .product-card.processing {
-        opacity: 0.6;
+    .product-card.processing,
+    .order-card.processing {
+        background: var(--bg-primary);
     }
-
-        /* Przycisk ANULUJ musi być zawsze w pełni widoczny */
-        .product-card.processing .btn-cancel {
-            opacity: 1 !important;
-        }
 
 /* ============================================================================
    CARD HEADER
