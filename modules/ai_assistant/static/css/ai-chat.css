@@ -58,7 +58,8 @@
     align-items: center;
     justify-content: space-between;
     padding: 12px 16px;
-    background: #1e293b;
+    background: #080c14;
+    border-bottom: 1px solid #1e293b;
     flex-shrink: 0;
     min-height: 48px;
 }
