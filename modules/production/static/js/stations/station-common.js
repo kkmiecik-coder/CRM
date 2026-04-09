@@ -1289,6 +1289,274 @@ window.COLLAPSE_ICON_SVG = COLLAPSE_ICON_SVG;
 window.FULLSCREEN_STATE = FULLSCREEN_STATE;
 
 /* ============================================================================
+   FULLSCREEN ORDER GROUP - Grupowy widok zamówienia z wyszukiwarki
+   ============================================================================ */
+
+const FULLSCREEN_GROUP_STATE = {
+    isActive: false,
+    orderNumber: null,
+    overlay: null,
+    container: null,
+    sourceCards: [],
+    actionObservers: []
+};
+
+/**
+ * Otwiera grupowy widok wszystkich pozycji z danego zamówienia
+ * @param {string} orderNumber - Numer zamówienia (data-order-number)
+ */
+function openFullscreenOrderGroup(orderNumber) {
+    if (FULLSCREEN_GROUP_STATE.isActive) {
+        console.warn('[FullscreenGroup] Already active');
+        return;
+    }
+
+    // Znajdź wszystkie karty z tym numerem zamówienia
+    const sourceCards = Array.from(
+        document.querySelectorAll(`.order-card[data-order-number="${orderNumber}"]:not([data-fullscreen-clone="true"])`)
+    );
+
+    if (sourceCards.length === 0) {
+        console.warn(`[FullscreenGroup] No cards found for order: ${orderNumber}`);
+        return;
+    }
+
+    console.log(`[FullscreenGroup] Opening order ${orderNumber} with ${sourceCards.length} cards`);
+
+    // Zapisz stan
+    FULLSCREEN_GROUP_STATE.isActive = true;
+    FULLSCREEN_GROUP_STATE.orderNumber = orderNumber;
+    FULLSCREEN_GROUP_STATE.sourceCards = sourceCards;
+
+    // Przyciemnij oryginalne karty
+    sourceCards.forEach(card => card.classList.add('fullscreen-source'));
+
+    // Stwórz overlay
+    const overlay = document.createElement('div');
+    overlay.className = 'fullscreen-overlay';
+    document.body.appendChild(overlay);
+    FULLSCREEN_GROUP_STATE.overlay = overlay;
+
+    // Stwórz kontener grupowy
+    const container = document.createElement('div');
+    container.className = 'fullscreen-group-container';
+
+    // Nagłówek
+    const header = document.createElement('div');
+    header.className = 'fullscreen-group-header';
+    header.innerHTML = `
+        <span class="group-title">Zamówienie: ${orderNumber} (${sourceCards.length} poz.)</span>
+        <button class="group-close-btn">&times;</button>
+    `;
+    header.querySelector('.group-close-btn').addEventListener('click', closeFullscreenOrderGroup);
+    container.appendChild(header);
+
+    // Body ze scrollem
+    const body = document.createElement('div');
+    body.className = 'fullscreen-group-body';
+
+    // Klonuj każdą kartę
+    sourceCards.forEach(sourceCard => {
+        const clonedCard = sourceCard.cloneNode(true);
+        clonedCard.classList.remove('fullscreen-source');
+        clonedCard.dataset.fullscreenClone = 'true';
+
+        // Zamień expand icon na collapse (zamknij grupę)
+        const expandIcon = clonedCard.querySelector('.expand-icon-wrapper');
+        if (expandIcon) {
+            expandIcon.innerHTML = COLLAPSE_ICON_SVG;
+            expandIcon.onclick = function(e) {
+                e.preventDefault();
+                e.stopPropagation();
+                closeFullscreenOrderGroup();
+            };
+        }
+
+        // Reinicjalizuj eventy na klonie
+        reinitializeClonedCardForGroup(clonedCard, sourceCard, body);
+        body.appendChild(clonedCard);
+    });
+
+    container.appendChild(body);
+    document.body.appendChild(container);
+    FULLSCREEN_GROUP_STATE.container = container;
+
+    console.log(`[FullscreenGroup] Order ${orderNumber} opened`);
+}
+
+/**
+ * Reinicjalizuje eventy na sklonowanej karcie w widoku grupowym.
+ * Po ukończeniu pozycji — klon znika z body, a jeśli body puste — zamyka grupę.
+ * @param {HTMLElement} clonedCard - Sklonowana karta
+ * @param {HTMLElement} sourceCard - Oryginalna karta
+ * @param {HTMLElement} groupBody - Kontener body grupy
+ */
+function reinitializeClonedCardForGroup(clonedCard, sourceCard, groupBody) {
+    // Quantity buttons (+/-, +10/-10)
+    const qtyButtons = clonedCard.querySelectorAll('.btn-qty');
+    qtyButtons.forEach(btn => {
+        btn.addEventListener('click', function(e) {
+            e.preventDefault();
+            const productId = this.dataset.productId;
+            const action = this.dataset.action;
+
+            // Aktualizacja UI klona
+            const counterEl = clonedCard.querySelector('.quantity-counter .qty-done') ||
+                              (productId ? clonedCard.querySelector(`[data-product-id="${productId}"] .qty-done`) : null);
+            const totalEl = clonedCard.querySelector('.quantity-counter .qty-total') ||
+                            (productId ? clonedCard.querySelector(`[data-product-id="${productId}"] .qty-total`) : null);
+
+            if (counterEl && totalEl) {
+                let done = parseInt(counterEl.textContent) || 0;
+                const total = parseInt(totalEl.textContent) || 1;
+                if (action === 'increment' && done < total) done++;
+                else if (action === 'decrement' && done > 0) done--;
+                else if (action === 'increment10' && done + 10 <= total) done += 10;
+                else if (action === 'decrement10' && done >= 10) done -= 10;
+                counterEl.textContent = done;
+            }
+
+            // Deleguj do source card
+            const originalBtn = sourceCard.querySelector(`.btn-qty[data-product-id="${productId}"][data-action="${action}"]`);
+            if (originalBtn) {
+                originalBtn.click();
+                setTimeout(() => {
+                    syncClonedCardUI(clonedCard, sourceCard);
+                }, 500);
+            }
+        });
+    });
+
+    // Complete button — po ukończeniu klon znika
+    const completeBtn = clonedCard.querySelector('.btn-complete[data-action="complete"]');
+    if (completeBtn) {
+        completeBtn.addEventListener('click', function(e) {
+            e.preventDefault();
+
+            const originalCompleteBtn = sourceCard.querySelector('.btn-complete[data-action="complete"]');
+            if (originalCompleteBtn && !originalCompleteBtn.disabled) {
+                originalCompleteBtn.click();
+
+                // Obserwuj zmiany w order-action source i kopiuj do klona
+                const sourceAction = sourceCard.querySelector('.order-action');
+                const clonedAction = clonedCard.querySelector('.order-action');
+                if (sourceAction && clonedAction) {
+                    const observer = new MutationObserver(() => {
+                        clonedAction.innerHTML = sourceAction.innerHTML;
+
+                        // Podepnij cancel na klonie
+                        const clonedCancel = clonedAction.querySelector('.btn-cancel');
+                        if (clonedCancel) {
+                            clonedCancel.addEventListener('click', () => {
+                                const sourceCancel = sourceAction.querySelector('.btn-cancel');
+                                if (sourceCancel) sourceCancel.click();
+                            });
+                        }
+
+                        // Sprawdź czy karta źródłowa została usunięta z DOM (complete)
+                        if (!document.body.contains(sourceCard)) {
+                            observer.disconnect();
+                            clonedCard.remove();
+                            // Auto-close jeśli brak kart
+                            if (groupBody.querySelectorAll('.order-card').length === 0) {
+                                closeFullscreenOrderGroup();
+                            }
+                        }
+                    });
+                    observer.observe(sourceAction, { childList: true, subtree: true, characterData: true });
+                    FULLSCREEN_GROUP_STATE.actionObservers.push(observer);
+                }
+
+                // Fallback: obserwuj usunięcie source card z DOM
+                const removalObserver = new MutationObserver(() => {
+                    if (!document.body.contains(sourceCard)) {
+                        removalObserver.disconnect();
+                        clonedCard.remove();
+                        if (groupBody.querySelectorAll('.order-card').length === 0) {
+                            closeFullscreenOrderGroup();
+                        }
+                    }
+                });
+                removalObserver.observe(sourceCard.parentNode || document.body, { childList: true, subtree: true });
+                FULLSCREEN_GROUP_STATE.actionObservers.push(removalObserver);
+            }
+        });
+    }
+
+    // Attachment icons
+    const attachmentIcons = clonedCard.querySelectorAll('.attachment-icon-wrapper');
+    attachmentIcons.forEach(icon => {
+        icon.addEventListener('click', function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            if (typeof window.openAttachmentModal === 'function') {
+                const url = this.dataset.attachmentUrl;
+                const name = this.dataset.attachmentName;
+                const type = this.dataset.attachmentType;
+                window.openAttachmentModal(url, name, type);
+            }
+        });
+    });
+
+    // Notes icons
+    const notesIcons = clonedCard.querySelectorAll('.notes-icon-wrapper');
+    notesIcons.forEach(icon => {
+        icon.addEventListener('click', function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            const notes = this.dataset.notes;
+            if (notes && typeof window.openNotesModal === 'function') {
+                window.openNotesModal(notes);
+            }
+        });
+    });
+}
+
+/**
+ * Zamyka grupowy widok zamówienia
+ */
+function closeFullscreenOrderGroup() {
+    if (!FULLSCREEN_GROUP_STATE.isActive) {
+        return;
+    }
+
+    console.log(`[FullscreenGroup] Closing order: ${FULLSCREEN_GROUP_STATE.orderNumber}`);
+
+    // Usuń klasę przyciemnienia z oryginalnych kart
+    FULLSCREEN_GROUP_STATE.sourceCards.forEach(card => {
+        card.classList.remove('fullscreen-source');
+    });
+
+    // Usuń overlay
+    if (FULLSCREEN_GROUP_STATE.overlay) {
+        FULLSCREEN_GROUP_STATE.overlay.remove();
+    }
+
+    // Usuń kontener
+    if (FULLSCREEN_GROUP_STATE.container) {
+        FULLSCREEN_GROUP_STATE.container.remove();
+    }
+
+    // Rozłącz wszystkie obserwery
+    FULLSCREEN_GROUP_STATE.actionObservers.forEach(obs => obs.disconnect());
+
+    // Resetuj stan
+    FULLSCREEN_GROUP_STATE.isActive = false;
+    FULLSCREEN_GROUP_STATE.orderNumber = null;
+    FULLSCREEN_GROUP_STATE.overlay = null;
+    FULLSCREEN_GROUP_STATE.container = null;
+    FULLSCREEN_GROUP_STATE.sourceCards = [];
+    FULLSCREEN_GROUP_STATE.actionObservers = [];
+
+    console.log('[FullscreenGroup] Closed');
+}
+
+// Eksportuj grupowy fullscreen do globalnego scope
+window.openFullscreenOrderGroup = openFullscreenOrderGroup;
+window.closeFullscreenOrderGroup = closeFullscreenOrderGroup;
+window.FULLSCREEN_GROUP_STATE = FULLSCREEN_GROUP_STATE;
+
+/* ============================================================================
    ORDER SEARCH MODAL - Wyszukiwanie zamówień
    ============================================================================ */
 
