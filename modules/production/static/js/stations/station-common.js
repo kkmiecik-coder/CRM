@@ -1313,7 +1313,7 @@ function openFullscreenOrderGroup(orderNumber) {
 
     // Znajdź wszystkie karty z tym numerem zamówienia
     const sourceCards = Array.from(
-        document.querySelectorAll(`.order-card[data-order-number="${orderNumber}"]:not([data-fullscreen-clone="true"])`)
+        document.querySelectorAll(`.order-card[data-internal-order="${orderNumber}"]:not([data-fullscreen-clone="true"]), .order-card[data-order-number="${orderNumber}"]:not([data-fullscreen-clone="true"])`)
     );
 
     if (sourceCards.length === 0) {
@@ -1686,7 +1686,7 @@ function openOrderSearchModal() {
             if (order && order.card) {
                 closeOrderSearchModal();
                 if (useGroupFullscreen) {
-                    const orderNumber = order.card.dataset.orderNumber;
+                    const orderNumber = order.card.dataset.internalOrder || order.card.dataset.orderNumber;
                     openFullscreenOrderGroup(orderNumber);
                 } else {
                     openFullscreenOrder(order.card);
