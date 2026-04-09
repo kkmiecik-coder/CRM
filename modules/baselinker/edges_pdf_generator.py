@@ -248,9 +248,6 @@ class EdgesPdfGenerator:
         if not svg_html:
             return svg_html
 
-        svg_html = self._convert_css_to_svg_attributes(svg_html)
-        svg_html = self._fix_svg_for_conversion(svg_html)
-
         def add_dasharray(match):
             tag = match.group(0)
             if 'stroke-dasharray' not in tag:
