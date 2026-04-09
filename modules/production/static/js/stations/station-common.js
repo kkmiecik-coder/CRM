@@ -1676,12 +1676,21 @@ function openOrderSearchModal() {
     searchInput.focus();
 
     // Event listenery dla przycisków zamówień
+    // Stanowiska formatting/packaging mają własny mechanizm wyświetlania zamówienia
+    const stationCode = window.STATION_CONFIG ? window.STATION_CONFIG.stationCode : '';
+    const useGroupFullscreen = !['formatting', 'packaging'].includes(stationCode);
+
     allButtons.forEach((btn, index) => {
         btn.addEventListener('click', function() {
             const order = orders[index];
             if (order && order.card) {
                 closeOrderSearchModal();
-                openFullscreenOrder(order.card);
+                if (useGroupFullscreen) {
+                    const orderNumber = order.card.dataset.orderNumber;
+                    openFullscreenOrderGroup(orderNumber);
+                } else {
+                    openFullscreenOrder(order.card);
+                }
             }
         });
     });
