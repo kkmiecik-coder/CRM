@@ -90,28 +90,32 @@ def chat_page(conversation_id):
 @login_required
 def api_list_conversations():
     """Lista konwersacji"""
-    if not _require_admin_or_user():
-        return jsonify({'success': False, 'error': 'Brak dostępu'}), 403
+    try:
+        if not _require_admin_or_user():
+            return jsonify({'success': False, 'error': 'Brak dostępu'}), 403
 
-    from .services.conversation_service import ConversationService
+        from .services.conversation_service import ConversationService
 
-    if current_user.is_admin():
-        convs = ConversationService.get_all_conversations()
-    else:
-        convs = ConversationService.get_user_conversations(current_user.id)
+        if current_user.is_admin():
+            convs = ConversationService.get_all_conversations()
+        else:
+            convs = ConversationService.get_user_conversations(current_user.id)
 
-    return jsonify({
-        'success': True,
-        'conversations': [{
-            'id': c.id,
-            'title': c.title or 'Nowa rozmowa',
-            'created_at': c.created_at.isoformat() + 'Z',
-            'last_message_at': c.last_message_at.isoformat() + 'Z' if c.last_message_at else None,
-            'is_active': c.is_active,
-            'user_id': c.user_id,
-            'user_name': c.user.get_full_name() if current_user.is_admin() else None,
-        } for c in convs]
-    })
+        return jsonify({
+            'success': True,
+            'conversations': [{
+                'id': c.id,
+                'title': c.title or 'Nowa rozmowa',
+                'created_at': c.created_at.isoformat() + 'Z',
+                'last_message_at': c.last_message_at.isoformat() + 'Z' if c.last_message_at else None,
+                'is_active': c.is_active,
+                'user_id': c.user_id,
+                'user_name': c.user.get_full_name() if current_user.is_admin() else None,
+            } for c in convs]
+        })
+    except Exception as e:
+        current_app.logger.error(f"[AIAssistant] api_list_conversations error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 
 @ai_assistant_bp.route('/api/conversations', methods=['POST'])
@@ -172,12 +176,13 @@ def api_get_messages(conv_id):
 @login_required
 def api_chat():
     """Wysyła wiadomość — zwraca request_id do pollingu"""
-    if not _require_admin_or_user():
-        return jsonify({'success': False, 'error': 'Brak dostępu'}), 403
+    try:
+        if not _require_admin_or_user():
+            return jsonify({'success': False, 'error': 'Brak dostępu'}), 403
 
-    data = request.get_json()
-    if not data or 'message' not in data or 'conversation_id' not in data:
-        return jsonify({'success': False, 'error': 'Brak message lub conversation_id'}), 400
+        data = request.get_json()
+        if not data or 'message' not in data or 'conversation_id' not in data:
+            return jsonify({'success': False, 'error': 'Brak message lub conversation_id'}), 400
 
     user_message = data['message'].strip()
     conversation_id = data['conversation_id']
@@ -239,6 +244,15 @@ def api_chat():
         'request_id': request_id,
         'message_id': user_msg.id,
     })
+
+    except Exception as e:
+        current_app.logger.error(f"[AIAssistant] api_chat error: {e}")
+        import traceback
+        current_app.logger.error(traceback.format_exc())
+        return jsonify({
+            'success': False,
+            'error': f'Błąd serwera: {str(e)}'
+        }), 500
 
 
 def _process_chat(request_id: str, conversation_id: int, user_message: str,
