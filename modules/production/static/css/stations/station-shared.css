@@ -1049,7 +1049,14 @@ body {
     font-size: 14px;
     font-weight: 600;
     color: #ffffff;
-    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    font-family: 'JetBrains Mono', monospace;
+}
+
+.order-internal {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    font-family: 'JetBrains Mono', monospace;
 }
 
 /* ============================================================================
@@ -1479,6 +1486,13 @@ body {
     font-family: 'JetBrains Mono', monospace;
 }
 
+.order-search-btn .order-internal {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    font-family: 'JetBrains Mono', monospace;
+}
+
 .order-search-btn .order-baselinker {
     font-size: 13px;
     font-weight: 600;
@@ -1530,6 +1544,7 @@ body {
     }
 
     .order-search-btn .order-number,
+    .order-search-btn .order-internal,
     .order-search-btn .order-baselinker {
         font-size: 12px;
     }

@@ -1326,6 +1326,7 @@ function openOrderSearchModal() {
     orderCards.forEach(card => {
         const productId = card.dataset.productId || '';
         const orderNumber = card.dataset.orderNumber || '';
+        const internalText = card.querySelector('.order-internal')?.textContent || '';
         const baselinkerText = card.querySelector('.order-baselinker')?.textContent || '';
         // Numer systemowy: product ID (flat) lub order number (grouped)
         const systemNumber = productId || orderNumber || '';
@@ -1336,6 +1337,7 @@ function openOrderSearchModal() {
 
         orders.push({
             systemNumber,
+            internalText,
             baselinkerText,
             blNumber,
             card
@@ -1364,6 +1366,7 @@ function openOrderSearchModal() {
             ordersHTML += `
                 <button class="order-search-btn" data-order-index="${index}">
                     <span class="order-number">${order.systemNumber}</span>
+                    ${order.internalText ? `<span class="order-internal">${order.internalText}</span>` : ''}
                     ${order.baselinkerText ? `<span class="order-baselinker">${order.baselinkerText}</span>` : ''}
                 </button>
             `;

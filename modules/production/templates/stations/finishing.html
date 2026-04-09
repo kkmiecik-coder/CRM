@@ -135,6 +135,9 @@
                 <div class="order-header">
                     <div class="order-header-row order-ids-row">
                         <span class="order-number">{{ product.id }}</span>
+                        {% if product.client_order_number %}
+                            <span class="order-internal">{{ product.client_order_number }}</span>
+                        {% endif %}
                         {% if product.baselinker_order_id %}
                             <span class="order-baselinker">BL-{{ product.baselinker_order_id }}</span>
                         {% endif %}

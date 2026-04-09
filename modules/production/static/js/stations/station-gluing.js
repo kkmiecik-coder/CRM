@@ -1010,8 +1010,9 @@
             </div>
         `;
 
-        // Numer BaseLinker
-        const clientOrderHTML = product.baselinker_order_id ? `<span class="order-baselinker">BL-${product.baselinker_order_id}</span>` : '';
+        // Numery
+        const internalOrderHTML = product.client_order_number ? `<span class="order-internal">${product.client_order_number}</span>` : '';
+        const blOrderHTML = product.baselinker_order_id ? `<span class="order-baselinker">BL-${product.baselinker_order_id}</span>` : '';
 
         // Klasa priorytetu
         const priorityClass = product.is_priority ? ' priority-order' : '';
@@ -1027,7 +1028,8 @@
                 <div class="order-header">
                     <div class="order-header-row order-ids-row">
                         <span class="order-number">${product.id}</span>
-                        ${clientOrderHTML}
+                        ${internalOrderHTML}
+                        ${blOrderHTML}
                     </div>
                     <div class="order-header-row order-stats-row">
                         <div class="order-stats">
