@@ -299,8 +299,10 @@
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 16px 0;
+    padding: 16px 20px;
     margin-bottom: 8px;
+    background: #f1f5f9;
+    border-radius: 8px;
 }
 
 .ai-page-header .page-title {
