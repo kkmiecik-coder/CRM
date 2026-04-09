@@ -234,10 +234,20 @@ class EdgesPdfGenerator:
             x = start_x + i * (bar_w + gap)
             bars += f'<rect x="{x:.1f}" y="{start_y:.1f}" width="{bar_w:.1f}" height="{bar_h:.1f}" rx="{r:.1f}" fill="#e67e22"/>'
 
-        transform = f' transform="rotate({direction} {half} {half})"' if direction else ''
+        # Przy 45/135 stopniach skalujemy paski o sqrt(2) zeby wypelnialy caly kwadrat
+        is_diagonal = direction in (45, 135)
+        s = 1.42 if is_diagonal else 1
+        if direction:
+            transform = f' transform="translate({half} {half}) rotate({direction}) scale({s}) translate(-{half} -{half})"'
+        else:
+            transform = ''
+
+        m = size * 0.07
+        clip = (f'<defs><clipPath id="lc"><rect x="{m:.1f}" y="{m:.1f}" '
+                f'width="{size - m * 2:.1f}" height="{size - m * 2:.1f}" rx="{r:.1f}"/></clipPath></defs>')
 
         return (f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {size} {size}" '
-                f'width="{size}" height="{size}"><g{transform}>{bars}</g></svg>')
+                f'width="{size}" height="{size}">{clip}<g clip-path="url(#lc)"><g{transform}>{bars}</g></g></svg>')
 
     def _svg_to_png_base64(self, svg_html: str, output_width=300) -> str:
         """Konwertuje SVG na PNG base64 data URI"""

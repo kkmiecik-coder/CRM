@@ -68,7 +68,14 @@ var ShapeEditor = (function() {
             if (!lamellaIcon) return;
             var bars = lamellaIcon.querySelector('[data-lamella-bars]');
             if (bars) {
-                bars.setAttribute('transform', 'rotate(' + lamellaDirection + ' 15 15)');
+                // Przy 45/135 stopniach skalujemy paski o sqrt(2) zeby wypelnialy caly kwadrat
+                var isDiagonal = (lamellaDirection === 45 || lamellaDirection === 135);
+                var s = isDiagonal ? 1.42 : 1;
+                bars.setAttribute('transform',
+                    'rotate(' + lamellaDirection + ' 15 15) scale(' + s + ')');
+                // Korygujemy origin skalowania przez przesuniecie
+                bars.setAttribute('transform',
+                    'translate(15 15) rotate(' + lamellaDirection + ') scale(' + s + ') translate(-15 -15)');
             }
         }
 

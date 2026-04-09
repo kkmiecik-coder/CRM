@@ -29,11 +29,22 @@ var LamellaIcon = (function() {
                 '" rx="' + r.toFixed(1) + '" fill="#e67e22"/>';
         }
 
-        var transform = direction ? ' transform="rotate(' + direction + ' ' + half + ' ' + half + ')"' : '';
+        // Przy 45/135 stopniach skalujemy paski o sqrt(2) zeby wypelnialy caly kwadrat
+        var isDiagonal = (direction === 45 || direction === 135);
+        var s = isDiagonal ? 1.42 : 1;
+        var transform = direction
+            ? ' transform="translate(' + half + ' ' + half + ') rotate(' + direction + ') scale(' + s + ') translate(-' + half + ' -' + half + ')"'
+            : '';
+
+        // clipPath obcina paski do kwadratu przy obrocie
+        var clipId = 'lamellaClip_' + size + '_' + direction;
+        var m = size * 0.07;
+        var clip = '<defs><clipPath id="' + clipId + '"><rect x="' + m + '" y="' + m +
+            '" width="' + (size - m * 2) + '" height="' + (size - m * 2) + '" rx="' + r.toFixed(1) + '"/></clipPath></defs>';
 
         return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ' + size + ' ' + size +
             '" width="' + size + '" height="' + size + '">' +
-            '<g' + transform + '>' + bars + '</g></svg>';
+            clip + '<g clip-path="url(#' + clipId + ')"><g' + transform + '>' + bars + '</g></g></svg>';
     }
 
     return { generateSvg: generateSvg };
