@@ -32,7 +32,8 @@ class TableManager {
             customer_name: [],
             delivery_state: [],
             wood_species: [],
-            current_status: []
+            current_status: [],
+            finish_state: []
         };
 
         // Stany dropdown'ów
@@ -40,7 +41,8 @@ class TableManager {
             customer_name: false,
             delivery_state: false,
             wood_species: false,
-            current_status: false
+            current_status: false,
+            finish_state: false
         };
 
         console.log('[TableManager] Initialized');
@@ -97,7 +99,14 @@ class TableManager {
             currentStatusMenu: document.getElementById('filterCurrentStatusMenu'),
             currentStatusLabel: document.querySelector('#filterCurrentStatusToggle .filter-dropdown-label'),
             currentStatusOptions: document.getElementById('filterCurrentStatusOptions'),
-            searchCurrentStatus: document.getElementById('searchCurrentStatus')
+            searchCurrentStatus: document.getElementById('searchCurrentStatus'),
+
+            finishStateDropdown: document.getElementById('filterFinishStateDropdown'),
+            finishStateToggle: document.getElementById('filterFinishStateToggle'),
+            finishStateMenu: document.getElementById('filterFinishStateMenu'),
+            finishStateLabel: document.querySelector('#filterFinishStateToggle .filter-dropdown-label'),
+            finishStateOptions: document.getElementById('filterFinishStateOptions'),
+            searchFinishState: document.getElementById('searchFinishState')
         };
 
         // Modal elementy - ROZSZERZONE O NOWE POLA
@@ -1010,7 +1019,7 @@ class TableManager {
      * Ustawienie event listenerów dla dropdown'ów
      */
     setupDropdownEventListeners() {
-        const filterKeys = ['customer_name', 'delivery_state', 'wood_species', 'current_status'];
+        const filterKeys = ['customer_name', 'delivery_state', 'wood_species', 'current_status', 'finish_state'];
 
         filterKeys.forEach(filterKey => {
             const camelCase = this.snakeToCamel(filterKey);
@@ -1100,7 +1109,7 @@ class TableManager {
      * Zarządzanie dropdown'ami w fullscreen
      */
     manageFullscreenDropdowns() {
-        const filterKeys = ['customer_name', 'delivery_state', 'wood_species', 'current_status'];
+        const filterKeys = ['customer_name', 'delivery_state', 'wood_species', 'current_status', 'finish_state'];
 
         filterKeys.forEach(filterKey => {
             const camelCase = this.snakeToCamel(filterKey);
@@ -1193,7 +1202,7 @@ class TableManager {
      * Zamknij dropdown przy kliknięciu poza nim
      */
     handleOutsideClick(e) {
-        const filterKeys = ['customer_name', 'delivery_state', 'wood_species', 'current_status'];
+        const filterKeys = ['customer_name', 'delivery_state', 'wood_species', 'current_status', 'finish_state'];
 
         filterKeys.forEach(filterKey => {
             const camelCase = this.snakeToCamel(filterKey);
@@ -1281,7 +1290,7 @@ class TableManager {
     async loadDropdownData() {
         console.log('[TableManager] Loading dropdown data...');
 
-        const fieldsToLoad = ['customer_name', 'delivery_state', 'wood_species', 'current_status'];
+        const fieldsToLoad = ['customer_name', 'delivery_state', 'wood_species', 'current_status', 'finish_state'];
 
         try {
             // Ustaw wszystkie dropdown'y w trybie loading
@@ -1407,7 +1416,8 @@ class TableManager {
             customer_name: 'Wszyscy klienci',
             delivery_state: 'Wszystkie województwa',
             wood_species: 'Wszystkie gatunki',
-            current_status: 'Wszystkie statusy'
+            current_status: 'Wszystkie statusy',
+            finish_state: 'Wszystkie wykończenia'
         };
 
         // W fullscreen skracamy etykiety
@@ -1415,7 +1425,8 @@ class TableManager {
             customer_name: 'Klienci',
             delivery_state: 'Województwa',
             wood_species: 'Gatunki',
-            current_status: 'Statusy'
+            current_status: 'Statusy',
+            finish_state: 'Wykończenie'
         };
 
         const labels = this.isInFullscreenMode() ? compactLabels : defaultLabels;
@@ -2724,7 +2735,7 @@ class TableManager {
      * Dostosowanie filtrów do trybu fullscreen
      */
     adaptFiltersToFullscreen(isFullscreen) {
-        const filterKeys = ['customer_name', 'delivery_state', 'wood_species', 'current_status'];
+        const filterKeys = ['customer_name', 'delivery_state', 'wood_species', 'current_status', 'finish_state'];
 
         filterKeys.forEach(filterKey => {
             const camelCase = this.snakeToCamel(filterKey);
@@ -2763,7 +2774,7 @@ class TableManager {
      * Odświeżenie wszystkich dropdown'ów
      */
     refreshAllDropdowns() {
-        const filterKeys = ['customer_name', 'delivery_state', 'wood_species', 'current_status'];
+        const filterKeys = ['customer_name', 'delivery_state', 'wood_species', 'current_status', 'finish_state'];
 
         filterKeys.forEach(filterKey => {
             this.refreshDropdown(filterKey);

@@ -25,7 +25,7 @@
             <div id="loadingOverlay" class="loading-overlay">
                 <div class="loadingbox-banner">
                     <div class="spinner"></div>
-                    <div class="loading-text">Pobieranie danych...</div>
+                    <div class="loading-text" id="loadingText">Pobieranie danych...</div>
                 </div>
             </div>
 
@@ -293,6 +293,25 @@
                                         <input type="text" id="searchCurrentStatus" placeholder="Szukaj status..." class="filter-search-input">
                                     </div>
                                     <div class="filter-options" id="filterCurrentStatusOptions">
+                                        <!-- Opcje ładowane dynamicznie -->
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- FILTR WYKOŃCZENIA - DROPDOWN -->
+                        <div class="filter-item">
+                            <label>Wykończenie:</label>
+                            <div class="filter-dropdown" id="filterFinishStateDropdown">
+                                <div class="filter-dropdown-toggle" id="filterFinishStateToggle">
+                                    <span class="filter-dropdown-label">Wszystkie wykończenia</span>
+                                    <i class="fas fa-chevron-down"></i>
+                                </div>
+                                <div class="filter-dropdown-menu" id="filterFinishStateMenu">
+                                    <div class="filter-search">
+                                        <input type="text" id="searchFinishState" placeholder="Szukaj wykończenie..." class="filter-search-input">
+                                    </div>
+                                    <div class="filter-options" id="filterFinishStateOptions">
                                         <!-- Opcje ładowane dynamicznie -->
                                     </div>
                                 </div>

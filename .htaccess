@@ -4,30 +4,30 @@ PassengerEnabled On
 PassengerAppRoot /home/woodpower/domains/crm.woodpower.pl/public_html/app
 PassengerPython /home/woodpower/virtualenv/domains/crm.woodpower.pl/public_html/app/3.9/bin/python
 
-# ===== KRYTYCZNE OPTYMALIZACJE (rozwi¹zanie cold start) =====
-# ZAWSZE trzymaj minimum 2 procesy ¿ywe (eliminuje cold start)
+# ===== KRYTYCZNE OPTYMALIZACJE (rozwiï¿½zanie cold start) =====
+# ZAWSZE trzymaj minimum 2 procesy ï¿½ywe (eliminuje cold start)
 PassengerMinInstances 2
 
-# Maksymalnie 4 procesy (wystarczaj¹ce dla shared hosting)
+# Maksymalnie 4 procesy (wystarczajï¿½ce dla shared hosting)
 PassengerMaxPoolSize 4
 
-# Procesy ¿yj¹ 30 minut bez aktywnoœci (by³o 1800s = 30min)
+# Procesy ï¿½yjï¿½ 30 minut bez aktywnoï¿½ci (byï¿½o 1800s = 30min)
 PassengerPoolIdleTime 1800
 
-# Wiêcej requestów na proces = mniej restartów
+# Wiï¿½cej requestï¿½w na proces = mniej restartï¿½w
 PassengerMaxRequests 1000
 
-# Wyd³u¿ony timeout startu (dla pierwszego uruchomienia)
+# Wydï¿½uï¿½ony timeout startu (dla pierwszego uruchomienia)
 PassengerStartTimeout 90
 
-# Wy³¹cz przyjazne b³êdy (szybsze odpowiedzi)
+# Wyï¿½ï¿½cz przyjazne bï¿½ï¿½dy (szybsze odpowiedzi)
 PassengerFriendlyErrorPages off
 
-# ===== SMART SPAWNING (kluczowe dla wydajnoœci) =====
+# ===== SMART SPAWNING (kluczowe dla wydajnoï¿½ci) =====
 PassengerSpawnMethod smart
 PassengerMaxPreloaderIdleTime 1800
 
-# PRESTART - uruchom aplikacjê przy restarcie serwera
+# PRESTART - uruchom aplikacjï¿½ przy restarcie serwera
 PassengerPreStart https://crm.woodpower.pl/
 
 # ===== ENVIRONMENT =====
@@ -38,7 +38,7 @@ PassengerEnvVar LANG C.UTF-8
 PassengerEnvVar PYTHONDONTWRITEBYTECODE 1
 PassengerEnvVar PYTHONUNBUFFERED 1
 
-# NOWE: Wy³¹cz debug mode w production
+# NOWE: Wyï¿½ï¿½cz debug mode w production
 PassengerEnvVar FLASK_ENV production
 PassengerEnvVar FLASK_DEBUG 0
 
@@ -56,35 +56,42 @@ RewriteEngine On
 RewriteCond %{HTTPS} off
 RewriteRule ^(.*)$ https://%{HTTP_HOST}/$1 [R=301,L]
 
-# Blokowanie dostêpu do plików konfiguracyjnych
+# Blokowanie dostï¿½pu do plikï¿½w konfiguracyjnych
 <FilesMatch "\.(json|log|db|sqlite|env|py)$">
     Order deny,allow
     Deny from all
 </FilesMatch>
 
-# Wyj¹tek dla passenger_wsgi.py (musi byæ dostêpny)
+# Wyjï¿½tek dla passenger_wsgi.py (musi byï¿½ dostï¿½pny)
 <Files "passenger_wsgi.py">
     Order allow,deny
     Allow from all
 </Files>
 
-# Blokowanie dostêpu do katalogów systemowych
+# Blokowanie dostï¿½pu do katalogï¿½w systemowych
 <DirectoryMatch "/(config|logs|migrations|__pycache__|\.git|venv|virtualenv)/">
     Order deny,allow
     Deny from all
 </DirectoryMatch>
 
-# ===== NAG£ÓWKI BEZPIECZEÑSTWA =====
+# ===== NAGï¿½ï¿½WKI BEZPIECZEï¿½STWA =====
 <IfModule mod_headers.c>
     Header set X-Content-Type-Options "nosniff"
     Header set X-Frame-Options "SAMEORIGIN"
     Header set X-XSS-Protection "1; mode=block"
     Header set Referrer-Policy "strict-origin-when-cross-origin"
     
-    # Cache dla statycznych plików
+    # Cache dla statycznych plikï¿½w
     <FilesMatch "\.(js|css|jpg|jpeg|png|gif|svg|woff|woff2|ttf|eot)$">
         Header set Cache-Control "public, max-age=2592000"
     </FilesMatch>
+</IfModule>
+
+# ===== WYÅÄ„CZENIE BUFOROWANIA DLA SSE =====
+<IfModule mod_headers.c>
+    SetEnvIf Request_URI "/reports/api/(fetch-orders-stream|sync-statuses-stream)" sse_request
+    Header set Cache-Control "no-cache, no-store, must-revalidate" env=sse_request
+    Header set X-Accel-Buffering "no" env=sse_request
 </IfModule>
 
 # ===== KOMPRESJA GZIP =====
@@ -93,9 +100,11 @@ RewriteRule ^(.*)$ https://%{HTTP_HOST}/$1 [R=301,L]
     AddOutputFilterByType DEFLATE text/javascript application/javascript application/json
     AddOutputFilterByType DEFLATE application/xml application/xhtml+xml
     AddOutputFilterByType DEFLATE image/svg+xml
+    # WyÅ‚Ä…cz kompresjÄ™ dla SSE (streaming)
+    SetEnvIfNoCase Request_URI "/reports/api/(fetch-orders-stream|sync-statuses-stream)" no-gzip
 </IfModule>
 
-# ===== CACHE DLA STATYCZNYCH PLIKÓW =====
+# ===== CACHE DLA STATYCZNYCH PLIKï¿½W =====
 <IfModule mod_expires.c>
     ExpiresActive On
     ExpiresByType image/jpeg "access plus 1 month"

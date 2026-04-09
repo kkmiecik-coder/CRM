@@ -1705,7 +1705,8 @@ class ReportsManager {
             'customer_name': 'Klient',
             'delivery_state': 'Województwo',
             'wood_species': 'Gatunek',
-            'current_status': 'Status'
+            'current_status': 'Status',
+            'finish_state': 'Wykończenie'
         };
         return labels[filterKey] || filterKey;
     }
@@ -2029,6 +2030,12 @@ class ReportsManager {
     showLoading(message = 'Pobieranie danych...') {
         if (this.elements.loadingOverlay) {
             this.elements.loadingOverlay.classList.remove('hidden');
+
+            // Aktualizuj tekst loading
+            const loadingText = document.getElementById('loadingText');
+            if (loadingText) {
+                loadingText.textContent = message;
+            }
 
             // W trybie fullscreen - wyższy z-index
             if (this.isInFullscreenMode()) {
@@ -2521,9 +2528,14 @@ class ReportsManager {
             return;
         }
 
-        // ZMIANA: Zastąpienie confirm() modalem
+        // Walidacja dat
+        if (!this.dateFrom || !this.dateTo) {
+            this.showError('Wybierz zakres dat w filtrach przed synchronizacją.');
+            return;
+        }
+
         const confirmed = await this.showConfirmDialog(
-            'Czy na pewno chcesz zsynchronizować statusy zamówień z Baselinker?\n\nTo może potrwać kilka minut.',
+            `Zsynchronizować zamówienia z Baselinker dla zakresu ${this.dateFrom} - ${this.dateTo}?\n\nTo może potrwać chwilę.`,
             'Potwierdzenie synchronizacji'
         );
 
@@ -2531,59 +2543,76 @@ class ReportsManager {
             return;
         }
 
-        this.showLoading('Synchronizowanie statusów...');
+        this.isLoading = true;
+        this.showLoading('Przygotowywanie synchronizacji...');
 
         try {
-            const response = await fetch('/reports/api/sync-statuses', {
+            const response = await fetch('/reports/api/sync-statuses-stream', {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                }
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    date_from: this.dateFrom,
+                    date_to: this.dateTo
+                })
             });
 
             if (!response.ok) {
-                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                let errorBody = '';
+                try { errorBody = await response.text(); } catch (e) {}
+                throw new Error(`HTTP ${response.status}: ${response.statusText}. ${errorBody}`);
             }
 
-            const result = await response.json();
+            // Parsuj SSE stream
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = '';
+            let finalResult = null;
 
-            if (result.success) {
-                console.log('[ReportsManager] Statuses sync completed successfully:', result);
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
 
-                // ZMIANA: Zastąpienie alert() systemem komunikatów
-                let message = `Synchronizacja statusów i płatności zakończona pomyślnie!\n\n`;
-                message += `Przetworzono: ${result.orders_processed} zamówień\n`;
-                message += `Zaktualizowano łącznie: ${result.orders_updated} rekordów\n`;
+                buffer += decoder.decode(value, { stream: true });
+                const lines = buffer.split('\n');
+                buffer = lines.pop();
 
-                if (result.status_updated > 0) {
-                    message += `Zaktualizowano statusy: ${result.status_updated} rekordów\n`;
+                for (const line of lines) {
+                    if (!line.startsWith('data: ')) continue;
+
+                    try {
+                        const event = JSON.parse(line.slice(6));
+                        console.log('[ReportsManager] SSE sync:', event.type, event.message);
+
+                        if (event.type === 'progress' || event.type === 'saving' || event.type === 'start') {
+                            this.showLoading(event.message);
+                        } else if (event.type === 'done') {
+                            finalResult = event;
+                        } else if (event.type === 'error') {
+                            throw new Error(event.message);
+                        }
+                    } catch (e) {
+                        if (e.message && !e.message.includes('Unexpected token')) throw e;
+                        console.warn('[ReportsManager] SSE parse error:', e);
+                    }
                 }
+            }
 
-                if (result.payment_updated > 0) {
-                    message += `Zaktualizowano płatności: ${result.payment_updated} rekordów\n`;
-                }
+            if (finalResult) {
+                let message = `Synchronizacja zakończona pomyślnie!\n\n`;
+                message += `Pobrano z API: ${finalResult.orders_processed} z ${finalResult.total_orders} zamówień\n`;
+                message += `Zaktualizowano: ${finalResult.records_updated} rekordów`;
 
-                message += `Unikalne zamówienia: ${result.unique_orders}`;
-
-                // Użyj istniejący system komunikatów Bootstrap zamiast alert()
                 this.showMessage(message, 'success');
-
-                // Odśwież dane
                 this.refreshData();
-
             } else {
-                // ZMIANA: Zastąpienie alert() dla błędów
-                const errorMessage = result.error || 'Nieznany błąd podczas synchronizacji';
-                console.error('[ReportsManager] Sync statuses failed:', errorMessage);
-                this.showError(`Błąd podczas synchronizacji statusów: ${errorMessage}`);
+                throw new Error('Stream zakończony bez danych końcowych');
             }
 
         } catch (error) {
             console.error('[ReportsManager] Sync statuses error:', error);
-
-            // ZMIANA: Zastąpienie alert() dla błędów sieciowych
-            this.showError(`Błąd sieci podczas synchronizacji: ${error.message}`);
+            this.showError(`Błąd synchronizacji: ${error.message}`);
         } finally {
+            this.isLoading = false;
             this.hideLoading();
         }
     }

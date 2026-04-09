@@ -5,12 +5,13 @@ Endpointy Flask dla modułu Reports
 import csv
 import re
 import os
+import json
 os.environ['OPENBLAS_NUM_THREADS'] = '1'
 import pandas as pd
 import io
 import sys
 import traceback
-from flask import render_template, jsonify, request, session, redirect, url_for, flash, Response, make_response, current_app
+from flask import render_template, jsonify, request, session, redirect, url_for, flash, Response, make_response, current_app, stream_with_context
 from datetime import datetime, timedelta, date
 from functools import wraps
 from extensions import db
@@ -1929,6 +1930,140 @@ def api_sync_statuses():
             'error': str(e)
         }), 500
 
+@reports_bp.route('/api/sync-statuses-stream', methods=['POST'])
+@require_module_access('reports')
+def api_sync_statuses_stream():
+    """
+    SSE endpoint: synchronizuje zamówienia z Baselinker z real-time progress.
+    Filtruje po zakresie dat z filtrów.
+    """
+    user_email = session.get('user_email')
+
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({'success': False, 'error': 'Missing data'}), 400
+
+        date_from_str = data.get('date_from')
+        date_to_str = data.get('date_to')
+
+        if not date_from_str or not date_to_str:
+            return jsonify({'success': False, 'error': 'Wymagany zakres dat'}), 400
+
+        # Parsuj daty
+        date_from = datetime.strptime(date_from_str, '%Y-%m-%d').date()
+        date_to = datetime.strptime(date_to_str, '%Y-%m-%d').date()
+
+        service = get_reports_service()
+
+        # Pobierz zamówienia z bazy w wybranym zakresie dat
+        excluded_status_ids = [105112, 138625]
+        excluded_status_names = ['Nowe - nieopłacone', 'Zamówienie anulowane']
+
+        orders_to_sync = BaselinkerReportOrder.query.filter(
+            BaselinkerReportOrder.baselinker_order_id.isnot(None),
+            BaselinkerReportOrder.date_created >= date_from,
+            BaselinkerReportOrder.date_created <= date_to,
+            ~BaselinkerReportOrder.baselinker_status_id.in_(excluded_status_ids),
+            ~BaselinkerReportOrder.current_status.in_(excluded_status_names)
+        ).all()
+
+        unique_order_ids = list(set(order.baselinker_order_id for order in orders_to_sync))
+        total_orders = len(unique_order_ids)
+
+        reports_logger.info("SSE sync-statuses started",
+                          user_email=user_email,
+                          date_from=date_from_str,
+                          date_to=date_to_str,
+                          unique_orders=total_orders,
+                          total_records=len(orders_to_sync))
+
+        def generate():
+            yield f"data: {json.dumps({'type': 'start', 'total_orders': total_orders, 'message': f'Synchronizacja {total_orders} zamówień...'})}\n\n"
+
+            if total_orders == 0:
+                yield f"data: {json.dumps({'type': 'done', 'orders_processed': 0, 'total_orders': 0, 'records_updated': 0, 'message': 'Brak zamówień do synchronizacji w wybranym zakresie dat.'})}\n\n"
+                return
+
+            updated_count = 0
+            processed_count = 0
+            sync_start = datetime.utcnow()
+
+            for i, order_id in enumerate(unique_order_ids):
+                try:
+                    order_details = service.get_order_details(order_id)
+
+                    if order_details:
+                        new_status_id = order_details.get('order_status_id')
+                        new_status = service.status_map.get(new_status_id, f'Status {new_status_id}')
+
+                        payment_done = order_details.get('payment_done', 0)
+                        custom_fields = order_details.get('custom_extra_fields', {})
+                        price_type_from_api = custom_fields.get('106169', '').strip()
+                        new_paid_amount_net = service._calculate_paid_amount_net(payment_done, price_type_from_api)
+
+                        new_internal_number = order_details.get('extra_field_1', '').strip()
+                        new_delivery_method = order_details.get('delivery_method', '').strip()
+                        new_delivery_cost_gross = float(order_details.get('delivery_price', 0))
+
+                        records = BaselinkerReportOrder.query.filter_by(
+                            baselinker_order_id=order_id
+                        ).all()
+
+                        for record in records:
+                            record.current_status = new_status
+                            record.baselinker_status_id = new_status_id
+                            record.paid_amount_net = new_paid_amount_net
+                            record.internal_order_number = new_internal_number
+                            record.delivery_method = new_delivery_method
+                            record.delivery_cost = new_delivery_cost_gross
+                            record.updated_at = datetime.utcnow()
+                            record.update_production_fields()
+                            record.calculate_fields()
+                            updated_count += 1
+
+                        processed_count += 1
+
+                except Exception as e:
+                    reports_logger.error("SSE sync error for order",
+                                       order_id=order_id, error=str(e))
+
+                # Wysyłaj progress co zamówienie
+                current = i + 1
+                yield f"data: {json.dumps({'type': 'progress', 'current': current, 'total_orders': total_orders, 'message': f'Pobieranie {current} z {total_orders} zamówień...'})}\n\n"
+
+            # Zapisz zmiany
+            yield f"data: {json.dumps({'type': 'saving', 'message': f'Zapisywanie {updated_count} rekordów...'})}\n\n"
+
+            db.session.commit()
+
+            duration = (datetime.utcnow() - sync_start).total_seconds()
+
+            reports_logger.info("SSE sync-statuses completed",
+                              user_email=user_email,
+                              processed=processed_count,
+                              updated=updated_count,
+                              duration=duration)
+
+            yield f"data: {json.dumps({'type': 'done', 'orders_processed': processed_count, 'total_orders': total_orders, 'records_updated': updated_count, 'duration_seconds': round(duration, 1), 'message': f'Zsynchronizowano {processed_count} z {total_orders} zamówień ({updated_count} rekordów).'})}\n\n"
+
+        return Response(
+            stream_with_context(generate()),
+            mimetype='text/event-stream',
+            headers={
+                'Cache-Control': 'no-cache',
+                'X-Accel-Buffering': 'no'
+            }
+        )
+
+    except Exception as e:
+        reports_logger.error("Error in sync-statuses-stream",
+                           user_email=user_email,
+                           error=str(e),
+                           error_type=type(e).__name__)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 @reports_bp.route('/api/delete-manual-row', methods=['POST'])
 @require_module_access('reports')
 def api_delete_manual_row():
@@ -2028,6 +2163,135 @@ def api_delete_manual_row():
             'error': f'Błąd usuwania rekordu: {str(e)}'
         }), 500
     
+@reports_bp.route('/api/fetch-orders-stream', methods=['POST'])
+@require_module_access('reports')
+def api_fetch_orders_stream():
+    """
+    SSE endpoint: streamuje postęp pobierania zamówień z Baselinker.
+    Wysyła eventy progress po każdej stronie API (max 100 zamówień),
+    a na końcu event 'done' z pełną listą zamówień.
+    """
+    user_email = session.get('user_email')
+
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({'success': False, 'error': 'Missing data'}), 400
+
+        date_from = data.get('date_from')
+        date_to = data.get('date_to')
+        days_count = data.get('days_count')
+        get_all_statuses = data.get('get_all_statuses', False)
+
+        if not all([date_from, date_to, days_count]):
+            return jsonify({'success': False, 'error': 'Missing required parameters'}), 400
+
+        start_date = datetime.fromisoformat(date_from)
+        end_date = datetime.fromisoformat(date_to)
+
+        service = get_reports_service()
+
+        # Policz chunki z góry (3-dniowe)
+        days_diff = (end_date - start_date).days + 1
+        total_chunks = max(1, -(-days_diff // 3))  # ceil division
+
+        # Pobierz istniejące zamówienia z bazy
+        existing_orders = BaselinkerReportOrder.query.filter(
+            BaselinkerReportOrder.baselinker_order_id.isnot(None)
+        ).with_entities(BaselinkerReportOrder.baselinker_order_id).distinct().all()
+        existing_order_ids = {order[0] for order in existing_orders}
+
+        def generate():
+            # Event startowy
+            yield f"data: {json.dumps({'type': 'start', 'total_chunks': total_chunks, 'message': 'Łączenie z Baselinker...'})}\n\n"
+
+            all_orders = []
+            seen_order_ids = set()
+            chunks_done = 0
+            current_date = start_date
+
+            while current_date <= end_date:
+                chunk_end = min(
+                    current_date + timedelta(days=2),  # 3-dniowy chunk
+                    end_date
+                )
+
+                result = service._fetch_single_chunk(
+                    date_from=current_date,
+                    date_to=chunk_end,
+                    get_all_statuses=get_all_statuses,
+                    limit_per_page=100
+                )
+
+                chunks_done += 1
+
+                if result['success']:
+                    for order in result['orders']:
+                        order_id = order.get('order_id')
+                        if order_id and order_id not in seen_order_ids:
+                            all_orders.append(order)
+                            seen_order_ids.add(order_id)
+
+                yield f"data: {json.dumps({'type': 'progress', 'fetched': len(all_orders), 'chunks_done': chunks_done, 'total_chunks': total_chunks, 'message': f'Pobrano {len(all_orders)} zamówień (strona {chunks_done}/{total_chunks})...'})}\n\n"
+
+                current_date = chunk_end + timedelta(days=1)
+
+            # Filtrowanie po date_add
+            yield f"data: {json.dumps({'type': 'processing', 'message': f'Filtrowanie {len(all_orders)} zamówień...'})}\n\n"
+
+            start_ts = int(start_date.timestamp())
+            end_ts = int(end_date.timestamp()) + 86399
+            filtered_orders = []
+            for order in all_orders:
+                order_date_add = order.get('date_add')
+                try:
+                    order_date_add = int(order_date_add)
+                except (TypeError, ValueError):
+                    continue
+                if start_ts <= order_date_add <= end_ts:
+                    filtered_orders.append(order)
+
+            # Filtruj istniejące i analizuj
+            processed_orders = []
+            ignored_existing_count = 0
+
+            for order in filtered_orders:
+                order_id = order['order_id']
+
+                if order_id in existing_order_ids:
+                    ignored_existing_count += 1
+                    continue
+
+                status_id = order.get('order_status_id')
+                if not get_all_statuses and status_id in [105112, 138625]:
+                    continue
+
+                order = analyze_order_products_for_volume(order)
+                order['exists_in_database'] = False
+                processed_orders.append(order)
+
+            total_volume_issues = sum(1 for o in processed_orders if o.get('has_volume_issues', False))
+            new_orders_count = len(processed_orders)
+
+            yield f"data: {json.dumps({'type': 'done', 'orders': processed_orders, 'total_orders': new_orders_count, 'new_orders': new_orders_count, 'ignored_existing': ignored_existing_count, 'volume_issues_count': total_volume_issues, 'message': f'Znaleziono {new_orders_count} nowych zamówień. Zignorowano {ignored_existing_count} już istniejących.'})}\n\n"
+
+        return Response(
+            stream_with_context(generate()),
+            mimetype='text/event-stream',
+            headers={
+                'Cache-Control': 'no-cache',
+                'X-Accel-Buffering': 'no'
+            }
+        )
+
+    except Exception as e:
+        reports_logger.error("Error in fetch-orders-stream",
+                           user_email=user_email,
+                           error=str(e),
+                           error_type=type(e).__name__)
+        return jsonify({'success': False, 'error': f'Błąd: {str(e)}'}), 500
+
+
 @reports_bp.route('/api/fetch-orders-for-selection', methods=['POST'])
 @require_module_access('reports')
 def api_fetch_orders_for_selection():

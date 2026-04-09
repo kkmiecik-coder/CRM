@@ -792,148 +792,120 @@ class SyncManager {
     }
 
     async fetchOrders() {
-        console.log('[SyncManager] 📡 Pobieranie zamówień z progressive loading');
+        console.log('[SyncManager] 📡 Pobieranie zamówień z SSE stream');
 
         try {
             // KROK 1: Łączenie z Baselinker
             this.showProgressiveLoading('Łączenie z Baselinker...', 1);
 
-            // DODAJ: Walidację danych przed wysłaniem
-            console.log('[SyncManager] 🔍 Walidacja danych przed wysłaniem:', {
-                dateFrom: this.dateFrom,
-                dateTo: this.dateTo,
-                selectedDays: this.selectedDays,
-                dateFromType: typeof this.dateFrom,
-                dateToType: typeof this.dateTo,
-                selectedDaysType: typeof this.selectedDays
-            });
-
-            // POPRAWKA 1: Upewnij się że days_count to liczba
+            // Walidacja danych
             const selectedDaysNumber = parseInt(this.selectedDays, 10);
             if (isNaN(selectedDaysNumber)) {
                 throw new Error(`Nieprawidłowa wartość selectedDays: ${this.selectedDays}`);
             }
 
-            // POPRAWKA 2: Konwertuj daty z polskiego formatu DD.MM.YYYY na ISO YYYY-MM-DD
             const convertPolishDateToISO = (polishDate) => {
-                // Sprawdź czy to już format ISO
-                if (/^\d{4}-\d{2}-\d{2}$/.test(polishDate)) {
-                    return polishDate;
-                }
-                
-                // Konwertuj z DD.MM.YYYY na YYYY-MM-DD
+                if (/^\d{4}-\d{2}-\d{2}$/.test(polishDate)) return polishDate;
                 const match = polishDate.match(/^(\d{2})\.(\d{2})\.(\d{4})$/);
                 if (match) {
                     const [, day, month, year] = match;
                     return `${year}-${month}-${day}`;
                 }
-                
                 throw new Error(`Nieprawidłowy format daty: ${polishDate}`);
             };
 
-            // Konwertuj daty na format ISO jeśli potrzeba
             const isoDateFrom = convertPolishDateToISO(this.dateFrom);
             const isoDateTo = convertPolishDateToISO(this.dateTo);
-            
-            console.log('[SyncManager] 🔄 Konwersja dat:', {
-                original: { from: this.dateFrom, to: this.dateTo },
-                converted: { from: isoDateFrom, to: isoDateTo }
-            });
 
             const requestData = {
                 date_from: isoDateFrom,
                 date_to: isoDateTo,
-                days_count: selectedDaysNumber,           // POPRAWKA: Używaj liczby, nie stringa
-                get_all_statuses: false                   // DODANE - wykluczamy anulowane i nieopłacone
+                days_count: selectedDaysNumber,
+                get_all_statuses: false
             };
 
-            console.log('[SyncManager] 📤 Wysyłanie zapytania z analizą objętości:', requestData);
+            console.log('[SyncManager] 📤 SSE stream request:', requestData);
 
-            // Rzeczywiste połączenie z API
-            const response = await fetch('/reports/api/fetch-orders-for-selection', {
+            // SSE stream przez fetch + ReadableStream
+            const response = await fetch('/reports/api/fetch-orders-stream', {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
+                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(requestData)
             });
 
-            // KROK 2: Pobieranie zamówień
-            this.updateProgressiveLoading('Pobieranie zamówień...', 2);
-
-            console.log('[SyncManager] 📥 Odpowiedź z serwera - status:', response.status);
-
-            // DODAJ: Logowanie szczegółów odpowiedzi w przypadku błędu
             if (!response.ok) {
                 let errorBody = '';
-                try {
-                    errorBody = await response.text();
-                    console.error('[SyncManager] ❌ Błąd serwera - treść odpowiedzi:', errorBody);
-                } catch (e) {
-                    console.error('[SyncManager] ❌ Nie można odczytać treści błędu:', e);
-                }
-                throw new Error(`HTTP ${response.status}: ${response.statusText}. Body: ${errorBody}`);
+                try { errorBody = await response.text(); } catch (e) {}
+                throw new Error(`HTTP ${response.status}: ${response.statusText}. ${errorBody}`);
             }
 
-            const result = await response.json();
-            console.log('[SyncManager] 📊 Dane z serwera (z analizą objętości):', result);
+            // Parsuj SSE stream
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = '';
+            let result = null;
 
-            if (result.success) {
-                // KROK 3: Analizowanie produktów
-                this.updateProgressiveLoading('Analizowanie produktów...', 3);
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
 
-                this.fetchedOrders = result.orders || [];
-                console.log('[SyncManager] ✅ Pobrano zamówienia z analizą objętości:', this.fetchedOrders.length);
+                buffer += decoder.decode(value, { stream: true });
+                const lines = buffer.split('\n');
+                buffer = lines.pop(); // zachowaj niekompletną linię
 
-                // *** NOWY KOD: Obsługa komunikatu z API ***
-                if (result.message) {
-                    console.log('[SyncManager] 📄 Komunikat z API:', result.message);
-                    this.showApiMessage(result.message, result.ignored_existing > 0 ? 'info' : 'success');
-                }
+                for (const line of lines) {
+                    if (!line.startsWith('data: ')) continue;
 
-                // Symuluj czas analizowania (żeby użytkownik widział krok 3)
-                await new Promise(resolve => setTimeout(resolve, 500));
+                    try {
+                        const event = JSON.parse(line.slice(6));
+                        console.log('[SyncManager] 📨 SSE event:', event.type, event.message);
 
-                // KROK 4: Przygotowywanie listy
-                this.updateProgressiveLoading('Przygotowywanie listy...', 4);
-
-                // ZACHOWANA LOGIKA: Sprawdź problemy z objętością i wymiarami
-                const ordersWithVolumeIssues = this.fetchedOrders.filter(order => order.has_volume_issues);
-                console.log('[SyncManager] ⚠️ Zamówienia z problemami objętości:', ordersWithVolumeIssues.length);
-
-                const ordersWithDimensionIssues = this.fetchedOrders.filter(order => order.has_dimension_issues);
-                console.log('[SyncManager] ⚠️ Zamówienia z problemami wymiarów:', ordersWithDimensionIssues.length);
-
-                // Analiza problemów z wymiarami (dla kompatybilności z progressive loading)
-                this.analyzeOrdersForDimensionIssues();
-
-                // Krótka pauza przed pokazaniem rezultatu
-                await new Promise(resolve => setTimeout(resolve, 300));
-
-                // Ukryj progressive loading
-                this.hideProgressiveLoading();
-
-                // Pokaż rezultat - ZACHOWANA LOGIKA z działającej wersji
-                if (this.fetchedOrders.length === 0) {
-                    this.showOrdersEmptyState();
-                } else {
-                    this.showOrdersListSuccess();
-
-                    // ZACHOWANE: Pokaż informację o problemach z objętością
-                    if (result.volume_issues_count > 0) {
-                        this.showVolumeIssuesInfo(result.volume_issues_count);
+                        if (event.type === 'start') {
+                            this.updateProgressiveLoading('Łączenie z Baselinker...', 1);
+                        } else if (event.type === 'progress') {
+                            // Prawdziwy postęp: "Pobrano X zamówień (strona Y/Z)"
+                            this.updateProgressiveLoading(event.message, 2);
+                        } else if (event.type === 'processing') {
+                            this.updateProgressiveLoading(event.message, 3);
+                        } else if (event.type === 'done') {
+                            result = event;
+                        }
+                    } catch (e) {
+                        console.warn('[SyncManager] Błąd parsowania SSE:', e, line);
                     }
                 }
+            }
 
-                // Obsługa paginacji jeśli istnieje
-                if (result.pagination_info) {
-                    console.log('[SyncManager] 📄 Info o paginacji:', result.pagination_info);
-                }
+            if (!result) {
+                throw new Error('Stream zakończony bez danych końcowych');
+            }
 
+            // KROK 4: Przygotowywanie listy
+            this.updateProgressiveLoading('Przygotowywanie listy...', 4);
+
+            this.fetchedOrders = result.orders || [];
+            console.log('[SyncManager] ✅ Pobrano zamówienia:', this.fetchedOrders.length);
+
+            if (result.message) {
+                this.showApiMessage(result.message, result.ignored_existing > 0 ? 'info' : 'success');
+            }
+
+            // Sprawdź problemy z objętością i wymiarami
+            this.analyzeOrdersForDimensionIssues();
+
+            await new Promise(resolve => setTimeout(resolve, 300));
+
+            // Ukryj progressive loading
+            this.hideProgressiveLoading();
+
+            // Pokaż rezultat
+            if (this.fetchedOrders.length === 0) {
+                this.showOrdersEmptyState();
             } else {
-                // API zwróciło błąd
-                this.hideProgressiveLoading();
-                this.showOrdersError(result.error || result.message || 'Nieznany błąd API');
+                this.showOrdersListSuccess();
+                if (result.volume_issues_count > 0) {
+                    this.showVolumeIssuesInfo(result.volume_issues_count);
+                }
             }
 
         } catch (error) {
