@@ -578,6 +578,8 @@ def create_quote(data, user_email):
             product_shape_data = product.get('shape_data')
             product_shape_svg = product.get('shape_svg')
             lamella_direction = product.get('lamella_direction')
+            if lamella_direction is not None and lamella_direction not in (0, 45, 90, 135):
+                lamella_direction = None
             round_surcharge_netto = 0
             round_surcharge_brutto = 0
             if product_shape in ('round', 'circle'):

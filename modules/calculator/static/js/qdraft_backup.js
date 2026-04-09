@@ -612,6 +612,9 @@ class QuoteDraftBackup {
                     const editor = form._shapeEditor;
                     if (editor) {
                         editor.restore(mappedShape, draftData.products[i].shape_data || null);
+                        if (draftData.products[i].lamella_direction != null && editor.setLamellaDirection) {
+                            editor.setLamellaDirection(draftData.products[i].lamella_direction);
+                        }
                     } else {
                         const shapeSelect = form.querySelector('[data-field="shapeSelect"]');
                         if (shapeSelect) shapeSelect.value = mappedShape;
@@ -774,6 +777,9 @@ class QuoteDraftBackup {
             const editor = form._shapeEditor;
             if (editor) {
                 editor.restore(mappedShape, productData.shape_data || null);
+                if (productData.lamella_direction != null && editor.setLamellaDirection) {
+                    editor.setLamellaDirection(productData.lamella_direction);
+                }
             } else {
                 const shapeSelect = form.querySelector('[data-field="shapeSelect"]');
                 if (shapeSelect) {

@@ -77,7 +77,6 @@ var ShapeEditor = (function() {
                 e.stopPropagation();
                 lamellaDirection = (lamellaDirection + 45) % 180;
                 _rotateLamellaIcon();
-                form.dataset.lamellaDirection = lamellaDirection;
                 if (typeof window.QDraftBackup !== 'undefined' && window.QDraftBackup.instance) {
                     window.QDraftBackup.instance.notifyChange();
                 }
