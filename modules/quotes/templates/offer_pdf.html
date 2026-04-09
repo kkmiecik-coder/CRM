@@ -722,35 +722,37 @@
                     {% endif %}
                 </div>
 
-                <!-- Podglądy: kształt + lamele + izometria w 3 kolumnach -->
+                <!-- Podglądy: kształt + (lamele) + izometria -->
                 {% set has_shape = (shape_images and shape_images.get(detail.product_index)) or detail.shape_svg %}
                 {% set has_edges = edges_images and edges_images.get(detail.product_index) %}
                 {% set has_lamella = lamella_images and lamella_images.get(detail.product_index) %}
+                {% set col_count = [has_shape, has_lamella, has_edges]|select|list|length %}
+                {% set col_width = (100 / col_count)|round(2) if col_count > 0 else 50 %}
                 {% if has_shape or has_edges or has_lamella %}
                 <table class="edge-item-previews-table" style="width:100%;table-layout:fixed;">
                     <tr>
-                        <td style="width:33.33%;text-align:center;vertical-align:top;">
-                            {% if has_shape %}
+                        {% if has_shape %}
+                        <td style="width:{{ col_width }}%;text-align:center;vertical-align:top;">
                             <div class="preview-label">Widok kształtu</div>
                             {% if shape_images and shape_images.get(detail.product_index) %}
                             <img src="{{ shape_images[detail.product_index] }}" alt="Kształt" />
                             {% elif detail.shape_svg %}
                             {{ detail.shape_svg|safe }}
                             {% endif %}
-                            {% endif %}
                         </td>
-                        <td style="width:33.33%;text-align:center;vertical-align:top;">
-                            {% if has_lamella %}
+                        {% endif %}
+                        {% if has_lamella %}
+                        <td style="width:{{ col_width }}%;text-align:center;vertical-align:top;">
                             <div class="preview-label">Kierunek lameli</div>
                             <img src="{{ lamella_images[detail.product_index] }}" alt="Kierunek lameli" style="width:50px;height:50px;" />
-                            {% endif %}
                         </td>
-                        <td style="width:33.33%;text-align:center;vertical-align:top;">
-                            {% if has_edges %}
+                        {% endif %}
+                        {% if has_edges %}
+                        <td style="width:{{ col_width }}%;text-align:center;vertical-align:top;">
                             <div class="preview-label">Widok izometryczny</div>
                             <img src="{{ edges_images[detail.product_index] }}" alt="Wizualizacja krawędzi" />
-                            {% endif %}
                         </td>
+                        {% endif %}
                     </tr>
                 </table>
                 {% endif %}
