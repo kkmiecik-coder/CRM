@@ -313,6 +313,9 @@ def create_app():
 
     register_blueprints_lazy(app)
 
+    from modules.ai_assistant import init_ai_service
+    init_ai_service(app)
+
     # =========================================================================
     # Auto-login przez HTTP Basic Auth (dla Fully Kiosk Browser na tabletach)
     # =========================================================================
