@@ -2754,7 +2754,7 @@ function renderVariantSummary(groupedItemsForIndex, quoteData, productIndex) {
     // Kolumna podglądu (2D + 3D)
     const hasShapePreview = shapeSvgHtml || edgesSvgWithLabel || lamellaHtml;
     const previewColumnHtml = hasShapePreview
-        ? '<div class="vsh-col vsh-preview">' + shapeSvgHtml + edgesSvgWithLabel + lamellaHtml + '</div>'
+        ? '<div class="vsh-col vsh-preview">' + shapeSvgHtml + lamellaHtml + edgesSvgWithLabel + '</div>'
         : '';
 
     // Buduj tabelę Produkt
