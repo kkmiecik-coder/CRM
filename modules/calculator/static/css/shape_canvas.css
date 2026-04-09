@@ -131,3 +131,27 @@
     font-style: italic;
     margin-top: 2px;
 }
+
+/* Ikona kierunku lameli */
+.lamella-icon-wrapper {
+    position: absolute;
+    top: 6px;
+    left: 8px;
+    width: 36px;
+    height: 36px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 2px solid #e67e22;
+    background: rgba(180, 90, 10, 0.45);
+    border-radius: 6px;
+    cursor: pointer;
+    z-index: 5;
+    transition: transform 0.2s ease;
+}
+.lamella-icon-wrapper svg {
+    fill: #e67e22;
+}
+.lamella-icon-wrapper:hover {
+    background: rgba(180, 90, 10, 0.65);
+}

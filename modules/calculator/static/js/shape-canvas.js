@@ -46,7 +46,8 @@ var ShapeCanvas = (function() {
             width: 0,
             height: 0,
             colorTheme: 'normal',
-            outOfRangeDims: { length: false, width: false }  // które wymiary bbox na czerwono
+            outOfRangeDims: { length: false, width: false },  // które wymiary bbox na czerwono
+            lamellaDirection: 0
         };
 
         // Pozycje wymiarów do obsługi dblclick
@@ -1219,6 +1220,8 @@ var ShapeCanvas = (function() {
             resize: resize,
             setColorTheme: setColorTheme,
             setOutOfRangeDims: setOutOfRangeDims,
+            setLamellaDirection: function(deg) { state.lamellaDirection = deg; },
+            getLamellaDirection: function() { return state.lamellaDirection; },
             destroy: function() { resizeObserver.disconnect(); }
         };
     }
