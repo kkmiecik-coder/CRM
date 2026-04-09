@@ -136,7 +136,7 @@
 .lamella-icon-container {
     position: absolute;
     top: 6px;
-    left: 8px;
+    left: 0;
     z-index: 5;
     background: rgba(200, 200, 200, 0.85);
     padding: 4px 8px;
@@ -155,19 +155,19 @@
     white-space: nowrap;
 }
 .lamella-icon-box {
-    width: 36px;
-    height: 36px;
+    width: 50px;
+    height: 50px;
     display: flex;
     align-items: center;
     justify-content: center;
-    border: 2px solid #e67e22;
-    background: rgba(180, 90, 10, 0.45);
+    border: 2px solid #555;
+    background: rgba(100, 100, 100, 0.25);
     border-radius: 6px;
     overflow: hidden;
 }
 .lamella-icon-box svg {
-    fill: #e67e22;
+    fill: #222;
 }
 .lamella-icon-container:hover .lamella-icon-box {
-    background: rgba(180, 90, 10, 0.65);
+    background: rgba(100, 100, 100, 0.4);
 }
