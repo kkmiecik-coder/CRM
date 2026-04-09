@@ -138,15 +138,20 @@
     top: 6px;
     left: 8px;
     z-index: 5;
+    background: rgba(200, 200, 200, 0.85);
+    padding: 4px 8px;
+    border-radius: 4px;
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 2px;
+    gap: 3px;
+    cursor: pointer;
 }
 .lamella-icon-label {
     font-size: 9px;
-    color: rgba(200, 200, 200, 0.85);
-    font-family: Poppins, sans-serif;
+    color: #222;
+    font-family: 'Poppins', sans-serif;
+    font-weight: 500;
     white-space: nowrap;
 }
 .lamella-icon-box {
@@ -158,12 +163,11 @@
     border: 2px solid #e67e22;
     background: rgba(180, 90, 10, 0.45);
     border-radius: 6px;
-    cursor: pointer;
     overflow: hidden;
 }
 .lamella-icon-box svg {
     fill: #e67e22;
 }
-.lamella-icon-box:hover {
+.lamella-icon-container:hover .lamella-icon-box {
     background: rgba(180, 90, 10, 0.65);
 }
