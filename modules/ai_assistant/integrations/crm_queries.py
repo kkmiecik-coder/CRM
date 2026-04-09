@@ -395,7 +395,7 @@ class CRMQueryIntegration:
                 'email': quote.client.email if quote.client else None,
                 'phone': quote.client.phone if quote.client else None,
                 'client_number': quote.client.client_number if quote.client else None
-            } if quote.client else None,
+            } if quote.client else {'name': None, 'email': None, 'phone': None, 'client_number': None},
             'owner': owner_name,
             'total_price': float(quote.total_price) if quote.total_price else 0,
             'quote_type': quote.quote_type,
@@ -470,13 +470,16 @@ class CRMQueryIntegration:
             f"**Status:** {quote_data.get('status', 'nieznany')}"
         ]
 
-        client = quote_data.get('client')
-        if client:
-            lines.append(f"\n**Klient:** {client.get('name', 'brak')}")
+        client = quote_data.get('client') or {}
+        client_name = client.get('name')
+        if client_name:
+            lines.append(f"\n**Klient:** {client_name}")
             if client.get('email'):
                 lines.append(f"Email: {client['email']}")
             if client.get('phone'):
                 lines.append(f"Tel: {client['phone']}")
+        else:
+            lines.append(f"\n**Klient:** nieprzypisany")
 
         if quote_data.get('owner'):
             lines.append(f"\n**Opiekun:** {quote_data['owner']}")
