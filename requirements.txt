@@ -68,6 +68,9 @@ bleach==6.2.0
 defusedxml==0.7.1
 webencodings==0.5.1
 
+# Config
+PyYAML==6.0.2
+
 # Utilities
 python-dotenv==0.20.0
 pytz==2025.2
