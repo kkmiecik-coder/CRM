@@ -2748,7 +2748,7 @@ function renderVariantSummary(groupedItemsForIndex, quoteData, productIndex) {
 
     // Lamella direction icon
     const lamellaHtml = finishing && finishing.lamella_direction != null
-        ? '<div class="shape-preview-item" data-svg-title="Kierunek lameli"><div class="shape-preview-label">Lamele</div><div class="lamella-direction-preview">' + LamellaIcon.generateSvg(finishing.lamella_direction, 60) + '</div></div>'
+        ? '<div class="shape-preview-item" data-svg-title="Kierunek lameli"><div class="shape-preview-label">Kierunek lameli</div><div class="lamella-direction-preview">' + LamellaIcon.generateSvg(finishing.lamella_direction, 60) + '</div></div>'
         : '';
 
     // Kolumna podglądu (2D + 3D)

@@ -595,7 +595,7 @@ class EdgesPdfGenerator:
             if has_edges_img:
                 label_items += '<div class="cell-preview-label">Izometria</div>'
             if has_lamella:
-                label_items += '<div class="cell-preview-label">Lamele</div>'
+                label_items += '<div class="cell-preview-label">Kierunek lameli</div>'
             labels_html = f'<div class="cell-preview-labels">{label_items}</div>'
             previews_html = f'<div class="cell-previews">{shape_img_html}{edges_img_html}{lamella_img_html}</div>'
 
