@@ -172,6 +172,7 @@ class QuoteEditLoader {
     async restoreProduct(form, product) {
 
         // Ksztalt (przed wymiarami - bo nieprosto. blokuje length/width)
+        form._pendingLamellaDirection = product.lamella_direction;
         await this.restoreShape(form, product.shape, product.shape_data);
 
         // Grupa cenowa na tym formularzu (przed wymiarami - wplywa na ceny)
@@ -237,6 +238,11 @@ class QuoteEditLoader {
                 try { parsedData = JSON.parse(shapeData); } catch(e) { parsedData = null; }
             }
             editor.restore(mappedShape, parsedData);
+            // Przywroc kierunek lameli
+            if (typeof form._pendingLamellaDirection !== 'undefined' && form._pendingLamellaDirection !== null && editor.setLamellaDirection) {
+                editor.setLamellaDirection(form._pendingLamellaDirection);
+                delete form._pendingLamellaDirection;
+            }
         } else {
             // Fallback: ustaw dropdown bezposrednio
             var select = form.querySelector('[data-field="shapeSelect"]');

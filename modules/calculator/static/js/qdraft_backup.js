@@ -255,6 +255,7 @@ class QuoteDraftBackup {
         const shape = form.dataset.productShape || 'rectangular';
         const shapeEditor = form._shapeEditor;
         const shapeData = shapeEditor ? shapeEditor.getShapeData() : null;
+        const lamellaDirection = shapeEditor && shapeEditor.getLamellaDirection ? shapeEditor.getLamellaDirection() : null;
 
         const finishingType = form.dataset.finishingType || 'Surowe';
         const finishingVariant = form.dataset.finishingVariant || null;
@@ -290,6 +291,7 @@ class QuoteDraftBackup {
             selectedVariant,
             shape,
             shape_data: shapeData,
+            lamella_direction: lamellaDirection,
             clientType,
             finishing: {
                 type: finishingType,
