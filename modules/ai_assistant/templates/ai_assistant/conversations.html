@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Asystent AI - Wood Power CRM</title>
+    <link rel="icon" href="{{ url_for('static', filename='images/favicon.png') }}" type="image/png">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="stylesheet" href="{{ url_for('ai_assistant.static', filename='css/ai-chat.css') }}">
+</head>
+<body>
+    <div class="app-container">
+        {% include 'sidebar/sidebar.html' %}
+        <main class="main-content">
+            <div class="ai-page-header">
+                <h1 class="page-title">Asystent AI</h1>
+                <button class="ai-btn ai-btn-primary" id="new-conversation-btn">+ Nowa rozmowa</button>
+            </div>
+            <div class="ai-conversations-list" id="conversations-list">
+                <!-- Loaded by JS -->
+            </div>
+        </main>
+    </div>
+    <script src="{{ url_for('ai_assistant.static', filename='js/ai-chat.js') }}"></script>
+</body>
+</html>

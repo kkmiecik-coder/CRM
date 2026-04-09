@@ -71,6 +71,14 @@
                 </a>
             </li>
             {% endif %}
+            {% if current_user.is_authenticated and current_user.role in ['admin', 'administrator', 'user'] %}
+            <li class="mobile-menu-item {% if request.path.startswith('/ai-assistant') %}active{% endif %}">
+                <a href="/ai-assistant/">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+                    <span>Asystent AI</span>
+                </a>
+            </li>
+            {% endif %}
         </ul>
 
         <div class="mobile-menu-divider"></div>
@@ -259,6 +267,20 @@
                 </li>
                 {% endif %}
 
+                <!-- Asystent AI (admin/user) -->
+                {% if current_user.is_authenticated and current_user.role in ['admin', 'administrator', 'user'] %}
+                <li class="menu-options {% if request.path.startswith('/ai-assistant') %}active{% endif %}" data-sidebar-tooltip="Asystent AI">
+                    <a href="/ai-assistant/">
+                        <span class="sidebar-icon">
+                            <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+                                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" fill="none" stroke="currentColor" stroke-width="2"/>
+                            </svg>
+                        </span>
+                        <span class="option-txt">Asystent AI</span>
+                    </a>
+                </li>
+                {% endif %}
+
             </ul>
         </div>
 
@@ -426,9 +448,4 @@
     <script src="{{ url_for('static', filename='js/tracking.js') }}"></script>
     <script src="{{ url_for('static', filename='js/sidebar.js') }}"></script>
 
-    <!-- AI Chat Assistant Widget (tylko dla adminów) -->
-    {% if current_user.is_authenticated and current_user.role in ['admin', 'administrator'] %}
-    <link rel="stylesheet" href="{{ url_for('ai_assistant.static', filename='css/ai-chat.css') }}">
-    <script src="{{ url_for('ai_assistant.static', filename='js/ai-chat.js') }}"></script>
-    {% endif %}
 </div>
