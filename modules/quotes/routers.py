@@ -376,6 +376,7 @@ def update_quote_status(quote_id):
         print(f"[update_quote_status] Błąd: {str(e)}", file=sys.stderr)
         return jsonify({"error": "Błąd podczas aktualizacji statusu"}), 500
 
+
 @quotes_bp.route("/api/quotes/<token>/pdf.<format>", methods=["GET"])
 def generate_quote_pdf(token, format):
     
@@ -424,6 +425,18 @@ def generate_quote_pdf(token, format):
                 except Exception as e:
                     print(f"[PDF] Poz {fd.product_index}: shape PNG BŁĄD: {e}", file=sys.stderr)
         print(f"[PDF] Wynik: edges_images={list(edges_images.keys())}, shape_images={list(shape_images.keys())}", file=sys.stderr)
+
+        # Lamella direction icons
+        lamella_images = {}
+        for detail in finishing_details:
+            if detail.lamella_direction is not None:
+                try:
+                    lamella_svg = pdf_gen._generate_lamella_svg(detail.lamella_direction, 60)
+                    png_uri = pdf_gen._svg_to_png_base64(lamella_svg, 60)
+                    if png_uri:
+                        lamella_images[detail.product_index] = png_uri
+                except Exception:
+                    pass
 
         cost_products_netto = round(sum(item.get_total_price_netto() for item in selected_items), 2)
         cost_finishing_netto = round(sum(float(d.finishing_price_netto or 0) + float(d.edges_price_netto or 0) for d in finishing_details), 2)
@@ -483,6 +496,7 @@ def generate_quote_pdf(token, format):
                                  finishing_details=finishing_details,  # Dodaj finishing_details
                                  edges_images=edges_images,  # PNG obrazy krawędzi
                                  shape_images=shape_images,  # PNG obrazy kształtów
+                                 lamella_images=lamella_images,  # PNG ikonki kierunku lameli
                                  icons=icons)
                 
         # Utwórz HTML object z base_url dla względnych ścieżek

@@ -24,6 +24,8 @@ var ShapeEditor = (function() {
         var currentShape = select.value || 'rectangular';
         var currentParams = {};
         var isUpdating = false;
+        var lamellaIcon = form.querySelector('[data-lamella-icon]');
+        var lamellaDirection = 0;
 
         // Wszystkie wrappery inputów kształtów (statyczne w HTML)
         var allParamWrappers = form.querySelectorAll('[data-shape-param-wrapper]');
@@ -45,6 +47,39 @@ var ShapeEditor = (function() {
                 scaleIndicator: scaleIndicator,
                 onParamsChange: _onCanvasParamsChange,
                 onShapeTypeChange: _onCanvasShapeTypeChange
+            });
+        }
+
+        // ============================================
+        // LAMELLA DIRECTION
+        // ============================================
+
+        function _updateLamellaVisibility() {
+            if (!lamellaIcon) return;
+            var irregular = (currentShape !== 'rectangular' && currentShape !== 'circle');
+            lamellaIcon.style.display = irregular ? '' : 'none';
+            if (!irregular) {
+                lamellaDirection = 0;
+                _rotateLamellaIcon();
+            }
+        }
+
+        function _rotateLamellaIcon() {
+            if (!lamellaIcon) return;
+            var bars = lamellaIcon.querySelector('[data-lamella-bars]');
+            if (bars) {
+                bars.setAttribute('transform', 'rotate(' + lamellaDirection + ' 15 15)');
+            }
+        }
+
+        if (lamellaIcon) {
+            lamellaIcon.addEventListener('click', function(e) {
+                e.stopPropagation();
+                lamellaDirection = (lamellaDirection + 45) % 180;
+                _rotateLamellaIcon();
+                if (typeof window.QDraftBackup !== 'undefined' && window.QDraftBackup.instance) {
+                    window.QDraftBackup.instance.notifyChange();
+                }
             });
         }
 
@@ -109,6 +144,7 @@ var ShapeEditor = (function() {
             _setupCircleSync();
 
             if (typeof updatePrices === 'function') updatePrices();
+            _updateLamellaVisibility();
         }
 
         function _setupCircleSync() {
@@ -414,6 +450,17 @@ var ShapeEditor = (function() {
                 return currentShape;
             },
 
+            getLamellaDirection: function() {
+                var irregular = (currentShape !== 'rectangular' && currentShape !== 'circle');
+                return irregular ? lamellaDirection : null;
+            },
+
+            setLamellaDirection: function(deg) {
+                lamellaDirection = (deg != null && !isNaN(deg)) ? deg : 0;
+                _rotateLamellaIcon();
+                _updateLamellaVisibility();
+            },
+
             restore: function(shapeType, shapeData) {
                 currentShape = shapeType;
                 form.dataset.productShape = shapeType;
@@ -459,6 +506,7 @@ var ShapeEditor = (function() {
                 _syncToMainDimensions();
                 _setupCircleSync();
                 _updateBboxDisplay();
+                _updateLamellaVisibility();
                 if (typeof updatePrices === 'function') updatePrices();
             },
 

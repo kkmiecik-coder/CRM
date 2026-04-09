@@ -884,6 +884,7 @@ class BaselinkerService:
                 'edges_svg': finishing_details.edges_svg if finishing_details else None,
                 'finishing_type': finishing_details.finishing_type if finishing_details else None,
                 'finishing_variant': finishing_details.finishing_variant if finishing_details else None,
+                'lamella_direction': finishing_details.lamella_direction if finishing_details else None,
             }
             spec_products.append(product_data)
 

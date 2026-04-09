@@ -744,6 +744,12 @@
                             <img src="{{ edges_images[detail.product_index] }}" alt="Wizualizacja krawędzi" />
                         </td>
                         {% endif %}
+                        {% if lamella_images and lamella_images.get(detail.product_index) %}
+                        <td>
+                            <div class="preview-label">Lamele</div>
+                            <img src="{{ lamella_images[detail.product_index] }}" alt="Kierunek lameli" style="width:40px;height:40px;" />
+                        </td>
+                        {% endif %}
                     </tr>
                 </table>
                 {% endif %}

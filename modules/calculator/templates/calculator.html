@@ -238,6 +238,16 @@
                                 <div class="shape-canvas-column">
                                     <div class="shape-canvas-wrapper">
                                         <canvas data-shape-canvas></canvas>
+                                        <!-- Ikona kierunku lameli -->
+                                        <div class="lamella-icon-wrapper" data-lamella-icon style="display:none;" title="Kierunek lameli — kliknij aby obrócić">
+                                            <svg viewBox="0 0 30 30" width="30" height="30">
+                                                <g data-lamella-bars>
+                                                    <rect x="2" y="2" width="8" height="26" rx="1"/>
+                                                    <rect x="11" y="2" width="8" height="26" rx="1"/>
+                                                    <rect x="20" y="2" width="8" height="26" rx="1"/>
+                                                </g>
+                                            </svg>
+                                        </div>
                                         <div class="shape-canvas-info-panel">
                                             <div class="shape-canvas-scale-indicator" data-shape-scale></div>
                                             <div class="shape-canvas-formatka-info" data-shape-formatka></div>
@@ -582,6 +592,7 @@
     <script src="{{ url_for('static', filename='js/sidebar.js') }}"></script>
     <script src="{{ url_for('calculator.static', filename='js/qdraft_backup.js') }}"></script>
     <script src="{{ url_for('calculator.static', filename='js/shape-geometry.js') }}"></script>
+    <script src="{{ url_for('calculator.static', filename='js/lamella-icon.js') }}"></script>
     <script src="{{ url_for('calculator.static', filename='js/shape-canvas.js') }}"></script>
     <script src="{{ url_for('calculator.static', filename='js/shape-editor.js') }}"></script>
     <script src="{{ url_for('calculator.static', filename='js/calculator-core.js') }}"></script>

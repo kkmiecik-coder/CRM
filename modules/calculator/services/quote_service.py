@@ -91,6 +91,7 @@ def load_quote_for_edit(edit_uuid, current_user):
                 "shape": detail.shape if detail else "rectangular",
                 "shape_data": detail.shape_data if detail else None,
                 "shape_svg": detail.shape_svg if detail else None,
+                "lamella_direction": detail.lamella_direction if detail else None,
                 "round_surcharge_netto": float(detail.round_surcharge_netto) if detail and detail.round_surcharge_netto else 0,
                 "round_surcharge_brutto": float(detail.round_surcharge_brutto) if detail and detail.round_surcharge_brutto else 0,
                 "selectedVariant": product_data["selected_variant"],
@@ -253,6 +254,7 @@ def _update_or_create_product(quote, product_data):
     shape = product_data.get('shape', 'rectangular')
     shape_data_json = product_data.get('shape_data')  # JSON string z frontendu
     shape_svg = product_data.get('shape_svg')
+    lamella_direction = product_data.get('lamella_direction')
     round_surcharge_netto = 0
     round_surcharge_brutto = 0
     if shape in ('round', 'circle'):
@@ -326,6 +328,7 @@ def _update_or_create_product(quote, product_data):
         detail.shape_svg = shape_svg
         detail.round_surcharge_netto = round_surcharge_netto
         detail.round_surcharge_brutto = round_surcharge_brutto
+        detail.lamella_direction = lamella_direction
     else:
         detail = QuoteItemDetails(
             quote_id=quote.id,
@@ -349,6 +352,7 @@ def _update_or_create_product(quote, product_data):
             shape_svg=shape_svg,
             round_surcharge_netto=round_surcharge_netto,
             round_surcharge_brutto=round_surcharge_brutto,
+            lamella_direction=lamella_direction,
         )
         db.session.add(detail)
 
@@ -573,6 +577,9 @@ def create_quote(data, user_email):
             product_shape = product.get('shape', 'rectangular')
             product_shape_data = product.get('shape_data')
             product_shape_svg = product.get('shape_svg')
+            lamella_direction = product.get('lamella_direction')
+            if lamella_direction is not None and lamella_direction not in (0, 45, 90, 135):
+                lamella_direction = None
             round_surcharge_netto = 0
             round_surcharge_brutto = 0
             if product_shape in ('round', 'circle'):
@@ -607,6 +614,7 @@ def create_quote(data, user_email):
                 shape_svg=product_shape_svg if product_shape_svg else None,
                 round_surcharge_netto=round_surcharge_netto,
                 round_surcharge_brutto=round_surcharge_brutto,
+                lamella_direction=lamella_direction,
             )
             db.session.add(item_details)
 
