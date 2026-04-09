@@ -278,18 +278,9 @@
             margin: 0;
         }
 
-        /* Tabela 2-kolumnowa dla produktów z krawędziami */
-        .edges-grid-table {
-            width: 100%;
-            table-layout: fixed;
-            border-collapse: collapse;
+        /* Lista produktów — 1 produkt na wiersz */
+        .edges-list {
             margin-top: 15px;
-        }
-
-        .edges-grid-table td {
-            width: 50%;
-            vertical-align: top;
-            padding: 8px;
         }
 
         .edge-item {
@@ -298,7 +289,7 @@
             padding: 12px;
             background: #fafafa;
             page-break-inside: avoid;
-            overflow: hidden;
+            margin-bottom: 15px;
         }
 
         .edge-item-header {
@@ -720,11 +711,9 @@
             <p class="attachment-note">Wizualizacja kształtów i obróbki krawędzi produktów</p>
         </div>
 
-        <table class="edges-grid-table">
+        <div class="edges-list">
             {% for detail in attachment_items %}
             {% set item = selected_items|selectattr('product_index', 'equalto', detail.product_index)|first %}
-            {% if loop.index is odd %}<tr>{% endif %}
-            <td>
             <div class="edge-item">
                 <div class="edge-item-header">
                     <span class="edge-item-position">Pozycja {{ detail.product_index }}</span>
@@ -733,7 +722,7 @@
                     {% endif %}
                 </div>
 
-                <!-- Podglądy: kształt + izometria -->
+                <!-- Podglądy: kształt + izometria obok siebie -->
                 {% set has_shape = (shape_images and shape_images.get(detail.product_index)) or detail.shape_svg %}
                 {% set has_edges = edges_images and edges_images.get(detail.product_index) %}
                 {% if has_shape or has_edges %}
@@ -759,7 +748,7 @@
                 </table>
                 {% endif %}
 
-                <!-- Info o obróbce krawędzi — poza kontenerem podglądów -->
+                <!-- Info o obróbce krawędzi -->
                 {% if detail.edges_config and detail.edges_config|length > 0 %}
                 <div class="edge-item-caption">
                     <div><strong>Typ:</strong>
@@ -776,13 +765,8 @@
                 </div>
                 {% endif %}
             </div>
-            </td>
-            {% if loop.index is even or loop.last %}
-            {% if loop.last and loop.index is odd %}<td></td>{% endif %}
-            </tr>
-            {% endif %}
             {% endfor %}
-        </table>
+        </div>
     </div>
     {% endif %}
 

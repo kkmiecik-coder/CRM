@@ -485,23 +485,6 @@ def generate_quote_pdf(token, format):
                                  shape_images=shape_images,  # PNG obrazy kształtów
                                  icons=icons)
                 
-        # DEBUG: Zapisz HTML do pliku do diagnostyki
-        try:
-            import tempfile, os
-            debug_path = os.path.join(tempfile.gettempdir(), 'offer_pdf_debug.html')
-            with open(debug_path, 'w', encoding='utf-8') as f:
-                f.write(html_out)
-            print(f"[PDF] DEBUG: HTML zapisany do {debug_path}", file=sys.stderr)
-            # Sprawdź czy edges image jest w HTML
-            for idx in edges_images:
-                marker = f'Wizualizacja krawędzi'
-                if marker in html_out:
-                    print(f"[PDF] DEBUG: Poz {idx}: alt='Wizualizacja krawędzi' ZNALEZIONY w HTML", file=sys.stderr)
-                else:
-                    print(f"[PDF] DEBUG: Poz {idx}: alt='Wizualizacja krawędzi' BRAK w HTML!", file=sys.stderr)
-        except Exception as dbg_e:
-            print(f"[PDF] DEBUG error: {dbg_e}", file=sys.stderr)
-
         # Utwórz HTML object z base_url dla względnych ścieżek
         html = HTML(string=html_out, base_url=request.url_root)
         out = BytesIO()
