@@ -728,6 +728,7 @@ class QuoteItemDetails(db.Model):
 
     shape_data = db.Column(db.Text, nullable=True)  # JSON: params, vertices, real_area_cm2, bbox
     shape_svg = db.Column(db.Text, nullable=True)    # SVG string for display in quotes/PDF
+    lamella_direction = db.Column(db.Integer, nullable=True)  # 0, 45, 90, 135 — tylko kszalty nieregularne
 
     __table_args__ = (
         db.UniqueConstraint('quote_id', 'product_index', name='uq_quote_product'),
@@ -757,6 +758,7 @@ class QuoteItemDetails(db.Model):
             'round_surcharge_brutto': float(self.round_surcharge_brutto) if self.round_surcharge_brutto else 0.0,
             'shape_data': self.shape_data,
             'shape_svg': self.shape_svg,
+            'lamella_direction': self.lamella_direction,
         }
 
     def __repr__(self):
