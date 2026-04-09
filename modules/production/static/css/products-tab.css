@@ -42,6 +42,8 @@
     --il-gluing:         #9333ea;
     --il-formatting:     #d97706;
     --il-finishing:      #0891b2;
+    --il-painting:       #e11d48;
+    --il-logistics:      #7c3aed;
     --il-packaging:      #16a34a;
     --il-completed:      #9ba3b0;
     --il-inprogress:     #2563eb;
@@ -393,6 +395,12 @@
 .il-order-header.status-finishing,
 .order-header.status-finishing  { border-left-color: var(--il-finishing); }
 
+.il-order-header.status-painting,
+.order-header.status-painting   { border-left-color: var(--il-painting); }
+
+.il-order-header.status-logistics,
+.order-header.status-logistics  { border-left-color: var(--il-logistics); }
+
 .il-order-header.status-packaging,
 .order-header.status-packaging  { border-left-color: var(--il-packaging); }
 
@@ -520,6 +528,18 @@
     background: rgba(8, 145, 178, 0.1);
     color: var(--il-finishing);
     border: 1px solid var(--il-finishing);
+}
+.il-badge-painting,
+.badge-painting {
+    background: rgba(225, 29, 72, 0.1);
+    color: var(--il-painting);
+    border: 1px solid var(--il-painting);
+}
+.il-badge-logistics,
+.badge-logistics {
+    background: rgba(124, 58, 237, 0.1);
+    color: var(--il-logistics);
+    border: 1px solid var(--il-logistics);
 }
 .il-badge-packaging,
 .badge-packaging {
@@ -1114,6 +1134,8 @@
     .il-order-card.status-gluing     { border-left-color: var(--il-gluing); }
     .il-order-card.status-formatting { border-left-color: var(--il-formatting); }
     .il-order-card.status-finishing  { border-left-color: var(--il-finishing); }
+    .il-order-card.status-painting   { border-left-color: var(--il-painting); }
+    .il-order-card.status-logistics  { border-left-color: var(--il-logistics); }
     .il-order-card.status-packaging  { border-left-color: var(--il-packaging); }
     .il-order-card.status-completed  { border-left-color: var(--il-completed); }
     .il-order-card.status-inprogress { border-left-color: var(--il-inprogress); }
@@ -1785,6 +1807,8 @@
 .timeline-item.timeline-completed .timeline-icon.gluing-theme { background: var(--il-gluing); }
 .timeline-item.timeline-completed .timeline-icon.formatting-theme { background: var(--il-formatting); }
 .timeline-item.timeline-completed .timeline-icon.finishing-theme { background: var(--il-finishing); }
+.timeline-item.timeline-completed .timeline-icon.painting-theme { background: var(--il-painting); }
+.timeline-item.timeline-completed .timeline-icon.logistics-theme { background: var(--il-logistics); }
 .timeline-item.timeline-completed .timeline-icon.packaging-theme { background: var(--il-packaging); }
 
 /* ─── ACTIVE — larger, filled, with glow ─── */
@@ -1802,6 +1826,8 @@
 .timeline-item.timeline-active .timeline-icon.gluing-theme { background: var(--il-gluing); box-shadow: 0 0 0 5px rgba(147, 51, 234, 0.2), 0 2px 8px rgba(147, 51, 234, 0.3); }
 .timeline-item.timeline-active .timeline-icon.formatting-theme { background: var(--il-formatting); box-shadow: 0 0 0 5px rgba(217, 119, 6, 0.2), 0 2px 8px rgba(217, 119, 6, 0.3); }
 .timeline-item.timeline-active .timeline-icon.finishing-theme { background: var(--il-finishing); box-shadow: 0 0 0 5px rgba(8, 145, 178, 0.2), 0 2px 8px rgba(8, 145, 178, 0.3); }
+.timeline-item.timeline-active .timeline-icon.painting-theme { background: var(--il-painting); box-shadow: 0 0 0 5px rgba(225, 29, 72, 0.2), 0 2px 8px rgba(225, 29, 72, 0.3); }
+.timeline-item.timeline-active .timeline-icon.logistics-theme { background: var(--il-logistics); box-shadow: 0 0 0 5px rgba(124, 58, 237, 0.2), 0 2px 8px rgba(124, 58, 237, 0.3); }
 .timeline-item.timeline-active .timeline-icon.packaging-theme { background: var(--il-packaging); box-shadow: 0 0 0 5px rgba(22, 163, 74, 0.2), 0 2px 8px rgba(22, 163, 74, 0.3); }
 
 .timeline-item.timeline-active .timeline-content {
@@ -1852,6 +1878,10 @@
 .timeline-item.timeline-active .timeline-title.formatting-theme { color: var(--il-formatting); }
 .timeline-item.timeline-completed .timeline-title.finishing-theme,
 .timeline-item.timeline-active .timeline-title.finishing-theme { color: var(--il-finishing); }
+.timeline-item.timeline-completed .timeline-title.painting-theme,
+.timeline-item.timeline-active .timeline-title.painting-theme { color: var(--il-painting); }
+.timeline-item.timeline-completed .timeline-title.logistics-theme,
+.timeline-item.timeline-active .timeline-title.logistics-theme { color: var(--il-logistics); }
 .timeline-item.timeline-completed .timeline-title.packaging-theme,
 .timeline-item.timeline-active .timeline-title.packaging-theme { color: var(--il-packaging); }
 
@@ -2152,6 +2182,8 @@
 .bulk-status-dropdown .status-item.badge-gluing { background: rgba(147, 51, 234, 0.1); color: var(--il-gluing); border-left: 3px solid var(--il-gluing); }
 .bulk-status-dropdown .status-item.badge-formatting { background: rgba(217, 119, 6, 0.1); color: var(--il-formatting); border-left: 3px solid var(--il-formatting); }
 .bulk-status-dropdown .status-item.badge-finishing { background: rgba(8, 145, 178, 0.1); color: var(--il-finishing); border-left: 3px solid var(--il-finishing); }
+.bulk-status-dropdown .status-item.badge-painting { background: rgba(225, 29, 72, 0.1); color: var(--il-painting); border-left: 3px solid var(--il-painting); }
+.bulk-status-dropdown .status-item.badge-logistics { background: rgba(124, 58, 237, 0.1); color: var(--il-logistics); border-left: 3px solid var(--il-logistics); }
 .bulk-status-dropdown .status-item.badge-packaging { background: rgba(22, 163, 74, 0.1); color: var(--il-packaging); border-left: 3px solid var(--il-packaging); }
 .bulk-status-dropdown .status-item.badge-completed { background: var(--il-bg-base); color: var(--il-text-muted); border-left: 3px solid var(--il-border); }
 .bulk-status-dropdown .status-item.badge-paused { background: rgba(217, 119, 6, 0.1); color: var(--il-paused); border-left: 3px solid var(--il-paused); }

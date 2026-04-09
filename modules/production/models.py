@@ -293,6 +293,11 @@ class ProductionItem(db.Model):
         status_names = {
             'czeka_na_wyciecie': 'Czeka na wycięcie',
             'czeka_na_skladanie': 'Czeka na składanie',
+            'czeka_na_sklejanie': 'Czeka na sklejanie',
+            'czeka_na_formatowanie': 'Czeka na formatowanie',
+            'czeka_na_wykanczanie': 'Czeka na wykańczanie',
+            'czeka_na_lakiernie': 'Czeka na lakiernię',
+            'czeka_na_logistyke': 'Czeka na logistykę',
             'czeka_na_pakowanie': 'Czeka na pakowanie',
             'spakowane': 'Spakowane',
             'anulowane': 'Anulowane',
