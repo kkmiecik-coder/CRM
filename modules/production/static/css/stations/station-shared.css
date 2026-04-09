@@ -1316,14 +1316,14 @@ body {
 
 .fullscreen-group-container {
     position: fixed;
-    top: 0;
-    left: 0;
-    width: 100vw;
-    height: 100vh;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 90vw;
+    max-height: 80vh;
     display: flex;
     flex-direction: column;
     z-index: 9999;
-    padding: 3vh 5vw;
     box-sizing: border-box;
 }
 
