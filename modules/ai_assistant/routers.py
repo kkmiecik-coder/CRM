@@ -184,66 +184,66 @@ def api_chat():
         if not data or 'message' not in data or 'conversation_id' not in data:
             return jsonify({'success': False, 'error': 'Brak message lub conversation_id'}), 400
 
-    user_message = data['message'].strip()
-    conversation_id = data['conversation_id']
+        user_message = data['message'].strip()
+        conversation_id = data['conversation_id']
 
-    if not user_message:
-        return jsonify({'success': False, 'error': 'Wiadomość nie może być pusta'}), 400
+        if not user_message:
+            return jsonify({'success': False, 'error': 'Wiadomość nie może być pusta'}), 400
 
-    if len(user_message) > 2000:
-        return jsonify({'success': False, 'error': 'Max 2000 znaków'}), 400
+        if len(user_message) > 2000:
+            return jsonify({'success': False, 'error': 'Max 2000 znaków'}), 400
 
-    from .services.conversation_service import ConversationService
+        from .services.conversation_service import ConversationService
 
-    # Sprawdź czy to konwersacja użytkownika
-    conv = ConversationService.get_conversation(conversation_id, current_user.id)
-    if conv is None:
-        return jsonify({'success': False, 'error': 'Nie znaleziono rozmowy'}), 404
+        # Sprawdź czy to konwersacja użytkownika
+        conv = ConversationService.get_conversation(conversation_id, current_user.id)
+        if conv is None:
+            return jsonify({'success': False, 'error': 'Nie znaleziono rozmowy'}), 404
 
-    # Zapisz wiadomość użytkownika
-    user_msg = ConversationService.add_message(conversation_id, 'user', user_message)
+        # Zapisz wiadomość użytkownika
+        user_msg = ConversationService.add_message(conversation_id, 'user', user_message)
 
-    # Generuj request_id
-    request_id = str(uuid.uuid4())
+        # Generuj request_id
+        request_id = str(uuid.uuid4())
 
-    _set_status(request_id, 'pending')
+        _set_status(request_id, 'pending')
 
-    # Przygotuj dane dla wątku
-    app = current_app._get_current_object()
-    user_id = current_user.id
+        # Przygotuj dane dla wątku
+        app = current_app._get_current_object()
+        user_id = current_user.id
 
-    def process():
-        with app.app_context():
-            try:
-                _process_chat(request_id, conversation_id, user_message, user_id, user_msg.id)
-            finally:
-                db.session.remove()
+        def process():
+            with app.app_context():
+                try:
+                    _process_chat(request_id, conversation_id, user_message, user_id, user_msg.id)
+                finally:
+                    db.session.remove()
 
-    try:
-        thread = threading.Thread(target=process)
-        thread.start()
-    except Exception:
-        # Synchronous fallback — Passenger may not support threads
-        process()
-        status_data = _request_statuses.get(request_id, {})
-        with _statuses_lock:
-            _request_statuses.pop(request_id, None)
-        if status_data.get('status') == 'complete':
-            return jsonify({
-                'success': True,
-                'response': status_data.get('response', ''),
-            })
-        else:
-            return jsonify({
-                'success': False,
-                'error': status_data.get('error', 'Błąd przetwarzania'),
-            }), 500
+        try:
+            thread = threading.Thread(target=process)
+            thread.start()
+        except Exception:
+            # Synchronous fallback — Passenger may not support threads
+            process()
+            status_data = _request_statuses.get(request_id, {})
+            with _statuses_lock:
+                _request_statuses.pop(request_id, None)
+            if status_data.get('status') == 'complete':
+                return jsonify({
+                    'success': True,
+                    'response': status_data.get('response', ''),
+                })
+            else:
+                return jsonify({
+                    'success': False,
+                    'error': status_data.get('error', 'Błąd przetwarzania'),
+                }), 500
 
-    return jsonify({
-        'success': True,
-        'request_id': request_id,
-        'message_id': user_msg.id,
-    })
+        return jsonify({
+            'success': True,
+            'request_id': request_id,
+            'message_id': user_msg.id,
+        })
 
     except Exception as e:
         current_app.logger.error(f"[AIAssistant] api_chat error: {e}")
