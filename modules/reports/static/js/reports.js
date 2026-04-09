@@ -2598,11 +2598,8 @@ class ReportsManager {
             }
 
             if (finalResult) {
-                let message = `Synchronizacja zakończona pomyślnie!\n\n`;
-                message += `Pobrano z API: ${finalResult.orders_processed} z ${finalResult.total_orders} zamówień\n`;
-                message += `Zaktualizowano: ${finalResult.records_updated} rekordów`;
-
-                this.showMessage(message, 'success');
+                const msg = `Zaktualizowano ${finalResult.orders_processed} z ${finalResult.total_orders} zamówień (${finalResult.records_updated} rekordów)`;
+                window.showToast(msg, 'success', 7000);
                 this.refreshData();
             } else {
                 throw new Error('Stream zakończony bez danych końcowych');
@@ -2610,7 +2607,7 @@ class ReportsManager {
 
         } catch (error) {
             console.error('[ReportsManager] Sync statuses error:', error);
-            this.showError(`Błąd synchronizacji: ${error.message}`);
+            window.showToast(`Błąd synchronizacji: ${error.message}`, 'error');
         } finally {
             this.isLoading = false;
             this.hideLoading();
