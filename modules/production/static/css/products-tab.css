@@ -844,8 +844,9 @@
 .bulk-bar {
     position: fixed;
     bottom: 20px;
-    left: 50%;
+    left: calc(50% + var(--sidebar-collapsed-width, 80px) / 2);
     transform: translateX(-50%);
+    max-width: calc(100vw - var(--sidebar-collapsed-width, 80px) - 40px);
     background: var(--il-text-primary);
     color: #ffffff;
     padding: 10px 20px;
@@ -1301,7 +1302,7 @@
         flex: 1 1 100%;
     }
 
-    /* Bulk bar mobile-friendly */
+    /* Bulk bar mobile-friendly — sidebar is hidden on mobile */
     .il-bulk-bar,
     .bulk-bar {
         flex-wrap: wrap;
@@ -1311,6 +1312,7 @@
         right: 10px;
         transform: none;
         width: auto;
+        max-width: none;
     }
 }
 
@@ -2082,7 +2084,7 @@
 .bulk-status-dropdown {
     position: fixed;
     bottom: 70px;
-    left: 50%;
+    left: calc(50% + var(--sidebar-collapsed-width, 80px) / 2);
     transform: translateX(-50%);
     background: var(--il-bg-card);
     border: 1px solid var(--il-border);
@@ -2090,9 +2092,17 @@
     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
     z-index: 10001;
     min-width: 280px;
+    max-width: calc(100vw - var(--sidebar-collapsed-width, 80px) - 40px);
     font-family: var(--il-font);
     opacity: 0;
     transition: opacity 0.15s;
+}
+
+@media (max-width: 768px) {
+    .bulk-status-dropdown {
+        left: 50%;
+        max-width: calc(100vw - 40px);
+    }
 }
 
 .bulk-status-dropdown.show {

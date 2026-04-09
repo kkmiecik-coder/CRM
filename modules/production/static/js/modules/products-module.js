@@ -2724,9 +2724,11 @@ class ProductsModule {
 
     positionBulkStatusDropdown(dropdown, bulkActionsBar) {
         const barRect = bulkActionsBar.getBoundingClientRect();
-        // Position above bulk bar — CSS class handles styling
+        const barCenterX = barRect.left + barRect.width / 2;
+        // Position above bulk bar, centered to the bar
         dropdown.style.bottom = `${window.innerHeight - barRect.top + 10}px`;
-        dropdown.style.left = `${barRect.left}px`;
+        dropdown.style.left = `${barCenterX}px`;
+        dropdown.style.transform = 'translateX(-50%)';
         dropdown.style.position = 'fixed';
         dropdown.style.zIndex = '10001';
     }
