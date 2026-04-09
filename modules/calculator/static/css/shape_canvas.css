@@ -136,7 +136,7 @@
 .lamella-icon-container {
     position: absolute;
     top: 6px;
-    left: 0;
+    left: 6px;
     z-index: 5;
     background: rgba(200, 200, 200, 0.85);
     padding: 4px 8px;
