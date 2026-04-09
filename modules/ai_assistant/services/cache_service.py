@@ -18,28 +18,33 @@ class CacheService:
         return cls._instance
 
     def get(self, key: str):
-        entry = self._cache.get(key)
-        if entry is None:
-            return None
-        if time.time() > entry['expires']:
-            del self._cache[key]
-            return None
-        return entry['data']
+        with self._lock:
+            entry = self._cache.get(key)
+            if entry is None:
+                return None
+            if time.time() > entry['expires']:
+                del self._cache[key]
+                return None
+            return entry['data']
 
     def set(self, key: str, data, ttl: int = None):
-        self._cache[key] = {
-            'data': data,
-            'expires': time.time() + (ttl or self.DEFAULT_TTL)
-        }
+        with self._lock:
+            self._cache[key] = {
+                'data': data,
+                'expires': time.time() + (ttl or self.DEFAULT_TTL)
+            }
 
     def invalidate(self, key: str):
-        self._cache.pop(key, None)
+        with self._lock:
+            self._cache.pop(key, None)
 
     def clear(self):
-        self._cache.clear()
+        with self._lock:
+            self._cache.clear()
 
     def stats(self) -> dict:
-        now = time.time()
-        total = len(self._cache)
-        expired = sum(1 for e in self._cache.values() if now > e['expires'])
-        return {'total': total, 'expired': expired, 'active': total - expired}
+        with self._lock:
+            now = time.time()
+            total = len(self._cache)
+            expired = sum(1 for e in self._cache.values() if now > e['expires'])
+            return {'total': total, 'expired': expired, 'active': total - expired}

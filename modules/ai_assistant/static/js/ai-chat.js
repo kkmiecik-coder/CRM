@@ -140,6 +140,12 @@
 
             if (data.success && data.request_id) {
                 startPolling(data.request_id);
+            } else if (data.success && data.response) {
+                // Synchronous fallback — response came directly
+                hideStatus();
+                appendMessage('assistant', data.response);
+                isLoading = false;
+                document.getElementById('send-btn').disabled = false;
             } else {
                 hideStatus();
                 appendMessage('error', data.error || 'Błąd wysyłania');

@@ -2,8 +2,11 @@
 
 import threading
 import time
+import uuid
 from flask import request, jsonify, render_template, current_app, redirect, url_for
 from flask_login import login_required, current_user
+
+from extensions import db
 
 from . import ai_assistant_bp
 
@@ -12,11 +15,11 @@ _request_statuses = {}
 _statuses_lock = threading.Lock()
 
 
-def _require_role(*roles):
-    """Sprawdza czy użytkownik ma wymaganą rolę"""
+def _require_admin_or_user():
+    """Sprawdza czy użytkownik ma rolę admin lub user"""
     if not current_user.is_authenticated:
         return False
-    return current_user.role and current_user.role.lower() in roles
+    return current_user.is_admin() or current_user.is_user()
 
 
 def _cleanup_old_statuses():
@@ -46,7 +49,7 @@ def _set_status(request_id: str, status: str, **kwargs):
 @login_required
 def conversations_page():
     """Widok listy rozmów"""
-    if not _require_role('admin', 'administrator', 'user'):
+    if not _require_admin_or_user():
         return redirect(url_for('dashboard.index'))
 
     return render_template('ai_assistant/conversations.html')
@@ -56,7 +59,7 @@ def conversations_page():
 @login_required
 def chat_page(conversation_id):
     """Widok rozmowy"""
-    if not _require_role('admin', 'administrator', 'user'):
+    if not _require_admin_or_user():
         return redirect(url_for('dashboard.index'))
 
     from .services.conversation_service import ConversationService
@@ -87,7 +90,7 @@ def chat_page(conversation_id):
 @login_required
 def api_list_conversations():
     """Lista konwersacji"""
-    if not _require_role('admin', 'administrator', 'user'):
+    if not _require_admin_or_user():
         return jsonify({'success': False, 'error': 'Brak dostępu'}), 403
 
     from .services.conversation_service import ConversationService
@@ -102,8 +105,8 @@ def api_list_conversations():
         'conversations': [{
             'id': c.id,
             'title': c.title or 'Nowa rozmowa',
-            'created_at': c.created_at.isoformat(),
-            'last_message_at': c.last_message_at.isoformat() if c.last_message_at else None,
+            'created_at': c.created_at.isoformat() + 'Z',
+            'last_message_at': c.last_message_at.isoformat() + 'Z' if c.last_message_at else None,
             'is_active': c.is_active,
             'user_id': c.user_id,
             'user_name': c.user.get_full_name() if current_user.is_admin() else None,
@@ -115,7 +118,7 @@ def api_list_conversations():
 @login_required
 def api_create_conversation():
     """Tworzy nową konwersację"""
-    if not _require_role('admin', 'administrator', 'user'):
+    if not _require_admin_or_user():
         return jsonify({'success': False, 'error': 'Brak dostępu'}), 403
 
     from .services.conversation_service import ConversationService
@@ -126,7 +129,7 @@ def api_create_conversation():
         'conversation': {
             'id': conv.id,
             'title': conv.title,
-            'created_at': conv.created_at.isoformat(),
+            'created_at': conv.created_at.isoformat() + 'Z',
         }
     })
 
@@ -135,7 +138,7 @@ def api_create_conversation():
 @login_required
 def api_get_messages(conv_id):
     """Pobiera wiadomości konwersacji"""
-    if not _require_role('admin', 'administrator', 'user'):
+    if not _require_admin_or_user():
         return jsonify({'success': False, 'error': 'Brak dostępu'}), 403
 
     from .services.conversation_service import ConversationService
@@ -156,7 +159,7 @@ def api_get_messages(conv_id):
             'id': m.id,
             'role': m.role,
             'content': m.content,
-            'created_at': m.created_at.isoformat(),
+            'created_at': m.created_at.isoformat() + 'Z',
         } for m in messages]
     })
 
@@ -169,7 +172,7 @@ def api_get_messages(conv_id):
 @login_required
 def api_chat():
     """Wysyła wiadomość — zwraca request_id do pollingu"""
-    if not _require_role('admin', 'administrator', 'user'):
+    if not _require_admin_or_user():
         return jsonify({'success': False, 'error': 'Brak dostępu'}), 403
 
     data = request.get_json()
@@ -196,7 +199,6 @@ def api_chat():
     user_msg = ConversationService.add_message(conversation_id, 'user', user_message)
 
     # Generuj request_id
-    import uuid
     request_id = str(uuid.uuid4())
 
     _set_status(request_id, 'pending')
@@ -207,10 +209,30 @@ def api_chat():
 
     def process():
         with app.app_context():
-            _process_chat(request_id, conversation_id, user_message, user_id, user_msg.id)
+            try:
+                _process_chat(request_id, conversation_id, user_message, user_id, user_msg.id)
+            finally:
+                db.session.remove()
 
-    thread = threading.Thread(target=process)
-    thread.start()
+    try:
+        thread = threading.Thread(target=process)
+        thread.start()
+    except Exception:
+        # Synchronous fallback — Passenger may not support threads
+        process()
+        status_data = _request_statuses.get(request_id, {})
+        with _statuses_lock:
+            _request_statuses.pop(request_id, None)
+        if status_data.get('status') == 'complete':
+            return jsonify({
+                'success': True,
+                'response': status_data.get('response', ''),
+            })
+        else:
+            return jsonify({
+                'success': False,
+                'error': status_data.get('error', 'Błąd przetwarzania'),
+            }), 500
 
     return jsonify({
         'success': True,
@@ -308,7 +330,7 @@ def _process_chat(request_id: str, conversation_id: int, user_message: str,
 @login_required
 def api_chat_status(request_id):
     """Polling statusu przetwarzania"""
-    if not _require_role('admin', 'administrator', 'user'):
+    if not _require_admin_or_user():
         return jsonify({'success': False, 'error': 'Brak dostępu'}), 403
 
     _cleanup_old_statuses()
