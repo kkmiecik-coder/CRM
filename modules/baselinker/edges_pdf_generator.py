@@ -449,7 +449,6 @@ class EdgesPdfGenerator:
         }}
 
         .cell-preview-label {{
-            width: 48%;
             float: left;
             font-size: 6px;
             font-weight: bold;
@@ -459,24 +458,43 @@ class EdgesPdfGenerator:
             text-align: center;
         }}
 
-        .cell-preview-label + .cell-preview-label {{
-            margin-left: 4%;
-        }}
-
         .cell-previews {{
             overflow: hidden;
             text-align: center;
         }}
 
         .cell-preview-box {{
-            width: 48%;
             float: left;
             text-align: center;
             overflow: hidden;
         }}
 
-        .cell-preview-box + .cell-preview-box {{
+        /* 2 kolumny (domyslnie) */
+        .cell-preview-labels.cols-2 .cell-preview-label {{
+            width: 48%;
+        }}
+        .cell-preview-labels.cols-2 .cell-preview-label + .cell-preview-label {{
             margin-left: 4%;
+        }}
+        .cell-previews.cols-2 .cell-preview-box {{
+            width: 48%;
+        }}
+        .cell-previews.cols-2 .cell-preview-box + .cell-preview-box {{
+            margin-left: 4%;
+        }}
+
+        /* 3 kolumny */
+        .cell-preview-labels.cols-3 .cell-preview-label {{
+            width: 31%;
+        }}
+        .cell-preview-labels.cols-3 .cell-preview-label + .cell-preview-label {{
+            margin-left: 3.5%;
+        }}
+        .cell-previews.cols-3 .cell-preview-box {{
+            width: 31%;
+        }}
+        .cell-previews.cols-3 .cell-preview-box + .cell-preview-box {{
+            margin-left: 3.5%;
         }}
 
         .cell-preview-box img {{
@@ -589,15 +607,22 @@ class EdgesPdfGenerator:
         labels_html = ''
         previews_html = ''
         if has_shape or has_edges_img or has_lamella:
+            col_count = sum([has_shape, has_lamella, has_edges_img])
+            cols_class = f'cols-{col_count}'
+            # Kolejnosc: ksztalt, lamele, izometria
             label_items = ''
+            preview_items = ''
             if has_shape:
                 label_items += '<div class="cell-preview-label">Kształt</div>'
-            if has_edges_img:
-                label_items += '<div class="cell-preview-label">Izometria</div>'
+                preview_items += shape_img_html
             if has_lamella:
                 label_items += '<div class="cell-preview-label">Kierunek lameli</div>'
-            labels_html = f'<div class="cell-preview-labels">{label_items}</div>'
-            previews_html = f'<div class="cell-previews">{shape_img_html}{edges_img_html}{lamella_img_html}</div>'
+                preview_items += lamella_img_html
+            if has_edges_img:
+                label_items += '<div class="cell-preview-label">Izometria</div>'
+                preview_items += edges_img_html
+            labels_html = f'<div class="cell-preview-labels {cols_class}">{label_items}</div>'
+            previews_html = f'<div class="cell-previews {cols_class}">{preview_items}</div>'
 
         # Info o krawędziach
         edges_info_html = ''
