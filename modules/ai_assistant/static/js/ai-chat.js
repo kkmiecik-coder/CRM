@@ -318,7 +318,7 @@
             var resp = await fetch('/ai-assistant/api/conversations');
             var data = await resp.json();
             if (data.success) {
-                renderWidgetConversationList(data.conversations);
+                renderWidgetConversationList(data.conversations, data.current_user_id);
             } else {
                 content.innerHTML = '<p class="ai-error">Błąd ładowania rozmów</p>';
             }
@@ -327,7 +327,8 @@
         }
     }
 
-    function renderWidgetConversationList(conversations) {
+    function renderWidgetConversationList(conversations, currentUserId) {
+        widgetState.currentUserId = currentUserId;
         if (conversations.length === 0) {
             content.innerHTML =
                 '<div class="ai-chat-empty">' +
@@ -340,8 +341,10 @@
         content.innerHTML = '<div class="ai-chat-conv-list">' +
             conversations.map(function(c) {
                 var timeAgo = getRelativeTime(c.last_message_at || c.created_at);
-                return '<div class="ai-chat-conv-item" data-id="' + c.id + '">' +
-                    '<div class="ai-chat-conv-title">' + escapeHtml(c.title) + '</div>' +
+                var ownerTag = c.user_name && c.user_id !== currentUserId
+                    ? '<span class="ai-chat-conv-owner">' + escapeHtml(c.user_name) + ' — </span>' : '';
+                return '<div class="ai-chat-conv-item" data-id="' + c.id + '" data-owner="' + c.user_id + '">' +
+                    '<div class="ai-chat-conv-title">' + ownerTag + escapeHtml(c.title) + '</div>' +
                     '<div class="ai-chat-conv-time">' + timeAgo + '</div>' +
                 '</div>';
             }).join('') +
@@ -372,15 +375,12 @@
         widgetState.currentConversationId = conversationId;
         widgetState.isLoading = false;
 
-        headerTitle.textContent = 'Rozmowa';
         headerActions.innerHTML =
             '<button class="ai-btn ai-btn-secondary ai-chat-header-btn ai-chat-back-btn">Lista</button>' +
             '<button class="ai-btn ai-btn-primary ai-chat-header-btn">Nowa</button>';
         headerActions.querySelector('.ai-chat-back-btn').addEventListener('click', showConversationList);
         headerActions.querySelectorAll('button')[1].addEventListener('click', createWidgetConversation);
 
-        inputArea.style.display = 'block';
-        sendBtn.disabled = false;
         statusEl.style.display = 'none';
         content.innerHTML = '<p class="ai-chat-loading">Ładowanie...</p>';
 
@@ -388,6 +388,15 @@
             var resp = await fetch('/ai-assistant/api/conversations/' + conversationId + '/messages');
             var data = await resp.json();
             if (data.success) {
+                var isOwner = data.owner_id === data.current_user_id;
+                if (isOwner) {
+                    headerTitle.textContent = 'Rozmowa';
+                    inputArea.style.display = 'block';
+                    sendBtn.disabled = false;
+                } else {
+                    headerTitle.textContent = 'Podgląd: ' + (data.owner_name || 'Użytkownik');
+                    inputArea.style.display = 'none';
+                }
                 renderWidgetMessages(data.messages);
             } else {
                 content.innerHTML = '<p class="ai-error">Błąd ładowania wiadomości</p>';
@@ -395,8 +404,6 @@
         } catch (e) {
             content.innerHTML = '<p class="ai-error">Błąd połączenia</p>';
         }
-
-        inputEl.focus();
     }
 
     function renderWidgetMessages(messages) {

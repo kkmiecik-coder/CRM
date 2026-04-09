@@ -78,6 +78,7 @@ def api_list_conversations():
 
         return jsonify({
             'success': True,
+            'current_user_id': current_user.id,
             'conversations': [{
                 'id': c.id,
                 'title': c.title or 'Nowa rozmowa',
@@ -134,6 +135,9 @@ def api_get_messages(conv_id):
 
     return jsonify({
         'success': True,
+        'owner_id': conv.user_id,
+        'current_user_id': current_user.id,
+        'owner_name': conv.user.get_full_name() if conv.user_id != current_user.id else None,
         'messages': [{
             'id': m.id,
             'role': m.role,

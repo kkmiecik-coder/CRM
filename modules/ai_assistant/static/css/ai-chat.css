@@ -291,6 +291,11 @@
     font-style: italic;
 }
 
+.ai-chat-conv-owner {
+    color: #94a3b8;
+    font-size: 12px;
+}
+
 /* ============================================
    FULL-PAGE STYLES (sidebar-linked pages)
    ============================================ */
