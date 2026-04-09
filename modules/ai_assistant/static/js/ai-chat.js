@@ -1,6 +1,8 @@
 (function() {
     'use strict';
 
+    function initAll() {
+
     // ============ FULL-PAGE MODE (existing templates) ============
     var convList = document.getElementById('conversations-list');
     if (convList) {
@@ -611,6 +613,14 @@
         if (diffHours < 24) return diffHours + ' godz. temu';
         var diffDays = Math.floor(diffHours / 24);
         return diffDays + ' dni temu';
+    }
+
+    } // end initAll
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', initAll);
+    } else {
+        initAll();
     }
 
 })();
