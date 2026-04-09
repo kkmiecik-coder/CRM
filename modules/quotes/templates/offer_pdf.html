@@ -733,23 +733,27 @@
                     {% endif %}
                 </div>
 
-                <!-- Podglądy: nagłówki + obrazki w tabeli -->
+                <!-- Podglądy: kształt + izometria -->
                 {% set has_shape = (shape_images and shape_images.get(detail.product_index)) or detail.shape_svg %}
                 {% set has_edges = edges_images and edges_images.get(detail.product_index) %}
                 {% if has_shape or has_edges %}
                 <table class="edge-item-previews-table">
                     <tr>
-                        {% if has_shape %}<td class="preview-label">Widok kształtu</td>{% endif %}
-                        {% if has_edges %}<td class="preview-label">Widok izometryczny</td>{% endif %}
-                    </tr>
-                    <tr>
-                        {% if shape_images and shape_images.get(detail.product_index) %}
-                        <td><img src="{{ shape_images[detail.product_index] }}" alt="Kształt" /></td>
-                        {% elif detail.shape_svg %}
-                        <td>{{ detail.shape_svg|safe }}</td>
+                        {% if has_shape %}
+                        <td>
+                            <div class="preview-label">Widok kształtu</div>
+                            {% if shape_images and shape_images.get(detail.product_index) %}
+                            <img src="{{ shape_images[detail.product_index] }}" alt="Kształt" />
+                            {% elif detail.shape_svg %}
+                            {{ detail.shape_svg|safe }}
+                            {% endif %}
+                        </td>
                         {% endif %}
                         {% if has_edges %}
-                        <td><img src="{{ edges_images[detail.product_index] }}" alt="Wizualizacja krawędzi" /></td>
+                        <td>
+                            <div class="preview-label">Widok izometryczny</div>
+                            <img src="{{ edges_images[detail.product_index] }}" alt="Wizualizacja krawędzi" />
+                        </td>
                         {% endif %}
                     </tr>
                 </table>
