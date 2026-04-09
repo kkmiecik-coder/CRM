@@ -376,6 +376,27 @@ def update_quote_status(quote_id):
         print(f"[update_quote_status] Błąd: {str(e)}", file=sys.stderr)
         return jsonify({"error": "Błąd podczas aktualizacji statusu"}), 500
 
+def _generate_lamella_svg(direction, size=60):
+    """Generuje SVG ikonki kierunku lameli."""
+    half = size / 2
+    bar_w = size * 0.27
+    bar_h = size * 0.87
+    gap = size * 0.03
+    start_x = (size - (bar_w * 3 + gap * 2)) / 2
+    start_y = (size - bar_h) / 2
+    r = size * 0.03
+
+    bars = ''
+    for i in range(3):
+        x = start_x + i * (bar_w + gap)
+        bars += f'<rect x="{x:.1f}" y="{start_y:.1f}" width="{bar_w:.1f}" height="{bar_h:.1f}" rx="{r:.1f}" fill="#e67e22"/>'
+
+    transform = f' transform="rotate({direction} {half} {half})"' if direction else ''
+
+    return (f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {size} {size}" '
+            f'width="{size}" height="{size}"><g{transform}>{bars}</g></svg>')
+
+
 @quotes_bp.route("/api/quotes/<token>/pdf.<format>", methods=["GET"])
 def generate_quote_pdf(token, format):
     
@@ -424,6 +445,20 @@ def generate_quote_pdf(token, format):
                 except Exception as e:
                     print(f"[PDF] Poz {fd.product_index}: shape PNG BŁĄD: {e}", file=sys.stderr)
         print(f"[PDF] Wynik: edges_images={list(edges_images.keys())}, shape_images={list(shape_images.keys())}", file=sys.stderr)
+
+        # Lamella direction icons
+        lamella_images = {}
+        for detail in finishing_details:
+            if detail.lamella_direction is not None:
+                lamella_svg = _generate_lamella_svg(detail.lamella_direction, 60)
+                try:
+                    from modules.baselinker.edges_pdf_generator import EdgesPdfGenerator
+                    gen = EdgesPdfGenerator()
+                    png_uri = gen._svg_to_png_base64(lamella_svg, 60)
+                    if png_uri:
+                        lamella_images[detail.product_index] = png_uri
+                except Exception:
+                    pass
 
         cost_products_netto = round(sum(item.get_total_price_netto() for item in selected_items), 2)
         cost_finishing_netto = round(sum(float(d.finishing_price_netto or 0) + float(d.edges_price_netto or 0) for d in finishing_details), 2)
@@ -483,6 +518,7 @@ def generate_quote_pdf(token, format):
                                  finishing_details=finishing_details,  # Dodaj finishing_details
                                  edges_images=edges_images,  # PNG obrazy krawędzi
                                  shape_images=shape_images,  # PNG obrazy kształtów
+                                 lamella_images=lamella_images,  # PNG ikonki kierunku lameli
                                  icons=icons)
                 
         # Utwórz HTML object z base_url dla względnych ścieżek
