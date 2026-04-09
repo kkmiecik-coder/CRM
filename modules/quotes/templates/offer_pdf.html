@@ -281,15 +281,15 @@
         /* Tabela 2-kolumnowa dla produktów z krawędziami */
         .edges-grid-table {
             width: 100%;
-            border-collapse: separate;
-            border-spacing: 15px;
+            table-layout: fixed;
+            border-collapse: collapse;
             margin-top: 15px;
         }
 
         .edges-grid-table td {
             width: 50%;
             vertical-align: top;
-            padding: 0;
+            padding: 8px;
         }
 
         .edge-item {
