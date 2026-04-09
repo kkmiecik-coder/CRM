@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Rozmowa - Asystent AI - Wood Power CRM</title>
+    <link rel="icon" href="{{ url_for('static', filename='images/favicon.png') }}" type="image/png">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="stylesheet" href="{{ url_for('ai_assistant.static', filename='css/ai-chat.css') }}">
+</head>
+<body>
+    <div class="app-container">
+        {% include 'sidebar/sidebar.html' %}
+        <main class="main-content"
+              data-conversation-id="{{ conversation_id }}"
+              data-readonly="{{ is_readonly|tojson }}"
+              data-owner-name="{{ owner_name or '' }}">
+            <div class="ai-page-header">
+                <a href="{{ url_for('ai_assistant.conversations_page') }}" class="ai-btn ai-btn-secondary">← Lista</a>
+                <button class="ai-btn ai-btn-primary" id="new-conversation-btn">+ Nowa</button>
+            </div>
+            {% if is_readonly %}
+            <div class="ai-readonly-banner">Podgląd rozmowy: {{ owner_name }}</div>
+            {% endif %}
+            <div class="ai-chat-container">
+                <div class="ai-messages" id="messages-container">
+                    <!-- Loaded by JS -->
+                </div>
+                {% if not is_readonly %}
+                <div class="ai-input-area">
+                    <div class="ai-status" id="status-indicator" style="display:none;"></div>
+                    <div class="ai-input-row">
+                        <textarea id="message-input" placeholder="Napisz wiadomość..." rows="1" maxlength="2000"></textarea>
+                        <button id="send-btn" class="ai-btn ai-btn-primary ai-send-btn">Wyślij</button>
+                    </div>
+                </div>
+                {% endif %}
+            </div>
+        </main>
+    </div>
+    <script src="{{ url_for('ai_assistant.static', filename='js/ai-chat.js') }}"></script>
+</body>
+</html>
