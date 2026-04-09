@@ -1820,9 +1820,9 @@ def api_sync_statuses():
         
         for order_id in unique_order_ids:
             try:
-                # Pobierz aktualny status z Baselinker
-                order_details = service.get_order_details(order_id)
-                
+                # Pobierz aktualny status z Baselinker (include_excluded_statuses=True bo chcemy zsynchronizować wszystkie dane)
+                order_details = service.get_order_details(order_id, include_excluded_statuses=True)
+
                 if order_details:
                     # Pobierz nowy status
                     new_status_id = order_details.get('order_status_id')
@@ -1991,7 +1991,7 @@ def api_sync_statuses_stream():
 
             for i, order_id in enumerate(unique_order_ids):
                 try:
-                    order_details = service.get_order_details(order_id)
+                    order_details = service.get_order_details(order_id, include_excluded_statuses=True)
 
                     if order_details:
                         new_status_id = order_details.get('order_status_id')
