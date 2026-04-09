@@ -285,6 +285,11 @@
     border-left: 3px solid #ef4444;
 }
 
+.ai-message-thinking {
+    opacity: 0.6;
+    font-style: italic;
+}
+
 /* ============================================
    FULL-PAGE STYLES (sidebar-linked pages)
    ============================================ */

@@ -120,7 +120,13 @@
         document.getElementById('send-btn').disabled = true;
 
         appendMessageFullPage('user', message);
-        showStatusFullPage('Analizuję pytanie...');
+
+        // Thinking placeholder w miejscu odpowiedzi bota
+        var thinkingEl = document.createElement('div');
+        thinkingEl.className = 'ai-message ai-message-assistant ai-message-thinking';
+        thinkingEl.textContent = 'Analizuję pytanie...';
+        messagesContainer.appendChild(thinkingEl);
+        messagesContainer.scrollTop = messagesContainer.scrollHeight;
 
         try {
             var resp = await fetch('/ai-assistant/api/chat', {
@@ -131,21 +137,21 @@
             var data = await resp.json();
 
             if (data.success && data.request_id) {
-                startPollingFullPage(data.request_id);
+                startPollingFullPage(data.request_id, thinkingEl);
             } else if (data.success && data.response) {
-                hideStatusFullPage();
-                appendMessageFullPage('assistant', data.response);
+                thinkingEl.className = 'ai-message ai-message-assistant';
+                thinkingEl.innerHTML = renderMarkdown(data.response);
                 fpIsLoading = false;
                 document.getElementById('send-btn').disabled = false;
             } else {
-                hideStatusFullPage();
-                appendMessageFullPage('error', data.error || 'Błąd wysyłania');
+                thinkingEl.className = 'ai-message ai-message-error';
+                thinkingEl.innerHTML = renderMarkdown(data.error || 'Błąd wysyłania');
                 fpIsLoading = false;
                 document.getElementById('send-btn').disabled = false;
             }
         } catch (e) {
-            hideStatusFullPage();
-            appendMessageFullPage('error', 'Problem z połączeniem');
+            thinkingEl.className = 'ai-message ai-message-error';
+            thinkingEl.textContent = 'Problem z połączeniem';
             fpIsLoading = false;
             document.getElementById('send-btn').disabled = false;
         }
@@ -422,6 +428,28 @@
         scrollWidgetToBottom();
     }
 
+    function appendWidgetThinking(text) {
+        var msgs = content.querySelector('.ai-chat-messages');
+        if (!msgs) {
+            content.innerHTML = '<div class="ai-chat-messages"></div>';
+            msgs = content.querySelector('.ai-chat-messages');
+        }
+        var div = document.createElement('div');
+        div.className = 'ai-message ai-message-assistant ai-message-thinking';
+        div.textContent = text;
+        msgs.appendChild(div);
+        scrollWidgetToBottom();
+        return div;
+    }
+
+    function replaceWidgetThinking(div, text, isError) {
+        if (!div) return;
+        div.className = 'ai-message ' + (isError ? 'ai-message-error' : 'ai-message-assistant');
+        div.classList.remove('ai-message-thinking');
+        div.innerHTML = renderMarkdown(text);
+        scrollWidgetToBottom();
+    }
+
     function scrollWidgetToBottom() {
         var msgs = content.querySelector('.ai-chat-messages');
         if (msgs) {
@@ -452,7 +480,9 @@
         sendBtn.disabled = true;
 
         appendWidgetMessage('user', message);
-        showWidgetStatus('Analizuję pytanie...');
+
+        // Placeholder w miejscu odpowiedzi bota
+        var thinkingDiv = appendWidgetThinking('Analizuję pytanie...');
 
         try {
             var resp = await fetch('/ai-assistant/api/chat', {
@@ -463,29 +493,25 @@
             var data = await resp.json();
 
             if (data.success && data.request_id) {
-                startWidgetPolling(data.request_id);
+                startWidgetPolling(data.request_id, thinkingDiv);
             } else if (data.success && (data.response || (data.data && data.data.response))) {
-                // Sync fallback
-                hideWidgetStatus();
                 var responseText = data.response || data.data.response;
-                appendWidgetMessage('assistant', responseText);
+                replaceWidgetThinking(thinkingDiv, responseText);
                 widgetState.isLoading = false;
                 sendBtn.disabled = false;
             } else {
-                hideWidgetStatus();
-                appendWidgetMessage('error', data.error || 'Błąd wysyłania');
+                replaceWidgetThinking(thinkingDiv, data.error || 'Błąd wysyłania', true);
                 widgetState.isLoading = false;
                 sendBtn.disabled = false;
             }
         } catch (e) {
-            hideWidgetStatus();
-            appendWidgetMessage('error', 'Problem z połączeniem');
+            replaceWidgetThinking(thinkingDiv, 'Problem z połączeniem', true);
             widgetState.isLoading = false;
             sendBtn.disabled = false;
         }
     }
 
-    function startWidgetPolling(requestId) {
+    function startWidgetPolling(requestId, thinkingDiv) {
         widgetState.pollInterval = setInterval(async function() {
             try {
                 var resp = await fetch('/ai-assistant/api/chat/status/' + requestId);
@@ -493,8 +519,7 @@
 
                 if (!data.success) {
                     stopWidgetPolling();
-                    hideWidgetStatus();
-                    appendWidgetMessage('error', data.error || 'Błąd');
+                    replaceWidgetThinking(thinkingDiv, data.error || 'Błąd', true);
                     widgetState.isLoading = false;
                     sendBtn.disabled = false;
                     return;
@@ -502,19 +527,17 @@
 
                 if (data.status === 'complete') {
                     stopWidgetPolling();
-                    hideWidgetStatus();
-                    appendWidgetMessage('assistant', data.response);
+                    replaceWidgetThinking(thinkingDiv, data.response);
                     widgetState.isLoading = false;
                     sendBtn.disabled = false;
                     inputEl.focus();
                 } else if (data.status === 'error') {
                     stopWidgetPolling();
-                    hideWidgetStatus();
-                    appendWidgetMessage('error', data.error || 'Wystąpił błąd');
+                    replaceWidgetThinking(thinkingDiv, data.error || 'Wystąpił błąd', true);
                     widgetState.isLoading = false;
                     sendBtn.disabled = false;
                 } else {
-                    showWidgetStatus(getStatusText(data.status));
+                    if (thinkingDiv) thinkingDiv.textContent = getStatusText(data.status);
                 }
             } catch (e) { /* keep polling */ }
         }, 1500);

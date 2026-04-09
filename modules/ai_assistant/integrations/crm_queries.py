@@ -167,7 +167,11 @@ class CRMQueryIntegration:
             if not quote:
                 quote = Quote.query.filter(Quote.quote_number.ilike(f'%{quote_number}%')).first()
             if not quote:
-                return {'success': False, 'error': f'Nie znaleziono wyceny: {quote_number}'}
+                # Debug: pokaż ostatnie wyceny żeby zrozumieć format
+                recent = Quote.query.order_by(Quote.id.desc()).limit(5).all()
+                recent_nums = [q.quote_number for q in recent]
+                logger.warning(f"Nie znaleziono wyceny '{quote_number}'. Ostatnie 5 w bazie: {recent_nums}")
+                return {'success': False, 'error': f'Nie znaleziono danych dla wyceny {quote_number} w systemie. Sprawdź proszę numer.'}
 
             if not self._can_access_quote(user, quote):
                 return {'success': False, 'error': 'Nie masz uprawnień do tej wyceny.'}
