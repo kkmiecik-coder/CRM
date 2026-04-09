@@ -383,7 +383,7 @@ class CRMQueryIntegration:
 
         owner_name = None
         if quote.user:
-            owner_name = quote.user.name if hasattr(quote.user, 'name') else quote.user.username
+            owner_name = quote.user.get_full_name() if quote.user else None
 
         return {
             'quote_number': quote.quote_number,
