@@ -502,10 +502,10 @@ def get_products_for_station(station_code, limit=50, sort_by='priority'):
 
 
 def _format_dimension(value):
-    """Formatuje wymiar - zawsze z jednym miejscem po przecinku (np. 160.0, 5.5, 3.5)"""
+    """Formatuje wymiar - zawsze z jednym miejscem po przecinku (np. 160,0  5,5  3,5)"""
     if value is None:
         return None
-    return f"{float(value):.1f}"
+    return f"{float(value):.1f}".replace('.', ',')
 
 
 def _format_product_display_name(product):
