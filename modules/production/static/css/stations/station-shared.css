@@ -593,6 +593,7 @@ body {
     flex-direction: column;
     gap: 8px;
     padding: 5px;
+    overflow: hidden;
 }
 
 .product-body .product-params,
@@ -614,10 +615,12 @@ body {
     display: flex;
     align-items: stretch;
     gap: 10px;
+    min-width: 0;
 }
 
 .product-body .product-dimensions-row .badge-dimensions {
     flex: 1;
+    min-width: 0;
 }
 
 /* Counter + przyciski */
@@ -635,6 +638,7 @@ body {
     align-items: stretch;
     gap: 10px;
     margin-top: 6px;
+    min-width: 0;
 }
 
 .product-row .product-dimensions-row .badge-dimensions {
