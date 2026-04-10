@@ -47,4 +47,11 @@
     <line x1="14" y1="10" x2="21" y2="3"/>
     <line x1="3" y1="21" x2="10" y2="14"/>
   </symbol>
+  <!-- Edge processing / isometric cube icon -->
+  <symbol id="icon-edge" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M12 2L3 7v10l9 5 9-5V7l-9-5z"/>
+    <path d="M12 22V12"/>
+    <path d="M12 12L3 7"/>
+    <path d="M12 12l9-5"/>
+  </symbol>
 </svg>
