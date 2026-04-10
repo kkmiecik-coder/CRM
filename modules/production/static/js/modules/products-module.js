@@ -1428,7 +1428,7 @@ class ProductsModule {
         // Positions + Volume
         const metrics = [];
         if (order.productCount) metrics.push(`${order.productCount} poz.`);
-        if (order.totalVolume) metrics.push(`${order.totalVolume.toFixed(3)} m³`);
+        if (order.totalVolume) metrics.push(`${order.totalVolume.toFixed(4)} m³`);
         if (order.totalValue) metrics.push(`${order.totalValue.toLocaleString('pl-PL', {minimumFractionDigits: 2, maximumFractionDigits: 2})} zł`);
         if (metrics.length) {
             parts.push(`<span class="il-card-meta-metrics">${metrics.join(' · ')}</span>`);
@@ -1476,7 +1476,7 @@ class ProductsModule {
 
         // Metrics
         header.querySelector('.il-order-positions').textContent = order.productCount;
-        header.querySelector('.il-order-volume').textContent = `${order.totalVolume.toFixed(3)} m³`;
+        header.querySelector('.il-order-volume').textContent = `${order.totalVolume.toFixed(4)} m³`;
         header.querySelector('.il-order-value').textContent = `${order.totalValue.toLocaleString('pl-PL', {minimumFractionDigits: 2, maximumFractionDigits: 2})} zł`;
 
         // Status badge
@@ -3233,7 +3233,7 @@ class ProductsModule {
         // New IL stats elements
         this.updateElementText('il-stats-orders', s.orderCount);
         this.updateElementText('il-stats-products', s.totalCount);
-        this.updateElementText('il-stats-volume', `${s.totalVolume.toFixed(3)} m³`);
+        this.updateElementText('il-stats-volume', `${s.totalVolume.toFixed(4)} m³`);
         this.updateElementText('il-stats-value', `${s.totalValue.toLocaleString('pl-PL', {minimumFractionDigits: 2})} zł`);
 
         const urgentEl = document.getElementById('il-stats-urgent');
@@ -3257,7 +3257,7 @@ class ProductsModule {
                 totalCountEl.textContent = positions;
             }
         }
-        if (volumeEl) volumeEl.textContent = s.totalVolume.toFixed(3);
+        if (volumeEl) volumeEl.textContent = s.totalVolume.toFixed(4);
         if (valueEl) {
             valueEl.textContent = s.totalValue.toLocaleString('pl-PL', {
                 minimumFractionDigits: 0,
@@ -3512,7 +3512,7 @@ class ProductsModule {
         const volumeElement = modalElement.querySelector('.stats-row .stat-value[data-field="volume_m3"]');
         if (volumeElement) {
             const volume = (parseFloat(product.volume_m3) || 0) * (product.quantity || 1);
-            volumeElement.textContent = `${volume.toFixed(3)} m³`;
+            volumeElement.textContent = `${volume.toFixed(4)} m³`;
         }
 
         const valueElement = modalElement.querySelector('.stats-row .stat-value[data-field="total_value_net"]');

@@ -760,7 +760,7 @@ def products_tab_content():
         stats_data = {
             'total_count': len(products_data),
             'total_quantity': total_quantity,  # NOWE: łączna ilość sztuk
-            'total_volume': round(total_volume, 3),
+            'total_volume': round(total_volume, 4),
             'total_value': round(total_value, 2),
             'urgent_count': urgent_count,
             'status_breakdown': status_breakdown
