@@ -201,10 +201,10 @@
                         {% endif %}
                         <div class="quantity-controls">
                             <div class="btn-group">
+                                <button class="btn-qty btn-minus" data-product-id="{{ product.id }}" data-action="decrement" {% if product.quantity_done <= 0 %}disabled{% endif %}>−</button>
                                 {% if product.quantity >= 10 %}
                                     <button class="btn-qty btn-minus-10" data-product-id="{{ product.id }}" data-action="decrement10" {% if product.quantity_done < 10 %}disabled{% endif %}>−10</button>
                                 {% endif %}
-                                <button class="btn-qty btn-minus" data-product-id="{{ product.id }}" data-action="decrement" {% if product.quantity_done <= 0 %}disabled{% endif %}>−</button>
                             </div>
                             <div class="quantity-counter">
                                 <span class="qty-done">{{ product.quantity_done }}</span>
