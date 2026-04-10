@@ -1115,6 +1115,7 @@ def packaging_station():
                     'delivery_country_code': product.delivery_country_code,
                     'is_personal_pickup': product.is_personal_pickup,
                     'delivery_type': product.delivery_type,
+                    'override_delivery_method': product.override_delivery_method,
                     # DANE WYSYLKI KURIERSKIEJ (2025-12)
                     'shipping_package_id': product.shipping_package_id,
                     'shipping_tracking_number': product.shipping_tracking_number,
@@ -1164,6 +1165,7 @@ def packaging_station():
                     'delivery_country_code': None,
                     'is_personal_pickup': None,
                     'delivery_type': None,
+                    'override_delivery_method': None,
                     # DANE WYSYLKI KURIERSKIEJ (2025-12)
                     'shipping_package_id': None,
                     'shipping_tracking_number': None,
@@ -1207,6 +1209,7 @@ def packaging_station():
                 order['delivery_country_code'] = product.get('delivery_country_code')
                 order['is_personal_pickup'] = product.get('is_personal_pickup')
                 order['delivery_type'] = product.get('delivery_type')
+                order['override_delivery_method'] = product.get('override_delivery_method')
 
             # Pobierz dane wysylki z pierwszego produktu ktory je ma (2025-12)
             if order['shipping_package_id'] is None and product.get('shipping_package_id'):

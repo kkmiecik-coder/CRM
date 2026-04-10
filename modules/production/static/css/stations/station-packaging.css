@@ -818,6 +818,13 @@
     color: #007bff;
 }
 
+/* Badge - Transport WoodPower (pomarańczowy) */
+.delivery-badge.delivery-woodpower {
+    background: rgba(255, 152, 0, 0.15);
+    border: 1px solid rgba(255, 152, 0, 0.4);
+    color: #ff9800;
+}
+
 /* Ikona dostawy w headerze */
 .header-icon-wrapper.delivery-icon-wrapper {
     display: flex;

@@ -313,10 +313,12 @@
             });
 
             // Dane zamówienia do przekazania
+            const overrideMethod = iconElement.dataset.overrideDeliveryMethod || '';
             const orderData = {
                 order_id: orderId,
                 products: products,
                 is_personal_pickup: false, // Jeśli modal dostawy jest otwarty, to nie jest odbiór osobisty
+                override_delivery_method: overrideMethod,
                 delivery_postcode: postcode,
                 // Dane wysyłki (jeśli już zgłoszona)
                 shipping_package_id: iconElement.dataset.shippingPackageId || '',
@@ -1515,9 +1517,9 @@
             return;
         }
 
-        // Sprawdź czy to kurier (nie odbiór osobisty)
-        if (orderData.is_personal_pickup) {
-            console.log('[Shipping] Odbiór osobisty - ukrywam sekcję wysyłki');
+        // Sprawdź czy to kurier (nie odbiór osobisty i nie transport WoodPower)
+        if (orderData.is_personal_pickup || orderData.override_delivery_method === 'transport_woodpower') {
+            console.log('[Shipping] Odbiór osobisty / Transport WoodPower - ukrywam sekcję wysyłki');
             shippingSection.style.display = 'none';
             if (shippingInfoSection) shippingInfoSection.style.display = 'none';
             overlimitMessage.style.display = 'none';
