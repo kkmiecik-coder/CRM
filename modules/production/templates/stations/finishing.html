@@ -144,6 +144,18 @@
                             {% endif %}
                         </div>
                         <div class="order-icons">
+                            {% if product.parsed_edge_processing %}
+                              <div class="header-icon-wrapper edge-icon-wrapper"
+                                   data-edge-type="{{ product.parsed_edge_type or '' }}"
+                                   data-edge-radius="{{ product.parsed_edge_radius or '' }}"
+                                   data-edge-angle="{{ product.parsed_edge_angle or '' }}"
+                                   data-edge-letters="{{ product.parsed_edge_letters|tojson if product.parsed_edge_letters else '[]' }}"
+                                   data-edge-svg="{{ product.edge_svg or '' }}"
+                                   data-shape-svg="{{ product.shape_svg or '' }}"
+                                   data-product-id="{{ product.id }}">
+                                <svg class="header-icon" width="22" height="22"><use href="#icon-edge"/></svg>
+                              </div>
+                            {% endif %}
                             {% if product.attachment_file_url %}
                                 {% set attachment_type = 'pdf' if product.attachment_file_name and product.attachment_file_name.lower().endswith('.pdf') else 'image' %}
                                 <div class="header-icon-wrapper attachment-icon-wrapper"
@@ -179,6 +191,13 @@
                         {% endif %}
                         {% if product.finish_state %}
                             <span class="badge badge-finish">{{ product.finish_state }}</span>
+                        {% endif %}
+                        {% if product.parsed_edge_processing and product.parsed_edge_type %}
+                          <span class="badge badge-edge">
+                            {{ product.parsed_edge_type|capitalize }}
+                            {% if product.parsed_edge_radius %}R{{ product.parsed_edge_radius }}{% endif %}
+                            {% if product.parsed_edge_angle %}{{ product.parsed_edge_angle }}°{% endif %}
+                          </span>
                         {% endif %}
                     </div>
                     <div class="product-dimensions-row">
@@ -258,6 +277,40 @@
         </div>
     </div>
 
+    <!-- Modal obróbki krawędzi -->
+    <div id="edgeModal">
+      <div class="edge-modal-content">
+        <div class="edge-modal-header">
+          <h3 id="edgeModalTitle">Obróbka krawędzi</h3>
+          <button class="edge-modal-close" onclick="closeEdgeModal()">&times;</button>
+        </div>
+        <div class="edge-modal-previews">
+          <div class="edge-modal-preview" id="edgeModalShape">
+            <div class="edge-modal-preview-label">Kształt</div>
+            <div id="edgeModalShapeContent"></div>
+          </div>
+          <div class="edge-modal-preview" id="edgeModalIsometric">
+            <div class="edge-modal-preview-label">Izometria</div>
+            <div id="edgeModalIsometricContent"></div>
+          </div>
+        </div>
+        <div class="edge-modal-info">
+          <div>
+            <div class="edge-modal-info-label">Typ obróbki</div>
+            <div class="edge-modal-info-value accent" id="edgeModalType"></div>
+          </div>
+          <div>
+            <div class="edge-modal-info-label">Promień</div>
+            <div class="edge-modal-info-value" id="edgeModalRadius"></div>
+          </div>
+          <div>
+            <div class="edge-modal-info-label">Krawędzie</div>
+            <div class="edge-modal-info-value" id="edgeModalLetters"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- SCRIPTS -->
     <script>
         window.STATION_CONFIG = {
@@ -272,5 +325,6 @@
     <script src="{{ url_for('production.static', filename='js/stations/station-common.js') }}"></script>
     <script src="{{ url_for('production.static', filename='js/stations/station-finishing.js') }}"></script>
     <script src="{{ url_for('production.static', filename='js/stations/station-attachments.js') }}"></script>
+    <script src="{{ url_for('production.static', filename='js/stations/station-edge-modal.js') }}"></script>
 </body>
 </html>

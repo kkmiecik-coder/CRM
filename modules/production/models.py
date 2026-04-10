@@ -121,6 +121,20 @@ class ProductionItem(db.Model):
                                  comment='Kolor z kodem: BRUNAT 22-23 (tylko przy barwnie)')
     parsed_edge_processing = Column(Boolean, default=False, nullable=False,
                                      comment='Czy produkt posiada obróbkę krawędzi (fazowanie, frezowanie, R(X), kąt, zaokrąglenie, faza)')
+    parsed_edge_type = Column(String(20), nullable=True,
+                              comment='Typ obróbki: zaokrąglenie / fazowanie')
+    parsed_edge_radius = Column(Integer, nullable=True,
+                                comment='Wartość promienia R (np. 3, 6, 30)')
+    parsed_edge_angle = Column(Integer, nullable=True,
+                               comment='Kąt fazowania w stopniach (30, 45, 60) — NULL dla zaokrąglenia')
+    parsed_edge_letters = Column(JSON, nullable=True,
+                                 comment='Lista krawędzi: ["A","B","N1"] lub ["G1","G2","P1"]')
+    edge_svg = Column(Text, nullable=True,
+                      comment='SVG izometryczny 3D z zaznaczonymi krawędziami')
+    shape_svg = Column(Text, nullable=True,
+                       comment='SVG kształtu 2D')
+    quote_item_detail_id = Column(Integer, nullable=True,
+                                  comment='ID powiązanego QuoteItemDetails — NULL dla zamówień sklepowych')
 
     # KALKULACJE BIZNESOWE
     volume_m3 = Column(Numeric(10, 6))

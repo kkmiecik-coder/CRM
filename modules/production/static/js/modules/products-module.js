@@ -3575,14 +3575,29 @@ class ProductsModule {
             }
         });
 
-        // Obsługa pola obróbki krawędzi - pokaż tylko gdy produkt ma obróbkę krawędzi
+        // Obsługa pola obróbki krawędzi
         const edgeFieldGroup = modalElement.querySelector('#edge-processing-field-group');
         if (edgeFieldGroup) {
             if (product.parsed_edge_processing) {
                 edgeFieldGroup.style.display = '';
                 const edgeValue = edgeFieldGroup.querySelector('[data-field="parsed_edge_processing"]');
                 if (edgeValue) {
-                    edgeValue.textContent = 'Tak';
+                    var edgeText = '';
+                    if (product.parsed_edge_type) {
+                        edgeText = product.parsed_edge_type.charAt(0).toUpperCase() + product.parsed_edge_type.slice(1);
+                        if (product.parsed_edge_radius) {
+                            edgeText += ' R' + product.parsed_edge_radius;
+                        }
+                        if (product.parsed_edge_angle) {
+                            edgeText += ' ' + product.parsed_edge_angle + '°';
+                        }
+                        if (product.parsed_edge_letters && product.parsed_edge_letters.length > 0) {
+                            edgeText += ' (' + product.parsed_edge_letters.join(', ') + ')';
+                        }
+                    } else {
+                        edgeText = 'Tak';
+                    }
+                    edgeValue.textContent = edgeText;
                     edgeValue.classList.add('text-success');
                 }
             } else {

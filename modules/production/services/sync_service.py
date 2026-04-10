@@ -1228,9 +1228,16 @@ class BaselinkerSyncService:
                 'parsed_finish_gloss': parsed_data.get('finish_gloss'),
                 'parsed_finish_color': parsed_data.get('finish_color'),
                 'parsed_edge_processing': parsed_data.get('edge_processing', False),
+                'parsed_edge_type': parsed_data.get('edge_type'),
+                'parsed_edge_radius': parsed_data.get('edge_radius'),
+                'parsed_edge_angle': parsed_data.get('edge_angle'),
+                'parsed_edge_letters': parsed_data.get('edge_letters'),
                 'volume_m3': volume_m3
             })
-    
+
+        # Wzbogać dane krawędzi z QuoteItemDetails (kaskada)
+        product_data = self._enrich_edge_data_from_quote(product_data, order)
+
         try:
             price_brutto = float(product.get('price_brutto', 0))
             tax_rate = float(product.get('tax_rate', 23))
@@ -2800,6 +2807,152 @@ class BaselinkerSyncService:
         except Exception as e:
             logger.error("Błąd pobierania statusów", extra={'error': str(e)})
             raise SyncError(f'Błąd pobierania statusów: {str(e)}')
+
+    def _enrich_edge_data_from_quote(self, product_data, order_data):
+        """
+        Kaskada wzbogacania danych krawędzi z QuoteItemDetails.
+        Poziom 1: Metadane PDF → Poziom 2: order_product_id → Poziom 3: parser (już w product_data)
+        """
+        if not product_data.get('parsed_edge_processing'):
+            return product_data
+
+        detail = None
+        baselinker_order_id = product_data.get('baselinker_order_id')
+
+        # Poziom 1: Metadane PDF
+        detail = self._try_match_via_pdf(order_data, product_data)
+
+        # Poziom 2: order_product_id
+        if not detail:
+            detail = self._try_match_via_order_product_id(
+                baselinker_order_id,
+                product_data.get('baselinker_product_id')
+            )
+
+        # Jeśli znaleziono QuoteItemDetails — kopiuj dane
+        if detail:
+            if detail.edges_type:
+                edge_type_map = {'round': 'zaokrąglenie', 'chamfer': 'fazowanie'}
+                product_data['parsed_edge_type'] = edge_type_map.get(detail.edges_type, detail.edges_type)
+            if detail.edges_r_value:
+                product_data['parsed_edge_radius'] = detail.edges_r_value
+            if detail.edges_angle_value:
+                product_data['parsed_edge_angle'] = detail.edges_angle_value
+            if detail.edges_config:
+                product_data['parsed_edge_letters'] = [
+                    e.get('letter') for e in detail.edges_config if e.get('letter')
+                ]
+            if detail.edges_svg:
+                product_data['edge_svg'] = detail.edges_svg
+            if detail.shape_svg:
+                product_data['shape_svg'] = detail.shape_svg
+            product_data['quote_item_detail_id'] = detail.id
+
+            logger.info("Wzbogacono dane krawędzi z QuoteItemDetails",
+                       extra={'detail_id': detail.id, 'source': 'quote'})
+        else:
+            # Poziom 3: Generuj SVG z parsera (tylko prostokąty)
+            if product_data.get('parsed_edge_letters'):
+                self._generate_fallback_svg(product_data)
+
+        return product_data
+
+    def _try_match_via_pdf(self, order_data, product_data):
+        """Próbuje powiązać przez metadane PDF z załącznika zamówienia."""
+        import io
+        import json
+
+        try:
+            from modules.calculator.models import QuoteItemDetails
+
+            # Szukaj linku do PDF specyfikacji w custom_extra_fields
+            custom_fields = order_data.get('custom_extra_fields', {})
+            pdf_url = None
+            for field_id, value in custom_fields.items():
+                if isinstance(value, str) and value.endswith('.pdf'):
+                    pdf_url = value
+                    break
+
+            if not pdf_url:
+                return None
+
+            import requests
+            from pypdf import PdfReader
+
+            response = requests.get(pdf_url, timeout=15)
+            if response.status_code != 200:
+                return None
+
+            reader = PdfReader(io.BytesIO(response.content))
+            meta = reader.metadata
+            woodpower_meta = meta.get('/WoodPowerMeta') if meta else None
+
+            if not woodpower_meta:
+                return None
+
+            meta_data = json.loads(woodpower_meta)
+            items = meta_data.get('items', [])
+
+            # Znajdź detail_id dla tego produktu (po pozycji)
+            sequence = product_data.get('product_sequence_in_order', 1)
+            for item in items:
+                if item.get('position') == sequence:
+                    detail_id = item.get('detail_id')
+                    if detail_id:
+                        return QuoteItemDetails.query.get(detail_id)
+
+        except Exception as e:
+            logger.warning("Błąd odczytu metadanych PDF", extra={'error': str(e)})
+
+        return None
+
+    def _try_match_via_order_product_id(self, baselinker_order_id, baselinker_product_id):
+        """Próbuje powiązać przez order_product_id."""
+        if not baselinker_product_id:
+            return None
+
+        try:
+            from modules.calculator.models import QuoteItemDetails
+            from modules.calculator.models import Quote
+
+            # Znajdź quote z tym baselinker_order_id
+            quote = Quote.query.filter_by(
+                base_linker_order_id=str(baselinker_order_id)
+            ).first()
+
+            if not quote:
+                return None
+
+            # Szukaj QuoteItemDetails z tym order_product_id
+            detail = QuoteItemDetails.query.filter_by(
+                quote_id=quote.id,
+                baselinker_order_product_id=int(baselinker_product_id)
+            ).first()
+
+            return detail
+
+        except Exception as e:
+            logger.warning("Błąd matchowania order_product_id", extra={'error': str(e)})
+
+        return None
+
+    def _generate_fallback_svg(self, product_data):
+        """Generuje SVG prostokąta z parsera (fallback dla zamówień sklepowych)."""
+        try:
+            from modules.production.services.edge_svg_generator import EdgeSvgGenerator
+
+            length = float(product_data.get('parsed_length_cm') or 0)
+            width = float(product_data.get('parsed_width_cm') or 0)
+            thickness = float(product_data.get('parsed_thickness_cm') or 0)
+
+            if length > 0 and width > 0 and thickness > 0:
+                generator = EdgeSvgGenerator()
+                product_data['edge_svg'] = generator.generate(
+                    length, width, thickness,
+                    product_data.get('parsed_edge_letters', [])
+                )
+        except Exception as e:
+            logger.warning("Błąd generowania fallback SVG", extra={'error': str(e)})
 
 _sync_service_instance = None
 

@@ -41,13 +41,14 @@ class EdgesPdfGenerator:
     def __init__(self, logger=None):
         self.logger = logger
 
-    def generate_pdf(self, products: list, quote_number: str = '') -> bytes:
+    def generate_pdf(self, products: list, quote_number: str = '', quote_id: int = None) -> bytes:
         """
-        Generuje PDF specyfikacji produktów.
+        Generuje PDF specyfikacji produktów z osadzonymi metadanymi.
 
         Args:
             products: Lista słowników z danymi produktów
             quote_number: Numer wyceny
+            quote_id: ID wyceny (do metadanych)
 
         Returns:
             bytes: Zawartość PDF jako bajty
@@ -57,22 +58,61 @@ class EdgesPdfGenerator:
         pdf_buffer = io.BytesIO()
         HTML(string=html_content).write_pdf(pdf_buffer)
         pdf_buffer.seek(0)
-        return pdf_buffer.read()
+        pdf_bytes = pdf_buffer.read()
 
-    def generate_pdf_base64(self, products: list, quote_number: str = '') -> dict:
+        # Osadź metadane z mapowaniem produktów
+        pdf_bytes = self._embed_metadata(pdf_bytes, products, quote_id)
+
+        return pdf_bytes
+
+    def generate_pdf_base64(self, products: list, quote_number: str = '', quote_id: int = None) -> dict:
         """
         Generuje PDF i zwraca w formacie dla BaseLinker API.
 
         Returns:
             dict: {'title': 'filename.pdf', 'file': 'data:base64_content...'}
         """
-        pdf_bytes = self.generate_pdf(products, quote_number)
+        pdf_bytes = self.generate_pdf(products, quote_number, quote_id)
         pdf_base64 = base64.b64encode(pdf_bytes).decode('utf-8')
 
         return {
             'title': 'specyfikacja.pdf',
             'file': f'data:{pdf_base64}'
         }
+
+    def _embed_metadata(self, pdf_bytes: bytes, products: list, quote_id: int = None) -> bytes:
+        """Osadza JSON z mapowaniem produktów w metadanych PDF."""
+        import json
+        from pypdf import PdfReader, PdfWriter
+
+        items_meta = []
+        for product in products:
+            item = {
+                'position': product.get('product_index'),
+                'detail_id': product.get('detail_id'),
+                'sku': product.get('sku'),
+            }
+            items_meta.append(item)
+
+        meta_json = json.dumps({
+            'quote_id': quote_id,
+            'items': items_meta,
+        }, ensure_ascii=False)
+
+        reader = PdfReader(io.BytesIO(pdf_bytes))
+        writer = PdfWriter()
+
+        for page in reader.pages:
+            writer.add_page(page)
+
+        writer.add_metadata({
+            '/WoodPowerMeta': meta_json,
+        })
+
+        output = io.BytesIO()
+        writer.write(output)
+        output.seek(0)
+        return output.read()
 
     # ============================================
     # KONWERSJA SVG

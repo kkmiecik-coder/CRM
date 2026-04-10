@@ -135,6 +135,7 @@
                             {% endif %}
                         </div>
                         <div class="order-icons">
+
                             {% if product.attachment_file_url %}
                                 {% set attachment_type = 'pdf' if product.attachment_file_name and product.attachment_file_name.lower().endswith('.pdf') else 'image' %}
                                 <div class="header-icon-wrapper attachment-icon-wrapper"
@@ -171,6 +172,7 @@
                         {% if product.wood_class %}
                             <span class="badge badge-class">{{ product.wood_class }}</span>
                         {% endif %}
+
                     </div>
                     <div class="product-dimensions-row">
                         {% if product.dimensions %}
@@ -242,6 +244,7 @@
         </div>
     </div>
 
+
     <!-- SCRIPTS -->
     <script>
         window.STATION_CONFIG = {
@@ -255,5 +258,6 @@
     <script src="{{ url_for('production.static', filename='js/stations/station-common.js') }}"></script>
     <script src="{{ url_for('production.static', filename='js/stations/station-cutting.js') }}"></script>
     <script src="{{ url_for('production.static', filename='js/stations/station-attachments.js') }}"></script>
+
 </body>
 </html>

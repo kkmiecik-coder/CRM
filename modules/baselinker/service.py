@@ -423,12 +423,15 @@ class BaselinkerService:
                 quote.status_id = 4
                 
                 db.session.commit()
-                
+
+                # Zapisz order_product_id w QuoteItemDetails
+                self._save_order_product_ids(quote, baselinker_order_id)
+
                 self.logger.info("Pomyślnie utworzono zamówienie",
                                quote_id=quote.id,
                                baselinker_order_id=baselinker_order_id,
                                log_id=log_entry.id)
-                
+
                 return {
                     'success': True,
                     'order_id': baselinker_order_id,
@@ -860,14 +863,15 @@ class BaselinkerService:
 
         # Generuj PDF specyfikacji dla wszystkich produktów
         spec_products = []
-        for item in selected_items:
+        for i, item in enumerate(selected_items):
             finishing_details = QuoteItemDetails.query.filter_by(
                 quote_id=quote.id,
                 product_index=item.product_index
             ).first()
 
+            sku = self._generate_sku(item, finishing_details)
+
             product_data = {
-                'product_index': item.product_index,
                 'product_name': self._translate_variant_code(item.variant_code),
                 'dimensions': {
                     'length': float(item.length_cm or 0),
@@ -885,6 +889,9 @@ class BaselinkerService:
                 'finishing_type': finishing_details.finishing_type if finishing_details else None,
                 'finishing_variant': finishing_details.finishing_variant if finishing_details else None,
                 'lamella_direction': finishing_details.lamella_direction if finishing_details else None,
+                'detail_id': finishing_details.id if finishing_details else None,
+                'sku': sku,
+                'product_index': i + 1,
             }
             spec_products.append(product_data)
 
@@ -894,7 +901,7 @@ class BaselinkerService:
                 from modules.baselinker.edges_pdf_generator import EdgesPdfGenerator
 
                 pdf_generator = EdgesPdfGenerator(logger=self.logger)
-                pdf_data = pdf_generator.generate_pdf_base64(spec_products, quote_number=quote.quote_number)
+                pdf_data = pdf_generator.generate_pdf_base64(spec_products, quote_number=quote.quote_number, quote_id=quote.id)
 
                 order_data['custom_extra_fields']['56476'] = pdf_data
 
@@ -2042,5 +2049,63 @@ class BaselinkerService:
                            baselinker_id=default_source.baselinker_id)
             return default_source.baselinker_id
 
-        self.logger.warning("[SuggestSource] Brak sugerowanego źródła")
+    def _save_order_product_ids(self, quote, baselinker_order_id):
+        """Po addOrder odpytuje getOrders i zapisuje order_product_id w QuoteItemDetails."""
+        try:
+            from modules.calculator.models import QuoteItemDetails
+
+            response = self._make_request('getOrders', {
+                'order_id': baselinker_order_id,
+            })
+
+            if response.get('status') != 'SUCCESS':
+                self.logger.warning("Nie udało się pobrać zamówienia po addOrder",
+                                   baselinker_order_id=baselinker_order_id)
+                return
+
+            orders = response.get('orders', [])
+            if not orders:
+                return
+
+            bl_products = orders[0].get('products', [])
+
+            # Pobierz QuoteItemDetails dla tego quote
+            details = QuoteItemDetails.query.filter_by(quote_id=quote.id).all()
+
+            # Matchuj po SKU
+            details_by_sku = {}
+            for detail in details:
+                sku = self._generate_sku_for_detail(detail)
+                if sku:
+                    details_by_sku[sku] = detail
+
+            matched = 0
+            for bl_product in bl_products:
+                bl_sku = bl_product.get('sku', '')
+                if bl_sku in details_by_sku:
+                    details_by_sku[bl_sku].baselinker_order_product_id = int(bl_product['order_product_id'])
+                    matched += 1
+
+            if matched > 0:
+                db.session.commit()
+                self.logger.info("Zapisano order_product_id",
+                               matched=matched,
+                               total_bl=len(bl_products),
+                               total_details=len(details))
+
+        except Exception as e:
+            self.logger.error("Błąd zapisu order_product_id", error=str(e))
+
+    def _generate_sku_for_detail(self, detail):
+        """Generuje SKU dla QuoteItemDetails (używa istniejącej metody _generate_sku)."""
+        try:
+            from modules.calculator.models import QuoteItem
+            item = QuoteItem.query.filter_by(
+                quote_id=detail.quote_id,
+                product_index=detail.product_index
+            ).first()
+            if item:
+                return self._generate_sku(item, detail)
+        except Exception:
+            pass
         return None

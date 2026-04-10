@@ -720,6 +720,8 @@ class QuoteItemDetails(db.Model):
     edges_price_netto = db.Column(db.Numeric(10, 2), default=0)
     edges_price_brutto = db.Column(db.Numeric(10, 2), default=0)
     edges_svg = db.Column(db.Text, nullable=True)
+    baselinker_order_product_id = db.Column(db.Integer, nullable=True,
+                                            comment='ID produktu z BaseLinker getOrders — do matchowania z ProductionItem')
 
     # Kształt produktu
     shape = db.Column(db.String(50), default='rectangular')

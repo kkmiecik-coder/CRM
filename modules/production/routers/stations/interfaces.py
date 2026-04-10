@@ -11,32 +11,6 @@ import traceback
 from . import station_bp, logger, get_station_config, _format_dimension
 
 
-def _extract_edge_description(product_name):
-    """Wyciąga opis obróbki krawędzi z nazwy produktu (do tooltipa)"""
-    import re
-    if not product_name:
-        return None
-
-    name_lower = product_name.lower()
-    descriptions = []
-
-    r_match = re.search(r'(zaokrąglenie\s+R\d+|R\d+)', product_name, re.IGNORECASE)
-    if r_match:
-        descriptions.append(r_match.group(0))
-
-    faza_match = re.search(r'(faz(?:owanie|a)\s*\d*\s*(?:mm)?)', product_name, re.IGNORECASE)
-    if faza_match:
-        descriptions.append(faza_match.group(0).strip())
-
-    if 'frezowanie' in name_lower and not descriptions:
-        descriptions.append('frezowanie')
-
-    kat_match = re.search(r'(kąt\s*\d*°?)', product_name, re.IGNORECASE)
-    if kat_match:
-        descriptions.append(kat_match.group(0).strip())
-
-    return ', '.join(descriptions) if descriptions else 'obróbka krawędzi'
-
 
 # ============================================================================
 # STANOWISKO WYCINANIA (CUTTING)
@@ -856,7 +830,15 @@ def finishing_station():
 
             qty_done = getattr(product, quantity_done_field, 0) or 0
 
-            edge_description = _extract_edge_description(product.original_product_name) if product.parsed_edge_processing else None
+            # Buduj edge_description z danych strukturalnych
+            edge_description = None
+            if product.parsed_edge_processing and product.parsed_edge_type:
+                parts = [product.parsed_edge_type.capitalize()]
+                if product.parsed_edge_radius:
+                    parts.append(f'R{product.parsed_edge_radius}')
+                if product.parsed_edge_angle:
+                    parts.append(f'{product.parsed_edge_angle}°')
+                edge_description = ' '.join(parts)
 
             if product.deadline_date:
                 days_diff = (product.deadline_date - today).days
@@ -906,6 +888,12 @@ def finishing_station():
                 'client_order_number': product.client_order_number,
                 'parsed_edge_processing': product.parsed_edge_processing,
                 'edge_description': edge_description,
+                'parsed_edge_type': product.parsed_edge_type,
+                'parsed_edge_radius': product.parsed_edge_radius,
+                'parsed_edge_angle': product.parsed_edge_angle,
+                'parsed_edge_letters': product.parsed_edge_letters,
+                'edge_svg': product.edge_svg,
+                'shape_svg': product.shape_svg,
                 'quantity_done_assembly': product.quantity_done_assembly,
             }
 
