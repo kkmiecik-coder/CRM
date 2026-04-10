@@ -594,7 +594,7 @@ body {
     display: flex;
     flex-direction: column;
     gap: 8px;
-    padding: 10px 12px;
+    padding: 5px;
 }
 
 .product-body .product-params {
