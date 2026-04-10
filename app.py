@@ -162,6 +162,43 @@ def register_cli_commands(app):
 
         click.echo("=" * 60 + "\n")
 
+    @app.cli.command("migrate-finish-data")
+    @with_appcontext
+    def migrate_finish_data_command():
+        """Przeparsowuje istniejące produkty i uzupełnia nowe kolumny wykończenia."""
+        from modules.production.models import ProductionItem
+        from modules.production.services.parser_service import parse_product_name
+
+        items = ProductionItem.query.filter(
+            ProductionItem.original_product_name.isnot(None),
+            ProductionItem.original_product_name != ''
+        ).all()
+
+        click.echo(f"[migrate-finish-data] Znaleziono {len(items)} produktów do przetworzenia.")
+
+        updated = 0
+        errors = 0
+
+        for i, item in enumerate(items, 1):
+            try:
+                parsed = parse_product_name(item.original_product_name, use_cache=False)
+                item.parsed_finish_type = parsed.get('finish_type', 'surowe')
+                item.parsed_finish_color_type = parsed.get('finish_color_type')
+                item.parsed_finish_gloss = parsed.get('finish_gloss')
+                item.parsed_finish_color = parsed.get('finish_color')
+                item.parsed_finish_state = parsed.get('finish_state', 'Surowe')
+                updated += 1
+            except Exception as e:
+                errors += 1
+                click.echo(click.style(f"  ✗ Błąd [{item.short_product_id}]: {e}", fg='red'))
+
+            if i % 100 == 0:
+                db.session.flush()
+                click.echo(f"  ... przetworzono {i}/{len(items)}")
+
+        db.session.commit()
+        click.echo(f"[migrate-finish-data] Gotowe: {updated} zaktualizowanych, {errors} błędów.")
+
 # Funkcje do generowania i weryfikacji tokena resetującego hasło
 def generate_reset_token(email, secret_key, salt='password-reset-salt'):
     serializer = URLSafeTimedSerializer(secret_key)
