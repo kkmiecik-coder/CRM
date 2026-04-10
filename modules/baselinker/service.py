@@ -872,7 +872,6 @@ class BaselinkerService:
             sku = self._generate_sku(item, finishing_details)
 
             product_data = {
-                'product_index': item.product_index,
                 'product_name': self._translate_variant_code(item.variant_code),
                 'dimensions': {
                     'length': float(item.length_cm or 0),
@@ -2109,7 +2108,4 @@ class BaselinkerService:
                 return self._generate_sku(item, detail)
         except Exception:
             pass
-        return None
-
-        self.logger.warning("[SuggestSource] Brak sugerowanego źródła")
         return None
