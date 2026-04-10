@@ -115,7 +115,7 @@ class ProductionItem(db.Model):
                                      comment='Czy produkt posiada obróbkę krawędzi (fazowanie, frezowanie, R(X), kąt, zaokrąglenie, faza)')
 
     # KALKULACJE BIZNESOWE
-    volume_m3 = Column(Numeric(10, 4))
+    volume_m3 = Column(Numeric(10, 6))
     unit_price_net = Column(Numeric(10, 2))
     total_value_net = Column(Numeric(10, 2))
 
