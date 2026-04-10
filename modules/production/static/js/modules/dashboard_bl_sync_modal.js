@@ -948,23 +948,23 @@ class DashboardBLSyncModal {
                 </span>`;
             }
 
-            // Badge błędu technologii
-            let technologyBadge = '';
-            if (order.technology_error === true) {
-                technologyBadge = `<span class="sync-order-tech-error-badge" title="Co najmniej jeden produkt ma nierozpoznaną technologię">
+            // Badge błędu parsowania
+            let parsingBadge = '';
+            if (order.parsing_error === true) {
+                parsingBadge = `<span class="sync-order-parsing-error-badge" title="Co najmniej jeden produkt ma nierozpoznane dane">
                     <span style="color: #dc2626; font-size: 12px; padding: 2px 6px; background: rgba(220, 38, 38, 0.1); border-radius: 4px; margin-left: 8px;">
-                        ⚠ Nierozpoznana technologia
+                        ⚠ Błąd parsowania
                     </span>
                 </span>`;
             }
 
             html += `
-                <div class="sync-order-item ${isSelected ? 'selected' : ''} ${isPartiallyExists ? 'partially-exists' : ''} ${order.technology_error === true ? 'technology-error' : ''}" data-order-id="${order.id || index}">
-                    <div class="sync-order-header" ${order.technology_error === true ? '' : `onclick="window.dashboardBLSyncModal.toggleOrderSelection(${index})"`}>
+                <div class="sync-order-item ${isSelected ? 'selected' : ''} ${isPartiallyExists ? 'partially-exists' : ''} ${order.parsing_error === true ? 'parsing-error' : ''}" data-order-id="${order.id || index}">
+                    <div class="sync-order-header" ${order.parsing_error === true ? '' : `onclick="window.dashboardBLSyncModal.toggleOrderSelection(${index})"`}>
                         <input type="checkbox"
                                class="sync-order-checkbox"
                                ${isSelected ? 'checked' : ''}
-                               ${order.technology_error === true ? 'disabled' : ''}
+                               ${order.parsing_error === true ? 'disabled' : ''}
                                onclick="event.stopPropagation(); window.dashboardBLSyncModal.toggleOrderSelection(${index})">
 
                         <div class="sync-order-info">
@@ -972,7 +972,7 @@ class DashboardBLSyncModal {
                                 <div class="sync-order-id">
                                     Zamówienie #${order.baselinker_order_id || order.id || `TEMP-${index}`}
                                     ${partialBadge}
-                                    ${technologyBadge}
+                                    ${parsingBadge}
                                 </div>
                                 <div class="sync-order-customer">
                                     ${order.customer_name || order.delivery_fullname || 'Brak nazwy klienta'}
@@ -1042,17 +1042,52 @@ class DashboardBLSyncModal {
                 statusLabel = '<small style="color: #10b981;">✓ w bazie</small>';
             }
 
-            // Badge technologii
-            let techBadge = '';
+            // === 5 badge'ów parsowania ===
+            let badgesHtml = '';
             if (!isFiltered) {
-                if (product.unknown_technology) {
-                    statusLabel = '<small style="color: #dc2626; font-weight: 600;">(nieznana technologia)</small>';
+                // Flaga błędów parsowania
+                if (product.has_parsing_error && !isAlreadyInDb) {
                     itemClasses += ' tech-error';
                 }
 
-                if (product.parsed_technology) {
+                // 1. Gatunek
+                if (product.unknown_species && !isAlreadyInDb) {
+                    badgesHtml += `<span style="font-size: 11px; padding: 1px 5px; background: rgba(220,38,38,0.1); color: #dc2626; border-radius: 3px; margin-left: 6px;">⚠ gatunek</span>`;
+                } else if (product.parsed_wood_species) {
+                    badgesHtml += `<span style="font-size: 11px; padding: 1px 5px; background: rgba(217,119,6,0.1); color: #d97706; border-radius: 3px; margin-left: 6px;">${product.parsed_wood_species}</span>`;
+                }
+
+                // 2. Technologia
+                if (product.unknown_technology && !isAlreadyInDb) {
+                    badgesHtml += `<span style="font-size: 11px; padding: 1px 5px; background: rgba(220,38,38,0.1); color: #dc2626; border-radius: 3px; margin-left: 6px;">⚠ technologia</span>`;
+                } else if (product.parsed_technology) {
                     const techLabel = product.parsed_technology === 'lity' ? 'lite' : product.parsed_technology;
-                    techBadge = `<span class="sync-product-tech-badge" style="font-size: 11px; padding: 1px 5px; background: rgba(99,102,241,0.1); color: #6366f1; border-radius: 3px; margin-left: 6px;">${techLabel}</span>`;
+                    badgesHtml += `<span style="font-size: 11px; padding: 1px 5px; background: rgba(99,102,241,0.1); color: #6366f1; border-radius: 3px; margin-left: 6px;">${techLabel}</span>`;
+                }
+
+                // 3. Klasa
+                if (product.unknown_class && !isAlreadyInDb) {
+                    badgesHtml += `<span style="font-size: 11px; padding: 1px 5px; background: rgba(220,38,38,0.1); color: #dc2626; border-radius: 3px; margin-left: 6px;">⚠ klasa</span>`;
+                } else if (product.parsed_wood_class) {
+                    badgesHtml += `<span style="font-size: 11px; padding: 1px 5px; background: rgba(100,116,139,0.1); color: #64748b; border-radius: 3px; margin-left: 6px;">${product.parsed_wood_class}</span>`;
+                }
+
+                // 4. Wymiary
+                if (product.unknown_dimensions && !isAlreadyInDb) {
+                    badgesHtml += `<span style="font-size: 11px; padding: 1px 5px; background: rgba(220,38,38,0.1); color: #dc2626; border-radius: 3px; margin-left: 6px;">⚠ wymiary</span>`;
+                } else if (product.parsed_dimensions) {
+                    badgesHtml += `<span style="font-size: 11px; padding: 1px 5px; background: rgba(59,130,246,0.1); color: #3b82f6; border-radius: 3px; margin-left: 6px;">${product.parsed_dimensions}</span>`;
+                }
+
+                // 5. Wykończenie
+                if (product.unknown_finish && !isAlreadyInDb) {
+                    badgesHtml += `<span style="font-size: 11px; padding: 1px 5px; background: rgba(220,38,38,0.1); color: #dc2626; border-radius: 3px; margin-left: 6px;">⚠ wykończenie</span>`;
+                } else if (product.parsed_finish_display) {
+                    const finishType = product.parsed_finish_type || '';
+                    let fColor = '#64748b'; let fBg = 'rgba(100,116,139,0.1)';
+                    if (finishType === 'olejowane') { fColor = '#0d9488'; fBg = 'rgba(13,148,136,0.1)'; }
+                    if (finishType === 'lakierowane') { fColor = '#7c3aed'; fBg = 'rgba(124,58,237,0.1)'; }
+                    badgesHtml += `<span style="font-size: 11px; padding: 1px 5px; background: ${fBg}; color: ${fColor}; border-radius: 3px; margin-left: 6px;">${product.parsed_finish_display}</span>`;
                 }
             }
 
@@ -1061,7 +1096,7 @@ class DashboardBLSyncModal {
                     <div class="sync-product-info">
                         <div class="sync-product-name">
                             ${product.name || 'Bez nazwy'}
-                            ${techBadge}
+                            ${badgesHtml}
                             ${statusLabel}
                         </div>
                         <div class="sync-product-details">
