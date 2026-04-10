@@ -158,6 +158,16 @@
                                 </svg>
                                 Transport WoodPower
                             </span>
+                            {% elif order.override_delivery_method == 'kurier_baselinker' %}
+                            <span class="delivery-badge delivery-courier" title="Kurier">
+                                <svg class="delivery-badge-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <rect x="1" y="3" width="15" height="13"></rect>
+                                    <polygon points="16 8 20 8 23 11 23 16 16 16 16 8"></polygon>
+                                    <circle cx="5.5" cy="18.5" r="2.5"></circle>
+                                    <circle cx="18.5" cy="18.5" r="2.5"></circle>
+                                </svg>
+                                Kurier
+                            </span>
                             {% elif order.is_personal_pickup %}
                             <span class="delivery-badge delivery-pickup" title="Odbiór osobisty">
                                 <svg class="delivery-badge-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
