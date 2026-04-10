@@ -72,10 +72,10 @@ class ProductNameParser:
             'lakierowane': 'lakierowane', 'lakier': 'lakierowane', 'lacquer': 'lakierowane', 'lakierowany': 'lakierowane', 'lakierowana': 'lakierowane',
         }
 
-        # Mapowanie połysku
+        # Mapowanie połysku (półmatowy PRZED matowy — dłuższe klucze najpierw!)
         self._gloss_mapping = {
-            'matowy': 'matowy', 'mat': 'matowy', 'matowe': 'matowy', 'matowa': 'matowy',
             'półmatowy': 'półmatowy', 'półmat': 'półmatowy', 'półmatowe': 'półmatowy', 'półmatowa': 'półmatowy',
+            'matowy': 'matowy', 'mat': 'matowy', 'matowe': 'matowy', 'matowa': 'matowy',
         }
         
         # Mapowanie gatunków drewna
@@ -565,22 +565,37 @@ class ProductNameParser:
         else:
             result['finish_color_type'] = 'bezbarwnie'
 
-        # Połysk
+        # Połysk (default: półmatowy jeśli nie znaleziono)
         for keyword, gloss in self._gloss_mapping.items():
             if keyword in name:
                 result['finish_gloss'] = gloss
                 break
+        if not result['finish_gloss']:
+            result['finish_gloss'] = 'półmatowy'
 
-        # Kolor + kod (tylko przy barwnie)
+        # Kolor + kod (tylko przy barwnie) — szukaj po słowie połysku lub "barwnie"
         if result['finish_color_type'] == 'barwnie':
+            # Znajdź punkt startowy: po słowie połysku jeśli istnieje, albo po "barwnie"
+            gloss_words = ['półmatowy', 'półmat', 'półmatowe', 'półmatowa',
+                           'matowy', 'mat', 'matowe', 'matowa']
+            search_start = 0
+            barwnie_match = re.search(r'barwni\w*', name)
+            if barwnie_match:
+                search_start = barwnie_match.end()
+            for gw in gloss_words:
+                gw_pos = name.find(gw, search_start)
+                if gw_pos >= 0:
+                    search_start = gw_pos + len(gw)
+                    break
+
+            text_after = name[search_start:].strip().upper()
             color_match = re.search(
                 r'([A-ZĘÓŁŚĄŻŹĆŃ]+(?:\s+[A-ZĘÓŁŚĄŻŹĆŃ]+)*?)\s+(\d{2}[\-/]\d{2,3})',
-                name.upper()
+                text_after
             )
             if color_match:
                 color_name = color_match.group(1).strip()
                 color_code = color_match.group(2)
-                # Filtruj fałszywe dopasowania (np. wymiary)
                 if len(color_name) >= 3 and color_name not in ('CM', 'MM'):
                     result['finish_color'] = f'{color_name} {color_code}'
 
