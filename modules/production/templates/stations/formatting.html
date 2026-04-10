@@ -136,15 +136,16 @@
 
                 <!-- ORDER HEADER - 2 rows layout -->
                 <div class="order-header">
-                    <!-- Row 1: Order IDs with space-between -->
                     <div class="order-header-row order-ids-row">
-                        <span class="order-number">{{ order.order_number }}</span>
-                        {% if order.client_order_number %}
-                        <span class="order-internal">{{ order.client_order_number }}</span>
-                        {% endif %}
-                        {% if order.baselinker_order_id %}
-                        <span class="order-baselinker">BL-{{ order.baselinker_order_id }}</span>
-                        {% endif %}
+                        <div class="order-ids">
+                            <span class="order-number">{{ order.order_number }}</span>
+                            {% if order.client_order_number %}
+                            <span class="order-internal">{{ order.client_order_number }}</span>
+                            {% endif %}
+                            {% if order.baselinker_order_id %}
+                            <span class="order-baselinker">BL-{{ order.baselinker_order_id }}</span>
+                            {% endif %}
+                        </div>
                         {% set first_product = order.products[0] if order.products else none %}
                         <div class="order-icons">
                             {% if first_product and first_product.get('attachment_file_url') %}

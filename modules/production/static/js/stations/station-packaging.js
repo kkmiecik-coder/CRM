@@ -1419,9 +1419,11 @@
                  data-any-priority="${anyProductPriority ? 'true' : 'false'}">
                 <div class="order-header">
                     <div class="order-header-row order-ids-row">
-                        <span class="order-number">${order.order_number}</span>
-                        ${clientOrderBadge}
-                        ${blBadge}
+                        <div class="order-ids">
+                            <span class="order-number">${order.order_number}</span>
+                            ${clientOrderBadge}
+                            ${blBadge}
+                        </div>
                         ${deliveryBadgeHTML}
                         <div class="order-icons">${iconsHTML}</div>
                     </div>

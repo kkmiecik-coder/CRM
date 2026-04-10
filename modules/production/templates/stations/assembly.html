@@ -125,13 +125,15 @@
                  data-is-priority="{{ 'true' if product.is_priority else 'false' }}">
                 <div class="order-header">
                     <div class="order-header-row order-ids-row">
-                        <span class="order-number">{{ product.id }}</span>
-                        {% if product.client_order_number %}
-                            <span class="order-internal">{{ product.client_order_number }}</span>
-                        {% endif %}
-                        {% if product.baselinker_order_id %}
-                            <span class="order-baselinker">BL-{{ product.baselinker_order_id }}</span>
-                        {% endif %}
+                        <div class="order-ids">
+                            <span class="order-number">{{ product.id }}</span>
+                            {% if product.client_order_number %}
+                                <span class="order-internal">{{ product.client_order_number }}</span>
+                            {% endif %}
+                            {% if product.baselinker_order_id %}
+                                <span class="order-baselinker">BL-{{ product.baselinker_order_id }}</span>
+                            {% endif %}
+                        </div>
                         <div class="order-icons">
                             {% if product.attachment_file_url %}
                                 {% set attachment_type = 'pdf' if product.attachment_file_name and product.attachment_file_name.lower().endswith('.pdf') else 'image' %}

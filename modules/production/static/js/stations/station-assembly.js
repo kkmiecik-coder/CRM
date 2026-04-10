@@ -1052,9 +1052,11 @@
                  data-is-priority="${product.is_priority ? 'true' : 'false'}">
                 <div class="order-header">
                     <div class="order-header-row order-ids-row">
-                        <span class="order-number">${product.id}</span>
-                        ${internalOrderHTML}
-                        ${blOrderHTML}
+                        <div class="order-ids">
+                            <span class="order-number">${product.id}</span>
+                            ${internalOrderHTML}
+                            ${blOrderHTML}
+                        </div>
                         <div class="order-icons">${iconsHTML}</div>
                     </div>
                 </div>

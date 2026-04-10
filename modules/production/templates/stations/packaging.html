@@ -137,16 +137,16 @@
 
                 <!-- ORDER HEADER - 2 rows layout -->
                 <div class="order-header">
-                    <!-- Row 1: Order IDs with space-between -->
                     <div class="order-header-row order-ids-row">
-                        <span class="order-number">{{ order.order_number }}</span>
-                        {% if order.client_order_number %}
-                        <span class="order-internal">{{ order.client_order_number }}</span>
-                        {% endif %}
-                        {% if order.baselinker_order_id %}
-                        <span class="order-baselinker">BL-{{ order.baselinker_order_id }}</span>
-                        {% endif %}
-                        <!-- DELIVERY BADGE (2025-12) -->
+                        <div class="order-ids">
+                            <span class="order-number">{{ order.order_number }}</span>
+                            {% if order.client_order_number %}
+                            <span class="order-internal">{{ order.client_order_number }}</span>
+                            {% endif %}
+                            {% if order.baselinker_order_id %}
+                            <span class="order-baselinker">BL-{{ order.baselinker_order_id }}</span>
+                            {% endif %}
+                        </div>
                         <div class="delivery-badge-container">
                             {% if order.is_personal_pickup %}
                             <span class="delivery-badge delivery-pickup" title="Odbiór osobisty">

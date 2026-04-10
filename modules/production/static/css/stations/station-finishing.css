@@ -147,9 +147,16 @@ body:not(.dark-mode) .tab-btn.active {
 
 /* Row 1: Order IDs with space-between */
 .order-ids-row {
-    justify-content: space-between;
-    gap: 12px;
+    gap: 8px;
     padding: 8px 12px;
+}
+
+.order-ids {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex: 1;
+    gap: 8px;
 }
 
 /* Row 2: Stats left, Icons right */
