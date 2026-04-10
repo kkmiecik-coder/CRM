@@ -603,15 +603,15 @@ body {
     gap: 6px;
 }
 
-/* Wymiary + counter w jednym wierszu */
+/* Wymiary + counter w pionie */
 .product-body .product-dimensions-row {
     display: flex;
-    align-items: center;
-    gap: 10px;
+    flex-direction: column;
+    gap: 8px;
 }
 
 .product-body .product-dimensions-row .badge-dimensions {
-    flex: 1;
+    width: 100%;
 }
 
 /* Counter + przyciski */
@@ -631,13 +631,13 @@ body {
 
 .product-row .product-dimensions-row {
     display: flex;
-    align-items: center;
-    gap: 10px;
+    flex-direction: column;
+    gap: 8px;
     margin-top: 6px;
 }
 
 .product-row .product-dimensions-row .badge-dimensions {
-    flex: 1;
+    width: 100%;
 }
 
 .product-row .quantity-controls {
