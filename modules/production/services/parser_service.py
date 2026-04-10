@@ -65,26 +65,17 @@ class ProductNameParser:
             r'(\d+(?:[.,]\d+)?)\s*-\s*(\d+(?:[.,]\d+)?)\s*-\s*(\d+(?:[.,]\d+)?)',        # 120-80-2.5
         ]
         
-        # Mapowanie wykończeń
-        self._finish_mapping = {
-            'surowe': 'surowe',
-            'sur': 'surowe',
-            'raw': 'surowe',
-            'olejowane': 'olejowane', 
-            'olej': 'olejowane',
-            'oil': 'olejowane',
-            'bejcowane': 'bejcowane',
-            'bejca': 'bejcowane',
-            'stain': 'bejcowane',
-            'lakierowane': 'lakierowane',
-            'lakier': 'lakierowane',
-            'lacquer': 'lakierowane',
-            'matt': 'lakierowane_matt',
-            'matowe': 'lakierowane_matt',
-            'satin': 'lakierowane_satin',
-            'satynowe': 'lakierowane_satin',
-            'gloss': 'lakierowane_gloss',
-            'połysk': 'lakierowane_gloss'
+        # Mapowanie typów wykończenia (tylko typ bazowy)
+        self._finish_type_mapping = {
+            'surowe': 'surowe', 'sur': 'surowe', 'raw': 'surowe', 'surowy': 'surowe', 'surowa': 'surowe',
+            'olejowane': 'olejowane', 'olej': 'olejowane', 'oil': 'olejowane', 'olejowany': 'olejowane', 'olejowana': 'olejowane',
+            'lakierowane': 'lakierowane', 'lakier': 'lakierowane', 'lacquer': 'lakierowane', 'lakierowany': 'lakierowane', 'lakierowana': 'lakierowane',
+        }
+
+        # Mapowanie połysku
+        self._gloss_mapping = {
+            'matowy': 'matowy', 'mat': 'matowy', 'matowe': 'matowy', 'matowa': 'matowy',
+            'półmatowy': 'półmatowy', 'półmat': 'półmatowy', 'półmatowe': 'półmatowy', 'półmatowa': 'półmatowy',
         }
         
         # Mapowanie gatunków drewna
@@ -324,14 +315,18 @@ class ProductNameParser:
             else:
                 errors.append("Nie rozpoznano technologii")
             
-            # 5. Parsowanie wykończenia
-            finish_state = self._parse_finish_state(normalized_name)
-            if finish_state:
-                result['finish_state'] = finish_state
+            # 5. Parsowanie wykończenia (strukturalne)
+            finish_data = self._parse_finish_state(normalized_name)
+            if finish_data.get('finish_type'):
+                result['finish_state'] = finish_data.get('finish_display', 'Surowe')
+                result['finish_type'] = finish_data['finish_type']
+                result['finish_color_type'] = finish_data.get('finish_color_type')
+                result['finish_gloss'] = finish_data.get('finish_gloss')
+                result['finish_color'] = finish_data.get('finish_color')
                 confidence_factors.append(0.6)
             else:
-                # Domyślnie surowe jeśli nie znaleziono wykończenia
-                result['finish_state'] = 'surowe'
+                result['finish_state'] = 'Surowe'
+                result['finish_type'] = 'surowe'
             
             # 5b. Parsowanie obróbki krawędzi
             edge_processing = self._parse_edge_processing(normalized_name)
@@ -484,40 +479,46 @@ class ProductNameParser:
         
         return None
     
-    def _parse_finish_state(self, name: str) -> Optional[str]:
+    def _parse_finish_state(self, name: str) -> Dict[str, Any]:
         """
-        Parsuje stan wykończenia z nazwy z obsługą kolorów lakieru i bejcy
-
-        Args:
-            name (str): Nazwa do parsowania
+        Parsuje wykończenie z nazwy produktu — zwraca strukturalny słownik.
 
         Returns:
-            Optional[str]: Stan wykończenia lub None
-
-        Przykłady:
-            "lakierowany bezbarwny" -> "Lakierowany bezbarwny"
-            "lakierowany POPIEL 20-07" -> "Lakierowany POPIEL 20-07"
-            "bejcowany BRUNAT 22-15" -> "Bejcowany BRUNAT 22-15"
-            "olejowany" -> "Olejowany"
-            "surowy" -> "Surowe"
+            Dict z kluczami: finish_type, finish_color_type, finish_gloss, finish_color, finish_display
         """
-        # Sprawdzenie czy lakierowany
-        if 'lakier' in name:
-            return self._parse_lacquer_finish(name)
+        result = {
+            'finish_type': None,
+            'finish_color_type': None,
+            'finish_gloss': None,
+            'finish_color': None,
+            'finish_display': None,
+        }
 
-        # Sprawdzenie czy bejcowany
-        if 'bejc' in name or 'stain' in name:
-            return self._parse_stain_finish(name)
+        # 1. Wykryj typ wykończenia
+        for keyword, finish_type in self._finish_type_mapping.items():
+            if keyword in name:
+                result['finish_type'] = finish_type
+                break
 
-        # Sprawdzenie olejowania
-        if 'olej' in name or 'oil' in name:
-            return 'Olejowane'
+        if not result['finish_type']:
+            return result
 
-        # Sprawdzenie surowego
-        if 'sur' in name or 'raw' in name:
-            return 'Surowe'
+        # 2. Surowe — nic więcej
+        if result['finish_type'] == 'surowe':
+            result['finish_display'] = 'Surowe'
+            return result
 
-        return None
+        # 3. Olejowane — zawsze bezbarwne
+        if result['finish_type'] == 'olejowane':
+            result['finish_color_type'] = 'bezbarwnie'
+            result['finish_display'] = 'Olejowane bezbarwne'
+            return result
+
+        # 4. Lakierowane — parsuj barwność, połysk, kolor
+        if result['finish_type'] == 'lakierowane':
+            return self._parse_lacquer_finish_structured(name, result)
+
+        return result
 
     def _parse_edge_processing(self, name: str) -> bool:
         """
@@ -544,6 +545,79 @@ class ProductNameParser:
             return True
 
         return False
+
+    def _parse_lacquer_finish_structured(self, name: str, result: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Parsuje szczegóły lakierowania: barwność, połysk, kolor z kodem.
+
+        Args:
+            name: znormalizowana nazwa produktu (lowercase)
+            result: częściowo wypełniony słownik z finish_type='lakierowane'
+
+        Returns:
+            Dict z wypełnionymi polami lakierowania
+        """
+        # Barwność
+        if 'bezbarw' in name:
+            result['finish_color_type'] = 'bezbarwnie'
+        elif 'barwn' in name:
+            result['finish_color_type'] = 'barwnie'
+        else:
+            result['finish_color_type'] = 'bezbarwnie'
+
+        # Połysk
+        for keyword, gloss in self._gloss_mapping.items():
+            if keyword in name:
+                result['finish_gloss'] = gloss
+                break
+
+        # Kolor + kod (tylko przy barwnie)
+        if result['finish_color_type'] == 'barwnie':
+            color_match = re.search(
+                r'([A-ZĘÓŁŚĄŻŹĆŃ]+(?:\s+[A-ZĘÓŁŚĄŻŹĆŃ]+)*?)\s+(\d{2}[\-/]\d{2,3})',
+                name.upper()
+            )
+            if color_match:
+                color_name = color_match.group(1).strip()
+                color_code = color_match.group(2)
+                # Filtruj fałszywe dopasowania (np. wymiary)
+                if len(color_name) >= 3 and color_name not in ('CM', 'MM'):
+                    result['finish_color'] = f'{color_name} {color_code}'
+
+        # Generowanie display string
+        result['finish_display'] = self._build_finish_display(result)
+        return result
+
+    def _build_finish_display(self, finish_data: Dict[str, Any]) -> str:
+        """
+        Buduje pełny display string z danych wykończenia.
+
+        Przykłady:
+            Surowe
+            Olejowane bezbarwne
+            Lakierowane bezbarwnie matowy
+            Lakierowane barwnie półmatowy BRUNAT 22-23
+        """
+        parts = []
+        ft = finish_data.get('finish_type')
+        if not ft:
+            return 'Surowe'
+
+        parts.append(ft.capitalize())
+
+        color_type = finish_data.get('finish_color_type')
+        if color_type:
+            parts.append(color_type)
+
+        gloss = finish_data.get('finish_gloss')
+        if gloss:
+            parts.append(gloss)
+
+        color = finish_data.get('finish_color')
+        if color:
+            parts.append(color)
+
+        return ' '.join(parts)
 
     def _parse_lacquer_finish(self, name: str) -> str:
         """
@@ -683,7 +757,11 @@ class ProductNameParser:
             'length_cm': None,
             'width_cm': None,
             'thickness_cm': None,
-            'finish_state': 'surowe',  # Domyślne wykończenie
+            'finish_state': 'Surowe',
+            'finish_type': 'surowe',
+            'finish_color_type': None,
+            'finish_gloss': None,
+            'finish_color': None,
             'edge_processing': False,
             'volume_m3': None,
             'parsing_success': False,
