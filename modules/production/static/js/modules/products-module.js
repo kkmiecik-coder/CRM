@@ -3079,18 +3079,12 @@ class ProductsModule {
                 const countEl = ilBar.querySelector('.il-bulk-count');
                 if (countEl) countEl.textContent = `${selectedCount} zaznaczone`;
 
-                // Enable/disable status change button
+                // Enable status change button whenever any products are selected
                 const statusBtn = ilBar.querySelector('.il-bulk-btn[data-action="status"]');
                 if (statusBtn) {
-                    if (completeOrders) {
-                        statusBtn.disabled = false;
-                        statusBtn.title = 'Zmień status zaznaczonych zamówień';
-                        statusBtn.style.opacity = '';
-                    } else {
-                        statusBtn.disabled = true;
-                        statusBtn.title = 'Zaznacz wszystkie produkty w zamówieniu, aby zmienić status';
-                        statusBtn.style.opacity = '0.4';
-                    }
+                    statusBtn.disabled = false;
+                    statusBtn.title = 'Zmień status zaznaczonych produktów';
+                    statusBtn.style.opacity = '';
                 }
 
                 // Bind click handlers (only once)
@@ -3128,14 +3122,12 @@ class ProductsModule {
                 if (countSpan) {
                     countSpan.textContent = selectedCount;
                 }
-                // Disable status change if not complete orders
+                // Enable status change for any selected products
                 const legacyStatusBtn = document.getElementById('bulk-change-status');
                 if (legacyStatusBtn) {
-                    legacyStatusBtn.disabled = !completeOrders;
-                    legacyStatusBtn.title = completeOrders
-                        ? 'Zmień status'
-                        : 'Zaznacz wszystkie produkty w zamówieniu, aby zmienić status';
-                    legacyStatusBtn.style.opacity = completeOrders ? '' : '0.4';
+                    legacyStatusBtn.disabled = false;
+                    legacyStatusBtn.title = 'Zmień status zaznaczonych produktów';
+                    legacyStatusBtn.style.opacity = '';
                 }
             } else {
                 bulkActionsBar.style.display = 'none';
