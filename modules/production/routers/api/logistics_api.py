@@ -77,7 +77,7 @@ def logistics_orders():
         orders = []
         for entry in orders_map.values():
             products = entry['products']
-            entry['total_volume'] = round(sum(p['volume_m3'] for p in products), 4)
+            entry['total_volume'] = round(sum(p['volume_m3'] * p.get('quantity', 1) for p in products), 4)
             entry['total_products'] = len(products)
             # Serialize deadline
             if entry['earliest_deadline'] is not None:

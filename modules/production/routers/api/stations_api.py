@@ -79,7 +79,7 @@ def stations_tab_content():
                     completed_field >= today_start
                 ).count()
 
-                today_volume = db.session.query(db.func.sum(ProductionItem.volume_m3))\
+                today_volume = db.session.query(db.func.sum(ProductionItem.volume_m3 * ProductionItem.quantity))\
                                        .filter(completed_field >= today_start)\
                                        .scalar() or 0.0
             except AttributeError:

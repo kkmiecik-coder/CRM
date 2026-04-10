@@ -592,7 +592,7 @@ def get_station_summary():
         summary_data = db.session.query(
             ProductionItem.current_status,
             func.count(ProductionItem.id).label('count'),
-            func.sum(ProductionItem.volume_m3).label('volume'),
+            func.sum(ProductionItem.volume_m3 * ProductionItem.quantity).label('volume'),
             func.avg(ProductionItem.priority_rank).label('avg_rank')
         ).filter(
             ProductionItem.current_status.in_([
@@ -893,7 +893,7 @@ def _ajax_get_orders_simple(station_code: str, status_filter: str, quantity_done
 
             orders_grouped[order_num]['products'].append(product_data)
             orders_grouped[order_num]['total_products'] += 1
-            orders_grouped[order_num]['total_volume'] += float(product.volume_m3 or 0)
+            orders_grouped[order_num]['total_volume'] += float(product.volume_m3 or 0) * (product.quantity or 1)
 
             if not orders_grouped[order_num]['baselinker_order_id'] and product.baselinker_order_id:
                 orders_grouped[order_num]['baselinker_order_id'] = product.baselinker_order_id

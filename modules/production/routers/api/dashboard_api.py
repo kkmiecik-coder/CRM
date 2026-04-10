@@ -348,7 +348,7 @@ def chart_data():
             # Zapytanie o sumę objętości, ilości i wartości netto per dzień
             daily_stats = db.session.query(
                 func.date(completion_attr).label('completion_date'),
-                func.sum(ProductionItem.volume_m3).label('total_volume'),
+                func.sum(ProductionItem.volume_m3 * ProductionItem.quantity).label('total_volume'),
                 func.sum(quantity_attr).label('total_quantity'),
                 func.sum(ProductionItem.total_value_net).label('total_value')
             ).filter(
@@ -561,7 +561,7 @@ def chart_data():
 
             daily_volumes = db.session.query(
                 func.date(completion_attr).label('completion_date'),
-                func.sum(ProductionItem.volume_m3).label('total_volume')
+                func.sum(ProductionItem.volume_m3 * ProductionItem.quantity).label('total_volume')
             ).filter(
                 and_(
                     completion_attr.isnot(None),
@@ -786,14 +786,14 @@ def dashboard_tab_content():
 
         try:
             cutting_m3_today = db.session.query(
-                db.func.coalesce(db.func.sum(ProductionItem.volume_m3), 0)
+                db.func.coalesce(db.func.sum(ProductionItem.volume_m3 * ProductionItem.quantity), 0)
             ).filter(
                 ProductionItem.cutting_completed_at >= today_start,
                 ProductionItem.cutting_completed_at <= today_end
             ).scalar() or 0.0
 
             assembly_m3_today = db.session.query(
-                db.func.coalesce(db.func.sum(ProductionItem.volume_m3), 0)
+                db.func.coalesce(db.func.sum(ProductionItem.volume_m3 * ProductionItem.quantity), 0)
             ).filter(
                 ProductionItem.assembly_completed_at >= today_start,
                 ProductionItem.assembly_completed_at <= today_end
@@ -801,7 +801,7 @@ def dashboard_tab_content():
 
             try:
                 gluing_m3_today = db.session.query(
-                    db.func.coalesce(db.func.sum(ProductionItem.volume_m3), 0)
+                    db.func.coalesce(db.func.sum(ProductionItem.volume_m3 * ProductionItem.quantity), 0)
                 ).filter(
                     ProductionItem.gluing_completed_at >= today_start,
                     ProductionItem.gluing_completed_at <= today_end
@@ -811,7 +811,7 @@ def dashboard_tab_content():
 
             try:
                 formatting_m3_today = db.session.query(
-                    db.func.coalesce(db.func.sum(ProductionItem.volume_m3), 0)
+                    db.func.coalesce(db.func.sum(ProductionItem.volume_m3 * ProductionItem.quantity), 0)
                 ).filter(
                     ProductionItem.formatting_completed_at >= today_start,
                     ProductionItem.formatting_completed_at <= today_end
@@ -821,7 +821,7 @@ def dashboard_tab_content():
 
             try:
                 finishing_m3_today = db.session.query(
-                    db.func.coalesce(db.func.sum(ProductionItem.volume_m3), 0)
+                    db.func.coalesce(db.func.sum(ProductionItem.volume_m3 * ProductionItem.quantity), 0)
                 ).filter(
                     ProductionItem.finishing_completed_at >= today_start,
                     ProductionItem.finishing_completed_at <= today_end
@@ -830,7 +830,7 @@ def dashboard_tab_content():
                 finishing_m3_today = 0.0
 
             packaging_m3_today = db.session.query(
-                db.func.coalesce(db.func.sum(ProductionItem.volume_m3), 0)
+                db.func.coalesce(db.func.sum(ProductionItem.volume_m3 * ProductionItem.quantity), 0)
             ).filter(
                 ProductionItem.packaging_completed_at >= today_start,
                 ProductionItem.packaging_completed_at <= today_end
@@ -891,7 +891,7 @@ def dashboard_tab_content():
             ProductionItem.cutting_completed_at <= today_end
         ).count()
         cutting_pending_m3 = db.session.query(
-            db.func.coalesce(db.func.sum(ProductionItem.volume_m3), 0)
+            db.func.coalesce(db.func.sum(ProductionItem.volume_m3 * ProductionItem.quantity), 0)
         ).filter(
             ProductionItem.current_status == 'czeka_na_wyciecie'
         ).scalar() or 0.0
@@ -903,7 +903,7 @@ def dashboard_tab_content():
             ProductionItem.assembly_completed_at <= today_end
         ).count()
         assembly_pending_m3 = db.session.query(
-            db.func.coalesce(db.func.sum(ProductionItem.volume_m3), 0)
+            db.func.coalesce(db.func.sum(ProductionItem.volume_m3 * ProductionItem.quantity), 0)
         ).filter(
             ProductionItem.current_status == 'czeka_na_skladanie'
         ).scalar() or 0.0
@@ -918,7 +918,7 @@ def dashboard_tab_content():
                 ProductionItem.gluing_completed_at <= today_end
             ).count()
             gluing_pending_m3 = db.session.query(
-                db.func.coalesce(db.func.sum(ProductionItem.volume_m3), 0)
+                db.func.coalesce(db.func.sum(ProductionItem.volume_m3 * ProductionItem.quantity), 0)
             ).filter(
                 ProductionItem.current_status == 'czeka_na_sklejanie'
             ).scalar() or 0.0
@@ -935,7 +935,7 @@ def dashboard_tab_content():
                 ProductionItem.formatting_completed_at <= today_end
             ).count()
             formatting_pending_m3 = db.session.query(
-                db.func.coalesce(db.func.sum(ProductionItem.volume_m3), 0)
+                db.func.coalesce(db.func.sum(ProductionItem.volume_m3 * ProductionItem.quantity), 0)
             ).filter(
                 ProductionItem.current_status == 'czeka_na_formatowanie'
             ).scalar() or 0.0
@@ -952,7 +952,7 @@ def dashboard_tab_content():
                 ProductionItem.finishing_completed_at <= today_end
             ).count()
             finishing_pending_m3 = db.session.query(
-                db.func.coalesce(db.func.sum(ProductionItem.volume_m3), 0)
+                db.func.coalesce(db.func.sum(ProductionItem.volume_m3 * ProductionItem.quantity), 0)
             ).filter(
                 ProductionItem.current_status == 'czeka_na_wykanczanie'
             ).scalar() or 0.0
@@ -966,7 +966,7 @@ def dashboard_tab_content():
             ProductionItem.packaging_completed_at <= today_end
         ).count()
         packaging_pending_m3 = db.session.query(
-            db.func.coalesce(db.func.sum(ProductionItem.volume_m3), 0)
+            db.func.coalesce(db.func.sum(ProductionItem.volume_m3 * ProductionItem.quantity), 0)
         ).filter(
             ProductionItem.current_status == 'czeka_na_pakowanie'
         ).scalar() or 0.0
@@ -995,7 +995,7 @@ def dashboard_tab_content():
         total_m3_today = 0.0
         try:
             total_m3_today = db.session.query(
-                db.func.coalesce(db.func.sum(ProductionItem.volume_m3), 0)
+                db.func.coalesce(db.func.sum(ProductionItem.volume_m3 * ProductionItem.quantity), 0)
             ).filter(
                 ProductionItem.current_status == 'spakowane',
                 ProductionItem.packaging_completed_at >= today_start,
@@ -1049,7 +1049,7 @@ def dashboard_tab_content():
         dashboard_stats['in_production'] = {
             'orders': len(in_production_order_ids),
             'products': len(in_production_items),
-            'm3': round(sum(float(item.volume_m3 or 0) for item in in_production_items), 2)
+            'm3': round(sum(float(item.volume_m3 or 0) * item.quantity for item in in_production_items), 2)
         }
 
         deadline_items = ProductionItem.query.filter(
@@ -1155,7 +1155,7 @@ def dashboard_data():
             ProductionItem.cutting_completed_at <= today_end_dd
         ).count()
         cutting_pending_m3_dd = db.session.query(
-            db.func.coalesce(db.func.sum(ProductionItem.volume_m3), 0)
+            db.func.coalesce(db.func.sum(ProductionItem.volume_m3 * ProductionItem.quantity), 0)
         ).filter(
             ProductionItem.current_status == 'czeka_na_wyciecie'
         ).scalar() or 0.0
@@ -1180,7 +1180,7 @@ def dashboard_data():
             ProductionItem.assembly_completed_at <= today_end_dd
         ).count()
         assembly_pending_m3_dd = db.session.query(
-            db.func.coalesce(db.func.sum(ProductionItem.volume_m3), 0)
+            db.func.coalesce(db.func.sum(ProductionItem.volume_m3 * ProductionItem.quantity), 0)
         ).filter(
             ProductionItem.current_status == 'czeka_na_skladanie'
         ).scalar() or 0.0
@@ -1208,7 +1208,7 @@ def dashboard_data():
                 ProductionItem.gluing_completed_at <= today_end_dd
             ).count()
             gluing_pending_m3_dd = db.session.query(
-                db.func.coalesce(db.func.sum(ProductionItem.volume_m3), 0)
+                db.func.coalesce(db.func.sum(ProductionItem.volume_m3 * ProductionItem.quantity), 0)
             ).filter(
                 ProductionItem.current_status == 'czeka_na_sklejanie'
             ).scalar() or 0.0
@@ -1238,7 +1238,7 @@ def dashboard_data():
                 ProductionItem.formatting_completed_at <= today_end_dd
             ).count()
             formatting_pending_m3_dd = db.session.query(
-                db.func.coalesce(db.func.sum(ProductionItem.volume_m3), 0)
+                db.func.coalesce(db.func.sum(ProductionItem.volume_m3 * ProductionItem.quantity), 0)
             ).filter(
                 ProductionItem.current_status == 'czeka_na_formatowanie'
             ).scalar() or 0.0
@@ -1268,7 +1268,7 @@ def dashboard_data():
                 ProductionItem.finishing_completed_at <= today_end_dd
             ).count()
             finishing_pending_m3_dd = db.session.query(
-                db.func.coalesce(db.func.sum(ProductionItem.volume_m3), 0)
+                db.func.coalesce(db.func.sum(ProductionItem.volume_m3 * ProductionItem.quantity), 0)
             ).filter(
                 ProductionItem.current_status == 'czeka_na_wykanczanie'
             ).scalar() or 0.0
@@ -1295,7 +1295,7 @@ def dashboard_data():
             ProductionItem.packaging_completed_at <= today_end_dd
         ).count()
         packaging_pending_m3_dd = db.session.query(
-            db.func.coalesce(db.func.sum(ProductionItem.volume_m3), 0)
+            db.func.coalesce(db.func.sum(ProductionItem.volume_m3 * ProductionItem.quantity), 0)
         ).filter(
             ProductionItem.current_status == 'czeka_na_pakowanie'
         ).scalar() or 0.0
@@ -1372,7 +1372,7 @@ def dashboard_data():
         in_production_stats = {
             'orders': len(in_production_order_ids_dd),
             'products': len(in_production_items_dd),
-            'm3': round(sum(float(item.volume_m3 or 0) for item in in_production_items_dd), 2)
+            'm3': round(sum(float(item.volume_m3 or 0) * item.quantity for item in in_production_items_dd), 2)
         }
 
         response_data = {
@@ -1596,7 +1596,7 @@ def dashboard_stats_data():
         try:
             if completed_today_original > 0:
                 volume_result = db.session.query(
-                    db.func.coalesce(db.func.sum(ProductionItem.volume_m3), 0)
+                    db.func.coalesce(db.func.sum(ProductionItem.volume_m3 * ProductionItem.quantity), 0)
                 ).filter(
                     ProductionItem.current_status == 'spakowane',
                     ProductionItem.packaging_completed_at >= today_start,
@@ -1604,7 +1604,7 @@ def dashboard_stats_data():
                 ).scalar()
             else:
                 volume_result = db.session.query(
-                    db.func.coalesce(db.func.sum(ProductionItem.volume_m3), 0)
+                    db.func.coalesce(db.func.sum(ProductionItem.volume_m3 * ProductionItem.quantity), 0)
                 ).filter(
                     ProductionItem.current_status == 'spakowane'
                 ).scalar()

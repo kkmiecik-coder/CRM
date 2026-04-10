@@ -49,7 +49,7 @@ def ajax_get_products(station_code):
         total_products = len(products)
         high_priority_count = sum(1 for p in products if p['priority_rank'] <= 50)
         overdue_count = sum(1 for p in products if p['is_overdue'])
-        total_volume = sum(p['volume_m3'] for p in products)
+        total_volume = sum(p['volume_m3'] * p.get('quantity', 1) for p in products)
 
         result = {
             'success': True,
@@ -274,7 +274,7 @@ def ajax_get_orders_packaging():
 
             orders_grouped[order_num]['products'].append(product_data)
             orders_grouped[order_num]['total_products'] += 1
-            orders_grouped[order_num]['total_volume'] += float(product.volume_m3 or 0)
+            orders_grouped[order_num]['total_volume'] += float(product.volume_m3 or 0) * (product.quantity or 1)
             orders_grouped[order_num]['total_quantity'] += product.quantity or 1
             orders_grouped[order_num]['total_quantity_done'] += product.quantity_done_packaging or 0
 
@@ -526,7 +526,7 @@ def ajax_get_orders_cutting():
         high_priority_count = sum(1 for p in products_list if p['priority_rank'] <= 50)
         overdue_count = sum(1 for p in products_list
                            if p['deadline_date'] and p['deadline_date'] < today.isoformat())
-        total_volume = sum(p['volume_m3'] for p in products_list)
+        total_volume = sum(p['volume_m3'] * p.get('quantity', 1) for p in products_list)
 
         stats = {
             'total_products': len(products_list),
@@ -680,7 +680,7 @@ def ajax_get_orders_assembly():
         high_priority_count = sum(1 for p in products_list if p['priority_rank'] <= 50)
         overdue_count = sum(1 for p in products_list
                            if p['deadline_date'] and p['deadline_date'] < today.isoformat())
-        total_volume = sum(p['volume_m3'] for p in products_list)
+        total_volume = sum(p['volume_m3'] * p.get('quantity', 1) for p in products_list)
 
         stats = {
             'total_products': len(products_list),
@@ -832,7 +832,7 @@ def ajax_get_orders_gluing():
         high_priority_count = sum(1 for p in products_list if p['priority_rank'] <= 50)
         overdue_count = sum(1 for p in products_list
                            if p['deadline_date'] and p['deadline_date'] < today.isoformat())
-        total_volume = sum(p['volume_m3'] for p in products_list)
+        total_volume = sum(p['volume_m3'] * p.get('quantity', 1) for p in products_list)
 
         stats = {
             'total_products': len(products_list),
@@ -925,7 +925,7 @@ def ajax_station_today_m3(station_code):
 
             # Query dla dzisiejszych m3 (identyczna logika jak w dashboard)
             today_m3 = db.session.query(
-                db.func.coalesce(db.func.sum(ProductionItem.volume_m3), 0)
+                db.func.coalesce(db.func.sum(ProductionItem.volume_m3 * ProductionItem.quantity), 0)
             ).filter(
                 completed_at_field >= today_start,
                 completed_at_field <= today_end

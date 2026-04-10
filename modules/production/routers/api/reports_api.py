@@ -45,7 +45,7 @@ def reports_tab_content():
                 ProductionItem.packaging_completed_at <= day_end
             ).count()
             
-            volume = db.session.query(db.func.sum(ProductionItem.volume_m3))\
+            volume = db.session.query(db.func.sum(ProductionItem.volume_m3 * ProductionItem.quantity))\
                               .filter(
                                   ProductionItem.current_status == 'spakowane',
                                   ProductionItem.packaging_completed_at >= day_start,
@@ -62,7 +62,7 @@ def reports_tab_content():
         status_stats = db.session.query(
             ProductionItem.current_status,
             func.count(ProductionItem.id).label('count'),
-            func.sum(ProductionItem.volume_m3).label('volume')
+            func.sum(ProductionItem.volume_m3 * ProductionItem.quantity).label('volume')
         ).filter(
             ProductionItem.current_status.isnot(None)
         ).group_by(ProductionItem.current_status).all()
@@ -81,7 +81,7 @@ def reports_tab_content():
             ProductionItem.current_status,
             ProductionItem.parsed_wood_species,
             ProductionItem.parsed_technology,
-            func.sum(ProductionItem.volume_m3).label('volume')
+            func.sum(ProductionItem.volume_m3 * ProductionItem.quantity).label('volume')
         ).filter(
             ProductionItem.current_status.isnot(None),
             ProductionItem.parsed_wood_species.isnot(None)
@@ -119,7 +119,7 @@ def reports_tab_content():
         species_stats = db.session.query(
             ProductionItem.parsed_wood_species,
             func.count(ProductionItem.id).label('count'),
-            func.sum(ProductionItem.volume_m3).label('volume')
+            func.sum(ProductionItem.volume_m3 * ProductionItem.quantity).label('volume')
         ).filter(
             ProductionItem.parsed_wood_species.isnot(None),
             ProductionItem.current_status != 'anulowane'
@@ -138,7 +138,7 @@ def reports_tab_content():
         thickness_stats = db.session.query(
             ProductionItem.parsed_thickness_cm,
             func.count(ProductionItem.id).label('count'),
-            func.sum(ProductionItem.volume_m3).label('volume')
+            func.sum(ProductionItem.volume_m3 * ProductionItem.quantity).label('volume')
         ).filter(
             ProductionItem.parsed_thickness_cm.isnot(None),
             ProductionItem.current_status != 'anulowane'
@@ -159,7 +159,7 @@ def reports_tab_content():
         technology_stats = db.session.query(
             ProductionItem.parsed_technology,
             func.count(ProductionItem.id).label('count'),
-            func.sum(ProductionItem.volume_m3).label('volume')
+            func.sum(ProductionItem.volume_m3 * ProductionItem.quantity).label('volume')
         ).filter(
             ProductionItem.parsed_technology.isnot(None),
             ProductionItem.current_status != 'anulowane'
@@ -178,7 +178,7 @@ def reports_tab_content():
         wood_class_stats = db.session.query(
             ProductionItem.parsed_wood_class,
             func.count(ProductionItem.id).label('count'),
-            func.sum(ProductionItem.volume_m3).label('volume')
+            func.sum(ProductionItem.volume_m3 * ProductionItem.quantity).label('volume')
         ).filter(
             ProductionItem.parsed_wood_class.isnot(None),
             ProductionItem.parsed_wood_class != '',

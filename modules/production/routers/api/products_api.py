@@ -741,7 +741,7 @@ def products_tab_content():
             products_data.append(product_dict)
         
         # Przygotuj statystyki
-        total_volume = sum(p['volume_m3'] for p in products_data)
+        total_volume = sum(p['volume_m3'] * p['quantity'] for p in products_data)
         total_value = sum(p['total_value_net'] for p in products_data)
         total_quantity = sum(p['quantity'] for p in products_data)  # NOWE: łączna ilość sztuk
 
@@ -1511,7 +1511,7 @@ def _export_excel(products, timestamp):
     # =========================================================================
     # PRZYGOTOWANIE DANYCH ANALITYCZNYCH
     # =========================================================================
-    total_volume = sum(float(p.volume_m3 or 0) for p in products)
+    total_volume = sum(float(p.volume_m3 or 0) * (p.quantity or 1) for p in products)
     total_qty = sum(p.quantity for p in products)
 
     # Agregacje
@@ -1527,27 +1527,27 @@ def _export_excel(products, timestamp):
 
         status_stats[p.current_status]['count'] += 1
         status_stats[p.current_status]['qty'] += qty
-        status_stats[p.current_status]['volume'] += vol
+        status_stats[p.current_status]['volume'] += vol * qty
 
         species = p.parsed_wood_species or 'Nieokreślony'
         species_stats[species]['count'] += 1
         species_stats[species]['qty'] += qty
-        species_stats[species]['volume'] += vol
+        species_stats[species]['volume'] += vol * qty
 
         tech = p.parsed_technology or 'Nieokreślona'
         technology_stats[tech]['count'] += 1
         technology_stats[tech]['qty'] += qty
-        technology_stats[tech]['volume'] += vol
+        technology_stats[tech]['volume'] += vol * qty
 
         wood_class = p.parsed_wood_class or 'Nieokreślona'
         wood_class_stats[wood_class]['count'] += 1
         wood_class_stats[wood_class]['qty'] += qty
-        wood_class_stats[wood_class]['volume'] += vol
+        wood_class_stats[wood_class]['volume'] += vol * qty
 
         thickness = f"{float(p.parsed_thickness_cm):.1f} cm" if p.parsed_thickness_cm else 'Nieokreślona'
         thickness_stats[thickness]['count'] += 1
         thickness_stats[thickness]['qty'] += qty
-        thickness_stats[thickness]['volume'] += vol
+        thickness_stats[thickness]['volume'] += vol * qty
 
     # =========================================================================
     # ARKUSZ 1: PODSUMOWANIE
@@ -1883,7 +1883,7 @@ def _export_pdf(products, timestamp, report_type='full'):
         ])
 
     # -- Dane analityczne --
-    total_volume = sum(float(p.volume_m3 or 0) for p in products)
+    total_volume = sum(float(p.volume_m3 or 0) * (p.quantity or 1) for p in products)
     total_qty = sum(p.quantity or 1 for p in products)
     total_value = sum(float(p.total_value_net or 0) for p in products)
 
@@ -1905,7 +1905,7 @@ def _export_pdf(products, timestamp, report_type='full'):
                            ('thickness', f"{float(p.parsed_thickness_cm):.1f} cm" if p.parsed_thickness_cm else 'Nieokreslona')]:
             buckets[key][field]['count'] += 1
             buckets[key][field]['qty'] += qty
-            buckets[key][field]['volume'] += vol
+            buckets[key][field]['volume'] += vol * qty
 
     elements = []
 
@@ -2391,7 +2391,7 @@ def products_filtered():
         # ZMIANA: Statystyki oparte na priority_rank
         stats = {
             'total_filtered': paginated.total,
-            'total_volume': sum(float(p['volume_m3']) for p in products_data),
+            'total_volume': sum(float(p['volume_m3']) * p.get('quantity', 1) for p in products_data),
             'total_value': sum(float(p['total_value']) for p in products_data),
             # ZMIANA: avg_priority_rank zamiast avg_priority_score
             'avg_priority_rank': sum(float(p['priority_rank'] or 0) for p in products_data) / len(products_data) if products_data else 0,

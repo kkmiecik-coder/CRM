@@ -100,7 +100,7 @@ def get_production_status_summary():
         summary = db.session.query(
             ProductionItem.current_status,
             func.count(ProductionItem.id).label('count'),
-            func.sum(ProductionItem.volume_m3).label('total_volume'),
+            func.sum(ProductionItem.volume_m3 * ProductionItem.quantity).label('total_volume'),
             func.sum(ProductionItem.total_value_net).label('total_value')
         ).filter(
             ProductionItem.current_status != 'anulowane'

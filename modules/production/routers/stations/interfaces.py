@@ -700,7 +700,7 @@ def formatting_station():
             order['total_products'] += 1
             order['total_quantity'] += product.get('quantity', 1) or 1
             order['total_quantity_done'] += product.get('quantity_done', 0) or 0
-            order['total_volume'] += product['volume_m3'] or 0
+            order['total_volume'] += (product['volume_m3'] or 0) * (product.get('quantity', 1) or 1)
 
             if product['priority_rank'] < order['best_priority_rank']:
                 order['best_priority_rank'] = product['priority_rank']
@@ -1165,7 +1165,7 @@ def packaging_station():
             order['total_products'] += 1
             order['total_quantity'] += product.get('quantity', 1) or 1
             order['total_quantity_done'] += product.get('quantity_done', 0) or 0
-            order['total_volume'] += product['volume_m3'] or 0
+            order['total_volume'] += (product['volume_m3'] or 0) * (product.get('quantity', 1) or 1)
             order['total_value'] += product['total_value_net'] or 0
 
             # Najlepszy priorytet z zamowienia

@@ -86,7 +86,7 @@ def dashboard():
 
         # Cutting
         cutting_pending = ProductionItem.query.filter_by(current_status='czeka_na_wyciecie').count()
-        cutting_today_m3 = db.session.query(db.func.sum(ProductionItem.volume_m3))\
+        cutting_today_m3 = db.session.query(db.func.sum(ProductionItem.volume_m3 * ProductionItem.quantity))\
                                     .filter(ProductionItem.cutting_completed_at >= today_start)\
                                     .scalar() or 0.0
         cutting_completed_today = ProductionItem.query.filter(
@@ -94,12 +94,12 @@ def dashboard():
             ProductionItem.cutting_completed_at <= today_end
         ).count()
         cutting_pending_m3 = db.session.query(
-            db.func.coalesce(db.func.sum(ProductionItem.volume_m3), 0)
+            db.func.coalesce(db.func.sum(ProductionItem.volume_m3 * ProductionItem.quantity), 0)
         ).filter(ProductionItem.current_status == 'czeka_na_wyciecie').scalar() or 0.0
 
         # Assembly
         assembly_pending = ProductionItem.query.filter_by(current_status='czeka_na_skladanie').count()
-        assembly_today_m3 = db.session.query(db.func.sum(ProductionItem.volume_m3))\
+        assembly_today_m3 = db.session.query(db.func.sum(ProductionItem.volume_m3 * ProductionItem.quantity))\
                                      .filter(ProductionItem.assembly_completed_at >= today_start)\
                                      .scalar() or 0.0
         assembly_completed_today = ProductionItem.query.filter(
@@ -107,7 +107,7 @@ def dashboard():
             ProductionItem.assembly_completed_at <= today_end
         ).count()
         assembly_pending_m3 = db.session.query(
-            db.func.coalesce(db.func.sum(ProductionItem.volume_m3), 0)
+            db.func.coalesce(db.func.sum(ProductionItem.volume_m3 * ProductionItem.quantity), 0)
         ).filter(ProductionItem.current_status == 'czeka_na_skladanie').scalar() or 0.0
 
         # Gluing
@@ -116,7 +116,7 @@ def dashboard():
         gluing_completed_today = 0
         gluing_pending_m3 = 0.0
         try:
-            gluing_today_m3 = db.session.query(db.func.sum(ProductionItem.volume_m3))\
+            gluing_today_m3 = db.session.query(db.func.sum(ProductionItem.volume_m3 * ProductionItem.quantity))\
                                         .filter(ProductionItem.gluing_completed_at >= today_start)\
                                         .scalar() or 0.0
             gluing_completed_today = ProductionItem.query.filter(
@@ -124,7 +124,7 @@ def dashboard():
                 ProductionItem.gluing_completed_at <= today_end
             ).count()
             gluing_pending_m3 = db.session.query(
-                db.func.coalesce(db.func.sum(ProductionItem.volume_m3), 0)
+                db.func.coalesce(db.func.sum(ProductionItem.volume_m3 * ProductionItem.quantity), 0)
             ).filter(ProductionItem.current_status == 'czeka_na_sklejanie').scalar() or 0.0
         except AttributeError:
             pass
@@ -135,7 +135,7 @@ def dashboard():
         formatting_completed_today = 0
         formatting_pending_m3 = 0.0
         try:
-            formatting_today_m3 = db.session.query(db.func.sum(ProductionItem.volume_m3))\
+            formatting_today_m3 = db.session.query(db.func.sum(ProductionItem.volume_m3 * ProductionItem.quantity))\
                                             .filter(ProductionItem.formatting_completed_at >= today_start)\
                                             .scalar() or 0.0
             formatting_completed_today = ProductionItem.query.filter(
@@ -143,7 +143,7 @@ def dashboard():
                 ProductionItem.formatting_completed_at <= today_end
             ).count()
             formatting_pending_m3 = db.session.query(
-                db.func.coalesce(db.func.sum(ProductionItem.volume_m3), 0)
+                db.func.coalesce(db.func.sum(ProductionItem.volume_m3 * ProductionItem.quantity), 0)
             ).filter(ProductionItem.current_status == 'czeka_na_formatowanie').scalar() or 0.0
         except AttributeError:
             pass
@@ -154,7 +154,7 @@ def dashboard():
         finishing_completed_today = 0
         finishing_pending_m3 = 0.0
         try:
-            finishing_today_m3 = db.session.query(db.func.sum(ProductionItem.volume_m3))\
+            finishing_today_m3 = db.session.query(db.func.sum(ProductionItem.volume_m3 * ProductionItem.quantity))\
                                            .filter(ProductionItem.finishing_completed_at >= today_start)\
                                            .scalar() or 0.0
             finishing_completed_today = ProductionItem.query.filter(
@@ -162,14 +162,14 @@ def dashboard():
                 ProductionItem.finishing_completed_at <= today_end
             ).count()
             finishing_pending_m3 = db.session.query(
-                db.func.coalesce(db.func.sum(ProductionItem.volume_m3), 0)
+                db.func.coalesce(db.func.sum(ProductionItem.volume_m3 * ProductionItem.quantity), 0)
             ).filter(ProductionItem.current_status == 'czeka_na_wykanczanie').scalar() or 0.0
         except AttributeError:
             pass
 
         # Packaging
         packaging_pending = ProductionItem.query.filter_by(current_status='czeka_na_pakowanie').count()
-        packaging_today_m3 = db.session.query(db.func.sum(ProductionItem.volume_m3))\
+        packaging_today_m3 = db.session.query(db.func.sum(ProductionItem.volume_m3 * ProductionItem.quantity))\
                                       .filter(ProductionItem.packaging_completed_at >= today_start)\
                                       .scalar() or 0.0
         packaging_completed_today = ProductionItem.query.filter(
@@ -177,7 +177,7 @@ def dashboard():
             ProductionItem.packaging_completed_at <= today_end
         ).count()
         packaging_pending_m3 = db.session.query(
-            db.func.coalesce(db.func.sum(ProductionItem.volume_m3), 0)
+            db.func.coalesce(db.func.sum(ProductionItem.volume_m3 * ProductionItem.quantity), 0)
         ).filter(ProductionItem.current_status == 'czeka_na_pakowanie').scalar() or 0.0
 
         # Aktualizacja statystyk stacji
@@ -265,7 +265,7 @@ def dashboard():
         dashboard_stats['in_production'] = {
             'orders': len(in_prod_order_ids),
             'products': len(in_prod_items),
-            'm3': round(sum(float(item.volume_m3 or 0) for item in in_prod_items), 2)
+            'm3': round(sum(float(item.volume_m3 or 0) * item.quantity for item in in_prod_items), 2)
         }
 
         # Alerty deadline - produkty zbliżające się do terminu
