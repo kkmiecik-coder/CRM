@@ -1450,6 +1450,23 @@ body {
     color: #f59e0b;
 }
 
+#edgeModalBody {
+    max-height: 70vh;
+    overflow-y: auto;
+}
+
+.edge-modal-product-header {
+    font-size: 14px;
+    font-weight: 700;
+    color: #f59e0b;
+    margin-bottom: 12px;
+}
+
+.edge-modal-separator {
+    border-top: 1px solid var(--border-color, #2a2a3e);
+    margin: 20px 0;
+}
+
 /* ============================================================================
    FULLSCREEN ORDER MODAL - Powiększony widok zamówienia
    ============================================================================ */

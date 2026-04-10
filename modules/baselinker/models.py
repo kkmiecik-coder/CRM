@@ -11,7 +11,7 @@ class BaselinkerOrderLog(db.Model):
     baselinker_order_id = db.Column(db.Integer, nullable=True)
     action = db.Column(db.String(50), nullable=False)
     status = db.Column(db.String(20), nullable=False)
-    request_data = db.Column(db.Text)
+    request_data = db.Column(db.Text(4294967295))
     response_data = db.Column(db.Text)
     error_message = db.Column(db.Text)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)

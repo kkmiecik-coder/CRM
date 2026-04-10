@@ -170,17 +170,18 @@
                         </div>
                         {% set first_product = order.products[0] if order.products else none %}
                         <div class="order-icons">
-                            {% if first_product and first_product.get('parsed_edge_processing') %}
+                            {% set edge_products = order.products|selectattr('parsed_edge_processing')|list %}
+                            {% if edge_products %}
                               <div class="header-icon-wrapper edge-icon-wrapper"
-                                   data-edge-type="{{ first_product.get('parsed_edge_type') or '' }}"
-                                   data-edge-radius="{{ first_product.get('parsed_edge_radius') or '' }}"
-                                   data-edge-angle="{{ first_product.get('parsed_edge_angle') or '' }}"
-                                   data-edge-letters='{{ first_product["parsed_edge_letters"]|tojson if first_product.get("parsed_edge_letters") else "[]" }}'
-                                   data-edge-svg="{{ (first_product.get('edge_svg') or '')|e }}"
-                                   data-shape-svg="{{ (first_product.get('shape_svg') or '')|e }}"
-                                   data-product-id="{{ first_product.get('id') or '' }}">
+                                   data-edge-products='{{ edge_products|map(attribute="id")|list|tojson }}'
+                                   data-order-number="{{ order.order_number }}">
                                 <svg class="header-icon" width="22" height="22"><use href="{{ url_for('production.static', filename='icons/station-icons.svg') }}#icon-edge"/></svg>
                               </div>
+                              {% for ep in edge_products %}
+                              <script type="application/json" class="edge-product-data" data-product-id="{{ ep.id }}">
+                              {"id":"{{ ep.id }}","edge_type":"{{ ep.parsed_edge_type or '' }}","edge_radius":"{{ ep.parsed_edge_radius or '' }}","edge_angle":"{{ ep.parsed_edge_angle or '' }}","edge_letters":{{ ep.parsed_edge_letters|tojson if ep.parsed_edge_letters else '[]' }},"edge_svg":{{ (ep.edge_svg or '')|tojson }},"shape_svg":{{ (ep.shape_svg or '')|tojson }}}
+                              </script>
+                              {% endfor %}
                             {% endif %}
                             {% if not order.is_personal_pickup %}
                             <div class="header-icon-wrapper delivery-icon-wrapper"
@@ -761,30 +762,7 @@
             <button class="edge-modal-close" onclick="closeEdgeModal()">&times;</button>
           </div>
         </div>
-        <div class="edge-modal-previews">
-          <div class="edge-modal-preview" id="edgeModalShape">
-            <div class="edge-modal-preview-label">Kształt</div>
-            <div id="edgeModalShapeContent"></div>
-          </div>
-          <div class="edge-modal-preview" id="edgeModalIsometric">
-            <div class="edge-modal-preview-label">Izometria</div>
-            <div id="edgeModalIsometricContent"></div>
-          </div>
-        </div>
-        <div class="edge-modal-info">
-          <div>
-            <div class="edge-modal-info-label">Typ obróbki</div>
-            <div class="edge-modal-info-value accent" id="edgeModalType"></div>
-          </div>
-          <div>
-            <div class="edge-modal-info-label">Promień</div>
-            <div class="edge-modal-info-value" id="edgeModalRadius"></div>
-          </div>
-          <div>
-            <div class="edge-modal-info-label">Krawędzie</div>
-            <div class="edge-modal-info-value" id="edgeModalLetters"></div>
-          </div>
-        </div>
+        <div id="edgeModalBody"></div>
       </div>
     </div>
 
