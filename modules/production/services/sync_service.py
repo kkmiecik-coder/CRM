@@ -178,24 +178,17 @@ class BaselinkerSyncService:
         finishes = set()
     
         for product in products:
-            finish = product.parsed_finish_state
-        
-            if not finish or not finish.strip():
+            finish_type = product.parsed_finish_type or 'surowe'
+
+            if finish_type == 'surowe':
                 finishes.add('raw')
-                continue
-        
-            finish_lower = finish.lower()
-        
-            matched = False
-            for finish_type, patterns in FINISH_PATTERNS.items():
-                if any(pattern in finish_lower for pattern in patterns):
-                    status_id = status_mapping.get(finish_type)
-                    if status_id:
-                        finishes.add(status_id)
-                        matched = True
-                    break
-        
-            if not matched:
+            elif finish_type == 'olejowane':
+                status_id = status_mapping.get('oiling')
+                finishes.add(status_id if status_id else 'raw')
+            elif finish_type == 'lakierowane':
+                status_id = status_mapping.get('varnishing')
+                finishes.add(status_id if status_id else 'raw')
+            else:
                 finishes.add('raw')
     
         if len(finishes) == 1:
@@ -1230,6 +1223,10 @@ class BaselinkerSyncService:
                 'parsed_width_cm': parsed_data.get('width_cm'),
                 'parsed_thickness_cm': parsed_data.get('thickness_cm'),
                 'parsed_finish_state': parsed_data.get('finish_state'),
+                'parsed_finish_type': parsed_data.get('finish_type', 'surowe'),
+                'parsed_finish_color_type': parsed_data.get('finish_color_type'),
+                'parsed_finish_gloss': parsed_data.get('finish_gloss'),
+                'parsed_finish_color': parsed_data.get('finish_color'),
                 'parsed_edge_processing': parsed_data.get('edge_processing', False),
                 'volume_m3': volume_m3
             })
