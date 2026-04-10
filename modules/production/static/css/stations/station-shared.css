@@ -612,7 +612,7 @@ body {
 /* Wymiary + counter w jednym wierszu */
 .product-body .product-dimensions-row {
     display: flex;
-    align-items: center;
+    align-items: stretch;
     gap: 10px;
 }
 
@@ -637,7 +637,7 @@ body {
 
 .product-row .product-dimensions-row {
     display: flex;
-    align-items: center;
+    align-items: stretch;
     gap: 10px;
     margin-top: 6px;
 }
