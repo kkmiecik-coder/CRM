@@ -2618,13 +2618,13 @@ body {
 @media (max-width: 900px) {
   .production-dashboard-grid { grid-template-columns: 1fr; }
   .il-right-stack { order: -1; }
+  .il-stations-grid { grid-template-columns: 1fr; }
 }
 @media (max-width: 600px) {
   .il-dashboard-header { flex-direction: column; align-items: flex-start; gap: 8px; }
   .il-header-meta { flex-wrap: wrap; }
   .il-kpi-row { flex-direction: column; gap: 6px; }
   .il-in-production-stats { gap: 4px; }
-  .il-stations-grid { grid-template-columns: 1fr; }
   .il-kpi-value { font-size: 30px; }
 }
 
