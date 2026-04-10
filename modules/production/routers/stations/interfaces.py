@@ -188,7 +188,8 @@ def cutting_station():
         station_stats = {
             'total_products': sum((p.get('quantity', 1) or 1) for p in products_flat),
             'total_tiles': len(products_flat),
-            'high_priority_count': sum(1 for p in products_flat if p['priority_rank'] <= 50)
+            'high_priority_count': sum(1 for p in products_flat if p['priority_rank'] <= 50),
+            'total_volume': sum((p.get('volume_m3', 0) or 0) * (p.get('quantity', 1) or 1) for p in products_flat)
         }
 
         now = datetime.utcnow()
@@ -370,7 +371,8 @@ def assembly_station():
         station_stats = {
             'total_products': sum((p.get('quantity', 1) or 1) for p in products_flat),
             'total_tiles': len(products_flat),
-            'high_priority_count': sum(1 for p in products_flat if p['priority_rank'] <= 50)
+            'high_priority_count': sum(1 for p in products_flat if p['priority_rank'] <= 50),
+            'total_volume': sum((p.get('volume_m3', 0) or 0) * (p.get('quantity', 1) or 1) for p in products_flat)
         }
 
         now = datetime.utcnow()
@@ -552,7 +554,8 @@ def gluing_station():
         station_stats = {
             'total_products': sum((p.get('quantity', 1) or 1) for p in products_flat),
             'total_tiles': len(products_flat),
-            'high_priority_count': sum(1 for p in products_flat if p['priority_rank'] <= 50)
+            'high_priority_count': sum(1 for p in products_flat if p['priority_rank'] <= 50),
+            'total_volume': sum((p.get('volume_m3', 0) or 0) * (p.get('quantity', 1) or 1) for p in products_flat)
         }
 
         now = datetime.utcnow()
@@ -742,7 +745,8 @@ def formatting_station():
         station_stats = {
             'total_products': total_products,
             'total_orders': len(orders_list),
-            'high_priority_count': high_priority_count
+            'high_priority_count': high_priority_count,
+            'total_volume': sum((p.get('volume_m3', 0) or 0) * (p.get('quantity', 1) or 1) for p in products)
         }
 
         now = datetime.utcnow()
@@ -909,6 +913,7 @@ def finishing_station():
         station_stats = {
             'total_products': total_products,
             'total_count': len(products_flat),
+            'total_volume': sum((p.get('volume_m3', 0) or 0) * (p.get('quantity', 1) or 1) for p in products_flat)
         }
 
         now = datetime.utcnow()
@@ -1227,7 +1232,8 @@ def packaging_station():
             'total_orders': total_orders,
             'high_priority_count': high_priority_count,
             'overdue_count': overdue_count,
-            'avg_priority_rank': sum(p['priority_rank'] for p in products) / len(products) if products else 999
+            'avg_priority_rank': sum(p['priority_rank'] for p in products) / len(products) if products else 999,
+            'total_volume': sum((p.get('volume_m3', 0) or 0) * (p.get('quantity', 1) or 1) for p in products)
         }
 
         now = datetime.utcnow()

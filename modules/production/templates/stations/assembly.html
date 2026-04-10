@@ -66,7 +66,7 @@
                     <div class="stat-label">Produkty</div>
                     <div class="stat-value">
                         <span id="total-orders">{{ station_stats.total_tiles }}</span> /
-                        <span id="total-volume">{{ "%.4f"|format(products_flat|map(attribute='volume_m3')|sum) }}</span> m³
+                        <span id="total-volume">{{ "%.4f"|format(station_stats.total_volume) }}</span> m³
                     </div>
                 </div>
             </div>

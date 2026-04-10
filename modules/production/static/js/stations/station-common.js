@@ -416,7 +416,7 @@ function createProductCard(product) {
                 <span class="id-short">${escapeHtml(product.id)}</span>
                 <span class="id-baselinker">BL-${escapeHtml(product.baselinker_order_id)}</span>
             </div>
-            <div class="header-volume">${(product.volume_m3 || 0).toFixed(4)} m³</div>
+            <div class="header-volume">${((product.volume_m3 || 0) * (product.quantity || 1)).toFixed(4)} m³</div>
         </div>
         
         <div class="card-badges">

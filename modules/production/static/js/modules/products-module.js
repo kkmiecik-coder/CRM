@@ -3511,7 +3511,7 @@ class ProductsModule {
     populateStatsCards(modalElement, product) {
         const volumeElement = modalElement.querySelector('.stats-row .stat-value[data-field="volume_m3"]');
         if (volumeElement) {
-            const volume = parseFloat(product.volume_m3) || 0;
+            const volume = (parseFloat(product.volume_m3) || 0) * (product.quantity || 1);
             volumeElement.textContent = `${volume.toFixed(3)} m³`;
         }
 

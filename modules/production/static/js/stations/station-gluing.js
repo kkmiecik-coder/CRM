@@ -766,7 +766,7 @@
     function updateHeaderStatsFromAPI(products) {
         const totalTiles = products.length;
         let totalVolume = 0;
-        products.forEach(p => { totalVolume += p.volume_m3 || 0; });
+        products.forEach(p => { totalVolume += (p.volume_m3 || 0) * (p.quantity || 1); });
 
         const el = document.getElementById('total-orders');
         if (el) el.textContent = totalTiles;
