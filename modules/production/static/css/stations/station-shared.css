@@ -330,6 +330,13 @@ body {
     color: #ce93d8;
 }
 
+/* Obróbka krawędzi - pomarańczowy */
+.badge-edge {
+    background: rgba(245, 158, 11, 0.15);
+    border-color: rgba(245, 158, 11, 0.3);
+    color: #f59e0b;
+}
+
 /* ============================================================================
    CARD DIMENSIONS
    ============================================================================ */
@@ -928,6 +935,30 @@ body {
     stroke: #ff8844;
 }
 
+/* Ikona obróbki krawędzi */
+.edge-icon-wrapper {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    position: relative;
+    padding: 4px;
+    border-radius: 0;
+    color: #f59e0b;
+}
+
+.edge-icon-wrapper:hover {
+    background-color: rgba(245, 158, 11, 0.1);
+}
+
+.edge-icon-wrapper .header-icon {
+    stroke: #f59e0b;
+}
+
+.edge-icon-wrapper:hover .header-icon {
+    stroke: #fbbf24;
+}
+
 /* Tooltip z podglądem obrazka/PDF */
 .attachment-tooltip {
     position: absolute;
@@ -1291,6 +1322,126 @@ body {
     line-height: 1.6;
     white-space: pre-wrap;
     word-wrap: break-word;
+}
+
+/* ============================================================================
+   EDGE PROCESSING MODAL
+   ============================================================================ */
+
+#edgeModal {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    background-color: rgba(0, 0, 0, 0.9);
+    z-index: 100000;
+    justify-content: center;
+    align-items: center;
+}
+
+#edgeModal.show {
+    display: flex;
+}
+
+.edge-modal-content {
+    background-color: var(--bg-primary, #12121f);
+    border: 1px solid var(--border-color, #2a2a3e);
+    border-radius: 0;
+    max-width: 700px;
+    width: 90vw;
+    max-height: 90vh;
+    overflow-y: auto;
+    padding: 24px;
+}
+
+.edge-modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--border-color, #2a2a3e);
+}
+
+.edge-modal-header h3 {
+    color: var(--text-primary, #f1f5f9);
+    margin: 0;
+    font-size: 16px;
+}
+
+.edge-modal-close {
+    width: 48px;
+    height: 48px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    color: var(--text-secondary, #64748b);
+    font-size: 24px;
+    background: none;
+    border: none;
+}
+
+.edge-modal-close:hover {
+    color: var(--text-primary, #f1f5f9);
+}
+
+.edge-modal-previews {
+    display: flex;
+    gap: 16px;
+    margin-bottom: 20px;
+}
+
+.edge-modal-preview {
+    flex: 1;
+    background: var(--bg-secondary, #1a1a2e);
+    border-radius: 0;
+    padding: 16px;
+    text-align: center;
+}
+
+.edge-modal-preview-label {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--text-secondary, #64748b);
+    margin-bottom: 12px;
+    font-weight: 600;
+}
+
+.edge-modal-preview svg,
+.edge-modal-preview img {
+    max-width: 100%;
+    max-height: 200px;
+}
+
+.edge-modal-info {
+    background: var(--bg-secondary, #1a1a2e);
+    border-radius: 0;
+    padding: 16px;
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 16px;
+}
+
+.edge-modal-info-label {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--text-secondary, #64748b);
+    margin-bottom: 4px;
+}
+
+.edge-modal-info-value {
+    color: var(--text-primary, #f1f5f9);
+    font-size: 14px;
+    font-weight: 600;
+}
+
+.edge-modal-info-value.accent {
+    color: #f59e0b;
 }
 
 /* ============================================================================
