@@ -144,7 +144,7 @@
                             {% endif %}
                         </div>
                         <div class="order-icons">
-                            {% if product.parsed_edge_processing %}
+                            {% if product.has_visual_data %}
                               <div class="header-icon-wrapper edge-icon-wrapper"
                                    data-edge-type="{{ product.parsed_edge_type or '' }}"
                                    data-edge-radius="{{ product.parsed_edge_radius or '' }}"
@@ -152,6 +152,8 @@
                                    data-edge-letters='{{ product.parsed_edge_letters|tojson if product.parsed_edge_letters else "[]" }}'
                                    data-edge-svg="{{ (product.edge_svg or '')|e }}"
                                    data-shape-svg="{{ (product.shape_svg or '')|e }}"
+                                   data-lamella-direction="{{ product.lamella_direction if product.lamella_direction is not none else '' }}"
+                                   data-has-edge="{{ product.parsed_edge_processing|tojson }}"
                                    data-product-id="{{ product.id }}">
                                 <svg class="header-icon" width="22" height="22"><use href="{{ url_for('production.static', filename='icons/station-icons.svg') }}#icon-edge"/></svg>
                               </div>
@@ -281,7 +283,7 @@
     <div id="edgeModal">
       <div class="edge-modal-content">
         <div class="edge-modal-header">
-          <h3 id="edgeModalTitle">Obróbka krawędzi</h3>
+          <h3 id="edgeModalTitle">Szczegóły produktu</h3>
           <div style="display:flex;align-items:center;gap:12px;">
             <button id="edgeModalToggleLabels" data-visible="true" onclick="toggleEdgeLabels()" class="edge-modal-toggle">Ukryj oznaczenia</button>
             <button class="edge-modal-close" onclick="closeEdgeModal()">&times;</button>

@@ -2846,6 +2846,8 @@ class BaselinkerSyncService:
                 product_data['edge_svg'] = detail.edges_svg
             if detail.shape_svg:
                 product_data['shape_svg'] = detail.shape_svg
+            if detail.lamella_direction is not None:
+                product_data['lamella_direction'] = detail.lamella_direction
             product_data['quote_item_detail_id'] = detail.id
 
             logger.info("Wzbogacono dane krawędzi z QuoteItemDetails",

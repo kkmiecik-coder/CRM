@@ -135,6 +135,8 @@ class ProductionItem(db.Model):
                        comment='SVG kształtu 2D')
     quote_item_detail_id = Column(Integer, nullable=True,
                                   comment='ID powiązanego QuoteItemDetails — NULL dla zamówień sklepowych')
+    lamella_direction = Column(Integer, nullable=True,
+                               comment='Kierunek lameli: 0, 45, 90, 135')
 
     # KALKULACJE BIZNESOWE
     volume_m3 = Column(Numeric(10, 6))

@@ -1467,6 +1467,30 @@ body {
     margin: 20px 0;
 }
 
+.edge-modal-lamella {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border-color, #2a2a3e);
+}
+
+.edge-modal-lamella-label {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-secondary, #64748b);
+    font-weight: 600;
+}
+
+.edge-modal-lamella-angle {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-primary, #f1f5f9);
+}
+
 /* ============================================================================
    FULLSCREEN ORDER MODAL - Powiększony widok zamówienia
    ============================================================================ */

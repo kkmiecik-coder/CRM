@@ -180,16 +180,16 @@
                         </div>
                         {% set first_product = order.products[0] if order.products else none %}
                         <div class="order-icons">
-                            {% set edge_products = order.products|selectattr('parsed_edge_processing')|list %}
-                            {% if edge_products %}
+                            {% set visual_products = order.products|selectattr('has_visual_data')|list %}
+                            {% if visual_products %}
                               <div class="header-icon-wrapper edge-icon-wrapper"
-                                   data-edge-products='{{ edge_products|map(attribute="id")|list|tojson }}'
+                                   data-edge-products='{{ visual_products|map(attribute="id")|list|tojson }}'
                                    data-order-number="{{ order.order_number }}">
                                 <svg class="header-icon" width="22" height="22"><use href="{{ url_for('production.static', filename='icons/station-icons.svg') }}#icon-edge"/></svg>
                               </div>
-                              {% for ep in edge_products %}
+                              {% for ep in visual_products %}
                               <script type="application/json" class="edge-product-data" data-product-id="{{ ep.id }}">
-                              {"id":"{{ ep.id }}","edge_type":"{{ ep.parsed_edge_type or '' }}","edge_radius":"{{ ep.parsed_edge_radius or '' }}","edge_angle":"{{ ep.parsed_edge_angle or '' }}","edge_letters":{{ ep.parsed_edge_letters|tojson if ep.parsed_edge_letters else '[]' }},"edge_svg":{{ (ep.edge_svg or '')|tojson }},"shape_svg":{{ (ep.shape_svg or '')|tojson }}}
+                              {"id":"{{ ep.id }}","edge_type":"{{ ep.parsed_edge_type or '' }}","edge_radius":"{{ ep.parsed_edge_radius or '' }}","edge_angle":"{{ ep.parsed_edge_angle or '' }}","edge_letters":{{ ep.parsed_edge_letters|tojson if ep.parsed_edge_letters else '[]' }},"edge_svg":{{ (ep.edge_svg or '')|tojson }},"shape_svg":{{ (ep.shape_svg or '')|tojson }},"lamella_direction":{{ ep.lamella_direction|tojson }},"has_edge":{{ ep.parsed_edge_processing|tojson }}}
                               </script>
                               {% endfor %}
                             {% endif %}
@@ -767,7 +767,7 @@
     <div id="edgeModal">
       <div class="edge-modal-content">
         <div class="edge-modal-header">
-          <h3 id="edgeModalTitle">Obróbka krawędzi</h3>
+          <h3 id="edgeModalTitle">Szczegóły produktu</h3>
           <div style="display:flex;align-items:center;gap:12px;">
             <button id="edgeModalToggleLabels" data-visible="true" onclick="toggleEdgeLabels()" class="edge-modal-toggle">Ukryj oznaczenia</button>
             <button class="edge-modal-close" onclick="closeEdgeModal()">&times;</button>

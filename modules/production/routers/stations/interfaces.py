@@ -661,6 +661,8 @@ def formatting_station():
                     'parsed_edge_letters': product.parsed_edge_letters,
                     'edge_svg': product.edge_svg,
                     'shape_svg': product.shape_svg,
+                    'lamella_direction': product.lamella_direction,
+                    'has_visual_data': bool(product.shape_svg or product.edge_svg),
                 }
 
                 products.append(product_data)
@@ -901,6 +903,8 @@ def finishing_station():
                 'parsed_edge_letters': product.parsed_edge_letters,
                 'edge_svg': product.edge_svg,
                 'shape_svg': product.shape_svg,
+                'lamella_direction': product.lamella_direction,
+                'has_visual_data': bool(product.shape_svg or product.edge_svg),
                 'quantity_done_assembly': product.quantity_done_assembly,
             }
 
@@ -1130,6 +1134,8 @@ def packaging_station():
                     'parsed_edge_letters': product.parsed_edge_letters,
                     'edge_svg': product.edge_svg,
                     'shape_svg': product.shape_svg,
+                    'lamella_direction': product.lamella_direction,
+                    'has_visual_data': bool(product.shape_svg or product.edge_svg),
                 }
 
                 products.append(product_data)
