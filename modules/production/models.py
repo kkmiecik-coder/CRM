@@ -111,6 +111,14 @@ class ProductionItem(db.Model):
     parsed_width_cm = Column(Numeric(10, 2))
     parsed_thickness_cm = Column(Numeric(10, 2))  # bazowe dla thickness_group
     parsed_finish_state = Column(String(50))   # finish_state dla algorytmu
+    parsed_finish_type = Column(String(20), default='surowe', nullable=False,
+                                comment='Typ wykończenia: surowe, olejowane, lakierowane')
+    parsed_finish_color_type = Column(String(20), nullable=True,
+                                      comment='Barwność: bezbarwnie, barwnie (NULL dla surowe)')
+    parsed_finish_gloss = Column(String(20), nullable=True,
+                                 comment='Połysk: matowy, półmatowy (NULL dla surowe/olejowane)')
+    parsed_finish_color = Column(String(50), nullable=True,
+                                 comment='Kolor z kodem: BRUNAT 22-23 (tylko przy barwnie)')
     parsed_edge_processing = Column(Boolean, default=False, nullable=False,
                                      comment='Czy produkt posiada obróbkę krawędzi (fazowanie, frezowanie, R(X), kąt, zaokrąglenie, faza)')
 
@@ -588,15 +596,8 @@ class ProductionItem(db.Model):
         Produkty surowe BEZ obróbki krawędzi nie wymagają wykańczania.
         Produkty surowe Z obróbką krawędzi trafiają na wykańczanie.
         """
-        if not self.parsed_finish_state:
-            return False
-
-        finish_state_lower = self.parsed_finish_state.lower().strip()
-
-        # Produkty surowe pomijają wykańczanie TYLKO jeśli nie mają obróbki krawędzi
-        if finish_state_lower == 'surowe':
+        if self.parsed_finish_type == 'surowe':
             return not self.parsed_edge_processing
-
         return False
 
     def complete_task(self, station_code):
@@ -638,17 +639,14 @@ class ProductionItem(db.Model):
                     'finish_state': self.parsed_finish_state
                 })
 
-            # Wykańczanie → lakiernia jeśli lakierowane/olejowane/bejcowane
+            # Wykańczanie → lakiernia jeśli lakierowane/olejowane
             if station_code == 'finishing':
-                finish_lower = (self.parsed_finish_state or '').lower().strip()
-                needs_painting = any(keyword in finish_lower for keyword in [
-                    'olejow', 'lakier', 'bejc'
-                ])
+                needs_painting = self.parsed_finish_type in ('olejowane', 'lakierowane')
                 if needs_painting:
                     next_status = 'czeka_na_lakiernie'
                     logger.info("Produkt wymaga lakierni", extra={
                         'product_id': self.short_product_id,
-                        'finish_state': self.parsed_finish_state
+                        'finish_type': self.parsed_finish_type
                     })
 
             # Logistyka — odbiór osobisty omija stanowisko logistyki
