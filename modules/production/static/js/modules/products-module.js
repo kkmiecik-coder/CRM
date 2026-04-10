@@ -1332,7 +1332,7 @@ class ProductsModule {
             }
 
             // Round totals
-            order.totalVolume = Math.round(order.totalVolume * 1000) / 1000;
+            order.totalVolume = Math.round(order.totalVolume * 10000) / 10000;
             order.totalValue = Math.round(order.totalValue * 100) / 100;
         });
 
