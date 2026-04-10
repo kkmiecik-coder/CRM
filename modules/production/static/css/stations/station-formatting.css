@@ -615,9 +615,9 @@
         margin-left: 0;
     }
 
-    /* Quantity controls - mniejsze na tablecie */
+    /* Quantity controls */
     .quantity-counter {
-        font-size: 18px;
+        font-size: 24px;
     }
 
     .btn-qty {
@@ -646,7 +646,7 @@
     }
 
     .quantity-counter {
-        font-size: 16px;
+        font-size: 24px;
         min-width: 60px;
     }
 
