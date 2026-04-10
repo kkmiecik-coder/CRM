@@ -1228,6 +1228,10 @@ class BaselinkerSyncService:
                 'parsed_finish_gloss': parsed_data.get('finish_gloss'),
                 'parsed_finish_color': parsed_data.get('finish_color'),
                 'parsed_edge_processing': parsed_data.get('edge_processing', False),
+                'parsed_edge_type': parsed_data.get('edge_type'),
+                'parsed_edge_radius': parsed_data.get('edge_radius'),
+                'parsed_edge_angle': parsed_data.get('edge_angle'),
+                'parsed_edge_letters': parsed_data.get('edge_letters'),
                 'volume_m3': volume_m3
             })
     
