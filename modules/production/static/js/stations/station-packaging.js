@@ -1425,7 +1425,6 @@
                     </div>
                     <div class="order-header-row order-stats-row">
                         <div class="order-stats">
-                            <span class="products-checked" data-order="${order.order_number}">${totalDone}</span>/<span class="products-total" data-order="${order.order_number}">${totalQty}</span> szt. • ${order.total_volume.toFixed(4)} m³
                         </div>
                         ${deliveryBadgeHTML}
                         <div class="order-icons">${iconsHTML}</div>

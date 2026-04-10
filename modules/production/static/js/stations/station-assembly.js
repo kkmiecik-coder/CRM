@@ -1058,7 +1058,6 @@
                     </div>
                     <div class="order-header-row order-stats-row">
                         <div class="order-stats">
-                            <span class="qty-done">${quantityDone}</span>/<span class="qty-total">${quantity}</span> szt.
                         </div>
                         <div class="order-icons">${iconsHTML}</div>
                     </div>
