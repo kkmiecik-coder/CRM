@@ -173,7 +173,7 @@ class DashboardModule {
                             if (s.tablet_status) this.updateStationTabletStatus(s.code, s.tablet_status);
                             if (s.completed_today !== undefined) {
                                 this.updateElementText(`${s.code}-completed-today`, s.completed_today || 0);
-                                this.updateElementText(`${s.code}-pending-m3`, s.pending_m3 || 0);
+                                this.updateElementText(`${s.code}-pending-m3`, (parseFloat(s.pending_m3) || 0).toFixed(4));
                                 this.updateStationProgress(s.code, {pending_count: s.active_orders, completed_today: s.completed_today});
                             }
                         });
@@ -316,7 +316,7 @@ class DashboardModule {
                     const stationData = initialData.stations[station];
                     if (stationData) {
                         this.updateElementText(`${station}-completed-today`, stationData.completed_today || 0);
-                        this.updateElementText(`${station}-pending-m3`, stationData.pending_m3 || 0);
+                        this.updateElementText(`${station}-pending-m3`, (parseFloat(stationData.pending_m3) || 0).toFixed(4));
                         this.updateStationTabletStatus(station, stationData.tablet_status);
                         this.updateStationProgress(station, stationData);
                     }

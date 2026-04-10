@@ -37,7 +37,7 @@
                 <div class="il-station-stat-label">Oczekuje</div>
               </div>
               <div class="il-station-stat">
-                <div class="il-station-stat-value" id="cutting-pending-m3">{{ dashboard_stats.stations.cutting.pending_m3|default(0.0) }}</div>
+                <div class="il-station-stat-value" id="cutting-pending-m3">{{ "%.4f"|format(dashboard_stats.stations.cutting.pending_m3|default(0.0)) }}</div>
                 <div class="il-station-stat-label">m³ ocz.</div>
               </div>
               <div class="il-station-stat">
@@ -45,7 +45,7 @@
                 <div class="il-station-stat-label">Ukończ.</div>
               </div>
               <div class="il-station-stat">
-                <div class="il-station-stat-value" id="cutting-today-m3">{{ dashboard_stats.stations.cutting.today_m3|default(0.0) }}</div>
+                <div class="il-station-stat-value" id="cutting-today-m3">{{ "%.4f"|format(dashboard_stats.stations.cutting.today_m3|default(0.0)) }}</div>
                 <div class="il-station-stat-label">m³ dziś</div>
               </div>
             </div>
@@ -74,7 +74,7 @@
                 <div class="il-station-stat-label">Oczekuje</div>
               </div>
               <div class="il-station-stat">
-                <div class="il-station-stat-value" id="assembly-pending-m3">{{ dashboard_stats.stations.assembly.pending_m3|default(0.0) }}</div>
+                <div class="il-station-stat-value" id="assembly-pending-m3">{{ "%.4f"|format(dashboard_stats.stations.assembly.pending_m3|default(0.0)) }}</div>
                 <div class="il-station-stat-label">m³ ocz.</div>
               </div>
               <div class="il-station-stat">
@@ -82,7 +82,7 @@
                 <div class="il-station-stat-label">Ukończ.</div>
               </div>
               <div class="il-station-stat">
-                <div class="il-station-stat-value" id="assembly-today-m3">{{ dashboard_stats.stations.assembly.today_m3|default(0.0) }}</div>
+                <div class="il-station-stat-value" id="assembly-today-m3">{{ "%.4f"|format(dashboard_stats.stations.assembly.today_m3|default(0.0)) }}</div>
                 <div class="il-station-stat-label">m³ dziś</div>
               </div>
             </div>
@@ -111,7 +111,7 @@
                 <div class="il-station-stat-label">Oczekuje</div>
               </div>
               <div class="il-station-stat">
-                <div class="il-station-stat-value" id="gluing-pending-m3">{{ dashboard_stats.stations.gluing.pending_m3|default(0.0) }}</div>
+                <div class="il-station-stat-value" id="gluing-pending-m3">{{ "%.4f"|format(dashboard_stats.stations.gluing.pending_m3|default(0.0)) }}</div>
                 <div class="il-station-stat-label">m³ ocz.</div>
               </div>
               <div class="il-station-stat">
@@ -119,7 +119,7 @@
                 <div class="il-station-stat-label">Ukończ.</div>
               </div>
               <div class="il-station-stat">
-                <div class="il-station-stat-value" id="gluing-today-m3">{{ dashboard_stats.stations.gluing.today_m3|default(0.0) }}</div>
+                <div class="il-station-stat-value" id="gluing-today-m3">{{ "%.4f"|format(dashboard_stats.stations.gluing.today_m3|default(0.0)) }}</div>
                 <div class="il-station-stat-label">m³ dziś</div>
               </div>
             </div>
@@ -148,7 +148,7 @@
                 <div class="il-station-stat-label">Oczekuje</div>
               </div>
               <div class="il-station-stat">
-                <div class="il-station-stat-value" id="formatting-pending-m3">{{ dashboard_stats.stations.formatting.pending_m3|default(0.0) }}</div>
+                <div class="il-station-stat-value" id="formatting-pending-m3">{{ "%.4f"|format(dashboard_stats.stations.formatting.pending_m3|default(0.0)) }}</div>
                 <div class="il-station-stat-label">m³ ocz.</div>
               </div>
               <div class="il-station-stat">
@@ -156,7 +156,7 @@
                 <div class="il-station-stat-label">Ukończ.</div>
               </div>
               <div class="il-station-stat">
-                <div class="il-station-stat-value" id="formatting-today-m3">{{ dashboard_stats.stations.formatting.today_m3|default(0.0) }}</div>
+                <div class="il-station-stat-value" id="formatting-today-m3">{{ "%.4f"|format(dashboard_stats.stations.formatting.today_m3|default(0.0)) }}</div>
                 <div class="il-station-stat-label">m³ dziś</div>
               </div>
             </div>
@@ -185,7 +185,7 @@
                 <div class="il-station-stat-label">Oczekuje</div>
               </div>
               <div class="il-station-stat">
-                <div class="il-station-stat-value" id="finishing-pending-m3">{{ dashboard_stats.stations.finishing.pending_m3|default(0.0) }}</div>
+                <div class="il-station-stat-value" id="finishing-pending-m3">{{ "%.4f"|format(dashboard_stats.stations.finishing.pending_m3|default(0.0)) }}</div>
                 <div class="il-station-stat-label">m³ ocz.</div>
               </div>
               <div class="il-station-stat">
@@ -193,7 +193,7 @@
                 <div class="il-station-stat-label">Ukończ.</div>
               </div>
               <div class="il-station-stat">
-                <div class="il-station-stat-value" id="finishing-today-m3">{{ dashboard_stats.stations.finishing.today_m3|default(0.0) }}</div>
+                <div class="il-station-stat-value" id="finishing-today-m3">{{ "%.4f"|format(dashboard_stats.stations.finishing.today_m3|default(0.0)) }}</div>
                 <div class="il-station-stat-label">m³ dziś</div>
               </div>
             </div>
@@ -241,7 +241,7 @@
                 <div class="il-station-stat-label">Oczekuje</div>
               </div>
               <div class="il-station-stat">
-                <div class="il-station-stat-value" id="packaging-pending-m3">{{ dashboard_stats.stations.packaging.pending_m3|default(0.0) }}</div>
+                <div class="il-station-stat-value" id="packaging-pending-m3">{{ "%.4f"|format(dashboard_stats.stations.packaging.pending_m3|default(0.0)) }}</div>
                 <div class="il-station-stat-label">m³ ocz.</div>
               </div>
               <div class="il-station-stat">
@@ -249,7 +249,7 @@
                 <div class="il-station-stat-label">Ukończ.</div>
               </div>
               <div class="il-station-stat">
-                <div class="il-station-stat-value" id="packaging-today-m3">{{ dashboard_stats.stations.packaging.today_m3|default(0.0) }}</div>
+                <div class="il-station-stat-value" id="packaging-today-m3">{{ "%.4f"|format(dashboard_stats.stations.packaging.today_m3|default(0.0)) }}</div>
                 <div class="il-station-stat-label">m³ dziś</div>
               </div>
             </div>
