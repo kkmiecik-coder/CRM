@@ -328,9 +328,13 @@ class ProductNameParser:
                 result['finish_state'] = 'Surowe'
                 result['finish_type'] = 'surowe'
             
-            # 5b. Parsowanie obróbki krawędzi
-            edge_processing = self._parse_edge_processing(normalized_name)
-            result['edge_processing'] = edge_processing
+            # 5b. Parsowanie obróbki krawędzi (strukturalne)
+            edge_data = self._parse_edge_processing(normalized_name)
+            result['edge_processing'] = edge_data.get('has_edge', False)
+            result['edge_type'] = edge_data.get('edge_type')
+            result['edge_radius'] = edge_data.get('edge_radius')
+            result['edge_angle'] = edge_data.get('edge_angle')
+            result['edge_letters'] = edge_data.get('edge_letters')
 
             # 6. Parsowanie klasy drewna
             wood_class = self._parse_wood_class(normalized_name)
@@ -520,31 +524,72 @@ class ProductNameParser:
 
         return result
 
-    def _parse_edge_processing(self, name: str) -> bool:
+    def _parse_edge_processing(self, name: str) -> dict:
         """
-        Sprawdza czy nazwa produktu zawiera informację o obróbce krawędzi.
+        Parsuje obróbkę krawędzi z nazwy produktu.
 
-        Wykrywane frazy: fazowanie, faza, frezowanie, R(liczba), kąt, zaokrąglenie
-
-        Args:
-            name (str): Znormalizowana nazwa produktu (lowercase)
+        Wykrywane wzorce:
+          zaokrąglenie R3 (A)
+          fazowanie R3 45° E, F, G, H
+          zaokrąglenie R30 (N4, N2, N1, N3)
+          zaokrąglenie R3 (G1, G2, G3, D1, D2, D3, P1, P2, P3)
 
         Returns:
-            bool: True jeśli wykryto obróbkę krawędzi
+            dict: {
+                'has_edge': bool,
+                'edge_type': str|None,
+                'edge_radius': int|None,
+                'edge_angle': int|None,
+                'edge_letters': list|None
+            }
         """
         import re
 
-        edge_keywords = ['fazowanie', 'faza', 'frezowanie', 'kąt', 'zaokrąglenie', 'zaokraglenie']
+        result = {
+            'has_edge': False,
+            'edge_type': None,
+            'edge_radius': None,
+            'edge_angle': None,
+            'edge_letters': None,
+        }
 
+        # Główny wzorzec: typ + R + opcjonalny kąt + krawędzie
+        # Uwaga: [GDPN]\d+ musi być PRZED [A-H] żeby uniknąć pochłonięcia pierwszej litery
+        pattern = (
+            r'(zaokr[aą]glenie|fazowanie)\s+'
+            r'R(\d+)\s*'
+            r'(?:(\d+)°\s*)?'
+            r'[\(]?\s*'
+            r'((?:[GDPN]\d+|[A-H])(?:\s*,\s*(?:[GDPN]\d+|[A-H]))*)'
+            r'\s*[\)]?'
+        )
+
+        match = re.search(pattern, name, re.IGNORECASE)
+        if match:
+            result['has_edge'] = True
+            edge_type_raw = match.group(1).lower()
+            if edge_type_raw.startswith('zaokr'):
+                result['edge_type'] = 'zaokrąglenie'
+            else:
+                result['edge_type'] = 'fazowanie'
+            result['edge_radius'] = int(match.group(2))
+            if match.group(3):
+                result['edge_angle'] = int(match.group(3))
+            letters_raw = match.group(4)
+            result['edge_letters'] = [l.strip().upper() for l in letters_raw.split(',')]
+            return result
+
+        # Fallback: proste wykrywanie słów kluczowych (zachowanie wstecznej kompatybilności)
+        edge_keywords = ['fazowanie', 'faza', 'frezowanie', 'kąt', 'zaokrąglenie', 'zaokraglenie']
         for keyword in edge_keywords:
             if keyword in name:
-                return True
+                result['has_edge'] = True
+                return result
 
-        # R + liczba (np. R30, R15)
         if re.search(r'\bR\d+\b', name, re.IGNORECASE):
-            return True
+            result['has_edge'] = True
 
-        return False
+        return result
 
     def _parse_lacquer_finish_structured(self, name: str, result: Dict[str, Any]) -> Dict[str, Any]:
         """
