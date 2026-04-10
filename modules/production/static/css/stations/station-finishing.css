@@ -149,7 +149,7 @@ body:not(.dark-mode) .tab-btn.active {
 .order-ids-row {
     justify-content: space-between;
     gap: 12px;
-    padding: 8px 20px;
+    padding: 8px 12px;
 }
 
 /* Row 2: Stats left, Icons right */
