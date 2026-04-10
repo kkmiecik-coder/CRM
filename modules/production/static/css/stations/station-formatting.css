@@ -196,17 +196,6 @@
 /* Uklad poziomy dla duzych ilosci (>=10) */
 
 /* Licznik ilosci */
-.quantity-counter {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 4px;
-    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-    font-size: 20px;
-    font-weight: 700;
-    color: var(--text-primary);
-    min-width: 60px;
-}
 
 .qty-done {
     color: var(--accent-orange);
@@ -420,26 +409,6 @@
     width: 100%;
 }
 
-/* Badge wymiarow w product-dimensions-row */
-.product-dimensions-row .badge-dimensions {
-    flex: 1;
-    min-height: 48px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 8px 16px;
-    border-radius: 0;
-    font-size: 18px;
-    font-family: 'JetBrains Mono', monospace;
-    font-weight: 600;
-    background: var(--bg-tertiary);
-    border: 2px solid var(--border-color);
-    color: var(--text-primary);
-    text-align: center;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-}
 
 /* Numer produktu — pomarańczowy badge */
 .badge-product-id {
