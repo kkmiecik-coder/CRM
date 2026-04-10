@@ -146,12 +146,6 @@
                         {% if order.baselinker_order_id %}
                         <span class="order-baselinker">BL-{{ order.baselinker_order_id }}</span>
                         {% endif %}
-                    </div>
-                    <!-- Row 2: Stats left, Delivery badge, Icons right -->
-                    <div class="order-header-row order-stats-row">
-                        <div class="order-stats">
-                        </div>
-
                         <!-- DELIVERY BADGE (2025-12) -->
                         <div class="delivery-badge-container">
                             {% if order.is_personal_pickup %}
@@ -174,10 +168,8 @@
                             </span>
                             {% endif %}
                         </div>
-
                         {% set first_product = order.products[0] if order.products else none %}
                         <div class="order-icons">
-                            <!-- PRZYCISK ADRESU DOSTAWY (tylko dla kuriera) -->
                             {% if not order.is_personal_pickup %}
                             <div class="header-icon-wrapper delivery-icon-wrapper"
                                  data-delivery-fullname="{{ order.delivery_fullname or '' }}"

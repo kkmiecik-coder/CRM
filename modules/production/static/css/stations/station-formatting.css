@@ -125,6 +125,7 @@
     display: flex;
     align-items: center;
     gap: 8px;
+    margin-left: auto;
 }
 
 /* Deadline info (used in packaging) */

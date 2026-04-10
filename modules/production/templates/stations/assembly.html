@@ -132,11 +132,6 @@
                         {% if product.baselinker_order_id %}
                             <span class="order-baselinker">BL-{{ product.baselinker_order_id }}</span>
                         {% endif %}
-
-                    </div>
-                    <div class="order-header-row order-stats-row">
-                        <div class="order-stats">
-                        </div>
                         <div class="order-icons">
                             {% if product.attachment_file_url %}
                                 {% set attachment_type = 'pdf' if product.attachment_file_name and product.attachment_file_name.lower().endswith('.pdf') else 'image' %}

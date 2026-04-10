@@ -1052,10 +1052,6 @@
                         <span class="order-number">${product.id}</span>
                         ${internalOrderHTML}
                         ${blOrderHTML}
-                    </div>
-                    <div class="order-header-row order-stats-row">
-                        <div class="order-stats">
-                        </div>
                         <div class="order-icons">${iconsHTML}</div>
                     </div>
                 </div>

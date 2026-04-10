@@ -198,6 +198,7 @@ body:not(.dark-mode) .tab-btn.active {
     display: flex;
     align-items: center;
     gap: 8px;
+    margin-left: auto;
 }
 
 /* ============================================================================
