@@ -2080,11 +2080,15 @@ class BaselinkerService:
                     details_by_sku[sku] = detail
 
             matched = 0
+            bl_skus = []
             for bl_product in bl_products:
                 bl_sku = bl_product.get('sku', '')
+                bl_skus.append(bl_sku)
                 if bl_sku in details_by_sku:
                     details_by_sku[bl_sku].baselinker_order_product_id = int(bl_product['order_product_id'])
                     matched += 1
+
+            self.logger.info(f"order_product_id matchowanie: BL SKUs={bl_skus}, detail SKUs={list(details_by_sku.keys())}, matched={matched}")
 
             if matched > 0:
                 db.session.commit()
@@ -2094,7 +2098,8 @@ class BaselinkerService:
                                total_details=len(details))
 
         except Exception as e:
-            self.logger.error("Błąd zapisu order_product_id", error=str(e))
+            import traceback
+            self.logger.error(f"Błąd zapisu order_product_id: {str(e)}\n{traceback.format_exc()}")
 
     def _generate_sku_for_detail(self, detail):
         """Generuje SKU dla QuoteItemDetails (używa istniejącej metody _generate_sku)."""
@@ -2102,8 +2107,14 @@ class BaselinkerService:
             from modules.calculator.models import QuoteItem
             item = QuoteItem.query.filter_by(
                 quote_id=detail.quote_id,
-                product_index=detail.product_index
+                product_index=detail.product_index,
+                is_selected=True
             ).first()
+            if not item:
+                item = QuoteItem.query.filter_by(
+                    quote_id=detail.quote_id,
+                    product_index=detail.product_index
+                ).first()
             if item:
                 return self._generate_sku(item, detail)
         except Exception:

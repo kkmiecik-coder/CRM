@@ -71,7 +71,48 @@
             isoPreview.style.display = 'none';
         }
 
+        // Reset toggle labelek
+        var toggleBtn = document.getElementById('edgeModalToggleLabels');
+        if (toggleBtn) {
+            toggleBtn.dataset.visible = 'true';
+            toggleBtn.textContent = 'Ukryj oznaczenia';
+        }
+
         modal.classList.add('show');
+    }
+
+    function toggleEdgeLabels() {
+        var btn = document.getElementById('edgeModalToggleLabels');
+        var isoContainer = document.getElementById('edgeModalIsometricContent');
+        if (!btn || !isoContainer) return;
+
+        var visible = btn.dataset.visible !== 'false';
+        var labels = isoContainer.querySelectorAll('.edges-labels, .edges-label, circle, text');
+        // Fallback: szukaj g.edges-labels lub bezpośrednio kółek z tekstem
+        var labelsGroup = isoContainer.querySelector('.edges-labels') || isoContainer.querySelector('g');
+
+        if (visible) {
+            // Ukryj — znajdź wszystkie circle i text w SVG które są labelkami
+            var svgEl = isoContainer.querySelector('svg');
+            if (svgEl) {
+                var allCircles = svgEl.querySelectorAll('circle');
+                var allTexts = svgEl.querySelectorAll('text');
+                allCircles.forEach(function(c) { c.style.display = 'none'; });
+                allTexts.forEach(function(t) { t.style.display = 'none'; });
+            }
+            btn.dataset.visible = 'false';
+            btn.textContent = 'Pokaż oznaczenia';
+        } else {
+            var svgEl = isoContainer.querySelector('svg');
+            if (svgEl) {
+                var allCircles = svgEl.querySelectorAll('circle');
+                var allTexts = svgEl.querySelectorAll('text');
+                allCircles.forEach(function(c) { c.style.display = ''; });
+                allTexts.forEach(function(t) { t.style.display = ''; });
+            }
+            btn.dataset.visible = 'true';
+            btn.textContent = 'Ukryj oznaczenia';
+        }
     }
 
     function closeEdgeModal() {
@@ -94,6 +135,7 @@
 
     // Globalne funkcje
     window.closeEdgeModal = closeEdgeModal;
+    window.toggleEdgeLabels = toggleEdgeLabels;
     window.initializeEdgeHandlers = initializeEdgeHandlers;
 
     // Hook do refresha

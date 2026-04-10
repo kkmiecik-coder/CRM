@@ -153,11 +153,11 @@
                                    data-edge-type="{{ first_product.get('parsed_edge_type') or '' }}"
                                    data-edge-radius="{{ first_product.get('parsed_edge_radius') or '' }}"
                                    data-edge-angle="{{ first_product.get('parsed_edge_angle') or '' }}"
-                                   data-edge-letters="{{ first_product['parsed_edge_letters']|tojson if first_product.get('parsed_edge_letters') else '[]' }}"
-                                   data-edge-svg="{{ first_product.get('edge_svg') or '' }}"
-                                   data-shape-svg="{{ first_product.get('shape_svg') or '' }}"
+                                   data-edge-letters='{{ first_product["parsed_edge_letters"]|tojson if first_product.get("parsed_edge_letters") else "[]" }}'
+                                   data-edge-svg="{{ (first_product.get('edge_svg') or '')|e }}"
+                                   data-shape-svg="{{ (first_product.get('shape_svg') or '')|e }}"
                                    data-product-id="{{ first_product.get('id') or '' }}">
-                                <svg class="header-icon" width="22" height="22"><use href="#icon-edge"/></svg>
+                                <svg class="header-icon" width="22" height="22"><use href="{{ url_for('production.static', filename='icons/station-icons.svg') }}#icon-edge"/></svg>
                               </div>
                             {% endif %}
                             {% if first_product and first_product.get('attachment_file_url') %}
@@ -300,7 +300,10 @@
       <div class="edge-modal-content">
         <div class="edge-modal-header">
           <h3 id="edgeModalTitle">Obróbka krawędzi</h3>
-          <button class="edge-modal-close" onclick="closeEdgeModal()">&times;</button>
+          <div style="display:flex;align-items:center;gap:12px;">
+            <button id="edgeModalToggleLabels" data-visible="true" onclick="toggleEdgeLabels()" class="edge-modal-toggle">Ukryj oznaczenia</button>
+            <button class="edge-modal-close" onclick="closeEdgeModal()">&times;</button>
+          </div>
         </div>
         <div class="edge-modal-previews">
           <div class="edge-modal-preview" id="edgeModalShape">

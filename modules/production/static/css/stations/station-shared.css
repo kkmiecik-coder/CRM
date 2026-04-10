@@ -936,27 +936,18 @@ body {
 }
 
 /* Ikona obróbki krawędzi */
-.edge-icon-wrapper {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    cursor: pointer;
-    position: relative;
-    padding: 4px;
-    border-radius: 0;
-    color: #f59e0b;
+.header-icon-wrapper.edge-icon-wrapper {
+    background: rgba(245, 158, 11, 0.15);
+    border: 1px solid rgba(245, 158, 11, 0.3);
 }
 
-.edge-icon-wrapper:hover {
-    background-color: rgba(245, 158, 11, 0.1);
+.header-icon-wrapper.edge-icon-wrapper:hover {
+    background: rgba(245, 158, 11, 0.25);
+    border-color: rgba(245, 158, 11, 0.5);
 }
 
-.edge-icon-wrapper .header-icon {
+.header-icon-wrapper.edge-icon-wrapper .header-icon {
     stroke: #f59e0b;
-}
-
-.edge-icon-wrapper:hover .header-icon {
-    stroke: #fbbf24;
 }
 
 /* Tooltip z podglądem obrazka/PDF */
@@ -1385,6 +1376,21 @@ body {
 }
 
 .edge-modal-close:hover {
+    color: var(--text-primary, #f1f5f9);
+}
+
+.edge-modal-toggle {
+    background: rgba(148, 163, 184, 0.1);
+    border: 1px solid rgba(148, 163, 184, 0.3);
+    color: var(--text-secondary, #94a3b8);
+    padding: 8px 16px;
+    font-size: 12px;
+    cursor: pointer;
+    min-height: 48px;
+}
+
+.edge-modal-toggle:hover {
+    background: rgba(148, 163, 184, 0.2);
     color: var(--text-primary, #f1f5f9);
 }
 

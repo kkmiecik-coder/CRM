@@ -653,7 +653,14 @@ def formatting_station():
                     'is_complete': product.quantity_done_formatting == product.quantity,
                     'is_priority': product.is_priority,
                     'order_notes': product.order_notes,
-                    'client_order_number': product.client_order_number
+                    'client_order_number': product.client_order_number,
+                    'parsed_edge_processing': product.parsed_edge_processing,
+                    'parsed_edge_type': product.parsed_edge_type,
+                    'parsed_edge_radius': product.parsed_edge_radius,
+                    'parsed_edge_angle': product.parsed_edge_angle,
+                    'parsed_edge_letters': product.parsed_edge_letters,
+                    'edge_svg': product.edge_svg,
+                    'shape_svg': product.shape_svg,
                 }
 
                 products.append(product_data)
@@ -1115,6 +1122,13 @@ def packaging_station():
                     'shipping_price': float(product.shipping_price) if product.shipping_price else None,
                     'shipping_label_base64': product.shipping_label_base64,
                     'shipping_created_at': product.shipping_created_at.isoformat() if product.shipping_created_at else None,
+                    'parsed_edge_processing': product.parsed_edge_processing,
+                    'parsed_edge_type': product.parsed_edge_type,
+                    'parsed_edge_radius': product.parsed_edge_radius,
+                    'parsed_edge_angle': product.parsed_edge_angle,
+                    'parsed_edge_letters': product.parsed_edge_letters,
+                    'edge_svg': product.edge_svg,
+                    'shape_svg': product.shape_svg,
                 }
 
                 products.append(product_data)

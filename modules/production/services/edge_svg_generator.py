@@ -1,62 +1,45 @@
 """
 Generator SVG izometrycznego prostokąta z zaznaczonymi krawędziami.
 
-Port logiki z modules/calculator/static/js/edges.js:generateRectPreviewSVG().
+Dokładny port logiki z modules/calculator/static/js/edges.js:generateRectPreviewSVG().
 Używany jako fallback dla zamówień sklepowych (brak QuoteItemDetails).
 """
+import math
 
 
 class EdgeSvgGenerator:
     """Generuje izometryczny SVG prostokąta z zaznaczonymi krawędziami."""
 
-    # Kolory
-    ACTIVE_COLOR = '#f59e0b'
-    INACTIVE_COLOR = '#475569'
-    FACE_FILL = 'rgba(148,163,184,0.05)'
-    FACE_FILL_TOP = 'rgba(148,163,184,0.08)'
+    # Kolory — te same co w edges.js CSS
+    ACTIVE_STROKE = '#f59e0b'
+    INACTIVE_STROKE = '#666'
+    ACTIVE_WIDTH = 2.5
+    INACTIVE_WIDTH = 2
+    HIDDEN_DASH = '5,3'
+
+    FACE_BACK = 'rgba(148,163,184,0.06)'
+    FACE_LEFT = 'rgba(148,163,184,0.04)'
+    FACE_TOP = 'rgba(148,163,184,0.1)'
+    FACE_FRONT = 'rgba(148,163,184,0.08)'
+    FACE_RIGHT = 'rgba(148,163,184,0.05)'
+    FACE_STROKE = '#555'
+
+    LABEL_R = 10
+    LABEL_OFFSET = 14  # offset labelki od krawędzi
     LABEL_BG_ACTIVE = '#f59e0b'
-    LABEL_BG_INACTIVE = '#2a2a3e'
+    LABEL_BG_INACTIVE = '#333'
+    LABEL_STROKE_INACTIVE = '#666'
     LABEL_TEXT_ACTIVE = '#fff'
-    LABEL_TEXT_INACTIVE = '#94a3b8'
+    LABEL_TEXT_INACTIVE = '#999'
 
-    # Wektory projekcji izometrycznej (te same co w edges.js)
-    ISO_X = (0.95, 0.0)     # oś X kształtu → ekran
-    ISO_Y = (-0.36, -0.75)  # oś Y kształtu → ekran
-    ISO_Z = (0.04, 0.65)    # oś Z (grubość) → ekran
-
-    # Definicje krawędzi prostokąta
-    EDGE_DEFS = {
-        # Górne (z=0)
-        'A': {'start': (0, 0, 0), 'end': (1, 0, 0), 'label_pos': 0.5},
-        'B': {'start': (0, 1, 0), 'end': (1, 1, 0), 'label_pos': 0.5},
-        'C': {'start': (0, 0, 0), 'end': (0, 1, 0), 'label_pos': 0.5},
-        'D': {'start': (1, 0, 0), 'end': (1, 1, 0), 'label_pos': 0.5},
-        # Dolne (z=1)
-        'E': {'start': (0, 0, 1), 'end': (1, 0, 1), 'label_pos': 0.5},
-        'F': {'start': (0, 1, 1), 'end': (1, 1, 1), 'label_pos': 0.5},
-        'G': {'start': (0, 0, 1), 'end': (0, 1, 1), 'label_pos': 0.5},
-        'H': {'start': (1, 0, 1), 'end': (1, 1, 1), 'label_pos': 0.5},
-        # Narożniki pionowe
-        'N1': {'start': (0, 0, 0), 'end': (0, 0, 1), 'label_pos': 0.5},
-        'N2': {'start': (1, 0, 0), 'end': (1, 0, 1), 'label_pos': 0.5},
-        'N3': {'start': (1, 1, 0), 'end': (1, 1, 1), 'label_pos': 0.5},
-        'N4': {'start': (0, 1, 0), 'end': (0, 1, 1), 'label_pos': 0.5},
-    }
-
-    def _project(self, x, y, z, length, width, thickness):
-        """Rzutuje punkt 3D na 2D izometryczne."""
-        px = x * length
-        py = y * width
-        pz = z * thickness
-
-        screen_x = px * self.ISO_X[0] + py * self.ISO_Y[0] + pz * self.ISO_Z[0]
-        screen_y = px * self.ISO_X[1] + py * self.ISO_Y[1] + pz * self.ISO_Z[1]
-
-        return screen_x, screen_y
+    # Viewbox — stały jak w kalkulatorze
+    VB_W = 320
+    VB_H = 220
+    MARGIN = 20
 
     def generate(self, length_cm, width_cm, thickness_cm, active_edges):
         """
-        Generuje SVG izometrycznego prostokąta.
+        Generuje SVG izometrycznego prostokąta — port z edges.js.
 
         Args:
             length_cm: długość w cm
@@ -69,109 +52,126 @@ class EdgeSvgGenerator:
         """
         active_set = set(active_edges or [])
 
-        # Normalizuj wymiary do rozmiaru SVG
-        max_dim = max(length_cm, width_cm, thickness_cm * 5, 1)
-        scale = 150 / max_dim
+        # Projekcja izometryczna 30° — identyczna jak w kalkulatorze
+        iso_angle = math.pi / 6
+        cos_a = math.cos(iso_angle)
+        sin_a = math.sin(iso_angle)
+
+        max_dim = max(length_cm, width_cm)
+        effective_thickness = max(thickness_cm, max_dim * 0.15)
+
+        work_w = self.VB_W - 2 * self.MARGIN
+        work_h = self.VB_H - 2 * self.MARGIN
+
+        projected_w = (length_cm + width_cm) * cos_a
+        projected_h = (length_cm + width_cm) * sin_a + effective_thickness
+
+        scale = min(work_w / projected_w, work_h / projected_h) * 0.85
+
         L = length_cm * scale
         W = width_cm * scale
-        T = max(thickness_cm * scale, 8)
+        T = effective_thickness * scale
 
-        # 8 wierzchołków prostopadłościanu
-        corners = {}
-        for name, (xf, yf, zf) in [
-            ('TFL', (0, 0, 0)), ('TFR', (1, 0, 0)),
-            ('TBR', (1, 1, 0)), ('TBL', (0, 1, 0)),
-            ('BFL', (0, 0, 1)), ('BFR', (1, 0, 1)),
-            ('BBR', (1, 1, 1)), ('BBL', (0, 1, 1)),
-        ]:
-            corners[name] = self._project(xf, yf, zf, L, W, T)
+        vecX = (cos_a, sin_a)    # prawo-dół
+        vecY = (-cos_a, sin_a)   # lewo-dół
+        # vecZ = (0, -1) — grubość idzie w górę
 
-        # Bounding box + padding
-        all_x = [c[0] for c in corners.values()]
-        all_y = [c[1] for c in corners.values()]
-        min_x, max_x = min(all_x), max(all_x)
-        min_y, max_y = min(all_y), max(all_y)
+        total_proj_w = L * vecX[0] + W * abs(vecY[0])
+        total_proj_h = L * vecX[1] + W * vecY[1] + T
 
-        padding = 30
-        vb_w = max_x - min_x + padding * 2
-        vb_h = max_y - min_y + padding * 2
-        ox = -min_x + padding
-        oy = -min_y + padding
+        start_x = (self.VB_W - total_proj_w) / 2 + W * abs(vecY[0])
+        start_y = (self.VB_H - total_proj_h) / 2 + T
 
-        def p(name):
-            x, y = corners[name]
-            return x + ox, y + oy
+        # 8 wierzchołków — nazewnictwo z kalkulatora:
+        # TLD = Top-Left-Down (góra, lewy, dół = na płaszczyźnie dolnej)
+        # TLG = Top-Left-Gora (góra, lewy, góra = na płaszczyźnie górnej)
+        pTLD = (start_x, start_y)
+        pTPD = (pTLD[0] + L * vecX[0], pTLD[1] + L * vecX[1])
+        pPPD = (pTPD[0] + W * vecY[0], pTPD[1] + W * vecY[1])
+        pPLD = (pTLD[0] + W * vecY[0], pTLD[1] + W * vecY[1])
+        pTLG = (pTLD[0], pTLD[1] - T)
+        pTPG = (pTPD[0], pTPD[1] - T)
+        pPPG = (pPPD[0], pPPD[1] - T)
+        pPLG = (pPLD[0], pPLD[1] - T)
 
-        def fmt(x, y):
-            return f'{x:.1f},{y:.1f}'
+        def f(pt):
+            return f'{pt[0]:.1f},{pt[1]:.1f}'
 
-        parts = []
-        parts.append(f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {vb_w:.0f} {vb_h:.0f}">')
+        def mid(a, b):
+            return ((a[0] + b[0]) / 2, (a[1] + b[1]) / 2)
 
-        # Ściany
-        faces = [
-            ('back',  ['TBL', 'TBR', 'BBR', 'BBL'], self.FACE_FILL),
-            ('left',  ['TBL', 'TFL', 'BFL', 'BBL'], self.FACE_FILL),
-            ('top',   ['TFL', 'TFR', 'TBR', 'TBL'], self.FACE_FILL_TOP),
-            ('front', ['TFL', 'TFR', 'BFR', 'BFL'], self.FACE_FILL),
-            ('right', ['TFR', 'TBR', 'BBR', 'BFR'], self.FACE_FILL),
-        ]
+        def ec(edge):
+            return self.ACTIVE_STROKE if edge in active_set else self.INACTIVE_STROKE
 
-        for face_name, verts, fill in faces:
-            points = ' '.join(fmt(*p(v)) for v in verts)
-            parts.append(
-                f'<polygon points="{points}" fill="{fill}" '
-                f'stroke="{self.INACTIVE_COLOR}" stroke-width="1" opacity="0.6"/>'
-            )
+        def ew(edge):
+            return self.ACTIVE_WIDTH if edge in active_set else self.INACTIVE_WIDTH
 
-        # Krawędzie
-        for edge_name, edge_def in self.EDGE_DEFS.items():
-            sx, sy, sz = edge_def['start']
-            ex, ey, ez = edge_def['end']
+        parts = [f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {self.VB_W} {self.VB_H}">']
 
-            x1, y1 = self._project(sx, sy, sz, L, W, T)
-            x2, y2 = self._project(ex, ey, ez, L, W, T)
-            x1 += ox; y1 += oy
-            x2 += ox; y2 += oy
+        # Ściany (tło) — kolejność rysowania z kalkulatora
+        parts.append(f'<polygon points="{f(pTLD)} {f(pTPD)} {f(pTPG)} {f(pTLG)}" fill="{self.FACE_BACK}" stroke="{self.FACE_STROKE}" stroke-width="1"/>')
+        parts.append(f'<polygon points="{f(pTLD)} {f(pPLD)} {f(pPLG)} {f(pTLG)}" fill="{self.FACE_LEFT}" stroke="{self.FACE_STROKE}" stroke-width="1"/>')
+        parts.append(f'<polygon points="{f(pTLG)} {f(pTPG)} {f(pPPG)} {f(pPLG)}" fill="{self.FACE_TOP}" stroke="{self.FACE_STROKE}" stroke-width="1"/>')
+        parts.append(f'<polygon points="{f(pPLD)} {f(pPPD)} {f(pPPG)} {f(pPLG)}" fill="{self.FACE_FRONT}" stroke="{self.FACE_STROKE}" stroke-width="1"/>')
+        parts.append(f'<polygon points="{f(pTPD)} {f(pPPD)} {f(pPPG)} {f(pTPG)}" fill="{self.FACE_RIGHT}" stroke="{self.FACE_STROKE}" stroke-width="1"/>')
 
-            is_active = edge_name in active_set
-            color = self.ACTIVE_COLOR if is_active else self.INACTIVE_COLOR
-            width = 3 if is_active else 1.5
-            opacity = '' if is_active else ' opacity="0.6"'
+        # Krawędzie — ukryte (hidden) mają dashed, reszta solid
+        # F i G są z tyłu (hidden), N3 pionowa z tyłu (hidden)
+        def line(name, p1, p2, hidden=False):
+            color = ec(name)
+            width = ew(name)
+            dash = f' stroke-dasharray="{self.HIDDEN_DASH}"' if hidden and name not in active_set else ''
+            return f'<line x1="{p1[0]:.1f}" y1="{p1[1]:.1f}" x2="{p2[0]:.1f}" y2="{p2[1]:.1f}" stroke="{color}" stroke-width="{width}"{dash} fill="none"/>'
 
-            parts.append(
-                f'<line x1="{x1:.1f}" y1="{y1:.1f}" x2="{x2:.1f}" y2="{y2:.1f}" '
-                f'stroke="{color}" stroke-width="{width}" stroke-linecap="round"{opacity}/>'
-            )
+        # Ukryte krawędzie (z tyłu)
+        parts.append(line('F', pTLD, pTPD, hidden=True))
+        parts.append(line('G', pTLD, pPLD, hidden=True))
+        parts.append(line('N3', pTLG, pTLD, hidden=True))
 
-        # Labelki
-        label_r = 11
-        for edge_name, edge_def in self.EDGE_DEFS.items():
-            sx, sy, sz = edge_def['start']
-            ex, ey, ez = edge_def['end']
-            t = edge_def['label_pos']
+        # Widoczne krawędzie
+        parts.append(line('A', pPLG, pPPG))
+        parts.append(line('B', pTLG, pTPG))
+        parts.append(line('C', pTLG, pPLG))
+        parts.append(line('D', pTPG, pPPG))
+        parts.append(line('E', pPLD, pPPD))
+        parts.append(line('H', pTPD, pPPD))
+        parts.append(line('N1', pPLG, pPLD))
+        parts.append(line('N2', pPPG, pPPD))
+        parts.append(line('N4', pTPG, pTPD))
 
-            mx = sx + (ex - sx) * t
-            my = sy + (ey - sy) * t
-            mz = sz + (ez - sz) * t
+        # Labelki — pozycje z kalkulatora (offsetowane od krawędzi)
+        R = self.LABEL_R
+        OFF = self.LABEL_OFFSET
 
-            lx, ly = self._project(mx, my, mz, L, W, T)
-            lx += ox; ly += oy
+        labels = {
+            'A':  (mid(pPLG, pPPG)[0],       mid(pPLG, pPPG)[1] - OFF),
+            'B':  (mid(pTLG, pTPG)[0],        mid(pTLG, pTPG)[1] - OFF),
+            'C':  (mid(pTLG, pPLG)[0] - OFF,  mid(pTLG, pPLG)[1]),
+            'D':  (mid(pTPG, pPPG)[0] + OFF,  mid(pTPG, pPPG)[1]),
+            'E':  (mid(pPLD, pPPD)[0],        mid(pPLD, pPPD)[1] + OFF),
+            'H':  (mid(pTPD, pPPD)[0] + OFF,  mid(pTPD, pPPD)[1]),
+            'N1': (pPLG[0] - OFF,             mid(pPLG, pPLD)[1]),
+            'N2': (pPPG[0] + OFF,             mid(pPPG, pPPD)[1]),
+            'N4': (pTPG[0] + OFF,             mid(pTPG, pTPD)[1]),
+        }
+        # F, G, N3 — ukryte z tyłu, labelki tylko jeśli aktywne
+        if 'F' in active_set:
+            labels['F'] = (mid(pTLD, pTPD)[0], mid(pTLD, pTPD)[1] - OFF)
+        if 'G' in active_set:
+            labels['G'] = (mid(pTLD, pPLD)[0] - OFF, mid(pTLD, pPLD)[1])
+        if 'N3' in active_set:
+            labels['N3'] = (pTLG[0] - OFF, mid(pTLG, pTLD)[1])
 
-            is_active = edge_name in active_set
+        parts.append('<g class="edges-labels">')
+        for name, (lx, ly) in labels.items():
+            is_active = name in active_set
             bg = self.LABEL_BG_ACTIVE if is_active else self.LABEL_BG_INACTIVE
             tc = self.LABEL_TEXT_ACTIVE if is_active else self.LABEL_TEXT_INACTIVE
-            stroke = '' if is_active else f' stroke="{self.INACTIVE_COLOR}" stroke-width="1"'
-
-            parts.append(
-                f'<circle cx="{lx:.1f}" cy="{ly:.1f}" r="{label_r}" fill="{bg}"{stroke}/>'
-            )
-            font_size = 8 if len(edge_name) > 1 else 9
-            parts.append(
-                f'<text x="{lx:.1f}" y="{ly + 3:.1f}" text-anchor="middle" '
-                f'fill="{tc}" font-size="{font_size}" font-weight="bold" '
-                f'font-family="Arial,sans-serif">{edge_name}</text>'
-            )
+            stroke_attr = '' if is_active else f' stroke="{self.LABEL_STROKE_INACTIVE}" stroke-width="1"'
+            font_size = 8 if len(name) > 1 else 10
+            parts.append(f'<circle cx="{lx:.1f}" cy="{ly:.1f}" r="{R}" fill="{bg}"{stroke_attr}/>')
+            parts.append(f'<text x="{lx:.1f}" y="{ly + 4:.1f}" text-anchor="middle" fill="{tc}" font-size="{font_size}" font-weight="bold" font-family="Arial,sans-serif">{name}</text>')
+        parts.append('</g>')
 
         parts.append('</svg>')
         return '\n'.join(parts)
