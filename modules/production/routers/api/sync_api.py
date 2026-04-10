@@ -891,10 +891,36 @@ def fetch_orders_preview():
                         if not already_exists:
                             has_new_products = True
 
-                        # Parsuj technologię produktu z nazwy
+                        # Parsuj dane produktu z nazwy
                         parsed_result = parse_product_name(product_name)
                         parsed_technology = parsed_result.get('technology')
+                        parsed_wood_species = parsed_result.get('wood_species')
+                        parsed_wood_class = parsed_result.get('wood_class')
+                        parsed_finish_type = parsed_result.get('finish_type')
+                        parsed_finish_display = parsed_result.get('finish_state')
+
+                        # Wymiary sformatowane
+                        length = parsed_result.get('length_cm')
+                        width = parsed_result.get('width_cm')
+                        thickness = parsed_result.get('thickness_cm')
+                        parsed_dimensions = None
+                        if length and width and thickness:
+                            def fmt(v):
+                                v = float(v)
+                                return str(int(v)) if v == int(v) else str(v)
+                            parsed_dimensions = f"{fmt(length)}×{fmt(width)}×{fmt(thickness)}"
+
+                        # Walidacja
                         is_valid_technology = parsed_technology in ('mikrowczep', 'lity')
+                        is_valid_species = parsed_wood_species is not None
+                        is_valid_class = parsed_wood_class is not None
+                        is_valid_dimensions = parsed_dimensions is not None
+                        is_valid_finish = parsed_finish_type is not None
+
+                        has_parsing_error = not all([
+                            is_valid_technology, is_valid_species, is_valid_class,
+                            is_valid_dimensions, is_valid_finish
+                        ])
 
                         processed_products.append({
                             'name': product_name,
@@ -904,8 +930,18 @@ def fetch_orders_preview():
                             'price': float(product.get('price_brutto', 0)),
                             'unit': product.get('unit', 'szt.'),
                             'already_in_db': already_exists,
-                            'parsed_technology': parsed_technology,       # Technologia sparsowana z nazwy produktu
-                            'unknown_technology': not is_valid_technology  # Flaga błędu: nieznana technologia
+                            'parsed_technology': parsed_technology,
+                            'parsed_wood_species': parsed_wood_species,
+                            'parsed_wood_class': parsed_wood_class,
+                            'parsed_dimensions': parsed_dimensions,
+                            'parsed_finish_type': parsed_finish_type,
+                            'parsed_finish_display': parsed_finish_display,
+                            'unknown_technology': not is_valid_technology,
+                            'unknown_species': not is_valid_species,
+                            'unknown_class': not is_valid_class,
+                            'unknown_dimensions': not is_valid_dimensions,
+                            'unknown_finish': not is_valid_finish,
+                            'has_parsing_error': has_parsing_error,
                         })
 
                     order['products'] = processed_products
@@ -924,11 +960,14 @@ def fetch_orders_preview():
                         order['partially_exists'] = False
                         order['existing_products_count'] = 0
 
-                # Sprawdź czy zamówienie ma błąd technologii (wśród wszystkich produktów)
-                has_technology_error = any(
-                    p.get('unknown_technology', False) for p in processed_products
+                # Sprawdź czy zamówienie ma błędy parsowania (wśród nowych produktów)
+                has_parsing_error = any(
+                    p.get('has_parsing_error', False) for p in processed_products
+                    if not p.get('already_in_db', False)
                 )
-                order['technology_error'] = has_technology_error
+                order['parsing_error'] = has_parsing_error
+                # Backwards compatibility
+                order['technology_error'] = has_parsing_error
 
                 # Dodaj dodatkowe pola dla frontendu
                 order['id'] = baselinker_order_id
