@@ -375,38 +375,12 @@
     gap: 0;
 }
 
-/* Male badges z parametrami (wood_species, technology, wood_class) */
-.product-params {
-    display: flex;
-    flex-wrap: nowrap;
-    gap: 8px;
-    width: 100%;
-}
-
-.product-params .badge {
-    flex: 1;
-    min-width: 0;
-    text-align: center;
-}
+/* Badge'e parametrów — style w station-shared.css */
 
 /* Badge stanowiska — dopasowuje sie do zawartosci, nie rozciaga */
 .product-params .badge-station {
     flex: 0 0 auto;
     text-align: left;
-}
-
-.badge {
-    padding: 6px 12px;
-    border-radius: 0;
-    font-size: 14px;
-    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.3px;
-    border: 2px solid;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
 }
 
 /* Wiersz z wymiarami */

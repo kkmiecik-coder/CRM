@@ -293,42 +293,40 @@ body {
 .badge {
     padding: 6px 8px;
     border-radius: 0;
-    font-size: 15px;
-    font-weight: bold;
+    font-size: 14px;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.3px;
     text-align: center;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    border: 2px solid;
 }
 
 /* Gatunki drewna - BUK */
 .badge-species {
     background: var(--badge-species-bg);
-    border: 1px solid var(--badge-species-border);
+    border-color: var(--badge-species-border);
     color: var(--badge-species-color);
 }
 
 /* Technologie - LITY (default) */
 .badge-technology {
     background: var(--badge-tech-bg);
-    border: 1px solid var(--badge-tech-border);
+    border-color: var(--badge-tech-border);
     color: var(--badge-tech-color);
-    font-size: 14px;
 }
 
 /* Klasy drewna - A/B (default) */
 .badge-class {
     background: var(--badge-class-bg);
-    border: 1px solid var(--badge-class-border);
+    border-color: var(--badge-class-border);
     color: var(--badge-class-color);
 }
 
 /* Wykończenie - fioletowy */
 .badge-finish {
     background: #3a1f4a;
-    border: 3px solid #5c3570;
+    border-color: #5c3570;
     color: #ce93d8;
 }
 
@@ -597,10 +595,12 @@ body {
     padding: 5px;
 }
 
-.product-body .product-params {
+.product-body .product-params,
+.product-row .product-params {
     display: flex;
     flex-wrap: wrap;
     gap: 6px;
+    width: 100%;
 }
 
 .quantity-controls .btn-group {
@@ -628,12 +628,7 @@ body {
     gap: 6px;
 }
 
-/* Te same reguły dla product-row (order-grouped: packaging/formatting) */
-.product-row .product-params {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
-}
+/* product-row reguły (order-grouped: packaging/formatting) */
 
 .product-row .product-dimensions-row {
     display: flex;
@@ -1131,6 +1126,7 @@ body {
     display: flex;
     align-items: center;
     justify-content: center;
+    flex-wrap: wrap;
     padding: 8px;
     border-radius: 0;
     font-size: 24px;
@@ -1140,9 +1136,6 @@ body {
     border: 2px solid var(--border-color);
     color: var(--text-primary);
     text-align: center;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
     text-transform: none;
 }
 
@@ -1840,11 +1833,11 @@ body {
     opacity: 0.5;
 }
 
-/* Badge'e parametrow (gatunek, technologia, klasa) — rozciagaja sie rownomiernie */
-.product-params .badge-species,
-.product-params .badge-technology,
-.product-params .badge-class {
-    flex: 1;
+/* Badge'e parametrow — rozciagaja sie rownomiernie, zawijaja na kolejny wiersz */
+.product-params .badge {
+    flex: 1 1 auto;
+    min-width: 0;
+    text-align: center;
 }
 
 /* Badge stanowiska — ikona + nazwa, dopasowuje sie do zawartosci */

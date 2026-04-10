@@ -425,32 +425,7 @@ body:not(.dark-mode) .tab-btn.active {
     gap: 0;
 }
 
-.product-params {
-    display: flex;
-    flex-wrap: nowrap;
-    gap: 8px;
-    width: 100%;
-}
-
-.product-params .badge {
-    flex: 1;
-    min-width: 0;
-    text-align: center;
-}
-
-.badge {
-    padding: 6px 12px;
-    border-radius: 0;
-    font-size: 14px;
-    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.3px;
-    border: 2px solid;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-}
+/* Badge'e parametrów — style w station-shared.css */
 
 .product-dimensions-row {
     display: flex;

@@ -213,7 +213,7 @@
                             {% if product.finish_type %}<span class="badge badge-finish">{{ product.finish_type | capitalize }}</span>{% endif %}
                         </div>
                         <div class="product-dimensions-row">
-                            {% if product.dimensions %}<span class="badge badge-dimensions">{{ product.dimensions | replace('x', ' x ') | replace('×', ' × ') }}</span>
+                            {% if product.dimensions %}<span class="badge badge-dimensions">{{ product.dimensions }}</span>
                             {% elif product.original_name %}<span class="badge badge-dimensions">{{ product.original_name }}</span>
                             {% elif product.get('attachment_file_url') %}<span class="badge badge-dimensions">Zgodnie z załącznikiem</span>{% endif %}
                             <div class="quantity-controls">
