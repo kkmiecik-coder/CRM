@@ -485,6 +485,7 @@
 
 /* Status badge */
 .il-order-status-badge,
+.il-product-status-badge,
 .order-status-badge {
     font-family: var(--il-font);
     font-size: 11px;
@@ -823,6 +824,7 @@
     min-width: 90px;
 }
 
+.il-product-status-badge,
 .product-status-badge {
     font-family: var(--il-font);
     font-size: 9px;
@@ -833,6 +835,7 @@
     border-radius: 2px;
     text-align: center;
     display: inline-block;
+    margin-left: auto;
 }
 
 /* Product action buttons */

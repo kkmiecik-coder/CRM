@@ -400,18 +400,11 @@ class ProductsModule {
 
     initializeFilterBadges() {
         this.badgesConfig = {
-            badgesWrapper: document.getElementById('active-filters-container'),
-            badgesContainer: document.getElementById('filter-badges'),
-            clearAllBtn: document.getElementById('clear-all-filters'),
+            badgesWrapper: document.getElementById('il-active-filters'),
+            badgesContainer: document.getElementById('il-filter-badges'),
+            clearAllBtn: document.getElementById('il-clear-all-filters'),
             activeFiltersCount: 0
         };
-
-        // DEBUG: Sprawdź czy elementy zostały znalezione
-        console.log('[ProductsModule] Initialize filter badges:', {
-            badgesWrapper: !!this.badgesConfig.badgesWrapper,
-            badgesContainer: !!this.badgesConfig.badgesContainer,
-            clearAllBtn: !!this.badgesConfig.clearAllBtn
-        });
 
         if (this.badgesConfig.clearAllBtn) {
             this.badgesConfig.clearAllBtn.addEventListener('click', () => {
@@ -439,9 +432,9 @@ class ProductsModule {
     retryInitializeFilterBadges() {
         console.log('[ProductsModule] Retrying filter badges initialization...');
         
-        const wrapper = document.getElementById('active-filters-container');
-        const container = document.getElementById('filter-badges');
-        const clearBtn = document.getElementById('clear-all-filters');
+        const wrapper = document.getElementById('il-active-filters');
+        const container = document.getElementById('il-filter-badges');
+        const clearBtn = document.getElementById('il-clear-all-filters');
         
         if (wrapper && container) {
             this.badgesConfig.badgesWrapper = wrapper;
@@ -462,27 +455,14 @@ class ProductsModule {
     }
 
     updateFilterBadges() {
-        console.log('[ProductsModule] Updating filter badges...');
-        
         // Jeśli elementy nie są zainicjalizowane, spróbuj je znaleźć
         if (!this.badgesConfig.badgesWrapper || !this.badgesConfig.badgesContainer) {
-            console.log('[ProductsModule] Badges config missing, searching for elements...');
-            this.badgesConfig.badgesWrapper = document.getElementById('active-filters-container');
-            this.badgesConfig.badgesContainer = document.getElementById('filter-badges');
-            this.badgesConfig.clearAllBtn = document.getElementById('clear-all-filters');
+            this.badgesConfig.badgesWrapper = document.getElementById('il-active-filters');
+            this.badgesConfig.badgesContainer = document.getElementById('il-filter-badges');
+            this.badgesConfig.clearAllBtn = document.getElementById('il-clear-all-filters');
         }
-        
-        // DEBUG: Sprawdź czy elementy istnieją
-        console.log('[ProductsModule] DEBUG badges elements:', {
-            badgesWrapper: !!this.badgesConfig.badgesWrapper,
-            badgesContainer: !!this.badgesConfig.badgesContainer,
-            clearAllBtn: !!this.badgesConfig.clearAllBtn,
-            wrapperElement: document.getElementById('active-filters-container'),
-            containerElement: document.getElementById('filter-badges')
-        });
-        
+
         if (!this.badgesConfig.badgesContainer) {
-            console.error('[ProductsModule] Badges container still not found!');
             return;
         }
 
@@ -521,16 +501,16 @@ class ProductsModule {
         });
 
         // WAŻNE: Pokaż/ukryj container - FORCE FIX
-        const wrapper = document.getElementById('active-filters-container');
+        const wrapper = document.getElementById('il-active-filters');
         if (wrapper) {
             const shouldShow = badgeCount > 0;
             wrapper.style.display = shouldShow ? 'block' : 'none';
             console.log(`[ProductsModule] FORCE: Set wrapper display to ${shouldShow ? 'flex' : 'none'}, badges count: ${badgeCount}`);
-            
+
             // Aktualizuj też config
             this.badgesConfig.badgesWrapper = wrapper;
         } else {
-            console.error('[ProductsModule] Cannot find active-filters-container element!');
+            console.error('[ProductsModule] Cannot find il-active-filters element!');
         }
 
         // Stara logika dla porównania
@@ -1818,6 +1798,15 @@ class ProductsModule {
         // Volume
         const vol = ((product.volume_m3 || 0) * (product.quantity || 1)).toFixed(4);
         row.querySelector('.il-product-volume').textContent = `${vol} m³`;
+
+        // Status badge per product
+        const statusBadge = row.querySelector('.il-product-status-badge');
+        if (statusBadge && product.current_status) {
+            const badgeClass = this.getStatusBadgeClass(product.current_status);
+            const statusName = this.getStatusDisplayName(product.current_status);
+            statusBadge.textContent = statusName;
+            statusBadge.className = `il-product-status-badge ${badgeClass}`;
+        }
 
         return row;
     }

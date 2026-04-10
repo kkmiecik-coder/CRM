@@ -65,11 +65,11 @@ class ProductsDragDrop {
     initialize() {
         try {
             // Get DOM references
-            this.elements.container = document.getElementById('virtual-scroll-container');
-            this.elements.viewport = document.getElementById('virtual-scroll-viewport');
-            
-            if (!this.elements.container || !this.elements.viewport) {
-                throw new Error('Required DOM elements not found');
+            this.elements.container = document.getElementById('il-orders-list');
+            this.elements.viewport = document.getElementById('il-orders-list');
+
+            if (!this.elements.container) {
+                throw new Error('Required DOM element #il-orders-list not found');
             }
             
             // Get toast system reference

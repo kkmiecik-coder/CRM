@@ -569,27 +569,16 @@ class DashboardModule {
                 console.warn(`[Dashboard Module] Element ${station.code}-pending not found`);
             }
 
-            // Aktualizuj status dot
-            const statusElement = document.getElementById(`${station.code}-status`);
-            if (statusElement) {
-                const statusDot = statusElement.querySelector('.status-dot');
-                if (statusDot) {
-                    // Usuń poprzednie klasy statusu
-                    statusDot.classList.remove('active', 'warning', 'danger');
-
-                    // Dodaj nową klasę na podstawie liczby zamówień
-                    if (station.active_orders > 50) {
-                        statusDot.classList.add('danger');
-                    } else if (station.active_orders > 30) {
-                        statusDot.classList.add('warning');
-                    } else if (station.active_orders > 0) {
-                        statusDot.classList.add('active');
-                    }
-                    
-                    console.log(`[Dashboard Module] Updated status for ${station.code}: ${station.active_orders} orders`);
+            // Aktualizuj status badge tabletu
+            const badgeElement = document.getElementById(`${station.code}-tablet-badge`);
+            if (badgeElement) {
+                // Aktualizuj klasę na podstawie liczby zamówień
+                badgeElement.classList.remove('danger', 'warning');
+                if (station.active_orders > 50) {
+                    badgeElement.classList.add('danger');
+                } else if (station.active_orders > 30) {
+                    badgeElement.classList.add('warning');
                 }
-            } else {
-                console.warn(`[Dashboard Module] Status element ${station.code}-status not found`);
             }
         });
 
