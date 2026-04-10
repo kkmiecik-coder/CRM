@@ -226,13 +226,14 @@ def create_app():
     # ============================================================================
     
     # Flask session configuration
-    app.config['SESSION_COOKIE_SECURE'] = True # Wymaga HTTPS
+    is_production = os.environ.get('FLASK_ENV') == 'production'
+    app.config['SESSION_COOKIE_SECURE'] = is_production  # Wymaga HTTPS (tylko production)
     app.config['SESSION_COOKIE_HTTPONLY'] = True  # Ochrona przed XSS
     app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'  # Ochrona przed CSRF
-    
+
     # Flask-Login configuration
     app.config['REMEMBER_COOKIE_DURATION'] = timedelta(days=30)  # 30 dni
-    app.config['REMEMBER_COOKIE_SECURE'] = True # Wymaga HTTPS
+    app.config['REMEMBER_COOKIE_SECURE'] = is_production  # Wymaga HTTPS (tylko production)
     app.config['REMEMBER_COOKIE_HTTPONLY'] = True # Ochrona przed XSS
     
     # ============================================================================
