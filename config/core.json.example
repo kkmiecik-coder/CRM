@@ -20,6 +20,7 @@
         "password": "HASLO_KURIER",
         "endpoint": "https://api.globkurier.pl/v1"
     },
+    "gus_bir_api_key": "",
     "PRODUCTION_CRON_SECRET": "LOSOWY_CIAG_ZNAKOW",
     "PRODUCTION_SYNC_INTERVAL": 3600,
     "PRODUCTION_MAX_ITEMS_PER_SYNC": 1000,

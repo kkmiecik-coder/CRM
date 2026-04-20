@@ -2686,15 +2686,36 @@ class BaselinkerModal {
             if (response.ok && data.name) {
                 console.log('[Baselinker] Dane z GUS otrzymane:', data);
 
-                // Parsuj adres z GUS
-                const parsedAddress = this.parseGusAddress(data.address || '');
+                // Pola strukturalne (GUS BIR) mają priorytet nad sklejonym adresem
+                let streetLine = '';
+                let zipValue = '';
+                let cityValue = '';
+
+                if (data.street) {
+                    // Źródło GUS_BIR - używamy pól strukturalnych bezpośrednio
+                    streetLine = data.street;
+                    if (data.building_number) {
+                        streetLine += ' ' + data.building_number;
+                        if (data.apartment_number) {
+                            streetLine += '/' + data.apartment_number;
+                        }
+                    }
+                    zipValue = data.zip || '';
+                    cityValue = data.city || '';
+                } else {
+                    // Fallback dla MF_WL / CEIDG - używamy regexowego parsowania
+                    const parsedAddress = this.parseGusAddress(data.address || '');
+                    streetLine = parsedAddress.street || '';
+                    zipValue = parsedAddress.zipCode || data.zip || '';
+                    cityValue = parsedAddress.city || data.city || '';
+                }
 
                 // Wypełnij pola faktury
                 this.setInputValue('invoice-fullname', data.name || '');
                 this.setInputValue('invoice-company', data.company || data.name || '');
-                this.setInputValue('invoice-address', parsedAddress.street || '');
-                this.setInputValue('invoice-postcode', parsedAddress.zipCode || data.zip || '');
-                this.setInputValue('invoice-city', parsedAddress.city || data.city || '');
+                this.setInputValue('invoice-address', streetLine);
+                this.setInputValue('invoice-postcode', zipValue);
+                this.setInputValue('invoice-city', cityValue);
 
                 // POPRAWKA: Województwo - używaj setInputValue która wykrywa że to select
                 if (data.voivodeship) {
@@ -2733,9 +2754,13 @@ class BaselinkerModal {
                     gusBtn.style.background = '';
                 }, 2000);
 
-                // Informacja o źródle danych (GUS lub CEIDG)
-                if (data._source === 'CEIDG') {
-                    this.showAlert('✓ Dane pobrane z rejestru CEIDG (jednoosobowa działalność)', 'success');
+                // Informacja o źródle danych (GUS BIR / MF WL / CEIDG)
+                if (data._source === 'GUS_BIR') {
+                    this.showAlert('✓ Dane z rejestru GUS REGON', 'success');
+                } else if (data._source === 'MF_WL') {
+                    this.showAlert('✓ Dane z Białej Listy VAT', 'success');
+                } else if (data._source === 'CEIDG') {
+                    this.showAlert('✓ Dane z CEIDG (jednoosobowa działalność)', 'success');
                 } else {
                     this.showAlert('Dane z GUS zostały pobrane pomyślnie', 'success');
                 }

@@ -1,5 +1,5 @@
 # modules/clients/routers.py
-from flask import Blueprint, render_template, jsonify, request, session
+from flask import Blueprint, render_template, jsonify, request, session, current_app
 from .models import Client
 from modules.quotes.models import QuoteStatus
 from extensions import db
@@ -371,8 +371,21 @@ def get_client_quotes(client_id):
     ])
 
 
-GUS_API_KEY = os.getenv("GUS_API_KEY")
-GUS_BASE_URL = "https://wl-api.mf.gov.pl/api/search/nip/"
+# Biała Lista VAT (Ministerstwo Finansów) - używana jako fallback drugi w kolejności
+MF_WL_BASE_URL = "https://wl-api.mf.gov.pl/api/search/nip/"
+
+# Publiczny testowy klucz GUS (endpoint testowy)
+GUS_BIR_TEST_KEY = "abcde12345abcde12345"
+
+# Endpointy produkcyjny i testowy usługi BIR 1.2
+GUS_BIR_PROD_URL = "https://wyszukiwarkaregon.stat.gov.pl/wsBIR/UslugaBIRzewnPubl.svc"
+GUS_BIR_TEST_URL = "https://wyszukiwarkatest.stat.gov.pl/wsBIR/UslugaBIRzewnPubl.svc"
+
+# Namespace WCF (WS-Addressing + SOAP) używany przez usługę BIR
+GUS_BIR_NAMESPACE = "http://CIS/BIR/PUBL/2014/07"
+GUS_BIR_SOAP_NS = "http://www.w3.org/2003/05/soap-envelope"
+GUS_BIR_WSA_NS = "http://www.w3.org/2005/08/addressing"
+
 CEIDG_BASE_URL = "https://dane.biznes.gov.pl/api/ceidg/v2/firmy"
 CEIDG_JWT_TOKEN = "eyJraWQiOiJjZWlkZyIsImFsZyI6IkhTNTEyIn0.eyJnaXZlbl9uYW1lIjoiS29ucmFkIiwicGVzZWwiOiI5OTA0MTUwNzgxOCIsImlhdCI6MTc2Nzc5NTMxMiwiZmFtaWx5X25hbWUiOiJLbWllY2lrIiwiY2xpZW50X2lkIjoiVVNFUi05OTA0MTUwNzgxOC1LT05SQUQtS01JRUNJSyJ9.EL9sUGdXmwLsaaNhXRyHrRZ4hYIuPSwfSx5B7izK16k_IQUdiuZbokUYYbo3tkR_vs1EkouSGxtNh7Lk8Yfygg"
 
@@ -555,88 +568,505 @@ def get_voivodeship_from_zipcode(zip_code):
     
     return voivodeship_map.get(prefix, None)
 
-@clients_bp.route('/api/gus_lookup')
-@require_module_access('clients')
-def gus_lookup():
-    nip = request.args.get('nip')
-    if not nip or not nip.isdigit() or len(nip) != 10:
-        return jsonify({"error": "Nieprawidłowy NIP"}), 400
+# ============================================================
+# Integracja z API GUS REGON BIR 1.2 (SOAP)
+# ============================================================
+
+
+def _get_gus_bir_config():
+    """
+    Zwraca tuple (klucz_api, url_endpointu) dla usługi BIR 1.2.
+
+    Odczytuje klucz z konfiguracji Flask (config/core.json, pole
+    'gus_bir_api_key'). Gdy klucz jest pusty albo równy kluczowi
+    testowemu, używa endpointu testowego GUS; w przeciwnym razie
+    produkcyjnego.
+    """
+    api_key = ""
+    try:
+        api_key = (current_app.config.get("gus_bir_api_key") or "").strip()
+    except RuntimeError:
+        # Brak kontekstu aplikacji (np. w testach) - użyj klucza testowego
+        api_key = ""
+
+    if not api_key or api_key == GUS_BIR_TEST_KEY:
+        return GUS_BIR_TEST_KEY, GUS_BIR_TEST_URL
+
+    return api_key, GUS_BIR_PROD_URL
+
+
+def _build_soap_envelope(action, body_inner_xml, endpoint_url, sid=None):
+    """
+    Buduje kopertę SOAP 1.2 z WS-Addressing wymaganą przez usługę BIR.
+
+    Args:
+        action: nazwa akcji SOAP (np. 'Zaloguj', 'DaneSzukajPodmioty')
+        body_inner_xml: zawartość sekcji <soap:Body> (XML fragment)
+        endpoint_url: pełny URL endpointu BIR (dla nagłówka <wsa:To>)
+        sid: opcjonalny identyfikator sesji (jest dodawany w nagłówku HTTP,
+             nie tutaj, ale metoda została zachowana w sygnaturze dla
+             spójności wywołań)
+
+    Returns:
+        String z gotowym XML SOAP envelope.
+    """
+    action_url = f"http://CIS/BIR/PUBL/2014/07/IUslugaBIRzewnPubl/{action}"
+    envelope = (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<soap:Envelope xmlns:soap="{soap_ns}" xmlns:wsa="{wsa_ns}" '
+        'xmlns:ns="{bir_ns}">'
+        '<soap:Header>'
+        '<wsa:To>{to}</wsa:To>'
+        '<wsa:Action>{action}</wsa:Action>'
+        '</soap:Header>'
+        '<soap:Body>{body}</soap:Body>'
+        '</soap:Envelope>'
+    ).format(
+        soap_ns=GUS_BIR_SOAP_NS,
+        wsa_ns=GUS_BIR_WSA_NS,
+        bir_ns=GUS_BIR_NAMESPACE,
+        to=endpoint_url,
+        action=action_url,
+        body=body_inner_xml,
+    )
+    return envelope
+
+
+def _soap_request(endpoint_url, action, body_inner_xml, sid=None, timeout=15):
+    """
+    Wykonuje zapytanie SOAP do usługi BIR 1.2 i zwraca surową odpowiedź (str).
+    """
+    envelope = _build_soap_envelope(action, body_inner_xml, endpoint_url, sid=sid)
+    headers = {
+        "Content-Type": 'application/soap+xml; charset=utf-8',
+    }
+    if sid:
+        headers["sid"] = sid
+
+    response = requests.post(endpoint_url, data=envelope.encode("utf-8"),
+                             headers=headers, timeout=timeout)
+    response.raise_for_status()
+    return response.text
+
+
+def _extract_soap_result(response_text, result_tag):
+    """
+    Wyciąga zawartość znacznika XML <{result_tag}Result> ze zwróconej
+    odpowiedzi SOAP. BIR zwraca najczęściej string z zagnieżdżonym XML
+    (np. '<root><dane>...</dane></root>') jako wartość tego znacznika.
+    """
+    # Używamy wyszukiwania po nazwie lokalnej, bez namespaces
+    pattern = r"<[^>]*:?" + re.escape(result_tag) + r"Result[^>]*>(.*?)</[^>]*:?" + re.escape(result_tag) + r"Result>"
+    match = re.search(pattern, response_text, flags=re.DOTALL)
+    if match:
+        return match.group(1)
+    return ""
+
+
+def _unescape_xml(text):
+    """Konwertuje encje HTML na znaki XML (BIR zwraca dane jako escaped string)."""
+    return (
+        text.replace("&lt;", "<")
+            .replace("&gt;", ">")
+            .replace("&quot;", '"')
+            .replace("&apos;", "'")
+            .replace("&amp;", "&")
+    )
+
+
+def _gus_bir_login(endpoint_url, api_key):
+    """Loguje się do usługi BIR i zwraca SID, albo None w razie błędu."""
+    body = (
+        '<ns:Zaloguj>'
+        '<ns:pKluczUzytkownika>{key}</ns:pKluczUzytkownika>'
+        '</ns:Zaloguj>'
+    ).format(key=api_key)
+
+    logger.info("[GUS BIR] Logowanie do usługi BIR 1.2")
+    response_text = _soap_request(endpoint_url, "Zaloguj", body)
+    raw = _extract_soap_result(response_text, "Zaloguj")
+    sid = raw.strip() if raw else ""
+
+    if not sid:
+        logger.warning("[GUS BIR] Logowanie nie zwróciło SID")
+        return None
+
+    return sid
+
+
+def _gus_bir_logout(endpoint_url, sid):
+    """Wylogowuje sesję z BIR (best-effort, błędy są tylko logowane)."""
+    try:
+        body = (
+            '<ns:Wyloguj>'
+            '<ns:pIdentyfikatorSesji>{sid}</ns:pIdentyfikatorSesji>'
+            '</ns:Wyloguj>'
+        ).format(sid=sid)
+        _soap_request(endpoint_url, "Wyloguj", body, sid=sid, timeout=5)
+        logger.info("[GUS BIR] Sesja wylogowana")
+    except Exception:
+        # Nie przeszkadzamy użytkownikowi - sesja i tak wygaśnie po 60 min
+        logger.warning("[GUS BIR] Nie udało się wylogować sesji (pomijam)")
+
+
+def _gus_bir_search_by_nip(endpoint_url, sid, nip):
+    """
+    Wywołuje DaneSzukajPodmioty z kryterium NIP.
+    Zwraca słownik z polami: Regon, Typ (P/F/LP/LF), SilosID, Nazwa.
+    """
+    # Zauważ podwójny escape - wewnętrzny XML musi być escape-owany,
+    # ponieważ BIR oczekuje go jako string w parametrze
+    inner = (
+        '&lt;ns1:ParametryWyszukiwania xmlns:ns1="{ns}"&gt;'
+        '&lt;ns1:Nip&gt;{nip}&lt;/ns1:Nip&gt;'
+        '&lt;/ns1:ParametryWyszukiwania&gt;'
+    ).format(ns=GUS_BIR_NAMESPACE, nip=nip)
+
+    body = (
+        '<ns:DaneSzukajPodmioty>'
+        '<ns:pParametryWyszukiwania>{inner}</ns:pParametryWyszukiwania>'
+        '</ns:DaneSzukajPodmioty>'
+    ).format(inner=inner)
+
+    logger.info(f"[GUS BIR] Wyszukiwanie podmiotu po NIP {nip}")
+    response_text = _soap_request(endpoint_url, "DaneSzukajPodmioty", body, sid=sid)
+    raw_result = _extract_soap_result(response_text, "DaneSzukajPodmioty")
+
+    if not raw_result:
+        return None
+
+    # Wynik bywa escape'owany w HTML entities - rozpakuj
+    unescaped = _unescape_xml(raw_result)
+
+    # Wyciągnij pola z pierwszego <dane>...</dane>
+    dane_match = re.search(r"<dane>(.*?)</dane>", unescaped, flags=re.DOTALL)
+    if not dane_match:
+        return None
+
+    dane_xml = dane_match.group(1)
+
+    def _field(tag):
+        m = re.search(r"<{0}>(.*?)</{0}>".format(tag), dane_xml, flags=re.DOTALL)
+        return m.group(1).strip() if m else ""
+
+    return {
+        "regon": _field("Regon"),
+        "nip": _field("Nip"),
+        "typ": _field("Typ"),
+        "silos_id": _field("SilosID"),
+        "nazwa": _field("Nazwa"),
+        "wojewodztwo": _field("Wojewodztwo"),
+        "powiat": _field("Powiat"),
+        "gmina": _field("Gmina"),
+        "miejscowosc": _field("Miejscowosc"),
+        "kod_pocztowy": _field("KodPocztowy"),
+        "ulica": _field("Ulica"),
+    }
+
+
+def _select_bir_report_name(typ, silos_id):
+    """
+    Wybiera nazwę raportu BIR 1.2 na podstawie Typ i SilosID.
+
+    Typ:
+      - 'P'  -> osoba prawna                 -> BIR11OsPrawna
+      - 'F'  -> osoba fizyczna               -> zależnie od SilosID:
+                SilosID 1 -> BIR11OsFizycznaDzialalnoscCeidg
+                SilosID 2 -> BIR11OsFizycznaDzialalnoscRolnicza
+                SilosID 3 -> BIR11OsFizycznaDzialalnoscPozostala
+                SilosID 4 -> BIR11OsFizycznaDzialalnoscSkreslonaDo20141108
+                SilosID 6 (osoba fiz. bez działalności) -> BIR11OsFizycznaDaneOgolne
+      - 'LP' -> jednostka lokalna osoby prawnej -> BIR11JednLokalnaOsPrawnej
+      - 'LF' -> jednostka lokalna osoby fizycznej -> BIR11JednLokalnaOsFizycznej
+    """
+    if typ == "P":
+        return "BIR11OsPrawna"
+    if typ == "LP":
+        return "BIR11JednLokalnaOsPrawnej"
+    if typ == "LF":
+        return "BIR11JednLokalnaOsFizycznej"
+    if typ == "F":
+        silos_map = {
+            "1": "BIR11OsFizycznaDzialalnoscCeidg",
+            "2": "BIR11OsFizycznaDzialalnoscRolnicza",
+            "3": "BIR11OsFizycznaDzialalnoscPozostala",
+            "4": "BIR11OsFizycznaDzialalnoscSkreslonaDo20141108",
+            "6": "BIR11OsFizycznaDaneOgolne",
+        }
+        return silos_map.get(str(silos_id), "BIR11OsFizycznaDzialalnoscCeidg")
+    # Domyślnie spróbuj raport dla osoby prawnej
+    return "BIR11OsPrawna"
+
+
+def _gus_bir_full_report(endpoint_url, sid, regon, report_name):
+    """
+    Wywołuje DanePobierzPelnyRaport i zwraca rozparsowane pola z sekcji
+    <dane>. Zwraca słownik nazwa_pola -> wartość (string).
+    """
+    body = (
+        '<ns:DanePobierzPelnyRaport>'
+        '<ns:pRegon>{regon}</ns:pRegon>'
+        '<ns:pNazwaRaportu>{report}</ns:pNazwaRaportu>'
+        '</ns:DanePobierzPelnyRaport>'
+    ).format(regon=regon, report=report_name)
+
+    logger.info(f"[GUS BIR] Pobieranie pełnego raportu {report_name} dla REGON {regon}")
+    response_text = _soap_request(endpoint_url, "DanePobierzPelnyRaport", body, sid=sid)
+    raw_result = _extract_soap_result(response_text, "DanePobierzPelnyRaport")
+
+    if not raw_result:
+        return {}
+
+    unescaped = _unescape_xml(raw_result)
+
+    dane_match = re.search(r"<dane>(.*?)</dane>", unescaped, flags=re.DOTALL)
+    if not dane_match:
+        return {}
+
+    dane_xml = dane_match.group(1)
+
+    # Zbuduj słownik wszystkich pól wewnątrz <dane>
+    fields = {}
+    for m in re.finditer(r"<([a-zA-Z0-9_]+)>(.*?)</\1>", dane_xml, flags=re.DOTALL):
+        fields[m.group(1)] = m.group(2).strip()
+    return fields
+
+
+def _extract_address_from_report(fields, typ):
+    """
+    Wyciąga ustrukturyzowane pola adresowe z raportu BIR.
+
+    Pola w raporcie są prefiksowane:
+      - 'praw_' dla osoby prawnej (BIR11OsPrawna)
+      - 'fiz_'  dla osoby fizycznej (BIR11OsFizyczna*)
+      - 'lokpraw_' / 'lokfiz_' dla jednostek lokalnych
+
+    Dla każdego prefiksu próbujemy po kolei i bierzemy pierwsze niepuste.
+    """
+    prefixes = ["praw_", "fiz_", "lokpraw_", "lokfiz_"]
+
+    def pick(suffix):
+        for pref in prefixes:
+            val = fields.get(pref + suffix)
+            if val:
+                return val
+        return ""
+
+    # Nazwa podmiotu (różne warianty)
+    name = (
+        pick("nazwa")
+        or pick("nazwaSkrocona")
+        or (pick("imie1") + " " + pick("nazwisko")).strip()
+    )
+
+    street = pick("adSiedzUlica_Nazwa")
+    building = pick("adSiedzNumerNieruchomosci")
+    apartment = pick("adSiedzNumerLokalu")
+    zip_code = pick("adSiedzKodPocztowy")
+    city = pick("adSiedzMiejscowosc_Nazwa")
+    voivodeship = pick("adSiedzWojewodztwo_Nazwa")
+    county = pick("adSiedzPowiat_Nazwa")
+    commune = pick("adSiedzGmina_Nazwa")
+
+    # Normalizacja kodu pocztowego (BIR zwraca bez myślnika, np. "00838")
+    if zip_code and re.match(r"^\d{5}$", zip_code):
+        zip_code = zip_code[:2] + "-" + zip_code[2:]
+
+    # KRS tylko dla osoby prawnej
+    krs = fields.get("praw_numerWRejestrzeEwidencji", "") or fields.get("praw_numerwRejestrzeEwidencji", "")
+
+    # REGON
+    regon = pick("regon9") or pick("regon14") or fields.get("regon", "")
+
+    # Sklejka dla kompatybilności wstecznej (format zbliżony do MF WL)
+    address_parts = []
+    if street:
+        addr_line = street
+        if building:
+            addr_line += f" {building}"
+            if apartment:
+                addr_line += f"/{apartment}"
+        address_parts.append(addr_line)
+    if zip_code or city:
+        address_parts.append(f"{zip_code} {city}".strip())
+    address_flat = ", ".join([p for p in address_parts if p])
+
+    return {
+        "name": name or None,
+        "company": name or None,
+        "address": address_flat or None,
+        "street": street,
+        "building_number": building,
+        "apartment_number": apartment,
+        "zip": zip_code,
+        "city": city,
+        "voivodeship": voivodeship.lower() if voivodeship else None,
+        "county": county,
+        "commune": commune,
+        "regon": regon,
+        "krs": krs,
+        "_source": "GUS_BIR",
+    }
+
+
+def query_gus_bir_api(nip):
+    """
+    Odpytuje GUS REGON BIR 1.2 SOAP o dane firmy po NIP.
+
+    Returns:
+        dict w formacie kompatybilnym z odpowiedzią endpointu /api/gus_lookup,
+        albo None gdy brak danych / błąd.
+    """
+    api_key, endpoint_url = _get_gus_bir_config()
 
     try:
+        sid = _gus_bir_login(endpoint_url, api_key)
+        if not sid:
+            logger.warning("[GUS BIR] Nie udało się zalogować do usługi BIR")
+            return None
+
+        try:
+            basic = _gus_bir_search_by_nip(endpoint_url, sid, nip)
+            if not basic or not basic.get("regon"):
+                logger.info(f"[GUS BIR] Brak podmiotu w rejestrze REGON dla NIP {nip}")
+                return None
+
+            report_name = _select_bir_report_name(basic.get("typ"), basic.get("silos_id"))
+            fields = _gus_bir_full_report(endpoint_url, sid, basic["regon"], report_name)
+
+            if not fields:
+                logger.warning(f"[GUS BIR] Pusta odpowiedź raportu {report_name}")
+                return None
+
+            result = _extract_address_from_report(fields, basic.get("typ"))
+
+            # Fallback na nazwę z wyszukiwania, gdy raport nie zwrócił
+            if not result.get("name") and basic.get("nazwa"):
+                result["name"] = basic["nazwa"]
+                result["company"] = basic["nazwa"]
+
+            # Fallback na województwo z wyszukiwania
+            if not result.get("voivodeship") and basic.get("wojewodztwo"):
+                result["voivodeship"] = basic["wojewodztwo"].lower()
+
+            # Uzupełnij REGON gdy raport go nie zwrócił
+            if not result.get("regon"):
+                result["regon"] = basic.get("regon", "")
+
+            logger.info(
+                f"[GUS BIR] OK dla NIP {nip}: typ={basic.get('typ')}, "
+                f"raport={report_name}, miasto={result.get('city')}"
+            )
+            return result
+        finally:
+            _gus_bir_logout(endpoint_url, sid)
+
+    except requests.exceptions.Timeout:
+        logger.error(f"[GUS BIR] Timeout podczas zapytania dla NIP {nip}")
+        return None
+    except requests.exceptions.RequestException as e:
+        logger.error(f"[GUS BIR] Błąd HTTP dla NIP {nip}: {e}")
+        return None
+    except Exception:
+        logger.exception(f"[GUS BIR] Wyjątek dla NIP {nip}")
+        return None
+
+
+def query_mf_wl_api(nip):
+    """
+    Odpytuje Białą Listę VAT Ministerstwa Finansów (fallback).
+    Zwraca dict w formacie odpowiedzi /api/gus_lookup albo None.
+    """
+    try:
         today = date.today().isoformat()
-        url = f"{GUS_BASE_URL}{nip}?date={today}"
+        url = f"{MF_WL_BASE_URL}{nip}?date={today}"
         headers = {"Accept": "application/json"}
 
-        logger.info(f"[GUS Lookup] Wysyłanie zapytania do GUS: {url}")
-        response = requests.get(url, headers=headers)
+        logger.info(f"[MF WL] Wysyłanie zapytania do Białej Listy VAT dla NIP {nip}")
+        response = requests.get(url, headers=headers, timeout=10)
 
         if response.status_code != 200:
-            logger.warning(f"[GUS Lookup] Błąd z GUS: status {response.status_code}")
-            return jsonify({"error": "Brak danych"}), 404
+            logger.warning(f"[MF WL] Błąd HTTP: status {response.status_code}")
+            return None
 
         data = response.json()
         subject = data.get("result", {}).get("subject")
         if not subject:
             request_id = data.get("result", {}).get("requestId", "brak")
-            logger.warning(
-                f"[GUS Lookup] GUS/MF nie zwróciło danych dla NIP {nip}. "
-                f"RequestId: {request_id}. Próba fallback do CEIDG..."
-            )
+            logger.info(f"[MF WL] Brak danych dla NIP {nip} (RequestId: {request_id})")
+            return None
 
-            # FALLBACK: Zapytanie do CEIDG
-            ceidg_data = query_ceidg_api(nip)
-
-            if ceidg_data:
-                logger.info(f"[GUS Lookup] Dane pobrane z CEIDG dla NIP {nip}")
-                return jsonify(ceidg_data)
-            else:
-                logger.warning(f"[GUS Lookup] Brak danych również w CEIDG dla NIP {nip}")
-                return jsonify({
-                    "error": "Nie znaleziono firmy o podanym NIP w rejestrze GUS ani CEIDG. "
-                             "NIP może być nieaktywny lub nieprawidłowy."
-                }), 404
-
-        logger.info(f"[GUS API] Odebrano dane dla NIP {nip}: {subject}")
-
-        # POPRAWKA: Użyj workingAddress (adres siedziby firmy) zamiast residenceAddress
-        # residenceAddress jest dla osób fizycznych i często jest None dla firm
         full_address = subject.get("workingAddress") or subject.get("residenceAddress") or ""
-        
-        logger.info(f"[GUS Lookup] Przetwarzanie adresu: {full_address}")
-        
-        # Wyciągnij kod pocztowy z adresu
+
         zip_match = re.search(r"\d{2}-\d{3}", full_address)
         zip_code = zip_match.group(0) if zip_match else ""
-        
-        # Wyciągnij miasto (ostatnie słowo po kodzie pocztowym)
+
         city = ""
         if zip_code:
-            # Wszystko po kodzie pocztowym to prawdopodobnie miasto
             parts = full_address.split(zip_code)
             if len(parts) > 1:
                 city = parts[1].strip().strip(',').strip()
-        
-        if not city:
-            # Fallback: ostatnie słowo
-            city = full_address.split()[-1] if full_address else ""
-        
-        # Określ województwo na podstawie kodu pocztowego
-        voivodeship = get_voivodeship_from_zipcode(zip_code) if zip_code else None
-        
-        logger.info(f"[GUS Lookup] Przetworzone dane: zip={zip_code}, city={city}, voivodeship={voivodeship}")
+        if not city and full_address:
+            city = full_address.split()[-1]
 
-        return jsonify({
+        voivodeship = get_voivodeship_from_zipcode(zip_code) if zip_code else None
+
+        return {
             "name": subject.get("name"),
             "company": subject.get("name"),
             "address": subject.get("workingAddress"),
             "zip": zip_code,
             "city": city,
-            "voivodeship": voivodeship
-        })
+            "voivodeship": voivodeship,
+            "_source": "MF_WL",
+        }
 
-    except Exception as e:
-        logger.exception("[GUS Lookup Error] Wyjątek podczas przetwarzania")
-        return jsonify({"error": "Błąd przetwarzania danych", "details": str(e)}), 500
+    except requests.exceptions.Timeout:
+        logger.error(f"[MF WL] Timeout dla NIP {nip}")
+        return None
+    except Exception:
+        logger.exception(f"[MF WL] Wyjątek przetwarzania")
+        return None
+
+
+@clients_bp.route('/api/gus_lookup')
+@require_module_access('clients')
+def gus_lookup():
+    """
+    Endpoint zwracający dane firmy po NIP.
+
+    Kolejność źródeł:
+      1. GUS REGON BIR 1.2 (najbogatsze dane, pola strukturalne)
+      2. Biała Lista VAT (MF) - fallback
+      3. CEIDG - fallback dla jednoosobowej działalności
+    """
+    nip = request.args.get('nip')
+    if not nip or not nip.isdigit() or len(nip) != 10:
+        return jsonify({"error": "Nieprawidłowy NIP"}), 400
+
+    # Priorytet 1: GUS BIR 1.2
+    bir_data = query_gus_bir_api(nip)
+    if bir_data and bir_data.get("name"):
+        return jsonify(bir_data)
+
+    # Priorytet 2: Biała Lista VAT (MF)
+    logger.warning(f"[GUS Lookup] Brak danych w GUS BIR dla NIP {nip}, próba MF Białej Listy")
+    mf_data = query_mf_wl_api(nip)
+    if mf_data and mf_data.get("name"):
+        return jsonify(mf_data)
+
+    # Priorytet 3: CEIDG
+    logger.warning(f"[GUS Lookup] Brak danych w MF dla NIP {nip}, próba CEIDG")
+    ceidg_data = query_ceidg_api(nip)
+    if ceidg_data and ceidg_data.get("name"):
+        logger.info(f"[GUS Lookup] Dane pobrane z CEIDG dla NIP {nip}")
+        return jsonify(ceidg_data)
+
+    logger.warning(f"[GUS Lookup] Brak danych we wszystkich źródłach dla NIP {nip}")
+    return jsonify({
+        "error": "Nie znaleziono firmy o podanym NIP w rejestrze GUS, MF ani CEIDG. "
+                 "NIP może być nieaktywny lub nieprawidłowy."
+    }), 404
 
 
 @clients_bp.route('/search_in_database', methods=['GET'])
