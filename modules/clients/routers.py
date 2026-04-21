@@ -383,6 +383,8 @@ GUS_BIR_TEST_URL = "https://wyszukiwarkaregontest.stat.gov.pl/wsBIR/UslugaBIRzew
 
 # Namespace WCF (WS-Addressing + SOAP) używany przez usługę BIR
 GUS_BIR_NAMESPACE = "http://CIS/BIR/PUBL/2014/07"
+# Pola ParametryWyszukiwania (Nip, Regon, Krs itd.) są w osobnym namespace
+GUS_BIR_DATA_NAMESPACE = "http://CIS/BIR/PUBL/2014/07/DataContract"
 GUS_BIR_SOAP_NS = "http://www.w3.org/2003/05/soap-envelope"
 GUS_BIR_WSA_NS = "http://www.w3.org/2005/08/addressing"
 
@@ -613,9 +615,9 @@ def _build_soap_envelope(action, body_inner_xml, endpoint_url, sid=None):
     action_url = f"http://CIS/BIR/PUBL/2014/07/IUslugaBIRzewnPubl/{action}"
     envelope = (
         '<?xml version="1.0" encoding="UTF-8"?>'
-        '<soap:Envelope xmlns:soap="{soap_ns}" xmlns:wsa="{wsa_ns}" '
-        'xmlns:ns="{bir_ns}">'
-        '<soap:Header>'
+        '<soap:Envelope xmlns:soap="{soap_ns}" '
+        'xmlns:ns="{bir_ns}" xmlns:dat="{data_ns}">'
+        '<soap:Header xmlns:wsa="{wsa_ns}">'
         '<wsa:To>{to}</wsa:To>'
         '<wsa:Action>{action}</wsa:Action>'
         '</soap:Header>'
@@ -625,6 +627,7 @@ def _build_soap_envelope(action, body_inner_xml, endpoint_url, sid=None):
         soap_ns=GUS_BIR_SOAP_NS,
         wsa_ns=GUS_BIR_WSA_NS,
         bir_ns=GUS_BIR_NAMESPACE,
+        data_ns=GUS_BIR_DATA_NAMESPACE,
         to=endpoint_url,
         action=action_url,
         body=body_inner_xml,
@@ -714,19 +717,16 @@ def _gus_bir_search_by_nip(endpoint_url, sid, nip):
     Wywołuje DaneSzukajPodmioty z kryterium NIP.
     Zwraca słownik z polami: Regon, Typ (P/F/LP/LF), SilosID, Nazwa.
     """
-    # Zauważ podwójny escape - wewnętrzny XML musi być escape-owany,
-    # ponieważ BIR oczekuje go jako string w parametrze
-    inner = (
-        '&lt;ns1:ParametryWyszukiwania xmlns:ns1="{ns}"&gt;'
-        '&lt;ns1:Nip&gt;{nip}&lt;/ns1:Nip&gt;'
-        '&lt;/ns1:ParametryWyszukiwania&gt;'
-    ).format(ns=GUS_BIR_NAMESPACE, nip=nip)
-
+    # Parametry wyszukiwania mają pola w namespace DataContract (dat:),
+    # a sam element pParametryWyszukiwania jest w głównym namespace BIR (ns:).
+    # Zgodnie z dokumentacją BIR 1.2 (BIR12_Przyklady.pdf, str. 5).
     body = (
         '<ns:DaneSzukajPodmioty>'
-        '<ns:pParametryWyszukiwania>{inner}</ns:pParametryWyszukiwania>'
+        '<ns:pParametryWyszukiwania>'
+        '<dat:Nip>{nip}</dat:Nip>'
+        '</ns:pParametryWyszukiwania>'
         '</ns:DaneSzukajPodmioty>'
-    ).format(inner=inner)
+    ).format(nip=nip)
 
     logger.info(f"[GUS BIR] Wyszukiwanie podmiotu po NIP {nip}")
     response_text = _soap_request(endpoint_url, "DaneSzukajPodmioty", body, sid=sid)
