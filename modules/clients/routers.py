@@ -379,7 +379,7 @@ GUS_BIR_TEST_KEY = "abcde12345abcde12345"
 
 # Endpointy produkcyjny i testowy usługi BIR 1.2
 GUS_BIR_PROD_URL = "https://wyszukiwarkaregon.stat.gov.pl/wsBIR/UslugaBIRzewnPubl.svc"
-GUS_BIR_TEST_URL = "https://wyszukiwarkatest.stat.gov.pl/wsBIR/UslugaBIRzewnPubl.svc"
+GUS_BIR_TEST_URL = "https://wyszukiwarkaregontest.stat.gov.pl/wsBIR/UslugaBIRzewnPubl.svc"
 
 # Namespace WCF (WS-Addressing + SOAP) używany przez usługę BIR
 GUS_BIR_NAMESPACE = "http://CIS/BIR/PUBL/2014/07"
