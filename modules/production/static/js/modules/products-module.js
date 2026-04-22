@@ -1858,7 +1858,7 @@ class ProductsModule {
             // 1. Checkbox
             const checkbox = rowElement.querySelector('.prod_list-product-checkbox');
             if (checkbox) {
-                checkbox.checked = this.state.selectedProducts.has(product.id);
+                checkbox.checked = this.state.selectedProducts.has(this._getProductKey(product));
                 checkbox.setAttribute('data-product-id', product.id);
             }
 
@@ -1992,9 +1992,10 @@ class ProductsModule {
             alert(`Produkt ${productId} zostanie usunięty\n(Implementacja API delete endpoint w kolejnych krokach)`);
             
             // Tymczasowo usuń z lokalnego state
+            const removedKey = this._getProductKeyById(productId);
             this.state.products = this.state.products.filter(p => p.id != productId);
             this.state.filteredProducts = this.state.filteredProducts.filter(p => p.id != productId);
-            this.state.selectedProducts.delete(productId);
+            if (removedKey) this.state.selectedProducts.delete(removedKey);
 
             // Przerenderuj listę
             this.applyAllFilters();
@@ -2150,7 +2151,7 @@ class ProductsModule {
             if (checkbox) {
                 checkbox.addEventListener('change', (e) => {
                     e.stopPropagation();
-                    this.handleProductSelect(product.id, e.target.checked);
+                    this.handleProductSelect(product, e.target.checked);
                 });
             }
 
@@ -2529,19 +2530,25 @@ class ProductsModule {
         }, 150);
     }
 
-    handleProductSelect(productId, isChecked) {
-        console.log(`[ProductsModule] Product ${productId} selected: ${isChecked}`);
-        
-        if (isChecked) {
-            this.state.selectedProducts.add(productId);
+    handleProductSelect(productOrId, isChecked) {
+        // Akceptujemy obiekt product albo numeryczne ID — normalizujemy do klucza kanonicznego
+        let key;
+        if (productOrId && typeof productOrId === 'object') {
+            key = this._getProductKey(productOrId);
         } else {
-            this.state.selectedProducts.delete(productId);
+            key = this._getProductKeyById(productOrId) || String(productOrId);
+        }
+        console.log(`[ProductsModule] Product ${key} selected: ${isChecked}`);
+
+        if (!key) return;
+
+        if (isChecked) {
+            this.state.selectedProducts.add(key);
+        } else {
+            this.state.selectedProducts.delete(key);
         }
 
-        // Aktualizuj select all checkbox
         this.updateSelectAllCheckbox();
-        
-        // Pokaż/ukryj bulk actions
         this.toggleBulkActionsVisibility();
     }
 
@@ -2550,30 +2557,30 @@ class ProductsModule {
         console.log(`[ProductsModule] Select all: ${isChecked}`);
 
         if (isChecked) {
-            // Zaznacz wszystkie przefiltrowane produkty
+            // Zaznacz wszystkie przefiltrowane produkty używając klucza kanonicznego
             this.state.filteredProducts.forEach(product => {
-                this.state.selectedProducts.add(product.id);
+                this.state.selectedProducts.add(this._getProductKey(product));
             });
         } else {
-            // Odznacz wszystkie
             this.state.selectedProducts.clear();
         }
 
-        // POPRAWKA: Aktualizuj checkboxy w wierszach z NOWĄ KLASĄ
+        // Sync UI — checkboxy w DOM rozpoznajemy po data-product-id (numeryczne),
+        // ale do Setu dokładamy klucze kanoniczne przez lookup w state.products
         const productCheckboxes = document.querySelectorAll('.prod_list-product-checkbox');
         productCheckboxes.forEach(checkbox => {
             checkbox.checked = isChecked;
             const productId = parseInt(checkbox.getAttribute('data-product-id'));
-            if (productId) {
-                if (isChecked) {
-                    this.state.selectedProducts.add(productId);
-                } else {
-                    this.state.selectedProducts.delete(productId);
-                }
+            if (!productId) return;
+            const key = this._getProductKeyById(productId);
+            if (!key) return;
+            if (isChecked) {
+                this.state.selectedProducts.add(key);
+            } else {
+                this.state.selectedProducts.delete(key);
             }
         });
 
-        // Pokaż/ukryj bulk actions
         this.toggleBulkActionsVisibility();
     }
 
@@ -2878,17 +2885,40 @@ class ProductsModule {
         }
     }
 
-    _resolveProductIds(selectedUniqueIds) {
+    /**
+     * Kanoniczny klucz produktu używany w Set state.selectedProducts.
+     * Zawsze string — unique_id (np. "25_00123_1_klej") albo String(id) jako fallback.
+     * Wszystkie add/has/delete MUSZĄ przechodzić przez ten klucz, inaczej sprawdzanie typu
+     * w Set nie zadziała (Set rozróżnia 123 od "123").
+     */
+    _getProductKey(product) {
+        if (!product) return null;
+        return product.unique_id || String(product.id);
+    }
+
+    /**
+     * Znajduje klucz kanoniczny po numerycznym ID produktu z DOM (np. data-product-id).
+     * Zwraca null jeśli produkt nie istnieje w cache — caller powinien zignorować akcję.
+     */
+    _getProductKeyById(numericId) {
+        const product = this.state.products.find(p => p.id == numericId);
+        return product ? this._getProductKey(product) : null;
+    }
+
+    _resolveProductIds(selectedKeys) {
         const ids = [];
-        selectedUniqueIds.forEach(uid => {
-            const product = this.state.products.find(p => (p.unique_id || String(p.id)) === uid);
+        selectedKeys.forEach(key => {
+            const keyStr = String(key);
+            const product = this.state.products.find(p => (p.unique_id || String(p.id)) === keyStr);
             if (product && product.id) {
                 ids.push(product.id);
-            } else {
-                const parts = uid.split('-');
-                const numId = parseInt(parts[parts.length - 1]);
-                if (!isNaN(numId)) ids.push(numId);
+                return;
             }
+            // Fallback — unique_id ma format "{short_product_id}-{id}" (np. "25-00123-1-42"),
+            // więc DB id to ostatni segment po podziale na "-"
+            const parts = keyStr.split('-');
+            const numId = parseInt(parts[parts.length - 1]);
+            if (!isNaN(numId)) ids.push(numId);
         });
         return ids;
     }
@@ -2983,10 +3013,11 @@ class ProductsModule {
         if (checkboxes) {
             checkboxes.forEach(checkbox => {
                 const productId = parseInt(checkbox.getAttribute('data-product-id'));
-                checkbox.checked = this.state.selectedProducts.has(productId);
+                const key = this._getProductKeyById(productId);
+                checkbox.checked = key ? this.state.selectedProducts.has(key) : false;
             });
         }
-        
+
         this.updateSelectAllCheckbox();
     }
 
@@ -2996,22 +3027,20 @@ class ProductsModule {
             selectAllCheckbox.addEventListener('change', (e) => {
                 const isChecked = e.target.checked;
 
-                // Znajdź wszystkie checkboxy produktów z NOWĄ KLASĄ
                 const productCheckboxes = document.querySelectorAll('.prod_list-product-checkbox');
-
                 productCheckboxes.forEach(checkbox => {
                     checkbox.checked = isChecked;
                     const productId = parseInt(checkbox.getAttribute('data-product-id'));
-                    if (productId) {
-                        if (isChecked) {
-                            this.state.selectedProducts.add(productId);
-                        } else {
-                            this.state.selectedProducts.delete(productId);
-                        }
+                    if (!productId) return;
+                    const key = this._getProductKeyById(productId);
+                    if (!key) return;
+                    if (isChecked) {
+                        this.state.selectedProducts.add(key);
+                    } else {
+                        this.state.selectedProducts.delete(key);
                     }
                 });
 
-                // Emit event o zmianie selekcji
                 this.shared.eventBus.emit('products:selection-changed', {
                     selectedProducts: Array.from(this.state.selectedProducts),
                     selectAll: isChecked
@@ -3024,8 +3053,8 @@ class ProductsModule {
         if (!this.elements.selectAllCheckbox) return;
 
         const filteredCount = this.state.filteredProducts.length;
-        const selectedCount = this.state.filteredProducts.filter(p => 
-            this.state.selectedProducts.has(p.id)
+        const selectedCount = this.state.filteredProducts.filter(p =>
+            this.state.selectedProducts.has(this._getProductKey(p))
         ).length;
 
         if (selectedCount === 0) {
@@ -3052,11 +3081,10 @@ class ProductsModule {
         const orderTotalCounts = new Map();
 
         this.state.filteredProducts.forEach(p => {
-            const key = p.internal_order_number || p.baselinker_order_id || `single-${p.id}`;
-            orderTotalCounts.set(key, (orderTotalCounts.get(key) || 0) + 1);
-            const pid = p.unique_id || String(p.id);
-            if (selectedIds.has(pid) || selectedIds.has(p.id)) {
-                orderProductCounts.set(key, (orderProductCounts.get(key) || 0) + 1);
+            const orderKey = p.internal_order_number || p.baselinker_order_id || `single-${p.id}`;
+            orderTotalCounts.set(orderKey, (orderTotalCounts.get(orderKey) || 0) + 1);
+            if (selectedIds.has(this._getProductKey(p))) {
+                orderProductCounts.set(orderKey, (orderProductCounts.get(orderKey) || 0) + 1);
             }
         });
 
@@ -3347,42 +3375,43 @@ class ProductsModule {
     async showProductDetails(productId) {
         console.log(`[ProductsModule] Showing details for product ${productId}`);
 
-        // Najpierw znajdź produkt w cache
+        // Najpierw sprawdź cache — jeśli mamy komplet pól (w tym nowe stacje), użyj ich
         let product = this.state.filteredProducts.find(p => p.id == productId) ||
                      this.state.products.find(p => p.id == productId);
 
-        // Sprawdź czy cached product ma nowe pola station (gluing, formatting, finishing)
         const hasNewStationFields = product && (
             product.hasOwnProperty('gluing_started_at') ||
             product.hasOwnProperty('formatting_started_at') ||
             product.hasOwnProperty('finishing_started_at')
         );
 
-        // Jeśli nie ma nowych pól, pobierz świeże dane z API
+        // Brak pełnych danych w cache → pobierz pojedynczy produkt z dedykowanego endpointu.
+        // Historycznie używano /products-filtered bez parametrów, co zwracało tylko
+        // pierwsze 50 wyników i dodatkowo nadpisywało state.products tym wycinkiem —
+        // produkty poza pierwszą stroną pokazywały alert "Nie znaleziono produktu".
         if (!hasNewStationFields) {
-            console.log(`[ProductsModule] Cached product missing new station fields, fetching fresh data from API`);
+            console.log(`[ProductsModule] Cached product missing new station fields, fetching from /products/${productId}/details`);
             try {
-                // Pobierz wszystkie produkty z odświeżonymi danymi
-                const response = await fetch(`/production/api/products-filtered`);
+                const response = await fetch(`/production/api/products/${productId}/details`);
                 if (!response.ok) {
                     throw new Error(`HTTP error! status: ${response.status}`);
                 }
                 const data = await response.json();
-
-                if (data.products && data.products.length > 0) {
-                    // Zaktualizuj cache nowymi danymi
-                    this.state.products = data.products;
-                    this.state.orders = this.groupProductsIntoOrders(this.state.products);
-                    this.state.filteredProducts = data.products;
-
-                    // Znajdź produkt z odświeżonych danych
-                    product = data.products.find(p => p.id == productId);
-                    console.log('[ProductsModule] Fresh product data loaded from API:', product);
+                if (data.success && data.product) {
+                    product = data.product;
+                    // Zaktualizuj pojedynczy rekord w cache zamiast podmieniać całość.
+                    // Jeśli produkt nie był w cache (np. otwarty spoza aktualnej strony),
+                    // dopisz go — inaczej lookupy po id (priority edit, _getProductKeyById)
+                    // wracałyby null/undefined i bulk akcje cicho failowałyby.
+                    const idxAll = this.state.products.findIndex(p => p.id == productId);
+                    if (idxAll >= 0) this.state.products[idxAll] = product;
+                    else this.state.products.push(product);
+                    const idxFiltered = this.state.filteredProducts.findIndex(p => p.id == productId);
+                    if (idxFiltered >= 0) this.state.filteredProducts[idxFiltered] = product;
                 }
             } catch (error) {
-                console.error('[ProductsModule] Error fetching fresh product data:', error);
-                console.log('[ProductsModule] Using cached data despite missing fields');
-                // Kontynuuj z cached data mimo braku nowych pól
+                console.error('[ProductsModule] Error fetching product details:', error);
+                // Fallback do cached obiektu jeśli jest — może brakować nowych pól, ale lepsze niż nic
             }
         } else {
             console.log('[ProductsModule] Using cached product data (has new station fields)');

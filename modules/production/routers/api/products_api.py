@@ -2194,6 +2194,105 @@ def update_single_product_priority(product_id):
 
 
 
+def _serialize_production_item(item, today=None):
+    """
+    Serializuje pojedynczy ProductionItem do słownika używanego przez endpointy listy i szczegółów.
+
+    Współdzielone między /products-filtered (wiele rekordów) i /products/<id>/details (jeden rekord)
+    żeby oba endpointy zwracały spójny kształt danych (w szczególności pola stacji gluing/formatting/finishing,
+    które modal szczegółów sprawdza przez hasOwnProperty).
+    """
+    if today is None:
+        today = date.today()
+
+    days_to_deadline = None
+    deadline_date = getattr(item, 'deadline_date', None)
+    if deadline_date:
+        days_to_deadline = (deadline_date - today).days
+
+    product_data = {
+        'id': item.id,
+        'short_product_id': getattr(item, 'short_product_id', f'ID-{item.id}'),
+        'internal_order_number': getattr(item, 'internal_order_number', ''),
+        'product_name': getattr(item, 'original_product_name', getattr(item, 'product_name', 'Brak nazwy')),
+        'original_product_name': getattr(item, 'original_product_name', getattr(item, 'product_name', 'Brak nazwy')),
+        'client_name': getattr(item, 'client_name', ''),
+        'current_status': getattr(item, 'current_status', 'unknown'),
+        'priority_rank': getattr(item, 'priority_rank', None),
+        'volume_m3': float(getattr(item, 'volume_m3', 0) or 0),
+        'total_value_net': float(getattr(item, 'total_value_net', getattr(item, 'total_value', 0)) or 0),
+        'total_value': float(getattr(item, 'total_value_net', getattr(item, 'total_value', 0)) or 0),
+        'order_date': getattr(item, 'order_date', getattr(item, 'created_at', None)),
+        'deadline_date': deadline_date.isoformat() if deadline_date else None,
+        'days_to_deadline': days_to_deadline,
+        'days_until_deadline': days_to_deadline,
+        'is_overdue': days_to_deadline < 0 if days_to_deadline is not None else False,
+        'baselinker_order_id': getattr(item, 'baselinker_order_id', None),
+        'created_at': getattr(item, 'created_at', None),
+        'attachment_file_name': getattr(item, 'attachment_file_name', None),
+        'attachment_file_url': getattr(item, 'attachment_file_url', None),
+        'parsed_wood_species': getattr(item, 'parsed_wood_species', None),
+        'parsed_technology': getattr(item, 'parsed_technology', None),
+        'parsed_wood_class': getattr(item, 'parsed_wood_class', None),
+        'parsed_finish_state': getattr(item, 'parsed_finish_state', None),
+        'parsed_width_cm': getattr(item, 'parsed_width_cm', None),
+        'parsed_length_cm': getattr(item, 'parsed_length_cm', None),
+        'parsed_thickness_cm': getattr(item, 'parsed_thickness_cm', None),
+        'client_email': getattr(item, 'client_email', ''),
+        'client_phone': getattr(item, 'client_phone', ''),
+        'product_sequence_in_order': getattr(item, 'product_sequence_in_order', None),
+        'total_products_in_order': db.session.query(db.func.count(ProductionItem.id)).filter(
+            ProductionItem.internal_order_number == item.internal_order_number
+        ).scalar() if item.internal_order_number else None,
+        # Przepływ produkcji - wszystkie 6 stanowisk
+        'cutting_started_at': getattr(item, 'cutting_started_at', None),
+        'cutting_completed_at': getattr(item, 'cutting_completed_at', None),
+        'cutting_duration_minutes': getattr(item, 'cutting_duration_minutes', None),
+        'assembly_started_at': getattr(item, 'assembly_started_at', None),
+        'assembly_completed_at': getattr(item, 'assembly_completed_at', None),
+        'assembly_duration_minutes': getattr(item, 'assembly_duration_minutes', None),
+        'gluing_started_at': getattr(item, 'gluing_started_at', None),
+        'gluing_completed_at': getattr(item, 'gluing_completed_at', None),
+        'gluing_duration_minutes': getattr(item, 'gluing_duration_minutes', None),
+        'formatting_started_at': getattr(item, 'formatting_started_at', None),
+        'formatting_completed_at': getattr(item, 'formatting_completed_at', None),
+        'formatting_duration_minutes': getattr(item, 'formatting_duration_minutes', None),
+        'finishing_started_at': getattr(item, 'finishing_started_at', None),
+        'finishing_completed_at': getattr(item, 'finishing_completed_at', None),
+        'finishing_duration_minutes': getattr(item, 'finishing_duration_minutes', None),
+        'packaging_started_at': getattr(item, 'packaging_started_at', None),
+        'packaging_completed_at': getattr(item, 'packaging_completed_at', None),
+        'packaging_duration_minutes': getattr(item, 'packaging_duration_minutes', None),
+        'logistics_completed_at': getattr(item, 'logistics_completed_at').isoformat() if getattr(item, 'logistics_completed_at', None) else None,
+        'override_delivery_method': getattr(item, 'override_delivery_method', None),
+        'is_personal_pickup': getattr(item, 'is_personal_pickup', False),
+        'quantity': getattr(item, 'quantity', 1),
+        'quantity_done_cutting': getattr(item, 'quantity_done_cutting', 0),
+        'quantity_done_assembly': getattr(item, 'quantity_done_assembly', 0),
+        'quantity_done_gluing': getattr(item, 'quantity_done_gluing', 0),
+        'quantity_done_formatting': getattr(item, 'quantity_done_formatting', 0),
+        'quantity_done_finishing': getattr(item, 'quantity_done_finishing', 0),
+        'quantity_done_packaging': getattr(item, 'quantity_done_packaging', 0),
+        'client_order_number': getattr(item, 'client_order_number', None),
+    }
+
+    if product_data['order_date'] and hasattr(product_data['order_date'], 'isoformat'):
+        product_data['order_date'] = product_data['order_date'].isoformat()
+    if product_data['created_at'] and hasattr(product_data['created_at'], 'isoformat'):
+        product_data['created_at'] = product_data['created_at'].isoformat()
+
+    station_fields = ['cutting', 'assembly', 'gluing', 'formatting', 'finishing', 'packaging']
+    for station in station_fields:
+        started_field = f'{station}_started_at'
+        completed_field = f'{station}_completed_at'
+        if product_data.get(started_field) and hasattr(product_data[started_field], 'isoformat'):
+            product_data[started_field] = product_data[started_field].isoformat()
+        if product_data.get(completed_field) and hasattr(product_data[completed_field], 'isoformat'):
+            product_data[completed_field] = product_data[completed_field].isoformat()
+
+    return product_data
+
+
 @api_bp.route('/products-filtered', methods=['GET', 'POST'])
 @login_required
 def products_filtered():
@@ -2273,120 +2372,9 @@ def products_filtered():
             error_out=False
         )
         
-        # ZMIANA: Przygotuj dane produktów - dodaj priority_rank do response
-        products_data = []
+        # Przygotuj dane produktów - delegacja do wspólnego helpera
         today = date.today()
-        
-        for item in paginated.items:
-            # Oblicz dni do deadline
-            days_to_deadline = None
-            deadline_date = getattr(item, 'deadline_date', None)
-            if deadline_date:
-                days_to_deadline = (deadline_date - today).days
-            
-            # ZMIANA: dodaj priority_rank do danych
-            product_data = {
-                'id': item.id,
-                'short_product_id': getattr(item, 'short_product_id', f'ID-{item.id}'),
-                'internal_order_number': getattr(item, 'internal_order_number', ''),
-                'product_name': getattr(item, 'original_product_name', getattr(item, 'product_name', 'Brak nazwy')),
-                'original_product_name': getattr(item, 'original_product_name', getattr(item, 'product_name', 'Brak nazwy')),
-                'client_name': getattr(item, 'client_name', ''),
-                'current_status': getattr(item, 'current_status', 'unknown'),
-                # ZMIANA: priority_rank jako główne pole priorytetów
-                'priority_rank': getattr(item, 'priority_rank', None),
-                'volume_m3': float(getattr(item, 'volume_m3', 0) or 0),
-                'total_value_net': float(getattr(item, 'total_value_net', getattr(item, 'total_value', 0)) or 0),
-                'total_value': float(getattr(item, 'total_value_net', getattr(item, 'total_value', 0)) or 0),
-                'order_date': getattr(item, 'order_date', getattr(item, 'created_at', None)),
-                'deadline_date': deadline_date.isoformat() if deadline_date else None,
-                'days_to_deadline': days_to_deadline,
-                'days_until_deadline': days_to_deadline,
-                'is_overdue': days_to_deadline < 0 if days_to_deadline is not None else False,
-                'baselinker_order_id': getattr(item, 'baselinker_order_id', None),
-                'created_at': getattr(item, 'created_at', None),
-                # Załączniki
-                'attachment_file_name': getattr(item, 'attachment_file_name', None),
-                'attachment_file_url': getattr(item, 'attachment_file_url', None),
-                # Parsowane dane
-                'parsed_wood_species': getattr(item, 'parsed_wood_species', None),
-                'parsed_technology': getattr(item, 'parsed_technology', None),
-                'parsed_wood_class': getattr(item, 'parsed_wood_class', None),
-                'parsed_finish_state': getattr(item, 'parsed_finish_state', None),
-                'parsed_width_cm': getattr(item, 'parsed_width_cm', None),
-                'parsed_length_cm': getattr(item, 'parsed_length_cm', None),
-                'parsed_thickness_cm': getattr(item, 'parsed_thickness_cm', None),
-                # Kontakt
-                'client_email': getattr(item, 'client_email', ''),
-                'client_phone': getattr(item, 'client_phone', ''),
-                'product_sequence_in_order': getattr(item, 'product_sequence_in_order', None),
-                # Oblicz całkowitą liczbę produktów w zamówieniu
-                'total_products_in_order': db.session.query(db.func.count(ProductionItem.id)).filter(
-                    ProductionItem.internal_order_number == item.internal_order_number
-                ).scalar() if item.internal_order_number else None,
-
-                # Przepływ produkcji - wszystkie 6 stanowisk
-                # Wycinanie
-                'cutting_started_at': getattr(item, 'cutting_started_at', None),
-                'cutting_completed_at': getattr(item, 'cutting_completed_at', None),
-                'cutting_duration_minutes': getattr(item, 'cutting_duration_minutes', None),
-                # Składanie
-                'assembly_started_at': getattr(item, 'assembly_started_at', None),
-                'assembly_completed_at': getattr(item, 'assembly_completed_at', None),
-                'assembly_duration_minutes': getattr(item, 'assembly_duration_minutes', None),
-                # Sklejanie
-                'gluing_started_at': getattr(item, 'gluing_started_at', None),
-                'gluing_completed_at': getattr(item, 'gluing_completed_at', None),
-                'gluing_duration_minutes': getattr(item, 'gluing_duration_minutes', None),
-                # Formatowanie
-                'formatting_started_at': getattr(item, 'formatting_started_at', None),
-                'formatting_completed_at': getattr(item, 'formatting_completed_at', None),
-                'formatting_duration_minutes': getattr(item, 'formatting_duration_minutes', None),
-                # Wykańczanie
-                'finishing_started_at': getattr(item, 'finishing_started_at', None),
-                'finishing_completed_at': getattr(item, 'finishing_completed_at', None),
-                'finishing_duration_minutes': getattr(item, 'finishing_duration_minutes', None),
-                # Pakowanie
-                'packaging_started_at': getattr(item, 'packaging_started_at', None),
-                'packaging_completed_at': getattr(item, 'packaging_completed_at', None),
-                'packaging_duration_minutes': getattr(item, 'packaging_duration_minutes', None),
-
-                # Logistyka
-                'logistics_completed_at': getattr(item, 'logistics_completed_at').isoformat() if getattr(item, 'logistics_completed_at', None) else None,
-                'override_delivery_method': getattr(item, 'override_delivery_method', None),
-                'is_personal_pickup': getattr(item, 'is_personal_pickup', False),
-
-                # NOWE: Ilość i liczniki quantity_done per stanowisko
-                'quantity': getattr(item, 'quantity', 1),
-                'quantity_done_cutting': getattr(item, 'quantity_done_cutting', 0),
-                'quantity_done_assembly': getattr(item, 'quantity_done_assembly', 0),
-                'quantity_done_gluing': getattr(item, 'quantity_done_gluing', 0),
-                'quantity_done_formatting': getattr(item, 'quantity_done_formatting', 0),
-                'quantity_done_finishing': getattr(item, 'quantity_done_finishing', 0),
-                'quantity_done_packaging': getattr(item, 'quantity_done_packaging', 0),
-
-                # Numer zamówienia klienta
-                'client_order_number': getattr(item, 'client_order_number', None)
-            }
-            
-            # Konwertuj daty na ISO string
-            if product_data['order_date'] and hasattr(product_data['order_date'], 'isoformat'):
-                product_data['order_date'] = product_data['order_date'].isoformat()
-            if product_data['created_at'] and hasattr(product_data['created_at'], 'isoformat'):
-                product_data['created_at'] = product_data['created_at'].isoformat()
-
-            # Konwertuj daty stanowisk na ISO string
-            station_fields = ['cutting', 'assembly', 'gluing', 'formatting', 'finishing', 'packaging']
-            for station in station_fields:
-                started_field = f'{station}_started_at'
-                completed_field = f'{station}_completed_at'
-
-                if product_data.get(started_field) and hasattr(product_data[started_field], 'isoformat'):
-                    product_data[started_field] = product_data[started_field].isoformat()
-                if product_data.get(completed_field) and hasattr(product_data[completed_field], 'isoformat'):
-                    product_data[completed_field] = product_data[completed_field].isoformat()
-
-            products_data.append(product_data)
+        products_data = [_serialize_production_item(item, today) for item in paginated.items]
         
         # ZMIANA: Statystyki oparte na priority_rank
         stats = {
@@ -2434,6 +2422,36 @@ def products_filtered():
             'traceback': traceback.format_exc()
         }), 500
 
+
+@api_bp.route('/products/<int:product_id>/details', methods=['GET'])
+@login_required
+def product_details(product_id):
+    """
+    Zwraca pełne dane pojedynczego produktu (te same pola co /products-filtered).
+
+    Używane przez modal szczegółów w products-module.js - zastępuje wcześniejsze
+    pobieranie całej strony listy (domyślnie 50 rekordów), które gubiło produkty
+    poza pierwszą stroną i nadpisywało cache frontendu.
+    """
+    try:
+        item = ProductionItem.query.get(product_id)
+        if not item:
+            return jsonify({
+                'success': False,
+                'error': f'Nie znaleziono produktu o ID {product_id}'
+            }), 404
+
+        return jsonify({
+            'success': True,
+            'product': _serialize_production_item(item)
+        })
+    except Exception as e:
+        logger.exception('Błąd pobierania szczegółów produktu', extra={'product_id': product_id})
+        return jsonify({
+            'success': False,
+            'error': f'Błąd pobierania szczegółów produktu: {str(e)}',
+            'traceback': traceback.format_exc()
+        }), 500
 
 
 @api_bp.route('/update-priority', methods=['POST'])
