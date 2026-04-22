@@ -577,7 +577,7 @@ def create_app():
         from flask_login import current_user
         # Jeśli już zalogowany (np. przez Basic Auth z tabletu) — przekieruj
         if current_user.is_authenticated:
-            return redirect(url_for('dashboard.index'))
+            return redirect(url_for('dashboard.dashboard'))
 
         if request.method == 'POST':
             email = request.form.get('email')

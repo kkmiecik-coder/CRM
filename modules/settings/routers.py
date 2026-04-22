@@ -29,7 +29,7 @@ def require_admin(f):
         user = User.query.filter_by(email=user_email).first()
         if not user or user.role != 'admin':
             flash('Brak uprawnień. Dostęp tylko dla administratorów.', 'error')
-            return redirect(url_for('dashboard.index'))
+            return redirect(url_for('dashboard.dashboard'))
 
         return f(*args, **kwargs)
 

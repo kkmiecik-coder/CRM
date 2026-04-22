@@ -25,7 +25,7 @@ def _require_admin_or_user():
 def conversations_page():
     """Widok listy rozmów"""
     if not _require_admin_or_user():
-        return redirect(url_for('dashboard.index'))
+        return redirect(url_for('dashboard.dashboard'))
 
     return render_template('ai_assistant/conversations.html')
 
@@ -35,7 +35,7 @@ def conversations_page():
 def chat_page(conversation_id):
     """Widok rozmowy"""
     if not _require_admin_or_user():
-        return redirect(url_for('dashboard.index'))
+        return redirect(url_for('dashboard.dashboard'))
 
     from .services.conversation_service import ConversationService
 
