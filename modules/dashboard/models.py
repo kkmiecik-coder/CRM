@@ -82,49 +82,6 @@ class ChangelogEntry(db.Model):
     items = db.relationship('ChangelogItem', backref='entry', cascade='all, delete-orphan', order_by='ChangelogItem.sort_order')
     creator = db.relationship('User', backref='changelog_entries')
     
-    @staticmethod
-    def get_next_version():
-        """Automatycznie generuje następną wersję"""
-        latest = ChangelogEntry.query.order_by(ChangelogEntry.version.desc()).first()
-        if not latest:
-            return "1.0.0"
-        
-        # Parsuj aktualną wersję
-        version_parts = latest.version.split('.')
-        if len(version_parts) == 2:  # X.Y format
-            major, minor = int(version_parts[0]), int(version_parts[1])
-            return f"{major}.{minor}.1"
-        elif len(version_parts) == 3:  # X.Y.Z format
-            major, minor, patch = int(version_parts[0]), int(version_parts[1]), int(version_parts[2])
-            return f"{major}.{minor}.{patch + 1}"
-        else:
-            return "1.0.0"
-    
-    @staticmethod
-    def validate_version(version, current_id=None):
-        """Waliduje czy wersja jest poprawna"""
-        import re
-        
-        # Sprawdź format
-        if not re.match(r'^\d+\.\d+(\.\d+)?$', version):
-            return False, "Niepoprawny format wersji. Użyj X.Y lub X.Y.Z"
-        
-        # Sprawdź czy wersja już istnieje
-        query = ChangelogEntry.query.filter_by(version=version)
-        if current_id:
-            query = query.filter(ChangelogEntry.id != current_id)
-        
-        if query.first():
-            return False, "Ta wersja już istnieje"
-        
-        # Sprawdź czy nie cofamy się w wersji
-        latest = ChangelogEntry.query.order_by(ChangelogEntry.version.desc()).first()
-        if latest and current_id != latest.id:
-            if version_compare(version, latest.version) <= 0:
-                return False, f"Nie możesz utworzyć wersji starszej niż {latest.version}"
-        
-        return True, None
-
 class ChangelogItem(db.Model):
     __tablename__ = 'changelog_items'
     
