@@ -1865,6 +1865,10 @@ class ProductsModule {
     }
 
     populateProductRow(rowElement, product) {
+        // TODO: metoda obsługuje stary layout (prod_list-*) uruchamiany tylko gdy
+        // w DOM brakuje #il-product-template. Obecnie template jest zawsze obecny,
+        // więc ta ścieżka jest martwa — selektor .prod_list-product-checkbox
+        // pozostawiony intencjonalnie dla spójności starego fallbacku.
         try {
             // 1. Checkbox
             const checkbox = rowElement.querySelector('.prod_list-product-checkbox');
@@ -2156,8 +2160,11 @@ class ProductsModule {
     }
 
     attachRowEventListeners(rowElement, product) {
+        // TODO: listenery dla starego layoutu (prod_list-*) — patrz komentarz
+        // przy populateProductRow. Ścieżka obecnie nieużywana (IL jest jedynym
+        // aktywnym layoutem), zostawiona jako fallback.
         try {
-            // Checkbox - NOWA KLASA
+            // Checkbox - stara klasa (layout prod_list-*)
             const checkbox = rowElement.querySelector('.prod_list-product-checkbox');
             if (checkbox) {
                 checkbox.addEventListener('change', (e) => {
@@ -2914,10 +2921,10 @@ class ProductsModule {
     }
 
     /**
-     * Wspólna implementacja select-all używana przez wszystkie trzy handlery
-     * (IL template, handleSelectAll, initializeSelectAllCheckbox). Operuje WYŁĄCZNIE
-     * na state.filteredProducts — dimmed produkty (niezgodne z filtrem) nigdy nie
-     * trafią do selekcji. Po wywołaniu caller powinien zsynchronizować DOM checkboxy
+     * Wspólna implementacja select-all używana przez handlery
+     * (IL template i handleSelectAll). Operuje WYŁĄCZNIE na state.filteredProducts —
+     * dimmed produkty (niezgodne z filtrem) nigdy nie trafią do selekcji.
+     * Po wywołaniu caller powinien zsynchronizować DOM checkboxy
      * (syncAllCheckboxes lub lokalny sync w swoim layout'cie).
      */
     _applySelectAll(isChecked) {
@@ -3036,36 +3043,25 @@ class ProductsModule {
     }
 
     syncAllCheckboxes() {
-        const checkboxes = this.elements.viewport?.querySelectorAll('.prod_list-product-checkbox');
-        if (checkboxes) {
-            checkboxes.forEach(checkbox => {
-                const productId = parseInt(checkbox.getAttribute('data-product-id'));
-                const key = this._getProductKeyById(productId);
-                checkbox.checked = key ? this.state.selectedProducts.has(key) : false;
-            });
-        }
+        // Aktywny layout to IL — checkboxy mają klasę .il-product-checkbox,
+        // a data-product-id leży na wierszu nadrzędnym (.il-product-row).
+        // Szukamy globalnie (poza viewportem), bo IL renderuje poza starym
+        // kontenerem virtual-scroll.
+        const checkboxes = document.querySelectorAll('.il-product-checkbox');
+        checkboxes.forEach(checkbox => {
+            const row = checkbox.closest('.il-product-row');
+            const productId = row ? parseInt(row.getAttribute('data-product-id')) : NaN;
+            const key = productId ? this._getProductKeyById(productId) : null;
+            checkbox.checked = key ? this.state.selectedProducts.has(key) : false;
+        });
 
         this.updateSelectAllCheckbox();
     }
 
-    initializeSelectAllCheckbox() {
-        const selectAllCheckbox = document.getElementById('select-all-products'); // Zachowaj ID
-        if (selectAllCheckbox) {
-            selectAllCheckbox.addEventListener('change', (e) => {
-                const isChecked = e.target.checked;
-
-                // Wspólna logika — select-all obejmuje tylko filteredProducts (pomija _dimmed)
-                this._applySelectAll(isChecked);
-                // syncAllCheckboxes ustawi w DOM dokładnie to co jest w state.selectedProducts
-                this.syncAllCheckboxes();
-
-                this.shared.eventBus.emit('products:selection-changed', {
-                    selectedProducts: Array.from(this.state.selectedProducts),
-                    selectAll: isChecked
-                });
-            });
-        }
-    }
+    // Usunięto initializeSelectAllCheckbox — kierowało się na ID #select-all-products,
+    // które nie istnieje w aktywnym szablonie IL (jest tam #il-select-all, obsługiwane
+    // już w initializeComponents). Funkcja nie była nigdzie wywoływana i była
+    // martwa po migracji do layoutu IL.
 
     updateSelectAllCheckbox() {
         if (!this.elements.selectAllCheckbox) return;
@@ -3088,10 +3084,12 @@ class ProductsModule {
     }
 
     /**
-     * Checks if all selected products form complete orders (no partial selections)
+     * Sprawdza czy wszystkie zaznaczone produkty tworzą kompletne zamówienia
+     * (bez częściowych selekcji). Liczy tylko widoczną selekcję — ukryte
+     * produkty po zmianie filtra i tak nie biorą udziału w bulk actions.
      */
     areCompleteOrdersSelected() {
-        if (this.state.selectedProducts.size === 0) return false;
+        if (this._getVisibleSelectedKeys().length === 0) return false;
 
         const selectedIds = this.state.selectedProducts;
         // Group selected products by order
@@ -3114,16 +3112,34 @@ class ProductsModule {
     }
 
     toggleBulkActionsVisibility() {
-        const selectedCount = this.state.selectedProducts.size;
-        const completeOrders = selectedCount > 0 ? this.areCompleteOrdersSelected() : false;
+        // Widoczna selekcja = przecięcie selectedProducts ∩ filteredProducts.
+        // Używamy tego jako źródła prawdy dla liczników i widoczności paska bulk,
+        // żeby licznik zgadzał się z checkboxem select-all i realnie zaznaczonymi
+        // wierszami w widoku (obydwa operują na filteredProducts).
+        const visibleCount = this._getVisibleSelectedKeys().length;
+        const totalCount = this.state.selectedProducts.size;
+        const hiddenCount = totalCount - visibleCount;
+        const hasHidden = hiddenCount > 0;
+
+        // Etykieta licznika — jeśli są zaznaczone produkty poza aktywnym filtrem,
+        // informujemy użytkownika ile pozostało ukrytych (nie zniknęły z selekcji,
+        // ale bulk actions i tak ich nie dotkną — patrz handleBulkAction).
+        const countLabel = hasHidden
+            ? `${visibleCount} zaznaczone w widoku (+${hiddenCount} ukryte)`
+            : `${visibleCount} zaznaczone`;
+
+        const completeOrders = visibleCount > 0 ? this.areCompleteOrdersSelected() : false;
 
         // New IL bulk bar
         const ilBar = document.getElementById('il-bulk-bar');
         if (ilBar) {
-            if (selectedCount > 0) {
+            // Pasek ukrywamy gdy nic widocznego nie jest zaznaczone — bulk actions
+            // operują wyłącznie na widocznej selekcji, więc ukryte resztki nie
+            // powinny trzymać paska otwartego.
+            if (visibleCount > 0) {
                 ilBar.style.display = 'flex';
                 const countEl = ilBar.querySelector('.il-bulk-count');
-                if (countEl) countEl.textContent = `${selectedCount} zaznaczone`;
+                if (countEl) countEl.textContent = countLabel;
 
                 // Enable status change button whenever any products are selected
                 const statusBtn = ilBar.querySelector('.il-bulk-btn[data-action="status"]');
@@ -3159,14 +3175,14 @@ class ProductsModule {
             }
         }
 
-        // Legacy bulk actions bar (fallback)
+        // Legacy bulk actions bar (fallback) — również oparty o widoczną selekcję
         const bulkActionsBar = document.getElementById('bulk-actions-bar');
         if (bulkActionsBar) {
-            if (selectedCount > 0) {
+            if (visibleCount > 0) {
                 bulkActionsBar.style.display = 'flex';
                 const countSpan = document.getElementById('bulk-selected-count');
                 if (countSpan) {
-                    countSpan.textContent = selectedCount;
+                    countSpan.textContent = countLabel;
                 }
                 // Enable status change for any selected products
                 const legacyStatusBtn = document.getElementById('bulk-change-status');
