@@ -2878,10 +2878,19 @@ class ProductsModule {
     }
 
     _updateOrderCheckboxState(orderCheckbox, order) {
-        const checkedCount = order.products.filter(p =>
-            this.state.selectedProducts.has(p.unique_id || String(p.id))
+        // Liczymy tylko widoczne (niedimmed) pozycje — zgodnie z kontraktem, że
+        // filtr ukrywa dimmed z selekcji. Inaczej częściowo przyfiltrowany order
+        // z pełnym zaznaczeniem widocznych pokazywałby się jako indeterminate.
+        const visible = order.products.filter(p => !this._isProductDimmed(p));
+        const total = visible.length;
+        if (total === 0) {
+            orderCheckbox.checked = false;
+            orderCheckbox.indeterminate = false;
+            return;
+        }
+        const checkedCount = visible.filter(p =>
+            this.state.selectedProducts.has(this._getProductKey(p))
         ).length;
-        const total = order.products.length;
 
         if (checkedCount === 0) {
             orderCheckbox.checked = false;
@@ -3461,8 +3470,17 @@ class ProductsModule {
                     // dopisz go — inaczej lookupy po id (priority edit, _getProductKeyById)
                     // wracałyby null/undefined i bulk akcje cicho failowałyby.
                     const idxAll = this.state.products.findIndex(p => p.id == productId);
-                    if (idxAll >= 0) this.state.products[idxAll] = product;
-                    else this.state.products.push(product);
+                    if (idxAll >= 0) {
+                        this.state.products[idxAll] = product;
+                    } else {
+                        this.state.products.push(product);
+                        // Przy aktywnym filtrze świeżo dopisany produkt inaczej byłby
+                        // traktowany jako dimmed przy najbliższym re-renderze, mimo że
+                        // user świadomie go otworzył — dokładamy klucz do matchingProductIds
+                        if (this.state.filtersActive) {
+                            this.state.matchingProductIds.add(this._getProductKey(product));
+                        }
+                    }
                     const idxFiltered = this.state.filteredProducts.findIndex(p => p.id == productId);
                     if (idxFiltered >= 0) this.state.filteredProducts[idxFiltered] = product;
                 }
