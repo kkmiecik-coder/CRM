@@ -148,3 +148,54 @@ def compute_next_version(parsed_commits: List[Dict[str, Any]]) -> str:
         candidate = _bump_version(candidate, 'patch')
 
     return candidate
+
+
+def read_git_log(
+    repo_path: str,
+    rev_range: Optional[str] = None,
+    limit: Optional[int] = None
+) -> List[Dict[str, str]]:
+    """
+    Czyta commity z git log używając subprocess.
+
+    Args:
+        repo_path: ścieżka do lokalnego repo (z REPO_PATH w configu)
+        rev_range: zakres typu 'OLD..NEW'. Jeśli None, czyta wszystkie commity (z limitem).
+        limit: maksymalna liczba commitów (np. 200). None = bez limitu.
+
+    Returns:
+        lista [{'sha': str, 'message': str}, ...] w kolejności od najnowszego.
+
+    Raises:
+        RuntimeError jeśli git log zawiedzie.
+    """
+    cmd = ['git', '-C', repo_path, 'log', '--no-merges', '--format=%H|%s']
+    if rev_range:
+        cmd.append(rev_range)
+    if limit:
+        cmd.append(f'-n{limit}')
+
+    try:
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=30
+        )
+    except subprocess.CalledProcessError as e:
+        raise RuntimeError(f'git log failed: {e.stderr.strip()}') from e
+    except subprocess.TimeoutExpired as e:
+        raise RuntimeError(f'git log timeout po 30s') from e
+    except FileNotFoundError as e:
+        raise RuntimeError(f'git binary nieznaleziony albo zły repo_path: {repo_path}') from e
+
+    commits = []
+    for line in result.stdout.strip().split('\n'):
+        if not line:
+            continue
+        sha, _, message = line.partition('|')
+        if sha and message:
+            commits.append({'sha': sha.strip(), 'message': message.strip()})
+
+    return commits
