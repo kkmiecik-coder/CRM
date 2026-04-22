@@ -193,10 +193,13 @@ class ProductsDragDrop {
                 bottom: 0;
                 background: rgba(59, 130, 246, 0.1);
                 border-radius: 8px;
-                animation: pulse 1.5s infinite;
+                animation: prod-dragdrop-update-pulse 1.5s infinite;
             }
-        
-            @keyframes pulse {
+
+            /* Lokalna nazwa — wcześniej "pulse" kolidowało z globalnym @keyframes pulse
+               z auth.css (scale-based), przez co .deadline-overdue traciło animację
+               powiększania na rzecz opacity-fade. */
+            @keyframes prod-dragdrop-update-pulse {
                 0%, 100% { opacity: 0.1; }
                 50% { opacity: 0.3; }
             }
