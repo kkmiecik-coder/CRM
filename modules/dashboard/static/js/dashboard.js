@@ -103,8 +103,9 @@ function initChangelogWidget() {
     const syncBtn = document.getElementById('changelog-sync-btn');
     if (syncBtn) {
         syncBtn.addEventListener('click', async () => {
+            const notify = (msg, level) =>
+                (typeof showToast === 'function' ? showToast(msg, level) : alert(msg));
             const icon = syncBtn.querySelector('.sync-icon');
-            const originalDisabled = syncBtn.disabled;
             syncBtn.disabled = true;
             if (icon) icon.style.opacity = '0.5';
 
@@ -116,44 +117,28 @@ function initChangelogWidget() {
                 const result = await response.json();
 
                 if (!response.ok) {
-                    const msg = `Błąd synchronizacji: ${result.detail || result.error}`;
-                    if (typeof showToast === 'function') {
-                        showToast(msg, 'error');
-                    } else {
-                        alert(msg);
-                    }
+                    const msg = `Błąd synchronizacji: ${result.detail || result.error || 'nieznany błąd'}`;
+                    notify(msg, 'error');
                     return;
                 }
 
                 if (result.created) {
                     const msg = `Dodano wersję ${result.version} (${result.items_count} wpisów)`;
-                    if (typeof showToast === 'function') {
-                        showToast(msg, 'success');
-                    } else {
-                        alert(msg);
-                    }
+                    notify(msg, 'success');
                     // Odśwież listę wpisów
                     if (typeof loadChangelogEntries === 'function') {
                         loadChangelogEntries();
                     }
                 } else {
                     const msg = 'Brak nowych zmian do dodania';
-                    if (typeof showToast === 'function') {
-                        showToast(msg, 'info');
-                    } else {
-                        alert(msg);
-                    }
+                    notify(msg, 'info');
                 }
             } catch (err) {
                 console.error('[Changelog sync]', err);
                 const msg = 'Błąd sieci podczas synchronizacji';
-                if (typeof showToast === 'function') {
-                    showToast(msg, 'error');
-                } else {
-                    alert(msg);
-                }
+                notify(msg, 'error');
             } finally {
-                syncBtn.disabled = originalDisabled;
+                syncBtn.disabled = false;
                 if (icon) icon.style.opacity = '1';
             }
         });
