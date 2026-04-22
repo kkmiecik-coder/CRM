@@ -278,7 +278,8 @@ class ProductsModule {
                 errorState: document.getElementById('il-products-error') || document.getElementById('products-error-state'),
                 textSearch: document.getElementById('il-products-search') || document.getElementById('products-text-search'),
                 selectAllCheckbox: document.getElementById('il-select-all') || document.getElementById('select-all-products'),
-                productsCount: document.getElementById('il-stats-products') || document.getElementById('products-count')
+                productsCount: document.getElementById('il-stats-products') || document.getElementById('products-count'),
+                applyFiltersBtn: document.getElementById('il-apply-filters')
             };
 
             // Walidacja kluczowych elementów
@@ -693,7 +694,32 @@ class ProductsModule {
                 if (e.key === 'Escape') {
                     this.elements.textSearch.value = '';
                     this.handleTextSearchInput();
+                } else if (e.key === 'Enter') {
+                    // Enter w polu wyszukiwania natychmiast aplikuje filtry
+                    e.preventDefault();
+                    // Wymuś commit bieżącej wartości (anuluj debounce)
+                    if (this.debounceTimers.textSearch) {
+                        clearTimeout(this.debounceTimers.textSearch);
+                    }
+                    this.state.currentFilters.textSearch = this.elements.textSearch.value;
+                    this.updateFilterBadges();
+                    this.applyAllFilters();
                 }
+            });
+        }
+
+        // Przycisk "Filtruj" — manualne aplikowanie zebranych zmian filtrów
+        if (this.elements.applyFiltersBtn) {
+            this.elements.applyFiltersBtn.addEventListener('click', () => {
+                // Wymuś commit ewentualnej pending wartości z text searcha
+                if (this.debounceTimers.textSearch) {
+                    clearTimeout(this.debounceTimers.textSearch);
+                    if (this.elements.textSearch) {
+                        this.state.currentFilters.textSearch = this.elements.textSearch.value;
+                        this.updateFilterBadges();
+                    }
+                }
+                this.applyAllFilters();
             });
         }
 
@@ -832,12 +858,13 @@ class ProductsModule {
                 console.log('[ProductsModule] Using shared API client');
 
                 const filtersForApi = {
-                    status: this.state.currentFilters.statuses.length > 0 ?
-                        this.state.currentFilters.statuses[0] : 'all',
-                    search: this.state.currentFilters.textSearch || '',
-                    // DODAJ SORTOWANIE:
-                    sort_by: 'priority_rank',    // NOWE: domyślnie sortuj po priority_rank
-                    sort_order: 'asc',           // NOWE: rosnąco (1,2,3,4...)
+                    // Zawsze 'all' — filtrowanie robimy po stronie klienta w applyAllFilters.
+                    // Wcześniej wysyłaliśmy statuses[0], co przy wielu zaznaczonych statusach
+                    // ograniczało zwracane produkty tylko do pierwszego z nich.
+                    status: 'all',
+                    search: '',
+                    sort_by: 'priority_rank',
+                    sort_order: 'asc',
                     load_all: 'true'
                 };
 
@@ -856,12 +883,12 @@ class ProductsModule {
                 console.log('[ProductsModule] Using direct GET request');
 
                 const params = new URLSearchParams({
-                    status: this.state.currentFilters.statuses.length > 0 ?
-                        this.state.currentFilters.statuses[0] : 'all',
-                    search: this.state.currentFilters.textSearch || '',
-                    // DODAJ SORTOWANIE:
-                    sort_by: 'priority_rank',    // NOWE: domyślnie sortuj po priority_rank  
-                    sort_order: 'asc',           // NOWE: rosnąco (1,2,3,4...)
+                    // Zawsze 'all' — filtrowanie po stronie klienta (patrz komentarz
+                    // w gałęzi z shared apiClient powyżej)
+                    status: 'all',
+                    search: '',
+                    sort_by: 'priority_rank',
+                    sort_order: 'asc',
                     load_all: 'true'
                 });
 
@@ -1071,11 +1098,9 @@ class ProductsModule {
         });
 
         this.updateMultiSelectDisplay(dropdownId.replace('dropdown-', 'filter-'), filterType);
-        
-        // WAŻNE: Aktualizuj badges po "select all"
         this.updateFilterBadges();
-
-        this.applyAllFilters();
+        // Zmiana pojedynczego dropdowna nie aplikuje filtrów — trzeba kliknąć "Filtruj"
+        this._markFiltersPending();
     }
 
     handleOptionChange(filterType, value, isChecked) {
@@ -1188,23 +1213,16 @@ class ProductsModule {
         const checkbox = optionDiv.querySelector('input[type="checkbox"]');
         checkbox.addEventListener('change', (e) => {
             this.handleOptionChange(filterType, value, e.target.checked);
-            
-            // Get the correct display ID from the dropdown
+
             const dropdown = optionDiv.closest('.multi-select-dropdown');
             const dropdownId = dropdown.id;
             const displayId = dropdownId.replace('dropdown-', 'filter-');
-            
+
             this.updateMultiSelectDisplay(displayId, filterType);
             this.updateSelectAllState(dropdown);
-            
-            // WAŻNE: Aktualizuj badges po zmianie filtra
             this.updateFilterBadges();
-            
-            // Apply filters after a short delay to allow for multiple selections
-            clearTimeout(this.filterUpdateTimeout);
-            this.filterUpdateTimeout = setTimeout(() => {
-                this.applyAllFilters();
-            }, 150);
+            // Zmiana dropdowna nie aplikuje filtrów — dopiero kliknięcie "Filtruj"
+            this._markFiltersPending();
         });
 
         return optionDiv;
@@ -2423,6 +2441,7 @@ class ProductsModule {
             this.updateFilterBadges();
             this.updateStats();
             this.renderOrdersList();
+            this._clearFiltersPending();
 
             console.log(`[ProductsModule] Filters applied. ${productsToCheck.length}/${this.state.products.length} products match, ${this.state.filteredOrders.length} orders`);
 
@@ -2520,43 +2539,45 @@ class ProductsModule {
 
     handleTextSearchInput(e) {
         const query = e ? e.target.value : this.elements.textSearch?.value || '';
-        
-        // Debounce search
+
+        // Debounce aktualizacji stanu — zmiany aplikujemy dopiero po kliknięciu "Filtruj"
+        // (albo Enter w polu tekstowym)
         if (this.debounceTimers.textSearch) {
             clearTimeout(this.debounceTimers.textSearch);
         }
 
         this.debounceTimers.textSearch = setTimeout(() => {
-            console.log(`[ProductsModule] Text search: "${query}"`);
-            
+            console.log(`[ProductsModule] Text search changed: "${query}"`);
             this.state.currentFilters.textSearch = query;
-            
-            // DEBUG: Sprawdź czy updateFilterBadges() jest wywoływane
             try {
-                console.log('[ProductsModule] About to call updateFilterBadges()...');
                 this.updateFilterBadges();
-                console.log('[ProductsModule] updateFilterBadges() completed');
             } catch (error) {
                 console.error('[ProductsModule] Error in updateFilterBadges():', error);
             }
-
-            this.applyAllFilters();
-        }, 300);
+            this._markFiltersPending();
+        }, 200);
     }
 
     handleFilterChange(filterType, values) {
         console.log(`[ProductsModule] Filter changed: ${filterType}`, values);
-        
         this.state.currentFilters[filterType] = Array.isArray(values) ? values : [values];
-        
-        // Debounce filters update
-        if (this.debounceTimers.filtersUpdate) {
-            clearTimeout(this.debounceTimers.filtersUpdate);
-        }
+        this._markFiltersPending();
+    }
 
-        this.debounceTimers.filtersUpdate = setTimeout(() => {
-            this.applyAllFilters();
-        }, 150);
+    /**
+     * Oznacza że są niezaaplikowane zmiany filtrów — pulsuje przycisk "Filtruj".
+     * Wywoływane po każdej zmianie dropdowna/text searcha.
+     */
+    _markFiltersPending() {
+        if (this.elements.applyFiltersBtn) {
+            this.elements.applyFiltersBtn.classList.add('pending');
+        }
+    }
+
+    _clearFiltersPending() {
+        if (this.elements.applyFiltersBtn) {
+            this.elements.applyFiltersBtn.classList.remove('pending');
+        }
     }
 
     handleProductSelect(productOrId, isChecked) {

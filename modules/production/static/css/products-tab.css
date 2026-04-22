@@ -227,6 +227,46 @@
     opacity: 0.75;
 }
 
+/* Przycisk "Filtruj" - primary CTA w pasku filtrów.
+   Wywołuje applyAllFilters ręcznie — zmiany w dropdownach/search
+   nie aplikują się automatycznie, tylko aktualizują stan. */
+.il-apply-filters {
+    font-family: var(--il-font);
+    font-size: 12px;
+    font-weight: 600;
+    color: #fff;
+    background: var(--il-status-success, #16a34a);
+    border: 1px solid var(--il-status-success, #16a34a);
+    padding: 8px 16px;
+    border-radius: 6px;
+    cursor: pointer;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    transition: background-color 0.15s, border-color 0.15s, transform 0.05s;
+    margin-left: auto;
+}
+
+.il-apply-filters:hover {
+    background: var(--il-status-success-hover, #15803d);
+    border-color: var(--il-status-success-hover, #15803d);
+}
+
+.il-apply-filters:active {
+    transform: translateY(1px);
+}
+
+.il-apply-filters.pending {
+    animation: il-apply-filters-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes il-apply-filters-pulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(22, 163, 74, 0.45); }
+    50%      { box-shadow: 0 0 0 6px rgba(22, 163, 74, 0); }
+}
+
 /* ============================================================================
    3. MULTI-SELECT DROPDOWN
    ============================================================================ */
