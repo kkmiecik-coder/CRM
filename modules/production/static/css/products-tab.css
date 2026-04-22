@@ -177,8 +177,11 @@
     display: flex;
     gap: 6px;
     margin-bottom: 10px;
+    padding: 4px;
     flex-wrap: wrap;
     align-items: center;
+    background: var(--il-bg-elevated, rgba(0, 0, 0, 0.04));
+    border-radius: var(--il-radius, 6px);
 }
 
 /* Kontener na poszczególne badge'y — poziomy layout z wrapowaniem */
