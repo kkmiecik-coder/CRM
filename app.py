@@ -199,6 +199,102 @@ def register_cli_commands(app):
         db.session.commit()
         click.echo(f"[migrate-finish-data] Gotowe: {updated} zaktualizowanych, {errors} błędów.")
 
+    @app.cli.command("sync-changelog")
+    @click.option('--before', required=True, help='SHA przed git pull')
+    @click.option('--after', required=True, help='SHA po git pull')
+    @with_appcontext
+    def sync_changelog_command(before, after):
+        """Synchronizuje wpisy changeloga z commitami z zakresu before..after."""
+        import json
+        from modules.dashboard.services.changelog_sync_service import (
+            read_git_log, sync_commits
+        )
+
+        if before == after:
+            click.echo('[sync-changelog] before == after, nic do roboty')
+            return
+
+        repo_path = app.config.get('CHANGELOG_SYNC', {}).get('REPO_PATH')
+        if not repo_path:
+            click.echo('[sync-changelog] BŁĄD: brak CHANGELOG_SYNC.REPO_PATH w configu', err=True)
+            raise click.Abort()
+
+        try:
+            commits = read_git_log(repo_path, rev_range=f'{before}..{after}')
+            click.echo(f'[sync-changelog] {len(commits)} commitów w zakresie')
+            result = sync_commits(commits)
+            click.echo(f'[sync-changelog] {json.dumps(result)}')
+        except Exception as e:
+            click.echo(f'[sync-changelog] BŁĄD: {e}', err=True)
+            raise click.Abort()
+
+    @app.cli.command("seed-changelog-sync")
+    @click.option('--admin-id', type=int, required=True, help='ID admina jako created_by entry 1.5.0')
+    @with_appcontext
+    def seed_changelog_sync_command(admin_id):
+        """One-time: tworzy entry 1.5.0 + pre-fill changelog_synced_commits historią git log."""
+        from modules.dashboard.models import (
+            ChangelogEntry, ChangelogItem, ChangelogSyncedCommit
+        )
+        from modules.dashboard.services.changelog_sync_service import read_git_log
+        from modules.calculator.models import User
+
+        # Idempotencja: jeśli 1.5.0 już istnieje, abort
+        existing = ChangelogEntry.query.filter_by(version='1.5.0').first()
+        if existing:
+            click.echo(f'[seed] Entry 1.5.0 już istnieje (id={existing.id}), abort')
+            return
+
+        # Walidacja admina
+        admin = User.query.get(admin_id)
+        if not admin or admin.role != 'admin':
+            click.echo(f'[seed] BŁĄD: user id={admin_id} nie istnieje lub nie jest adminem', err=True)
+            raise click.Abort()
+
+        # Repo path
+        repo_path = app.config.get('CHANGELOG_SYNC', {}).get('REPO_PATH')
+        if not repo_path:
+            click.echo('[seed] BŁĄD: brak CHANGELOG_SYNC.REPO_PATH w configu', err=True)
+            raise click.Abort()
+
+        try:
+            # Krok 1: Utworzenie entry 1.5.0
+            entry = ChangelogEntry(
+                version='1.5.0',
+                is_visible=True,
+                created_by=admin_id,
+            )
+            db.session.add(entry)
+            db.session.flush()
+
+            note = ChangelogItem(
+                entry_id=entry.id,
+                section_type='custom',
+                custom_section_name='Informacja',
+                item_text='Uruchomienie automatycznej synchronizacji nowości z GitHub — '
+                          'kolejne wersje będą generowane automatycznie po każdym wdrożeniu.',
+                sort_order=0,
+            )
+            db.session.add(note)
+
+            # Krok 2: Pre-fill całą historią git log
+            all_commits = read_git_log(repo_path, rev_range=None, limit=None)
+            click.echo(f'[seed] Znaleziono {len(all_commits)} commitów w historii')
+
+            for c in all_commits:
+                db.session.add(ChangelogSyncedCommit(
+                    commit_sha=c['sha'],
+                    entry_id=None,
+                    is_seed=True,
+                ))
+
+            db.session.commit()
+            click.echo(f'[seed] OK: entry v1.5.0 utworzone, {len(all_commits)} SHA pre-filled')
+        except Exception as e:
+            db.session.rollback()
+            click.echo(f'[seed] BŁĄD, rollback: {e}', err=True)
+            raise click.Abort()
+
 # Funkcje do generowania i weryfikacji tokena resetującego hasło
 def generate_reset_token(email, secret_key, salt='password-reset-salt'):
     serializer = URLSafeTimedSerializer(secret_key)
