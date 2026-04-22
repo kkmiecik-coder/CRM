@@ -38,11 +38,6 @@ document.addEventListener('DOMContentLoaded', function () {
     console.log('[Dashboard] Chart data from server:', window.chartData);
 });
 
-// Globalna funkcja dla modala changelog
-window.removeItem = function(button) {
-    button.parentElement.remove();
-};
-
 /**
  * Inicjalizacja tabów w Recent Activity Widget z animacjami
  */
@@ -100,18 +95,69 @@ function initActivityTabs() {
  */
 function initChangelogWidget() {
     console.log('[Dashboard] Inicjalizacja changelog widget');
-    
+
     // Załaduj wpisy changelog
     loadChangelogEntries();
-    
-    // Inicjalizuj modal
-    initChangelogModal();
-    
-    // Obsługa przycisku dodawania (tylko dla adminów)
-    const addBtn = document.getElementById('changelog-add-btn');
-    if (addBtn) {
-        addBtn.addEventListener('click', openChangelogModal);
-        console.log('[Dashboard] Przycisk + changelog zainicjalizowany');
+
+    // Inicjalizacja przycisku sync (tylko admin)
+    const syncBtn = document.getElementById('changelog-sync-btn');
+    if (syncBtn) {
+        syncBtn.addEventListener('click', async () => {
+            const icon = syncBtn.querySelector('.sync-icon');
+            const originalDisabled = syncBtn.disabled;
+            syncBtn.disabled = true;
+            if (icon) icon.style.opacity = '0.5';
+
+            try {
+                const response = await fetch('/dashboard/api/changelog-sync/manual', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+                const result = await response.json();
+
+                if (!response.ok) {
+                    const msg = `Błąd synchronizacji: ${result.detail || result.error}`;
+                    if (typeof showToast === 'function') {
+                        showToast(msg, 'error');
+                    } else {
+                        alert(msg);
+                    }
+                    return;
+                }
+
+                if (result.created) {
+                    const msg = `Dodano wersję ${result.version} (${result.items_count} wpisów)`;
+                    if (typeof showToast === 'function') {
+                        showToast(msg, 'success');
+                    } else {
+                        alert(msg);
+                    }
+                    // Odśwież listę wpisów
+                    if (typeof loadChangelogEntries === 'function') {
+                        loadChangelogEntries();
+                    }
+                } else {
+                    const msg = 'Brak nowych zmian do dodania';
+                    if (typeof showToast === 'function') {
+                        showToast(msg, 'info');
+                    } else {
+                        alert(msg);
+                    }
+                }
+            } catch (err) {
+                console.error('[Changelog sync]', err);
+                const msg = 'Błąd sieci podczas synchronizacji';
+                if (typeof showToast === 'function') {
+                    showToast(msg, 'error');
+                } else {
+                    alert(msg);
+                }
+            } finally {
+                syncBtn.disabled = originalDisabled;
+                if (icon) icon.style.opacity = '1';
+            }
+        });
+        console.log('[Dashboard] Przycisk sync changelog zainicjalizowany');
     }
 }
 
@@ -1316,212 +1362,6 @@ function initChangelogInteractions() {
     console.log(`[Dashboard] Changelog interactions zainicjalizowane - ${entries.length} wpisów`);
 }
 
-/**
- * NOWA FUNKCJA: Inicjalizacja modala changelog
- */
-function initChangelogModal() {
-    const modal = document.getElementById('changelog-modal-overlay');
-    const closeBtn = document.getElementById('modal-close');
-    const cancelBtn = document.getElementById('btn-cancel');
-    const form = document.getElementById('changelog-form');
-    
-    if (!modal) {
-        console.log('[Dashboard] Brak modala changelog');
-        return;
-    }
-    
-    // Zamykanie modala
-    if (closeBtn) {
-        closeBtn.addEventListener('click', closeChangelogModal);
-    }
-    if (cancelBtn) {
-        cancelBtn.addEventListener('click', closeChangelogModal);
-    }
-    
-    // Zamykanie przez kliknięcie w overlay
-    modal.addEventListener('click', function(e) {
-        if (e.target === modal) {
-            closeChangelogModal();
-        }
-    });
-    
-    // Obsługa formularza
-    if (form) {
-        form.addEventListener('submit', handleChangelogSubmit);
-    }
-    
-    // Inicjalizuj przyciski dodawania pozycji
-    initAddItemButtons();
-    
-    console.log('[Dashboard] Modal changelog zainicjalizowany');
-}
-
-/**
- * NOWA FUNKCJA: Otwieranie modala
- */
-function openChangelogModal() {
-    console.log('[Dashboard] Otwieranie modala changelog');
-    
-    const modal = document.getElementById('changelog-modal-overlay');
-    if (!modal) {
-        console.error('[Dashboard] Brak modala do otwarcia');
-        return;
-    }
-    
-    // Pobierz sugerowaną wersję
-    fetchSuggestedVersion();
-    
-    // Pokaż modal
-    modal.style.display = 'flex';
-    document.body.style.overflow = 'hidden';
-    
-    // Focus na pierwszym polu
-    const versionInput = document.getElementById('version-input');
-    if (versionInput) {
-        setTimeout(() => versionInput.focus(), 100);
-    }
-    
-    console.log('[Dashboard] Modal changelog otwarty');
-}
-
-/**
- * NOWA FUNKCJA: Zamykanie modala
- */
-function closeChangelogModal() {
-    const modal = document.getElementById('changelog-modal-overlay');
-    if (!modal) return;
-    
-    modal.style.display = 'none';
-    document.body.style.overflow = '';
-    
-    // Resetuj formularz
-    resetChangelogForm();
-    
-    console.log('[Dashboard] Modal changelog zamknięty');
-}
-
-/**
- * NOWA FUNKCJA: Pobieranie sugerowanej wersji
- */
-async function fetchSuggestedVersion() {
-    try {
-        const response = await fetch('/dashboard/api/changelog-next-version');
-        if (response.ok) {
-            const data = await response.json();
-            const suggestedElement = document.getElementById('suggested-version');
-            if (suggestedElement && data.version) {
-                suggestedElement.textContent = data.version;
-            }
-        }
-    } catch (error) {
-        console.log('[Dashboard] Nie udało się pobrać sugerowanej wersji:', error);
-        // Ustaw fallback
-        const suggestedElement = document.getElementById('suggested-version');
-        if (suggestedElement) {
-            suggestedElement.textContent = '1.0.0';
-        }
-    }
-}
-
-/**
- * NOWA FUNKCJA: Inicjalizacja przycisków dodawania pozycji
- */
-function initAddItemButtons() {
-    const addButtons = document.querySelectorAll('.add-item-btn');
-    
-    addButtons.forEach(btn => {
-        btn.addEventListener('click', function() {
-            const section = this.getAttribute('data-section');
-            addItemToSection(section);
-        });
-    });
-}
-
-/**
- * NOWA FUNKCJA: Dodawanie pozycji do sekcji
- */
-function addItemToSection(section) {
-    const container = document.getElementById(`${section}-items`);
-    if (!container) return;
-    
-    const itemIndex = container.children.length;
-    const itemHtml = `
-        <div class="item-input-group">
-            <input type="text" name="${section}_items[]" placeholder="Opis zmiany..." required>
-            <button type="button" class="remove-item-btn" onclick="removeItem(this)">×</button>
-        </div>
-    `;
-    
-    container.insertAdjacentHTML('beforeend', itemHtml);
-}
-
-/**
- * NOWA FUNKCJA: Usuwanie pozycji
- */
-function removeItem(button) {
-    button.parentElement.remove();
-}
-
-/**
- * NOWA FUNKCJA: Obsługa submitu formularza
- */
-async function handleChangelogSubmit(e) {
-    e.preventDefault();
-    
-    console.log('[Dashboard] Wysyłanie formularza changelog');
-    
-    const formData = new FormData(e.target);
-    
-    try {
-        const response = await fetch('/dashboard/api/changelog-entries', {
-            method: 'POST',
-            body: formData
-        });
-        
-        if (response.ok) {
-            const data = await response.json();
-            if (data.success) {
-                console.log('[Dashboard] Changelog zapisany pomyślnie');
-                closeChangelogModal();
-                // Odśwież listę
-                loadChangelogEntries();
-                
-                // Pokaż toast jeśli dostępny
-                if (typeof showToast === 'function') {
-                    showToast('Wpis changelog został dodany', 'success');
-                }
-            } else {
-                console.error('[Dashboard] Błąd zapisywania changelog:', data.error);
-                alert('Błąd: ' + data.error);
-            }
-        } else {
-            throw new Error(`HTTP ${response.status}`);
-        }
-        
-    } catch (error) {
-        console.error('[Dashboard] Błąd wysyłania formularza:', error);
-        alert('Wystąpił błąd podczas zapisywania. Spróbuj ponownie.');
-    }
-}
-
-/**
- * NOWA FUNKCJA: Reset formularza
- */
-function resetChangelogForm() {
-    const form = document.getElementById('changelog-form');
-    if (form) {
-        form.reset();
-        
-        // Wyczyść dynamiczne pozycje
-        ['added', 'improved', 'fixed', 'custom'].forEach(section => {
-            const container = document.getElementById(`${section}-items`);
-            if (container) {
-                container.innerHTML = '';
-            }
-        });
-    }
-}
-
 // Event Listeners
 window.addEventListener('resize', handleResize);
 window.addEventListener('error', function (e) {
@@ -1561,8 +1401,6 @@ window.dashboardFunctions = {
     initTooltips,
     triggerFadeInAnimations,
     drawRealChart,
-    openChangelogModal,
-    closeChangelogModal,
     loadChangelogEntries,
     renderFallbackChangelog
 };
