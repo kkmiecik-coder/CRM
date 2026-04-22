@@ -1772,7 +1772,10 @@ class ProductsModule {
         const clone = template.content.cloneNode(true);
         const row = clone.querySelector('.il-product-row');
 
-        row.setAttribute('data-product-id', product.id || product.unique_id);
+        // Atrybut musi być numerycznym PK — downstream czyta to przez parseInt(...)
+        // w wielu miejscach. Fallback na unique_id (string typu "25_00123_1") dałby
+        // NaN i cicho rozsynchronizowałby selekcję. PK z MySQL jest zawsze truthy.
+        row.setAttribute('data-product-id', product.id);
 
         // Wyciszenie produktu nie pasującego do filtra — lookup przez helper
         // (zamiast czytać flagę z samego produktu). Klasa CSS pozostaje nieruszona.
@@ -2489,6 +2492,7 @@ class ProductsModule {
         this.state.currentFilters.thicknesses = [];
         this.state.currentFilters.statuses = [];
 
+        // Selekcja jest zachowywana — kontrakt spójny z applyAllFilters. Bulk actions i tak operują na przecięciu selekcji z widokiem.
         // Zastosuj filtry (applyAllFilters now renders + updates stats)
         this.applyAllFilters();
     }
