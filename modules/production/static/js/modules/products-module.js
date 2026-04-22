@@ -100,6 +100,13 @@ class ProductsModule {
             // Zaznaczone produkty
             selectedProducts: new Set(),
 
+            // Render-time view-state filtra — zamiast mutować produkty flagą _dimmed
+            // trzymamy zbiór kluczy produktów pasujących do aktywnego filtra i flagę
+            // informującą czy jakikolwiek filtr jest aktywny. Konsumenci odpytują
+            // helper _isProductDimmed(product) zamiast czytać pole z modelu.
+            matchingProductIds: new Set(),
+            filtersActive: false,
+
             // Lista i sortowanie
             products: [],
             filteredProducts: [],
@@ -289,11 +296,11 @@ class ProductsModule {
             const selectAll = document.getElementById('il-select-all');
             if (selectAll) {
                 selectAll.addEventListener('change', () => {
-                    // Wspólna logika — select-all operuje tylko na filteredProducts (pomija _dimmed)
+                    // Wspólna logika — select-all operuje tylko na filteredProducts (pomija przygaszone)
                     this._applySelectAll(selectAll.checked);
 
                     // Sync checkboxów specyficznych dla układu IL (inny layout niż .prod_list-*)
-                    // Zaznaczamy tylko te produkty które realnie trafiły do selekcji (niedimmed)
+                    // Zaznaczamy tylko te produkty które realnie trafiły do selekcji (widoczne)
                     document.querySelectorAll('.il-product-checkbox').forEach(cb => {
                         const productId = parseInt(cb.getAttribute('data-product-id'));
                         const key = productId ? this._getProductKeyById(productId) : null;
@@ -1532,8 +1539,8 @@ class ProductsModule {
             e.stopPropagation();
             // Reset indeterminate — user explicitly clicked
             orderCheckbox.indeterminate = false;
-            // Iterujemy tylko produkty niedimmed (pasujące do aktywnego filtra)
-            const visibleProducts = order.products.filter(p => !p._dimmed);
+            // Iterujemy tylko produkty widoczne (pasujące do aktywnego filtra)
+            const visibleProducts = order.products.filter(p => !this._isProductDimmed(p));
             visibleProducts.forEach(p => {
                 const id = this._getProductKey(p);
                 if (orderCheckbox.checked) {
@@ -1542,12 +1549,12 @@ class ProductsModule {
                     this.state.selectedProducts.delete(id);
                 }
             });
-            // Sync product checkboxes in this card — tylko niedimmed produkty
+            // Sync product checkboxes in this card — tylko widoczne produkty
             // Indeksy i w DOM odpowiadają pełnej liście order.products (razem z dimmed),
-            // więc sprawdzamy _dimmed po indeksie przed zaznaczeniem
+            // więc sprawdzamy stan przygaszenia przez helper przed zaznaczeniem
             card.querySelectorAll('.il-product-checkbox').forEach((cb, i) => {
                 const p = order.products[i];
-                if (p && !p._dimmed) {
+                if (p && !this._isProductDimmed(p)) {
                     cb.checked = orderCheckbox.checked;
                 }
             });
@@ -1767,8 +1774,9 @@ class ProductsModule {
 
         row.setAttribute('data-product-id', product.id || product.unique_id);
 
-        // Dimmed state for filtered products
-        if (product._dimmed) {
+        // Wyciszenie produktu nie pasującego do filtra — lookup przez helper
+        // (zamiast czytać flagę z samego produktu). Klasa CSS pozostaje nieruszona.
+        if (this._isProductDimmed(product)) {
             row.classList.add('il-product-dimmed');
         }
 
@@ -2392,17 +2400,16 @@ class ProductsModule {
             productsToCheck = this.applyMultiSelectFilters(productsToCheck);
             productsToCheck.forEach(p => matchingProductIds.add(p.unique_id || String(p.id)));
 
-            // Step 3: Filter orders — show order if ANY product matches
-            // Mark non-matching products with _dimmed flag for CSS dimming
+            // Step 3: Filter orders — show order if ANY product matches.
+            // Zamiast mutować produkty (p._dimmed) zapisujemy zbiór kluczy pasujących
+            // oraz flagę aktywności filtra na instancji. Render i handlery odpytują
+            // helper _isProductDimmed(product), więc model pozostaje nietknięty.
             const hasFilters = this.hasActiveFilters();
+            this.state.matchingProductIds = matchingProductIds;
+            this.state.filtersActive = hasFilters;
             this.state.filteredOrders = allOrders.filter(order => {
                 const hasMatch = order.products.some(p => matchingProductIds.has(p.unique_id || String(p.id)));
                 if (!hasMatch && hasFilters) return false;
-
-                // Mark products for dimming
-                order.products.forEach(p => {
-                    p._dimmed = hasFilters && !matchingProductIds.has(p.unique_id || String(p.id));
-                });
                 return true;
             });
 
@@ -2574,9 +2581,9 @@ class ProductsModule {
         const isChecked = e.target.checked;
         console.log(`[ProductsModule] Select all: ${isChecked}`);
 
-        // Wspólna logika — operuje wyłącznie na filteredProducts (pomija _dimmed produkty)
+        // Wspólna logika — operuje wyłącznie na filteredProducts (pomija przygaszone produkty)
         this._applySelectAll(isChecked);
-        // syncAllCheckboxes czyta state i ustawia checkboxy w DOM — brak ryzyka zaznaczenia dimmed
+        // syncAllCheckboxes czyta state i ustawia checkboxy w DOM — brak ryzyka zaznaczenia przygaszonych
         this.syncAllCheckboxes();
         this.toggleBulkActionsVisibility();
     }
@@ -2905,9 +2912,21 @@ class ProductsModule {
     }
 
     /**
+     * Zwraca true jeśli produkt NIE pasuje do aktywnego filtra i powinien być
+     * wizualnie wyciszony (klasa CSS .il-product-dimmed, pominięty w select-all,
+     * itd.). Render-time lookup przeciw state.matchingProductIds — nie czytamy
+     * flag z samego produktu. Gdy filtr nie jest aktywny zwraca zawsze false.
+     */
+    _isProductDimmed(product) {
+        if (!this.state.filtersActive) return false;
+        const key = this._getProductKey(product);
+        return !this.state.matchingProductIds.has(key);
+    }
+
+    /**
      * Zwraca klucze kanoniczne produktów które są JEDNOCZEŚNIE zaznaczone i widoczne
-     * (w state.filteredProducts, więc nie są _dimmed). Używany przez bulk flows — chroni
-     * przed wykonaniem akcji na selekcji pozostałej po zmianie filtra.
+     * (w state.filteredProducts, więc nie są przygaszone filtrem). Używany przez bulk
+     * flows — chroni przed wykonaniem akcji na selekcji pozostałej po zmianie filtra.
      */
     _getVisibleSelectedKeys() {
         const visibleKeys = [];
