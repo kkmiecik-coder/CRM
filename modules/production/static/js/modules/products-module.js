@@ -289,19 +289,23 @@ class ProductsModule {
             const selectAll = document.getElementById('il-select-all');
             if (selectAll) {
                 selectAll.addEventListener('change', () => {
-                    this.state.filteredOrders.forEach(order => {
-                        order.products.forEach(p => {
-                            const id = p.unique_id || String(p.id);
-                            if (selectAll.checked) {
-                                this.state.selectedProducts.add(id);
-                            } else {
-                                this.state.selectedProducts.delete(id);
-                            }
-                        });
+                    // Wspólna logika — select-all operuje tylko na filteredProducts (pomija _dimmed)
+                    this._applySelectAll(selectAll.checked);
+
+                    // Sync checkboxów specyficznych dla układu IL (inny layout niż .prod_list-*)
+                    // Zaznaczamy tylko te produkty które realnie trafiły do selekcji (niedimmed)
+                    document.querySelectorAll('.il-product-checkbox').forEach(cb => {
+                        const productId = parseInt(cb.getAttribute('data-product-id'));
+                        const key = productId ? this._getProductKeyById(productId) : null;
+                        cb.checked = key ? this.state.selectedProducts.has(key) : false;
                     });
-                    // Sync all visible checkboxes
-                    document.querySelectorAll('.il-order-checkbox, .il-product-checkbox').forEach(cb => {
-                        cb.checked = selectAll.checked;
+                    // Order-level checkboxy aktualizujemy przez indeterminate state
+                    document.querySelectorAll('.il-order-card').forEach(card => {
+                        const orderKey = card.getAttribute('data-order-key');
+                        const orderCheckbox = card.querySelector('.il-order-checkbox');
+                        if (!orderCheckbox || !orderKey) return;
+                        const order = this.state.filteredOrders.find(o => o.orderKey === orderKey);
+                        if (order) this._updateOrderCheckboxState(orderCheckbox, order);
                     });
                     this.toggleBulkActionsVisibility();
                 });
@@ -1528,17 +1532,24 @@ class ProductsModule {
             e.stopPropagation();
             // Reset indeterminate — user explicitly clicked
             orderCheckbox.indeterminate = false;
-            order.products.forEach(p => {
-                const id = p.unique_id || String(p.id);
+            // Iterujemy tylko produkty niedimmed (pasujące do aktywnego filtra)
+            const visibleProducts = order.products.filter(p => !p._dimmed);
+            visibleProducts.forEach(p => {
+                const id = this._getProductKey(p);
                 if (orderCheckbox.checked) {
                     this.state.selectedProducts.add(id);
                 } else {
                     this.state.selectedProducts.delete(id);
                 }
             });
-            // Sync product checkboxes in this card
+            // Sync product checkboxes in this card — tylko niedimmed produkty
+            // Indeksy i w DOM odpowiadają pełnej liście order.products (razem z dimmed),
+            // więc sprawdzamy _dimmed po indeksie przed zaznaczeniem
             card.querySelectorAll('.il-product-checkbox').forEach((cb, i) => {
-                cb.checked = orderCheckbox.checked;
+                const p = order.products[i];
+                if (p && !p._dimmed) {
+                    cb.checked = orderCheckbox.checked;
+                }
             });
             this.toggleBulkActionsVisibility();
         });
@@ -2556,31 +2567,10 @@ class ProductsModule {
         const isChecked = e.target.checked;
         console.log(`[ProductsModule] Select all: ${isChecked}`);
 
-        if (isChecked) {
-            // Zaznacz wszystkie przefiltrowane produkty używając klucza kanonicznego
-            this.state.filteredProducts.forEach(product => {
-                this.state.selectedProducts.add(this._getProductKey(product));
-            });
-        } else {
-            this.state.selectedProducts.clear();
-        }
-
-        // Sync UI — checkboxy w DOM rozpoznajemy po data-product-id (numeryczne),
-        // ale do Setu dokładamy klucze kanoniczne przez lookup w state.products
-        const productCheckboxes = document.querySelectorAll('.prod_list-product-checkbox');
-        productCheckboxes.forEach(checkbox => {
-            checkbox.checked = isChecked;
-            const productId = parseInt(checkbox.getAttribute('data-product-id'));
-            if (!productId) return;
-            const key = this._getProductKeyById(productId);
-            if (!key) return;
-            if (isChecked) {
-                this.state.selectedProducts.add(key);
-            } else {
-                this.state.selectedProducts.delete(key);
-            }
-        });
-
+        // Wspólna logika — operuje wyłącznie na filteredProducts (pomija _dimmed produkty)
+        this._applySelectAll(isChecked);
+        // syncAllCheckboxes czyta state i ustawia checkboxy w DOM — brak ryzyka zaznaczenia dimmed
+        this.syncAllCheckboxes();
         this.toggleBulkActionsVisibility();
     }
 
@@ -2631,10 +2621,12 @@ class ProductsModule {
 
     handleBulkAction(actionType) {
         console.log(`[ProductsModule] Bulk action: ${actionType}`);
-        
-        const selectedIds = Array.from(this.state.selectedProducts);
+
+        // Akcje bulk operują wyłącznie na przecięciu selectedProducts ∩ filteredProducts.
+        // Chroni przed sytuacją: filter A → select-all → filter B → bulk → akcja na ukrytych z A.
+        const selectedIds = this._getVisibleSelectedKeys();
         if (selectedIds.length === 0) {
-            alert('Nie wybrano żadnych produktów');
+            alert('Nie wybrano widocznych produktów');
             return;
         }
 
@@ -2905,6 +2897,41 @@ class ProductsModule {
         return product ? this._getProductKey(product) : null;
     }
 
+    /**
+     * Zwraca klucze kanoniczne produktów które są JEDNOCZEŚNIE zaznaczone i widoczne
+     * (w state.filteredProducts, więc nie są _dimmed). Używany przez bulk flows — chroni
+     * przed wykonaniem akcji na selekcji pozostałej po zmianie filtra.
+     */
+    _getVisibleSelectedKeys() {
+        const visibleKeys = [];
+        this.state.filteredProducts.forEach(product => {
+            const key = this._getProductKey(product);
+            if (key && this.state.selectedProducts.has(key)) {
+                visibleKeys.push(key);
+            }
+        });
+        return visibleKeys;
+    }
+
+    /**
+     * Wspólna implementacja select-all używana przez wszystkie trzy handlery
+     * (IL template, handleSelectAll, initializeSelectAllCheckbox). Operuje WYŁĄCZNIE
+     * na state.filteredProducts — dimmed produkty (niezgodne z filtrem) nigdy nie
+     * trafią do selekcji. Po wywołaniu caller powinien zsynchronizować DOM checkboxy
+     * (syncAllCheckboxes lub lokalny sync w swoim layout'cie).
+     */
+    _applySelectAll(isChecked) {
+        this.state.filteredProducts.forEach(product => {
+            const key = this._getProductKey(product);
+            if (!key) return;
+            if (isChecked) {
+                this.state.selectedProducts.add(key);
+            } else {
+                this.state.selectedProducts.delete(key);
+            }
+        });
+    }
+
     _resolveProductIds(selectedKeys) {
         const ids = [];
         selectedKeys.forEach(key => {
@@ -3027,19 +3054,10 @@ class ProductsModule {
             selectAllCheckbox.addEventListener('change', (e) => {
                 const isChecked = e.target.checked;
 
-                const productCheckboxes = document.querySelectorAll('.prod_list-product-checkbox');
-                productCheckboxes.forEach(checkbox => {
-                    checkbox.checked = isChecked;
-                    const productId = parseInt(checkbox.getAttribute('data-product-id'));
-                    if (!productId) return;
-                    const key = this._getProductKeyById(productId);
-                    if (!key) return;
-                    if (isChecked) {
-                        this.state.selectedProducts.add(key);
-                    } else {
-                        this.state.selectedProducts.delete(key);
-                    }
-                });
+                // Wspólna logika — select-all obejmuje tylko filteredProducts (pomija _dimmed)
+                this._applySelectAll(isChecked);
+                // syncAllCheckboxes ustawi w DOM dokładnie to co jest w state.selectedProducts
+                this.syncAllCheckboxes();
 
                 this.shared.eventBus.emit('products:selection-changed', {
                     selectedProducts: Array.from(this.state.selectedProducts),
