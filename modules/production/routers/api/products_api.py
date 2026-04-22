@@ -1731,14 +1731,14 @@ def _export_excel(products, timestamp):
     # =========================================================================
     ws_products = wb.create_sheet("Lista produktów")
 
-    ws_products.merge_cells('A1:N1')
+    ws_products.merge_cells('A1:O1')
     ws_products['A1'] = f"SZCZEGÓŁOWA LISTA PRODUKTÓW - {len(products)} pozycji"
     ws_products['A1'].font = Font(bold=True, size=14, color="2E7D32")
     ws_products['A1'].alignment = Alignment(horizontal="center")
 
-    headers = ['Lp.', 'ID Produktu', 'Zamówienie', 'Nr klienta', 'Nazwa produktu',
-               'Status', 'Priorytet', 'Ilość', 'Gatunek', 'Technologia',
-               'Klasa', 'Wymiary (cm)', 'Objętość (m³)', 'Klient']
+    headers = ['Lp.', 'ID Produktu', 'Zamówienie', 'Nr Baselinker', 'Nr klienta',
+               'Nazwa produktu', 'Status', 'Priorytet', 'Ilość', 'Gatunek',
+               'Technologia', 'Klasa', 'Wymiary (cm)', 'Objętość (m³)', 'Klient']
 
     for col, header in enumerate(headers, 1):
         cell = ws_products.cell(row=3, column=col, value=header)
@@ -1756,6 +1756,7 @@ def _export_excel(products, timestamp):
             idx,
             product.short_product_id,
             product.internal_order_number,
+            product.baselinker_order_id or '',
             product.client_order_number or '',
             (product.original_product_name[:50] + '...') if len(product.original_product_name or '') > 50 else (product.original_product_name or ''),
             _format_status(product.current_status),
@@ -1773,14 +1774,15 @@ def _export_excel(products, timestamp):
             cell = ws_products.cell(row=row, column=col, value=value)
             cell.border = thin_border
             cell.fill = row_fill
-            if col in [1, 7, 8, 13]:
+            # Kolumny wyrównane do prawej: Lp.(1), Nr Baselinker(4), Priorytet(8), Ilość(9), Objętość(14)
+            if col in [1, 4, 8, 9, 14]:
                 cell.alignment = number_alignment
-                if col == 13:
+                if col == 14:
                     cell.number_format = '0.000'
             else:
                 cell.alignment = cell_alignment
 
-    column_widths = [5, 14, 12, 14, 40, 18, 10, 8, 12, 14, 8, 18, 12, 25]
+    column_widths = [5, 14, 12, 14, 14, 40, 18, 10, 8, 12, 14, 8, 18, 12, 25]
     for col, width in enumerate(column_widths, 1):
         ws_products.column_dimensions[get_column_letter(col)].width = width
 
