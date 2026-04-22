@@ -181,6 +181,14 @@
     align-items: center;
 }
 
+/* Kontener na poszczególne badge'y — poziomy layout z wrapowaniem */
+.il-filter-badges {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+}
+
 .il-filter-badge,
 .filter-badge {
     background: var(--il-bg-card);
