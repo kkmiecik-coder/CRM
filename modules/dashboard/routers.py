@@ -439,6 +439,38 @@ def toggle_changelog_visibility(entry_id):
         logger.exception("[Dashboard] Błąd przełączania widoczności")
         return {'success': False, 'error': str(e)}, 500
 
+@dashboard_bp.route('/api/changelog-sync/manual', methods=['POST'])
+@require_module_access('dashboard')
+def manual_changelog_sync():
+    """Ręczna synchronizacja changeloga z lokalnego git log (tylko admin)."""
+    user_email = session.get('user_email')
+    user = User.query.filter_by(email=user_email).first()
+
+    if not user or not user.is_admin():
+        return jsonify({'error': 'forbidden'}), 403
+
+    from .services.changelog_sync_service import read_git_log, sync_commits
+    from flask import current_app
+
+    config = current_app.config.get('CHANGELOG_SYNC', {})
+    repo_path = config.get('REPO_PATH')
+    limit = config.get('MANUAL_LOG_LIMIT', 200)
+
+    if not repo_path:
+        return jsonify({'error': 'config_missing', 'detail': 'CHANGELOG_SYNC.REPO_PATH not set'}), 500
+
+    try:
+        commits = read_git_log(repo_path, rev_range=None, limit=limit)
+        result = sync_commits(commits)
+        logger.info(f'[Dashboard] Manual changelog sync przez {user.email}: {result}')
+        return jsonify(result)
+    except RuntimeError as e:
+        logger.exception('[Dashboard] Błąd git log w manual sync')
+        return jsonify({'error': 'git_log_failed', 'detail': str(e)}), 500
+    except Exception as e:
+        logger.exception('[Dashboard] Błąd manual changelog sync')
+        return jsonify({'error': 'sync_failed', 'detail': str(e)}), 500
+
 @dashboard_bp.route('/api/active-users')
 @require_module_access('dashboard')
 def get_active_users():
