@@ -225,6 +225,7 @@ def register_cli_commands(app):
             result = sync_commits(commits)
             click.echo(f'[sync-changelog] {json.dumps(result)}')
         except Exception as e:
+            current_app.logger.exception(f'[sync-changelog] failed: {e}')
             click.echo(f'[sync-changelog] BŁĄD: {e}', err=True)
             raise click.Abort()
 
@@ -237,7 +238,7 @@ def register_cli_commands(app):
             ChangelogEntry, ChangelogItem, ChangelogSyncedCommit
         )
         from modules.dashboard.services.changelog_sync_service import read_git_log
-        from modules.calculator.models import User
+        from modules.users.models import User
 
         # Idempotencja: jeśli 1.5.0 już istnieje, abort
         existing = ChangelogEntry.query.filter_by(version='1.5.0').first()
@@ -247,7 +248,7 @@ def register_cli_commands(app):
 
         # Walidacja admina
         admin = User.query.get(admin_id)
-        if not admin or admin.role != 'admin':
+        if not admin or not admin.is_admin():
             click.echo(f'[seed] BŁĄD: user id={admin_id} nie istnieje lub nie jest adminem', err=True)
             raise click.Abort()
 
@@ -292,6 +293,7 @@ def register_cli_commands(app):
             click.echo(f'[seed] OK: entry v1.5.0 utworzone, {len(all_commits)} SHA pre-filled')
         except Exception as e:
             db.session.rollback()
+            current_app.logger.exception(f'[seed] failed: {e}')
             click.echo(f'[seed] BŁĄD, rollback: {e}', err=True)
             raise click.Abort()
 
