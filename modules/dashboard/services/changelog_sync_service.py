@@ -7,7 +7,7 @@ import re
 import subprocess
 import logging
 from datetime import datetime
-from typing import Optional
+from typing import Optional, List, Dict, Any
 
 logger = logging.getLogger(__name__)
 
@@ -53,3 +53,98 @@ def parse_commit(message: str) -> Optional[dict]:
         'description': match.group('description').strip(),
         'breaking': breaking,
     }
+
+
+# Typ commita → sekcja widgetu (klucz section_type w ChangelogItem)
+TYPE_TO_SECTION = {
+    'feat': 'added',
+    'fix': 'fixed',
+    'style': 'improved',
+    'perf': 'improved',
+}
+
+# Typy które są pomijane (nie trafiają do widgetu)
+SKIPPED_TYPES = {'chore', 'docs', 'ci', 'build', 'test', 'refactor'}
+
+# Scope → polska nazwa modułu w prefixie [Moduł]
+SCOPE_LABELS = {
+    'production': 'Produkcja',
+    'clients': 'Klienci',
+    'calculator': 'Wycena',
+    'quotes': 'Oferty',
+    'packaging': 'Pakowanie',
+    'edge': 'Wykończenie',
+    'finish': 'Wykończenie',
+    'auth': 'Logowanie',
+    'dashboard': 'Dashboard',
+    'users': 'Użytkownicy',
+}
+
+
+def map_scope(scope: str) -> str:
+    """Mapuje scope na czytelną nazwę modułu. Pusty scope → pusty string."""
+    if not scope:
+        return ''
+    return SCOPE_LABELS.get(scope.lower(), scope.capitalize())
+
+
+def _bump_version(version: str, level: str) -> str:
+    """Bumpuje wersję semver. level ∈ {'major','minor','patch'}."""
+    parts = [int(x) for x in version.split('.')]
+    while len(parts) < 3:
+        parts.append(0)
+    major, minor, patch = parts[0], parts[1], parts[2]
+
+    if level == 'major':
+        return f'{major + 1}.0.0'
+    if level == 'minor':
+        return f'{major}.{minor + 1}.0'
+    if level == 'patch':
+        return f'{major}.{minor}.{patch + 1}'
+    raise ValueError(f'Nieznany poziom bump: {level}')
+
+
+def compute_next_version(parsed_commits: List[Dict[str, Any]]) -> str:
+    """
+    Oblicza następną wersję na podstawie najwyższego typu w paczce.
+
+    parsed_commits: lista dict-ów z parse_commit() (po filtracji typów pomijanych).
+    Zwraca string typu '1.5.1'. Obsługuje konflikt — jeśli wersja zajęta, próbuje patcha.
+    """
+    from ..models import ChangelogEntry
+
+    has_breaking = any(c['breaking'] for c in parsed_commits)
+    has_feat = any(c['type'] == 'feat' for c in parsed_commits)
+
+    if has_breaking:
+        level = 'major'
+    elif has_feat:
+        level = 'minor'
+    else:
+        level = 'patch'
+
+    # Znajdź najnowszą wersję (numerycznie, nie alfabetycznie)
+    all_entries = ChangelogEntry.query.all()
+    if not all_entries:
+        latest_version = '0.0.0'
+    else:
+        # Sortowanie po (major, minor, patch) numerycznie
+        def key(e):
+            parts = [int(x) for x in e.version.split('.')]
+            while len(parts) < 3:
+                parts.append(0)
+            return tuple(parts[:3])
+        latest_version = max(all_entries, key=key).version
+
+    candidate = _bump_version(latest_version, level)
+
+    # Konflikt: jeśli kandydat istnieje, próbuj kolejnych patchy
+    existing_versions = {e.version for e in all_entries}
+    attempts = 0
+    while candidate in existing_versions:
+        attempts += 1
+        if attempts > 100:
+            raise RuntimeError(f'Nie znaleziono wolnej wersji po 100 próbach od {candidate}')
+        candidate = _bump_version(candidate, 'patch')
+
+    return candidate
