@@ -199,3 +199,131 @@ def read_git_log(
             commits.append({'sha': sha.strip(), 'message': message.strip()})
 
     return commits
+
+
+def sync_commits(commits: List[Dict[str, str]]) -> Dict[str, Any]:
+    """
+    Główna logika sync. Filtruje, parsuje, tworzy ChangelogEntry + items + tracking.
+    Idempotentna: wywołanie z tymi samymi SHA daje no-op.
+
+    Args:
+        commits: [{'sha': str, 'message': str}, ...]
+
+    Returns:
+        {'created': bool, 'version': str|None, 'items_count': int, 'skipped': int}
+
+    Raises:
+        RuntimeError przy braku SYSTEM_USER_ID w configu lub nieistniejącym userze.
+    """
+    from flask import current_app
+    from extensions import db
+    from ..models import ChangelogEntry, ChangelogItem, ChangelogSyncedCommit
+    from ...calculator.models import User  # User jest w modules.calculator.models w tym projekcie
+
+    if not commits:
+        return {'created': False, 'version': None, 'items_count': 0, 'skipped': 0}
+
+    # Walidacja systemowego usera
+    config = current_app.config.get('CHANGELOG_SYNC', {})
+    system_user_id = config.get('SYSTEM_USER_ID')
+    if not system_user_id:
+        raise RuntimeError('CHANGELOG_SYNC.SYSTEM_USER_ID nie ustawione w configu')
+
+    system_user = User.query.get(system_user_id)
+    if not system_user:
+        raise RuntimeError(f'CHANGELOG_SYNC.SYSTEM_USER_ID={system_user_id} nie istnieje w users')
+
+    all_input_shas = [c['sha'] for c in commits]
+
+    # Filtr 1: pomijamy SHA już zsynchronizowane
+    known_shas = set(
+        row.commit_sha for row in
+        ChangelogSyncedCommit.query.filter(
+            ChangelogSyncedCommit.commit_sha.in_(all_input_shas)
+        ).all()
+    )
+    new_commits = [c for c in commits if c['sha'] not in known_shas]
+    skipped_known = len(commits) - len(new_commits)
+
+    if not new_commits:
+        logger.info(f'[changelog-sync] No-op: wszystkie {len(commits)} commitów już znane')
+        return {'created': False, 'version': None, 'items_count': 0, 'skipped': skipped_known}
+
+    # Filtr 2 + 3: parse + filter typów
+    parsed_items = []  # [(commit, parsed_dict), ...]
+    skipped_unparsable = 0
+    skipped_filtered = 0
+    for c in new_commits:
+        parsed = parse_commit(c['message'])
+        if parsed is None:
+            skipped_unparsable += 1
+            logger.warning(f"[changelog-sync] Pominięto nie-conventional: {c['sha'][:7]} '{c['message'][:60]}'")
+            continue
+        if parsed['type'] in SKIPPED_TYPES:
+            skipped_filtered += 1
+            continue
+        if parsed['type'] not in TYPE_TO_SECTION:
+            skipped_unparsable += 1
+            logger.warning(f"[changelog-sync] Nieznany typ '{parsed['type']}' w {c['sha'][:7]}")
+            continue
+        parsed_items.append((c, parsed))
+
+    total_skipped = skipped_known + skipped_unparsable + skipped_filtered
+
+    if not parsed_items:
+        # Mimo że nic do entry, zapisujemy SHA żeby nie przetwarzać ich ponownie
+        try:
+            for c in new_commits:
+                db.session.add(ChangelogSyncedCommit(commit_sha=c['sha'], entry_id=None))
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
+            raise
+        logger.info(f'[changelog-sync] No entry created. Skipped: {total_skipped}')
+        return {'created': False, 'version': None, 'items_count': 0, 'skipped': total_skipped}
+
+    # Oblicz next version
+    parsed_only = [p for _, p in parsed_items]
+    next_version = compute_next_version(parsed_only)
+
+    # Transakcja: utwórz entry + items + tracking
+    try:
+        entry = ChangelogEntry(
+            version=next_version,
+            is_visible=True,
+            created_by=system_user_id,
+        )
+        db.session.add(entry)
+        db.session.flush()  # żeby mieć entry.id
+
+        for sort_order, (commit, parsed) in enumerate(parsed_items):
+            section = TYPE_TO_SECTION[parsed['type']]
+            scope_label = map_scope(parsed['scope'])
+            text = f'[{scope_label}] {parsed["description"]}' if scope_label else parsed['description']
+            db.session.add(ChangelogItem(
+                entry_id=entry.id,
+                section_type=section,
+                item_text=text,
+                sort_order=sort_order,
+            ))
+
+        # Wszystkie SHA z input (także odfiltrowane) → tracking
+        for c in new_commits:
+            db.session.add(ChangelogSyncedCommit(commit_sha=c['sha'], entry_id=entry.id))
+
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        logger.exception('[changelog-sync] Błąd zapisu entry, rollback')
+        raise
+
+    logger.info(
+        f'[changelog-sync] Utworzono v{next_version}: {len(parsed_items)} items, '
+        f'skipped={total_skipped}'
+    )
+    return {
+        'created': True,
+        'version': next_version,
+        'items_count': len(parsed_items),
+        'skipped': total_skipped,
+    }
