@@ -397,3 +397,22 @@ class UserSession(db.Model):
     
     def __repr__(self):
         return f"<UserSession {self.id}: User {self.user_id} - {self.get_status()['description']}>"
+
+
+class ChangelogSyncedCommit(db.Model):
+    __tablename__ = 'changelog_synced_commits'
+
+    id = db.Column(db.Integer, primary_key=True)
+    commit_sha = db.Column(db.String(40), nullable=False, unique=True, index=True)
+    entry_id = db.Column(
+        db.Integer,
+        db.ForeignKey('changelog_entries.id', ondelete='SET NULL'),
+        nullable=True
+    )
+    synced_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    is_seed = db.Column(db.Boolean, default=False, nullable=False)
+
+    entry = db.relationship('ChangelogEntry', backref='synced_commits')
+
+    def __repr__(self):
+        return f'<ChangelogSyncedCommit {self.commit_sha[:7]} entry={self.entry_id}>'
