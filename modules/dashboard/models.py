@@ -92,24 +92,6 @@ class ChangelogItem(db.Model):
     item_text = db.Column(db.Text, nullable=False)
     sort_order = db.Column(db.Integer, default=0)
 
-def version_compare(v1, v2):
-    """Porównuje wersje. Zwraca: -1 (v1<v2), 0 (v1==v2), 1 (v1>v2)"""
-    def normalize(v):
-        parts = v.split('.')
-        while len(parts) < 3:
-            parts.append('0')
-        return [int(x) for x in parts]
-    
-    v1_parts = normalize(v1)
-    v2_parts = normalize(v2)
-    
-    for i in range(3):
-        if v1_parts[i] < v2_parts[i]:
-            return -1
-        elif v1_parts[i] > v2_parts[i]:
-            return 1
-    return 0
-
 class UserSession(db.Model):
     __tablename__ = 'user_sessions'
     
