@@ -38,6 +38,8 @@
         reader: null,
         controls: null,
         hasScanned: false,
+        tipTimer: null,
+        zxingRef: null,
     };
 
     function el(id) {
@@ -73,6 +75,13 @@
         state.stream = stream;
         video.srcObject = stream;
         try { await video.play(); } catch (e) { /* autoplay czasem wymaga interakcji */ }
+        stream.getTracks().forEach(function (track) {
+            track.addEventListener('ended', function () {
+                if (!state.isOpen) return;
+                console.warn('[BarcodeScanner] track ended');
+                close();
+            });
+        });
         return stream;
     }
 
@@ -103,6 +112,24 @@
             return 'Skaner wymaga bezpiecznego połączenia (HTTPS).';
         }
         return 'Nie udało się uruchomić kamery.';
+    }
+
+    function scheduleTip() {
+        clearTipTimer();
+        state.tipTimer = setTimeout(function () {
+            if (!state.isOpen || state.hasScanned) return;
+            const instr = el('il-scanner-instruction');
+            if (instr) instr.textContent = 'Brak odczytu. Upewnij się, że kod jest wyraźnie oświetlony.';
+        }, 30000);
+    }
+
+    function clearTipTimer() {
+        if (state.tipTimer) {
+            clearTimeout(state.tipTimer);
+            state.tipTimer = null;
+        }
+        const instr = el('il-scanner-instruction');
+        if (instr) instr.textContent = 'Skieruj kod kreskowy na kamerę';
     }
 
     async function startDecoding(zxing) {
@@ -144,32 +171,46 @@
     }
 
     function handleScanSuccess(code, controls) {
-        // placeholder - Task 9 doda tu flash + vibrate
         if (controls && typeof controls.stop === 'function') {
-            try { controls.stop(); } catch (e) { /* ignore */ }
+            try { controls.stop(); } catch (e) { /* best-effort */ }
         }
+
+        const flash = el('il-scanner-flash');
+        if (flash) {
+            flash.classList.add('is-active');
+            setTimeout(function () { flash.classList.remove('is-active'); }, 100);
+        }
+
+        if (navigator.vibrate) {
+            try { navigator.vibrate(100); } catch (e) { /* ignore */ }
+        }
+
         const cb = state.onResult;
-        close();
-        if (cb) {
-            try { cb(code); } catch (e) { console.error('[BarcodeScanner] callback error:', e); }
-        }
+        setTimeout(function () {
+            close();
+            if (cb) {
+                try { cb(code); } catch (e) { console.error('[BarcodeScanner] callback error for code', code, ':', e); }
+            }
+        }, 120);
     }
 
     // Uruchamia pełną sekwencję: loading UI → ładowanie ZXing → start kamery → sukces/błąd.
     function attemptLoad(errorLogLabel) {
         showLoading();
-        let zxingRef = null;
         return loadZXing()
             .then(function (zxing) {
                 if (!state.isOpen) return null;
                 console.log('[BarcodeScanner] ZXing załadowany');
-                zxingRef = zxing;
+                state.zxingRef = zxing;
                 return startCamera();
             })
             .then(function (stream) {
                 if (!state.isOpen || !stream) return;
                 hideStates();
-                return startDecoding(zxingRef);
+                return startDecoding(state.zxingRef);
+            })
+            .then(function () {
+                if (state.isOpen) scheduleTip();
             })
             .catch(function (err) {
                 if (!state.isOpen) return;
@@ -202,6 +243,38 @@
         }
     }
 
+    function onKeydown(e) {
+        if (e.key === 'Escape' && state.isOpen) {
+            close();
+        }
+    }
+
+    function onVisibilityChange() {
+        if (!state.isOpen) return;
+        if (document.hidden) {
+            clearTipTimer();
+            stopDecoding();
+            stopCamera();
+        } else {
+            if (!state.zxingRef) return;
+            showLoading();
+            startCamera()
+                .then(function (stream) {
+                    if (!state.isOpen || !stream) return;
+                    hideStates();
+                    return startDecoding(state.zxingRef);
+                })
+                .then(function () {
+                    if (state.isOpen) scheduleTip();
+                })
+                .catch(function (err) {
+                    if (!state.isOpen) return;
+                    console.error('[BarcodeScanner] resume error:', err);
+                    showError(mapCameraError(err), false);
+                });
+        }
+    }
+
     function open(onResult) {
         if (state.isOpen) return;
         state.isOpen = true;
@@ -210,6 +283,8 @@
         const modal = el('il-barcode-scanner-modal');
         modal.removeAttribute('hidden');
         document.addEventListener('click', onDismissClick);
+        document.addEventListener('keydown', onKeydown);
+        document.addEventListener('visibilitychange', onVisibilityChange);
 
         if (!hasMediaDevices()) {
             showError('Twoja przeglądarka nie obsługuje skanera. Wpisz numer ręcznie.', false);
@@ -223,9 +298,12 @@
         if (!state.isOpen) return;
         state.isOpen = false;
         state.onResult = null;
+        clearTipTimer();
         stopDecoding();
         stopCamera();
         document.removeEventListener('click', onDismissClick);
+        document.removeEventListener('keydown', onKeydown);
+        document.removeEventListener('visibilitychange', onVisibilityChange);
 
         const modal = el('il-barcode-scanner-modal');
         modal.setAttribute('hidden', '');
