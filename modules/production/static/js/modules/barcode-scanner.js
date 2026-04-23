@@ -172,10 +172,14 @@
                     if (result) {
                         const text = result.getText();
                         const format = result.getBarcodeFormat && result.getBarcodeFormat();
-                        console.log('[BarcodeScanner] decoded:', text, 'format:', format);
-                        if (text) {
+                        // BaseLinker: "BLO_36331656" → "36331656". Wyciągamy pierwszą grupę cyfr,
+                        // fallback do surowego tekstu jeśli brak cyfr (np. QR z linkiem).
+                        const digits = text && text.match(/\d+/);
+                        const value = digits ? digits[0] : text;
+                        console.log('[BarcodeScanner] decoded:', text, 'format:', format, '→ value:', value);
+                        if (value) {
                             state.hasScanned = true;
-                            handleScanSuccess(text, controls);
+                            handleScanSuccess(value, controls);
                         }
                     }
                     // err to NotFoundException przy każdej klatce bez kodu — normalne, ignorujemy
