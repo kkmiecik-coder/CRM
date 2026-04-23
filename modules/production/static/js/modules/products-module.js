@@ -736,6 +736,8 @@ class ProductsModule {
                     if (!searchInput) return;
                     searchInput.value = code;
                     searchInput.dispatchEvent(new Event('input', { bubbles: true }));
+                    const applyBtn = document.getElementById('il-apply-filters');
+                    if (applyBtn) applyBtn.click();
                 });
             });
         }
