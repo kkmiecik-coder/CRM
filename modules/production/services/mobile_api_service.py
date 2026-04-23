@@ -315,6 +315,18 @@ def serialize_order(item, station_code=None):
     if station_code and station_code in STATION_QUANTITY_FIELD:
         quantity_done = getattr(item, STATION_QUANTITY_FIELD[station_code], None)
 
+    # Kategoria dostawy — kolejność warunków 1:1 z web-templatką
+    # modules/production/templates/stations/packaging.html (delivery-badge-container).
+    # Odrębna od property ProductionItem.delivery_type (zwracającej tylko 2 wartości).
+    if item.override_delivery_method == 'transport_woodpower':
+        delivery_type = 'transport_woodpower'
+    elif item.override_delivery_method == 'kurier_baselinker':
+        delivery_type = 'courier_baselinker'
+    elif item.is_personal_pickup:
+        delivery_type = 'personal_pickup'
+    else:
+        delivery_type = 'courier'
+
     return {
         'id': item.id,
         'short_id': item.short_product_id,
@@ -323,6 +335,7 @@ def serialize_order(item, station_code=None):
         'product_name': item.original_product_name,
         'client_name': item.client_name,
         'client_order_number': item.client_order_number,
+        'delivery_type': delivery_type,
         'wood_species': item.parsed_wood_species,
         'wood_class': item.parsed_wood_class,
         'technology': item.parsed_technology,
