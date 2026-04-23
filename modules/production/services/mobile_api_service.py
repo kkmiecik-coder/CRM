@@ -490,6 +490,20 @@ def compute_station_summary(station_code):
         completed_field < tomorrow_start,
     ).one()
 
+    # Częstotliwość auto-refresh listy zleceń (klient mobilny używa jej zamiast
+    # hardcoded 30s). Źródło: config_service z tabeli ProductionConfig,
+    # fallback 30 zgodny z ProductionConfigService._default_values.
+    from modules.production.services.config_service import get_config_service
+    try:
+        refresh_interval = int(
+            get_config_service().get_config('REFRESH_INTERVAL_SECONDS', 30)
+        )
+    except Exception as e:
+        logger.warning("Nie udało się pobrać REFRESH_INTERVAL_SECONDS, fallback 30", extra={
+            'error': str(e)
+        })
+        refresh_interval = 30
+
     return {
         'station_code': station_code,
         'queue': {
@@ -501,6 +515,7 @@ def compute_station_summary(station_code):
             'count': int(completed_agg[0] or 0),
             'total_volume_m3': float(completed_agg[1] or 0),
         },
+        'refresh_interval_seconds': refresh_interval,
         'server_time': get_local_now().isoformat(),
     }
 
