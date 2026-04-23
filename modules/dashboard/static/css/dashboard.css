@@ -772,7 +772,7 @@
     margin-bottom: var(--spacing-lg);
 }
 
-.changelog-add-btn {
+.changelog-sync-btn {
     width: 32px;
     height: 32px;
     border-radius: 50%;
@@ -789,7 +789,7 @@
     box-shadow: 0 2px 4px rgba(237, 107, 36, 0.2);
 }
 
-.changelog-add-btn:hover {
+.changelog-sync-btn:hover {
     background: var(--brand-primary-dark);
     transform: scale(1.1);
     box-shadow: 0 4px 8px rgba(237, 107, 36, 0.3);

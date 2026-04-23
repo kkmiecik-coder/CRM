@@ -49,5 +49,10 @@
             "auth_url": "https://www.olx.pl/oauth",
             "sync_interval_minutes": 5
         }
+    },
+    "CHANGELOG_SYNC": {
+        "REPO_PATH": "/path/to/local/repo",
+        "MANUAL_LOG_LIMIT": 200,
+        "SYSTEM_USER_ID": 1
     }
 }

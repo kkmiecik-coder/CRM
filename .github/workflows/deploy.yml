@@ -23,21 +23,32 @@ jobs:
           password: ${{ secrets.SSH_PASSWORD }}
           script: |
             echo "=== Starting deployment ==="
-
-            # Przejdź do katalogu aplikacji CRM WoodPower
             cd ~/domains/crm.woodpower.pl/public_html/app || exit 1
-
             echo "Current directory: $(pwd)"
+
+            # Zapamiętaj SHA przed pull
+            OLD_HEAD=$(git rev-parse HEAD)
 
             # Pobierz najnowsze zmiany z Git
             echo "=== Pulling latest changes ==="
             git fetch origin main
             git reset --hard origin/main
 
+            NEW_HEAD=$(git rev-parse HEAD)
+            echo "Deploy: $OLD_HEAD -> $NEW_HEAD"
+
             # Aktywuj virtualenv i zainstaluj zależności
             echo "=== Checking dependencies ==="
             source ~/virtualenv/domains/crm.woodpower.pl/public_html/3.9/bin/activate
             pip install -q -r requirements.txt 2>/dev/null || true
+
+            # Synchronizacja changeloga (best-effort, nie failuje deploya)
+            if [ "$OLD_HEAD" != "$NEW_HEAD" ]; then
+              echo "=== Syncing changelog ==="
+              flask sync-changelog --before "$OLD_HEAD" --after "$NEW_HEAD" || echo "[sync-warn] changelog sync failed (deploy continues)"
+            else
+              echo "=== Skipping changelog sync (no new commits) ==="
+            fi
 
             # Restart aplikacji (Passenger)
             echo "=== Restarting application ==="
