@@ -142,6 +142,37 @@
     <button class="il-bulk-btn danger" data-action="delete"><i class="fas fa-trash"></i> Usuń</button>
   </div>
 
+  {# ─── BARCODE SCANNER MODAL ─── #}
+  <div id="il-barcode-scanner-modal" class="il-scanner-modal" hidden>
+    <div class="il-scanner-backdrop" data-scanner-dismiss></div>
+    <div class="il-scanner-content">
+      <button type="button" class="il-scanner-close" data-scanner-dismiss aria-label="Zamknij skaner">
+        <i class="fas fa-times"></i>
+      </button>
+      <div class="il-scanner-stage">
+        <video class="il-scanner-video" id="il-scanner-video" autoplay playsinline muted></video>
+        <div class="il-scanner-reticle">
+          <span class="il-scanner-corner il-scanner-corner--tl"></span>
+          <span class="il-scanner-corner il-scanner-corner--tr"></span>
+          <span class="il-scanner-corner il-scanner-corner--bl"></span>
+          <span class="il-scanner-corner il-scanner-corner--br"></span>
+        </div>
+        <div class="il-scanner-flash" id="il-scanner-flash"></div>
+      </div>
+      <p class="il-scanner-instruction" id="il-scanner-instruction">Skieruj kod kreskowy na kamerę</p>
+      <div class="il-scanner-state il-scanner-state--loading" id="il-scanner-loading">
+        <div class="il-scanner-spinner"></div>
+        <span>Wczytywanie skanera...</span>
+      </div>
+      <div class="il-scanner-state il-scanner-state--error" id="il-scanner-error" hidden>
+        <i class="fas fa-exclamation-triangle"></i>
+        <p id="il-scanner-error-message">Błąd skanera</p>
+        <button type="button" class="il-scanner-retry" id="il-scanner-retry" hidden>Spróbuj ponownie</button>
+        <button type="button" class="il-scanner-dismiss" data-scanner-dismiss>Zamknij</button>
+      </div>
+    </div>
+  </div>
+
 </div>
 
 {# ─── TEMPLATES (for JS cloneNode) ─── #}
