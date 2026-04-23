@@ -13,10 +13,15 @@ from modules.logging import get_structured_logger
 from modules.production.models import ProductionDevice, ProductionItem
 from modules.production.services.mobile_api_service import (
     STATION_STATUS_MAP,
+    compute_station_summary,
+    get_app_version_info,
+    get_station_queue_delta,
     mark_order_complete,
+    parse_since_ts,
     register_device,
     require_device_token,
     serialize_order,
+    stream_apk_response,
     update_order_quantity,
 )
 
@@ -191,3 +196,107 @@ def order_quantity(order_id):
         return jsonify({'error': 'update_failed', 'detail': str(e)}), 500
 
     return jsonify(serialize_order(item, station_code=g.device.station_code)), 200
+
+
+# ============================================================================
+# SUMMARY (metryki stanowiska)
+# ============================================================================
+
+@mobile_api_bp.route('/stations/<station_code>/summary', methods=['GET'])
+@require_device_token
+def station_summary(station_code):
+    """
+    GET /api/mobile/stations/<station_code>/summary
+
+    Metryki stanowiska: queue (count, m³, priorytety) + completed_today (count, m³).
+    """
+    if station_code not in STATION_STATUS_MAP:
+        return jsonify({'error': 'unknown_station'}), 404
+
+    if g.device.station_code != station_code:
+        return jsonify({
+            'error': 'station_mismatch',
+            'device_station': g.device.station_code,
+            'requested_station': station_code,
+        }), 403
+
+    try:
+        return jsonify(compute_station_summary(station_code)), 200
+    except Exception as e:
+        logger.error("Mobile API summary failed", extra={
+            'station_code': station_code,
+            'error': str(e),
+        })
+        return jsonify({'error': 'summary_failed', 'detail': str(e)}), 500
+
+
+# ============================================================================
+# DELTA SYNC (zmiany od timestamp)
+# ============================================================================
+
+@mobile_api_bp.route('/stations/<station_code>/orders/since', methods=['GET'])
+@require_device_token
+def station_orders_since(station_code):
+    """
+    GET /api/mobile/stations/<station_code>/orders/since?ts=<ISO 8601>
+
+    Delta sync. Zwraca:
+    - all_ids: wszystkie zlecenia aktualnie w kolejce (klient wykrywa usunięte)
+    - changed: pełne DTO dla zleceń z updated_at > ts
+    """
+    if station_code not in STATION_STATUS_MAP:
+        return jsonify({'error': 'unknown_station'}), 404
+
+    if g.device.station_code != station_code:
+        return jsonify({
+            'error': 'station_mismatch',
+            'device_station': g.device.station_code,
+            'requested_station': station_code,
+        }), 403
+
+    ts_raw = request.args.get('ts', '').strip()
+    if not ts_raw:
+        return jsonify({
+            'error': 'missing_ts',
+            'detail': 'Wymagany parametr ?ts=<ISO 8601 timestamp>',
+        }), 400
+
+    try:
+        since_ts = parse_since_ts(ts_raw)
+    except ValueError as e:
+        return jsonify({'error': 'invalid_ts', 'detail': str(e)}), 400
+
+    try:
+        return jsonify(get_station_queue_delta(station_code, since_ts)), 200
+    except Exception as e:
+        logger.error("Mobile API delta failed", extra={
+            'station_code': station_code,
+            'since_ts': ts_raw,
+            'error': str(e),
+        })
+        return jsonify({'error': 'delta_failed', 'detail': str(e)}), 500
+
+
+# ============================================================================
+# APP VERSION / APK (publiczne — appka pyta przed rejestracją)
+# ============================================================================
+
+@mobile_api_bp.route('/app/version', methods=['GET'])
+def app_version():
+    """
+    GET /api/mobile/app/version
+
+    Metadane wersji appki. Bez auth (appka sprawdza przed rejestracją).
+    """
+    return jsonify(get_app_version_info()), 200
+
+
+@mobile_api_bp.route('/app/apk', methods=['GET'])
+def app_apk():
+    """
+    GET /api/mobile/app/apk
+
+    Streaming pliku APK. Ścieżka do pliku w config: API_MOBILE.apk_file_path.
+    Bez auth. Dopóki APK nie jest hostowany → 404 z komunikatem.
+    """
+    return stream_apk_response()

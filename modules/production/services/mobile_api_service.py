@@ -11,11 +11,14 @@ między stanowiskami zostają przy istniejącym web-handlerze).
 """
 
 import ipaddress
-from datetime import datetime, timedelta
+from datetime import datetime, time, timedelta, timezone
 from functools import wraps
+from pathlib import Path
 
 import jwt
+import pytz
 from flask import current_app, g, jsonify, request
+from sqlalchemy import func
 
 from extensions import db
 from modules.logging import get_structured_logger
@@ -392,3 +395,176 @@ def update_order_quantity(item, station_code, quantity_done):
         completed_field = STATION_COMPLETED_AT_FIELD.get(station_code)
         if completed_field and not getattr(item, completed_field, None):
             setattr(item, completed_field, get_local_now())
+
+
+# ============================================================================
+# APP VERSION / APK HOSTING
+# ============================================================================
+
+def get_app_version_info():
+    """Metadane wersji appki Android (publiczne — appka pyta przed rejestracją)."""
+    cfg = _get_config()
+    apk_path = _resolve_apk_path()
+    apk_size = apk_path.stat().st_size if (apk_path and apk_path.is_file()) else None
+
+    return {
+        'latest_version': cfg.get('current_app_version'),
+        'min_supported_version': cfg.get('min_supported_app_version', '0.0.0'),
+        'apk_url': '/api/mobile/app/apk',
+        'apk_hosted': apk_size is not None,
+        'apk_size_bytes': apk_size,
+        'release_notes_url': cfg.get('release_notes_url'),
+    }
+
+
+def _resolve_apk_path():
+    """Zwraca Path do hostowanego APK lub None."""
+    cfg = _get_config()
+    raw = cfg.get('apk_file_path')
+    if not raw:
+        return None
+    path = Path(raw)
+    if not path.is_absolute():
+        path = Path(current_app.root_path) / path
+    return path
+
+
+def stream_apk_response():
+    """Zwraca Flask response z plikiem APK lub 404 JSON."""
+    from flask import send_file
+    path = _resolve_apk_path()
+    if not path or not path.is_file():
+        return jsonify({
+            'error': 'apk_not_hosted',
+            'detail': 'Plik APK nie jest jeszcze udostępniony. Skontaktuj się z adminem.',
+        }), 404
+    return send_file(
+        str(path),
+        mimetype='application/vnd.android.package-archive',
+        as_attachment=True,
+        download_name=path.name,
+    )
+
+
+# ============================================================================
+# SUMMARY (dashboard stanowiska)
+# ============================================================================
+
+def _today_range_warsaw():
+    """(today_start, tomorrow_start) jako naive datetimes w strefie Warszawy."""
+    now_pl = get_local_now()
+    today_start = datetime.combine(now_pl.date(), time.min)
+    tomorrow_start = today_start + timedelta(days=1)
+    return today_start, tomorrow_start
+
+
+def compute_station_summary(station_code):
+    """
+    Metryki stanowiska:
+    - queue: count aktualnie oczekujących + łączne m³ + ile priorytetów
+    - completed_today: count ukończonych dzisiaj + łączne m³ (na tym stanowisku)
+    """
+    status = STATION_STATUS_MAP.get(station_code)
+    completed_field_name = STATION_COMPLETED_AT_FIELD.get(station_code)
+    if not status or not completed_field_name:
+        raise ValueError(f'Nieznane stanowisko: {station_code}')
+
+    queue_agg = db.session.query(
+        func.count(ProductionItem.id),
+        func.coalesce(func.sum(ProductionItem.volume_m3 * ProductionItem.quantity), 0),
+        func.sum(
+            db.case(
+                (ProductionItem.is_priority == True, 1),  # noqa: E712
+                else_=0,
+            )
+        ),
+    ).filter(ProductionItem.current_status == status).one()
+
+    today_start, tomorrow_start = _today_range_warsaw()
+    completed_field = getattr(ProductionItem, completed_field_name)
+    completed_agg = db.session.query(
+        func.count(ProductionItem.id),
+        func.coalesce(func.sum(ProductionItem.volume_m3 * ProductionItem.quantity), 0),
+    ).filter(
+        completed_field >= today_start,
+        completed_field < tomorrow_start,
+    ).one()
+
+    return {
+        'station_code': station_code,
+        'queue': {
+            'count': int(queue_agg[0] or 0),
+            'total_volume_m3': float(queue_agg[1] or 0),
+            'priority_count': int(queue_agg[2] or 0),
+        },
+        'completed_today': {
+            'count': int(completed_agg[0] or 0),
+            'total_volume_m3': float(completed_agg[1] or 0),
+        },
+        'server_time': get_local_now().isoformat(),
+    }
+
+
+# ============================================================================
+# DELTA SYNC
+# ============================================================================
+
+def parse_since_ts(ts_str):
+    """
+    Parsuje ISO 8601 timestamp do naive datetime w strefie Warszawy.
+    Akceptuje: '2026-04-23T14:00:00Z', '2026-04-23T14:00:00+00:00', '2026-04-23T14:00:00'.
+    Timestamp bez strefy traktowany jako UTC.
+    """
+    if not ts_str:
+        raise ValueError('ts is required')
+    s = ts_str.strip().replace('Z', '+00:00')
+    try:
+        dt = datetime.fromisoformat(s)
+    except ValueError as e:
+        raise ValueError(f'Invalid ISO timestamp: {e}')
+
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+
+    warsaw = pytz.timezone('Europe/Warsaw')
+    return dt.astimezone(warsaw).replace(tzinfo=None)
+
+
+def get_station_queue_delta(station_code, since_ts):
+    """
+    Delta sync dla stanowiska. Zwraca:
+    - all_ids: lista wszystkich zleceń aktualnie w kolejce (do wykrycia usunięć po stronie klienta)
+    - changed: pełne DTO dla zleceń z updated_at > since_ts
+
+    Klient po otrzymaniu:
+    - usuwa ze swojego cache'u te których nie ma w all_ids
+    - aktualizuje DTO dla zleceń z listy changed
+    """
+    status = STATION_STATUS_MAP.get(station_code)
+    if not status:
+        raise ValueError(f'Nieznane stanowisko: {station_code}')
+
+    base = ProductionItem.query.filter(ProductionItem.current_status == status)
+
+    all_ids = [
+        row[0] for row in base.with_entities(ProductionItem.id)
+        .order_by(
+            func.coalesce(ProductionItem.priority_rank, 999999).asc(),
+            ProductionItem.created_at.asc(),
+        ).all()
+    ]
+
+    changed_items = base.filter(
+        ProductionItem.updated_at > since_ts
+    ).order_by(
+        func.coalesce(ProductionItem.priority_rank, 999999).asc(),
+        ProductionItem.created_at.asc(),
+    ).all()
+
+    return {
+        'station_code': station_code,
+        'server_time': get_local_now().isoformat(),
+        'since_ts': since_ts.isoformat(),
+        'all_ids': all_ids,
+        'changed': [serialize_order(it, station_code=station_code) for it in changed_items],
+    }

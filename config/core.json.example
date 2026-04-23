@@ -60,6 +60,9 @@
         "jwt_expiry_days": 365,
         "require_ip_whitelist": false,
         "ip_whitelist": ["192.168.0.0/16", "10.0.0.0/8"],
-        "min_supported_app_version": "1.0.0"
+        "min_supported_app_version": "1.0.0",
+        "current_app_version": null,
+        "apk_file_path": null,
+        "release_notes_url": null
     }
 }
