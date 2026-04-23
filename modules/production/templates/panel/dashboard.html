@@ -8,7 +8,7 @@
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
     <!-- CSS dla tabów -->
-    <link rel="stylesheet" href="{{ url_for('production.static', filename='css/products-tab.css') }}">
+    <link rel="stylesheet" href="{{ url_for('production.static', filename='css/products-tab.css') }}?v=20260423">
     <link rel="stylesheet" href="{{ url_for('production.static', filename='css/production-panel.css') }}">
     <link rel="stylesheet" href="{{ url_for('production.static', filename='css/config-tab.css') }}">
     <!-- CSS dla komponentów -->
@@ -264,7 +264,8 @@
     <!-- Moduły funkcjonalne -->
     <script src="{{ url_for('production.static', filename='js/modules/dashboard-module.js') }}?v=20260410"></script>
     <script src="{{ url_for('production.static', filename='js/modules/products-dragdrop.js') }}?v=20260410"></script>
-    <script src="{{ url_for('production.static', filename='js/modules/products-module.js') }}?v=20260410"></script>
+    <script src="{{ url_for('production.static', filename='js/modules/barcode-scanner.js') }}?v=20260423"></script>
+    <script src="{{ url_for('production.static', filename='js/modules/products-module.js') }}?v=20260423"></script>
     <script src="{{ url_for('production.static', filename='js/modules/config-module.js') }}?v=20260410"></script>
     <!-- Główny kontroler aplikacji -->
     <script src="{{ url_for('production.static', filename='js/production-app-loader.js') }}"></script>
