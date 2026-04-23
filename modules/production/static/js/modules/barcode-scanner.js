@@ -34,7 +34,7 @@
     const state = {
         isOpen: false,
         onResult: null,
-        dismissHandler: null,
+        stream: null,
     };
 
     function el(id) {
@@ -59,21 +59,85 @@
         el('il-scanner-error').hidden = true;
     }
 
-    // Uruchamia pełną sekwencję: loading UI → ładowanie ZXing → sukces/błąd.
-    // Task 7 doda tu start kamery, Task 8 dekodowanie — zawsze w jednym miejscu.
+    function hasMediaDevices() {
+        return !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
+    }
+
+    async function startCamera() {
+        const video = el('il-scanner-video');
+        const constraints = { video: { facingMode: { ideal: 'environment' } }, audio: false };
+        const stream = await navigator.mediaDevices.getUserMedia(constraints);
+        state.stream = stream;
+        video.srcObject = stream;
+        try { await video.play(); } catch (e) { /* autoplay czasem wymaga interakcji */ }
+        return stream;
+    }
+
+    function stopCamera() {
+        if (state.stream) {
+            state.stream.getTracks().forEach(function (t) { t.stop(); });
+            state.stream = null;
+        }
+        const video = el('il-scanner-video');
+        if (video) video.srcObject = null;
+    }
+
+    function mapCameraError(err) {
+        const name = err && err.name;
+        if (name === 'NotAllowedError' || name === 'PermissionDeniedError') {
+            return 'Brak dostępu do kamery. Zezwól w ustawieniach przeglądarki.';
+        }
+        if (name === 'NotFoundError' || name === 'DevicesNotFoundError') {
+            return 'Nie wykryto kamery.';
+        }
+        if (name === 'NotReadableError' || name === 'TrackStartError') {
+            return 'Kamera jest zajęta przez inną aplikację.';
+        }
+        if (name === 'OverconstrainedError' || name === 'ConstraintNotSatisfiedError') {
+            return 'Żądane parametry kamery nie są obsługiwane.';
+        }
+        if (name === 'SecurityError') {
+            return 'Skaner wymaga bezpiecznego połączenia (HTTPS).';
+        }
+        return 'Nie udało się uruchomić kamery.';
+    }
+
+    // Uruchamia pełną sekwencję: loading UI → ładowanie ZXing → start kamery → sukces/błąd.
+    // Task 8 doda tu dekodowanie — zawsze w jednym miejscu.
     function attemptLoad(errorLogLabel) {
         showLoading();
         return loadZXing()
             .then(function (zxing) {
-                if (!state.isOpen) return;
+                if (!state.isOpen) return null;
                 console.log('[BarcodeScanner] ZXing załadowany');
+                return startCamera();
+            })
+            .then(function (stream) {
+                if (!state.isOpen || !stream) return;
                 hideStates();
-                // placeholder - Task 7 doda tu start kamery
+                // placeholder - Task 8 doda tu start dekodowania
             })
             .catch(function (err) {
                 if (!state.isOpen) return;
                 console.error('[BarcodeScanner] ' + errorLogLabel + ':', err);
-                showError(SCANNER_LOAD_ERROR_MSG, true);
+                // Rozrozniamy: blad CDN (brak zxingPromise po reset) vs blad kamery
+                const isCameraError = err && err.name && (
+                    err.name === 'NotAllowedError' ||
+                    err.name === 'PermissionDeniedError' ||
+                    err.name === 'NotFoundError' ||
+                    err.name === 'DevicesNotFoundError' ||
+                    err.name === 'NotReadableError' ||
+                    err.name === 'TrackStartError' ||
+                    err.name === 'OverconstrainedError' ||
+                    err.name === 'ConstraintNotSatisfiedError' ||
+                    err.name === 'AbortError' ||
+                    err.name === 'SecurityError'
+                );
+                if (isCameraError) {
+                    showError(mapCameraError(err), false);
+                } else {
+                    showError(SCANNER_LOAD_ERROR_MSG, true);
+                }
             });
     }
 
@@ -93,6 +157,11 @@
         modal.removeAttribute('hidden');
         document.addEventListener('click', onDismissClick);
 
+        if (!hasMediaDevices()) {
+            showError('Twoja przeglądarka nie obsługuje skanera. Wpisz numer ręcznie.', false);
+            return;
+        }
+
         attemptLoad('Błąd ładowania ZXing');
     }
 
@@ -100,6 +169,7 @@
         if (!state.isOpen) return;
         state.isOpen = false;
         state.onResult = null;
+        stopCamera();
         document.removeEventListener('click', onDismissClick);
 
         const modal = el('il-barcode-scanner-modal');
