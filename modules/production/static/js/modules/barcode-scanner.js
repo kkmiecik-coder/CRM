@@ -35,6 +35,9 @@
         isOpen: false,
         onResult: null,
         stream: null,
+        reader: null,
+        controls: null,
+        hasScanned: false,
     };
 
     function el(id) {
@@ -102,20 +105,71 @@
         return 'Nie udało się uruchomić kamery.';
     }
 
+    async function startDecoding(zxing) {
+        const video = el('il-scanner-video');
+        const reader = new zxing.BrowserMultiFormatReader();
+        state.reader = reader;
+        state.hasScanned = false;
+
+        try {
+            state.controls = await reader.decodeFromVideoElement(
+                video,
+                function (result, err, controls) {
+                    if (!state.isOpen || state.hasScanned) return;
+                    if (result) {
+                        const text = result.getText();
+                        if (SCAN_REGEX.test(text)) {
+                            state.hasScanned = true;
+                            handleScanSuccess(text, controls);
+                        }
+                        // jeśli nie pasuje do regex — ignorujemy, dekoduj dalej
+                    }
+                    // err to NotFoundException przy każdej klatce bez kodu — normalne, ignorujemy
+                }
+            );
+        } catch (err) {
+            console.error('[BarcodeScanner] decodeFromVideoElement error:', err);
+            throw err;
+        }
+    }
+
+    function stopDecoding() {
+        if (state.controls && typeof state.controls.stop === 'function') {
+            try { state.controls.stop(); } catch (e) { /* ignore */ }
+        }
+        state.controls = null;
+        // @zxing/browser nie ma metody reset() — lifecycle w pełni przez controls.stop()
+        state.reader = null;
+        state.hasScanned = false;
+    }
+
+    function handleScanSuccess(code, controls) {
+        // placeholder - Task 9 doda tu flash + vibrate
+        if (controls && typeof controls.stop === 'function') {
+            try { controls.stop(); } catch (e) { /* ignore */ }
+        }
+        const cb = state.onResult;
+        close();
+        if (cb) {
+            try { cb(code); } catch (e) { console.error('[BarcodeScanner] callback error:', e); }
+        }
+    }
+
     // Uruchamia pełną sekwencję: loading UI → ładowanie ZXing → start kamery → sukces/błąd.
-    // Task 8 doda tu dekodowanie — zawsze w jednym miejscu.
     function attemptLoad(errorLogLabel) {
         showLoading();
+        let zxingRef = null;
         return loadZXing()
             .then(function (zxing) {
                 if (!state.isOpen) return null;
                 console.log('[BarcodeScanner] ZXing załadowany');
+                zxingRef = zxing;
                 return startCamera();
             })
             .then(function (stream) {
                 if (!state.isOpen || !stream) return;
                 hideStates();
-                // placeholder - Task 8 doda tu start dekodowania
+                return startDecoding(zxingRef);
             })
             .catch(function (err) {
                 if (!state.isOpen) return;
@@ -169,6 +223,7 @@
         if (!state.isOpen) return;
         state.isOpen = false;
         state.onResult = null;
+        stopDecoding();
         stopCamera();
         document.removeEventListener('click', onDismissClick);
 
