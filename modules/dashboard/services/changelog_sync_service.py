@@ -181,7 +181,9 @@ def read_git_log(
             capture_output=True,
             text=True,
             check=True,
-            timeout=30
+            timeout=30,
+            encoding='utf-8',
+            errors='replace'
         )
     except subprocess.CalledProcessError as e:
         raise RuntimeError(f'git log failed: {e.stderr.strip()}') from e
