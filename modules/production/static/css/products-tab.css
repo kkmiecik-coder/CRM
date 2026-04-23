@@ -2423,8 +2423,10 @@
 
 .il-scanner-stage {
     position: relative;
-    width: min(90vw, 640px);
-    height: min(60vh, 480px);
+    width: min(95vw, 720px);
+    /* Prostokąt ~16:9 — pasuje do proporcji kodu kreskowego */
+    aspect-ratio: 16 / 9;
+    max-height: 70vh;
     background: #000;
     border-radius: 8px;
     overflow: hidden;
@@ -2439,7 +2441,11 @@
 
 .il-scanner-reticle {
     position: absolute;
-    inset: 12%;
+    /* Szeroki, niski celownik — kody kreskowe są prostokątne */
+    top: 30%;
+    bottom: 30%;
+    left: 8%;
+    right: 8%;
     pointer-events: none;
     animation: il-scanner-pulse 2s ease-in-out infinite;
 }

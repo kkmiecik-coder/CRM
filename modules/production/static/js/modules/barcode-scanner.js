@@ -70,7 +70,15 @@
 
     async function startCamera() {
         const video = el('il-scanner-video');
-        const constraints = { video: { facingMode: { ideal: 'environment' } }, audio: false };
+        // Wyższa rozdzielczość + tylna kamera — pomaga dekoderowi rozpoznać cienkie paski Code 128
+        const constraints = {
+            video: {
+                facingMode: { ideal: 'environment' },
+                width: { ideal: 1280 },
+                height: { ideal: 720 },
+            },
+            audio: false,
+        };
         const stream = await navigator.mediaDevices.getUserMedia(constraints);
         state.stream = stream;
         video.srcObject = stream;
@@ -134,9 +142,29 @@
 
     async function startDecoding(zxing) {
         const video = el('il-scanner-video');
-        const reader = new zxing.BrowserMultiFormatReader();
+
+        // Explicit hinty: Code 128 jest głównym formatem BaseLinkera,
+        // dorzucamy EAN + QR na wypadek innych etykiet.
+        // DecodeHintType.POSSIBLE_FORMATS = 2 (numeric enum value z @zxing/library)
+        const hints = new Map();
+        hints.set(2, [
+            zxing.BarcodeFormat.CODE_128,
+            zxing.BarcodeFormat.CODE_39,
+            zxing.BarcodeFormat.EAN_13,
+            zxing.BarcodeFormat.EAN_8,
+            zxing.BarcodeFormat.QR_CODE,
+        ]);
+        // DecodeHintType.TRY_HARDER = 3 — wolniej ale skuteczniej przy słabym oświetleniu
+        hints.set(3, true);
+
+        // options: skróć delay żeby skaner reagował szybciej na klatki
+        const options = { delayBetweenScanAttempts: 100, delayBetweenScanSuccess: 300 };
+
+        const reader = new zxing.BrowserMultiFormatReader(hints, options);
         state.reader = reader;
         state.hasScanned = false;
+
+        console.log('[BarcodeScanner] startDecoding: hints=', hints, 'options=', options);
 
         try {
             state.controls = await reader.decodeFromVideoElement(
@@ -145,11 +173,12 @@
                     if (!state.isOpen || state.hasScanned) return;
                     if (result) {
                         const text = result.getText();
+                        const format = result.getBarcodeFormat && result.getBarcodeFormat();
+                        console.log('[BarcodeScanner] decoded:', text, 'format:', format, 'matches:', SCAN_REGEX.test(text));
                         if (SCAN_REGEX.test(text)) {
                             state.hasScanned = true;
                             handleScanSuccess(text, controls);
                         }
-                        // jeśli nie pasuje do regex — ignorujemy, dekoduj dalej
                     }
                     // err to NotFoundException przy każdej klatce bez kodu — normalne, ignorujemy
                 }
