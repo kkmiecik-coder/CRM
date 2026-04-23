@@ -52,11 +52,12 @@ except ImportError as e:
 try:
     from .models import (
         ProductionItem,
-        ProductionOrderCounter, 
+        ProductionOrderCounter,
         ProductionPriorityConfig,
         ProductionSyncLog,
         ProductionError,
-        ProductionConfig
+        ProductionConfig,
+        ProductionDevice
     )
     
     logger.info("Zaimportowano wszystkie modele modułu production")

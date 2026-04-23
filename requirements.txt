@@ -33,6 +33,7 @@ zopfli>=0.2.3.post1
 
 # HTTP & API
 requests==2.27.1
+PyJWT==2.8.0
 urllib3==1.26.20
 certifi==2025.1.31
 charset-normalizer==2.0.12

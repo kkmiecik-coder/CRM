@@ -973,3 +973,56 @@ class ProductionSecurityEvent(db.Model):
                 'error': str(e)
             })
             return False
+
+
+class ProductionDevice(db.Model):
+    """
+    Urządzenia mobilne (tablety) zarejestrowane do API produkcyjnego.
+    Każdy tablet produkcyjny to osobny rekord z własnym JWT token_version.
+    Bump token_version = unieważnienie wszystkich istniejących JWT tego urządzenia.
+    """
+    __tablename__ = 'prod_devices'
+
+    id = Column(Integer, primary_key=True)
+    device_id = Column(String(64), unique=True, nullable=False, index=True)
+    device_name = Column(String(128), nullable=True)
+    station_code = Column(String(32), nullable=False, index=True)
+    token_version = Column(Integer, nullable=False, default=1)
+    last_ip = Column(String(45), nullable=True)
+    last_seen_at = Column(DateTime, nullable=True)
+    registered_at = Column(DateTime, default=get_local_now, nullable=False)
+    app_version = Column(String(32), nullable=True)
+    is_active = Column(Boolean, nullable=False, default=True, index=True)
+
+    VALID_STATION_CODES = {
+        'packaging', 'cutting', 'assembly', 'gluing', 'formatting', 'finishing'
+    }
+
+    @validates('station_code')
+    def validate_station_code(self, key, value):
+        if value not in self.VALID_STATION_CODES:
+            raise ValueError(
+                f"Nieprawidłowy station_code: {value}. "
+                f"Dozwolone: {sorted(self.VALID_STATION_CODES)}"
+            )
+        return value
+
+    def __repr__(self):
+        return f'<ProductionDevice {self.device_id} [{self.station_code}]>'
+
+    def touch(self, ip=None, app_version=None):
+        """Aktualizuje last_seen_at, last_ip, app_version. Nie commituje."""
+        self.last_seen_at = get_local_now()
+        if ip:
+            self.last_ip = ip
+        if app_version:
+            self.app_version = app_version
+
+    def revoke_tokens(self):
+        """Unieważnia wszystkie istniejące JWT przez bump token_version."""
+        self.token_version += 1
+        logger.info("Unieważniono tokeny urządzenia", extra={
+            'device_id': self.device_id,
+            'station_code': self.station_code,
+            'new_token_version': self.token_version
+        })

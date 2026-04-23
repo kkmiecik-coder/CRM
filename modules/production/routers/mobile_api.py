@@ -1,0 +1,193 @@
+"""
+Mobile API router — endpointy REST dla natywnej aplikacji Android.
+
+Blueprint zarejestrowany w app.py pod prefixem `/api/mobile`.
+Logika biznesowa w `services/mobile_api_service.py` — router jest cienki.
+"""
+
+from flask import Blueprint, g, jsonify, request
+from sqlalchemy import func
+
+from extensions import db
+from modules.logging import get_structured_logger
+from modules.production.models import ProductionDevice, ProductionItem
+from modules.production.services.mobile_api_service import (
+    STATION_STATUS_MAP,
+    mark_order_complete,
+    register_device,
+    require_device_token,
+    serialize_order,
+    update_order_quantity,
+)
+
+logger = get_structured_logger('production.mobile_api.routes')
+
+mobile_api_bp = Blueprint('mobile_api', __name__)
+
+
+# ============================================================================
+# REJESTRACJA URZĄDZENIA
+# ============================================================================
+
+@mobile_api_bp.route('/register', methods=['POST'])
+def register():
+    """
+    POST /api/mobile/register
+
+    Body JSON: { device_id: str, device_name: str?, station_code: str }
+    Response: { token: str, device_id: str, station_code: str }
+
+    Idempotentne — powtórna rejestracja tego samego device_id aktualizuje
+    wpis (nowe station_code / device_name) i zwraca nowy token.
+    """
+    data = request.get_json(silent=True) or {}
+    device_id = (data.get('device_id') or '').strip()
+    device_name = (data.get('device_name') or '').strip()
+    station_code = (data.get('station_code') or '').strip()
+
+    if not device_id or not station_code:
+        return jsonify({
+            'error': 'missing_fields',
+            'required': ['device_id', 'station_code'],
+        }), 400
+
+    if station_code not in ProductionDevice.VALID_STATION_CODES:
+        return jsonify({
+            'error': 'invalid_station_code',
+            'allowed': sorted(ProductionDevice.VALID_STATION_CODES),
+        }), 400
+
+    try:
+        device, token = register_device(device_id, device_name, station_code)
+    except Exception as e:
+        db.session.rollback()
+        logger.error("Mobile API register failed", extra={
+            'device_id': device_id,
+            'error': str(e),
+        })
+        return jsonify({'error': 'registration_failed', 'detail': str(e)}), 500
+
+    return jsonify({
+        'token': token,
+        'device_id': device.device_id,
+        'station_code': device.station_code,
+    }), 200
+
+
+# ============================================================================
+# ZLECENIA
+# ============================================================================
+
+@mobile_api_bp.route('/stations/<station_code>/orders', methods=['GET'])
+@require_device_token
+def station_orders(station_code):
+    """
+    GET /api/mobile/stations/<station_code>/orders
+
+    Zwraca aktywne zlecenia w kolejce stanowiska (sortowane po priority_rank).
+    Urządzenie musi być zarejestrowane pod TEGO stanowiska.
+    """
+    if station_code not in STATION_STATUS_MAP:
+        return jsonify({'error': 'unknown_station'}), 404
+
+    if g.device.station_code != station_code:
+        return jsonify({
+            'error': 'station_mismatch',
+            'device_station': g.device.station_code,
+            'requested_station': station_code,
+        }), 403
+
+    status = STATION_STATUS_MAP[station_code]
+    items = ProductionItem.query.filter(
+        ProductionItem.current_status == status
+    ).order_by(
+        func.coalesce(ProductionItem.priority_rank, 999999).asc(),
+        ProductionItem.created_at.asc(),
+    ).all()
+
+    return jsonify({
+        'station_code': station_code,
+        'count': len(items),
+        'orders': [serialize_order(it, station_code=station_code) for it in items],
+    }), 200
+
+
+@mobile_api_bp.route('/orders/<int:order_id>', methods=['GET'])
+@require_device_token
+def order_details(order_id):
+    """GET /api/mobile/orders/<id> — szczegóły zlecenia."""
+    item = ProductionItem.query.get(order_id)
+    if not item:
+        return jsonify({'error': 'order_not_found'}), 404
+
+    return jsonify(serialize_order(item, station_code=g.device.station_code)), 200
+
+
+@mobile_api_bp.route('/orders/<int:order_id>/complete', methods=['POST'])
+@require_device_token
+def order_complete(order_id):
+    """
+    POST /api/mobile/orders/<id>/complete
+
+    Oznacza zlecenie jako ukończone na stanowisku tego urządzenia.
+    Dla packaging: quantity_done = quantity, status → 'spakowane'.
+    Dla pozostałych: quantity_done + completed_at (bez zmiany statusu — Etap 2).
+    """
+    item = ProductionItem.query.get(order_id)
+    if not item:
+        return jsonify({'error': 'order_not_found'}), 404
+
+    try:
+        mark_order_complete(item, g.device.station_code)
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        logger.error("Mobile API complete failed", extra={
+            'order_id': order_id,
+            'station_code': g.device.station_code,
+            'error': str(e),
+        })
+        return jsonify({'error': 'complete_failed', 'detail': str(e)}), 500
+
+    logger.info("Mobile API: order completed", extra={
+        'order_id': order_id,
+        'station_code': g.device.station_code,
+        'device_id': g.device.device_id,
+    })
+
+    return jsonify(serialize_order(item, station_code=g.device.station_code)), 200
+
+
+@mobile_api_bp.route('/orders/<int:order_id>/quantity', methods=['PATCH'])
+@require_device_token
+def order_quantity(order_id):
+    """
+    PATCH /api/mobile/orders/<id>/quantity
+
+    Body JSON: { quantity_done: int } — liczba ukończonych sztuk na stanowisku.
+    Waliduje 0 <= quantity_done <= item.quantity.
+    """
+    data = request.get_json(silent=True) or {}
+    quantity_done = data.get('quantity_done')
+    if not isinstance(quantity_done, int):
+        return jsonify({'error': 'missing_or_invalid_quantity_done'}), 400
+
+    item = ProductionItem.query.get(order_id)
+    if not item:
+        return jsonify({'error': 'order_not_found'}), 404
+
+    try:
+        update_order_quantity(item, g.device.station_code, quantity_done)
+        db.session.commit()
+    except ValueError as e:
+        db.session.rollback()
+        return jsonify({'error': 'invalid_quantity', 'detail': str(e)}), 400
+    except Exception as e:
+        db.session.rollback()
+        logger.error("Mobile API quantity update failed", extra={
+            'order_id': order_id,
+            'error': str(e),
+        })
+        return jsonify({'error': 'update_failed', 'detail': str(e)}), 500
+
+    return jsonify(serialize_order(item, station_code=g.device.station_code)), 200
