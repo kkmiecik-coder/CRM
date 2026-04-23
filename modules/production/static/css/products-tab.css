@@ -2323,3 +2323,43 @@
     height: 28px;
     font-size: 0.75rem;
 }
+
+/* ============================================================================
+   BARCODE SCANNER BUTTON
+   ============================================================================ */
+
+.il-scan-barcode-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    padding: 0;
+    background: var(--il-bg-card);
+    border: 1px solid var(--il-border-light);
+    border-radius: 6px;
+    color: var(--il-text-secondary);
+    cursor: pointer;
+    transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+    flex: 0 0 auto;
+}
+
+.il-scan-barcode-btn:hover {
+    background: #f9fafb;
+    border-color: var(--il-border);
+    color: var(--il-text-primary);
+}
+
+.il-scan-barcode-btn:active {
+    background: #f2f4f7;
+}
+
+.il-scan-barcode-btn:focus-visible {
+    outline: 2px solid var(--il-status-info);
+    outline-offset: 2px;
+}
+
+.il-scan-barcode-btn i {
+    font-size: 18px;
+    line-height: 1;
+}
