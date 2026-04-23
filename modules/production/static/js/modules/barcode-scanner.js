@@ -14,8 +14,6 @@
 (function () {
     'use strict';
 
-    const SCAN_REGEX = /^\d{6,12}$/;
-
     const ZXING_CDN = 'https://cdn.jsdelivr.net/npm/@zxing/browser@0.1.5/+esm';
 
     const SCANNER_LOAD_ERROR_MSG = 'Nie udało się załadować skanera. Sprawdź połączenie.';
@@ -174,8 +172,8 @@
                     if (result) {
                         const text = result.getText();
                         const format = result.getBarcodeFormat && result.getBarcodeFormat();
-                        console.log('[BarcodeScanner] decoded:', text, 'format:', format, 'matches:', SCAN_REGEX.test(text));
-                        if (SCAN_REGEX.test(text)) {
+                        console.log('[BarcodeScanner] decoded:', text, 'format:', format);
+                        if (text) {
                             state.hasScanned = true;
                             handleScanSuccess(text, controls);
                         }
