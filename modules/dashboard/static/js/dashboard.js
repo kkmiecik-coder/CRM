@@ -39,6 +39,24 @@ document.addEventListener('DOMContentLoaded', function () {
 });
 
 /**
+ * Toast notification — pokazuje krótką wiadomość w prawym dolnym rogu.
+ * type: 'success' | 'error' | 'info' (default: 'info')
+ */
+function showToast(message, type = 'info') {
+    document.querySelectorAll('.toast').forEach(t => t.remove());
+
+    const toast = document.createElement('div');
+    toast.className = `toast ${type}`;
+    toast.textContent = message;
+    document.body.appendChild(toast);
+
+    setTimeout(() => {
+        toast.classList.add('toast-hide');
+        setTimeout(() => toast.remove(), 300);
+    }, 3000);
+}
+
+/**
  * Inicjalizacja tabów w Recent Activity Widget z animacjami
  */
 function initActivityTabs() {
