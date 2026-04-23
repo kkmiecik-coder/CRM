@@ -723,6 +723,23 @@ class ProductsModule {
             });
         }
 
+        // Przycisk skanera kodów kreskowych
+        const scanBtn = document.getElementById('il-scan-barcode-btn');
+        if (scanBtn) {
+            scanBtn.addEventListener('click', () => {
+                if (!window.BarcodeScanner) {
+                    console.error('[ProductsModule] BarcodeScanner nie jest załadowany');
+                    return;
+                }
+                window.BarcodeScanner.open((code) => {
+                    const searchInput = document.getElementById('il-products-search');
+                    if (!searchInput) return;
+                    searchInput.value = code;
+                    searchInput.dispatchEvent(new Event('input', { bubbles: true }));
+                });
+            });
+        }
+
         // Select all checkbox
         if (this.elements.selectAllCheckbox) {
             this.elements.selectAllCheckbox.addEventListener('change', this.onSelectAll);
