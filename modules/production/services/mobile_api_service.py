@@ -532,6 +532,10 @@ def serialize_order(item, station_code=None):
         'deadline': _iso(item.deadline_date) if item.deadline_date else None,
         'order_notes': item.order_notes,
         'attachments': _build_attachments(item),
+        'shape_svg': item.shape_svg,
+        'edge_svg': item.edge_svg,
+        'has_edge': bool(item.parsed_edge_processing),
+        'lamella_direction': item.lamella_direction,
         'updated_at': _iso(item.updated_at),
     }
 
