@@ -411,6 +411,45 @@ def register_device(device_id, device_name, station_code):
 # SERIALIZER: ProductionItem → OrderDto
 # ============================================================================
 
+_ATTACHMENT_MIME_BY_EXT = {
+    'jpg': 'image/jpeg',
+    'jpeg': 'image/jpeg',
+    'png': 'image/png',
+    'gif': 'image/gif',
+    'webp': 'image/webp',
+    'pdf': 'application/pdf',
+}
+
+
+def _build_attachments(item):
+    """
+    Lista załączników dla OrderDto.
+
+    Etap 1.5: tylko załącznik z Baselinker (ProductionItem.attachment_file_url) —
+    publiczny URL CDN, tablet pobiera bezpośrednio (bez Authorization). Quote
+    attachments (quote_item_detail_id → Quote.attachment_stored_name) są pominięte
+    — ich endpoint `/quotes/api/attachment/<name>` wymaga sesji Flask-Login,
+    więc nieosiągalny z JWT tabletu. Wymagałby osobnego proxy pod require_device_token.
+
+    size_bytes = 0 — Baselinker nie zwraca rozmiaru, a HEAD na każde serialize
+    byłby zbyt drogi. Android użyje Content-Length z response przy pobieraniu.
+    """
+    url = (item.attachment_file_url or '').strip()
+    if not url:
+        return []
+
+    name = (item.attachment_file_name or '').strip() or url.rsplit('/', 1)[-1]
+    ext = name.rsplit('.', 1)[-1].lower() if '.' in name else ''
+    mime_type = _ATTACHMENT_MIME_BY_EXT.get(ext, 'application/octet-stream')
+
+    return [{
+        'url': url,
+        'name': name,
+        'mime_type': mime_type,
+        'size_bytes': 0,
+    }]
+
+
 def serialize_order(item, station_code=None):
     """
     ProductionItem → dict (OrderDto).
@@ -492,6 +531,7 @@ def serialize_order(item, station_code=None):
         'delivery_postcode': item.delivery_postcode,
         'deadline': _iso(item.deadline_date) if item.deadline_date else None,
         'order_notes': item.order_notes,
+        'attachments': _build_attachments(item),
         'updated_at': _iso(item.updated_at),
     }
 
