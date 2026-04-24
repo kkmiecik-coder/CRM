@@ -57,7 +57,8 @@ try:
         ProductionSyncLog,
         ProductionError,
         ProductionConfig,
-        ProductionDevice
+        ProductionDevice,
+        ProcessedMobileOperation
     )
     
     logger.info("Zaimportowano wszystkie modele modułu production")

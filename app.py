@@ -200,6 +200,16 @@ def register_cli_commands(app):
         db.session.commit()
         click.echo(f"[migrate-finish-data] Gotowe: {updated} zaktualizowanych, {errors} błędów.")
 
+    @app.cli.command("cleanup-mobile-operations")
+    @click.option('--days', type=int, default=7,
+                  help='Usuń wpisy starsze niż X dni (default: 7)')
+    @with_appcontext
+    def cleanup_mobile_operations_command(days):
+        """Usuwa stare wpisy idempotency z processed_mobile_operations."""
+        from modules.production.services.mobile_api_service import cleanup_old_operations
+        deleted = cleanup_old_operations(older_than_days=days)
+        click.echo(f"[cleanup-mobile-operations] Usunięto {deleted} wpisów starszych niż {days} dni.")
+
     @app.cli.command("sync-changelog")
     @click.option('--before', required=True, help='SHA przed git pull')
     @click.option('--after', required=True, help='SHA po git pull')

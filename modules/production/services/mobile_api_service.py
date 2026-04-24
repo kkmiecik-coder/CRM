@@ -11,6 +11,7 @@ między stanowiskami zostają przy istniejącym web-handlerze).
 """
 
 import ipaddress
+import json
 from datetime import datetime, time, timedelta, timezone
 from functools import wraps
 from pathlib import Path
@@ -19,10 +20,12 @@ import jwt
 import pytz
 from flask import current_app, g, jsonify, request
 from sqlalchemy import func
+from sqlalchemy.exc import IntegrityError
 
 from extensions import db
 from modules.logging import get_structured_logger
 from modules.production.models import (
+    ProcessedMobileOperation,
     ProductionDevice,
     ProductionItem,
     get_local_now,
@@ -229,6 +232,142 @@ def require_device_token(f):
         g.claims = claims
         return f(*args, **kwargs)
     return wrapper
+
+
+# ============================================================================
+# IDEMPOTENCY (X-Operation-Id)
+# ============================================================================
+
+def with_idempotency(f):
+    """
+    Decorator dla endpointów mutujących stan (POST /complete, PATCH /quantity).
+    Obsługuje nagłówek X-Operation-Id:
+    - brak → zachowanie bez zmian (decorator committuje 2xx/4xx, rollback 5xx)
+    - istnieje w bazie → zwraca zapisany response, bez wywoływania handlera
+    - nowy → wywołuje handler, zapisuje response w jednej transakcji (tylko 2xx/4xx)
+
+    5xx i nieobsłużone wyjątki → rollback + re-raise, wpis NIE zapisywany
+    (żeby klient mógł retry). Handler MUSI zwracać (response, status)
+    i NIE MOŻE wewnątrz wywoływać db.session.commit() — zrobi to decorator.
+    """
+    @wraps(f)
+    def wrapper(*args, **kwargs):
+        op_id = request.headers.get('X-Operation-Id', '').strip()
+
+        # Replay dla znanego op_id
+        if op_id:
+            existing = ProcessedMobileOperation.query.filter_by(
+                operation_id=op_id
+            ).first()
+            if existing:
+                logger.info("Mobile API idempotent replay", extra={
+                    'operation_id': op_id,
+                    'endpoint': existing.endpoint,
+                    'original_status': existing.response_status,
+                })
+                try:
+                    body = json.loads(existing.response_body)
+                except (ValueError, TypeError):
+                    body = {}
+                return jsonify(body), existing.response_status
+
+        # Handler wykonuje akcję (bez commit)
+        try:
+            result = f(*args, **kwargs)
+        except Exception as e:
+            db.session.rollback()
+            logger.error("Mobile API handler exception", extra={
+                'endpoint': request.endpoint,
+                'operation_id': op_id or None,
+                'error': str(e),
+            })
+            raise  # Flask error handler → 500, NIE zapisujemy w idempotency
+
+        # Normalizacja wyniku
+        if isinstance(result, tuple):
+            response_obj = result[0]
+            status_code = int(result[1]) if len(result) >= 2 else 200
+        else:
+            response_obj = result
+            status_code = getattr(response_obj, 'status_code', 200)
+
+        # 5xx → rollback, nie zapisuj (klient retry)
+        if status_code >= 500:
+            db.session.rollback()
+            return response_obj, status_code
+
+        # 2xx / 4xx — commit, zapisz operation_id w tej samej transakcji
+        if op_id:
+            try:
+                body_dict = (
+                    response_obj.get_json()
+                    if hasattr(response_obj, 'get_json')
+                    else response_obj
+                )
+                body_json = json.dumps(body_dict, ensure_ascii=False)
+            except Exception:
+                body_json = '{}'
+
+            op_record = ProcessedMobileOperation(
+                operation_id=op_id,
+                endpoint=request.endpoint or 'unknown',
+                order_id=kwargs.get('order_id'),
+                device_id=g.device.device_id if hasattr(g, 'device') else None,
+                response_status=status_code,
+                response_body=body_json,
+            )
+            db.session.add(op_record)
+
+            try:
+                db.session.commit()
+            except IntegrityError:
+                # Race: równoczesny request z tym samym op_id zdążył commit pierwszy.
+                # Rollback naszej sesji i zwróć zapisany przez rywala response.
+                db.session.rollback()
+                existing = ProcessedMobileOperation.query.filter_by(
+                    operation_id=op_id
+                ).first()
+                if existing:
+                    logger.info("Mobile API idempotent race resolved", extra={
+                        'operation_id': op_id,
+                        'winning_status': existing.response_status,
+                    })
+                    try:
+                        body = json.loads(existing.response_body)
+                    except (ValueError, TypeError):
+                        body = {}
+                    return jsonify(body), existing.response_status
+                logger.error(
+                    "Mobile API IntegrityError bez istniejącego wpisu",
+                    extra={'operation_id': op_id},
+                )
+                return jsonify({'error': 'idempotency_conflict'}), 500
+        else:
+            db.session.commit()
+
+        return response_obj, status_code
+    return wrapper
+
+
+def cleanup_old_operations(older_than_days=7):
+    """
+    Usuwa wpisy z processed_mobile_operations starsze niż older_than_days dni.
+    Używane przez `flask cleanup-mobile-operations` CLI command.
+
+    Returns:
+        int: liczba usuniętych wierszy
+    """
+    cutoff = get_local_now() - timedelta(days=older_than_days)
+    deleted = ProcessedMobileOperation.query.filter(
+        ProcessedMobileOperation.processed_at < cutoff
+    ).delete(synchronize_session=False)
+    db.session.commit()
+    logger.info("Mobile API: cleanup zakończony", extra={
+        'deleted_count': deleted,
+        'older_than_days': older_than_days,
+        'cutoff': cutoff.isoformat(),
+    })
+    return deleted
 
 
 # ============================================================================

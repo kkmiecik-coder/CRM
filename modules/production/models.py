@@ -1026,3 +1026,28 @@ class ProductionDevice(db.Model):
             'station_code': self.station_code,
             'new_token_version': self.token_version
         })
+
+
+class ProcessedMobileOperation(db.Model):
+    """
+    Idempotency log dla Mobile API — każdy operation_id jednoznacznie
+    identyfikuje żądanie z offline queue tabletu. Retry z tym samym
+    X-Operation-Id zwraca zapisany response, bez wykonywania akcji.
+
+    Zapisywane są tylko odpowiedzi 2xx i 4xx. 5xx nie — klient retry.
+    """
+    __tablename__ = 'processed_mobile_operations'
+
+    operation_id = Column(String(64), primary_key=True)
+    endpoint = Column(String(64), nullable=False, index=True)
+    order_id = Column(Integer, nullable=True)
+    device_id = Column(String(64), nullable=True, index=True)
+    response_status = Column(Integer, nullable=False)
+    response_body = Column(LONGTEXT, nullable=False)
+    processed_at = Column(DateTime, default=get_local_now, nullable=False, index=True)
+
+    def __repr__(self):
+        return (
+            f'<ProcessedMobileOperation {self.operation_id} '
+            f'[{self.endpoint} → {self.response_status}]>'
+        )

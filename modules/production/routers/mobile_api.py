@@ -23,6 +23,7 @@ from modules.production.services.mobile_api_service import (
     serialize_order,
     stream_apk_response,
     update_order_quantity,
+    with_idempotency,
 )
 
 logger = get_structured_logger('production.mobile_api.routes')
@@ -130,6 +131,7 @@ def order_details(order_id):
 
 @mobile_api_bp.route('/orders/<int:order_id>/complete', methods=['POST'])
 @require_device_token
+@with_idempotency
 def order_complete(order_id):
     """
     POST /api/mobile/orders/<id>/complete
@@ -137,6 +139,9 @@ def order_complete(order_id):
     Oznacza zlecenie jako ukończone na stanowisku tego urządzenia.
     Dla packaging: quantity_done = quantity, status → 'spakowane'.
     Dla pozostałych: quantity_done + completed_at (bez zmiany statusu — Etap 2).
+
+    Idempotency: przy nagłówku X-Operation-Id powtórne wywołanie zwraca
+    zapisany response (nie wykonuje akcji drugi raz).
     """
     item = ProductionItem.query.get(order_id)
     if not item:
@@ -144,9 +149,7 @@ def order_complete(order_id):
 
     try:
         mark_order_complete(item, g.device.station_code)
-        db.session.commit()
     except Exception as e:
-        db.session.rollback()
         logger.error("Mobile API complete failed", extra={
             'order_id': order_id,
             'station_code': g.device.station_code,
@@ -165,12 +168,16 @@ def order_complete(order_id):
 
 @mobile_api_bp.route('/orders/<int:order_id>/quantity', methods=['PATCH'])
 @require_device_token
+@with_idempotency
 def order_quantity(order_id):
     """
     PATCH /api/mobile/orders/<id>/quantity
 
     Body JSON: { quantity_done: int } — liczba ukończonych sztuk na stanowisku.
     Waliduje 0 <= quantity_done <= item.quantity.
+
+    Idempotency: przy nagłówku X-Operation-Id powtórne wywołanie zwraca
+    zapisany response (nie wykonuje akcji drugi raz).
     """
     data = request.get_json(silent=True) or {}
     quantity_done = data.get('quantity_done')
@@ -183,12 +190,9 @@ def order_quantity(order_id):
 
     try:
         update_order_quantity(item, g.device.station_code, quantity_done)
-        db.session.commit()
     except ValueError as e:
-        db.session.rollback()
         return jsonify({'error': 'invalid_quantity', 'detail': str(e)}), 400
     except Exception as e:
-        db.session.rollback()
         logger.error("Mobile API quantity update failed", extra={
             'order_id': order_id,
             'error': str(e),
