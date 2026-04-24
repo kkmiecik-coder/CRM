@@ -1,0 +1,534 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+<meta charset="UTF-8">
+<title>Porównywarka CRM ↔ Baselinker</title>
+<!-- SheetJS (community) – odczyt/zapis XLSX w przeglądarce -->
+<script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+<style>
+  :root {
+    --bg: #f5f6f8;
+    --panel: #ffffff;
+    --border: #d7dae0;
+    --text: #1f2328;
+    --muted: #6a737d;
+    --primary: #1565C0;
+    --primary-hover: #0d4a94;
+    --success: #16a34a;
+    --danger: #c62828;
+    --amber: #d97706;
+    --row-alt: #fafbfc;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  .wrap { max-width: 1200px; margin: 24px auto; padding: 0 16px; }
+  h1 { margin: 0 0 4px; font-size: 22px; }
+  .lead { color: var(--muted); margin-bottom: 24px; }
+  .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 18px; margin-bottom: 16px; }
+  .panel h2 { margin: 0 0 12px; font-size: 15px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--muted); }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 720px) { .grid2 { grid-template-columns: 1fr; } }
+  .file-card { display: block; border: 2px dashed var(--border); border-radius: 8px; padding: 20px; text-align: center; cursor: pointer; transition: border-color 0.15s, background 0.15s; }
+  .file-card.drag { border-color: var(--primary); background: #f0f7ff; }
+  .file-card.loaded { border-color: var(--success); border-style: solid; background: #f0fdf4; }
+  .file-card strong { display: block; font-size: 13px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--muted); }
+  .file-card .name { margin-top: 8px; font-weight: 600; word-break: break-all; }
+  .file-card .info { margin-top: 4px; font-size: 12px; color: var(--muted); }
+  .file-card input[type=file] { display: none; }
+  .row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-top: 12px; }
+  .row label { font-size: 12px; color: var(--muted); min-width: 120px; }
+  select, input[type=text] { padding: 6px 10px; border: 1px solid var(--border); border-radius: 4px; background: white; font: inherit; }
+  button { padding: 10px 20px; border: none; border-radius: 4px; font: inherit; font-weight: 600; cursor: pointer; transition: background-color 0.15s, transform 0.05s; }
+  button:active { transform: translateY(1px); }
+  button.primary { background: var(--primary); color: white; }
+  button.primary:hover:not(:disabled) { background: var(--primary-hover); }
+  button.success { background: var(--success); color: white; }
+  button.success:hover:not(:disabled) { background: #15803d; }
+  button:disabled { opacity: 0.4; cursor: not-allowed; }
+  .actions { display: flex; gap: 12px; justify-content: flex-end; margin-top: 16px; }
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px; margin-bottom: 16px; }
+  .stat { background: var(--panel); border: 1px solid var(--border); border-radius: 6px; padding: 12px; }
+  .stat .label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--muted); }
+  .stat .value { font-size: 22px; font-weight: 700; margin-top: 4px; }
+  .stat.danger .value { color: var(--danger); }
+  .stat.amber .value { color: var(--amber); }
+  .stat.success .value { color: var(--success); }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { padding: 8px 10px; text-align: left; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { background: #f0f2f5; font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.3px; color: var(--muted); }
+  tbody tr:nth-child(even) { background: var(--row-alt); }
+  .tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--border); margin-bottom: 12px; }
+  .tab { padding: 8px 16px; cursor: pointer; border-bottom: 2px solid transparent; font-weight: 600; color: var(--muted); }
+  .tab.active { color: var(--primary); border-bottom-color: var(--primary); }
+  .tab .count { background: #e5e7eb; color: var(--text); border-radius: 10px; padding: 1px 8px; font-size: 11px; margin-left: 6px; }
+  .tab-panel { display: none; }
+  .tab-panel.active { display: block; }
+  .scroll { max-height: 500px; overflow: auto; border: 1px solid var(--border); border-radius: 4px; }
+  .empty { padding: 40px; text-align: center; color: var(--muted); }
+  .err { background: #fff5f5; border: 1px solid #feb2b2; color: var(--danger); padding: 10px 14px; border-radius: 4px; margin-top: 10px; }
+  .hint { font-size: 12px; color: var(--muted); margin-top: 6px; }
+  .col-badges { display: flex; flex-wrap: wrap; gap: 4px; }
+  .col-badges .badge { background: #e5e7eb; color: var(--text); padding: 2px 8px; border-radius: 10px; font-size: 11px; }
+  .schema { margin-top: 10px; background: #f8fafc; border: 1px solid var(--border); border-radius: 6px; padding: 10px 12px; font-size: 12px; color: var(--muted); }
+  .schema .schema-title { font-weight: 600; color: var(--text); margin-bottom: 6px; text-transform: uppercase; font-size: 11px; letter-spacing: 0.4px; }
+  .schema ul { margin: 4px 0 0; padding-left: 18px; }
+  .schema li { margin-bottom: 2px; }
+  .schema code { background: #e5e7eb; padding: 1px 5px; border-radius: 3px; font-size: 11px; color: var(--text); }
+  .schema .req { color: var(--danger); font-weight: 600; }
+  .schema .opt { color: var(--amber); font-weight: 600; }
+  .schema .note { margin-top: 6px; font-style: italic; font-size: 11px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Porównywarka zamówień CRM ↔ Baselinker</h1>
+  <div class="lead">Wrzuć dwa pliki XLSX — z produkcji (eksport CRM) i z Baselinkera. Porównanie odbywa się po numerach zamówień BL (unikalnych).</div>
+
+  <div class="panel">
+    <h2>1. Pliki</h2>
+    <div class="grid2">
+      <div>
+        <label class="file-card" id="card-crm">
+          <strong>Plik CRM (produkcja)</strong>
+          <div class="name" id="name-crm">Kliknij lub upuść plik</div>
+          <div class="info" id="info-crm"></div>
+          <input type="file" id="file-crm" accept=".xlsx,.xls">
+        </label>
+        <div class="schema">
+          <div class="schema-title">Oczekiwana struktura</div>
+          <ul>
+            <li>Arkusz: <code>Lista produktów</code> (auto-wykrywany)</li>
+            <li>Wiersz nagłówków: <code>3</code></li>
+            <li><span class="req">wymagane</span> — kolumna <code>Nr Baselinker</code> (numer zamówienia BL)</li>
+            <li><span class="opt">opcjonalne</span> — kolumna <code>Status</code> (do agregacji statusów)</li>
+          </ul>
+          <div class="note">Źródło: export "Excel" z listy produktów w module Produkcja (przycisk bulk action → Eksport zaznaczonych).</div>
+        </div>
+      </div>
+
+      <div>
+        <label class="file-card" id="card-bl">
+          <strong>Plik Baselinker</strong>
+          <div class="name" id="name-bl">Kliknij lub upuść plik</div>
+          <div class="info" id="info-bl"></div>
+          <input type="file" id="file-bl" accept=".xlsx,.xls">
+        </label>
+        <div class="schema">
+          <div class="schema-title">Oczekiwana struktura</div>
+          <ul>
+            <li>Arkusz: pierwszy (zwykle <code>Arkusz1</code>)</li>
+            <li>Wiersz nagłówków: <code>1</code></li>
+            <li><span class="req">wymagane</span> — kolumna <code>Numer zamówienia</code></li>
+            <li><span class="opt">opcjonalne</span> — kolumna <code>Uwagi kupującego</code></li>
+          </ul>
+          <div class="note">Źródło: export z panelu Baselinker (lista zamówień → Eksport XLSX). Inne nazwy kolumn można przemapować ręcznie w kroku 2.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel" id="panel-mapping" style="display:none;">
+    <h2>2. Mapowanie kolumn</h2>
+    <div class="grid2">
+      <div>
+        <div class="row">
+          <label>Arkusz CRM:</label>
+          <select id="sel-sheet-crm"></select>
+        </div>
+        <div class="row">
+          <label>Wiersz nagłówków:</label>
+          <input type="number" id="hdr-row-crm" min="1" value="3" style="width:70px;">
+          <span class="hint">(w eksporcie CRM nagłówki są w wierszu 3)</span>
+        </div>
+        <div class="row">
+          <label>Kolumna Nr Baselinker:</label>
+          <select id="sel-col-crm"></select>
+        </div>
+      </div>
+      <div>
+        <div class="row">
+          <label>Arkusz BL:</label>
+          <select id="sel-sheet-bl"></select>
+        </div>
+        <div class="row">
+          <label>Wiersz nagłówków:</label>
+          <input type="number" id="hdr-row-bl" min="1" value="1" style="width:70px;">
+          <span class="hint">(w BL zwykle 1)</span>
+        </div>
+        <div class="row">
+          <label>Kolumna z nr zamówienia:</label>
+          <select id="sel-col-bl"></select>
+        </div>
+        <div class="row">
+          <label>Kolumna z uwagami:</label>
+          <select id="sel-col-bl-notes"></select>
+          <span class="hint">(opcjonalnie)</span>
+        </div>
+      </div>
+    </div>
+    <div class="actions">
+      <button class="primary" id="btn-compare" disabled>Porównaj</button>
+    </div>
+    <div id="err" class="err" style="display:none;"></div>
+  </div>
+
+  <div class="panel" id="panel-results" style="display:none;">
+    <h2>3. Wynik</h2>
+    <div class="stats" id="stats"></div>
+
+    <div class="tabs">
+      <div class="tab active" data-tab="bl-only">Tylko w Baselinkerze <span class="count" id="cnt-bl-only">0</span></div>
+      <div class="tab" data-tab="crm-only">Tylko w CRM <span class="count" id="cnt-crm-only">0</span></div>
+      <div class="tab" data-tab="common">Wspólne <span class="count" id="cnt-common">0</span></div>
+    </div>
+
+    <div class="tab-panel active" id="panel-bl-only">
+      <div class="scroll"><table id="tbl-bl-only"></table></div>
+    </div>
+    <div class="tab-panel" id="panel-crm-only">
+      <div class="scroll"><table id="tbl-crm-only"></table></div>
+    </div>
+    <div class="tab-panel" id="panel-common">
+      <div class="scroll"><table id="tbl-common"></table></div>
+    </div>
+
+    <div class="actions">
+      <button class="success" id="btn-download">Pobierz wynik jako XLSX</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  const state = {
+    crm: { file: null, wb: null, sheetName: null, columns: [], data: [] },
+    bl:  { file: null, wb: null, sheetName: null, columns: [], data: [] },
+    result: null,
+  };
+
+  // ============ File upload (click + drag&drop) ============
+  function setupFileCard(side) {
+    const card = document.getElementById('card-' + side);
+    const input = document.getElementById('file-' + side);
+    card.addEventListener('dragover', e => { e.preventDefault(); card.classList.add('drag'); });
+    card.addEventListener('dragleave', () => card.classList.remove('drag'));
+    card.addEventListener('drop', e => {
+      e.preventDefault();
+      card.classList.remove('drag');
+      if (e.dataTransfer.files[0]) {
+        input.files = e.dataTransfer.files;
+        handleFile(side, e.dataTransfer.files[0]);
+      }
+    });
+    input.addEventListener('change', e => {
+      if (e.target.files[0]) handleFile(side, e.target.files[0]);
+    });
+  }
+  setupFileCard('crm');
+  setupFileCard('bl');
+
+  function handleFile(side, file) {
+    const reader = new FileReader();
+    reader.onload = e => {
+      try {
+        const wb = XLSX.read(e.target.result, { type: 'array' });
+        state[side].file = file;
+        state[side].wb = wb;
+        state[side].sheetName = wb.SheetNames[0];
+        document.getElementById('name-' + side).textContent = file.name;
+        document.getElementById('info-' + side).textContent = `${wb.SheetNames.length} arkuszy, ${(file.size / 1024).toFixed(1)} KB`;
+        document.getElementById('card-' + side).classList.add('loaded');
+        showMapping();
+      } catch (err) {
+        showError('Nie udało się odczytać pliku: ' + err.message);
+      }
+    };
+    reader.readAsArrayBuffer(file);
+  }
+
+  function showMapping() {
+    if (!state.crm.wb || !state.bl.wb) return;
+    document.getElementById('panel-mapping').style.display = 'block';
+    populateSheetSelect('crm');
+    populateSheetSelect('bl');
+    // Domyślne arkusze: CRM wybierze "Lista produktów" jeśli jest, BL pierwszy
+    autoSelectCrmSheet();
+    refreshColumns('crm');
+    refreshColumns('bl');
+  }
+
+  function populateSheetSelect(side) {
+    const sel = document.getElementById('sel-sheet-' + side);
+    sel.innerHTML = '';
+    state[side].wb.SheetNames.forEach(name => {
+      const opt = document.createElement('option');
+      opt.value = name; opt.textContent = name;
+      sel.appendChild(opt);
+    });
+    sel.onchange = () => { state[side].sheetName = sel.value; refreshColumns(side); };
+    sel.value = state[side].sheetName;
+  }
+
+  function autoSelectCrmSheet() {
+    const target = state.crm.wb.SheetNames.find(n => /lista\s*produkt/i.test(n));
+    if (target) {
+      state.crm.sheetName = target;
+      document.getElementById('sel-sheet-crm').value = target;
+    }
+  }
+
+  function refreshColumns(side) {
+    const hdrRowInput = document.getElementById('hdr-row-' + side);
+    const hdrRow = Math.max(1, parseInt(hdrRowInput.value, 10) || 1);
+    const ws = state[side].wb.Sheets[state[side].sheetName];
+    const aoa = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null });
+    const headers = (aoa[hdrRow - 1] || []).map((v, i) => ({
+      index: i,
+      label: (v === null || v === undefined || v === '') ? `Kolumna ${XLSX.utils.encode_col(i)}` : String(v),
+    }));
+    state[side].columns = headers;
+    state[side].data = aoa.slice(hdrRow);
+    updateColumnSelect(side);
+  }
+
+  function updateColumnSelect(side) {
+    const cols = state[side].columns;
+    if (side === 'crm') {
+      fillSelect('sel-col-crm', cols, col => /baselinker|numer\s*zam/i.test(col.label));
+    } else {
+      fillSelect('sel-col-bl', cols, col => /numer\s*zam|zam[oó]wien/i.test(col.label));
+      fillSelect('sel-col-bl-notes', cols, col => /uwagi|komentarz|notatk/i.test(col.label), true);
+    }
+    checkReady();
+  }
+
+  function fillSelect(id, cols, autoMatch, optional = false) {
+    const sel = document.getElementById(id);
+    sel.innerHTML = '';
+    if (optional) {
+      const opt = document.createElement('option');
+      opt.value = '-1'; opt.textContent = '(brak)';
+      sel.appendChild(opt);
+    }
+    cols.forEach(col => {
+      const opt = document.createElement('option');
+      opt.value = String(col.index);
+      opt.textContent = col.label;
+      sel.appendChild(opt);
+    });
+    const match = cols.find(autoMatch);
+    if (match) sel.value = String(match.index);
+  }
+
+  document.getElementById('hdr-row-crm').addEventListener('change', () => refreshColumns('crm'));
+  document.getElementById('hdr-row-bl').addEventListener('change', () => refreshColumns('bl'));
+  document.getElementById('sel-col-crm').addEventListener('change', checkReady);
+  document.getElementById('sel-col-bl').addEventListener('change', checkReady);
+
+  function checkReady() {
+    const ok = state.crm.wb && state.bl.wb
+      && document.getElementById('sel-col-crm').value !== ''
+      && document.getElementById('sel-col-bl').value !== '';
+    document.getElementById('btn-compare').disabled = !ok;
+  }
+
+  function showError(msg) {
+    const err = document.getElementById('err');
+    err.textContent = msg; err.style.display = 'block';
+  }
+  function hideError() { document.getElementById('err').style.display = 'none'; }
+
+  // ============ Porównanie ============
+  document.getElementById('btn-compare').addEventListener('click', () => {
+    hideError();
+    try {
+      const crmColIdx = parseInt(document.getElementById('sel-col-crm').value, 10);
+      const blColIdx  = parseInt(document.getElementById('sel-col-bl').value, 10);
+      const blNotesIdx = parseInt(document.getElementById('sel-col-bl-notes').value, 10);
+
+      // Zbieraj CRM per order_id
+      const crmOrders = new Map(); // order_id -> { count, rows: [{...}] }
+      state.crm.data.forEach(row => {
+        const raw = row[crmColIdx];
+        const orderId = normalizeId(raw);
+        if (orderId === null) return;
+        if (!crmOrders.has(orderId)) crmOrders.set(orderId, { count: 0, rows: [] });
+        const entry = crmOrders.get(orderId);
+        entry.count++;
+        entry.rows.push(row);
+      });
+
+      // Zbieraj BL
+      const blOrders = new Map(); // order_id -> notes
+      state.bl.data.forEach(row => {
+        const raw = row[blColIdx];
+        const orderId = normalizeId(raw);
+        if (orderId === null) return;
+        const notes = (blNotesIdx >= 0 && row[blNotesIdx] != null) ? String(row[blNotesIdx]) : '';
+        blOrders.set(orderId, notes);
+      });
+
+      const crmSet = new Set(crmOrders.keys());
+      const blSet = new Set(blOrders.keys());
+      const blOnly = [...blSet].filter(x => !crmSet.has(x)).sort();
+      const crmOnly = [...crmSet].filter(x => !blSet.has(x)).sort();
+      const common = [...crmSet].filter(x => blSet.has(x)).sort();
+
+      state.result = { blOnly, crmOnly, common, crmOrders, blOrders };
+      renderResult();
+      document.getElementById('panel-results').style.display = 'block';
+    } catch (err) {
+      showError('Błąd porównania: ' + err.message);
+    }
+  });
+
+  function normalizeId(raw) {
+    if (raw === null || raw === undefined || raw === '') return null;
+    const s = String(raw).trim();
+    if (!s) return null;
+    // Staraj się zachować numeryczną wartość jeśli to liczba — inaczej zostaje string
+    const num = Number(s);
+    return Number.isFinite(num) && String(num) === s ? num : s;
+  }
+
+  function renderResult() {
+    const { blOnly, crmOnly, common, crmOrders, blOrders } = state.result;
+
+    const totalCrmItems = [...crmOrders.values()].reduce((sum, v) => sum + v.count, 0);
+    renderStats([
+      { label: 'Zamówień CRM', value: crmOrders.size },
+      { label: 'Pozycji CRM', value: totalCrmItems },
+      { label: 'Zamówień BL', value: blOrders.size },
+      { label: 'Wspólne', value: common.length, className: 'success' },
+      { label: 'Tylko w BL', value: blOnly.length, className: 'danger' },
+      { label: 'Tylko w CRM', value: crmOnly.length, className: 'amber' },
+    ]);
+
+    document.getElementById('cnt-bl-only').textContent = blOnly.length;
+    document.getElementById('cnt-crm-only').textContent = crmOnly.length;
+    document.getElementById('cnt-common').textContent = common.length;
+
+    // Tylko w BL
+    renderTable('tbl-bl-only',
+      ['Nr Baselinker', 'Uwagi kupującego (z BL)'],
+      blOnly.map(oid => [oid, blOrders.get(oid) || ''])
+    );
+
+    // Tylko w CRM — agregacja per zamówienie (pokazuje wszystkie kolumny z pierwszego wiersza zamówienia + licznik pozycji)
+    const crmHeaders = state.crm.columns.map(c => c.label);
+    renderTable('tbl-crm-only',
+      ['Nr Baselinker', 'Pozycji', 'Statusy/rozszerzenie'],
+      crmOnly.map(oid => {
+        const entry = crmOrders.get(oid);
+        // Spróbuj zebrać statusy jeśli istnieje taka kolumna
+        const statusCol = state.crm.columns.find(c => /status/i.test(c.label));
+        const statuses = statusCol
+          ? [...new Set(entry.rows.map(r => r[statusCol.index]).filter(v => v != null))].join(', ')
+          : '—';
+        return [oid, entry.count, statuses];
+      })
+    );
+
+    // Wspólne
+    renderTable('tbl-common',
+      ['Nr Baselinker', 'Pozycji w CRM', 'Uwagi z BL'],
+      common.map(oid => [oid, crmOrders.get(oid).count, blOrders.get(oid) || ''])
+    );
+  }
+
+  function renderStats(stats) {
+    const el = document.getElementById('stats');
+    el.innerHTML = '';
+    stats.forEach(s => {
+      const div = document.createElement('div');
+      div.className = 'stat' + (s.className ? ' ' + s.className : '');
+      div.innerHTML = `<div class="label">${s.label}</div><div class="value">${s.value}</div>`;
+      el.appendChild(div);
+    });
+  }
+
+  function renderTable(id, headers, rows) {
+    const tbl = document.getElementById(id);
+    tbl.innerHTML = '';
+    if (rows.length === 0) {
+      tbl.innerHTML = `<tbody><tr><td class="empty" colspan="${headers.length}">Brak wpisów</td></tr></tbody>`;
+      return;
+    }
+    const thead = document.createElement('thead');
+    const tr = document.createElement('tr');
+    headers.forEach(h => { const th = document.createElement('th'); th.textContent = h; tr.appendChild(th); });
+    thead.appendChild(tr);
+    tbl.appendChild(thead);
+    const tbody = document.createElement('tbody');
+    rows.forEach(r => {
+      const trB = document.createElement('tr');
+      r.forEach(v => {
+        const td = document.createElement('td');
+        td.textContent = v === null || v === undefined ? '' : String(v);
+        trB.appendChild(td);
+      });
+      tbody.appendChild(trB);
+    });
+    tbl.appendChild(tbody);
+  }
+
+  // ============ Tabs ============
+  document.querySelectorAll('.tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+      document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+      tab.classList.add('active');
+      document.getElementById('panel-' + tab.dataset.tab).classList.add('active');
+    });
+  });
+
+  // ============ Pobieranie XLSX ============
+  document.getElementById('btn-download').addEventListener('click', () => {
+    if (!state.result) return;
+    const { blOnly, crmOnly, common, crmOrders, blOrders } = state.result;
+    const wb = XLSX.utils.book_new();
+
+    // Podsumowanie
+    const summary = [
+      ['Metryka', 'Wartość'],
+      ['Zamówień w CRM', crmOrders.size],
+      ['Pozycji produktów w CRM', [...crmOrders.values()].reduce((s, v) => s + v.count, 0)],
+      ['Zamówień w BL', blOrders.size],
+      ['Wspólne', common.length],
+      ['Tylko w BL', blOnly.length],
+      ['Tylko w CRM', crmOnly.length],
+    ];
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(summary), 'Podsumowanie');
+
+    // Tylko w BL
+    const blOnlyData = [['Nr Baselinker', 'Uwagi kupującego (z BL)']];
+    blOnly.forEach(oid => blOnlyData.push([oid, blOrders.get(oid) || '']));
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(blOnlyData), 'Tylko w BL');
+
+    // Tylko w CRM
+    const statusCol = state.crm.columns.find(c => /status/i.test(c.label));
+    const crmOnlyData = [['Nr Baselinker', 'Pozycji', 'Statusy']];
+    crmOnly.forEach(oid => {
+      const entry = crmOrders.get(oid);
+      const statuses = statusCol
+        ? [...new Set(entry.rows.map(r => r[statusCol.index]).filter(v => v != null))].join(', ')
+        : '';
+      crmOnlyData.push([oid, entry.count, statuses]);
+    });
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(crmOnlyData), 'Tylko w CRM');
+
+    // Wspólne
+    const commonData = [['Nr Baselinker', 'Pozycji w CRM', 'Uwagi z BL']];
+    common.forEach(oid => commonData.push([oid, crmOrders.get(oid).count, blOrders.get(oid) || '']));
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(commonData), 'Wspólne');
+
+    const date = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+    XLSX.writeFile(wb, `porownanie_crm_bl_${date}.xlsx`);
+  });
+
+})();
+</script>
+</body>
+</html>
