@@ -90,7 +90,11 @@ def station_orders(station_code):
     """
     GET /api/mobile/stations/<station_code>/orders
 
-    Zwraca aktywne zlecenia w kolejce stanowiska (sortowane po priority_rank).
+    Zwraca WSZYSTKIE pozycje z zamówień, w których cokolwiek wisi na danym
+    stanowisku — także pozycje sąsiednich stanowisk z tego samego zamówienia.
+    Pozwala mobile renderować pełny stan zamówienia z badge'em sąsiada
+    (parytet z webem, templates/stations/*.html).
+
     Urządzenie musi być zarejestrowane pod TEGO stanowiska.
     """
     if station_code not in STATION_STATUS_MAP:
@@ -104,11 +108,26 @@ def station_orders(station_code):
         }), 403
 
     status = STATION_STATUS_MAP[station_code]
-    items = ProductionItem.query.filter(
+
+    # Zamówienia (po internal_order_number), w których jakakolwiek pozycja
+    # ma current_status pasujący do tego stanowiska. Następnie pobieramy
+    # wszystkie pozycje z tych zamówień — także te z innych statusów
+    # (sąsiednich stanowisk lub już ukończone), żeby mobile mogło pokazać
+    # pełną grupę z badge'em.
+    order_numbers_subq = db.session.query(
+        ProductionItem.internal_order_number
+    ).filter(
         ProductionItem.current_status == status
+    ).distinct().subquery()
+
+    items = ProductionItem.query.filter(
+        ProductionItem.internal_order_number.in_(
+            db.session.query(order_numbers_subq.c.internal_order_number)
+        )
     ).order_by(
         func.coalesce(ProductionItem.priority_rank, 999999).asc(),
-        ProductionItem.created_at.asc(),
+        ProductionItem.internal_order_number.asc(),
+        ProductionItem.id.asc(),
     ).all()
 
     return jsonify({
