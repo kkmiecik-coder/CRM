@@ -297,6 +297,7 @@ class DashboardModule {
                     completed_orders: initialData.today_totals.completed_orders || 0,
                     completed_items: initialData.today_totals.completed_items || 0,
                     completed_products: initialData.today_totals.completed_products || 0,
+                    total_m3: initialData.today_totals.total_m3 || 0,
                     pending_priority: 0,
                     errors_24h: initialData.system_health?.errors_24h || 0
                 });
