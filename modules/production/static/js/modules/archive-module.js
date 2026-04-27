@@ -412,17 +412,51 @@ class ArchiveModule {
 
         // Akcje
         header.querySelectorAll('.il-order-action-btn').forEach(btn => {
+            const action = btn.dataset.action;
+            if (action === 'baselinker' && !order.baselinkerOrderId) {
+                btn.classList.add('disabled');
+                btn.setAttribute('disabled', 'true');
+            }
             btn.addEventListener('click', (e) => {
                 e.stopPropagation();
-                const action = btn.dataset.action;
+                if (btn.classList.contains('disabled')) return;
                 if (action === 'baselinker' && order.baselinkerOrderId) {
-                    window.open(`https://panel.baselinker.com/orders.php#order:${order.baselinkerOrderId}`, '_blank', 'noopener');
+                    window.open(`https://panel-f.baselinker.com/orders.php#order:${order.baselinkerOrderId}`, '_blank', 'noopener');
                 } else if (action === 'details') {
-                    // Toggle expand jako szczegół (najprościej)
-                    header.click();
+                    this.openOrderDetails(order);
                 }
             });
         });
+    }
+
+    /**
+     * Otwiera modal szczegółów zamówienia (pierwsza pozycja).
+     * Reużywa ProductsModule.showProductDetails — ładuje go jeśli jeszcze nie zainicjalizowany,
+     * bo template modala jest częścią products-tab-content.html.
+     */
+    async openOrderDetails(order) {
+        const firstProduct = order.products[0];
+        if (!firstProduct) return;
+        const productId = firstProduct.id || firstProduct.unique_id;
+
+        try {
+            if (!window.productsModule || typeof window.productsModule.showProductDetails !== 'function') {
+                // Pre-load products tab (idempotentne — loadTabContent ma cache)
+                if (window.ProductionApp && typeof window.ProductionApp.loadTabContent === 'function') {
+                    await window.ProductionApp.loadTabContent('products-tab');
+                }
+            }
+            if (window.productsModule && typeof window.productsModule.showProductDetails === 'function') {
+                await window.productsModule.showProductDetails(productId);
+            } else {
+                console.warn('[ArchiveModule] productsModule.showProductDetails niedostępne');
+                if (this.shared && this.shared.toastSystem) {
+                    this.shared.toastSystem.show('Otwórz najpierw zakładkę "Lista produktów" aby załadować szczegóły', 'warning');
+                }
+            }
+        } catch (err) {
+            console.error('[ArchiveModule] openOrderDetails failed:', err);
+        }
     }
 
     renderOrderProducts(container, order) {

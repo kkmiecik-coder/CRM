@@ -30,10 +30,26 @@
 }
 
 .arch-date-input {
-    width: 130px;
-    min-width: 130px;
-    padding: 4px 8px;
+    width: 140px;
+    min-width: 140px;
+    padding: 8px 12px;
     font-size: 12px;
+    font-family: var(--il-font, inherit);
+    color: var(--il-text, #1f2937);
+    background: #fff;
+    border: 1px solid var(--il-border, #e5e7eb);
+    border-radius: 6px;
+    transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.arch-date-input:hover {
+    border-color: #cbd5e1;
+}
+
+.arch-date-input:focus {
+    outline: none;
+    border-color: var(--il-status-success, #16a34a);
+    box-shadow: 0 0 0 3px rgba(22, 163, 74, 0.12);
 }
 
 .arch-date-range-sep {
@@ -43,14 +59,47 @@
 
 .arch-date-presets {
     display: flex;
-    gap: 4px;
+    gap: 6px;
     flex-wrap: wrap;
+    align-items: center;
 }
 
+/* Presety dat — neutralny outline button, zgodny z designem systemu */
 .arch-date-preset {
+    font-family: var(--il-font, inherit);
     font-size: 11px;
-    padding: 4px 8px;
+    font-weight: 600;
+    color: var(--il-text-muted, #4b5563);
+    background: #fff;
+    border: 1px solid var(--il-border, #e5e7eb);
+    padding: 7px 12px;
+    border-radius: 6px;
+    cursor: pointer;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
     white-space: nowrap;
+    transition: background-color 0.15s, border-color 0.15s, color 0.15s, transform 0.05s;
+}
+
+.arch-date-preset:hover {
+    background: #f3f4f6;
+    border-color: #cbd5e1;
+    color: var(--il-text, #1f2937);
+}
+
+.arch-date-preset:active {
+    transform: translateY(1px);
+}
+
+.arch-date-preset[data-preset="clear"] {
+    color: #b91c1c;
+    border-color: #fecaca;
+}
+
+.arch-date-preset[data-preset="clear"]:hover {
+    background: #fef2f2;
+    border-color: #f87171;
+    color: #991b1b;
 }
 
 /* ─── VISUAL: archiwum lekko wyciszone ─── */
