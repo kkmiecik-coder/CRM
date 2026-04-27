@@ -14,6 +14,7 @@ from modules.production.models import ProductionDevice, ProductionItem
 from modules.production.services.mobile_api_service import (
     STATION_STATUS_MAP,
     compute_station_summary,
+    device_can_access_station,
     get_app_version_info,
     get_station_queue_delta,
     mark_order_complete,
@@ -25,6 +26,27 @@ from modules.production.services.mobile_api_service import (
     update_order_quantity,
     with_idempotency,
 )
+
+
+def _resolve_station_code(requested):
+    """
+    Rozstrzyga station_code dla operacji mutującej. Gdy klient nie poda
+    `station_code` w body, używamy `g.device.station_code` (BC). Zwraca
+    (station_code, error_response) — gdy error_response != None, wywołujący
+    powinien zwrócić go natychmiast.
+    """
+    code = (requested or g.device.station_code or '').strip()
+    if not code:
+        return None, (jsonify({'error': 'missing_station_code'}), 400)
+    if code not in STATION_STATUS_MAP:
+        return None, (jsonify({'error': 'unknown_station'}), 404)
+    if not device_can_access_station(g.device, code):
+        return None, (jsonify({
+            'error': 'station_mismatch',
+            'device_station': g.device.station_code,
+            'requested_station': code,
+        }), 403)
+    return code, None
 
 logger = get_structured_logger('production.mobile_api.routes')
 
@@ -100,7 +122,7 @@ def station_orders(station_code):
     if station_code not in STATION_STATUS_MAP:
         return jsonify({'error': 'unknown_station'}), 404
 
-    if g.device.station_code != station_code:
+    if not device_can_access_station(g.device, station_code):
         return jsonify({
             'error': 'station_mismatch',
             'device_station': g.device.station_code,
@@ -155,34 +177,46 @@ def order_complete(order_id):
     """
     POST /api/mobile/orders/<id>/complete
 
-    Oznacza zlecenie jako ukończone na stanowisku tego urządzenia.
-    Dla packaging: quantity_done = quantity, status → 'spakowane'.
-    Dla pozostałych: quantity_done + completed_at (bez zmiany statusu — Etap 2).
+    Body JSON (opcjonalny): { station_code: str } — gdy pominięte, używane
+    jest `device.station_code` (BC). Tablet w wykańczalni przekazuje
+    `station_code='painting'` żeby ukończyć pozycję z lakierni.
+
+    Pełna tranzycja statusu (z regułami specjalnymi, np. lakiernia
+    dla olejowanych/lakierowanych, skip finishing dla surowych bez krawędzi)
+    jest delegowana do `ProductionItem.complete_task()` — tej samej metody
+    której używa web.
 
     Idempotency: przy nagłówku X-Operation-Id powtórne wywołanie zwraca
     zapisany response (nie wykonuje akcji drugi raz).
     """
+    data = request.get_json(silent=True) or {}
+    station_code, err = _resolve_station_code(data.get('station_code'))
+    if err:
+        return err
+
     item = ProductionItem.query.get(order_id)
     if not item:
         return jsonify({'error': 'order_not_found'}), 404
 
     try:
-        mark_order_complete(item, g.device.station_code)
+        mark_order_complete(item, station_code)
+    except ValueError as e:
+        return jsonify({'error': 'invalid_station', 'detail': str(e)}), 400
     except Exception as e:
         logger.error("Mobile API complete failed", extra={
             'order_id': order_id,
-            'station_code': g.device.station_code,
+            'station_code': station_code,
             'error': str(e),
         })
         return jsonify({'error': 'complete_failed', 'detail': str(e)}), 500
 
     logger.info("Mobile API: order completed", extra={
         'order_id': order_id,
-        'station_code': g.device.station_code,
+        'station_code': station_code,
         'device_id': g.device.device_id,
     })
 
-    return jsonify(serialize_order(item, station_code=g.device.station_code)), 200
+    return jsonify(serialize_order(item, station_code=station_code)), 200
 
 
 @mobile_api_bp.route('/orders/<int:order_id>/quantity', methods=['PATCH'])
@@ -203,12 +237,16 @@ def order_quantity(order_id):
     if not isinstance(quantity_done, int):
         return jsonify({'error': 'missing_or_invalid_quantity_done'}), 400
 
+    station_code, err = _resolve_station_code(data.get('station_code'))
+    if err:
+        return err
+
     item = ProductionItem.query.get(order_id)
     if not item:
         return jsonify({'error': 'order_not_found'}), 404
 
     try:
-        update_order_quantity(item, g.device.station_code, quantity_done)
+        update_order_quantity(item, station_code, quantity_done)
     except ValueError as e:
         return jsonify({'error': 'invalid_quantity', 'detail': str(e)}), 400
     except Exception as e:
@@ -218,7 +256,7 @@ def order_quantity(order_id):
         })
         return jsonify({'error': 'update_failed', 'detail': str(e)}), 500
 
-    return jsonify(serialize_order(item, station_code=g.device.station_code)), 200
+    return jsonify(serialize_order(item, station_code=station_code)), 200
 
 
 # ============================================================================
@@ -236,7 +274,7 @@ def station_summary(station_code):
     if station_code not in STATION_STATUS_MAP:
         return jsonify({'error': 'unknown_station'}), 404
 
-    if g.device.station_code != station_code:
+    if not device_can_access_station(g.device, station_code):
         return jsonify({
             'error': 'station_mismatch',
             'device_station': g.device.station_code,
@@ -270,7 +308,7 @@ def station_orders_since(station_code):
     if station_code not in STATION_STATUS_MAP:
         return jsonify({'error': 'unknown_station'}), 404
 
-    if g.device.station_code != station_code:
+    if not device_can_access_station(g.device, station_code):
         return jsonify({
             'error': 'station_mismatch',
             'device_station': g.device.station_code,

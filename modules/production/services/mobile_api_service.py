@@ -5,9 +5,8 @@ Obsługuje warstwę logiki dla blueprintu mobile_api_bp (natywna appka Android).
 Router (`routers/mobile_api.py`) powinien być cienki — walidacja wejścia
 i wywołanie funkcji z tego modułu.
 
-Etap 1 MVP: obsługujemy packaging end-to-end (z tranzycją statusu), pozostałe
-stanowiska tylko bump quantity_done + completed_at (workflow transitions
-między stanowiskami zostają przy istniejącym web-handlerze).
+Tranzycje statusu deleguje do `ProductionItem.complete_task()` — tej samej
+metody modelu, której używa web-handler `/production/api/complete-task`.
 """
 
 import ipaddress
@@ -45,6 +44,7 @@ STATION_STATUS_MAP = {
     'gluing': 'czeka_na_sklejanie',
     'formatting': 'czeka_na_formatowanie',
     'finishing': 'czeka_na_wykanczanie',
+    'painting': 'czeka_na_lakiernie',
 }
 
 # station_code → nazwa kolumny z licznikiem wykonanych sztuk
@@ -55,6 +55,7 @@ STATION_QUANTITY_FIELD = {
     'gluing': 'quantity_done_gluing',
     'formatting': 'quantity_done_formatting',
     'finishing': 'quantity_done_finishing',
+    'painting': 'quantity_done_painting',
 }
 
 # station_code → nazwa kolumny z timestampem ukończenia
@@ -65,13 +66,32 @@ STATION_COMPLETED_AT_FIELD = {
     'gluing': 'gluing_completed_at',
     'formatting': 'formatting_completed_at',
     'finishing': 'finishing_completed_at',
+    'painting': 'painting_completed_at',
 }
 
-# Tranzycja statusu po ukończeniu stanowiska.
-# Etap 1: tylko packaging. Pozostałe stanowiska obsługuje istniejący web-handler.
-STATION_NEXT_STATUS = {
-    'packaging': 'spakowane',
-}
+# Aliasy stanowisk — urządzenie zarejestrowane jako jedno z poniższych może
+# operować na pozostałych z tego samego zbioru. Tablet w wykańczalni rejestruje
+# się jako `finishing`, ale w UI ma TabBar z dwiema zakładkami (Produkcja /
+# Lakiernia) i fetchuje obie listy z tego samego JWT.
+STATION_GROUPS = [
+    {'finishing', 'painting'},
+]
+
+
+def device_can_access_station(device, station_code):
+    """
+    True gdy urządzenie może operować na danym stanowisku — bezpośrednio
+    (device.station_code == station_code) lub przez alias (np. tablet
+    zarejestrowany jako 'finishing' obsługuje też 'painting').
+    """
+    if not device or not station_code:
+        return False
+    if device.station_code == station_code:
+        return True
+    for group in STATION_GROUPS:
+        if device.station_code in group and station_code in group:
+            return True
+    return False
 
 
 # ============================================================================
@@ -548,27 +568,17 @@ def mark_order_complete(item, station_code):
     """
     Oznacza zlecenie jako ukończone na danym stanowisku.
 
-    Packaging (Etap 1 MVP): pełna tranzycja — quantity_done = quantity,
-    completed_at = now, current_status = 'spakowane'.
-
-    Pozostałe stanowiska: tylko quantity_done i completed_at. Zmiany statusu
-    między stanowiskami są w obowiązku istniejącego web-handlera
-    (endpoint `/production/stations/api/complete-task`) — nie duplikujemy
-    tej logiki tu, dopóki Android nie obsługuje tych stanowisk.
+    Deleguje do `ProductionItem.complete_task(station_code)` — tej samej
+    metody modelu której używa web-handler `/production/api/complete-task`.
+    Pełna tranzycja statusu (cutting/assembly/gluing/formatting/finishing/
+    painting/packaging) plus reguły specjalne (skip finishing dla surowych
+    bez krawędzi, lakiernia dla olejowanych/lakierowanych, personal_pickup
+    omija logistykę) są obsłużone w modelu.
     """
-    quantity_field = STATION_QUANTITY_FIELD.get(station_code)
-    completed_field = STATION_COMPLETED_AT_FIELD.get(station_code)
-    if not quantity_field or not completed_field:
+    if station_code not in STATION_QUANTITY_FIELD:
         raise ValueError(f'Nieznane stanowisko: {station_code}')
 
-    setattr(item, quantity_field, item.quantity)
-    setattr(item, completed_field, get_local_now())
-
-    next_status = STATION_NEXT_STATUS.get(station_code)
-    if next_status:
-        item.current_status = next_status
-
-    item.updated_at = get_local_now()
+    item.complete_task(station_code)
 
 
 def update_order_quantity(item, station_code, quantity_done):
