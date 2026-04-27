@@ -89,6 +89,106 @@ def api_toggle_maintenance():
         return jsonify({'success': False, 'message': str(e)}), 500
 
 
+# =============================================
+# APLIKACJA PRODUKCJA (mobile APK releases)
+# =============================================
+
+@settings_bp.route('/production-app')
+@require_admin
+def production_app():
+    """Zakładka: zarządzanie release'ami APK aplikacji stanowiskowej."""
+    from modules.production.services.mobile_api_service import list_releases
+
+    user_email = session.get('user_email')
+    current_user = User.query.filter_by(email=user_email).first()
+
+    try:
+        releases = list_releases()
+    except Exception as e:
+        current_app.logger.error(f"[production_app] Błąd listowania release'ów: {e}")
+        releases = []
+
+    return render_template(
+        'settings_index.html',
+        current_user=current_user,
+        active_tab='production_app',
+        mobile_releases=releases,
+    )
+
+
+@settings_bp.route('/api/mobile-releases/upload', methods=['POST'])
+@require_admin
+def api_mobile_release_upload():
+    """Upload nowego APK + automatyczna rejestracja release'u."""
+    from modules.production.services.mobile_api_service import register_release
+
+    apk_file = request.files.get('apk')
+    if apk_file is None:
+        return jsonify({'success': False, 'error': 'Brak pliku APK'}), 400
+
+    version_name = request.form.get('version_name', '').strip()
+    release_notes = request.form.get('release_notes', '').strip()
+
+    user_email = session.get('user_email')
+    user = User.query.filter_by(email=user_email).first()
+
+    try:
+        release = register_release(
+            file_storage=apk_file,
+            version_name_override=version_name,
+            release_notes=release_notes,
+            user_id=user.id if user else None,
+        )
+    except ValueError as e:
+        return jsonify({'success': False, 'error': str(e)}), 400
+    except Exception as e:
+        current_app.logger.error(f"[api_mobile_release_upload] Błąd: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+    return jsonify({
+        'success': True,
+        'release': {
+            'id': release.id,
+            'version_code': release.version_code,
+            'version_name': release.version_name,
+            'sha256': release.sha256,
+            'file_size_bytes': release.file_size_bytes,
+            'is_active': release.is_active,
+        },
+    }), 201
+
+
+@settings_bp.route('/api/mobile-releases/<int:release_id>/active', methods=['PATCH'])
+@require_admin
+def api_mobile_release_toggle_active(release_id):
+    """Toggle is_active dla release'u APK."""
+    from modules.production.services.mobile_api_service import set_release_active
+
+    data = request.get_json(silent=True) or {}
+    if 'is_active' not in data or not isinstance(data['is_active'], bool):
+        return jsonify({
+            'success': False,
+            'error': 'Wymagane pole boolean `is_active` w body JSON',
+        }), 400
+
+    try:
+        release = set_release_active(release_id, data['is_active'])
+    except ValueError as e:
+        return jsonify({'success': False, 'error': str(e)}), 404
+    except Exception as e:
+        current_app.logger.error(f"[api_mobile_release_toggle_active] Błąd: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+    return jsonify({
+        'success': True,
+        'release': {
+            'id': release.id,
+            'version_code': release.version_code,
+            'is_active': release.is_active,
+        },
+    }), 200
+
+
 @settings_bp.route('/sources')
 @require_admin
 def sources():

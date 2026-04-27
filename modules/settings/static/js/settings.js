@@ -1772,6 +1772,76 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     // =============================================
+    // APLIKACJA PRODUKCJA — UPLOAD APK + TOGGLE IS_ACTIVE
+    // =============================================
+
+    const apkUploadForm = document.getElementById('apkUploadForm');
+    if (apkUploadForm) {
+        const statusEl = document.getElementById('apkUploadStatus');
+        const uploadBtn = document.getElementById('apkUploadBtn');
+
+        apkUploadForm.addEventListener('submit', async function(e) {
+            e.preventDefault();
+            const fileInput = document.getElementById('apkFileInput');
+            if (!fileInput.files || fileInput.files.length === 0) {
+                statusEl.textContent = 'Wybierz plik APK';
+                statusEl.style.color = '#dc3545';
+                return;
+            }
+
+            const formData = new FormData(apkUploadForm);
+            uploadBtn.disabled = true;
+            statusEl.textContent = 'Wgrywam… (to może chwilę potrwać przy ~10 MB)';
+            statusEl.style.color = '#666';
+
+            try {
+                const resp = await fetch('/settings/api/mobile-releases/upload', {
+                    method: 'POST',
+                    body: formData,
+                });
+                const data = await resp.json();
+                if (data.success) {
+                    statusEl.textContent = `OK — release v${data.release.version_code} (${data.release.version_name}) zarejestrowany. Odświeżam…`;
+                    statusEl.style.color = '#28a745';
+                    setTimeout(() => window.location.reload(), 1200);
+                } else {
+                    statusEl.textContent = 'Błąd: ' + (data.error || 'nieznany');
+                    statusEl.style.color = '#dc3545';
+                    uploadBtn.disabled = false;
+                }
+            } catch (err) {
+                statusEl.textContent = 'Błąd połączenia: ' + err.message;
+                statusEl.style.color = '#dc3545';
+                uploadBtn.disabled = false;
+            }
+        });
+    }
+
+    document.querySelectorAll('.release-active-toggle').forEach(toggle => {
+        toggle.addEventListener('change', async function() {
+            const releaseId = this.dataset.id;
+            const newState = this.checked;
+            const original = !newState;
+
+            try {
+                const resp = await fetch(`/settings/api/mobile-releases/${releaseId}/active`, {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ is_active: newState }),
+                });
+                const data = await resp.json();
+                if (!data.success) {
+                    alert('Błąd: ' + (data.error || 'nie udało się zmienić statusu'));
+                    this.checked = original;
+                }
+            } catch (err) {
+                alert('Błąd połączenia: ' + err.message);
+                this.checked = original;
+            }
+        });
+    });
+
+    // =============================================
     // INICJALIZACJA
     // =============================================
 

@@ -1609,3 +1609,70 @@ tr.row-changed td:first-child {
     opacity: 0.5;
     cursor: not-allowed;
 }
+
+/* =============================================
+   APLIKACJA PRODUKCJA — formularz uploadu APK
+   ============================================= */
+
+#apkUploadForm .form-group {
+    margin-bottom: 18px;
+}
+
+#apkUploadForm label {
+    display: block;
+    margin-bottom: 6px;
+    font-weight: 500;
+    color: var(--text-primary, #1a1a2e);
+    font-size: 0.9rem;
+}
+
+#apkUploadForm .required {
+    color: #ef4444;
+}
+
+#apkUploadForm input[type="text"],
+#apkUploadForm input[type="file"],
+#apkUploadForm textarea {
+    width: 100%;
+    padding: 10px 12px;
+    border: 1px solid var(--border-color, #e5e7eb);
+    border-radius: 8px;
+    font-size: 0.9rem;
+    background: var(--bg-input, #ffffff);
+    font-family: inherit;
+    box-sizing: border-box;
+}
+
+#apkUploadForm textarea {
+    resize: vertical;
+    min-height: 90px;
+}
+
+#apkUploadForm input[type="file"] {
+    padding: 8px 12px;
+    cursor: pointer;
+}
+
+#apkUploadForm input:focus,
+#apkUploadForm textarea:focus {
+    outline: none;
+    border-color: var(--primary-color, #2563eb);
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+}
+
+#apkUploadForm .form-hint {
+    display: block;
+    margin-top: 6px;
+    color: var(--text-muted, #9ca3af);
+    font-size: 0.8rem;
+}
+
+#apkUploadForm .form-actions {
+    margin-top: 20px;
+    padding-top: 16px;
+    border-top: 1px solid var(--border-color, #e5e7eb);
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    justify-content: flex-start;
+}

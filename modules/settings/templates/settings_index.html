@@ -53,6 +53,13 @@
                     </svg>
                     Źródła zamówień BL
                 </a>
+                <a href="{{ url_for('settings.production_app') }}"
+                   class="settings-tab {% if active_tab == 'production_app' %}active{% endif %}">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M17 1.01L7 1c-1.1 0-2 .9-2 2v18c0 1.1.9 2 2 2h10c1.1 0 2-.9 2-2V3c0-1.1-.9-1.99-2-1.99zM17 19H7V5h10v14zm-1-6h-3V8h-2v5H8l4 4 4-4z"/>
+                    </svg>
+                    Aplikacja produkcja
+                </a>
             </div>
 
             <!-- Zawartość zakładki: Ogólne -->
@@ -196,6 +203,101 @@
                                 </button>
                             </div>
                         </div>
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+
+            <!-- Zawartość zakładki: Aplikacja produkcja -->
+            {% if active_tab == 'production_app' %}
+            <div class="settings-content">
+                <div class="settings-section">
+                    <div class="section-header">
+                        <h2>Aplikacja stanowiskowa (Android)</h2>
+                        <p>Zarządzanie release'ami pliku APK dla tabletów stanowiskowych. Po wgraniu nowej wersji tablety same się zaktualizują (pytają endpoint <code>/api/mobile/app/version</code>).</p>
+                    </div>
+
+                    <!-- Upload nowego APK -->
+                    <div class="settings-subsection" style="margin-bottom: 30px; padding: 20px; background: #f8f9fa; border-radius: 8px; border: 1px solid #e0e0e0;">
+                        <h3 style="margin: 0 0 15px 0; font-size: 16px;">Wgraj nowy release</h3>
+                        <form id="apkUploadForm" enctype="multipart/form-data">
+                            <div class="form-group">
+                                <label>Plik APK <span class="required">*</span></label>
+                                <input type="file" name="apk" id="apkFileInput" accept=".apk,application/vnd.android.package-archive" required>
+                                <small class="form-hint">version_code i version_name zostaną odczytane automatycznie z manifestu APK. version_code musi być wyższy od poprzedniego.</small>
+                            </div>
+                            <div class="form-group">
+                                <label>Nazwa wersji (opcjonalnie)</label>
+                                <input type="text" name="version_name" placeholder="np. 1.0.2-hotfix (puste = z manifestu APK)">
+                            </div>
+                            <div class="form-group">
+                                <label>Release notes (opcjonalnie)</label>
+                                <textarea name="release_notes" rows="5" placeholder="Co się zmieniło w tej wersji? Każda linia będzie widoczna na tablecie."></textarea>
+                            </div>
+                            <div class="form-actions">
+                                <button type="submit" class="btn-primary" id="apkUploadBtn">
+                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                                        <path d="M9 16h6v-6h4l-7-7-7 7h4zm-4 2h14v2H5z"/>
+                                    </svg>
+                                    Wgraj APK
+                                </button>
+                                <span id="apkUploadStatus" style="margin-left: 15px; font-size: 13px;"></span>
+                            </div>
+                        </form>
+                    </div>
+
+                    <!-- Lista release'ów -->
+                    <h3 style="margin: 0 0 15px 0; font-size: 16px;">Historia release'ów</h3>
+                    <div class="sources-table-wrapper">
+                        <table class="sources-table">
+                            <thead>
+                                <tr>
+                                    <th style="width: 90px;">Kod</th>
+                                    <th style="width: 110px;">Wersja</th>
+                                    <th style="width: 100px;">Rozmiar</th>
+                                    <th style="width: 120px;">SHA-256</th>
+                                    <th>Release notes</th>
+                                    <th style="width: 140px;">Wgrano</th>
+                                    <th style="width: 110px;">Aktywny</th>
+                                </tr>
+                            </thead>
+                            <tbody id="mobileReleasesTableBody">
+                                {% for r in mobile_releases %}
+                                <tr data-id="{{ r.id }}">
+                                    <td><strong>{{ r.version_code }}</strong></td>
+                                    <td>{{ r.version_name }}</td>
+                                    <td>{{ "%.2f"|format(r.file_size_bytes / 1048576) }} MB</td>
+                                    <td><code style="font-size: 11px;" title="{{ r.sha256 }}">{{ r.sha256_short }}…</code></td>
+                                    <td style="white-space: pre-wrap; font-size: 13px;">{{ r.release_notes or '—' }}</td>
+                                    <td style="font-size: 12px;">{{ r.uploaded_at[:16] if r.uploaded_at else '—' }}</td>
+                                    <td>
+                                        <label class="toggle-switch">
+                                            <input type="checkbox" class="release-active-toggle"
+                                                   data-id="{{ r.id }}"
+                                                   {% if r.is_active %}checked{% endif %}>
+                                            <span class="toggle-slider"></span>
+                                        </label>
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+
+                    {% if not mobile_releases %}
+                    <div class="empty-state">
+                        <p>Brak release'ów. Wgraj pierwszy plik APK powyżej.</p>
+                    </div>
+                    {% endif %}
+
+                    <div class="prices-info sources-info" style="margin-top: 20px;">
+                        <h4>Jak to działa:</h4>
+                        <ul>
+                            <li>Backend liczy SHA-256 i odczytuje versionCode/versionName z manifestu APK automatycznie.</li>
+                            <li>Tablety pytają <code>/api/mobile/app/version</code> i pobierają najnowszy <strong>aktywny</strong> release.</li>
+                            <li>Wycofanie buggy wersji = przełącz suwak "Aktywny" w wierszu releaseu.</li>
+                            <li>Przy więcej niż jednym aktywnym release'ie wybierany jest ten z najwyższym <code>version_code</code>.</li>
+                        </ul>
                     </div>
                 </div>
             </div>
