@@ -1779,8 +1779,21 @@ document.addEventListener('DOMContentLoaded', function() {
     if (apkUploadForm) {
         const statusEl = document.getElementById('apkUploadStatus');
         const uploadBtn = document.getElementById('apkUploadBtn');
+        const progressBox = document.getElementById('apkUploadProgress');
+        const progressFill = document.getElementById('apkProgressFill');
+        const progressPercent = document.getElementById('apkProgressPercent');
+        const progressBytes = document.getElementById('apkProgressBytes');
+        const progressEta = document.getElementById('apkProgressEta');
 
-        apkUploadForm.addEventListener('submit', async function(e) {
+        const fmtMB = b => (b / 1048576).toFixed(2) + ' MB';
+        const fmtEta = sec => {
+            if (!isFinite(sec) || sec < 0) return '--:--';
+            const m = Math.floor(sec / 60);
+            const s = Math.floor(sec % 60);
+            return String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
+        };
+
+        apkUploadForm.addEventListener('submit', function(e) {
             e.preventDefault();
             const fileInput = document.getElementById('apkFileInput');
             if (!fileInput.files || fileInput.files.length === 0) {
@@ -1791,29 +1804,72 @@ document.addEventListener('DOMContentLoaded', function() {
 
             const formData = new FormData(apkUploadForm);
             uploadBtn.disabled = true;
-            statusEl.textContent = 'Wgrywam… (to może chwilę potrwać przy ~10 MB)';
-            statusEl.style.color = '#666';
+            statusEl.textContent = '';
+            progressBox.style.display = 'block';
+            progressFill.style.width = '0%';
+            progressPercent.textContent = '0%';
+            progressBytes.textContent = '0 / 0 MB';
+            progressEta.textContent = 'Pozostało: --:--';
 
-            try {
-                const resp = await fetch('/settings/api/mobile-releases/upload', {
-                    method: 'POST',
-                    body: formData,
-                });
-                const data = await resp.json();
-                if (data.success) {
+            const xhr = new XMLHttpRequest();
+            const startTs = Date.now();
+
+            xhr.upload.addEventListener('progress', function(ev) {
+                if (!ev.lengthComputable) return;
+                const pct = (ev.loaded / ev.total) * 100;
+                progressFill.style.width = pct.toFixed(1) + '%';
+                progressPercent.textContent = pct.toFixed(1) + '%';
+                progressBytes.textContent = fmtMB(ev.loaded) + ' / ' + fmtMB(ev.total);
+
+                const elapsed = (Date.now() - startTs) / 1000;
+                if (elapsed > 0.5 && ev.loaded > 0) {
+                    const speed = ev.loaded / elapsed;
+                    const eta = (ev.total - ev.loaded) / speed;
+                    progressEta.textContent = 'Pozostało: ' + fmtEta(eta);
+                }
+            });
+
+            xhr.upload.addEventListener('loadend', function() {
+                if (xhr.upload.lengthComputable !== false) {
+                    progressEta.textContent = 'Przetwarzanie na serwerze…';
+                }
+            });
+
+            xhr.addEventListener('load', function() {
+                let data = null;
+                try { data = JSON.parse(xhr.responseText); } catch (e) {}
+                if (xhr.status >= 200 && xhr.status < 300 && data && data.success) {
+                    progressFill.style.width = '100%';
+                    progressPercent.textContent = '100%';
+                    progressEta.textContent = 'Gotowe';
                     statusEl.textContent = `OK — release v${data.release.version_code} (${data.release.version_name}) zarejestrowany. Odświeżam…`;
                     statusEl.style.color = '#28a745';
                     setTimeout(() => window.location.reload(), 1200);
                 } else {
-                    statusEl.textContent = 'Błąd: ' + (data.error || 'nieznany');
+                    const msg = (data && data.error) || ('HTTP ' + xhr.status);
+                    statusEl.textContent = 'Błąd: ' + msg;
                     statusEl.style.color = '#dc3545';
+                    progressBox.style.display = 'none';
                     uploadBtn.disabled = false;
                 }
-            } catch (err) {
-                statusEl.textContent = 'Błąd połączenia: ' + err.message;
+            });
+
+            xhr.addEventListener('error', function() {
+                statusEl.textContent = 'Błąd połączenia';
                 statusEl.style.color = '#dc3545';
+                progressBox.style.display = 'none';
                 uploadBtn.disabled = false;
-            }
+            });
+
+            xhr.addEventListener('abort', function() {
+                statusEl.textContent = 'Upload przerwany';
+                statusEl.style.color = '#dc3545';
+                progressBox.style.display = 'none';
+                uploadBtn.disabled = false;
+            });
+
+            xhr.open('POST', '/settings/api/mobile-releases/upload');
+            xhr.send(formData);
         });
     }
 

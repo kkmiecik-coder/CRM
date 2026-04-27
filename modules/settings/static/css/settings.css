@@ -1676,3 +1676,40 @@ tr.row-changed td:first-child {
     gap: 12px;
     justify-content: flex-start;
 }
+
+.apk-upload-progress {
+    margin: 8px 0 16px;
+    padding: 12px 14px;
+    background: #f8fafc;
+    border: 1px solid var(--border-color, #e5e7eb);
+    border-radius: 8px;
+}
+
+.apk-progress-bar-wrapper {
+    height: 10px;
+    background: #e5e7eb;
+    border-radius: 999px;
+    overflow: hidden;
+}
+
+.apk-progress-bar-fill {
+    height: 100%;
+    width: 0%;
+    background: linear-gradient(90deg, #2563eb, #3b82f6);
+    border-radius: 999px;
+    transition: width 0.15s linear;
+}
+
+.apk-progress-meta {
+    display: flex;
+    justify-content: space-between;
+    margin-top: 8px;
+    font-size: 12px;
+    color: var(--text-muted, #6b7280);
+    font-variant-numeric: tabular-nums;
+}
+
+.apk-progress-meta span:first-child {
+    font-weight: 600;
+    color: var(--text-primary, #1a1a2e);
+}

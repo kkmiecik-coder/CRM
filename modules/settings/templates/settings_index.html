@@ -234,6 +234,16 @@
                                 <label>Release notes (opcjonalnie)</label>
                                 <textarea name="release_notes" rows="5" placeholder="Co się zmieniło w tej wersji? Każda linia będzie widoczna na tablecie."></textarea>
                             </div>
+                            <div class="apk-upload-progress" id="apkUploadProgress" style="display: none;">
+                                <div class="apk-progress-bar-wrapper">
+                                    <div class="apk-progress-bar-fill" id="apkProgressFill"></div>
+                                </div>
+                                <div class="apk-progress-meta">
+                                    <span id="apkProgressPercent">0%</span>
+                                    <span id="apkProgressBytes">0 / 0 MB</span>
+                                    <span id="apkProgressEta">Pozostało: --:--</span>
+                                </div>
+                            </div>
                             <div class="form-actions">
                                 <button type="submit" class="btn-primary" id="apkUploadBtn">
                                     <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
