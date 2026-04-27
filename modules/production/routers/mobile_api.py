@@ -5,12 +5,20 @@ Blueprint zarejestrowany w app.py pod prefixem `/api/mobile`.
 Logika biznesowa w `services/mobile_api_service.py` — router jest cienki.
 """
 
+from datetime import datetime, time
+
 from flask import Blueprint, g, jsonify, request
-from sqlalchemy import func
+from sqlalchemy import func, or_
 
 from extensions import db
 from modules.logging import get_structured_logger
 from modules.production.models import ProductionDevice, ProductionItem
+from modules.production.utils.cache import (
+    cached_json,
+    if_none_match,
+    make_weak_etag,
+    not_modified,
+)
 from modules.production.services.mobile_api_service import (
     STATION_STATUS_MAP,
     compute_station_summary,
@@ -142,21 +150,30 @@ def station_orders(station_code):
         ProductionItem.current_status == status
     ).distinct().subquery()
 
-    items = ProductionItem.query.filter(
-        ProductionItem.internal_order_number.in_(
-            db.session.query(order_numbers_subq.c.internal_order_number)
-        )
-    ).order_by(
+    items_filter = ProductionItem.internal_order_number.in_(
+        db.session.query(order_numbers_subq.c.internal_order_number)
+    )
+
+    max_updated, total_count = db.session.query(
+        func.max(ProductionItem.updated_at),
+        func.count(ProductionItem.id),
+    ).filter(items_filter).first()
+    etag_ts = int(max_updated.timestamp()) if max_updated else 0
+    etag = make_weak_etag('orders', station_code, etag_ts, total_count or 0)
+    if if_none_match(etag):
+        return not_modified(etag)
+
+    items = ProductionItem.query.filter(items_filter).order_by(
         func.coalesce(ProductionItem.priority_rank, 999999).asc(),
         ProductionItem.internal_order_number.asc(),
         ProductionItem.id.asc(),
     ).all()
 
-    return jsonify({
+    return cached_json({
         'station_code': station_code,
         'count': len(items),
         'orders': [serialize_order(it, station_code=station_code) for it in items],
-    }), 200
+    }, etag)
 
 
 @mobile_api_bp.route('/orders/<int:order_id>', methods=['GET'])
@@ -281,8 +298,30 @@ def station_summary(station_code):
             'requested_station': station_code,
         }), 403
 
+    # ETag: MAX(updated_at) + COUNT po pozycjach z kolejki LUB ukończonych
+    # dziś na tym stanowisku (completed_today resetuje się o północy, dlatego
+    # data lokalna trafia do klucza).
+    status = STATION_STATUS_MAP[station_code]
+    today_start = datetime.combine(datetime.now().date(), time.min)
+    completed_attr = getattr(ProductionItem, f'{station_code}_completed_at', None)
+    cache_filter = (ProductionItem.current_status == status)
+    if completed_attr is not None:
+        cache_filter = or_(cache_filter, completed_attr >= today_start)
+
+    max_updated, total_count = db.session.query(
+        func.max(ProductionItem.updated_at),
+        func.count(ProductionItem.id),
+    ).filter(cache_filter).first()
+    etag_ts = int(max_updated.timestamp()) if max_updated else 0
+    etag = make_weak_etag(
+        'summary', station_code, today_start.date().isoformat(),
+        etag_ts, total_count or 0,
+    )
+    if if_none_match(etag):
+        return not_modified(etag)
+
     try:
-        return jsonify(compute_station_summary(station_code)), 200
+        return cached_json(compute_station_summary(station_code), etag)
     except Exception as e:
         logger.error("Mobile API summary failed", extra={
             'station_code': station_code,
