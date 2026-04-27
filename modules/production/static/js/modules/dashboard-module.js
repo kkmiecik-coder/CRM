@@ -345,6 +345,11 @@ class DashboardModule {
             document.getElementById('today-completed-products'),
             statsData.completed_products || 0
         );
+        const m3Value = statsData.total_m3 ?? statsData.total_volume_today_m3 ?? 0;
+        const m3El = document.getElementById('today-total-m3');
+        if (m3El) {
+            this.updateNumberWithAnimation(m3El, parseFloat(m3Value).toFixed(4));
+        }
     }
 
     async unload() {

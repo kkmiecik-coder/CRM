@@ -1624,9 +1624,26 @@ def dashboard_stats_data():
             logger.warning("Nie udało się pobrać volume_m3", extra={'error': str(volume_error)})
             total_volume_today = 0.0
 
+        # Spójne metryki "Zakończone dziś": zamówienia (distinct), pozycje (rows), produkty (sum quantity)
+        completed_today_filter = [
+            ProductionItem.current_status == 'spakowane',
+            ProductionItem.packaging_completed_at >= today_start,
+            ProductionItem.packaging_completed_at <= today_end
+        ]
+        completed_orders_today = db.session.query(
+            db.func.count(db.func.distinct(ProductionItem.internal_order_number))
+        ).filter(*completed_today_filter).scalar() or 0
+        completed_products_today = db.session.query(
+            db.func.coalesce(db.func.sum(ProductionItem.quantity), 0)
+        ).filter(*completed_today_filter).scalar() or 0
+
         stats_data = {
             'total_orders': total_orders,
             'completed_today': completed_today,
+            'completed_orders': int(completed_orders_today),
+            'completed_items': int(completed_today_original),
+            'completed_products': int(completed_products_today),
+            'total_m3': float(total_volume_today),
             'pending_priority': pending_priority,
             'errors_24h': errors_24h,
             'total_volume_today_m3': total_volume_today,
