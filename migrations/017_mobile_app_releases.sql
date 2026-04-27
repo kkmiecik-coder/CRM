@@ -13,7 +13,7 @@ CREATE TABLE IF NOT EXISTS mobile_app_releases (
     release_notes TEXT DEFAULT NULL COMMENT 'Notatki release dla operatora — pokazywane w UI tabletu po update',
     uploaded_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Kiedy admin wgrał APK',
     uploaded_by_user_id INT DEFAULT NULL COMMENT 'Kto wgrał (FK users.id, NULL = system/script)',
-    is_active BOOLEAN NOT NULL DEFAULT TRUE COMMENT 'FALSE = release wycofany (np. krytyczny bug); pomijany przy /app/version i /app/apk',
+    is_active BOOLEAN NOT NULL DEFAULT TRUE COMMENT 'FALSE = release wycofany (np. krytyczny bug) - pomijany przy /app/version i /app/apk',
     INDEX idx_version_code (version_code),
     INDEX idx_is_active (is_active),
     CONSTRAINT fk_mobile_release_user
