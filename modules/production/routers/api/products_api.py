@@ -662,8 +662,13 @@ def products_tab_content():
             if crt is not None and (agg['created_at'] is None or crt < agg['created_at']):
                 agg['created_at'] = crt
 
-        # Renderuj HTML template
-        html_content = render_template('components/products-tab-content.html')
+        # Renderuj HTML template (osobny komponent dla widoku archiwum)
+        template_name = (
+            'components/archive-tab-content.html'
+            if view_mode == 'archive'
+            else 'components/products-tab-content.html'
+        )
+        html_content = render_template(template_name)
         
         # Przygotuj dane produktów z bezpiecznym dostępem do atrybutów
         products_data = []

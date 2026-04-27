@@ -1,0 +1,101 @@
+/* Archive tab — overrides na bazie products-tab.css.
+   Reużywa większość klas .il-* z products-tab.css; tutaj są tylko korekty
+   layoutu (mniej kolumn) i nowe elementy specyficzne dla archiwum
+   (zakres dat + presety + wyszarzony stan kart). */
+
+/* ─── GRID LAYOUT (8 kolumn zamiast 11) ─── */
+.arch-orders-header,
+.arch-order-header {
+    grid-template-columns: 20px 2fr 55px 80px 100px 160px 150px 130px;
+}
+
+/* ─── DATE RANGE FILTER ─── */
+.arch-date-range {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 0 8px;
+    border-left: 1px solid var(--il-border, #e5e7eb);
+    border-right: 1px solid var(--il-border, #e5e7eb);
+}
+
+.arch-date-range-label {
+    font-size: 12px;
+    color: #6b7280;
+    white-space: nowrap;
+}
+
+.arch-date-range-label i {
+    margin-right: 4px;
+}
+
+.arch-date-input {
+    width: 130px;
+    min-width: 130px;
+    padding: 4px 8px;
+    font-size: 12px;
+}
+
+.arch-date-range-sep {
+    color: #9ca3af;
+    font-weight: 600;
+}
+
+.arch-date-presets {
+    display: flex;
+    gap: 4px;
+    flex-wrap: wrap;
+}
+
+.arch-date-preset {
+    font-size: 11px;
+    padding: 4px 8px;
+    white-space: nowrap;
+}
+
+/* ─── VISUAL: archiwum lekko wyciszone ─── */
+.arch-order-card {
+    opacity: 0.92;
+}
+
+.arch-order-card:hover {
+    opacity: 1;
+}
+
+.arch-order-completed {
+    color: #16a34a;
+    font-weight: 500;
+    white-space: nowrap;
+}
+
+/* ─── STATS BAR: dodatkowa kolumna na czas realizacji ─── */
+#archive-module-container .il-stats-bar {
+    grid-template-columns: repeat(5, 1fr);
+}
+
+/* ─── RESPONSIVE ─── */
+@media (max-width: 1280px) {
+    .arch-orders-header,
+    .arch-order-header {
+        grid-template-columns: 20px 2fr 55px 80px 120px 120px 130px;
+    }
+    .arch-orders-header > :nth-child(7),
+    .arch-order-header > :nth-child(7) {
+        display: none;
+    }
+}
+
+@media (max-width: 900px) {
+    .arch-orders-header,
+    .arch-order-header {
+        grid-template-columns: 20px 2fr 120px 120px 100px;
+    }
+    .arch-orders-header > :nth-child(3),
+    .arch-orders-header > :nth-child(4),
+    .arch-orders-header > :nth-child(5),
+    .arch-order-header > :nth-child(3),
+    .arch-order-header > :nth-child(4),
+    .arch-order-header > :nth-child(5) {
+        display: none;
+    }
+}

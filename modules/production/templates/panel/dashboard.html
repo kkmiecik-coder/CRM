@@ -9,6 +9,7 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
     <!-- CSS dla tabów -->
     <link rel="stylesheet" href="{{ url_for('production.static', filename='css/products-tab.css') }}?v=20260423">
+    <link rel="stylesheet" href="{{ url_for('production.static', filename='css/archive-tab.css') }}?v=20260427">
     <link rel="stylesheet" href="{{ url_for('production.static', filename='css/production-panel.css') }}">
     <link rel="stylesheet" href="{{ url_for('production.static', filename='css/config-tab.css') }}">
     <!-- CSS dla komponentów -->
@@ -44,6 +45,15 @@
                             aria-controls="products-tab-content"
                             aria-selected="false">
                         <i class="fas fa-list me-2"></i>Lista produktów
+                    </button>
+                    <button class="nav-link"
+                            id="archive-tab"
+                            data-bs-toggle="tab"
+                            data-bs-target="#archive-tab-content"
+                            type="button" role="tab"
+                            aria-controls="archive-tab-content"
+                            aria-selected="false">
+                        <i class="fas fa-archive me-2"></i>Archiwum
                     </button>
                     <button class="nav-link"
                             id="reports-tab"
@@ -144,6 +154,44 @@
                                 <i class="fas fa-exclamation-triangle me-2"></i>
                                 <strong>Błąd ładowania produktów!</strong>
                                 <span id="products-tab-error-message"></span>
+                                <button class="btn btn-outline-danger btn-sm ms-2" onclick="ProductionApp.forceRefresh()">
+                                    <i class="fas fa-redo me-1"></i>Spróbuj ponownie
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Archive Tab -->
+                    <div class="tab-pane fade"
+                         id="archive-tab-content"
+                         role="tabpanel"
+                         aria-labelledby="archive-tab">
+
+                        <div class="tab-skeleton" id="archive-tab-skeleton">
+                            <div style="padding: 16px 0;">
+                                <div style="display: flex; gap: 12px; margin-bottom: 16px;">
+                                    <div class="skeleton skeleton-badge" style="width: 120px; height: 32px;"></div>
+                                    <div class="skeleton skeleton-badge" style="width: 100px; height: 32px;"></div>
+                                    <div class="skeleton skeleton-badge" style="width: 160px; height: 32px; margin-left: auto;"></div>
+                                </div>
+                                <div class="skeleton-card">
+                                    <div class="skeleton-row"><div class="skeleton skeleton-avatar"></div><div class="skeleton skeleton-text long" style="flex:1;margin:0;"></div><div class="skeleton skeleton-badge"></div></div>
+                                    <div class="skeleton-row"><div class="skeleton skeleton-avatar"></div><div class="skeleton skeleton-text long" style="flex:1;margin:0;"></div><div class="skeleton skeleton-badge"></div></div>
+                                    <div class="skeleton-row"><div class="skeleton skeleton-avatar"></div><div class="skeleton skeleton-text long" style="flex:1;margin:0;"></div><div class="skeleton skeleton-badge"></div></div>
+                                    <div class="skeleton-row"><div class="skeleton skeleton-avatar"></div><div class="skeleton skeleton-text long" style="flex:1;margin:0;"></div><div class="skeleton skeleton-badge"></div></div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="tab-content-wrapper" id="archive-tab-wrapper" style="display:none;">
+                            <!-- Zawartość archiwum zostanie załadowana przez AJAX -->
+                        </div>
+
+                        <div class="tab-error" id="archive-tab-error" style="display:none;">
+                            <div class="alert alert-danger" role="alert">
+                                <i class="fas fa-exclamation-triangle me-2"></i>
+                                <strong>Błąd ładowania archiwum!</strong>
+                                <span id="archive-tab-error-message"></span>
                                 <button class="btn btn-outline-danger btn-sm ms-2" onclick="ProductionApp.forceRefresh()">
                                     <i class="fas fa-redo me-1"></i>Spróbuj ponownie
                                 </button>
@@ -266,6 +314,7 @@
     <script src="{{ url_for('production.static', filename='js/modules/products-dragdrop.js') }}?v=20260410"></script>
     <script src="{{ url_for('production.static', filename='js/modules/barcode-scanner.js') }}?v=20260423"></script>
     <script src="{{ url_for('production.static', filename='js/modules/products-module.js') }}?v=20260423"></script>
+    <script src="{{ url_for('production.static', filename='js/modules/archive-module.js') }}?v=20260427"></script>
     <script src="{{ url_for('production.static', filename='js/modules/config-module.js') }}?v=20260410"></script>
     <!-- Główny kontroler aplikacji -->
     <script src="{{ url_for('production.static', filename='js/production-app-loader.js') }}"></script>

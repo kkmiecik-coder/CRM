@@ -95,7 +95,7 @@ class ProductionApp {
         const tabParam = params.get('tab');
         if (tabParam) {
             const tabName = tabParam.endsWith('-tab') ? tabParam : `${tabParam}-tab`;
-            const validTabs = ['dashboard-tab', 'products-tab', 'reports-tab', 'config-tab'];
+            const validTabs = ['dashboard-tab', 'products-tab', 'archive-tab', 'reports-tab', 'config-tab'];
             if (validTabs.includes(tabName)) {
                 return tabName;
             }
@@ -270,6 +270,7 @@ class ProductionApp {
         switch (normalizedTabName) {
             case 'dashboard-tab': await this.loadDashboardTab(); break;
             case 'products-tab': await this.loadProductsTab(); break;
+            case 'archive-tab': await this.loadArchiveTab(); break;
             case 'reports-tab': await this.loadReportsTab(); break;
             case 'config-tab': await this.loadConfigTab(); break;
             default: throw new Error(`Unknown tab: ${normalizedTabName}`);
@@ -328,6 +329,31 @@ class ProductionApp {
         } catch (error) {
             console.error('[ProductionApp] Products loading failed:', error);
             this.showTabError('products-tab', error.message);
+            throw error;
+        }
+    }
+
+    async loadArchiveTab() {
+        console.log('[ProductionApp] Loading archive tab...');
+        try {
+            const response = await this.shared.apiClient.getProductsTabContent({ view: 'archive' });
+            if (!response.success) throw new Error(response.error || 'Failed to load archive');
+
+            const wrapper = document.getElementById('archive-tab-wrapper');
+            const skeleton = document.getElementById('archive-tab-skeleton');
+
+            if (wrapper) {
+                wrapper.innerHTML = response.html;
+                wrapper.style.display = 'block';
+                wrapper.classList.add('fade-in');
+            }
+            if (skeleton) skeleton.classList.add('hidden');
+
+            await this.initializeArchiveModule(response.initial_data);
+            console.log('[ProductionApp] Archive tab loaded');
+        } catch (error) {
+            console.error('[ProductionApp] Archive loading failed:', error);
+            this.showTabError('archive-tab', error.message);
             throw error;
         }
     }
@@ -630,7 +656,7 @@ class ProductionApp {
         if (event.ctrlKey && event.key >= '1' && event.key <= '5') {
             event.preventDefault();
             const tabIndex = parseInt(event.key) - 1;
-            const tabs = ['dashboard-tab', 'products-tab', 'reports-tab', 'stations-tab', 'config-tab'];
+            const tabs = ['dashboard-tab', 'products-tab', 'archive-tab', 'reports-tab', 'config-tab'];
 
             if (tabs[tabIndex]) {
                 this.switchToTab(tabs[tabIndex]);
@@ -674,6 +700,31 @@ class ProductionApp {
 
         } catch (error) {
             console.error('[ProductionApp] Failed to initialize DashboardModule:', error);
+            throw error;
+        }
+    }
+
+    async initializeArchiveModule(initialData) {
+        console.log('[ProductionApp] Initializing ArchiveModule...');
+
+        if (typeof ArchiveModule === 'undefined') {
+            console.error('[ProductionApp] ArchiveModule not available');
+            this.shared.toastSystem.show('ArchiveModule nie jest dostępny', 'error');
+            return;
+        }
+
+        try {
+            const archiveModule = new ArchiveModule(this.shared, this.config);
+            await archiveModule.load(initialData);
+
+            this.state.loadedModules.set('archive', archiveModule);
+            this.modules['archive-tab'] = archiveModule;
+            window.archiveModule = archiveModule;
+
+            console.log('[ProductionApp] ArchiveModule initialized successfully');
+        } catch (error) {
+            console.error('[ProductionApp] Failed to initialize ArchiveModule:', error);
+            this.shared.toastSystem.show('Błąd inicjalizacji archiwum: ' + error.message, 'error');
             throw error;
         }
     }

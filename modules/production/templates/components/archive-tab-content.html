@@ -1,0 +1,175 @@
+{# Archive Tab Content - widok zamówień w pełni spakowanych #}
+<div id="archive-module-container">
+
+  {# ─── STATS BAR ─── #}
+  <div class="il-stats-bar">
+    <div class="il-stat-card">
+      <span class="il-stat-label">Spakowane zamówienia</span>
+      <span class="il-stat-value" id="arch-stats-orders">0</span>
+    </div>
+    <div class="il-stat-card">
+      <span class="il-stat-label">Pozycje</span>
+      <span class="il-stat-value" id="arch-stats-products">0</span>
+    </div>
+    <div class="il-stat-card">
+      <span class="il-stat-label">Łączny m³</span>
+      <span class="il-stat-value" id="arch-stats-volume">0 m³</span>
+    </div>
+    <div class="il-stat-card">
+      <span class="il-stat-label">Łączna wartość netto</span>
+      <span class="il-stat-value" id="arch-stats-value">0 zł</span>
+    </div>
+    <div class="il-stat-card">
+      <span class="il-stat-label">Średni czas realizacji</span>
+      <span class="il-stat-value" id="arch-stats-avg-days">— dni</span>
+    </div>
+  </div>
+
+  {# ─── FILTERS ─── #}
+  <div class="il-filters-bar">
+    <input type="text" class="il-filter-search" id="arch-search" placeholder="Szukaj: nr zamówienia, klient, produkt..." autocomplete="off">
+
+    <div class="il-multiselect" id="arch-filter-wood-species">
+      <div class="il-filter-dropdown" data-filter="wood-species">
+        <i class="fas fa-tree"></i> Gatunek <i class="fas fa-chevron-down il-chevron"></i>
+      </div>
+      <div class="il-multiselect-options" id="arch-dropdown-wood-species" style="display:none;">
+        <input type="text" class="il-multiselect-search" placeholder="Szukaj...">
+        <label class="il-multiselect-option"><input type="checkbox" value="__all__"> Zaznacz wszystkie</label>
+      </div>
+    </div>
+
+    <div class="il-multiselect" id="arch-filter-technology">
+      <div class="il-filter-dropdown" data-filter="technology">
+        <i class="fas fa-cogs"></i> Technologia <i class="fas fa-chevron-down il-chevron"></i>
+      </div>
+      <div class="il-multiselect-options" id="arch-dropdown-technology" style="display:none;">
+        <input type="text" class="il-multiselect-search" placeholder="Szukaj...">
+        <label class="il-multiselect-option"><input type="checkbox" value="__all__"> Zaznacz wszystkie</label>
+      </div>
+    </div>
+
+    <div class="il-multiselect" id="arch-filter-wood-class">
+      <div class="il-filter-dropdown" data-filter="wood-class">
+        <i class="fas fa-layer-group"></i> Klasa <i class="fas fa-chevron-down il-chevron"></i>
+      </div>
+      <div class="il-multiselect-options" id="arch-dropdown-wood-class" style="display:none;">
+        <input type="text" class="il-multiselect-search" placeholder="Szukaj...">
+        <label class="il-multiselect-option"><input type="checkbox" value="__all__"> Zaznacz wszystkie</label>
+      </div>
+    </div>
+
+    <div class="il-multiselect" id="arch-filter-thickness">
+      <div class="il-filter-dropdown" data-filter="thickness">
+        <i class="fas fa-ruler"></i> Grubość <i class="fas fa-chevron-down il-chevron"></i>
+      </div>
+      <div class="il-multiselect-options" id="arch-dropdown-thickness" style="display:none;">
+        <input type="text" class="il-multiselect-search" placeholder="Szukaj...">
+        <label class="il-multiselect-option"><input type="checkbox" value="__all__"> Zaznacz wszystkie</label>
+      </div>
+    </div>
+
+    {# ─── DATE RANGE ─── #}
+    <div class="arch-date-range">
+      <span class="arch-date-range-label"><i class="fas fa-calendar-check"></i> Zakończono:</span>
+      <input type="date" class="il-filter-search arch-date-input" id="arch-completed-from" title="Od daty">
+      <span class="arch-date-range-sep">–</span>
+      <input type="date" class="il-filter-search arch-date-input" id="arch-completed-to" title="Do daty">
+    </div>
+
+    <div class="arch-date-presets">
+      <button type="button" class="il-btn-secondary arch-date-preset" data-preset="this-month">Ten miesiąc</button>
+      <button type="button" class="il-btn-secondary arch-date-preset" data-preset="prev-month">Poprzedni miesiąc</button>
+      <button type="button" class="il-btn-secondary arch-date-preset" data-preset="last-30">Ostatnie 30 dni</button>
+      <button type="button" class="il-btn-secondary arch-date-preset" data-preset="clear">Wyczyść daty</button>
+    </div>
+
+    <button class="il-apply-filters" id="arch-apply-filters" title="Zastosuj filtry">
+      <i class="fas fa-filter"></i> Filtruj
+    </button>
+  </div>
+
+  {# ─── ACTIVE FILTERS ─── #}
+  <div class="il-active-filters" id="arch-active-filters" style="display:none;">
+    <div class="il-filter-badges" id="arch-filter-badges"></div>
+    <button class="il-clear-filters" id="arch-clear-all-filters">Wyczyść filtry</button>
+  </div>
+
+  {# ─── COLUMN HEADERS ─── #}
+  <div class="il-orders-header arch-orders-header">
+    <span></span>
+    <span>Klient / Zamówienie</span>
+    <span>Pozycje</span>
+    <span>Objętość</span>
+    <span>Wartość netto</span>
+    <span style="text-align:center;">Status</span>
+    <span style="text-align:center;">Zakończono</span>
+    <span>Akcje</span>
+  </div>
+
+  {# ─── ORDERS LIST ─── #}
+  <div id="arch-orders-list">
+    <div id="arch-products-loading" class="il-products-loading" style="display:none;">
+      <div class="il-loading-spinner"></div>
+      <p>Ładowanie archiwum...</p>
+    </div>
+
+    <div id="arch-products-empty" class="il-products-empty" style="display:none;">
+      <i class="fas fa-archive" style="font-size: 36px; color: #9ba3b0; margin-bottom: 12px;"></i>
+      <p id="arch-empty-reason">Brak zamówień w archiwum</p>
+      <button class="il-btn-secondary" id="arch-clear-filters-empty" style="display:none;">Wyczyść filtry</button>
+    </div>
+
+    <div id="arch-products-error" class="il-products-error" style="display:none;">
+      <i class="fas fa-exclamation-triangle" style="color: #dc2626;"></i>
+      <span id="arch-error-message">Błąd ładowania</span>
+      <button class="il-btn-secondary" id="arch-retry-load">Ponów</button>
+    </div>
+  </div>
+
+</div>
+
+{# ─── TEMPLATES (cloneNode) ─── #}
+
+<template id="arch-order-template">
+  <div class="il-order-card arch-order-card">
+    <div class="il-order-header arch-order-header">
+      <span class="il-order-expand">▶</span>
+      <div class="il-order-info">
+        <span class="il-order-client"></span>
+        <div class="il-order-ids"></div>
+      </div>
+      <span class="il-order-cell il-order-positions"></span>
+      <span class="il-order-cell il-order-volume"></span>
+      <span class="il-order-cell il-order-value"></span>
+      <span class="il-order-status-badge"></span>
+      <span class="il-order-deadline arch-order-completed"></span>
+      <div class="il-order-actions">
+        <button class="il-order-action-btn" data-action="details" title="Szczegóły"><i class="fas fa-eye"></i></button>
+        <button class="il-order-action-btn" data-action="baselinker" title="Baselinker"><i class="fas fa-external-link-alt"></i></button>
+      </div>
+    </div>
+    <div class="il-order-card-meta"></div>
+    <div class="il-order-products collapsed"></div>
+  </div>
+</template>
+
+<template id="arch-product-template">
+  <div class="il-product-row arch-product-row">
+    <div class="il-product-name">
+      <div class="il-product-name-text"></div>
+      <div class="il-product-name-id"></div>
+    </div>
+    <div class="il-product-spec"></div>
+    <span class="il-product-qty"></span>
+    <span class="il-product-volume"></span>
+    <span class="il-product-status-badge"></span>
+  </div>
+</template>
+
+<template id="arch-filter-badge-template">
+  <div class="il-filter-badge">
+    <span class="il-filter-badge-text"></span>
+    <span class="il-filter-badge-remove">✕</span>
+  </div>
+</template>
