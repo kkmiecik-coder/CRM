@@ -24,6 +24,7 @@ from sqlalchemy.exc import IntegrityError
 from extensions import db
 from modules.logging import get_structured_logger
 from modules.production.models import (
+    MobileAppRelease,
     ProcessedMobileOperation,
     ProductionDevice,
     ProductionItem,
@@ -607,49 +608,281 @@ def update_order_quantity(item, station_code, quantity_done):
 # APP VERSION / APK HOSTING
 # ============================================================================
 
+# Limit rozmiaru APK (50 MB) — sanity check przy uploadzie. Globalny
+# MAX_CONTENT_LENGTH Flask jest większy (100 MB w app.py), ale APK
+# WoodPower ma ~11 MB, więc 50 MB to z dużym zapasem.
+APK_MAX_SIZE_BYTES = 50 * 1024 * 1024
+
+# TODO: weryfikacja podpisu APK certem produkcyjnym WoodPower.
+# Cert SHA-256 (zachowany żeby nie szukać przy implementacji):
+#   d5e2a671e60dc6c8a0b95ad60334c2f9e841c8e36d84a8444d25b2dcd247fa29
+# pyaxmlparser nie wystawia signing certa — wymaga apksigner (subprocess
+# z Android SDK build-tools) lub własnego parsera bloku v2/v3 signing.
+# Wdrożymy w osobnym commicie kiedy zajdzie potrzeba (obecnie soft-skip).
+
+
+def _instance_apk_dir():
+    """Pełna ścieżka do katalogu instance/mobile_apk/. Tworzy jeśli brak."""
+    base = Path(current_app.instance_path) / 'mobile_apk'
+    base.mkdir(parents=True, exist_ok=True)
+    return base
+
+
+def _release_absolute_path(release):
+    """Pełna ścieżka do pliku APK dla danego release'u."""
+    return Path(current_app.instance_path) / release.file_path
+
+
 def get_app_version_info():
-    """Metadane wersji appki Android (publiczne — appka pyta przed rejestracją)."""
-    cfg = _get_config()
-    apk_path = _resolve_apk_path()
-    apk_size = apk_path.stat().st_size if (apk_path and apk_path.is_file()) else None
+    """
+    Metadane najnowszego aktywnego release'u (publiczne — klient woła przed
+    rejestracją do sanity-check'u). Gdy w bazie nie ma żadnego release'u →
+    zwraca {'version_code': 0} (klient interpretuje jako "brak update'ów").
+    """
+    release = MobileAppRelease.latest_active()
+    if release is None:
+        return {
+            'version_code': 0,
+            'version_name': None,
+            'sha256': None,
+            'release_notes': None,
+            'apk_url': None,
+            'min_supported_version': _get_config().get(
+                'min_supported_app_version', '0.0.0'
+            ),
+        }
 
     return {
-        'latest_version': cfg.get('current_app_version'),
-        'min_supported_version': cfg.get('min_supported_app_version', '0.0.0'),
-        'apk_url': '/api/mobile/app/apk',
-        'apk_hosted': apk_size is not None,
-        'apk_size_bytes': apk_size,
-        'release_notes_url': cfg.get('release_notes_url'),
+        'version_code': release.version_code,
+        'version_name': release.version_name,
+        'sha256': release.sha256,
+        'release_notes': release.release_notes,
+        'file_size_bytes': release.file_size_bytes,
+        'apk_url': f'/api/mobile/app/apk?version={release.version_code}',
+        'min_supported_version': _get_config().get(
+            'min_supported_app_version', '0.0.0'
+        ),
     }
 
 
-def _resolve_apk_path():
-    """Zwraca Path do hostowanego APK lub None."""
-    cfg = _get_config()
-    raw = cfg.get('apk_file_path')
-    if not raw:
-        return None
-    path = Path(raw)
-    if not path.is_absolute():
-        path = Path(current_app.root_path) / path
-    return path
+def stream_apk_response(version_code):
+    """
+    Streaming pliku APK dla zadanego version_code. 404 gdy release nie istnieje
+    lub jest nieaktywny. Plik wysyłany przez send_from_directory (streaming
+    Flaska, mimetype application/vnd.android.package-archive).
+    """
+    from flask import send_from_directory
 
+    release = MobileAppRelease.query.filter_by(
+        version_code=version_code,
+        is_active=True,
+    ).first()
+    if release is None:
+        return jsonify({'error': 'release_not_found'}), 404
 
-def stream_apk_response():
-    """Zwraca Flask response z plikiem APK lub 404 JSON."""
-    from flask import send_file
-    path = _resolve_apk_path()
-    if not path or not path.is_file():
-        return jsonify({
-            'error': 'apk_not_hosted',
-            'detail': 'Plik APK nie jest jeszcze udostępniony. Skontaktuj się z adminem.',
-        }), 404
-    return send_file(
-        str(path),
+    path = _release_absolute_path(release)
+    if not path.is_file():
+        logger.error("Mobile API: release w DB istnieje ale plik APK nie", extra={
+            'version_code': version_code,
+            'expected_path': str(path),
+        })
+        return jsonify({'error': 'release_file_missing'}), 404
+
+    return send_from_directory(
+        path.parent,
+        path.name,
         mimetype='application/vnd.android.package-archive',
         as_attachment=True,
-        download_name=path.name,
+        download_name=f'woodpower-crm-prod-app-{release.version_code}.apk',
     )
+
+
+# ----------------------------------------------------------------------------
+# UPLOAD / RELEASE MANAGEMENT (admin)
+# ----------------------------------------------------------------------------
+
+def _parse_apk_metadata(apk_path):
+    """
+    Ekstrahuje (version_code, version_name) z pliku APK używając pyaxmlparser.
+    Rzuca ValueError gdy plik nie jest poprawnym APK lub brakuje pól.
+    """
+    try:
+        from pyaxmlparser import APK  # lazy import — biblioteka opcjonalna
+    except ImportError as e:
+        raise RuntimeError(
+            'pyaxmlparser nie jest zainstalowany. '
+            'Dodaj `pyaxmlparser` do requirements.txt i `pip install`.'
+        ) from e
+
+    try:
+        apk = APK(str(apk_path))
+    except Exception as e:
+        raise ValueError(f'Niepoprawny plik APK: {e}') from e
+
+    version_code_raw = apk.version_code
+    version_name = apk.version_name
+
+    if not version_code_raw:
+        raise ValueError('APK nie zawiera versionCode w manifeście')
+    if not version_name:
+        raise ValueError('APK nie zawiera versionName w manifeście')
+
+    try:
+        version_code = int(version_code_raw)
+    except (TypeError, ValueError):
+        raise ValueError(f'versionCode nie jest liczbą: {version_code_raw!r}')
+
+    return version_code, str(version_name)
+
+
+def _hash_file_sha256(path, chunk_size=1024 * 1024):
+    """SHA-256 pliku, czytany w kawałkach (1 MB) żeby nie ładować ~11 MB do RAM."""
+    import hashlib
+    h = hashlib.sha256()
+    with open(path, 'rb') as f:
+        while True:
+            chunk = f.read(chunk_size)
+            if not chunk:
+                break
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def register_release(file_storage, version_name_override, release_notes, user_id):
+    """
+    Rejestruje nowy release APK.
+
+    Kroki:
+    1. Save uploadu do tymczasowego pliku w instance/mobile_apk/.
+    2. Walidacja rozmiaru (<= APK_MAX_SIZE_BYTES).
+    3. Parsowanie version_code/version_name z manifestu APK (pyaxmlparser).
+    4. Walidacja: version_code > max(istniejących); brak duplikatu.
+    5. SHA-256 całego pliku.
+    6. Rename pliku do finalnej nazwy `<version_code>-<sha256_short>.apk`.
+    7. INSERT do mobile_app_releases.
+
+    Body przyjmuje `version_name_override` (jeśli admin chce nadpisać nazwę
+    z manifestu — np. dodać sufix "-hotfix"). Gdy puste, używamy z APK.
+
+    Rzuca ValueError dla błędów walidacji (404/400 dla klienta), inne wyjątki
+    propagują do error handlera.
+    """
+    import os
+    import secrets
+
+    if file_storage is None or not file_storage.filename:
+        raise ValueError('Brak pliku APK')
+
+    apk_dir = _instance_apk_dir()
+    tmp_name = f'.upload-{secrets.token_hex(8)}.apk'
+    tmp_path = apk_dir / tmp_name
+
+    try:
+        file_storage.save(str(tmp_path))
+        size = tmp_path.stat().st_size
+
+        if size == 0:
+            raise ValueError('Plik APK jest pusty')
+        if size > APK_MAX_SIZE_BYTES:
+            raise ValueError(
+                f'Plik APK ({size} B) przekracza limit '
+                f'{APK_MAX_SIZE_BYTES} B (50 MB)'
+            )
+
+        version_code, version_name_apk = _parse_apk_metadata(tmp_path)
+
+        max_existing = db.session.query(
+            func.coalesce(func.max(MobileAppRelease.version_code), 0)
+        ).scalar() or 0
+        if version_code <= max_existing:
+            raise ValueError(
+                f'versionCode {version_code} musi być > '
+                f'najwyższy istniejący ({max_existing}). '
+                'Zwiększ versionCode w build.gradle przed buildem.'
+            )
+
+        sha256 = _hash_file_sha256(tmp_path)
+        sha_short = sha256[:8]
+
+        final_name = f'{version_code}-{sha_short}.apk'
+        final_path = apk_dir / final_name
+        if final_path.exists():
+            raise ValueError(
+                f'Plik {final_name} już istnieje — sugeruje race lub '
+                'duplikat APK. Sprawdź ręcznie zawartość katalogu.'
+            )
+        os.replace(str(tmp_path), str(final_path))
+
+        version_name = (version_name_override or '').strip() or version_name_apk
+        rel_path = f'mobile_apk/{final_name}'
+
+        release = MobileAppRelease(
+            version_code=version_code,
+            version_name=version_name,
+            file_path=rel_path,
+            file_size_bytes=size,
+            sha256=sha256,
+            release_notes=(release_notes or '').strip() or None,
+            uploaded_by_user_id=user_id,
+            is_active=True,
+        )
+        db.session.add(release)
+        db.session.commit()
+
+        logger.info("Mobile APK release registered", extra={
+            'version_code': version_code,
+            'version_name': version_name,
+            'sha256': sha256,
+            'size_bytes': size,
+            'uploaded_by': user_id,
+        })
+        return release
+
+    except Exception:
+        if tmp_path.exists():
+            try:
+                tmp_path.unlink()
+            except OSError:
+                pass
+        db.session.rollback()
+        raise
+
+
+def list_releases():
+    """Wszystkie release'y posortowane od najnowszego, jako lista dictów."""
+    releases = MobileAppRelease.query.order_by(
+        MobileAppRelease.version_code.desc()
+    ).all()
+    return [
+        {
+            'id': r.id,
+            'version_code': r.version_code,
+            'version_name': r.version_name,
+            'file_size_bytes': r.file_size_bytes,
+            'sha256': r.sha256,
+            'sha256_short': r.sha256[:8],
+            'release_notes': r.release_notes,
+            'uploaded_at': r.uploaded_at.isoformat() if r.uploaded_at else None,
+            'uploaded_by_user_id': r.uploaded_by_user_id,
+            'is_active': r.is_active,
+        }
+        for r in releases
+    ]
+
+
+def set_release_active(release_id, is_active):
+    """Toggle is_active dla release'u — pozwala wycofać buggy build."""
+    release = MobileAppRelease.query.get(release_id)
+    if release is None:
+        raise ValueError(f'Release {release_id} nie istnieje')
+    release.is_active = bool(is_active)
+    db.session.commit()
+    logger.info("Mobile APK release active toggled", extra={
+        'release_id': release_id,
+        'version_code': release.version_code,
+        'is_active': release.is_active,
+    })
+    return release
 
 
 # ============================================================================

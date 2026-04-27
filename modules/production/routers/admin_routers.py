@@ -343,3 +343,110 @@ def ajax_system_health():
             'error': str(e)
         })
         return jsonify({'success': False, 'error': str(e)}), 500
+
+
+# ============================================================================
+# MOBILE APP RELEASES (auto-update APK dla tabletów stanowiskowych)
+# ============================================================================
+
+@admin_bp.route('/mobile/releases', methods=['GET'])
+@require_module_access('production')
+def mobile_releases_list():
+    """GET /production/admin/mobile/releases — lista wszystkich release'ów APK."""
+    from ..services.mobile_api_service import list_releases
+    try:
+        return jsonify({'success': True, 'releases': list_releases()}), 200
+    except Exception as e:
+        logger.error("Błąd listowania mobile releases", extra={
+            'user_id': current_user.id,
+            'error': str(e),
+        })
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@admin_bp.route('/mobile/upload-apk', methods=['POST'])
+@require_module_access('production')
+def mobile_upload_apk():
+    """
+    POST /production/admin/mobile/upload-apk
+
+    Multipart form: pole `apk` (plik), `version_name` (opcjonalnie, override
+    z manifestu APK), `release_notes` (opcjonalnie). Backend parsuje
+    versionCode/versionName z APK przez pyaxmlparser, waliduje versionCode
+    > max(istniejących), zapisuje plik do instance/mobile_apk/.
+    """
+    from ..services.mobile_api_service import register_release
+
+    apk_file = request.files.get('apk')
+    if apk_file is None:
+        return jsonify({'success': False, 'error': 'Brak pola `apk` w formularzu'}), 400
+
+    version_name = request.form.get('version_name', '').strip()
+    release_notes = request.form.get('release_notes', '').strip()
+
+    try:
+        release = register_release(
+            file_storage=apk_file,
+            version_name_override=version_name,
+            release_notes=release_notes,
+            user_id=current_user.id,
+        )
+    except ValueError as e:
+        return jsonify({'success': False, 'error': str(e)}), 400
+    except Exception as e:
+        logger.error("Błąd uploadu APK", extra={
+            'user_id': current_user.id,
+            'error': str(e),
+        })
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+    return jsonify({
+        'success': True,
+        'release': {
+            'id': release.id,
+            'version_code': release.version_code,
+            'version_name': release.version_name,
+            'sha256': release.sha256,
+            'file_size_bytes': release.file_size_bytes,
+            'is_active': release.is_active,
+        },
+    }), 201
+
+
+@admin_bp.route('/mobile/releases/<int:release_id>/active', methods=['PATCH'])
+@require_module_access('production')
+def mobile_release_toggle_active(release_id):
+    """
+    PATCH /production/admin/mobile/releases/<id>/active
+
+    Body JSON: { is_active: bool } — pozwala wycofać/aktywować release.
+    """
+    from ..services.mobile_api_service import set_release_active
+
+    data = request.get_json(silent=True) or {}
+    if 'is_active' not in data or not isinstance(data['is_active'], bool):
+        return jsonify({
+            'success': False,
+            'error': 'Wymagane pole boolean `is_active` w body JSON',
+        }), 400
+
+    try:
+        release = set_release_active(release_id, data['is_active'])
+    except ValueError as e:
+        return jsonify({'success': False, 'error': str(e)}), 404
+    except Exception as e:
+        logger.error("Błąd toggle is_active mobile release", extra={
+            'release_id': release_id,
+            'user_id': current_user.id,
+            'error': str(e),
+        })
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+    return jsonify({
+        'success': True,
+        'release': {
+            'id': release.id,
+            'version_code': release.version_code,
+            'is_active': release.is_active,
+        },
+    }), 200

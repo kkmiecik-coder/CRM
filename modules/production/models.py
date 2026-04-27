@@ -17,7 +17,7 @@ Data: 2025-01-22
 """
 
 from datetime import datetime, date
-from sqlalchemy import Column, Integer, String, Text, DateTime, Date, Numeric, Enum, Boolean, JSON, ForeignKey
+from sqlalchemy import Column, Integer, BigInteger, String, Text, DateTime, Date, Numeric, Enum, Boolean, JSON, ForeignKey
 from sqlalchemy.dialects.mysql import LONGTEXT
 from sqlalchemy.orm import relationship, validates
 from sqlalchemy.sql import func
@@ -1051,3 +1051,42 @@ class ProcessedMobileOperation(db.Model):
             f'<ProcessedMobileOperation {self.operation_id} '
             f'[{self.endpoint} → {self.response_status}]>'
         )
+
+
+class MobileAppRelease(db.Model):
+    """
+    Release aplikacji mobilnej (APK dla tabletów stanowiskowych).
+
+    Plik APK trzymany lokalnie w `instance/<file_path>` (poza repo).
+    Tablet pyta `/api/mobile/app/version` o najnowszy aktywny release i pobiera
+    APK przez `/api/mobile/app/apk?version=<version_code>`. SHA-256 jest do
+    weryfikacji integralności pobierania (Android sprawdza po stronie klienta).
+
+    is_active=False = release wycofany (np. krytyczny bug); pomijany przy
+    rozstrzyganiu „najnowszej wersji" — nie usuwamy fizycznie żeby zachować
+    historię i móc dojść co kiedy było wgrane.
+    """
+    __tablename__ = 'mobile_app_releases'
+
+    id = Column(Integer, primary_key=True)
+    version_code = Column(Integer, unique=True, nullable=False, index=True)
+    version_name = Column(String(50), nullable=False)
+    file_path = Column(String(500), nullable=False)
+    file_size_bytes = Column(BigInteger, nullable=False)
+    sha256 = Column(String(64), nullable=False)
+    release_notes = Column(Text, nullable=True)
+    uploaded_at = Column(DateTime, nullable=False, default=get_local_now)
+    uploaded_by_user_id = Column(Integer, ForeignKey('users.id'), nullable=True)
+    is_active = Column(Boolean, nullable=False, default=True, index=True)
+
+    uploaded_by = relationship("User")
+
+    def __repr__(self):
+        return f'<MobileAppRelease v{self.version_code} ({self.version_name})>'
+
+    @classmethod
+    def latest_active(cls):
+        """Najnowszy aktywny release (po version_code DESC) lub None."""
+        return cls.query.filter_by(is_active=True).order_by(
+            cls.version_code.desc()
+        ).first()

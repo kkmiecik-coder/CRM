@@ -347,17 +347,35 @@ def app_version():
     """
     GET /api/mobile/app/version
 
-    Metadane wersji appki. Bez auth (appka sprawdza przed rejestracją).
+    Metadane najnowszego aktywnego release'u APK. Publiczne (klient woła
+    przed rejestracją do sanity-check'u). Gdy w bazie nie ma żadnego release'u,
+    zwraca {"version_code": 0} — klient interpretuje "brak update'ów".
     """
     return jsonify(get_app_version_info()), 200
 
 
 @mobile_api_bp.route('/app/apk', methods=['GET'])
+@require_device_token
 def app_apk():
     """
-    GET /api/mobile/app/apk
+    GET /api/mobile/app/apk?version=<int>
 
-    Streaming pliku APK. Ścieżka do pliku w config: API_MOBILE.apk_file_path.
-    Bez auth. Dopóki APK nie jest hostowany → 404 z komunikatem.
+    Streaming pliku APK dla zadanego version_code. Wymaga JWT (tablet musi
+    być zarejestrowany). 400 gdy brak/zły parametr `version`, 404 gdy release
+    nie istnieje lub jest nieaktywny.
     """
-    return stream_apk_response()
+    version_raw = request.args.get('version', '').strip()
+    if not version_raw:
+        return jsonify({
+            'error': 'missing_version',
+            'detail': 'Wymagany parametr ?version=<int> (version_code z APK).',
+        }), 400
+    try:
+        version_code = int(version_raw)
+    except ValueError:
+        return jsonify({
+            'error': 'invalid_version',
+            'detail': f'version_code musi być liczbą, otrzymano: {version_raw!r}',
+        }), 400
+
+    return stream_apk_response(version_code)
