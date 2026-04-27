@@ -10,7 +10,7 @@ from datetime import datetime, date, timedelta
 from flask import request, jsonify, render_template, current_app
 from flask_login import login_required, current_user
 from extensions import db
-from sqlalchemy import and_, or_, func, distinct, cast, String
+from sqlalchemy import and_, or_, func, distinct, cast, String, case
 
 from . import api_bp, logger, ProductionItem, ProductionError, get_local_now
 from .common_api import admin_required, ip_validation_required, _format_status, _validate_config_value
@@ -522,10 +522,76 @@ def products_tab_content():
         status_filter = request.args.get('status', 'all')
         search_query = request.args.get('search', '')
         load_all = request.args.get('load_all', 'true').lower() == 'true'
-                
+
+        # Tryb widoku: active (default) | archive | all
+        # active  → ukrywa zamówienia, w których WSZYSTKIE pozycje mają status 'spakowane'
+        # archive → pokazuje wyłącznie te zamówienia
+        # all     → bez filtra
+        view_mode = request.args.get('view', 'active').lower()
+        if view_mode not in ('active', 'archive', 'all'):
+            view_mode = 'active'
+
+        # Filtr zakresu dat zakończenia (działa tylko w archive/all, na packaging_completed_at)
+        completed_from_raw = request.args.get('completed_from', '').strip()
+        completed_to_raw = request.args.get('completed_to', '').strip()
+        completed_from_dt = None
+        completed_to_dt = None
+        if completed_from_raw:
+            try:
+                completed_from_dt = datetime.strptime(completed_from_raw, '%Y-%m-%d')
+            except ValueError:
+                completed_from_dt = None
+        if completed_to_raw:
+            try:
+                completed_to_dt = datetime.strptime(completed_to_raw, '%Y-%m-%d') + timedelta(days=1)
+            except ValueError:
+                completed_to_dt = None
+
         # Pobierz produkty z bazy danych - BEZ LIMITU
         products_query = ProductionItem.query
-        
+
+        # Subquery: numery zamówień, w których KAŻDA pozycja ma status 'spakowane'
+        # (z agregacją MAX/MIN dat na poziomie zamówienia, do filtrowania po dacie zakończenia)
+        if view_mode in ('active', 'archive'):
+            order_agg_q = db.session.query(
+                ProductionItem.internal_order_number.label('ion'),
+                func.max(ProductionItem.packaging_completed_at).label('order_completed_at'),
+                func.sum(case((ProductionItem.current_status != 'spakowane', 1), else_=0)).label('non_packed_cnt')
+            ).filter(
+                ProductionItem.internal_order_number.isnot(None)
+            ).group_by(
+                ProductionItem.internal_order_number
+            )
+
+            # archive: tylko w pełni spakowane + opcjonalnie zakres dat zakończenia (na poziomie zamówienia)
+            if view_mode == 'archive':
+                order_agg_q = order_agg_q.having(
+                    func.sum(case((ProductionItem.current_status != 'spakowane', 1), else_=0)) == 0
+                )
+                if completed_from_dt is not None:
+                    order_agg_q = order_agg_q.having(
+                        func.max(ProductionItem.packaging_completed_at) >= completed_from_dt
+                    )
+                if completed_to_dt is not None:
+                    order_agg_q = order_agg_q.having(
+                        func.max(ProductionItem.packaging_completed_at) < completed_to_dt
+                    )
+                matching_orders_subq = order_agg_q.subquery()
+                products_query = products_query.filter(
+                    ProductionItem.internal_order_number.in_(
+                        db.session.query(matching_orders_subq.c.ion)
+                    )
+                )
+            else:  # active
+                fully_packed_subq = order_agg_q.having(
+                    func.sum(case((ProductionItem.current_status != 'spakowane', 1), else_=0)) == 0
+                ).subquery()
+                products_query = products_query.filter(
+                    ~ProductionItem.internal_order_number.in_(
+                        db.session.query(fully_packed_subq.c.ion)
+                    )
+                )
+
         # Filtrowanie po statusie
         if status_filter and status_filter != 'all':
             products_query = products_query.filter(ProductionItem.current_status == status_filter)
@@ -578,9 +644,24 @@ def products_tab_content():
         
         # ZMIANA: Pobierz WSZYSTKIE produkty (usuń limit)
         products = products_query.all()
-        
-        logger.info(f"Pobranych produktów: {len(products)} (bez limitu)")
-        
+
+        logger.info(f"Pobranych produktów: {len(products)} (bez limitu, view={view_mode})")
+
+        # Pre-agregacja po zamówieniu: MAX(packaging_completed_at) i MIN(created_at)
+        # potrzebne do pola order_completed_at oraz do statystyk archiwum.
+        order_aggregates = {}
+        for p in products:
+            ion = getattr(p, 'internal_order_number', None)
+            if not ion:
+                continue
+            agg = order_aggregates.setdefault(ion, {'completed_at': None, 'created_at': None})
+            pkg = getattr(p, 'packaging_completed_at', None)
+            if pkg is not None and (agg['completed_at'] is None or pkg > agg['completed_at']):
+                agg['completed_at'] = pkg
+            crt = getattr(p, 'created_at', None)
+            if crt is not None and (agg['created_at'] is None or crt < agg['created_at']):
+                agg['created_at'] = crt
+
         # Renderuj HTML template
         html_content = render_template('components/products-tab-content.html')
         
@@ -738,6 +819,15 @@ def products_tab_content():
                 # Unique identifier dla frontend
                 'unique_id': f"{get_attr(product, 'short_product_id', '')}-{product.id}"
             }
+
+            # Data zakończenia zamówienia (MAX packaging_completed_at po wszystkich pozycjach
+            # tego samego internal_order_number) — używane głównie w widoku archiwum.
+            ion = product_dict['internal_order_number']
+            agg = order_aggregates.get(ion) if ion else None
+            product_dict['order_completed_at'] = (
+                agg['completed_at'].isoformat() if agg and agg['completed_at'] else None
+            )
+
             products_data.append(product_dict)
         
         # Przygotuj statystyki
@@ -765,6 +855,25 @@ def products_tab_content():
             'urgent_count': urgent_count,
             'status_breakdown': status_breakdown
         }
+
+        # Statystyki specyficzne dla widoku archiwum:
+        # liczba spakowanych zamówień + średni czas realizacji w dniach
+        # (od MIN(created_at) do MAX(packaging_completed_at) per zamówienie).
+        if view_mode == 'archive':
+            durations_days = []
+            for ion, agg in order_aggregates.items():
+                if agg['completed_at'] and agg['created_at']:
+                    delta = agg['completed_at'] - agg['created_at']
+                    if delta.total_seconds() >= 0:
+                        durations_days.append(delta.total_seconds() / 86400.0)
+            avg_realization_days = (
+                round(sum(durations_days) / len(durations_days), 1)
+                if durations_days else None
+            )
+            stats_data['archive'] = {
+                'orders_count': len(order_aggregates),
+                'avg_realization_days': avg_realization_days
+            }
         
         # Przygotuj opcje filtrów z produktów
         filters_data = {
