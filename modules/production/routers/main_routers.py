@@ -60,6 +60,8 @@ def dashboard():
             'stations': {},
             'today_totals': {
                 'completed_orders': 0,
+                'completed_items': 0,
+                'completed_products': 0,
                 'total_m3': 0.0,
                 'avg_deadline_distance': 0.0
             },
@@ -236,16 +238,25 @@ def dashboard():
             'tablet_status': heartbeat_statuses.get('packaging', {'active': False, 'last_seen': None, 'status_label': 'Niedostępne'})
         }
 
-        # Dzisiejsze ukończone zamówienia
-        completed_today = ProductionItem.query.filter(
+        # Dzisiejsze ukończone — zamówienia (distinct), pozycje (rows), produkty (sum quantity)
+        completed_today_filter = [
             ProductionItem.current_status == 'spakowane',
             ProductionItem.packaging_completed_at >= today_start
-        ).count()
+        ]
+        completed_orders_today = db.session.query(
+            db.func.count(db.func.distinct(ProductionItem.internal_order_number))
+        ).filter(*completed_today_filter).scalar() or 0
+        completed_items_today = ProductionItem.query.filter(*completed_today_filter).count()
+        completed_products_today = db.session.query(
+            db.func.coalesce(db.func.sum(ProductionItem.quantity), 0)
+        ).filter(*completed_today_filter).scalar() or 0
 
         total_m3_today = float(cutting_today_m3 + assembly_today_m3 + packaging_today_m3)
 
         dashboard_stats['today_totals'] = {
-            'completed_orders': completed_today,
+            'completed_orders': int(completed_orders_today),
+            'completed_items': int(completed_items_today),
+            'completed_products': int(completed_products_today),
             'total_m3': total_m3_today,
             'avg_deadline_distance': 7.0  # Placeholder - będzie obliczane
         }
@@ -264,8 +275,9 @@ def dashboard():
         )
         dashboard_stats['in_production'] = {
             'orders': len(in_prod_order_ids),
-            'products': len(in_prod_items),
-            'm3': round(sum(float(item.volume_m3 or 0) * item.quantity for item in in_prod_items), 2)
+            'items': len(in_prod_items),
+            'products': sum(int(item.quantity or 0) for item in in_prod_items),
+            'm3': round(sum(float(item.volume_m3 or 0) * (item.quantity or 0) for item in in_prod_items), 2)
         }
 
         # Alerty deadline - produkty zbliżające się do terminu

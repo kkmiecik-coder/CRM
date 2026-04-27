@@ -294,8 +294,10 @@ class DashboardModule {
             if (initialData.today_totals) {
                 this.updateTotalsWidget({
                     total_orders: initialData.today_totals.total_orders || 0,
-                    completed_today: initialData.today_totals.completed_orders || 0,
-                    pending_priority: 0, // Będzie aktualizowane przez osobny handler
+                    completed_orders: initialData.today_totals.completed_orders || 0,
+                    completed_items: initialData.today_totals.completed_items || 0,
+                    completed_products: initialData.today_totals.completed_products || 0,
+                    pending_priority: 0,
                     errors_24h: initialData.system_health?.errors_24h || 0
                 });
             }
@@ -331,10 +333,17 @@ class DashboardModule {
     updateTotalsWidget(statsData) {
         console.log('[Dashboard Module] Updating totals widget...', statsData);
 
-        // Aktualizuj liczby z animacją
         this.updateNumberWithAnimation(
-            document.getElementById('today-completed'),
-            statsData.completed_today || 0
+            document.getElementById('today-completed-orders'),
+            statsData.completed_orders || 0
+        );
+        this.updateNumberWithAnimation(
+            document.getElementById('today-completed-items'),
+            statsData.completed_items || 0
+        );
+        this.updateNumberWithAnimation(
+            document.getElementById('today-completed-products'),
+            statsData.completed_products || 0
         );
     }
 
@@ -460,7 +469,7 @@ class DashboardModule {
     }
 
     initTodayTotalsWidget() {
-        const todayWidget = document.getElementById('today-completed') ||
+        const todayWidget = document.getElementById('today-completed-orders') ||
             document.querySelector('.widget.today-summary');
         if (!todayWidget) return null;
 
@@ -621,7 +630,9 @@ class DashboardModule {
     updateTodayTotalsWidget(totalsData) {
         if (!totalsData) return;
 
-        this.updateTodayValue('today-completed', totalsData.completed_orders || 0, 'liczba');
+        this.updateTodayValue('today-completed-orders', totalsData.completed_orders || 0, 'liczba');
+        this.updateTodayValue('today-completed-items', totalsData.completed_items || 0, 'liczba');
+        this.updateTodayValue('today-completed-products', totalsData.completed_products || 0, 'liczba');
         this.updateTodayValue('today-total-m3', totalsData.total_m3 || 0, 'm3');
         this.updateTodayValue('today-avg-deadline', totalsData.avg_deadline_distance || 0, 'dni');
     }
@@ -2121,6 +2132,7 @@ class DashboardModule {
 
     updateInProductionWidget(data) {
         this.updateElementText('in-production-orders', data.orders || 0);
+        this.updateElementText('in-production-items', data.items || 0);
         this.updateElementText('in-production-products', data.products || 0);
         this.updateElementText('in-production-m3', data.m3 || 0);
     }

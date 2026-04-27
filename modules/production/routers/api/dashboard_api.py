@@ -984,13 +984,18 @@ def dashboard_tab_content():
         today_start = datetime.combine(today, datetime.min.time())
         today_end = datetime.combine(today, datetime.max.time())
 
-        completed_orders_today = db.session.query(
-            db.func.count(db.func.distinct(ProductionItem.internal_order_number))
-        ).filter(
+        completed_today_filter = [
             ProductionItem.current_status == 'spakowane',
             ProductionItem.packaging_completed_at >= today_start,
             ProductionItem.packaging_completed_at <= today_end
-        ).scalar() or 0
+        ]
+        completed_orders_today = db.session.query(
+            db.func.count(db.func.distinct(ProductionItem.internal_order_number))
+        ).filter(*completed_today_filter).scalar() or 0
+        completed_items_today = ProductionItem.query.filter(*completed_today_filter).count()
+        completed_products_today = db.session.query(
+            db.func.coalesce(db.func.sum(ProductionItem.quantity), 0)
+        ).filter(*completed_today_filter).scalar() or 0
 
         total_m3_today = 0.0
         try:
@@ -1026,7 +1031,9 @@ def dashboard_tab_content():
             avg_deadline_distance = 0.0
 
         dashboard_stats['today_totals'] = {
-            'completed_orders': completed_orders_today,
+            'completed_orders': int(completed_orders_today),
+            'completed_items': int(completed_items_today),
+            'completed_products': int(completed_products_today),
             'total_m3': float(total_m3_today),
             'avg_deadline_distance': round(avg_deadline_distance, 1),
             'total_orders': ProductionItem.query.count()
@@ -1048,8 +1055,9 @@ def dashboard_tab_content():
 
         dashboard_stats['in_production'] = {
             'orders': len(in_production_order_ids),
-            'products': len(in_production_items),
-            'm3': round(sum(float(item.volume_m3 or 0) * item.quantity for item in in_production_items), 2)
+            'items': len(in_production_items),
+            'products': sum(int(item.quantity or 0) for item in in_production_items),
+            'm3': round(sum(float(item.volume_m3 or 0) * (item.quantity or 0) for item in in_production_items), 2)
         }
 
         deadline_items = ProductionItem.query.filter(
@@ -1371,8 +1379,9 @@ def dashboard_data():
 
         in_production_stats = {
             'orders': len(in_production_order_ids_dd),
-            'products': len(in_production_items_dd),
-            'm3': round(sum(float(item.volume_m3 or 0) * item.quantity for item in in_production_items_dd), 2)
+            'items': len(in_production_items_dd),
+            'products': sum(int(item.quantity or 0) for item in in_production_items_dd),
+            'm3': round(sum(float(item.volume_m3 or 0) * (item.quantity or 0) for item in in_production_items_dd), 2)
         }
 
         response_data = {

@@ -267,18 +267,6 @@
   {# ═══ RIGHT STACK ═══ #}
   <div class="il-right-stack">
 
-    {# KPIs #}
-    <div class="il-kpi-row">
-      <div class="il-kpi">
-        <div class="il-kpi-label">Zakończone całkowicie dziś</div>
-        <div class="il-kpi-value" id="today-completed">{{ dashboard_stats.today_totals.completed_orders|default(0) }}</div>
-      </div>
-      <div class="il-kpi">
-        <div class="il-kpi-label">Zakończona całkowicie objętość</div>
-        <div class="il-kpi-value" id="today-total-m3">{{ dashboard_stats.today_totals.total_m3|default(0.0) }} <span class="il-kpi-unit">m³</span></div>
-      </div>
-    </div>
-
     {# IN PRODUCTION NOW #}
     <div class="il-in-production">
       <div class="il-in-production-header">W produkcji teraz</div>
@@ -288,12 +276,41 @@
           <div class="il-in-production-stat-label">Zamówień</div>
         </div>
         <div class="il-in-production-stat">
+          <div class="il-in-production-stat-value" id="in-production-items">{{ dashboard_stats.in_production.items|default(0) }}</div>
+          <div class="il-in-production-stat-label">Pozycji</div>
+        </div>
+        <div class="il-in-production-stat">
           <div class="il-in-production-stat-value" id="in-production-products">{{ dashboard_stats.in_production.products|default(0) }}</div>
           <div class="il-in-production-stat-label">Produktów</div>
         </div>
         <div class="il-in-production-stat">
           <div class="il-in-production-stat-value" id="in-production-m3">{{ dashboard_stats.in_production.m3|default(0.0) }}</div>
           <div class="il-in-production-stat-label">m³</div>
+        </div>
+      </div>
+    </div>
+
+    {# KPIs #}
+    <div class="il-kpi-row">
+      <div class="il-in-production" style="flex: 1;">
+        <div class="il-in-production-header">Zakończone całkowicie dziś</div>
+        <div class="il-in-production-stats">
+          <div class="il-in-production-stat">
+            <div class="il-in-production-stat-value" id="today-completed-orders">{{ dashboard_stats.today_totals.completed_orders|default(0) }}</div>
+            <div class="il-in-production-stat-label">Zamówień</div>
+          </div>
+          <div class="il-in-production-stat">
+            <div class="il-in-production-stat-value" id="today-completed-items">{{ dashboard_stats.today_totals.completed_items|default(0) }}</div>
+            <div class="il-in-production-stat-label">Pozycji</div>
+          </div>
+          <div class="il-in-production-stat">
+            <div class="il-in-production-stat-value" id="today-completed-products">{{ dashboard_stats.today_totals.completed_products|default(0) }}</div>
+            <div class="il-in-production-stat-label">Produktów</div>
+          </div>
+          <div class="il-in-production-stat">
+            <div class="il-in-production-stat-value" id="today-total-m3">{{ dashboard_stats.today_totals.total_m3|default(0.0) }}</div>
+            <div class="il-in-production-stat-label">m³</div>
+          </div>
         </div>
       </div>
     </div>
