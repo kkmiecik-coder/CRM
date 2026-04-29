@@ -129,7 +129,14 @@ class ConfigModule {
                 'admin_email': 'ADMIN_EMAIL_NOTIFICATIONS',
                 'error_threshold': 'ERROR_NOTIFICATION_THRESHOLD',
                 'baselinker_cache': 'BASELINKER_STATUSES_CACHE',
-                'max_products_order': 'MAX_PRODUCTS_PER_ORDER'
+                'max_products_order': 'MAX_PRODUCTS_PER_ORDER',
+                'label_printer_ip': 'LABEL_PRINTER_IP',
+                'label_printer_port': 'LABEL_PRINTER_PORT',
+                'label_printer_timeout': 'LABEL_PRINTER_TIMEOUT_SECONDS',
+                'label_printer_retry': 'LABEL_PRINTER_RETRY_COUNT',
+                'label_printer_offset_lt': 'LABEL_PRINTER_OFFSET_LT',
+                'label_printer_offset_ls': 'LABEL_PRINTER_OFFSET_LS',
+                'label_printer_allowed_stations': 'LABEL_PRINTER_ALLOWED_STATIONS'
             };
 
             let foundCount = 0;
@@ -551,6 +558,13 @@ class ConfigModule {
             'ERROR_NOTIFICATION_THRESHOLD': 'error_threshold',
             'BASELINKER_STATUSES_CACHE': 'baselinker_cache',
             'MAX_PRODUCTS_PER_ORDER': 'max_products_order',
+            'LABEL_PRINTER_IP': 'label_printer_ip',
+            'LABEL_PRINTER_PORT': 'label_printer_port',
+            'LABEL_PRINTER_TIMEOUT_SECONDS': 'label_printer_timeout',
+            'LABEL_PRINTER_RETRY_COUNT': 'label_printer_retry',
+            'LABEL_PRINTER_OFFSET_LT': 'label_printer_offset_lt',
+            'LABEL_PRINTER_OFFSET_LS': 'label_printer_offset_ls',
+            'LABEL_PRINTER_ALLOWED_STATIONS': 'label_printer_allowed_stations',
             'STATION_ALLOWED_IPS': 'ip-list-items'
         };
 
@@ -665,6 +679,13 @@ class ConfigModule {
             'ERROR_NOTIFICATION_THRESHOLD': 'error_threshold',
             'BASELINKER_STATUSES_CACHE': 'baselinker_cache',
             'MAX_PRODUCTS_PER_ORDER': 'max_products_order',
+            'LABEL_PRINTER_IP': 'label_printer_ip',
+            'LABEL_PRINTER_PORT': 'label_printer_port',
+            'LABEL_PRINTER_TIMEOUT_SECONDS': 'label_printer_timeout',
+            'LABEL_PRINTER_RETRY_COUNT': 'label_printer_retry',
+            'LABEL_PRINTER_OFFSET_LT': 'label_printer_offset_lt',
+            'LABEL_PRINTER_OFFSET_LS': 'label_printer_offset_ls',
+            'LABEL_PRINTER_ALLOWED_STATIONS': 'label_printer_allowed_stations',
             'STATION_ALLOWED_IPS': 'ip-list-items'
         };
 
