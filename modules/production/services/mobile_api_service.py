@@ -923,14 +923,19 @@ def compute_station_summary(station_code):
     ).filter(ProductionItem.current_status == status).one()
 
     today_start, tomorrow_start = _today_range_warsaw()
-    completed_field = getattr(ProductionItem, completed_field_name)
-    completed_agg = db.session.query(
-        func.count(ProductionItem.id),
-        func.coalesce(func.sum(ProductionItem.volume_m3 * ProductionItem.quantity), 0),
-    ).filter(
-        completed_field >= today_start,
-        completed_field < tomorrow_start,
-    ).one()
+    # Faktyczna praca dziś — z prod_station_events (uwzględnia partial work,
+    # nie wymaga że wszystkie sztuki pozycji są ukończone).
+    from .station_events_service import get_station_work_in_range
+    try:
+        completed_work = get_station_work_in_range(station_code, today_start, tomorrow_start)
+        completed_count = int(completed_work['items_count'])
+        completed_volume = float(completed_work['m3_done'])
+    except Exception as e:
+        logger.warning("Nie udało się pobrać station_events dla mobile", extra={
+            'station': station_code, 'error': str(e)
+        })
+        completed_count = 0
+        completed_volume = 0.0
 
     # Częstotliwość auto-refresh listy zleceń (klient mobilny używa jej zamiast
     # hardcoded 30s). Źródło: config_service z tabeli ProductionConfig,
@@ -954,8 +959,8 @@ def compute_station_summary(station_code):
             'priority_count': int(queue_agg[2] or 0),
         },
         'completed_today': {
-            'count': int(completed_agg[0] or 0),
-            'total_volume_m3': float(completed_agg[1] or 0),
+            'count': completed_count,
+            'total_volume_m3': completed_volume,
         },
         'refresh_interval_seconds': refresh_interval,
         'server_time': get_local_now().isoformat(),

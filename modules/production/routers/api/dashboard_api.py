@@ -12,6 +12,32 @@ from extensions import db
 from sqlalchemy import func, and_
 
 from . import api_bp, logger, ProductionItem, ProductionError, ProductionSyncLog, get_local_now
+from ...services.station_events_service import (
+    get_station_work_in_range,
+    get_station_work_per_day,
+)
+
+
+# Mapowanie stanowisko → status czekania (kolejka)
+_STATION_PENDING_STATUS = {
+    'cutting': 'czeka_na_wyciecie',
+    'assembly': 'czeka_na_skladanie',
+    'gluing': 'czeka_na_sklejanie',
+    'formatting': 'czeka_na_formatowanie',
+    'finishing': 'czeka_na_wykanczanie',
+    'packaging': 'czeka_na_pakowanie',
+}
+
+
+def _safe_station_work(station_code, day_start, day_end):
+    """Helper: pobiera agregat pracy stanowiska w przedziale, z fallbackiem na zera."""
+    try:
+        return get_station_work_in_range(station_code, day_start, day_end)
+    except Exception as e:
+        logger.warning("Nie udało się pobrać station_events", extra={
+            'station': station_code, 'error': str(e)
+        })
+        return {'pieces_done': 0, 'm3_done': 0.0, 'items_count': 0, 'orders_count': 0}
 
 
 # ============================================================================
@@ -99,11 +125,11 @@ def dashboard_stats():
         today_start = datetime.combine(today, datetime.min.time())
         today_end = datetime.combine(today, datetime.max.time())
 
-        completed_today = ProductionItem.query.filter(
-            ProductionItem.current_status == 'spakowane',
-            ProductionItem.packaging_completed_at >= today_start,
-            ProductionItem.packaging_completed_at <= today_end
-        ).count() if hasattr(ProductionItem, 'packaging_completed_at') else 0
+        # Faktycznie ukończone dziś — agregat z eventów stanowiska pakowania
+        # (uwzględnia partial work; "pozycji" = items_count z dodatnim netto delta)
+        tomorrow_start = today_start + timedelta(days=1)
+        _packaging_today = _safe_station_work('packaging', today_start, tomorrow_start)
+        completed_today = int(_packaging_today['items_count'])
 
         # Produkty utworzone w tym tygodniu
         week_ago = today - timedelta(days=7)
@@ -330,45 +356,29 @@ def chart_data():
         # TRYB: Pojedyncze stanowisko (3 krzywe: objętość + ilość + wartość netto)
         # =====================================================================
         if station_filter != 'all':
-            completion_field = station_completion_mapping[station_filter]
-            quantity_field = station_quantity_mapping[station_filter]
             station_label = station_labels[station_filter]
             station_color = station_colors[station_filter]
 
-            # Sprawdź czy pola istnieją
+            # Faktyczna praca per dzień — z prod_station_events (uwzględnia partial work)
             try:
-                completion_attr = getattr(ProductionItem, completion_field)
-                quantity_attr = getattr(ProductionItem, quantity_field)
-            except AttributeError:
+                per_day = get_station_work_per_day(station_filter, start_date, end_date)
+            except Exception as e:
+                logger.error("Błąd get_station_work_per_day", extra={
+                    'station': station_filter, 'error': str(e)
+                })
                 return jsonify({
                     'success': False,
-                    'error': f'Stanowisko {station_filter} nie ma jeszcze zaimplementowanych pól w bazie'
-                }), 400
+                    'error': f'Błąd pobierania danych: {e}'
+                }), 500
 
-            # Zapytanie o sumę objętości, ilości i wartości netto per dzień
-            daily_stats = db.session.query(
-                func.date(completion_attr).label('completion_date'),
-                func.sum(ProductionItem.volume_m3 * ProductionItem.quantity).label('total_volume'),
-                func.sum(quantity_attr).label('total_quantity'),
-                func.sum(ProductionItem.total_value_net).label('total_value')
-            ).filter(
-                and_(
-                    completion_attr.isnot(None),
-                    func.date(completion_attr) >= start_date,
-                    func.date(completion_attr) <= end_date
-                )
-            ).group_by(
-                func.date(completion_attr)
-            ).all()
-
-            # Wypełnij dane
-            daily_data = {}
-            for completion_date, total_volume, total_quantity, total_value in daily_stats:
-                daily_data[completion_date] = {
-                    'volume': float(total_volume or 0),
-                    'quantity': int(total_quantity or 0),
-                    'value': float(total_value or 0)
+            daily_data = {
+                day: {
+                    'volume': stats['m3'],
+                    'quantity': stats['pieces'],
+                    'value': stats['value_net'],
                 }
+                for day, stats in per_day.items()
+            }
 
             # Przygotuj chart_data dla pojedynczego stanowiska
             chart_data_result = {
@@ -550,29 +560,19 @@ def chart_data():
             ]
         }
 
-        # Pobierz dane wydajności dla każdego stanowiska
+        # Pobierz dane wydajności dla każdego stanowiska — z prod_station_events
         daily_data = {}
 
-        for station, completion_field in station_completion_mapping.items():
+        for station in station_completion_mapping.keys():
             try:
-                completion_attr = getattr(ProductionItem, completion_field)
-            except AttributeError:
+                per_day = get_station_work_per_day(station, start_date, end_date)
+            except Exception as e:
+                logger.warning("Błąd get_station_work_per_day", extra={
+                    'station': station, 'error': str(e)
+                })
                 continue
 
-            daily_volumes = db.session.query(
-                func.date(completion_attr).label('completion_date'),
-                func.sum(ProductionItem.volume_m3 * ProductionItem.quantity).label('total_volume')
-            ).filter(
-                and_(
-                    completion_attr.isnot(None),
-                    func.date(completion_attr) >= start_date,
-                    func.date(completion_attr) <= end_date
-                )
-            ).group_by(
-                func.date(completion_attr)
-            ).all()
-
-            for completion_date, total_volume in daily_volumes:
+            for completion_date, stats in per_day.items():
                 if completion_date not in daily_data:
                     daily_data[completion_date] = {
                         'cutting': 0.0,
@@ -582,7 +582,7 @@ def chart_data():
                         'finishing': 0.0,
                         'packaging': 0.0
                     }
-                daily_data[completion_date][station] = float(total_volume or 0)
+                daily_data[completion_date][station] = float(stats['m3'])
 
         # NOWE: Agreguj dane według typu
         if aggregation_type == 'daily':
@@ -776,106 +776,32 @@ def dashboard_tab_content():
 
         today_start = datetime.combine(today, datetime.min.time())
         today_end = datetime.combine(today, datetime.max.time())
+        tomorrow_start = today_start + timedelta(days=1)
 
-        cutting_m3_today = 0.0
-        assembly_m3_today = 0.0
-        gluing_m3_today = 0.0
-        formatting_m3_today = 0.0
-        finishing_m3_today = 0.0
-        packaging_m3_today = 0.0
+        # Faktyczna praca dziś — z prod_station_events (uwzględnia partial work)
+        station_work_today = {
+            code: _safe_station_work(code, today_start, tomorrow_start)
+            for code in _STATION_PENDING_STATUS.keys()
+        }
 
-        try:
-            cutting_m3_today = db.session.query(
-                db.func.coalesce(db.func.sum(ProductionItem.volume_m3 * ProductionItem.quantity), 0)
-            ).filter(
-                ProductionItem.cutting_completed_at >= today_start,
-                ProductionItem.cutting_completed_at <= today_end
-            ).scalar() or 0.0
-
-            assembly_m3_today = db.session.query(
-                db.func.coalesce(db.func.sum(ProductionItem.volume_m3 * ProductionItem.quantity), 0)
-            ).filter(
-                ProductionItem.assembly_completed_at >= today_start,
-                ProductionItem.assembly_completed_at <= today_end
-            ).scalar() or 0.0
-
-            try:
-                gluing_m3_today = db.session.query(
-                    db.func.coalesce(db.func.sum(ProductionItem.volume_m3 * ProductionItem.quantity), 0)
-                ).filter(
-                    ProductionItem.gluing_completed_at >= today_start,
-                    ProductionItem.gluing_completed_at <= today_end
-                ).scalar() or 0.0
-            except AttributeError:
-                gluing_m3_today = 0.0
-
-            try:
-                formatting_m3_today = db.session.query(
-                    db.func.coalesce(db.func.sum(ProductionItem.volume_m3 * ProductionItem.quantity), 0)
-                ).filter(
-                    ProductionItem.formatting_completed_at >= today_start,
-                    ProductionItem.formatting_completed_at <= today_end
-                ).scalar() or 0.0
-            except AttributeError:
-                formatting_m3_today = 0.0
-
-            try:
-                finishing_m3_today = db.session.query(
-                    db.func.coalesce(db.func.sum(ProductionItem.volume_m3 * ProductionItem.quantity), 0)
-                ).filter(
-                    ProductionItem.finishing_completed_at >= today_start,
-                    ProductionItem.finishing_completed_at <= today_end
-                ).scalar() or 0.0
-            except AttributeError:
-                finishing_m3_today = 0.0
-
-            packaging_m3_today = db.session.query(
-                db.func.coalesce(db.func.sum(ProductionItem.volume_m3 * ProductionItem.quantity), 0)
-            ).filter(
-                ProductionItem.packaging_completed_at >= today_start,
-                ProductionItem.packaging_completed_at <= today_end
-            ).scalar() or 0.0
-
-        except Exception as volume_error:
-            logger.warning("Nie udało się pobrać volume_m3 dla stacji", extra={'error': str(volume_error)})
-
+        _station_count_map = {
+            'cutting': cutting_count,
+            'assembly': assembly_count,
+            'gluing': gluing_count,
+            'formatting': formatting_count,
+            'finishing': finishing_count,
+            'packaging': packaging_count,
+        }
         dashboard_stats['stations'] = {
-            'cutting': {
-                'pending_count': cutting_count,
-                'today_m3': float(cutting_m3_today),
-                'status': 'active' if cutting_count > 0 else 'idle',
-                'status_class': 'station-active' if cutting_count > 0 else 'station-idle'
-            },
-            'assembly': {
-                'pending_count': assembly_count,
-                'today_m3': float(assembly_m3_today),
-                'status': 'active' if assembly_count > 0 else 'idle',
-                'status_class': 'station-active' if assembly_count > 0 else 'station-idle'
-            },
-            'gluing': {
-                'pending_count': gluing_count,
-                'today_m3': float(gluing_m3_today),
-                'status': 'active' if gluing_count > 0 else 'idle',
-                'status_class': 'station-active' if gluing_count > 0 else 'station-idle'
-            },
-            'formatting': {
-                'pending_count': formatting_count,
-                'today_m3': float(formatting_m3_today),
-                'status': 'active' if formatting_count > 0 else 'idle',
-                'status_class': 'station-active' if formatting_count > 0 else 'station-idle'
-            },
-            'finishing': {
-                'pending_count': finishing_count,
-                'today_m3': float(finishing_m3_today),
-                'status': 'active' if finishing_count > 0 else 'idle',
-                'status_class': 'station-active' if finishing_count > 0 else 'station-idle'
-            },
-            'packaging': {
-                'pending_count': packaging_count,
-                'today_m3': float(packaging_m3_today),
-                'status': 'active' if packaging_count > 0 else 'idle',
-                'status_class': 'station-active' if packaging_count > 0 else 'station-idle'
+            code: {
+                'pending_count': _station_count_map[code],
+                'today_m3': float(station_work_today[code]['m3_done']),
+                'status': 'active' if _station_count_map[code] > 0 else 'idle',
+                'status_class': (
+                    'station-active' if _station_count_map[code] > 0 else 'station-idle'
+                ),
             }
+            for code in _STATION_PENDING_STATUS.keys()
         }
 
         # Heartbeat status per station
@@ -885,93 +811,16 @@ def dashboard_tab_content():
         for st_code in ['cutting', 'assembly', 'gluing', 'formatting', 'finishing', 'packaging']:
             dashboard_stats['stations'][st_code]['tablet_status'] = heartbeat_statuses.get(st_code, {'active': False, 'last_seen': None, 'status_label': 'Niedostępne'})
 
-        # completed_today and pending_m3 per station
-        cutting_completed_today = ProductionItem.query.filter(
-            ProductionItem.cutting_completed_at >= today_start,
-            ProductionItem.cutting_completed_at <= today_end
-        ).count()
-        cutting_pending_m3 = db.session.query(
-            db.func.coalesce(db.func.sum(ProductionItem.volume_m3 * ProductionItem.quantity), 0)
-        ).filter(
-            ProductionItem.current_status == 'czeka_na_wyciecie'
-        ).scalar() or 0.0
-        dashboard_stats['stations']['cutting']['completed_today'] = cutting_completed_today
-        dashboard_stats['stations']['cutting']['pending_m3'] = float(cutting_pending_m3)
-
-        assembly_completed_today = ProductionItem.query.filter(
-            ProductionItem.assembly_completed_at >= today_start,
-            ProductionItem.assembly_completed_at <= today_end
-        ).count()
-        assembly_pending_m3 = db.session.query(
-            db.func.coalesce(db.func.sum(ProductionItem.volume_m3 * ProductionItem.quantity), 0)
-        ).filter(
-            ProductionItem.current_status == 'czeka_na_skladanie'
-        ).scalar() or 0.0
-        dashboard_stats['stations']['assembly']['completed_today'] = assembly_completed_today
-        dashboard_stats['stations']['assembly']['pending_m3'] = float(assembly_pending_m3)
-
-        gluing_completed_today = 0
-        gluing_pending_m3 = 0.0
-        try:
-            gluing_completed_today = ProductionItem.query.filter(
-                ProductionItem.gluing_completed_at >= today_start,
-                ProductionItem.gluing_completed_at <= today_end
-            ).count()
-            gluing_pending_m3 = db.session.query(
+        # completed_today (count distinct items z dodatnim netto delta)
+        # i pending_m3 (kolejka — stan bieżący po current_status) per stanowisko
+        for station_code, pending_status in _STATION_PENDING_STATUS.items():
+            pending_m3 = db.session.query(
                 db.func.coalesce(db.func.sum(ProductionItem.volume_m3 * ProductionItem.quantity), 0)
-            ).filter(
-                ProductionItem.current_status == 'czeka_na_sklejanie'
-            ).scalar() or 0.0
-        except AttributeError:
-            pass
-        dashboard_stats['stations']['gluing']['completed_today'] = gluing_completed_today
-        dashboard_stats['stations']['gluing']['pending_m3'] = float(gluing_pending_m3)
-
-        formatting_completed_today = 0
-        formatting_pending_m3 = 0.0
-        try:
-            formatting_completed_today = ProductionItem.query.filter(
-                ProductionItem.formatting_completed_at >= today_start,
-                ProductionItem.formatting_completed_at <= today_end
-            ).count()
-            formatting_pending_m3 = db.session.query(
-                db.func.coalesce(db.func.sum(ProductionItem.volume_m3 * ProductionItem.quantity), 0)
-            ).filter(
-                ProductionItem.current_status == 'czeka_na_formatowanie'
-            ).scalar() or 0.0
-        except AttributeError:
-            pass
-        dashboard_stats['stations']['formatting']['completed_today'] = formatting_completed_today
-        dashboard_stats['stations']['formatting']['pending_m3'] = float(formatting_pending_m3)
-
-        finishing_completed_today = 0
-        finishing_pending_m3 = 0.0
-        try:
-            finishing_completed_today = ProductionItem.query.filter(
-                ProductionItem.finishing_completed_at >= today_start,
-                ProductionItem.finishing_completed_at <= today_end
-            ).count()
-            finishing_pending_m3 = db.session.query(
-                db.func.coalesce(db.func.sum(ProductionItem.volume_m3 * ProductionItem.quantity), 0)
-            ).filter(
-                ProductionItem.current_status == 'czeka_na_wykanczanie'
-            ).scalar() or 0.0
-        except AttributeError:
-            pass
-        dashboard_stats['stations']['finishing']['completed_today'] = finishing_completed_today
-        dashboard_stats['stations']['finishing']['pending_m3'] = float(finishing_pending_m3)
-
-        packaging_completed_today = ProductionItem.query.filter(
-            ProductionItem.packaging_completed_at >= today_start,
-            ProductionItem.packaging_completed_at <= today_end
-        ).count()
-        packaging_pending_m3 = db.session.query(
-            db.func.coalesce(db.func.sum(ProductionItem.volume_m3 * ProductionItem.quantity), 0)
-        ).filter(
-            ProductionItem.current_status == 'czeka_na_pakowanie'
-        ).scalar() or 0.0
-        dashboard_stats['stations']['packaging']['completed_today'] = packaging_completed_today
-        dashboard_stats['stations']['packaging']['pending_m3'] = float(packaging_pending_m3)
+            ).filter(ProductionItem.current_status == pending_status).scalar() or 0.0
+            dashboard_stats['stations'][station_code]['completed_today'] = int(
+                station_work_today[station_code]['items_count']
+            )
+            dashboard_stats['stations'][station_code]['pending_m3'] = float(pending_m3)
 
         logistics_pending = ProductionItem.query.filter(
             ProductionItem.current_status == 'czeka_na_logistyke'
@@ -980,34 +829,14 @@ def dashboard_tab_content():
             'pending_count': logistics_pending
         }
 
-        # Dzisiejsze sumy
-        today_start = datetime.combine(today, datetime.min.time())
-        today_end = datetime.combine(today, datetime.max.time())
-
-        completed_today_filter = [
-            ProductionItem.current_status == 'spakowane',
-            ProductionItem.packaging_completed_at >= today_start,
-            ProductionItem.packaging_completed_at <= today_end
-        ]
-        completed_orders_today = db.session.query(
-            db.func.count(db.func.distinct(ProductionItem.internal_order_number))
-        ).filter(*completed_today_filter).scalar() or 0
-        completed_items_today = ProductionItem.query.filter(*completed_today_filter).count()
-        completed_products_today = db.session.query(
-            db.func.coalesce(db.func.sum(ProductionItem.quantity), 0)
-        ).filter(*completed_today_filter).scalar() or 0
-
-        total_m3_today = 0.0
-        try:
-            total_m3_today = db.session.query(
-                db.func.coalesce(db.func.sum(ProductionItem.volume_m3 * ProductionItem.quantity), 0)
-            ).filter(
-                ProductionItem.current_status == 'spakowane',
-                ProductionItem.packaging_completed_at >= today_start,
-                ProductionItem.packaging_completed_at <= today_end
-            ).scalar() or 0.0
-        except:
-            total_m3_today = 0.0
+        # Dzisiejsze sumy — z eventów stanowiska pakowania (faktyczna fizyczna praca)
+        packaging_today = station_work_today.get('packaging', {
+            'pieces_done': 0, 'm3_done': 0.0, 'items_count': 0, 'orders_count': 0
+        })
+        completed_orders_today = packaging_today['orders_count']
+        completed_items_today = packaging_today['items_count']
+        completed_products_today = packaging_today['pieces_done']
+        total_m3_today = packaging_today['m3_done']
 
         avg_deadline_distance = 0.0
         try:
@@ -1152,172 +981,39 @@ def dashboard_data():
 
         today_dd = date.today()
         today_start_dd = datetime.combine(today_dd, datetime.min.time())
-        today_end_dd = datetime.combine(today_dd, datetime.max.time())
+        tomorrow_start_dd = today_start_dd + timedelta(days=1)
 
-        # Stacja wycinania
-        cutting_count = ProductionItem.query.filter(
-            ProductionItem.current_status == 'czeka_na_wyciecie'
-        ).count()
-        cutting_completed_today_dd = ProductionItem.query.filter(
-            ProductionItem.cutting_completed_at >= today_start_dd,
-            ProductionItem.cutting_completed_at <= today_end_dd
-        ).count()
-        cutting_pending_m3_dd = db.session.query(
-            db.func.coalesce(db.func.sum(ProductionItem.volume_m3 * ProductionItem.quantity), 0)
-        ).filter(
-            ProductionItem.current_status == 'czeka_na_wyciecie'
-        ).scalar() or 0.0
-
-        stations_data.append({
-            'code': 'cutting',
-            'name': 'Wycinanie - mikro',
-            'status': 'active' if cutting_count > 0 else 'idle',
-            'status_class': 'station-active' if cutting_count > 0 else 'station-idle',
-            'active_orders': cutting_count,
-            'completed_today': cutting_completed_today_dd,
-            'pending_m3': float(cutting_pending_m3_dd),
-            'tablet_status': heartbeat_statuses.get('cutting', {'active': False, 'last_seen': None, 'status_label': 'Niedostępne'})
-        })
-
-        # Stacja składania
-        assembly_count = ProductionItem.query.filter(
-            ProductionItem.current_status == 'czeka_na_skladanie'
-        ).count()
-        assembly_completed_today_dd = ProductionItem.query.filter(
-            ProductionItem.assembly_completed_at >= today_start_dd,
-            ProductionItem.assembly_completed_at <= today_end_dd
-        ).count()
-        assembly_pending_m3_dd = db.session.query(
-            db.func.coalesce(db.func.sum(ProductionItem.volume_m3 * ProductionItem.quantity), 0)
-        ).filter(
-            ProductionItem.current_status == 'czeka_na_skladanie'
-        ).scalar() or 0.0
-
-        stations_data.append({
-            'code': 'assembly',
-            'name': 'Składanie - lite',
-            'status': 'active' if assembly_count > 0 else 'idle',
-            'status_class': 'station-active' if assembly_count > 0 else 'station-idle',
-            'active_orders': assembly_count,
-            'completed_today': assembly_completed_today_dd,
-            'pending_m3': float(assembly_pending_m3_dd),
-            'tablet_status': heartbeat_statuses.get('assembly', {'active': False, 'last_seen': None, 'status_label': 'Niedostępne'})
-        })
-
-        # Stacja sklejania
-        gluing_count = ProductionItem.query.filter(
-            ProductionItem.current_status == 'czeka_na_sklejanie'
-        ).count()
-        gluing_completed_today_dd = 0
-        gluing_pending_m3_dd = 0.0
-        try:
-            gluing_completed_today_dd = ProductionItem.query.filter(
-                ProductionItem.gluing_completed_at >= today_start_dd,
-                ProductionItem.gluing_completed_at <= today_end_dd
+        # Per stanowisko: kolejka (current_status), pending_m3 (kolejka),
+        # completed_today (faktyczne pozycje ruszane dziś — z prod_station_events)
+        _STATION_NAMES = {
+            'cutting': 'Wycinanie - mikro',
+            'assembly': 'Składanie - lite',
+            'gluing': 'Sklejanie',
+            'formatting': 'Formatowanie',
+            'finishing': 'Wykańczanie',
+            'packaging': 'Pakowanie',
+        }
+        for station_code, pending_status in _STATION_PENDING_STATUS.items():
+            count = ProductionItem.query.filter(
+                ProductionItem.current_status == pending_status
             ).count()
-            gluing_pending_m3_dd = db.session.query(
+            pending_m3 = db.session.query(
                 db.func.coalesce(db.func.sum(ProductionItem.volume_m3 * ProductionItem.quantity), 0)
-            ).filter(
-                ProductionItem.current_status == 'czeka_na_sklejanie'
-            ).scalar() or 0.0
-        except AttributeError:
-            pass
+            ).filter(ProductionItem.current_status == pending_status).scalar() or 0.0
+            work = _safe_station_work(station_code, today_start_dd, tomorrow_start_dd)
 
-        stations_data.append({
-            'code': 'gluing',
-            'name': 'Sklejanie',
-            'status': 'active' if gluing_count > 0 else 'idle',
-            'status_class': 'station-active' if gluing_count > 0 else 'station-idle',
-            'active_orders': gluing_count,
-            'completed_today': gluing_completed_today_dd,
-            'pending_m3': float(gluing_pending_m3_dd),
-            'tablet_status': heartbeat_statuses.get('gluing', {'active': False, 'last_seen': None, 'status_label': 'Niedostępne'})
-        })
-
-        # Stacja formatowania
-        formatting_count = ProductionItem.query.filter(
-            ProductionItem.current_status == 'czeka_na_formatowanie'
-        ).count()
-        formatting_completed_today_dd = 0
-        formatting_pending_m3_dd = 0.0
-        try:
-            formatting_completed_today_dd = ProductionItem.query.filter(
-                ProductionItem.formatting_completed_at >= today_start_dd,
-                ProductionItem.formatting_completed_at <= today_end_dd
-            ).count()
-            formatting_pending_m3_dd = db.session.query(
-                db.func.coalesce(db.func.sum(ProductionItem.volume_m3 * ProductionItem.quantity), 0)
-            ).filter(
-                ProductionItem.current_status == 'czeka_na_formatowanie'
-            ).scalar() or 0.0
-        except AttributeError:
-            pass
-
-        stations_data.append({
-            'code': 'formatting',
-            'name': 'Formatowanie',
-            'status': 'active' if formatting_count > 0 else 'idle',
-            'status_class': 'station-active' if formatting_count > 0 else 'station-idle',
-            'active_orders': formatting_count,
-            'completed_today': formatting_completed_today_dd,
-            'pending_m3': float(formatting_pending_m3_dd),
-            'tablet_status': heartbeat_statuses.get('formatting', {'active': False, 'last_seen': None, 'status_label': 'Niedostępne'})
-        })
-
-        # Stacja wykańczania
-        finishing_count = ProductionItem.query.filter(
-            ProductionItem.current_status == 'czeka_na_wykanczanie'
-        ).count()
-        finishing_completed_today_dd = 0
-        finishing_pending_m3_dd = 0.0
-        try:
-            finishing_completed_today_dd = ProductionItem.query.filter(
-                ProductionItem.finishing_completed_at >= today_start_dd,
-                ProductionItem.finishing_completed_at <= today_end_dd
-            ).count()
-            finishing_pending_m3_dd = db.session.query(
-                db.func.coalesce(db.func.sum(ProductionItem.volume_m3 * ProductionItem.quantity), 0)
-            ).filter(
-                ProductionItem.current_status == 'czeka_na_wykanczanie'
-            ).scalar() or 0.0
-        except AttributeError:
-            pass
-
-        stations_data.append({
-            'code': 'finishing',
-            'name': 'Wykańczanie',
-            'status': 'active' if finishing_count > 0 else 'idle',
-            'status_class': 'station-active' if finishing_count > 0 else 'station-idle',
-            'active_orders': finishing_count,
-            'completed_today': finishing_completed_today_dd,
-            'pending_m3': float(finishing_pending_m3_dd),
-            'tablet_status': heartbeat_statuses.get('finishing', {'active': False, 'last_seen': None, 'status_label': 'Niedostępne'})
-        })
-
-        # Stacja pakowania
-        packaging_count = ProductionItem.query.filter(
-            ProductionItem.current_status == 'czeka_na_pakowanie'
-        ).count()
-        packaging_completed_today_dd = ProductionItem.query.filter(
-            ProductionItem.packaging_completed_at >= today_start_dd,
-            ProductionItem.packaging_completed_at <= today_end_dd
-        ).count()
-        packaging_pending_m3_dd = db.session.query(
-            db.func.coalesce(db.func.sum(ProductionItem.volume_m3 * ProductionItem.quantity), 0)
-        ).filter(
-            ProductionItem.current_status == 'czeka_na_pakowanie'
-        ).scalar() or 0.0
-
-        stations_data.append({
-            'code': 'packaging',
-            'name': 'Pakowanie',
-            'status': 'active' if packaging_count > 0 else 'idle',
-            'status_class': 'station-active' if packaging_count > 0 else 'station-idle',
-            'active_orders': packaging_count,
-            'completed_today': packaging_completed_today_dd,
-            'pending_m3': float(packaging_pending_m3_dd),
-            'tablet_status': heartbeat_statuses.get('packaging', {'active': False, 'last_seen': None, 'status_label': 'Niedostępne'})
-        })
+            stations_data.append({
+                'code': station_code,
+                'name': _STATION_NAMES[station_code],
+                'status': 'active' if count > 0 else 'idle',
+                'status_class': 'station-active' if count > 0 else 'station-idle',
+                'active_orders': count,
+                'completed_today': int(work['items_count']),
+                'pending_m3': float(pending_m3),
+                'tablet_status': heartbeat_statuses.get(station_code, {
+                    'active': False, 'last_seen': None, 'status_label': 'Niedostępne'
+                }),
+            })
 
         # Alerty systemowe
         alerts_data = []
@@ -1555,36 +1251,14 @@ def dashboard_stats_data():
 
         total_orders = ProductionItem.query.count()
 
-        completed_today_original = ProductionItem.query.filter(
-            ProductionItem.current_status == 'spakowane',
-            ProductionItem.packaging_completed_at >= today_start,
-            ProductionItem.packaging_completed_at <= today_end
-        ).count()
-
-        completed_today_alternative = ProductionItem.query.filter(
-            ProductionItem.current_status == 'spakowane'
-        ).count()
-
-        completed_today_updated_at = 0
-        try:
-            completed_today_updated_at = ProductionItem.query.filter(
-                ProductionItem.current_status == 'spakowane',
-                ProductionItem.updated_at >= today_start,
-                ProductionItem.updated_at <= today_end
-            ).count()
-        except Exception as e:
-            logger.debug(f"Błąd updated_at: {e}")
-
-        logger.debug(f"Completed today (oryginalna logika): {completed_today_original}")
-        logger.debug(f"Completed today (wszystkie spakowane): {completed_today_alternative}")
-        logger.debug(f"Completed today (updated_at): {completed_today_updated_at}")
-        logger.debug(f"Today start: {today_start}, Today end: {today_end}")
-
-        if completed_today_original == 0 and completed_today_alternative > 0:
-            logger.warning("Używam alternatywnej logiki - brak packaging_completed_at lub problem z datami")
-            completed_today = completed_today_updated_at if completed_today_updated_at > 0 else completed_today_alternative
-        else:
-            completed_today = completed_today_original
+        # Faktyczna praca dziś na pakowaniu — z prod_station_events
+        # (uwzględnia partial work, cofnięcia; "stan fizyczny")
+        tomorrow_start = today_start + timedelta(days=1)
+        packaging_today = _safe_station_work('packaging', today_start, tomorrow_start)
+        completed_today = int(packaging_today['items_count'])
+        completed_orders_today = int(packaging_today['orders_count'])
+        completed_products_today = int(packaging_today['pieces_done'])
+        total_volume_today = float(packaging_today['m3_done'])
 
         pending_priority = ProductionItem.query.filter(
             ProductionItem.current_status.in_([
@@ -1601,49 +1275,13 @@ def dashboard_stats_data():
             ProductionError.is_resolved == False
         ).count()
 
-        total_volume_today = 0.0
-        try:
-            if completed_today_original > 0:
-                volume_result = db.session.query(
-                    db.func.coalesce(db.func.sum(ProductionItem.volume_m3 * ProductionItem.quantity), 0)
-                ).filter(
-                    ProductionItem.current_status == 'spakowane',
-                    ProductionItem.packaging_completed_at >= today_start,
-                    ProductionItem.packaging_completed_at <= today_end
-                ).scalar()
-            else:
-                volume_result = db.session.query(
-                    db.func.coalesce(db.func.sum(ProductionItem.volume_m3 * ProductionItem.quantity), 0)
-                ).filter(
-                    ProductionItem.current_status == 'spakowane'
-                ).scalar()
-
-            total_volume_today = float(volume_result) if volume_result else 0.0
-
-        except Exception as volume_error:
-            logger.warning("Nie udało się pobrać volume_m3", extra={'error': str(volume_error)})
-            total_volume_today = 0.0
-
-        # Spójne metryki "Zakończone dziś": zamówienia (distinct), pozycje (rows), produkty (sum quantity)
-        completed_today_filter = [
-            ProductionItem.current_status == 'spakowane',
-            ProductionItem.packaging_completed_at >= today_start,
-            ProductionItem.packaging_completed_at <= today_end
-        ]
-        completed_orders_today = db.session.query(
-            db.func.count(db.func.distinct(ProductionItem.internal_order_number))
-        ).filter(*completed_today_filter).scalar() or 0
-        completed_products_today = db.session.query(
-            db.func.coalesce(db.func.sum(ProductionItem.quantity), 0)
-        ).filter(*completed_today_filter).scalar() or 0
-
         stats_data = {
             'total_orders': total_orders,
             'completed_today': completed_today,
-            'completed_orders': int(completed_orders_today),
-            'completed_items': int(completed_today_original),
-            'completed_products': int(completed_products_today),
-            'total_m3': float(total_volume_today),
+            'completed_orders': completed_orders_today,
+            'completed_items': completed_today,
+            'completed_products': completed_products_today,
+            'total_m3': total_volume_today,
             'pending_priority': pending_priority,
             'errors_24h': errors_24h,
             'total_volume_today_m3': total_volume_today,
@@ -1654,12 +1292,9 @@ def dashboard_stats_data():
         logger.debug("API: dashboard-stats-data - FINALNE statystyki", extra={
             'total_orders': total_orders,
             'completed_today': completed_today,
-            'completed_today_original': completed_today_original,
-            'completed_today_alternative': completed_today_alternative,
-            'completed_today_updated_at': completed_today_updated_at,
             'pending_priority': pending_priority,
             'errors_24h': errors_24h,
-            'total_volume_today': total_volume_today
+            'total_volume_today': total_volume_today,
         })
 
         return jsonify({
