@@ -122,6 +122,52 @@ def _resolve_client_label(item):
     return 'Brak danych'
 
 
+def _format_delivery_label(item):
+    """Zwraca skrócony typ dostawy: TRANSPORT / ODBIOR / KURIER."""
+    override = (getattr(item, 'override_delivery_method', None) or '').strip().lower()
+    if override == 'transport_woodpower':
+        return 'TRANSPORT'
+    try:
+        if getattr(item, 'is_personal_pickup', False):
+            return 'ODBIOR'
+    except Exception:
+        pass
+    return 'KURIER'
+
+
+def _format_finish_label(item):
+    """Rozszerzony opis wykończenia: 'LAK MAT BRUNAT 22-23' / 'OLEJ' / 'LAK MAT' itp.
+
+    Skróty:
+      lakierowane → LAK, olejowane → OLEJ
+      matowy → MAT, półmatowy → PMAT
+    Zwraca '' dla 'surowe' lub braku danych."""
+    finish_raw = (item.parsed_finish_type or '').strip().lower()
+    if not finish_raw or finish_raw == 'surowe':
+        return ''
+    parts = []
+    if finish_raw == 'lakierowane':
+        parts.append('LAK')
+    elif finish_raw == 'olejowane':
+        parts.append('OLEJ')
+    else:
+        parts.append(_normalize_text(finish_raw).upper())
+
+    gloss = (item.parsed_finish_gloss or '').strip().lower()
+    if gloss == 'matowy':
+        parts.append('MAT')
+    elif gloss in ('półmatowy', 'polmatowy'):
+        parts.append('PMAT')
+    elif gloss:
+        parts.append(_normalize_text(gloss).upper())
+
+    color = (item.parsed_finish_color or '').strip()
+    if color:
+        parts.append(_normalize_text(color).upper())
+
+    return ' '.join(parts)
+
+
 # Layout (px @ 8 dpmm, etykieta 60×40 mm = 480×320 px)
 #
 # Konwencja: w ZPL preambule ^LS0 (drukarka nie modyfikuje globalnie pozycji).
@@ -190,13 +236,13 @@ def generate_label_zpl(item, cfg):
     species = _normalize_text(item.parsed_wood_species or '').upper() or 'BRAK'
     technology = _normalize_text(item.parsed_technology or '').upper() or 'BRAK'
     wood_class = _normalize_text(item.parsed_wood_class or '').upper() or '-'
-    finish_raw = _normalize_text(item.parsed_finish_type or '').strip().lower()
-    finish_label = finish_raw.upper() if finish_raw else ''
+    finish_label = _format_finish_label(item)
     edge_label = _format_edge_label(item)
     name = _normalize_text(item.original_product_name or '')[:80]
     short_id = _normalize_text(item.short_product_id or '')
     bl_id = item.baselinker_order_id or 0
     client_label = _resolve_client_label(item)
+    delivery_label = _format_delivery_label(item)
 
     # Pozycja produktu w zamówieniu: "4/8" (4-ty z 8 produktów)
     seq_label = ''
@@ -220,7 +266,7 @@ def generate_label_zpl(item, cfg):
 
     # Badges row 2 — tylko gdy są dane
     row2 = []
-    if finish_label and finish_raw != 'surowe':
+    if finish_label:
         row2.append((finish_label, False))
     if edge_label:
         row2.append((edge_label, False))
@@ -255,15 +301,17 @@ def generate_label_zpl(item, cfg):
         f"^FO{zpl_margin_l},62^A0N,26,26^FD{numbers_line}^FS\n"
         # Klient — pod numerami, font 22
         f"^FO{zpl_margin_l},96^A0N,22,22^FB{separator_width},1,0,L^FD{client_label}^FS\n"
+        # Dostawa — pod klientem, font 18
+        f"^FO{zpl_margin_l},124^A0N,18,18^FDDostawa: {delivery_label}^FS\n"
         "\n"
         # QR — pod prawą krawędzią
         f"^FO{zpl_qr_x},{_QR_VISUAL_Y}^BQN,2,4^FDLA,{short_id}^FS\n"
         "\n"
         # Separator — kończy się przed QR
-        f"^FO{zpl_margin_l},135^GB{separator_width},2,2^FS\n"
+        f"^FO{zpl_margin_l},151^GB{separator_width},2,2^FS\n"
         "\n"
         # Nazwa produktu — jedna linia, font 22
-        f"^FO{zpl_margin_l},148^A0N,22,22^FB{content_width},2,0,L^FD{name}^FS\n"
+        f"^FO{zpl_margin_l},164^A0N,22,22^FB{content_width},2,0,L^FD{name}^FS\n"
         "\n"
         + badges_row1_zpl + "\n"
         + (badges_row2_zpl + "\n" if badges_row2_zpl else "")
