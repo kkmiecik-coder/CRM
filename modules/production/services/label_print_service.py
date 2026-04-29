@@ -99,57 +99,152 @@ def _load_config():
     }
 
 
+def _resolve_client_label(item):
+    """Fallback chain dla pola 'klient' na etykiecie."""
+    candidates = [
+        getattr(item, 'client_name', None),
+        getattr(item, 'delivery_fullname', None),
+        getattr(item, 'delivery_company', None),
+        getattr(item, 'client_order_number', None),
+        getattr(item, 'internal_order_number', None),
+    ]
+    for candidate in candidates:
+        if candidate and str(candidate).strip():
+            return _normalize_text(str(candidate).strip())
+    return 'Brak danych'
+
+
+# Layout (px @ 8 dpmm, etykieta 60×40 mm = 480×320 px)
+#
+# Konwencja: w ZPL preambule ^LS0 (drukarka nie modyfikuje globalnie pozycji).
+# `cfg['offset_ls']` traktujemy jako kalibracyjny shift POZIOMY całej treści —
+# dodawany do każdego ^FO_x. User reguluje w panelu admin (?tab=config) — większa
+# wartość = treść bardziej w prawo, mniejsza = w lewo.
+_LABEL_WIDTH = 480
+_LABEL_HEIGHT = 320
+_VISUAL_MARGIN_LEFT = 12    # bazowy padding od lewej (przed shiftem z cfg)
+_VISUAL_MARGIN_RIGHT = 25
+_QR_VISUAL_X = 388          # pozycja QR od lewej krawędzi
+_QR_VISUAL_Y = 55
+_QR_VISUAL_GAP = 12         # odstęp separatora od QR
+_BADGE_HEIGHT = 34
+_BADGE_GAP = 12             # odstęp między badge'ami
+_BADGE_FONT_SIZE = 18
+_BADGE_CHAR_PX = 14         # realistyczna szerokość znaku w foncie 18
+_BADGE_PADDING_X = 20       # padding wewnętrzny — tekst odsunięty od lewej krawędzi badge'a
+
+
+def _badge_zpl(x, y, text, filled=True):
+    """Pojedynczy badge: tło (wypełnione lub ramka) + tekst wyśrodkowany w pionie.
+    Zwraca (zpl_string, width_px) — szerokość liczona z długości tekstu.
+    """
+    text_px = max(1, len(text)) * _BADGE_CHAR_PX
+    width = text_px + 2 * _BADGE_PADDING_X
+    if filled:
+        bg = f"^FO{x},{y}^GB{width},{_BADGE_HEIGHT},{_BADGE_HEIGHT},B,3^FS"
+        txt = f"^FO{x + _BADGE_PADDING_X},{y + 7}^A0N,{_BADGE_FONT_SIZE},{_BADGE_FONT_SIZE}^FR^FD{text}^FS"
+    else:
+        bg = f"^FO{x},{y}^GB{width},{_BADGE_HEIGHT},3,B,3^FS"
+        txt = f"^FO{x + _BADGE_PADDING_X},{y + 7}^A0N,{_BADGE_FONT_SIZE},{_BADGE_FONT_SIZE}^FD{text}^FS"
+    return f"{bg}\n{txt}", width
+
+
+def _layout_badges_row(badges, y, x_start, x_max):
+    """Układa badge'y horyzontalnie od x_start, z gap.
+    Pomija pojedyncze badge które nie zmieszczą się do x_max.
+    Wszystkie x w przestrzeni ZPL (po dodaniu ^LS).
+    """
+    parts = []
+    x = x_start
+    for text, filled in badges:
+        zpl, width = _badge_zpl(x, y, text, filled=filled)
+        if x + width > x_max:
+            continue
+        parts.append(zpl)
+        x += width + _BADGE_GAP
+    return "\n".join(parts)
+
+
 def generate_label_zpl(item, cfg):
     """
-    Generuje ZPL dla etykiety 60x40 mm (layout v8, zatwierdzony).
-    Kalibracja przez ^LT/^LS z konfiguracji (drukarka ma odwróconą konwencję ^LS —
-    dodatnia wartość = w lewo).
+    Generuje ZPL dla etykiety 60×40 mm.
+
+    Layout (od góry):
+      - czarny pasek nagłówkowy "WoodPower" — pełna szerokość
+      - numery: "{short_id} | BL: {bl_id}" — jedna linia
+      - klient (fallback chain) — jedna linia
+      - QR — pod prawą krawędzią
+      - separator
+      - nazwa produktu — jedna linia (skrócona)
+      - badges row 1 (gatunek/technologia/klasa) — wypełnione, dynamiczna szerokość
+      - badges row 2 (wykończenie/krawędź) — z ramką, pomijane gdy puste
     """
     species = _normalize_text(item.parsed_wood_species or '').upper() or 'BRAK'
     technology = _normalize_text(item.parsed_technology or '').upper() or 'BRAK'
     wood_class = _normalize_text(item.parsed_wood_class or '').upper() or '-'
-    finish = _normalize_text(item.parsed_finish_type or '').upper() or 'SUROWE'
-    edge_label = _format_edge_label(item) or 'BRAK'
+    finish_raw = _normalize_text(item.parsed_finish_type or '').strip().lower()
+    finish_label = finish_raw.upper() if finish_raw else ''
+    edge_label = _format_edge_label(item)
     name = _normalize_text(item.original_product_name or '')[:80]
     short_id = _normalize_text(item.short_product_id or '')
     bl_id = item.baselinker_order_id or 0
+    client_label = _resolve_client_label(item)
+
+    numbers_line = f"{short_id} | BL: {bl_id}"
+
+    # Badges row 1 — zawsze wszystkie 3 (mają fallback BRAK/-)
+    row1 = [(species, True), (technology, True), (wood_class, True)]
+
+    # Badges row 2 — tylko gdy są dane
+    row2 = []
+    if finish_label and finish_raw != 'surowe':
+        row2.append((finish_label, False))
+    if edge_label:
+        row2.append((edge_label, False))
+
+    shift_x = cfg['offset_ls']
+    zpl_margin_l = shift_x + _VISUAL_MARGIN_LEFT
+    zpl_qr_x = shift_x + _QR_VISUAL_X
+    content_width = _LABEL_WIDTH - _VISUAL_MARGIN_LEFT - _VISUAL_MARGIN_RIGHT
+    separator_width = _QR_VISUAL_X - _VISUAL_MARGIN_LEFT - _QR_VISUAL_GAP
+
+    badges_x_max = shift_x + _LABEL_WIDTH - _VISUAL_MARGIN_RIGHT
+    badges_row1_zpl = _layout_badges_row(row1, y=212, x_start=zpl_margin_l, x_max=badges_x_max)
+    badges_row2_zpl = _layout_badges_row(row2, y=256, x_start=zpl_margin_l, x_max=badges_x_max) if row2 else ""
+
+    # Header — czarny pasek na pełną szerokość fizyczną
+    header_x = shift_x
+    header_width = _LABEL_WIDTH
 
     return (
         "^XA\n"
-        "^PW480\n"
-        "^LL320\n"
+        f"^PW{_LABEL_WIDTH}\n"
+        f"^LL{_LABEL_HEIGHT}\n"
         f"^LT{cfg['offset_lt']}\n"
-        f"^LS{cfg['offset_ls']}\n"
+        "^LS0\n"
         "^CI28\n"
         "\n"
-        "^FO0,0^GB480,50,50^FS\n"
-        "^FO15,10^A0N,32,32^FR^FDWoodPower^FS\n"
+        # Header — czarny pasek
+        f"^FO{header_x},0^GB{header_width},50,50^FS\n"
+        f"^FO{shift_x + 15},10^A0N,32,32^FR^FDWoodPower^FS\n"
         "\n"
-        f"^FO15,62^A0N,32,32^FD{short_id}^FS\n"
-        f"^FO15,102^A0N,22,22^FDBL: {bl_id}^FS\n"
+        # Numery — jedna linia, font 26
+        f"^FO{zpl_margin_l},62^A0N,26,26^FD{numbers_line}^FS\n"
+        # Klient — pod numerami, font 22
+        f"^FO{zpl_margin_l},96^A0N,22,22^FB{separator_width},1,0,L^FD{client_label}^FS\n"
         "\n"
-        f"^FO380,60^BQN,2,4^FDLA,{short_id}^FS\n"
+        # QR — pod prawą krawędzią
+        f"^FO{zpl_qr_x},{_QR_VISUAL_Y}^BQN,2,4^FDLA,{short_id}^FS\n"
         "\n"
-        "^FO15,145^GB345,2,2^FS\n"
+        # Separator — kończy się przed QR
+        f"^FO{zpl_margin_l},135^GB{separator_width},2,2^FS\n"
         "\n"
-        f"^FO15,158^A0N,22,22^FB450,2,0,L^FD{name}^FS\n"
+        # Nazwa produktu — jedna linia, font 22
+        f"^FO{zpl_margin_l},148^A0N,22,22^FB{content_width},2,0,L^FD{name}^FS\n"
         "\n"
-        "^FO15,212^GB95,34,34,B,3^FS\n"
-        f"^FO22,219^A0N,22,22^FR^FD{species}^FS\n"
-        "\n"
-        "^FO118,212^GB145,34,34,B,3^FS\n"
-        f"^FO128,221^A0N,20,20^FR^FD{technology}^FS\n"
-        "\n"
-        "^FO271,212^GB58,34,34,B,3^FS\n"
-        f"^FO281,219^A0N,22,22^FR^FD{wood_class}^FS\n"
-        "\n"
-        "^FO15,256^GB110,34,3,B,3^FS\n"
-        f"^FO25,263^A0N,22,22^FD{finish}^FS\n"
-        "\n"
-        "^FO133,256^GB180,34,3,B,3^FS\n"
-        f"^FO143,265^A0N,20,20^FD{edge_label}^FS\n"
-        "\n"
-        "^XZ\n"
+        + badges_row1_zpl + "\n"
+        + (badges_row2_zpl + "\n" if badges_row2_zpl else "")
+        + "^XZ\n"
     )
 
 
