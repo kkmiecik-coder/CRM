@@ -130,7 +130,7 @@ def _resolve_client_label(item):
 # wartość = treść bardziej w prawo, mniejsza = w lewo.
 _LABEL_WIDTH = 480
 _LABEL_HEIGHT = 320
-_VISUAL_MARGIN_LEFT = 12    # bazowy padding od lewej (przed shiftem z cfg)
+_VISUAL_MARGIN_LEFT = 4     # bazowy padding od lewej (przed shiftem z cfg) — 0.5 mm
 _VISUAL_MARGIN_RIGHT = 25
 _QR_VISUAL_X = 388          # pozycja QR od lewej krawędzi
 _QR_VISUAL_Y = 55
