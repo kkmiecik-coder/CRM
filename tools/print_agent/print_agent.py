@@ -97,7 +97,7 @@ def load_config(path):
         'request_timeout': cp.getint('crm', 'request_timeout_seconds', fallback=10),
         'printer_ip': cp.get('printer', 'ip'),
         'printer_port': cp.getint('printer', 'port', fallback=9100),
-        'printer_timeout': cp.getint('printer', 'send_timeout_seconds', fallback=5),
+        'printer_timeout': cp.getint('printer', 'send_timeout_seconds', fallback=15),
         'poll_interval': cp.getint('polling', 'interval_seconds', fallback=10),
         'idle_check_interval': cp.getint('polling', 'idle_check_interval_seconds', fallback=60),
         'workdays_start': dtime.fromisoformat(cp.get('schedule', 'workdays_start')),
