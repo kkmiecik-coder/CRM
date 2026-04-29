@@ -12,6 +12,170 @@ from sqlalchemy import func
 
 from . import api_bp, logger, ProductionItem, ProductionSyncLog, get_local_now
 
+VALID_STATIONS = {
+    'cutting', 'assembly', 'gluing', 'formatting',
+    'finishing', 'painting', 'packaging'
+}
+
+STATION_LABELS = {
+    'cutting': 'Wycinanie',
+    'assembly': 'Składanie',
+    'gluing': 'Sklejanie',
+    'formatting': 'Formatowanie',
+    'finishing': 'Wykańczanie',
+    'painting': 'Lakiernia',
+    'packaging': 'Pakowanie',
+}
+
+
+@api_bp.route('/reports/station-output')
+@login_required
+def reports_station_output():
+    """
+    GET /production/api/reports/station-output?station=<code>&date=YYYY-MM-DD
+
+    Zwraca pozycje produkcyjne, na których stanowisko <station> wykonało
+    jakąkolwiek operację (delta != 0) w ciągu wybranego dnia.
+
+    Dla każdej pozycji:
+    - quantity_done_eod: stan quantity_done_<station> na koniec tego dnia
+      (z ostatniego eventu w tym dniu) — to jest "ile zostało wykonane"
+    - day_delta_sum: netto ruch w ciągu dnia (suma delta) — np. +5,-1,+2 = +6
+    - quantity: total szt. pozycji
+    - volume_per_unit, volume_done_eod (m³)
+    - meta: short_product_id, original_product_name, baselinker_order_id, status, gatunek/grubość
+
+    Sortowanie: po ostatnim evencie w dniu (najnowsze najpierw).
+    """
+    from ...models import ProductionStationEvent
+    from sqlalchemy import func, and_
+
+    station = request.args.get('station', '').strip().lower()
+    date_str = request.args.get('date', '').strip()
+
+    if station not in VALID_STATIONS:
+        return jsonify({
+            'success': False,
+            'error': f'Nieprawidłowe stanowisko. Dozwolone: {sorted(VALID_STATIONS)}'
+        }), 400
+
+    try:
+        target_date = datetime.strptime(date_str, '%Y-%m-%d').date() if date_str else date.today()
+    except ValueError:
+        return jsonify({
+            'success': False,
+            'error': 'Nieprawidłowy format daty (oczekiwane YYYY-MM-DD)'
+        }), 400
+
+    day_start = datetime.combine(target_date, datetime.min.time())
+    day_end = datetime.combine(target_date, datetime.max.time())
+
+    try:
+        # Per-item agregacja eventów z wybranego dnia
+        # day_delta_sum = SUM(delta), last_event_at = MAX(created_at)
+        agg = db.session.query(
+            ProductionStationEvent.production_item_id.label('item_id'),
+            func.sum(ProductionStationEvent.delta).label('day_delta_sum'),
+            func.max(ProductionStationEvent.created_at).label('last_event_at'),
+            func.count(ProductionStationEvent.id).label('event_count'),
+        ).filter(
+            ProductionStationEvent.station_code == station,
+            ProductionStationEvent.created_at >= day_start,
+            ProductionStationEvent.created_at <= day_end,
+        ).group_by(ProductionStationEvent.production_item_id).subquery()
+
+        # Pobierz quantity_done_after z ostatniego eventu w dniu (per item).
+        # Trick: order by created_at desc, group_by item_id z LIMIT — w MySQL
+        # nie działa wprost; używamy correlated subquery przez JOIN po (item, last_event_at).
+        last_event = db.session.query(
+            ProductionStationEvent.production_item_id.label('item_id'),
+            ProductionStationEvent.created_at.label('last_event_at'),
+            ProductionStationEvent.quantity_done_after.label('quantity_done_eod'),
+        ).filter(
+            ProductionStationEvent.station_code == station,
+            ProductionStationEvent.created_at >= day_start,
+            ProductionStationEvent.created_at <= day_end,
+        ).subquery()
+
+        rows = db.session.query(
+            ProductionItem,
+            agg.c.day_delta_sum,
+            agg.c.last_event_at,
+            agg.c.event_count,
+            last_event.c.quantity_done_eod,
+        ).join(
+            agg, ProductionItem.id == agg.c.item_id
+        ).join(
+            last_event,
+            and_(
+                last_event.c.item_id == agg.c.item_id,
+                last_event.c.last_event_at == agg.c.last_event_at,
+            )
+        ).order_by(agg.c.last_event_at.desc()).all()
+
+        items_payload = []
+        sum_qty_done_eod = 0
+        sum_volume_done_eod = 0.0
+        sum_day_delta = 0
+
+        # Dedup po item_id (w razie remisu created_at na ostatnim evencie
+        # join produkcyjnie wybierze pierwszy zwrot — agregat i tak ten sam)
+        seen_ids = set()
+        for item, day_delta_sum, last_event_at, event_count, qty_done_eod in rows:
+            if item.id in seen_ids:
+                continue
+            seen_ids.add(item.id)
+
+            qty_done_eod = int(qty_done_eod or 0)
+            day_delta_sum = int(day_delta_sum or 0)
+            volume_per_unit = float(item.volume_m3 or 0)
+            volume_done_eod = volume_per_unit * qty_done_eod
+
+            sum_qty_done_eod += qty_done_eod
+            sum_volume_done_eod += volume_done_eod
+            sum_day_delta += day_delta_sum
+
+            items_payload.append({
+                'item_id': item.id,
+                'short_product_id': item.short_product_id,
+                'product_name': item.original_product_name,
+                'baselinker_order_id': item.baselinker_order_id,
+                'internal_order_number': item.internal_order_number,
+                'current_status': item.current_status,
+                'quantity': item.quantity,
+                'quantity_done_eod': qty_done_eod,
+                'day_delta_sum': day_delta_sum,
+                'event_count': int(event_count or 0),
+                'volume_per_unit_m3': round(volume_per_unit, 4),
+                'volume_done_eod_m3': round(volume_done_eod, 4),
+                'wood_species': item.parsed_wood_species,
+                'thickness_cm': float(item.parsed_thickness_cm) if item.parsed_thickness_cm else None,
+                'last_event_at': last_event_at.isoformat() if last_event_at else None,
+            })
+
+        return jsonify({
+            'success': True,
+            'station': station,
+            'station_label': STATION_LABELS.get(station, station),
+            'date': target_date.isoformat(),
+            'items': items_payload,
+            'summary': {
+                'items_count': len(items_payload),
+                'total_quantity_done_eod': sum_qty_done_eod,
+                'total_day_delta': sum_day_delta,
+                'total_volume_done_eod_m3': round(sum_volume_done_eod, 4),
+            },
+        })
+
+    except Exception as e:
+        logger.error("Błąd /reports/station-output", extra={
+            'user_id': current_user.id,
+            'station': station,
+            'date': date_str,
+            'error': str(e),
+        })
+        return jsonify({'success': False, 'error': str(e)}), 500
+
 
 @api_bp.route('/reports-tab-content')
 @login_required

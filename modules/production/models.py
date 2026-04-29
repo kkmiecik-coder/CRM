@@ -558,9 +558,16 @@ class ProductionItem(db.Model):
         attr_name = f'quantity_done_{station_code}'
         return getattr(self, attr_name, 0)
 
-    def set_quantity_done(self, station_code, value):
-        """Ustawia liczbę wykonanych sztuk na danym stanowisku"""
+    def set_quantity_done(self, station_code, value, *,
+                          actor_user_id=None, actor_device_id=None, source='web'):
+        """
+        Ustawia liczbę wykonanych sztuk na danym stanowisku.
+
+        Tworzy ProductionStationEvent gdy wartość faktycznie się zmieniła.
+        Kontekst aktora (actor_user_id/actor_device_id/source) opcjonalny.
+        """
         attr_name = f'quantity_done_{station_code}'
+        old_value = getattr(self, attr_name, 0) or 0
         # Ograniczenie do zakresu 0 - quantity
         value = max(0, min(value, self.quantity))
         setattr(self, attr_name, value)
@@ -578,12 +585,28 @@ class ProductionItem(db.Model):
             setattr(self, completed_attr, None)
 
         self.updated_at = now
+
+        # Log zdarzenia tylko gdy stan faktycznie się zmienił
+        if value != old_value and self.id is not None:
+            normalized_source = source if source in ('web', 'mobile', 'admin', 'system') else 'web'
+            event = ProductionStationEvent(
+                production_item_id=self.id,
+                station_code=station_code,
+                delta=value - old_value,
+                quantity_done_after=value,
+                created_at=now,
+                user_id=actor_user_id,
+                device_id=actor_device_id,
+                source=normalized_source,
+            )
+            db.session.add(event)
+
         return value
 
-    def increment_quantity_done(self, station_code, amount=1):
-        """Zwiększa liczbę wykonanych sztuk"""
+    def increment_quantity_done(self, station_code, amount=1, **actor_kwargs):
+        """Zwiększa liczbę wykonanych sztuk. actor_kwargs: actor_user_id/actor_device_id/source."""
         current = self.get_quantity_done(station_code)
-        new_value = self.set_quantity_done(station_code, current + amount)
+        new_value = self.set_quantity_done(station_code, current + amount, **actor_kwargs)
 
         logger.info("Zwiększono quantity_done", extra={
             'product_id': self.short_product_id,
@@ -594,10 +617,10 @@ class ProductionItem(db.Model):
         })
         return new_value
 
-    def decrement_quantity_done(self, station_code, amount=1):
-        """Zmniejsza liczbę wykonanych sztuk"""
+    def decrement_quantity_done(self, station_code, amount=1, **actor_kwargs):
+        """Zmniejsza liczbę wykonanych sztuk. actor_kwargs: actor_user_id/actor_device_id/source."""
         current = self.get_quantity_done(station_code)
-        new_value = self.set_quantity_done(station_code, current - amount)
+        new_value = self.set_quantity_done(station_code, current - amount, **actor_kwargs)
 
         logger.info("Zmniejszono quantity_done", extra={
             'product_id': self.short_product_id,
@@ -653,9 +676,8 @@ class ProductionItem(db.Model):
             if station_code == 'formatting' and self.should_skip_finishing():
                 next_status = 'czeka_na_logistyke'
                 skipped_finishing = True
-                self.quantity_done_finishing = self.quantity
-                if self.finishing_completed_at is None:
-                    self.finishing_completed_at = now
+                # set_quantity_done loguje event w prod_station_events (source='system')
+                self.set_quantity_done('finishing', self.quantity, source='system')
                 logger.info("Produkt 'Surowe' bez obróbki krawędzi - pomijam wykańczanie", extra={
                     'product_id': self.short_product_id,
                     'finish_state': self.parsed_finish_state
@@ -1129,3 +1151,42 @@ class MobileAppRelease(db.Model):
         return cls.query.filter_by(is_active=True).order_by(
             cls.version_code.desc()
         ).first()
+
+class ProductionStationEvent(db.Model):
+    """
+    Log zdarzeń stanowiskowych — każda zmiana quantity_done_<station>
+    (zarówno + jak i -) tworzy rekord. Pozwala odpowiedzieć na pytanie
+    "co stanowisko X zrobiło dnia Y" niezależnie od bieżącego stanu pozycji.
+
+    Zapis NIE jest backfillowany — historia zaczyna się od wdrożenia tabeli.
+    """
+    __tablename__ = 'prod_station_events'
+
+    id = Column(Integer, primary_key=True)
+    production_item_id = Column(
+        Integer, ForeignKey('prod_items.id', ondelete='CASCADE'),
+        nullable=False, index=True
+    )
+    station_code = Column(String(32), nullable=False, index=True)
+    delta = Column(Integer, nullable=False,
+                   comment='Zmiana wartości quantity_done (+/-)')
+    quantity_done_after = Column(Integer, nullable=False,
+                                 comment='Stan quantity_done_<station> po operacji')
+    created_at = Column(DateTime, default=get_local_now, nullable=False, index=True)
+
+    user_id = Column(Integer, ForeignKey('users.id'), nullable=True, index=True)
+    device_id = Column(String(64), nullable=True, index=True,
+                       comment='prod_devices.device_id (gdy mobile)')
+    source = Column(
+        Enum('web', 'mobile', 'admin', 'system', name='station_event_source'),
+        nullable=False, default='web', index=True
+    )
+
+    item = relationship('ProductionItem', backref='station_events')
+    user = relationship('User')
+
+    def __repr__(self):
+        sign = '+' if self.delta >= 0 else ''
+        return (f'<ProductionStationEvent item={self.production_item_id} '
+                f'{self.station_code} {sign}{self.delta} '
+                f'→ {self.quantity_done_after}>')

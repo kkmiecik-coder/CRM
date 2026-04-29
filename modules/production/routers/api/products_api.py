@@ -317,13 +317,13 @@ def update_quantity_done():
 
         # Wykonaj akcję
         if action == 'increment':
-            new_value = product.increment_quantity_done(station, 1)
+            new_value = product.increment_quantity_done(station, 1, source='web')
         elif action == 'decrement':
-            new_value = product.decrement_quantity_done(station, 1)
+            new_value = product.decrement_quantity_done(station, 1, source='web')
         elif action == 'increment10':
-            new_value = product.increment_quantity_done(station, 10)
+            new_value = product.increment_quantity_done(station, 10, source='web')
         elif action == 'decrement10':
-            new_value = product.decrement_quantity_done(station, 10)
+            new_value = product.decrement_quantity_done(station, 10, source='web')
 
         db.session.commit()
 
@@ -1101,15 +1101,21 @@ def admin_update_quantity_done():
                 'error': f'Produkt {product_id} nie znaleziony'
             }), 404
 
+        # Akcja z panelu admina — autor: zalogowany user
+        actor_kwargs = {
+            'actor_user_id': current_user.id if current_user.is_authenticated else None,
+            'source': 'admin',
+        }
+
         # Wykonaj akcję
         if action == 'increment':
-            new_value = product.increment_quantity_done(station, 1)
+            new_value = product.increment_quantity_done(station, 1, **actor_kwargs)
         elif action == 'decrement':
-            new_value = product.decrement_quantity_done(station, 1)
+            new_value = product.decrement_quantity_done(station, 1, **actor_kwargs)
         elif action == 'increment10':
-            new_value = product.increment_quantity_done(station, 10)
+            new_value = product.increment_quantity_done(station, 10, **actor_kwargs)
         elif action == 'decrement10':
-            new_value = product.decrement_quantity_done(station, 10)
+            new_value = product.decrement_quantity_done(station, 10, **actor_kwargs)
         elif action == 'set':
             # Ustaw konkretną wartość
             if value is None:
@@ -1123,15 +1129,7 @@ def admin_update_quantity_done():
                     'success': False,
                     'error': f'Wartość musi być między 0 a {product.quantity}'
                 }), 400
-            field_name = f'quantity_done_{station}'
-            setattr(product, field_name, value)
-            new_value = value
-            # Aktualizuj timestamp zakończenia
-            completed_field = f'{station}_completed_at'
-            if new_value >= product.quantity:
-                setattr(product, completed_field, datetime.utcnow())
-            else:
-                setattr(product, completed_field, None)
+            new_value = product.set_quantity_done(station, value, **actor_kwargs)
 
         db.session.commit()
 

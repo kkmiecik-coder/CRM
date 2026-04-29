@@ -582,10 +582,14 @@ def mark_order_complete(item, station_code):
     item.complete_task(station_code)
 
 
-def update_order_quantity(item, station_code, quantity_done):
-    """Aktualizuje liczbę ukończonych sztuk na stanowisku (0 <= qd <= item.quantity)."""
-    quantity_field = STATION_QUANTITY_FIELD.get(station_code)
-    if not quantity_field:
+def update_order_quantity(item, station_code, quantity_done, *, device_id=None):
+    """
+    Aktualizuje liczbę ukończonych sztuk na stanowisku (0 <= qd <= item.quantity).
+
+    Deleguje do `ProductionItem.set_quantity_done()` żeby spójnie z webem
+    zalogować zdarzenie w `prod_station_events` (source='mobile').
+    """
+    if station_code not in STATION_QUANTITY_FIELD:
         raise ValueError(f'Nieznane stanowisko: {station_code}')
 
     if quantity_done < 0:
@@ -595,13 +599,12 @@ def update_order_quantity(item, station_code, quantity_done):
             f'quantity_done ({quantity_done}) > quantity ({item.quantity})'
         )
 
-    setattr(item, quantity_field, quantity_done)
-    item.updated_at = get_local_now()
-
-    if quantity_done == item.quantity:
-        completed_field = STATION_COMPLETED_AT_FIELD.get(station_code)
-        if completed_field and not getattr(item, completed_field, None):
-            setattr(item, completed_field, get_local_now())
+    item.set_quantity_done(
+        station_code,
+        quantity_done,
+        actor_device_id=device_id,
+        source='mobile',
+    )
 
 
 # ============================================================================

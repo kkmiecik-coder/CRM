@@ -499,6 +499,175 @@
     </div>
 </div>
 
+<!-- Wydajność stanowiska w wybranym dniu (event log z prod_station_events) -->
+<style>
+.station-output-widget {
+    background: var(--il-bg-card, #fff);
+    border: 1px solid var(--il-border, #c8cdd5);
+    border-radius: var(--il-radius, 3px);
+    margin-bottom: 16px;
+}
+.station-output-widget .widget-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 10px;
+    padding: 10px 14px;
+    border-bottom: 2px solid var(--il-bg-base, #eef0f4);
+}
+.station-output-widget .widget-header h4 {
+    margin: 0;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--il-text-secondary, #7a8291);
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+}
+.station-output-widget .widget-controls {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+}
+.station-output-widget .widget-controls .form-select,
+.station-output-widget .widget-controls .form-control {
+    width: auto;
+    font-size: 12px;
+    padding: 4px 8px;
+    border: 1px solid var(--il-border, #c8cdd5);
+    border-radius: var(--il-radius, 3px);
+}
+.station-output-widget .widget-content {
+    padding: 14px;
+}
+.station-output-summary {
+    display: flex;
+    gap: 16px;
+    flex-wrap: wrap;
+    margin-bottom: 12px;
+    padding: 8px 10px;
+    background: var(--il-bg-base, #eef0f4);
+    border-radius: var(--il-radius, 3px);
+    font-size: 12px;
+}
+.station-output-summary .so-stat {
+    display: flex;
+    flex-direction: column;
+}
+.station-output-summary .so-stat-value {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--il-text-primary, #1a1a2e);
+}
+.station-output-summary .so-stat-label {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--il-text-secondary, #7a8291);
+}
+.station-output-table {
+    width: 100%;
+    font-size: 13px;
+    border-collapse: collapse;
+}
+.station-output-table th {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--il-text-secondary, #7a8291);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    border-bottom: 2px solid var(--il-bg-base, #eef0f4);
+    padding: 8px 10px;
+    text-align: left;
+}
+.station-output-table td {
+    padding: 7px 10px;
+    border-bottom: 1px solid var(--il-border-light, #e2e5ea);
+    vertical-align: middle;
+}
+.station-output-table .so-progress {
+    font-family: 'JetBrains Mono', monospace;
+    font-weight: 600;
+}
+.station-output-table .so-delta-pos { color: #16a34a; font-weight: 600; }
+.station-output-table .so-delta-neg { color: #dc2626; font-weight: 600; }
+.station-output-empty {
+    padding: 20px;
+    text-align: center;
+    color: var(--il-text-secondary, #7a8291);
+    font-style: italic;
+}
+</style>
+
+<div class="widget station-output-widget">
+    <div class="widget-header">
+        <h4>
+            <i class="fas fa-clipboard-check me-2"></i>
+            Wykonanie stanowiska w dniu
+        </h4>
+        <div class="widget-controls">
+            <select id="so-station-select" class="form-select form-select-sm">
+                <option value="cutting">Wycinanie</option>
+                <option value="assembly">Składanie</option>
+                <option value="gluing">Sklejanie</option>
+                <option value="formatting">Formatowanie</option>
+                <option value="finishing">Wykańczanie</option>
+                <option value="painting">Lakiernia</option>
+                <option value="packaging" selected>Pakowanie</option>
+            </select>
+            <input type="date" id="so-date-input" class="form-control form-control-sm">
+            <button id="so-refresh-btn" class="btn btn-outline-primary btn-sm" title="Odśwież">
+                <i class="fas fa-sync-alt"></i>
+            </button>
+        </div>
+    </div>
+    <div class="widget-content">
+        <div class="station-output-summary" id="so-summary" style="display: none;">
+            <div class="so-stat">
+                <span class="so-stat-value" id="so-summary-items">0</span>
+                <span class="so-stat-label">Pozycje</span>
+            </div>
+            <div class="so-stat">
+                <span class="so-stat-value" id="so-summary-qty">0</span>
+                <span class="so-stat-label">Sztuki na koniec dnia</span>
+            </div>
+            <div class="so-stat">
+                <span class="so-stat-value" id="so-summary-delta">0</span>
+                <span class="so-stat-label">Ruch dnia (netto)</span>
+            </div>
+            <div class="so-stat">
+                <span class="so-stat-value" id="so-summary-volume">0.000</span>
+                <span class="so-stat-label">m³ wykonane (EOD)</span>
+            </div>
+        </div>
+        <div id="so-table-wrapper">
+            <div class="station-output-empty" id="so-empty-state">
+                Wybierz stanowisko i datę, aby zobaczyć wykonanie.
+            </div>
+            <div class="table-responsive" id="so-table-container" style="display: none;">
+                <table class="station-output-table">
+                    <thead>
+                        <tr>
+                            <th>BL #</th>
+                            <th>Produkt</th>
+                            <th>Wykonano (EOD)</th>
+                            <th>Ruch dnia</th>
+                            <th>m³ wykonane</th>
+                            <th>Gatunek / grubość</th>
+                            <th>Status</th>
+                            <th>Ostatni event</th>
+                        </tr>
+                    </thead>
+                    <tbody id="so-table-body"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
 <!-- Wykres wydajności dziennej per stanowisko (identyczny jak na Dashboard) -->
 <div class="widget performance-widget">
     <div class="widget-header">
@@ -764,6 +933,9 @@ let technologyChart = null;
 function initReportsTab() {
     console.log('[Reports Tab] Inicjalizacja');
 
+    // Widget wykonania stanowiska w dniu
+    initStationOutputWidget();
+
     // Inicjalizuj wykresy
     initializeDailyChart();
     initializeStatusCountChart();
@@ -773,6 +945,147 @@ function initReportsTab() {
     initializeThicknessChart();
     initializeTechnologyChart();
     initializeWoodClassChart();
+}
+
+// ════════════════════════════════════════════════════════════════════
+// Widget: Wykonanie stanowiska w dniu (event log)
+// ════════════════════════════════════════════════════════════════════
+const SO_STORAGE_KEY = 'production.reports.stationOutput';
+
+function initStationOutputWidget() {
+    const stationSel = document.getElementById('so-station-select');
+    const dateInput = document.getElementById('so-date-input');
+    const refreshBtn = document.getElementById('so-refresh-btn');
+
+    if (!stationSel || !dateInput) return;
+
+    // Przywróć ostatni wybór z localStorage; fallback: dzisiaj + packaging
+    const saved = (() => {
+        try { return JSON.parse(localStorage.getItem(SO_STORAGE_KEY) || '{}'); }
+        catch { return {}; }
+    })();
+
+    if (saved.station) {
+        stationSel.value = saved.station;
+    }
+    if (saved.date) {
+        dateInput.value = saved.date;
+    } else {
+        const today = new Date();
+        const yyyy = today.getFullYear();
+        const mm = String(today.getMonth() + 1).padStart(2, '0');
+        const dd = String(today.getDate()).padStart(2, '0');
+        dateInput.value = `${yyyy}-${mm}-${dd}`;
+    }
+
+    const persist = () => {
+        try {
+            localStorage.setItem(SO_STORAGE_KEY, JSON.stringify({
+                station: stationSel.value,
+                date: dateInput.value,
+            }));
+        } catch { /* localStorage może być wyłączony — pomijamy */ }
+    };
+
+    const reload = () => {
+        persist();
+        loadStationOutput(stationSel.value, dateInput.value);
+    };
+    stationSel.addEventListener('change', reload);
+    dateInput.addEventListener('change', reload);
+    refreshBtn?.addEventListener('click', reload);
+
+    // Wstępne ładowanie (bez zmiany inputów)
+    loadStationOutput(stationSel.value, dateInput.value);
+}
+
+async function loadStationOutput(station, dateStr) {
+    const tableContainer = document.getElementById('so-table-container');
+    const emptyState = document.getElementById('so-empty-state');
+    const summary = document.getElementById('so-summary');
+    const tbody = document.getElementById('so-table-body');
+
+    if (!tableContainer || !tbody) return;
+
+    // Loading
+    emptyState.textContent = 'Ładowanie...';
+    emptyState.style.display = 'block';
+    tableContainer.style.display = 'none';
+    summary.style.display = 'none';
+
+    try {
+        const url = `/production/api/reports/station-output?station=${encodeURIComponent(station)}&date=${encodeURIComponent(dateStr)}`;
+        const resp = await fetch(url);
+        const data = await resp.json();
+
+        if (!data.success) {
+            emptyState.textContent = 'Błąd: ' + (data.error || 'nieznany');
+            return;
+        }
+
+        if (!data.items || data.items.length === 0) {
+            emptyState.textContent = `Brak operacji na stanowisku "${data.station_label}" w dniu ${data.date}.`;
+            return;
+        }
+
+        // Render summary
+        document.getElementById('so-summary-items').textContent = data.summary.items_count;
+        document.getElementById('so-summary-qty').textContent = data.summary.total_quantity_done_eod + ' szt.';
+        const deltaEl = document.getElementById('so-summary-delta');
+        const delta = data.summary.total_day_delta;
+        deltaEl.textContent = (delta >= 0 ? '+' : '') + delta + ' szt.';
+        deltaEl.style.color = delta >= 0 ? '#16a34a' : '#dc2626';
+        document.getElementById('so-summary-volume').textContent =
+            data.summary.total_volume_done_eod_m3.toFixed(3) + ' m³';
+
+        // Render rows
+        tbody.innerHTML = data.items.map(it => {
+            const deltaClass = it.day_delta_sum >= 0 ? 'so-delta-pos' : 'so-delta-neg';
+            const deltaSign = it.day_delta_sum >= 0 ? '+' : '';
+            const woodMeta = [
+                it.wood_species || '—',
+                it.thickness_cm ? it.thickness_cm.toFixed(1) + ' cm' : ''
+            ].filter(Boolean).join(' · ');
+            const lastEvent = it.last_event_at
+                ? new Date(it.last_event_at).toLocaleTimeString('pl-PL', {hour: '2-digit', minute: '2-digit'})
+                : '—';
+            const status = (it.current_status || '').replace('czeka_na_', '').replace(/_/g, ' ');
+
+            return `
+                <tr>
+                    <td><strong>${it.baselinker_order_id || '—'}</strong></td>
+                    <td>
+                        <div style="font-size: 13px;">${escapeHtml(it.product_name || '—')}</div>
+                        <div style="font-size: 10px; color: var(--il-text-secondary, #7a8291); font-family: monospace;">${escapeHtml(it.short_product_id || '')}</div>
+                    </td>
+                    <td class="so-progress">${it.quantity_done_eod} / ${it.quantity}</td>
+                    <td class="${deltaClass}">${deltaSign}${it.day_delta_sum}</td>
+                    <td>${it.volume_done_eod_m3.toFixed(3)}</td>
+                    <td style="font-size: 12px;">${escapeHtml(woodMeta)}</td>
+                    <td><span class="status-badge" style="background: var(--il-bg-base, #eef0f4); padding: 2px 6px; font-size: 10px;">${escapeHtml(status)}</span></td>
+                    <td style="font-family: monospace; font-size: 11px;">${lastEvent}</td>
+                </tr>
+            `;
+        }).join('');
+
+        emptyState.style.display = 'none';
+        tableContainer.style.display = 'block';
+        summary.style.display = 'flex';
+
+    } catch (err) {
+        console.error('[Station Output] Load error:', err);
+        emptyState.textContent = 'Błąd połączenia: ' + err.message;
+    }
+}
+
+function escapeHtml(s) {
+    if (s == null) return '';
+    return String(s)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
 }
 
 // Inicjalizacja wykresu wydajności per stanowisko (identyczny jak na Dashboard)
