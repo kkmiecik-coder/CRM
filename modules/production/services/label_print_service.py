@@ -446,6 +446,7 @@ def _enqueue_labels(ids, items_by_id, station_code, actor, cfg):
                     status=LabelPrintJob.STATUS_PENDING,
                 )
                 db.session.add(job)
+                db.session.flush()  # żeby dostać job.id
                 # Bumpujemy licznik i timestamp tak samo jak w trybie TCP
                 item.label_printed_at = datetime.utcnow()
                 item.label_print_count = (item.label_print_count or 0) + 1
@@ -453,6 +454,7 @@ def _enqueue_labels(ids, items_by_id, station_code, actor, cfg):
                     'short_product_id': sid, 'success': True,
                     'message': 'Dodano do kolejki drukowania',
                     'label_print_count': item.label_print_count,
+                    'queue_job_id': job.id,
                 })
                 success_count += 1
                 logger.info(

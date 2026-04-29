@@ -1030,3 +1030,40 @@ def print_labels_for_order(baselinker_order_id):
     if result['connection_error']:
         return jsonify(result), 502
     return jsonify(result), 200
+
+
+@station_bp.route('/ajax/print-job-status', methods=['GET'])
+@login_required
+def print_job_status():
+    """
+    GET /production/stations/ajax/print-job-status?ids=1,2,3
+    Zwraca status zadań drukowania z prod_print_queue.
+    Używane przez frontend do śledzenia 'pending → printed/failed/expired'.
+    """
+    from modules.production.models import LabelPrintJob
+
+    raw = (request.args.get('ids') or '').strip()
+    if not raw:
+        return jsonify({'jobs': []}), 200
+
+    try:
+        ids = [int(x) for x in raw.split(',') if x.strip().isdigit()]
+    except ValueError:
+        return jsonify({'error': 'invalid_ids'}), 400
+
+    if not ids:
+        return jsonify({'jobs': []}), 200
+
+    jobs = LabelPrintJob.query.filter(LabelPrintJob.id.in_(ids)).all()
+    return jsonify({
+        'jobs': [
+            {
+                'id': j.id,
+                'status': j.status,
+                'short_product_id': j.short_product_id,
+                'printed_at': j.printed_at.isoformat() if j.printed_at else None,
+                'error_message': j.error_message,
+            }
+            for j in jobs
+        ],
+    }), 200

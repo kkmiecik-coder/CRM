@@ -1849,7 +1849,34 @@
     animation: station-print-label-spin 0.8s linear infinite;
 }
 
+.station-print-label-btn.state-queued {
+    background: #1e3a5f;
+    color: #6cb8ff;
+    border-color: #2a5b8c;
+}
+
+.station-print-label-btn.state-queued svg {
+    animation: station-print-label-pulse 1.4s ease-in-out infinite;
+}
+
+.station-print-label-btn.state-printed {
+    background: #1f3a1f;
+    color: #5cd05c;
+    border-color: #2e5b2e;
+}
+
+.station-print-label-btn.state-failed {
+    background: #4a1f1f;
+    color: #ff6b6b;
+    border-color: #7a2e2e;
+}
+
 @keyframes station-print-label-spin {
     from { transform: rotate(0deg); }
     to   { transform: rotate(360deg); }
+}
+
+@keyframes station-print-label-pulse {
+    0%, 100% { opacity: 0.55; }
+    50%      { opacity: 1; }
 }
