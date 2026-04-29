@@ -19,6 +19,8 @@ from modules.production.utils.cache import (
     make_weak_etag,
     not_modified,
 )
+from modules.production.services import label_print_service
+from modules.production.services.label_print_service import StationNotAllowed
 from modules.production.services.mobile_api_service import (
     STATION_STATUS_MAP,
     compute_station_summary,
@@ -418,3 +420,62 @@ def app_apk():
         }), 400
 
     return stream_apk_response(version_code)
+
+
+# ============================================================================
+# DRUKOWANIE ETYKIET (MOBILE)
+# ============================================================================
+
+
+@mobile_api_bp.route('/products/<short_product_id>/print-label', methods=['POST'])
+@require_device_token
+def mobile_print_label_single(short_product_id):
+    station_code = (g.device.station_code or '').strip()
+    try:
+        result = label_print_service.print_labels_batch(
+            [short_product_id],
+            station_code,
+            {'type': 'device', 'id': g.device.device_id},
+        )
+    except StationNotAllowed as e:
+        return jsonify({'success': False, 'message': str(e)}), 403
+
+    if result['connection_error']:
+        return jsonify({'success': False, 'message': result['message']}), 502
+    return jsonify({'success': result['success'], 'message': result['message']}), 200
+
+
+@mobile_api_bp.route('/orders/<int:baselinker_order_id>/print-labels', methods=['POST'])
+@require_device_token
+def mobile_print_labels_for_order(baselinker_order_id):
+    station_code = (g.device.station_code or '').strip()
+    items = (ProductionItem.query
+             .filter_by(baselinker_order_id=baselinker_order_id)
+             .order_by(ProductionItem.product_sequence_in_order)
+             .all())
+    if not items:
+        return jsonify({'success': False, 'message': 'Brak produktów w zamówieniu.'}), 404
+
+    short_ids = [i.short_product_id for i in items]
+    try:
+        result = label_print_service.print_labels_batch(
+            short_ids,
+            station_code,
+            {'type': 'device', 'id': g.device.device_id},
+        )
+    except StationNotAllowed as e:
+        return jsonify({'success': False, 'message': str(e)}), 403
+
+    if result['connection_error']:
+        return jsonify({
+            'success': False,
+            'success_count': 0,
+            'failed_count': len(short_ids),
+            'message': result['message'],
+        }), 502
+    return jsonify({
+        'success': result['success'],
+        'success_count': result['success_count'],
+        'failed_count': result['failed_count'],
+        'message': result['message'],
+    }), 200

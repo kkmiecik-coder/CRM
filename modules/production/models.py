@@ -277,6 +277,12 @@ class ProductionItem(db.Model):
     override_delivery_method = Column(String(255), nullable=True, comment='Nadpisanie metody dostawy (kurier_baselinker / transport_woodpower)')
     logistics_completed_at = Column(DateTime, nullable=True, index=True, comment='Timestamp zatwierdzenia decyzji logistycznej')
 
+    # ETYKIETY PRODUKCYJNE
+    label_printed_at = Column(DateTime, nullable=True,
+                              comment='Czas ostatniego udanego wydruku etykiety')
+    label_print_count = Column(Integer, default=0, server_default='0', nullable=False,
+                               comment='Licznik wydruków etykiety dla tego produktu')
+
     # UWAGI I PROBLEMY
     production_notes = Column(Text)
     quality_issues = Column(Text)
@@ -909,6 +915,39 @@ class ProductionConfig(db.Model):
             return [ip.strip() for ip in self.config_value.split(',') if ip.strip()]
         else:
             return self.config_value
+
+
+class LabelPrintJob(db.Model):
+    """
+    Zadanie drukowania etykiety w kolejce do print-agenta.
+    Wstawiane przez CRM gdy LABEL_PRINTER_USE_AGENT=True; pobierane przez
+    agent przez /api/print-agent/jobs i drukowane lokalnie w LAN biura.
+    """
+    __tablename__ = 'prod_print_queue'
+
+    STATUS_PENDING = 'pending'
+    STATUS_PRINTED = 'printed'
+    STATUS_FAILED = 'failed'
+    STATUS_EXPIRED = 'expired'
+
+    id = Column(Integer, primary_key=True)
+    short_product_id = Column(String(20), nullable=False, index=True)
+    baselinker_order_id = Column(Integer, nullable=True)
+    zpl_payload = Column(Text, nullable=False)
+    station_code = Column(String(50), nullable=False)
+    requested_by_type = Column(String(20), nullable=False, comment='user|device')
+    requested_by_id = Column(String(100), nullable=False)
+    requested_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    status = Column(
+        Enum('pending', 'printed', 'failed', 'expired', name='print_job_status'),
+        default='pending', nullable=False, index=True,
+    )
+    printed_at = Column(DateTime, nullable=True)
+    error_message = Column(Text, nullable=True)
+
+    def __repr__(self):
+        return f'<LabelPrintJob {self.id} {self.short_product_id} {self.status}>'
+
 
 class ProductionSecurityEvent(db.Model):
     """

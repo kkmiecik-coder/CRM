@@ -206,6 +206,17 @@ def config_tab_content():
             'ADMIN_EMAIL_NOTIFICATIONS':    ('system',      'admin@woodpower.pl', 'string'),
             'ERROR_NOTIFICATION_THRESHOLD': ('system',      10,          'integer'),
 
+            # Drukarka etykiet
+            'LABEL_PRINTER_IP':              ('printer',     '192.168.100.199',          'string'),
+            'LABEL_PRINTER_PORT':            ('printer',     9100,                       'integer'),
+            'LABEL_PRINTER_TIMEOUT_SECONDS': ('printer',     3,                          'integer'),
+            'LABEL_PRINTER_RETRY_COUNT':     ('printer',     1,                          'integer'),
+            'LABEL_PRINTER_OFFSET_LT':       ('printer',     -16,                        'integer'),
+            'LABEL_PRINTER_OFFSET_LS':       ('printer',     112,                        'integer'),
+            'LABEL_PRINTER_ALLOWED_STATIONS':('printer',     'formatowanie,pakowanie',   'string'),
+            'LABEL_PRINTER_USE_AGENT':       ('printer',     'false',                    'boolean'),
+            'LABEL_PRINTER_AGENT_TOKEN':     ('printer',     'change-me-in-prod',        'string'),
+
             # Cache i Inne (UWAGA: mimo "BASELINKER" klucz ma być w OTHER, zgodnie z HTML)
             'BASELINKER_STATUSES_CACHE':    ('other',       '{"id": 105112, "name": "Nowe - opłacone", "color": "ffffff"}', 'json'),
             'MAX_PRODUCTS_PER_ORDER':       ('other',       999,         'integer'),
@@ -225,12 +236,14 @@ def config_tab_content():
                 }
 
         # --- 3c) Grupowanie: najpierw whitelist, potem heurystyka dla reszty ---
-        config_groups = {'sync': {}, 'stations': {}, 'priorities': {}, 'system': {}, 'other': {}}
+        config_groups = {'sync': {}, 'stations': {}, 'priorities': {}, 'system': {}, 'printer': {}, 'other': {}}
 
         def assign_group(key: str) -> str:
             if key in EXPECTED:
                 return EXPECTED[key][0]  # grupa z whitelisty
             k = key.upper()
+            if 'PRINTER' in k:
+                return 'printer'
             if any(s in k for s in ('SYNC', 'BASELINKER')):
                 return 'sync'
             if any(s in k for s in ('STATION', 'REFRESH')):
@@ -444,7 +457,11 @@ def update_configs():
             'DEBUG_PRODUCTION_FRONTEND', 'CACHE_DURATION_SECONDS', 'ADMIN_EMAIL_NOTIFICATIONS',
             'ERROR_NOTIFICATION_THRESHOLD', 'BASELINKER_STATUSES_CACHE', 'MAX_PRODUCTS_PER_ORDER',
             'STATION_IP_CACHE_DURATION_MINUTES', 'STATION_CUTTING_PRIORITY_SORT',
-            'STATION_ASSEMBLY_PRIORITY_SORT', 'STATION_PACKAGING_PRIORITY_SORT'
+            'STATION_ASSEMBLY_PRIORITY_SORT', 'STATION_PACKAGING_PRIORITY_SORT',
+            'LABEL_PRINTER_IP', 'LABEL_PRINTER_PORT', 'LABEL_PRINTER_TIMEOUT_SECONDS',
+            'LABEL_PRINTER_RETRY_COUNT', 'LABEL_PRINTER_OFFSET_LT', 'LABEL_PRINTER_OFFSET_LS',
+            'LABEL_PRINTER_ALLOWED_STATIONS',
+            'LABEL_PRINTER_USE_AGENT', 'LABEL_PRINTER_AGENT_TOKEN',
         }
         
         invalid_keys = set(configs_dict.keys()) - allowed_config_keys

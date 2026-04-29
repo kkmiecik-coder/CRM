@@ -586,6 +586,385 @@
             </div>
         </div>
 
+        <!-- Drukarka etykiet -->
+        <div class="config-card">
+            <div class="config-card-header">
+                <div class="config-card-title">
+                    <div class="config-card-icon">
+                        <i class="fas fa-print"></i>
+                    </div>
+                    <div>
+                        <h4>Drukarka etykiet</h4>
+                        <p class="config-card-subtitle">Konfiguracja drukarki Xprinter XP-423B (ZPL, raw TCP socket port 9100)</p>
+                    </div>
+                </div>
+            </div>
+            <div class="config-card-body">
+
+                <!-- LABEL_PRINTER_IP -->
+                <div class="config-item">
+                    <div class="config-item-row">
+                        <div class="config-item-main">
+                            <div class="config-item-header">
+                                <div class="config-item-icon">
+                                    <i class="fas fa-network-wired"></i>
+                                </div>
+                                <div class="config-item-info">
+                                    <h5 class="config-item-title">Adres IP drukarki <span class="default-badge">domyślnie: 192.168.100.199</span></h5>
+                                    <p class="config-item-description">Adres IP drukarki w sieci lokalnej</p>
+                                </div>
+                            </div>
+                            <div class="config-item-meta">
+                                <div class="config-item-meta-item">
+                                    <i class="fas fa-user"></i>
+                                    <span>Ostatnio: {{ config_groups.printer.LABEL_PRINTER_IP.updated_by|default('System') }}</span>
+                                </div>
+                                <div class="config-item-meta-item">
+                                    <i class="fas fa-clock"></i>
+                                    <span>{{ config_groups.printer.LABEL_PRINTER_IP.updated_at|default('---') }}</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="config-item-controls">
+                            <div class="config-control-wrapper">
+                                <div class="config-control">
+                                    <input type="text" class="form-control" id="label_printer_ip"
+                                           value="{{ config_groups.printer.LABEL_PRINTER_IP.value|default('192.168.100.199') }}"
+                                           placeholder="192.168.100.199"
+                                           oninput="configChanged('LABEL_PRINTER_IP', this.value)">
+                                </div>
+                                <button class="config-reset-btn" onclick="resetToDefault('LABEL_PRINTER_IP')" title="Przywróć domyślne">
+                                    <i class="fas fa-undo"></i>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- LABEL_PRINTER_PORT -->
+                <div class="config-item">
+                    <div class="config-item-row">
+                        <div class="config-item-main">
+                            <div class="config-item-header">
+                                <div class="config-item-icon">
+                                    <i class="fas fa-plug"></i>
+                                </div>
+                                <div class="config-item-info">
+                                    <h5 class="config-item-title">Port TCP <span class="default-badge">domyślnie: 9100</span></h5>
+                                    <p class="config-item-description">Port raw TCP socket drukarki (standardowy dla ZPL: 9100)</p>
+                                </div>
+                            </div>
+                            <div class="config-item-meta">
+                                <div class="config-item-meta-item">
+                                    <i class="fas fa-user"></i>
+                                    <span>Ostatnio: {{ config_groups.printer.LABEL_PRINTER_PORT.updated_by|default('System') }}</span>
+                                </div>
+                                <div class="config-item-meta-item">
+                                    <i class="fas fa-clock"></i>
+                                    <span>{{ config_groups.printer.LABEL_PRINTER_PORT.updated_at|default('---') }}</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="config-item-controls">
+                            <div class="config-control-wrapper">
+                                <div class="config-control">
+                                    <input type="number" class="form-control" id="label_printer_port"
+                                           value="{{ config_groups.printer.LABEL_PRINTER_PORT.value|default(9100) }}"
+                                           min="1" max="65535"
+                                           oninput="configChanged('LABEL_PRINTER_PORT', parseInt(this.value))">
+                                </div>
+                                <button class="config-reset-btn" onclick="resetToDefault('LABEL_PRINTER_PORT')" title="Przywróć domyślne">
+                                    <i class="fas fa-undo"></i>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- LABEL_PRINTER_TIMEOUT_SECONDS -->
+                <div class="config-item">
+                    <div class="config-item-row">
+                        <div class="config-item-main">
+                            <div class="config-item-header">
+                                <div class="config-item-icon">
+                                    <i class="fas fa-hourglass-half"></i>
+                                </div>
+                                <div class="config-item-info">
+                                    <h5 class="config-item-title">Timeout połączenia (sekundy) <span class="default-badge">domyślnie: 3</span></h5>
+                                    <p class="config-item-description">Maksymalny czas oczekiwania na odpowiedź drukarki</p>
+                                </div>
+                            </div>
+                            <div class="config-item-meta">
+                                <div class="config-item-meta-item">
+                                    <i class="fas fa-user"></i>
+                                    <span>Ostatnio: {{ config_groups.printer.LABEL_PRINTER_TIMEOUT_SECONDS.updated_by|default('System') }}</span>
+                                </div>
+                                <div class="config-item-meta-item">
+                                    <i class="fas fa-clock"></i>
+                                    <span>{{ config_groups.printer.LABEL_PRINTER_TIMEOUT_SECONDS.updated_at|default('---') }}</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="config-item-controls">
+                            <div class="config-control-wrapper">
+                                <div class="config-control">
+                                    <input type="number" class="form-control" id="label_printer_timeout"
+                                           value="{{ config_groups.printer.LABEL_PRINTER_TIMEOUT_SECONDS.value|default(3) }}"
+                                           min="1" max="60"
+                                           oninput="configChanged('LABEL_PRINTER_TIMEOUT_SECONDS', parseInt(this.value))">
+                                </div>
+                                <button class="config-reset-btn" onclick="resetToDefault('LABEL_PRINTER_TIMEOUT_SECONDS')" title="Przywróć domyślne">
+                                    <i class="fas fa-undo"></i>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- LABEL_PRINTER_RETRY_COUNT -->
+                <div class="config-item">
+                    <div class="config-item-row">
+                        <div class="config-item-main">
+                            <div class="config-item-header">
+                                <div class="config-item-icon">
+                                    <i class="fas fa-redo"></i>
+                                </div>
+                                <div class="config-item-info">
+                                    <h5 class="config-item-title">Liczba ponowień <span class="default-badge">domyślnie: 1</span></h5>
+                                    <p class="config-item-description">Ile razy ponowić próbę drukowania przy błędzie połączenia</p>
+                                </div>
+                            </div>
+                            <div class="config-item-meta">
+                                <div class="config-item-meta-item">
+                                    <i class="fas fa-user"></i>
+                                    <span>Ostatnio: {{ config_groups.printer.LABEL_PRINTER_RETRY_COUNT.updated_by|default('System') }}</span>
+                                </div>
+                                <div class="config-item-meta-item">
+                                    <i class="fas fa-clock"></i>
+                                    <span>{{ config_groups.printer.LABEL_PRINTER_RETRY_COUNT.updated_at|default('---') }}</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="config-item-controls">
+                            <div class="config-control-wrapper">
+                                <div class="config-control">
+                                    <input type="number" class="form-control" id="label_printer_retry"
+                                           value="{{ config_groups.printer.LABEL_PRINTER_RETRY_COUNT.value|default(1) }}"
+                                           min="0" max="5"
+                                           oninput="configChanged('LABEL_PRINTER_RETRY_COUNT', parseInt(this.value))">
+                                </div>
+                                <button class="config-reset-btn" onclick="resetToDefault('LABEL_PRINTER_RETRY_COUNT')" title="Przywróć domyślne">
+                                    <i class="fas fa-undo"></i>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- LABEL_PRINTER_OFFSET_LT -->
+                <div class="config-item">
+                    <div class="config-item-row">
+                        <div class="config-item-main">
+                            <div class="config-item-header">
+                                <div class="config-item-icon">
+                                    <i class="fas fa-arrows-alt-v"></i>
+                                </div>
+                                <div class="config-item-info">
+                                    <h5 class="config-item-title">Offset pionowy ^LT <span class="default-badge">domyślnie: -16</span></h5>
+                                    <p class="config-item-description">Przesunięcie pionowe całej etykiety w komendzie ZPL ^LT (zakres: -120 do 120)</p>
+                                </div>
+                            </div>
+                            <div class="config-item-meta">
+                                <div class="config-item-meta-item">
+                                    <i class="fas fa-user"></i>
+                                    <span>Ostatnio: {{ config_groups.printer.LABEL_PRINTER_OFFSET_LT.updated_by|default('System') }}</span>
+                                </div>
+                                <div class="config-item-meta-item">
+                                    <i class="fas fa-clock"></i>
+                                    <span>{{ config_groups.printer.LABEL_PRINTER_OFFSET_LT.updated_at|default('---') }}</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="config-item-controls">
+                            <div class="config-control-wrapper">
+                                <div class="config-control">
+                                    <input type="number" class="form-control" id="label_printer_offset_lt"
+                                           value="{{ config_groups.printer.LABEL_PRINTER_OFFSET_LT.value|default(-16) }}"
+                                           min="-120" max="120"
+                                           oninput="configChanged('LABEL_PRINTER_OFFSET_LT', parseInt(this.value))">
+                                </div>
+                                <button class="config-reset-btn" onclick="resetToDefault('LABEL_PRINTER_OFFSET_LT')" title="Przywróć domyślne">
+                                    <i class="fas fa-undo"></i>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- LABEL_PRINTER_OFFSET_LS -->
+                <div class="config-item">
+                    <div class="config-item-row">
+                        <div class="config-item-main">
+                            <div class="config-item-header">
+                                <div class="config-item-icon">
+                                    <i class="fas fa-arrows-alt-h"></i>
+                                </div>
+                                <div class="config-item-info">
+                                    <h5 class="config-item-title">Offset poziomy ^LS <span class="default-badge">domyślnie: 112</span></h5>
+                                    <p class="config-item-description">Przesunięcie poziome w komendzie ZPL ^LS. Uwaga: ta drukarka ma odwróconą konwencję — wartość dodatnia przesuwa w lewo.</p>
+                                </div>
+                            </div>
+                            <div class="config-item-meta">
+                                <div class="config-item-meta-item">
+                                    <i class="fas fa-user"></i>
+                                    <span>Ostatnio: {{ config_groups.printer.LABEL_PRINTER_OFFSET_LS.updated_by|default('System') }}</span>
+                                </div>
+                                <div class="config-item-meta-item">
+                                    <i class="fas fa-clock"></i>
+                                    <span>{{ config_groups.printer.LABEL_PRINTER_OFFSET_LS.updated_at|default('---') }}</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="config-item-controls">
+                            <div class="config-control-wrapper">
+                                <div class="config-control">
+                                    <input type="number" class="form-control" id="label_printer_offset_ls"
+                                           value="{{ config_groups.printer.LABEL_PRINTER_OFFSET_LS.value|default(112) }}"
+                                           min="0" max="9999"
+                                           oninput="configChanged('LABEL_PRINTER_OFFSET_LS', parseInt(this.value))">
+                                </div>
+                                <button class="config-reset-btn" onclick="resetToDefault('LABEL_PRINTER_OFFSET_LS')" title="Przywróć domyślne">
+                                    <i class="fas fa-undo"></i>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- LABEL_PRINTER_ALLOWED_STATIONS -->
+                <div class="config-item">
+                    <div class="config-item-row">
+                        <div class="config-item-main">
+                            <div class="config-item-header">
+                                <div class="config-item-icon">
+                                    <i class="fas fa-list-check"></i>
+                                </div>
+                                <div class="config-item-info">
+                                    <h5 class="config-item-title">Stanowiska uprawnione <span class="default-badge">domyślnie: formatowanie,pakowanie</span></h5>
+                                    <p class="config-item-description">Lista CSV nazw stanowisk (oddzielone przecinkami), z których drukowanie etykiet jest dozwolone</p>
+                                </div>
+                            </div>
+                            <div class="config-item-meta">
+                                <div class="config-item-meta-item">
+                                    <i class="fas fa-user"></i>
+                                    <span>Ostatnio: {{ config_groups.printer.LABEL_PRINTER_ALLOWED_STATIONS.updated_by|default('System') }}</span>
+                                </div>
+                                <div class="config-item-meta-item">
+                                    <i class="fas fa-clock"></i>
+                                    <span>{{ config_groups.printer.LABEL_PRINTER_ALLOWED_STATIONS.updated_at|default('---') }}</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="config-item-controls">
+                            <div class="config-control-wrapper">
+                                <div class="config-control">
+                                    <input type="text" class="form-control" id="label_printer_allowed_stations"
+                                           value="{{ config_groups.printer.LABEL_PRINTER_ALLOWED_STATIONS.value|default('formatowanie,pakowanie') }}"
+                                           placeholder="formatowanie,pakowanie"
+                                           oninput="configChanged('LABEL_PRINTER_ALLOWED_STATIONS', this.value)">
+                                </div>
+                                <button class="config-reset-btn" onclick="resetToDefault('LABEL_PRINTER_ALLOWED_STATIONS')" title="Przywróć domyślne">
+                                    <i class="fas fa-undo"></i>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- LABEL_PRINTER_USE_AGENT -->
+                <div class="config-item">
+                    <div class="config-item-row">
+                        <div class="config-item-main">
+                            <div class="config-item-header">
+                                <div class="config-item-icon">
+                                    <i class="fas fa-cloud-upload-alt"></i>
+                                </div>
+                                <div class="config-item-info">
+                                    <h5 class="config-item-title">Tryb drukowania <span class="default-badge">domyślnie: false (TCP direct)</span></h5>
+                                    <p class="config-item-description">false = bezpośrednio TCP do drukarki (dev), true = przez kolejkę i print-agenta (prod)</p>
+                                </div>
+                            </div>
+                            <div class="config-item-meta">
+                                <div class="config-item-meta-item">
+                                    <i class="fas fa-user"></i>
+                                    <span>Ostatnio: {{ config_groups.printer.LABEL_PRINTER_USE_AGENT.updated_by|default('System') }}</span>
+                                </div>
+                                <div class="config-item-meta-item">
+                                    <i class="fas fa-clock"></i>
+                                    <span>{{ config_groups.printer.LABEL_PRINTER_USE_AGENT.updated_at|default('---') }}</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="config-item-controls">
+                            <div class="config-control-wrapper">
+                                <div class="config-control">
+                                    <select class="form-control" id="label_printer_use_agent"
+                                            onchange="configChanged('LABEL_PRINTER_USE_AGENT', this.value)">
+                                        <option value="false" {% if (config_groups.printer.LABEL_PRINTER_USE_AGENT.value|default('false'))|string|lower not in ['true','1','yes','on'] %}selected{% endif %}>false (TCP direct)</option>
+                                        <option value="true" {% if (config_groups.printer.LABEL_PRINTER_USE_AGENT.value|default('false'))|string|lower in ['true','1','yes','on'] %}selected{% endif %}>true (przez agent)</option>
+                                    </select>
+                                </div>
+                                <button class="config-reset-btn" onclick="resetToDefault('LABEL_PRINTER_USE_AGENT')" title="Przywróć domyślne">
+                                    <i class="fas fa-undo"></i>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- LABEL_PRINTER_AGENT_TOKEN -->
+                <div class="config-item">
+                    <div class="config-item-row">
+                        <div class="config-item-main">
+                            <div class="config-item-header">
+                                <div class="config-item-icon">
+                                    <i class="fas fa-key"></i>
+                                </div>
+                                <div class="config-item-info">
+                                    <h5 class="config-item-title">Token print-agenta <span class="default-badge">zmień w produkcji!</span></h5>
+                                    <p class="config-item-description">Bearer token używany przez print-agenta (Authorization: Bearer ...). Wpisz losowy ciąg 32+ znaków.</p>
+                                </div>
+                            </div>
+                            <div class="config-item-meta">
+                                <div class="config-item-meta-item">
+                                    <i class="fas fa-user"></i>
+                                    <span>Ostatnio: {{ config_groups.printer.LABEL_PRINTER_AGENT_TOKEN.updated_by|default('System') }}</span>
+                                </div>
+                                <div class="config-item-meta-item">
+                                    <i class="fas fa-clock"></i>
+                                    <span>{{ config_groups.printer.LABEL_PRINTER_AGENT_TOKEN.updated_at|default('---') }}</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="config-item-controls">
+                            <div class="config-control-wrapper">
+                                <div class="config-control">
+                                    <input type="text" class="form-control" id="label_printer_agent_token"
+                                           value="{{ config_groups.printer.LABEL_PRINTER_AGENT_TOKEN.value|default('change-me-in-prod') }}"
+                                           placeholder="np. losowy ciąg 32+ znaków"
+                                           oninput="configChanged('LABEL_PRINTER_AGENT_TOKEN', this.value)">
+                                </div>
+                                <button class="config-reset-btn" onclick="resetToDefault('LABEL_PRINTER_AGENT_TOKEN')" title="Przywróć domyślne">
+                                    <i class="fas fa-undo"></i>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+
         <!-- Priorytety i Deadlines -->
         <div class="config-card">
             <div class="config-card-header">
