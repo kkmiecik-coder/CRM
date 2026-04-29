@@ -91,6 +91,7 @@
         const btn = e.target.closest('.station-print-label-btn');
         if (!btn) return;
         e.preventDefault();
+        e.stopPropagation();
         handleClick(btn);
     });
 })();
