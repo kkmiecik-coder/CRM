@@ -15,7 +15,7 @@ from datetime import datetime
 
 from extensions import db
 from modules.logging import get_structured_logger
-from modules.production.models import ProductionConfig, ProductionItem
+from modules.production.models import LabelPrintJob, ProductionConfig, ProductionItem
 
 logger = get_structured_logger('production.label_print')
 
@@ -27,6 +27,8 @@ DEFAULT_CONFIG = {
     'offset_lt': -16,
     'offset_ls': 112,
     'allowed_stations': ['formatowanie', 'pakowanie'],
+    'use_agent': False,
+    'agent_token': '',
 }
 
 _PL_TO_ASCII = str.maketrans({
@@ -77,6 +79,8 @@ def _load_config():
         'LABEL_PRINTER_OFFSET_LT',
         'LABEL_PRINTER_OFFSET_LS',
         'LABEL_PRINTER_ALLOWED_STATIONS',
+        'LABEL_PRINTER_USE_AGENT',
+        'LABEL_PRINTER_AGENT_TOKEN',
     ]
     rows = {
         c.config_key: c.config_value
@@ -88,6 +92,8 @@ def _load_config():
 
     ip_value = (rows.get('LABEL_PRINTER_IP') or DEFAULT_CONFIG['ip']).strip() or DEFAULT_CONFIG['ip']
 
+    use_agent_raw = (rows.get('LABEL_PRINTER_USE_AGENT', 'false') or 'false').strip().lower()
+
     return {
         'ip': ip_value,
         'port': _coerce_int(rows.get('LABEL_PRINTER_PORT', DEFAULT_CONFIG['port']), DEFAULT_CONFIG['port']),
@@ -96,6 +102,8 @@ def _load_config():
         'offset_lt': _coerce_int(rows.get('LABEL_PRINTER_OFFSET_LT', DEFAULT_CONFIG['offset_lt']), DEFAULT_CONFIG['offset_lt']),
         'offset_ls': _coerce_int(rows.get('LABEL_PRINTER_OFFSET_LS', DEFAULT_CONFIG['offset_ls']), DEFAULT_CONFIG['offset_ls']),
         'allowed_stations': allowed,
+        'use_agent': use_agent_raw in ('1', 'true', 'yes', 'on'),
+        'agent_token': (rows.get('LABEL_PRINTER_AGENT_TOKEN') or '').strip(),
     }
 
 
@@ -305,7 +313,7 @@ def print_labels_batch(short_product_ids, station_code, actor):
     if not ids:
         return {
             'success': False, 'success_count': 0, 'failed_count': 0,
-            'connection_error': False,
+            'connection_error': False, 'queued': False,
             'message': 'Brak produktów do wydrukowania.',
             'results': [],
         }
@@ -315,11 +323,15 @@ def print_labels_batch(short_product_ids, station_code, actor):
         for i in ProductionItem.query.filter(ProductionItem.short_product_id.in_(ids)).all()
     }
 
+    # Tryb agenta — zamiast TCP wstaw rekordy do prod_print_queue
+    if cfg['use_agent']:
+        return _enqueue_labels(ids, items_by_id, station_code, actor, cfg)
+
     sock = _open_printer_socket(cfg)
     if sock is None:
         return {
             'success': False, 'success_count': 0, 'failed_count': len(ids),
-            'connection_error': True,
+            'connection_error': True, 'queued': False,
             'message': 'Drukarka offline — sprawdź zasilanie/kabel.',
             'results': [
                 {'short_product_id': sid, 'success': False,
@@ -389,10 +401,97 @@ def print_labels_batch(short_product_ids, station_code, actor):
         'success_count': success_count,
         'failed_count': failed_count,
         'connection_error': False,
+        'queued': False,
         'message': (
             f'Wydrukowano {success_count} etykiet'
             if success_count == len(ids)
             else f'Wysłano {success_count}/{len(ids)} etykiet'
+        ),
+        'results': results,
+    }
+
+
+def _enqueue_labels(ids, items_by_id, station_code, actor, cfg):
+    """
+    Tryb LABEL_PRINTER_USE_AGENT=True: dla każdego znalezionego item generuje
+    ZPL i wstawia rekord do prod_print_queue. Print-agent na hubie biura
+    pobiera pending przez /api/print-agent/jobs i drukuje lokalnie.
+
+    Returns: dict zgodny z print_labels_batch (z dodatkowym queued=True).
+    """
+    results = []
+    success_count = 0
+    actor_type = str(actor.get('type') or '')[:20]
+    actor_id = str(actor.get('id') if actor.get('id') is not None else '')[:100]
+
+    try:
+        for sid in ids:
+            item = items_by_id.get(sid)
+            if item is None:
+                results.append({
+                    'short_product_id': sid, 'success': False,
+                    'message': f'Nie znaleziono produktu {sid}',
+                    'label_print_count': 0,
+                })
+                continue
+            try:
+                zpl = generate_label_zpl(item, cfg)
+                job = LabelPrintJob(
+                    short_product_id=sid,
+                    baselinker_order_id=item.baselinker_order_id,
+                    zpl_payload=zpl,
+                    station_code=station_code,
+                    requested_by_type=actor_type or 'user',
+                    requested_by_id=actor_id or '0',
+                    status=LabelPrintJob.STATUS_PENDING,
+                )
+                db.session.add(job)
+                # Bumpujemy licznik i timestamp tak samo jak w trybie TCP
+                item.label_printed_at = datetime.utcnow()
+                item.label_print_count = (item.label_print_count or 0) + 1
+                results.append({
+                    'short_product_id': sid, 'success': True,
+                    'message': 'Dodano do kolejki drukowania',
+                    'label_print_count': item.label_print_count,
+                })
+                success_count += 1
+                logger.info(
+                    "Label queued for print agent",
+                    extra={
+                        'short_product_id': sid, 'station': station_code,
+                        'actor_type': actor_type, 'actor_id': actor_id,
+                    },
+                )
+            except Exception as e:
+                results.append({
+                    'short_product_id': sid, 'success': False,
+                    'message': f'Błąd kolejkowania: {e}',
+                    'label_print_count': item.label_print_count or 0,
+                })
+                logger.error(
+                    "Label enqueue failed",
+                    extra={'short_product_id': sid, 'error': str(e)},
+                )
+
+        if success_count > 0:
+            db.session.commit()
+        else:
+            db.session.rollback()
+    except Exception:
+        db.session.rollback()
+        raise
+
+    failed_count = len(ids) - success_count
+    return {
+        'success': success_count > 0,
+        'success_count': success_count,
+        'failed_count': failed_count,
+        'connection_error': False,
+        'queued': True,
+        'message': (
+            f'Wysłano {success_count} etykiet do drukarki'
+            if success_count == len(ids)
+            else f'Zakolejkowano {success_count}/{len(ids)} etykiet'
         ),
         'results': results,
     }
