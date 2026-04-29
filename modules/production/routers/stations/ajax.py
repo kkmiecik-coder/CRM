@@ -8,6 +8,8 @@ from flask_login import current_user, login_required
 from datetime import datetime, date
 from extensions import db
 from ...services.station_heartbeat import record_heartbeat
+from ...services import label_print_service
+from ...services.label_print_service import StationNotAllowed
 from ...models import ProductionItem
 import traceback
 
@@ -970,9 +972,6 @@ def ajax_station_today_m3(station_code):
 # ============================================================================
 # DRUKOWANIE ETYKIET
 # ============================================================================
-
-from modules.production.services import label_print_service
-from modules.production.services.label_print_service import StationNotAllowed
 
 
 def _resolve_print_station_code():

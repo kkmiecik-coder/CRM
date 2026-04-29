@@ -19,6 +19,8 @@ from modules.production.utils.cache import (
     make_weak_etag,
     not_modified,
 )
+from modules.production.services import label_print_service
+from modules.production.services.label_print_service import StationNotAllowed
 from modules.production.services.mobile_api_service import (
     STATION_STATUS_MAP,
     compute_station_summary,
@@ -423,9 +425,6 @@ def app_apk():
 # ============================================================================
 # DRUKOWANIE ETYKIET (MOBILE)
 # ============================================================================
-
-from modules.production.services import label_print_service
-from modules.production.services.label_print_service import StationNotAllowed
 
 
 @mobile_api_bp.route('/products/<short_product_id>/print-label', methods=['POST'])
