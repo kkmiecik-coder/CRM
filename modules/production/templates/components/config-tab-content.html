@@ -881,6 +881,87 @@
                     </div>
                 </div>
 
+                <!-- LABEL_PRINTER_USE_AGENT -->
+                <div class="config-item">
+                    <div class="config-item-row">
+                        <div class="config-item-main">
+                            <div class="config-item-header">
+                                <div class="config-item-icon">
+                                    <i class="fas fa-cloud-upload-alt"></i>
+                                </div>
+                                <div class="config-item-info">
+                                    <h5 class="config-item-title">Tryb drukowania <span class="default-badge">domyślnie: false (TCP direct)</span></h5>
+                                    <p class="config-item-description">false = bezpośrednio TCP do drukarki (dev), true = przez kolejkę i print-agenta (prod)</p>
+                                </div>
+                            </div>
+                            <div class="config-item-meta">
+                                <div class="config-item-meta-item">
+                                    <i class="fas fa-user"></i>
+                                    <span>Ostatnio: {{ config_groups.printer.LABEL_PRINTER_USE_AGENT.updated_by|default('System') }}</span>
+                                </div>
+                                <div class="config-item-meta-item">
+                                    <i class="fas fa-clock"></i>
+                                    <span>{{ config_groups.printer.LABEL_PRINTER_USE_AGENT.updated_at|default('---') }}</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="config-item-controls">
+                            <div class="config-control-wrapper">
+                                <div class="config-control">
+                                    <select class="form-control" id="label_printer_use_agent"
+                                            onchange="configChanged('LABEL_PRINTER_USE_AGENT', this.value)">
+                                        <option value="false" {% if (config_groups.printer.LABEL_PRINTER_USE_AGENT.value|default('false'))|string|lower not in ['true','1','yes','on'] %}selected{% endif %}>false (TCP direct)</option>
+                                        <option value="true" {% if (config_groups.printer.LABEL_PRINTER_USE_AGENT.value|default('false'))|string|lower in ['true','1','yes','on'] %}selected{% endif %}>true (przez agent)</option>
+                                    </select>
+                                </div>
+                                <button class="config-reset-btn" onclick="resetToDefault('LABEL_PRINTER_USE_AGENT')" title="Przywróć domyślne">
+                                    <i class="fas fa-undo"></i>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- LABEL_PRINTER_AGENT_TOKEN -->
+                <div class="config-item">
+                    <div class="config-item-row">
+                        <div class="config-item-main">
+                            <div class="config-item-header">
+                                <div class="config-item-icon">
+                                    <i class="fas fa-key"></i>
+                                </div>
+                                <div class="config-item-info">
+                                    <h5 class="config-item-title">Token print-agenta <span class="default-badge">zmień w produkcji!</span></h5>
+                                    <p class="config-item-description">Bearer token używany przez print-agenta (Authorization: Bearer ...). Wpisz losowy ciąg 32+ znaków.</p>
+                                </div>
+                            </div>
+                            <div class="config-item-meta">
+                                <div class="config-item-meta-item">
+                                    <i class="fas fa-user"></i>
+                                    <span>Ostatnio: {{ config_groups.printer.LABEL_PRINTER_AGENT_TOKEN.updated_by|default('System') }}</span>
+                                </div>
+                                <div class="config-item-meta-item">
+                                    <i class="fas fa-clock"></i>
+                                    <span>{{ config_groups.printer.LABEL_PRINTER_AGENT_TOKEN.updated_at|default('---') }}</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="config-item-controls">
+                            <div class="config-control-wrapper">
+                                <div class="config-control">
+                                    <input type="text" class="form-control" id="label_printer_agent_token"
+                                           value="{{ config_groups.printer.LABEL_PRINTER_AGENT_TOKEN.value|default('change-me-in-prod') }}"
+                                           placeholder="np. losowy ciąg 32+ znaków"
+                                           oninput="configChanged('LABEL_PRINTER_AGENT_TOKEN', this.value)">
+                                </div>
+                                <button class="config-reset-btn" onclick="resetToDefault('LABEL_PRINTER_AGENT_TOKEN')" title="Przywróć domyślne">
+                                    <i class="fas fa-undo"></i>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
             </div>
         </div>
 

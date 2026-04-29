@@ -136,7 +136,9 @@ class ConfigModule {
                 'label_printer_retry': 'LABEL_PRINTER_RETRY_COUNT',
                 'label_printer_offset_lt': 'LABEL_PRINTER_OFFSET_LT',
                 'label_printer_offset_ls': 'LABEL_PRINTER_OFFSET_LS',
-                'label_printer_allowed_stations': 'LABEL_PRINTER_ALLOWED_STATIONS'
+                'label_printer_allowed_stations': 'LABEL_PRINTER_ALLOWED_STATIONS',
+                'label_printer_use_agent': 'LABEL_PRINTER_USE_AGENT',
+                'label_printer_agent_token': 'LABEL_PRINTER_AGENT_TOKEN'
             };
 
             let foundCount = 0;
@@ -565,6 +567,8 @@ class ConfigModule {
             'LABEL_PRINTER_OFFSET_LT': 'label_printer_offset_lt',
             'LABEL_PRINTER_OFFSET_LS': 'label_printer_offset_ls',
             'LABEL_PRINTER_ALLOWED_STATIONS': 'label_printer_allowed_stations',
+            'LABEL_PRINTER_USE_AGENT': 'label_printer_use_agent',
+            'LABEL_PRINTER_AGENT_TOKEN': 'label_printer_agent_token',
             'STATION_ALLOWED_IPS': 'ip-list-items'
         };
 
@@ -686,6 +690,8 @@ class ConfigModule {
             'LABEL_PRINTER_OFFSET_LT': 'label_printer_offset_lt',
             'LABEL_PRINTER_OFFSET_LS': 'label_printer_offset_ls',
             'LABEL_PRINTER_ALLOWED_STATIONS': 'label_printer_allowed_stations',
+            'LABEL_PRINTER_USE_AGENT': 'label_printer_use_agent',
+            'LABEL_PRINTER_AGENT_TOKEN': 'label_printer_agent_token',
             'STATION_ALLOWED_IPS': 'ip-list-items'
         };
 

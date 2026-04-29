@@ -214,6 +214,8 @@ def config_tab_content():
             'LABEL_PRINTER_OFFSET_LT':       ('printer',     -16,                        'integer'),
             'LABEL_PRINTER_OFFSET_LS':       ('printer',     112,                        'integer'),
             'LABEL_PRINTER_ALLOWED_STATIONS':('printer',     'formatowanie,pakowanie',   'string'),
+            'LABEL_PRINTER_USE_AGENT':       ('printer',     'false',                    'boolean'),
+            'LABEL_PRINTER_AGENT_TOKEN':     ('printer',     'change-me-in-prod',        'string'),
 
             # Cache i Inne (UWAGA: mimo "BASELINKER" klucz ma być w OTHER, zgodnie z HTML)
             'BASELINKER_STATUSES_CACHE':    ('other',       '{"id": 105112, "name": "Nowe - opłacone", "color": "ffffff"}', 'json'),
@@ -459,6 +461,7 @@ def update_configs():
             'LABEL_PRINTER_IP', 'LABEL_PRINTER_PORT', 'LABEL_PRINTER_TIMEOUT_SECONDS',
             'LABEL_PRINTER_RETRY_COUNT', 'LABEL_PRINTER_OFFSET_LT', 'LABEL_PRINTER_OFFSET_LS',
             'LABEL_PRINTER_ALLOWED_STATIONS',
+            'LABEL_PRINTER_USE_AGENT', 'LABEL_PRINTER_AGENT_TOKEN',
         }
         
         invalid_keys = set(configs_dict.keys()) - allowed_config_keys
