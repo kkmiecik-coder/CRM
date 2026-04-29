@@ -277,6 +277,12 @@ class ProductionItem(db.Model):
     override_delivery_method = Column(String(255), nullable=True, comment='Nadpisanie metody dostawy (kurier_baselinker / transport_woodpower)')
     logistics_completed_at = Column(DateTime, nullable=True, index=True, comment='Timestamp zatwierdzenia decyzji logistycznej')
 
+    # ETYKIETY PRODUKCYJNE
+    label_printed_at = Column(DateTime, nullable=True,
+                              comment='Czas ostatniego udanego wydruku etykiety')
+    label_print_count = Column(Integer, default=0, server_default='0', nullable=False,
+                               comment='Licznik wydruków etykiety dla tego produktu')
+
     # UWAGI I PROBLEMY
     production_notes = Column(Text)
     quality_issues = Column(Text)
