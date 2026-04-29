@@ -1818,7 +1818,7 @@
     align-items: center;
     justify-content: center;
     align-self: stretch;
-    width: 36px;
+    width: 40px;
     min-height: 36px;
     padding: 0;
     background: #2a2a2a;
@@ -1843,23 +1843,6 @@
     min-height: 32px;
     align-self: auto;
     border-radius: 0;
-}
-
-.station-print-label-badge {
-    position: absolute;
-    top: -6px;
-    right: -6px;
-    min-width: 18px;
-    height: 18px;
-    padding: 0 5px;
-    background: #d97706;
-    color: white;
-    border-radius: 9px;
-    font-size: 11px;
-    font-weight: 700;
-    display: flex;
-    align-items: center;
-    justify-content: center;
 }
 
 .station-print-label-btn.is-loading svg {

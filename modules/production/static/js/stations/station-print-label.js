@@ -67,17 +67,6 @@
             } else {
                 notify(data.message || 'Nie udało się wydrukować etykiet.', 'error');
             }
-
-            if (btn.dataset.mode === 'single' && data.success && data.results && data.results[0]) {
-                const newCount = data.results[0].label_print_count;
-                let badge = btn.querySelector('.station-print-label-badge');
-                if (!badge && newCount > 0) {
-                    badge = document.createElement('span');
-                    badge.className = 'station-print-label-badge';
-                    btn.appendChild(badge);
-                }
-                if (badge) badge.textContent = String(newCount);
-            }
         } catch (err) {
             console.error('[print-label] fetch failed', err);
             notify('Błąd komunikacji z serwerem.', 'error');

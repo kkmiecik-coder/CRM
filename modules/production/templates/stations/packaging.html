@@ -321,8 +321,7 @@
                             {% if order.products|length > 1 %}
                               {% with mode='single',
                                       short_product_id=product.id,
-                                      station_code='pakowanie',
-                                      label_print_count=product.label_print_count %}
+                                      station_code='pakowanie' %}
                                 {% include 'stations/_print_label_button.html' %}
                               {% endwith %}
                             {% endif %}

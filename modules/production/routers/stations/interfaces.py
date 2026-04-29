@@ -663,7 +663,6 @@ def formatting_station():
                     'shape_svg': product.shape_svg,
                     'lamella_direction': product.lamella_direction,
                     'has_visual_data': bool(product.shape_svg or product.edge_svg),
-                    'label_print_count': product.label_print_count or 0,
                 }
 
                 products.append(product_data)
@@ -1137,7 +1136,6 @@ def packaging_station():
                     'shape_svg': product.shape_svg,
                     'lamella_direction': product.lamella_direction,
                     'has_visual_data': bool(product.shape_svg or product.edge_svg),
-                    'label_print_count': product.label_print_count or 0,
                 }
 
                 products.append(product_data)
