@@ -176,6 +176,13 @@
                                 <svg class="header-icon" width="18" height="18"><use href="{{ url_for('production.static', filename='icons/station-icons.svg') }}#icon-notes"/></svg>
                             </div>
                             {% endif %}
+                            {% if order.baselinker_order_id %}
+                            {% with mode='batch',
+                                    baselinker_order_id=order.baselinker_order_id,
+                                    station_code='formatowanie' %}
+                              {% include 'stations/_print_label_button.html' %}
+                            {% endwith %}
+                            {% endif %}
                             <div class="header-icon-wrapper expand-icon-wrapper">
                                 <svg class="header-icon" width="18" height="18"><use href="{{ url_for('production.static', filename='icons/station-icons.svg') }}#icon-expand"/></svg>
                             </div>
@@ -236,6 +243,12 @@
                             {% if product.dimensions %}<span class="badge badge-dimensions">{{ product.dimensions }}</span>
                             {% elif product.original_name %}<span class="badge badge-dimensions">{{ product.original_name }}</span>
                             {% elif product.get('attachment_file_url') %}<span class="badge badge-dimensions">Zgodnie z załącznikiem</span>{% endif %}
+                            {% with mode='single',
+                                    short_product_id=product.id,
+                                    station_code='formatowanie',
+                                    label_print_count=product.label_print_count %}
+                              {% include 'stations/_print_label_button.html' %}
+                            {% endwith %}
                             <div class="quantity-controls">
                                 <div class="btn-group">
                                     <button class="btn-qty btn-minus" data-product-id="{{ product.id }}" data-action="decrement" {% if product.quantity_done == 0 %}disabled{% endif %}>−</button>
@@ -324,5 +337,6 @@
     <script src="{{ url_for('production.static', filename='js/stations/station-formatting.js') }}"></script>
     <script src="{{ url_for('production.static', filename='js/stations/station-attachments.js') }}"></script>
     <script src="{{ url_for('production.static', filename='js/stations/station-edge-modal.js') }}"></script>
+    <script src="{{ url_for('production.static', filename='js/stations/station-print-label.js') }}?v=20260429"></script>
 </body>
 </html>
