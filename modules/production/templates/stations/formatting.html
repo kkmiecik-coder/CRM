@@ -179,7 +179,7 @@
                             {% if order.baselinker_order_id %}
                             {% with mode='batch',
                                     baselinker_order_id=order.baselinker_order_id,
-                                    station_code='formatowanie' %}
+                                    station_code='formatting' %}
                               {% include 'stations/_print_label_button.html' %}
                             {% endwith %}
                             {% endif %}
@@ -243,7 +243,7 @@
                             {% if order.products|length > 1 %}
                               {% with mode='single',
                                       short_product_id=product.id,
-                                      station_code='formatowanie' %}
+                                      station_code='formatting' %}
                                 {% include 'stations/_print_label_button.html' %}
                               {% endwith %}
                             {% endif %}

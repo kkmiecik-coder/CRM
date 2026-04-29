@@ -1,5 +1,5 @@
 /**
- * Drukowanie etykiet produkcyjnych — handler dla stanowisk formatowanie/pakowanie.
+ * Drukowanie etykiet produkcyjnych — handler dla stanowisk formatting/packaging.
  *
  * Buttony renderowane przez stations/_print_label_button.html z atrybutami:
  *   data-mode="single"   data-product-id="..."   data-station="..."

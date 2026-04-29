@@ -5,7 +5,7 @@ Konfiguracja w prod_config (7 kluczy LABEL_PRINTER_*), edytowalna w
 panelu admin ?tab=config. Wydruk = raw TCP socket do drukarki w LAN.
 
 Wzorzec użycia:
-    result = print_labels_batch(['25_04250_3'], 'formatowanie',
+    result = print_labels_batch(['25_04250_3'], 'formatting',
                                 {'type': 'user', 'id': 1})
 """
 from __future__ import annotations
@@ -26,7 +26,7 @@ DEFAULT_CONFIG = {
     'retry_count': 1,
     'offset_lt': -16,
     'offset_ls': 112,
-    'allowed_stations': ['formatowanie', 'pakowanie'],
+    'allowed_stations': ['formatting', 'packaging'],
     'use_agent': False,
     'agent_token': '',
 }
@@ -123,16 +123,28 @@ def _resolve_client_label(item):
 
 
 def _format_delivery_label(item):
-    """Zwraca skrócony typ dostawy: TRANSPORT / ODBIOR / KURIER."""
+    """Zwraca pełną treść sposobu dostawy.
+
+    Kolejność warunków 1:1 z mobile_api_service / web-templatką:
+      - override transport_woodpower → 'Transport WoodPower'
+      - override kurier_baselinker  → nazwa kuriera z delivery_method (lub 'Kurier')
+      - is_personal_pickup           → 'Odbior osobisty'
+      - default                      → delivery_method z BL (np. 'InPost Paczkomaty 24/7')
+                                       lub 'Kurier' gdy brak danych
+    """
     override = (getattr(item, 'override_delivery_method', None) or '').strip().lower()
+    delivery_method = (getattr(item, 'delivery_method', None) or '').strip()
+
     if override == 'transport_woodpower':
-        return 'TRANSPORT'
+        return _normalize_text('Transport WoodPower')
+    if override == 'kurier_baselinker':
+        return _normalize_text(delivery_method) if delivery_method else 'Kurier'
     try:
         if getattr(item, 'is_personal_pickup', False):
-            return 'ODBIOR'
+            return _normalize_text('Odbior osobisty')
     except Exception:
         pass
-    return 'KURIER'
+    return _normalize_text(delivery_method) if delivery_method else 'Kurier'
 
 
 def _format_finish_label(item):
@@ -301,8 +313,8 @@ def generate_label_zpl(item, cfg):
         f"^FO{zpl_margin_l},62^A0N,26,26^FD{numbers_line}^FS\n"
         # Klient — pod numerami, font 22
         f"^FO{zpl_margin_l},96^A0N,22,22^FB{separator_width},1,0,L^FD{client_label}^FS\n"
-        # Dostawa — pod klientem, font 18
-        f"^FO{zpl_margin_l},124^A0N,18,18^FDDostawa: {delivery_label}^FS\n"
+        # Dostawa — pod klientem, font 18 (^FB ogranicza do 1 linii w obszarze przed QR)
+        f"^FO{zpl_margin_l},124^A0N,18,18^FB{separator_width},1,0,L^FDDostawa: {delivery_label}^FS\n"
         "\n"
         # QR — pod prawą krawędzią
         f"^FO{zpl_qr_x},{_QR_VISUAL_Y}^BQN,2,4^FDLA,{short_id}^FS\n"
@@ -350,7 +362,7 @@ def print_labels_batch(short_product_ids, station_code, actor):
 
     Args:
         short_product_ids: iterable stringów
-        station_code: 'formatowanie' / 'pakowanie' / ...
+        station_code: 'formatting' / 'packaging' / ... (techniczne kody z DB/JWT)
         actor: dict {'type': 'user'|'device', 'id': ...}
 
     Returns dict:

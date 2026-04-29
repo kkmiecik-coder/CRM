@@ -850,8 +850,8 @@
                                     <i class="fas fa-list-check"></i>
                                 </div>
                                 <div class="config-item-info">
-                                    <h5 class="config-item-title">Stanowiska uprawnione <span class="default-badge">domyślnie: formatowanie,pakowanie</span></h5>
-                                    <p class="config-item-description">Lista CSV nazw stanowisk (oddzielone przecinkami), z których drukowanie etykiet jest dozwolone</p>
+                                    <h5 class="config-item-title">Stanowiska uprawnione <span class="default-badge">domyślnie: formatting,packaging</span></h5>
+                                    <p class="config-item-description">Lista CSV technicznych kodów stanowisk (oddzielone przecinkami) — muszą zgadzać się z station_code w prod_devices/JWT</p>
                                 </div>
                             </div>
                             <div class="config-item-meta">
@@ -869,8 +869,8 @@
                             <div class="config-control-wrapper">
                                 <div class="config-control">
                                     <input type="text" class="form-control" id="label_printer_allowed_stations"
-                                           value="{{ config_groups.printer.LABEL_PRINTER_ALLOWED_STATIONS.value|default('formatowanie,pakowanie') }}"
-                                           placeholder="formatowanie,pakowanie"
+                                           value="{{ config_groups.printer.LABEL_PRINTER_ALLOWED_STATIONS.value|default('formatting,packaging') }}"
+                                           placeholder="formatting,packaging"
                                            oninput="configChanged('LABEL_PRINTER_ALLOWED_STATIONS', this.value)">
                                 </div>
                                 <button class="config-reset-btn" onclick="resetToDefault('LABEL_PRINTER_ALLOWED_STATIONS')" title="Przywróć domyślne">

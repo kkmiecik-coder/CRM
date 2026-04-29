@@ -3,7 +3,7 @@
      mode = 'single' | 'batch'
      short_product_id (gdy single)
      baselinker_order_id (gdy batch)
-     station_code — kod stanowiska (formatowanie / pakowanie)
+     station_code — techniczny kod stanowiska (formatting / packaging) — musi zgadzać się z DB/JWT i LABEL_PRINTER_ALLOWED_STATIONS
 #}
 {% if mode == 'single' %}
 <button type="button"

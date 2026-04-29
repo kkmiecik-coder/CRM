@@ -213,7 +213,7 @@ def config_tab_content():
             'LABEL_PRINTER_RETRY_COUNT':     ('printer',     1,                          'integer'),
             'LABEL_PRINTER_OFFSET_LT':       ('printer',     -16,                        'integer'),
             'LABEL_PRINTER_OFFSET_LS':       ('printer',     112,                        'integer'),
-            'LABEL_PRINTER_ALLOWED_STATIONS':('printer',     'formatowanie,pakowanie',   'string'),
+            'LABEL_PRINTER_ALLOWED_STATIONS':('printer',     'formatting,packaging',     'string'),
             'LABEL_PRINTER_USE_AGENT':       ('printer',     'false',                    'boolean'),
             'LABEL_PRINTER_AGENT_TOKEN':     ('printer',     'change-me-in-prod',        'string'),
 
