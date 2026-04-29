@@ -4,9 +4,11 @@ AJAX data endpoints for station interfaces
 """
 
 from flask import request, jsonify
+from flask_login import current_user, login_required
 from datetime import datetime, date
 from extensions import db
 from ...services.station_heartbeat import record_heartbeat
+from ...models import ProductionItem
 import traceback
 
 from . import station_bp, logger, get_products_for_station, _format_dimension, _ajax_get_orders_simple
@@ -963,3 +965,69 @@ def ajax_station_today_m3(station_code):
             'success': False,
             'error': f'Blad pobierania danych: {str(e)}'
         }), 500
+
+
+# ============================================================================
+# DRUKOWANIE ETYKIET
+# ============================================================================
+
+from modules.production.services import label_print_service
+from modules.production.services.label_print_service import StationNotAllowed
+
+
+def _resolve_print_station_code():
+    payload = request.get_json(silent=True) or {}
+    return (payload.get('station_code') or request.args.get('station_code') or '').strip()
+
+
+@station_bp.route('/ajax/print-label/<short_product_id>', methods=['POST'])
+@login_required
+def print_label_single(short_product_id):
+    station_code = _resolve_print_station_code()
+    if not station_code:
+        return jsonify({'success': False, 'message': 'Brak parametru station_code'}), 400
+    try:
+        result = label_print_service.print_labels_batch(
+            [short_product_id],
+            station_code,
+            {'type': 'user', 'id': current_user.id},
+        )
+    except StationNotAllowed as e:
+        return jsonify({'success': False, 'message': str(e)}), 403
+
+    if result['connection_error']:
+        return jsonify(result), 502
+    return jsonify(result), 200
+
+
+@station_bp.route('/ajax/print-labels-for-order/<int:baselinker_order_id>', methods=['POST'])
+@login_required
+def print_labels_for_order(baselinker_order_id):
+    station_code = _resolve_print_station_code()
+    if not station_code:
+        return jsonify({'success': False, 'message': 'Brak parametru station_code'}), 400
+
+    items = (ProductionItem.query
+             .filter_by(baselinker_order_id=baselinker_order_id)
+             .order_by(ProductionItem.product_sequence_in_order)
+             .all())
+    if not items:
+        return jsonify({
+            'success': False, 'success_count': 0, 'failed_count': 0,
+            'connection_error': False, 'results': [],
+            'message': 'Brak produktów w zamówieniu.',
+        }), 404
+
+    short_ids = [i.short_product_id for i in items]
+    try:
+        result = label_print_service.print_labels_batch(
+            short_ids,
+            station_code,
+            {'type': 'user', 'id': current_user.id},
+        )
+    except StationNotAllowed as e:
+        return jsonify({'success': False, 'message': str(e)}), 403
+
+    if result['connection_error']:
+        return jsonify(result), 502
+    return jsonify(result), 200
