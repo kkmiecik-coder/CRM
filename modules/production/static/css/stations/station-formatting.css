@@ -779,3 +779,65 @@
 }
 
 /* Light mode */
+/* === DRUKOWANIE ETYKIET === */
+
+.station-print-label-btn {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    width: 36px;
+    height: 36px;
+    padding: 0;
+    background: #2a2a2a;
+    color: #f0f0f0;
+    border: 1px solid #444;
+    border-radius: 6px;
+    cursor: pointer;
+}
+
+.station-print-label-btn:hover:not(:disabled) {
+    background: #3a3a3a;
+}
+
+.station-print-label-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.station-print-label-btn--batch {
+    width: auto;
+    padding: 0 12px;
+}
+
+.station-print-label-text {
+    font-size: 13px;
+    font-weight: 500;
+}
+
+.station-print-label-badge {
+    position: absolute;
+    top: -6px;
+    right: -6px;
+    min-width: 18px;
+    height: 18px;
+    padding: 0 5px;
+    background: #d97706;
+    color: white;
+    border-radius: 9px;
+    font-size: 11px;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.station-print-label-btn.is-loading svg {
+    animation: station-print-label-spin 0.8s linear infinite;
+}
+
+@keyframes station-print-label-spin {
+    from { transform: rotate(0deg); }
+    to   { transform: rotate(360deg); }
+}

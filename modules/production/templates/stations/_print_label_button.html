@@ -1,0 +1,37 @@
+{# Partial: przycisk drukowania etykiety.
+   Parametry:
+     mode = 'single' | 'batch'
+     short_product_id (gdy single)
+     baselinker_order_id (gdy batch)
+     station_code — kod stanowiska (formatowanie / pakowanie)
+     label_print_count (opcjonalnie, gdy single) — pokazany jako badge
+#}
+{% if mode == 'single' %}
+<button type="button"
+        class="station-print-label-btn"
+        data-mode="single"
+        data-product-id="{{ short_product_id }}"
+        data-station="{{ station_code }}"
+        title="Drukuj etykietę produktu{% if label_print_count %} (wydrukowano {{ label_print_count }}x){% endif %}"
+        aria-label="Drukuj etykietę produktu">
+  <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true">
+    <path d="M19 8H5c-1.66 0-3 1.34-3 3v6h4v4h12v-4h4v-6c0-1.66-1.34-3-3-3zm-3 11H8v-5h8v5zm3-7c-.55 0-1-.45-1-1s.45-1 1-1 1 .45 1 1-.45 1-1 1zm-1-9H6v4h12V3z"/>
+  </svg>
+  {% if label_print_count and label_print_count > 0 %}
+    <span class="station-print-label-badge">{{ label_print_count }}</span>
+  {% endif %}
+</button>
+{% else %}
+<button type="button"
+        class="station-print-label-btn station-print-label-btn--batch"
+        data-mode="batch"
+        data-order-id="{{ baselinker_order_id }}"
+        data-station="{{ station_code }}"
+        title="Drukuj etykiety wszystkich produktów z zamówienia"
+        aria-label="Drukuj etykiety całego zamówienia">
+  <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true">
+    <path d="M19 8H5c-1.66 0-3 1.34-3 3v6h4v4h12v-4h4v-6c0-1.66-1.34-3-3-3zm-3 11H8v-5h8v5zm3-7c-.55 0-1-.45-1-1s.45-1 1-1 1 .45 1 1-.45 1-1 1zm-1-9H6v4h12V3z"/>
+  </svg>
+  <span class="station-print-label-text">Wszystkie</span>
+</button>
+{% endif %}
