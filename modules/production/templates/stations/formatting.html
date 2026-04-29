@@ -240,15 +240,17 @@
                             {% endif %}
                         </div>
                         <div class="product-dimensions-row">
+                            {% if order.products|length > 1 %}
+                              {% with mode='single',
+                                      short_product_id=product.id,
+                                      station_code='formatowanie',
+                                      label_print_count=product.label_print_count %}
+                                {% include 'stations/_print_label_button.html' %}
+                              {% endwith %}
+                            {% endif %}
                             {% if product.dimensions %}<span class="badge badge-dimensions">{{ product.dimensions }}</span>
                             {% elif product.original_name %}<span class="badge badge-dimensions">{{ product.original_name }}</span>
                             {% elif product.get('attachment_file_url') %}<span class="badge badge-dimensions">Zgodnie z załącznikiem</span>{% endif %}
-                            {% with mode='single',
-                                    short_product_id=product.id,
-                                    station_code='formatowanie',
-                                    label_print_count=product.label_print_count %}
-                              {% include 'stations/_print_label_button.html' %}
-                            {% endwith %}
                             <div class="quantity-controls">
                                 <div class="btn-group">
                                     <button class="btn-qty btn-minus" data-product-id="{{ product.id }}" data-action="decrement" {% if product.quantity_done == 0 %}disabled{% endif %}>−</button>
