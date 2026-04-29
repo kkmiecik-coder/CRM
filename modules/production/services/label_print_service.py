@@ -198,7 +198,22 @@ def generate_label_zpl(item, cfg):
     bl_id = item.baselinker_order_id or 0
     client_label = _resolve_client_label(item)
 
-    numbers_line = f"{short_id} | BL: {bl_id}"
+    # Pozycja produktu w zamówieniu: "4/8" (4-ty z 8 produktów)
+    seq_label = ''
+    if item.baselinker_order_id and item.product_sequence_in_order:
+        try:
+            total_in_order = ProductionItem.query.filter_by(
+                baselinker_order_id=item.baselinker_order_id
+            ).count()
+            if total_in_order > 0:
+                seq_label = f"{item.product_sequence_in_order}/{total_in_order}"
+        except Exception:
+            seq_label = ''
+
+    numbers_line = (
+        f"{short_id} | {seq_label} | BL: {bl_id}" if seq_label
+        else f"{short_id} | BL: {bl_id}"
+    )
 
     # Badges row 1 — zawsze wszystkie 3 (mają fallback BRAK/-)
     row1 = [(species, True), (technology, True), (wood_class, True)]
