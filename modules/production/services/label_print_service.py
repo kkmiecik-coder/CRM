@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import socket
 from datetime import datetime
-from typing import Iterable
 
 from extensions import db
 from modules.logging import get_structured_logger
@@ -38,7 +37,7 @@ _PL_TO_ASCII = str.maketrans({
 })
 
 
-class _StationNotAllowed(Exception):
+class StationNotAllowed(Exception):
     """Stacja spoza LABEL_PRINTER_ALLOWED_STATIONS."""
 
 
@@ -197,13 +196,13 @@ def print_labels_batch(short_product_ids, station_code, actor):
         results: list[dict] z {short_product_id, success, message, label_print_count}
 
     Raises:
-        _StationNotAllowed: gdy station_code spoza LABEL_PRINTER_ALLOWED_STATIONS
+        StationNotAllowed: gdy station_code spoza LABEL_PRINTER_ALLOWED_STATIONS
     """
     ids = [str(x).strip() for x in short_product_ids if str(x).strip()]
     cfg = _load_config()
 
     if station_code not in cfg['allowed_stations']:
-        raise _StationNotAllowed(
+        raise StationNotAllowed(
             f"Stanowisko '{station_code}' nie ma uprawnień do drukowania "
             f"(dozwolone: {', '.join(cfg['allowed_stations'])})"
         )
