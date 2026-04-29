@@ -950,6 +950,8 @@ function initReportsTab() {
 // ════════════════════════════════════════════════════════════════════
 // Widget: Wykonanie stanowiska w dniu (event log)
 // ════════════════════════════════════════════════════════════════════
+const SO_STORAGE_KEY = 'production.reports.stationOutput';
+
 function initStationOutputWidget() {
     const stationSel = document.getElementById('so-station-select');
     const dateInput = document.getElementById('so-date-input');
@@ -957,20 +959,44 @@ function initStationOutputWidget() {
 
     if (!stationSel || !dateInput) return;
 
-    // Domyślnie dzisiaj
-    const today = new Date();
-    const yyyy = today.getFullYear();
-    const mm = String(today.getMonth() + 1).padStart(2, '0');
-    const dd = String(today.getDate()).padStart(2, '0');
-    dateInput.value = `${yyyy}-${mm}-${dd}`;
+    // Przywróć ostatni wybór z localStorage; fallback: dzisiaj + packaging
+    const saved = (() => {
+        try { return JSON.parse(localStorage.getItem(SO_STORAGE_KEY) || '{}'); }
+        catch { return {}; }
+    })();
 
-    const reload = () => loadStationOutput(stationSel.value, dateInput.value);
+    if (saved.station) {
+        stationSel.value = saved.station;
+    }
+    if (saved.date) {
+        dateInput.value = saved.date;
+    } else {
+        const today = new Date();
+        const yyyy = today.getFullYear();
+        const mm = String(today.getMonth() + 1).padStart(2, '0');
+        const dd = String(today.getDate()).padStart(2, '0');
+        dateInput.value = `${yyyy}-${mm}-${dd}`;
+    }
+
+    const persist = () => {
+        try {
+            localStorage.setItem(SO_STORAGE_KEY, JSON.stringify({
+                station: stationSel.value,
+                date: dateInput.value,
+            }));
+        } catch { /* localStorage może być wyłączony — pomijamy */ }
+    };
+
+    const reload = () => {
+        persist();
+        loadStationOutput(stationSel.value, dateInput.value);
+    };
     stationSel.addEventListener('change', reload);
     dateInput.addEventListener('change', reload);
     refreshBtn?.addEventListener('click', reload);
 
-    // Wstępne ładowanie
-    reload();
+    // Wstępne ładowanie (bez zmiany inputów)
+    loadStationOutput(stationSel.value, dateInput.value);
 }
 
 async function loadStationOutput(station, dateStr) {
