@@ -906,43 +906,23 @@ def ajax_station_today_m3(station_code):
 
         record_heartbeat(station_code)
 
-        from ...models import ProductionItem
+        from datetime import timedelta
+        from ...services.station_events_service import get_station_work_in_range
 
         # Okresl zakres czasowy dla "dzisiaj"
         today = date.today()
         today_start = datetime.combine(today, datetime.min.time())
-        today_end = datetime.combine(today, datetime.max.time())
+        tomorrow_start = today_start + timedelta(days=1)
 
-        # Mapowanie station_code na pole completed_at z try-except dla nowych pol
+        # Faktyczna praca dziś — z prod_station_events (uwzględnia partial work)
         try:
-            completed_at_field_map = {
-                'cutting': ProductionItem.cutting_completed_at,
-                'assembly': ProductionItem.assembly_completed_at,
-                'gluing': ProductionItem.gluing_completed_at,
-                'formatting': ProductionItem.formatting_completed_at,
-                'finishing': ProductionItem.finishing_completed_at,
-                'painting': ProductionItem.painting_completed_at,
-                'packaging': ProductionItem.packaging_completed_at
-            }
-
-            completed_at_field = completed_at_field_map[station_code]
-
-            # Query dla dzisiejszych m3 (identyczna logika jak w dashboard)
-            today_m3 = db.session.query(
-                db.func.coalesce(db.func.sum(ProductionItem.volume_m3 * ProductionItem.quantity), 0)
-            ).filter(
-                completed_at_field >= today_start,
-                completed_at_field <= today_end
-            ).scalar() or 0.0
-        except AttributeError:
-            # Pole nie istnieje jeszcze w modelu - zwroc 0
-            logger.warning(f"Pole {station_code}_completed_at nie istnieje w modelu", extra={
-                'station_code': station_code
+            work = get_station_work_in_range(station_code, today_start, tomorrow_start)
+            today_m3 = float(work['m3_done'])
+        except Exception as e:
+            logger.warning(f"Nie udało się pobrać station_events dla {station_code}", extra={
+                'station_code': station_code, 'error': str(e)
             })
             today_m3 = 0.0
-
-        # Konwersja na float dla JSON
-        today_m3 = float(today_m3)
 
         result = {
             'success': True,
