@@ -265,7 +265,7 @@ def order_quantity(order_id):
         return jsonify({'error': 'order_not_found'}), 404
 
     try:
-        update_order_quantity(item, station_code, quantity_done)
+        update_order_quantity(item, station_code, quantity_done, device_id=g.device.device_id)
     except ValueError as e:
         return jsonify({'error': 'invalid_quantity', 'detail': str(e)}), 400
     except Exception as e:
