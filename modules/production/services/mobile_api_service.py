@@ -42,6 +42,7 @@ STATION_STATUS_MAP = {
     'packaging': 'czeka_na_pakowanie',
     'cutting': 'czeka_na_wyciecie',
     'assembly': 'czeka_na_skladanie',
+    'completion': 'czeka_na_kompletacje',
     'gluing': 'czeka_na_sklejanie',
     'formatting': 'czeka_na_formatowanie',
     'finishing': 'czeka_na_wykanczanie',
@@ -53,6 +54,7 @@ STATION_QUANTITY_FIELD = {
     'packaging': 'quantity_done_packaging',
     'cutting': 'quantity_done_cutting',
     'assembly': 'quantity_done_assembly',
+    'completion': 'quantity_done_completion',
     'gluing': 'quantity_done_gluing',
     'formatting': 'quantity_done_formatting',
     'finishing': 'quantity_done_finishing',
@@ -64,6 +66,7 @@ STATION_COMPLETED_AT_FIELD = {
     'packaging': 'packaging_completed_at',
     'cutting': 'cutting_completed_at',
     'assembly': 'assembly_completed_at',
+    'completion': 'completion_completed_at',
     'gluing': 'gluing_completed_at',
     'formatting': 'formatting_completed_at',
     'finishing': 'finishing_completed_at',
@@ -73,9 +76,11 @@ STATION_COMPLETED_AT_FIELD = {
 # Aliasy stanowisk — urządzenie zarejestrowane jako jedno z poniższych może
 # operować na pozostałych z tego samego zbioru. Tablet w wykańczalni rejestruje
 # się jako `finishing`, ale w UI ma TabBar z dwiema zakładkami (Produkcja /
-# Lakiernia) i fetchuje obie listy z tego samego JWT.
+# Lakiernia) i fetchuje obie listy z tego samego JWT. Analogicznie tablet w
+# sklejaniu rejestruje się jako `gluing` i ma tab Kompletacja/Klejenie.
 STATION_GROUPS = [
     {'finishing', 'painting'},
+    {'gluing', 'completion'},
 ]
 
 

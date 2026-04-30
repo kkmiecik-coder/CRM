@@ -193,6 +193,7 @@ class ProductionItem(db.Model):
     current_status = Column(Enum(
         'czeka_na_wyciecie',
         'czeka_na_skladanie',
+        'czeka_na_kompletacje',
         'czeka_na_sklejanie',
         'czeka_na_formatowanie',
         'czeka_na_wykanczanie',
@@ -238,6 +239,8 @@ class ProductionItem(db.Model):
                                    comment='Ile sztuk wykonano na stanowisku wycinania')
     quantity_done_assembly = Column(Integer, default=0, nullable=False,
                                     comment='Ile sztuk wykonano na stanowisku składania')
+    quantity_done_completion = Column(Integer, default=0, nullable=False,
+                                      comment='Ile sztuk wykonano na stanowisku kompletacji')
     quantity_done_gluing = Column(Integer, default=0, nullable=False,
                                   comment='Ile sztuk wykonano na stanowisku sklejania')
     quantity_done_formatting = Column(Integer, default=0, nullable=False,
@@ -262,6 +265,8 @@ class ProductionItem(db.Model):
                                   comment='Timestamp ukończenia wszystkich sztuk na wycinaniu')
     assembly_completed_at = Column(DateTime, index=True,
                                    comment='Timestamp ukończenia wszystkich sztuk na składaniu')
+    completion_completed_at = Column(DateTime, index=True,
+                                     comment='Timestamp ukończenia wszystkich sztuk na kompletacji')
     gluing_completed_at = Column(DateTime, index=True,
                                  comment='Timestamp ukończenia wszystkich sztuk na sklejaniu')
     formatting_completed_at = Column(DateTime, index=True,
@@ -323,6 +328,7 @@ class ProductionItem(db.Model):
         status_names = {
             'czeka_na_wyciecie': 'Czeka na wycięcie',
             'czeka_na_skladanie': 'Czeka na składanie',
+            'czeka_na_kompletacje': 'Czeka na kompletację',
             'czeka_na_sklejanie': 'Czeka na sklejanie',
             'czeka_na_formatowanie': 'Czeka na formatowanie',
             'czeka_na_wykanczanie': 'Czeka na wykańczanie',
@@ -650,8 +656,9 @@ class ProductionItem(db.Model):
         Ukończenie pracy na stanowisku - przejście do następnego statusu
 
         PRZEPŁYW:
-        - cutting (mikrowczep) → sklejanie
-        - assembly (lity) → sklejanie
+        - cutting (mikrowczep) → kompletacja
+        - assembly (lity) → kompletacja
+        - completion → sklejanie
         - formatting → wykańczanie (chyba że surowe bez obróbki krawędzi → logistyka)
         - finishing → lakiernia (jeśli lakierowane/olejowane/bejcowane) LUB logistyka (tylko krawędź)
         - painting → logistyka
@@ -659,8 +666,9 @@ class ProductionItem(db.Model):
         now = get_local_now()
 
         next_status_map = {
-            'cutting': 'czeka_na_sklejanie',
-            'assembly': 'czeka_na_sklejanie',
+            'cutting': 'czeka_na_kompletacje',
+            'assembly': 'czeka_na_kompletacje',
+            'completion': 'czeka_na_sklejanie',
             'gluing': 'czeka_na_formatowanie',
             'formatting': 'czeka_na_wykanczanie',
             'finishing': 'czeka_na_logistyke',
@@ -1056,7 +1064,7 @@ class ProductionDevice(db.Model):
     is_active = Column(Boolean, nullable=False, default=True, index=True)
 
     VALID_STATION_CODES = {
-        'packaging', 'cutting', 'assembly', 'gluing', 'formatting', 'finishing'
+        'packaging', 'cutting', 'assembly', 'completion', 'gluing', 'formatting', 'finishing'
     }
 
     @validates('station_code')

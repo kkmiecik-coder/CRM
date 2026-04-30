@@ -93,6 +93,43 @@
           </div>
         </div>
 
+        {# COMPLETION #}
+        <div class="il-station {% if not dashboard_stats.stations.completion.tablet_status.active|default(false) %}station-inactive{% endif %}" data-station="completion">
+          <div class="il-station-header">
+            <span class="il-station-name">Kompletacja</span>
+            <div class="il-station-actions">
+              <span class="il-station-badge {% if dashboard_stats.stations.completion.tablet_status.active|default(false) %}active{% else %}inactive{% endif %}" id="completion-tablet-badge">
+                {{ dashboard_stats.stations.completion.tablet_status.status_label|default('Niedostępne') }}
+              </span>
+              <a href="{{ url_for('production.production_stations.completion_station') }}" class="il-station-link" title="Otwórz stanowisko"><i class="fas fa-external-link-alt"></i></a>
+            </div>
+          </div>
+          <div class="il-station-body">
+            <div class="il-station-stats">
+              <div class="il-station-stat">
+                <div class="il-station-stat-value" id="completion-pending">{{ dashboard_stats.stations.completion.pending_count|default(0) }}</div>
+                <div class="il-station-stat-label">Oczekuje</div>
+              </div>
+              <div class="il-station-stat">
+                <div class="il-station-stat-value" id="completion-pending-m3">{{ "%.4f"|format(dashboard_stats.stations.completion.pending_m3|default(0.0)) }}</div>
+                <div class="il-station-stat-label">m³ ocz.</div>
+              </div>
+              <div class="il-station-stat">
+                <div class="il-station-stat-value" id="completion-completed-today">{{ dashboard_stats.stations.completion.completed_today|default(0) }}</div>
+                <div class="il-station-stat-label">Ukończ.</div>
+              </div>
+              <div class="il-station-stat">
+                <div class="il-station-stat-value" id="completion-today-m3">{{ "%.4f"|format(dashboard_stats.stations.completion.today_m3|default(0.0)) }}</div>
+                <div class="il-station-stat-label">m³ dziś</div>
+              </div>
+            </div>
+            <div class="il-station-progress">
+              <div class="il-station-bar"><div class="il-station-bar-fill" id="completion-bar-fill" style="width: 0%;"></div></div>
+              <span class="il-station-bar-pct" id="completion-bar-pct">0%</span>
+            </div>
+          </div>
+        </div>
+
         {# GLUING #}
         <div class="il-station {% if not dashboard_stats.stations.gluing.tablet_status.active|default(false) %}station-inactive{% endif %}" data-station="gluing">
           <div class="il-station-header">

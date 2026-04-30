@@ -1061,7 +1061,7 @@ class DashboardBLSyncModal {
                 if (product.unknown_technology && !isAlreadyInDb) {
                     badgesHtml += `<span style="font-size: 11px; padding: 1px 5px; background: rgba(220,38,38,0.1); color: #dc2626; border-radius: 3px; margin-left: 6px;">⚠ technologia</span>`;
                 } else if (product.parsed_technology) {
-                    badgesHtml += `<span style="font-size: 11px; padding: 1px 5px; background: rgba(99,102,241,0.1); color: #6366f1; border-radius: 3px; margin-left: 6px;">${product.parsed_technology}</span>`;
+                    badgesHtml += `<span style="font-size: 11px; padding: 1px 5px; background: rgba(79,70,229,0.1); color: #4f46e5; border-radius: 3px; margin-left: 6px;">${product.parsed_technology}</span>`;
                 }
 
                 // 3. Klasa

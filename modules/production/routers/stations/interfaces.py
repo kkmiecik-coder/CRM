@@ -385,108 +385,113 @@ def assembly_station():
 # STANOWISKO SKLEJANIA (GLUING)
 # ============================================================================
 
+@station_bp.route('/completion')
+def completion_station():
+    """Interfejs stanowiska kompletacji - bramka kompletnosci po szlifierce.
+    Domyslny tab dla zamowien swiezo przyjetych z cutting/assembly."""
+    return _render_completion_or_gluing(active_tab='completion')
+
+
 @station_bp.route('/gluing')
 def gluing_station():
+    """Interfejs stanowiska sklejania - drugi tab w widoku stanowiska sklejania."""
+    return _render_completion_or_gluing(active_tab='gluing')
+
+
+def _render_completion_or_gluing(active_tab):
     """
-    Interfejs stanowiska sklejania - FLAT PRODUCT LIST VERSION
-
-    Zwraca splaszczona liste produktow (bez grupowania po zamowieniu).
-
-    Query params:
-        sort: priority|deadline|created_at (default: priority)
-
-    Returns:
-        HTML: Interfejs stanowiska sklejania z lista produktow
+    Wspolny render dla tabow 'completion' i 'gluing'. Filtruje produkty po
+    statusie odpowiadajacym aktywnemu tabowi i dostarcza liczniki obu kolejek
+    do tab-bara.
     """
     try:
         from ...models import ProductionItem
-        from sqlalchemy import asc, desc
+        from sqlalchemy import asc
 
         sort_by = request.args.get('sort', 'priority')
 
-        # Znajdz zamowienia ktore maja choc 1 produkt do sklejania
-        orders_with_gluing = db.session.query(
-            ProductionItem.internal_order_number
-        ).filter(
+        TAB_CONFIG = {
+            'completion': {
+                'status': 'czeka_na_kompletacje',
+                'quantity_field': 'quantity_done_completion',
+                'station_code': 'completion',
+                'station_name': 'Kompletacja',
+                'page_title': 'Stanowisko Kompletacji',
+                'error_message': 'Blad ladowania stanowiska kompletacji',
+                'log_message': 'Blad interfejsu kompletacji',
+            },
+            'gluing': {
+                'status': 'czeka_na_sklejanie',
+                'quantity_field': 'quantity_done_gluing',
+                'station_code': 'gluing',
+                'station_name': 'Sklejanie',
+                'page_title': 'Stanowisko Sklejania',
+                'error_message': 'Blad ladowania stanowiska sklejania',
+                'log_message': 'Blad interfejsu sklejania',
+            },
+        }
+        cfg = TAB_CONFIG[active_tab]
+
+        completion_count = ProductionItem.query.filter(
+            ProductionItem.current_status == 'czeka_na_kompletacje'
+        ).count()
+        gluing_count = ProductionItem.query.filter(
             ProductionItem.current_status == 'czeka_na_sklejanie'
-        ).distinct().all()
+        ).count()
 
-        order_numbers = [order[0] for order in orders_with_gluing if order[0]]
-
-        if not order_numbers:
-            products = []
+        query = ProductionItem.query.filter(
+            ProductionItem.current_status == cfg['status']
+        )
+        if sort_by == 'priority':
+            query = query.order_by(asc(ProductionItem.priority_rank))
+        elif sort_by == 'deadline':
+            query = query.order_by(asc(ProductionItem.deadline_date))
         else:
-            # Pobierz TYLKO produkty ze statusem czeka_na_sklejanie (nie wszystkie z zamowienia)
-            query = ProductionItem.query.filter(
-                ProductionItem.internal_order_number.in_(order_numbers),
-                ProductionItem.current_status == 'czeka_na_sklejanie'
-            )
+            query = query.order_by(asc(ProductionItem.created_at))
 
-            # Sortowanie
-            if sort_by == 'priority':
-                query = query.order_by(asc(ProductionItem.priority_rank))
-            elif sort_by == 'deadline':
-                query = query.order_by(asc(ProductionItem.deadline_date))
-            else:
-                query = query.order_by(asc(ProductionItem.created_at))
+        products_db = query.all()
+        products = []
+        for product in products_db:
+            priority_rank = product.priority_rank if product.priority_rank else 999
+            dimensions_parts = []
+            if product.parsed_length_cm:
+                dimensions_parts.append(_format_dimension(product.parsed_length_cm))
+            if product.parsed_width_cm:
+                dimensions_parts.append(_format_dimension(product.parsed_width_cm))
+            if product.parsed_thickness_cm:
+                dimensions_parts.append(_format_dimension(product.parsed_thickness_cm))
+            dimensions_text = '×'.join(dimensions_parts) + ' cm' if dimensions_parts else None
+            volume_m3 = float(product.volume_m3) if product.volume_m3 else 0.0
+            qty_done = getattr(product, cfg['quantity_field'])
 
-            products_db = query.all()
+            products.append({
+                'id': product.short_product_id,
+                'internal_order': product.internal_order_number,
+                'baselinker_order_id': product.baselinker_order_id,
+                'original_name': product.original_product_name,
+                'current_status': product.current_status,
+                'priority_rank': priority_rank,
+                'deadline_date': product.deadline_date,
+                'volume_m3': volume_m3,
+                'wood_species': product.parsed_wood_species,
+                'technology': product.parsed_technology,
+                'wood_class': product.parsed_wood_class,
+                'finish_state': product.parsed_finish_state,
+                'finish_type': product.parsed_finish_type,
+                'dimensions': dimensions_text,
+                'attachment_file_name': product.attachment_file_name,
+                'attachment_file_url': product.attachment_file_url,
+                'product_sequence_in_order': product.product_sequence_in_order,
+                'quantity': product.quantity,
+                'quantity_done': qty_done,
+                'is_complete': qty_done == product.quantity,
+                'is_priority': product.is_priority,
+                'order_notes': product.order_notes,
+                'client_order_number': product.client_order_number,
+            })
 
-            # Przygotuj dane produktow
-            products = []
-
-            for product in products_db:
-                priority_rank = product.priority_rank if product.priority_rank else 999
-
-                # Wymiary w CM
-                dimensions_parts = []
-                if product.parsed_length_cm:
-                    dimensions_parts.append(_format_dimension(product.parsed_length_cm))
-                if product.parsed_width_cm:
-                    dimensions_parts.append(_format_dimension(product.parsed_width_cm))
-                if product.parsed_thickness_cm:
-                    dimensions_parts.append(_format_dimension(product.parsed_thickness_cm))
-                dimensions_text = '×'.join(dimensions_parts) + ' cm' if dimensions_parts else None
-
-                volume_m3 = float(product.volume_m3) if product.volume_m3 else 0.0
-
-                product_data = {
-                    'id': product.short_product_id,
-                    'internal_order': product.internal_order_number,
-                    'baselinker_order_id': product.baselinker_order_id,
-                    'original_name': product.original_product_name,
-                    'current_status': product.current_status,
-                    'priority_rank': priority_rank,
-                    'deadline_date': product.deadline_date,
-                    'volume_m3': volume_m3,
-                    'wood_species': product.parsed_wood_species,
-                    'technology': product.parsed_technology,
-                    'wood_class': product.parsed_wood_class,
-                    'finish_state': product.parsed_finish_state,
-                    'finish_type': product.parsed_finish_type,
-                    'dimensions': dimensions_text,
-                    'attachment_file_name': product.attachment_file_name,
-                    'attachment_file_url': product.attachment_file_url,
-                    'product_sequence_in_order': product.product_sequence_in_order,
-                    'quantity': product.quantity,
-                    'quantity_done': product.quantity_done_gluing,
-                    'is_complete': product.quantity_done_gluing == product.quantity,
-                    'is_priority': product.is_priority,
-                    'order_notes': product.order_notes,
-                    'client_order_number': product.client_order_number
-                }
-
-                products.append(product_data)
-
-        # =========================================
-        # KROK 4: Flat product list (no order grouping)
-        # Enriches each product dict in-place with display fields,
-        # then assigns products_flat = products (same list, no copy needed).
-        # =========================================
         today = date.today()
-
         for product in products:
-            # Display deadline per product
             if product['deadline_date']:
                 days_diff = (product['deadline_date'] - today).days
                 if days_diff < 0:
@@ -500,7 +505,6 @@ def gluing_station():
             else:
                 product['display_deadline'] = "Brak terminu"
 
-            # Priority class per product
             rank = product['priority_rank']
             if rank <= 10:
                 product['priority_class'] = 'priority-critical'
@@ -516,23 +520,17 @@ def gluing_station():
                 product['priority_label'] = 'NISKI'
 
         products_flat = products
-
-        # Sort flat products
         if sort_by == 'priority':
             products_flat.sort(key=lambda x: x['priority_rank'])
         elif sort_by == 'deadline':
             products_flat.sort(key=lambda x: x['deadline_date'] or date(9999, 12, 31))
 
-        # =========================================
-        # KROK 5: Station statistics
-        # =========================================
         config = get_station_config()
-
         station_stats = {
             'total_products': sum((p.get('quantity', 1) or 1) for p in products_flat),
             'total_tiles': len(products_flat),
             'high_priority_count': sum(1 for p in products_flat if p['priority_rank'] <= 50),
-            'total_volume': sum((p.get('volume_m3', 0) or 0) * (p.get('quantity', 1) or 1) for p in products_flat)
+            'total_volume': sum((p.get('volume_m3', 0) or 0) * (p.get('quantity', 1) or 1) for p in products_flat),
         }
 
         now = datetime.utcnow()
@@ -540,18 +538,21 @@ def gluing_station():
         return render_template(
             'stations/gluing.html',
             products_flat=products_flat,
-            station_code='gluing',
-            station_name='Sklejanie',
+            station_code=cfg['station_code'],
+            station_name=cfg['station_name'],
+            active_tab=active_tab,
+            completion_count=completion_count,
+            gluing_count=gluing_count,
             station_stats=station_stats,
             config=config,
             sort_by=sort_by,
             now=now,
             last_updated=datetime.utcnow(),
-            page_title="Stanowisko Sklejania"
+            page_title=cfg['page_title'],
         )
 
     except Exception as e:
-        logger.error("Blad interfejsu sklejania", extra={
+        logger.error(cfg['log_message'] if 'cfg' in locals() else 'Blad interfejsu kompletacja/sklejanie', extra={
             'client_ip': request.remote_addr,
             'error': str(e),
             'traceback': traceback.format_exc()
@@ -559,7 +560,7 @@ def gluing_station():
 
         return render_template(
             'stations/error.html',
-            error_message="Blad ladowania stanowiska sklejania",
+            error_message=cfg['error_message'] if 'cfg' in locals() else 'Blad ladowania stanowiska',
             error_details=str(e),
             back_url=url_for('production.production_stations.station_select')
         ), 500

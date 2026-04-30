@@ -51,7 +51,7 @@
     function initializeGluingStation() {
         const config = window.STATION_CONFIG;
 
-        if (!config || config.stationCode !== 'gluing') {
+        if (!config || (config.stationCode !== 'gluing' && config.stationCode !== 'completion')) {
             console.error('[Gluing] Nieprawidłowa konfiguracja stacji');
             return;
         }
@@ -319,7 +319,7 @@
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         product_id: productId,
-                        station: 'gluing',
+                        station: state.config.stationCode,
                         action: action
                     })
                 });
@@ -736,7 +736,7 @@
         console.log('[Gluing] Wykonywanie auto-refresh...');
 
         try {
-            const response = await fetch('/production/stations/ajax/orders/gluing?sort=priority');
+            const response = await fetch(`/production/stations/ajax/orders/${state.config.stationCode}?sort=priority`);
 
             if (!response.ok) {
                 throw new Error(`HTTP ${response.status}`);
@@ -1057,7 +1057,7 @@
 
     async function fetchTodayM3() {
         try {
-            const response = await fetch('/production/stations/ajax/station-today-m3/gluing');
+            const response = await fetch(`/production/stations/ajax/station-today-m3/${state.config.stationCode}`);
 
             if (!response.ok) {
                 throw new Error(`HTTP ${response.status}`);

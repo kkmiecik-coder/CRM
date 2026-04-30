@@ -33,5 +33,5 @@ def get_station_status(station_name: str) -> dict:
 
 def get_all_statuses() -> dict:
     """Get heartbeat status for all known stations."""
-    station_names = ['cutting', 'assembly', 'gluing', 'formatting', 'finishing', 'packaging']
+    station_names = ['cutting', 'assembly', 'completion', 'gluing', 'formatting', 'finishing', 'packaging']
     return {name: get_station_status(name) for name in station_names}

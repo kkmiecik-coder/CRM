@@ -283,7 +283,7 @@ class DashboardModule {
                 // Konwertuj format ze słownika na array dla updateStationsWidget
                 const stationsArray = Object.keys(initialData.stations).map(key => ({
                     code: key,
-                    name: key === 'cutting' ? 'Wycinanie - mikro' : key === 'assembly' ? 'Składanie - lite' : 'Pakowanie',
+                    name: key === 'cutting' ? 'Wycinanie - mikro' : key === 'assembly' ? 'Składanie - lite' : key === 'completion' ? 'Kompletacja' : 'Pakowanie',
                     active_orders: initialData.stations[key].pending_count,
                     status: initialData.stations[key].status,
                     status_class: initialData.stations[key].status_class
@@ -314,7 +314,7 @@ class DashboardModule {
 
             // Update station extended data (completed_today, pending_m3, tablet status, progress bars)
             if (initialData.stations) {
-                const stations = ['cutting', 'assembly', 'gluing', 'formatting', 'finishing', 'packaging'];
+                const stations = ['cutting', 'assembly', 'completion', 'gluing', 'formatting', 'finishing', 'packaging'];
                 stations.forEach(station => {
                     const stationData = initialData.stations[station];
                     if (stationData) {

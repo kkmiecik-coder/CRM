@@ -28,12 +28,13 @@ def stations_tab_content():
         
         # Dane dla każdego stanowiska
         stations_data = {}
-        stations = ['cutting', 'assembly', 'gluing', 'formatting', 'finishing', 'packaging']
+        stations = ['cutting', 'assembly', 'completion', 'gluing', 'formatting', 'finishing', 'packaging']
         
         for station in stations:
             status_map = {
                 'cutting': 'czeka_na_wyciecie',
                 'assembly': 'czeka_na_skladanie',
+                'completion': 'czeka_na_kompletacje',
                 'gluing': 'czeka_na_sklejanie',
                 'formatting': 'czeka_na_formatowanie',
                 'finishing': 'czeka_na_wykanczanie',
@@ -64,6 +65,7 @@ def stations_tab_content():
             completed_field_map = {
                 'cutting': 'cutting_completed_at',
                 'assembly': 'assembly_completed_at',
+                'completion': 'completion_completed_at',
                 'gluing': 'gluing_completed_at',
                 'formatting': 'formatting_completed_at',
                 'finishing': 'finishing_completed_at',
@@ -92,6 +94,7 @@ def stations_tab_content():
                 'name': {
                     'cutting': 'Wycinanie - mikro',
                     'assembly': 'Składanie - lite',
+                    'completion': 'Kompletacja',
                     'gluing': 'Sklejanie',
                     'formatting': 'Formatowanie',
                     'finishing': 'Wykańczanie',
@@ -100,6 +103,7 @@ def stations_tab_content():
                 'icon': {
                     'cutting': '🪚',
                     'assembly': '🔧',
+                    'completion': '🧩',
                     'gluing': '🧲',
                     'formatting': '📐',
                     'finishing': '✨',

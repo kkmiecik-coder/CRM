@@ -22,6 +22,7 @@ from ...services.station_events_service import (
 _STATION_PENDING_STATUS = {
     'cutting': 'czeka_na_wyciecie',
     'assembly': 'czeka_na_skladanie',
+    'completion': 'czeka_na_kompletacje',
     'gluing': 'czeka_na_sklejanie',
     'formatting': 'czeka_na_formatowanie',
     'finishing': 'czeka_na_wykanczanie',
@@ -286,7 +287,7 @@ def chart_data():
             }), 400
 
         # Walidacja stanowiska
-        valid_stations = ['all', 'cutting', 'assembly', 'gluing', 'formatting', 'finishing', 'packaging']
+        valid_stations = ['all', 'cutting', 'assembly', 'completion', 'gluing', 'formatting', 'finishing', 'packaging']
         if station_filter not in valid_stations:
             return jsonify({
                 'success': False,
@@ -311,6 +312,7 @@ def chart_data():
         station_completion_mapping = {
             'cutting': 'cutting_completed_at',
             'assembly': 'assembly_completed_at',
+            'completion': 'completion_completed_at',
             'gluing': 'gluing_completed_at',
             'formatting': 'formatting_completed_at',
             'finishing': 'finishing_completed_at',
@@ -320,6 +322,7 @@ def chart_data():
         station_quantity_mapping = {
             'cutting': 'quantity_done_cutting',
             'assembly': 'quantity_done_assembly',
+            'completion': 'quantity_done_completion',
             'gluing': 'quantity_done_gluing',
             'formatting': 'quantity_done_formatting',
             'finishing': 'quantity_done_finishing',
@@ -329,6 +332,7 @@ def chart_data():
         station_labels = {
             'cutting': 'Wycinanie - mikro',
             'assembly': 'Składanie - lite',
+            'completion': 'Kompletacja',
             'gluing': 'Sklejanie',
             'formatting': 'Formatowanie',
             'finishing': 'Wykańczanie',
@@ -338,6 +342,7 @@ def chart_data():
         station_colors = {
             'cutting': {'border': '#fd7e14', 'bg': 'rgba(253, 126, 20, 0.1)'},
             'assembly': {'border': '#007bff', 'bg': 'rgba(0, 123, 255, 0.1)'},
+            'completion': {'border': '#4f46e5', 'bg': 'rgba(79, 70, 229, 0.1)'},
             'gluing': {'border': '#9c27b0', 'bg': 'rgba(156, 39, 176, 0.1)'},
             'formatting': {'border': '#ff5722', 'bg': 'rgba(255, 87, 34, 0.1)'},
             'finishing': {'border': '#00bcd4', 'bg': 'rgba(0, 188, 212, 0.1)'},
@@ -526,6 +531,14 @@ def chart_data():
                     'fill': True
                 },
                 {
+                    'label': 'Kompletacja',
+                    'data': [],
+                    'borderColor': '#4f46e5',
+                    'backgroundColor': 'rgba(79, 70, 229, 0.1)',
+                    'tension': 0.4,
+                    'fill': True
+                },
+                {
                     'label': 'Sklejanie',
                     'data': [],
                     'borderColor': '#9c27b0',
@@ -577,6 +590,7 @@ def chart_data():
                     daily_data[completion_date] = {
                         'cutting': 0.0,
                         'assembly': 0.0,
+                        'completion': 0.0,
                         'gluing': 0.0,
                         'formatting': 0.0,
                         'finishing': 0.0,
@@ -593,28 +607,29 @@ def chart_data():
 
                 if current_date not in daily_data:
                     daily_data[current_date] = {
-                        'cutting': 0.0, 'assembly': 0.0, 'gluing': 0.0,
+                        'cutting': 0.0, 'assembly': 0.0, 'completion': 0.0, 'gluing': 0.0,
                         'formatting': 0.0, 'finishing': 0.0, 'packaging': 0.0
                     }
 
                 chart_data_result['datasets'][0]['data'].append(daily_data[current_date]['cutting'])
                 chart_data_result['datasets'][1]['data'].append(daily_data[current_date]['assembly'])
-                chart_data_result['datasets'][2]['data'].append(daily_data[current_date]['gluing'])
-                chart_data_result['datasets'][3]['data'].append(daily_data[current_date]['formatting'])
-                chart_data_result['datasets'][4]['data'].append(daily_data[current_date]['finishing'])
-                chart_data_result['datasets'][5]['data'].append(daily_data[current_date]['packaging'])
+                chart_data_result['datasets'][2]['data'].append(daily_data[current_date]['completion'])
+                chart_data_result['datasets'][3]['data'].append(daily_data[current_date]['gluing'])
+                chart_data_result['datasets'][4]['data'].append(daily_data[current_date]['formatting'])
+                chart_data_result['datasets'][5]['data'].append(daily_data[current_date]['finishing'])
+                chart_data_result['datasets'][6]['data'].append(daily_data[current_date]['packaging'])
                 current_date += timedelta(days=1)
 
         elif aggregation_type == 'weekly':
             from collections import defaultdict
             weekly_data = defaultdict(lambda: {
-                'cutting': 0.0, 'assembly': 0.0, 'gluing': 0.0,
+                'cutting': 0.0, 'assembly': 0.0, 'completion': 0.0, 'gluing': 0.0,
                 'formatting': 0.0, 'finishing': 0.0, 'packaging': 0.0
             })
 
             for day_date, volumes in daily_data.items():
                 week_start = day_date - timedelta(days=day_date.weekday())
-                for station in ['cutting', 'assembly', 'gluing', 'formatting', 'finishing', 'packaging']:
+                for station in ['cutting', 'assembly', 'completion', 'gluing', 'formatting', 'finishing', 'packaging']:
                     weekly_data[week_start][station] += volumes[station]
 
             current_date = start_date - timedelta(days=start_date.weekday())
@@ -623,22 +638,23 @@ def chart_data():
                 chart_data_result['labels'].append(week_label)
                 chart_data_result['datasets'][0]['data'].append(weekly_data[current_date]['cutting'])
                 chart_data_result['datasets'][1]['data'].append(weekly_data[current_date]['assembly'])
-                chart_data_result['datasets'][2]['data'].append(weekly_data[current_date]['gluing'])
-                chart_data_result['datasets'][3]['data'].append(weekly_data[current_date]['formatting'])
-                chart_data_result['datasets'][4]['data'].append(weekly_data[current_date]['finishing'])
-                chart_data_result['datasets'][5]['data'].append(weekly_data[current_date]['packaging'])
+                chart_data_result['datasets'][2]['data'].append(weekly_data[current_date]['completion'])
+                chart_data_result['datasets'][3]['data'].append(weekly_data[current_date]['gluing'])
+                chart_data_result['datasets'][4]['data'].append(weekly_data[current_date]['formatting'])
+                chart_data_result['datasets'][5]['data'].append(weekly_data[current_date]['finishing'])
+                chart_data_result['datasets'][6]['data'].append(weekly_data[current_date]['packaging'])
                 current_date += timedelta(weeks=1)
 
         elif aggregation_type == 'monthly':
             from collections import defaultdict
             monthly_data = defaultdict(lambda: {
-                'cutting': 0.0, 'assembly': 0.0, 'gluing': 0.0,
+                'cutting': 0.0, 'assembly': 0.0, 'completion': 0.0, 'gluing': 0.0,
                 'formatting': 0.0, 'finishing': 0.0, 'packaging': 0.0
             })
 
             for day_date, volumes in daily_data.items():
                 month_start = date(day_date.year, day_date.month, 1)
-                for station in ['cutting', 'assembly', 'gluing', 'formatting', 'finishing', 'packaging']:
+                for station in ['cutting', 'assembly', 'completion', 'gluing', 'formatting', 'finishing', 'packaging']:
                     monthly_data[month_start][station] += volumes[station]
 
             current_month = date(start_date.year, start_date.month, 1)
@@ -649,10 +665,11 @@ def chart_data():
                 chart_data_result['labels'].append(month_label)
                 chart_data_result['datasets'][0]['data'].append(monthly_data[current_month]['cutting'])
                 chart_data_result['datasets'][1]['data'].append(monthly_data[current_month]['assembly'])
-                chart_data_result['datasets'][2]['data'].append(monthly_data[current_month]['gluing'])
-                chart_data_result['datasets'][3]['data'].append(monthly_data[current_month]['formatting'])
-                chart_data_result['datasets'][4]['data'].append(monthly_data[current_month]['finishing'])
-                chart_data_result['datasets'][5]['data'].append(monthly_data[current_month]['packaging'])
+                chart_data_result['datasets'][2]['data'].append(monthly_data[current_month]['completion'])
+                chart_data_result['datasets'][3]['data'].append(monthly_data[current_month]['gluing'])
+                chart_data_result['datasets'][4]['data'].append(monthly_data[current_month]['formatting'])
+                chart_data_result['datasets'][5]['data'].append(monthly_data[current_month]['finishing'])
+                chart_data_result['datasets'][6]['data'].append(monthly_data[current_month]['packaging'])
 
                 if current_month.month == 12:
                     current_month = date(current_month.year + 1, 1, 1)
@@ -663,10 +680,11 @@ def chart_data():
         total_volumes = {
             'cutting': sum(chart_data_result['datasets'][0]['data']),
             'assembly': sum(chart_data_result['datasets'][1]['data']),
-            'gluing': sum(chart_data_result['datasets'][2]['data']),
-            'formatting': sum(chart_data_result['datasets'][3]['data']),
-            'finishing': sum(chart_data_result['datasets'][4]['data']),
-            'packaging': sum(chart_data_result['datasets'][5]['data'])
+            'completion': sum(chart_data_result['datasets'][2]['data']),
+            'gluing': sum(chart_data_result['datasets'][3]['data']),
+            'formatting': sum(chart_data_result['datasets'][4]['data']),
+            'finishing': sum(chart_data_result['datasets'][5]['data']),
+            'packaging': sum(chart_data_result['datasets'][6]['data'])
         }
 
         num_periods = len(chart_data_result['labels']) if chart_data_result['labels'] else 1
@@ -769,6 +787,7 @@ def dashboard_tab_content():
         # Statystyki stacji
         cutting_count = ProductionItem.query.filter(ProductionItem.current_status == 'czeka_na_wyciecie').count()
         assembly_count = ProductionItem.query.filter(ProductionItem.current_status == 'czeka_na_skladanie').count()
+        completion_count = ProductionItem.query.filter(ProductionItem.current_status == 'czeka_na_kompletacje').count()
         gluing_count = ProductionItem.query.filter(ProductionItem.current_status == 'czeka_na_sklejanie').count()
         formatting_count = ProductionItem.query.filter(ProductionItem.current_status == 'czeka_na_formatowanie').count()
         finishing_count = ProductionItem.query.filter(ProductionItem.current_status == 'czeka_na_wykanczanie').count()
@@ -787,6 +806,7 @@ def dashboard_tab_content():
         _station_count_map = {
             'cutting': cutting_count,
             'assembly': assembly_count,
+            'completion': completion_count,
             'gluing': gluing_count,
             'formatting': formatting_count,
             'finishing': finishing_count,
@@ -808,7 +828,7 @@ def dashboard_tab_content():
         from modules.production.services.station_heartbeat import get_all_statuses
         heartbeat_statuses = get_all_statuses()
 
-        for st_code in ['cutting', 'assembly', 'gluing', 'formatting', 'finishing', 'packaging']:
+        for st_code in ['cutting', 'assembly', 'completion', 'gluing', 'formatting', 'finishing', 'packaging']:
             dashboard_stats['stations'][st_code]['tablet_status'] = heartbeat_statuses.get(st_code, {'active': False, 'last_seen': None, 'status_label': 'Niedostępne'})
 
         # completed_today (count distinct items z dodatnim netto delta)
@@ -842,9 +862,9 @@ def dashboard_tab_content():
         try:
             active_products = ProductionItem.query.filter(
                 ProductionItem.current_status.in_([
-                    'czeka_na_wyciecie', 'czeka_na_skladanie', 'czeka_na_sklejanie',
-                    'czeka_na_formatowanie', 'czeka_na_wykanczanie', 'czeka_na_pakowanie',
-                    'w_realizacji'
+                    'czeka_na_wyciecie', 'czeka_na_skladanie', 'czeka_na_kompletacje',
+                    'czeka_na_sklejanie', 'czeka_na_formatowanie', 'czeka_na_wykanczanie',
+                    'czeka_na_pakowanie', 'w_realizacji'
                 ]),
                 ProductionItem.deadline_date.isnot(None)
             ).all()
@@ -869,9 +889,9 @@ def dashboard_tab_content():
         }
 
         active_statuses = [
-            'czeka_na_wyciecie', 'czeka_na_skladanie', 'czeka_na_sklejanie',
-            'czeka_na_formatowanie', 'czeka_na_wykanczanie', 'czeka_na_pakowanie',
-            'w_realizacji'
+            'czeka_na_wyciecie', 'czeka_na_skladanie', 'czeka_na_kompletacje',
+            'czeka_na_sklejanie', 'czeka_na_formatowanie', 'czeka_na_wykanczanie',
+            'czeka_na_pakowanie', 'w_realizacji'
         ]
         in_production_items = ProductionItem.query.filter(
             ProductionItem.current_status.in_(active_statuses)
@@ -988,6 +1008,7 @@ def dashboard_data():
         _STATION_NAMES = {
             'cutting': 'Wycinanie - mikro',
             'assembly': 'Składanie - lite',
+            'completion': 'Kompletacja',
             'gluing': 'Sklejanie',
             'formatting': 'Formatowanie',
             'finishing': 'Wykańczanie',
@@ -1060,9 +1081,9 @@ def dashboard_data():
         alerts_data = sorted(orders_map.values(), key=lambda x: x.get('days_remaining', 0))
 
         in_production_active_statuses = [
-            'czeka_na_wyciecie', 'czeka_na_skladanie', 'czeka_na_sklejanie',
-            'czeka_na_formatowanie', 'czeka_na_wykanczanie', 'czeka_na_pakowanie',
-            'w_realizacji'
+            'czeka_na_wyciecie', 'czeka_na_skladanie', 'czeka_na_kompletacje',
+            'czeka_na_sklejanie', 'czeka_na_formatowanie', 'czeka_na_wykanczanie',
+            'czeka_na_pakowanie', 'w_realizacji'
         ]
         in_production_items_dd = ProductionItem.query.filter(
             ProductionItem.current_status.in_(in_production_active_statuses)

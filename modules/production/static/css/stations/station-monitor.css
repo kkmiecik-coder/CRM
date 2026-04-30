@@ -34,6 +34,7 @@
     /* Status colors */
     --status-cutting: #f59e0b;
     --status-assembly: #3b82f6;
+    --status-completion: #4f46e5;
     --status-gluing: #8b5cf6;
     --status-formatting: #ec4899;
     --status-finishing: #06b6d4;
@@ -288,6 +289,7 @@ body {
 /* Status-based left border colors */
 .order-card.status-cutting { border-left-color: var(--status-cutting); }
 .order-card.status-assembly { border-left-color: var(--status-assembly); }
+.order-card.status-completion { border-left-color: var(--status-completion); }
 .order-card.status-gluing { border-left-color: var(--status-gluing); }
 .order-card.status-formatting { border-left-color: var(--status-formatting); }
 .order-card.status-finishing { border-left-color: var(--status-finishing); }
@@ -355,6 +357,11 @@ body {
 .status-badge.status-assembly {
     background: rgba(59, 130, 246, 0.2);
     color: var(--status-assembly);
+}
+
+.status-badge.status-completion {
+    background: rgba(79, 70, 229, 0.2);
+    color: var(--status-completion);
 }
 
 .status-badge.status-gluing {
