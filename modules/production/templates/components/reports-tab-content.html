@@ -612,6 +612,7 @@
             <select id="so-station-select" class="form-select form-select-sm">
                 <option value="cutting">Wycinanie</option>
                 <option value="assembly">Składanie</option>
+                <option value="completion">Kompletacja</option>
                 <option value="gluing">Sklejanie</option>
                 <option value="formatting">Formatowanie</option>
                 <option value="finishing">Wykańczanie</option>
@@ -680,6 +681,7 @@
                 <option value="all" selected>Wszystkie stanowiska</option>
                 <option value="cutting">Wycinanie - mikro</option>
                 <option value="assembly">Składanie - lite</option>
+                <option value="completion">Kompletacja</option>
                 <option value="gluing">Sklejanie</option>
                 <option value="formatting">Formatowanie</option>
                 <option value="finishing">Wykańczanie</option>
@@ -1453,6 +1455,7 @@ function _getStatusChartData() {
     const statusData = {{ reports_data['status_breakdown']|tojson }};
     const colorMap = {
         'czeka_na_wyciecie': '#2d8a3e', 'czeka_na_skladanie': '#2563eb',
+        'czeka_na_kompletacje': '#6366f1',
         'czeka_na_sklejanie': '#9333ea', 'czeka_na_formatowanie': '#d97706',
         'czeka_na_wykanczanie': '#0891b2', 'czeka_na_pakowanie': '#16a34a',
         'spakowane': '#22c55e', 'wstrzymane': '#f59e0b',
