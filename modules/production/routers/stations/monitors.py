@@ -87,7 +87,7 @@ def monitor_station(station_code):
             return render_template(
                 'stations/access_denied.html',
                 error_message=f"Nieznane stanowisko: {station_code}",
-                error_details="Dostepne: cutting, assembly, gluing, formatting, finishing, packaging",
+                error_details="Dostepne: cutting, assembly, completion, gluing, formatting, finishing, packaging",
                 back_url=url_for('production.production_stations.monitors_select')
             ), 404
 
@@ -174,6 +174,7 @@ def production_monitor():
         status_to_station = {
             'czeka_na_wyciecie': ('cutting', 'quantity_done_cutting'),
             'czeka_na_skladanie': ('assembly', 'quantity_done_assembly'),
+            'czeka_na_kompletacje': ('completion', 'quantity_done_completion'),
             'czeka_na_sklejanie': ('gluing', 'quantity_done_gluing'),
             'czeka_na_formatowanie': ('formatting', 'quantity_done_formatting'),
             'czeka_na_wykanczanie': ('finishing', 'quantity_done_finishing'),
@@ -183,6 +184,7 @@ def production_monitor():
         status_labels = {
             'czeka_na_wyciecie': 'Wycinanie - mikro',
             'czeka_na_skladanie': 'Składanie - lite',
+            'czeka_na_kompletacje': 'Kompletacja',
             'czeka_na_sklejanie': 'Sklejanie',
             'czeka_na_formatowanie': 'Formatowanie',
             'czeka_na_wykanczanie': 'Wykonczanie',
@@ -193,6 +195,7 @@ def production_monitor():
         status_class_map = {
             'czeka_na_wyciecie': 'status-cutting',
             'czeka_na_skladanie': 'status-assembly',
+            'czeka_na_kompletacje': 'status-completion',
             'czeka_na_sklejanie': 'status-gluing',
             'czeka_na_formatowanie': 'status-formatting',
             'czeka_na_wykanczanie': 'status-finishing',
@@ -320,6 +323,7 @@ def ajax_production_monitor():
         status_to_station = {
             'czeka_na_wyciecie': ('cutting', 'quantity_done_cutting'),
             'czeka_na_skladanie': ('assembly', 'quantity_done_assembly'),
+            'czeka_na_kompletacje': ('completion', 'quantity_done_completion'),
             'czeka_na_sklejanie': ('gluing', 'quantity_done_gluing'),
             'czeka_na_formatowanie': ('formatting', 'quantity_done_formatting'),
             'czeka_na_wykanczanie': ('finishing', 'quantity_done_finishing'),
@@ -329,6 +333,7 @@ def ajax_production_monitor():
         status_labels = {
             'czeka_na_wyciecie': 'Wycinanie - mikro',
             'czeka_na_skladanie': 'Składanie - lite',
+            'czeka_na_kompletacje': 'Kompletacja',
             'czeka_na_sklejanie': 'Sklejanie',
             'czeka_na_formatowanie': 'Formatowanie',
             'czeka_na_wykanczanie': 'Wykonczanie',
@@ -339,6 +344,7 @@ def ajax_production_monitor():
         status_class_map = {
             'czeka_na_wyciecie': 'status-cutting',
             'czeka_na_skladanie': 'status-assembly',
+            'czeka_na_kompletacje': 'status-completion',
             'czeka_na_sklejanie': 'status-gluing',
             'czeka_na_formatowanie': 'status-formatting',
             'czeka_na_wykanczanie': 'status-finishing',

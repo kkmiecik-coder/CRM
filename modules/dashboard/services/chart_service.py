@@ -238,6 +238,7 @@ def get_production_overview():
     STATUS_CONFIG = {
         'czeka_na_wyciecie': {'name': 'Czeka na wycięcie', 'color': '#94a3b8'},
         'czeka_na_skladanie': {'name': 'Czeka na składanie', 'color': '#64748b'},
+        'czeka_na_kompletacje': {'name': 'Czeka na kompletację', 'color': '#6366f1'},
         'czeka_na_sklejanie': {'name': 'Czeka na sklejanie', 'color': '#8b5cf6'},
         'czeka_na_formatowanie': {'name': 'Czeka na formatowanie', 'color': '#3b82f6'},
         'czeka_na_wykanczanie': {'name': 'Czeka na wykańczanie', 'color': '#06b6d4'},

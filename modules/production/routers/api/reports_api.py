@@ -13,13 +13,14 @@ from sqlalchemy import func
 from . import api_bp, logger, ProductionItem, ProductionSyncLog, get_local_now
 
 VALID_STATIONS = {
-    'cutting', 'assembly', 'gluing', 'formatting',
+    'cutting', 'assembly', 'completion', 'gluing', 'formatting',
     'finishing', 'painting', 'packaging'
 }
 
 STATION_LABELS = {
     'cutting': 'Wycinanie',
     'assembly': 'Składanie',
+    'completion': 'Kompletacja',
     'gluing': 'Sklejanie',
     'formatting': 'Formatowanie',
     'finishing': 'Wykańczanie',

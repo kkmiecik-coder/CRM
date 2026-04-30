@@ -148,7 +148,7 @@ def toggle_product_done():
     }
 
     Akcje:
-    1. Waliduje station (cutting, assembly, gluing, formatting, finishing, packaging)
+    1. Waliduje station (cutting, assembly, completion, gluing, formatting, finishing, packaging)
     2. Znajduje produkt po short_product_id
     3. Ustawia {station}_marked_done = is_done
     4. Zapisuje do bazy
@@ -173,7 +173,7 @@ def toggle_product_done():
             }), 400
 
         # Walidacja station
-        valid_stations = ['cutting', 'assembly', 'gluing', 'formatting', 'finishing', 'packaging']
+        valid_stations = ['cutting', 'assembly', 'completion', 'gluing', 'formatting', 'finishing', 'packaging']
         if station not in valid_stations:
             return jsonify({
                 'success': False,
@@ -283,7 +283,7 @@ def update_quantity_done():
             }), 400
 
         # Walidacja station
-        valid_stations = ['cutting', 'assembly', 'gluing', 'formatting', 'finishing', 'painting', 'packaging']
+        valid_stations = ['cutting', 'assembly', 'completion', 'gluing', 'formatting', 'finishing', 'painting', 'packaging']
         if station not in valid_stations:
             return jsonify({
                 'success': False,
@@ -808,6 +808,7 @@ def products_tab_content():
                 'quantity': get_attr(product, 'quantity', 1),
                 'quantity_done_cutting': get_attr(product, 'quantity_done_cutting', 0),
                 'quantity_done_assembly': get_attr(product, 'quantity_done_assembly', 0),
+                'quantity_done_completion': get_attr(product, 'quantity_done_completion', 0),
                 'quantity_done_gluing': get_attr(product, 'quantity_done_gluing', 0),
                 'quantity_done_formatting': get_attr(product, 'quantity_done_formatting', 0),
                 'quantity_done_finishing': get_attr(product, 'quantity_done_finishing', 0),
@@ -1067,7 +1068,7 @@ def admin_update_quantity_done():
             }), 400
 
         # Walidacja station
-        valid_stations = ['cutting', 'assembly', 'gluing', 'formatting', 'finishing', 'packaging']
+        valid_stations = ['cutting', 'assembly', 'completion', 'gluing', 'formatting', 'finishing', 'packaging']
         if station not in valid_stations:
             return jsonify({
                 'success': False,
@@ -1139,6 +1140,7 @@ def admin_update_quantity_done():
         all_quantity_done = {
             'quantity_done_cutting': product.quantity_done_cutting or 0,
             'quantity_done_assembly': product.quantity_done_assembly or 0,
+            'quantity_done_completion': product.quantity_done_completion or 0,
             'quantity_done_gluing': product.quantity_done_gluing or 0,
             'quantity_done_formatting': product.quantity_done_formatting or 0,
             'quantity_done_finishing': product.quantity_done_finishing or 0,
@@ -1611,6 +1613,7 @@ def _export_excel(products, timestamp):
     status_colors = {
         'czeka_na_wyciecie': 'FFF3E0',
         'czeka_na_skladanie': 'E3F2FD',
+        'czeka_na_kompletacje': 'E0E7FF',
         'czeka_na_sklejanie': 'F3E5F5',
         'czeka_na_formatowanie': 'E8F5E9',
         'czeka_na_wykanczanie': 'FFF8E1',
@@ -2365,6 +2368,7 @@ def _serialize_production_item(item, today=None):
         'assembly_started_at': getattr(item, 'assembly_started_at', None),
         'assembly_completed_at': getattr(item, 'assembly_completed_at', None),
         'assembly_duration_minutes': getattr(item, 'assembly_duration_minutes', None),
+        'completion_completed_at': getattr(item, 'completion_completed_at', None),
         'gluing_started_at': getattr(item, 'gluing_started_at', None),
         'gluing_completed_at': getattr(item, 'gluing_completed_at', None),
         'gluing_duration_minutes': getattr(item, 'gluing_duration_minutes', None),
@@ -2383,6 +2387,7 @@ def _serialize_production_item(item, today=None):
         'quantity': getattr(item, 'quantity', 1),
         'quantity_done_cutting': getattr(item, 'quantity_done_cutting', 0),
         'quantity_done_assembly': getattr(item, 'quantity_done_assembly', 0),
+        'quantity_done_completion': getattr(item, 'quantity_done_completion', 0),
         'quantity_done_gluing': getattr(item, 'quantity_done_gluing', 0),
         'quantity_done_formatting': getattr(item, 'quantity_done_formatting', 0),
         'quantity_done_finishing': getattr(item, 'quantity_done_finishing', 0),
@@ -2395,7 +2400,7 @@ def _serialize_production_item(item, today=None):
     if product_data['created_at'] and hasattr(product_data['created_at'], 'isoformat'):
         product_data['created_at'] = product_data['created_at'].isoformat()
 
-    station_fields = ['cutting', 'assembly', 'gluing', 'formatting', 'finishing', 'packaging']
+    station_fields = ['cutting', 'assembly', 'completion', 'gluing', 'formatting', 'finishing', 'packaging']
     for station in station_fields:
         started_field = f'{station}_started_at'
         completed_field = f'{station}_completed_at'

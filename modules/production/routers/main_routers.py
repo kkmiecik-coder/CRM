@@ -91,6 +91,7 @@ def dashboard():
         station_pending_status = {
             'cutting': 'czeka_na_wyciecie',
             'assembly': 'czeka_na_skladanie',
+            'completion': 'czeka_na_kompletacje',
             'gluing': 'czeka_na_sklejanie',
             'formatting': 'czeka_na_formatowanie',
             'finishing': 'czeka_na_wykanczanie',
@@ -145,9 +146,9 @@ def dashboard():
 
         # "In production now" — items currently being processed (not finished, not cancelled)
         mr_active_statuses = [
-            'czeka_na_wyciecie', 'czeka_na_skladanie', 'czeka_na_sklejanie',
-            'czeka_na_formatowanie', 'czeka_na_wykanczanie', 'czeka_na_pakowanie',
-            'w_realizacji'
+            'czeka_na_wyciecie', 'czeka_na_skladanie', 'czeka_na_kompletacje',
+            'czeka_na_sklejanie', 'czeka_na_formatowanie', 'czeka_na_wykanczanie',
+            'czeka_na_pakowanie', 'w_realizacji'
         ]
         in_prod_items = ProductionItem.query.filter(
             ProductionItem.current_status.in_(mr_active_statuses)
