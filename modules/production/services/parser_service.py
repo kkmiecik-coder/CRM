@@ -431,14 +431,13 @@ class ProductNameParser:
             if match:
                 try:
                     dims = [float(dim.replace(',', '.')) for dim in match.groups()]
-                    
-                    # Sortowanie wymiarów: długość (największy) > szerokość > grubość (najmniejszy)
-                    dims_sorted = sorted(dims, reverse=True)
-                    
+
+                    # Konwencja BaseLinker: w nazwie zawsze długość × szerokość × grubość
+                    # — zachowujemy kolejność z nazwy (np. "93×120×4" → L=93, W=120, T=4)
                     return {
-                        'length_cm': dims_sorted[0],
-                        'width_cm': dims_sorted[1], 
-                        'thickness_cm': dims_sorted[2]
+                        'length_cm': dims[0],
+                        'width_cm': dims[1],
+                        'thickness_cm': dims[2]
                     }
                 except (ValueError, IndexError):
                     continue
@@ -950,9 +949,6 @@ class ProductNameParser:
         
         # Sprawdzenie wymiarów
         if result.get('length_cm') and result.get('width_cm') and result.get('thickness_cm'):
-            if result['length_cm'] < result['width_cm']:
-                validation['warnings'].append("Długość jest mniejsza od szerokości - sprawdź kolejność wymiarów")
-            
             if result['thickness_cm'] > 10:
                 validation['warnings'].append("Grubość wydaje się bardzo duża (>10cm)")
             
