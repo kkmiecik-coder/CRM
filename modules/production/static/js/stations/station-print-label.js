@@ -179,15 +179,23 @@
                 return;
             }
 
-            // Wyciągnij queue_job_ids z results (tryb agent)
+            // Wyciągnij queue_job_ids z results (tryb agent) — N rekordów per pozycja
+            // (1 job per sztukę quantity). Backward-compat: gdy serwer zwraca tylko
+            // queue_job_id (pojedynczy), traktujemy go jak jednoelementową listę.
             const results = Array.isArray(data.results) ? data.results : [];
             const queueIds = results
-                .filter(r => r && r.success && typeof r.queue_job_id === 'number')
-                .map(r => r.queue_job_id);
+                .filter(r => r && r.success)
+                .flatMap(r => {
+                    if (Array.isArray(r.queue_job_ids)) {
+                        return r.queue_job_ids.filter(id => typeof id === 'number');
+                    }
+                    return typeof r.queue_job_id === 'number' ? [r.queue_job_id] : [];
+                });
 
             if (queueIds.length > 0) {
-                // Tryb queue — pollu jemy do skutku
-                const total = data.success_count || queueIds.length;
+                // Tryb queue — pollu jemy do skutku. Liczymy etykiety (sztuki),
+                // nie pozycje: 1 queue_job = 1 etykieta = 1 sztuka quantity.
+                const total = data.total_labels || queueIds.length;
                 notify(total === 1 ? 'Wysłano do drukarki — drukowanie w toku...' : `Wysłano ${total} etykiet — drukowanie w toku...`, 'info');
                 setState(btn, 'queued');
                 pollStatus(btn, queueIds, total);

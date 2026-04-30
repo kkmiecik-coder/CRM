@@ -107,6 +107,19 @@ def _load_config():
     }
 
 
+def _resolve_copies(item):
+    """Liczba kopii etykiety = item.quantity (fallback 1).
+
+    Drukujemy po jednej etykiecie na każdą sztukę pozycji, bo każda sztuka
+    jest pakowana/oznaczana osobno. Dla quantity ≤ 0 lub None drukujemy 1.
+    """
+    try:
+        n = int(getattr(item, 'quantity', 1) or 1)
+    except (TypeError, ValueError):
+        n = 1
+    return max(1, n)
+
+
 def _resolve_client_label(item):
     """Fallback chain dla pola 'klient' na etykiecie."""
     candidates = [
@@ -417,6 +430,7 @@ def print_labels_batch(short_product_ids, station_code, actor):
 
     results = []
     success_count = 0
+    socket_broken = False
 
     try:
         for sid in ids:
@@ -426,17 +440,47 @@ def print_labels_batch(short_product_ids, station_code, actor):
                     'short_product_id': sid, 'success': False,
                     'message': f'Nie znaleziono produktu {sid}',
                     'label_print_count': 0,
+                    'copies_requested': 0,
+                    'copies_printed': 0,
                 })
                 continue
-            try:
-                zpl = generate_label_zpl(item, cfg)
-                sock.sendall(zpl.encode('utf-8'))
+            if socket_broken:
+                results.append({
+                    'short_product_id': sid, 'success': False,
+                    'message': 'Pominięto — utracono połączenie z drukarką',
+                    'label_print_count': item.label_print_count or 0,
+                    'copies_requested': _resolve_copies(item),
+                    'copies_printed': 0,
+                })
+                continue
+
+            copies = _resolve_copies(item)
+            zpl_bytes = generate_label_zpl(item, cfg).encode('utf-8')
+            copies_printed = 0
+            for _ in range(copies):
+                try:
+                    sock.sendall(zpl_bytes)
+                    copies_printed += 1
+                except (OSError, socket.timeout) as e:
+                    logger.error(
+                        "Label send failed mid-batch",
+                        extra={'short_product_id': sid, 'error': str(e),
+                               'copies_done': copies_printed, 'copies_total': copies},
+                    )
+                    socket_broken = True
+                    break
+
+            if copies_printed > 0:
                 item.label_printed_at = datetime.utcnow()
-                item.label_print_count = (item.label_print_count or 0) + 1
+                item.label_print_count = (item.label_print_count or 0) + copies_printed
+
+            if copies_printed == copies:
                 results.append({
                     'short_product_id': sid, 'success': True,
-                    'message': 'Wysłano do drukarki',
+                    'message': f'Wysłano do drukarki ({copies_printed} szt.)',
                     'label_print_count': item.label_print_count,
+                    'copies_requested': copies,
+                    'copies_printed': copies_printed,
                 })
                 success_count += 1
                 logger.info(
@@ -445,20 +489,17 @@ def print_labels_batch(short_product_ids, station_code, actor):
                         'short_product_id': sid, 'station': station_code,
                         'actor_type': actor.get('type'), 'actor_id': actor.get('id'),
                         'count': item.label_print_count,
+                        'copies': copies_printed,
                     },
                 )
-            except (OSError, socket.timeout) as e:
+            else:
                 results.append({
                     'short_product_id': sid, 'success': False,
-                    'message': f'Błąd wysyłki: {e}',
+                    'message': f'Wysyłka przerwana ({copies_printed}/{copies} szt.)',
                     'label_print_count': item.label_print_count or 0,
+                    'copies_requested': copies,
+                    'copies_printed': copies_printed,
                 })
-                logger.error(
-                    "Label send failed mid-batch",
-                    extra={'short_product_id': sid, 'error': str(e)},
-                )
-                # Socket zerwany — nie próbujemy dalej
-                break
 
         db.session.commit()
     except Exception:
@@ -471,16 +512,20 @@ def print_labels_batch(short_product_ids, station_code, actor):
             pass
 
     failed_count = len(ids) - success_count
+    total_labels = sum(r.get('copies_requested', 0) for r in results)
+    printed_labels = sum(r.get('copies_printed', 0) for r in results)
     return {
         'success': success_count == len(ids) and success_count > 0,
         'success_count': success_count,
         'failed_count': failed_count,
+        'total_labels': total_labels,
+        'printed_labels': printed_labels,
         'connection_error': False,
         'queued': False,
         'message': (
-            f'Wydrukowano {success_count} etykiet'
+            f'Wydrukowano {printed_labels} etykiet'
             if success_count == len(ids)
-            else f'Wysłano {success_count}/{len(ids)} etykiet'
+            else f'Wysłano {printed_labels}/{total_labels} etykiet'
         ),
         'results': results,
     }
@@ -510,26 +555,33 @@ def _enqueue_labels(ids, items_by_id, station_code, actor, cfg):
                 })
                 continue
             try:
+                copies = _resolve_copies(item)
                 zpl = generate_label_zpl(item, cfg)
-                job = LabelPrintJob(
-                    short_product_id=sid,
-                    baselinker_order_id=item.baselinker_order_id,
-                    zpl_payload=zpl,
-                    station_code=station_code,
-                    requested_by_type=actor_type or 'user',
-                    requested_by_id=actor_id or '0',
-                    status=LabelPrintJob.STATUS_PENDING,
-                )
-                db.session.add(job)
-                db.session.flush()  # żeby dostać job.id
+                job_ids = []
+                for _ in range(copies):
+                    job = LabelPrintJob(
+                        short_product_id=sid,
+                        baselinker_order_id=item.baselinker_order_id,
+                        zpl_payload=zpl,
+                        station_code=station_code,
+                        requested_by_type=actor_type or 'user',
+                        requested_by_id=actor_id or '0',
+                        status=LabelPrintJob.STATUS_PENDING,
+                    )
+                    db.session.add(job)
+                    db.session.flush()  # żeby dostać job.id
+                    job_ids.append(job.id)
                 # Bumpujemy licznik i timestamp tak samo jak w trybie TCP
                 item.label_printed_at = datetime.utcnow()
-                item.label_print_count = (item.label_print_count or 0) + 1
+                item.label_print_count = (item.label_print_count or 0) + copies
                 results.append({
                     'short_product_id': sid, 'success': True,
-                    'message': 'Dodano do kolejki drukowania',
+                    'message': f'Dodano do kolejki drukowania ({copies} szt.)',
                     'label_print_count': item.label_print_count,
-                    'queue_job_id': job.id,
+                    'queue_job_id': job_ids[0],            # back-compat: pierwszy job
+                    'queue_job_ids': job_ids,              # pełna lista (1 per kopia)
+                    'copies_requested': copies,
+                    'copies_printed': copies,
                 })
                 success_count += 1
                 logger.info(
@@ -537,6 +589,7 @@ def _enqueue_labels(ids, items_by_id, station_code, actor, cfg):
                     extra={
                         'short_product_id': sid, 'station': station_code,
                         'actor_type': actor_type, 'actor_id': actor_id,
+                        'copies': copies,
                     },
                 )
             except Exception as e:
@@ -544,6 +597,8 @@ def _enqueue_labels(ids, items_by_id, station_code, actor, cfg):
                     'short_product_id': sid, 'success': False,
                     'message': f'Błąd kolejkowania: {e}',
                     'label_print_count': item.label_print_count or 0,
+                    'copies_requested': _resolve_copies(item),
+                    'copies_printed': 0,
                 })
                 logger.error(
                     "Label enqueue failed",
@@ -559,16 +614,20 @@ def _enqueue_labels(ids, items_by_id, station_code, actor, cfg):
         raise
 
     failed_count = len(ids) - success_count
+    total_labels = sum(r.get('copies_requested', 0) for r in results)
+    printed_labels = sum(r.get('copies_printed', 0) for r in results)
     return {
         'success': success_count > 0,
         'success_count': success_count,
         'failed_count': failed_count,
+        'total_labels': total_labels,
+        'printed_labels': printed_labels,
         'connection_error': False,
         'queued': True,
         'message': (
-            f'Wysłano {success_count} etykiet do drukarki'
+            f'Wysłano {total_labels} etykiet do drukarki'
             if success_count == len(ids)
-            else f'Zakolejkowano {success_count}/{len(ids)} etykiet'
+            else f'Zakolejkowano {printed_labels}/{total_labels} etykiet'
         ),
         'results': results,
     }
