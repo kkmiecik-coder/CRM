@@ -107,6 +107,58 @@ def _load_config():
     }
 
 
+def _compute_unit_offsets(items_by_id):
+    """Dla każdego short_product_id w batchu zwraca (offset, total_units) w obrębie
+    zamówienia BaseLinker.
+
+    offset = liczba sztuk wszystkich pozycji o niższym product_sequence_in_order
+    total_units = suma sztuk WSZYSTKICH pozycji w zamówieniu (nie tylko z batcha).
+
+    Numeracja etykiet: dla pozycji A (qty 5, seq 1) i B (qty 3, seq 2) w 1 zamówieniu:
+      A → offsets 0..4 → labels 1/8..5/8
+      B → offsets 5..7 → labels 6/8..8/8
+
+    Zwraca: dict {short_product_id: (offset, total_units)}.
+    Pozycje bez baselinker_order_id dostają (0, copies(item)) — same dla siebie.
+    """
+    info = {}
+    order_ids = {
+        item.baselinker_order_id
+        for item in items_by_id.values()
+        if item is not None and item.baselinker_order_id
+    }
+
+    siblings_by_order = {}
+    if order_ids:
+        all_siblings = (
+            ProductionItem.query
+            .filter(ProductionItem.baselinker_order_id.in_(order_ids))
+            .all()
+        )
+        for sib in all_siblings:
+            siblings_by_order.setdefault(sib.baselinker_order_id, []).append(sib)
+
+    for order_id, siblings in siblings_by_order.items():
+        # Sortowanie: najpierw po product_sequence_in_order (None na koniec), potem po id.
+        siblings.sort(key=lambda s: (
+            s.product_sequence_in_order if s.product_sequence_in_order is not None else 10**9,
+            s.id or 0,
+        ))
+        cumulative = 0
+        total = sum(_resolve_copies(s) for s in siblings)
+        for s in siblings:
+            info[s.short_product_id] = (cumulative, total)
+            cumulative += _resolve_copies(s)
+
+    # Items bez baselinker_order_id — numeracja lokalna (sama dla siebie).
+    for sid, item in items_by_id.items():
+        if item is None or sid in info:
+            continue
+        info[sid] = (0, _resolve_copies(item))
+
+    return info
+
+
 def _resolve_copies(item):
     """Liczba kopii etykiety = item.quantity (fallback 1).
 
@@ -244,13 +296,22 @@ def _layout_badges_row(badges, y, x_start, x_max):
     return "\n".join(parts)
 
 
-def generate_label_zpl(item, cfg):
+def generate_label_zpl(item, cfg, label_index=None, total_units=None):
     """
     Generuje ZPL dla etykiety 60×40 mm.
 
+    Args:
+        item: ProductionItem
+        cfg: dict z _load_config()
+        label_index: numer tej etykiety w zamówieniu (1-based, liczony per sztuka,
+                     nie per pozycja). Jeśli podany razem z total_units, w nagłówku
+                     pojawi się "{label_index}/{total_units}" (np. "3/10" — trzecia
+                     sztuka z 10 wszystkich sztuk w zamówieniu).
+        total_units: suma sztuk wszystkich pozycji w zamówieniu (SUM(quantity)).
+
     Layout (od góry):
       - czarny pasek nagłówkowy "WoodPower" — pełna szerokość
-      - numery: "{short_id} | BL: {bl_id}" — jedna linia
+      - numery: "{short_id} | {n}/{total} | BL: {bl_id}" — jedna linia
       - klient (fallback chain) — jedna linia
       - QR — pod prawą krawędzią
       - separator
@@ -269,17 +330,12 @@ def generate_label_zpl(item, cfg):
     client_label = _resolve_client_label(item)
     delivery_label = _format_delivery_label(item)
 
-    # Pozycja produktu w zamówieniu: "4/8" (4-ty z 8 produktów)
+    # Numeracja sztuki w zamówieniu: "3/10" = 3-cia sztuka z 10 wszystkich w zamówieniu.
+    # Jeśli wywołujący nie poda label_index/total_units (np. legacy code path),
+    # pomijamy element bez fallbacku — bezpieczniej niż mylące "pozycja/liczba pozycji".
     seq_label = ''
-    if item.baselinker_order_id and item.product_sequence_in_order:
-        try:
-            total_in_order = ProductionItem.query.filter_by(
-                baselinker_order_id=item.baselinker_order_id
-            ).count()
-            if total_in_order > 0:
-                seq_label = f"{item.product_sequence_in_order}/{total_in_order}"
-        except Exception:
-            seq_label = ''
+    if label_index and total_units and total_units > 0:
+        seq_label = f"{int(label_index)}/{int(total_units)}"
 
     numbers_line = (
         f"{short_id} | {seq_label} | BL: {bl_id}" if seq_label
@@ -431,6 +487,7 @@ def print_labels_batch(short_product_ids, station_code, actor):
     results = []
     success_count = 0
     socket_broken = False
+    unit_offsets = _compute_unit_offsets(items_by_id)
 
     try:
         for sid in ids:
@@ -455,9 +512,15 @@ def print_labels_batch(short_product_ids, station_code, actor):
                 continue
 
             copies = _resolve_copies(item)
-            zpl_bytes = generate_label_zpl(item, cfg).encode('utf-8')
+            offset, total_units = unit_offsets.get(sid, (0, copies))
             copies_printed = 0
-            for _ in range(copies):
+            for i in range(copies):
+                label_index = offset + i + 1
+                zpl_bytes = generate_label_zpl(
+                    item, cfg,
+                    label_index=label_index,
+                    total_units=total_units,
+                ).encode('utf-8')
                 try:
                     sock.sendall(zpl_bytes)
                     copies_printed += 1
@@ -543,6 +606,7 @@ def _enqueue_labels(ids, items_by_id, station_code, actor, cfg):
     success_count = 0
     actor_type = str(actor.get('type') or '')[:20]
     actor_id = str(actor.get('id') if actor.get('id') is not None else '')[:100]
+    unit_offsets = _compute_unit_offsets(items_by_id)
 
     try:
         for sid in ids:
@@ -556,9 +620,15 @@ def _enqueue_labels(ids, items_by_id, station_code, actor, cfg):
                 continue
             try:
                 copies = _resolve_copies(item)
-                zpl = generate_label_zpl(item, cfg)
+                offset, total_units = unit_offsets.get(sid, (0, copies))
                 job_ids = []
-                for _ in range(copies):
+                for i in range(copies):
+                    label_index = offset + i + 1
+                    zpl = generate_label_zpl(
+                        item, cfg,
+                        label_index=label_index,
+                        total_units=total_units,
+                    )
                     job = LabelPrintJob(
                         short_product_id=sid,
                         baselinker_order_id=item.baselinker_order_id,
