@@ -342,7 +342,7 @@ def chart_data():
         station_colors = {
             'cutting': {'border': '#fd7e14', 'bg': 'rgba(253, 126, 20, 0.1)'},
             'assembly': {'border': '#007bff', 'bg': 'rgba(0, 123, 255, 0.1)'},
-            'completion': {'border': '#6366f1', 'bg': 'rgba(99, 102, 241, 0.1)'},
+            'completion': {'border': '#4f46e5', 'bg': 'rgba(79, 70, 229, 0.1)'},
             'gluing': {'border': '#9c27b0', 'bg': 'rgba(156, 39, 176, 0.1)'},
             'formatting': {'border': '#ff5722', 'bg': 'rgba(255, 87, 34, 0.1)'},
             'finishing': {'border': '#00bcd4', 'bg': 'rgba(0, 188, 212, 0.1)'},
@@ -533,8 +533,8 @@ def chart_data():
                 {
                     'label': 'Kompletacja',
                     'data': [],
-                    'borderColor': '#6366f1',
-                    'backgroundColor': 'rgba(99, 102, 241, 0.1)',
+                    'borderColor': '#4f46e5',
+                    'backgroundColor': 'rgba(79, 70, 229, 0.1)',
                     'tension': 0.4,
                     'fill': True
                 },

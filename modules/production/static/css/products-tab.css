@@ -39,7 +39,7 @@
     /* Station / operation colors */
     --il-cutting:        #2d8a3e;
     --il-assembly:       #2563eb;
-    --il-completion:     #6366f1;
+    --il-completion:     #4f46e5;
     --il-gluing:         #9333ea;
     --il-formatting:     #d97706;
     --il-finishing:      #0891b2;
@@ -569,7 +569,7 @@
 }
 .il-badge-completion,
 .badge-completion {
-    background: rgba(99, 102, 241, 0.1);
+    background: rgba(79, 70, 229, 0.1);
     color: var(--il-completion);
     border: 1px solid var(--il-completion);
 }
@@ -1889,7 +1889,7 @@
 }
 .timeline-item.timeline-active .timeline-icon.cutting-theme { background: var(--il-cutting); box-shadow: 0 0 0 5px rgba(45, 138, 62, 0.2), 0 2px 8px rgba(45, 138, 62, 0.3); }
 .timeline-item.timeline-active .timeline-icon.assembly-theme { background: var(--il-assembly); box-shadow: 0 0 0 5px rgba(37, 99, 235, 0.2), 0 2px 8px rgba(37, 99, 235, 0.3); }
-.timeline-item.timeline-active .timeline-icon.completion-theme { background: var(--il-completion); box-shadow: 0 0 0 5px rgba(99, 102, 241, 0.2), 0 2px 8px rgba(99, 102, 241, 0.3); }
+.timeline-item.timeline-active .timeline-icon.completion-theme { background: var(--il-completion); box-shadow: 0 0 0 5px rgba(79, 70, 229, 0.2), 0 2px 8px rgba(79, 70, 229, 0.3); }
 .timeline-item.timeline-active .timeline-icon.gluing-theme { background: var(--il-gluing); box-shadow: 0 0 0 5px rgba(147, 51, 234, 0.2), 0 2px 8px rgba(147, 51, 234, 0.3); }
 .timeline-item.timeline-active .timeline-icon.formatting-theme { background: var(--il-formatting); box-shadow: 0 0 0 5px rgba(217, 119, 6, 0.2), 0 2px 8px rgba(217, 119, 6, 0.3); }
 .timeline-item.timeline-active .timeline-icon.finishing-theme { background: var(--il-finishing); box-shadow: 0 0 0 5px rgba(8, 145, 178, 0.2), 0 2px 8px rgba(8, 145, 178, 0.3); }
@@ -2248,7 +2248,7 @@
 
 .bulk-status-dropdown .status-item.badge-cutting { background: rgba(45, 138, 62, 0.1); color: var(--il-cutting); border-left: 3px solid var(--il-cutting); }
 .bulk-status-dropdown .status-item.badge-assembly { background: rgba(37, 99, 235, 0.1); color: var(--il-assembly); border-left: 3px solid var(--il-assembly); }
-.bulk-status-dropdown .status-item.badge-completion { background: rgba(99, 102, 241, 0.1); color: var(--il-completion); border-left: 3px solid var(--il-completion); }
+.bulk-status-dropdown .status-item.badge-completion { background: rgba(79, 70, 229, 0.1); color: var(--il-completion); border-left: 3px solid var(--il-completion); }
 .bulk-status-dropdown .status-item.badge-gluing { background: rgba(147, 51, 234, 0.1); color: var(--il-gluing); border-left: 3px solid var(--il-gluing); }
 .bulk-status-dropdown .status-item.badge-formatting { background: rgba(217, 119, 6, 0.1); color: var(--il-formatting); border-left: 3px solid var(--il-formatting); }
 .bulk-status-dropdown .status-item.badge-finishing { background: rgba(8, 145, 178, 0.1); color: var(--il-finishing); border-left: 3px solid var(--il-finishing); }

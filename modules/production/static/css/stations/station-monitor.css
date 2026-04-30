@@ -34,7 +34,7 @@
     /* Status colors */
     --status-cutting: #f59e0b;
     --status-assembly: #3b82f6;
-    --status-completion: #6366f1;
+    --status-completion: #4f46e5;
     --status-gluing: #8b5cf6;
     --status-formatting: #ec4899;
     --status-finishing: #06b6d4;
@@ -360,7 +360,7 @@ body {
 }
 
 .status-badge.status-completion {
-    background: rgba(99, 102, 241, 0.2);
+    background: rgba(79, 70, 229, 0.2);
     color: var(--status-completion);
 }
 

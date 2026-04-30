@@ -68,6 +68,7 @@
     --il-radius: 3px;
     --il-station-cut: #2d8a3e;
     --il-station-asm: #2563eb;
+    --il-station-cmp: #4f46e5;
     --il-station-glu: #9333ea;
     --il-station-fmt: #d97706;
     --il-station-fin: #0891b2;
@@ -2402,6 +2403,8 @@ body {
 .il-station[data-station="cutting"] .il-station-bar-fill { background: var(--il-station-cut); }
 .il-station[data-station="assembly"] .il-station-header { background: var(--il-station-asm); }
 .il-station[data-station="assembly"] .il-station-bar-fill { background: var(--il-station-asm); }
+.il-station[data-station="completion"] .il-station-header { background: var(--il-station-cmp); }
+.il-station[data-station="completion"] .il-station-bar-fill { background: var(--il-station-cmp); }
 .il-station[data-station="gluing"] .il-station-header { background: var(--il-station-glu); }
 .il-station[data-station="gluing"] .il-station-bar-fill { background: var(--il-station-glu); }
 .il-station[data-station="formatting"] .il-station-header { background: var(--il-station-fmt); }

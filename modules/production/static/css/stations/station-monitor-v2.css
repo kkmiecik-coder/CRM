@@ -16,7 +16,7 @@
     --accent-orange: #ED6B24;
     --status-cutting: #f59e0b;
     --status-assembly: #3b82f6;
-    --status-completion: #6366f1;
+    --status-completion: #4f46e5;
     --status-gluing: #8b5cf6;
     --status-formatting: #ec4899;
     --status-finishing: #06b6d4;
@@ -276,7 +276,7 @@ body {
 
 .status-badge.status-cutting { background: rgba(245, 158, 11, 0.2); color: var(--status-cutting); }
 .status-badge.status-assembly { background: rgba(59, 130, 246, 0.2); color: var(--status-assembly); }
-.status-badge.status-completion { background: rgba(99, 102, 241, 0.2); color: var(--status-completion); }
+.status-badge.status-completion { background: rgba(79, 70, 229, 0.2); color: var(--status-completion); }
 .status-badge.status-gluing { background: rgba(139, 92, 246, 0.2); color: var(--status-gluing); }
 .status-badge.status-formatting { background: rgba(236, 72, 153, 0.2); color: var(--status-formatting); }
 .status-badge.status-finishing { background: rgba(6, 182, 212, 0.2); color: var(--status-finishing); }
