@@ -1216,6 +1216,13 @@ def packaging_station():
                 order['delivery_country_code'] = product.get('delivery_country_code')
                 order['is_personal_pickup'] = product.get('is_personal_pickup')
                 order['delivery_type'] = product.get('delivery_type')
+
+            # override_delivery_method jest decyzja na poziomie zamowienia,
+            # ale historycznie zapisywano go tylko na produktach w statusie
+            # czeka_na_logistyke. Aby pakowanie nie pokazywalo zlego badge'a
+            # gdy pierwszy iterowany produkt nie przeszedl jeszcze logistyki,
+            # bierzemy dowolna niepusta wartosc z produktow zamowienia.
+            if not order.get('override_delivery_method') and product.get('override_delivery_method'):
                 order['override_delivery_method'] = product.get('override_delivery_method')
 
             # Pobierz dane wysylki z pierwszego produktu ktory je ma (2025-12)

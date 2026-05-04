@@ -115,11 +115,12 @@ def logistics_approve():
     Body: { order_number, transport_method }
     transport_method must be 'kurier_baselinker' or 'transport_woodpower'.
 
-    Updates all ProductionItems with matching internal_order_number and
-    status 'czeka_na_logistyke':
-      - override_delivery_method = transport_method
-      - logistics_completed_at   = now()
-      - current_status           = 'czeka_na_pakowanie'
+    Updates ProductionItems with matching internal_order_number:
+      - override_delivery_method = transport_method (na WSZYSTKICH produktach
+        zamówienia, niezależnie od statusu — decyzja o transporcie jest na
+        poziomie zamówienia, nie pojedynczego produktu)
+      - logistics_completed_at + status='czeka_na_pakowanie' tylko na tych
+        produktach, które aktualnie są w 'czeka_na_logistyke'
     """
     try:
         data = request.get_json()
@@ -139,24 +140,26 @@ def logistics_approve():
                 'error': f'Nieprawidłowa metoda transportu. Dozwolone: {list(VALID_TRANSPORT_METHODS)}',
             }), 400
 
-        items = (
+        all_items = (
             ProductionItem.query
-            .filter(
-                ProductionItem.internal_order_number == order_number,
-                ProductionItem.current_status == 'czeka_na_logistyke',
-            )
+            .filter(ProductionItem.internal_order_number == order_number)
             .all()
         )
 
-        if not items:
+        waiting_items = [i for i in all_items if i.current_status == 'czeka_na_logistyke']
+
+        if not waiting_items:
             return jsonify({
                 'success': False,
                 'error': f'Nie znaleziono produktów oczekujących na logistykę dla zamówienia {order_number}',
             }), 404
 
         now = get_local_now()
-        for item in items:
+
+        for item in all_items:
             item.override_delivery_method = transport_method
+
+        for item in waiting_items:
             item.logistics_completed_at = now
             item.current_status = 'czeka_na_pakowanie'
 
@@ -166,14 +169,15 @@ def logistics_approve():
             'user_id': current_user.id,
             'order_number': order_number,
             'transport_method': transport_method,
-            'updated_count': len(items),
+            'override_propagated_count': len(all_items),
+            'advanced_to_packaging_count': len(waiting_items),
         })
 
         return jsonify({
             'success': True,
             'order_number': order_number,
             'transport_method': transport_method,
-            'updated_products': len(items),
+            'updated_products': len(waiting_items),
         })
 
     except Exception as e:
