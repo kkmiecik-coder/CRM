@@ -842,9 +842,11 @@ def dashboard_tab_content():
             )
             dashboard_stats['stations'][station_code]['pending_m3'] = float(pending_m3)
 
-        logistics_pending = ProductionItem.query.filter(
+        logistics_pending = db.session.query(
+            db.func.count(db.func.distinct(ProductionItem.internal_order_number))
+        ).filter(
             ProductionItem.current_status == 'czeka_na_logistyke'
-        ).count()
+        ).scalar() or 0
         dashboard_stats['logistics'] = {
             'pending_count': logistics_pending
         }
