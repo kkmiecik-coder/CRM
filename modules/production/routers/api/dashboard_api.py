@@ -276,15 +276,12 @@ def chart_data():
         JSON: Dane wydajności per stanowisko i okres dla Chart.js
     """
     try:
+        from datetime import datetime, timedelta, date
+
         period = request.args.get('period', 7, type=int)
         station_filter = request.args.get('station', 'all', type=str)
-
-        # Walidacja okresu - ROZSZERZONA
-        if period not in [7, 14, 30, 90, 180, 365]:
-            return jsonify({
-                'success': False,
-                'error': 'Nieprawidłowy okres. Dozwolone: 7, 14, 30, 90, 180, 365 dni'
-            }), 400
+        start_date_param = request.args.get('start_date', type=str)
+        end_date_param = request.args.get('end_date', type=str)
 
         # Walidacja stanowiska
         valid_stations = ['all', 'cutting', 'assembly', 'completion', 'gluing', 'formatting', 'finishing', 'packaging']
@@ -294,19 +291,51 @@ def chart_data():
                 'error': f'Nieprawidłowe stanowisko. Dozwolone: {valid_stations}'
             }), 400
 
+        # Tryb własnego przedziału dat
+        if start_date_param and end_date_param:
+            try:
+                start_date = datetime.strptime(start_date_param, '%Y-%m-%d').date()
+                end_date = datetime.strptime(end_date_param, '%Y-%m-%d').date()
+            except ValueError:
+                return jsonify({
+                    'success': False,
+                    'error': 'Nieprawidłowy format daty. Wymagany: YYYY-MM-DD'
+                }), 400
+
+            if start_date > end_date:
+                return jsonify({
+                    'success': False,
+                    'error': 'Data początkowa musi być wcześniejsza lub równa dacie końcowej'
+                }), 400
+
+            period = (end_date - start_date).days + 1
+
+            if period > 1825:
+                return jsonify({
+                    'success': False,
+                    'error': 'Maksymalny zakres to 5 lat (1825 dni)'
+                }), 400
+        else:
+            # Walidacja okresu - tryb predefiniowany
+            if period not in [7, 14, 30, 90, 180, 365]:
+                return jsonify({
+                    'success': False,
+                    'error': 'Nieprawidłowy okres. Dozwolone: 7, 14, 30, 90, 180, 365 dni'
+                }), 400
+
+            end_date = date.today()
+            start_date = end_date - timedelta(days=period - 1)
+
         logger.info(f"AJAX: Pobieranie danych wykresów dla {period} dni, stanowisko: {station_filter}", extra={
             'user_id': current_user.id,
             'period': period,
-            'station': station_filter
+            'station': station_filter,
+            'start_date': start_date.isoformat(),
+            'end_date': end_date.isoformat()
         })
 
         from ...models import ProductionItem
         from sqlalchemy import and_, func
-        from datetime import datetime, timedelta, date
-
-        # Oblicz zakres dat
-        end_date = date.today()
-        start_date = end_date - timedelta(days=period - 1)
 
         # Mapowanie stanowisk
         station_completion_mapping = {
@@ -350,11 +379,11 @@ def chart_data():
         }
 
         # NOWE: Określ typ agregacji na podstawie okresu
-        if period <= 30:
+        if period <= 31:
             aggregation_type = 'daily'
-        elif period == 90:
+        elif period <= 120:
             aggregation_type = 'weekly'
-        else:  # 180, 365
+        else:
             aggregation_type = 'monthly'
 
         # =====================================================================

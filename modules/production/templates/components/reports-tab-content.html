@@ -692,7 +692,10 @@
                 <option value="90">3 miesiące</option>
                 <option value="180">6 miesięcy</option>
                 <option value="365">12 miesięcy</option>
+                <option value="custom">Własny przedział</option>
             </select>
+            <input type="date" id="reports-chart-start-date" class="form-control form-control-sm" style="display: none; width: auto;" title="Data początkowa">
+            <input type="date" id="reports-chart-end-date" class="form-control form-control-sm" style="display: none; width: auto;" title="Data końcowa">
             <button id="reports-chart-refresh-btn" class="btn btn-outline-primary btn-sm" title="Odśwież wykres">
                 <i class="fas fa-sync-alt"></i>
             </button>
@@ -1098,31 +1101,75 @@ async function initializeDailyChart() {
     const periodSelect = document.getElementById('reports-chart-period-select');
     const stationSelect = document.getElementById('reports-chart-station-select');
     const refreshBtn = document.getElementById('reports-chart-refresh-btn');
+    const startDateInput = document.getElementById('reports-chart-start-date');
+    const endDateInput = document.getElementById('reports-chart-end-date');
+
+    // Domyślne daty dla custom range: ostatnie 30 dni
+    if (startDateInput && endDateInput) {
+        const today = new Date();
+        const monthAgo = new Date();
+        monthAgo.setDate(today.getDate() - 29);
+        endDateInput.value = today.toISOString().slice(0, 10);
+        startDateInput.value = monthAgo.toISOString().slice(0, 10);
+    }
+
+    function getCurrentParams() {
+        const value = periodSelect ? periodSelect.value : '30';
+        const station = stationSelect ? stationSelect.value : 'all';
+        if (value === 'custom') {
+            return {
+                custom: true,
+                start: startDateInput ? startDateInput.value : null,
+                end: endDateInput ? endDateInput.value : null,
+                station
+            };
+        }
+        return { custom: false, period: parseInt(value), station };
+    }
+
+    function triggerLoad() {
+        const params = getCurrentParams();
+        if (params.custom) {
+            if (!params.start || !params.end) return;
+            loadReportsChartData(null, params.station, params.start, params.end);
+        } else {
+            loadReportsChartData(params.period, params.station);
+        }
+    }
 
     if (periodSelect) {
         periodSelect.addEventListener('change', (e) => {
-            const period = parseInt(e.target.value);
-            const station = stationSelect ? stationSelect.value : 'all';
-            console.log('[Reports Tab] Period changed to:', period);
-            loadReportsChartData(period, station);
+            const isCustom = e.target.value === 'custom';
+            if (startDateInput) startDateInput.style.display = isCustom ? '' : 'none';
+            if (endDateInput) endDateInput.style.display = isCustom ? '' : 'none';
+            console.log('[Reports Tab] Period changed to:', e.target.value);
+            triggerLoad();
         });
     }
 
     if (stationSelect) {
-        stationSelect.addEventListener('change', (e) => {
-            const station = e.target.value;
-            const period = periodSelect ? parseInt(periodSelect.value) : 30;
-            console.log('[Reports Tab] Station changed to:', station);
-            loadReportsChartData(period, station);
+        stationSelect.addEventListener('change', () => {
+            console.log('[Reports Tab] Station changed');
+            triggerLoad();
+        });
+    }
+
+    if (startDateInput) {
+        startDateInput.addEventListener('change', () => {
+            if (periodSelect && periodSelect.value === 'custom') triggerLoad();
+        });
+    }
+
+    if (endDateInput) {
+        endDateInput.addEventListener('change', () => {
+            if (periodSelect && periodSelect.value === 'custom') triggerLoad();
         });
     }
 
     if (refreshBtn) {
         refreshBtn.addEventListener('click', () => {
-            const period = periodSelect ? parseInt(periodSelect.value) : 30;
-            const station = stationSelect ? stationSelect.value : 'all';
-            console.log('[Reports Tab] Refresh clicked, period:', period, 'station:', station);
-            loadReportsChartData(period, station);
+            console.log('[Reports Tab] Refresh clicked');
+            triggerLoad();
         });
     }
 
@@ -1130,7 +1177,7 @@ async function initializeDailyChart() {
     await loadReportsChartData(30, 'all');
 }
 
-async function loadReportsChartData(period, station = 'all') {
+async function loadReportsChartData(period, station = 'all', startDate = null, endDate = null) {
     const loader = document.getElementById('reports-chart-loader');
     const canvas = document.getElementById('reports-performance-chart');
     const summaryDiv = document.getElementById('reports-chart-summary');
@@ -1140,12 +1187,18 @@ async function loadReportsChartData(period, station = 'all') {
     if (canvas) canvas.style.opacity = '0.35';
 
     try {
-        // Użyj tego samego API co Dashboard z parametrem station
-        const response = await fetch(`/production/api/chart-data?period=${period}&station=${station}`);
+        let url;
+        if (startDate && endDate) {
+            url = `/production/api/chart-data?station=${station}&start_date=${startDate}&end_date=${endDate}`;
+        } else {
+            url = `/production/api/chart-data?period=${period}&station=${station}`;
+        }
+        const response = await fetch(url);
         const data = await response.json();
 
         if (data.success) {
-            createReportsPerformanceChart(data.chart_data, period, data.mode, data.station);
+            const effectivePeriod = data.period || period;
+            createReportsPerformanceChart(data.chart_data, effectivePeriod, data.mode, data.station);
 
             // Aktualizuj tabelkę podsumowania (tylko dla pojedynczego stanowiska)
             if (data.mode === 'single_station' && data.summary) {
