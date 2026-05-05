@@ -21,6 +21,7 @@ from modules.production.utils.cache import (
 )
 from modules.production.services import label_print_service
 from modules.production.services.label_print_service import StationNotAllowed
+from modules.production.services.station_heartbeat import record_heartbeat
 from modules.production.services.mobile_api_service import (
     STATION_STATUS_MAP,
     compute_station_summary,
@@ -138,6 +139,8 @@ def station_orders(station_code):
             'device_station': g.device.station_code,
             'requested_station': station_code,
         }), 403
+
+    record_heartbeat(station_code)
 
     status = STATION_STATUS_MAP[station_code]
 
@@ -355,6 +358,8 @@ def station_orders_since(station_code):
             'device_station': g.device.station_code,
             'requested_station': station_code,
         }), 403
+
+    record_heartbeat(station_code)
 
     ts_raw = request.args.get('ts', '').strip()
     if not ts_raw:
