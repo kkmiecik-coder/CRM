@@ -220,6 +220,12 @@ class QuoteEditLoader {
 
         // Krawedzie
         this.restoreEdges(form, product.edges);
+
+        // Docięcie do wymiaru (per-produkt)
+        if (window.cutToSize) {
+            const cts = product.cut_to_size;
+            window.cutToSize.set(form, cts === undefined || cts === null ? true : cts);
+        }
     }
 
     // ========================================

@@ -103,6 +103,7 @@ def load_quote_for_edit(edit_uuid, current_user):
                 "shape_data": detail.shape_data if detail else None,
                 "shape_svg": detail.shape_svg if detail else None,
                 "lamella_direction": detail.lamella_direction if detail else None,
+                "cut_to_size": bool(detail.cut_to_size) if detail else True,
                 "round_surcharge_netto": float(detail.round_surcharge_netto) if detail and detail.round_surcharge_netto else 0,
                 "round_surcharge_brutto": float(detail.round_surcharge_brutto) if detail and detail.round_surcharge_brutto else 0,
                 "selectedVariant": product_data["selected_variant"],
