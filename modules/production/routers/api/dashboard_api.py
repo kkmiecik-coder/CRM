@@ -919,25 +919,32 @@ def dashboard_tab_content():
             'total_orders': ProductionItem.query.count()
         }
 
-        active_statuses = [
-            'czeka_na_wyciecie', 'czeka_na_skladanie', 'czeka_na_kompletacje',
-            'czeka_na_sklejanie', 'czeka_na_formatowanie', 'czeka_na_wykanczanie',
-            'czeka_na_pakowanie', 'w_realizacji'
-        ]
+        # "In production now" — liczone per niespakowana sztuka.
         in_production_items = ProductionItem.query.filter(
-            ProductionItem.current_status.in_(active_statuses)
+            db.func.coalesce(ProductionItem.quantity_done_packaging, 0) < ProductionItem.quantity
         ).all()
 
-        in_production_order_ids = set(
-            item.baselinker_order_id for item in in_production_items
-            if item.baselinker_order_id
-        )
+        in_production_order_ids = set()
+        ip_items_count = 0
+        ip_pieces_remaining = 0
+        ip_m3_remaining = 0.0
+        for item in in_production_items:
+            qty = int(item.quantity or 0)
+            done = int(item.quantity_done_packaging or 0)
+            remaining = qty - done
+            if remaining <= 0:
+                continue
+            ip_items_count += 1
+            ip_pieces_remaining += remaining
+            ip_m3_remaining += float(item.volume_m3 or 0) * remaining
+            if item.baselinker_order_id:
+                in_production_order_ids.add(item.baselinker_order_id)
 
         dashboard_stats['in_production'] = {
             'orders': len(in_production_order_ids),
-            'items': len(in_production_items),
-            'products': sum(int(item.quantity or 0) for item in in_production_items),
-            'm3': round(sum(float(item.volume_m3 or 0) * (item.quantity or 0) for item in in_production_items), 2)
+            'items': ip_items_count,
+            'products': ip_pieces_remaining,
+            'm3': round(ip_m3_remaining, 2)
         }
 
         deadline_items = ProductionItem.query.filter(
@@ -1111,25 +1118,32 @@ def dashboard_data():
 
         alerts_data = sorted(orders_map.values(), key=lambda x: x.get('days_remaining', 0))
 
-        in_production_active_statuses = [
-            'czeka_na_wyciecie', 'czeka_na_skladanie', 'czeka_na_kompletacje',
-            'czeka_na_sklejanie', 'czeka_na_formatowanie', 'czeka_na_wykanczanie',
-            'czeka_na_pakowanie', 'w_realizacji'
-        ]
+        # "In production now" — liczone per niespakowana sztuka.
         in_production_items_dd = ProductionItem.query.filter(
-            ProductionItem.current_status.in_(in_production_active_statuses)
+            db.func.coalesce(ProductionItem.quantity_done_packaging, 0) < ProductionItem.quantity
         ).all()
 
-        in_production_order_ids_dd = set(
-            item.baselinker_order_id for item in in_production_items_dd
-            if item.baselinker_order_id
-        )
+        in_production_order_ids_dd = set()
+        dd_items_count = 0
+        dd_pieces_remaining = 0
+        dd_m3_remaining = 0.0
+        for item in in_production_items_dd:
+            qty = int(item.quantity or 0)
+            done = int(item.quantity_done_packaging or 0)
+            remaining = qty - done
+            if remaining <= 0:
+                continue
+            dd_items_count += 1
+            dd_pieces_remaining += remaining
+            dd_m3_remaining += float(item.volume_m3 or 0) * remaining
+            if item.baselinker_order_id:
+                in_production_order_ids_dd.add(item.baselinker_order_id)
 
         in_production_stats = {
             'orders': len(in_production_order_ids_dd),
-            'items': len(in_production_items_dd),
-            'products': sum(int(item.quantity or 0) for item in in_production_items_dd),
-            'm3': round(sum(float(item.volume_m3 or 0) * (item.quantity or 0) for item in in_production_items_dd), 2)
+            'items': dd_items_count,
+            'products': dd_pieces_remaining,
+            'm3': round(dd_m3_remaining, 2)
         }
 
         response_data = {
