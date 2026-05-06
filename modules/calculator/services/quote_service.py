@@ -24,6 +24,17 @@ def _round_price(value):
     """Zaokrągla cenę do groszy (2 miejsc po przecinku)."""
     return float(_to_decimal(value).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP))
 
+
+def _coerce_cut_to_size(product_data):
+    """
+    Wyciąga pole 'cut_to_size' z payloadu produktu z domyślną wartością True.
+    None / brak klucza traktujemy jako True (kompat z draftami sprzed wdrożenia).
+    """
+    value = product_data.get('cut_to_size')
+    if value is None:
+        return True
+    return bool(value)
+
 logger = logging.getLogger(__name__)
 
 
@@ -267,11 +278,7 @@ def _update_or_create_product(quote, product_data):
         )
 
     # Docięcie do wymiaru (default True)
-    cut_to_size = product_data.get('cut_to_size')
-    if cut_to_size is None:
-        cut_to_size = True
-    else:
-        cut_to_size = bool(cut_to_size)
+    cut_to_size = _coerce_cut_to_size(product_data)
 
     # Aktualizuj lub utworz QuoteItemDetails
     detail = QuoteItemDetails.query.filter_by(
@@ -601,11 +608,7 @@ def create_quote(data, user_email):
                 )
 
             # Docięcie do wymiaru (default True — klient dostaje produkt docięty)
-            cut_to_size = product.get('cut_to_size')
-            if cut_to_size is None:
-                cut_to_size = True
-            else:
-                cut_to_size = bool(cut_to_size)
+            cut_to_size = _coerce_cut_to_size(product)
 
             # Szczegóły produktu (wykończenie + krawędzie + kształt)
             item_details = QuoteItemDetails(
