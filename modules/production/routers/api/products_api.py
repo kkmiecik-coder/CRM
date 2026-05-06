@@ -836,26 +836,50 @@ def products_tab_content():
 
             products_data.append(product_dict)
         
-        # Przygotuj statystyki
-        total_volume = sum(p['volume_m3'] * p['quantity'] for p in products_data)
-        total_value = sum(p['total_value_net'] for p in products_data)
-        total_quantity = sum(p['quantity'] for p in products_data)  # NOWE: łączna ilość sztuk
+        # Statystyki — w widoku 'active' liczone per niespakowana sztuka
+        # (remaining = quantity - quantity_done_packaging). Pozycje w pełni spakowane
+        # są ignorowane mimo że należą do nieukończonych jeszcze zamówień. W widoku
+        # 'archive' (wszystko spakowane) pokazujemy pełne wartości historyczne.
+        if view_mode == 'archive':
+            total_volume = sum(p['volume_m3'] * p['quantity'] for p in products_data)
+            total_value = sum(p['total_value_net'] for p in products_data)
+            total_quantity = sum(p['quantity'] for p in products_data)
+            total_count = len(products_data)
+            stats_breakdown_source = products_data
+        else:
+            total_volume = 0.0
+            total_value = 0.0
+            total_quantity = 0
+            total_count = 0
+            stats_breakdown_source = []
+            for p in products_data:
+                qty = int(p.get('quantity') or 0)
+                done = int(p.get('quantity_done_packaging') or 0)
+                remaining = qty - done
+                if remaining <= 0:
+                    continue
+                ratio = remaining / qty if qty else 0
+                total_volume += float(p.get('volume_m3') or 0) * remaining
+                total_value += float(p.get('total_value_net') or 0) * ratio
+                total_quantity += remaining
+                total_count += 1
+                stats_breakdown_source.append(p)
 
-        # Oblicz pilne produkty (deadline <= 3 dni)
+        # Oblicz pilne produkty (deadline <= 3 dni) — tylko z policzonych pozycji
         urgent_count = 0
-        for p in products_data:
+        for p in stats_breakdown_source:
             if p['days_until_deadline'] is not None and p['days_until_deadline'] <= 3:
                 urgent_count += 1
 
         # Breakdown statusów
         status_breakdown = {}
-        for p in products_data:
+        for p in stats_breakdown_source:
             status = p['current_status']
             status_breakdown[status] = status_breakdown.get(status, 0) + 1
 
         stats_data = {
-            'total_count': len(products_data),
-            'total_quantity': total_quantity,  # NOWE: łączna ilość sztuk
+            'total_count': total_count,
+            'total_quantity': total_quantity,
             'total_volume': round(total_volume, 4),
             'total_value': round(total_value, 2),
             'urgent_count': urgent_count,

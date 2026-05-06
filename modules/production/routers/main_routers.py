@@ -144,23 +144,32 @@ def dashboard():
             'avg_deadline_distance': 7.0  # Placeholder - będzie obliczane
         }
 
-        # "In production now" — items currently being processed (not finished, not cancelled)
-        mr_active_statuses = [
-            'czeka_na_wyciecie', 'czeka_na_skladanie', 'czeka_na_kompletacje',
-            'czeka_na_sklejanie', 'czeka_na_formatowanie', 'czeka_na_wykanczanie',
-            'czeka_na_pakowanie', 'w_realizacji'
-        ]
+        # "In production now" — liczone per niespakowana sztuka.
+        # Pozycja wchodzi do statystyk tylko jeśli ma jeszcze sztuki do spakowania
+        # (quantity_done_packaging < quantity); dla każdej liczymy remaining = qty - done.
         in_prod_items = ProductionItem.query.filter(
-            ProductionItem.current_status.in_(mr_active_statuses)
+            db.func.coalesce(ProductionItem.quantity_done_packaging, 0) < ProductionItem.quantity
         ).all()
-        in_prod_order_ids = set(
-            item.baselinker_order_id for item in in_prod_items if item.baselinker_order_id
-        )
+        in_prod_order_ids = set()
+        items_count = 0
+        pieces_remaining = 0
+        m3_remaining = 0.0
+        for item in in_prod_items:
+            qty = int(item.quantity or 0)
+            done = int(item.quantity_done_packaging or 0)
+            remaining = qty - done
+            if remaining <= 0:
+                continue
+            items_count += 1
+            pieces_remaining += remaining
+            m3_remaining += float(item.volume_m3 or 0) * remaining
+            if item.baselinker_order_id:
+                in_prod_order_ids.add(item.baselinker_order_id)
         dashboard_stats['in_production'] = {
             'orders': len(in_prod_order_ids),
-            'items': len(in_prod_items),
-            'products': sum(int(item.quantity or 0) for item in in_prod_items),
-            'm3': round(sum(float(item.volume_m3 or 0) * (item.quantity or 0) for item in in_prod_items), 2)
+            'items': items_count,
+            'products': pieces_remaining,
+            'm3': round(m3_remaining, 2)
         }
 
         # Alerty deadline - produkty zbliżające się do terminu
