@@ -1215,7 +1215,55 @@ function collectQuoteData() {
             sumEdgesNetto += edgesNetto;
         }
 
-        products.push({
+        const cutToSize = window.cutToSize ? window.cutToSize.get(form) : true;
+
+        // Bez docięcia produkt jest półfabrykatem — wykończenie i obróbka
+        // krawędzi nie mają sensu. UI lockuje sekcje, ale jeśli user wybrał
+        // coś przed klikiem "Nie", dataset wciąż trzyma stary wybór. Przy
+        // zapisie wymuszamy czyste wartości, żeby modal/PDF nie pokazywały
+        // sprzeczności (Wykończenie: Lakierowane + Docięcie: Nie).
+        const productPayload = cutToSize ? {
+            finishing_type: finishingType,
+            finishing_variant: finishingVariant,
+            finishing_color: finishingColor,
+            finishing_gloss_level: finishingGloss,
+            finishing_netto: finishingNetto,
+            finishing_brutto: finishingBrutto,
+            edges: edgesData,
+            edges_type: edgesType,
+            edges_r_value: edgesRValue,
+            edges_angle_value: edgesAngleValue,
+            edges_netto: edgesNetto,
+            edges_brutto: edgesBrutto,
+            edges_svg: edgesSvg,
+            variants: allVariants,
+        } : {
+            finishing_type: 'Surowe',
+            finishing_variant: null,
+            finishing_color: null,
+            finishing_gloss_level: null,
+            finishing_netto: 0,
+            finishing_brutto: 0,
+            edges: null,
+            edges_type: null,
+            edges_r_value: null,
+            edges_angle_value: null,
+            edges_netto: 0,
+            edges_brutto: 0,
+            edges_svg: null,
+            variants: allVariants.map(function (v) {
+                return Object.assign({}, v, {
+                    finishing_type: 'Surowe',
+                    finishing_variant: null,
+                    finishing_color: null,
+                    finishing_gloss_level: null,
+                    finishing_netto: 0,
+                    finishing_brutto: 0,
+                });
+            }),
+        };
+
+        products.push(Object.assign({
             index: index + 1,
             length,
             width,
@@ -1225,23 +1273,8 @@ function collectQuoteData() {
             shape_data: shapeDataJson,
             shape_svg: shapeSvg,
             lamella_direction: lamellaDirection,
-            cut_to_size: window.cutToSize ? window.cutToSize.get(form) : true,
-            finishing_type: finishingType,
-            finishing_variant: finishingVariant,
-            finishing_color: finishingColor,
-            finishing_gloss_level: finishingGloss,
-            finishing_netto: finishingNetto,
-            finishing_brutto: finishingBrutto,
-            // Obróbka krawędzi
-            edges: edgesData,
-            edges_type: edgesType,
-            edges_r_value: edgesRValue,
-            edges_angle_value: edgesAngleValue,
-            edges_netto: edgesNetto,
-            edges_brutto: edgesBrutto,
-            edges_svg: edgesSvg,
-            variants: allVariants
-        });
+            cut_to_size: cutToSize,
+        }, productPayload));
     });
 
     const shippingBrutto = parseFloat(document.getElementById('delivery-brutto')?.textContent.replace(" PLN", "")) || 0;
