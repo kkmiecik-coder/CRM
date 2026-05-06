@@ -43,22 +43,5 @@
     opacity: 0.45;
     pointer-events: none;
     user-select: none;
-    position: relative;
     cursor: not-allowed;
-}
-
-.cut-to-size-locked::after {
-    content: 'Niedostępne — produkt bez docięcia do wymiaru';
-    position: absolute;
-    top: 8px;
-    right: 8px;
-    background: #555;
-    color: #fff;
-    padding: 4px 10px;
-    border-radius: 4px;
-    font-size: 11px;
-    font-weight: 500;
-    pointer-events: none;
-    z-index: 5;
-    white-space: nowrap;
 }
