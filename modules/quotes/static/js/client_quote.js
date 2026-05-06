@@ -245,6 +245,9 @@ const render = {
             section.className = `product-section ${product.index === globalState.currentProductIndex ? 'active' : ''}`;
             section.id = `product-${product.index}`;
 
+            const ctsFinishing = globalState.quoteData?.finishing?.find(f => f.product_index === product.index);
+            const cutToSize = ctsFinishing?.cut_to_size;
+
             section.innerHTML = `
                 <div class="product-header">
                     <div class="product-info">
@@ -262,6 +265,13 @@ const render = {
                                 </svg>
                                 <span>${product.finishing}</span>
                             </div>
+                            ${cutToSize === false ? `
+                            <div class="product-detail cut-to-size-warning">
+                                <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01M5 19h14a2 2 0 001.84-2.75L13.74 4a2 2 0 00-3.5 0L3.16 16.25A2 2 0 005 19z"></path>
+                                </svg>
+                                <span>Docięcie do wymiaru: <strong>Nie</strong></span>
+                            </div>` : ''}
                             <div class="product-detail">
                                 <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 20l4-16m2 16l4-16M6 9h14M4 15h14"></path>

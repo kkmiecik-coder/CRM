@@ -3354,3 +3354,11 @@ body {
         gap: 2px;
     }
 }
+
+.cut-to-size-warning {
+    color: #d35400;
+}
+
+.cut-to-size-warning svg {
+    color: #d35400;
+}
