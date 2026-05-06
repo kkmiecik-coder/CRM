@@ -586,7 +586,7 @@ class QuoteEditLoader {
             scheduleCheck('MutationObserver: ' + changed);
         });
         forms.forEach(form => {
-            this.datasetObserver.observe(form, { attributes: true, attributeFilter: ['data-finishing-type', 'data-finishing-variant', 'data-finishing-color', 'data-finishing-gloss', 'data-edges-type', 'data-edges-r-value', 'data-edges-angle-value', 'data-edges-brutto', 'data-edges-data', 'data-product-shape', 'data-shape-real-area-cm2'] });
+            this.datasetObserver.observe(form, { attributes: true, attributeFilter: ['data-finishing-type', 'data-finishing-variant', 'data-finishing-color', 'data-finishing-gloss', 'data-edges-type', 'data-edges-r-value', 'data-edges-angle-value', 'data-edges-brutto', 'data-edges-data', 'data-product-shape', 'data-shape-real-area-cm2', 'data-cut-to-size'] });
         });
     }
 
@@ -612,6 +612,7 @@ class QuoteEditLoader {
                 edges_angle_value: p.edges_angle_value,
                 edges: p.edges ? JSON.stringify(p.edges) : null,
                 shape: p.shape,
+                cut_to_size: p.cut_to_size,
             })),
             courier_name: data.courier_name,
             shipping_cost_brutto: data.shipping_cost_brutto,
