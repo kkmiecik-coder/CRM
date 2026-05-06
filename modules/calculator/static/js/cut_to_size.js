@@ -38,9 +38,24 @@
         }
     }
 
+    let nextRadioGroupId = 0;
+
     function bindCutToSizeToggle(form) {
         if (!form) return;
         const radios = form.querySelectorAll('.cut-to-size-radio');
+
+        // Scope radio group per form. Bez <form>-wrappera wspolny atrybut
+        // name="cutToSize" laczy radio z wszystkich .quote-form w jedna
+        // grupe — wybor w jednym deselectuje pozostale. Nadajemy unikalny
+        // name przy pierwszym bindzie; idempotentnie pomijamy ponowny rebind.
+        if (!form.dataset.cutToSizeGroup) {
+            const groupId = 'cutToSize-' + (nextRadioGroupId++);
+            form.dataset.cutToSizeGroup = groupId;
+            radios.forEach(function (radio) {
+                radio.name = groupId;
+            });
+        }
+
         radios.forEach(function (radio) {
             radio.addEventListener('change', function (e) {
                 if (e.target.checked) {
