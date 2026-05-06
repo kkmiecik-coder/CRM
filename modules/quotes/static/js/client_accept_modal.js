@@ -856,17 +856,58 @@ async function handleGusLookup() {
         if (response.ok && data.name) {
             console.log('[AcceptModal] Dane z GUS otrzymane:', data);
 
-            // POPRAWKA: Inteligentne parsowanie adresu
-            const parsedAddress = parseGusAddress(data.address || '');
+            // Pola strukturalne (GUS BIR) mają priorytet nad sklejonym adresem
+            let streetLine = '';
+            let zipValue = '';
+            let cityValue = '';
 
-            // Wypełnij podstawowe pola
-            document.getElementById('invoiceName').value = data.name || '';
+            const hasStructuredAddress = data._source === 'GUS_BIR'
+                || data.street
+                || data.building_number;
+
+            if (hasStructuredAddress) {
+                const street = (data.street || '').trim();
+                const buildingNumber = (data.building_number || '').trim();
+                const apartmentNumber = (data.apartment_number || '').trim();
+                cityValue = data.city || '';
+                zipValue = data.zip || '';
+
+                if (street) {
+                    streetLine = street;
+                    if (buildingNumber) {
+                        streetLine += ' ' + buildingNumber;
+                        if (apartmentNumber) {
+                            streetLine += '/' + apartmentNumber;
+                        }
+                    }
+                } else if (buildingNumber) {
+                    // Wieś bez ulicy: konwencja "Miasto numer[/lokal]"
+                    streetLine = cityValue
+                        ? cityValue + ' ' + buildingNumber
+                        : buildingNumber;
+                    if (apartmentNumber) {
+                        streetLine += '/' + apartmentNumber;
+                    }
+                }
+            } else {
+                // Fallback dla MF_WL / CEIDG - regexowe parsowanie
+                const parsedAddress = parseGusAddress(data.address || '');
+                streetLine = parsedAddress.street || '';
+                zipValue = parsedAddress.zipCode || data.zip || '';
+                cityValue = parsedAddress.city || data.city || '';
+            }
+
+            // Imię i nazwisko: dla jednoosobowej działalności GUS zwraca name === company,
+            // wtedy zostawiamy pole puste (user uzupełnia ręcznie).
+            const fullnameValue = (data.name && data.name !== data.company)
+                ? data.name
+                : '';
+
+            document.getElementById('invoiceName').value = fullnameValue;
             document.getElementById('invoiceCompany').value = data.company || data.name || '';
-
-            // POPRAWKA: Wypełnij pola adresu z parsowanych danych
-            document.getElementById('invoiceAddress').value = parsedAddress.street || '';
-            document.getElementById('invoiceZip').value = parsedAddress.zipCode || '';
-            document.getElementById('invoiceCity').value = parsedAddress.city || '';
+            document.getElementById('invoiceAddress').value = streetLine;
+            document.getElementById('invoiceZip').value = zipValue;
+            document.getElementById('invoiceCity').value = cityValue;
 
             // Prosta informacja o sukcesie
             gusBtn.textContent = 'Pobrano dane ✓';
@@ -878,10 +919,11 @@ async function handleGusLookup() {
             }, 2000);
 
             console.log('[AcceptModal] Dane GUS wypełnione:', {
-                name: data.name,
+                source: data._source,
+                fullname: fullnameValue,
                 company: data.company || data.name,
                 originalAddress: data.address,
-                parsedAddress: parsedAddress
+                resolvedAddress: { street: streetLine, zip: zipValue, city: cityValue }
             });
 
         } else {
@@ -945,17 +987,58 @@ async function handleGusLookup() {
         if (response.ok && data.name) {
             console.log('[AcceptModal] Dane z GUS otrzymane:', data);
 
-            // POPRAWKA: Inteligentne parsowanie adresu
-            const parsedAddress = parseGusAddress(data.address || '');
+            // Pola strukturalne (GUS BIR) mają priorytet nad sklejonym adresem
+            let streetLine = '';
+            let zipValue = '';
+            let cityValue = '';
 
-            // Wypełnij podstawowe pola
-            document.getElementById('invoiceName').value = data.name || '';
+            const hasStructuredAddress = data._source === 'GUS_BIR'
+                || data.street
+                || data.building_number;
+
+            if (hasStructuredAddress) {
+                const street = (data.street || '').trim();
+                const buildingNumber = (data.building_number || '').trim();
+                const apartmentNumber = (data.apartment_number || '').trim();
+                cityValue = data.city || '';
+                zipValue = data.zip || '';
+
+                if (street) {
+                    streetLine = street;
+                    if (buildingNumber) {
+                        streetLine += ' ' + buildingNumber;
+                        if (apartmentNumber) {
+                            streetLine += '/' + apartmentNumber;
+                        }
+                    }
+                } else if (buildingNumber) {
+                    // Wieś bez ulicy: konwencja "Miasto numer[/lokal]"
+                    streetLine = cityValue
+                        ? cityValue + ' ' + buildingNumber
+                        : buildingNumber;
+                    if (apartmentNumber) {
+                        streetLine += '/' + apartmentNumber;
+                    }
+                }
+            } else {
+                // Fallback dla MF_WL / CEIDG - regexowe parsowanie
+                const parsedAddress = parseGusAddress(data.address || '');
+                streetLine = parsedAddress.street || '';
+                zipValue = parsedAddress.zipCode || data.zip || '';
+                cityValue = parsedAddress.city || data.city || '';
+            }
+
+            // Imię i nazwisko: dla jednoosobowej działalności GUS zwraca name === company,
+            // wtedy zostawiamy pole puste (user uzupełnia ręcznie).
+            const fullnameValue = (data.name && data.name !== data.company)
+                ? data.name
+                : '';
+
+            document.getElementById('invoiceName').value = fullnameValue;
             document.getElementById('invoiceCompany').value = data.company || data.name || '';
-
-            // POPRAWKA: Wypełnij pola adresu z parsowanych danych
-            document.getElementById('invoiceAddress').value = parsedAddress.street || '';
-            document.getElementById('invoiceZip').value = parsedAddress.zipCode || '';
-            document.getElementById('invoiceCity').value = parsedAddress.city || '';
+            document.getElementById('invoiceAddress').value = streetLine;
+            document.getElementById('invoiceZip').value = zipValue;
+            document.getElementById('invoiceCity').value = cityValue;
 
             // Prosta informacja o sukcesie
             gusBtn.textContent = 'Pobrano dane ✓';
@@ -967,10 +1050,11 @@ async function handleGusLookup() {
             }, 2000);
 
             console.log('[AcceptModal] Dane GUS wypełnione:', {
-                name: data.name,
+                source: data._source,
+                fullname: fullnameValue,
                 company: data.company || data.name,
                 originalAddress: data.address,
-                parsedAddress: parsedAddress
+                resolvedAddress: { street: streetLine, zip: zipValue, city: cityValue }
             });
 
         } else {

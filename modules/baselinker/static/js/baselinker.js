@@ -2691,17 +2691,35 @@ class BaselinkerModal {
                 let zipValue = '';
                 let cityValue = '';
 
-                if (data.street) {
-                    // Źródło GUS_BIR - używamy pól strukturalnych bezpośrednio
-                    streetLine = data.street;
-                    if (data.building_number) {
-                        streetLine += ' ' + data.building_number;
-                        if (data.apartment_number) {
-                            streetLine += '/' + data.apartment_number;
+                const hasStructuredAddress = data._source === 'GUS_BIR'
+                    || data.street
+                    || data.building_number;
+
+                if (hasStructuredAddress) {
+                    const street = (data.street || '').trim();
+                    const buildingNumber = (data.building_number || '').trim();
+                    const apartmentNumber = (data.apartment_number || '').trim();
+                    cityValue = data.city || '';
+                    zipValue = data.zip || '';
+
+                    if (street) {
+                        // Mamy ulicę: "Ulica numer[/lokal]"
+                        streetLine = street;
+                        if (buildingNumber) {
+                            streetLine += ' ' + buildingNumber;
+                            if (apartmentNumber) {
+                                streetLine += '/' + apartmentNumber;
+                            }
+                        }
+                    } else if (buildingNumber) {
+                        // Wieś bez ulicy: konwencja "Miasto numer[/lokal]"
+                        streetLine = cityValue
+                            ? cityValue + ' ' + buildingNumber
+                            : buildingNumber;
+                        if (apartmentNumber) {
+                            streetLine += '/' + apartmentNumber;
                         }
                     }
-                    zipValue = data.zip || '';
-                    cityValue = data.city || '';
                 } else {
                     // Fallback dla MF_WL / CEIDG - używamy regexowego parsowania
                     const parsedAddress = this.parseGusAddress(data.address || '');
@@ -2710,8 +2728,15 @@ class BaselinkerModal {
                     cityValue = parsedAddress.city || data.city || '';
                 }
 
+                // Imię i nazwisko: dla jednoosobowej działalności GUS zwraca name === company
+                // (nazwę firmy w obu polach) — w takim wypadku zostawiamy pole osoby puste,
+                // żeby użytkownik wpisał ręcznie. W innym razie używamy data.name.
+                const fullnameValue = (data.name && data.name !== data.company)
+                    ? data.name
+                    : '';
+
                 // Wypełnij pola faktury
-                this.setInputValue('invoice-fullname', data.name || '');
+                this.setInputValue('invoice-fullname', fullnameValue);
                 this.setInputValue('invoice-company', data.company || data.name || '');
                 this.setInputValue('invoice-address', streetLine);
                 this.setInputValue('invoice-postcode', zipValue);
