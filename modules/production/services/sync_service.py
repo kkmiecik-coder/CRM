@@ -1235,6 +1235,9 @@ class BaselinkerSyncService:
                 'volume_m3': volume_m3
             })
 
+        # Cut_to_size z QuoteItemDetails (niezależne od edge processing)
+        product_data = self._resolve_cut_to_size(product_data, order)
+
         # Wzbogać dane krawędzi z QuoteItemDetails (kaskada)
         product_data = self._enrich_edge_data_from_quote(product_data, order)
 
@@ -2196,7 +2199,8 @@ class BaselinkerSyncService:
                                     client_order_number=existing_product.client_order_number,
                                     order_notes=existing_product.order_notes,
                                     attachment_file_name=existing_product.attachment_file_name,
-                                    attachment_file_url=existing_product.attachment_file_url
+                                    attachment_file_url=existing_product.attachment_file_url,
+                                    cut_to_size=True  # safety default
                                 )
 
                                 # Dodaj sparsowane dane
@@ -2807,6 +2811,38 @@ class BaselinkerSyncService:
         except Exception as e:
             logger.error("Błąd pobierania statusów", extra={'error': str(e)})
             raise SyncError(f'Błąd pobierania statusów: {str(e)}')
+
+    def _resolve_cut_to_size(self, product_data, order_data):
+        """
+        Pobiera cut_to_size z QuoteItemDetails dla danego produktu.
+        Default TRUE gdy: brak matchu z wyceną, legacy quote bez pola, lub błąd.
+
+        Niezależne od edge processing — działa dla każdego produktu.
+        """
+        baselinker_order_id = product_data.get('baselinker_order_id')
+
+        detail = self._try_match_via_pdf(order_data, product_data)
+        if not detail:
+            detail = self._try_match_via_order_product_id(
+                baselinker_order_id,
+                product_data.get('baselinker_product_id')
+            )
+
+        if detail is not None:
+            value = getattr(detail, 'cut_to_size', None)
+            if value is None:
+                product_data['cut_to_size'] = True
+            else:
+                product_data['cut_to_size'] = bool(value)
+        else:
+            product_data['cut_to_size'] = True
+
+        logger.info("Cut_to_size rozstrzygnięty",
+                    extra={'baselinker_product_id': product_data.get('baselinker_product_id'),
+                           'cut_to_size': product_data['cut_to_size'],
+                           'matched_quote': detail is not None})
+
+        return product_data
 
     def _enrich_edge_data_from_quote(self, product_data, order_data):
         """
