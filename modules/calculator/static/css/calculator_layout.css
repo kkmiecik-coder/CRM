@@ -527,6 +527,20 @@
     transition: border-color 0.2s ease, box-shadow 0.2s ease;
     width: 100%;
     box-sizing: border-box;
+    min-height: 44px;
+    line-height: 1.4;
+}
+
+select.input-window {
+    height: 44px;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    appearance: none;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'><path fill='none' stroke='%23667085' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round' d='M1 1.5l5 5 5-5'/></svg>");
+    background-repeat: no-repeat;
+    background-position: right 14px center;
+    background-size: 12px 8px;
+    padding-right: 36px;
 }
 
 .input-window:focus {
@@ -720,6 +734,29 @@
     flex: 1;
 }
 
+/* Sidebar sticky na desktop — zawsze w viewport, lista produktów scrolluje wewnątrz */
+@media (min-width: 1201px) {
+    .calculator-sidebar {
+        position: sticky;
+        top: 20px;
+        align-self: flex-start;
+        max-height: calc(100vh - 40px);
+    }
+
+    .calculator-sidebar .products-summary-main {
+        flex: 1 1 auto;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+    }
+
+    .calculator-sidebar .products-summary-container {
+        flex: 1 1 auto;
+        min-height: 0;
+        overflow-y: auto;
+    }
+}
+
 .calculator-workspace {
     flex: 1;
     display: flex;
@@ -766,10 +803,15 @@
     max-width: 1000px;
 }
 
-/* Gdy canvas widoczny na szerokim ekranie — kalkulacja obok */
+/* Gdy canvas aktywny — kalkulacja spada pod spód, canvas zajmuje całą szerokość obok produktu */
 .quote-form.shape-canvas-active .workspace-row-1 .calculations-main {
-    flex: 1 1 300px;
-    min-width: 300px;
+    flex: 1 1 100%;
+    min-width: 0;
+    width: 100%;
+}
+
+.quote-form.shape-canvas-active .workspace-row-1 .shape-editor-container {
+    max-width: none;
 }
 
 /* Wiersz 2: [Wykończenie + Krawędzie] + Podsumowanie */
