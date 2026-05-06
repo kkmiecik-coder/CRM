@@ -1852,7 +1852,7 @@ class ProductsModule {
             product.parsed_wood_species,
             product.parsed_technology,
             product.parsed_wood_class,
-            product.parsed_thickness_cm ? `${product.parsed_thickness_cm}mm` : null
+            product.parsed_thickness_cm ? `${product.parsed_thickness_cm}cm` : null
         ].filter(Boolean);
         specContainer.innerHTML = specs.map(s => `<span class="il-product-spec-tag">${s}</span>`).join('');
 
