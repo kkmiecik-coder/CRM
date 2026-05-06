@@ -260,6 +260,7 @@ def ajax_get_orders_packaging():
                 'attachment_file_url': product.attachment_file_url,
                 'attachment_file_name': product.attachment_file_name,
                 'order_notes': product.order_notes,
+                'production_notes': product.production_notes,
                 # WYMIARY SUROWE DO OBLICZEN WYSYLKI (2025-12)
                 'parsed_length_cm': float(product.parsed_length_cm) if product.parsed_length_cm else 0,
                 'parsed_width_cm': float(product.parsed_width_cm) if product.parsed_width_cm else 0,
@@ -520,6 +521,7 @@ def ajax_get_orders_cutting():
                 'is_complete': product.quantity_done_cutting == product.quantity,
                 'is_priority': product.is_priority,
                 'order_notes': product.order_notes,
+                'production_notes': product.production_notes,
                 'client_order_number': product.client_order_number,
                 'baselinker_order_id': product.baselinker_order_id,
             }
@@ -674,6 +676,7 @@ def ajax_get_orders_assembly():
                 'is_complete': product.quantity_done_assembly == product.quantity,
                 'is_priority': product.is_priority,
                 'order_notes': product.order_notes,
+                'production_notes': product.production_notes,
                 'client_order_number': product.client_order_number,
                 'baselinker_order_id': product.baselinker_order_id,
             }
@@ -825,6 +828,7 @@ def ajax_get_orders_completion():
                 'is_complete': product.quantity_done_completion == product.quantity,
                 'is_priority': product.is_priority,
                 'order_notes': product.order_notes,
+                'production_notes': product.production_notes,
                 'client_order_number': product.client_order_number,
                 'baselinker_order_id': product.baselinker_order_id,
             }
@@ -977,6 +981,7 @@ def ajax_get_orders_gluing():
                 'is_complete': product.quantity_done_gluing == product.quantity,
                 'is_priority': product.is_priority,
                 'order_notes': product.order_notes,
+                'production_notes': product.production_notes,
                 'client_order_number': product.client_order_number,
                 'baselinker_order_id': product.baselinker_order_id,
             }

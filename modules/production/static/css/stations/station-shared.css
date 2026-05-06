@@ -1311,8 +1311,32 @@ body {
     color: var(--text-primary);
     font-size: 15px;
     line-height: 1.6;
-    white-space: pre-wrap;
     word-wrap: break-word;
+}
+
+.notes-modal-section + .notes-modal-section {
+    margin-top: 18px;
+    padding-top: 18px;
+    border-top: 1px solid var(--border-color, rgba(255, 255, 255, 0.08));
+}
+
+.notes-modal-section-label {
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-secondary, rgba(255, 255, 255, 0.55));
+    margin-bottom: 6px;
+    font-weight: 600;
+}
+
+.notes-modal-section-body {
+    white-space: pre-wrap;
+    color: var(--text-primary);
+}
+
+.notes-modal-section-body.notes-modal-section-empty {
+    color: var(--text-secondary, rgba(255, 255, 255, 0.4));
+    font-style: italic;
 }
 
 /* ============================================================================

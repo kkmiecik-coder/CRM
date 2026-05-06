@@ -557,6 +557,7 @@ def serialize_order(item, station_code=None):
         'delivery_postcode': item.delivery_postcode,
         'deadline': _iso(item.deadline_date) if item.deadline_date else None,
         'order_notes': item.order_notes,
+        'production_notes': item.production_notes,
         'attachments': _build_attachments(item),
         'shape_svg': item.shape_svg,
         'edge_svg': item.edge_svg,

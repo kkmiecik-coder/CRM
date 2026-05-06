@@ -476,6 +476,7 @@ def get_products_for_station(station_code, limit=50, sort_by='priority'):
 
                 # Notatki
                 'order_notes': product.order_notes,
+                'production_notes': product.production_notes,
 
                 # Obróbka krawędzi
                 'parsed_edge_processing': product.parsed_edge_processing,

@@ -1193,13 +1193,17 @@
                     </div>
                 `;
             }
-            if (firstProduct.order_notes) {
-                const truncatedNotes = firstProduct.order_notes.length > 100
-                    ? firstProduct.order_notes.substring(0, 100) + '...'
-                    : firstProduct.order_notes;
+            if (firstProduct.order_notes || firstProduct.production_notes) {
+                const orderNotes = firstProduct.order_notes || '';
+                const productionNotes = firstProduct.production_notes || '';
+                const tooltipSrc = orderNotes || productionNotes;
+                const truncatedNotes = tooltipSrc.length > 100
+                    ? tooltipSrc.substring(0, 100) + '...'
+                    : tooltipSrc;
                 iconsHTML += `
                     <div class="header-icon-wrapper notes-icon-wrapper"
-                         data-notes="${firstProduct.order_notes.replace(/"/g, '&quot;')}"
+                         data-order-notes="${orderNotes.replace(/"/g, '&quot;')}"
+                         data-production-notes="${productionNotes.replace(/"/g, '&quot;')}"
                          title="${truncatedNotes.replace(/"/g, '&quot;')}">
                         <svg class="header-icon" width="18" height="18"><use href="${window.STATION_CONFIG.iconsUrl}#icon-notes"/></svg>
                     </div>

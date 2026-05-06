@@ -855,10 +855,10 @@ console.log('[Station] Common utilities loaded (v2.0)');
    ============================================================================ */
 
 /**
- * Otwiera modal z uwagami
- * @param {string} notesContent - Treść uwag
+ * Otwiera modal z uwagami. Przyjmuje albo string (legacy = baselinker),
+ * albo obiekt { order, production }.
  */
-function openNotesModal(notesContent) {
+function openNotesModal(orderNotesOrObj, productionNotes) {
     const modal = document.getElementById('notesModal');
     const contentDiv = document.getElementById('notesModalContent');
 
@@ -867,7 +867,35 @@ function openNotesModal(notesContent) {
         return;
     }
 
-    contentDiv.textContent = notesContent;
+    let order = '';
+    let production = '';
+    if (typeof orderNotesOrObj === 'object' && orderNotesOrObj !== null) {
+        order = (orderNotesOrObj.order || '').trim();
+        production = (orderNotesOrObj.production || '').trim();
+    } else {
+        order = (orderNotesOrObj || '').trim();
+        production = (productionNotes || '').trim();
+    }
+
+    contentDiv.innerHTML = '';
+    const sections = [
+        { label: 'baselinker', value: order },
+        { label: 'produkcja', value: production },
+    ];
+    sections.forEach(({ label, value }) => {
+        const block = document.createElement('div');
+        block.className = 'notes-modal-section';
+        const head = document.createElement('div');
+        head.className = 'notes-modal-section-label';
+        head.textContent = `[${label}]:`;
+        const body = document.createElement('div');
+        body.className = 'notes-modal-section-body';
+        body.textContent = value || '—';
+        if (!value) body.classList.add('notes-modal-section-empty');
+        block.appendChild(head);
+        block.appendChild(body);
+        contentDiv.appendChild(block);
+    });
     modal.classList.add('active');
 
     // Zamknij przy kliknięciu w tło
@@ -909,9 +937,10 @@ function initNotesIcons() {
         wrapper.addEventListener('click', function(e) {
             e.preventDefault();
             e.stopPropagation();
-            const notes = this.dataset.notes;
-            if (notes) {
-                openNotesModal(notes);
+            const order = this.dataset.orderNotes || this.dataset.notes || '';
+            const production = this.dataset.productionNotes || '';
+            if (order || production) {
+                openNotesModal({ order, production });
             }
         });
     });
@@ -1162,9 +1191,10 @@ function reinitializeClonedCard(clonedCard, sourceCard) {
         icon.addEventListener('click', function(e) {
             e.preventDefault();
             e.stopPropagation();
-            const notes = this.dataset.notes;
-            if (notes && typeof window.openNotesModal === 'function') {
-                window.openNotesModal(notes);
+            const order = this.dataset.orderNotes || this.dataset.notes || '';
+            const production = this.dataset.productionNotes || '';
+            if ((order || production) && typeof window.openNotesModal === 'function') {
+                window.openNotesModal({ order, production });
             }
         });
     });
@@ -1504,9 +1534,10 @@ function reinitializeClonedCardForGroup(clonedCard, sourceCard, groupBody) {
         icon.addEventListener('click', function(e) {
             e.preventDefault();
             e.stopPropagation();
-            const notes = this.dataset.notes;
-            if (notes && typeof window.openNotesModal === 'function') {
-                window.openNotesModal(notes);
+            const order = this.dataset.orderNotes || this.dataset.notes || '';
+            const production = this.dataset.productionNotes || '';
+            if ((order || production) && typeof window.openNotesModal === 'function') {
+                window.openNotesModal({ order, production });
             }
         });
     });

@@ -105,6 +105,7 @@ def cutting_station():
                     'is_complete': product.quantity_done_cutting == product.quantity,
                     'is_priority': product.is_priority,
                     'order_notes': product.order_notes,
+                    'production_notes': product.production_notes,
                     'client_order_number': product.client_order_number
                 }
 
@@ -289,6 +290,7 @@ def assembly_station():
                     'is_complete': product.quantity_done_assembly == product.quantity,
                     'is_priority': product.is_priority,
                     'order_notes': product.order_notes,
+                    'production_notes': product.production_notes,
                     'client_order_number': product.client_order_number
                 }
 
@@ -487,6 +489,7 @@ def _render_completion_or_gluing(active_tab):
                 'is_complete': qty_done == product.quantity,
                 'is_priority': product.is_priority,
                 'order_notes': product.order_notes,
+                'production_notes': product.production_notes,
                 'client_order_number': product.client_order_number,
             })
 
@@ -654,6 +657,7 @@ def formatting_station():
                     'is_complete': product.quantity_done_formatting == product.quantity,
                     'is_priority': product.is_priority,
                     'order_notes': product.order_notes,
+                    'production_notes': product.production_notes,
                     'client_order_number': product.client_order_number,
                     'parsed_edge_processing': product.parsed_edge_processing,
                     'parsed_edge_type': product.parsed_edge_type,
@@ -895,6 +899,7 @@ def finishing_station():
                 'is_complete': qty_done == product.quantity,
                 'is_priority': product.is_priority,
                 'order_notes': product.order_notes,
+                'production_notes': product.production_notes,
                 'client_order_number': product.client_order_number,
                 'parsed_edge_processing': product.parsed_edge_processing,
                 'edge_description': edge_description,
@@ -1105,6 +1110,7 @@ def packaging_station():
                     'is_complete': product.quantity_done_packaging == product.quantity,
                     'is_priority': product.is_priority,
                     'order_notes': product.order_notes,
+                    'production_notes': product.production_notes,
                     'client_order_number': product.client_order_number,
                     # WYMIARY SUROWE DO OBLICZEN WYSYLKI (2025-12)
                     'parsed_length_cm': float(product.parsed_length_cm) if product.parsed_length_cm else 0,

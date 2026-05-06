@@ -1014,13 +1014,17 @@
                 </div>
             `;
         }
-        if (product.order_notes) {
-            const truncatedNotes = product.order_notes.length > 100
-                ? product.order_notes.substring(0, 100) + '...'
-                : product.order_notes;
+        if (product.order_notes || product.production_notes) {
+            const orderNotes = product.order_notes || '';
+            const productionNotes = product.production_notes || '';
+            const tooltipSrc = orderNotes || productionNotes;
+            const truncatedNotes = tooltipSrc.length > 100
+                ? tooltipSrc.substring(0, 100) + '...'
+                : tooltipSrc;
             iconsHTML += `
                 <div class="header-icon-wrapper notes-icon-wrapper"
-                     data-notes="${product.order_notes.replace(/"/g, '&quot;')}"
+                     data-order-notes="${orderNotes.replace(/"/g, '&quot;')}"
+                     data-production-notes="${productionNotes.replace(/"/g, '&quot;')}"
                      title="${truncatedNotes.replace(/"/g, '&quot;')}">
                     <svg class="header-icon" width="18" height="18"><use href="${window.STATION_CONFIG.iconsUrl}#icon-notes"/></svg>
                 </div>
