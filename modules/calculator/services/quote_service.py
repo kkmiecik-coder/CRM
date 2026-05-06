@@ -266,6 +266,13 @@ def _update_or_create_product(quote, product_data):
             _to_decimal(round_surcharge_netto) * Decimal('1.23')
         )
 
+    # Docięcie do wymiaru (default True)
+    cut_to_size = product_data.get('cut_to_size')
+    if cut_to_size is None:
+        cut_to_size = True
+    else:
+        cut_to_size = bool(cut_to_size)
+
     # Aktualizuj lub utworz QuoteItemDetails
     detail = QuoteItemDetails.query.filter_by(
         quote_id=quote.id, product_index=idx
@@ -329,6 +336,7 @@ def _update_or_create_product(quote, product_data):
         detail.round_surcharge_netto = round_surcharge_netto
         detail.round_surcharge_brutto = round_surcharge_brutto
         detail.lamella_direction = lamella_direction
+        detail.cut_to_size = cut_to_size
     else:
         detail = QuoteItemDetails(
             quote_id=quote.id,
@@ -353,6 +361,7 @@ def _update_or_create_product(quote, product_data):
             round_surcharge_netto=round_surcharge_netto,
             round_surcharge_brutto=round_surcharge_brutto,
             lamella_direction=lamella_direction,
+            cut_to_size=cut_to_size,
         )
         db.session.add(detail)
 
