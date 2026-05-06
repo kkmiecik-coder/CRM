@@ -405,13 +405,19 @@
                                 <h2 class="title-with-underline-h2">Wykończenie</h2>
 
                                 <!-- Toggle: docięcie do wymiaru (per produkt, default Tak) -->
+                                <!-- Uwaga: name="cutToSize" jest takie same we wszystkich .quote-form;
+                                     scope per-produkt obsługuje JS w cut_to_size.js (Task 5) -->
                                 <div class="cut-to-size-toggle-wrapper">
-                                    <label class="input-txt">Docięcie do wymiaru:</label>
+                                    <span class="input-txt">Docięcie do wymiaru:</span>
                                     <div class="toggle-switch cut-to-size-toggle">
-                                        <input type="radio" class="cut-to-size-radio" name="cutToSize" value="yes" checked>
-                                        <label class="toggle-option toggle-option-active">Tak</label>
-                                        <input type="radio" class="cut-to-size-radio" name="cutToSize" value="no">
-                                        <label class="toggle-option">Nie</label>
+                                        <label class="toggle-option">
+                                            <input type="radio" class="cut-to-size-radio" name="cutToSize" value="yes" checked>
+                                            <span class="toggle-option-text">Tak</span>
+                                        </label>
+                                        <label class="toggle-option">
+                                            <input type="radio" class="cut-to-size-radio" name="cutToSize" value="no">
+                                            <span class="toggle-option-text">Nie</span>
+                                        </label>
                                         <div class="toggle-slider"></div>
                                     </div>
                                 </div>

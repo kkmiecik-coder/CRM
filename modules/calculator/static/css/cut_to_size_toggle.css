@@ -15,36 +15,46 @@
     padding: 2px;
 }
 
-.cut-to-size-toggle input[type="radio"] {
-    display: none;
+/* Visually hidden but keyboard-focusable */
+.cut-to-size-toggle .cut-to-size-radio {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    margin: -1px;
+    padding: 0;
+    border: 0;
 }
 
 .cut-to-size-toggle .toggle-option {
-    padding: 6px 16px;
-    cursor: pointer;
+    position: relative;
     z-index: 1;
-    font-weight: 500;
-    color: #555;
-    transition: color 0.2s;
+    display: inline-flex;
+    align-items: center;
+    cursor: pointer;
     user-select: none;
 }
 
-.cut-to-size-toggle input[value="yes"]:checked ~ label:nth-of-type(1) {
+.cut-to-size-toggle .toggle-option-text {
+    padding: 6px 16px;
+    font-weight: 500;
+    color: #555;
+    transition: color 0.2s;
+}
+
+.cut-to-size-toggle .cut-to-size-radio:checked ~ .toggle-option-text {
     color: #fff;
 }
 
-.cut-to-size-toggle input[value="no"]:checked ~ label:nth-of-type(2) {
-    color: #fff;
+/* Focus ring for keyboard users */
+.cut-to-size-toggle .cut-to-size-radio:focus-visible ~ .toggle-option-text {
+    outline: 2px solid #ED6B24;
+    outline-offset: 2px;
+    border-radius: 4px;
 }
 
-.cut-to-size-toggle input[value="yes"]:checked ~ .toggle-slider {
-    transform: translateX(0);
-}
-
-.cut-to-size-toggle input[value="no"]:checked ~ .toggle-slider {
-    transform: translateX(100%);
-}
-
+/* Slider sliding under selected option */
 .cut-to-size-toggle .toggle-slider {
     position: absolute;
     top: 2px;
@@ -55,4 +65,17 @@
     border-radius: 4px;
     transition: transform 0.2s;
     z-index: 0;
+    pointer-events: none;
+}
+
+/* Slider position based on which radio is checked.
+   Selectors target inside .cut-to-size-toggle, where labels are direct children
+   of .cut-to-size-toggle and slider is the last child. We use :has() to look
+   into the labels for the checked state of each radio. */
+.cut-to-size-toggle:has(.cut-to-size-radio[value="yes"]:checked) .toggle-slider {
+    transform: translateX(0);
+}
+
+.cut-to-size-toggle:has(.cut-to-size-radio[value="no"]:checked) .toggle-slider {
+    transform: translateX(100%);
 }
