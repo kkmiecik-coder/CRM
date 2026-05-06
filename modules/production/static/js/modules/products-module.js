@@ -3432,7 +3432,9 @@ class ProductsModule {
         const classMap = {
             'A/A': 'wood-class-aa',
             'A/B': 'wood-class-ab',
+            'A/C': 'wood-class-ac',
             'B/B': 'wood-class-bb',
+            'B/C': 'wood-class-bc',
             'C/C': 'wood-class-cc'
         };
         return classMap[woodClass] || 'wood-class-unknown';

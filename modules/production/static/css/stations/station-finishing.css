@@ -495,6 +495,27 @@ body:not(.dark-mode) .tab-btn.active {
     color: #ff8a65;
 }
 
+[data-wood-class*="A/C"] .badge-class,
+[data-wood-class*="AC"] .badge-class {
+    background: #4a2e00;
+    border-color: #7d4f00;
+    color: #ffb74d;
+}
+
+[data-wood-class*="B/C"] .badge-class,
+[data-wood-class*="BC"] .badge-class {
+    background: #3a0f1f;
+    border-color: #6d2535;
+    color: #ec407a;
+}
+
+[data-wood-class*="C/C"] .badge-class,
+[data-wood-class*="CC"] .badge-class {
+    background: #2e1a4a;
+    border-color: #5c3590;
+    color: #b39ddb;
+}
+
 .badge-dimensions {
     background: var(--bg-tertiary);
     border-color: var(--border-color);

@@ -407,9 +407,12 @@ class VolumeManager {
                         <label>Klasa drewna</label>
                         <select class="volume-select" data-field="wood_class" data-product-key="${productKey}">
                             <option value="">Wybierz...</option>
-                            <option value="A/A" ${savedData.wood_class === 'A/A' ? 'selected' : ''}>A/B</option>
+                            <option value="A/A" ${savedData.wood_class === 'A/A' ? 'selected' : ''}>A/A</option>
                             <option value="A/B" ${savedData.wood_class === 'A/B' ? 'selected' : ''}>A/B</option>
+                            <option value="A/C" ${savedData.wood_class === 'A/C' ? 'selected' : ''}>A/C</option>
                             <option value="B/B" ${savedData.wood_class === 'B/B' ? 'selected' : ''}>B/B</option>
+                            <option value="B/C" ${savedData.wood_class === 'B/C' ? 'selected' : ''}>B/C</option>
+                            <option value="C/C" ${savedData.wood_class === 'C/C' ? 'selected' : ''}>C/C</option>
                             <option value="Rustic" ${savedData.wood_class === 'Rustic' ? 'selected' : ''}>Rustic</option>
                         </select>
                     </div>
@@ -959,7 +962,10 @@ class VolumeManager {
                         <option value="">Wybierz...</option>
                         <option value="A/A" ${(savedData.wood_class || analysis.wood_class) === 'A/A' ? 'selected' : ''}>A/A</option>
                         <option value="A/B" ${(savedData.wood_class || analysis.wood_class) === 'A/B' ? 'selected' : ''}>A/B</option>
+                        <option value="A/C" ${(savedData.wood_class || analysis.wood_class) === 'A/C' ? 'selected' : ''}>A/C</option>
                         <option value="B/B" ${(savedData.wood_class || analysis.wood_class) === 'B/B' ? 'selected' : ''}>B/B</option>
+                        <option value="B/C" ${(savedData.wood_class || analysis.wood_class) === 'B/C' ? 'selected' : ''}>B/C</option>
+                        <option value="C/C" ${(savedData.wood_class || analysis.wood_class) === 'C/C' ? 'selected' : ''}>C/C</option>
                         <option value="Rustic" ${(savedData.wood_class || analysis.wood_class) === 'Rustic' ? 'selected' : ''}>Rustic</option>
                     </select>
                 </div>

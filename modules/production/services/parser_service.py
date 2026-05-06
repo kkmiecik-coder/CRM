@@ -13,7 +13,7 @@ Implementuje inteligentny system parsowania nazw produktów z Baselinker:
 Parsowane parametry:
 - wood_species (gatunek drewna): Dąb, Buk, Jesion, itp.
 - technology (technologia): Klejonka, Deska, Fornir, itp.
-- wood_class (klasa drewna): A, B, C, Rustic, itp.
+- wood_class (klasa drewna): A/A, A/B, A/C, B/B, B/C, C/C, Rustic, itp.
 - dimensions (wymiary): długość x szerokość x grubość (cm)
 - finish_state (wykończenie): Surowe, Olejowane, Bejcowane, Lakierowane
 
@@ -120,10 +120,48 @@ class ProductNameParser:
             'B-B': 'B/B',
             'B-b': 'B/B',
             'b-B': 'B/B',
-            'BB': 'B/B', 
+            'BB': 'B/B',
             'Bb': 'B/B',
             'bB': 'B/B',
-            'bb': 'B/B'
+            'bb': 'B/B',
+            'A/A': 'A/A',
+            'a/a': 'A/A',
+            'A-A': 'A/A',
+            'a-a': 'A/A',
+            'AA': 'A/A',
+            'aa': 'A/A',
+            'A/C': 'A/C',
+            'a/C': 'A/C',
+            'A/c': 'A/C',
+            'a/c': 'A/C',
+            'A-C': 'A/C',
+            'a-c': 'A/C',
+            'A-c': 'A/C',
+            'a-C': 'A/C',
+            'AC': 'A/C',
+            'Ac': 'A/C',
+            'aC': 'A/C',
+            'ac': 'A/C',
+            'B/C': 'B/C',
+            'b/C': 'B/C',
+            'B/c': 'B/C',
+            'b/c': 'B/C',
+            'B-C': 'B/C',
+            'b-c': 'B/C',
+            'B-c': 'B/C',
+            'b-C': 'B/C',
+            'BC': 'B/C',
+            'Bc': 'B/C',
+            'bC': 'B/C',
+            'bc': 'B/C',
+            'C/C': 'C/C',
+            'c/C': 'C/C',
+            'C/c': 'C/C',
+            'c/c': 'C/C',
+            'C-C': 'C/C',
+            'c-c': 'C/C',
+            'CC': 'C/C',
+            'cc': 'C/C'
         }
         
         # Mapowanie technologii
