@@ -55,12 +55,14 @@
     transition: color 0.2s;
 }
 
-.cut-to-size-toggle .cut-to-size-radio:checked + .toggle-option-text {
+/* Selected text white. Używamy :has() na labelu — adjacent sibling :checked +
+   bywał zawodny w niektórych browserach gdy radio jest visually-hidden. */
+.cut-to-size-toggle .toggle-option:has(.cut-to-size-radio:checked) .toggle-option-text {
     color: #fff;
 }
 
 /* Focus ring for keyboard users */
-.cut-to-size-toggle .cut-to-size-radio:focus-visible + .toggle-option-text {
+.cut-to-size-toggle .toggle-option:has(.cut-to-size-radio:focus-visible) .toggle-option-text {
     outline: 2px solid #ED6B24;
     outline-offset: 2px;
     border-radius: 4px;
