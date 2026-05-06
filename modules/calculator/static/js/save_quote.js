@@ -1225,6 +1225,7 @@ function collectQuoteData() {
             shape_data: shapeDataJson,
             shape_svg: shapeSvg,
             lamella_direction: lamellaDirection,
+            cut_to_size: window.cutToSize ? window.cutToSize.get(form) : true,
             finishing_type: finishingType,
             finishing_variant: finishingVariant,
             finishing_color: finishingColor,
