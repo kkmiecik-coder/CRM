@@ -25,6 +25,7 @@
         const boolValue = value === true || value === 'true' || value === 'yes';
         form.dataset.cutToSize = boolValue ? 'true' : 'false';
         syncToggleUI(form);
+        applyLockState(form);
     }
 
     function syncToggleUI(form) {
@@ -36,6 +37,36 @@
             radioYes.checked = value;
             radioNo.checked = !value;
         }
+    }
+
+    /**
+     * Bez docięcia produkt jest półfabrykatem — nie robimy wykończenia ani
+     * obróbki krawędzi. Lockujemy te sekcje wizualnie + blokujemy interakcje.
+     * Reset wartości robi osobno listener change (tylko przy klikniętym Nie),
+     * żeby nie kasować historycznych danych przy zwykłym wczytaniu.
+     */
+    function applyLockState(form) {
+        if (!form) return;
+        const locked = !getCutToSize(form);
+        const targets = [
+            form.querySelector('#finishing-tree-container, .finishing-tree-container'),
+            form.querySelector('.finishing-options-summary'),
+            form.querySelector('.edges-section'),
+        ].filter(Boolean);
+        targets.forEach(function (el) {
+            if (locked) el.classList.add('cut-to-size-locked');
+            else el.classList.remove('cut-to-size-locked');
+        });
+    }
+
+    function resetFinishingAndEdges(form) {
+        if (!form) return;
+        // Wykorzystujemy istniejące przyciski reset (event delegation w edges.js
+        // łapie click i wywołuje window.resetFinishing / resetEdges).
+        const finishingResetBtn = form.querySelector('.finishing-reset-btn');
+        if (finishingResetBtn) finishingResetBtn.click();
+        const edgesResetBtn = form.querySelector('.edges-reset-btn');
+        if (edgesResetBtn) edgesResetBtn.click();
     }
 
     let nextRadioGroupId = 0;
@@ -77,13 +108,19 @@
         const radios = [radioYes, radioNo].filter(Boolean);
         radios.forEach(function (radio) {
             radio.addEventListener('change', function (e) {
-                if (e.target.checked) {
-                    setCutToSize(form, e.target.value === 'yes');
+                if (!e.target.checked) return;
+                const newValue = e.target.value === 'yes';
+                const wasValue = getCutToSize(form);
+                setCutToSize(form, newValue);
+                // Tak → Nie: świadoma decyzja usera, kasujemy wykończenie + krawędzie.
+                if (wasValue && !newValue) {
+                    resetFinishingAndEdges(form);
                 }
             });
         });
-        // Init: ustaw UI zgodnie z aktualnym dataset (np. po wczytaniu drafta).
+        // Init: ustaw UI + lock state zgodnie z aktualnym dataset (np. po drafcie).
         syncToggleUI(form);
+        applyLockState(form);
     }
 
     function bindAllCutToSizeToggles() {
