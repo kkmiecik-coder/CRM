@@ -695,10 +695,14 @@ class EdgesPdfGenerator:
                 finishing_text += f' | {finishing_variant}'
             finishing_html = f'<div><strong>Wykończenie:</strong> {finishing_text}</div>'
 
+        # Docięcie do wymiaru (zawsze widoczne — Tak / Nie)
+        cut_to_size = product.get('cut_to_size', True)
+        cut_to_size_label = 'Tak' if cut_to_size else 'Nie'
+        finishing_html += f'<div><strong>Docięcie do wymiaru:</strong> {cut_to_size_label}</div>'
+
         # Złóż info
         info_html = ''
         if finishing_html or edges_info_html:
-            info_parts = finishing_html + edges_info_html
             if finishing_html and not edges_info_html:
                 info_html = f'<div class="cell-info">{finishing_html}</div>'
             else:
