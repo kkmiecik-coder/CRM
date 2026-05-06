@@ -842,6 +842,11 @@ function addNewProduct() {
     // KROK 5: Dodaj event listenery do nowego formularza
     attachFormListeners(newForm);
 
+    // KROK 5.0: Bind togglu "Docięcie do wymiaru" dla nowego formularza
+    if (window.cutToSize) {
+        window.cutToSize.bind(newForm);
+    }
+
     // KROK 5.1: ✅ POPRAWKA - Przebuduj drzewko wykończeń dla nowego formularza
     // Klonowanie kopiuje stare event listenery, więc trzeba przebudować drzewko
     if (typeof renderFinishingTree === 'function') {
