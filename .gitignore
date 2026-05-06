@@ -242,3 +242,7 @@ docs/superpowers/
 # Superpowers brainstorm sessions
 .superpowers/
 .worktrees/
+
+# macOS
+.DS_Store
+**/.DS_Store
