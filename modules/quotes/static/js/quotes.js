@@ -2771,6 +2771,13 @@ function renderVariantSummary(groupedItemsForIndex, quoteData, productIndex) {
 
     // Buduj tabelę Wykończenie
     let finishingTableRows = '';
+
+    // Pierwszy wiersz: docięcie do wymiaru (zawsze widoczny, niezależnie od finishing).
+    // "Tak" = standard (default), "Nie" = odstępstwo (klient sam dotina) — pogrubione.
+    const cutToSize = (finishing && finishing.cut_to_size === false) ? false : true;
+    const cutToSizeLabel = cutToSize ? 'Tak' : '<strong>Nie</strong>';
+    finishingTableRows += '<tr><td>Docięcie do wymiaru</td><td>' + cutToSizeLabel + '</td></tr>';
+
     if (hasFinishing) {
         if (finishing.finishing_type) finishingTableRows += '<tr><td>Typ</td><td>' + finishing.finishing_type + '</td></tr>';
         if (finishing.finishing_variant) finishingTableRows += '<tr><td>Wariant</td><td>' + finishing.finishing_variant + '</td></tr>';
@@ -2784,7 +2791,7 @@ function renderVariantSummary(groupedItemsForIndex, quoteData, productIndex) {
             }
         }
     } else {
-        finishingTableRows =
+        finishingTableRows +=
             '<tr><td>Typ</td><td>Surowe</td></tr>' +
             '<tr><td>Wariant</td><td>Brak</td></tr>' +
             '<tr><td>Połysk</td><td>Brak</td></tr>' +

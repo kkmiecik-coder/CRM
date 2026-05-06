@@ -790,7 +790,8 @@ def get_quote_details(quote_id):
                 "edges_r_value": d.edges_r_value,
                 "edges_price_netto": float(d.edges_price_netto) if d.edges_price_netto else 0.0,
                 "edges_price_brutto": float(d.edges_price_brutto) if d.edges_price_brutto else 0.0,
-                "edges_svg": d.edges_svg
+                "edges_svg": d.edges_svg,
+                "cut_to_size": bool(d.cut_to_size) if d.cut_to_size is not None else True
             } for d in finishing_details],
             "client": {
                 "id": quote.client.id if quote.client else None,
@@ -1071,7 +1072,8 @@ def get_client_quote_data(token):
                 "edges_r_value": detail.edges_r_value,
                 "edges_price_netto": float(detail.edges_price_netto or 0),
                 "edges_price_brutto": float(detail.edges_price_brutto or 0),
-                "edges_svg": detail.edges_svg
+                "edges_svg": detail.edges_svg,
+                "cut_to_size": bool(detail.cut_to_size) if detail.cut_to_size is not None else True
             }
 
             # Dodaj ścieżkę do obrazka jeśli istnieje kolor
