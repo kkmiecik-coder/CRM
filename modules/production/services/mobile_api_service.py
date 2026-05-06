@@ -562,6 +562,7 @@ def serialize_order(item, station_code=None):
         'shape_svg': item.shape_svg,
         'edge_svg': item.edge_svg,
         'has_edge': bool(item.parsed_edge_processing),
+        'cut_to_size': bool(getattr(item, 'cut_to_size', True)),
         'lamella_direction': item.lamella_direction,
         'updated_at': _iso(item.updated_at),
     }
