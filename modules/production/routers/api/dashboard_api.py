@@ -920,7 +920,9 @@ def dashboard_tab_content():
         }
 
         # "In production now" — liczone per niespakowana sztuka.
+        # Wykluczamy spakowane i anulowane.
         in_production_items = ProductionItem.query.filter(
+            ProductionItem.current_status.notin_(('spakowane', 'anulowane')),
             db.func.coalesce(ProductionItem.quantity_done_packaging, 0) < ProductionItem.quantity
         ).all()
 

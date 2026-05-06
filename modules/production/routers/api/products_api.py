@@ -853,6 +853,8 @@ def products_tab_content():
             total_count = 0
             stats_breakdown_source = []
             for p in products_data:
+                if p.get('current_status') in ('spakowane', 'anulowane'):
+                    continue
                 qty = int(p.get('quantity') or 0)
                 done = int(p.get('quantity_done_packaging') or 0)
                 remaining = qty - done

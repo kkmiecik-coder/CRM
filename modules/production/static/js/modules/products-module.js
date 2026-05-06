@@ -3332,18 +3332,57 @@ class ProductsModule {
         const products = this.state.filteredProducts;
         const orders = this.state.filteredOrders;
 
+        // Statystyki liczone per niespakowana sztuka — pomijamy pozycje
+        // 'spakowane' i 'anulowane'; remaining = quantity - quantity_done_packaging.
+        const archiveMode = this.state.viewMode === 'archive';
+        let totalCount = 0;
+        let totalQuantity = 0;
+        let totalVolume = 0;
+        let totalValue = 0;
+        const activeOrderKeys = new Set();
+        const filteredForBreakdown = [];
+
+        products.forEach(p => {
+            const qty = parseInt(p.quantity) || 0;
+            const status = p.current_status;
+
+            if (archiveMode) {
+                totalCount += 1;
+                totalQuantity += qty || 1;
+                totalVolume += (parseFloat(p.volume_m3) || 0) * (qty || 1);
+                totalValue += parseFloat(p.total_value_net) || 0;
+                filteredForBreakdown.push(p);
+                if (p.internal_order_number) activeOrderKeys.add(p.internal_order_number);
+                return;
+            }
+
+            if (status === 'spakowane' || status === 'anulowane') return;
+            const done = parseInt(p.quantity_done_packaging) || 0;
+            const remaining = qty - done;
+            if (remaining <= 0) return;
+            const ratio = qty > 0 ? remaining / qty : 0;
+
+            totalCount += 1;
+            totalQuantity += remaining;
+            totalVolume += (parseFloat(p.volume_m3) || 0) * remaining;
+            totalValue += (parseFloat(p.total_value_net) || 0) * ratio;
+            filteredForBreakdown.push(p);
+            if (p.internal_order_number) activeOrderKeys.add(p.internal_order_number);
+        });
+
         this.state.stats = {
-            orderCount: orders.length,
-            totalCount: products.length,
-            filteredCount: products.length,
-            totalQuantity: products.reduce((sum, p) => sum + (parseInt(p.quantity) || 1), 0),
-            totalVolume: orders.reduce((sum, o) => sum + o.totalVolume, 0),
-            totalValue: orders.reduce((sum, o) => sum + o.totalValue, 0),
+            orderCount: archiveMode ? orders.length : activeOrderKeys.size,
+            totalCount: totalCount,
+            filteredCount: totalCount,
+            totalQuantity: totalQuantity,
+            totalVolume: totalVolume,
+            totalValue: totalValue,
             urgentCount: orders.filter(o => {
                 if (!o.deadline) return false;
+                if (!archiveMode && !activeOrderKeys.has(o.internalOrderNumber)) return false;
                 return this.calculateDaysUntilDeadline(o.deadline) <= 3;
             }).length,
-            statusBreakdown: this.calculateStatusBreakdown(products)
+            statusBreakdown: this.calculateStatusBreakdown(filteredForBreakdown)
         };
 
         // Aktualizuj UI statystyk
