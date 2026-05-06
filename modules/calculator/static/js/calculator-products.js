@@ -310,7 +310,10 @@ function duplicateProduct(sourceIndex) {
         edgesCount: sourceForm.dataset.edgesCount || null,
         edgesType: sourceForm.dataset.edgesType || null,
         edgesRValue: sourceForm.dataset.edgesRValue || null,
-        edgesSvg: sourceForm.dataset.edgesSvg || null
+        edgesSvg: sourceForm.dataset.edgesSvg || null,
+
+        // Docięcie do wymiaru
+        cutToSize: sourceForm.dataset.cutToSize || 'true',
     };
 
     // Pobierz zaznaczony wariant z formularza źródłowego (pomiń radio kształtu)
@@ -364,6 +367,10 @@ function duplicateProduct(sourceIndex) {
             return;
         }
 
+        // Skopiuj cut_to_size na nowy formularz
+        if (window.cutToSize) {
+            window.cutToSize.set(newForm, sourceData.cutToSize === 'true');
+        }
 
         // Wypełnij wymiary (z dispatchEvent żeby listenery zareagowały)
         if (sourceData.length) {
