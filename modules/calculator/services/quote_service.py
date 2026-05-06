@@ -591,6 +591,13 @@ def create_quote(data, user_email):
                     _to_decimal(round_surcharge_netto) * Decimal('1.23')
                 )
 
+            # Docięcie do wymiaru (default True — klient dostaje produkt docięty)
+            cut_to_size = product.get('cut_to_size')
+            if cut_to_size is None:
+                cut_to_size = True
+            else:
+                cut_to_size = bool(cut_to_size)
+
             # Szczegóły produktu (wykończenie + krawędzie + kształt)
             item_details = QuoteItemDetails(
                 quote_id=quote.id,
@@ -615,6 +622,7 @@ def create_quote(data, user_email):
                 round_surcharge_netto=round_surcharge_netto,
                 round_surcharge_brutto=round_surcharge_brutto,
                 lamella_direction=lamella_direction,
+                cut_to_size=cut_to_size,
             )
             db.session.add(item_details)
 
