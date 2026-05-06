@@ -42,20 +42,39 @@
 
     function bindCutToSizeToggle(form) {
         if (!form) return;
-        const radios = form.querySelectorAll('.cut-to-size-radio');
+        const radioYes = form.querySelector('.cut-to-size-radio[value="yes"]');
+        const radioNo = form.querySelector('.cut-to-size-radio[value="no"]');
+        const labelYes = form.querySelector('.cut-to-size-label-yes');
+        const labelNo = form.querySelector('.cut-to-size-label-no');
+        const labelHeader = form.querySelector('.cut-to-size-label');
 
-        // Scope radio group per form. Bez <form>-wrappera wspolny atrybut
-        // name="cutToSize" laczy radio z wszystkich .quote-form w jedna
-        // grupe — wybor w jednym deselectuje pozostale. Nadajemy unikalny
-        // name przy pierwszym bindzie; idempotentnie pomijamy ponowny rebind.
+        // Scope: bez <form>-wrappera wspólne name + id wyciekają między
+        // .quote-form. Nadajemy unikalny suffix per formularz, łącznie z
+        // przepisaniem id/for (żeby kliknięcie w label trafiało we właściwy
+        // input). Idempotentne — tylko przy pierwszym bindzie.
         if (!form.dataset.cutToSizeGroup) {
             const groupId = 'cutToSize-' + (nextRadioGroupId++);
             form.dataset.cutToSizeGroup = groupId;
-            radios.forEach(function (radio) {
-                radio.name = groupId;
-            });
+
+            const yesId = groupId + '-yes';
+            const noId = groupId + '-no';
+
+            if (radioYes) {
+                radioYes.name = groupId;
+                radioYes.id = yesId;
+            }
+            if (radioNo) {
+                radioNo.name = groupId;
+                radioNo.id = noId;
+            }
+            if (labelYes) labelYes.setAttribute('for', yesId);
+            if (labelNo) labelNo.setAttribute('for', noId);
+            // Nagłówek "Docięcie do wymiaru:" — usuwamy ewentualny stary for=,
+            // żeby nie wskazywał na #cutToSizeYes z innego formularza.
+            if (labelHeader) labelHeader.removeAttribute('for');
         }
 
+        const radios = [radioYes, radioNo].filter(Boolean);
         radios.forEach(function (radio) {
             radio.addEventListener('change', function (e) {
                 if (e.target.checked) {

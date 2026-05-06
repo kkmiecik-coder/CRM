@@ -404,20 +404,17 @@
                             <section class="finishing-section">
                                 <h2 class="title-with-underline-h2">Wykończenie</h2>
 
-                                <!-- Toggle: docięcie do wymiaru (per produkt, default Tak) -->
-                                <!-- Uwaga: name="cutToSize" jest takie same we wszystkich .quote-form;
-                                     scope per-produkt obsługuje JS w cut_to_size.js (Task 5) -->
+                                <!-- Toggle: docięcie do wymiaru (per produkt, default Tak).
+                                     Wzorzec dokładnie taki sam jak priceMode (brutto/netto) — flat
+                                     struktura input + label, sparowane przez for/id. JS w cut_to_size.js
+                                     nadaje unikalne id/for/name per formularz przy bindzie. -->
                                 <div class="cut-to-size-toggle-wrapper">
-                                    <span class="input-txt">Docięcie do wymiaru:</span>
+                                    <label class="input-txt cut-to-size-label">Docięcie do wymiaru:</label>
                                     <div class="toggle-switch cut-to-size-toggle">
-                                        <label class="toggle-option">
-                                            <input type="radio" class="cut-to-size-radio" name="cutToSize" value="yes" checked>
-                                            <span class="toggle-option-text">Tak</span>
-                                        </label>
-                                        <label class="toggle-option">
-                                            <input type="radio" class="cut-to-size-radio" name="cutToSize" value="no">
-                                            <span class="toggle-option-text">Nie</span>
-                                        </label>
+                                        <input type="radio" class="cut-to-size-radio" name="cutToSize" id="cutToSizeYes" value="yes" checked>
+                                        <label for="cutToSizeYes" class="toggle-option toggle-option-active cut-to-size-label-yes">Tak</label>
+                                        <input type="radio" class="cut-to-size-radio" name="cutToSize" id="cutToSizeNo" value="no">
+                                        <label for="cutToSizeNo" class="toggle-option cut-to-size-label-no">Nie</label>
                                         <div class="toggle-slider"></div>
                                     </div>
                                 </div>
