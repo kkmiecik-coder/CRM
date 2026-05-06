@@ -622,6 +622,12 @@
                             - {{ finishing_detail.edges_config|map(attribute='letter')|list|sort|join(', ') }}
                         </span>
                         {% endif %}
+                        <!-- Docięcie do wymiaru — pokazujemy TYLKO gdy klient sam dotina (cut_to_size = false) -->
+                        {% if finishing_detail and finishing_detail.cut_to_size == False %}
+                        <br><span class="finishing-details" style="color: #555;">
+                            Docięcie do wymiaru: <strong>Nie</strong>
+                        </span>
+                        {% endif %}
                     </td>
                     <td>{{ "%.1f"|format(item.length_cm) }} × {{ "%.1f"|format(item.width_cm) }} × {{ "%.1f"|format(item.thickness_cm) }}</td>
                     <td>szt.</td>
