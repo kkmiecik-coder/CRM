@@ -121,6 +121,9 @@ class ProductionItem(db.Model):
                                  comment='Kolor z kodem: BRUNAT 22-23 (tylko przy barwnie)')
     parsed_edge_processing = Column(Boolean, default=False, nullable=False,
                                      comment='Czy produkt posiada obróbkę krawędzi (fazowanie, frezowanie, R(X), kąt, zaokrąglenie, faza)')
+    cut_to_size = Column(Boolean, nullable=False, default=True,
+                         comment='Czy produkt jest docinany do wymiaru. '
+                                 'False = klient sam dotina (pomijamy formatting/finishing).')
     parsed_edge_type = Column(String(20), nullable=True,
                               comment='Typ obróbki: zaokrąglenie / fazowanie')
     parsed_edge_radius = Column(Integer, nullable=True,
@@ -1186,7 +1189,8 @@ class ProductionStationEvent(db.Model):
     device_id = Column(String(64), nullable=True, index=True,
                        comment='prod_devices.device_id (gdy mobile)')
     source = Column(
-        Enum('web', 'mobile', 'admin', 'system', name='station_event_source'),
+        Enum('web', 'mobile', 'admin', 'system', 'auto_skip',
+             name='station_event_source'),
         nullable=False, default='web', index=True
     )
 
