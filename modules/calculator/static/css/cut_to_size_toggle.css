@@ -2,17 +2,24 @@
 
 .cut-to-size-toggle-wrapper {
     display: flex;
-    align-items: center;
-    gap: 12px;
+    flex-direction: column;
+    gap: 8px;
     margin-bottom: 16px;
+    width: 100%;
+}
+
+.cut-to-size-toggle-wrapper .input-txt {
+    display: block;
 }
 
 .cut-to-size-toggle {
     position: relative;
-    display: inline-flex;
+    display: flex;
+    width: 100%;
     background: #f0f0f0;
     border-radius: 6px;
     padding: 2px;
+    box-sizing: border-box;
 }
 
 /* Visually hidden but keyboard-focusable */
@@ -30,31 +37,36 @@
 .cut-to-size-toggle .toggle-option {
     position: relative;
     z-index: 1;
-    display: inline-flex;
+    flex: 1 1 50%;
+    display: flex;
     align-items: center;
+    justify-content: center;
     cursor: pointer;
     user-select: none;
 }
 
 .cut-to-size-toggle .toggle-option-text {
+    display: block;
+    width: 100%;
+    text-align: center;
     padding: 6px 16px;
     font-weight: 500;
     color: #555;
     transition: color 0.2s;
 }
 
-.cut-to-size-toggle .cut-to-size-radio:checked ~ .toggle-option-text {
+.cut-to-size-toggle .cut-to-size-radio:checked + .toggle-option-text {
     color: #fff;
 }
 
 /* Focus ring for keyboard users */
-.cut-to-size-toggle .cut-to-size-radio:focus-visible ~ .toggle-option-text {
+.cut-to-size-toggle .cut-to-size-radio:focus-visible + .toggle-option-text {
     outline: 2px solid #ED6B24;
     outline-offset: 2px;
     border-radius: 4px;
 }
 
-/* Slider sliding under selected option */
+/* Slider sliding under selected option (50% width — half of toggle) */
 .cut-to-size-toggle .toggle-slider {
     position: absolute;
     top: 2px;
@@ -68,10 +80,6 @@
     pointer-events: none;
 }
 
-/* Slider position based on which radio is checked.
-   Selectors target inside .cut-to-size-toggle, where labels are direct children
-   of .cut-to-size-toggle and slider is the last child. We use :has() to look
-   into the labels for the checked state of each radio. */
 .cut-to-size-toggle:has(.cut-to-size-radio[value="yes"]:checked) .toggle-slider {
     transform: translateX(0);
 }

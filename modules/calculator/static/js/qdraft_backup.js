@@ -1365,7 +1365,7 @@ class QuoteDraftBackup {
             observer.observe(quoteForms, {
                 attributes: true,
                 attributeFilter: ['data-finishing-type', 'data-finishing-variant', 'data-finishing-color',
-                    'data-edges-data', 'data-edges-type', 'data-product-shape'],
+                    'data-edges-data', 'data-edges-type', 'data-product-shape', 'data-cut-to-size'],
                 subtree: true
             });
         }
