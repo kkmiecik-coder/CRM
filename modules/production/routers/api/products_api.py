@@ -768,6 +768,7 @@ def products_tab_content():
                 'parsed_thickness_cm': parsed_thickness_cm,
                 'parsed_finish_state': get_attr(product, 'parsed_finish_state', None),
                 'parsed_edge_processing': get_attr(product, 'parsed_edge_processing', False),
+                'cut_to_size': bool(get_attr(product, 'cut_to_size', True)),
 
                 # Produkcja - statusy i czasami
                 'cutting_started_at': get_attr(product, 'cutting_started_at').isoformat() if get_attr(product, 'cutting_started_at') else None,
@@ -2378,6 +2379,7 @@ def _serialize_production_item(item, today=None):
         'parsed_technology': getattr(item, 'parsed_technology', None),
         'parsed_wood_class': getattr(item, 'parsed_wood_class', None),
         'parsed_finish_state': getattr(item, 'parsed_finish_state', None),
+        'cut_to_size': bool(getattr(item, 'cut_to_size', True)),
         'parsed_width_cm': getattr(item, 'parsed_width_cm', None),
         'parsed_length_cm': getattr(item, 'parsed_length_cm', None),
         'parsed_thickness_cm': getattr(item, 'parsed_thickness_cm', None),
