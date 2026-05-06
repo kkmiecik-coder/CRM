@@ -1,0 +1,58 @@
+/* Toggle "Docięcie do wymiaru" — per-produkt, w sekcji Wykończenie */
+
+.cut-to-size-toggle-wrapper {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 16px;
+}
+
+.cut-to-size-toggle {
+    position: relative;
+    display: inline-flex;
+    background: #f0f0f0;
+    border-radius: 6px;
+    padding: 2px;
+}
+
+.cut-to-size-toggle input[type="radio"] {
+    display: none;
+}
+
+.cut-to-size-toggle .toggle-option {
+    padding: 6px 16px;
+    cursor: pointer;
+    z-index: 1;
+    font-weight: 500;
+    color: #555;
+    transition: color 0.2s;
+    user-select: none;
+}
+
+.cut-to-size-toggle input[value="yes"]:checked ~ label:nth-of-type(1) {
+    color: #fff;
+}
+
+.cut-to-size-toggle input[value="no"]:checked ~ label:nth-of-type(2) {
+    color: #fff;
+}
+
+.cut-to-size-toggle input[value="yes"]:checked ~ .toggle-slider {
+    transform: translateX(0);
+}
+
+.cut-to-size-toggle input[value="no"]:checked ~ .toggle-slider {
+    transform: translateX(100%);
+}
+
+.cut-to-size-toggle .toggle-slider {
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: calc(50% - 2px);
+    height: calc(100% - 4px);
+    background: #ED6B24;
+    border-radius: 4px;
+    transition: transform 0.2s;
+    z-index: 0;
+}

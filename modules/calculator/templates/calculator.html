@@ -7,6 +7,7 @@
     <link rel="icon" href="{{ url_for('static', filename='images/favicon.png') }}" type="image/png">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
     <link rel="stylesheet" href="{{ url_for('calculator.static', filename='css/style_calculator.css') }}">
+    <link rel="stylesheet" href="{{ url_for('calculator.static', filename='css/cut_to_size_toggle.css') }}">
     <link rel="stylesheet" href="{{ url_for('calculator.static', filename='css/save_quote.css') }}">
     <link rel="stylesheet" href="{{ url_for('calculator.static', filename='css/edges.css') }}">
     <link rel="stylesheet" href="{{ url_for('calculator.static', filename='css/shape_canvas.css') }}">
@@ -110,7 +111,7 @@
                     <!-- PRAWA KOLUMNA: Workspace -->
                     <div class="calculator-workspace">
                     <div class="quote-forms">
-                        <div class="quote-form" data-product-shape="rectangular">
+                        <div class="quote-form" data-product-shape="rectangular" data-cut-to-size="true">
                           <!-- Wiersz 1: Produkt + Kalkulacja -->
                           <div class="workspace-row workspace-row-1">
                             <section class="product-data">
@@ -402,6 +403,18 @@
                             <!-- Sekcja: Wykończenie (malowanie/olejowanie) -->
                             <section class="finishing-section">
                                 <h2 class="title-with-underline-h2">Wykończenie</h2>
+
+                                <!-- Toggle: docięcie do wymiaru (per produkt, default Tak) -->
+                                <div class="cut-to-size-toggle-wrapper">
+                                    <label class="input-txt">Docięcie do wymiaru:</label>
+                                    <div class="toggle-switch cut-to-size-toggle">
+                                        <input type="radio" class="cut-to-size-radio" name="cutToSize" value="yes" checked>
+                                        <label class="toggle-option toggle-option-active">Tak</label>
+                                        <input type="radio" class="cut-to-size-radio" name="cutToSize" value="no">
+                                        <label class="toggle-option">Nie</label>
+                                        <div class="toggle-slider"></div>
+                                    </div>
+                                </div>
 
                                 <!-- Dynamiczne drzewko wykończeń - renderowane przez JavaScript -->
                                 <div class="finishing-tree-container" id="finishing-tree-container">
