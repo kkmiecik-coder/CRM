@@ -292,6 +292,7 @@ class QuoteDraftBackup {
             shape,
             shape_data: shapeData,
             lamella_direction: lamellaDirection,
+            cut_to_size: window.cutToSize ? window.cutToSize.get(form) : true,
             clientType,
             finishing: {
                 type: finishingType,
@@ -800,6 +801,11 @@ class QuoteDraftBackup {
             if (select) {
                 select.value = productData.clientType;
             }
+        }
+
+        if (window.cutToSize) {
+            const cts = productData.cut_to_size;
+            window.cutToSize.set(form, cts === undefined || cts === null ? true : cts);
         }
 
         await this.delay(200);
