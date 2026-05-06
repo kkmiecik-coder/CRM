@@ -59,11 +59,19 @@
         });
     }
 
-    // Świadomie nie auto-resetujemy wykończenia/krawędzi przy zmianie
-    // Tak → Nie. resetFinishing kasuje poziomy drzewka z DOM (m.in. wiersz
-    // "Wariant"), co psuje layout. Lock wystarcza — user nie może
-    // pomyłkowo dodać wykończenia, a istniejący wybór pozostaje widoczny
-    // (wyszarzony) i przeżywa toggle Nie ↔ Tak bez utraty konfiguracji.
+    /**
+     * Reset wykończenia + krawędzi przy świadomej zmianie Tak → Nie.
+     * Używa istniejących przycisków reset (event delegation w edges.js).
+     * Wariant/podpoziomy znikają jak przy normalnym kliknięciu "Surowe" —
+     * to jest oczekiwane zachowanie (Surowe nie ma wariantów).
+     */
+    function resetFinishingAndEdges(form) {
+        if (!form) return;
+        const finishingResetBtn = form.querySelector('.finishing-reset-btn');
+        if (finishingResetBtn) finishingResetBtn.click();
+        const edgesResetBtn = form.querySelector('.edges-reset-btn');
+        if (edgesResetBtn) edgesResetBtn.click();
+    }
 
     let nextRadioGroupId = 0;
 
@@ -105,7 +113,13 @@
         radios.forEach(function (radio) {
             radio.addEventListener('change', function (e) {
                 if (!e.target.checked) return;
-                setCutToSize(form, e.target.value === 'yes');
+                const newValue = e.target.value === 'yes';
+                const wasValue = getCutToSize(form);
+                setCutToSize(form, newValue);
+                // Tak → Nie: świadoma decyzja usera, kasujemy wykończenie + krawędzie.
+                if (wasValue && !newValue) {
+                    resetFinishingAndEdges(form);
+                }
             });
         });
         // Init: ustaw UI + lock state zgodnie z aktualnym dataset (np. po drafcie).
