@@ -732,6 +732,9 @@ class QuoteItemDetails(db.Model):
     shape_svg = db.Column(db.Text, nullable=True)    # SVG string for display in quotes/PDF
     lamella_direction = db.Column(db.Integer, nullable=True)  # 0, 45, 90, 135 — tylko kszalty nieregularne
 
+    # Docięcie do wymiaru (czy klient otrzymuje produkt docięty do wymiaru z kalkulatora)
+    cut_to_size = db.Column(db.Boolean, nullable=False, default=True, server_default='1')
+
     __table_args__ = (
         db.UniqueConstraint('quote_id', 'product_index', name='uq_quote_product'),
     )
@@ -760,6 +763,7 @@ class QuoteItemDetails(db.Model):
             'round_surcharge_brutto': float(self.round_surcharge_brutto) if self.round_surcharge_brutto else 0.0,
             'shape_data': self.shape_data,
             'shape_svg': self.shape_svg,
+            'cut_to_size': bool(self.cut_to_size),
             'lamella_direction': self.lamella_direction,
         }
 
