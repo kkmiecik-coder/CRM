@@ -597,7 +597,7 @@ class ProductionItem(db.Model):
 
         # Log zdarzenia tylko gdy stan faktycznie się zmienił
         if value != old_value and self.id is not None:
-            normalized_source = source if source in ('web', 'mobile', 'admin', 'system') else 'web'
+            normalized_source = source if source in ('web', 'mobile', 'admin', 'system', 'auto_skip') else 'web'
             event = ProductionStationEvent(
                 production_item_id=self.id,
                 station_code=station_code,
@@ -654,6 +654,17 @@ class ProductionItem(db.Model):
             return not self.parsed_edge_processing
         return False
 
+    def should_skip_to_logistics(self):
+        """
+        Po sklejaniu: produkt bez docięcia do wymiaru pomija
+        formatting + finishing + ewentualną lakiernię i trafia
+        bezpośrednio do logistyki.
+
+        Klient sam dotina i sam wykańcza — zgodnie z biznes-decyzją
+        cut_to_size=False (pole w QuoteItemDetails).
+        """
+        return self.cut_to_size is False
+
     def complete_task(self, station_code):
         """
         Ukończenie pracy na stanowisku - przejście do następnego statusu
@@ -681,6 +692,22 @@ class ProductionItem(db.Model):
 
         if station_code in next_status_map:
             next_status = next_status_map[station_code]
+
+            # Sklejanie → cut_to_size=False pomija formatting + finishing + lakiernię
+            skipped_to_logistics = False
+            if station_code == 'gluing' and self.should_skip_to_logistics():
+                next_status = 'czeka_na_logistyke'
+                skipped_to_logistics = True
+                for skipped_station in ('formatting', 'finishing'):
+                    # set_quantity_done loguje event w prod_station_events (source='auto_skip')
+                    self.set_quantity_done(skipped_station, self.quantity, source='auto_skip')
+                    completed_attr = f'{skipped_station}_completed_at'
+                    if getattr(self, completed_attr, None) is None:
+                        setattr(self, completed_attr, now)
+                logger.info("Produkt bez docięcia — pomijam formatting/finishing/lakiernię", extra={
+                    'product_id': self.short_product_id,
+                    'cut_to_size': False,
+                })
 
             # Formatowanie → surowe bez obróbki krawędzi pomija wykańczanie
             skipped_finishing = False
@@ -722,7 +749,8 @@ class ProductionItem(db.Model):
             'product_id': self.short_product_id,
             'station': station_code,
             'new_status': self.current_status,
-            'skipped_finishing': skipped_finishing if 'skipped_finishing' in locals() else False
+            'skipped_finishing': skipped_finishing if 'skipped_finishing' in locals() else False,
+            'skipped_to_logistics': skipped_to_logistics if 'skipped_to_logistics' in locals() else False,
         })
 
 class ProductionPriorityConfig(db.Model):
