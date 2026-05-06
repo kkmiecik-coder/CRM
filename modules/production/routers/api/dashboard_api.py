@@ -1121,7 +1121,9 @@ def dashboard_data():
         alerts_data = sorted(orders_map.values(), key=lambda x: x.get('days_remaining', 0))
 
         # "In production now" — liczone per niespakowana sztuka.
+        # Wykluczamy spakowane i anulowane.
         in_production_items_dd = ProductionItem.query.filter(
+            ProductionItem.current_status.notin_(('spakowane', 'anulowane')),
             db.func.coalesce(ProductionItem.quantity_done_packaging, 0) < ProductionItem.quantity
         ).all()
 
