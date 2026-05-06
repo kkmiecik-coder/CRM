@@ -1854,7 +1854,11 @@ class ProductsModule {
             product.parsed_wood_class,
             product.parsed_thickness_cm ? `${product.parsed_thickness_cm}cm` : null
         ].filter(Boolean);
-        specContainer.innerHTML = specs.map(s => `<span class="il-product-spec-tag">${s}</span>`).join('');
+        const specsHtml = specs.map(s => `<span class="il-product-spec-tag">${s}</span>`).join('');
+        const cutToSizeBadge = product.cut_to_size === false
+            ? '<span class="spec-cut-to-size-no">bez docięcia</span>'
+            : '';
+        specContainer.innerHTML = specsHtml + cutToSizeBadge;
 
         // Quantity
         row.querySelector('.il-product-qty').textContent = `${product.quantity || 1} szt.`;

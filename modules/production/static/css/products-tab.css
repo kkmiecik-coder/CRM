@@ -2564,3 +2564,19 @@
 .il-scanner-dismiss:hover {
     background: #f2f4f7;
 }
+
+/* Cut to size — wyjątek (klient sam docina) */
+.il-product-spec .spec-cut-to-size-no {
+    display: inline-block;
+    margin-left: 6px;
+    padding: 2px 8px;
+    color: #ff8c00;
+    font-weight: 600;
+    border: 1px solid #ff8c00;
+    border-radius: 3px;
+    background: rgba(255, 140, 0, 0.08);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+    font-family: var(--il-font);
+}
