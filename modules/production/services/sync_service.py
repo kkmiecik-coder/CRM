@@ -717,8 +717,11 @@ class BaselinkerSyncService:
                 quantity=quantity  # NOWY PARAMETR
             )
         
-            production_item = ProductionItem(**product_data_dict)
-        
+            # Odfiltruj klucze pomocnicze (prefiks '_') — np. '_quote_detail' cache
+            # nie jest polem ProductionItem i powodowałby TypeError przy konstrukcji.
+            product_data_clean = {k: v for k, v in product_data_dict.items() if not k.startswith('_')}
+            production_item = ProductionItem(**product_data_clean)
+
             logger.debug("Utworzono ProductionItem", extra={
                 'product_id': product_id,
                 'sequence_number': sequence_number,
@@ -2703,7 +2706,9 @@ class BaselinkerSyncService:
                         quantity=quantity
                     )
 
-                    production_item = ProductionItem(**product_data)
+                    # Odfiltruj klucze pomocnicze (prefiks '_') — np. '_quote_detail' cache
+                    product_data_clean = {k: v for k, v in product_data.items() if not k.startswith('_')}
+                    production_item = ProductionItem(**product_data_clean)
                     production_item.update_thickness_group()
 
                     prepared_items.append(production_item)
@@ -2828,6 +2833,10 @@ class BaselinkerSyncService:
                 product_data.get('baselinker_product_id')
             )
 
+        # Cache resolved detail for downstream consumers (np. _enrich_edge_data_from_quote)
+        # — unika ponownego dopasowania (PDF fetch / DB lookup) na ten sam produkt.
+        product_data['_quote_detail'] = detail
+
         if detail is not None:
             value = getattr(detail, 'cut_to_size', None)
             if value is None:
@@ -2837,10 +2846,10 @@ class BaselinkerSyncService:
         else:
             product_data['cut_to_size'] = True
 
-        logger.info("Cut_to_size rozstrzygnięty",
-                    extra={'baselinker_product_id': product_data.get('baselinker_product_id'),
-                           'cut_to_size': product_data['cut_to_size'],
-                           'matched_quote': detail is not None})
+        logger.debug("Cut_to_size rozstrzygnięty",
+                     extra={'baselinker_product_id': product_data.get('baselinker_product_id'),
+                            'cut_to_size': product_data['cut_to_size'],
+                            'matched_quote': detail is not None})
 
         return product_data
 
@@ -2852,18 +2861,19 @@ class BaselinkerSyncService:
         if not product_data.get('parsed_edge_processing'):
             return product_data
 
-        detail = None
-        baselinker_order_id = product_data.get('baselinker_order_id')
+        # Reużyj cache z _resolve_cut_to_size (jeśli było wywołane wcześniej)
+        if '_quote_detail' in product_data:
+            detail = product_data['_quote_detail']
+        else:
+            # Poziom 1: Metadane PDF
+            detail = self._try_match_via_pdf(order_data, product_data)
 
-        # Poziom 1: Metadane PDF
-        detail = self._try_match_via_pdf(order_data, product_data)
-
-        # Poziom 2: order_product_id
-        if not detail:
-            detail = self._try_match_via_order_product_id(
-                baselinker_order_id,
-                product_data.get('baselinker_product_id')
-            )
+            # Poziom 2: order_product_id
+            if not detail:
+                detail = self._try_match_via_order_product_id(
+                    product_data.get('baselinker_order_id'),
+                    product_data.get('baselinker_product_id')
+                )
 
         # Jeśli znaleziono QuoteItemDetails — kopiuj dane
         if detail:
