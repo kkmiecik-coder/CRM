@@ -19,7 +19,7 @@ Data: 2025-01-22
 from datetime import datetime, date
 from sqlalchemy import Column, Integer, BigInteger, String, Text, DateTime, Date, Numeric, Enum, Boolean, JSON, ForeignKey
 from sqlalchemy.dialects.mysql import LONGTEXT
-from sqlalchemy.orm import relationship, validates
+from sqlalchemy.orm import relationship, validates, backref
 from sqlalchemy.sql import func
 from extensions import db
 from modules.logging import get_structured_logger
@@ -1222,7 +1222,10 @@ class ProductionStationEvent(db.Model):
         nullable=False, default='web', index=True
     )
 
-    item = relationship('ProductionItem', backref='station_events')
+    item = relationship(
+        'ProductionItem',
+        backref=backref('station_events', passive_deletes=True)
+    )
     user = relationship('User')
 
     def __repr__(self):
