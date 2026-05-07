@@ -121,3 +121,6 @@ pypdf>=4.0.0
 
 # Mobile API — APK release parsing (auto-update tabletów)
 pyaxmlparser==0.3.31
+
+# Error monitoring (Sentry)
+sentry-sdk[flask]>=2.0.0

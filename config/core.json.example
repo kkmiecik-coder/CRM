@@ -55,6 +55,13 @@
         "MANUAL_LOG_LIMIT": 200,
         "SYSTEM_USER_ID": 1
     },
+    "SENTRY": {
+        "enabled": true,
+        "dsn": "https://PUBLIC_KEY@o000000.ingest.de.sentry.io/PROJECT_ID",
+        "environment": "production",
+        "traces_sample_rate": 0.0,
+        "send_default_pii": false
+    },
     "API_MOBILE": {
         "jwt_secret": "WYGENERUJ_64_ZNAKOWY_LOSOWY_CIAG",
         "jwt_expiry_days": 365,

@@ -328,6 +328,11 @@ def get_local_now():
     return datetime.now(poland_tz).replace(tzinfo=None)
 
 def create_app():
+    # Sentry musi być zainicjalizowane PRZED utworzeniem instancji Flask,
+    # aby integracje (Flask, SQLAlchemy, logging) podpięły się do app i loggerów.
+    from sentry_config import init_sentry
+    init_sentry(os.path.dirname(os.path.abspath(__file__)))
+
     app = Flask(__name__)
     app.secret_key = "65d769148feb6bc476c6d2120d4abb40069cdfd919c37f99"
 
@@ -549,6 +554,19 @@ def create_app():
 
         # DODAJ tracking aktywności użytkowników
         track_user_activity()
+
+        # Wzbogać kontekst Sentry o info o użytkowniku (jeśli zalogowany).
+        try:
+            import sentry_sdk
+            user_id = session.get('user_id')
+            user_email = session.get('user_email')
+            if user_id or user_email:
+                sentry_sdk.set_user({
+                    "id": user_id,
+                    "email": user_email,
+                })
+        except Exception:
+            pass
 
     # Dekorator zabezpieczający strony – wymaga zalogowania
     def login_required(func):
@@ -1163,6 +1181,14 @@ def create_app():
             user_session={}
         )
 
+    @app.route('/debug/sentry-test')
+    def debug_sentry_test():
+        """Wymusza nieobsłużony wyjątek, żeby zweryfikować integrację Sentry.
+        Dostępne tylko w trybie DEBUG. Po wywołaniu sprawdź dashboard Sentry."""
+        if not current_app.config.get('DEBUG'):
+            return "Endpoint dostępny tylko w trybie DEBUG", 404
+        raise RuntimeError("Sentry test exception — jeśli to widzisz w Sentry, integracja działa.")
+
     @app.route('/debug/session-info')
     @login_required
     def debug_session_info():
@@ -1260,13 +1286,20 @@ def create_app():
     @app.errorhandler(ResourceClosedError)
     def handle_resource_closed_error(e):
         db.session.rollback()
-        
+
+        # Wyślij do Sentry — handler zwraca response, więc SDK sam by tego nie złapał.
+        try:
+            import sentry_sdk
+            sentry_sdk.capture_exception(e)
+        except Exception:
+            pass
+
         # NOWE strukturalne logowanie:
         error_logger = get_structured_logger('app.errors')
-        error_logger.error("ResourceClosedError occurred", 
-                          error=str(e), 
+        error_logger.error("ResourceClosedError occurred",
+                          error=str(e),
                           error_type='ResourceClosedError')
-        
+
         # ZOSTAW STARE:
         current_app.logger.error("ResourceClosedError – rollback wykonany")
         return render_template("error.html", message="Problem z bazą danych. Spróbuj ponownie."), 500
@@ -1274,13 +1307,19 @@ def create_app():
     @app.errorhandler(OperationalError)
     def handle_operational_error(e):
         db.session.rollback()
-        
+
+        try:
+            import sentry_sdk
+            sentry_sdk.capture_exception(e)
+        except Exception:
+            pass
+
         # NOWE strukturalne logowanie:
         error_logger = get_structured_logger('app.errors')
-        error_logger.error("OperationalError occurred", 
-                          error=str(e), 
+        error_logger.error("OperationalError occurred",
+                          error=str(e),
                           error_type='OperationalError')
-        
+
         # ZOSTAW STARE:
         current_app.logger.error("OperationalError – rollback wykonany")
         return render_template("error.html", message="Problem z bazą danych. Spróbuj za chwilę."), 500
