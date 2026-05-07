@@ -109,13 +109,17 @@ def init_sentry(app_root: str) -> bool:
             FlaskIntegration(),
             SqlalchemyIntegration(),
             LoggingIntegration(
-                level=logging.INFO,        # poziom dla breadcrumbs
-                event_level=logging.ERROR, # od ERROR wzwyż logi lecą jako event do Sentry
+                level=logging.INFO,           # logi INFO+ jako breadcrumbs (kontekst do eventu)
+                event_level=logging.CRITICAL, # tylko CRITICAL log -> event; wyjątki i tak łapie integracja Flask
             ),
         ],
         before_send=_scrub,
         max_breadcrumbs=50,
     )
 
-    print(f"[Sentry] Zainicjalizowane (env={environment})", flush=True)
+    try:
+        print(f"[Sentry] Zainicjalizowane (env={environment})", flush=True)
+    except (BrokenPipeError, OSError):
+        # Passenger może mieć zamknięty stdout w trakcie restartu — ignoruj.
+        pass
     return True

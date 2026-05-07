@@ -1327,12 +1327,18 @@ def create_app():
     @app.teardown_appcontext
     def shutdown_session(exception=None):
         if exception:
+            try:
+                import sentry_sdk
+                sentry_sdk.capture_exception(exception)
+            except Exception:
+                pass
+
             # NOWE strukturalne logowanie:
             error_logger = get_structured_logger('app.teardown')
-            error_logger.error("Teardown exception occurred", 
-                              error=str(exception), 
+            error_logger.error("Teardown exception occurred",
+                              error=str(exception),
                               error_type=type(exception).__name__)
-            
+
             # ZOSTAW STARE:
             current_app.logger.error(f"Teardown exception: {exception}")
             db.session.rollback()
