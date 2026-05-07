@@ -1,0 +1,62 @@
+{# Sentry frontend init — włączane tylko gdy w core.json: SENTRY_FRONTEND.enabled = true #}
+{% if sentry_frontend %}
+<script src="https://browser.sentry-cdn.com/8.45.0/bundle.min.js" crossorigin="anonymous"></script>
+<script>
+(function() {
+    if (typeof Sentry === 'undefined' || !Sentry.init) {
+        return;
+    }
+    try {
+        Sentry.init({
+            dsn: {{ sentry_frontend.dsn|tojson }},
+            environment: {{ sentry_frontend.environment|tojson }},
+            release: {{ sentry_frontend.release|tojson }},
+            tracesSampleRate: {{ sentry_frontend.traces_sample_rate|tojson }},
+            sendDefaultPii: {{ 'true' if sentry_frontend.send_default_pii else 'false' }},
+            // Ignoruj błędy spoza naszej domeny — głównie rozszerzenia przeglądarki.
+            denyUrls: [
+                /extensions\//i,
+                /^chrome-extension:\/\//i,
+                /^moz-extension:\/\//i,
+                /^safari-extension:\/\//i,
+                /^safari-web-extension:\/\//i,
+            ],
+            // Ignoruj typowe szumy z przeglądarek/rozszerzeń.
+            ignoreErrors: [
+                "ResizeObserver loop limit exceeded",
+                "ResizeObserver loop completed with undelivered notifications",
+                "Non-Error promise rejection captured",
+                "Network request failed",
+                "Failed to fetch",
+                "Load failed",
+            ],
+            beforeSend: function(event, hint) {
+                // Dodatkowy scrubbing — usuń ciastka z requestów (gdyby gdzieś trafiły).
+                try {
+                    if (event.request) {
+                        if (event.request.cookies) event.request.cookies = '[Filtered]';
+                        if (event.request.headers) {
+                            ['Cookie', 'cookie', 'Authorization', 'authorization'].forEach(function(k) {
+                                if (event.request.headers[k]) event.request.headers[k] = '[Filtered]';
+                            });
+                        }
+                    }
+                } catch (e) { /* nie blokuj wysyłki */ }
+                return event;
+            }
+        });
+
+        {% if user and user.id %}
+        Sentry.setUser({
+            id: {{ user.id|tojson }},
+            email: {{ (user.email or '')|tojson }},
+            role: {{ (user.role or '')|tojson }}
+        });
+        {% endif %}
+    } catch (err) {
+        // Cokolwiek pójdzie nie tak — nie blokuj reszty strony.
+        if (window.console && console.warn) console.warn('[Sentry] init failed:', err);
+    }
+})();
+</script>
+{% endif %}

@@ -330,8 +330,10 @@ def get_local_now():
 def create_app():
     # Sentry musi być zainicjalizowane PRZED utworzeniem instancji Flask,
     # aby integracje (Flask, SQLAlchemy, logging) podpięły się do app i loggerów.
-    from sentry_config import init_sentry
-    init_sentry(os.path.dirname(os.path.abspath(__file__)))
+    from sentry_config import init_sentry, get_frontend_config
+    _app_root = os.path.dirname(os.path.abspath(__file__))
+    init_sentry(_app_root)
+    _sentry_frontend_cfg = get_frontend_config(_app_root)
 
     app = Flask(__name__)
     app.secret_key = "65d769148feb6bc476c6d2120d4abb40069cdfd919c37f99"
@@ -1180,6 +1182,11 @@ def create_app():
             user=None,
             user_session={}
         )
+
+    @app.context_processor
+    def inject_sentry_frontend():
+        """Udostępnia konfig Sentry frontendu do template'ów (None gdy wyłączone)."""
+        return dict(sentry_frontend=_sentry_frontend_cfg)
 
     @app.route('/debug/sentry-test')
     def debug_sentry_test():

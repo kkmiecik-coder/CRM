@@ -123,3 +123,33 @@ def init_sentry(app_root: str) -> bool:
         # Passenger może mieć zamknięty stdout w trakcie restartu — ignoruj.
         pass
     return True
+
+
+def get_frontend_config(app_root: str) -> Optional[Dict[str, Any]]:
+    """Zwraca konfig Sentry dla frontendu do wstrzyknięcia w template context.
+    Zwraca None gdy `SENTRY_FRONTEND` wyłączone, brak DSN lub brak configu."""
+    config_path = os.path.join(app_root, "config", "core.json")
+    if not os.path.exists(config_path):
+        return None
+
+    try:
+        with open(config_path, "r", encoding="utf-8") as f:
+            config = json.load(f)
+    except Exception:
+        return None
+
+    fe_cfg = config.get("SENTRY_FRONTEND") or {}
+    if not fe_cfg.get("enabled") or not fe_cfg.get("dsn"):
+        return None
+
+    return {
+        "enabled": True,
+        "dsn": fe_cfg["dsn"],
+        "environment": fe_cfg.get(
+            "environment",
+            "production" if os.environ.get("FLASK_ENV") == "production" else "local",
+        ),
+        "release": _detect_release(app_root),
+        "traces_sample_rate": float(fe_cfg.get("traces_sample_rate", 0.0)),
+        "send_default_pii": bool(fe_cfg.get("send_default_pii", False)),
+    }

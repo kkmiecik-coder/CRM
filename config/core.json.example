@@ -62,6 +62,13 @@
         "traces_sample_rate": 0.0,
         "send_default_pii": false
     },
+    "SENTRY_FRONTEND": {
+        "enabled": true,
+        "dsn": "https://PUBLIC_KEY_FRONTEND@o000000.ingest.de.sentry.io/PROJECT_ID_FRONTEND",
+        "environment": "production",
+        "traces_sample_rate": 0.0,
+        "send_default_pii": false
+    },
     "API_MOBILE": {
         "jwt_secret": "WYGENERUJ_64_ZNAKOWY_LOSOWY_CIAG",
         "jwt_expiry_days": 365,
