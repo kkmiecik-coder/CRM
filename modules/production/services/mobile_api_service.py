@@ -371,6 +371,15 @@ def with_idempotency(f):
         else:
             db.session.commit()
 
+        # Hook BL: po commit może triggerować zmiany statusu w BaseLinker
+        try:
+            from .baselinker_status_sync import flush_pending_syncs
+            flush_pending_syncs()
+        except Exception as bl_error:
+            logger.error("Mobile API: błąd flush BL status sync", extra={
+                'error': str(bl_error),
+            })
+
         return response_obj, status_code
     return wrapper
 
@@ -582,11 +591,18 @@ def mark_order_complete(item, station_code):
     painting/packaging) plus reguły specjalne (skip finishing dla surowych
     bez krawędzi, lakiernia dla olejowanych/lakierowanych, personal_pickup
     omija logistykę) są obsłużone w modelu.
+
+    Rejestruje też hook do BL (uruchamiany po commit decoratora
+    `with_idempotency`) który może zmienić status zamówienia w BaseLinker
+    na "Produkcja zakończona" / "Zamówienie spakowane".
     """
     if station_code not in STATION_QUANTITY_FIELD:
         raise ValueError(f'Nieznane stanowisko: {station_code}')
 
     item.complete_task(station_code)
+
+    from .baselinker_status_sync import schedule_after_station_complete
+    schedule_after_station_complete(item.internal_order_number, station_code)
 
 
 def update_order_quantity(item, station_code, quantity_done, *, device_id=None):

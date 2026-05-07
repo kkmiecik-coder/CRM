@@ -106,12 +106,32 @@ class BaselinkerSyncService:
     
         try:
             from modules.baselinker.models import BaselinkerConfig
-        
+
             status_records = BaselinkerConfig.query.filter_by(
                 config_type='order_status',
                 is_active=True
             ).all()
-        
+
+            # Pusta tabela (np. świeża baza lokalna) → spróbuj zasiać z BL API
+            if not status_records:
+                logger.info("Tabela baselinker_config (order_status) pusta - próba auto-seed z BL API")
+                try:
+                    from modules.baselinker.service import BaselinkerService
+                    if BaselinkerService().sync_order_statuses():
+                        status_records = BaselinkerConfig.query.filter_by(
+                            config_type='order_status',
+                            is_active=True
+                        ).all()
+                        logger.info("Auto-seed statusów udany", extra={
+                            'seeded_count': len(status_records),
+                        })
+                    else:
+                        logger.warning("Auto-seed statusów nieudany - pozostajemy z pustą listą")
+                except Exception as seed_error:
+                    logger.error("Wyjątek podczas auto-seed statusów", extra={
+                        'error': str(seed_error),
+                    })
+
             statuses = {}
             for record in status_records:
                 statuses[record.baselinker_id] = {
@@ -119,94 +139,25 @@ class BaselinkerSyncService:
                     'is_default': record.is_default,
                     'is_active': record.is_active
                 }
-        
+
             self._status_cache = statuses
             self._status_cache_time = now
-        
+
             logger.info("Załadowano statusy z baselinker_config", extra={
                 'statuses_count': len(statuses),
                 'status_ids': list(statuses.keys())
             })
-        
+
             return statuses
-        
+
         except Exception as e:
             logger.error("Błąd pobierania statusów z bazy", extra={'error': str(e)})
-        
+
             if self._status_cache is not None:
                 logger.warning("Użyto przestarzałego cache statusów")
                 return self._status_cache
-        
+
             return {}
-
-    def determine_production_status_by_finish(self, products: List['ProductionItem']) -> int:
-        """
-        Określa status Baselinker na podstawie wykończenia produktów
-        Pobiera ID statusów z bazy danych (tabela baselinker_config)
-        """
-        FINISH_PATTERNS = {
-            'oiling': ['olej'],
-            'staining': ['bejc'],
-            'varnishing': ['lakie']
-        }
-    
-        statuses_from_db = self.get_baselinker_statuses_from_db()
-    
-        status_mapping = {}
-        for status_id, status_info in statuses_from_db.items():
-            name_lower = status_info['name'].lower()
-            if 'olejowanie' in name_lower:
-                status_mapping['oiling'] = status_id
-            elif 'bejcowanie' in name_lower:
-                status_mapping['staining'] = status_id
-            elif 'lakierowanie' in name_lower:
-                status_mapping['varnishing'] = status_id
-            elif 'surowe' in name_lower:
-                status_mapping['raw'] = status_id
-    
-        if not status_mapping:
-            logger.warning("Brak statusów z bazy, używam hardcoded fallback")
-            status_mapping = {
-                'oiling': 148832,
-                'staining': 148831,
-                'varnishing': 148830,
-                'raw': 138619
-            }
-    
-        DEFAULT_STATUS = status_mapping.get('raw', 138619)
-    
-        finishes = set()
-    
-        for product in products:
-            finish_type = product.parsed_finish_type or 'surowe'
-
-            if finish_type == 'surowe':
-                finishes.add('raw')
-            elif finish_type == 'olejowane':
-                status_id = status_mapping.get('oiling')
-                finishes.add(status_id if status_id else 'raw')
-            elif finish_type == 'lakierowane':
-                status_id = status_mapping.get('varnishing')
-                finishes.add(status_id if status_id else 'raw')
-            else:
-                finishes.add('raw')
-    
-        if len(finishes) == 1:
-            finish_value = list(finishes)[0]
-            if isinstance(finish_value, int):
-                logger.info("Określono status wykończenia", extra={
-                    'status_id': finish_value,
-                    'products_count': len(products)
-                })
-                return finish_value
-            else:
-                return DEFAULT_STATUS
-        else:
-            logger.info("Mieszanka wykończeń - fallback na surowe", extra={
-                'finishes': list(finishes),
-                'fallback_status': DEFAULT_STATUS
-            })
-            return DEFAULT_STATUS
 
     def sync_paid_orders_only(self) -> Dict[str, Any]:
         sync_started_at = get_local_now()
@@ -600,9 +551,11 @@ class BaselinkerSyncService:
                 'orders_for_status_change': len(orders_for_status_change)
             })
         
+            from .baselinker_status_sync import set_status_for_imported_order
+
             for order_id in orders_for_status_change:
                 try:
-                    success = self.change_order_status_in_baselinker(order_id, target_status=None)
+                    success = set_status_for_imported_order(order_id)
                     if success:
                         processing_stats['status_changes_count'] += 1
                     else:
@@ -1013,67 +966,6 @@ class BaselinkerSyncService:
             
         except Exception as e:
             logger.error("Wyjątek podczas dodawania komentarza", extra={
-                'order_id': order_id,
-                'error': str(e)
-            })
-            return False
-
-    def change_order_status_in_baselinker(self, order_id: int, target_status: Optional[int] = None) -> bool:
-        """
-        Zmienia status zamówienia w Baselinker
-        Jeśli target_status=None, automatycznie określa status na podstawie wykończenia
-        """
-        if target_status is None:
-            from ..models import ProductionItem
-            
-            products = ProductionItem.query.filter_by(
-                baselinker_order_id=order_id
-            ).all()
-            
-            if not products:
-                logger.error("Nie znaleziono produktów dla zamówienia", extra={'order_id': order_id})
-                return False
-            
-            target_status = self.determine_production_status_by_finish(products)
-            
-            logger.info("Automatycznie określono status na podstawie wykończenia", extra={
-                'order_id': order_id,
-                'target_status': target_status
-            })
-        
-        if not self.api_key:
-            logger.error("Brak klucza API dla zmiany statusu")
-            return False
-        
-        try:
-            request_data = {
-                'token': self.api_key,
-                'method': 'setOrderStatus',
-                'parameters': json.dumps({
-                    'order_id': order_id,
-                    'status_id': target_status
-                })
-            }
-            
-            response_data = self._make_api_request(request_data)
-            
-            if response_data.get('status') == 'SUCCESS':
-                logger.info("Zmieniono status zamówienia w Baselinker", extra={
-                    'order_id': order_id,
-                    'new_status': target_status
-                })
-                return True
-            else:
-                error_msg = response_data.get('error_message', 'Unknown error')
-                logger.error("Błąd zmiany statusu w Baselinker", extra={
-                    'order_id': order_id,
-                    'target_status': target_status,
-                    'error': error_msg
-                })
-                return False
-                
-        except Exception as e:
-            logger.error("Wyjątek podczas zmiany statusu", extra={
                 'order_id': order_id,
                 'error': str(e)
             })
@@ -2426,41 +2318,8 @@ class BaselinkerSyncService:
         except Exception as e:
             logger.error("Wyjątek aktualizacji priorytetów", extra={'error': str(e)})
 
-    def update_order_status_in_baselinker(self, internal_order_number: str) -> bool:
-        try:
-            from ..models import ProductionItem
-            
-            products = ProductionItem.query.filter_by(
-                internal_order_number=internal_order_number
-            ).all()
-            
-            if not products:
-                logger.warning("Nie znaleziono produktów dla zamówienia", extra={
-                    'internal_order_number': internal_order_number
-                })
-                return False
-            
-            all_packed = all(p.current_status == 'spakowane' for p in products)
-            if not all_packed:
-                logger.info("Nie wszystkie produkty są spakowane", extra={
-                    'internal_order_number': internal_order_number,
-                    'packed_count': sum(1 for p in products if p.current_status == 'spakowane'),
-                    'total_count': len(products)
-                })
-                return False
-            
-            baselinker_order_id = products[0].baselinker_order_id
-            
-            return self._update_baselinker_order_status(baselinker_order_id, self.target_completed_status)
-            
-        except Exception as e:
-            logger.error("Błąd aktualizacji statusu w Baselinker", extra={
-                'internal_order_number': internal_order_number,
-                'error': str(e)
-            })
-            return False
-
     def _update_baselinker_order_status(self, baselinker_order_id: int, new_status_id: int) -> bool:
+        """Niskopoziomowe wywołanie setOrderStatus. Używane przez baselinker_status_sync."""
         if not self.api_key:
             logger.error("Brak klucza API Baselinker")
             return False

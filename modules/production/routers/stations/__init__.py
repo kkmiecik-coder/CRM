@@ -1170,6 +1170,22 @@ def complete_order_bulk():
             # Commit transakcji
             db.session.commit()
 
+            # Hook BL: po commit może triggerować "Produkcja zakończona" / "Spakowane"
+            try:
+                from ...services.baselinker_status_sync import (
+                    schedule_after_station_complete,
+                    flush_pending_syncs,
+                )
+                schedule_after_station_complete(order_number, station)
+                flush_pending_syncs()
+            except Exception as bl_error:
+                # Brak zmiany statusu BL nie blokuje ukończenia stanowiska
+                logger.error("BULK: Błąd hooka BL status sync", extra={
+                    'order_number': order_number,
+                    'station': station,
+                    'error': str(bl_error),
+                })
+
             return jsonify({
                 'success': True,
                 'message': f'Ukonczono {completed_count} produktow z zamowienia {order_number}',

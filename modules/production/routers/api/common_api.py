@@ -67,7 +67,7 @@ def cron_secret_required(f):
 def ip_validation_required(f):
     """
     Dekorator dla walidacji IP stanowisk
-    Używany dla: complete-task, complete-packaging
+    Używany dla: complete-task
     """
     @wraps(f)
     def decorated_function(*args, **kwargs):
