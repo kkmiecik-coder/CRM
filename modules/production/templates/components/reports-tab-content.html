@@ -730,6 +730,7 @@
         </h4>
         <div class="widget-controls">
             <select id="so-station-select" class="form-select form-select-sm">
+                <option value="all">Wszystkie stanowiska</option>
                 <option value="cutting">Wycinanie</option>
                 <option value="assembly">Składanie</option>
                 <option value="completion">Kompletacja</option>
@@ -802,6 +803,7 @@
                         <tr>
                             <th>BL #</th>
                             <th>Produkt</th>
+                            <th id="so-col-station-label" style="display: none;">Stanowisko</th>
                             <th id="so-col-eod-label">Wykonano (EOD)</th>
                             <th id="so-col-delta-label">Ruch dnia</th>
                             <th>m³ wykonane</th>
@@ -1116,6 +1118,7 @@ let soCurrentPage = 1;            // 1-based
 let soChartMode = 'pieces';       // 'pieces' | 'volume' | 'both'
 let soTimelineChart = null;       // instancja Chart.js
 let soCurrentTimeline = null;     // ostatnia odebrana struktura timeline
+let soIsAllStations = false;      // true gdy aktualnie wybrane 'Wszystkie stanowiska'
 
 // Format YYYY-MM-DD dla obecnego dnia w lokalnej strefie czasowej
 function soFormatLocalDate(d) {
@@ -1294,8 +1297,12 @@ async function loadStationOutput(station, startDate, endDate) {
             ? data.start_date
             : `${data.start_date} – ${data.end_date} (${daysCount} dni)`;
 
-        // Aktualizuj nagłówki kolumn / labelki summary w zależności od zakresu
+        // Tryb wszystkie-stanowiska propagujemy do renderera tabeli
+        soIsAllStations = !!data.is_all_stations;
+
+        // Aktualizuj nagłówki kolumn / labelki summary
         soUpdateRangeLabels(daysCount);
+        soUpdateStationColumn(soIsAllStations);
 
         // Timeline pokazujemy zawsze gdy mamy strukturę (nawet pusty zakres
         // — wtedy widać 24h pustej siatki + komunikat).
@@ -1341,6 +1348,13 @@ async function loadStationOutput(station, startDate, endDate) {
     }
 }
 
+// Pokaż/ukryj kolumnę "Stanowisko" w nagłówku tabeli.
+// Komórki w wierszach są dodawane/pomijane przez renderSoItemRow().
+function soUpdateStationColumn(isAll) {
+    const colHeader = document.getElementById('so-col-station-label');
+    if (colHeader) colHeader.style.display = isAll ? '' : 'none';
+}
+
 // Aktualizuje labelki summary i nagłówki kolumn tabeli w zależności od liczby dni.
 function soUpdateRangeLabels(daysCount) {
     const isRange = daysCount > 1;
@@ -1380,6 +1394,11 @@ function renderSoItemRow(it) {
         : '—';
     const status = (it.current_status || '').replace('czeka_na_', '').replace(/_/g, ' ');
 
+    // Dodatkowa komórka "Stanowisko" tylko w trybie 'Wszystkie'
+    const stationCell = soIsAllStations
+        ? `<td style="font-size: 12px;">${escapeHtml(it.station_label || it.station_code || '—')}</td>`
+        : '';
+
     return `
         <tr>
             <td><strong>${it.baselinker_order_id || '—'}</strong></td>
@@ -1387,6 +1406,7 @@ function renderSoItemRow(it) {
                 <div style="font-size: 13px;">${escapeHtml(it.product_name || '—')}</div>
                 <div style="font-size: 10px; color: var(--il-text-secondary, #7a8291); font-family: monospace;">${escapeHtml(it.short_product_id || '')}</div>
             </td>
+            ${stationCell}
             <td class="so-progress">${it.quantity_done_eod} / ${it.quantity}</td>
             <td class="${deltaClass}">${deltaSign}${it.day_delta_sum}</td>
             <td>${it.volume_done_eod_m3.toFixed(3)}</td>

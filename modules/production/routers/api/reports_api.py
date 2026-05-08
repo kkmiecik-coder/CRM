@@ -33,23 +33,26 @@ STATION_LABELS = {
 @login_required
 def reports_station_output():
     """
-    GET /production/api/reports/station-output?station=<code>
+    GET /production/api/reports/station-output?station=<code|all>
         &start_date=YYYY-MM-DD&end_date=YYYY-MM-DD
         (lub: &date=YYYY-MM-DD — wsteczna kompat, pojedynczy dzień)
 
-    Zwraca pozycje produkcyjne, na których stanowisko <station> wykonało
-    jakąkolwiek operację (delta != 0) w wybranym zakresie dat (włącznie).
+    Zwraca pozycje produkcyjne, na których wybrane stanowisko (lub
+    dowolne stanowisko gdy station='all') wykonało jakąkolwiek operację
+    w zakresie dat (włącznie).
 
-    Dla każdej pozycji:
+    Dla każdej pozycji (wiersz per item × stanowisko):
     - quantity_done_eod: stan quantity_done_<station> po ostatnim evencie
       w zakresie — ile zostało wykonane na koniec zakresu
     - day_delta_sum: netto ruch w zakresie (suma delta) — np. +5,-1,+2 = +6
+    - station_code, station_label: stanowisko, którego dotyczy wiersz
     - quantity: total szt. pozycji
     - volume_per_unit, volume_done_eod (m³)
     - meta: short_product_id, original_product_name, baselinker_order_id, status, gatunek/grubość
 
-    Timeline: 48 bucketów po 30 min, sumy delta i delta*volume_m3.
-    Frontend dzieli przez days_count żeby uzyskać średnią dzienną.
+    Timeline: 48 bucketów po 30 min, sumy delta i delta*volume_m3
+    (przez wszystkie stanowiska gdy station='all'). Frontend dzieli
+    przez days_count żeby uzyskać średnią dzienną.
 
     Sortowanie: po ostatnim evencie w zakresie (najnowsze najpierw).
     """
@@ -61,10 +64,11 @@ def reports_station_output():
     end_date_str = request.args.get('end_date', '').strip()
     date_str = request.args.get('date', '').strip()  # wsteczna kompat
 
-    if station not in VALID_STATIONS:
+    is_all_stations = station == 'all'
+    if not is_all_stations and station not in VALID_STATIONS:
         return jsonify({
             'success': False,
-            'error': f'Nieprawidłowe stanowisko. Dozwolone: {sorted(VALID_STATIONS)}'
+            'error': f'Nieprawidłowe stanowisko. Dozwolone: all, {sorted(VALID_STATIONS)}'
         }), 400
 
     # Parsowanie zakresu: preferuj start_date/end_date, fallback na date.
@@ -100,35 +104,44 @@ def reports_station_output():
     range_end = datetime.combine(end_date, datetime.max.time())
 
     try:
-        # Per-item agregacja eventów w zakresie
-        # day_delta_sum = SUM(delta) (mimo nazwy — jest to ruch w całym zakresie),
+        # Wspólne filtry zakresu czasu (+ ewentualnie konkretne stanowisko)
+        time_filters = [
+            ProductionStationEvent.created_at >= range_start,
+            ProductionStationEvent.created_at <= range_end,
+        ]
+        if not is_all_stations:
+            time_filters.append(ProductionStationEvent.station_code == station)
+
+        # Per (item, station) agregacja eventów w zakresie.
+        # Group by zawsze po (item_id, station_code) — dla pojedynczego
+        # stanowiska wszystkie wiersze i tak mają to samo station_code,
+        # więc koszt jest zerowy a kod jest unifikowany.
+        # day_delta_sum = SUM(delta) (mimo nazwy — to ruch w całym zakresie)
         # last_event_at = MAX(created_at)
         agg = db.session.query(
             ProductionStationEvent.production_item_id.label('item_id'),
+            ProductionStationEvent.station_code.label('station_code'),
             func.sum(ProductionStationEvent.delta).label('day_delta_sum'),
             func.max(ProductionStationEvent.created_at).label('last_event_at'),
             func.count(ProductionStationEvent.id).label('event_count'),
-        ).filter(
-            ProductionStationEvent.station_code == station,
-            ProductionStationEvent.created_at >= range_start,
-            ProductionStationEvent.created_at <= range_end,
-        ).group_by(ProductionStationEvent.production_item_id).subquery()
+        ).filter(*time_filters).group_by(
+            ProductionStationEvent.production_item_id,
+            ProductionStationEvent.station_code,
+        ).subquery()
 
-        # Pobierz quantity_done_after z ostatniego eventu w zakresie (per item).
-        # Trick: order by created_at desc, group_by item_id z LIMIT — w MySQL
-        # nie działa wprost; używamy correlated subquery przez JOIN po (item, last_event_at).
+        # quantity_done_after z ostatniego eventu w zakresie per (item, station).
+        # Join po (item, station, last_event_at) — w razie remisu created_at
+        # join produkcyjnie zwróci wszystkie kolizje, później dedup w pętli.
         last_event = db.session.query(
             ProductionStationEvent.production_item_id.label('item_id'),
+            ProductionStationEvent.station_code.label('station_code'),
             ProductionStationEvent.created_at.label('last_event_at'),
             ProductionStationEvent.quantity_done_after.label('quantity_done_eod'),
-        ).filter(
-            ProductionStationEvent.station_code == station,
-            ProductionStationEvent.created_at >= range_start,
-            ProductionStationEvent.created_at <= range_end,
-        ).subquery()
+        ).filter(*time_filters).subquery()
 
         rows = db.session.query(
             ProductionItem,
+            agg.c.station_code,
             agg.c.day_delta_sum,
             agg.c.last_event_at,
             agg.c.event_count,
@@ -139,6 +152,7 @@ def reports_station_output():
             last_event,
             and_(
                 last_event.c.item_id == agg.c.item_id,
+                last_event.c.station_code == agg.c.station_code,
                 last_event.c.last_event_at == agg.c.last_event_at,
             )
         ).order_by(agg.c.last_event_at.desc()).all()
@@ -148,13 +162,14 @@ def reports_station_output():
         sum_volume_done_eod = 0.0
         sum_day_delta = 0
 
-        # Dedup po item_id (w razie remisu created_at na ostatnim evencie
-        # join produkcyjnie wybierze pierwszy zwrot — agregat i tak ten sam)
-        seen_ids = set()
-        for item, day_delta_sum, last_event_at, event_count, qty_done_eod in rows:
-            if item.id in seen_ids:
+        # Dedup po (item_id, station_code) — w razie remisu created_at
+        # na ostatnim evencie agregat i tak ten sam, bierzemy pierwszy zwrot.
+        seen_keys = set()
+        for item, station_code_row, day_delta_sum, last_event_at, event_count, qty_done_eod in rows:
+            key = (item.id, station_code_row)
+            if key in seen_keys:
                 continue
-            seen_ids.add(item.id)
+            seen_keys.add(key)
 
             qty_done_eod = int(qty_done_eod or 0)
             day_delta_sum = int(day_delta_sum or 0)
@@ -181,6 +196,8 @@ def reports_station_output():
                 'wood_species': item.parsed_wood_species,
                 'thickness_cm': float(item.parsed_thickness_cm) if item.parsed_thickness_cm else None,
                 'last_event_at': last_event_at.isoformat() if last_event_at else None,
+                'station_code': station_code_row,
+                'station_label': STATION_LABELS.get(station_code_row, station_code_row),
             })
 
         # Timeline 48 bucketów po 30 minut (00:00, 00:30, ..., 23:30)
@@ -202,11 +219,7 @@ def reports_station_output():
         ).join(
             ProductionItem,
             ProductionItem.id == ProductionStationEvent.production_item_id
-        ).filter(
-            ProductionStationEvent.station_code == station,
-            ProductionStationEvent.created_at >= range_start,
-            ProductionStationEvent.created_at <= range_end,
-        ).group_by(bucket_idx_expr).all()
+        ).filter(*time_filters).group_by(bucket_idx_expr).all()
 
         pieces_buckets = [0] * 48
         m3_buckets = [0.0] * 48
@@ -225,7 +238,9 @@ def reports_station_output():
         return jsonify({
             'success': True,
             'station': station,
-            'station_label': STATION_LABELS.get(station, station),
+            'station_label': 'Wszystkie stanowiska' if is_all_stations
+                else STATION_LABELS.get(station, station),
+            'is_all_stations': is_all_stations,
             # Wsteczna kompat: 'date' = start gdy pojedynczy dzień, inaczej None
             'date': start_date.isoformat() if days_count == 1 else None,
             'start_date': start_date.isoformat(),
