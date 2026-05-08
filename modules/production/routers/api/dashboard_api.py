@@ -901,8 +901,9 @@ def dashboard_tab_content():
             ).all()
 
             if active_products:
+                # deadline_date to Column(Date) → datetime.date, więc odejmujemy bez .date()
                 total_days = sum(
-                    (product.deadline_date.date() - today).days
+                    (product.deadline_date - today).days
                     for product in active_products
                 )
                 avg_deadline_distance = total_days / len(active_products)

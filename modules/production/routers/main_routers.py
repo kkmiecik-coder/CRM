@@ -314,7 +314,6 @@ def inject_main_context():
             'current_time': datetime.utcnow(),
             'current_user_role': getattr(current_user, 'role', 'unknown') if current_user.is_authenticated else None,
             'dashboard_url': url_for('production.production_main.dashboard'),
-            'products_url': url_for('production.production_main.products_list'), 
             'config_url': url_for('production.production_main.config_panel'),
             # Dodatkowe URL dla API
             'api_dashboard_stats': url_for('production.production_api.dashboard_stats'),
@@ -325,7 +324,6 @@ def inject_main_context():
         return {
             'current_time': datetime.utcnow(),
             'dashboard_url': '#',
-            'products_url': '#', 
             'config_url': '#'
         }
 
