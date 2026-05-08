@@ -21,6 +21,7 @@ from sqlalchemy import Column, Integer, BigInteger, String, Text, DateTime, Date
 from sqlalchemy.dialects.mysql import LONGTEXT
 from sqlalchemy.orm import relationship, validates, backref
 from sqlalchemy.sql import func
+from sqlalchemy.exc import SQLAlchemyError
 from extensions import db
 from modules.logging import get_structured_logger
 import pytz
@@ -1186,10 +1187,33 @@ class MobileAppRelease(db.Model):
 
     @classmethod
     def latest_active(cls):
-        """Najnowszy aktywny release (po version_code DESC) lub None."""
-        return cls.query.filter_by(is_active=True).order_by(
-            cls.version_code.desc()
-        ).first()
+        """
+        Najnowszy aktywny release (po version_code DESC) lub None.
+
+        Endpoint /api/mobile/app/version pyta tablet o najnowszy APK przed
+        każdą rejestracją — jeśli wybuchnie, tablet w ogóle się nie podłączy.
+        Mid-query disconnect MySQL na shared hostingu CyberFolks potrafi
+        zostawić cursor bez metadanych wierszy, co eskaluje na poziomie
+        ORM do NoSuchColumnError ('mobile_app_releases.id') albo bare
+        AttributeError na '_NoResultMetaData'. W obu przypadkach lepiej
+        zwrócić None (klient widzi 'brak nowego release'u' i nie próbuje
+        update'u) niż 500.
+        """
+        try:
+            return cls.query.filter_by(is_active=True).order_by(
+                cls.version_code.desc()
+            ).first()
+        except (SQLAlchemyError, AttributeError) as e:
+            logger.warning(
+                "MobileAppRelease.latest_active() padło — zwracam None",
+                error_type=type(e).__name__,
+                error=str(e)
+            )
+            try:
+                db.session.rollback()
+            except Exception:
+                pass
+            return None
 
 class ProductionStationEvent(db.Model):
     """
