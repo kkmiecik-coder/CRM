@@ -33,26 +33,33 @@ STATION_LABELS = {
 @login_required
 def reports_station_output():
     """
-    GET /production/api/reports/station-output?station=<code>&date=YYYY-MM-DD
+    GET /production/api/reports/station-output?station=<code>
+        &start_date=YYYY-MM-DD&end_date=YYYY-MM-DD
+        (lub: &date=YYYY-MM-DD — wsteczna kompat, pojedynczy dzień)
 
     Zwraca pozycje produkcyjne, na których stanowisko <station> wykonało
-    jakąkolwiek operację (delta != 0) w ciągu wybranego dnia.
+    jakąkolwiek operację (delta != 0) w wybranym zakresie dat (włącznie).
 
     Dla każdej pozycji:
-    - quantity_done_eod: stan quantity_done_<station> na koniec tego dnia
-      (z ostatniego eventu w tym dniu) — to jest "ile zostało wykonane"
-    - day_delta_sum: netto ruch w ciągu dnia (suma delta) — np. +5,-1,+2 = +6
+    - quantity_done_eod: stan quantity_done_<station> po ostatnim evencie
+      w zakresie — ile zostało wykonane na koniec zakresu
+    - day_delta_sum: netto ruch w zakresie (suma delta) — np. +5,-1,+2 = +6
     - quantity: total szt. pozycji
     - volume_per_unit, volume_done_eod (m³)
     - meta: short_product_id, original_product_name, baselinker_order_id, status, gatunek/grubość
 
-    Sortowanie: po ostatnim evencie w dniu (najnowsze najpierw).
+    Timeline: 48 bucketów po 30 min, sumy delta i delta*volume_m3.
+    Frontend dzieli przez days_count żeby uzyskać średnią dzienną.
+
+    Sortowanie: po ostatnim evencie w zakresie (najnowsze najpierw).
     """
     from ...models import ProductionStationEvent
     from sqlalchemy import and_
 
     station = request.args.get('station', '').strip().lower()
-    date_str = request.args.get('date', '').strip()
+    start_date_str = request.args.get('start_date', '').strip()
+    end_date_str = request.args.get('end_date', '').strip()
+    date_str = request.args.get('date', '').strip()  # wsteczna kompat
 
     if station not in VALID_STATIONS:
         return jsonify({
@@ -60,20 +67,42 @@ def reports_station_output():
             'error': f'Nieprawidłowe stanowisko. Dozwolone: {sorted(VALID_STATIONS)}'
         }), 400
 
+    # Parsowanie zakresu: preferuj start_date/end_date, fallback na date.
     try:
-        target_date = datetime.strptime(date_str, '%Y-%m-%d').date() if date_str else date.today()
+        if start_date_str and end_date_str:
+            start_date = datetime.strptime(start_date_str, '%Y-%m-%d').date()
+            end_date = datetime.strptime(end_date_str, '%Y-%m-%d').date()
+        elif date_str:
+            start_date = datetime.strptime(date_str, '%Y-%m-%d').date()
+            end_date = start_date
+        else:
+            start_date = end_date = date.today()
     except ValueError:
         return jsonify({
             'success': False,
             'error': 'Nieprawidłowy format daty (oczekiwane YYYY-MM-DD)'
         }), 400
 
-    day_start = datetime.combine(target_date, datetime.min.time())
-    day_end = datetime.combine(target_date, datetime.max.time())
+    if start_date > end_date:
+        return jsonify({
+            'success': False,
+            'error': 'Data początkowa musi być wcześniejsza lub równa końcowej'
+        }), 400
+
+    days_count = (end_date - start_date).days + 1
+    if days_count > 365:
+        return jsonify({
+            'success': False,
+            'error': 'Maksymalny zakres to 365 dni'
+        }), 400
+
+    range_start = datetime.combine(start_date, datetime.min.time())
+    range_end = datetime.combine(end_date, datetime.max.time())
 
     try:
-        # Per-item agregacja eventów z wybranego dnia
-        # day_delta_sum = SUM(delta), last_event_at = MAX(created_at)
+        # Per-item agregacja eventów w zakresie
+        # day_delta_sum = SUM(delta) (mimo nazwy — jest to ruch w całym zakresie),
+        # last_event_at = MAX(created_at)
         agg = db.session.query(
             ProductionStationEvent.production_item_id.label('item_id'),
             func.sum(ProductionStationEvent.delta).label('day_delta_sum'),
@@ -81,11 +110,11 @@ def reports_station_output():
             func.count(ProductionStationEvent.id).label('event_count'),
         ).filter(
             ProductionStationEvent.station_code == station,
-            ProductionStationEvent.created_at >= day_start,
-            ProductionStationEvent.created_at <= day_end,
+            ProductionStationEvent.created_at >= range_start,
+            ProductionStationEvent.created_at <= range_end,
         ).group_by(ProductionStationEvent.production_item_id).subquery()
 
-        # Pobierz quantity_done_after z ostatniego eventu w dniu (per item).
+        # Pobierz quantity_done_after z ostatniego eventu w zakresie (per item).
         # Trick: order by created_at desc, group_by item_id z LIMIT — w MySQL
         # nie działa wprost; używamy correlated subquery przez JOIN po (item, last_event_at).
         last_event = db.session.query(
@@ -94,8 +123,8 @@ def reports_station_output():
             ProductionStationEvent.quantity_done_after.label('quantity_done_eod'),
         ).filter(
             ProductionStationEvent.station_code == station,
-            ProductionStationEvent.created_at >= day_start,
-            ProductionStationEvent.created_at <= day_end,
+            ProductionStationEvent.created_at >= range_start,
+            ProductionStationEvent.created_at <= range_end,
         ).subquery()
 
         rows = db.session.query(
@@ -157,6 +186,8 @@ def reports_station_output():
         # Timeline 48 bucketów po 30 minut (00:00, 00:30, ..., 23:30)
         # bucket_idx = floor((HOUR*60 + MINUTE) / 30) ∈ [0, 47]
         # Net delta per bucket (cofnięcia mogą dać wartość ujemną).
+        # Sumowanie po wszystkich dniach w zakresie — frontend dzieli
+        # przez days_count żeby uzyskać średnią dzienną gdy zakres > 1 dnia.
         bucket_idx_expr = func.floor(
             (func.hour(ProductionStationEvent.created_at) * 60
              + func.minute(ProductionStationEvent.created_at)) / 30
@@ -173,8 +204,8 @@ def reports_station_output():
             ProductionItem.id == ProductionStationEvent.production_item_id
         ).filter(
             ProductionStationEvent.station_code == station,
-            ProductionStationEvent.created_at >= day_start,
-            ProductionStationEvent.created_at <= day_end,
+            ProductionStationEvent.created_at >= range_start,
+            ProductionStationEvent.created_at <= range_end,
         ).group_by(bucket_idx_expr).all()
 
         pieces_buckets = [0] * 48
@@ -195,7 +226,11 @@ def reports_station_output():
             'success': True,
             'station': station,
             'station_label': STATION_LABELS.get(station, station),
-            'date': target_date.isoformat(),
+            # Wsteczna kompat: 'date' = start gdy pojedynczy dzień, inaczej None
+            'date': start_date.isoformat() if days_count == 1 else None,
+            'start_date': start_date.isoformat(),
+            'end_date': end_date.isoformat(),
+            'days_count': days_count,
             'items': items_payload,
             'summary': {
                 'items_count': len(items_payload),
@@ -207,6 +242,7 @@ def reports_station_output():
                 'buckets': bucket_labels,
                 'pieces': pieces_buckets,
                 'volume_m3': m3_buckets,
+                'days_count': days_count,
             },
         })
 
@@ -214,7 +250,8 @@ def reports_station_output():
         logger.error("Błąd /reports/station-output", extra={
             'user_id': current_user.id,
             'station': station,
-            'date': date_str,
+            'start_date': start_date.isoformat() if 'start_date' in locals() else None,
+            'end_date': end_date.isoformat() if 'end_date' in locals() else None,
             'error': str(e),
         })
         return jsonify({'success': False, 'error': str(e)}), 500

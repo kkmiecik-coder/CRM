@@ -734,7 +734,15 @@
                 <option value="painting">Lakiernia</option>
                 <option value="packaging" selected>Pakowanie</option>
             </select>
-            <input type="date" id="so-date-input" class="form-control form-control-sm">
+            <select id="so-preset-select" class="form-select form-select-sm" title="Zakres dat">
+                <option value="today" selected>Dziś</option>
+                <option value="yesterday">Wczoraj</option>
+                <option value="7d">Ostatnie 7 dni</option>
+                <option value="30d">Ostatnie 30 dni</option>
+                <option value="custom">Własny zakres</option>
+            </select>
+            <input type="date" id="so-start-date" class="form-control form-control-sm" style="display: none;" title="Data od">
+            <input type="date" id="so-end-date" class="form-control form-control-sm" style="display: none;" title="Data do">
             <button id="so-refresh-btn" class="btn btn-outline-primary btn-sm" title="Odśwież">
                 <i class="fas fa-sync-alt"></i>
             </button>
@@ -744,7 +752,7 @@
         <!-- Timeline 24h co pół godziny -->
         <div class="so-timeline-wrapper" id="so-timeline-wrapper" style="display: none;">
             <div class="so-timeline-header">
-                <span class="so-timeline-title">
+                <span class="so-timeline-title" id="so-timeline-title">
                     <i class="fas fa-chart-bar me-1"></i>Aktywność 00:00–24:00 (co 30 min)
                 </span>
                 <div class="so-mode-switch" id="so-mode-switch">
@@ -757,7 +765,7 @@
                 <canvas id="so-timeline-chart"></canvas>
             </div>
             <div class="so-timeline-empty" id="so-timeline-empty" style="display: none;">
-                Brak operacji w tym dniu.
+                Brak operacji w wybranym zakresie.
             </div>
         </div>
 
@@ -768,15 +776,15 @@
             </div>
             <div class="so-stat">
                 <span class="so-stat-value" id="so-summary-qty">0</span>
-                <span class="so-stat-label">Sztuki na koniec dnia</span>
+                <span class="so-stat-label" id="so-summary-qty-label">Sztuki na koniec dnia</span>
             </div>
             <div class="so-stat">
                 <span class="so-stat-value" id="so-summary-delta">0</span>
-                <span class="so-stat-label">Ruch dnia (netto)</span>
+                <span class="so-stat-label" id="so-summary-delta-label">Ruch dnia (netto)</span>
             </div>
             <div class="so-stat">
                 <span class="so-stat-value" id="so-summary-volume">0.000</span>
-                <span class="so-stat-label">m³ wykonane (EOD)</span>
+                <span class="so-stat-label" id="so-summary-volume-label">m³ wykonane (EOD)</span>
             </div>
         </div>
         <div id="so-table-wrapper">
@@ -789,8 +797,8 @@
                         <tr>
                             <th>BL #</th>
                             <th>Produkt</th>
-                            <th>Wykonano (EOD)</th>
-                            <th>Ruch dnia</th>
+                            <th id="so-col-eod-label">Wykonano (EOD)</th>
+                            <th id="so-col-delta-label">Ruch dnia</th>
                             <th>m³ wykonane</th>
                             <th>Gatunek / grubość</th>
                             <th>Status</th>
@@ -1104,14 +1112,55 @@ let soChartMode = 'pieces';       // 'pieces' | 'volume' | 'both'
 let soTimelineChart = null;       // instancja Chart.js
 let soCurrentTimeline = null;     // ostatnia odebrana struktura timeline
 
+// Format YYYY-MM-DD dla obecnego dnia w lokalnej strefie czasowej
+function soFormatLocalDate(d) {
+    const yyyy = d.getFullYear();
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    return `${yyyy}-${mm}-${dd}`;
+}
+
+// Wylicza zakres {start, end} z presetu albo z inputów custom.
+function soResolveRange(preset, startEl, endEl) {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    if (preset === 'today') {
+        const s = soFormatLocalDate(today);
+        return { start: s, end: s };
+    }
+    if (preset === 'yesterday') {
+        const y = new Date(today);
+        y.setDate(y.getDate() - 1);
+        const s = soFormatLocalDate(y);
+        return { start: s, end: s };
+    }
+    if (preset === '7d') {
+        const start = new Date(today);
+        start.setDate(start.getDate() - 6); // 7 dni włącznie
+        return { start: soFormatLocalDate(start), end: soFormatLocalDate(today) };
+    }
+    if (preset === '30d') {
+        const start = new Date(today);
+        start.setDate(start.getDate() - 29); // 30 dni włącznie
+        return { start: soFormatLocalDate(start), end: soFormatLocalDate(today) };
+    }
+    // custom: użyj inputów (oba muszą być wypełnione)
+    if (preset === 'custom' && startEl?.value && endEl?.value) {
+        return { start: startEl.value, end: endEl.value };
+    }
+    return null;
+}
+
 function initStationOutputWidget() {
     const stationSel = document.getElementById('so-station-select');
-    const dateInput = document.getElementById('so-date-input');
+    const presetSel = document.getElementById('so-preset-select');
+    const startInput = document.getElementById('so-start-date');
+    const endInput = document.getElementById('so-end-date');
     const refreshBtn = document.getElementById('so-refresh-btn');
 
-    if (!stationSel || !dateInput) return;
+    if (!stationSel || !presetSel || !startInput || !endInput) return;
 
-    // Przywróć ostatni wybór z localStorage; fallback: dzisiaj + packaging
+    // Przywróć ostatni wybór z localStorage; fallback: dziś + packaging
     const saved = (() => {
         try { return JSON.parse(localStorage.getItem(SO_STORAGE_KEY) || '{}'); }
         catch { return {}; }
@@ -1120,15 +1169,22 @@ function initStationOutputWidget() {
     if (saved.station) {
         stationSel.value = saved.station;
     }
-    if (saved.date) {
-        dateInput.value = saved.date;
-    } else {
-        const today = new Date();
-        const yyyy = today.getFullYear();
-        const mm = String(today.getMonth() + 1).padStart(2, '0');
-        const dd = String(today.getDate()).padStart(2, '0');
-        dateInput.value = `${yyyy}-${mm}-${dd}`;
-    }
+
+    // Default daty dla custom: ostatnie 7 dni
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const weekAgo = new Date(today);
+    weekAgo.setDate(weekAgo.getDate() - 6);
+    startInput.value = saved.customStart || soFormatLocalDate(weekAgo);
+    endInput.value = saved.customEnd || soFormatLocalDate(today);
+
+    const validPresets = ['today', 'yesterday', '7d', '30d', 'custom'];
+    const presetValue = validPresets.includes(saved.preset) ? saved.preset : 'today';
+    presetSel.value = presetValue;
+    const isCustom = presetValue === 'custom';
+    startInput.style.display = isCustom ? '' : 'none';
+    endInput.style.display = isCustom ? '' : 'none';
+
     if (saved.chartMode && ['pieces', 'volume', 'both'].includes(saved.chartMode)) {
         soChartMode = saved.chartMode;
     }
@@ -1141,19 +1197,35 @@ function initStationOutputWidget() {
         try {
             localStorage.setItem(SO_STORAGE_KEY, JSON.stringify({
                 station: stationSel.value,
-                date: dateInput.value,
+                preset: presetSel.value,
+                customStart: startInput.value,
+                customEnd: endInput.value,
                 chartMode: soChartMode,
             }));
         } catch { /* localStorage może być wyłączony — pomijamy */ }
     };
 
     const reload = () => {
+        const range = soResolveRange(presetSel.value, startInput, endInput);
+        if (!range) return; // np. custom bez wypełnionych dat
         persist();
-        soCurrentPage = 1; // reset paginacji przy zmianie stanowiska/daty
-        loadStationOutput(stationSel.value, dateInput.value);
+        soCurrentPage = 1; // reset paginacji przy zmianie stanowiska/zakresu
+        loadStationOutput(stationSel.value, range.start, range.end);
     };
+
     stationSel.addEventListener('change', reload);
-    dateInput.addEventListener('change', reload);
+    presetSel.addEventListener('change', () => {
+        const isCustomNow = presetSel.value === 'custom';
+        startInput.style.display = isCustomNow ? '' : 'none';
+        endInput.style.display = isCustomNow ? '' : 'none';
+        reload();
+    });
+    startInput.addEventListener('change', () => {
+        if (presetSel.value === 'custom') reload();
+    });
+    endInput.addEventListener('change', () => {
+        if (presetSel.value === 'custom') reload();
+    });
     refreshBtn?.addEventListener('click', reload);
 
     // Przełącznik trybu wykresu
@@ -1171,11 +1243,14 @@ function initStationOutputWidget() {
         });
     });
 
-    // Wstępne ładowanie (bez zmiany inputów)
-    loadStationOutput(stationSel.value, dateInput.value);
+    // Wstępne ładowanie
+    const range = soResolveRange(presetSel.value, startInput, endInput);
+    if (range) {
+        loadStationOutput(stationSel.value, range.start, range.end);
+    }
 }
 
-async function loadStationOutput(station, dateStr) {
+async function loadStationOutput(station, startDate, endDate) {
     const tableContainer = document.getElementById('so-table-container');
     const emptyState = document.getElementById('so-empty-state');
     const summary = document.getElementById('so-summary');
@@ -1193,7 +1268,10 @@ async function loadStationOutput(station, dateStr) {
     if (pagination) pagination.style.display = 'none';
 
     try {
-        const url = `/production/api/reports/station-output?station=${encodeURIComponent(station)}&date=${encodeURIComponent(dateStr)}`;
+        const url = `/production/api/reports/station-output`
+            + `?station=${encodeURIComponent(station)}`
+            + `&start_date=${encodeURIComponent(startDate)}`
+            + `&end_date=${encodeURIComponent(endDate)}`;
         const resp = await fetch(url);
         const data = await resp.json();
 
@@ -1205,7 +1283,16 @@ async function loadStationOutput(station, dateStr) {
             return;
         }
 
-        // Timeline pokazujemy zawsze gdy mamy strukturę (nawet pusty dzień
+        // Etykieta zakresu do komunikatów / labelek
+        const daysCount = data.days_count || 1;
+        const rangeLabel = daysCount === 1
+            ? data.start_date
+            : `${data.start_date} – ${data.end_date} (${daysCount} dni)`;
+
+        // Aktualizuj nagłówki kolumn / labelki summary w zależności od zakresu
+        soUpdateRangeLabels(daysCount);
+
+        // Timeline pokazujemy zawsze gdy mamy strukturę (nawet pusty zakres
         // — wtedy widać 24h pustej siatki + komunikat).
         soCurrentTimeline = data.timeline || null;
         if (soCurrentTimeline && timelineWrapper) {
@@ -1216,7 +1303,7 @@ async function loadStationOutput(station, dateStr) {
         }
 
         if (!data.items || data.items.length === 0) {
-            emptyState.textContent = `Brak operacji na stanowisku "${data.station_label}" w dniu ${data.date}.`;
+            emptyState.textContent = `Brak operacji na stanowisku "${data.station_label}" w zakresie ${rangeLabel}.`;
             soCurrentItems = [];
             return;
         }
@@ -1247,6 +1334,33 @@ async function loadStationOutput(station, dateStr) {
         soCurrentItems = [];
         soCurrentTimeline = null;
     }
+}
+
+// Aktualizuje labelki summary i nagłówki kolumn tabeli w zależności od liczby dni.
+function soUpdateRangeLabels(daysCount) {
+    const isRange = daysCount > 1;
+
+    const titleEl = document.getElementById('so-timeline-title');
+    if (titleEl) {
+        titleEl.innerHTML = isRange
+            ? `<i class="fas fa-chart-bar me-1"></i>Aktywność 00:00–24:00 — średnia dzienna (co 30 min, ${daysCount} dni)`
+            : `<i class="fas fa-chart-bar me-1"></i>Aktywność 00:00–24:00 (co 30 min)`;
+    }
+
+    const qtyLabel = document.getElementById('so-summary-qty-label');
+    if (qtyLabel) qtyLabel.textContent = isRange ? 'Sztuki na koniec zakresu' : 'Sztuki na koniec dnia';
+
+    const deltaLabel = document.getElementById('so-summary-delta-label');
+    if (deltaLabel) deltaLabel.textContent = isRange ? 'Ruch w zakresie (netto)' : 'Ruch dnia (netto)';
+
+    const volLabel = document.getElementById('so-summary-volume-label');
+    if (volLabel) volLabel.textContent = isRange ? 'm³ wykonane (koniec zakresu)' : 'm³ wykonane (EOD)';
+
+    const colEod = document.getElementById('so-col-eod-label');
+    if (colEod) colEod.textContent = isRange ? 'Wykonano (koniec zakresu)' : 'Wykonano (EOD)';
+
+    const colDelta = document.getElementById('so-col-delta-label');
+    if (colDelta) colDelta.textContent = isRange ? 'Ruch w zakresie' : 'Ruch dnia';
 }
 
 function renderSoItemRow(it) {
@@ -1380,13 +1494,29 @@ function renderSoTimeline(timeline) {
     }
 
     const labels = timeline.buckets || [];
-    const pieces = timeline.pieces || [];
-    const volume = timeline.volume_m3 || [];
+    const piecesRaw = timeline.pieces || [];
+    const volumeRaw = timeline.volume_m3 || [];
+    const daysCount = Math.max(1, timeline.days_count || 1);
+    const isAvg = daysCount > 1;
 
-    // Pusty dzień? Pokaż komunikat zamiast wykresu.
-    const hasData = pieces.some(v => v !== 0) || volume.some(v => v !== 0);
+    // Dla zakresu >1 dnia: średnia dzienna per bucket (sum / days_count).
+    // Dla 1 dnia: surowa suma (== średnia/1).
+    const pieces = isAvg
+        ? piecesRaw.map(v => v / daysCount)
+        : piecesRaw.slice();
+    const volume = isAvg
+        ? volumeRaw.map(v => v / daysCount)
+        : volumeRaw.slice();
+
+    // Pusty zakres? Pokaż komunikat zamiast wykresu.
+    const hasData = piecesRaw.some(v => v !== 0) || volumeRaw.some(v => v !== 0);
     if (!hasData) {
-        if (empty) empty.style.display = 'block';
+        if (empty) {
+            empty.textContent = isAvg
+                ? `Brak operacji w wybranym zakresie (${daysCount} dni).`
+                : 'Brak operacji w tym dniu.';
+            empty.style.display = 'block';
+        }
         if (canvasWrapper) canvasWrapper.style.display = 'none';
         if (soTimelineChart) {
             soTimelineChart.destroy();
@@ -1413,41 +1543,47 @@ function renderSoTimeline(timeline) {
     const piecesColor = '#2563eb';
     const volumeColor = '#16a34a';
 
+    // Labels datasetów + tick formattery zależą od trybu (sumy vs średnia)
+    const piecesLabel = isAvg ? 'Sztuki śr./dzień (netto)' : 'Sztuki (netto)';
+    const volumeLabel = isAvg ? 'm³ śr./dzień (netto)' : 'm³ (netto)';
+    const piecesAxisTitle = isAvg ? 'Sztuki / dzień' : 'Sztuki';
+    const piecesTickFmt = isAvg ? (v => v.toFixed(1)) : (v => Math.round(v));
+
     if (soChartMode === 'pieces') {
         datasets.push({
-            label: 'Sztuki (netto)',
+            label: piecesLabel,
             data: pieces,
             backgroundColor: pieces.map(v => v >= 0 ? piecesColor : '#dc2626'),
             borderWidth: 0,
         });
         scales.y = {
             beginAtZero: true,
-            title: { display: true, text: 'Sztuki', font: { size: 10 } },
-            ticks: { font: { size: 10 }, callback: v => Math.round(v) },
+            title: { display: true, text: piecesAxisTitle, font: { size: 10 } },
+            ticks: { font: { size: 10 }, callback: piecesTickFmt },
         };
     } else if (soChartMode === 'volume') {
         datasets.push({
-            label: 'm³ (netto)',
+            label: volumeLabel,
             data: volume,
             backgroundColor: volume.map(v => v >= 0 ? volumeColor : '#dc2626'),
             borderWidth: 0,
         });
         scales.y = {
             beginAtZero: true,
-            title: { display: true, text: 'm³', font: { size: 10 } },
+            title: { display: true, text: isAvg ? 'm³ / dzień' : 'm³', font: { size: 10 } },
             ticks: { font: { size: 10 }, callback: v => v.toFixed(2) },
         };
     } else {
         // Tryb both — dwa datasety side-by-side, dwie osie Y
         datasets.push({
-            label: 'Sztuki (netto)',
+            label: piecesLabel,
             data: pieces,
             backgroundColor: piecesColor,
             borderWidth: 0,
             yAxisID: 'y',
         });
         datasets.push({
-            label: 'm³ (netto)',
+            label: volumeLabel,
             data: volume,
             backgroundColor: volumeColor,
             borderWidth: 0,
@@ -1457,15 +1593,15 @@ function renderSoTimeline(timeline) {
             type: 'linear',
             position: 'left',
             beginAtZero: true,
-            title: { display: true, text: 'Sztuki', font: { size: 10 }, color: piecesColor },
-            ticks: { font: { size: 10 }, color: piecesColor, callback: v => Math.round(v) },
+            title: { display: true, text: piecesAxisTitle, font: { size: 10 }, color: piecesColor },
+            ticks: { font: { size: 10 }, color: piecesColor, callback: piecesTickFmt },
             grid: { color: 'rgba(0,0,0,0.05)' },
         };
         scales.y1 = {
             type: 'linear',
             position: 'right',
             beginAtZero: true,
-            title: { display: true, text: 'm³', font: { size: 10 }, color: volumeColor },
+            title: { display: true, text: isAvg ? 'm³ / dzień' : 'm³', font: { size: 10 }, color: volumeColor },
             ticks: { font: { size: 10 }, color: volumeColor, callback: v => v.toFixed(2) },
             grid: { drawOnChartArea: false },
         };
@@ -1492,20 +1628,24 @@ function renderSoTimeline(timeline) {
                 tooltip: {
                     callbacks: {
                         title: (items) => {
-                            // Zakres półgodzinny: "08:30 – 09:00"
+                            // Zakres półgodzinny: "08:30 – 09:00" (+ informacja o średniej)
                             if (!items.length) return '';
                             const idx = items[0].dataIndex;
                             const start = labels[idx];
                             const endIdx = idx + 1;
                             const end = endIdx < labels.length ? labels[endIdx] : '24:00';
-                            return `${start} – ${end}`;
+                            return isAvg
+                                ? `${start} – ${end}  (śr. z ${daysCount} dni)`
+                                : `${start} – ${end}`;
                         },
                         label: (ctx) => {
                             const v = ctx.parsed.y;
                             if (ctx.dataset.label && ctx.dataset.label.startsWith('m³')) {
                                 return `${ctx.dataset.label}: ${v.toFixed(3)} m³`;
                             }
-                            return `${ctx.dataset.label}: ${v >= 0 ? '+' : ''}${Math.round(v)}`;
+                            // Sztuki: średnia bywa ułamkowa, suma jest całkowita
+                            const formatted = isAvg ? v.toFixed(1) : Math.round(v);
+                            return `${ctx.dataset.label}: ${v >= 0 ? '+' : ''}${formatted}`;
                         },
                     },
                 },
