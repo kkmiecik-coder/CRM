@@ -538,6 +538,11 @@
     border: 1px solid var(--il-border, #c8cdd5);
     border-radius: var(--il-radius, 3px);
 }
+/* Bootstrap form-select renderuje strzalke v przez background-image —
+   trzeba zarezerwowac padding-right zeby tekst pod nia nie wchodzil. */
+.station-output-widget .widget-controls .form-select {
+    padding-right: 28px;
+}
 .station-output-widget .widget-content {
     padding: 14px;
 }
