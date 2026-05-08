@@ -143,6 +143,29 @@ def ack_jobs(cfg, results):
     return crm_request('POST', url, cfg['token'], body={'results': results}, timeout=cfg['request_timeout'])
 
 
+def _describe_job_age(requested_at_iso):
+    """Zwraca ' (zlecone Xs temu)' lub '' jeśli brak/błąd parsowania.
+
+    Pole requested_at z API to naive UTC (datetime.utcnow w modelu),
+    isoformat bez offsetu — porównujemy też z datetime.utcnow().
+    """
+    if not requested_at_iso:
+        return ''
+    try:
+        req = datetime.fromisoformat(requested_at_iso.rstrip('Z'))
+    except (ValueError, TypeError, AttributeError):
+        return ''
+    age = (datetime.utcnow() - req).total_seconds()
+    if age < 0:
+        # Zegar huba rozjechany z serwerem albo strefa się popsuła.
+        return f' (req {requested_at_iso})'
+    if age < 60:
+        return f' (zlecone {age:.1f}s temu)'
+    if age < 3600:
+        return f' (zlecone {int(age // 60)}m {int(age % 60)}s temu)'
+    return f' (zlecone {int(age // 3600)}h {int((age % 3600) // 60)}m temu)'
+
+
 # === Printer (TCP) ===
 def send_to_printer(cfg, zpl):
     with socket.create_connection((cfg['printer_ip'], cfg['printer_port']), timeout=cfg['printer_timeout']) as sock:
@@ -197,13 +220,14 @@ def run_once(cfg):
     info(f"Pobrano {len(jobs)} zadań → drukuję...")
     results = []
     for j in jobs:
+        age_suffix = _describe_job_age(j.get('requested_at'))
         try:
             send_to_printer(cfg, j['zpl_payload'])
-            ok(f"  ✓ id={j['id']} short={j['short_product_id']}")
+            ok(f"  ✓ id={j['id']} short={j['short_product_id']}{age_suffix}")
             results.append({'id': j['id'], 'success': True})
         except (socket.timeout, ConnectionRefusedError, OSError) as e:
-            err(f"  ✗ id={j['id']} short={j['short_product_id']} ({e})")
-            log_error(f"Drukowanie id={j['id']} nieudane: {e}", exc=e)
+            err(f"  ✗ id={j['id']} short={j['short_product_id']}{age_suffix} ({e})")
+            log_error(f"Drukowanie id={j['id']} nieudane{age_suffix}: {e}", exc=e)
             results.append({'id': j['id'], 'success': False, 'error': str(e)[:200]})
 
     try:
