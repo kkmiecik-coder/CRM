@@ -2,9 +2,13 @@
 
 {# ─── QUICK ACTIONS BAR ─── #}
 <div class="il-quick-actions">
+  {# UWAGA: brak data-bs-toggle/data-bs-target — modal #baselinkerSyncModal
+     nie jest Bootstrap'owy (klasa modal-bl-sync-wrapper, brak .modal-dialog),
+     ma własny system otwierania w dashboard_bl_sync_modal.js
+     (attachToSyncButtons + window.showBaselinkerSyncModal). Z atrybutami
+     data-bs-* Bootstrap próbował go obsłużyć po swojemu i wybuchał na
+     querySelector(.modal-body) — TypeError: Illegal invocation. #}
   <button id="manual-sync-btn" class="il-btn-refresh"
-          data-bs-toggle="modal"
-          data-bs-target="#baselinkerSyncModal"
           title="Ręczna synchronizacja z Baselinker">
     <i class="fas fa-sync-alt"></i> Synchronizuj z Baselinker
   </button>
