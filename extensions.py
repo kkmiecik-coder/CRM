@@ -18,6 +18,7 @@ Data: 2025-09-10
 from flask_sqlalchemy import SQLAlchemy
 from flask_mail import Mail
 from flask_login import LoginManager
+from sqlalchemy.exc import SQLAlchemyError
 
 # ============================================================================
 # INICJALIZACJA ROZSZERZEŃ
@@ -54,15 +55,22 @@ def load_user(user_id):
         # Import lokalny aby uniknąć circular imports
         from modules.users.models import User
         user = User.query.get(int(user_id))
-        
+
         # Dodatkowa walidacja - sprawdź czy konto jest aktywne
         if user and not user.is_active():
             return None
-            
+
         return user
-    except (ValueError, AttributeError, TypeError) as e:
-        # Loguj błąd ale nie crashuj aplikacji
-        print(f"[LoginManager] Błąd ładowania użytkownika {user_id}: {e}")
+    except (ValueError, AttributeError, TypeError, SQLAlchemyError) as e:
+        # Loguj błąd ale nie crashuj aplikacji.
+        # SQLAlchemyError obejmuje m.in. ResourceClosedError, który leci tu
+        # gdy poprzedni request zostawił zatrutą sesję po padniętym
+        # połączeniu MySQL (rollback w teardown nie zadziałał).
+        print(f"[LoginManager] Błąd ładowania użytkownika {user_id}: {type(e).__name__}: {e}")
+        try:
+            db.session.rollback()
+        except Exception:
+            pass
         return None
 
 def init_extensions(app):

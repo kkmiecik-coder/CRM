@@ -44,7 +44,7 @@ from modules.settings import settings_bp
 from modules.settings.models import AppSetting
 
 from flask_login import login_user, logout_user  # DODANE importy
-from sqlalchemy.exc import ResourceClosedError, OperationalError
+from sqlalchemy.exc import ResourceClosedError, OperationalError, SQLAlchemyError
 from flask.cli import with_appcontext
 
 os.environ['PYTHONIOENCODING'] = 'utf-8:replace'
@@ -1331,6 +1331,35 @@ def create_app():
         current_app.logger.error("OperationalError – rollback wykonany")
         return render_template("error.html", message="Problem z bazą danych. Spróbuj za chwilę."), 500
 
+    @app.errorhandler(SQLAlchemyError)
+    def handle_sqlalchemy_error(e):
+        # Fallback dla błędów SQLAlchemy nie złapanych przez bardziej
+        # konkretne handlery (OperationalError, ResourceClosedError).
+        # Łapie m.in. NoSuchColumnError które potrafi wystąpić gdy
+        # połączenie MySQL umrze w środku query — cursor zwraca wtedy
+        # niekompletne metadane wierszy i ORM rzuca przy konstrukcji entity.
+        try:
+            db.session.rollback()
+        except Exception:
+            try:
+                db.session.invalidate()
+            except Exception:
+                pass
+
+        try:
+            import sentry_sdk
+            sentry_sdk.capture_exception(e)
+        except Exception:
+            pass
+
+        error_logger = get_structured_logger('app.errors')
+        error_logger.error("SQLAlchemyError occurred",
+                          error=str(e),
+                          error_type=type(e).__name__)
+
+        current_app.logger.error(f"SQLAlchemyError ({type(e).__name__}) – rollback wykonany")
+        return render_template("error.html", message="Problem z bazą danych. Spróbuj ponownie."), 500
+
     @app.teardown_appcontext
     def shutdown_session(exception=None):
         if exception:
@@ -1348,8 +1377,27 @@ def create_app():
 
             # ZOSTAW STARE:
             current_app.logger.error(f"Teardown exception: {exception}")
-            db.session.rollback()
-        db.session.remove()
+            # Rollback na padniętym połączeniu sam wybucha (BrokenPipe / Command
+            # Out of Sync). Łapiemy te wtórne błędy i invalidujemy połączenie,
+            # żeby nie eskalowały do klienta i żeby pula wyrzuciła martwy socket.
+            try:
+                db.session.rollback()
+            except Exception as rollback_err:
+                current_app.logger.warning(
+                    f"Teardown rollback nie powiódł się ({type(rollback_err).__name__}): {rollback_err}"
+                )
+                try:
+                    db.session.invalidate()
+                except Exception:
+                    pass
+        # Session.remove() wewnętrznie też robi rollback i może wybuchnąć
+        # tym samym Command Out of Sync — opakowujemy defensywnie.
+        try:
+            db.session.remove()
+        except Exception as remove_err:
+            current_app.logger.warning(
+                f"Teardown session.remove() nie powiódł się ({type(remove_err).__name__}): {remove_err}"
+            )
 
     # Konfiguracja nowego systemu logowania
     AppLogger.setup()
