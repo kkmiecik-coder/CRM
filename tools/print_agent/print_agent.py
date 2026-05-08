@@ -167,23 +167,32 @@ def print_banner(cfg):
 
 # === Main loop ===
 def run_once(cfg):
-    """Jeden cykl: pobierz pending, wydrukuj, ACK."""
+    """Jeden cykl: pobierz pending, wydrukuj, ACK.
+
+    Zwraca:
+        True  — komunikacja z CRM OK (fetch + ACK przeszły, lub brak zadań).
+        False — fetch lub ACK rzucił błąd sieci/HTTP (sygnał dla backoffu w main).
+
+    Awaria pojedynczego wydruku (drukarka offline) NIE liczy się jako fail
+    komunikacji z CRM — ACK i tak idzie z success=False dla tego joba, więc
+    serwer nie próbuje go ponownie i nie ma sensu uruchamiać backoffu.
+    """
     try:
         data = fetch_jobs(cfg)
     except HTTPError as e:
         if e.code == 401:
             log_error("401 Unauthorized z CRM — sprawdź token w panelu. Czekam 60s.")
             time.sleep(60)
-            return
+            return False
         log_error(f"CRM HTTP {e.code}: {e.reason}", exc=e)
-        return
+        return False
     except (URLError, TimeoutError, OSError) as e:
         log_error(f"Błąd sieci do CRM: {e}", exc=e)
-        return
+        return False
 
     jobs = data.get('jobs', [])
     if not jobs:
-        return  # cisza w logach przy braku zadań
+        return True  # cisza w logach przy braku zadań
 
     info(f"Pobrano {len(jobs)} zadań → drukuję...")
     results = []
@@ -201,8 +210,10 @@ def run_once(cfg):
         resp = ack_jobs(cfg, results)
         success_count = sum(1 for r in results if r['success'])
         ok(f"ACK: {success_count}/{len(results)} OK (server updated={resp.get('updated', '?')})")
+        return True
     except (URLError, HTTPError, TimeoutError, OSError) as e:
         log_error(f"Nie udało się wysłać ACK: {e}", exc=e)
+        return False
 
 
 def main():
@@ -215,19 +226,46 @@ def main():
 
     print_banner(cfg)
 
+    # Exponential backoff przy seryjnych błędach komunikacji z CRM.
+    # Powód: 5 maja 2026 podczas 22-min outage backendu (MySQL "Too many
+    # connections") agent stuknął ~58 razy co 20s spamując i logi i serwer.
+    # Po BACKOFF_THRESHOLD błędach z rzędu sleep dwoi się do BACKOFF_MAX_SECONDS.
+    # Reset licznika po pierwszym sukcesie.
+    BACKOFF_THRESHOLD = 3
+    BACKOFF_MAX_SECONDS = 300
+
     in_idle = False
+    consecutive_errors = 0
     while True:
         try:
             if in_working_hours(cfg):
                 if in_idle:
                     info(f"{C.GREEN}Wracam do pracy (okno {cfg['workdays_start']}-{cfg['workdays_end']}){C.RESET}")
                     in_idle = False
-                run_once(cfg)
-                time.sleep(cfg['poll_interval'])
+                ok_run = run_once(cfg)
+                if ok_run:
+                    if consecutive_errors >= BACKOFF_THRESHOLD:
+                        ok(f"CRM odpowiada — reset backoffu (po {consecutive_errors} błędach)")
+                    consecutive_errors = 0
+                    sleep_for = cfg['poll_interval']
+                else:
+                    consecutive_errors += 1
+                    if consecutive_errors >= BACKOFF_THRESHOLD:
+                        sleep_for = min(
+                            cfg['poll_interval'] * (2 ** (consecutive_errors - BACKOFF_THRESHOLD + 1)),
+                            BACKOFF_MAX_SECONDS,
+                        )
+                        warn(f"Backoff: {consecutive_errors} błędów z rzędu → sleep {sleep_for}s")
+                    else:
+                        sleep_for = cfg['poll_interval']
+                time.sleep(sleep_for)
             else:
                 if not in_idle:
                     warn(f"Poza godzinami pracy — śpię (sprawdzam co {cfg['idle_check_interval']}s)")
                     in_idle = True
+                # Wyjście z okna pracy = reset licznika; po wznowieniu nie chcemy
+                # startować z poprzedniego backoffu z innego dnia.
+                consecutive_errors = 0
                 time.sleep(cfg['idle_check_interval'])
         except KeyboardInterrupt:
             info("Przerwano (Ctrl+C). Zamykam.")
