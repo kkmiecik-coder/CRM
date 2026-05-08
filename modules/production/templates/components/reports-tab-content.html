@@ -786,7 +786,7 @@
             </div>
             <div class="so-stat">
                 <span class="so-stat-value" id="so-summary-delta">0</span>
-                <span class="so-stat-label" id="so-summary-delta-label">Ruch dnia (netto)</span>
+                <span class="so-stat-label" id="so-summary-delta-label">Ruch dnia</span>
             </div>
             <div class="so-stat">
                 <span class="so-stat-value" id="so-summary-volume">0.000</span>
@@ -1370,7 +1370,7 @@ function soUpdateRangeLabels(daysCount) {
     if (qtyLabel) qtyLabel.textContent = isRange ? 'Sztuki na koniec zakresu' : 'Sztuki na koniec dnia';
 
     const deltaLabel = document.getElementById('so-summary-delta-label');
-    if (deltaLabel) deltaLabel.textContent = isRange ? 'Ruch w zakresie (netto)' : 'Ruch dnia (netto)';
+    if (deltaLabel) deltaLabel.textContent = isRange ? 'Ruch w zakresie' : 'Ruch dnia';
 
     const volLabel = document.getElementById('so-summary-volume-label');
     if (volLabel) volLabel.textContent = isRange ? 'm³ wykonane (koniec zakresu)' : 'm³ wykonane (EOD)';
@@ -1569,8 +1569,8 @@ function renderSoTimeline(timeline) {
     const volumeColor = '#16a34a';
 
     // Labels datasetów + tick formattery zależą od trybu (sumy vs średnia)
-    const piecesLabel = isAvg ? 'Sztuki śr./dzień (netto)' : 'Sztuki (netto)';
-    const volumeLabel = isAvg ? 'm³ śr./dzień (netto)' : 'm³ (netto)';
+    const piecesLabel = isAvg ? 'Sztuki śr./dzień' : 'Sztuki';
+    const volumeLabel = isAvg ? 'm³ śr./dzień' : 'm³';
     const piecesAxisTitle = isAvg ? 'Sztuki / dzień' : 'Sztuki';
     const piecesTickFmt = isAvg ? (v => v.toFixed(1)) : (v => Math.round(v));
 
