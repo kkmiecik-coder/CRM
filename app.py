@@ -1131,45 +1131,52 @@ def create_app():
 
     @app.context_processor
     def inject_user():
+        # Opakowane defensywnie: context_processor wykonuje się przy KAŻDYM
+        # render_template, w tym przy error.html z handlerów DB. Jeśli pula
+        # zwróciła padnięte połączenie, ten User.query rzuciłby ponownie i
+        # blokował wyrenderowanie strony błędu (kaskada).
         user_email = session.get('user_email')
-        if user_email:
-            user = User.query.filter_by(email=user_email).first()
-            if user:
-                # Jeśli imię i nazwisko są uzupełnione, łączymy je. W przeciwnym razie używamy emaila.
-                user_name = f"{user.first_name} {user.last_name}".strip() if user.first_name or user.last_name else user.email
-                # Jeśli brak avatara, ustawiamy domyślną ścieżkę.
-                if user.avatar_path:
-                    user_avatar = url_for('static', filename=user.avatar_path)
-                else:
-                    user_avatar = url_for('static', filename='images/avatars/default_avatars/avatar1.svg')
-            
-                # DODAJ informacje o sesji
-                session_info = {}
-                try:
-                    session_token = session.get('user_session_token')
-                    if session_token:
-                        user_session = UserSession.query.filter_by(
-                            session_token=session_token,
-                            is_active=True
-                        ).first()
-                    
-                        if user_session:
-                            session_info = {
-                                'session_duration': user_session.get_session_duration(),
-                                'last_activity': user_session.get_relative_time(),
-                                'current_page': user_session.get_page_display_name()
-                            }
-                except Exception as e:
-                    current_app.logger.debug(f"[Context] Błąd pobierania info sesji: {e}")
-            
-                return dict(
-                    user_name=user_name,
-                    user_avatar=user_avatar,
-                    user_email=user.email,
-                    user_role=user.role,  # Rola użytkownika dla sidebar
-                    user=user,  # Dodaj cały obiekt user
-                    user_session=session_info
-                )
+        try:
+            user = User.query.filter_by(email=user_email).first() if user_email else None
+        except Exception as e:
+            current_app.logger.debug(f"[Context] Błąd pobierania użytkownika: {e}")
+            user = None
+        if user is not None:
+            # Jeśli imię i nazwisko są uzupełnione, łączymy je. W przeciwnym razie używamy emaila.
+            user_name = f"{user.first_name} {user.last_name}".strip() if user.first_name or user.last_name else user.email
+            # Jeśli brak avatara, ustawiamy domyślną ścieżkę.
+            if user.avatar_path:
+                user_avatar = url_for('static', filename=user.avatar_path)
+            else:
+                user_avatar = url_for('static', filename='images/avatars/default_avatars/avatar1.svg')
+
+            # DODAJ informacje o sesji
+            session_info = {}
+            try:
+                session_token = session.get('user_session_token')
+                if session_token:
+                    user_session = UserSession.query.filter_by(
+                        session_token=session_token,
+                        is_active=True
+                    ).first()
+
+                    if user_session:
+                        session_info = {
+                            'session_duration': user_session.get_session_duration(),
+                            'last_activity': user_session.get_relative_time(),
+                            'current_page': user_session.get_page_display_name()
+                        }
+            except Exception as e:
+                current_app.logger.debug(f"[Context] Błąd pobierania info sesji: {e}")
+
+            return dict(
+                user_name=user_name,
+                user_avatar=user_avatar,
+                user_email=user.email,
+                user_role=user.role,  # Rola użytkownika dla sidebar
+                user=user,  # Dodaj cały obiekt user
+                user_session=session_info
+            )
     
         # Domyślne wartości, gdy nie ma zalogowanego użytkownika.
         return dict(
@@ -1287,6 +1294,22 @@ def create_app():
     
         return render_template("reset_password_form.html", token=token)
 
+    def _db_error_response(message, error_type):
+        """Wspólna odpowiedź dla błędów DB — JSON dla API, HTML dla reszty.
+        Klienci /api/* (print-agent, mobile-app, integracje) potrzebują
+        ustrukturyzowanej odpowiedzi a nie HTML strony błędu."""
+        if request.path.startswith('/api/'):
+            return jsonify({
+                'error': 'database_error',
+                'error_type': error_type,
+                'message': message,
+            }), 500
+        return render_template(
+            "error.html",
+            message=message,
+            timestamp=get_local_now().strftime('%Y-%m-%d %H:%M:%S'),
+        ), 500
+
     @app.errorhandler(ResourceClosedError)
     def handle_resource_closed_error(e):
         db.session.rollback()
@@ -1306,7 +1329,7 @@ def create_app():
 
         # ZOSTAW STARE:
         current_app.logger.error("ResourceClosedError – rollback wykonany")
-        return render_template("error.html", message="Problem z bazą danych. Spróbuj ponownie."), 500
+        return _db_error_response("Problem z bazą danych. Spróbuj ponownie.", 'ResourceClosedError')
 
     @app.errorhandler(OperationalError)
     def handle_operational_error(e):
@@ -1326,7 +1349,7 @@ def create_app():
 
         # ZOSTAW STARE:
         current_app.logger.error("OperationalError – rollback wykonany")
-        return render_template("error.html", message="Problem z bazą danych. Spróbuj za chwilę."), 500
+        return _db_error_response("Problem z bazą danych. Spróbuj za chwilę.", 'OperationalError')
 
     @app.errorhandler(SQLAlchemyError)
     def handle_sqlalchemy_error(e):
@@ -1355,7 +1378,7 @@ def create_app():
                           error_type=type(e).__name__)
 
         current_app.logger.error(f"SQLAlchemyError ({type(e).__name__}) – rollback wykonany")
-        return render_template("error.html", message="Problem z bazą danych. Spróbuj ponownie."), 500
+        return _db_error_response("Problem z bazą danych. Spróbuj ponownie.", type(e).__name__)
 
     @app.teardown_appcontext
     def shutdown_session(exception=None):

@@ -14,6 +14,7 @@ from datetime import datetime, timedelta
 from functools import wraps
 
 from flask import Blueprint, jsonify, request
+from sqlalchemy.exc import NoSuchColumnError, OperationalError, ResourceClosedError
 
 from extensions import db
 from modules.logging import get_structured_logger
@@ -25,10 +26,38 @@ print_agent_bp = Blueprint('print_agent', __name__)
 
 _AGENT_JOB_TTL = timedelta(hours=1)
 
+# Wyjątki które wskazują na padnięte połączenie z poola — agent puka co 5s,
+# więc co jakiś czas trafia na martwy socket mimo pool_pre_ping.
+_TRANSIENT_DB_ERRORS = (NoSuchColumnError, OperationalError, ResourceClosedError)
 
-def _get_agent_token():
+
+def _query_agent_token():
     row = ProductionConfig.query.filter_by(config_key='LABEL_PRINTER_AGENT_TOKEN').first()
     return (row.config_value or '').strip() if row else ''
+
+
+def _get_agent_token():
+    """Pobiera token agenta z prod_config; przy padniętym połączeniu robi
+    rollback+invalidate i ponawia raz. Brak tokena = '' (agent dostanie 401)."""
+    try:
+        return _query_agent_token()
+    except _TRANSIENT_DB_ERRORS as e:
+        logger.warning("Padnięte połączenie podczas odczytu tokena agenta — retry",
+                       extra={'error_type': type(e).__name__})
+        try:
+            db.session.rollback()
+        except Exception:
+            pass
+        try:
+            db.session.invalidate()
+        except Exception:
+            pass
+        try:
+            return _query_agent_token()
+        except Exception as e2:
+            logger.error("Retry tokena agenta nie powiódł się",
+                         extra={'error_type': type(e2).__name__, 'error': str(e2)})
+            return ''
 
 
 def require_agent_token(view):
