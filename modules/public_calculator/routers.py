@@ -67,7 +67,6 @@ def log_session_public():
     try:
         data_raw = request.data or request.get_data()
         data = json.loads(data_raw)
-        print("[log_session_public] Otrzymane dane:", data, file=sys.stderr)
 
         session = PublicSession(
             inputs=json.dumps(data.get("inputs", {})),
@@ -81,7 +80,6 @@ def log_session_public():
         )
         db.session.add(session)
         db.session.commit()
-        print("[log_session_public] Zapisano sesję ID:", session.id, file=sys.stderr)
 
         return jsonify({"status": "ok"}), 200
 
@@ -175,8 +173,6 @@ def send_inquiry():
             **template_data
         )
         mail.send(msg_customer)
-
-        print(f"[send_inquiry] Wysłano zapytanie {inquiry_number} od {customer_name} ({customer_email})", file=sys.stderr)
 
         return jsonify({
             "status": "ok",

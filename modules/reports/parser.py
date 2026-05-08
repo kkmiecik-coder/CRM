@@ -202,9 +202,9 @@ class ProductNameParser:
             result['parsed_successfully'] = self._is_parsing_successful(result)
             
         except Exception as e:
-            print(f"[ProductNameParser] Błąd parsowania '{product_name}': {e}")
+            reports_logger.warning(f"[ProductNameParser] Błąd parsowania '{product_name}': {e}")
             result['parsed_successfully'] = False
-        
+
         return result
     
     def _extract_product_type(self, name_lower: str) -> Optional[str]:
@@ -271,7 +271,7 @@ class ProductNameParser:
                     return (length, width, thickness)
                 except (ValueError, TypeError) as e:
                     # Loguj błąd dla debugowania
-                    print(f"[ProductNameParser] Błąd konwersji wymiarów: {e}, input: {match.groups()}")
+                    reports_logger.warning(f"[ProductNameParser] Błąd konwersji wymiarów: {e}, input: {match.groups()}")
                     continue
         return None
     

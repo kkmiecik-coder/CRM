@@ -7,6 +7,10 @@ from functools import wraps
 import os
 from datetime import datetime
 
+from modules.logging import get_logger
+
+logger = get_logger('help.routers')
+
 from .services import (
     # Kategorie
     get_all_categories,
@@ -420,35 +424,28 @@ def admin_media_upload():
         
         # Utwórz folder jeśli nie istnieje
         os.makedirs(upload_dir, exist_ok=True)
-        
-        print(f"[UPLOAD] Upload dir: {upload_dir}")
-        print(f"[UPLOAD] Original filename: {original_filename}")
-        
+
         # Sprawdź czy plik już istnieje i dodaj numer
         while os.path.exists(os.path.join(upload_dir, filename)):
             name, ext = os.path.splitext(original_filename)
             filename = f"{name}_{counter}{ext}"
             counter += 1
-        
+
         # Zapisz plik
         filepath = os.path.join(upload_dir, filename)
         file.save(filepath)
-        
-        print(f"[UPLOAD] File saved to: {filepath}")
-        
+
         # Zwróć URL do pliku
         file_url = url_for('static', filename=f'help_media/{filename}')
-        
+
         return jsonify({
             'success': True,
             'filename': filename,
             'url': file_url
         })
-        
+
     except Exception as e:
-        print(f"[UPLOAD] ERROR: {str(e)}")
-        import traceback
-        print(f"[UPLOAD] TRACEBACK:\n{traceback.format_exc()}")
+        logger.error(f"Błąd uploadu pliku help: {e}", exc_info=True)
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
@@ -486,55 +483,42 @@ def admin_media_info(filename):
 def admin_media_list():
     """API endpoint - zwraca listę plików w galerii"""
     try:
-        print("[MEDIA LIST] Starting...")
-        
         media_dir = os.path.join(current_app.static_folder, 'help_media')
-        print(f"[MEDIA LIST] Media dir: {media_dir}")
-        print(f"[MEDIA LIST] Exists: {os.path.exists(media_dir)}")
-        
+
         if not os.path.exists(media_dir):
-            print("[MEDIA LIST] Directory doesn't exist, returning empty list")
             return jsonify({'success': True, 'media_files': []})
-        
+
         media_files = []
-        
-        print(f"[MEDIA LIST] Listing files...")
+
         for filename in os.listdir(media_dir):
             filepath = os.path.join(media_dir, filename)
-            
+
             if os.path.isfile(filepath):
-                print(f"[MEDIA LIST] Processing file: {filename}")
                 file_stat = os.stat(filepath)
-                
+
                 file_info = {
                     'filename': filename,
                     'url': url_for('static', filename=f'help_media/{filename}'),
                     'size': file_stat.st_size,
                     'uploaded_at': datetime.fromtimestamp(file_stat.st_mtime).isoformat()
                 }
-                
-                # Get image dimensions if it's an image
+
+                # Pobierz wymiary obrazu jeśli to obraz
                 try:
                     from PIL import Image
                     img = Image.open(filepath)
                     file_info['width'] = img.width
                     file_info['height'] = img.height
-                    print(f"[MEDIA LIST] Image dimensions: {img.width}x{img.height}")
                 except Exception as img_error:
-                    print(f"[MEDIA LIST] Could not get dimensions for {filename}: {img_error}")
-                    pass
-                
+                    logger.warning(f"Nie udało się pobrać wymiarów dla {filename}: {img_error}")
+
                 media_files.append(file_info)
-        
-        # Sort by upload date (newest first)
+
+        # Sortuj po dacie uploadu (najnowsze pierwsze)
         media_files.sort(key=lambda x: x['uploaded_at'], reverse=True)
-        
-        print(f"[MEDIA LIST] Returning {len(media_files)} files")
+
         return jsonify({'success': True, 'media_files': media_files})
-        
+
     except Exception as e:
-        print(f"[MEDIA LIST] ERROR: {str(e)}")
-        print(f"[MEDIA LIST] ERROR TYPE: {type(e).__name__}")
-        import traceback
-        print(f"[MEDIA LIST] TRACEBACK:\n{traceback.format_exc()}")
+        logger.error(f"Błąd listowania mediów help: {e}", exc_info=True)
         return jsonify({'success': False, 'error': str(e)}), 500

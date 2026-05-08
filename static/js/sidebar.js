@@ -55,13 +55,10 @@ document.addEventListener('DOMContentLoaded', function () {
 
             if (betaTags.length > 0 && data.version) {
                 console.log('[SIDEBAR] Aktualizuję wersję na:', data.version);
-                const isCollapsed = document.querySelector('.sidebar')?.classList.contains('collapsed')
-                    || document.documentElement.classList.contains('sidebar-is-collapsed');
                 betaTags.forEach(tag => {
                     tag.dataset.version = data.version;
-                    tag.dataset.fullText = `BETA ${data.version}`;
-                    tag.dataset.shortText = `B${data.version}`;
-                    tag.textContent = isCollapsed ? `B${data.version}` : `BETA ${data.version}`;
+                    tag.dataset.fullText = `v. ${data.version}`;
+                    tag.textContent = `v. ${data.version}`;
                 });
             } else {
                 console.log('[SIDEBAR] Brak beta-tag lub wersji w danych');
@@ -106,9 +103,8 @@ function getCollapsedWidth() {
 
 function updateBetaTagText(collapsed) {
     document.querySelectorAll('.beta-tag').forEach(tag => {
-        if (tag.dataset.shortText && tag.dataset.fullText) {
-            tag.textContent = collapsed ? tag.dataset.shortText : tag.dataset.fullText;
-        }
+        const fullText = tag.dataset.fullText || '';
+        tag.textContent = fullText;
     });
 }
 

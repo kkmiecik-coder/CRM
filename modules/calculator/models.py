@@ -521,15 +521,12 @@ class Quote(db.Model):
 
     def apply_total_discount(self, discount_percentage, reason_id=None):
         all_items = [item for item in self.items]
-        print(f"[apply_total_discount] Znaleziono {len(all_items)} pozycji dla quote_id={self.id}", file=sys.stderr)
 
         affected_count = 0
         for item in all_items:
-            print(f"[apply_total_discount] Przetwarzam item ID={item.id}, variant={item.variant_code}", file=sys.stderr)
             item.apply_discount(discount_percentage, reason_id)
             affected_count += 1
 
-        print(f"[apply_total_discount] Zaktualizowano {affected_count} pozycji", file=sys.stderr)
         return affected_count
 
     @property

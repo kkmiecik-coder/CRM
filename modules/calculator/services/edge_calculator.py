@@ -4,6 +4,9 @@ Wzorowany na WoodPriceCalculator.php z PrestaShop woodconfigurator.
 """
 
 from decimal import Decimal, ROUND_HALF_UP
+from modules.logging import get_logger
+
+logger = get_logger('calculator.edge_calculator')
 
 # ============================================
 # DEFINICJE KRAWĘDZI
@@ -214,7 +217,7 @@ def get_prices_from_db():
         return prices
 
     except Exception as e:
-        print(f"[edge_calculator] Error loading prices from DB: {e}")
+        logger.warning(f"[edge_calculator] Błąd ładowania cen krawędzi z bazy: {e}")
         return DEFAULT_PRICES
 
 

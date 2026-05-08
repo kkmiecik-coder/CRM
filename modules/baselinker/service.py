@@ -2,7 +2,6 @@
 
 import requests
 import json
-import sys
 from typing import Dict, List, Optional
 from flask import current_app, session, request
 from extensions import db
@@ -1384,8 +1383,7 @@ class BaselinkerService:
 
             # DEBUG: Wypisz wszystkie faktury
             self.logger.info(f"DEBUG: Znalezione faktury: {invoices}")
-            print(f"[DEBUG INVOICES] {invoices}", file=sys.stderr)
-            
+
             # Znajdź fakturę (type="normal" lub type="vat")
             invoice = next((inv for inv in invoices 
                         if inv.get('type') in ['INVOICE', 'NORMAL', 'VAT', 'normal', 'vat', 'invoice']), None)

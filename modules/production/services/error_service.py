@@ -12,6 +12,10 @@ from flask import request
 from datetime import datetime
 from app import db
 from ..models import ProductionError
+from modules.logging import get_logger
+
+# Logger fallback do raportowania błędów gdy zapis do bazy nie zadziała
+logger = get_logger('production.error_service')
 
 
 def log_production_error(
@@ -98,9 +102,11 @@ def log_production_error(
 
     except Exception as logging_error:
         # Nie pozwól aby błąd logowania zepsuł aplikację
-        # Fallback do print jeśli logowanie się nie powiedzie
-        print(f"[ERROR SERVICE] Nie udało się zapisać błędu do bazy: {logging_error}")
-        print(f"[ERROR SERVICE] Oryginalny błąd: {error_type} - {error_message}")
+        # Fallback do loggera jeśli zapis błędu do bazy się nie powiedzie
+        logger.error(
+            "Nie udało się zapisać błędu do bazy: %s | Oryginalny błąd: %s - %s",
+            logging_error, error_type, error_message
+        )
         try:
             db.session.rollback()
         except:

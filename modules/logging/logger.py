@@ -154,7 +154,7 @@ class AppLogger:
         
         # Pobierz root logger
         root_logger = logging.getLogger()
-        root_logger.setLevel(logging.DEBUG)
+        root_logger.setLevel(logging.WARNING)
         
         # Usuń istniejące handlery
         for handler in root_logger.handlers[:]:
@@ -202,28 +202,15 @@ class AppLogger:
             # Spróbuj utworzyć console handler
             console_handler = logging.StreamHandler(stream=console_stream)
             console_handler.setFormatter(formatter)
-            console_handler.setLevel(logging.INFO)
-            
-            # Test czy console handler działa z polskimi znakami
-            test_message = "Test polskich znakow: ąćęłńóśźż"
-            test_record = logging.LogRecord(
-                name='test', level=logging.INFO, pathname='', lineno=0,
-                msg=test_message, args=(), exc_info=None
-            )
-            
+            console_handler.setLevel(logging.WARNING)
+
             try:
-                # Spróbuj sformatować i zapisać testową wiadomość
-                formatted = formatter.format(test_record)
-                console_handler.stream.write(formatted + '\n')
-                console_handler.stream.flush()
-                
-                # Jeśli się udało, dodaj handler
+                # Dodaj handler — ewentualne błędy UTF-8 wyjdą przy pierwszym realnym logu
                 root_logger.addHandler(console_handler)
-                print("[Logger] Console handler z UTF-8 działa poprawnie")
-                
+
             except (UnicodeEncodeError, BrokenPipeError, OSError):
                 # Console nie obsługuje UTF-8 lub jest zamknięty
-                print("[Logger] Console nie obsługuje UTF-8 lub jest zamknięty - wyłączono console logging")
+                print("[Logger] Console nie obsługuje UTF-8 lub jest zamknięty - wyłączono console logging", file=sys.stderr)
                 
         except (OSError, BrokenPipeError, AttributeError) as e:
             # Console stream niedostępny - logowanie tylko do pliku

@@ -366,7 +366,6 @@ def create_app():
         with open(config_path, "r") as config_file:
             config_data = json.load(config_file)
         app.config.update(config_data)
-        print("Konfiguracja załadowana z app/config/core.json", file=sys.stderr)
     else:
         config_data = {
             "DEBUG": True,
@@ -374,7 +373,8 @@ def create_app():
             "RUN_DB_SETUP": False
         }
         app.config.update(config_data)
-        print("Nie znaleziono app/config/core.json – użyto wartości domyślnych", file=sys.stderr)
+        # Brak pliku konfiguracyjnego — krytyczne ostrzeżenie dla operatora
+        print("Nie znaleziono app/config/core.json - użyto wartości domyślnych", file=sys.stderr)
 
     app.config.setdefault('RUN_DB_SETUP', False)
 
@@ -420,14 +420,12 @@ def create_app():
     init_extensions(app)
     register_cli_commands(app)
 
-    if hasattr(app, 'login_manager'):
-        print("✅ LoginManager zainicjalizowany poprawnie", file=sys.stderr)
-    else:
-        print("❌ LoginManager nie został zainicjalizowany", file=sys.stderr)
-    
+    if not hasattr(app, 'login_manager'):
+        # Krytyczny błąd inicjalizacji — operator musi to zobaczyć
+        print("[LoginManager] Nie został zainicjalizowany", file=sys.stderr)
+
     with app.app_context():
         if app.config.get('RUN_DB_SETUP'):
-            print("[DB_SETUP] RUN_DB_SETUP włączone - tworzę schemat bazy i konto admina", file=sys.stderr)
             db.create_all()
             create_admin()
 
@@ -438,6 +436,7 @@ def create_app():
                 migration_service = MigrationService(db)
                 migration_service.run_pending_migrations()
             except Exception as e:
+                # Błąd migracji jest krytyczny przy boocie aplikacji — zostawiamy stderr
                 print(f"[Migrations] Błąd podczas migracji: {e}", file=sys.stderr)
 
         # Odkrywanie dostępnych modułów i ich metadanych
@@ -465,8 +464,6 @@ def create_app():
         app.register_blueprint(issues_bp)
         app.register_blueprint(ai_assistant_bp)
         app.register_blueprint(settings_bp, url_prefix='/settings')
-
-        print("✅ Wszystkie blueprinty zarejestrowane", file=sys.stderr)
 
     register_blueprints_lazy(app)
 

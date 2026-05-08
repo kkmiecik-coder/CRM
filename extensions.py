@@ -20,6 +20,11 @@ from flask_mail import Mail
 from flask_login import LoginManager
 from sqlalchemy.exc import SQLAlchemyError
 
+# Lazy logger — uniknij circular importu (modules.logging zależy od configa)
+def _get_logger():
+    from modules.logging import get_logger
+    return get_logger('extensions')
+
 # ============================================================================
 # INICJALIZACJA ROZSZERZEŃ
 # ============================================================================
@@ -66,7 +71,12 @@ def load_user(user_id):
         # SQLAlchemyError obejmuje m.in. ResourceClosedError, który leci tu
         # gdy poprzedni request zostawił zatrutą sesję po padniętym
         # połączeniu MySQL (rollback w teardown nie zadziałał).
-        print(f"[LoginManager] Błąd ładowania użytkownika {user_id}: {type(e).__name__}: {e}")
+        try:
+            _get_logger().warning(
+                f"[LoginManager] Błąd ładowania użytkownika {user_id}: {type(e).__name__}: {e}"
+            )
+        except Exception:
+            pass
         try:
             db.session.rollback()
         except Exception:

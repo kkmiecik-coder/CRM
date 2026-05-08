@@ -2541,13 +2541,11 @@ def _sync_selected_orders_with_volumes(service, order_ids):
         orders_added = 0
         
         for order_id in order_ids:
-            print(f"[DEBUG] Przetwarzanie zamówienia {order_id} z objętościami")
-            
             # Pobierz zamówienie z Baselinker
             order_data = service.get_single_order_from_baselinker(order_id)
-            
+
             if not order_data:
-                print(f"[WARNING] Nie można pobrać zamówienia {order_id}")
+                reports_logger.warning(f"Nie można pobrać zamówienia {order_id}")
                 continue
             
             # Przetwórz produkty w zamówieniu
@@ -2581,9 +2579,7 @@ def _sync_selected_orders_with_volumes(service, order_ids):
                     record_data['length_cm'] = None
                     record_data['width_cm'] = None
                     record_data['thickness_cm'] = None
-                    
-                    print(f"[DEBUG] volume_only: {total_volume} m³ (całość) / {quantity} = {record_data['volume_per_piece']} m³/szt")
-                    
+
                 elif analysis['analysis_type'] == 'manual_input_needed':
                     # Użyj ręcznie wprowadzonych danych
                     product_key = f"{order_id}_{product.get('product_id', 'unknown')}"
@@ -2631,7 +2627,7 @@ def _sync_selected_orders_with_volumes(service, order_ids):
         }
         
     except Exception as e:
-        print(f"[ERROR] Błąd w _sync_selected_orders_with_volumes: {str(e)}")
+        reports_logger.error(f"Błąd w _sync_selected_orders_with_volumes: {str(e)}")
         return {
             'success': False,
             'error': f'Błąd synchronizacji: {str(e)}'
@@ -2795,8 +2791,7 @@ def check_product_dimensions(product_name):
         
         if not is_probably_date_or_id:
             return True
-    
-    print(f"[DEBUG] Brak wymiarów w '{product_name}'")
+
     return False
 
 @reports_bp.route('/api/save-selected-orders', methods=['POST'])
@@ -3597,7 +3592,6 @@ def extract_volume_from_product_name(product_name: str) -> Optional[float]:
             volume_str = matches[0].replace(',', '.')
             try:
                 volume = float(volume_str)
-                print(f"[DEBUG] Found volume {volume} m³ in '{product_name}'")
                 return volume
             except ValueError:
                 continue
@@ -3634,8 +3628,7 @@ def extract_wood_species_from_product_name(product_name: str) -> Optional[str]:
         for variant in variants:
             if variant in name_lower:
                 return standard_name
-    
-    print(f"[DEBUG] Nie znaleziono gatunku w '{product_name}'")
+
     return None
 
 def extract_technology_from_product_name(product_name: str) -> Optional[str]:
@@ -3694,8 +3687,7 @@ def extract_wood_class_from_product_name(product_name: str) -> Optional[str]:
         if matches:
             wood_class = matches[0].upper().replace('-', '/')  # Normalizuj do formatu A/B
             return wood_class
-    
-    print(f"[DEBUG] Nie znaleziono klasy w '{product_name}'")
+
     return None
 
 def analyze_product_for_volume_and_attributes(product_name):
@@ -3817,8 +3809,7 @@ def should_show_volume_modal_for_orders(orders_data: list) -> Tuple[bool, list]:
                 })
     
     should_show_modal = len(products_needing_volume) > 0
-    print(f"[DEBUG] Modal objętości: {should_show_modal}, produktów do uzupełnienia: {len(products_needing_volume)}")
-    
+
     return should_show_modal, products_needing_volume
 
 @reports_bp.route('/api/save-orders-with-volumes', methods=['POST'])

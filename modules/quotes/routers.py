@@ -6,6 +6,7 @@ from modules.clients.models import Client
 from modules.baselinker.service import BaselinkerService
 from modules.baselinker.models import BaselinkerConfig
 from modules.users.decorators import require_module_access
+from modules.logging import get_logger
 from extensions import db, mail
 from weasyprint import HTML
 from io import BytesIO
@@ -21,6 +22,8 @@ from datetime import datetime
 import base64
 import os
 import json
+
+logger = get_logger('quotes.routers')
 
 from modules.quotes.models import (
     Quote,
@@ -189,8 +192,6 @@ def quotes_home():
         config_count = BaselinkerConfig.query.count()
         
         if config_count == 0:
-            print("[quotes_home] Brak konfiguracji Baselinker - rozpoczynam synchronizację", file=sys.stderr)
-            
             api_config = current_app.config.get('API_BASELINKER')
             if api_config and api_config.get('api_key'):
                 try:
@@ -198,11 +199,9 @@ def quotes_home():
                     sources_synced = service.sync_order_sources()
                     statuses_synced = service.sync_order_statuses()
                 except Exception as e:
-                    print(f"[quotes_home] Błąd synchronizacji Baselinker: {e}", file=sys.stderr)
+                    logger.warning(f"[quotes_home] Błąd synchronizacji Baselinker: {e}")
             else:
-                print("[quotes_home] Brak konfiguracji API Baselinker", file=sys.stderr)
-        else:
-            print("[quotes_home] Konfiguracja Baselinker już istnieje", file=sys.stderr)
+                logger.warning("[quotes_home] Brak konfiguracji API Baselinker")
             
     except Exception as e:
         print(f"[quotes_home] Błąd podczas ładowania danych: {e}", file=sys.stderr)
@@ -382,13 +381,12 @@ def generate_quote_pdf(token, format):
     
     try:
         if format not in ["pdf", "png"]:
-            print(f"[generate_quote_pdf] Unsupported format: {format}", file=sys.stderr)
             return {"error": "Unsupported format"}, 400
 
         # ZMIANA: Wyszukiwanie po tokenie zamiast ID
         quote = Quote.query.filter_by(public_token=token).first()
         if not quote:
-            print(f"[generate_quote_pdf] Brak wyceny dla tokenu: {token}", file=sys.stderr)
+            logger.warning(f"[generate_quote_pdf] Brak wyceny dla tokenu: {token}")
             return {"error": "Quote not found"}, 404
 
         # KLUCZOWE: Oblicz koszty (tak jak w send_email i get_client_quote_data)
@@ -402,16 +400,12 @@ def generate_quote_pdf(token, format):
         edges_images = {}
         shape_images = {}
         for fd in finishing_details:
-            print(f"[PDF] Poz {fd.product_index}: edges_svg={'TAK' if fd.edges_svg else 'BRAK'}, shape_svg={'TAK' if fd.shape_svg else 'BRAK'}", file=sys.stderr)
             if fd.edges_svg:
                 try:
                     svg_fixed = pdf_gen._ensure_dashed_lines(fd.edges_svg)
                     png_data_uri = pdf_gen._svg_to_png_base64(svg_fixed, 300)
                     if png_data_uri:
                         edges_images[fd.product_index] = png_data_uri
-                        print(f"[PDF] Poz {fd.product_index}: edges PNG OK ({len(png_data_uri)} znaków)", file=sys.stderr)
-                    else:
-                        print(f"[PDF] Poz {fd.product_index}: edges PNG zwrócił None", file=sys.stderr)
                 except Exception as e:
                     print(f"[PDF] Poz {fd.product_index}: edges PNG BŁĄD: {e}", file=sys.stderr)
             if fd.shape_svg:
@@ -419,12 +413,8 @@ def generate_quote_pdf(token, format):
                     png_data_uri = pdf_gen._svg_to_png_base64(fd.shape_svg, 300)
                     if png_data_uri:
                         shape_images[fd.product_index] = png_data_uri
-                        print(f"[PDF] Poz {fd.product_index}: shape PNG OK ({len(png_data_uri)} znaków)", file=sys.stderr)
-                    else:
-                        print(f"[PDF] Poz {fd.product_index}: shape PNG zwrócił None", file=sys.stderr)
                 except Exception as e:
                     print(f"[PDF] Poz {fd.product_index}: shape PNG BŁĄD: {e}", file=sys.stderr)
-        print(f"[PDF] Wynik: edges_images={list(edges_images.keys())}, shape_images={list(shape_images.keys())}", file=sys.stderr)
 
         # Lamella direction icons
         lamella_images = {}
@@ -463,7 +453,7 @@ def generate_quote_pdf(token, format):
                     
                     return f"data:{mime_type};base64,{icon_data}"
                 else:
-                    print(f"[PDF] Icon not found: {icons_path}", file=sys.stderr)
+                    logger.warning(f"[PDF] Nie znaleziono ikony: {icons_path}")
                     return None
             except Exception as e:
                 print(f"[PDF] Error loading icon {icon_name}: {e}", file=sys.stderr)
@@ -527,11 +517,8 @@ def generate_quote_pdf(token, format):
 @quotes_bp.route("/api/quotes/<int:quote_id>/send_email", methods=["POST"])
 @require_module_access('quotes')
 def send_email(quote_id):
-    print(f"[send_email] Wysylka maila dla wyceny ID {quote_id}", file=sys.stderr)
-
     data = request.get_json()
     recipient_email = data.get("email")
-    print(f"[send_email] Do: {recipient_email}", file=sys.stderr)
 
     quote = db.session.get(Quote, quote_id)
     if not quote:
@@ -586,8 +573,6 @@ def send_email(quote_id):
 @quotes_bp.route('/api/quotes/status-counts')
 @require_module_access('quotes')
 def api_quotes_status_counts():
-    print("[api_quotes_status_counts] Endpoint wywolany", file=sys.stderr)
-
     try:
         # Wyciągamy wszystkie statusy
         statuses = QuoteStatus.query.all()
@@ -676,7 +661,7 @@ def get_quote_details(quote_id):
             .filter_by(id=quote_id).first()
 
         if not quote:
-            print(f"[get_quote_details] ❌ Wycena {quote_id} nie znaleziona", file=sys.stderr)
+            logger.warning(f"[get_quote_details] Wycena {quote_id} nie znaleziona")
             return jsonify({"error": "Wycena nie znaleziona"}), 404
 
         # Pobierz szczegóły wykończenia
@@ -813,11 +798,9 @@ def get_quote_details(quote_id):
         })
 
     except Exception as e:
-        print(f"[get_quote_details] 💥 BŁĄD PODCZAS BUDOWANIA JSON:", file=sys.stderr)
         print(f"[get_quote_details] Błąd: {e}", file=sys.stderr)
         import traceback
         traceback.print_exc(file=sys.stderr)
-        print(f"{'='*60}\n", file=sys.stderr)
         return jsonify({"error": "Błąd serwera"}), 500
 
 
@@ -991,7 +974,7 @@ def client_quote_view(token):
         quote = Quote.query.filter_by(public_token=token).first()
         
         if not quote:
-            print(f"[client_quote_view] Nie znaleziono wyceny dla tokenu: {token}", file=sys.stderr)
+            logger.warning(f"[client_quote_view] Nie znaleziono wyceny dla tokenu: {token}")
             return render_client_error(
                 error_type='not_found',
                 error_code=404,
@@ -1254,7 +1237,7 @@ def send_acceptance_email_to_salesperson(quote):
         quote: Obiekt wyceny (Quote model)
     """
     if not quote.user or not quote.user.email:
-        print(f"[send_acceptance_email_to_salesperson] Brak emaila sprzedawcy dla wyceny {quote.id}", file=sys.stderr)
+        logger.warning(f"[send_acceptance_email_to_salesperson] Brak emaila sprzedawcy dla wyceny {quote.id}")
         return
     
     try:
@@ -1302,13 +1285,13 @@ def send_acceptance_email_to_client(quote):
         quote: Obiekt wyceny (Quote model)
     """
     if not quote.client or not quote.client.email:
-        print(f"[send_acceptance_email_to_client] Brak emaila klienta dla wyceny {quote.id}", file=sys.stderr)
+        logger.warning(f"[send_acceptance_email_to_client] Brak emaila klienta dla wyceny {quote.id}")
         return
-    
+
     try:
         # Przygotuj dane do szablonu
         selected_items = quote.get_selected_items()
-        
+
         # Oblicz koszty
         cost_products_netto = round(sum(i.get_total_price_netto() or 0 for i in selected_items), 2)
         cost_finishing_netto = round(sum(float(d.finishing_price_netto or 0) + float(d.edges_price_netto or 0) for d in db.session.query(QuoteItemDetails).filter_by(quote_id=quote.id).all()), 2)
@@ -1317,9 +1300,9 @@ def send_acceptance_email_to_client(quote):
 
         # Pobierz detale wykończenia
         finishing_details = db.session.query(QuoteItemDetails).filter_by(quote_id=quote.id).all()
-        
+
         # Renderuj szablon HTML dla klienta
-        html_body = render_template('quote_accept_email_client.html', 
+        html_body = render_template('quote_accept_email_client.html',
                                   quote=quote,
                                   selected_items=selected_items,
                                   finishing_details=finishing_details,
@@ -1705,8 +1688,6 @@ def reassign_quote_client(quote_id):
 
         db.session.commit()
 
-        print(f"[reassign_quote_client] Przepięto wycenę {quote_id} z klienta {old_client_id} na {new_client_id}", file=sys.stderr)
-
         return jsonify({
             "success": True,
             "message": f"Wycena została przepięta do klienta: {new_client.client_name or new_client.client_number}",
@@ -1755,7 +1736,7 @@ def user_accept_quote(quote_id):
             ).first()
         
         if not accepted_status:
-            print(f"[user_accept_quote] BŁĄD: Nie znaleziono statusu akceptacji!", file=sys.stderr)
+            logger.error("[user_accept_quote] Nie znaleziono statusu akceptacji w bazie")
             return jsonify({"error": "Błąd konfiguracji statusów"}), 500
         
         # Zaktualizuj wycenę
@@ -1816,7 +1797,7 @@ def send_user_acceptance_email_to_client(quote, accepting_user):
         accepting_user: Użytkownik który zaakceptował wycenę
     """
     if not quote.client or not quote.client.email:
-        print(f"[send_user_acceptance_email_to_client] Brak emaila klienta dla wyceny {quote.id}", file=sys.stderr)
+        logger.warning(f"[send_user_acceptance_email_to_client] Brak emaila klienta dla wyceny {quote.id}")
         return
     
     try:
@@ -2003,7 +1984,7 @@ def client_accept_quote_with_data(token):
             ).first()
         
         if not accepted_status:
-            print(f"[client_accept_quote_with_data] BŁĄD: Nie znaleziono statusu akceptacji!", file=sys.stderr)
+            logger.error("[client_accept_quote_with_data] Nie znaleziono statusu akceptacji w bazie")
             return jsonify({"error": "Błąd konfiguracji statusów"}), 500
         
         # Aktualizuj wycenę
@@ -2016,16 +1997,14 @@ def client_accept_quote_with_data(token):
         # === ZAPISZ ZMIANY ===
         try:
             db.session.commit()
-            print(f"[client_accept_quote_with_data] Wszystkie zmiany zapisane pomyślnie", file=sys.stderr)
         except Exception as e:
             print(f"[client_accept_quote_with_data] BŁĄD podczas zapisu: {e}", file=sys.stderr)
             db.session.rollback()
             return jsonify({"error": "Błąd zapisu do bazy danych"}), 500
-        
+
         # === WYŚLIJ EMAILE POWIADOMIENIA ===
         try:
             send_acceptance_emails(quote)
-            print(f"[client_accept_quote_with_data] Emaile wysłane pomyślnie", file=sys.stderr)
         except Exception as e:
             print(f"[client_accept_quote_with_data] Błąd wysyłki maili: {e}", file=sys.stderr)
             # Nie przerywaj procesu z powodu błędu emaila
@@ -2082,9 +2061,8 @@ def validate_client_contact(token):
         client_phone_digits = re.sub(r'[^\d]', '', client.phone or '')
         
         if not client_email and not client_phone_digits:
-            print(f"[validate_client_contact] Klient bez danych kontaktowych - przepuszczam", file=sys.stderr)
             return jsonify({
-                "success": True, 
+                "success": True,
                 "message": "Walidacja przeszła - nowy klient",
                 "client_has_data": False
             })
@@ -2366,7 +2344,6 @@ def get_multipliers():
                 'multiplier': float(multiplier.multiplier)  # Konwersja na float dla JSON
             })
         
-        print(f"[get_multipliers] Zwracam {len(result)} grup cenowych", file=sys.stderr)
         return jsonify(result)
         
     except Exception as e:

@@ -4,6 +4,11 @@ Serwis do pobierania danych pogodowych
 
 import requests
 from datetime import datetime
+from modules.logging import get_logger
+
+# Logger dla serwisu pogodowego
+logger = get_logger('dashboard.weather_service')
+
 
 def get_weather_data():
     """
@@ -40,17 +45,17 @@ def get_weather_data():
             return weather_data
             
         else:
-            print(f"[WeatherService] API Error: {response.status_code}")
+            logger.warning(f"[WeatherService] API Error: {response.status_code}")
             return get_weather_fallback()
-            
+
     except requests.exceptions.Timeout:
-        print("[WeatherService] Timeout - fallback")
+        logger.warning("[WeatherService] Timeout - fallback")
         return get_weather_fallback()
     except requests.exceptions.RequestException as e:
-        print(f"[WeatherService] Request error: {e}")
+        logger.warning(f"[WeatherService] Request error: {e}")
         return get_weather_fallback()
     except Exception as e:
-        print(f"[WeatherService] General error: {e}")
+        logger.error(f"[WeatherService] General error: {e}")
         return get_weather_fallback()
 
 def format_time(unix_timestamp):

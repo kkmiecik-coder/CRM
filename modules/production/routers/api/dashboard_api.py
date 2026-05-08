@@ -907,7 +907,7 @@ def dashboard_tab_content():
                 )
                 avg_deadline_distance = total_days / len(active_products)
         except Exception as e:
-            print(f"[Dashboard] Błąd obliczania średniego deadline: {e}")
+            logger.warning("Błąd obliczania średniego deadline", extra={'error': str(e)})
             avg_deadline_distance = 0.0
 
         dashboard_stats['today_totals'] = {

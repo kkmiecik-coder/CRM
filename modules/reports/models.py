@@ -168,8 +168,6 @@ class BaselinkerReportOrder(db.Model):
         if days_back is not None:
             date_from = datetime.now().date() - timedelta(days=days_back)
             query = query.filter(cls.date_created >= date_from)
-        
-        print(f"[DEBUG] get_orders_by_date_range: Pokazuję WSZYSTKIE statusy (bez domyślnych wykluczeń)")
 
         return query.order_by(cls.date_created.desc()).all()
     

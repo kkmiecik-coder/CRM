@@ -117,11 +117,6 @@ def init_sentry(app_root: str) -> bool:
         max_breadcrumbs=50,
     )
 
-    try:
-        print(f"[Sentry] Zainicjalizowane (env={environment})", flush=True)
-    except (BrokenPipeError, OSError):
-        # Passenger może mieć zamknięty stdout w trakcie restartu — ignoruj.
-        pass
     return True
 
 

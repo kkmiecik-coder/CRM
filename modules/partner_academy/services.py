@@ -20,9 +20,12 @@ from flask import current_app, render_template
 from flask_mail import Message
 from extensions import db, mail
 from modules.partner_academy.models import PartnerApplication
+from modules.logging import get_logger
 from datetime import datetime
 import uuid
 import json
+
+logger = get_logger('partner_academy.services')
 
 # Opcjonalny import magic (może nie działać na Windows)
 try:
@@ -30,7 +33,7 @@ try:
     HAS_MAGIC = True
 except ImportError:
     HAS_MAGIC = False
-    print("[partner_academy] Biblioteka 'magic' niedostępna - walidacja MIME będzie ograniczona")
+    logger.warning("Biblioteka 'magic' niedostępna - walidacja MIME będzie ograniczona")
 
 
 class ApplicationService:

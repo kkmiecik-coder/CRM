@@ -4,6 +4,7 @@ from flask import jsonify, request, render_template, current_app, send_file, sen
 from . import preview3d_ar_bp
 from .models import TextureConfig, RealityGenerator
 from modules.calculator.models import Quote, QuoteItem, QuoteItemDetails
+from modules.logging import get_logger
 from extensions import db
 from sqlalchemy.orm import joinedload
 import sys
@@ -11,6 +12,8 @@ import os
 import mimetypes
 import zipfile
 import re
+
+logger = get_logger('preview3d_ar.routers')
 
 # Globalna instancja generatora Reality
 reality_generator = None
@@ -95,9 +98,8 @@ def generate_product_3d():
             }
         }
         
-        print(f"[Preview3D] Generated 3D config for {variant_code}: {dimensions}", file=sys.stderr)
         return jsonify(response_data)
-        
+
     except Exception as e:
         print(f"[Preview3D] Error generating 3D config: {str(e)}", file=sys.stderr)
         return jsonify({'error': f'Server error: {str(e)}'}), 500
@@ -256,23 +258,20 @@ def debug_usdz_file(filename):
 def generate_reality():
     """POPRAWIONY: Generuje plik Reality/USDZ"""
     try:
-        print("[generate_reality] Rozpoczęcie generowania Reality/USDZ", file=sys.stderr)
-        
         data = request.json
         if not data:
             return jsonify({'error': 'Brak danych JSON'}), 400
-        
+
         variant_code = data.get('variant_code')
         dimensions = data.get('dimensions')
-        
+
         if not variant_code:
             return jsonify({'error': 'Brak variant_code'}), 400
-        
+
         if not dimensions:
             return jsonify({'error': 'Brak dimensions'}), 400
-        
-        print(f"[generate_reality] Dane: {variant_code}, {dimensions}", file=sys.stderr)
-        
+
+
         # Walidacja wymiarów
         if not all(dimensions.values()) or any(d <= 0 for d in dimensions.values()):
             return jsonify({'error': 'Nieprawidłowe wymiary'}), 400
@@ -301,8 +300,6 @@ def generate_reality():
         filename = os.path.basename(reality_path)
         file_url = request.url_root.rstrip('/') + url_for('preview3d_ar.serve_ar_model', filename=filename)
         
-        print(f"[generate_reality] {format_name} wygenerowany: {filename}", file=sys.stderr)
-        
         response = {
             'success': True,
             'reality_url': file_url,  # Zachowaj nazwę dla kompatybilności
@@ -327,8 +324,6 @@ def generate_reality():
 def generate_usdz():
     """BACKWARD COMPATIBILITY: Przekierowuje do generate_reality"""
     try:
-        print("[generate_usdz] Backward compatibility - przekierowanie do Reality generator", file=sys.stderr)
-        
         data = request.json
         if not data:
             return jsonify({'error': 'Brak danych JSON'}), 400
@@ -355,8 +350,6 @@ def generate_usdz():
         filename = os.path.basename(ar_file_path)
         file_url = request.url_root.rstrip('/') + url_for('preview3d_ar.serve_ar_model', filename=filename)
         model_info = generator.get_model_info(ar_file_path)
-        
-        print(f"[generate_usdz] Backward compatibility response: {filename}", file=sys.stderr)
         
         return jsonify({
             'success': True,
@@ -387,8 +380,6 @@ def serve_ar_model(filename):
         _, ext = os.path.splitext(filename.lower())
         file_size = os.path.getsize(file_path)
 
-        print(f"[serve_ar_model] Serwowanie: {filename} ({ext}), rozmiar: {file_size} bytes", file=sys.stderr)
-
         # USDZ - główny format (nawet jeśli nazywa się .reality)
         if ext in ['.usdz', '.reality']:
             # Sprawdź czy to prawdziwy Reality czy USDZ
@@ -405,8 +396,6 @@ def serve_ar_model(filename):
 
             if is_real_reality and ext == '.reality':
                 # Prawdziwy plik Reality
-                print(f"[serve_ar_model] Serwowanie prawdziwego Reality: {filename}", file=sys.stderr)
-                
                 response = make_response(send_file(
                     file_path,
                     as_attachment=False,
@@ -420,8 +409,6 @@ def serve_ar_model(filename):
                 
             else:
                 # USDZ (lub USDZ nazywający się .reality)
-                print(f"[serve_ar_model] Serwowanie USDZ: {filename}", file=sys.stderr)
-                
                 # KLUCZOWE: Sprawdź czy USDZ jest prawidłowy
                 generator = get_reality_generator()
                 validation = generator._validate_usdz(file_path)
@@ -503,8 +490,6 @@ def check_textures(variant):
 def show_quote_3d_viewer(token):
     """Endpoint dla wycen - wyświetla viewer 3D używając public_token"""
     try:
-        print(f"[show_quote_3d_viewer] Starting for token: {token}", file=sys.stderr)
-        
         quote = db.session.query(Quote)\
             .options(joinedload(Quote.client))\
             .filter_by(public_token=token).first()
@@ -582,9 +567,6 @@ def show_quote_3d_viewer(token):
         
         if not default_product:
             return jsonify({'error': 'No valid products found'}), 404
-        
-        print(f"[show_quote_3d_viewer] Found {len(products)} products", file=sys.stderr)
-        print(f"[show_quote_3d_viewer] Default product: {default_product}", file=sys.stderr)
         
         return render_template('preview3d_ar/templates/quote_3d_viewer.html',
             quote=quote,
@@ -749,9 +731,7 @@ def generate_glb():
             return jsonify({'error': 'Missing or invalid dimensions'}), 400
         
         quality = data.get('quality', 'medium')
-        
-        print(f"[generate_glb] GLB request: {variant_code}, dims: {dimensions}", file=sys.stderr)
-        
+
         # Utwórz dane produktu
         product_data = {
             'variant_code': variant_code,

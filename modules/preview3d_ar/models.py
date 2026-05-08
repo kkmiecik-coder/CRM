@@ -15,6 +15,10 @@ import trimesh
 import numpy as np
 from PIL import Image
 
+from modules.logging import get_logger
+
+logger = get_logger('preview3d_ar.models')
+
 class TextureConfig:
     """Konfiguracja tekstur z fallbackiem do szarego koloru"""
 
@@ -58,9 +62,8 @@ class TextureConfig:
         """
         try:
             species, tech, wood_class = TextureConfig.parse_variant(variant_code)
-            print(f"[TextureConfig] Parsing {variant_code} -> {species}, {tech}, {wood_class}", file=sys.stderr)
         except ValueError as e:
-            print(f"[TextureConfig] Parse error for {variant_code}: {e}", file=sys.stderr)
+            logger.warning(f"Parse error for {variant_code}: {e}")
             return {
                 surf: {'variants': [], 'fallback_color': '#C0C0C0'}
                 for surf in TextureConfig.SURFACE_TYPES
@@ -72,13 +75,6 @@ class TextureConfig:
             'modules', 'preview3d_ar', 'static', 'textures',
             species, f"{wood_class}_{tech}"
         )
-        
-        print(f"[TextureConfig] Base directory: {base_dir}", file=sys.stderr)
-        print(f"[TextureConfig] Directory exists: {os.path.exists(base_dir)}", file=sys.stderr)
-
-        if os.path.exists(base_dir):
-            all_files = os.listdir(base_dir)
-            print(f"[TextureConfig] Files in directory: {all_files}", file=sys.stderr)
 
         textures = {}
         for surf in TextureConfig.SURFACE_TYPES:
@@ -89,17 +85,15 @@ class TextureConfig:
                 os.path.join(base_dir, f"{surf}*.jpg"),      # face1.jpg (bez podkreślnika)
                 os.path.join(base_dir, f"{surf}_*.png"),     # face_1.png
             ]
-            
+
             files = []
             for pattern in patterns_to_try:
                 found_files = glob.glob(pattern)
                 files.extend(found_files)
-                print(f"[TextureConfig] Pattern {pattern} found {len(found_files)} files", file=sys.stderr)
-            
+
             # Usuń duplikaty i sortuj
             files = sorted(list(set(files)))
-            print(f"[TextureConfig] Surface {surf}: found {len(files)} files total", file=sys.stderr)
-            
+
             urls = []
             for path in files:
                 try:
@@ -111,18 +105,14 @@ class TextureConfig:
                     rel = rel.replace(os.sep, '/')
                     url = url_for('preview3d_ar.static', filename=rel)
                     urls.append(url)
-                    print(f"[TextureConfig] Generated URL: {url}", file=sys.stderr)
                 except Exception as e:
-                    print(f"[TextureConfig] Error generating URL for {path}: {e}", file=sys.stderr)
-            
+                    logger.warning(f"Error generating URL for {path}: {e}")
+
             textures[surf] = {
                 'variants': urls,
                 'fallback_color': TextureConfig.FALLBACK_COLORS[surf]
             }
-            
-            print(f"[TextureConfig] Surface {surf}: {len(urls)} URLs generated", file=sys.stderr)
-        
-        print(f"[TextureConfig] Final result: {sum(len(t['variants']) for t in textures.values())} total URLs", file=sys.stderr)
+
         return textures
 
 class RealityGenerator:
@@ -141,9 +131,6 @@ class RealityGenerator:
         # Upewnij się, że foldery istnieją
         os.makedirs(self.cache_dir, exist_ok=True)
         os.makedirs(self.temp_dir, exist_ok=True)
-        
-        print(f"[RealityGenerator] Inicjalizacja - cache: {self.cache_dir}", file=sys.stderr)
-        print(f"[RealityGenerator] Inicjalizacja - temp: {self.temp_dir}", file=sys.stderr)
 
     def _generate_cache_key(self, product_data):
         """Generuje unikalny klucz cache dla produktu"""
@@ -159,31 +146,26 @@ class RealityGenerator:
             
         if texture_url.startswith('http'):
             return None
-        
-        print(f"[RealityGenerator] Converting texture URL: {texture_url}", file=sys.stderr)
-        
+
         # POPRAWIONY: Obsługa różnych formatów URL
         if '/preview3d-ar/static/' in texture_url:
             # Format: /preview3d-ar/static/textures/oak/ab_lite/face_1.jpg
             rel_path = texture_url.split('/preview3d-ar/static/')[-1]
             full_path = os.path.join(current_app.root_path, 'modules', 'preview3d_ar', 'static', rel_path)
-            print(f"[RealityGenerator] Converted path: {full_path}", file=sys.stderr)
-            print(f"[RealityGenerator] Path exists: {os.path.exists(full_path)}", file=sys.stderr)
             return full_path if os.path.exists(full_path) else None
         elif '/static/preview3d_ar/' in texture_url:
             # Format: /static/preview3d_ar/textures/oak/ab_lite/face_1.jpg (fallback)
             rel_path = texture_url.split('/static/preview3d_ar/')[-1]
             full_path = os.path.join(current_app.root_path, 'modules', 'preview3d_ar', 'static', rel_path)
-            print(f"[RealityGenerator] Converted path (fallback): {full_path}", file=sys.stderr)
             return full_path if os.path.exists(full_path) else None
-        
-        print(f"[RealityGenerator] URL format not recognized: {texture_url}", file=sys.stderr)
+
+        logger.warning(f"URL format not recognized: {texture_url}")
         return None
 
     def _process_texture_for_ar(self, texture_path, surface_type='face'):
         """ZMNIEJSZONE: Bardzo małe tekstury dla lepszej kompatybilności + dodatkowa rotacja 90°"""
         if not texture_path or not os.path.exists(texture_path):
-            print(f"[RealityGenerator] Texture not found: {texture_path}", file=sys.stderr)
+            logger.warning(f"Texture not found: {texture_path}")
             return None
 
         try:
@@ -202,18 +184,15 @@ class RealityGenerator:
 
                 img.save(temp_path, 'JPEG', quality=100, optimize=False, progressive=False)
 
-                print(f"[RealityGenerator] ENHANCED+ROTATED texture processed: {os.path.basename(texture_path)} -> {temp_filename} ({img.size})", file=sys.stderr)
                 return temp_path
 
         except Exception as e:
-            print(f"[RealityGenerator] Error processing texture {texture_path}: {e}", file=sys.stderr)
+            logger.error(f"Error processing texture {texture_path}: {e}")
             return None
 
     
     def _create_wood_geometry_usd_with_textures(self, dimensions, variant_code, texture_filenames):
         """NAPRAWIONA: Unikalne tekstury dla każdej lameli + dopasowanie do wymiarów ścian"""
-        print(f"[RealityGenerator] Creating REALISTIC WOOD with unique textures - wymiary: {dimensions}", file=sys.stderr)
-
         # Wymiary w metrach dla AR (konwersja z cm)
         length = dimensions.get('length', 200) / 100.0
         width = dimensions.get('width', 80) / 100.0
@@ -223,24 +202,20 @@ class RealityGenerator:
         lam_width = 4 / 100.0  # 4cm
         count = round(width / lam_width)
 
-        print(f"[RealityGenerator] REALISTIC: {count} lamelas with unique textures", file=sys.stderr)
-
         # POBIERZ WSZYSTKIE DOSTĘPNE TEKSTURY
         try:
             textures = TextureConfig.get_all_textures_for_variant(variant_code)
             face_variants = [t for t in textures.get('face', {}).get('variants', []) if not t.startswith('data:')]
             edge_variants = [t for t in textures.get('edge', {}).get('variants', []) if not t.startswith('data:')]
             side_variants = [t for t in textures.get('side', {}).get('variants', []) if not t.startswith('data:')]
-        
-            print(f"[RealityGenerator] Available textures: face={len(face_variants)}, edge={len(edge_variants)}, side={len(side_variants)}", file=sys.stderr)
-        
+
             # Fallback do jednej tekstury jeśli brak wariantów
             if not face_variants: face_variants = ['fallback_face']
-            if not edge_variants: edge_variants = face_variants  
+            if not edge_variants: edge_variants = face_variants
             if not side_variants: side_variants = face_variants
-        
+
         except Exception as e:
-            print(f"[RealityGenerator] Error getting textures: {e}", file=sys.stderr)
+            logger.error(f"Error getting textures: {e}")
             face_variants = edge_variants = side_variants = ['fallback_face']
 
         # USD HEADER
@@ -301,41 +276,35 @@ class RealityGenerator:
             # Random rotation dla side (jak w wood-viewer.js)
             side_rotation_deg = random.choice([0, 90, 180, 270])
             side_rotation_rad = side_rotation_deg * 3.14159 / 180.0
-        
-            print(f"[RealityGenerator] Lamela {i+1}: face={face_idx}, edge={edge_idx}, side={side_idx} (rot={side_rotation_deg}°)", file=sys.stderr)
-        
+
             # WYMIARY RZECZYWISTE KAŻDEJ ŚCIANY dla dopasowania tekstury
             # Face (góra/dół): length x lam_width
             face_real_length = length
             face_real_width = lam_width
-        
-            # Edge (przód/tył): length x thickness  
+
+            # Edge (przód/tył): length x thickness
             edge_real_length = length
             edge_real_height = thickness
-        
+
             # Side (lewy/prawy): lam_width x thickness
             side_real_width = lam_width
             side_real_height = thickness
-        
-            print(f"[RealityGenerator] Real dimensions - Face: {face_real_length:.3f}x{face_real_width:.3f}m, Edge: {edge_real_length:.3f}x{edge_real_height:.3f}m, Side: {side_real_width:.3f}x{side_real_height:.3f}m", file=sys.stderr)
-        
+
             # DOPASOWANIE UV DO RZECZYWISTYCH WYMIARÓW
             # Załóżmy, że tekstura reprezentuje 10cm x 10cm drewna w rzeczywistości
             texture_real_size = 0.10  # 10cm = 0.1m
-        
+
             # Face UV - dopasowanie do wymiarów face ściany
             face_u_repeats = face_real_length / texture_real_size
             face_v_repeats = face_real_width / texture_real_size
-        
-            # Edge UV - dopasowanie do wymiarów edge ściany  
+
+            # Edge UV - dopasowanie do wymiarów edge ściany
             edge_u_repeats = edge_real_length / texture_real_size
             edge_v_repeats = edge_real_height / texture_real_size
-        
+
             # Side UV - dopasowanie do wymiarów side ściany
             side_u_repeats = side_real_width / texture_real_size
             side_v_repeats = side_real_height / texture_real_size
-        
-            print(f"[RealityGenerator] UV repeats - Face: {face_u_repeats:.2f}x{face_v_repeats:.2f}, Edge: {edge_u_repeats:.2f}x{edge_v_repeats:.2f}, Side: {side_u_repeats:.2f}x{side_v_repeats:.2f}", file=sys.stderr)
 
             # GEOMETRIA POJEDYNCZEJ LAMELI z DOPASOWANYMI UV
             usd_content += f'''
@@ -661,62 +630,47 @@ class RealityGenerator:
     }
     '''
 
-        print(f"[RealityGenerator] REALISTIC USD created - {count} lamelas with unique textures and dimension-fitted UV mapping", file=sys.stderr)
         return usd_content
 
     def _create_usdz_with_textures(self, usd_content, processed_textures, output_path):
         """ZMODYFIKOWANA: Kopiuj tekstury bezpośrednio z serwera zamiast tworzyć kopie"""
         try:
-            print(f"[RealityGenerator] Creating USDZ with DIRECT server textures", file=sys.stderr)
-            
             # Utwórz pliki tymczasowe
             usd_file = os.path.join(self.temp_dir, 'model.usd')
-            
+
             # Zapisz USD
             with open(usd_file, 'w', encoding='utf-8') as f:
                 f.write(usd_content)
-            
-            print(f"[RealityGenerator] USD file written: {usd_file}", file=sys.stderr)
-            
+
             # Znajdź wszystkie referencje tekstur w USD
             import re
             texture_refs = re.findall(r'asset inputs:file = @\./(.*?)@', usd_content)
             texture_refs = list(set(texture_refs))  # Usuń duplikaty
-            
-            print(f"[RealityGenerator] Found texture references in USD: {texture_refs}", file=sys.stderr)
-            
+
             # Utwórz USDZ jako ZIP z teksturami bezpośrednio z serwera
             with zipfile.ZipFile(output_path, 'w', compression=zipfile.ZIP_STORED) as zf:
                 # KRYTYCZNE: USD musi być pierwszym plikiem
                 zf.write(usd_file, 'model.usd')
-                print(f"[RealityGenerator] Added USD to USDZ: model.usd", file=sys.stderr)
-                
+
                 # Dodaj tekstury bezpośrednio z serwera
                 for texture_ref in texture_refs:
                     if texture_ref and not texture_ref.startswith('fallback'):
                         # Znajdź oryginalny plik tekstury na serwerze
                         texture_server_path = self._find_texture_on_server(texture_ref)
-                        
+
                         if texture_server_path and os.path.exists(texture_server_path):
                             zf.write(texture_server_path, texture_ref)
-                            texture_size = os.path.getsize(texture_server_path)
-                            print(f"[RealityGenerator] Added server texture to USDZ: {texture_ref} ({texture_size} bytes)", file=sys.stderr)
                         else:
-                            print(f"[RealityGenerator] WARNING: Texture not found on server: {texture_ref}", file=sys.stderr)
-            
+                            logger.warning(f"Texture not found on server: {texture_ref}")
+
             # Sprawdź czy plik został utworzony
             if not os.path.exists(output_path):
                 raise Exception(f"Failed to create USDZ file: {output_path}")
-            
-            file_size = os.path.getsize(output_path)
-            print(f"[RealityGenerator] USDZ with SERVER TEXTURES created: {output_path}, size: {file_size} bytes", file=sys.stderr)
-            
+
             return True
-            
+
         except Exception as e:
-            print(f"[RealityGenerator] Error creating USDZ with server textures: {e}", file=sys.stderr)
-            import traceback
-            traceback.print_exc(file=sys.stderr)
+            logger.error(f"Error creating USDZ with server textures: {e}", exc_info=True)
             return False
         finally:
             # Wyczyść pliki tymczasowe
@@ -731,24 +685,21 @@ class RealityGenerator:
                 current_app.root_path,
                 'modules', 'preview3d_ar', 'static', 'textures'
             )
-            
+
             for root, dirs, files in os.walk(texture_base_dir):
                 if texture_filename in files:
                     full_path = os.path.join(root, texture_filename)
-                    print(f"[RealityGenerator] Found texture on server: {full_path}", file=sys.stderr)
                     return full_path
-            
-            print(f"[RealityGenerator] Texture not found on server: {texture_filename}", file=sys.stderr)
+
+            logger.warning(f"Texture not found on server: {texture_filename}")
             return None
-            
+
         except Exception as e:
-            print(f"[RealityGenerator] Error finding texture {texture_filename}: {e}", file=sys.stderr)
+            logger.error(f"Error finding texture {texture_filename}: {e}")
             return None
 
     def _create_wood_geometry_usd(self, dimensions, variant_code):
         """FALLBACK: Tworzy USD bez tekstur (stara metoda dla kompatybilności)"""
-        print(f"[RealityGenerator] Creating USD geometry WITHOUT textures - dimensions: {dimensions}", file=sys.stderr)
-        
         # Wymiary w metrach dla AR (konwersja z cm)
         length = dimensions.get('length', 200) / 100.0  # cm -> m
         width = dimensions.get('width', 80) / 100.0
@@ -823,38 +774,32 @@ class RealityGenerator:
             }}
         }}
         '''
-        
-        print(f"[RealityGenerator] USD content created - AR dimensions: {length:.3f}m x {width:.3f}m x {thickness:.3f}m", file=sys.stderr)
+
         return usd_content
 
     def _create_proper_usdz(self, usd_content, output_path):
         """FALLBACK: Tworzy USDZ bez tekstur (stara metoda)"""
         try:
-            print(f"[RealityGenerator] Creating USDZ WITHOUT textures: {output_path}", file=sys.stderr)
-            
             # Utwórz pliki tymczasowe
             usd_file = os.path.join(self.temp_dir, 'model.usd')
-            
+
             # Zapisz USD
             with open(usd_file, 'w', encoding='utf-8') as f:
                 f.write(usd_content)
-            
+
             # Utwórz USDZ jako ZIP
             with zipfile.ZipFile(output_path, 'w', compression=zipfile.ZIP_STORED) as zf:
                 # USD musi być pierwszym plikiem w archiwum
                 zf.write(usd_file, 'model.usd')
-            
+
             # Sprawdź czy plik został utworzony
             if not os.path.exists(output_path):
                 raise Exception(f"Failed to create USDZ file: {output_path}")
-            
-            file_size = os.path.getsize(output_path)
-            print(f"[RealityGenerator] USDZ created: {output_path}, size: {file_size} bytes", file=sys.stderr)
-            
+
             return True
-            
+
         except Exception as e:
-            print(f"[RealityGenerator] Error creating USDZ: {e}", file=sys.stderr)
+            logger.error(f"Error creating USDZ: {e}")
             return False
         finally:
             # Wyczyść pliki tymczasowe
@@ -864,127 +809,97 @@ class RealityGenerator:
     def _check_reality_converter_available(self):
         """Sprawdza czy Reality Converter jest dostępny"""
         try:
-            result = subprocess.run(['xcrun', '--find', 'RealityConverter'], 
+            result = subprocess.run(['xcrun', '--find', 'RealityConverter'],
                                   capture_output=True, text=True)
             if result.returncode == 0:
-                print("[RealityGenerator] Reality Converter available", file=sys.stderr)
                 return True
         except:
             pass
-        
-        print("[RealityGenerator] Reality Converter not available - using USDZ", file=sys.stderr)
+
         return False
 
     def generate_reality(self, product_data):
         """
         POPRAWIONA METODA: Generuje plik Reality/USDZ z DZIAŁAJĄCYMI teksturami
         """
-        print(f"[RealityGenerator] Generating AR with WORKING textures for: {product_data}", file=sys.stderr)
-        
         try:
             # Sprawdź cache
             cache_key = self._generate_cache_key(product_data)
-            
+
             # Sprawdź czy Reality Converter jest dostępny
             can_create_reality = self._check_reality_converter_available()
-            
+
             if can_create_reality:
                 # Próbuj utworzyć prawdziwy plik Reality
                 reality_path = os.path.join(self.cache_dir, f"{cache_key}.reality")
                 if os.path.exists(reality_path):
-                    print(f"[RealityGenerator] Reality from cache: {reality_path}", file=sys.stderr)
                     return reality_path
-                
-                print("[RealityGenerator] Reality creation not implemented - fallback to USDZ", file=sys.stderr)
-            
+
             # GŁÓWNA ŚCIEŻKA: Utwórz USDZ z teksturami
             usdz_path = os.path.join(self.cache_dir, f"{cache_key}.usdz")
-            
+
             if os.path.exists(usdz_path):
-                print(f"[RealityGenerator] USDZ from cache: {usdz_path}", file=sys.stderr)
                 return usdz_path
-            
+
             # Pobierz dane produktu
             variant_code = product_data.get('variant_code', 'unknown')
             dimensions = product_data.get('dimensions', {})
-            
+
             # Walidacja wymiarów
             if not all(dimensions.values()) or any(d <= 0 for d in dimensions.values()):
                 raise ValueError("Invalid product dimensions")
-            
+
             # POPRAWIONE: Pobierz i przetwórz tekstury z lepszą obsługą błędów
             processed_textures = {}
             texture_filenames = {}
-            
+
             try:
                 textures = TextureConfig.get_all_textures_for_variant(variant_code)
-                print(f"[RealityGenerator] Textures for {variant_code}: {list(textures.keys())}", file=sys.stderr)
-                
+
                 for surface_type in ['face', 'edge', 'side']:
                     texture_variants = textures.get(surface_type, {}).get('variants', [])
-                    print(f"[RealityGenerator] {surface_type} variants: {len(texture_variants)}", file=sys.stderr)
-                    
+
                     if texture_variants:
                         # Filtruj tylko prawdziwe pliki (nie data: URLs)
                         real_textures = [t for t in texture_variants if not t.startswith('data:')]
-                        
+
                         if real_textures:
                             # Wybierz losową teksturę z dostępnych wariantów
                             selected_texture_url = random.choice(real_textures)
-                            print(f"[RealityGenerator] Selected {surface_type} texture: {selected_texture_url}", file=sys.stderr)
-                            
+
                             texture_local_path = self._get_texture_path(selected_texture_url)
-                            
+
                             if texture_local_path:
                                 processed_texture = self._process_texture_for_ar(texture_local_path, surface_type)
                                 if processed_texture:
                                     processed_textures[surface_type] = processed_texture
                                     texture_filenames[surface_type] = os.path.basename(processed_texture)
-                                    print(f"[RealityGenerator] Texture {surface_type} processed: {texture_filenames[surface_type]}", file=sys.stderr)
-                                else:
-                                    print(f"[RealityGenerator] Failed to process texture for {surface_type}", file=sys.stderr)
-                            else:
-                                print(f"[RealityGenerator] Local path not found for {surface_type}: {selected_texture_url}", file=sys.stderr)
-                        else:
-                            print(f"[RealityGenerator] No real texture files for {surface_type} (only data: URLs)", file=sys.stderr)
-                    else:
-                        print(f"[RealityGenerator] No texture variants for {surface_type}", file=sys.stderr)
-                
+
             except Exception as e:
-                print(f"[RealityGenerator] Error processing textures for {variant_code}: {e}", file=sys.stderr)
-                import traceback
-                traceback.print_exc(file=sys.stderr)
+                logger.error(f"Error processing textures for {variant_code}: {e}", exc_info=True)
                 # Kontynuuj bez tekstur
-            
+
             # POPRAWIONE: Wybierz metodę tworzenia USD na podstawie dostępności tekstur
             if processed_textures:
-                print(f"[RealityGenerator] Using {len(processed_textures)} WORKING textures for AR model", file=sys.stderr)
-                print(f"[RealityGenerator] Processed textures: {list(processed_textures.keys())}", file=sys.stderr)
-                
                 usd_content = self._create_wood_geometry_usd_with_textures(dimensions, variant_code, texture_filenames)
                 success = self._create_usdz_with_textures(usd_content, processed_textures, usdz_path)
             else:
-                print("[RealityGenerator] No textures available - creating model without textures", file=sys.stderr)
                 usd_content = self._create_wood_geometry_usd(dimensions, variant_code)
                 success = self._create_proper_usdz(usd_content, usdz_path)
-            
+
             if not success:
                 raise Exception("Failed to create USDZ file")
-            
+
             # DODANA WALIDACJA: Sprawdź finalny plik
             final_validation = self._validate_usdz(usdz_path)
-            print(f"[RealityGenerator] Final USDZ validation: {final_validation}", file=sys.stderr)
-            
+
             if not final_validation.get('is_valid_zip', False):
                 raise Exception(f"Generated USDZ is not valid: {final_validation}")
-            
-            print(f"[RealityGenerator] USDZ with WORKING textures generated: {usdz_path}", file=sys.stderr)
+
             return usdz_path
-            
+
         except Exception as e:
-            print(f"[RealityGenerator] Error generating Reality/USDZ: {e}", file=sys.stderr)
-            import traceback
-            traceback.print_exc(file=sys.stderr)
+            logger.error(f"Error generating Reality/USDZ: {e}", exc_info=True)
             raise
 
     def cleanup_temp_files(self):
@@ -997,9 +912,8 @@ class RealityGenerator:
                     if os.path.isfile(file_path):
                         os.remove(file_path)
                         cleaned_count += 1
-            print(f"[RealityGenerator] Temp files cleaned: {cleaned_count} files", file=sys.stderr)
         except Exception as e:
-            print(f"[RealityGenerator] Error cleaning temp files: {e}", file=sys.stderr)
+            logger.error(f"Error cleaning temp files: {e}")
 
     def get_model_info(self, file_path):
         """Zwraca informacje o modelu z analizą tekstur"""
@@ -1039,7 +953,7 @@ class RealityGenerator:
                 'files_in_archive': file_list
             }
         except Exception as e:
-            print(f"[RealityGenerator] Error getting model info: {e}", file=sys.stderr)
+            logger.error(f"Error getting model info: {e}")
             return None
 
     def _validate_usdz(self, file_path):
@@ -1109,16 +1023,13 @@ class RealityGenerator:
             dict: Wynik generowania z file_url, file_size, cache_key
         """
         try:
-            print(f"[RealityGenerator] Generowanie GLB dla Android AR", file=sys.stderr)
-        
             # Cache key
             cache_key = self._generate_cache_key(product_data)
             glb_filename = f"{cache_key}.glb"
             glb_path = os.path.join(self.cache_dir, glb_filename)
-        
+
             # Sprawdź cache
             if os.path.exists(glb_path):
-                print(f"[RealityGenerator] GLB z cache: {glb_filename}", file=sys.stderr)
                 file_size = os.path.getsize(glb_path)
                 return {
                     'success': True,
@@ -1127,26 +1038,22 @@ class RealityGenerator:
                     'cache_key': cache_key,
                     'cached': True
                 }
-        
-            # Generuj nowy GLB
-            print(f"[RealityGenerator] Tworzenie nowego GLB: {glb_filename}", file=sys.stderr)
-        
+
             # 1. Utwórz geometrię panelu
             geometry_data = self._create_panel_geometry(product_data['dimensions'])
-        
+
             # 2. Przygotuj tekstury
             textures_data = self._prepare_textures_for_glb(product_data['variant_code'])
-        
+
             # 3. Utwórz GLB używając biblioteki gltf (przykład)
             glb_content = self._create_glb_content(geometry_data, textures_data, product_data)
-        
+
             # 4. Zapisz plik GLB
             with open(glb_path, 'wb') as f:
                 f.write(glb_content)
-        
+
             file_size = os.path.getsize(glb_path)
-            print(f"[RealityGenerator] GLB zapisany: {glb_path} ({file_size} bytes)", file=sys.stderr)
-        
+
             return {
                 'success': True,
                 'file_url': f"/preview3d-ar/ar-models/{glb_filename}",
@@ -1154,9 +1061,9 @@ class RealityGenerator:
                 'cache_key': cache_key,
                 'cached': False
             }
-        
+
         except Exception as e:
-            print(f"[RealityGenerator] Błąd generowania GLB: {str(e)}", file=sys.stderr)
+            logger.error(f"Błąd generowania GLB: {e}")
             return {
                 'success': False,
                 'error': str(e)
@@ -1177,12 +1084,10 @@ class RealityGenerator:
         try:
             # UWAGA: To jest uproszczona implementacja
             # W rzeczywistości potrzebujesz biblioteki do tworzenia GLB jak pygltflib
-        
-            print(f"[RealityGenerator] Tworzenie GLB content...", file=sys.stderr)
-        
+
             # Przykład: podstawowy GLB z prostokątnym panelem
             # Użyj biblioteki pygltflib lub podobnej do tworzenia prawidłowego GLB
-        
+
             # Dla teraz zwrócimy placeholder - musisz zaimplementować prawdziwą generację GLB
             import json
         
@@ -1230,12 +1135,11 @@ class RealityGenerator:
         
             # GLB ma specyficzny format binary - to jest bardzo uproszczone
             # W rzeczywistości musisz użyć odpowiedniej biblioteki
-        
-            print(f"[RealityGenerator] GLB content created (placeholder)", file=sys.stderr)
+
             return json_str  # To nie jest prawdziwy GLB!
-        
+
         except Exception as e:
-            print(f"[RealityGenerator] Błąd tworzenia GLB content: {str(e)}", file=sys.stderr)
+            logger.error(f"Błąd tworzenia GLB content: {e}")
             raise
 
     def _prepare_textures_for_glb(self, variant_code):
@@ -1258,7 +1162,7 @@ class RealityGenerator:
             return glb_textures
         
         except Exception as e:
-            print(f"[RealityGenerator] Błąd przygotowania tekstur GLB: {str(e)}", file=sys.stderr)
+            logger.error(f"Błąd przygotowania tekstur GLB: {e}")
             return {}
 
 # Backward compatibility - zachowaj stary generator USDZ
@@ -1267,5 +1171,4 @@ class AR3DGenerator(RealityGenerator):
     
     def generate_usdz(self, product_data):
         """Backward compatibility wrapper"""
-        print("[AR3DGenerator] DEPRECATED: Use RealityGenerator.generate_reality()", file=sys.stderr)
         return self.generate_reality(product_data)

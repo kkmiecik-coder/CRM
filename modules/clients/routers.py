@@ -11,7 +11,6 @@ import requests
 import os
 from datetime import date
 import re
-import sys
 import logging
 
 logger = logging.getLogger(__name__)
@@ -53,8 +52,6 @@ def clients_home():
 @clients_bp.route('/api/clients')
 @require_module_access('clients')
 def get_all_clients():
-    print("[API] /clients/api/clients zostalo wywolane")
-
     # Parametry paginacji i wyszukiwania
     page = request.args.get('page', 1, type=int)
     per_page = request.args.get('per_page', 20, type=int)
