@@ -573,10 +573,16 @@ class ProductsModule {
                 this.elements.textSearch.value = '';
             }
         } else {
-            // Remove from multi-select array
-            const currentValues = this.state.currentFilters[filterType] || [];
+            // Remove from multi-select array.
+            // UWAGA: `|| []` nie wystarczy bo np. zdeserializowany ze
+            // stringa filtr (URL param / localStorage) jest truthy ale
+            // nie jest tablicą — wtedy .filter() rzuca TypeError.
+            // Wymuszamy tablicę przez Array.isArray, niewłaściwy typ
+            // traktujemy jak brak filtra (pusta lista po usunięciu badge'a).
+            const rawValues = this.state.currentFilters[filterType];
+            const currentValues = Array.isArray(rawValues) ? rawValues : [];
             this.state.currentFilters[filterType] = currentValues.filter(v => v !== value);
-            
+
             // Update the custom multi-select display
             this.updateCustomMultiSelectFromState(filterType, value, false);
         }
