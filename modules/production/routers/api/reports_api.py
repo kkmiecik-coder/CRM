@@ -49,7 +49,7 @@ def reports_station_output():
     Sortowanie: po ostatnim evencie w dniu (najnowsze najpierw).
     """
     from ...models import ProductionStationEvent
-    from sqlalchemy import func, and_
+    from sqlalchemy import and_
 
     station = request.args.get('station', '').strip().lower()
     date_str = request.args.get('date', '').strip()
@@ -154,6 +154,43 @@ def reports_station_output():
                 'last_event_at': last_event_at.isoformat() if last_event_at else None,
             })
 
+        # Timeline 48 bucketów po 30 minut (00:00, 00:30, ..., 23:30)
+        # bucket_idx = floor((HOUR*60 + MINUTE) / 30) ∈ [0, 47]
+        # Net delta per bucket (cofnięcia mogą dać wartość ujemną).
+        bucket_idx_expr = func.floor(
+            (func.hour(ProductionStationEvent.created_at) * 60
+             + func.minute(ProductionStationEvent.created_at)) / 30
+        ).label('bucket_idx')
+
+        timeline_rows = db.session.query(
+            bucket_idx_expr,
+            func.sum(ProductionStationEvent.delta).label('pieces_sum'),
+            func.sum(
+                ProductionStationEvent.delta * ProductionItem.volume_m3
+            ).label('m3_sum'),
+        ).join(
+            ProductionItem,
+            ProductionItem.id == ProductionStationEvent.production_item_id
+        ).filter(
+            ProductionStationEvent.station_code == station,
+            ProductionStationEvent.created_at >= day_start,
+            ProductionStationEvent.created_at <= day_end,
+        ).group_by(bucket_idx_expr).all()
+
+        pieces_buckets = [0] * 48
+        m3_buckets = [0.0] * 48
+        for bucket_idx, pieces_sum, m3_sum in timeline_rows:
+            idx = int(bucket_idx) if bucket_idx is not None else None
+            if idx is None or idx < 0 or idx > 47:
+                continue
+            pieces_buckets[idx] = int(pieces_sum or 0)
+            m3_buckets[idx] = round(float(m3_sum or 0.0), 4)
+
+        bucket_labels = [
+            f"{i // 2:02d}:{'30' if i % 2 else '00'}"
+            for i in range(48)
+        ]
+
         return jsonify({
             'success': True,
             'station': station,
@@ -165,6 +202,11 @@ def reports_station_output():
                 'total_quantity_done_eod': sum_qty_done_eod,
                 'total_day_delta': sum_day_delta,
                 'total_volume_done_eod_m3': round(sum_volume_done_eod, 4),
+            },
+            'timeline': {
+                'buckets': bucket_labels,
+                'pieces': pieces_buckets,
+                'volume_m3': m3_buckets,
             },
         })
 
