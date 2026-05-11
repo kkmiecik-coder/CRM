@@ -2298,14 +2298,9 @@
    ============================================================================ */
 
 /* Modal porównania BL musi być NAD modalem szczegółów (oba bootstrap 1055).
-   Bootstrap auto-stacking nie zadziała bo modal-details jest mountowany dynamicznie. */
+   Bootstrap auto-stacking dla backdropa sam doliczy +20. */
 #baselinkerCompareModal {
-    z-index: 1090 !important;
-}
-
-/* Backdrop tego modala (ostatni dodany przez bootstrap) - podnosimy go nad modal szczegółów */
-body.modal-open .modal-backdrop:last-of-type {
-    z-index: 1085;
+    z-index: 1090;
 }
 
 #baselinkerCompareModal .modal-content {
