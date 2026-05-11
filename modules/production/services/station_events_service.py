@@ -19,7 +19,7 @@ w strefie Warszawy.
 from sqlalchemy import func, distinct
 
 from extensions import db
-from ..models import ProductionItem, ProductionStationEvent
+from ..models import ProductionItem, ProductionOrder, ProductionStationEvent
 
 
 def get_station_work_in_range(station_code, range_start, range_end):
@@ -65,9 +65,11 @@ def get_station_work_in_range(station_code, range_start, range_end):
 
     counts = db.session.query(
         func.count(distinct(items_subq.c.item_id)).label('items'),
-        func.count(distinct(ProductionItem.baselinker_order_id)).label('orders'),
+        func.count(distinct(ProductionOrder.baselinker_order_id)).label('orders'),
     ).join(
         ProductionItem, ProductionItem.id == items_subq.c.item_id
+    ).join(
+        ProductionOrder, ProductionItem.order_id == ProductionOrder.id
     ).filter(items_subq.c.net_delta > 0).one()
 
     return {

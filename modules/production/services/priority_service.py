@@ -184,14 +184,14 @@ class NewPriorityCalculator:
             List[ProductionItem]: Lista aktywnych produktów
         """
         try:
-            from ..models import ProductionItem
-            
+            from ..models import ProductionItem, ProductionOrder
+
             # Query wszystkich produktów w statusach aktywnych
-            query = ProductionItem.query.filter(
+            query = ProductionItem.query.join(ProductionOrder).filter(
                 ProductionItem.current_status.in_(self.active_statuses)
             ).order_by(
-                func.isnull(ProductionItem.payment_date),
-                ProductionItem.payment_date.asc(),
+                func.isnull(ProductionOrder.payment_date),
+                ProductionOrder.payment_date.asc(),
                 ProductionItem.created_at.asc()
             )
             

@@ -12,7 +12,7 @@ from sqlalchemy import func, or_
 
 from extensions import db
 from modules.logging import get_structured_logger
-from modules.production.models import ProductionDevice, ProductionItem
+from modules.production.models import ProductionDevice, ProductionItem, ProductionOrder
 from modules.production.utils.cache import (
     cached_json,
     if_none_match,
@@ -150,27 +150,29 @@ def station_orders(station_code):
     # (sąsiednich stanowisk lub już ukończone), żeby mobile mogło pokazać
     # pełną grupę z badge'em.
     order_numbers_subq = db.session.query(
-        ProductionItem.internal_order_number
-    ).filter(
+        ProductionOrder.internal_order_number
+    ).join(ProductionItem, ProductionItem.order_id == ProductionOrder.id).filter(
         ProductionItem.current_status == status
     ).distinct().subquery()
 
-    items_filter = ProductionItem.internal_order_number.in_(
+    items_filter = ProductionOrder.internal_order_number.in_(
         db.session.query(order_numbers_subq.c.internal_order_number)
     )
 
     max_updated, total_count = db.session.query(
         func.max(ProductionItem.updated_at),
         func.count(ProductionItem.id),
-    ).filter(items_filter).first()
+    ).join(ProductionOrder, ProductionItem.order_id == ProductionOrder.id).filter(items_filter).first()
     etag_ts = int(max_updated.timestamp()) if max_updated else 0
     etag = make_weak_etag('orders', station_code, etag_ts, total_count or 0)
     if if_none_match(etag):
         return not_modified(etag)
 
-    items = ProductionItem.query.filter(items_filter).order_by(
+    items = ProductionItem.query.join(
+        ProductionOrder, ProductionItem.order_id == ProductionOrder.id
+    ).filter(items_filter).order_by(
         func.coalesce(ProductionItem.priority_rank, 999999).asc(),
-        ProductionItem.internal_order_number.asc(),
+        ProductionOrder.internal_order_number.asc(),
         ProductionItem.id.asc(),
     ).all()
 
