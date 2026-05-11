@@ -3003,6 +3003,11 @@ function openVariantEditModal(item, quoteData) {
 function openTotalDiscountModal(quoteData) {
     console.log("[openTotalDiscountModal] Otwieranie modala rabatu całkowitego");
 
+    if (!quoteData || !Array.isArray(quoteData.items)) {
+        console.warn('[openTotalDiscountModal] quoteData jeszcze nie zaladowane - ignoruje klik');
+        return;
+    }
+
     currentQuoteData = quoteData;
 
     // Teraz bierzemy pod uwagę WSZYSTKIE pozycje (warianty) w wycenie, a nie tylko te z is_selected
