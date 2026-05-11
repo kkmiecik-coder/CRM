@@ -1830,7 +1830,7 @@ class BaselinkerSyncService:
             'error': None lub string
         }
         """
-        from ..models import ProductionItem
+        from ..models import ProductionItem, ProductionOrder
 
         result = {
             'success': False,
@@ -1855,8 +1855,8 @@ class BaselinkerSyncService:
                 return result
 
             # 2. Pobierz aktualne produkty z bazy
-            current_products = ProductionItem.query.filter_by(
-                baselinker_order_id=baselinker_order_id
+            current_products = ProductionItem.query.join(ProductionOrder).filter(
+                ProductionOrder.baselinker_order_id == baselinker_order_id
             ).all()
 
             if not current_products:
@@ -2109,14 +2109,16 @@ class BaselinkerSyncService:
                 bl_order = self.get_order_from_baselinker(baselinker_order_id)
                 if bl_order:
                     # Pobierz istniejący produkt z tego zamówienia dla kontekstu
-                    existing_product = ProductionItem.query.filter_by(
-                        baselinker_order_id=baselinker_order_id
+                    existing_product = ProductionItem.query.join(ProductionOrder).filter(
+                        ProductionOrder.baselinker_order_id == baselinker_order_id
                     ).first()
 
                     if existing_product:
                         # Znajdź najwyższy numer sekwencji
                         max_seq = db.session.query(db.func.max(ProductionItem.product_sequence_in_order))\
-                            .filter_by(baselinker_order_id=baselinker_order_id).scalar() or 0
+                            .join(ProductionOrder)\
+                            .filter(ProductionOrder.baselinker_order_id == baselinker_order_id)\
+                            .scalar() or 0
 
                         for idx, product_to_add in enumerate(changes['products_to_add']):
                             try:
@@ -2191,18 +2193,17 @@ class BaselinkerSyncService:
                             except Exception as e:
                                 result['errors'].append(f"Błąd dodawania produktu: {str(e)}")
 
-            # 4. Aktualizuj dane na poziomie zamówienia
+            # 4. Aktualizuj dane na poziomie zamówienia (na ProductionOrder, nie produktach)
             if changes.get('order_level'):
-                products_to_update_order = ProductionItem.query.filter_by(
+                order_obj = ProductionOrder.query.filter_by(
                     baselinker_order_id=baselinker_order_id
-                ).all()
+                ).first()
 
-                for change in changes['order_level']:
-                    field = change['field']
-                    new_value = change['new_value']
-
-                    for p in products_to_update_order:
-                        setattr(p, field, new_value)
+                if order_obj:
+                    for change in changes['order_level']:
+                        field = change['field']
+                        new_value = change['new_value']
+                        setattr(order_obj, field, new_value)
 
                 logger.info("Zaktualizowano dane zamówienia", extra={
                     'order_id': baselinker_order_id,
@@ -2318,9 +2319,9 @@ class BaselinkerSyncService:
 
     def _order_already_processed(self, baselinker_order_id: int) -> bool:
         try:
-            from ..models import ProductionItem
-            
-            existing = ProductionItem.query.filter_by(
+            from ..models import ProductionOrder
+
+            existing = ProductionOrder.query.filter_by(
                 baselinker_order_id=baselinker_order_id
             ).first()
             

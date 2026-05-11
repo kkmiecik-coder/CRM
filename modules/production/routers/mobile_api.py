@@ -457,7 +457,8 @@ def mobile_print_label_single(short_product_id):
 def mobile_print_labels_for_order(baselinker_order_id):
     station_code = (g.device.station_code or '').strip()
     items = (ProductionItem.query
-             .filter_by(baselinker_order_id=baselinker_order_id)
+             .join(ProductionOrder)
+             .filter(ProductionOrder.baselinker_order_id == baselinker_order_id)
              .order_by(ProductionItem.product_sequence_in_order)
              .all())
     if not items:

@@ -1145,7 +1145,8 @@ def print_labels_for_order(baselinker_order_id):
         return jsonify({'success': False, 'message': 'Brak parametru station_code'}), 400
 
     items = (ProductionItem.query
-             .filter_by(baselinker_order_id=baselinker_order_id)
+             .join(ProductionOrder)
+             .filter(ProductionOrder.baselinker_order_id == baselinker_order_id)
              .order_by(ProductionItem.product_sequence_in_order)
              .all())
     if not items:
