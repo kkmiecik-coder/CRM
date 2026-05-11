@@ -811,7 +811,7 @@ class ProductionError(db.Model):
     user_agent = Column(Text)
     
     # RELACJE
-    related_product = relationship("ProductionItem")
+    related_product = relationship("ProductionProduct")
     resolver = relationship("User")
     
     def __repr__(self):
@@ -1130,7 +1130,7 @@ class ProductionStationEvent(db.Model):
     )
 
     item = relationship(
-        'ProductionItem',
+        'ProductionProduct',
         backref=backref('station_events', passive_deletes=True)
     )
     user = relationship('User')
