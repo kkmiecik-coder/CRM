@@ -784,7 +784,7 @@ def products_tab_content():
                 'logistics_completed_at': get_attr(product, 'logistics_completed_at').isoformat() if get_attr(product, 'logistics_completed_at') else None,
                 'painting_completed_at': get_attr(product, 'painting_completed_at').isoformat() if get_attr(product, 'painting_completed_at') else None,
                 'override_delivery_method': get_attr(product, 'override_delivery_method', None),
-                'is_personal_pickup': product.is_personal_pickup,
+                'is_personal_pickup': product.order.is_personal_pickup if product.order else None,
 
                 # Przypisani pracownicy
                 'cutting_assigned_worker_id': get_attr(product, 'cutting_assigned_worker_id', None),
@@ -1572,18 +1572,18 @@ def _export_csv(products, timestamp):
     for p in products:
         writer.writerow({
             'ID': p.short_product_id,
-            'Zamówienie': p.internal_order_number,
-            'Nr klienta': p.client_order_number or '',
+            'Zamówienie': p.order.internal_order_number if p.order else None,
+            'Nr klienta': (p.order.client_order_number if p.order else None) or '',
             'Nazwa': p.original_product_name,
             'Status': _format_status(p.current_status),
             'Priorytet': p.priority_rank or '-',
             'Ilość': p.quantity,
-            'Gatunek': p.parsed_wood_species or '',
-            'Technologia': p.parsed_technology or '',
-            'Klasa': p.parsed_wood_class or '',
+            'Gatunek': (p.configuration.species if p.configuration else None) or '',
+            'Technologia': (p.configuration.technology if p.configuration else None) or '',
+            'Klasa': (p.configuration.wood_class if p.configuration else None) or '',
             'Wymiary': f"{p.parsed_length_cm or 0}×{p.parsed_width_cm or 0}×{p.parsed_thickness_cm or 0}",
             'Objętość m³': float(p.volume_m3) if p.volume_m3 else 0,
-            'Klient': p.client_name or '',
+            'Klient': (p.order.client_name if p.order else None) or '',
             'Data utworzenia': p.created_at.strftime('%Y-%m-%d %H:%M') if p.created_at else ''
         })
 
@@ -1667,17 +1667,17 @@ def _export_excel(products, timestamp):
         status_stats[p.current_status]['qty'] += qty
         status_stats[p.current_status]['volume'] += vol * qty
 
-        species = p.parsed_wood_species or 'Nieokreślony'
+        species = (p.configuration.species if p.configuration else None) or 'Nieokreślony'
         species_stats[species]['count'] += 1
         species_stats[species]['qty'] += qty
         species_stats[species]['volume'] += vol * qty
 
-        tech = p.parsed_technology or 'Nieokreślona'
+        tech = (p.configuration.technology if p.configuration else None) or 'Nieokreślona'
         technology_stats[tech]['count'] += 1
         technology_stats[tech]['qty'] += qty
         technology_stats[tech]['volume'] += vol * qty
 
-        wood_class = p.parsed_wood_class or 'Nieokreślona'
+        wood_class = (p.configuration.wood_class if p.configuration else None) or 'Nieokreślona'
         wood_class_stats[wood_class]['count'] += 1
         wood_class_stats[wood_class]['qty'] += qty
         wood_class_stats[wood_class]['volume'] += vol * qty
@@ -1893,19 +1893,19 @@ def _export_excel(products, timestamp):
         data = [
             idx,
             product.short_product_id,
-            product.internal_order_number,
-            product.baselinker_order_id or '',
-            product.client_order_number or '',
+            product.order.internal_order_number if product.order else None,
+            (product.order.baselinker_order_id if product.order else None) or '',
+            (product.order.client_order_number if product.order else None) or '',
             (product.original_product_name[:50] + '...') if len(product.original_product_name or '') > 50 else (product.original_product_name or ''),
             _format_status(product.current_status),
             product.priority_rank or '-',
             product.quantity,
-            product.parsed_wood_species or '',
-            product.parsed_technology or '',
-            product.parsed_wood_class or '',
+            (product.configuration.species if product.configuration else None) or '',
+            (product.configuration.technology if product.configuration else None) or '',
+            (product.configuration.wood_class if product.configuration else None) or '',
             f"{product.parsed_length_cm or 0}×{product.parsed_width_cm or 0}×{product.parsed_thickness_cm or 0}",
             float(product.volume_m3) if product.volume_m3 else 0,
-            product.client_name or ''
+            (product.order.client_name if product.order else None) or ''
         ]
 
         for col, value in enumerate(data, 1):
@@ -2039,9 +2039,9 @@ def _export_pdf(products, timestamp, report_type='full'):
         vol = float(p.volume_m3 or 0)
         qty = p.quantity or 1
         for key, field in [('status', p.current_status),
-                           ('species', p.parsed_wood_species or 'Nieokreslony'),
-                           ('technology', p.parsed_technology or 'Nieokreslona'),
-                           ('wood_class', p.parsed_wood_class or 'Nieokreslona'),
+                           ('species', (p.configuration.species if p.configuration else None) or 'Nieokreslony'),
+                           ('technology', (p.configuration.technology if p.configuration else None) or 'Nieokreslona'),
+                           ('wood_class', (p.configuration.wood_class if p.configuration else None) or 'Nieokreslona'),
                            ('thickness', f"{float(p.parsed_thickness_cm):.1f} cm" if p.parsed_thickness_cm else 'Nieokreslona')]:
             buckets[key][field]['count'] += 1
             buckets[key][field]['qty'] += qty
@@ -2118,12 +2118,12 @@ def _export_pdf(products, timestamp, report_type='full'):
             name += '...'
         dims = f"{p.parsed_length_cm or 0}x{p.parsed_width_cm or 0}x{p.parsed_thickness_cm or 0}"
         tdata.append([
-            str(i), p.short_product_id or '', p.internal_order_number or '',
+            str(i), p.short_product_id or '', (p.order.internal_order_number if p.order else None) or '',
             Paragraph(name, ParagraphStyle('cell', fontName=font_name, fontSize=7, leading=9)),
             _format_status(p.current_status),
             str(p.priority_rank) if p.priority_rank else '-',
             str(p.quantity or 1),
-            (p.parsed_wood_species or '')[:12],
+            ((p.configuration.species if p.configuration else None) or '')[:12],
             dims,
             f"{float(p.volume_m3 or 0):.3f}"
         ])
@@ -2768,38 +2768,39 @@ def get_order_products(product_id):
         
         # Znajdź produkt
         product = ProductionItem.query.get_or_404(product_id)
-        
-        if not product.baselinker_order_id:
+
+        product_baselinker_id = product.order.baselinker_order_id if product.order else None
+        if not product_baselinker_id:
             return jsonify({
                 'success': True,
                 'products': [_format_product_for_navigation(product)],
                 'total_count': 1,
                 'current_product_id': product_id
             }), 200
-        
+
         # Znajdź wszystkie produkty z tego zamówienia
-        order_products = ProductionItem.query.filter_by(
-            baselinker_order_id=product.baselinker_order_id
+        order_products = ProductionItem.query.join(ProductionOrder).filter(
+            ProductionOrder.baselinker_order_id == product_baselinker_id
         ).order_by(ProductionItem.product_sequence_in_order.asc()).all()
-        
+
         # Formatuj produkty dla nawigacji
         formatted_products = []
         for p in order_products:
             formatted_products.append(_format_product_for_navigation(p))
-        
+
         logger.info("API: Pobrano produkty zamówienia", extra={
             'product_id': product_id,
-            'baselinker_order_id': product.baselinker_order_id,
+            'baselinker_order_id': product_baselinker_id,
             'products_count': len(formatted_products),
             'user_id': current_user.id
         })
-        
+
         return jsonify({
             'success': True,
             'products': formatted_products,
             'total_count': len(formatted_products),
             'current_product_id': product_id,
-            'baselinker_order_id': product.baselinker_order_id
+            'baselinker_order_id': product_baselinker_id
         }), 200
         
     except Exception as e:

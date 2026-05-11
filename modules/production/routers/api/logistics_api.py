@@ -39,18 +39,18 @@ def logistics_orders():
         # Group by internal_order_number
         orders_map = {}
         for item in items:
-            order_number = item.internal_order_number
+            order_number = item.order.internal_order_number if item.order else None
             if order_number not in orders_map:
                 orders_map[order_number] = {
                     'order_number': order_number,
-                    'baselinker_order_id': item.baselinker_order_id,
-                    'client_name': item.client_name,
-                    'delivery_method': item.delivery_method,
+                    'baselinker_order_id': item.order.baselinker_order_id if item.order else None,
+                    'client_name': item.order.client_name if item.order else None,
+                    'delivery_method': item.order.delivery_method if item.order else None,
                     'delivery_address': {
-                        'address': item.delivery_address,
-                        'city': item.delivery_city,
-                        'postcode': item.delivery_postcode,
-                        'country_code': item.delivery_country_code,
+                        'address': item.order.delivery_address if item.order else None,
+                        'city': item.order.delivery_city if item.order else None,
+                        'postcode': item.order.delivery_postcode if item.order else None,
+                        'country_code': item.order.delivery_country_code if item.order else None,
                     },
                     'production_notes': item.production_notes,
                     'products': [],
