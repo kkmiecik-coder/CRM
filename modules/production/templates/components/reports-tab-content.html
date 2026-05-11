@@ -1079,6 +1079,10 @@
 </div>
 
 <script>
+// IIFE izoluje top-level deklaracje (let/const) - tab raportów jest re-loadowany
+// przez production-app-loader.executeInlineScripts() i bez IIFE drugie wykonanie
+// dawałoby SyntaxError "duplicate variable" na let dailyChart/technologyChart/itd.
+(function(){
 // JavaScript dla taba raportów
 let dailyChart = null;
 let statusCountChart = null;
@@ -2489,6 +2493,14 @@ async function exportToPDF() {
     }
 }
 
+// Eksport funkcji wołanych z zewnątrz IIFE: loader (initReportsTab)
+// oraz inline onclick w HTML (exportToExcel, exportToPDF, refreshSyncHistory).
+window.initReportsTab = initReportsTab;
+window.exportToExcel = exportToExcel;
+window.exportToPDF = exportToPDF;
+window.refreshSyncHistory = refreshSyncHistory;
+
 // Nie używamy auto-inicjalizacji - production-app-loader.js wywołuje initReportsTab() po załadowaniu HTML
 console.log('[Reports Tab] Script loaded, waiting for initReportsTab() call...');
+})();
 </script>
