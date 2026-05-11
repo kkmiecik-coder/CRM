@@ -1231,8 +1231,8 @@ function reinitializeAllEventListeners() {
  * Zatrzymuje system backup przed opuszczeniem strony
  */
 function cleanupBeforeUnload() {
-    if (quoteDraftBackup) {
-        quoteDraftBackup.stopAutoSave();
+    if (window.quoteDraftBackup) {
+        window.quoteDraftBackup.stopAutoSave();
     }
 }
 
