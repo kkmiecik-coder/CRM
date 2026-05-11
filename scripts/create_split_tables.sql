@@ -50,7 +50,7 @@ CREATE TABLE prod_orders (
 ) ENGINE=InnoDB CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE prod_products (
-  id INT PRIMARY KEY,
+  id INT AUTO_INCREMENT PRIMARY KEY,
   order_id INT NOT NULL,
   configuration_id INT NULL,
   short_product_id VARCHAR(20) NOT NULL UNIQUE,
