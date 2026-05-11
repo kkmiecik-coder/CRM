@@ -1243,6 +1243,11 @@ class ProductsModule {
             this.handleOptionChange(filterType, value, e.target.checked);
 
             const dropdown = optionDiv.closest('.multi-select-dropdown');
+            if (!dropdown) {
+                // optionDiv został odpięty z DOM (re-render dropdowna) zanim
+                // event się przetworzył — pomijamy update UI dla starego node'a.
+                return;
+            }
             const dropdownId = dropdown.id;
             const displayId = dropdownId.replace('dropdown-', 'filter-');
 
