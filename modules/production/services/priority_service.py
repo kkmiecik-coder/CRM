@@ -225,19 +225,19 @@ class NewPriorityCalculator:
         weekly_groups = defaultdict(list)
         
         for product in products:
-            if product.payment_date:
+            if product.order and product.order.payment_date:
                 # Oblicz granice tygodnia dla payment_date
-                week_start, week_end = self.get_week_boundaries(product.payment_date)
-                
-                # Format klucza: YYYY-WNN  
+                week_start, week_end = self.get_week_boundaries(product.order.payment_date)
+
+                # Format klucza: YYYY-WNN
                 year = week_start.year
                 week_number = week_start.isocalendar()[1]
                 week_key = f"{year}-W{week_number:02d}"
-                
+
             else:
                 # Produkty bez payment_date w osobnej grupie
                 week_key = "no-payment-date"
-            
+
             weekly_groups[week_key].append(product)
         
         # Sortowanie kluczy tygodni chronologicznie
@@ -296,24 +296,24 @@ class NewPriorityCalculator:
         
         for product in products:
             # Zliczanie gatunków
-            if product.species:
-                stats['species'][product.species] += 1
+            if product.configuration and product.configuration.species:
+                stats['species'][product.configuration.species] += 1
 
             # Zliczanie technologii
             if getattr(product, 'parsed_technology', None):
                 stats['technology'][product.parsed_technology] += 1
 
-            # Zliczanie stanów wykończenia  
-            if product.finish_state:
-                stats['finish_state'][product.finish_state] += 1
-                
+            # Zliczanie stanów wykończenia
+            if product.parsed_finish_state:
+                stats['finish_state'][product.parsed_finish_state] += 1
+
             # Zliczanie grup grubości
             if product.thickness_group:
                 stats['thickness_group'][product.thickness_group] += 1
-                
+
             # Zliczanie klas drewna
-            if product.wood_class:
-                stats['wood_class'][product.wood_class] += 1
+            if product.configuration and product.configuration.wood_class:
+                stats['wood_class'][product.configuration.wood_class] += 1
         
         # Konwersja defaultdict na dict dla loggingu
         final_stats = {
@@ -397,11 +397,11 @@ class NewPriorityCalculator:
             logger.debug(f"Product {product.id} sort data", extra={
                 'product_id': product.id,
                 'deadline_date': product.deadline_date,
-                'parsed_wood_species': getattr(product, 'parsed_wood_species', 'NONE'),
+                'parsed_wood_species': getattr(product.configuration, 'species', 'NONE') if product.configuration else 'NONE',
                 'parsed_technology': getattr(product, 'parsed_technology', 'NONE'),
                 'thickness_group': getattr(product, 'thickness_group', 'NONE'),
-                'parsed_wood_class': getattr(product, 'parsed_wood_class', 'NONE'),
-                'payment_date': product.payment_date
+                'parsed_wood_class': getattr(product.configuration, 'wood_class', 'NONE') if product.configuration else 'NONE',
+                'payment_date': product.order.payment_date if product.order else None
             })
             
             # 1. DEADLINE_DATE - najważniejszy (termin dostawy) - tylko DZIEŃ!
@@ -410,26 +410,26 @@ class NewPriorityCalculator:
             # 2. W ramach tego samego deadline - parametry wykonawcze:
             # SPECIES (gatunek drewna) - według group_priorities
             species_priority = group_priorities.get('species', {}).get(
-                getattr(product, 'parsed_wood_species', None), 999
+                product.configuration.species if product.configuration else None, 999
             )
-            
+
             # TECHNOLOGY (technologia) - według group_priorities
             tech_priority = group_priorities.get('technology', {}).get(
                 getattr(product, 'parsed_technology', None), 999
             )
-            
+
             # THICKNESS_GROUP (grubość) - według group_priorities
             thickness_priority = group_priorities.get('thickness_group', {}).get(
                 product.thickness_group, 999
             )
-            
+
             # WOOD_CLASS (klasa drewna) - według group_priorities
             wood_class_priority = group_priorities.get('wood_class', {}).get(
-                getattr(product, 'parsed_wood_class', None), 999
+                product.configuration.wood_class if product.configuration else None, 999
             )
-            
+
             # 3. Payment_date jako tie-breaker (starsze opłacenie = wyższy priorytet)
-            payment_date_key = product.payment_date or datetime.max
+            payment_date_key = (product.order.payment_date if product.order else None) or datetime.max
             
             # 4. ID jako final tie-breaker
             id_key = product.id

@@ -2086,13 +2086,21 @@ class BaselinkerSyncService:
                                 # Re-parsuj dane produktu
                                 parsed = parser.parse_product_name(new_value)
                                 if parsed:
-                                    product.wood_species = parsed.get('wood_species')
-                                    product.wood_class = parsed.get('wood_class')
-                                    product.dimensions = parsed.get('dimensions')
-                                    product.technology = parsed.get('technology')
-                                    product.length_cm = parsed.get('length_cm')
-                                    product.width_cm = parsed.get('width_cm')
-                                    product.thickness_cm = parsed.get('thickness_cm')
+                                    # Ensure configuration exists before updating parsed fields
+                                    if not product.configuration:
+                                        from modules.production.models import ProductionConfiguration
+                                        product.configuration = ProductionConfiguration.find_or_create(
+                                            species=parsed.get('wood_species'),
+                                            technology=parsed.get('technology'),
+                                            wood_class=parsed.get('wood_class'),
+                                        )
+                                    else:
+                                        product.configuration.species = parsed.get('wood_species')
+                                        product.configuration.wood_class = parsed.get('wood_class')
+                                        product.configuration.technology = parsed.get('technology')
+                                    product.parsed_length_cm = parsed.get('length_cm')
+                                    product.parsed_width_cm = parsed.get('width_cm')
+                                    product.parsed_thickness_cm = parsed.get('thickness_cm')
                                     product.volume_m3 = parsed.get('volume_m3')
 
                         result['updated'] += 1

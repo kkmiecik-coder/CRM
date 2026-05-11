@@ -123,9 +123,9 @@ def _compute_unit_offsets(items_by_id):
     """
     info = {}
     order_ids = {
-        item.baselinker_order_id
+        item.order.baselinker_order_id
         for item in items_by_id.values()
-        if item is not None and item.baselinker_order_id
+        if item is not None and item.order and item.order.baselinker_order_id
     }
 
     siblings_by_order = {}
@@ -320,14 +320,14 @@ def generate_label_zpl(item, cfg, label_index=None, total_units=None):
       - badges row 1 (gatunek/technologia/klasa) — wypełnione, dynamiczna szerokość
       - badges row 2 (wykończenie/krawędź) — z ramką, pomijane gdy puste
     """
-    species = _normalize_text(item.parsed_wood_species or '').upper() or 'BRAK'
-    technology = _normalize_text(item.parsed_technology or '').upper() or 'BRAK'
-    wood_class = _normalize_text(item.parsed_wood_class or '').upper() or '-'
+    species = _normalize_text(item.configuration.species or '').upper() or 'BRAK' if item.configuration else 'BRAK'
+    technology = _normalize_text(item.configuration.technology or '').upper() or 'BRAK' if item.configuration else 'BRAK'
+    wood_class = _normalize_text(item.configuration.wood_class or '').upper() or '-' if item.configuration else '-'
     finish_label = _format_finish_label(item)
     edge_label = _format_edge_label(item)
     name = _normalize_text(item.original_product_name or '')[:80]
     short_id = _normalize_text(item.short_product_id or '')
-    bl_id = item.baselinker_order_id or 0
+    bl_id = item.order.baselinker_order_id if item.order else 0
     client_label = _resolve_client_label(item)
     delivery_label = _format_delivery_label(item)
 
@@ -632,7 +632,7 @@ def _enqueue_labels(ids, items_by_id, station_code, actor, cfg):
                     )
                     job = LabelPrintJob(
                         short_product_id=sid,
-                        baselinker_order_id=item.baselinker_order_id,
+                        baselinker_order_id=item.order.baselinker_order_id if item.order else None,
                         zpl_payload=zpl,
                         station_code=station_code,
                         requested_by_type=actor_type or 'user',
