@@ -20,6 +20,7 @@ import pytz
 from flask import current_app, g, jsonify, request
 from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import joinedload
 
 from extensions import db
 from modules.logging import get_structured_logger
@@ -469,11 +470,11 @@ def _build_attachments(item):
     size_bytes = 0 — Baselinker nie zwraca rozmiaru, a HEAD na każde serialize
     byłby zbyt drogi. Android użyje Content-Length z response przy pobieraniu.
     """
-    url = (item.attachment_file_url or '').strip()
+    url = ((item.order.attachment_file_url if item.order else None) or '').strip()
     if not url:
         return []
 
-    name = (item.attachment_file_name or '').strip() or url.rsplit('/', 1)[-1]
+    name = ((item.order.attachment_file_name if item.order else None) or '').strip() or url.rsplit('/', 1)[-1]
     ext = name.rsplit('.', 1)[-1].lower() if '.' in name else ''
     mime_type = _ATTACHMENT_MIME_BY_EXT.get(ext, 'application/octet-stream')
 
@@ -531,11 +532,13 @@ def serialize_order(item, station_code=None):
     # Kategoria dostawy — kolejność warunków 1:1 z web-templatką
     # modules/production/templates/stations/packaging.html (delivery-badge-container).
     # Odrębna od property ProductionItem.delivery_type (zwracającej tylko 2 wartości).
-    if item.override_delivery_method == 'transport_woodpower':
+    override_delivery = item.order.override_delivery_method if item.order else None
+    is_personal = item.order.is_personal_pickup if item.order else False
+    if override_delivery == 'transport_woodpower':
         delivery_type = 'transport_woodpower'
-    elif item.override_delivery_method == 'kurier_baselinker':
+    elif override_delivery == 'kurier_baselinker':
         delivery_type = 'courier_baselinker'
-    elif item.is_personal_pickup:
+    elif is_personal:
         delivery_type = 'personal_pickup'
     else:
         delivery_type = 'courier'
@@ -543,15 +546,15 @@ def serialize_order(item, station_code=None):
     return {
         'id': item.id,
         'short_id': item.short_product_id,
-        'internal_order_number': item.internal_order_number,
-        'baselinker_order_id': item.baselinker_order_id,
+        'internal_order_number': item.order.internal_order_number if item.order else None,
+        'baselinker_order_id': item.order.baselinker_order_id if item.order else None,
         'product_name': item.original_product_name,
-        'client_name': item.client_name,
-        'client_order_number': item.client_order_number,
+        'client_name': item.order.client_name if item.order else None,
+        'client_order_number': item.order.client_order_number if item.order else None,
         'delivery_type': delivery_type,
-        'wood_species': item.parsed_wood_species,
-        'wood_class': item.parsed_wood_class,
-        'technology': item.parsed_technology,
+        'wood_species': item.configuration.species if item.configuration else None,
+        'wood_class': item.configuration.wood_class if item.configuration else None,
+        'technology': item.configuration.technology if item.configuration else None,
         'dimensions': dimensions,
         'volume_m3': _num(item.volume_m3),
         'quantity_ordered': item.quantity,
@@ -562,10 +565,10 @@ def serialize_order(item, station_code=None):
         'status_display': item.status_display_name,
         'finish': finish,
         'edge': edge,
-        'delivery_city': item.delivery_city,
-        'delivery_postcode': item.delivery_postcode,
+        'delivery_city': item.order.delivery_city if item.order else None,
+        'delivery_postcode': item.order.delivery_postcode if item.order else None,
         'deadline': _iso(item.deadline_date) if item.deadline_date else None,
-        'order_notes': item.order_notes,
+        'order_notes': item.order.order_notes if item.order else None,
         'production_notes': item.production_notes,
         'attachments': _build_attachments(item),
         'shape_svg': item.shape_svg,
@@ -602,7 +605,8 @@ def mark_order_complete(item, station_code):
     item.complete_task(station_code)
 
     from .baselinker_status_sync import schedule_after_station_complete
-    schedule_after_station_complete(item.internal_order_number, station_code)
+    if item.order:
+        schedule_after_station_complete(item.order.internal_order_number, station_code)
 
 
 def update_order_quantity(item, station_code, quantity_done, *, device_id=None):
@@ -1039,7 +1043,10 @@ def get_station_queue_delta(station_code, since_ts):
         ).all()
     ]
 
-    changed_items = base.filter(
+    changed_items = base.options(
+        joinedload(ProductionItem.order),
+        joinedload(ProductionItem.configuration),
+    ).filter(
         ProductionItem.updated_at > since_ts
     ).order_by(
         func.coalesce(ProductionItem.priority_rank, 999999).asc(),

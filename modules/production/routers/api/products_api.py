@@ -650,7 +650,7 @@ def products_tab_content():
         # potrzebne do pola order_completed_at oraz do statystyk archiwum.
         order_aggregates = {}
         for p in products:
-            ion = getattr(p, 'internal_order_number', None)
+            ion = p.order.internal_order_number if p.order else None
             if not ion:
                 continue
             agg = order_aggregates.setdefault(ion, {'completed_at': None, 'created_at': None})
@@ -744,14 +744,14 @@ def products_tab_content():
                 'days_until_deadline': days_to_deadline,
                 
                 # Dane klienta
-                'client_name': get_attr(product, 'client_name', ''),
-                'client_email': get_attr(product, 'client_email', ''),
-                'client_phone': get_attr(product, 'client_phone', ''),
-                'delivery_address': get_attr(product, 'delivery_address', ''),
-                
+                'client_name': (product.order.client_name if product.order else None) or '',
+                'client_email': (product.order.client_email if product.order else None) or '',
+                'client_phone': (product.order.client_phone if product.order else None) or '',
+                'delivery_address': (product.order.delivery_address if product.order else None) or '',
+
                 # Dane zamówienia
-                'internal_order_number': get_attr(product, 'internal_order_number', ''),
-                'baselinker_order_id': get_attr(product, 'baselinker_order_id', None),
+                'internal_order_number': (product.order.internal_order_number if product.order else None) or '',
+                'baselinker_order_id': product.order.baselinker_order_id if product.order else None,
                 'baselinker_product_id': get_attr(product, 'baselinker_product_id', ''),
                 'product_sequence_in_order': get_attr(product, 'product_sequence_in_order', 1),
                 'total_products_in_order': db.session.query(func.count(ProductionItem.id)).filter(
@@ -759,9 +759,9 @@ def products_tab_content():
                 ).scalar() if product.order_id else 1,
 
                 # POPRAWIONE: Specyfikacja produktu - PARSOWANE POLA z bazy danych
-                'parsed_wood_species': get_attr(product, 'parsed_wood_species', None),
-                'parsed_technology': get_attr(product, 'parsed_technology', None),
-                'parsed_wood_class': get_attr(product, 'parsed_wood_class', None),
+                'parsed_wood_species': product.configuration.species if product.configuration else None,
+                'parsed_technology': product.configuration.technology if product.configuration else None,
+                'parsed_wood_class': product.configuration.wood_class if product.configuration else None,
                 'parsed_length_cm': parsed_length_cm,
                 'parsed_width_cm': parsed_width_cm,
                 'parsed_thickness_cm': parsed_thickness_cm,
@@ -781,10 +781,10 @@ def products_tab_content():
                 'packaging_duration_minutes': get_attr(product, 'packaging_duration_minutes', None),
 
                 # Logistyka
-                'logistics_completed_at': get_attr(product, 'logistics_completed_at').isoformat() if get_attr(product, 'logistics_completed_at') else None,
+                'logistics_completed_at': product.order.logistics_completed_at.isoformat() if product.order and product.order.logistics_completed_at else None,
                 'painting_completed_at': get_attr(product, 'painting_completed_at').isoformat() if get_attr(product, 'painting_completed_at') else None,
-                'override_delivery_method': get_attr(product, 'override_delivery_method', None),
-                'is_personal_pickup': product.is_personal_pickup,
+                'override_delivery_method': product.order.override_delivery_method if product.order else None,
+                'is_personal_pickup': product.order.is_personal_pickup if product.order else None,
 
                 # Przypisani pracownicy
                 'cutting_assigned_worker_id': get_attr(product, 'cutting_assigned_worker_id', None),
@@ -798,11 +798,11 @@ def products_tab_content():
                 # Timestampy
                 'created_at': product.created_at.isoformat() if hasattr(product, 'created_at') and product.created_at else None,
                 'updated_at': product.updated_at.isoformat() if hasattr(product, 'updated_at') and product.updated_at else None,
-                'sync_source': get_attr(product, 'sync_source', None),
+                'sync_source': product.order.sync_source if product.order else None,
 
                 # Załączniki
-                'attachment_file_name': get_attr(product, 'attachment_file_name', None),
-                'attachment_file_url': get_attr(product, 'attachment_file_url', None),
+                'attachment_file_name': product.order.attachment_file_name if product.order else None,
+                'attachment_file_url': product.order.attachment_file_url if product.order else None,
 
                 # NOWE: Quantity fields (2025-11)
                 'quantity': get_attr(product, 'quantity', 1),
@@ -816,8 +816,8 @@ def products_tab_content():
                 'quantity_done_packaging': get_attr(product, 'quantity_done_packaging', 0),
 
                 # Dodatkowe pola z zamówienia
-                'client_order_number': get_attr(product, 'client_order_number', None),
-                'order_notes': get_attr(product, 'order_notes', None),
+                'client_order_number': product.order.client_order_number if product.order else None,
+                'order_notes': product.order.order_notes if product.order else None,
 
                 # Priorytet ręczny (gwiazdka)
                 'is_priority': get_attr(product, 'is_priority', False),
@@ -1572,18 +1572,18 @@ def _export_csv(products, timestamp):
     for p in products:
         writer.writerow({
             'ID': p.short_product_id,
-            'Zamówienie': p.internal_order_number,
-            'Nr klienta': p.client_order_number or '',
+            'Zamówienie': p.order.internal_order_number if p.order else None,
+            'Nr klienta': (p.order.client_order_number if p.order else None) or '',
             'Nazwa': p.original_product_name,
             'Status': _format_status(p.current_status),
             'Priorytet': p.priority_rank or '-',
             'Ilość': p.quantity,
-            'Gatunek': p.parsed_wood_species or '',
-            'Technologia': p.parsed_technology or '',
-            'Klasa': p.parsed_wood_class or '',
+            'Gatunek': (p.configuration.species if p.configuration else None) or '',
+            'Technologia': (p.configuration.technology if p.configuration else None) or '',
+            'Klasa': (p.configuration.wood_class if p.configuration else None) or '',
             'Wymiary': f"{p.parsed_length_cm or 0}×{p.parsed_width_cm or 0}×{p.parsed_thickness_cm or 0}",
             'Objętość m³': float(p.volume_m3) if p.volume_m3 else 0,
-            'Klient': p.client_name or '',
+            'Klient': (p.order.client_name if p.order else None) or '',
             'Data utworzenia': p.created_at.strftime('%Y-%m-%d %H:%M') if p.created_at else ''
         })
 
@@ -1667,17 +1667,17 @@ def _export_excel(products, timestamp):
         status_stats[p.current_status]['qty'] += qty
         status_stats[p.current_status]['volume'] += vol * qty
 
-        species = p.parsed_wood_species or 'Nieokreślony'
+        species = (p.configuration.species if p.configuration else None) or 'Nieokreślony'
         species_stats[species]['count'] += 1
         species_stats[species]['qty'] += qty
         species_stats[species]['volume'] += vol * qty
 
-        tech = p.parsed_technology or 'Nieokreślona'
+        tech = (p.configuration.technology if p.configuration else None) or 'Nieokreślona'
         technology_stats[tech]['count'] += 1
         technology_stats[tech]['qty'] += qty
         technology_stats[tech]['volume'] += vol * qty
 
-        wood_class = p.parsed_wood_class or 'Nieokreślona'
+        wood_class = (p.configuration.wood_class if p.configuration else None) or 'Nieokreślona'
         wood_class_stats[wood_class]['count'] += 1
         wood_class_stats[wood_class]['qty'] += qty
         wood_class_stats[wood_class]['volume'] += vol * qty
@@ -1893,19 +1893,19 @@ def _export_excel(products, timestamp):
         data = [
             idx,
             product.short_product_id,
-            product.internal_order_number,
-            product.baselinker_order_id or '',
-            product.client_order_number or '',
+            product.order.internal_order_number if product.order else None,
+            (product.order.baselinker_order_id if product.order else None) or '',
+            (product.order.client_order_number if product.order else None) or '',
             (product.original_product_name[:50] + '...') if len(product.original_product_name or '') > 50 else (product.original_product_name or ''),
             _format_status(product.current_status),
             product.priority_rank or '-',
             product.quantity,
-            product.parsed_wood_species or '',
-            product.parsed_technology or '',
-            product.parsed_wood_class or '',
+            (product.configuration.species if product.configuration else None) or '',
+            (product.configuration.technology if product.configuration else None) or '',
+            (product.configuration.wood_class if product.configuration else None) or '',
             f"{product.parsed_length_cm or 0}×{product.parsed_width_cm or 0}×{product.parsed_thickness_cm or 0}",
             float(product.volume_m3) if product.volume_m3 else 0,
-            product.client_name or ''
+            (product.order.client_name if product.order else None) or ''
         ]
 
         for col, value in enumerate(data, 1):
@@ -2039,9 +2039,9 @@ def _export_pdf(products, timestamp, report_type='full'):
         vol = float(p.volume_m3 or 0)
         qty = p.quantity or 1
         for key, field in [('status', p.current_status),
-                           ('species', p.parsed_wood_species or 'Nieokreslony'),
-                           ('technology', p.parsed_technology or 'Nieokreslona'),
-                           ('wood_class', p.parsed_wood_class or 'Nieokreslona'),
+                           ('species', (p.configuration.species if p.configuration else None) or 'Nieokreslony'),
+                           ('technology', (p.configuration.technology if p.configuration else None) or 'Nieokreslona'),
+                           ('wood_class', (p.configuration.wood_class if p.configuration else None) or 'Nieokreslona'),
                            ('thickness', f"{float(p.parsed_thickness_cm):.1f} cm" if p.parsed_thickness_cm else 'Nieokreslona')]:
             buckets[key][field]['count'] += 1
             buckets[key][field]['qty'] += qty
@@ -2118,12 +2118,12 @@ def _export_pdf(products, timestamp, report_type='full'):
             name += '...'
         dims = f"{p.parsed_length_cm or 0}x{p.parsed_width_cm or 0}x{p.parsed_thickness_cm or 0}"
         tdata.append([
-            str(i), p.short_product_id or '', p.internal_order_number or '',
+            str(i), p.short_product_id or '', (p.order.internal_order_number if p.order else None) or '',
             Paragraph(name, ParagraphStyle('cell', fontName=font_name, fontSize=7, leading=9)),
             _format_status(p.current_status),
             str(p.priority_rank) if p.priority_rank else '-',
             str(p.quantity or 1),
-            (p.parsed_wood_species or '')[:12],
+            ((p.configuration.species if p.configuration else None) or '')[:12],
             dims,
             f"{float(p.volume_m3 or 0):.3f}"
         ])
@@ -2353,10 +2353,10 @@ def _serialize_production_item(item, today=None):
     product_data = {
         'id': item.id,
         'short_product_id': getattr(item, 'short_product_id', f'ID-{item.id}'),
-        'internal_order_number': getattr(item, 'internal_order_number', ''),
+        'internal_order_number': (item.order.internal_order_number if item.order else None) or '',
         'product_name': getattr(item, 'original_product_name', getattr(item, 'product_name', 'Brak nazwy')),
         'original_product_name': getattr(item, 'original_product_name', getattr(item, 'product_name', 'Brak nazwy')),
-        'client_name': getattr(item, 'client_name', ''),
+        'client_name': (item.order.client_name if item.order else None) or '',
         'current_status': getattr(item, 'current_status', 'unknown'),
         'priority_rank': getattr(item, 'priority_rank', None),
         'volume_m3': float(getattr(item, 'volume_m3', 0) or 0),
@@ -2367,20 +2367,20 @@ def _serialize_production_item(item, today=None):
         'days_to_deadline': days_to_deadline,
         'days_until_deadline': days_to_deadline,
         'is_overdue': days_to_deadline < 0 if days_to_deadline is not None else False,
-        'baselinker_order_id': getattr(item, 'baselinker_order_id', None),
+        'baselinker_order_id': item.order.baselinker_order_id if item.order else None,
         'created_at': getattr(item, 'created_at', None),
-        'attachment_file_name': getattr(item, 'attachment_file_name', None),
-        'attachment_file_url': getattr(item, 'attachment_file_url', None),
-        'parsed_wood_species': getattr(item, 'parsed_wood_species', None),
-        'parsed_technology': getattr(item, 'parsed_technology', None),
-        'parsed_wood_class': getattr(item, 'parsed_wood_class', None),
+        'attachment_file_name': item.order.attachment_file_name if item.order else None,
+        'attachment_file_url': item.order.attachment_file_url if item.order else None,
+        'parsed_wood_species': item.configuration.species if item.configuration else None,
+        'parsed_technology': item.configuration.technology if item.configuration else None,
+        'parsed_wood_class': item.configuration.wood_class if item.configuration else None,
         'parsed_finish_state': getattr(item, 'parsed_finish_state', None),
         'cut_to_size': bool(getattr(item, 'cut_to_size', True)),
         'parsed_width_cm': getattr(item, 'parsed_width_cm', None),
         'parsed_length_cm': getattr(item, 'parsed_length_cm', None),
         'parsed_thickness_cm': getattr(item, 'parsed_thickness_cm', None),
-        'client_email': getattr(item, 'client_email', ''),
-        'client_phone': getattr(item, 'client_phone', ''),
+        'client_email': (item.order.client_email if item.order else None) or '',
+        'client_phone': (item.order.client_phone if item.order else None) or '',
         'product_sequence_in_order': getattr(item, 'product_sequence_in_order', None),
         'total_products_in_order': db.session.query(db.func.count(ProductionItem.id)).filter(
             ProductionItem.order_id == item.order_id
@@ -2405,9 +2405,9 @@ def _serialize_production_item(item, today=None):
         'packaging_started_at': getattr(item, 'packaging_started_at', None),
         'packaging_completed_at': getattr(item, 'packaging_completed_at', None),
         'packaging_duration_minutes': getattr(item, 'packaging_duration_minutes', None),
-        'logistics_completed_at': getattr(item, 'logistics_completed_at').isoformat() if getattr(item, 'logistics_completed_at', None) else None,
-        'override_delivery_method': getattr(item, 'override_delivery_method', None),
-        'is_personal_pickup': getattr(item, 'is_personal_pickup', False),
+        'logistics_completed_at': item.order.logistics_completed_at.isoformat() if item.order and item.order.logistics_completed_at else None,
+        'override_delivery_method': item.order.override_delivery_method if item.order else None,
+        'is_personal_pickup': item.order.is_personal_pickup if item.order else False,
         'quantity': getattr(item, 'quantity', 1),
         'quantity_done_cutting': getattr(item, 'quantity_done_cutting', 0),
         'quantity_done_assembly': getattr(item, 'quantity_done_assembly', 0),
@@ -2416,7 +2416,12 @@ def _serialize_production_item(item, today=None):
         'quantity_done_formatting': getattr(item, 'quantity_done_formatting', 0),
         'quantity_done_finishing': getattr(item, 'quantity_done_finishing', 0),
         'quantity_done_packaging': getattr(item, 'quantity_done_packaging', 0),
-        'client_order_number': getattr(item, 'client_order_number', None),
+        'client_order_number': item.order.client_order_number if item.order else None,
+        'unit_price_net': float(getattr(item, 'unit_price_net', 0) or 0),
+        'updated_at': item.updated_at.isoformat() if getattr(item, 'updated_at', None) else None,
+        'sync_source': item.order.sync_source if item.order else None,
+        'delivery_address': (item.order.delivery_address if item.order else None) or '',
+        'order_notes': item.order.order_notes if item.order else None,
     }
 
     if product_data['order_date'] and hasattr(product_data['order_date'], 'isoformat'):
@@ -2768,38 +2773,39 @@ def get_order_products(product_id):
         
         # Znajdź produkt
         product = ProductionItem.query.get_or_404(product_id)
-        
-        if not product.baselinker_order_id:
+
+        product_baselinker_id = product.order.baselinker_order_id if product.order else None
+        if not product_baselinker_id:
             return jsonify({
                 'success': True,
                 'products': [_format_product_for_navigation(product)],
                 'total_count': 1,
                 'current_product_id': product_id
             }), 200
-        
+
         # Znajdź wszystkie produkty z tego zamówienia
-        order_products = ProductionItem.query.filter_by(
-            baselinker_order_id=product.baselinker_order_id
+        order_products = ProductionItem.query.join(ProductionOrder).filter(
+            ProductionOrder.baselinker_order_id == product_baselinker_id
         ).order_by(ProductionItem.product_sequence_in_order.asc()).all()
-        
+
         # Formatuj produkty dla nawigacji
         formatted_products = []
         for p in order_products:
             formatted_products.append(_format_product_for_navigation(p))
-        
+
         logger.info("API: Pobrano produkty zamówienia", extra={
             'product_id': product_id,
-            'baselinker_order_id': product.baselinker_order_id,
+            'baselinker_order_id': product_baselinker_id,
             'products_count': len(formatted_products),
             'user_id': current_user.id
         })
-        
+
         return jsonify({
             'success': True,
             'products': formatted_products,
             'total_count': len(formatted_products),
             'current_product_id': product_id,
-            'baselinker_order_id': product.baselinker_order_id
+            'baselinker_order_id': product_baselinker_id
         }), 200
         
     except Exception as e:
@@ -2826,16 +2832,16 @@ def _format_product_for_navigation(product):
     spec_parts = []
     
     # Gatunek drewna
-    if product.parsed_wood_species:
-        spec_parts.append(product.parsed_wood_species)
-    
+    if product.configuration and product.configuration.species:
+        spec_parts.append(product.configuration.species)
+
     # Technologia
-    if product.parsed_technology:
-        spec_parts.append(product.parsed_technology)
-    
+    if product.configuration and product.configuration.technology:
+        spec_parts.append(product.configuration.technology)
+
     # Klasa drewna
-    if product.parsed_wood_class:
-        spec_parts.append(product.parsed_wood_class)
+    if product.configuration and product.configuration.wood_class:
+        spec_parts.append(product.configuration.wood_class)
     
     # Wymiary
     dimensions = []

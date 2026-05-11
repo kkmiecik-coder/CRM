@@ -9,6 +9,7 @@ from datetime import datetime, time
 
 from flask import Blueprint, g, jsonify, request
 from sqlalchemy import func, or_
+from sqlalchemy.orm import joinedload
 
 from extensions import db
 from modules.logging import get_structured_logger
@@ -168,7 +169,10 @@ def station_orders(station_code):
     if if_none_match(etag):
         return not_modified(etag)
 
-    items = ProductionItem.query.join(
+    items = ProductionItem.query.options(
+        joinedload(ProductionItem.order),
+        joinedload(ProductionItem.configuration),
+    ).join(
         ProductionOrder, ProductionItem.order_id == ProductionOrder.id
     ).filter(items_filter).order_by(
         func.coalesce(ProductionItem.priority_rank, 999999).asc(),

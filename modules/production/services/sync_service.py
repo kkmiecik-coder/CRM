@@ -1863,7 +1863,8 @@ class BaselinkerSyncService:
                 result['error'] = f'Brak produktów dla zamówienia {baselinker_order_id} w bazie danych'
                 return result
 
-            result['order_number'] = current_products[0].internal_order_number if current_products else None
+            _first = current_products[0]
+            result['order_number'] = _first.order.internal_order_number if _first.order else None
 
             # 3. Przygotuj mapę aktualnych produktów (po baselinker_product_id)
             current_products_map = {}
@@ -1878,9 +1879,9 @@ class BaselinkerSyncService:
                     'original_product_name': p.original_product_name,
                     'quantity': p.quantity or 1,
                     'current_status': p.current_status,
-                    'wood_species': getattr(p, 'wood_species', None),
-                    'dimensions': getattr(p, 'dimensions', None),
-                    'technology': getattr(p, 'technology', None)
+                    'wood_species': p.configuration.species if p.configuration else None,
+                    'dimensions': None,
+                    'technology': p.configuration.technology if p.configuration else None,
                 })
 
             # 4. Przygotuj mapę produktów z Baselinker
@@ -1976,9 +1977,11 @@ class BaselinkerSyncService:
             # Porównaj też dane na poziomie zamówienia
             order_level_changes = []
 
+            _first_order = current_products[0].order if current_products and current_products[0].order else None
+
             # client_order_number (extra_field_1)
             bl_client_order = bl_order.get('extra_field_1', '').strip() if bl_order.get('extra_field_1') else None
-            current_client_order = current_products[0].client_order_number if current_products else None
+            current_client_order = _first_order.client_order_number if _first_order else None
             if bl_client_order != current_client_order:
                 order_level_changes.append({
                     'field': 'client_order_number',
@@ -1989,7 +1992,7 @@ class BaselinkerSyncService:
 
             # order_notes (admin_comments)
             bl_notes = bl_order.get('admin_comments', '').strip() if bl_order.get('admin_comments') else None
-            current_notes = current_products[0].order_notes if current_products else None
+            current_notes = _first_order.order_notes if _first_order else None
             if bl_notes != current_notes:
                 order_level_changes.append({
                     'field': 'order_notes',
@@ -2086,13 +2089,21 @@ class BaselinkerSyncService:
                                 # Re-parsuj dane produktu
                                 parsed = parser.parse_product_name(new_value)
                                 if parsed:
-                                    product.wood_species = parsed.get('wood_species')
-                                    product.wood_class = parsed.get('wood_class')
-                                    product.dimensions = parsed.get('dimensions')
-                                    product.technology = parsed.get('technology')
-                                    product.length_cm = parsed.get('length_cm')
-                                    product.width_cm = parsed.get('width_cm')
-                                    product.thickness_cm = parsed.get('thickness_cm')
+                                    # Ensure configuration exists before updating parsed fields
+                                    if not product.configuration:
+                                        from modules.production.models import ProductionConfiguration
+                                        product.configuration = ProductionConfiguration.find_or_create(
+                                            species=parsed.get('wood_species'),
+                                            technology=parsed.get('technology'),
+                                            wood_class=parsed.get('wood_class'),
+                                        )
+                                    else:
+                                        product.configuration.species = parsed.get('wood_species')
+                                        product.configuration.wood_class = parsed.get('wood_class')
+                                        product.configuration.technology = parsed.get('technology')
+                                    product.parsed_length_cm = parsed.get('length_cm')
+                                    product.parsed_width_cm = parsed.get('width_cm')
+                                    product.parsed_thickness_cm = parsed.get('thickness_cm')
                                     product.volume_m3 = parsed.get('volume_m3')
 
                         result['updated'] += 1
@@ -2136,7 +2147,7 @@ class BaselinkerSyncService:
                                     continue
 
                                 # Generuj ID produktu
-                                order_num = existing_product.internal_order_number
+                                order_num = existing_product.order.internal_order_number if existing_product.order else None
                                 short_product_id = f"{order_num}_{seq_num}"
 
                                 # Parsuj dane produktu
@@ -2155,16 +2166,16 @@ class BaselinkerSyncService:
                                     'quantity': bl_product.get('quantity', 1),
                                     'current_status': 'czeka_na_wyciecie',
                                     'sync_source': 'admin_update',
-                                    'client_name': existing_product.client_name,
-                                    'client_email': existing_product.client_email,
-                                    'client_phone': existing_product.client_phone,
-                                    'delivery_address': existing_product.delivery_address,
+                                    'client_name': existing_product.order.client_name if existing_product.order else None,
+                                    'client_email': existing_product.order.client_email if existing_product.order else None,
+                                    'client_phone': existing_product.order.client_phone if existing_product.order else None,
+                                    'delivery_address': existing_product.order.delivery_address if existing_product.order else None,
                                     'deadline_date': existing_product.deadline_date,
-                                    'payment_date': existing_product.payment_date,
-                                    'client_order_number': existing_product.client_order_number,
-                                    'order_notes': existing_product.order_notes,
-                                    'attachment_file_name': existing_product.attachment_file_name,
-                                    'attachment_file_url': existing_product.attachment_file_url,
+                                    'payment_date': existing_product.order.payment_date if existing_product.order else None,
+                                    'client_order_number': existing_product.order.client_order_number if existing_product.order else None,
+                                    'order_notes': existing_product.order.order_notes if existing_product.order else None,
+                                    'attachment_file_name': existing_product.order.attachment_file_name if existing_product.order else None,
+                                    'attachment_file_url': existing_product.order.attachment_file_url if existing_product.order else None,
                                     'cut_to_size': True,
                                 }
                                 new_product = self._create_production_product_from_data(new_product_data)

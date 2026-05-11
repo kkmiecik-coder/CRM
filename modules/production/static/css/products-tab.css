@@ -2297,6 +2297,18 @@
    BASELINKER COMPARE MODAL — Industrial Light Theme
    ============================================================================ */
 
+/* Modal porównania BL musi być NAD modalem szczegółów (oba bootstrap 1055).
+   Stack: backdrop#1 (1050) → modal szczegółów (1055) → backdrop#2 (1085) → modal compare (1090) */
+#baselinkerCompareModal {
+    z-index: 1090;
+}
+
+/* Drugi (i każdy kolejny) backdrop ma być pomiędzy modalami w stosie.
+   Selektor `~` łapie tylko backdropy PO pierwszym; pierwszy zostaje na bootstrap default 1050. */
+.modal-backdrop ~ .modal-backdrop {
+    z-index: 1085;
+}
+
 #baselinkerCompareModal .modal-content {
     font-family: var(--il-font);
     border: 1px solid var(--il-border);

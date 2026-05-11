@@ -9,6 +9,7 @@ from flask import request, jsonify, render_template
 from flask_login import login_required, current_user
 from extensions import db
 from sqlalchemy import func
+from sqlalchemy.orm import joinedload
 
 from . import api_bp, logger, ProductionItem, ProductionSyncLog, get_local_now
 from modules.production.models import ProductionConfiguration
@@ -147,6 +148,9 @@ def reports_station_output():
             agg.c.last_event_at,
             agg.c.event_count,
             last_event.c.quantity_done_eod,
+        ).options(
+            joinedload(ProductionItem.order),
+            joinedload(ProductionItem.configuration),
         ).join(
             agg, ProductionItem.id == agg.c.item_id
         ).join(
@@ -185,8 +189,8 @@ def reports_station_output():
                 'item_id': item.id,
                 'short_product_id': item.short_product_id,
                 'product_name': item.original_product_name,
-                'baselinker_order_id': item.baselinker_order_id,
-                'internal_order_number': item.internal_order_number,
+                'baselinker_order_id': item.order.baselinker_order_id if item.order else None,
+                'internal_order_number': item.order.internal_order_number if item.order else None,
                 'current_status': item.current_status,
                 'quantity': item.quantity,
                 'quantity_done_eod': qty_done_eod,
@@ -194,7 +198,7 @@ def reports_station_output():
                 'event_count': int(event_count or 0),
                 'volume_per_unit_m3': round(volume_per_unit, 4),
                 'volume_done_eod_m3': round(volume_done_eod, 4),
-                'wood_species': item.parsed_wood_species,
+                'wood_species': item.configuration.species if item.configuration else None,
                 'thickness_cm': float(item.parsed_thickness_cm) if item.parsed_thickness_cm else None,
                 'last_event_at': last_event_at.isoformat() if last_event_at else None,
                 'station_code': station_code_row,

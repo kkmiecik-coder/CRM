@@ -7,6 +7,7 @@ from flask import request, jsonify
 from flask_login import current_user, login_required
 from datetime import datetime, date
 from extensions import db
+from sqlalchemy.orm import joinedload
 from ...services.station_heartbeat import record_heartbeat
 from ...services import label_print_service
 from ...services.label_print_service import StationNotAllowed
@@ -177,8 +178,16 @@ def ajax_get_orders_packaging():
             }), 200
 
         # KROK 2: Pobierz WSZYSTKIE produkty z tych zamowien (bez limitu)
-        query = ProductionProduct.query.join(ProductionOrder).filter(
-            ProductionOrder.internal_order_number.in_(order_numbers)
+        query = (
+            ProductionProduct.query
+            .options(
+                joinedload(ProductionProduct.order),
+                joinedload(ProductionProduct.configuration),
+            )
+            .join(ProductionOrder)
+            .filter(
+                ProductionOrder.internal_order_number.in_(order_numbers)
+            )
         )
 
         # Sortowanie
@@ -196,7 +205,7 @@ def ajax_get_orders_packaging():
         today = date.today()
 
         for product in products:
-            order_num = product.internal_order_number
+            order_num = product.order.internal_order_number if product.order else None
 
             if order_num not in orders_grouped:
                 orders_grouped[order_num] = {
@@ -254,29 +263,29 @@ def ajax_get_orders_packaging():
                 'is_complete': product.quantity_done_packaging == product.quantity,
                 'is_priority': product.is_priority,
                 # Pola potrzebne do renderowania badges
-                'wood_species': product.parsed_wood_species,
-                'technology': product.parsed_technology,
-                'wood_class': product.parsed_wood_class,
+                'wood_species': product.configuration.species if product.configuration else None,
+                'technology': product.configuration.technology if product.configuration else None,
+                'wood_class': product.configuration.wood_class if product.configuration else None,
                 'finish_state': product.parsed_finish_state,
                 'dimensions': dimensions_text,
-                'attachment_file_url': product.attachment_file_url,
-                'attachment_file_name': product.attachment_file_name,
-                'order_notes': product.order_notes,
+                'attachment_file_url': product.order.attachment_file_url if product.order else None,
+                'attachment_file_name': product.order.attachment_file_name if product.order else None,
+                'order_notes': product.order.order_notes if product.order else None,
                 'production_notes': product.production_notes,
                 # WYMIARY SUROWE DO OBLICZEN WYSYLKI (2025-12)
                 'parsed_length_cm': float(product.parsed_length_cm) if product.parsed_length_cm else 0,
                 'parsed_width_cm': float(product.parsed_width_cm) if product.parsed_width_cm else 0,
                 'parsed_thickness_cm': float(product.parsed_thickness_cm) if product.parsed_thickness_cm else 0,
                 # DANE DOSTAWY (2025-12)
-                'delivery_method': product.delivery_method,
-                'delivery_fullname': product.delivery_fullname,
-                'delivery_company': product.delivery_company,
-                'delivery_address': product.delivery_address,
-                'delivery_city': product.delivery_city,
-                'delivery_postcode': product.delivery_postcode,
-                'delivery_country_code': product.delivery_country_code,
-                'is_personal_pickup': product.is_personal_pickup,
-                'delivery_type': product.delivery_type,
+                'delivery_method': product.order.delivery_method if product.order else None,
+                'delivery_fullname': product.order.delivery_fullname if product.order else None,
+                'delivery_company': product.order.delivery_company if product.order else None,
+                'delivery_address': product.order.delivery_address if product.order else None,
+                'delivery_city': product.order.delivery_city if product.order else None,
+                'delivery_postcode': product.order.delivery_postcode if product.order else None,
+                'delivery_country_code': product.order.delivery_country_code if product.order else None,
+                'is_personal_pickup': product.order.is_personal_pickup if product.order else None,
+                'delivery_type': product.order.delivery_type if product.order else None,
             }
 
             orders_grouped[order_num]['products'].append(product_data)
@@ -286,33 +295,33 @@ def ajax_get_orders_packaging():
             orders_grouped[order_num]['total_quantity_done'] += product.quantity_done_packaging or 0
 
             # Wez baselinker_order_id z pierwszego produktu ktory go ma
-            if not orders_grouped[order_num]['baselinker_order_id'] and product.baselinker_order_id:
-                orders_grouped[order_num]['baselinker_order_id'] = product.baselinker_order_id
+            if not orders_grouped[order_num]['baselinker_order_id'] and product.order and product.order.baselinker_order_id:
+                orders_grouped[order_num]['baselinker_order_id'] = product.order.baselinker_order_id
 
             # Wez client_order_number z pierwszego produktu ktory go ma
-            if not orders_grouped[order_num]['client_order_number'] and product.client_order_number:
-                orders_grouped[order_num]['client_order_number'] = product.client_order_number
+            if not orders_grouped[order_num]['client_order_number'] and product.order and product.order.client_order_number:
+                orders_grouped[order_num]['client_order_number'] = product.order.client_order_number
 
             # Pobierz dane dostawy z pierwszego produktu (2025-12)
-            if orders_grouped[order_num]['delivery_method'] is None:
-                orders_grouped[order_num]['delivery_method'] = product.delivery_method
-                orders_grouped[order_num]['delivery_fullname'] = product.delivery_fullname
-                orders_grouped[order_num]['delivery_company'] = product.delivery_company
-                orders_grouped[order_num]['delivery_address'] = product.delivery_address
-                orders_grouped[order_num]['delivery_city'] = product.delivery_city
-                orders_grouped[order_num]['delivery_postcode'] = product.delivery_postcode
-                orders_grouped[order_num]['delivery_country_code'] = product.delivery_country_code
-                orders_grouped[order_num]['is_personal_pickup'] = product.is_personal_pickup
-                orders_grouped[order_num]['delivery_type'] = product.delivery_type
+            if orders_grouped[order_num]['delivery_method'] is None and product.order:
+                orders_grouped[order_num]['delivery_method'] = product.order.delivery_method
+                orders_grouped[order_num]['delivery_fullname'] = product.order.delivery_fullname
+                orders_grouped[order_num]['delivery_company'] = product.order.delivery_company
+                orders_grouped[order_num]['delivery_address'] = product.order.delivery_address
+                orders_grouped[order_num]['delivery_city'] = product.order.delivery_city
+                orders_grouped[order_num]['delivery_postcode'] = product.order.delivery_postcode
+                orders_grouped[order_num]['delivery_country_code'] = product.order.delivery_country_code
+                orders_grouped[order_num]['is_personal_pickup'] = product.order.is_personal_pickup
+                orders_grouped[order_num]['delivery_type'] = product.order.delivery_type
 
             # Pobierz dane wysylki z pierwszego produktu ktory je ma (2025-12)
-            if orders_grouped[order_num]['shipping_package_id'] is None and product.shipping_package_id:
-                orders_grouped[order_num]['shipping_package_id'] = product.shipping_package_id
-                orders_grouped[order_num]['shipping_tracking_number'] = product.shipping_tracking_number
-                orders_grouped[order_num]['shipping_courier_name'] = product.shipping_courier_name
-                orders_grouped[order_num]['shipping_price'] = float(product.shipping_price) if product.shipping_price else None
-                orders_grouped[order_num]['shipping_label_base64'] = product.shipping_label_base64
-                orders_grouped[order_num]['shipping_created_at'] = product.shipping_created_at.isoformat() if product.shipping_created_at else None
+            if orders_grouped[order_num]['shipping_package_id'] is None and product.order and product.order.shipping_package_id:
+                orders_grouped[order_num]['shipping_package_id'] = product.order.shipping_package_id
+                orders_grouped[order_num]['shipping_tracking_number'] = product.order.shipping_tracking_number
+                orders_grouped[order_num]['shipping_courier_name'] = product.order.shipping_courier_name
+                orders_grouped[order_num]['shipping_price'] = float(product.order.shipping_price) if product.order.shipping_price else None
+                orders_grouped[order_num]['shipping_label_base64'] = product.order.shipping_label_base64
+                orders_grouped[order_num]['shipping_created_at'] = product.order.shipping_created_at.isoformat() if product.order.shipping_created_at else None
 
             # Liczniki gotowosci
             if product.current_status == 'czeka_na_pakowanie':
@@ -428,7 +437,10 @@ def ajax_get_orders_cutting():
         sort_by = request.args.get('sort', 'priority')
 
         # Wycinanie widzi tylko produkty ze statusem czeka_na_wyciecie (technologia mikrowczep)
-        query = ProductionItem.query.filter(
+        query = ProductionItem.query.options(
+            joinedload(ProductionItem.order),
+            joinedload(ProductionItem.configuration),
+        ).filter(
             ProductionItem.current_status == 'czeka_na_wyciecie'
         )
 
@@ -500,13 +512,13 @@ def ajax_get_orders_cutting():
                 'id': product.short_product_id,
                 'short_product_id': product.short_product_id,
                 'product_sequence_in_order': product.product_sequence_in_order,
-                'internal_order_number': product.internal_order_number,
+                'internal_order_number': product.order.internal_order_number if product.order else None,
                 'original_name': product.original_product_name or 'Brak nazwy',
                 'dimensions': dimensions_text,
                 'volume_m3': float(product.volume_m3 or 0),
-                'wood_species': product.parsed_wood_species,
-                'technology': product.parsed_technology,
-                'wood_class': product.parsed_wood_class,
+                'wood_species': product.configuration.species if product.configuration else None,
+                'technology': product.configuration.technology if product.configuration else None,
+                'wood_class': product.configuration.wood_class if product.configuration else None,
                 'finish_state': product.parsed_finish_state,
                 'current_status': product.current_status,
                 'priority_rank': rank,
@@ -514,18 +526,18 @@ def ajax_get_orders_cutting():
                 'priority_label': priority_label,
                 'display_deadline': display_deadline,
                 'deadline_date': product.deadline_date.isoformat() if product.deadline_date else None,
-                'attachment_file_name': product.attachment_file_name,
-                'attachment_file_url': product.attachment_file_url,
+                'attachment_file_name': product.order.attachment_file_name if product.order else None,
+                'attachment_file_url': product.order.attachment_file_url if product.order else None,
                 'quantity': product.quantity,
                 'quantity_done': product.quantity_done_cutting,
                 'quantity_done_assembly': product.quantity_done_assembly,
                 'assembly_completed_at': product.assembly_completed_at.isoformat() if product.assembly_completed_at else None,
                 'is_complete': product.quantity_done_cutting == product.quantity,
                 'is_priority': product.is_priority,
-                'order_notes': product.order_notes,
+                'order_notes': product.order.order_notes if product.order else None,
                 'production_notes': product.production_notes,
-                'client_order_number': product.client_order_number,
-                'baselinker_order_id': product.baselinker_order_id,
+                'client_order_number': product.order.client_order_number if product.order else None,
+                'baselinker_order_id': product.order.baselinker_order_id if product.order else None,
             }
 
             products_list.append(product_data)
@@ -582,7 +594,10 @@ def ajax_get_orders_assembly():
         sort_by = request.args.get('sort', 'priority')
 
         # Składanie widzi tylko produkty ze statusem czeka_na_skladanie (technologia lity)
-        query = ProductionItem.query.filter(
+        query = ProductionItem.query.options(
+            joinedload(ProductionItem.order),
+            joinedload(ProductionItem.configuration),
+        ).filter(
             ProductionItem.current_status == 'czeka_na_skladanie'
         )
 
@@ -654,13 +669,13 @@ def ajax_get_orders_assembly():
                 'id': product.short_product_id,
                 'short_product_id': product.short_product_id,
                 'product_sequence_in_order': product.product_sequence_in_order,
-                'internal_order_number': product.internal_order_number,
+                'internal_order_number': product.order.internal_order_number if product.order else None,
                 'original_name': product.original_product_name or 'Brak nazwy',
                 'dimensions': dimensions_text,
                 'volume_m3': float(product.volume_m3 or 0),
-                'wood_species': product.parsed_wood_species,
-                'technology': product.parsed_technology,
-                'wood_class': product.parsed_wood_class,
+                'wood_species': product.configuration.species if product.configuration else None,
+                'technology': product.configuration.technology if product.configuration else None,
+                'wood_class': product.configuration.wood_class if product.configuration else None,
                 'finish_state': product.parsed_finish_state,
                 'current_status': product.current_status,
                 'priority_rank': rank,
@@ -668,8 +683,8 @@ def ajax_get_orders_assembly():
                 'priority_label': priority_label,
                 'display_deadline': display_deadline,
                 'deadline_date': product.deadline_date.isoformat() if product.deadline_date else None,
-                'attachment_file_name': product.attachment_file_name,
-                'attachment_file_url': product.attachment_file_url,
+                'attachment_file_name': product.order.attachment_file_name if product.order else None,
+                'attachment_file_url': product.order.attachment_file_url if product.order else None,
                 'quantity': product.quantity,
                 'quantity_done': product.quantity_done_assembly,
                 # Pola specyficzne dla skladania
@@ -677,10 +692,10 @@ def ajax_get_orders_assembly():
                 'cutting_completed_at': product.cutting_completed_at.isoformat() if product.cutting_completed_at else None,
                 'is_complete': product.quantity_done_assembly == product.quantity,
                 'is_priority': product.is_priority,
-                'order_notes': product.order_notes,
+                'order_notes': product.order.order_notes if product.order else None,
                 'production_notes': product.production_notes,
-                'client_order_number': product.client_order_number,
-                'baselinker_order_id': product.baselinker_order_id,
+                'client_order_number': product.order.client_order_number if product.order else None,
+                'baselinker_order_id': product.order.baselinker_order_id if product.order else None,
             }
 
             products_list.append(product_data)
@@ -737,7 +752,10 @@ def ajax_get_orders_completion():
         sort_by = request.args.get('sort', 'priority')
 
         # KROK 1: Pobierz produkty czekajace na kompletacje
-        query = ProductionItem.query.filter(
+        query = ProductionItem.query.options(
+            joinedload(ProductionItem.order),
+            joinedload(ProductionItem.configuration),
+        ).filter(
             ProductionItem.current_status == 'czeka_na_kompletacje'
         )
 
@@ -809,13 +827,13 @@ def ajax_get_orders_completion():
                 'id': product.short_product_id,
                 'short_product_id': product.short_product_id,
                 'product_sequence_in_order': product.product_sequence_in_order,
-                'internal_order_number': product.internal_order_number,
+                'internal_order_number': product.order.internal_order_number if product.order else None,
                 'original_name': product.original_product_name or 'Brak nazwy',
                 'dimensions': dimensions_text,
                 'volume_m3': float(product.volume_m3 or 0),
-                'wood_species': product.parsed_wood_species,
-                'technology': product.parsed_technology,
-                'wood_class': product.parsed_wood_class,
+                'wood_species': product.configuration.species if product.configuration else None,
+                'technology': product.configuration.technology if product.configuration else None,
+                'wood_class': product.configuration.wood_class if product.configuration else None,
                 'finish_state': product.parsed_finish_state,
                 'current_status': product.current_status,
                 'priority_rank': rank,
@@ -823,16 +841,16 @@ def ajax_get_orders_completion():
                 'priority_label': priority_label,
                 'display_deadline': display_deadline,
                 'deadline_date': product.deadline_date.isoformat() if product.deadline_date else None,
-                'attachment_file_name': product.attachment_file_name,
-                'attachment_file_url': product.attachment_file_url,
+                'attachment_file_name': product.order.attachment_file_name if product.order else None,
+                'attachment_file_url': product.order.attachment_file_url if product.order else None,
                 'quantity': product.quantity,
                 'quantity_done': product.quantity_done_completion,
                 'is_complete': product.quantity_done_completion == product.quantity,
                 'is_priority': product.is_priority,
-                'order_notes': product.order_notes,
+                'order_notes': product.order.order_notes if product.order else None,
                 'production_notes': product.production_notes,
-                'client_order_number': product.client_order_number,
-                'baselinker_order_id': product.baselinker_order_id,
+                'client_order_number': product.order.client_order_number if product.order else None,
+                'baselinker_order_id': product.order.baselinker_order_id if product.order else None,
             }
 
             products_list.append(product_data)
@@ -890,7 +908,10 @@ def ajax_get_orders_gluing():
         sort_by = request.args.get('sort', 'priority')
 
         # KROK 1: Pobierz produkty czekajace na sklejanie
-        query = ProductionItem.query.filter(
+        query = ProductionItem.query.options(
+            joinedload(ProductionItem.order),
+            joinedload(ProductionItem.configuration),
+        ).filter(
             ProductionItem.current_status == 'czeka_na_sklejanie'
         )
 
@@ -962,13 +983,13 @@ def ajax_get_orders_gluing():
                 'id': product.short_product_id,
                 'short_product_id': product.short_product_id,
                 'product_sequence_in_order': product.product_sequence_in_order,
-                'internal_order_number': product.internal_order_number,
+                'internal_order_number': product.order.internal_order_number if product.order else None,
                 'original_name': product.original_product_name or 'Brak nazwy',
                 'dimensions': dimensions_text,
                 'volume_m3': float(product.volume_m3 or 0),
-                'wood_species': product.parsed_wood_species,
-                'technology': product.parsed_technology,
-                'wood_class': product.parsed_wood_class,
+                'wood_species': product.configuration.species if product.configuration else None,
+                'technology': product.configuration.technology if product.configuration else None,
+                'wood_class': product.configuration.wood_class if product.configuration else None,
                 'finish_state': product.parsed_finish_state,
                 'current_status': product.current_status,
                 'priority_rank': rank,
@@ -976,16 +997,16 @@ def ajax_get_orders_gluing():
                 'priority_label': priority_label,
                 'display_deadline': display_deadline,
                 'deadline_date': product.deadline_date.isoformat() if product.deadline_date else None,
-                'attachment_file_name': product.attachment_file_name,
-                'attachment_file_url': product.attachment_file_url,
+                'attachment_file_name': product.order.attachment_file_name if product.order else None,
+                'attachment_file_url': product.order.attachment_file_url if product.order else None,
                 'quantity': product.quantity,
                 'quantity_done': product.quantity_done_gluing,
                 'is_complete': product.quantity_done_gluing == product.quantity,
                 'is_priority': product.is_priority,
-                'order_notes': product.order_notes,
+                'order_notes': product.order.order_notes if product.order else None,
                 'production_notes': product.production_notes,
-                'client_order_number': product.client_order_number,
-                'baselinker_order_id': product.baselinker_order_id,
+                'client_order_number': product.order.client_order_number if product.order else None,
+                'baselinker_order_id': product.order.baselinker_order_id if product.order else None,
             }
 
             products_list.append(product_data)

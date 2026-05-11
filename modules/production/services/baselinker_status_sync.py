@@ -205,11 +205,16 @@ def flush_pending_syncs() -> None:
 
 def _process_pending(app, internal_order_number: str, station_code: str) -> None:
     """Określa target_status i odpala próbę setOrderStatus."""
-    from ..models import ProductionItem
+    from ..models import ProductionItem, ProductionOrder
+    from sqlalchemy.orm import joinedload
 
-    products = ProductionItem.query.filter_by(
-        internal_order_number=internal_order_number
-    ).all()
+    products = (
+        ProductionItem.query
+        .options(joinedload(ProductionItem.order))
+        .join(ProductionOrder)
+        .filter(ProductionOrder.internal_order_number == internal_order_number)
+        .all()
+    )
     if not products:
         return
 
@@ -224,7 +229,7 @@ def _process_pending(app, internal_order_number: str, station_code: str) -> None
     else:
         return
 
-    baselinker_order_id = products[0].baselinker_order_id
+    baselinker_order_id = products[0].order.baselinker_order_id if products[0].order else None
     if not baselinker_order_id:
         logger.warning("Brak baselinker_order_id - pomijam BL sync", extra={
             'internal_order_number': internal_order_number,

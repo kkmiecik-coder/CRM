@@ -16,6 +16,7 @@ from datetime import datetime
 from extensions import db
 from modules.logging import get_structured_logger
 from modules.production.models import LabelPrintJob, ProductionConfig, ProductionItem, ProductionOrder
+from sqlalchemy.orm import joinedload
 
 logger = get_structured_logger('production.label_print')
 
@@ -123,21 +124,23 @@ def _compute_unit_offsets(items_by_id):
     """
     info = {}
     order_ids = {
-        item.baselinker_order_id
+        item.order.baselinker_order_id
         for item in items_by_id.values()
-        if item is not None and item.baselinker_order_id
+        if item is not None and item.order and item.order.baselinker_order_id
     }
 
     siblings_by_order = {}
     if order_ids:
         all_siblings = (
             ProductionItem.query
+            .options(joinedload(ProductionItem.order))
             .join(ProductionOrder)
             .filter(ProductionOrder.baselinker_order_id.in_(order_ids))
             .all()
         )
         for sib in all_siblings:
-            siblings_by_order.setdefault(sib.baselinker_order_id, []).append(sib)
+            bl_id = sib.order.baselinker_order_id if sib.order else None
+            siblings_by_order.setdefault(bl_id, []).append(sib)
 
     for order_id, siblings in siblings_by_order.items():
         # Sortowanie: najpierw po product_sequence_in_order (None na koniec), potem po id.
@@ -175,12 +178,13 @@ def _resolve_copies(item):
 
 def _resolve_client_label(item):
     """Fallback chain dla pola 'klient' na etykiecie."""
+    order = item.order if item.order else None
     candidates = [
-        getattr(item, 'client_name', None),
-        getattr(item, 'delivery_fullname', None),
-        getattr(item, 'delivery_company', None),
-        getattr(item, 'client_order_number', None),
-        getattr(item, 'internal_order_number', None),
+        order.client_name if order else None,
+        order.delivery_fullname if order else None,
+        order.delivery_company if order else None,
+        order.client_order_number if order else None,
+        order.internal_order_number if order else None,
     ]
     for candidate in candidates:
         if candidate and str(candidate).strip():
@@ -198,15 +202,16 @@ def _format_delivery_label(item):
       - default                      → delivery_method z BL (np. 'InPost Paczkomaty 24/7')
                                        lub 'Kurier' gdy brak danych
     """
-    override = (getattr(item, 'override_delivery_method', None) or '').strip().lower()
-    delivery_method = (getattr(item, 'delivery_method', None) or '').strip()
+    order = item.order if item.order else None
+    override = ((order.override_delivery_method if order else None) or '').strip().lower()
+    delivery_method = ((order.delivery_method if order else None) or '').strip()
 
     if override == 'transport_woodpower':
         return _normalize_text('Transport WoodPower')
     if override == 'kurier_baselinker':
         return _normalize_text(delivery_method) if delivery_method else 'Kurier'
     try:
-        if getattr(item, 'is_personal_pickup', False):
+        if order and order.is_personal_pickup:
             return _normalize_text('Odbior osobisty')
     except Exception:
         pass
@@ -320,14 +325,14 @@ def generate_label_zpl(item, cfg, label_index=None, total_units=None):
       - badges row 1 (gatunek/technologia/klasa) — wypełnione, dynamiczna szerokość
       - badges row 2 (wykończenie/krawędź) — z ramką, pomijane gdy puste
     """
-    species = _normalize_text(item.parsed_wood_species or '').upper() or 'BRAK'
-    technology = _normalize_text(item.parsed_technology or '').upper() or 'BRAK'
-    wood_class = _normalize_text(item.parsed_wood_class or '').upper() or '-'
+    species = _normalize_text(item.configuration.species or '').upper() or 'BRAK' if item.configuration else 'BRAK'
+    technology = _normalize_text(item.configuration.technology or '').upper() or 'BRAK' if item.configuration else 'BRAK'
+    wood_class = _normalize_text(item.configuration.wood_class or '').upper() or '-' if item.configuration else '-'
     finish_label = _format_finish_label(item)
     edge_label = _format_edge_label(item)
     name = _normalize_text(item.original_product_name or '')[:80]
     short_id = _normalize_text(item.short_product_id or '')
-    bl_id = item.baselinker_order_id or 0
+    bl_id = item.order.baselinker_order_id if item.order else 0
     client_label = _resolve_client_label(item)
     delivery_label = _format_delivery_label(item)
 
@@ -465,7 +470,10 @@ def print_labels_batch(short_product_ids, station_code, actor):
 
     items_by_id = {
         i.short_product_id: i
-        for i in ProductionItem.query.filter(ProductionItem.short_product_id.in_(ids)).all()
+        for i in ProductionItem.query.options(
+            joinedload(ProductionItem.order),
+            joinedload(ProductionItem.configuration),
+        ).filter(ProductionItem.short_product_id.in_(ids)).all()
     }
 
     # Tryb agenta — zamiast TCP wstaw rekordy do prod_print_queue
@@ -632,7 +640,7 @@ def _enqueue_labels(ids, items_by_id, station_code, actor, cfg):
                     )
                     job = LabelPrintJob(
                         short_product_id=sid,
-                        baselinker_order_id=item.baselinker_order_id,
+                        baselinker_order_id=item.order.baselinker_order_id if item.order else None,
                         zpl_payload=zpl,
                         station_code=station_code,
                         requested_by_type=actor_type or 'user',

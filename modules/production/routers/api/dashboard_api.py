@@ -10,6 +10,7 @@ from flask import request, jsonify, render_template
 from flask_login import login_required, current_user
 from extensions import db
 from sqlalchemy import func, and_
+from sqlalchemy.orm import joinedload
 
 from . import api_bp, logger, ProductionItem, ProductionError, ProductionSyncLog, get_local_now
 from modules.production.models import ProductionOrder
@@ -225,7 +226,7 @@ def dashboard_stats():
                 products_data.append({
                     'id': product.id,
                     'short_product_id': product.short_product_id,
-                    'internal_order_number': product.internal_order_number,
+                    'internal_order_number': product.order.internal_order_number if product.order else None,
                     'original_product_name': product.original_product_name[:50] + '...' if len(product.original_product_name) > 50 else product.original_product_name,
                     'current_status': product.current_status,
                     'priority_rank': product.priority_rank or 0,
@@ -923,7 +924,9 @@ def dashboard_tab_content():
 
         # "In production now" — liczone per niespakowana sztuka.
         # Wykluczamy spakowane i anulowane.
-        in_production_items = ProductionItem.query.filter(
+        in_production_items = ProductionItem.query.options(
+            joinedload(ProductionItem.order),
+        ).filter(
             ProductionItem.current_status.notin_(('spakowane', 'anulowane')),
             db.func.coalesce(ProductionItem.quantity_done_packaging, 0) < ProductionItem.quantity
         ).all()
@@ -941,8 +944,8 @@ def dashboard_tab_content():
             ip_items_count += 1
             ip_pieces_remaining += remaining
             ip_m3_remaining += float(item.volume_m3 or 0) * remaining
-            if item.baselinker_order_id:
-                in_production_order_ids.add(item.baselinker_order_id)
+            if item.order and item.order.baselinker_order_id:
+                in_production_order_ids.add(item.order.baselinker_order_id)
 
         dashboard_stats['in_production'] = {
             'orders': len(in_production_order_ids),
@@ -951,7 +954,9 @@ def dashboard_tab_content():
             'm3': round(ip_m3_remaining, 2)
         }
 
-        deadline_items = ProductionItem.query.filter(
+        deadline_items = ProductionItem.query.options(
+            joinedload(ProductionItem.order),
+        ).filter(
             ProductionItem.deadline_date <= (today + timedelta(days=3)),
             ProductionItem.current_status != 'spakowane'
         ).order_by(ProductionItem.deadline_date.asc()).all()
@@ -959,11 +964,11 @@ def dashboard_tab_content():
         # Group by order (baselinker_order_id)
         orders_map = {}
         for item in deadline_items:
-            oid = item.baselinker_order_id or item.short_product_id
+            oid = (item.order.baselinker_order_id if item.order else None) or item.short_product_id
             if oid not in orders_map:
                 orders_map[oid] = {
-                    'baselinker_order_id': item.baselinker_order_id,
-                    'client_name': item.client_name or 'Brak danych',
+                    'baselinker_order_id': item.order.baselinker_order_id if item.order else None,
+                    'client_name': (item.order.client_name if item.order else None) or 'Brak danych',
                     'deadline_date': item.deadline_date,
                     'deadline_date_formatted': item.deadline_date.strftime('%d.%m.%Y') if item.deadline_date else '',
                     'days_remaining': (item.deadline_date - today).days if item.deadline_date else 0,
@@ -1095,7 +1100,9 @@ def dashboard_data():
             })
 
         today = date.today()
-        deadline_items = ProductionItem.query.filter(
+        deadline_items = ProductionItem.query.options(
+            joinedload(ProductionItem.order),
+        ).filter(
             ProductionItem.deadline_date <= (today + timedelta(days=3)),
             ProductionItem.current_status != 'spakowane'
         ).order_by(ProductionItem.deadline_date.asc()).all()
@@ -1103,11 +1110,11 @@ def dashboard_data():
         # Group by order (baselinker_order_id)
         orders_map = {}
         for item in deadline_items:
-            oid = item.baselinker_order_id or item.short_product_id
+            oid = (item.order.baselinker_order_id if item.order else None) or item.short_product_id
             if oid not in orders_map:
                 orders_map[oid] = {
-                    'baselinker_order_id': item.baselinker_order_id,
-                    'client_name': item.client_name or 'Brak danych',
+                    'baselinker_order_id': item.order.baselinker_order_id if item.order else None,
+                    'client_name': (item.order.client_name if item.order else None) or 'Brak danych',
                     'deadline_date': item.deadline_date.isoformat() if item.deadline_date else None,
                     'deadline_date_formatted': item.deadline_date.strftime('%d.%m.%Y') if item.deadline_date else '',
                     'days_remaining': (item.deadline_date - today).days if item.deadline_date else 0,
@@ -1142,8 +1149,8 @@ def dashboard_data():
             dd_items_count += 1
             dd_pieces_remaining += remaining
             dd_m3_remaining += float(item.volume_m3 or 0) * remaining
-            if item.baselinker_order_id:
-                in_production_order_ids_dd.add(item.baselinker_order_id)
+            if item.order and item.order.baselinker_order_id:
+                in_production_order_ids_dd.add(item.order.baselinker_order_id)
 
         in_production_stats = {
             'orders': len(in_production_order_ids_dd),

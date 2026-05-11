@@ -229,9 +229,9 @@
                             {% endif %}
                             {% if first_product and first_product.get('attachment_file_url') %}
                             <div class="header-icon-wrapper attachment-icon-wrapper"
-                                 data-attachment-url="{{ first_product['attachment_file_url'] }}"
-                                 data-attachment-name="{{ first_product['attachment_file_name'] }}"
-                                 data-attachment-type="{{ 'pdf' if first_product['attachment_file_name'].lower().endswith('.pdf') else 'image' }}">
+                                 data-attachment-url="{{ first_product.get('attachment_file_url') }}"
+                                 data-attachment-name="{{ first_product.get('attachment_file_name', '') }}"
+                                 data-attachment-type="{{ 'pdf' if first_product.get('attachment_file_name', '').lower().endswith('.pdf') else 'image' }}">
                                 <svg class="header-icon" width="18" height="18"><use href="{{ url_for('production.static', filename='icons/station-icons.svg') }}#icon-attachment"/></svg>
                             </div>
                             {% endif %}

@@ -6,6 +6,7 @@ Packaging/shipping API endpoints
 from flask import request, jsonify
 from datetime import datetime, timedelta
 from extensions import db
+from sqlalchemy.orm import joinedload
 import traceback
 
 from . import station_bp, logger
@@ -68,29 +69,37 @@ def create_shipment(order_id):
         }
 
         # KROK 1: Pobierz produkty zamowienia
-        products = ProductionProduct.query.join(ProductionOrder).filter(
-            ProductionOrder.baselinker_order_id == int(order_id)
-        ).all()
+        products = (
+            ProductionProduct.query
+            .options(joinedload(ProductionProduct.order))
+            .join(ProductionOrder)
+            .filter(ProductionOrder.baselinker_order_id == int(order_id))
+            .all()
+        )
 
         if not products:
             # Sprobuj po internal_order_number
-            products = ProductionProduct.query.join(ProductionOrder).filter(
-                ProductionOrder.internal_order_number == str(order_id)
-            ).all()
+            products = (
+                ProductionProduct.query
+                .options(joinedload(ProductionProduct.order))
+                .join(ProductionOrder)
+                .filter(ProductionOrder.internal_order_number == str(order_id))
+                .all()
+            )
 
         if not products:
             raise ValueError(f"Nie znaleziono produktow dla zamowienia {order_id}")
 
         # Pobierz dane dostawy z pierwszego produktu
         first_product = products[0]
-        receiver_postcode = first_product.delivery_postcode
-        receiver_address = first_product.delivery_address
-        receiver_city = first_product.delivery_city
-        receiver_name = first_product.delivery_fullname
-        receiver_country = first_product.delivery_country_code or 'PL'
+        receiver_postcode = first_product.order.delivery_postcode if first_product.order else None
+        receiver_address = first_product.order.delivery_address if first_product.order else None
+        receiver_city = first_product.order.delivery_city if first_product.order else None
+        receiver_name = first_product.order.delivery_fullname if first_product.order else None
+        receiver_country = (first_product.order.delivery_country_code if first_product.order else None) or 'PL'
 
         # Pobierz baselinker_order_id dla createPackage
-        baselinker_order_id = first_product.baselinker_order_id
+        baselinker_order_id = first_product.order.baselinker_order_id if first_product.order else None
 
         if not receiver_postcode:
             raise ValueError("Brak kodu pocztowego odbiorcy")
@@ -292,14 +301,22 @@ def check_shipping_availability(order_id):
         from ...models import ProductionItem, ProductionOrder, ProductionProduct
         from ...services.shipping_service import ShippingService
 
-        products = ProductionProduct.query.join(ProductionOrder).filter(
-            ProductionOrder.baselinker_order_id == int(order_id)
-        ).all()
+        products = (
+            ProductionProduct.query
+            .options(joinedload(ProductionProduct.order))
+            .join(ProductionOrder)
+            .filter(ProductionOrder.baselinker_order_id == int(order_id))
+            .all()
+        )
 
         if not products:
-            products = ProductionProduct.query.join(ProductionOrder).filter(
-                ProductionOrder.internal_order_number == str(order_id)
-            ).all()
+            products = (
+                ProductionProduct.query
+                .options(joinedload(ProductionProduct.order))
+                .join(ProductionOrder)
+                .filter(ProductionOrder.internal_order_number == str(order_id))
+                .all()
+            )
 
         if not products:
             return jsonify({
@@ -310,7 +327,7 @@ def check_shipping_availability(order_id):
         first_product = products[0]
 
         # Sprawdz typ dostawy
-        is_pickup = first_product.is_personal_pickup
+        is_pickup = first_product.order.is_personal_pickup if first_product.order else None
 
         if is_pickup:
             return jsonify({
@@ -395,14 +412,22 @@ def get_shipping_quote(order_id):
             }), 400
 
         # Pobierz produkty zamowienia
-        products = ProductionProduct.query.join(ProductionOrder).filter(
-            ProductionOrder.baselinker_order_id == int(order_id)
-        ).all()
+        products = (
+            ProductionProduct.query
+            .options(joinedload(ProductionProduct.order))
+            .join(ProductionOrder)
+            .filter(ProductionOrder.baselinker_order_id == int(order_id))
+            .all()
+        )
 
         if not products:
-            products = ProductionProduct.query.join(ProductionOrder).filter(
-                ProductionOrder.internal_order_number == str(order_id)
-            ).all()
+            products = (
+                ProductionProduct.query
+                .options(joinedload(ProductionProduct.order))
+                .join(ProductionOrder)
+                .filter(ProductionOrder.internal_order_number == str(order_id))
+                .all()
+            )
 
         if not products:
             return jsonify({
@@ -411,7 +436,7 @@ def get_shipping_quote(order_id):
             }), 404
 
         first_product = products[0]
-        receiver_postcode = first_product.delivery_postcode
+        receiver_postcode = first_product.order.delivery_postcode if first_product.order else None
 
         if not receiver_postcode:
             return jsonify({
@@ -487,14 +512,22 @@ def refresh_tracking(order_id):
         from modules.baselinker.service import BaselinkerService
 
         # Znajdz produkty zamowienia
-        products = ProductionProduct.query.join(ProductionOrder).filter(
-            ProductionOrder.baselinker_order_id == int(order_id)
-        ).all()
+        products = (
+            ProductionProduct.query
+            .options(joinedload(ProductionProduct.order))
+            .join(ProductionOrder)
+            .filter(ProductionOrder.baselinker_order_id == int(order_id))
+            .all()
+        )
 
         if not products:
-            products = ProductionProduct.query.join(ProductionOrder).filter(
-                ProductionOrder.internal_order_number == str(order_id)
-            ).all()
+            products = (
+                ProductionProduct.query
+                .options(joinedload(ProductionProduct.order))
+                .join(ProductionOrder)
+                .filter(ProductionOrder.internal_order_number == str(order_id))
+                .all()
+            )
 
         if not products:
             return jsonify({
@@ -503,7 +536,7 @@ def refresh_tracking(order_id):
             }), 404
 
         # Pobierz baselinker_order_id
-        baselinker_order_id = products[0].baselinker_order_id
+        baselinker_order_id = products[0].order.baselinker_order_id if products[0].order else None
         if not baselinker_order_id:
             return jsonify({
                 'success': False,
@@ -576,14 +609,22 @@ def refresh_label(order_id):
         from modules.baselinker.service import BaselinkerService
 
         # Znajdz produkty zamowienia
-        products = ProductionProduct.query.join(ProductionOrder).filter(
-            ProductionOrder.baselinker_order_id == int(order_id)
-        ).all()
+        products = (
+            ProductionProduct.query
+            .options(joinedload(ProductionProduct.order))
+            .join(ProductionOrder)
+            .filter(ProductionOrder.baselinker_order_id == int(order_id))
+            .all()
+        )
 
         if not products:
-            products = ProductionProduct.query.join(ProductionOrder).filter(
-                ProductionOrder.internal_order_number == str(order_id)
-            ).all()
+            products = (
+                ProductionProduct.query
+                .options(joinedload(ProductionProduct.order))
+                .join(ProductionOrder)
+                .filter(ProductionOrder.internal_order_number == str(order_id))
+                .all()
+            )
 
         if not products:
             return jsonify({
@@ -594,7 +635,7 @@ def refresh_label(order_id):
         first_product = products[0]
 
         # Sprawdz czy mamy package_id
-        package_id = first_product.shipping_package_id
+        package_id = first_product.order.shipping_package_id if first_product.order else None
         if not package_id:
             return jsonify({
                 'success': False,

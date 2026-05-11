@@ -22,6 +22,7 @@ from flask_login import login_required, current_user
 from modules.logging import get_structured_logger
 from extensions import db
 from modules.users.decorators import require_module_access
+from sqlalchemy.orm import joinedload
 
 # Utworzenie Blueprint dla głównych routów
 main_bp = Blueprint('production_main', __name__)
@@ -147,7 +148,9 @@ def dashboard():
         # "In production now" — liczone per niespakowana sztuka.
         # Wykluczamy pozycje już spakowane i anulowane; dla pozostałych liczymy
         # remaining = quantity - quantity_done_packaging.
-        in_prod_items = ProductionItem.query.filter(
+        in_prod_items = ProductionItem.query.options(
+            joinedload(ProductionItem.order),
+        ).filter(
             ProductionItem.current_status.notin_(('spakowane', 'anulowane')),
             db.func.coalesce(ProductionItem.quantity_done_packaging, 0) < ProductionItem.quantity
         ).all()
@@ -164,8 +167,8 @@ def dashboard():
             items_count += 1
             pieces_remaining += remaining
             m3_remaining += float(item.volume_m3 or 0) * remaining
-            if item.baselinker_order_id:
-                in_prod_order_ids.add(item.baselinker_order_id)
+            if item.order and item.order.baselinker_order_id:
+                in_prod_order_ids.add(item.order.baselinker_order_id)
         dashboard_stats['in_production'] = {
             'orders': len(in_prod_order_ids),
             'items': items_count,
@@ -174,7 +177,9 @@ def dashboard():
         }
 
         # Alerty deadline - produkty zbliżające się do terminu
-        deadline_alerts = ProductionItem.query.filter(
+        deadline_alerts = ProductionItem.query.options(
+            joinedload(ProductionItem.order),
+        ).filter(
             ProductionItem.deadline_date <= date.today() + timedelta(days=3),
             ProductionItem.current_status != 'spakowane'
         ).order_by(ProductionItem.deadline_date.asc()).limit(5).all()
@@ -187,9 +192,9 @@ def dashboard():
                 'deadline_date': alert.deadline_date.isoformat() if alert.deadline_date else None,
                 'deadline_date_formatted': alert.deadline_date.strftime('%d.%m.%Y') if alert.deadline_date else '',
                 'current_station': alert.current_status.replace('czeka_na_', '') if alert.current_status else 'unknown',
-                'client_name': alert.client_name or 'Brak danych',
-                'client_order_number': alert.client_order_number or '',
-                'baselinker_order_id': alert.baselinker_order_id,
+                'client_name': (alert.order.client_name if alert.order else None) or 'Brak danych',
+                'client_order_number': (alert.order.client_order_number if alert.order else None) or '',
+                'baselinker_order_id': alert.order.baselinker_order_id if alert.order else None,
                 'product_name': alert.original_product_name or '',
                 'quantity': alert.quantity or 1
             }
