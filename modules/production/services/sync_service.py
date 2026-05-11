@@ -1977,9 +1977,11 @@ class BaselinkerSyncService:
             # Porównaj też dane na poziomie zamówienia
             order_level_changes = []
 
+            _first_order = current_products[0].order if current_products and current_products[0].order else None
+
             # client_order_number (extra_field_1)
             bl_client_order = bl_order.get('extra_field_1', '').strip() if bl_order.get('extra_field_1') else None
-            current_client_order = current_products[0].client_order_number if current_products else None
+            current_client_order = _first_order.client_order_number if _first_order else None
             if bl_client_order != current_client_order:
                 order_level_changes.append({
                     'field': 'client_order_number',
@@ -1990,7 +1992,7 @@ class BaselinkerSyncService:
 
             # order_notes (admin_comments)
             bl_notes = bl_order.get('admin_comments', '').strip() if bl_order.get('admin_comments') else None
-            current_notes = current_products[0].order_notes if current_products else None
+            current_notes = _first_order.order_notes if _first_order else None
             if bl_notes != current_notes:
                 order_level_changes.append({
                     'field': 'order_notes',
