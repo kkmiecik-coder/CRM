@@ -241,12 +241,12 @@ def create_shipment(order_id):
 
         # Zapisz dane wysylki dla wszystkich produktow w zamowieniu
         for product in products:
-            product.shipping_package_id = package_id
-            product.shipping_tracking_number = tracking_number
-            product.shipping_courier_name = courier_name
-            product.shipping_price = shipping_price
-            product.shipping_label_base64 = label_base64
-            product.shipping_created_at = datetime.now()
+            product.order.shipping_package_id = package_id
+            product.order.shipping_tracking_number = tracking_number
+            product.order.shipping_courier_name = courier_name
+            product.order.shipping_price = shipping_price
+            product.order.shipping_label_base64 = label_base64
+            product.order.shipping_created_at = datetime.now()
 
         db.session.commit()
 
@@ -538,7 +538,7 @@ def refresh_tracking(order_id):
         # Aktualizuj w bazie danych jesli jest numer
         if tracking_number:
             for product in products:
-                product.shipping_tracking_number = tracking_number
+                product.order.shipping_tracking_number = tracking_number
 
             db.session.commit()
 
@@ -619,7 +619,7 @@ def refresh_label(order_id):
 
         # Aktualizuj w bazie danych
         for product in products:
-            product.shipping_label_base64 = label_base64
+            product.order.shipping_label_base64 = label_base64
 
         db.session.commit()
 

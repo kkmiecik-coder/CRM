@@ -157,10 +157,10 @@ def logistics_approve():
         now = get_local_now()
 
         for item in all_items:
-            item.override_delivery_method = transport_method
+            item.order.override_delivery_method = transport_method
 
         for item in waiting_items:
-            item.logistics_completed_at = now
+            item.order.logistics_completed_at = now
             item.current_status = 'czeka_na_pakowanie'
 
         db.session.commit()
