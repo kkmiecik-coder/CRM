@@ -127,28 +127,28 @@
                     <div class="order-header-row order-ids-row">
                         <div class="order-ids">
                             <span class="order-number">{{ product.id }}</span>
-                            {% if product.order and product.order.client_order_number %}
-                                <span class="order-internal">{{ product.order.client_order_number }}</span>
+                            {% if product.client_order_number %}
+                                <span class="order-internal">{{ product.client_order_number }}</span>
                             {% endif %}
-                            {% if product.order and product.order.baselinker_order_id %}
-                                <span class="order-baselinker">BL-{{ product.order.baselinker_order_id }}</span>
+                            {% if product.baselinker_order_id %}
+                                <span class="order-baselinker">BL-{{ product.baselinker_order_id }}</span>
                             {% endif %}
                         </div>
                         <div class="order-icons">
 
-                            {% if product.order and product.order.attachment_file_url %}
-                                {% set attachment_type = 'pdf' if product.order.attachment_file_name and product.order.attachment_file_name.lower().endswith('.pdf') else 'image' %}
+                            {% if product.attachment_file_url %}
+                                {% set attachment_type = 'pdf' if product.attachment_file_name and product.attachment_file_name.lower().endswith('.pdf') else 'image' %}
                                 <div class="header-icon-wrapper attachment-icon-wrapper"
-                                     data-attachment-url="{{ product.order.attachment_file_url }}"
-                                     data-attachment-name="{{ product.order.attachment_file_name or '' }}"
+                                     data-attachment-url="{{ product.attachment_file_url }}"
+                                     data-attachment-name="{{ product.attachment_file_name or '' }}"
                                      data-attachment-type="{{ attachment_type }}">
                                     <svg class="header-icon" width="18" height="18"><use href="{{ url_for('production.static', filename='icons/station-icons.svg') }}#icon-attachment"/></svg>
                                 </div>
                             {% endif %}
-                            {% if (product.order and product.order.order_notes) or product.production_notes %}
-                                {% set _notes_tooltip = (product.order.order_notes if product.order else '') or product.production_notes %}
+                            {% if product.order_notes or product.production_notes %}
+                                {% set _notes_tooltip = product.order_notes or product.production_notes %}
                                 <div class="header-icon-wrapper notes-icon-wrapper"
-                                     data-order-notes="{{ product.order.order_notes if product.order else '' }}"
+                                     data-order-notes="{{ product.order_notes or '' }}"
                                      data-production-notes="{{ product.production_notes or '' }}"
                                      title="{{ _notes_tooltip[:100] }}{% if _notes_tooltip|length > 100 %}...{% endif %}">
                                     <svg class="header-icon" width="18" height="18"><use href="{{ url_for('production.static', filename='icons/station-icons.svg') }}#icon-notes"/></svg>
@@ -165,14 +165,14 @@
                         {% if product.quantity_done_assembly is defined and product.quantity_done_assembly and product.quantity_done_assembly > 0 %}
                             <span class="badge badge-assembled" title="Zlozono">{{ product.quantity_done_assembly }}/{{ product.quantity }}</span>
                         {% endif %}
-                        {% if product.configuration and product.configuration.species %}
-                            <span class="badge badge-species">{{ product.configuration.species }}</span>
+                        {% if product.wood_species %}
+                            <span class="badge badge-species">{{ product.wood_species }}</span>
                         {% endif %}
-                        {% if product.configuration and product.configuration.technology %}
-                            <span class="badge badge-technology">{{ product.configuration.technology }}</span>
+                        {% if product.technology %}
+                            <span class="badge badge-technology">{{ product.technology }}</span>
                         {% endif %}
-                        {% if product.configuration and product.configuration.wood_class %}
-                            <span class="badge badge-class">{{ product.configuration.wood_class }}</span>
+                        {% if product.wood_class %}
+                            <span class="badge badge-class">{{ product.wood_class }}</span>
                         {% endif %}
 
                     </div>
@@ -181,7 +181,7 @@
                             <span class="badge badge-dimensions">{{ product.dimensions }}</span>
                         {% elif product.original_name %}
                             <span class="badge badge-dimensions">{{ product.original_name }}</span>
-                        {% elif product.order and product.order.attachment_file_url %}
+                        {% elif product.attachment_file_url %}
                             <span class="badge badge-dimensions">Zgodnie z zalacznikiem</span>
                         {% endif %}
                         <div class="quantity-controls">
