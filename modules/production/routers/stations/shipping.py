@@ -6,6 +6,7 @@ Packaging/shipping API endpoints
 from flask import request, jsonify
 from datetime import datetime, timedelta
 from extensions import db
+from sqlalchemy.orm import joinedload
 import traceback
 
 from . import station_bp, logger
@@ -68,15 +69,23 @@ def create_shipment(order_id):
         }
 
         # KROK 1: Pobierz produkty zamowienia
-        products = ProductionProduct.query.join(ProductionOrder).filter(
-            ProductionOrder.baselinker_order_id == int(order_id)
-        ).all()
+        products = (
+            ProductionProduct.query
+            .options(joinedload(ProductionProduct.order))
+            .join(ProductionOrder)
+            .filter(ProductionOrder.baselinker_order_id == int(order_id))
+            .all()
+        )
 
         if not products:
             # Sprobuj po internal_order_number
-            products = ProductionProduct.query.join(ProductionOrder).filter(
-                ProductionOrder.internal_order_number == str(order_id)
-            ).all()
+            products = (
+                ProductionProduct.query
+                .options(joinedload(ProductionProduct.order))
+                .join(ProductionOrder)
+                .filter(ProductionOrder.internal_order_number == str(order_id))
+                .all()
+            )
 
         if not products:
             raise ValueError(f"Nie znaleziono produktow dla zamowienia {order_id}")
@@ -292,14 +301,22 @@ def check_shipping_availability(order_id):
         from ...models import ProductionItem, ProductionOrder, ProductionProduct
         from ...services.shipping_service import ShippingService
 
-        products = ProductionProduct.query.join(ProductionOrder).filter(
-            ProductionOrder.baselinker_order_id == int(order_id)
-        ).all()
+        products = (
+            ProductionProduct.query
+            .options(joinedload(ProductionProduct.order))
+            .join(ProductionOrder)
+            .filter(ProductionOrder.baselinker_order_id == int(order_id))
+            .all()
+        )
 
         if not products:
-            products = ProductionProduct.query.join(ProductionOrder).filter(
-                ProductionOrder.internal_order_number == str(order_id)
-            ).all()
+            products = (
+                ProductionProduct.query
+                .options(joinedload(ProductionProduct.order))
+                .join(ProductionOrder)
+                .filter(ProductionOrder.internal_order_number == str(order_id))
+                .all()
+            )
 
         if not products:
             return jsonify({
@@ -395,14 +412,22 @@ def get_shipping_quote(order_id):
             }), 400
 
         # Pobierz produkty zamowienia
-        products = ProductionProduct.query.join(ProductionOrder).filter(
-            ProductionOrder.baselinker_order_id == int(order_id)
-        ).all()
+        products = (
+            ProductionProduct.query
+            .options(joinedload(ProductionProduct.order))
+            .join(ProductionOrder)
+            .filter(ProductionOrder.baselinker_order_id == int(order_id))
+            .all()
+        )
 
         if not products:
-            products = ProductionProduct.query.join(ProductionOrder).filter(
-                ProductionOrder.internal_order_number == str(order_id)
-            ).all()
+            products = (
+                ProductionProduct.query
+                .options(joinedload(ProductionProduct.order))
+                .join(ProductionOrder)
+                .filter(ProductionOrder.internal_order_number == str(order_id))
+                .all()
+            )
 
         if not products:
             return jsonify({
@@ -487,14 +512,22 @@ def refresh_tracking(order_id):
         from modules.baselinker.service import BaselinkerService
 
         # Znajdz produkty zamowienia
-        products = ProductionProduct.query.join(ProductionOrder).filter(
-            ProductionOrder.baselinker_order_id == int(order_id)
-        ).all()
+        products = (
+            ProductionProduct.query
+            .options(joinedload(ProductionProduct.order))
+            .join(ProductionOrder)
+            .filter(ProductionOrder.baselinker_order_id == int(order_id))
+            .all()
+        )
 
         if not products:
-            products = ProductionProduct.query.join(ProductionOrder).filter(
-                ProductionOrder.internal_order_number == str(order_id)
-            ).all()
+            products = (
+                ProductionProduct.query
+                .options(joinedload(ProductionProduct.order))
+                .join(ProductionOrder)
+                .filter(ProductionOrder.internal_order_number == str(order_id))
+                .all()
+            )
 
         if not products:
             return jsonify({
@@ -576,14 +609,22 @@ def refresh_label(order_id):
         from modules.baselinker.service import BaselinkerService
 
         # Znajdz produkty zamowienia
-        products = ProductionProduct.query.join(ProductionOrder).filter(
-            ProductionOrder.baselinker_order_id == int(order_id)
-        ).all()
+        products = (
+            ProductionProduct.query
+            .options(joinedload(ProductionProduct.order))
+            .join(ProductionOrder)
+            .filter(ProductionOrder.baselinker_order_id == int(order_id))
+            .all()
+        )
 
         if not products:
-            products = ProductionProduct.query.join(ProductionOrder).filter(
-                ProductionOrder.internal_order_number == str(order_id)
-            ).all()
+            products = (
+                ProductionProduct.query
+                .options(joinedload(ProductionProduct.order))
+                .join(ProductionOrder)
+                .filter(ProductionOrder.internal_order_number == str(order_id))
+                .all()
+            )
 
         if not products:
             return jsonify({

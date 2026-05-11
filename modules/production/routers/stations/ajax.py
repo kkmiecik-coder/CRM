@@ -7,6 +7,7 @@ from flask import request, jsonify
 from flask_login import current_user, login_required
 from datetime import datetime, date
 from extensions import db
+from sqlalchemy.orm import joinedload
 from ...services.station_heartbeat import record_heartbeat
 from ...services import label_print_service
 from ...services.label_print_service import StationNotAllowed
@@ -177,8 +178,16 @@ def ajax_get_orders_packaging():
             }), 200
 
         # KROK 2: Pobierz WSZYSTKIE produkty z tych zamowien (bez limitu)
-        query = ProductionProduct.query.join(ProductionOrder).filter(
-            ProductionOrder.internal_order_number.in_(order_numbers)
+        query = (
+            ProductionProduct.query
+            .options(
+                joinedload(ProductionProduct.order),
+                joinedload(ProductionProduct.configuration),
+            )
+            .join(ProductionOrder)
+            .filter(
+                ProductionOrder.internal_order_number.in_(order_numbers)
+            )
         )
 
         # Sortowanie

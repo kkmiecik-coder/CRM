@@ -16,6 +16,7 @@ from flask import Blueprint, render_template, request, url_for, jsonify
 from datetime import datetime, date, timedelta
 from modules.logging import get_structured_logger
 from extensions import db
+from sqlalchemy.orm import joinedload
 import traceback
 
 # Blueprint definition
@@ -722,10 +723,19 @@ def _get_monitor_station_data(station_code):
     quantity_col = station_info['quantity_col']
 
     # Pobierz unikalne zamowienia na tym stanowisku
-    items_on_station = ProductionProduct.query.join(ProductionOrder).filter(
-        ProductionProduct.current_status == target_status,
-        ProductionOrder.internal_order_number.isnot(None)
-    ).all()
+    items_on_station = (
+        ProductionProduct.query
+        .options(
+            joinedload(ProductionProduct.order),
+            joinedload(ProductionProduct.configuration),
+        )
+        .join(ProductionOrder)
+        .filter(
+            ProductionProduct.current_status == target_status,
+            ProductionOrder.internal_order_number.isnot(None)
+        )
+        .all()
+    )
 
     # Grupuj po zamowieniu
     orders_map = {}
@@ -843,8 +853,16 @@ def _ajax_get_orders_simple(station_code: str, status_filter: str, quantity_done
             }), 200
 
         # KROK 2: Pobierz WSZYSTKIE produkty z tych zamowien
-        query = ProductionProduct.query.join(ProductionOrder).filter(
-            ProductionOrder.internal_order_number.in_(order_numbers)
+        query = (
+            ProductionProduct.query
+            .options(
+                joinedload(ProductionProduct.order),
+                joinedload(ProductionProduct.configuration),
+            )
+            .join(ProductionOrder)
+            .filter(
+                ProductionOrder.internal_order_number.in_(order_numbers)
+            )
         )
 
         # Sortowanie

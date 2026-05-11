@@ -6,6 +6,7 @@ Station tablet interfaces: cutting, assembly, gluing, formatting, finishing, pac
 from flask import render_template, request, url_for
 from datetime import datetime, date
 from extensions import db
+from sqlalchemy.orm import joinedload
 import traceback
 
 from . import station_bp, logger, get_station_config, _format_dimension
@@ -49,9 +50,17 @@ def cutting_station():
         if not order_numbers:
             products = []
         else:
-            query = ProductionProduct.query.join(ProductionOrder).filter(
-                ProductionOrder.internal_order_number.in_(order_numbers),
-                ProductionProduct.current_status == 'czeka_na_wyciecie'
+            query = (
+                ProductionProduct.query
+                .options(
+                    joinedload(ProductionProduct.order),
+                    joinedload(ProductionProduct.configuration),
+                )
+                .join(ProductionOrder)
+                .filter(
+                    ProductionOrder.internal_order_number.in_(order_numbers),
+                    ProductionProduct.current_status == 'czeka_na_wyciecie'
+                )
             )
 
             # Sortowanie
@@ -236,9 +245,17 @@ def assembly_station():
         if not order_numbers:
             products = []
         else:
-            query = ProductionProduct.query.join(ProductionOrder).filter(
-                ProductionOrder.internal_order_number.in_(order_numbers),
-                ProductionProduct.current_status == 'czeka_na_skladanie'
+            query = (
+                ProductionProduct.query
+                .options(
+                    joinedload(ProductionProduct.order),
+                    joinedload(ProductionProduct.configuration),
+                )
+                .join(ProductionOrder)
+                .filter(
+                    ProductionOrder.internal_order_number.in_(order_numbers),
+                    ProductionProduct.current_status == 'czeka_na_skladanie'
+                )
             )
 
             # Sortowanie
@@ -610,8 +627,16 @@ def formatting_station():
             products = []
         else:
             # Pobierz WSZYSTKIE produkty z tych zamowien
-            query = ProductionProduct.query.join(ProductionOrder).filter(
-                ProductionOrder.internal_order_number.in_(order_numbers)
+            query = (
+                ProductionProduct.query
+                .options(
+                    joinedload(ProductionProduct.order),
+                    joinedload(ProductionProduct.configuration),
+                )
+                .join(ProductionOrder)
+                .filter(
+                    ProductionOrder.internal_order_number.in_(order_numbers)
+                )
             )
 
             if sort_by == 'priority':
@@ -1005,8 +1030,16 @@ def packaging_station():
             products = []
         else:
             # Pobierz WSZYSTKIE produkty z tych zamowien (niezaleznie od statusu)
-            query = ProductionProduct.query.join(ProductionOrder).filter(
-                ProductionOrder.internal_order_number.in_(order_numbers)
+            query = (
+                ProductionProduct.query
+                .options(
+                    joinedload(ProductionProduct.order),
+                    joinedload(ProductionProduct.configuration),
+                )
+                .join(ProductionOrder)
+                .filter(
+                    ProductionOrder.internal_order_number.in_(order_numbers)
+                )
             )
 
             # Sortowanie
