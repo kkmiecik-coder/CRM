@@ -82,253 +82,406 @@ class ProductionOrderCounter(db.Model):
         
         return counter.current_counter
 
-class ProductionItem(db.Model):
-    """
-    Główna tabela produktów w systemie produkcyjnym
-    Każdy rekord reprezentuje pojedynczy produkt z unikalnym ID w formacie YY_NNNNN_S
-    
-    ENHANCED VERSION 2.0: Nowy system priorytetów oparty na dacie opłacenia
-    """
-    __tablename__ = 'prod_items'
-    
+class ProductionConfiguration(db.Model):
+    """Słownik kombinacji (gatunek, technologia, klasa)."""
+    __tablename__ = 'prod_configurations'
+
     id = Column(Integer, primary_key=True)
-    
-    # IDENTYFIKATORY SYSTEMU
-    short_product_id = Column(String(20), unique=True, nullable=False, index=True)
-    internal_order_number = Column(String(20), nullable=False, index=True)
-    product_sequence_in_order = Column(Integer, nullable=False)
-    
-    # DANE BASELINKER
-    baselinker_order_id = Column(Integer, nullable=False, index=True)
-    baselinker_product_id = Column(String(50))
-    original_product_name = Column(Text, nullable=False)
-    baselinker_status_id = Column(Integer)
-    
-    # DANE PRODUKTU (PARSOWANE) - używamy istniejących nazw kolumn
-    parsed_wood_species = Column(String(50))  # species dla algorytmu
-    parsed_technology = Column(String(50))
-    parsed_wood_class = Column(String(10))    # wood_class dla algorytmu
-    parsed_length_cm = Column(Numeric(10, 2))
-    parsed_width_cm = Column(Numeric(10, 2))
-    parsed_thickness_cm = Column(Numeric(10, 2))  # bazowe dla thickness_group
-    parsed_finish_state = Column(String(50))   # finish_state dla algorytmu
-    parsed_finish_type = Column(String(20), default='surowe', nullable=False,
-                                comment='Typ wykończenia: surowe, olejowane, lakierowane')
-    parsed_finish_color_type = Column(String(20), nullable=True,
-                                      comment='Barwność: bezbarwnie, barwnie (NULL dla surowe)')
-    parsed_finish_gloss = Column(String(20), nullable=True,
-                                 comment='Połysk: matowy, półmatowy (NULL dla surowe/olejowane)')
-    parsed_finish_color = Column(String(50), nullable=True,
-                                 comment='Kolor z kodem: BRUNAT 22-23 (tylko przy barwnie)')
-    parsed_edge_processing = Column(Boolean, default=False, nullable=False,
-                                     comment='Czy produkt posiada obróbkę krawędzi (fazowanie, frezowanie, R(X), kąt, zaokrąglenie, faza)')
-    cut_to_size = Column(Boolean, nullable=False, default=True,
-                         comment='Czy produkt jest docinany do wymiaru. '
-                                 'False = klient sam dotina (pomijamy formatting/finishing).')
-    parsed_edge_type = Column(String(20), nullable=True,
-                              comment='Typ obróbki: zaokrąglenie / fazowanie')
-    parsed_edge_radius = Column(Integer, nullable=True,
-                                comment='Wartość promienia R (np. 3, 6, 30)')
-    parsed_edge_angle = Column(Integer, nullable=True,
-                               comment='Kąt fazowania w stopniach (30, 45, 60) — NULL dla zaokrąglenia')
-    parsed_edge_letters = Column(JSON, nullable=True,
-                                 comment='Lista krawędzi: ["A","B","N1"] lub ["G1","G2","P1"]')
-    edge_svg = Column(Text, nullable=True,
-                      comment='SVG izometryczny 3D z zaznaczonymi krawędziami')
-    shape_svg = Column(Text, nullable=True,
-                       comment='SVG kształtu 2D')
-    quote_item_detail_id = Column(Integer, nullable=True,
-                                  comment='ID powiązanego QuoteItemDetails — NULL dla zamówień sklepowych')
-    lamella_direction = Column(Integer, nullable=True,
-                               comment='Kierunek lameli: 0, 45, 90, 135')
+    species = Column(String(50), nullable=False)
+    technology = Column(String(50), nullable=False)
+    wood_class = Column(String(10), nullable=False)
+    created_at = Column(DateTime, default=get_local_now)
 
-    # KALKULACJE BIZNESOWE
-    volume_m3 = Column(Numeric(10, 6))
-    unit_price_net = Column(Numeric(10, 2))
-    total_value_net = Column(Numeric(10, 2))
+    __table_args__ = (
+        db.UniqueConstraint('species', 'technology', 'wood_class', name='uq_config'),
+    )
 
-    # ZAŁĄCZNIKI Z BASELINKER
-    attachment_file_name = Column(String(255), nullable=True,
-                                 comment='Nazwa pliku załącznika z Baselinker (np. specyfikacja.pdf)')
-    attachment_file_url = Column(Text, nullable=True,
-                                comment='URL do pliku załącznika z CDN Baselinker')
+    def __repr__(self):
+        return f'<ProductionConfiguration {self.species}/{self.technology}/{self.wood_class}>'
 
-    # DODATKOWE POLA Z BASELINKER (2025-11)
-    client_order_number = Column(String(200), nullable=True,
-                                comment='Wewnętrzny numer zamówienia klienta z extra_field_1 (np. 1617/2025)')
-    order_notes = Column(Text, nullable=True,
-                        comment='Uwagi do zamówienia z admin_comments w Baselinker')
+    @classmethod
+    def find_or_create(cls, species, technology, wood_class):
+        """Znajdź istniejącą konfigurację lub utwórz nową. Idempotentne."""
+        s = species or 'unknown'
+        t = technology or 'unknown'
+        w = wood_class or 'unknown'
+        cfg = cls.query.filter_by(species=s, technology=t, wood_class=w).first()
+        if cfg:
+            return cfg
+        cfg = cls(species=s, technology=t, wood_class=w)
+        db.session.add(cfg)
+        db.session.flush()
+        return cfg
 
-    # DANE KLIENTA
+
+class ProductionOrder(db.Model):
+    """
+    Zamówienie produkcyjne — jeden wiersz per baselinker_order_id.
+    Zawiera dane wspólne dla wszystkich produktów w zamówieniu.
+    """
+    __tablename__ = 'prod_orders'
+
+    id = Column(Integer, primary_key=True)
+    baselinker_order_id = Column(Integer, nullable=False, unique=True, index=True)
+    internal_order_number = Column(String(20), nullable=False)
+    baselinker_status_id = Column(Integer, index=True)
+    payment_date = Column(DateTime, index=True)
+
+    client_order_number = Column(String(200))
+    order_notes = Column(Text)
+
     client_name = Column(String(255), index=True)
     client_email = Column(String(255))
     client_phone = Column(String(50))
     delivery_address = Column(Text)
 
-    # DANE DOSTAWY - ROZSZERZONE (2025-12)
-    delivery_method = Column(String(255), nullable=True,
-                            comment='Metoda dostawy z Baselinker (np. Kurier DPD, Odbiór osobisty)')
-    delivery_fullname = Column(String(255), nullable=True,
-                              comment='Imię i nazwisko odbiorcy z Baselinker')
-    delivery_company = Column(String(255), nullable=True,
-                             comment='Nazwa firmy odbiorcy z Baselinker')
-    delivery_city = Column(String(100), nullable=True,
-                          comment='Miasto dostawy z Baselinker')
-    delivery_postcode = Column(String(20), nullable=True,
-                              comment='Kod pocztowy dostawy z Baselinker')
-    delivery_country_code = Column(String(10), nullable=True,
-                                  comment='Kod kraju dostawy z Baselinker (np. PL, DE)')
+    delivery_method = Column(String(255))
+    delivery_fullname = Column(String(255))
+    delivery_company = Column(String(255))
+    delivery_city = Column(String(100))
+    delivery_postcode = Column(String(20))
+    delivery_country_code = Column(String(10))
 
-    # DANE WYSYŁKI KURIERSKIEJ (2025-12)
-    shipping_package_id = Column(Integer, nullable=True,
-                                comment='ID paczki w Baselinker (z createPackage)')
-    shipping_tracking_number = Column(String(100), nullable=True,
-                                     comment='Numer listu przewozowego / tracking')
-    shipping_courier_name = Column(String(100), nullable=True,
-                                  comment='Nazwa kuriera (np. inPost-Kurier, DPD)')
-    shipping_price = Column(Numeric(10, 2), nullable=True,
-                           comment='Cena wysyłki brutto')
-    shipping_label_base64 = Column(LONGTEXT, nullable=True,
-                                  comment='Etykieta PDF w formacie base64 (LONGTEXT dla dużych etykiet)')
-    shipping_created_at = Column(DateTime, nullable=True,
-                                comment='Data i czas zgłoszenia przesyłki')
+    override_delivery_method = Column(String(255))
+    logistics_completed_at = Column(DateTime, index=True)
 
-    # STATUS PRODUKCJI
+    shipping_package_id = Column(Integer)
+    shipping_tracking_number = Column(String(100))
+    shipping_courier_name = Column(String(100))
+    shipping_price = Column(Numeric(10, 2))
+    shipping_label_base64 = Column(LONGTEXT)
+    shipping_created_at = Column(DateTime)
+
+    attachment_file_name = Column(String(255))
+    attachment_file_url = Column(Text)
+
+    sync_source = Column(Enum('baselinker_auto', 'manual_entry', name='sync_source'),
+                         default='baselinker_auto')
+    created_at = Column(DateTime, default=get_local_now)
+    updated_at = Column(DateTime, default=get_local_now, onupdate=get_local_now)
+
+    products = relationship('ProductionProduct', back_populates='order',
+                            cascade='all, delete-orphan')
+
+    def __repr__(self):
+        return f'<ProductionOrder BL={self.baselinker_order_id} #{self.internal_order_number}>'
+
+    @property
+    def is_personal_pickup(self):
+        """Czy zamówienie jest do odbioru osobistego."""
+        if self.delivery_method:
+            method_lower = self.delivery_method.lower()
+            for keyword in ['odbiór', 'odbior', 'osobisty', 'przy odbiorze', 'pickup', 'self pickup']:
+                if keyword in method_lower:
+                    return True
+        has_address = bool(self.delivery_address and self.delivery_address.strip())
+        has_city = bool(self.delivery_city and self.delivery_city.strip())
+        has_postcode = bool(self.delivery_postcode and self.delivery_postcode.strip())
+        if not has_address and not has_city and not has_postcode:
+            return True
+        return False
+
+    @property
+    def delivery_type(self):
+        return 'personal_pickup' if self.is_personal_pickup else 'courier'
+
+    @property
+    def has_attachment(self):
+        return bool(self.attachment_file_url and self.attachment_file_url.strip())
+
+    @property
+    def attachment_file_extension(self):
+        if not self.attachment_file_name:
+            return None
+        return self.attachment_file_name.split('.')[-1].lower() if '.' in self.attachment_file_name else None
+
+    @property
+    def is_attachment_image(self):
+        return self.attachment_file_extension in ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp']
+
+    @property
+    def is_attachment_pdf(self):
+        return self.attachment_file_extension == 'pdf'
+
+    @property
+    def has_order_notes(self):
+        return bool(self.order_notes and self.order_notes.strip())
+
+    @property
+    def has_client_order_number(self):
+        return bool(self.client_order_number and self.client_order_number.strip())
+
+
+class ProductionProduct(db.Model):
+    """Pozycja produktu w zamówieniu. Zachowuje stare prod_items.id."""
+    __tablename__ = 'prod_products'
+    
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    order_id = Column(Integer, ForeignKey('prod_orders.id', ondelete='CASCADE'),
+                      nullable=False, index=True)
+    configuration_id = Column(Integer, ForeignKey('prod_configurations.id'),
+                              nullable=True, index=True)
+
+    short_product_id = Column(String(20), unique=True, nullable=False, index=True)
+    product_sequence_in_order = Column(Integer, nullable=False)
+    baselinker_product_id = Column(String(50))
+    original_product_name = Column(Text, nullable=False)
+
+    parsed_length_cm = Column(Numeric(10, 2))
+    parsed_width_cm = Column(Numeric(10, 2))
+    parsed_thickness_cm = Column(Numeric(10, 2))
+    parsed_finish_state = Column(String(50))
+    parsed_finish_type = Column(String(20), default='surowe', nullable=False)
+    parsed_finish_color_type = Column(String(20))
+    parsed_finish_gloss = Column(String(20))
+    parsed_finish_color = Column(String(50))
+
+    parsed_edge_processing = Column(Boolean, default=False, nullable=False)
+    cut_to_size = Column(Boolean, default=True, nullable=False)
+    parsed_edge_type = Column(String(20))
+    parsed_edge_radius = Column(Integer)
+    parsed_edge_angle = Column(Integer)
+    parsed_edge_letters = Column(JSON)
+    edge_svg = Column(Text)
+    shape_svg = Column(Text)
+    lamella_direction = Column(Integer)
+    quote_item_detail_id = Column(Integer)
+
+    thickness_group = Column(String(10), index=True)
+    volume_m3 = Column(Numeric(10, 6))
+    unit_price_net = Column(Numeric(10, 2))
+    total_value_net = Column(Numeric(10, 2))
+    quantity = Column(Integer, default=1, nullable=False)
+
     current_status = Column(Enum(
-        'czeka_na_wyciecie',
-        'czeka_na_skladanie',
-        'czeka_na_kompletacje',
-        'czeka_na_sklejanie',
-        'czeka_na_formatowanie',
-        'czeka_na_wykanczanie',
-        'czeka_na_lakiernie',
-        'czeka_na_logistyke',
-        'czeka_na_pakowanie',
-        'spakowane',
-        'anulowane',
-        'wstrzymane',
-        'w_realizacji',
+        'czeka_na_wyciecie', 'czeka_na_skladanie', 'czeka_na_kompletacje',
+        'czeka_na_sklejanie', 'czeka_na_formatowanie', 'czeka_na_wykanczanie',
+        'czeka_na_lakiernie', 'czeka_na_logistyke', 'czeka_na_pakowanie',
+        'spakowane', 'anulowane', 'wstrzymane', 'w_realizacji',
         name='production_status'
     ), default='czeka_na_wyciecie', nullable=False, index=True)
-    
-    # PRIORYTETY I PLANOWANIE - STARY SYSTEM (zachowujemy kompatybilność)
+
     deadline_date = Column(Date, index=True)
     days_until_deadline = Column(Integer)
-    
-    # ============================================================================
-    # NOWY SYSTEM PRIORYTETÓW - ENHANCED VERSION 2.0
-    # ============================================================================
 
-    # NOWE KOLUMNY DLA ALGORYTMU OPARTEGO NA DACIE OPŁACENIA
-    priority_rank = Column(Integer, nullable=True, index=True,
-                          comment='Wizualna numeracja priorytetów 1,2,3,4... (NULL = automatyczne obliczanie)')
+    priority_rank = Column(Integer, index=True)
+    priority_manual_override = Column(Boolean, default=False, index=True)
+    is_priority = Column(Boolean, default=False, nullable=False, index=True)
 
-    payment_date = Column(DateTime, nullable=True, index=True,
-                         comment='Data opłacenia zamówienia (status change na 155824 "Nowe - opłacone")')
+    # quantity_done_* i *_completed_at - jak w starym modelu
+    quantity_done_cutting = Column(Integer, default=0, nullable=False)
+    quantity_done_assembly = Column(Integer, default=0, nullable=False)
+    quantity_done_completion = Column(Integer, default=0, nullable=False)
+    quantity_done_gluing = Column(Integer, default=0, nullable=False)
+    quantity_done_formatting = Column(Integer, default=0, nullable=False)
+    quantity_done_finishing = Column(Integer, default=0, nullable=False)
+    quantity_done_painting = Column(Integer, default=0, nullable=False)
+    quantity_done_packaging = Column(Integer, default=0, nullable=False)
 
-    priority_manual_override = Column(Boolean, default=False, index=True,
-                                    comment='Czy priorytet został zmieniony ręcznie przez administratora')
+    cutting_completed_at = Column(DateTime, index=True)
+    assembly_completed_at = Column(DateTime, index=True)
+    completion_completed_at = Column(DateTime, index=True)
+    gluing_completed_at = Column(DateTime, index=True)
+    formatting_completed_at = Column(DateTime, index=True)
+    finishing_completed_at = Column(DateTime, index=True)
+    painting_completed_at = Column(DateTime, index=True)
+    packaging_completed_at = Column(DateTime, index=True)
 
-    thickness_group = Column(String(10), nullable=True, index=True,
-                           comment='Grupa grubości dla algorytmu priorytetów: 0-2.5, 2.6-3.5, 3.6-4.5, 4.6+')
+    label_printed_at = Column(DateTime)
+    label_print_count = Column(Integer, default=0, nullable=False)
 
-    # ============================================================================
-    # ILOŚĆ PRODUKTÓW (2025-11)
-    # ============================================================================
-    quantity = Column(Integer, default=1, nullable=False,
-                     comment='Ilość sztuk produktu z zamówienia')
-
-    # LICZNIKI WYKONANYCH SZTUK PER STANOWISKO
-    quantity_done_cutting = Column(Integer, default=0, nullable=False,
-                                   comment='Ile sztuk wykonano na stanowisku wycinania')
-    quantity_done_assembly = Column(Integer, default=0, nullable=False,
-                                    comment='Ile sztuk wykonano na stanowisku składania')
-    quantity_done_completion = Column(Integer, default=0, nullable=False,
-                                      comment='Ile sztuk wykonano na stanowisku kompletacji')
-    quantity_done_gluing = Column(Integer, default=0, nullable=False,
-                                  comment='Ile sztuk wykonano na stanowisku sklejania')
-    quantity_done_formatting = Column(Integer, default=0, nullable=False,
-                                      comment='Ile sztuk wykonano na stanowisku formatowania')
-    quantity_done_finishing = Column(Integer, default=0, nullable=False,
-                                     comment='Ile sztuk wykonano na stanowisku wykańczania')
-    quantity_done_painting = Column(Integer, default=0, nullable=False,
-                                    comment='Ile sztuk wykonano na stanowisku lakierni')
-    quantity_done_packaging = Column(Integer, default=0, nullable=False,
-                                     comment='Ile sztuk wykonano na stanowisku pakowania')
-
-    # ============================================================================
-    # RĘCZNE OZNACZENIE PRIORYTETU (GWIAZDKA)
-    # ============================================================================
-    is_priority = Column(Boolean, default=False, nullable=False, index=True,
-                        comment='Ręczne oznaczenie produktu jako priorytetowy (gwiazdka w panelu admin)')
-
-    # ============================================================================
-    # ŚLEDZENIE CZASU UKOŃCZENIA PER STANOWISKO (uproszczone)
-    # ============================================================================
-    cutting_completed_at = Column(DateTime, index=True,
-                                  comment='Timestamp ukończenia wszystkich sztuk na wycinaniu')
-    assembly_completed_at = Column(DateTime, index=True,
-                                   comment='Timestamp ukończenia wszystkich sztuk na składaniu')
-    completion_completed_at = Column(DateTime, index=True,
-                                     comment='Timestamp ukończenia wszystkich sztuk na kompletacji')
-    gluing_completed_at = Column(DateTime, index=True,
-                                 comment='Timestamp ukończenia wszystkich sztuk na sklejaniu')
-    formatting_completed_at = Column(DateTime, index=True,
-                                     comment='Timestamp ukończenia wszystkich sztuk na formatowaniu')
-    finishing_completed_at = Column(DateTime, index=True,
-                                    comment='Timestamp ukończenia wszystkich sztuk na wykańczaniu')
-    painting_completed_at = Column(DateTime, index=True,
-                                   comment='Timestamp ukończenia wszystkich sztuk na lakierni')
-    packaging_completed_at = Column(DateTime, index=True,
-                                    comment='Timestamp ukończenia wszystkich sztuk na pakowaniu')
-
-    # Logistyka - decyzja o transporcie
-    override_delivery_method = Column(String(255), nullable=True, comment='Nadpisanie metody dostawy (kurier_baselinker / transport_woodpower)')
-    logistics_completed_at = Column(DateTime, nullable=True, index=True, comment='Timestamp zatwierdzenia decyzji logistycznej')
-
-    # ETYKIETY PRODUKCYJNE
-    label_printed_at = Column(DateTime, nullable=True,
-                              comment='Czas ostatniego udanego wydruku etykiety')
-    label_print_count = Column(Integer, default=0, server_default='0', nullable=False,
-                               comment='Licznik wydruków etykiety dla tego produktu')
-
-    # UWAGI I PROBLEMY
     production_notes = Column(Text)
     quality_issues = Column(Text)
-    
-    # METADANE
+
     created_at = Column(DateTime, default=get_local_now, index=True)
     updated_at = Column(DateTime, default=get_local_now, onupdate=get_local_now)
-    sync_source = Column(Enum('baselinker_auto', 'manual_entry', name='sync_source'), 
-                        default='baselinker_auto')
-    
-    
+
+    order = relationship('ProductionOrder', back_populates='products')
+    configuration = relationship('ProductionConfiguration')
+
     def __repr__(self):
-        return f'<ProductionItem {self.short_product_id}: {self.current_status}, priority_rank={self.priority_rank}>'
-    
+        return f'<ProductionProduct {self.short_product_id}: {self.current_status}>'
+
     @validates('short_product_id')
     def validate_product_id(self, key, product_id):
-        """Walidacja formatu Product ID: N_S"""
         import re
-        pattern = r'^\d+_\d+$'
-        if not re.match(pattern, product_id):
+        if not re.match(r'^\d+_\d+$', product_id):
             raise ValueError(f"Product ID musi być w formacie N_S, otrzymano: {product_id}")
         return product_id
-    
-    # ============================================================================
-    # PROPERTIES - ZACHOWUJEMY KOMPATYBILNOŚĆ
-    # ============================================================================
-    
+
+    # === COMPAT PROXY PROPERTIES (do usunięcia po stabilizacji) ===
     @property
-    def is_overdue(self):
-        """Sprawdza czy produkt przekroczył deadline"""
-        if not self.deadline_date:
-            return False
-        return date.today() > self.deadline_date
-    
+    def baselinker_order_id(self):
+        return self.order.baselinker_order_id if self.order else None
+
+    @property
+    def internal_order_number(self):
+        return self.order.internal_order_number if self.order else None
+
+    @property
+    def baselinker_status_id(self):
+        return self.order.baselinker_status_id if self.order else None
+
+    @property
+    def payment_date(self):
+        return self.order.payment_date if self.order else None
+
+    @property
+    def client_name(self):
+        return self.order.client_name if self.order else None
+
+    @property
+    def client_email(self):
+        return self.order.client_email if self.order else None
+
+    @property
+    def client_phone(self):
+        return self.order.client_phone if self.order else None
+
+    @property
+    def delivery_address(self):
+        return self.order.delivery_address if self.order else None
+
+    @property
+    def delivery_method(self):
+        return self.order.delivery_method if self.order else None
+
+    @property
+    def delivery_fullname(self):
+        return self.order.delivery_fullname if self.order else None
+
+    @property
+    def delivery_company(self):
+        return self.order.delivery_company if self.order else None
+
+    @property
+    def delivery_city(self):
+        return self.order.delivery_city if self.order else None
+
+    @property
+    def delivery_postcode(self):
+        return self.order.delivery_postcode if self.order else None
+
+    @property
+    def delivery_country_code(self):
+        return self.order.delivery_country_code if self.order else None
+
+    @property
+    def override_delivery_method(self):
+        return self.order.override_delivery_method if self.order else None
+
+    @property
+    def logistics_completed_at(self):
+        return self.order.logistics_completed_at if self.order else None
+
+    @property
+    def shipping_package_id(self):
+        return self.order.shipping_package_id if self.order else None
+
+    @property
+    def shipping_tracking_number(self):
+        return self.order.shipping_tracking_number if self.order else None
+
+    @property
+    def shipping_courier_name(self):
+        return self.order.shipping_courier_name if self.order else None
+
+    @property
+    def shipping_price(self):
+        return self.order.shipping_price if self.order else None
+
+    @property
+    def shipping_label_base64(self):
+        return self.order.shipping_label_base64 if self.order else None
+
+    @property
+    def shipping_created_at(self):
+        return self.order.shipping_created_at if self.order else None
+
+    @property
+    def attachment_file_name(self):
+        return self.order.attachment_file_name if self.order else None
+
+    @property
+    def attachment_file_url(self):
+        return self.order.attachment_file_url if self.order else None
+
+    @property
+    def client_order_number(self):
+        return self.order.client_order_number if self.order else None
+
+    @property
+    def order_notes(self):
+        return self.order.order_notes if self.order else None
+
+    @property
+    def sync_source(self):
+        return self.order.sync_source if self.order else None
+
+    @property
+    def is_personal_pickup(self):
+        return self.order.is_personal_pickup if self.order else False
+
+    @property
+    def delivery_type(self):
+        return self.order.delivery_type if self.order else 'courier'
+
+    @property
+    def has_attachment(self):
+        return self.order.has_attachment if self.order else False
+
+    @property
+    def attachment_file_extension(self):
+        return self.order.attachment_file_extension if self.order else None
+
+    @property
+    def is_attachment_image(self):
+        return self.order.is_attachment_image if self.order else False
+
+    @property
+    def is_attachment_pdf(self):
+        return self.order.is_attachment_pdf if self.order else False
+
+    @property
+    def has_order_notes(self):
+        return self.order.has_order_notes if self.order else False
+
+    @property
+    def has_client_order_number(self):
+        return self.order.has_client_order_number if self.order else False
+
+    # === PROXY DO CONFIGURATION ===
+    @property
+    def parsed_wood_species(self):
+        return self.configuration.species if self.configuration else None
+
+    @property
+    def parsed_technology(self):
+        return self.configuration.technology if self.configuration else None
+
+    @property
+    def parsed_wood_class(self):
+        return self.configuration.wood_class if self.configuration else None
+
+    @property
+    def species(self):
+        return self.parsed_wood_species
+
+    @property
+    def wood_class(self):
+        return self.parsed_wood_class
+
+    # === STARE PROPERTIES (zachowane bez zmian) ===
+    @property
+    def thickness(self):
+        return self.parsed_thickness_cm
+
+    @property
+    def finish_state(self):
+        return self.parsed_finish_state
+
     @property
     def status_display_name(self):
-        """Nazwa statusu do wyświetlania"""
         status_names = {
             'czeka_na_wyciecie': 'Czeka na wycięcie',
             'czeka_na_skladanie': 'Czeka na składanie',
@@ -345,115 +498,21 @@ class ProductionItem(db.Model):
             'w_realizacji': 'W realizacji'
         }
         return status_names.get(self.current_status, self.current_status)
-    
-    @property
-    def thickness(self):
-        """Alias dla kompatybilności z nowym systemem priorytetów"""
-        return self.parsed_thickness_cm
-    
-    @property
-    def species(self):
-        """Alias dla nowego algorytmu priorytetów"""
-        return self.parsed_wood_species
-    
-    @property
-    def finish_state(self):
-        """Alias dla nowego algorytmu priorytetów"""
-        return self.parsed_finish_state
-    
-    @property
-    def wood_class(self):
-        """Alias dla nowego algorytmu priorytetów"""
-        return self.parsed_wood_class
 
     @property
-    def has_attachment(self):
-        """Sprawdza czy produkt ma załącznik"""
-        return bool(self.attachment_file_url and self.attachment_file_url.strip())
+    def is_overdue(self):
+        if not self.deadline_date:
+            return False
+        return date.today() > self.deadline_date
 
     @property
-    def attachment_file_extension(self):
-        """Pobiera rozszerzenie pliku załącznika"""
-        if not self.attachment_file_name:
-            return None
-        return self.attachment_file_name.split('.')[-1].lower() if '.' in self.attachment_file_name else None
+    def is_priority_locked(self):
+        return bool(self.priority_manual_override)
 
-    @property
-    def is_attachment_image(self):
-        """Sprawdza czy załącznik jest obrazkiem"""
-        image_extensions = ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp']
-        return self.attachment_file_extension in image_extensions if self.attachment_file_extension else False
-
-    @property
-    def is_attachment_pdf(self):
-        """Sprawdza czy załącznik jest PDF"""
-        return self.attachment_file_extension == 'pdf' if self.attachment_file_extension else False
-
-    @property
-    def has_order_notes(self):
-        """Sprawdza czy zamówienie ma uwagi"""
-        return bool(self.order_notes and self.order_notes.strip())
-
-    @property
-    def has_client_order_number(self):
-        """Sprawdza czy zamówienie ma wewnętrzny numer klienta"""
-        return bool(self.client_order_number and self.client_order_number.strip())
-
-    @property
-    def is_personal_pickup(self):
-        """
-        Sprawdza czy zamówienie jest do odbioru osobistego.
-
-        Warunki odbioru osobistego:
-        - delivery_method zawiera słowa: odbiór, osobisty, przy odbiorze, pickup (case-insensitive)
-        - LUB brak danych adresowych (puste delivery_address/city/postcode)
-
-        Returns:
-            bool: True jeśli odbiór osobisty, False jeśli kurier
-        """
-        # Sprawdź czy delivery_method wskazuje na odbiór osobisty
-        if self.delivery_method:
-            method_lower = self.delivery_method.lower()
-            pickup_keywords = ['odbiór', 'odbior', 'osobisty', 'przy odbiorze', 'pickup', 'self pickup']
-            for keyword in pickup_keywords:
-                if keyword in method_lower:
-                    return True
-
-        # Sprawdź czy brak danych adresowych (też sugeruje odbiór osobisty)
-        has_address = bool(self.delivery_address and self.delivery_address.strip())
-        has_city = bool(self.delivery_city and self.delivery_city.strip())
-        has_postcode = bool(self.delivery_postcode and self.delivery_postcode.strip())
-
-        # Jeśli brak wszystkich danych adresowych - to odbiór osobisty
-        if not has_address and not has_city and not has_postcode:
-            return True
-
-        return False
-
-    @property
-    def delivery_type(self):
-        """
-        Zwraca typ dostawy jako string.
-
-        Returns:
-            str: 'personal_pickup' lub 'courier'
-        """
-        return 'personal_pickup' if self.is_personal_pickup else 'courier'
-
-    # ============================================================================
-    # NOWE METODY DLA ENHANCED PRIORITY SYSTEM 2.0
-    # ============================================================================
-    
+    # === METODY DOMENOWE (przeniesione 1:1 ze starego ProductionItem) ===
     def get_thickness_group(self):
-        """
-        Oblicza grupę grubości na podstawie parsed_thickness_cm
-        
-        Returns:
-            str: Grupa grubości ('0-2.5', '2.6-3.5', '3.6-4.5', '4.6+') lub None
-        """
         if not self.parsed_thickness_cm:
             return None
-            
         thickness = float(self.parsed_thickness_cm)
         if thickness <= 2.5:
             return "0-2.5"
@@ -463,84 +522,27 @@ class ProductionItem(db.Model):
             return "3.6-4.5"
         else:
             return "4.6+"
-    
+
     def update_thickness_group(self):
-        """
-        Aktualizuje thickness_group na podstawie aktualnej parsed_thickness_cm
-        
-        Returns:
-            str: Nowa wartość thickness_group
-        """
         self.thickness_group = self.get_thickness_group()
-        logger.debug("Zaktualizowano thickness_group", extra={
-            'product_id': self.short_product_id,
-            'thickness_cm': float(self.parsed_thickness_cm) if self.parsed_thickness_cm else None,
-            'thickness_group': self.thickness_group
-        })
         return self.thickness_group
-    
-    @property
-    def is_priority_locked(self):
-        """
-        Sprawdza czy priorytet jest zablokowany (manual override)
-        
-        Returns:
-            bool: True jeśli priorytet jest ustawiony ręcznie
-        """
-        return bool(self.priority_manual_override)
-    
+
     def lock_priority(self, rank: int):
-        """
-        Blokuje priorytet na określonej pozycji (manual override)
-        """
         if rank < 1:
             raise ValueError("Numer priorytetu musi być >= 1")
-        
         self.priority_rank = rank
         self.priority_manual_override = True
 
-        logger.info("Zablokowano priorytet produktu", extra={
-            'product_id': self.short_product_id,
-            'priority_rank': rank,
-            'manual_override': True
-        })
-    
     def unlock_priority(self):
-        """
-        Odblokowuje priorytet (będzie obliczany automatycznie)
-        """
-        old_rank = self.priority_rank
         self.priority_manual_override = False
-        # Nie czyścimy priority_rank - zostanie zaktualizowany przez algorytm
-        
-        logger.info("Odblokowano priorytet produktu", extra={
-            'product_id': self.short_product_id,
-            'old_priority_rank': old_rank,
-            'manual_override': False
-        })
-    
+
     def is_in_production_queue(self):
-        """
-        Sprawdza czy produkt jest w kolejce produkcyjnej (kwalifikuje się do priorytetyzacji)
-        
-        Returns:
-            bool: True jeśli produkt jest w aktywnej kolejce produkcyjnej
-        """
-        active_statuses = [
-            'czeka_na_wyciecie',
-            'czeka_na_skladanie', 
-            'czeka_na_pakowanie',
-            'w_realizacji'
+        return self.current_status in [
+            'czeka_na_wyciecie', 'czeka_na_skladanie',
+            'czeka_na_pakowanie', 'w_realizacji'
         ]
-        return self.current_status in active_statuses
-    
+
     def validate_for_prioritization(self):
-        """
-        Sprawdza czy produkt ma wszystkie wymagane dane do priorytetyzacji
-        
-        Returns:
-            tuple: (is_valid: bool, missing_fields: list)
-        """
         required_fields = {
             'species': self.parsed_wood_species,
             'finish_state': self.parsed_finish_state,
@@ -549,54 +551,34 @@ class ProductionItem(db.Model):
             'width': self.parsed_width_cm,
             'length': self.parsed_length_cm
         }
-        
         missing_fields = [
-            field_name for field_name, field_value in required_fields.items()
-            if not field_value or (isinstance(field_value, str) and field_value.strip() == '')
+            n for n, v in required_fields.items()
+            if not v or (isinstance(v, str) and v.strip() == '')
         ]
-        
         is_valid = len(missing_fields) == 0 and self.is_in_production_queue()
-        
         return is_valid, missing_fields
-    
-    # ============================================================================
-    # METODY QUANTITY - NOWY SYSTEM (2025-11)
-    # ============================================================================
 
     def get_quantity_done(self, station_code):
-        """Pobiera liczbę wykonanych sztuk na danym stanowisku"""
-        attr_name = f'quantity_done_{station_code}'
-        return getattr(self, attr_name, 0)
+        return getattr(self, f'quantity_done_{station_code}', 0)
 
     def set_quantity_done(self, station_code, value, *,
                           actor_user_id=None, actor_device_id=None, source='web'):
-        """
-        Ustawia liczbę wykonanych sztuk na danym stanowisku.
-
-        Tworzy ProductionStationEvent gdy wartość faktycznie się zmieniła.
-        Kontekst aktora (actor_user_id/actor_device_id/source) opcjonalny.
-        """
         attr_name = f'quantity_done_{station_code}'
         old_value = getattr(self, attr_name, 0) or 0
-        # Ograniczenie do zakresu 0 - quantity
         value = max(0, min(value, self.quantity))
         setattr(self, attr_name, value)
 
         now = get_local_now()
 
-        # Jeśli wszystkie sztuki wykonane - ustaw completed_at
+        completed_attr = f'{station_code}_completed_at'
         if value == self.quantity:
-            completed_attr = f'{station_code}_completed_at'
             if getattr(self, completed_attr) is None:
                 setattr(self, completed_attr, now)
         else:
-            # Jeśli cofnięto - wyczyść completed_at
-            completed_attr = f'{station_code}_completed_at'
             setattr(self, completed_attr, None)
 
         self.updated_at = now
 
-        # Log zdarzenia tylko gdy stan faktycznie się zmienił
         if value != old_value and self.id is not None:
             normalized_source = source if source in ('web', 'mobile', 'admin', 'system', 'auto_skip') else 'web'
             event = ProductionStationEvent(
@@ -610,76 +592,29 @@ class ProductionItem(db.Model):
                 source=normalized_source,
             )
             db.session.add(event)
-
         return value
 
     def increment_quantity_done(self, station_code, amount=1, **actor_kwargs):
-        """Zwiększa liczbę wykonanych sztuk. actor_kwargs: actor_user_id/actor_device_id/source."""
         current = self.get_quantity_done(station_code)
-        new_value = self.set_quantity_done(station_code, current + amount, **actor_kwargs)
-
-        logger.info("Zwiększono quantity_done", extra={
-            'product_id': self.short_product_id,
-            'station': station_code,
-            'old_value': current,
-            'new_value': new_value,
-            'quantity': self.quantity
-        })
-        return new_value
+        return self.set_quantity_done(station_code, current + amount, **actor_kwargs)
 
     def decrement_quantity_done(self, station_code, amount=1, **actor_kwargs):
-        """Zmniejsza liczbę wykonanych sztuk. actor_kwargs: actor_user_id/actor_device_id/source."""
         current = self.get_quantity_done(station_code)
-        new_value = self.set_quantity_done(station_code, current - amount, **actor_kwargs)
-
-        logger.info("Zmniejszono quantity_done", extra={
-            'product_id': self.short_product_id,
-            'station': station_code,
-            'old_value': current,
-            'new_value': new_value,
-            'quantity': self.quantity
-        })
-        return new_value
+        return self.set_quantity_done(station_code, current - amount, **actor_kwargs)
 
     def is_station_complete(self, station_code):
-        """Sprawdza czy wszystkie sztuki wykonano na danym stanowisku"""
         return self.get_quantity_done(station_code) == self.quantity
 
     def should_skip_finishing(self):
-        """
-        Sprawdza czy produkt powinien pominąć stanowisko wykańczania.
-        Produkty surowe BEZ obróbki krawędzi nie wymagają wykańczania.
-        Produkty surowe Z obróbką krawędzi trafiają na wykańczanie.
-        """
         if self.parsed_finish_type == 'surowe':
             return not self.parsed_edge_processing
         return False
 
     def should_skip_to_logistics(self):
-        """
-        Po sklejaniu: produkt bez docięcia do wymiaru pomija
-        formatting + finishing + ewentualną lakiernię i trafia
-        bezpośrednio do logistyki.
-
-        Klient sam dotina i sam wykańcza — zgodnie z biznes-decyzją
-        cut_to_size=False (pole w QuoteItemDetails).
-        """
         return self.cut_to_size is False
 
     def complete_task(self, station_code):
-        """
-        Ukończenie pracy na stanowisku - przejście do następnego statusu
-
-        PRZEPŁYW:
-        - cutting (mikrowczep) → kompletacja
-        - assembly (lity) → kompletacja
-        - completion → sklejanie
-        - formatting → wykańczanie (chyba że surowe bez obróbki krawędzi → logistyka)
-        - finishing → lakiernia (jeśli lakierowane/olejowane/bejcowane) LUB logistyka (tylko krawędź)
-        - painting → logistyka
-        """
         now = get_local_now()
-
         next_status_map = {
             'cutting': 'czeka_na_kompletacje',
             'assembly': 'czeka_na_kompletacje',
@@ -690,69 +625,41 @@ class ProductionItem(db.Model):
             'painting': 'czeka_na_logistyke',
             'packaging': 'spakowane'
         }
-
         if station_code in next_status_map:
             next_status = next_status_map[station_code]
 
-            # Sklejanie → cut_to_size=False pomija formatting + finishing + lakiernię
-            skipped_to_logistics = False
             if station_code == 'gluing' and self.should_skip_to_logistics():
                 next_status = 'czeka_na_logistyke'
-                skipped_to_logistics = True
-                for skipped_station in ('formatting', 'finishing'):
-                    # set_quantity_done loguje event w prod_station_events (source='auto_skip')
-                    self.set_quantity_done(skipped_station, self.quantity, source='auto_skip')
-                    completed_attr = f'{skipped_station}_completed_at'
+                for skipped in ('formatting', 'finishing'):
+                    self.set_quantity_done(skipped, self.quantity, source='auto_skip')
+                    completed_attr = f'{skipped}_completed_at'
                     if getattr(self, completed_attr, None) is None:
                         setattr(self, completed_attr, now)
-                logger.info("Produkt bez docięcia — pomijam formatting/finishing/lakiernię", extra={
-                    'product_id': self.short_product_id,
-                    'cut_to_size': False,
-                })
 
-            # Formatowanie → surowe bez obróbki krawędzi pomija wykańczanie
-            skipped_finishing = False
             if station_code == 'formatting' and self.should_skip_finishing():
                 next_status = 'czeka_na_logistyke'
-                skipped_finishing = True
-                # set_quantity_done loguje event w prod_station_events (source='system')
                 self.set_quantity_done('finishing', self.quantity, source='system')
-                logger.info("Produkt 'Surowe' bez obróbki krawędzi - pomijam wykańczanie", extra={
-                    'product_id': self.short_product_id,
-                    'finish_state': self.parsed_finish_state
-                })
 
-            # Wykańczanie → lakiernia jeśli lakierowane/olejowane
             if station_code == 'finishing':
-                needs_painting = self.parsed_finish_type in ('olejowane', 'lakierowane')
-                if needs_painting:
+                if self.parsed_finish_type in ('olejowane', 'lakierowane'):
                     next_status = 'czeka_na_lakiernie'
-                    logger.info("Produkt wymaga lakierni", extra={
-                        'product_id': self.short_product_id,
-                        'finish_type': self.parsed_finish_type
-                    })
 
-            # Logistyka — odbiór osobisty omija stanowisko logistyki
             if next_status == 'czeka_na_logistyke' and self.is_personal_pickup:
                 next_status = 'czeka_na_pakowanie'
-                self.logistics_completed_at = now
+                if self.order:
+                    self.order.logistics_completed_at = now
 
             self.current_status = next_status
-
-            # Upewnij się że completed_at jest ustawione
             completed_attr = f'{station_code}_completed_at'
             if getattr(self, completed_attr, None) is None:
                 setattr(self, completed_attr, now)
 
         self.updated_at = now
 
-        logger.info("Ukończono zadanie na stanowisku", extra={
-            'product_id': self.short_product_id,
-            'station': station_code,
-            'new_status': self.current_status,
-            'skipped_finishing': skipped_finishing if 'skipped_finishing' in locals() else False,
-            'skipped_to_logistics': skipped_to_logistics if 'skipped_to_logistics' in locals() else False,
-        })
+
+# Alias kompatybilności dla starego kodu — zostanie usunięty osobnym commitem
+ProductionItem = ProductionProduct
+
 
 class ProductionPriorityConfig(db.Model):
     """
@@ -888,7 +795,7 @@ class ProductionError(db.Model):
     stack_trace = Column(Text)  # Pełny stack trace dla debugowania
 
     # KONTEKST BŁĘDU
-    related_product_id = Column(Integer, ForeignKey('prod_items.id'))
+    related_product_id = Column(Integer, ForeignKey('prod_products.id'))
     related_order_id = Column(Integer)
     request_url = Column(String(500))  # URL gdzie wystąpił błąd
     request_method = Column(String(10))  # GET, POST, etc.
@@ -905,7 +812,7 @@ class ProductionError(db.Model):
     user_agent = Column(Text)
     
     # RELACJE
-    related_product = relationship("ProductionItem")
+    related_product = relationship("ProductionProduct")
     resolver = relationship("User")
     
     def __repr__(self):
@@ -1227,7 +1134,7 @@ class ProductionStationEvent(db.Model):
 
     id = Column(Integer, primary_key=True)
     production_item_id = Column(
-        Integer, ForeignKey('prod_items.id', ondelete='CASCADE'),
+        Integer, ForeignKey('prod_products.id', ondelete='CASCADE'),
         nullable=False, index=True
     )
     station_code = Column(String(32), nullable=False, index=True)
@@ -1247,7 +1154,7 @@ class ProductionStationEvent(db.Model):
     )
 
     item = relationship(
-        'ProductionItem',
+        'ProductionProduct',
         backref=backref('station_events', passive_deletes=True)
     )
     user = relationship('User')

@@ -15,7 +15,7 @@ from datetime import datetime
 
 from extensions import db
 from modules.logging import get_structured_logger
-from modules.production.models import LabelPrintJob, ProductionConfig, ProductionItem
+from modules.production.models import LabelPrintJob, ProductionConfig, ProductionItem, ProductionOrder
 
 logger = get_structured_logger('production.label_print')
 
@@ -132,7 +132,8 @@ def _compute_unit_offsets(items_by_id):
     if order_ids:
         all_siblings = (
             ProductionItem.query
-            .filter(ProductionItem.baselinker_order_id.in_(order_ids))
+            .join(ProductionOrder)
+            .filter(ProductionOrder.baselinker_order_id.in_(order_ids))
             .all()
         )
         for sib in all_siblings:

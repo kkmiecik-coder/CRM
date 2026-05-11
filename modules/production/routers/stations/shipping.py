@@ -52,7 +52,7 @@ def create_shipment(order_id):
     try:
         # Importy wewnatrz try-except zeby zlapac bledy importu
         current_step = 'import'
-        from ...models import ProductionItem
+        from ...models import ProductionItem, ProductionOrder, ProductionProduct
         from ...services.shipping_service import ShippingService
         from modules.baselinker.service import BaselinkerService
 
@@ -68,14 +68,14 @@ def create_shipment(order_id):
         }
 
         # KROK 1: Pobierz produkty zamowienia
-        products = ProductionItem.query.filter(
-            ProductionItem.baselinker_order_id == str(order_id)
+        products = ProductionProduct.query.join(ProductionOrder).filter(
+            ProductionOrder.baselinker_order_id == int(order_id)
         ).all()
 
         if not products:
             # Sprobuj po internal_order_number
-            products = ProductionItem.query.filter(
-                ProductionItem.internal_order_number == str(order_id)
+            products = ProductionProduct.query.join(ProductionOrder).filter(
+                ProductionOrder.internal_order_number == str(order_id)
             ).all()
 
         if not products:
@@ -241,12 +241,12 @@ def create_shipment(order_id):
 
         # Zapisz dane wysylki dla wszystkich produktow w zamowieniu
         for product in products:
-            product.shipping_package_id = package_id
-            product.shipping_tracking_number = tracking_number
-            product.shipping_courier_name = courier_name
-            product.shipping_price = shipping_price
-            product.shipping_label_base64 = label_base64
-            product.shipping_created_at = datetime.now()
+            product.order.shipping_package_id = package_id
+            product.order.shipping_tracking_number = tracking_number
+            product.order.shipping_courier_name = courier_name
+            product.order.shipping_price = shipping_price
+            product.order.shipping_label_base64 = label_base64
+            product.order.shipping_created_at = datetime.now()
 
         db.session.commit()
 
@@ -289,16 +289,16 @@ def check_shipping_availability(order_id):
         }
     """
     try:
-        from ...models import ProductionItem
+        from ...models import ProductionItem, ProductionOrder, ProductionProduct
         from ...services.shipping_service import ShippingService
 
-        products = ProductionItem.query.filter(
-            ProductionItem.baselinker_order_id == str(order_id)
+        products = ProductionProduct.query.join(ProductionOrder).filter(
+            ProductionOrder.baselinker_order_id == int(order_id)
         ).all()
 
         if not products:
-            products = ProductionItem.query.filter(
-                ProductionItem.internal_order_number == str(order_id)
+            products = ProductionProduct.query.join(ProductionOrder).filter(
+                ProductionOrder.internal_order_number == str(order_id)
             ).all()
 
         if not products:
@@ -375,7 +375,7 @@ def get_shipping_quote(order_id):
         }
     """
     try:
-        from ...models import ProductionItem
+        from ...models import ProductionItem, ProductionOrder, ProductionProduct
         from ...services.shipping_service import ShippingService
 
         # Pobierz dane z requestu
@@ -395,13 +395,13 @@ def get_shipping_quote(order_id):
             }), 400
 
         # Pobierz produkty zamowienia
-        products = ProductionItem.query.filter(
-            ProductionItem.baselinker_order_id == str(order_id)
+        products = ProductionProduct.query.join(ProductionOrder).filter(
+            ProductionOrder.baselinker_order_id == int(order_id)
         ).all()
 
         if not products:
-            products = ProductionItem.query.filter(
-                ProductionItem.internal_order_number == str(order_id)
+            products = ProductionProduct.query.join(ProductionOrder).filter(
+                ProductionOrder.internal_order_number == str(order_id)
             ).all()
 
         if not products:
@@ -483,17 +483,17 @@ def refresh_tracking(order_id):
         }
     """
     try:
-        from ...models import ProductionItem
+        from ...models import ProductionItem, ProductionOrder, ProductionProduct
         from modules.baselinker.service import BaselinkerService
 
         # Znajdz produkty zamowienia
-        products = ProductionItem.query.filter(
-            ProductionItem.baselinker_order_id == str(order_id)
+        products = ProductionProduct.query.join(ProductionOrder).filter(
+            ProductionOrder.baselinker_order_id == int(order_id)
         ).all()
 
         if not products:
-            products = ProductionItem.query.filter(
-                ProductionItem.internal_order_number == str(order_id)
+            products = ProductionProduct.query.join(ProductionOrder).filter(
+                ProductionOrder.internal_order_number == str(order_id)
             ).all()
 
         if not products:
@@ -538,7 +538,7 @@ def refresh_tracking(order_id):
         # Aktualizuj w bazie danych jesli jest numer
         if tracking_number:
             for product in products:
-                product.shipping_tracking_number = tracking_number
+                product.order.shipping_tracking_number = tracking_number
 
             db.session.commit()
 
@@ -572,17 +572,17 @@ def refresh_label(order_id):
         }
     """
     try:
-        from ...models import ProductionItem
+        from ...models import ProductionItem, ProductionOrder, ProductionProduct
         from modules.baselinker.service import BaselinkerService
 
         # Znajdz produkty zamowienia
-        products = ProductionItem.query.filter(
-            ProductionItem.baselinker_order_id == str(order_id)
+        products = ProductionProduct.query.join(ProductionOrder).filter(
+            ProductionOrder.baselinker_order_id == int(order_id)
         ).all()
 
         if not products:
-            products = ProductionItem.query.filter(
-                ProductionItem.internal_order_number == str(order_id)
+            products = ProductionProduct.query.join(ProductionOrder).filter(
+                ProductionOrder.internal_order_number == str(order_id)
             ).all()
 
         if not products:
@@ -619,7 +619,7 @@ def refresh_label(order_id):
 
         # Aktualizuj w bazie danych
         for product in products:
-            product.shipping_label_base64 = label_base64
+            product.order.shipping_label_base64 = label_base64
 
         db.session.commit()
 

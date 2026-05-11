@@ -167,7 +167,7 @@ def production_monitor():
         HTML: Interfejs monitora produkcji
     """
     try:
-        from ...models import ProductionItem
+        from ...models import ProductionItem, ProductionOrder, ProductionProduct
         from sqlalchemy import func, case, and_
 
         # Mapowanie statusu na stanowisko i kolumne quantity_done
@@ -205,12 +205,14 @@ def production_monitor():
 
         # Pobierz wszystkie aktywne zamowienia (nie spakowane)
         active_orders = db.session.query(
-            ProductionItem.internal_order_number,
-            ProductionItem.baselinker_order_id,
-            ProductionItem.client_order_number
+            ProductionOrder.internal_order_number,
+            ProductionOrder.baselinker_order_id,
+            ProductionOrder.client_order_number
+        ).join(
+            ProductionProduct, ProductionProduct.order_id == ProductionOrder.id
         ).filter(
-            ProductionItem.current_status != 'spakowane',
-            ProductionItem.internal_order_number.isnot(None)
+            ProductionProduct.current_status != 'spakowane',
+            ProductionOrder.internal_order_number.isnot(None)
         ).distinct().all()
 
         orders = []
@@ -221,8 +223,8 @@ def production_monitor():
             client_order_number = order_row[2]
 
             # Pobierz wszystkie produkty tego zamowienia
-            products = ProductionItem.query.filter(
-                ProductionItem.internal_order_number == order_number
+            products = ProductionProduct.query.join(ProductionOrder).filter(
+                ProductionOrder.internal_order_number == order_number
             ).all()
 
             if not products:
@@ -317,7 +319,7 @@ def ajax_production_monitor():
         }
     """
     try:
-        from ...models import ProductionItem
+        from ...models import ProductionItem, ProductionOrder, ProductionProduct
 
         # Mapowanie statusu na kolumne quantity_done
         status_to_station = {
@@ -354,11 +356,13 @@ def ajax_production_monitor():
 
         # Pobierz wszystkie aktywne zamowienia (nie spakowane)
         active_orders = db.session.query(
-            ProductionItem.internal_order_number,
-            ProductionItem.baselinker_order_id
+            ProductionOrder.internal_order_number,
+            ProductionOrder.baselinker_order_id
+        ).join(
+            ProductionProduct, ProductionProduct.order_id == ProductionOrder.id
         ).filter(
-            ProductionItem.current_status != 'spakowane',
-            ProductionItem.internal_order_number.isnot(None)
+            ProductionProduct.current_status != 'spakowane',
+            ProductionOrder.internal_order_number.isnot(None)
         ).distinct().all()
 
         orders = []
@@ -368,8 +372,8 @@ def ajax_production_monitor():
             baselinker_id = order_row[1]
 
             # Pobierz wszystkie produkty tego zamowienia
-            products = ProductionItem.query.filter(
-                ProductionItem.internal_order_number == order_number
+            products = ProductionProduct.query.join(ProductionOrder).filter(
+                ProductionOrder.internal_order_number == order_number
             ).all()
 
             if not products:

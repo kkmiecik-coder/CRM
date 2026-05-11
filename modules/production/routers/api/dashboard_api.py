@@ -12,6 +12,7 @@ from extensions import db
 from sqlalchemy import func, and_
 
 from . import api_bp, logger, ProductionItem, ProductionError, ProductionSyncLog, get_local_now
+from modules.production.models import ProductionOrder
 from ...services.station_events_service import (
     get_station_work_in_range,
     get_station_work_per_day,
@@ -872,8 +873,8 @@ def dashboard_tab_content():
             dashboard_stats['stations'][station_code]['pending_m3'] = float(pending_m3)
 
         logistics_pending = db.session.query(
-            db.func.count(db.func.distinct(ProductionItem.internal_order_number))
-        ).filter(
+            db.func.count(db.func.distinct(ProductionOrder.internal_order_number))
+        ).join(ProductionItem, ProductionItem.order_id == ProductionOrder.id).filter(
             ProductionItem.current_status == 'czeka_na_logistyke'
         ).scalar() or 0
         dashboard_stats['logistics'] = {

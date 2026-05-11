@@ -10,7 +10,7 @@ from extensions import db
 from sqlalchemy import func
 
 from . import api_bp
-from ...models import ProductionItem, get_local_now
+from ...models import ProductionItem, ProductionOrder, get_local_now
 from modules.logging import get_structured_logger
 
 logger = get_structured_logger('production.api.logistics')
@@ -141,8 +141,8 @@ def logistics_approve():
             }), 400
 
         all_items = (
-            ProductionItem.query
-            .filter(ProductionItem.internal_order_number == order_number)
+            ProductionItem.query.join(ProductionOrder)
+            .filter(ProductionOrder.internal_order_number == order_number)
             .all()
         )
 
@@ -157,10 +157,10 @@ def logistics_approve():
         now = get_local_now()
 
         for item in all_items:
-            item.override_delivery_method = transport_method
+            item.order.override_delivery_method = transport_method
 
         for item in waiting_items:
-            item.logistics_completed_at = now
+            item.order.logistics_completed_at = now
             item.current_status = 'czeka_na_pakowanie'
 
         db.session.commit()
@@ -211,8 +211,8 @@ def logistics_update_notes():
             return jsonify({'success': False, 'error': 'Wymagane pole: order_number'}), 400
 
         items = (
-            ProductionItem.query
-            .filter(ProductionItem.internal_order_number == order_number)
+            ProductionItem.query.join(ProductionOrder)
+            .filter(ProductionOrder.internal_order_number == order_number)
             .all()
         )
 

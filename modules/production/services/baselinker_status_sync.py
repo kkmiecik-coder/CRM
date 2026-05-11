@@ -137,9 +137,9 @@ def set_status_for_imported_order(baselinker_order_id: int,
     NIE retry'uje (sync może chodzić w pętli batch i sam ma error handling).
     """
     if products is None:
-        from ..models import ProductionItem
-        products = ProductionItem.query.filter_by(
-            baselinker_order_id=baselinker_order_id
+        from ..models import ProductionItem, ProductionOrder
+        products = ProductionItem.query.join(ProductionOrder).filter(
+            ProductionOrder.baselinker_order_id == baselinker_order_id
         ).all()
 
     if not products:

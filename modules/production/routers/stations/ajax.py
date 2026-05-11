@@ -10,7 +10,7 @@ from extensions import db
 from ...services.station_heartbeat import record_heartbeat
 from ...services import label_print_service
 from ...services.label_print_service import StationNotAllowed
-from ...models import ProductionItem
+from ...models import ProductionItem, ProductionOrder, ProductionProduct
 import traceback
 
 from . import station_bp, logger, get_products_for_station, _format_dimension, _ajax_get_orders_simple
@@ -145,16 +145,18 @@ def ajax_get_orders_packaging():
         }
     """
     try:
-        from ...models import ProductionItem
+        from ...models import ProductionItem, ProductionOrder, ProductionProduct
         from sqlalchemy import asc, desc
 
         sort_by = request.args.get('sort', 'priority')
 
         # KROK 1: Znajdz zamowienia ktore maja choc 1 produkt do pakowania
         orders_with_packaging = db.session.query(
-            ProductionItem.internal_order_number
+            ProductionOrder.internal_order_number
+        ).join(
+            ProductionProduct, ProductionProduct.order_id == ProductionOrder.id
         ).filter(
-            ProductionItem.current_status == 'czeka_na_pakowanie'
+            ProductionProduct.current_status == 'czeka_na_pakowanie'
         ).distinct().all()
 
         order_numbers = [order[0] for order in orders_with_packaging]
@@ -175,8 +177,8 @@ def ajax_get_orders_packaging():
             }), 200
 
         # KROK 2: Pobierz WSZYSTKIE produkty z tych zamowien (bez limitu)
-        query = ProductionItem.query.filter(
-            ProductionItem.internal_order_number.in_(order_numbers)
+        query = ProductionProduct.query.join(ProductionOrder).filter(
+            ProductionOrder.internal_order_number.in_(order_numbers)
         )
 
         # Sortowanie
@@ -1143,7 +1145,8 @@ def print_labels_for_order(baselinker_order_id):
         return jsonify({'success': False, 'message': 'Brak parametru station_code'}), 400
 
     items = (ProductionItem.query
-             .filter_by(baselinker_order_id=baselinker_order_id)
+             .join(ProductionOrder)
+             .filter(ProductionOrder.baselinker_order_id == baselinker_order_id)
              .order_by(ProductionItem.product_sequence_in_order)
              .all())
     if not items:

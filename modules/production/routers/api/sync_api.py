@@ -844,17 +844,17 @@ def fetch_orders_preview():
         filtered_orders = []
 
         # Pobierz istniejące zamówienia z bazy danych
-        from ...models import ProductionItem
+        from ...models import ProductionItem, ProductionOrder
 
         # Zbierz wszystkie baselinker_order_id z pobranych zamówień
         baselinker_ids = [order.get('order_id') for order in all_orders if order.get('order_id')]
 
         # Pobierz istniejące produkty z bazy pogrupowane po baselinker_order_id
         existing_products_query = db.session.query(
-            ProductionItem.baselinker_order_id,
+            ProductionOrder.baselinker_order_id,
             ProductionItem.original_product_name
-        ).filter(
-            ProductionItem.baselinker_order_id.in_(baselinker_ids)
+        ).join(ProductionOrder, ProductionItem.order_id == ProductionOrder.id).filter(
+            ProductionOrder.baselinker_order_id.in_(baselinker_ids)
         ).all()
 
         # Stwórz mapę: baselinker_order_id -> set(nazwy produktów)
