@@ -462,7 +462,10 @@ def _render_completion_or_gluing(active_tab):
             ProductionItem.current_status == 'czeka_na_sklejanie'
         ).count()
 
-        query = ProductionItem.query.filter(
+        query = ProductionItem.query.options(
+            joinedload(ProductionItem.order),
+            joinedload(ProductionItem.configuration),
+        ).filter(
             ProductionItem.current_status == cfg['status']
         )
         if sort_by == 'priority':
@@ -843,7 +846,10 @@ def finishing_station():
         ).count()
 
         # Pobierz produkty dla aktywnej zakładki
-        query = ProductionItem.query.filter(
+        query = ProductionItem.query.options(
+            joinedload(ProductionItem.order),
+            joinedload(ProductionItem.configuration),
+        ).filter(
             ProductionItem.current_status == status_filter
         )
 
