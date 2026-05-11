@@ -167,7 +167,7 @@
                     </td>
                     <td>
                         <strong>{{ item.product.short_id }}</strong>
-                        <br><small class="text-muted">{{ item.product.order.internal_order_number if item.product.order else '' }}</small>
+                        <br><small class="text-muted">{{ item.product.internal_order_number or '' }}</small>
                     </td>
                     <td>{{ item.product.product_name }}</td>
                     <td>

@@ -133,12 +133,14 @@ def _compute_unit_offsets(items_by_id):
     if order_ids:
         all_siblings = (
             ProductionItem.query
+            .options(joinedload(ProductionItem.order))
             .join(ProductionOrder)
             .filter(ProductionOrder.baselinker_order_id.in_(order_ids))
             .all()
         )
         for sib in all_siblings:
-            siblings_by_order.setdefault(sib.baselinker_order_id, []).append(sib)
+            bl_id = sib.order.baselinker_order_id if sib.order else None
+            siblings_by_order.setdefault(bl_id, []).append(sib)
 
     for order_id, siblings in siblings_by_order.items():
         # Sortowanie: najpierw po product_sequence_in_order (None na koniec), potem po id.
@@ -176,12 +178,13 @@ def _resolve_copies(item):
 
 def _resolve_client_label(item):
     """Fallback chain dla pola 'klient' na etykiecie."""
+    order = item.order if item.order else None
     candidates = [
-        getattr(item, 'client_name', None),
-        getattr(item, 'delivery_fullname', None),
-        getattr(item, 'delivery_company', None),
-        getattr(item, 'client_order_number', None),
-        getattr(item, 'internal_order_number', None),
+        order.client_name if order else None,
+        order.delivery_fullname if order else None,
+        order.delivery_company if order else None,
+        order.client_order_number if order else None,
+        order.internal_order_number if order else None,
     ]
     for candidate in candidates:
         if candidate and str(candidate).strip():
@@ -199,15 +202,16 @@ def _format_delivery_label(item):
       - default                      → delivery_method z BL (np. 'InPost Paczkomaty 24/7')
                                        lub 'Kurier' gdy brak danych
     """
-    override = (getattr(item, 'override_delivery_method', None) or '').strip().lower()
-    delivery_method = (getattr(item, 'delivery_method', None) or '').strip()
+    order = item.order if item.order else None
+    override = ((order.override_delivery_method if order else None) or '').strip().lower()
+    delivery_method = ((order.delivery_method if order else None) or '').strip()
 
     if override == 'transport_woodpower':
         return _normalize_text('Transport WoodPower')
     if override == 'kurier_baselinker':
         return _normalize_text(delivery_method) if delivery_method else 'Kurier'
     try:
-        if getattr(item, 'is_personal_pickup', False):
+        if order and order.is_personal_pickup:
             return _normalize_text('Odbior osobisty')
     except Exception:
         pass
