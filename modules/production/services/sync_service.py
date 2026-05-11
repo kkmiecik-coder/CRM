@@ -673,7 +673,7 @@ class BaselinkerSyncService:
             # Odfiltruj klucze pomocnicze (prefiks '_') — np. '_quote_detail' cache
             # nie jest polem ProductionItem i powodowałby TypeError przy konstrukcji.
             product_data_clean = {k: v for k, v in product_data_dict.items() if not k.startswith('_')}
-            production_item = ProductionItem(**product_data_clean)
+            production_item = self._create_production_product_from_data(product_data_clean)
 
             logger.debug("Utworzono ProductionItem", extra={
                 'product_id': product_id,
@@ -1167,6 +1167,71 @@ class BaselinkerSyncService:
             })
     
         return product_data
+
+    def _create_production_product_from_data(self, product_data: dict):
+        """
+        Tworzy ProductionProduct z flat dict, upsertując ProductionOrder
+        i find-or-create ProductionConfiguration.
+        Helper do migracji z monolitycznego ProductionItem(**dict).
+
+        Args:
+            product_data: flat dict z polami zarówno order-level jak i product-level
+                          (jak zwracane przez _prepare_product_data_enhanced)
+
+        Returns:
+            ProductionProduct: niedodany do sesji (caller robi db.session.add)
+        """
+        from modules.production.models import ProductionOrder, ProductionProduct, ProductionConfiguration
+
+        ORDER_LEVEL_KEYS = {
+            'baselinker_order_id', 'internal_order_number', 'baselinker_status_id',
+            'payment_date', 'client_order_number', 'order_notes',
+            'client_name', 'client_email', 'client_phone', 'delivery_address',
+            'delivery_method', 'delivery_fullname', 'delivery_company',
+            'delivery_city', 'delivery_postcode', 'delivery_country_code',
+            'override_delivery_method', 'logistics_completed_at',
+            'shipping_package_id', 'shipping_tracking_number', 'shipping_courier_name',
+            'shipping_price', 'shipping_label_base64', 'shipping_created_at',
+            'attachment_file_name', 'attachment_file_url', 'sync_source',
+        }
+        CONFIG_KEYS = {'parsed_wood_species', 'parsed_technology', 'parsed_wood_class'}
+
+        bl_id = product_data.get('baselinker_order_id')
+        if not bl_id:
+            raise ValueError("baselinker_order_id wymagane do utworzenia produktu")
+
+        # 1. Upsert ProductionOrder
+        order = ProductionOrder.query.filter_by(baselinker_order_id=bl_id).first()
+        if order is None:
+            order = ProductionOrder(baselinker_order_id=bl_id)
+            db.session.add(order)
+
+        for key in ORDER_LEVEL_KEYS:
+            if key in product_data and product_data[key] is not None:
+                # NIE nadpisuj istniejących danych orderu pustym stringiem
+                value = product_data[key]
+                if isinstance(value, str) and not value.strip():
+                    continue
+                setattr(order, key, value)
+
+        db.session.flush()  # żeby order.id było dostępne
+
+        # 2. Find-or-create ProductionConfiguration
+        config = ProductionConfiguration.find_or_create(
+            species=product_data.get('parsed_wood_species'),
+            technology=product_data.get('parsed_technology'),
+            wood_class=product_data.get('parsed_wood_class'),
+        )
+
+        # 3. Stwórz ProductionProduct (tylko pola product-level)
+        product_only_data = {
+            k: v for k, v in product_data.items()
+            if k not in ORDER_LEVEL_KEYS and k not in CONFIG_KEYS
+        }
+        product_only_data['order_id'] = order.id
+        product_only_data['configuration_id'] = config.id
+
+        return ProductionProduct(**product_only_data)
 
     def manual_sync_with_filtering(self, params: Dict[str, Any]) -> Dict[str, Any]:
         sync_started_at = get_local_now()
@@ -2075,38 +2140,44 @@ class BaselinkerSyncService:
                                 # Parsuj dane produktu
                                 parsed = parser.parse_product_name(bl_product.get('name', ''))
 
-                                new_product = ProductionItem(
-                                    short_product_id=short_product_id,
-                                    internal_order_number=order_num,
-                                    product_sequence_in_order=seq_num,
-                                    baselinker_order_id=baselinker_order_id,
-                                    baselinker_product_id=bp_id,
-                                    original_product_name=bl_product.get('name', ''),
-                                    quantity=bl_product.get('quantity', 1),
-                                    current_status='czeka_na_wyciecie',
-                                    sync_source='admin_update',
-                                    client_name=existing_product.client_name,
-                                    client_email=existing_product.client_email,
-                                    client_phone=existing_product.client_phone,
-                                    delivery_address=existing_product.delivery_address,
-                                    deadline_date=existing_product.deadline_date,
-                                    payment_date=existing_product.payment_date,
-                                    client_order_number=existing_product.client_order_number,
-                                    order_notes=existing_product.order_notes,
-                                    attachment_file_name=existing_product.attachment_file_name,
-                                    attachment_file_url=existing_product.attachment_file_url,
-                                    cut_to_size=True  # safety default
-                                )
+                                # Konstruujemy flat dict — _create_production_product_from_data
+                                # rozdzieli order-level (idzie na existing_product.order przez upsert)
+                                # od product-level
+                                new_product_data = {
+                                    'short_product_id': short_product_id,
+                                    'internal_order_number': order_num,
+                                    'product_sequence_in_order': seq_num,
+                                    'baselinker_order_id': baselinker_order_id,
+                                    'baselinker_product_id': bp_id,
+                                    'original_product_name': bl_product.get('name', ''),
+                                    'quantity': bl_product.get('quantity', 1),
+                                    'current_status': 'czeka_na_wyciecie',
+                                    'sync_source': 'admin_update',
+                                    'client_name': existing_product.client_name,
+                                    'client_email': existing_product.client_email,
+                                    'client_phone': existing_product.client_phone,
+                                    'delivery_address': existing_product.delivery_address,
+                                    'deadline_date': existing_product.deadline_date,
+                                    'payment_date': existing_product.payment_date,
+                                    'client_order_number': existing_product.client_order_number,
+                                    'order_notes': existing_product.order_notes,
+                                    'attachment_file_name': existing_product.attachment_file_name,
+                                    'attachment_file_url': existing_product.attachment_file_url,
+                                    'cut_to_size': True,
+                                }
+                                new_product = self._create_production_product_from_data(new_product_data)
 
                                 # Dodaj sparsowane dane
                                 if parsed:
-                                    new_product.wood_species = parsed.get('wood_species')
-                                    new_product.wood_class = parsed.get('wood_class')
-                                    new_product.dimensions = parsed.get('dimensions')
-                                    new_product.technology = parsed.get('technology')
-                                    new_product.length_cm = parsed.get('length_cm')
-                                    new_product.width_cm = parsed.get('width_cm')
-                                    new_product.thickness_cm = parsed.get('thickness_cm')
+                                    from modules.production.models import ProductionConfiguration
+                                    new_product.configuration = ProductionConfiguration.find_or_create(
+                                        species=parsed.get('wood_species'),
+                                        technology=parsed.get('technology'),
+                                        wood_class=parsed.get('wood_class'),
+                                    )
+                                    new_product.parsed_length_cm = parsed.get('length_cm')
+                                    new_product.parsed_width_cm = parsed.get('width_cm')
+                                    new_product.parsed_thickness_cm = parsed.get('thickness_cm')
                                     new_product.volume_m3 = parsed.get('volume_m3')
 
                                 db.session.add(new_product)
@@ -2567,7 +2638,7 @@ class BaselinkerSyncService:
 
                     # Odfiltruj klucze pomocnicze (prefiks '_') — np. '_quote_detail' cache
                     product_data_clean = {k: v for k, v in product_data.items() if not k.startswith('_')}
-                    production_item = ProductionItem(**product_data_clean)
+                    production_item = self._create_production_product_from_data(product_data_clean)
                     production_item.update_thickness_group()
 
                     prepared_items.append(production_item)
