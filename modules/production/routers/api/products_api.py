@@ -650,7 +650,7 @@ def products_tab_content():
         # potrzebne do pola order_completed_at oraz do statystyk archiwum.
         order_aggregates = {}
         for p in products:
-            ion = getattr(p, 'internal_order_number', None)
+            ion = p.order.internal_order_number if p.order else None
             if not ion:
                 continue
             agg = order_aggregates.setdefault(ion, {'completed_at': None, 'created_at': None})
