@@ -715,16 +715,16 @@ def _get_monitor_station_data(station_code):
     Filtruje prod_items po current_status odpowiadajacym stanowisku.
     Returns: (orders, monitor_stats, species_stats)
     """
-    from ...models import ProductionItem
+    from ...models import ProductionItem, ProductionOrder, ProductionProduct
 
     station_info = MONITOR_STATION_MAP[station_code]
     target_status = station_info['status']
     quantity_col = station_info['quantity_col']
 
     # Pobierz unikalne zamowienia na tym stanowisku
-    items_on_station = ProductionItem.query.filter(
-        ProductionItem.current_status == target_status,
-        ProductionItem.internal_order_number.isnot(None)
+    items_on_station = ProductionProduct.query.join(ProductionOrder).filter(
+        ProductionProduct.current_status == target_status,
+        ProductionOrder.internal_order_number.isnot(None)
     ).all()
 
     # Grupuj po zamowieniu
@@ -809,16 +809,18 @@ def _ajax_get_orders_simple(station_code: str, status_filter: str, quantity_done
         Flask Response z JSON
     """
     try:
-        from ...models import ProductionItem
+        from ...models import ProductionItem, ProductionOrder, ProductionProduct
         from sqlalchemy import asc
 
         sort_by = request.args.get('sort', 'priority')
 
         # KROK 1: Znajdz zamowienia ktore maja choc 1 produkt do przetworzenia
         orders_with_products = db.session.query(
-            ProductionItem.internal_order_number
+            ProductionOrder.internal_order_number
+        ).join(
+            ProductionProduct, ProductionProduct.order_id == ProductionOrder.id
         ).filter(
-            ProductionItem.current_status == status_filter
+            ProductionProduct.current_status == status_filter
         ).distinct().all()
 
         order_numbers = [order[0] for order in orders_with_products]
@@ -839,8 +841,8 @@ def _ajax_get_orders_simple(station_code: str, status_filter: str, quantity_done
             }), 200
 
         # KROK 2: Pobierz WSZYSTKIE produkty z tych zamowien
-        query = ProductionItem.query.filter(
-            ProductionItem.internal_order_number.in_(order_numbers)
+        query = ProductionProduct.query.join(ProductionOrder).filter(
+            ProductionOrder.internal_order_number.in_(order_numbers)
         )
 
         # Sortowanie

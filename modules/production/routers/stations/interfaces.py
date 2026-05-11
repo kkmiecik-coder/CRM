@@ -30,16 +30,18 @@ def cutting_station():
         HTML: Interfejs stanowiska wycinania z lista produktow
     """
     try:
-        from ...models import ProductionItem
+        from ...models import ProductionItem, ProductionOrder, ProductionProduct
         from sqlalchemy import asc, desc
 
         sort_by = request.args.get('sort', 'priority')
 
         # Wycinanie widzi tylko produkty ze statusem czeka_na_wyciecie (technologia mikrowczep)
         orders_with_cutting = db.session.query(
-            ProductionItem.internal_order_number
+            ProductionOrder.internal_order_number
+        ).join(
+            ProductionProduct, ProductionProduct.order_id == ProductionOrder.id
         ).filter(
-            ProductionItem.current_status == 'czeka_na_wyciecie'
+            ProductionProduct.current_status == 'czeka_na_wyciecie'
         ).distinct().all()
 
         order_numbers = [order[0] for order in orders_with_cutting if order[0]]
@@ -47,9 +49,9 @@ def cutting_station():
         if not order_numbers:
             products = []
         else:
-            query = ProductionItem.query.filter(
-                ProductionItem.internal_order_number.in_(order_numbers),
-                ProductionItem.current_status == 'czeka_na_wyciecie'
+            query = ProductionProduct.query.join(ProductionOrder).filter(
+                ProductionOrder.internal_order_number.in_(order_numbers),
+                ProductionProduct.current_status == 'czeka_na_wyciecie'
             )
 
             # Sortowanie
@@ -215,16 +217,18 @@ def assembly_station():
         HTML: Interfejs stanowiska skladania z lista produktow
     """
     try:
-        from ...models import ProductionItem
+        from ...models import ProductionItem, ProductionOrder, ProductionProduct
         from sqlalchemy import asc, desc
 
         sort_by = request.args.get('sort', 'priority')
 
         # Składanie widzi tylko produkty ze statusem czeka_na_skladanie (technologia lity)
         orders_with_assembly = db.session.query(
-            ProductionItem.internal_order_number
+            ProductionOrder.internal_order_number
+        ).join(
+            ProductionProduct, ProductionProduct.order_id == ProductionOrder.id
         ).filter(
-            ProductionItem.current_status == 'czeka_na_skladanie'
+            ProductionProduct.current_status == 'czeka_na_skladanie'
         ).distinct().all()
 
         order_numbers = [order[0] for order in orders_with_assembly if order[0]]
@@ -232,9 +236,9 @@ def assembly_station():
         if not order_numbers:
             products = []
         else:
-            query = ProductionItem.query.filter(
-                ProductionItem.internal_order_number.in_(order_numbers),
-                ProductionItem.current_status == 'czeka_na_skladanie'
+            query = ProductionProduct.query.join(ProductionOrder).filter(
+                ProductionOrder.internal_order_number.in_(order_numbers),
+                ProductionProduct.current_status == 'czeka_na_skladanie'
             )
 
             # Sortowanie
@@ -586,16 +590,18 @@ def formatting_station():
         HTML: Interfejs stanowiska formatowania z pogrupowanymi zamowieniami
     """
     try:
-        from ...models import ProductionItem
+        from ...models import ProductionItem, ProductionOrder, ProductionProduct
         from sqlalchemy import asc, desc
 
         sort_by = request.args.get('sort', 'priority')
 
         # Znajdz zamowienia ktore maja choc 1 produkt do formatowania
         orders_with_formatting = db.session.query(
-            ProductionItem.internal_order_number
+            ProductionOrder.internal_order_number
+        ).join(
+            ProductionProduct, ProductionProduct.order_id == ProductionOrder.id
         ).filter(
-            ProductionItem.current_status == 'czeka_na_formatowanie'
+            ProductionProduct.current_status == 'czeka_na_formatowanie'
         ).distinct().all()
 
         order_numbers = [order[0] for order in orders_with_formatting if order[0]]
@@ -604,8 +610,8 @@ def formatting_station():
             products = []
         else:
             # Pobierz WSZYSTKIE produkty z tych zamowien
-            query = ProductionItem.query.filter(
-                ProductionItem.internal_order_number.in_(order_numbers)
+            query = ProductionProduct.query.join(ProductionOrder).filter(
+                ProductionOrder.internal_order_number.in_(order_numbers)
             )
 
             if sort_by == 'priority':
@@ -978,7 +984,7 @@ def packaging_station():
         HTML: Interfejs stanowiska pakowania
     """
     try:
-        from ...models import ProductionItem
+        from ...models import ProductionItem, ProductionOrder, ProductionProduct
         from sqlalchemy import asc, desc
 
         sort_by = request.args.get('sort', 'priority')
@@ -986,9 +992,11 @@ def packaging_station():
 
         # NOWA LOGIKA: Znajdz zamowienia ktore maja choc 1 produkt do pakowania
         orders_with_packaging = db.session.query(
-            ProductionItem.internal_order_number
+            ProductionOrder.internal_order_number
+        ).join(
+            ProductionProduct, ProductionProduct.order_id == ProductionOrder.id
         ).filter(
-            ProductionItem.current_status == 'czeka_na_pakowanie'
+            ProductionProduct.current_status == 'czeka_na_pakowanie'
         ).distinct().all()
 
         order_numbers = [order[0] for order in orders_with_packaging if order[0]]
@@ -997,8 +1005,8 @@ def packaging_station():
             products = []
         else:
             # Pobierz WSZYSTKIE produkty z tych zamowien (niezaleznie od statusu)
-            query = ProductionItem.query.filter(
-                ProductionItem.internal_order_number.in_(order_numbers)
+            query = ProductionProduct.query.join(ProductionOrder).filter(
+                ProductionOrder.internal_order_number.in_(order_numbers)
             )
 
             # Sortowanie
