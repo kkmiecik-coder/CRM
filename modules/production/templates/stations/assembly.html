@@ -161,14 +161,14 @@
                 </div>
                 <div class="product-body">
                     <div class="product-params">
-                        {% if product.wood_species %}
-                            <span class="badge badge-species">{{ product.wood_species }}</span>
+                        {% if product.configuration and product.configuration.species %}
+                            <span class="badge badge-species">{{ product.configuration.species }}</span>
                         {% endif %}
-                        {% if product.technology %}
-                            <span class="badge badge-technology">{{ product.technology }}</span>
+                        {% if product.configuration and product.configuration.technology %}
+                            <span class="badge badge-technology">{{ product.configuration.technology }}</span>
                         {% endif %}
-                        {% if product.wood_class %}
-                            <span class="badge badge-class">{{ product.wood_class }}</span>
+                        {% if product.configuration and product.configuration.wood_class %}
+                            <span class="badge badge-class">{{ product.configuration.wood_class }}</span>
                         {% endif %}
                     </div>
                     <div class="product-dimensions-row">
@@ -176,7 +176,7 @@
                             <span class="badge badge-dimensions">{{ product.dimensions }}</span>
                         {% elif product.original_name %}
                             <span class="badge badge-dimensions">{{ product.original_name }}</span>
-                        {% elif product.attachment_file_url %}
+                        {% elif product.order and product.order.attachment_file_url %}
                             <span class="badge badge-dimensions">Zgodnie z zalacznikiem</span>
                         {% endif %}
                         <div class="quantity-controls">
