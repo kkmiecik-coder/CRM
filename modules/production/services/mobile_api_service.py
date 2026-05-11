@@ -469,11 +469,11 @@ def _build_attachments(item):
     size_bytes = 0 — Baselinker nie zwraca rozmiaru, a HEAD na każde serialize
     byłby zbyt drogi. Android użyje Content-Length z response przy pobieraniu.
     """
-    url = (item.order.attachment_file_url if item.order else None or '').strip()
+    url = ((item.order.attachment_file_url if item.order else None) or '').strip()
     if not url:
         return []
 
-    name = (item.order.attachment_file_name if item.order else None or '').strip() or url.rsplit('/', 1)[-1]
+    name = ((item.order.attachment_file_name if item.order else None) or '').strip() or url.rsplit('/', 1)[-1]
     ext = name.rsplit('.', 1)[-1].lower() if '.' in name else ''
     mime_type = _ATTACHMENT_MIME_BY_EXT.get(ext, 'application/octet-stream')
 
