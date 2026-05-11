@@ -22,6 +22,7 @@ from flask_login import login_required, current_user
 from modules.logging import get_structured_logger
 from extensions import db
 from modules.users.decorators import require_module_access
+from sqlalchemy.orm import joinedload
 
 # Utworzenie Blueprint dla głównych routów
 main_bp = Blueprint('production_main', __name__)
@@ -147,7 +148,9 @@ def dashboard():
         # "In production now" — liczone per niespakowana sztuka.
         # Wykluczamy pozycje już spakowane i anulowane; dla pozostałych liczymy
         # remaining = quantity - quantity_done_packaging.
-        in_prod_items = ProductionItem.query.filter(
+        in_prod_items = ProductionItem.query.options(
+            joinedload(ProductionItem.order),
+        ).filter(
             ProductionItem.current_status.notin_(('spakowane', 'anulowane')),
             db.func.coalesce(ProductionItem.quantity_done_packaging, 0) < ProductionItem.quantity
         ).all()
@@ -174,7 +177,9 @@ def dashboard():
         }
 
         # Alerty deadline - produkty zbliżające się do terminu
-        deadline_alerts = ProductionItem.query.filter(
+        deadline_alerts = ProductionItem.query.options(
+            joinedload(ProductionItem.order),
+        ).filter(
             ProductionItem.deadline_date <= date.today() + timedelta(days=3),
             ProductionItem.current_status != 'spakowane'
         ).order_by(ProductionItem.deadline_date.asc()).limit(5).all()

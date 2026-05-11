@@ -382,10 +382,10 @@ class ProductionProduct(db.Model):
 
     def validate_for_prioritization(self):
         required_fields = {
-            'species': self.parsed_wood_species,
+            'species': self.configuration.species if self.configuration else None,
             'finish_state': self.parsed_finish_state,
             'thickness': self.parsed_thickness_cm,
-            'wood_class': self.parsed_wood_class,
+            'wood_class': self.configuration.wood_class if self.configuration else None,
             'width': self.parsed_width_cm,
             'length': self.parsed_length_cm
         }

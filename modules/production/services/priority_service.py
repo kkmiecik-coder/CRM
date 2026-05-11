@@ -31,6 +31,7 @@ from typing import Dict, Any, List, Optional, Tuple, Set
 from collections import defaultdict
 from modules.logging import get_structured_logger
 from sqlalchemy import func
+from sqlalchemy.orm import joinedload
 
 logger = get_structured_logger('production.priority.v2')
 
@@ -187,14 +188,17 @@ class NewPriorityCalculator:
             from ..models import ProductionItem, ProductionOrder
 
             # Query wszystkich produktów w statusach aktywnych
-            query = ProductionItem.query.join(ProductionOrder).filter(
+            query = ProductionItem.query.join(ProductionOrder).options(
+                joinedload(ProductionItem.order),
+                joinedload(ProductionItem.configuration),
+            ).filter(
                 ProductionItem.current_status.in_(self.active_statuses)
             ).order_by(
                 func.isnull(ProductionOrder.payment_date),
                 ProductionOrder.payment_date.asc(),
                 ProductionItem.created_at.asc()
             )
-            
+
             products = query.all()
             
             logger.debug("Pobrano produkty dla priorytetyzacji", extra={
@@ -300,8 +304,8 @@ class NewPriorityCalculator:
                 stats['species'][product.configuration.species] += 1
 
             # Zliczanie technologii
-            if getattr(product, 'parsed_technology', None):
-                stats['technology'][product.parsed_technology] += 1
+            if product.configuration and product.configuration.technology:
+                stats['technology'][product.configuration.technology] += 1
 
             # Zliczanie stanów wykończenia
             if product.parsed_finish_state:
@@ -398,7 +402,7 @@ class NewPriorityCalculator:
                 'product_id': product.id,
                 'deadline_date': product.deadline_date,
                 'parsed_wood_species': getattr(product.configuration, 'species', 'NONE') if product.configuration else 'NONE',
-                'parsed_technology': getattr(product, 'parsed_technology', 'NONE'),
+                'parsed_technology': (product.configuration.technology if product.configuration else None) or 'NONE',
                 'thickness_group': getattr(product, 'thickness_group', 'NONE'),
                 'parsed_wood_class': getattr(product.configuration, 'wood_class', 'NONE') if product.configuration else 'NONE',
                 'payment_date': product.order.payment_date if product.order else None
@@ -415,7 +419,7 @@ class NewPriorityCalculator:
 
             # TECHNOLOGY (technologia) - według group_priorities
             tech_priority = group_priorities.get('technology', {}).get(
-                getattr(product, 'parsed_technology', None), 999
+                product.configuration.technology if product.configuration else None, 999
             )
 
             # THICKNESS_GROUP (grubość) - według group_priorities

@@ -10,6 +10,7 @@ from flask import request, jsonify, render_template
 from flask_login import login_required, current_user
 from extensions import db
 from sqlalchemy import func, and_
+from sqlalchemy.orm import joinedload
 
 from . import api_bp, logger, ProductionItem, ProductionError, ProductionSyncLog, get_local_now
 from modules.production.models import ProductionOrder
@@ -923,7 +924,9 @@ def dashboard_tab_content():
 
         # "In production now" — liczone per niespakowana sztuka.
         # Wykluczamy spakowane i anulowane.
-        in_production_items = ProductionItem.query.filter(
+        in_production_items = ProductionItem.query.options(
+            joinedload(ProductionItem.order),
+        ).filter(
             ProductionItem.current_status.notin_(('spakowane', 'anulowane')),
             db.func.coalesce(ProductionItem.quantity_done_packaging, 0) < ProductionItem.quantity
         ).all()
@@ -951,7 +954,9 @@ def dashboard_tab_content():
             'm3': round(ip_m3_remaining, 2)
         }
 
-        deadline_items = ProductionItem.query.filter(
+        deadline_items = ProductionItem.query.options(
+            joinedload(ProductionItem.order),
+        ).filter(
             ProductionItem.deadline_date <= (today + timedelta(days=3)),
             ProductionItem.current_status != 'spakowane'
         ).order_by(ProductionItem.deadline_date.asc()).all()
@@ -1095,7 +1100,9 @@ def dashboard_data():
             })
 
         today = date.today()
-        deadline_items = ProductionItem.query.filter(
+        deadline_items = ProductionItem.query.options(
+            joinedload(ProductionItem.order),
+        ).filter(
             ProductionItem.deadline_date <= (today + timedelta(days=3)),
             ProductionItem.current_status != 'spakowane'
         ).order_by(ProductionItem.deadline_date.asc()).all()

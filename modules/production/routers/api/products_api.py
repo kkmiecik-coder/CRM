@@ -759,9 +759,9 @@ def products_tab_content():
                 ).scalar() if product.order_id else 1,
 
                 # POPRAWIONE: Specyfikacja produktu - PARSOWANE POLA z bazy danych
-                'parsed_wood_species': get_attr(product, 'parsed_wood_species', None),
-                'parsed_technology': get_attr(product, 'parsed_technology', None),
-                'parsed_wood_class': get_attr(product, 'parsed_wood_class', None),
+                'parsed_wood_species': product.configuration.species if product.configuration else None,
+                'parsed_technology': product.configuration.technology if product.configuration else None,
+                'parsed_wood_class': product.configuration.wood_class if product.configuration else None,
                 'parsed_length_cm': parsed_length_cm,
                 'parsed_width_cm': parsed_width_cm,
                 'parsed_thickness_cm': parsed_thickness_cm,
@@ -2367,20 +2367,20 @@ def _serialize_production_item(item, today=None):
         'days_to_deadline': days_to_deadline,
         'days_until_deadline': days_to_deadline,
         'is_overdue': days_to_deadline < 0 if days_to_deadline is not None else False,
-        'baselinker_order_id': getattr(item, 'baselinker_order_id', None),
+        'baselinker_order_id': item.order.baselinker_order_id if item.order else None,
         'created_at': getattr(item, 'created_at', None),
-        'attachment_file_name': getattr(item, 'attachment_file_name', None),
-        'attachment_file_url': getattr(item, 'attachment_file_url', None),
-        'parsed_wood_species': getattr(item, 'parsed_wood_species', None),
-        'parsed_technology': getattr(item, 'parsed_technology', None),
-        'parsed_wood_class': getattr(item, 'parsed_wood_class', None),
+        'attachment_file_name': item.order.attachment_file_name if item.order else None,
+        'attachment_file_url': item.order.attachment_file_url if item.order else None,
+        'parsed_wood_species': item.configuration.species if item.configuration else None,
+        'parsed_technology': item.configuration.technology if item.configuration else None,
+        'parsed_wood_class': item.configuration.wood_class if item.configuration else None,
         'parsed_finish_state': getattr(item, 'parsed_finish_state', None),
         'cut_to_size': bool(getattr(item, 'cut_to_size', True)),
         'parsed_width_cm': getattr(item, 'parsed_width_cm', None),
         'parsed_length_cm': getattr(item, 'parsed_length_cm', None),
         'parsed_thickness_cm': getattr(item, 'parsed_thickness_cm', None),
-        'client_email': getattr(item, 'client_email', ''),
-        'client_phone': getattr(item, 'client_phone', ''),
+        'client_email': (item.order.client_email if item.order else None) or '',
+        'client_phone': (item.order.client_phone if item.order else None) or '',
         'product_sequence_in_order': getattr(item, 'product_sequence_in_order', None),
         'total_products_in_order': db.session.query(db.func.count(ProductionItem.id)).filter(
             ProductionItem.order_id == item.order_id
@@ -2827,16 +2827,16 @@ def _format_product_for_navigation(product):
     spec_parts = []
     
     # Gatunek drewna
-    if product.parsed_wood_species:
-        spec_parts.append(product.parsed_wood_species)
-    
+    if product.configuration and product.configuration.species:
+        spec_parts.append(product.configuration.species)
+
     # Technologia
-    if product.parsed_technology:
-        spec_parts.append(product.parsed_technology)
-    
+    if product.configuration and product.configuration.technology:
+        spec_parts.append(product.configuration.technology)
+
     # Klasa drewna
-    if product.parsed_wood_class:
-        spec_parts.append(product.parsed_wood_class)
+    if product.configuration and product.configuration.wood_class:
+        spec_parts.append(product.configuration.wood_class)
     
     # Wymiary
     dimensions = []

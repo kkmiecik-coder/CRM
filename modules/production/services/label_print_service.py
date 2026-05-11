@@ -16,6 +16,7 @@ from datetime import datetime
 from extensions import db
 from modules.logging import get_structured_logger
 from modules.production.models import LabelPrintJob, ProductionConfig, ProductionItem, ProductionOrder
+from sqlalchemy.orm import joinedload
 
 logger = get_structured_logger('production.label_print')
 
@@ -465,7 +466,10 @@ def print_labels_batch(short_product_ids, station_code, actor):
 
     items_by_id = {
         i.short_product_id: i
-        for i in ProductionItem.query.filter(ProductionItem.short_product_id.in_(ids)).all()
+        for i in ProductionItem.query.options(
+            joinedload(ProductionItem.order),
+            joinedload(ProductionItem.configuration),
+        ).filter(ProductionItem.short_product_id.in_(ids)).all()
     }
 
     # Tryb agenta — zamiast TCP wstaw rekordy do prod_print_queue

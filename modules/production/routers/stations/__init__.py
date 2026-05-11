@@ -346,7 +346,10 @@ def get_products_for_station(station_code, limit=50, sort_by='priority'):
             return []
 
         # Query podstawowy
-        query = ProductionItem.query.filter_by(
+        query = ProductionItem.query.options(
+            joinedload(ProductionItem.order),
+            joinedload(ProductionItem.configuration),
+        ).filter_by(
             current_status=status_map[station_code]
         )
 
@@ -1127,7 +1130,10 @@ def complete_order_bulk():
         from ...models import ProductionItem
 
         # KROK 1: Pobierz wszystkie produkty
-        products = ProductionItem.query.filter(
+        products = ProductionItem.query.options(
+            joinedload(ProductionItem.order),
+            joinedload(ProductionItem.configuration),
+        ).filter(
             ProductionItem.short_product_id.in_(product_ids)
         ).all()
 

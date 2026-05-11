@@ -117,7 +117,7 @@ def stations_tab_content():
                         'deadline_date': p.deadline_date.isoformat() if p.deadline_date else None,
                         'days_remaining': (p.deadline_date - today).days if p.deadline_date else 0,
                         'volume_m3': float(p.volume_m3 or 0),
-                        'internal_order_number': p.internal_order_number
+                        'internal_order_number': p.order.internal_order_number if p.order else None
                     }
                     for p in pending_products
                 ],

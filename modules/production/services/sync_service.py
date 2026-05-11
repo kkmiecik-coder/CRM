@@ -2144,7 +2144,7 @@ class BaselinkerSyncService:
                                     continue
 
                                 # Generuj ID produktu
-                                order_num = existing_product.internal_order_number
+                                order_num = existing_product.order.internal_order_number if existing_product.order else None
                                 short_product_id = f"{order_num}_{seq_num}"
 
                                 # Parsuj dane produktu
@@ -2163,16 +2163,16 @@ class BaselinkerSyncService:
                                     'quantity': bl_product.get('quantity', 1),
                                     'current_status': 'czeka_na_wyciecie',
                                     'sync_source': 'admin_update',
-                                    'client_name': existing_product.client_name,
-                                    'client_email': existing_product.client_email,
-                                    'client_phone': existing_product.client_phone,
-                                    'delivery_address': existing_product.delivery_address,
+                                    'client_name': existing_product.order.client_name if existing_product.order else None,
+                                    'client_email': existing_product.order.client_email if existing_product.order else None,
+                                    'client_phone': existing_product.order.client_phone if existing_product.order else None,
+                                    'delivery_address': existing_product.order.delivery_address if existing_product.order else None,
                                     'deadline_date': existing_product.deadline_date,
-                                    'payment_date': existing_product.payment_date,
-                                    'client_order_number': existing_product.client_order_number,
-                                    'order_notes': existing_product.order_notes,
-                                    'attachment_file_name': existing_product.attachment_file_name,
-                                    'attachment_file_url': existing_product.attachment_file_url,
+                                    'payment_date': existing_product.order.payment_date if existing_product.order else None,
+                                    'client_order_number': existing_product.order.client_order_number if existing_product.order else None,
+                                    'order_notes': existing_product.order.order_notes if existing_product.order else None,
+                                    'attachment_file_name': existing_product.order.attachment_file_name if existing_product.order else None,
+                                    'attachment_file_url': existing_product.order.attachment_file_url if existing_product.order else None,
                                     'cut_to_size': True,
                                 }
                                 new_product = self._create_production_product_from_data(new_product_data)
