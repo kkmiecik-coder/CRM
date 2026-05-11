@@ -744,14 +744,14 @@ def products_tab_content():
                 'days_until_deadline': days_to_deadline,
                 
                 # Dane klienta
-                'client_name': get_attr(product, 'client_name', ''),
-                'client_email': get_attr(product, 'client_email', ''),
-                'client_phone': get_attr(product, 'client_phone', ''),
-                'delivery_address': get_attr(product, 'delivery_address', ''),
-                
+                'client_name': (product.order.client_name if product.order else None) or '',
+                'client_email': (product.order.client_email if product.order else None) or '',
+                'client_phone': (product.order.client_phone if product.order else None) or '',
+                'delivery_address': (product.order.delivery_address if product.order else None) or '',
+
                 # Dane zamówienia
-                'internal_order_number': get_attr(product, 'internal_order_number', ''),
-                'baselinker_order_id': get_attr(product, 'baselinker_order_id', None),
+                'internal_order_number': (product.order.internal_order_number if product.order else None) or '',
+                'baselinker_order_id': product.order.baselinker_order_id if product.order else None,
                 'baselinker_product_id': get_attr(product, 'baselinker_product_id', ''),
                 'product_sequence_in_order': get_attr(product, 'product_sequence_in_order', 1),
                 'total_products_in_order': db.session.query(func.count(ProductionItem.id)).filter(
@@ -781,9 +781,9 @@ def products_tab_content():
                 'packaging_duration_minutes': get_attr(product, 'packaging_duration_minutes', None),
 
                 # Logistyka
-                'logistics_completed_at': get_attr(product, 'logistics_completed_at').isoformat() if get_attr(product, 'logistics_completed_at') else None,
+                'logistics_completed_at': product.order.logistics_completed_at.isoformat() if product.order and product.order.logistics_completed_at else None,
                 'painting_completed_at': get_attr(product, 'painting_completed_at').isoformat() if get_attr(product, 'painting_completed_at') else None,
-                'override_delivery_method': get_attr(product, 'override_delivery_method', None),
+                'override_delivery_method': product.order.override_delivery_method if product.order else None,
                 'is_personal_pickup': product.order.is_personal_pickup if product.order else None,
 
                 # Przypisani pracownicy
@@ -798,11 +798,11 @@ def products_tab_content():
                 # Timestampy
                 'created_at': product.created_at.isoformat() if hasattr(product, 'created_at') and product.created_at else None,
                 'updated_at': product.updated_at.isoformat() if hasattr(product, 'updated_at') and product.updated_at else None,
-                'sync_source': get_attr(product, 'sync_source', None),
+                'sync_source': product.order.sync_source if product.order else None,
 
                 # Załączniki
-                'attachment_file_name': get_attr(product, 'attachment_file_name', None),
-                'attachment_file_url': get_attr(product, 'attachment_file_url', None),
+                'attachment_file_name': product.order.attachment_file_name if product.order else None,
+                'attachment_file_url': product.order.attachment_file_url if product.order else None,
 
                 # NOWE: Quantity fields (2025-11)
                 'quantity': get_attr(product, 'quantity', 1),
@@ -816,8 +816,8 @@ def products_tab_content():
                 'quantity_done_packaging': get_attr(product, 'quantity_done_packaging', 0),
 
                 # Dodatkowe pola z zamówienia
-                'client_order_number': get_attr(product, 'client_order_number', None),
-                'order_notes': get_attr(product, 'order_notes', None),
+                'client_order_number': product.order.client_order_number if product.order else None,
+                'order_notes': product.order.order_notes if product.order else None,
 
                 # Priorytet ręczny (gwiazdka)
                 'is_priority': get_attr(product, 'is_priority', False),
@@ -2405,9 +2405,9 @@ def _serialize_production_item(item, today=None):
         'packaging_started_at': getattr(item, 'packaging_started_at', None),
         'packaging_completed_at': getattr(item, 'packaging_completed_at', None),
         'packaging_duration_minutes': getattr(item, 'packaging_duration_minutes', None),
-        'logistics_completed_at': getattr(item, 'logistics_completed_at').isoformat() if getattr(item, 'logistics_completed_at', None) else None,
-        'override_delivery_method': getattr(item, 'override_delivery_method', None),
-        'is_personal_pickup': getattr(item, 'is_personal_pickup', False),
+        'logistics_completed_at': item.order.logistics_completed_at.isoformat() if item.order and item.order.logistics_completed_at else None,
+        'override_delivery_method': item.order.override_delivery_method if item.order else None,
+        'is_personal_pickup': item.order.is_personal_pickup if item.order else False,
         'quantity': getattr(item, 'quantity', 1),
         'quantity_done_cutting': getattr(item, 'quantity_done_cutting', 0),
         'quantity_done_assembly': getattr(item, 'quantity_done_assembly', 0),
@@ -2416,7 +2416,7 @@ def _serialize_production_item(item, today=None):
         'quantity_done_formatting': getattr(item, 'quantity_done_formatting', 0),
         'quantity_done_finishing': getattr(item, 'quantity_done_finishing', 0),
         'quantity_done_packaging': getattr(item, 'quantity_done_packaging', 0),
-        'client_order_number': getattr(item, 'client_order_number', None),
+        'client_order_number': item.order.client_order_number if item.order else None,
     }
 
     if product_data['order_date'] and hasattr(product_data['order_date'], 'isoformat'):
