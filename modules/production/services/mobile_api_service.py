@@ -20,6 +20,7 @@ import pytz
 from flask import current_app, g, jsonify, request
 from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import joinedload
 
 from extensions import db
 from modules.logging import get_structured_logger
@@ -1042,7 +1043,10 @@ def get_station_queue_delta(station_code, since_ts):
         ).all()
     ]
 
-    changed_items = base.filter(
+    changed_items = base.options(
+        joinedload(ProductionItem.order),
+        joinedload(ProductionItem.configuration),
+    ).filter(
         ProductionItem.updated_at > since_ts
     ).order_by(
         func.coalesce(ProductionItem.priority_rank, 999999).asc(),
