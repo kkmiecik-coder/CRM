@@ -2353,10 +2353,10 @@ def _serialize_production_item(item, today=None):
     product_data = {
         'id': item.id,
         'short_product_id': getattr(item, 'short_product_id', f'ID-{item.id}'),
-        'internal_order_number': getattr(item, 'internal_order_number', ''),
+        'internal_order_number': (item.order.internal_order_number if item.order else None) or '',
         'product_name': getattr(item, 'original_product_name', getattr(item, 'product_name', 'Brak nazwy')),
         'original_product_name': getattr(item, 'original_product_name', getattr(item, 'product_name', 'Brak nazwy')),
-        'client_name': getattr(item, 'client_name', ''),
+        'client_name': (item.order.client_name if item.order else None) or '',
         'current_status': getattr(item, 'current_status', 'unknown'),
         'priority_rank': getattr(item, 'priority_rank', None),
         'volume_m3': float(getattr(item, 'volume_m3', 0) or 0),
@@ -2417,6 +2417,11 @@ def _serialize_production_item(item, today=None):
         'quantity_done_finishing': getattr(item, 'quantity_done_finishing', 0),
         'quantity_done_packaging': getattr(item, 'quantity_done_packaging', 0),
         'client_order_number': item.order.client_order_number if item.order else None,
+        'unit_price_net': float(getattr(item, 'unit_price_net', 0) or 0),
+        'updated_at': item.updated_at.isoformat() if getattr(item, 'updated_at', None) else None,
+        'sync_source': item.order.sync_source if item.order else None,
+        'delivery_address': (item.order.delivery_address if item.order else None) or '',
+        'order_notes': item.order.order_notes if item.order else None,
     }
 
     if product_data['order_date'] and hasattr(product_data['order_date'], 'isoformat'):
