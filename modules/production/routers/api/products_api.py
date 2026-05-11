@@ -14,6 +14,7 @@ from sqlalchemy import and_, or_, func, distinct, cast, String, case
 
 from . import api_bp, logger, ProductionItem, ProductionError, get_local_now
 from .common_api import admin_required, ip_validation_required, _format_status, _validate_config_value
+from modules.production.models import ProductionOrder, ProductionConfiguration
 
 
 @api_bp.route('/complete-task', methods=['POST'])
@@ -548,19 +549,20 @@ def products_tab_content():
                 completed_to_dt = None
 
         # Pobierz produkty z bazy danych - BEZ LIMITU
-        products_query = ProductionItem.query
+        # Zawsze joinujemy ProductionOrder — potrzebne do filtrowania i wyszukiwania po polach order-level
+        products_query = ProductionItem.query.join(ProductionOrder)
 
         # Subquery: numery zamówień, w których KAŻDA pozycja ma status 'spakowane'
         # (z agregacją MAX/MIN dat na poziomie zamówienia, do filtrowania po dacie zakończenia)
         if view_mode in ('active', 'archive'):
             order_agg_q = db.session.query(
-                ProductionItem.internal_order_number.label('ion'),
+                ProductionOrder.internal_order_number.label('ion'),
                 func.max(ProductionItem.packaging_completed_at).label('order_completed_at'),
                 func.sum(case((ProductionItem.current_status != 'spakowane', 1), else_=0)).label('non_packed_cnt')
-            ).filter(
-                ProductionItem.internal_order_number.isnot(None)
+            ).join(ProductionItem, ProductionItem.order_id == ProductionOrder.id).filter(
+                ProductionOrder.internal_order_number.isnot(None)
             ).group_by(
-                ProductionItem.internal_order_number
+                ProductionOrder.internal_order_number
             )
 
             # archive: tylko w pełni spakowane + opcjonalnie zakres dat zakończenia (na poziomie zamówienia)
@@ -578,7 +580,7 @@ def products_tab_content():
                     )
                 matching_orders_subq = order_agg_q.subquery()
                 products_query = products_query.filter(
-                    ProductionItem.internal_order_number.in_(
+                    ProductionOrder.internal_order_number.in_(
                         db.session.query(matching_orders_subq.c.ion)
                     )
                 )
@@ -587,7 +589,7 @@ def products_tab_content():
                     func.sum(case((ProductionItem.current_status != 'spakowane', 1), else_=0)) == 0
                 ).subquery()
                 products_query = products_query.filter(
-                    ~ProductionItem.internal_order_number.in_(
+                    ~ProductionOrder.internal_order_number.in_(
                         db.session.query(fully_packed_subq.c.ion)
                     )
                 )
@@ -605,14 +607,11 @@ def products_tab_content():
                 search_conditions.append(ProductionItem.original_product_name.ilike(search_pattern))
             if hasattr(ProductionItem, 'short_product_id'):
                 search_conditions.append(ProductionItem.short_product_id.ilike(search_pattern))
-            if hasattr(ProductionItem, 'client_name'):
-                search_conditions.append(ProductionItem.client_name.ilike(search_pattern))
-            if hasattr(ProductionItem, 'internal_order_number'):
-                search_conditions.append(ProductionItem.internal_order_number.ilike(search_pattern))
-            if hasattr(ProductionItem, 'client_order_number'):
-                search_conditions.append(ProductionItem.client_order_number.ilike(search_pattern))
-            if hasattr(ProductionItem, 'baselinker_order_id'):
-                search_conditions.append(cast(ProductionItem.baselinker_order_id, String).ilike(search_pattern))
+            # order-level fields via ProductionOrder (join already present)
+            search_conditions.append(ProductionOrder.client_name.ilike(search_pattern))
+            search_conditions.append(ProductionOrder.internal_order_number.ilike(search_pattern))
+            search_conditions.append(ProductionOrder.client_order_number.ilike(search_pattern))
+            search_conditions.append(cast(ProductionOrder.baselinker_order_id, String).ilike(search_pattern))
 
             if search_conditions:
                 products_query = products_query.filter(or_(*search_conditions))
@@ -756,8 +755,8 @@ def products_tab_content():
                 'baselinker_product_id': get_attr(product, 'baselinker_product_id', ''),
                 'product_sequence_in_order': get_attr(product, 'product_sequence_in_order', 1),
                 'total_products_in_order': db.session.query(func.count(ProductionItem.id)).filter(
-                    ProductionItem.internal_order_number == product.internal_order_number
-                ).scalar() if product.internal_order_number else 1,
+                    ProductionItem.order_id == product.order_id
+                ).scalar() if product.order_id else 1,
 
                 # POPRAWIONE: Specyfikacja produktu - PARSOWANE POLA z bazy danych
                 'parsed_wood_species': get_attr(product, 'parsed_wood_species', None),
@@ -979,12 +978,12 @@ def products_paginated():
         status_filter = request.args.get('status', 'all')
         search_query = request.args.get('search', '')
         
-        # Query builder
-        products_query = ProductionItem.query
-        
+        # Query builder — join ProductionOrder needed for order-level field searches
+        products_query = ProductionItem.query.join(ProductionOrder)
+
         if status_filter and status_filter != 'all':
             products_query = products_query.filter(ProductionItem.current_status == status_filter)
-            
+
         if search_query:
             search_pattern = f"%{search_query}%"
             search_conditions = []
@@ -993,14 +992,11 @@ def products_paginated():
                 search_conditions.append(ProductionItem.original_product_name.ilike(search_pattern))
             if hasattr(ProductionItem, 'short_product_id'):
                 search_conditions.append(ProductionItem.short_product_id.ilike(search_pattern))
-            if hasattr(ProductionItem, 'client_name'):
-                search_conditions.append(ProductionItem.client_name.ilike(search_pattern))
-            if hasattr(ProductionItem, 'internal_order_number'):
-                search_conditions.append(ProductionItem.internal_order_number.ilike(search_pattern))
-            if hasattr(ProductionItem, 'client_order_number'):
-                search_conditions.append(ProductionItem.client_order_number.ilike(search_pattern))
-            if hasattr(ProductionItem, 'baselinker_order_id'):
-                search_conditions.append(cast(ProductionItem.baselinker_order_id, String).ilike(search_pattern))
+            # order-level fields via ProductionOrder (join already present)
+            search_conditions.append(ProductionOrder.client_name.ilike(search_pattern))
+            search_conditions.append(ProductionOrder.internal_order_number.ilike(search_pattern))
+            search_conditions.append(ProductionOrder.client_order_number.ilike(search_pattern))
+            search_conditions.append(cast(ProductionOrder.baselinker_order_id, String).ilike(search_pattern))
 
             if search_conditions:
                 products_query = products_query.filter(or_(*search_conditions))
@@ -2196,23 +2192,23 @@ def get_filters_data():
         ]
         
         # Gatunki drewna
-        wood_species_query = db.session.query(distinct(ProductionItem.parsed_wood_species))\
-                                      .filter(ProductionItem.parsed_wood_species.isnot(None))\
-                                      .filter(ProductionItem.parsed_wood_species != '')\
+        wood_species_query = db.session.query(distinct(ProductionConfiguration.species))\
+                                      .filter(ProductionConfiguration.species.isnot(None))\
+                                      .filter(ProductionConfiguration.species != 'unknown')\
                                       .all()
         wood_species = [{'value': item[0], 'label': item[0]} for item in wood_species_query]
-        
+
         # Technologie
-        technology_query = db.session.query(distinct(ProductionItem.parsed_technology))\
-                                    .filter(ProductionItem.parsed_technology.isnot(None))\
-                                    .filter(ProductionItem.parsed_technology != '')\
+        technology_query = db.session.query(distinct(ProductionConfiguration.technology))\
+                                    .filter(ProductionConfiguration.technology.isnot(None))\
+                                    .filter(ProductionConfiguration.technology != 'unknown')\
                                     .all()
         technologies = [{'value': item[0], 'label': item[0]} for item in technology_query]
-        
+
         # Klasy drewna
-        wood_class_query = db.session.query(distinct(ProductionItem.parsed_wood_class))\
-                                    .filter(ProductionItem.parsed_wood_class.isnot(None))\
-                                    .filter(ProductionItem.parsed_wood_class != '')\
+        wood_class_query = db.session.query(distinct(ProductionConfiguration.wood_class))\
+                                    .filter(ProductionConfiguration.wood_class.isnot(None))\
+                                    .filter(ProductionConfiguration.wood_class != 'unknown')\
                                     .all()
         wood_classes = [{'value': item[0], 'label': item[0]} for item in wood_class_query]
         
@@ -2387,8 +2383,8 @@ def _serialize_production_item(item, today=None):
         'client_phone': getattr(item, 'client_phone', ''),
         'product_sequence_in_order': getattr(item, 'product_sequence_in_order', None),
         'total_products_in_order': db.session.query(db.func.count(ProductionItem.id)).filter(
-            ProductionItem.internal_order_number == item.internal_order_number
-        ).scalar() if item.internal_order_number else None,
+            ProductionItem.order_id == item.order_id
+        ).scalar() if item.order_id else None,
         # Przepływ produkcji - wszystkie 6 stanowisk
         'cutting_started_at': getattr(item, 'cutting_started_at', None),
         'cutting_completed_at': getattr(item, 'cutting_completed_at', None),
@@ -2458,33 +2454,29 @@ def products_filtered():
         default_order = 'asc' if sort_by == 'priority_rank' else 'desc'
         sort_order = request.args.get('sort_order', default_order)
         
-        # Rozpocznij query od wszystkich produktów
-        query = ProductionItem.query
-        
+        # Rozpocznij query od wszystkich produktów — join ProductionOrder dla pól order-level
+        query = ProductionItem.query.join(ProductionOrder)
+
         # Filtrowanie po statusie
         if status_filter and status_filter != 'all':
             query = query.filter(ProductionItem.current_status == status_filter)
-        
+
         # Wyszukiwanie - bez zmian
         if search_query:
             search_pattern = f"%{search_query}%"
             search_conditions = []
-            
+
             if hasattr(ProductionItem, 'original_product_name'):
                 search_conditions.append(ProductionItem.original_product_name.ilike(search_pattern))
             if hasattr(ProductionItem, 'short_product_id'):
                 search_conditions.append(ProductionItem.short_product_id.ilike(search_pattern))
-            if hasattr(ProductionItem, 'internal_order_number'):
-                search_conditions.append(ProductionItem.internal_order_number.ilike(search_pattern))
-            if hasattr(ProductionItem, 'client_name'):
-                search_conditions.append(ProductionItem.client_name.ilike(search_pattern))
+            # order-level fields via ProductionOrder (join already present)
+            search_conditions.append(ProductionOrder.internal_order_number.ilike(search_pattern))
+            search_conditions.append(ProductionOrder.client_name.ilike(search_pattern))
             # Wyszukiwanie po numerze zamówienia klienta (np. "1617/2025")
-            if hasattr(ProductionItem, 'client_order_number'):
-                search_conditions.append(ProductionItem.client_order_number.ilike(search_pattern))
-            # Wyszukiwanie po numerze Baselinker
-            if hasattr(ProductionItem, 'baselinker_order_id'):
-                # baselinker_order_id jest Integer, więc konwertujemy na string do porównania
-                search_conditions.append(cast(ProductionItem.baselinker_order_id, String).ilike(search_pattern))
+            search_conditions.append(ProductionOrder.client_order_number.ilike(search_pattern))
+            # Wyszukiwanie po numerze Baselinker — Integer, cast do String
+            search_conditions.append(cast(ProductionOrder.baselinker_order_id, String).ilike(search_pattern))
 
             if search_conditions:
                 query = query.filter(or_(*search_conditions))
@@ -3167,33 +3159,33 @@ def get_priority_statistics():
         # Manual overrides
         manual_overrides_count = ProductionItem.query.filter_by(priority_manual_override=True).count()
         
-        # Statystyki payment_date
+        # Statystyki payment_date — pole order-level, query bezpośrednio na ProductionOrder
         payment_date_stats = db.session.query(
-            func.count(ProductionItem.id).label('total'),
-            func.count(ProductionItem.payment_date).label('with_payment_date'),
-            func.min(ProductionItem.payment_date).label('oldest_payment'),
-            func.max(ProductionItem.payment_date).label('newest_payment')
+            func.count(ProductionOrder.id).label('total'),
+            func.count(ProductionOrder.payment_date).label('with_payment_date'),
+            func.min(ProductionOrder.payment_date).label('oldest_payment'),
+            func.max(ProductionOrder.payment_date).label('newest_payment')
         ).first()
-        
+
         # Rozkład po tygodniach
         weekly_distribution = []
         if include_details and payment_date_stats.with_payment_date > 0:
-            # Grupuj po tygodniach
+            # Grupuj po tygodniach — join ProductionItem żeby filtrować po current_status
             weekly_query = db.session.query(
-                func.year(ProductionItem.payment_date).label('year'),
-                func.week(ProductionItem.payment_date).label('week'),
+                func.year(ProductionOrder.payment_date).label('year'),
+                func.week(ProductionOrder.payment_date).label('week'),
                 func.count(ProductionItem.id).label('count')
-            ).filter(
-                ProductionItem.payment_date.isnot(None),
+            ).join(ProductionItem, ProductionItem.order_id == ProductionOrder.id).filter(
+                ProductionOrder.payment_date.isnot(None),
                 ProductionItem.current_status.in_([
                     'czeka_na_wyciecie', 'czeka_na_skladanie', 'czeka_na_pakowanie', 'w_realizacji'
                 ])
             ).group_by(
-                func.year(ProductionItem.payment_date),
-                func.week(ProductionItem.payment_date)
+                func.year(ProductionOrder.payment_date),
+                func.week(ProductionOrder.payment_date)
             ).order_by(
-                func.year(ProductionItem.payment_date).asc(),
-                func.week(ProductionItem.payment_date).asc()
+                func.year(ProductionOrder.payment_date).asc(),
+                func.week(ProductionOrder.payment_date).asc()
             ).limit(10).all()
             
             for year, week, count in weekly_query:

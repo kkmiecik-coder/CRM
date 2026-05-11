@@ -11,6 +11,7 @@ from extensions import db
 from sqlalchemy import func
 
 from . import api_bp, logger, ProductionItem, ProductionSyncLog, get_local_now
+from modules.production.models import ProductionConfiguration
 
 VALID_STATIONS = {
     'cutting', 'assembly', 'completion', 'gluing', 'formatting',
@@ -244,16 +245,16 @@ def reports_tab_content():
         # Species+technology breakdown per status
         species_by_status_raw = db.session.query(
             ProductionItem.current_status,
-            ProductionItem.parsed_wood_species,
-            ProductionItem.parsed_technology,
+            ProductionConfiguration.species,
+            ProductionConfiguration.technology,
             func.sum(ProductionItem.volume_m3 * ProductionItem.quantity).label('volume')
-        ).filter(
+        ).join(ProductionConfiguration, ProductionItem.configuration_id == ProductionConfiguration.id).filter(
             ProductionItem.current_status.isnot(None),
-            ProductionItem.parsed_wood_species.isnot(None)
+            ProductionConfiguration.species.isnot(None)
         ).group_by(
             ProductionItem.current_status,
-            ProductionItem.parsed_wood_species,
-            ProductionItem.parsed_technology
+            ProductionConfiguration.species,
+            ProductionConfiguration.technology
         ).all()
 
         species_by_status = {}
@@ -282,13 +283,13 @@ def reports_tab_content():
 
         # Rozkład według gatunków drewna
         species_stats = db.session.query(
-            ProductionItem.parsed_wood_species,
+            ProductionConfiguration.species,
             func.count(ProductionItem.id).label('count'),
             func.sum(ProductionItem.volume_m3 * ProductionItem.quantity).label('volume')
-        ).filter(
-            ProductionItem.parsed_wood_species.isnot(None),
+        ).join(ProductionConfiguration, ProductionItem.configuration_id == ProductionConfiguration.id).filter(
+            ProductionConfiguration.species.isnot(None),
             ProductionItem.current_status != 'anulowane'
-        ).group_by(ProductionItem.parsed_wood_species).all()
+        ).group_by(ProductionConfiguration.species).all()
 
         species_breakdown = [
             {
@@ -322,13 +323,13 @@ def reports_tab_content():
 
         # Rozkład według technologii
         technology_stats = db.session.query(
-            ProductionItem.parsed_technology,
+            ProductionConfiguration.technology,
             func.count(ProductionItem.id).label('count'),
             func.sum(ProductionItem.volume_m3 * ProductionItem.quantity).label('volume')
-        ).filter(
-            ProductionItem.parsed_technology.isnot(None),
+        ).join(ProductionConfiguration, ProductionItem.configuration_id == ProductionConfiguration.id).filter(
+            ProductionConfiguration.technology.isnot(None),
             ProductionItem.current_status != 'anulowane'
-        ).group_by(ProductionItem.parsed_technology).all()
+        ).group_by(ProductionConfiguration.technology).all()
 
         technology_breakdown = [
             {
@@ -341,14 +342,14 @@ def reports_tab_content():
 
         # Rozkład według klasy drewna
         wood_class_stats = db.session.query(
-            ProductionItem.parsed_wood_class,
+            ProductionConfiguration.wood_class,
             func.count(ProductionItem.id).label('count'),
             func.sum(ProductionItem.volume_m3 * ProductionItem.quantity).label('volume')
-        ).filter(
-            ProductionItem.parsed_wood_class.isnot(None),
-            ProductionItem.parsed_wood_class != '',
+        ).join(ProductionConfiguration, ProductionItem.configuration_id == ProductionConfiguration.id).filter(
+            ProductionConfiguration.wood_class.isnot(None),
+            ProductionConfiguration.wood_class != 'unknown',
             ProductionItem.current_status != 'anulowane'
-        ).group_by(ProductionItem.parsed_wood_class).all()
+        ).group_by(ProductionConfiguration.wood_class).all()
 
         wood_class_breakdown = [
             {
