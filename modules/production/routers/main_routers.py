@@ -164,8 +164,8 @@ def dashboard():
             items_count += 1
             pieces_remaining += remaining
             m3_remaining += float(item.volume_m3 or 0) * remaining
-            if item.baselinker_order_id:
-                in_prod_order_ids.add(item.baselinker_order_id)
+            if item.order and item.order.baselinker_order_id:
+                in_prod_order_ids.add(item.order.baselinker_order_id)
         dashboard_stats['in_production'] = {
             'orders': len(in_prod_order_ids),
             'items': items_count,
@@ -187,9 +187,9 @@ def dashboard():
                 'deadline_date': alert.deadline_date.isoformat() if alert.deadline_date else None,
                 'deadline_date_formatted': alert.deadline_date.strftime('%d.%m.%Y') if alert.deadline_date else '',
                 'current_station': alert.current_status.replace('czeka_na_', '') if alert.current_status else 'unknown',
-                'client_name': alert.client_name or 'Brak danych',
-                'client_order_number': alert.client_order_number or '',
-                'baselinker_order_id': alert.baselinker_order_id,
+                'client_name': (alert.order.client_name if alert.order else None) or 'Brak danych',
+                'client_order_number': (alert.order.client_order_number if alert.order else None) or '',
+                'baselinker_order_id': alert.order.baselinker_order_id if alert.order else None,
                 'product_name': alert.original_product_name or '',
                 'quantity': alert.quantity or 1
             }
