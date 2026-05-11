@@ -482,7 +482,7 @@ class ProductionProduct(db.Model):
                 if self.parsed_finish_type in ('olejowane', 'lakierowane'):
                     next_status = 'czeka_na_lakiernie'
 
-            if next_status == 'czeka_na_logistyke' and self.is_personal_pickup:
+            if next_status == 'czeka_na_logistyke' and (self.order and self.order.is_personal_pickup):
                 next_status = 'czeka_na_pakowanie'
                 if self.order:
                     self.order.logistics_completed_at = now
