@@ -428,8 +428,8 @@ def get_products_for_station(station_code, limit=50, sort_by='priority'):
             product_data = {
                 # Podstawowe ID
                 'id': product.short_product_id,
-                'internal_order': product.internal_order_number,
-                'baselinker_order_id': product.baselinker_order_id,
+                'internal_order': product.order.internal_order_number if product.order else None,
+                'baselinker_order_id': product.order.baselinker_order_id if product.order else None,
                 'original_name': product.original_product_name,
                 'current_status': product.current_status,
 
@@ -450,23 +450,23 @@ def get_products_for_station(station_code, limit=50, sort_by='priority'):
                 'volume_m3': volume_m3,
                 'total_value_net': total_value,
                 'created_at': product.created_at,
-                'payment_date': product.payment_date,
+                'payment_date': product.order.payment_date if product.order else None,
 
                 # Specyfikacja produktu
-                'wood_species': product.parsed_wood_species,
-                'technology': product.parsed_technology,
-                'wood_class': product.parsed_wood_class,
+                'wood_species': product.configuration.species if product.configuration else None,
+                'technology': product.configuration.technology if product.configuration else None,
+                'wood_class': product.configuration.wood_class if product.configuration else None,
                 'dimensions': dimensions_text,
                 'finish_state': product.parsed_finish_state,
                 'thickness_group': product.thickness_group,
 
                 # Klient
-                'client_name': product.client_name,
-                'client_order_number': product.client_order_number,
+                'client_name': product.order.client_name if product.order else None,
+                'client_order_number': product.order.client_order_number if product.order else None,
 
                 # Zalaczniki
-                'attachment_file_name': product.attachment_file_name,
-                'attachment_file_url': product.attachment_file_url,
+                'attachment_file_name': product.order.attachment_file_name if product.order else None,
+                'attachment_file_url': product.order.attachment_file_url if product.order else None,
 
                 # Ilosc - nowy system quantity (2025-11)
                 'quantity': product.quantity,
@@ -475,7 +475,7 @@ def get_products_for_station(station_code, limit=50, sort_by='priority'):
                 'is_priority': product.is_priority,
 
                 # Notatki
-                'order_notes': product.order_notes,
+                'order_notes': product.order.order_notes if product.order else None,
                 'production_notes': product.production_notes,
 
                 # Obróbka krawędzi
@@ -524,14 +524,14 @@ def _format_product_display_name(product):
     """
     parts = []
 
-    if product.parsed_wood_species:
-        parts.append(product.parsed_wood_species.title())
+    if product.configuration and product.configuration.species:
+        parts.append(product.configuration.species.title())
 
-    if product.parsed_technology:
-        parts.append(product.parsed_technology.title())
+    if product.configuration and product.configuration.technology:
+        parts.append(product.configuration.technology.title())
 
-    if product.parsed_wood_class:
-        parts.append(f"Klasa {product.parsed_wood_class}")
+    if product.configuration and product.configuration.wood_class:
+        parts.append(f"Klasa {product.configuration.wood_class}")
 
     if all([product.parsed_length_cm, product.parsed_width_cm, product.parsed_thickness_cm]):
         dimensions = f"{product.parsed_length_cm}×{product.parsed_width_cm}×{product.parsed_thickness_cm} cm"
@@ -730,12 +730,12 @@ def _get_monitor_station_data(station_code):
     # Grupuj po zamowieniu
     orders_map = {}
     for item in items_on_station:
-        key = item.internal_order_number
+        key = item.order.internal_order_number if item.order else None
         if key not in orders_map:
             orders_map[key] = {
                 'order_number': key,
-                'baselinker_order_id': item.baselinker_order_id,
-                'client_order_number': item.client_order_number,
+                'baselinker_order_id': item.order.baselinker_order_id if item.order else None,
+                'client_order_number': item.order.client_order_number if item.order else None,
                 'items': [],
             }
         orders_map[key]['items'].append(item)
@@ -749,9 +749,9 @@ def _get_monitor_station_data(station_code):
 
         # Pobierz gatunek/technologie/klase z pierwszego itemu
         first = items[0]
-        wood_species = first.parsed_wood_species or '—'
-        technology = first.parsed_technology or '—'
-        wood_class = first.parsed_wood_class or '—'
+        wood_species = (first.configuration.species if first.configuration else None) or '—'
+        technology = (first.configuration.technology if first.configuration else None) or '—'
+        wood_class = (first.configuration.wood_class if first.configuration else None) or '—'
 
         orders.append({
             'order_number': data['order_number'],
@@ -783,9 +783,11 @@ def _get_monitor_station_data(station_code):
     # Stats per gatunek+technologia
     species_map = {}
     for item in items_on_station:
-        key = f"{item.parsed_wood_species or '—'}|{item.parsed_technology or '—'}"
+        _species = (item.configuration.species if item.configuration else None) or '—'
+        _tech = (item.configuration.technology if item.configuration else None) or '—'
+        key = f"{_species}|{_tech}"
         if key not in species_map:
-            species_map[key] = {'species': item.parsed_wood_species or '—', 'technology': item.parsed_technology or '—', 'count': 0, 'volume': 0.0}
+            species_map[key] = {'species': _species, 'technology': _tech, 'count': 0, 'volume': 0.0}
         species_map[key]['count'] += item.quantity
         species_map[key]['volume'] += float(item.volume_m3 or 0) * item.quantity
 
@@ -860,7 +862,7 @@ def _ajax_get_orders_simple(station_code: str, status_filter: str, quantity_done
         today = date.today()
 
         for product in products:
-            order_num = product.internal_order_number
+            order_num = product.order.internal_order_number if product.order else None
 
             if order_num not in orders_grouped:
                 orders_grouped[order_num] = {
@@ -884,15 +886,15 @@ def _ajax_get_orders_simple(station_code: str, status_filter: str, quantity_done
                 'original_name': product.original_product_name or 'Brak nazwy',
                 'dimensions': None,
                 'volume_m3': float(product.volume_m3 or 0),
-                'wood_species': product.parsed_wood_species,
-                'technology': product.parsed_technology,
-                'wood_class': product.parsed_wood_class,
+                'wood_species': product.configuration.species if product.configuration else None,
+                'technology': product.configuration.technology if product.configuration else None,
+                'wood_class': product.configuration.wood_class if product.configuration else None,
                 'finish_state': product.parsed_finish_state,
                 'current_status': product.current_status,
                 'priority_rank': product.priority_rank or 999,
                 'deadline_date': product.deadline_date.isoformat() if product.deadline_date else None,
-                'attachment_file_name': product.attachment_file_name,
-                'attachment_file_url': product.attachment_file_url,
+                'attachment_file_name': product.order.attachment_file_name if product.order else None,
+                'attachment_file_url': product.order.attachment_file_url if product.order else None,
                 'quantity': product.quantity,
                 'quantity_done': quantity_done,
                 'is_complete': quantity_done == product.quantity,
@@ -907,8 +909,8 @@ def _ajax_get_orders_simple(station_code: str, status_filter: str, quantity_done
             orders_grouped[order_num]['total_products'] += 1
             orders_grouped[order_num]['total_volume'] += float(product.volume_m3 or 0) * (product.quantity or 1)
 
-            if not orders_grouped[order_num]['baselinker_order_id'] and product.baselinker_order_id:
-                orders_grouped[order_num]['baselinker_order_id'] = product.baselinker_order_id
+            if not orders_grouped[order_num]['baselinker_order_id'] and product.order and product.order.baselinker_order_id:
+                orders_grouped[order_num]['baselinker_order_id'] = product.order.baselinker_order_id
 
             if product.priority_rank and product.priority_rank < orders_grouped[order_num]['best_priority_rank']:
                 orders_grouped[order_num]['best_priority_rank'] = product.priority_rank
@@ -1121,7 +1123,8 @@ def complete_order_bulk():
 
         # KROK 2: Walidacja ze wszystkie produkty naleza do tego samego zamowienia
         for product in products:
-            if product.internal_order_number != order_number:
+            _order_number = product.order.internal_order_number if product.order else None
+            if _order_number != order_number:
                 return jsonify({
                     'success': False,
                     'error': f'Produkt {product.short_product_id} nie nalezy do zamowienia {order_number}'
