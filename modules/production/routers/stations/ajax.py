@@ -437,7 +437,10 @@ def ajax_get_orders_cutting():
         sort_by = request.args.get('sort', 'priority')
 
         # Wycinanie widzi tylko produkty ze statusem czeka_na_wyciecie (technologia mikrowczep)
-        query = ProductionItem.query.filter(
+        query = ProductionItem.query.options(
+            joinedload(ProductionItem.order),
+            joinedload(ProductionItem.configuration),
+        ).filter(
             ProductionItem.current_status == 'czeka_na_wyciecie'
         )
 
@@ -591,7 +594,10 @@ def ajax_get_orders_assembly():
         sort_by = request.args.get('sort', 'priority')
 
         # Składanie widzi tylko produkty ze statusem czeka_na_skladanie (technologia lity)
-        query = ProductionItem.query.filter(
+        query = ProductionItem.query.options(
+            joinedload(ProductionItem.order),
+            joinedload(ProductionItem.configuration),
+        ).filter(
             ProductionItem.current_status == 'czeka_na_skladanie'
         )
 
@@ -746,7 +752,10 @@ def ajax_get_orders_completion():
         sort_by = request.args.get('sort', 'priority')
 
         # KROK 1: Pobierz produkty czekajace na kompletacje
-        query = ProductionItem.query.filter(
+        query = ProductionItem.query.options(
+            joinedload(ProductionItem.order),
+            joinedload(ProductionItem.configuration),
+        ).filter(
             ProductionItem.current_status == 'czeka_na_kompletacje'
         )
 
@@ -899,7 +908,10 @@ def ajax_get_orders_gluing():
         sort_by = request.args.get('sort', 'priority')
 
         # KROK 1: Pobierz produkty czekajace na sklejanie
-        query = ProductionItem.query.filter(
+        query = ProductionItem.query.options(
+            joinedload(ProductionItem.order),
+            joinedload(ProductionItem.configuration),
+        ).filter(
             ProductionItem.current_status == 'czeka_na_sklejanie'
         )
 
