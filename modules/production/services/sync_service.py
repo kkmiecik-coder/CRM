@@ -1863,7 +1863,8 @@ class BaselinkerSyncService:
                 result['error'] = f'Brak produktów dla zamówienia {baselinker_order_id} w bazie danych'
                 return result
 
-            result['order_number'] = current_products[0].internal_order_number if current_products else None
+            _first = current_products[0]
+            result['order_number'] = _first.order.internal_order_number if _first.order else None
 
             # 3. Przygotuj mapę aktualnych produktów (po baselinker_product_id)
             current_products_map = {}
@@ -1878,9 +1879,9 @@ class BaselinkerSyncService:
                     'original_product_name': p.original_product_name,
                     'quantity': p.quantity or 1,
                     'current_status': p.current_status,
-                    'wood_species': getattr(p, 'wood_species', None),
-                    'dimensions': getattr(p, 'dimensions', None),
-                    'technology': getattr(p, 'technology', None)
+                    'wood_species': p.configuration.species if p.configuration else None,
+                    'dimensions': None,
+                    'technology': p.configuration.technology if p.configuration else None,
                 })
 
             # 4. Przygotuj mapę produktów z Baselinker
