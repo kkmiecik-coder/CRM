@@ -9,6 +9,7 @@ from flask import request, jsonify, render_template
 from flask_login import login_required, current_user
 from extensions import db
 from sqlalchemy import func
+from sqlalchemy.orm import joinedload
 
 from . import api_bp, logger, ProductionItem, ProductionSyncLog, get_local_now
 from modules.production.models import ProductionConfiguration
@@ -147,6 +148,9 @@ def reports_station_output():
             agg.c.last_event_at,
             agg.c.event_count,
             last_event.c.quantity_done_eod,
+        ).options(
+            joinedload(ProductionItem.order),
+            joinedload(ProductionItem.configuration),
         ).join(
             agg, ProductionItem.id == agg.c.item_id
         ).join(

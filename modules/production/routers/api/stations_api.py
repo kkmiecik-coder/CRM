@@ -8,6 +8,7 @@ from datetime import datetime, date, timedelta
 from flask import request, jsonify, render_template
 from flask_login import login_required, current_user
 from extensions import db
+from sqlalchemy.orm import joinedload
 
 from . import api_bp, logger, ProductionItem, get_local_now
 
@@ -45,6 +46,7 @@ def stations_tab_content():
             
             # Produkty oczekujące na danym stanowisku
             pending_products = ProductionItem.query\
+                                           .options(joinedload(ProductionItem.order))\
                                            .filter_by(current_status=status)\
                                            .order_by(ProductionItem.priority_rank.asc())\
                                            .limit(20).all()

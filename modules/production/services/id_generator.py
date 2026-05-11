@@ -62,16 +62,21 @@ class ProductIDGenerator:
                 'total_products_count': total_products_count
             })
 
-            from ..models import ProductionItem
-            existing_items = ProductionItem.query.filter_by(
-                baselinker_order_id=baselinker_order_id
-            ).all()
+            from ..models import ProductionItem, ProductionOrder
+            from sqlalchemy.orm import joinedload
+            existing_items = (
+                ProductionItem.query
+                .options(joinedload(ProductionItem.order))
+                .join(ProductionOrder)
+                .filter(ProductionOrder.baselinker_order_id == baselinker_order_id)
+                .all()
+            )
 
             is_existing_order = len(existing_items) > 0
 
             if is_existing_order:
                 first_item = existing_items[0]
-                internal_order_number = first_item.internal_order_number
+                internal_order_number = first_item.order.internal_order_number if first_item.order else None
                 order_counter = int(internal_order_number)
 
                 existing_sequences = []

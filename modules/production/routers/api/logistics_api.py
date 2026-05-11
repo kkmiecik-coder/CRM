@@ -8,6 +8,7 @@ from flask import request, jsonify
 from flask_login import login_required, current_user
 from extensions import db
 from sqlalchemy import func
+from sqlalchemy.orm import joinedload
 
 from . import api_bp
 from ...models import ProductionItem, ProductionOrder, get_local_now
@@ -31,6 +32,10 @@ def logistics_orders():
     try:
         items = (
             ProductionItem.query
+            .options(
+                joinedload(ProductionItem.order),
+                joinedload(ProductionItem.configuration),
+            )
             .filter(ProductionItem.current_status == 'czeka_na_logistyke')
             .order_by(db.case((ProductionItem.deadline_date.is_(None), 1), else_=0), ProductionItem.deadline_date.asc())
             .all()
