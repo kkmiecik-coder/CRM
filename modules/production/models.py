@@ -1021,3 +1021,60 @@ class ProductionStationEvent(db.Model):
         return (f'<ProductionStationEvent item={self.production_item_id} '
                 f'{self.station_code} {sign}{self.delta} '
                 f'→ {self.quantity_done_after}>')
+
+
+class ProductionReworkLog(db.Model):
+    """
+    Audit log doróbek — każdy reject z formatowania (przyszłościowo też innych stanowisk)
+    zapisuje wpis z powodem, kto, kiedy, dokąd wraca. closed_at ustawiany gdy doróbka
+    wraca do statusu czeka_na_formatowanie.
+    """
+    __tablename__ = 'prod_rework_log'
+
+    id = Column(Integer, primary_key=True)
+    original_product_id = Column(
+        Integer,
+        ForeignKey('prod_products.id', ondelete='CASCADE'),
+        nullable=False, index=True
+    )
+    rework_product_id = Column(
+        Integer,
+        ForeignKey('prod_products.id', ondelete='CASCADE'),
+        nullable=False, index=True
+    )
+
+    quantity = Column(Integer, nullable=False,
+                      comment='Liczba sztuk cofniętych w tym evencie')
+
+    rejected_at_station = Column(
+        Enum('formatting', 'finishing', 'painting', name='rework_reject_station'),
+        nullable=False, index=True,
+        comment='Stanowisko, z którego cofnięto (MVP: zawsze formatting)'
+    )
+    returned_to_station = Column(
+        Enum('cutting', 'assembly', name='rework_return_station'),
+        nullable=False
+    )
+
+    reason_category = Column(
+        Enum('wymiary', 'jakosc_sklejenia', 'jakosc_produktu', 'inne',
+             name='rework_reason'),
+        nullable=False, index=True
+    )
+    reason_note = Column(Text, nullable=True)
+
+    created_at = Column(DateTime, default=get_local_now, nullable=False, index=True)
+    closed_at = Column(DateTime, nullable=True, index=True,
+                       comment='Kiedy doróbka wróciła do statusu czeka_na_formatowanie')
+
+    user_id = Column(Integer, ForeignKey('users.id', ondelete='SET NULL'), nullable=True)
+    device_id = Column(String(64), nullable=True,
+                       comment='ID tabletu z mobile API; NULL dla operacji web')
+
+    original = relationship('ProductionProduct', foreign_keys=[original_product_id])
+    rework = relationship('ProductionProduct', foreign_keys=[rework_product_id])
+
+    def __repr__(self):
+        return (f'<ProductionReworkLog #{self.id} '
+                f'{self.original_product_id}→{self.rework_product_id} '
+                f'qty={self.quantity} reason={self.reason_category}>')
