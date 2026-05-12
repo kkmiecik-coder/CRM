@@ -581,6 +581,7 @@
                 body: JSON.stringify({
                     order_number: card.dataset.internalOrder,  // wysylamy internal_order_number (np. "25/123") zamiast productId
                     product_ids: [productId],
+                    record_ids: card.dataset.recordId ? [parseInt(card.dataset.recordId, 10)] : undefined,
                     station: window.STATION_CONFIG.stationCode,
                     action: 'complete'
                 }),

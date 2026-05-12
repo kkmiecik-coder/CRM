@@ -524,11 +524,15 @@
             return;
         }
 
-        // Get all product IDs
+        // Get all product IDs (+ record_ids dla disambiguacji oryginal vs doróbka)
         const productIds = [];
+        const recordIds = [];
         const productRows = card.querySelectorAll('.product-row');
         productRows.forEach(row => {
             productIds.push(row.dataset.productId);
+            if (row.dataset.recordId) {
+                recordIds.push(parseInt(row.dataset.recordId, 10));
+            }
         });
 
         if (productIds.length === 0) {
@@ -542,10 +546,10 @@
         card.classList.add('processing');
 
         // Start 10-second countdown
-        startCountdown(card, orderNumber, productIds);
+        startCountdown(card, orderNumber, productIds, recordIds);
     }
 
-    function startCountdown(card, orderNumber, productIds) {
+    function startCountdown(card, orderNumber, productIds, recordIds) {
         console.log(`[Formatting] Starting 10-second countdown for ${orderNumber}`);
 
         const actionContainer = card.querySelector('.order-action');
@@ -586,7 +590,7 @@
                 // Countdown complete - execute bulk completion
                 clearInterval(timerId);
                 state.activeCountdowns.delete(orderNumber);
-                completeOrder(card, orderNumber, productIds);
+                completeOrder(card, orderNumber, productIds, recordIds);
             }
         }, 1000);
 
@@ -640,8 +644,8 @@
     // BULK COMPLETION - Optimistic UI
     // ========================================================================
 
-    async function completeOrder(card, orderNumber, productIds) {
-        console.log(`[Formatting] Starting bulk completion for ${orderNumber}`, productIds);
+    async function completeOrder(card, orderNumber, productIds, recordIds) {
+        console.log(`[Formatting] Starting bulk completion for ${orderNumber}`, productIds, recordIds);
 
         // BACKUP before removal
         const cardBackup = card.cloneNode(true);
@@ -667,6 +671,7 @@
                 body: JSON.stringify({
                     order_number: orderNumber,
                     product_ids: productIds,
+                    record_ids: (recordIds && recordIds.length > 0) ? recordIds : undefined,
                     station: 'formatting',
                     action: 'complete'
                 }),

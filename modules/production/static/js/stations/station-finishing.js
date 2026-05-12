@@ -402,6 +402,7 @@
                 body: JSON.stringify({
                     order_number: card.dataset.internalOrder,
                     product_ids: [productId],
+                    record_ids: card.dataset.recordId ? [parseInt(card.dataset.recordId, 10)] : undefined,
                     station: state.config.stationCode,
                     action: 'complete'
                 }),
