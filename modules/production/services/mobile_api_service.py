@@ -745,40 +745,6 @@ def stream_apk_response(version_code):
 # UPLOAD / RELEASE MANAGEMENT (admin)
 # ----------------------------------------------------------------------------
 
-def _parse_apk_metadata(apk_path):
-    """
-    Ekstrahuje (version_code, version_name) z pliku APK używając pyaxmlparser.
-    Rzuca ValueError gdy plik nie jest poprawnym APK lub brakuje pól.
-    """
-    try:
-        from pyaxmlparser import APK  # lazy import — biblioteka opcjonalna
-    except ImportError as e:
-        raise RuntimeError(
-            'pyaxmlparser nie jest zainstalowany. '
-            'Dodaj `pyaxmlparser` do requirements.txt i `pip install`.'
-        ) from e
-
-    try:
-        apk = APK(str(apk_path))
-    except Exception as e:
-        raise ValueError(f'Niepoprawny plik APK: {e}') from e
-
-    version_code_raw = apk.version_code
-    version_name = apk.version_name
-
-    if not version_code_raw:
-        raise ValueError('APK nie zawiera versionCode w manifeście')
-    if not version_name:
-        raise ValueError('APK nie zawiera versionName w manifeście')
-
-    try:
-        version_code = int(version_code_raw)
-    except (TypeError, ValueError):
-        raise ValueError(f'versionCode nie jest liczbą: {version_code_raw!r}')
-
-    return version_code, str(version_name)
-
-
 def _hash_file_sha256(path, chunk_size=1024 * 1024):
     """SHA-256 pliku, czytany w kawałkach (1 MB) żeby nie ładować ~11 MB do RAM."""
     import hashlib
@@ -792,23 +758,23 @@ def _hash_file_sha256(path, chunk_size=1024 * 1024):
     return h.hexdigest()
 
 
-def register_release(file_storage, version_name_override, release_notes, user_id):
+def register_release(file_storage, version_code, version_name, release_notes, user_id):
     """
     Rejestruje nowy release APK.
 
     Kroki:
     1. Save uploadu do tymczasowego pliku w instance/mobile_apk/.
     2. Walidacja rozmiaru (<= APK_MAX_SIZE_BYTES).
-    3. Parsowanie version_code/version_name z manifestu APK (pyaxmlparser).
-    4. Walidacja: version_code > max(istniejących); brak duplikatu.
-    5. SHA-256 całego pliku.
-    6. Rename pliku do finalnej nazwy `<version_code>-<sha256_short>.apk`.
-    7. INSERT do mobile_app_releases.
+    3. Walidacja: version_code > max(istniejących); brak duplikatu.
+    4. SHA-256 całego pliku.
+    5. Rename pliku do finalnej nazwy `<version_code>-<sha256_short>.apk`.
+    6. INSERT do mobile_app_releases.
 
-    Body przyjmuje `version_name_override` (jeśli admin chce nadpisać nazwę
-    z manifestu — np. dodać sufix "-hotfix"). Gdy puste, używamy z APK.
+    `version_code` i `version_name` admin podaje w formularzu (z build.gradle.kts).
+    Backend nie parsuje już manifestu APK — pyaxmlparser był wąskim gardłem
+    (2-3 min na shared hostingu) i wycinamy go z flow uploadu.
 
-    Rzuca ValueError dla błędów walidacji (404/400 dla klienta), inne wyjątki
+    Rzuca ValueError dla błędów walidacji (400 dla klienta), inne wyjątki
     propagują do error handlera.
     """
     import os
@@ -833,8 +799,6 @@ def register_release(file_storage, version_name_override, release_notes, user_id
                 f'{APK_MAX_SIZE_BYTES} B (50 MB)'
             )
 
-        version_code, version_name_apk = _parse_apk_metadata(tmp_path)
-
         max_existing = db.session.query(
             func.coalesce(func.max(MobileAppRelease.version_code), 0)
         ).scalar() or 0
@@ -857,7 +821,6 @@ def register_release(file_storage, version_name_override, release_notes, user_id
             )
         os.replace(str(tmp_path), str(final_path))
 
-        version_name = (version_name_override or '').strip() or version_name_apk
         rel_path = f'mobile_apk/{final_name}'
 
         release = MobileAppRelease(
