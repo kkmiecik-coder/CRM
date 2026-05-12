@@ -175,6 +175,38 @@ def main():
         finally:
             cleanup(order_id)
 
+        # === Scenariusz 4: domykanie closed_at po powrocie doróbki na formatowanie ===
+        order, product = make_test_order_and_product(quantity=5, formatting_done=2, technology='lite')
+        order_id = order.id
+
+        try:
+            original, rework, log = reject_product_quantity(
+                product_id=product.id,
+                quantity=1,
+                reason_category='inne',
+                reason_note=None,
+                rejected_at_station='formatting',
+                device_id='SMOKE',
+            )
+            assert log.closed_at is None, "świeży log powinien mieć closed_at=NULL"
+
+            # Symulacja: doróbka przechodzi cutting/assembly → completion → gluing → formatting
+            # Dla 'lite' (parsed_technology) — assembly→completion→gluing
+            rework.set_quantity_done('assembly', 1, source='system')
+            rework.complete_task('assembly')
+            rework.set_quantity_done('completion', 1, source='system')
+            rework.complete_task('completion')
+            rework.set_quantity_done('gluing', 1, source='system')
+            rework.complete_task('gluing')
+            db.session.commit()
+
+            assert rework.current_status == 'czeka_na_formatowanie', f"status doróbki: {rework.current_status}"
+            db.session.refresh(log)
+            assert log.closed_at is not None, "closed_at powinien być ustawiony"
+            print("OK Domykanie closed_at")
+        finally:
+            cleanup(order_id)
+
         print("\n=== ALL SMOKE TESTS PASSED ===")
 
 
