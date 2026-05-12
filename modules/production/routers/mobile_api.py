@@ -289,6 +289,7 @@ def order_quantity(order_id):
 
 @mobile_api_bp.route('/orders/<int:order_id>/reject', methods=['POST'])
 @require_device_token
+@with_idempotency
 def order_reject(order_id):
     """
     POST /api/mobile/orders/<id>/reject
