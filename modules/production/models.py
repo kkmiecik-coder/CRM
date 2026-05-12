@@ -387,6 +387,7 @@ class ProductionProduct(db.Model):
             raise ValueError("Numer priorytetu musi być >= 1")
         self.priority_rank = rank
         self.priority_manual_override = True
+        self.is_priority = True
 
     def unlock_priority(self):
         self.priority_manual_override = False

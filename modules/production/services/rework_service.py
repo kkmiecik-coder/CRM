@@ -138,10 +138,7 @@ def reject_product_quantity(
         short_product_id=original.short_product_id,
         order_id=original.order_id,
         configuration_id=original.configuration_id,
-        # parsed_*
-        parsed_wood_species=original.parsed_wood_species,
-        parsed_wood_class=original.parsed_wood_class,
-        parsed_technology=original.parsed_technology,
+        # parsed_* (species/wood_class/technology pochodzą z configuration_id)
         parsed_thickness_cm=original.parsed_thickness_cm,
         parsed_width_cm=original.parsed_width_cm,
         parsed_length_cm=original.parsed_length_cm,
@@ -159,6 +156,8 @@ def reject_product_quantity(
         shape_svg=original.shape_svg,
         lamella_direction=original.lamella_direction,
         quote_item_detail_id=original.quote_item_detail_id,
+        product_sequence_in_order=original.product_sequence_in_order,
+        baselinker_product_id=original.baselinker_product_id,
         original_product_name=original.original_product_name,
         cut_to_size=original.cut_to_size,
         thickness_group=original.thickness_group,
