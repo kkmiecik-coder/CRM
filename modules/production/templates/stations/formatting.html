@@ -259,6 +259,10 @@
                                     data-short-id="{{ product.id }}"
                                     data-quantity="{{ product.quantity }}"
                                     data-quantity-done-formatting="{{ product.quantity_done_formatting or 0 }}"
+                                    data-species="{{ product.wood_species or '' }}"
+                                    data-technology="{{ product.technology or '' }}"
+                                    data-wood-class="{{ product.wood_class or '' }}"
+                                    data-dimensions="{{ product.dimensions or product.original_name or '' }}"
                                     title="Cofnij sztuki do doróbki">
                                 <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 14 4 9 9 4"/><path d="M20 20v-7a4 4 0 0 0-4-4H4"/></svg>
                             </button>
@@ -346,7 +350,12 @@
       <div class="reject-modal-backdrop" data-close></div>
       <div class="reject-modal-dialog" role="dialog" aria-modal="true" aria-labelledby="rejectModalTitle">
         <h2 id="rejectModalTitle">Cofnij do doróbki</h2>
-        <p class="reject-modal-product">Produkt: <strong id="rejectModalProductId">—</strong></p>
+        <div class="reject-modal-product-info">
+          <span class="reject-modal-product-id" id="rejectModalProductId">—</span>
+          <div class="reject-modal-badges" id="rejectModalBadges">
+            <!-- wypełniane przez JS -->
+          </div>
+        </div>
 
         <label class="reject-modal-label">Ilość sztuk do cofnięcia</label>
         <div class="reject-modal-qty">
@@ -363,9 +372,6 @@
           <option value="jakosc_produktu">Jakość produktu</option>
           <option value="inne">Inne</option>
         </select>
-
-        <label class="reject-modal-label" for="rejectModalNote">Notatka (opcjonalnie)</label>
-        <textarea id="rejectModalNote" rows="2" maxlength="500"></textarea>
 
         <div id="rejectModalError" class="reject-modal-error" hidden></div>
 

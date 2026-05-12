@@ -1337,7 +1337,6 @@
     const qtyInput = document.getElementById('rejectModalQty');
     const qtyMax = document.getElementById('rejectModalQtyMax');
     const reasonSelect = document.getElementById('rejectModalReason');
-    const noteInput = document.getElementById('rejectModalNote');
     const errorBox = document.getElementById('rejectModalError');
     const confirmBtn = document.getElementById('rejectModalConfirm');
     const productLabel = document.getElementById('rejectModalProductId');
@@ -1349,12 +1348,33 @@
         currentMax = Math.max(0, qty - done);
 
         productLabel.textContent = btn.dataset.shortId || currentProductId;
+
+        // Render badges z data-attrs
+        const badges = document.getElementById('rejectModalBadges');
+        if (badges) {
+            badges.innerHTML = '';
+            const species = btn.dataset.species;
+            const technology = btn.dataset.technology;
+            const woodClass = btn.dataset.woodClass;
+            const dimensions = btn.dataset.dimensions;
+            function addBadge(text, cls) {
+                if (!text) return;
+                const el = document.createElement('span');
+                el.className = 'reject-modal-badge ' + cls;
+                el.textContent = text;
+                badges.appendChild(el);
+            }
+            addBadge(species, 'species');
+            addBadge(technology, 'technology');
+            addBadge(woodClass, 'wood-class');
+            addBadge(dimensions, 'dimensions');
+        }
+
         qtyInput.value = '1';
         qtyInput.min = '1';
         qtyInput.max = String(currentMax);
         qtyMax.textContent = String(currentMax);
         reasonSelect.value = 'wymiary';
-        noteInput.value = '';
         errorBox.hidden = true;
         errorBox.textContent = '';
 
@@ -1413,7 +1433,6 @@
                 body: JSON.stringify({
                     quantity,
                     reason_category: reasonSelect.value,
-                    reason_note: noteInput.value || null,
                     station_code: 'formatting',
                 })
             });
