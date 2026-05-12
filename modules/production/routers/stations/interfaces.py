@@ -93,6 +93,7 @@ def cutting_station():
 
                 product_data = {
                     'id': product.short_product_id,
+                    'record_id': product.id,
                     'internal_order': product.order.internal_order_number if product.order else None,
                     'baselinker_order_id': product.order.baselinker_order_id if product.order else None,
                     'original_name': product.original_product_name,
@@ -290,6 +291,7 @@ def assembly_station():
 
                 product_data = {
                     'id': product.short_product_id,
+                    'record_id': product.id,
                     'internal_order': product.order.internal_order_number if product.order else None,
                     'baselinker_order_id': product.order.baselinker_order_id if product.order else None,
                     'original_name': product.original_product_name,
@@ -496,6 +498,7 @@ def _render_completion_or_gluing(active_tab):
 
             products.append({
                 'id': product.short_product_id,
+                'record_id': product.id,
                 'internal_order': product.order.internal_order_number if product.order else None,
                 'baselinker_order_id': product.order.baselinker_order_id if product.order else None,
                 'original_name': product.original_product_name,
@@ -683,6 +686,7 @@ def formatting_station():
 
                 product_data = {
                     'id': product.short_product_id,
+                    'record_id': product.id,
                     'internal_order': product.order.internal_order_number if product.order else None,
                     'baselinker_order_id': product.order.baselinker_order_id if product.order else None,
                     'original_name': product.original_product_name,
@@ -929,6 +933,7 @@ def finishing_station():
 
             product_data = {
                 'id': product.short_product_id,
+                'record_id': product.id,
                 'internal_order': product.order.internal_order_number if product.order else None,
                 'baselinker_order_id': product.order.baselinker_order_id if product.order else None,
                 'original_name': product.original_product_name,
@@ -1150,6 +1155,7 @@ def packaging_station():
 
                 product_data = {
                     'id': product.short_product_id,
+                    'record_id': product.id,
                     'internal_order': product.order.internal_order_number if product.order else None,
                     'baselinker_order_id': product.order.baselinker_order_id if product.order else None,
                     'original_name': product.original_product_name,

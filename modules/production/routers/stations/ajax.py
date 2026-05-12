@@ -260,6 +260,7 @@ def ajax_get_orders_packaging():
             # Dodaj produkt do zamowienia
             product_data = {
                 'id': product.short_product_id,
+                'record_id': product.id,
                 'original_name': product.original_product_name or 'Brak nazwy',
                 'volume_m3': float(product.volume_m3 or 0),
                 'current_status': product.current_status,
@@ -519,6 +520,7 @@ def ajax_get_orders_cutting():
 
             product_data = {
                 'id': product.short_product_id,
+                'record_id': product.id,
                 'short_product_id': product.short_product_id,
                 'product_sequence_in_order': product.product_sequence_in_order,
                 'internal_order_number': product.order.internal_order_number if product.order else None,
@@ -678,6 +680,7 @@ def ajax_get_orders_assembly():
 
             product_data = {
                 'id': product.short_product_id,
+                'record_id': product.id,
                 'short_product_id': product.short_product_id,
                 'product_sequence_in_order': product.product_sequence_in_order,
                 'internal_order_number': product.order.internal_order_number if product.order else None,
@@ -838,6 +841,7 @@ def ajax_get_orders_completion():
 
             product_data = {
                 'id': product.short_product_id,
+                'record_id': product.id,
                 'short_product_id': product.short_product_id,
                 'product_sequence_in_order': product.product_sequence_in_order,
                 'internal_order_number': product.order.internal_order_number if product.order else None,
@@ -996,6 +1000,7 @@ def ajax_get_orders_gluing():
 
             product_data = {
                 'id': product.short_product_id,
+                'record_id': product.id,
                 'short_product_id': product.short_product_id,
                 'product_sequence_in_order': product.product_sequence_in_order,
                 'internal_order_number': product.order.internal_order_number if product.order else None,

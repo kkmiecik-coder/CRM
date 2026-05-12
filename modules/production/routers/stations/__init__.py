@@ -432,6 +432,7 @@ def get_products_for_station(station_code, limit=50, sort_by='priority'):
             product_data = {
                 # Podstawowe ID
                 'id': product.short_product_id,
+                'record_id': product.id,
                 'internal_order': product.order.internal_order_number if product.order else None,
                 'baselinker_order_id': product.order.baselinker_order_id if product.order else None,
                 'original_name': product.original_product_name,
@@ -911,6 +912,7 @@ def _ajax_get_orders_simple(station_code: str, status_filter: str, quantity_done
             # Dodaj produkt do zamowienia
             product_data = {
                 'id': product.short_product_id,
+                'record_id': product.id,
                 'short_product_id': product.short_product_id,
                 'product_sequence_in_order': product.product_sequence_in_order,
                 'original_name': product.original_product_name or 'Brak nazwy',
@@ -1185,6 +1187,7 @@ def complete_order_bulk():
             if not is_valid:
                 invalid_products.append({
                     'id': product.short_product_id,
+                    'record_id': product.id,
                     'current_status': product.current_status,
                     'expected_statuses': expected_statuses
                 })
