@@ -126,8 +126,23 @@ def api_mobile_release_upload():
     if apk_file is None:
         return jsonify({'success': False, 'error': 'Brak pliku APK'}), 400
 
+    version_code_raw = request.form.get('version_code', '').strip()
     version_name = request.form.get('version_name', '').strip()
     release_notes = request.form.get('release_notes', '').strip()
+
+    if not version_code_raw:
+        return jsonify({'success': False, 'error': 'Pole `version_code` jest wymagane (z build.gradle.kts)'}), 400
+    try:
+        version_code = int(version_code_raw)
+    except ValueError:
+        return jsonify({'success': False, 'error': f'Pole `version_code` musi być liczbą całkowitą (otrzymano: {version_code_raw!r})'}), 400
+    if version_code <= 0:
+        return jsonify({'success': False, 'error': 'Pole `version_code` musi być większe od 0'}), 400
+
+    if not version_name:
+        return jsonify({'success': False, 'error': 'Pole `version_name` jest wymagane (z build.gradle.kts)'}), 400
+    if len(version_name) > 32:
+        return jsonify({'success': False, 'error': 'Pole `version_name` może mieć maksymalnie 32 znaki'}), 400
 
     user_email = session.get('user_email')
     user = User.query.filter_by(email=user_email).first()
@@ -135,7 +150,8 @@ def api_mobile_release_upload():
     try:
         release = register_release(
             file_storage=apk_file,
-            version_name_override=version_name,
+            version_code=version_code,
+            version_name=version_name,
             release_notes=release_notes,
             user_id=user.id if user else None,
         )

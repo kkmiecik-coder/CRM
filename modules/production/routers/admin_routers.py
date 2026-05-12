@@ -370,10 +370,10 @@ def mobile_upload_apk():
     """
     POST /production/admin/mobile/upload-apk
 
-    Multipart form: pole `apk` (plik), `version_name` (opcjonalnie, override
-    z manifestu APK), `release_notes` (opcjonalnie). Backend parsuje
-    versionCode/versionName z APK przez pyaxmlparser, waliduje versionCode
-    > max(istniejących), zapisuje plik do instance/mobile_apk/.
+    Multipart form: pole `apk` (plik), `version_code` (wymagane, int > 0,
+    z build.gradle.kts), `version_name` (wymagane, string, max 32 znaki),
+    `release_notes` (opcjonalnie). Backend waliduje versionCode
+    > max(istniejących) i zapisuje plik do instance/mobile_apk/.
     """
     from ..services.mobile_api_service import register_release
 
@@ -381,13 +381,29 @@ def mobile_upload_apk():
     if apk_file is None:
         return jsonify({'success': False, 'error': 'Brak pola `apk` w formularzu'}), 400
 
+    version_code_raw = request.form.get('version_code', '').strip()
     version_name = request.form.get('version_name', '').strip()
     release_notes = request.form.get('release_notes', '').strip()
+
+    if not version_code_raw:
+        return jsonify({'success': False, 'error': 'Pole `version_code` jest wymagane (z build.gradle.kts)'}), 400
+    try:
+        version_code = int(version_code_raw)
+    except ValueError:
+        return jsonify({'success': False, 'error': f'Pole `version_code` musi być liczbą całkowitą (otrzymano: {version_code_raw!r})'}), 400
+    if version_code <= 0:
+        return jsonify({'success': False, 'error': 'Pole `version_code` musi być większe od 0'}), 400
+
+    if not version_name:
+        return jsonify({'success': False, 'error': 'Pole `version_name` jest wymagane (z build.gradle.kts)'}), 400
+    if len(version_name) > 32:
+        return jsonify({'success': False, 'error': 'Pole `version_name` może mieć maksymalnie 32 znaki'}), 400
 
     try:
         release = register_release(
             file_storage=apk_file,
-            version_name_override=version_name,
+            version_code=version_code,
+            version_name=version_name,
             release_notes=release_notes,
             user_id=current_user.id,
         )

@@ -224,15 +224,21 @@
                             <div class="form-group">
                                 <label>Plik APK <span class="required">*</span></label>
                                 <input type="file" name="apk" id="apkFileInput" accept=".apk,application/vnd.android.package-archive" required>
-                                <small class="form-hint">version_code i version_name zostaną odczytane automatycznie z manifestu APK. version_code musi być wyższy od poprzedniego.</small>
+                                <small class="form-hint">version_code i version_name wpisz ręcznie z <code>build.gradle.kts</code>. version_code musi być wyższy od poprzedniego.</small>
                             </div>
                             <div class="form-group">
-                                <label>Nazwa wersji (opcjonalnie)</label>
-                                <input type="text" name="version_name" placeholder="np. 1.0.2-hotfix (puste = z manifestu APK)">
+                                <label>versionCode <span class="required">*</span></label>
+                                <input type="number" name="version_code" min="1" step="1" placeholder="np. 12" required>
+                                <small class="form-hint">Liczba całkowita z <code>build.gradle.kts</code> (defaultConfig → versionCode).</small>
+                            </div>
+                            <div class="form-group">
+                                <label>versionName <span class="required">*</span></label>
+                                <input type="text" name="version_name" maxlength="32" placeholder="np. 1.0.2-hotfix" required>
+                                <small class="form-hint">String z <code>build.gradle.kts</code> (defaultConfig → versionName), max 32 znaki.</small>
                             </div>
                             <div class="form-group">
                                 <label>Release notes (opcjonalnie)</label>
-                                <textarea name="release_notes" rows="5" placeholder="Co się zmieniło w tej wersji? Każda linia będzie widoczna na tablecie."></textarea>
+                                <textarea name="release_notes" rows="5" placeholder="Co się zmieniło w tej wersji? Każda linia będzie widoczna na tablecie." style="width: 100%; box-sizing: border-box; resize: vertical;"></textarea>
                             </div>
                             <div class="apk-upload-progress" id="apkUploadProgress" style="display: none;">
                                 <div class="apk-progress-bar-wrapper">
