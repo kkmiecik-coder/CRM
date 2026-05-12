@@ -1070,7 +1070,6 @@ class ProductionReworkLog(db.Model):
              name='rework_reason'),
         nullable=False, index=True
     )
-    reason_note = Column(Text, nullable=True)
 
     created_at = Column(DateTime, default=get_local_now, nullable=False, index=True)
     closed_at = Column(DateTime, nullable=True, index=True,

@@ -33,7 +33,6 @@ CREATE TABLE prod_rework_log (
   rejected_at_station ENUM('formatting','finishing','painting') NOT NULL,
   returned_to_station ENUM('cutting','assembly') NOT NULL,
   reason_category ENUM('wymiary','jakosc_sklejenia','jakosc_produktu','inne') NOT NULL,
-  reason_note TEXT NULL,
   created_at DATETIME NOT NULL,
   closed_at DATETIME NULL COMMENT 'Kiedy doróbka wróciła do statusu czeka_na_formatowanie',
   user_id INT NULL,

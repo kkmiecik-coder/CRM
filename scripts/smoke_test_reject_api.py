@@ -64,7 +64,6 @@ def main():
         json={
             'quantity': 1,
             'reason_category': 'wymiary',
-            'reason_note': 'smoke API test',
             'station_code': 'formatting',
         },
         timeout=10,

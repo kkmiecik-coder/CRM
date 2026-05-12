@@ -373,7 +373,6 @@ def product_reject(product_id):
     Body JSON: {
         quantity: int (>= 1),
         reason_category: 'wymiary'|'jakosc_sklejenia'|'jakosc_produktu'|'inne',
-        reason_note: str|null (opcjonalne),
         station_code: 'formatting' (opcjonalne, MVP zawsze formatting)
     }
 
@@ -385,9 +384,6 @@ def product_reject(product_id):
     data = request.get_json(silent=True) or {}
     quantity = data.get('quantity')
     reason_category = (data.get('reason_category') or '').strip()
-    reason_note = data.get('reason_note')
-    if reason_note is not None:
-        reason_note = str(reason_note).strip() or None
     station_code = (data.get('station_code') or 'formatting').strip()
 
     try:
@@ -395,7 +391,6 @@ def product_reject(product_id):
             product_id=product_id,
             quantity=int(quantity) if quantity is not None else None,
             reason_category=reason_category,
-            reason_note=reason_note,
             rejected_at_station=station_code,
             user_id=None,
             device_id=None,

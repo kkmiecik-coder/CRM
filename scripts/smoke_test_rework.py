@@ -111,7 +111,6 @@ def main():
                 product_id=product_id,
                 quantity=1,
                 reason_category='wymiary',
-                reason_note='smoke test',
                 rejected_at_station='formatting',
                 device_id='SMOKE',
             )
@@ -142,7 +141,6 @@ def main():
                 product_id=product_id,
                 quantity=3,
                 reason_category='jakosc_sklejenia',
-                reason_note=None,
                 rejected_at_station='formatting',
                 device_id='SMOKE',
             )
@@ -164,7 +162,6 @@ def main():
                     product_id=product_id,
                     quantity=4,  # ale dostępne jest tylko 3 (5-2)
                     reason_category='wymiary',
-                    reason_note=None,
                     rejected_at_station='formatting',
                     device_id='SMOKE',
                 )
@@ -184,7 +181,6 @@ def main():
                 product_id=product.id,
                 quantity=1,
                 reason_category='inne',
-                reason_note=None,
                 rejected_at_station='formatting',
                 device_id='SMOKE',
             )

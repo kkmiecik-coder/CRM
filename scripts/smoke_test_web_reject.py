@@ -43,7 +43,6 @@ def main():
     r = requests.post(url, json={
         'quantity': 1,
         'reason_category': 'wymiary',
-        'reason_note': 'web smoke test',
         'station_code': 'formatting',
     }, timeout=10)
 
