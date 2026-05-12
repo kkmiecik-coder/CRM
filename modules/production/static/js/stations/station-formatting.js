@@ -1325,3 +1325,116 @@
     console.log('[Formatting] Module loaded v3.0 (quantity-based with +/- buttons)');
 
 })();
+
+// === Reject (cofanie do doróbki) ===
+(function setupRejectModal() {
+    const modal = document.getElementById('rejectModal');
+    if (!modal) return;
+
+    let currentProductId = null;
+    let currentMax = 0;
+
+    const qtyInput = document.getElementById('rejectModalQty');
+    const qtyMax = document.getElementById('rejectModalQtyMax');
+    const reasonSelect = document.getElementById('rejectModalReason');
+    const noteInput = document.getElementById('rejectModalNote');
+    const errorBox = document.getElementById('rejectModalError');
+    const confirmBtn = document.getElementById('rejectModalConfirm');
+    const productLabel = document.getElementById('rejectModalProductId');
+
+    function openModal(btn) {
+        currentProductId = parseInt(btn.dataset.productId, 10);
+        const qty = parseInt(btn.dataset.quantity, 10) || 0;
+        const done = parseInt(btn.dataset.quantityDoneFormatting, 10) || 0;
+        currentMax = Math.max(0, qty - done);
+
+        productLabel.textContent = btn.dataset.shortId || currentProductId;
+        qtyInput.value = '1';
+        qtyInput.min = '1';
+        qtyInput.max = String(currentMax);
+        qtyMax.textContent = String(currentMax);
+        reasonSelect.value = 'wymiary';
+        noteInput.value = '';
+        errorBox.hidden = true;
+        errorBox.textContent = '';
+
+        modal.hidden = false;
+    }
+
+    function closeModal() {
+        modal.hidden = true;
+        currentProductId = null;
+    }
+
+    function clampQty() {
+        let v = parseInt(qtyInput.value, 10);
+        if (isNaN(v) || v < 1) v = 1;
+        if (v > currentMax) v = currentMax;
+        qtyInput.value = String(v);
+    }
+
+    // Delegated click on reject buttons
+    document.addEventListener('click', (e) => {
+        const btn = e.target.closest('.btn-reject-product');
+        if (btn) {
+            e.preventDefault();
+            openModal(btn);
+            return;
+        }
+        if (e.target.matches('[data-close]')) {
+            closeModal();
+            return;
+        }
+        const step = e.target.closest('.btn-qty-step');
+        if (step && modal && !modal.hidden) {
+            const delta = parseInt(step.dataset.step, 10) || 0;
+            qtyInput.value = String(parseInt(qtyInput.value, 10) + delta);
+            clampQty();
+        }
+    });
+
+    qtyInput.addEventListener('input', clampQty);
+
+    confirmBtn.addEventListener('click', async () => {
+        if (!currentProductId) return;
+        clampQty();
+        const quantity = parseInt(qtyInput.value, 10);
+        if (quantity < 1) {
+            errorBox.textContent = 'Ilość musi być >= 1';
+            errorBox.hidden = false;
+            return;
+        }
+        confirmBtn.disabled = true;
+        errorBox.hidden = true;
+        try {
+            const res = await fetch(`/production/api/products/${currentProductId}/reject`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    quantity,
+                    reason_category: reasonSelect.value,
+                    reason_note: noteInput.value || null,
+                    station_code: 'formatting',
+                })
+            });
+            const data = await res.json();
+            if (!res.ok || !data.success) {
+                errorBox.textContent = data.detail || data.error || 'Błąd cofania';
+                errorBox.hidden = false;
+                confirmBtn.disabled = false;
+                return;
+            }
+            closeModal();
+            // Refresh listy stanowiska
+            if (typeof refreshStationData === 'function') {
+                refreshStationData();
+            } else {
+                location.reload();
+            }
+        } catch (err) {
+            errorBox.textContent = 'Błąd sieci: ' + err.message;
+            errorBox.hidden = false;
+            confirmBtn.disabled = false;
+        }
+    });
+})();
