@@ -513,6 +513,14 @@ class ProductionProduct(db.Model):
 
         self.updated_at = now
 
+        # Domknięcie doróbki: gdy rekord-doróbka (original_product_id NOT NULL) osiąga
+        # status czeka_na_formatowanie, jej życie "w trasie" się kończy.
+        if self.original_product_id is not None and self.current_status == 'czeka_na_formatowanie':
+            ProductionReworkLog.query.filter(
+                ProductionReworkLog.rework_product_id == self.id,
+                ProductionReworkLog.closed_at.is_(None),
+            ).update({'closed_at': now}, synchronize_session=False)
+
 
 # Alias kompatybilności dla starego kodu — zostanie usunięty osobnym commitem
 ProductionItem = ProductionProduct
