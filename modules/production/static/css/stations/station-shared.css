@@ -330,6 +330,24 @@ body {
     color: #ce93d8;
 }
 
+/* Banner doróbka — fioletowy, pełna szerokość kafelka, nad rzędem badge'y */
+.rework-banner {
+    display: block;
+    width: 100%;
+    box-sizing: border-box;
+    padding: 4px 10px;
+    margin-bottom: 6px;
+    border: 1px solid #5c3570;
+    background: #3a1f4a;
+    color: #ce93d8;
+    font-weight: 600;
+    font-size: 12px;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    text-align: center;
+    border-radius: 4px;
+}
+
 /* Obróbka krawędzi - pomarańczowy */
 .badge-edge {
     background: rgba(245, 158, 11, 0.15);
