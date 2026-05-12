@@ -216,6 +216,9 @@
                          data-is-priority="{{ 'true' if product.is_priority else 'false' }}"
                          data-disabled="{{ 'true' if is_disabled else 'false' }}">
 
+                        {% if product.original_product_id %}
+                        <div class="rework-banner">Doróbka</div>
+                        {% endif %}
                         <div class="product-params">
                             <span class="badge badge-product-id">{{ product.id }}</span>
                             {% if is_disabled %}
@@ -228,9 +231,6 @@
                                     {% endif %}
                                     {{ station_info[1] }}
                                 </span>
-                            {% endif %}
-                            {% if product.original_product_id %}
-                            <div class="rework-banner">Doróbka</div>
                             {% endif %}
                             {% if product.wood_species %}<span class="badge badge-species">{{ product.wood_species }}</span>{% endif %}
                             {% if product.technology %}<span class="badge badge-technology">{{ product.technology }}</span>{% endif %}

@@ -1109,7 +1109,6 @@
 
             // Małe badges z parametrami
             const paramsHTML = `
-                ${product.original_product_id ? '<div class="rework-banner">Doróbka</div>' : ''}
                 ${product.wood_species ? `<span class="badge badge-species">${product.wood_species}</span>` : ''}
                 ${product.technology ? `<span class="badge badge-technology">${product.technology}</span>` : ''}
                 ${product.wood_class ? `<span class="badge badge-class">${product.wood_class}</span>` : ''}
@@ -1160,6 +1159,7 @@
                      data-wood-class="${product.wood_class || ''}"
                      data-is-priority="${product.is_priority ? 'true' : 'false'}"
                      data-disabled="${isDisabled ? 'true' : 'false'}">
+                    ${product.original_product_id ? '<div class="rework-banner">Doróbka</div>' : ''}
                     <div class="product-left-col">
                         <div class="product-params">${stationBadgeHTML}${paramsHTML}</div>
                         <div class="product-dimensions-row">${dimensionsBadge}</div>
