@@ -195,7 +195,20 @@ def reject_product_quantity(
     )
     db.session.add(log_entry)
 
-    db.session.commit()
+    try:
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        logger.exception(
+            "Reject commit failed",
+            extra={
+                'product_id': original.id,
+                'rework_id': rework.id if rework.id else None,
+                'quantity': quantity,
+                'reason': reason_category,
+            },
+        )
+        raise
 
     logger.info(
         "Reject wykonany",
