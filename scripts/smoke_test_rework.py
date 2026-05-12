@@ -199,6 +199,12 @@ def main():
             assert rework.current_status == 'czeka_na_formatowanie', f"status doróbki: {rework.current_status}"
             db.session.refresh(log)
             assert log.closed_at is not None, "closed_at powinien być ustawiony"
+
+            # Odznaczenie manual priority po dotarciu na formatowanie
+            db.session.refresh(rework)
+            assert rework.priority_manual_override is False, f"priority_manual_override: {rework.priority_manual_override}"
+            assert rework.is_priority is False, f"is_priority: {rework.is_priority}"
+            assert rework.priority_rank is None, f"priority_rank: {rework.priority_rank}"
             print("OK Domykanie closed_at")
         finally:
             cleanup(order_id)

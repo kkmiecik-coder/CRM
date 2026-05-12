@@ -517,6 +517,13 @@ class ProductionProduct(db.Model):
         # Domknięcie doróbki: gdy rekord-doróbka (original_product_id NOT NULL) osiąga
         # status czeka_na_formatowanie, jej życie "w trasie" się kończy.
         if self.original_product_id is not None and self.current_status == 'czeka_na_formatowanie':
+            # Odznaczenie manual priority — doróbka dotarła na formatowanie,
+            # gdzie ma już banner "Doróbka". Pomarańczowa ramka zbędna.
+            self.priority_manual_override = False
+            self.priority_rank = None
+            self.is_priority = False
+
+            # Domknięcie audit log
             ProductionReworkLog.query.filter(
                 ProductionReworkLog.rework_product_id == self.id,
                 ProductionReworkLog.closed_at.is_(None),
