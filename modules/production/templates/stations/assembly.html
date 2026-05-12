@@ -123,6 +123,9 @@
                  data-quantity-done="{{ product.quantity_done }}"
                  data-in-progress="false"
                  data-is-priority="{{ 'true' if product.is_priority else 'false' }}">
+                {% if product.original_product_id %}
+                <div class="rework-banner">Doróbka</div>
+                {% endif %}
                 <div class="order-header">
                     <div class="order-header-row order-ids-row">
                         <div class="order-ids">

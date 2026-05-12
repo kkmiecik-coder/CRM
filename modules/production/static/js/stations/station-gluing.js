@@ -1029,6 +1029,7 @@
                  data-quantity-done="${quantityDone}"
                  data-in-progress="false"
                  data-is-priority="${product.is_priority ? 'true' : 'false'}">
+                ${product.original_product_id ? '<div class="rework-banner">Doróbka</div>' : ''}
                 <div class="order-header">
                     <div class="order-header-row order-ids-row">
                         <div class="order-ids">

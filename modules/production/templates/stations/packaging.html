@@ -289,6 +289,9 @@
                          data-volume="{{ product.volume_m3 or 0 }}"
                          data-disabled="{{ 'true' if is_disabled else 'false' }}">
 
+                        {% if product.original_product_id %}
+                        <div class="rework-banner">Doróbka</div>
+                        {% endif %}
                         <div class="product-params">
                             {% if is_disabled %}
                                 {% set station_info = station_map.get(product.current_status, ('unknown', 'Nieznane')) %}

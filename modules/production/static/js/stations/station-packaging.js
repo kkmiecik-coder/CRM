@@ -1291,6 +1291,7 @@
                      data-width="${product.parsed_width_cm || 0}"
                      data-thickness="${product.parsed_thickness_cm || 0}"
                      data-volume="${product.volume_m3 || 0}">
+                    ${product.original_product_id ? '<div class="rework-banner">Doróbka</div>' : ''}
                     <div class="product-left-col">
                         <div class="product-params">${stationBadgeHTML}${paramsHTML}</div>
                         <div class="product-dimensions-row">${dimensionsBadge}</div>
