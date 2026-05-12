@@ -67,15 +67,20 @@ def complete_task():
         })
         
         from ...models import ProductionItem
-        
-        # Znajdź produkt
-        product = ProductionItem.query.filter_by(short_product_id=product_id).first()
+
+        # Znajdź produkt - preferuj record_id (PK) gdy obecny (disambig dla doróbek)
+        record_id = data.get('record_id')
+        if record_id is not None:
+            product = ProductionItem.query.filter_by(id=int(record_id)).first()
+        else:
+            # Fallback do short_product_id (legacy)
+            product = ProductionItem.query.filter_by(short_product_id=product_id).first()
         if not product:
             return jsonify({
                 'success': False,
                 'error': f'Produkt {product_id} nie znaleziony'
             }), 404
-        
+
         # Sprawdź czy produkt jest w odpowiednim statusie dla danego stanowiska
         expected_status_map = {
             'cutting': 'czeka_na_wyciecie',
@@ -193,8 +198,13 @@ def toggle_product_done():
 
         from ...models import ProductionItem
 
-        # Znajdź produkt
-        product = ProductionItem.query.filter_by(short_product_id=product_id).first()
+        # Znajdź produkt - preferuj record_id (PK) gdy obecny (disambig dla doróbek)
+        record_id = data.get('record_id')
+        if record_id is not None:
+            product = ProductionItem.query.filter_by(id=int(record_id)).first()
+        else:
+            # Fallback do short_product_id (legacy)
+            product = ProductionItem.query.filter_by(short_product_id=product_id).first()
         if not product:
             return jsonify({
                 'success': False,
@@ -308,8 +318,13 @@ def update_quantity_done():
 
         from ...models import ProductionItem
 
-        # Znajdź produkt
-        product = ProductionItem.query.filter_by(short_product_id=product_id).first()
+        # Znajdź produkt - preferuj record_id (PK) gdy obecny (disambig dla doróbek)
+        record_id = data.get('record_id')
+        if record_id is not None:
+            product = ProductionItem.query.filter_by(id=int(record_id)).first()
+        else:
+            # Fallback do short_product_id (legacy)
+            product = ProductionItem.query.filter_by(short_product_id=product_id).first()
         if not product:
             return jsonify({
                 'success': False,
@@ -1175,8 +1190,13 @@ def admin_update_quantity_done():
 
         from ...models import ProductionItem
 
-        # Znajdź produkt
-        product = ProductionItem.query.filter_by(short_product_id=product_id).first()
+        # Znajdź produkt - preferuj record_id (PK) gdy obecny (disambig dla doróbek)
+        record_id = data.get('record_id')
+        if record_id is not None:
+            product = ProductionItem.query.filter_by(id=int(record_id)).first()
+        else:
+            # Fallback do short_product_id (legacy)
+            product = ProductionItem.query.filter_by(short_product_id=product_id).first()
         if not product:
             return jsonify({
                 'success': False,

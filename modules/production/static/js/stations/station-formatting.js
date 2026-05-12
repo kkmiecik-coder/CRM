@@ -255,6 +255,7 @@
         const productId = button.dataset.productId;
         const action = button.dataset.action;
         const productRow = button.closest('.product-row');
+        const recordId = productRow ? productRow.dataset.recordId : null;
 
         if (!productId || !action || !productRow) {
             console.warn('[Formatting] Invalid button data');
@@ -311,10 +312,10 @@
         updateCompleteButtonState(card);
 
         // Send to API with rate limiting
-        await sendQuantityUpdate(productId, action, productRow, qtyDone, card);
+        await sendQuantityUpdate(productId, action, productRow, qtyDone, card, recordId);
     }
 
-    async function sendQuantityUpdate(productId, action, productRow, previousValue, card) {
+    async function sendQuantityUpdate(productId, action, productRow, previousValue, card, recordId) {
         // Rate limiting - cancel pending request for this product
         if (state.pendingRequests.has(productId)) {
             clearTimeout(state.pendingRequests.get(productId));
@@ -335,6 +336,7 @@
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         product_id: productId,
+                        record_id: recordId ? parseInt(recordId, 10) : null,
                         station: 'formatting',
                         action: action
                     })
@@ -1151,6 +1153,7 @@
             return `
                 <div class="product-row ${completeClass}${priorityClass}${disabledClass}"
                      data-product-id="${product.id}"
+                     data-record-id="${product.record_id || ''}"
                      data-quantity="${quantity}"
                      data-quantity-done="${quantityDone}"
                      data-status="${product.current_status}"

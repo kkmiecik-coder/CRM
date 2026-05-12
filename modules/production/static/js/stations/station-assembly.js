@@ -332,6 +332,7 @@
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         product_id: productId,
+                        record_id: card.dataset.recordId ? parseInt(card.dataset.recordId, 10) : null,
                         station: 'assembly',
                         action: action
                     })
@@ -1049,6 +1050,7 @@
         return `
             <div class="order-card${priorityClass}"
                  data-product-id="${product.id}"
+                 data-record-id="${product.record_id || ''}"
                  data-internal-order="${product.internal_order || ''}"
                  data-quantity="${quantity}"
                  data-quantity-done="${quantityDone}"

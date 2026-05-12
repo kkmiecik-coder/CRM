@@ -221,6 +221,7 @@
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         product_id: productId,
+                        record_id: card.dataset.recordId ? parseInt(card.dataset.recordId, 10) : null,
                         station: state.config.stationCode,
                         action: action
                     })

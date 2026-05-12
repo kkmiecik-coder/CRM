@@ -469,6 +469,7 @@
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         product_id: productId,
+                        record_id: productRow.dataset.recordId ? parseInt(productRow.dataset.recordId, 10) : null,
                         station: 'packaging',
                         action: action
                     })
