@@ -420,13 +420,15 @@ class ProductionProduct(db.Model):
                           actor_user_id=None, actor_device_id=None, source='web'):
         attr_name = f'quantity_done_{station_code}'
         old_value = getattr(self, attr_name, 0) or 0
-        value = max(0, min(value, self.quantity))
+        # quantity_done może przekraczać quantity gdy oryginał stracił sztuki przez reject
+        # (statystyki pracy stanowisk są pełną historią, niezależnie od bieżącego batcha).
+        value = max(0, value)
         setattr(self, attr_name, value)
 
         now = get_local_now()
 
         completed_attr = f'{station_code}_completed_at'
-        if value == self.quantity:
+        if value >= self.quantity:
             if getattr(self, completed_attr) is None:
                 setattr(self, completed_attr, now)
         else:
@@ -458,7 +460,7 @@ class ProductionProduct(db.Model):
         return self.set_quantity_done(station_code, current - amount, **actor_kwargs)
 
     def is_station_complete(self, station_code):
-        return self.get_quantity_done(station_code) == self.quantity
+        return self.get_quantity_done(station_code) >= self.quantity
 
     def should_skip_finishing(self):
         if self.parsed_finish_type == 'surowe':
