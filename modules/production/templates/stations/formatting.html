@@ -252,6 +252,17 @@
                                 {% include 'stations/_print_label_button.html' %}
                               {% endwith %}
                             {% endif %}
+                            {% if not is_disabled %}
+                            <button type="button"
+                                    class="btn-reject-product"
+                                    data-product-id="{{ product.id }}"
+                                    data-short-id="{{ product.id }}"
+                                    data-quantity="{{ product.quantity }}"
+                                    data-quantity-done-formatting="{{ product.quantity_done_formatting or 0 }}"
+                                    title="Cofnij sztuki do doróbki">
+                                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 14 4 9 9 4"/><path d="M20 20v-7a4 4 0 0 0-4-4H4"/></svg>
+                            </button>
+                            {% endif %}
                             {% if product.dimensions %}<span class="badge badge-dimensions">{{ product.dimensions }}</span>
                             {% elif product.original_name %}<span class="badge badge-dimensions">{{ product.original_name }}</span>
                             {% elif product.get('attachment_file_url') %}<span class="badge badge-dimensions">Zgodnie z załącznikiem</span>
