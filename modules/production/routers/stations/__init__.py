@@ -477,6 +477,8 @@ def get_products_for_station(station_code, limit=50, sort_by='priority'):
                 'quantity_done': getattr(product, f'quantity_done_{station_code}', 0),
                 'is_complete': getattr(product, f'quantity_done_{station_code}', 0) == product.quantity,
                 'is_priority': product.is_priority,
+                'is_rework': product.is_rework,
+                'original_product_id': product.original_product_id,
 
                 # Notatki
                 'order_notes': product.order.order_notes if product.order else None,
@@ -919,7 +921,9 @@ def _ajax_get_orders_simple(station_code: str, status_filter: str, quantity_done
                 'quantity': product.quantity,
                 'quantity_done': quantity_done,
                 'is_complete': quantity_done == product.quantity,
-                'is_priority': product.is_priority
+                'is_priority': product.is_priority,
+                'is_rework': product.is_rework,
+                'original_product_id': product.original_product_id
             }
 
             # Oblicz wymiary z parsowanych pol
