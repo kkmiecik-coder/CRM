@@ -1109,6 +1109,7 @@
 
             // Małe badges z parametrami
             const paramsHTML = `
+                ${product.original_product_id ? '<div class="rework-banner">Doróbka</div>' : ''}
                 ${product.wood_species ? `<span class="badge badge-species">${product.wood_species}</span>` : ''}
                 ${product.technology ? `<span class="badge badge-technology">${product.technology}</span>` : ''}
                 ${product.wood_class ? `<span class="badge badge-class">${product.wood_class}</span>` : ''}
