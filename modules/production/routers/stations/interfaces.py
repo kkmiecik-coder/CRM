@@ -655,6 +655,13 @@ def formatting_station():
             else:
                 query = query.order_by(asc(ProductionItem.created_at))
 
+            # Sortowanie w grupie zamowienia: oryginal (NULL) przed dorobka
+            query = query.order_by(
+                ProductionProduct.short_product_id.asc(),
+                ProductionProduct.original_product_id.is_(None).desc(),
+                ProductionProduct.id.asc(),
+            )
+
             products_db = query.all()
 
             products = []
@@ -1065,6 +1072,13 @@ def packaging_station():
                 query = query.order_by(asc(ProductionItem.deadline_date))
             else:
                 query = query.order_by(asc(ProductionItem.created_at))
+
+            # Sortowanie w grupie zamowienia: oryginal (NULL) przed dorobka
+            query = query.order_by(
+                ProductionProduct.short_product_id.asc(),
+                ProductionProduct.original_product_id.is_(None).desc(),
+                ProductionProduct.id.asc(),
+            )
 
             products_db = query.all()
 

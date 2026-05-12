@@ -878,6 +878,13 @@ def _ajax_get_orders_simple(station_code: str, status_filter: str, quantity_done
         elif sort_by == 'created_at':
             query = query.order_by(asc(ProductionItem.created_at))
 
+        # Sortowanie w grupie zamowienia: oryginal (NULL) przed dorobka
+        query = query.order_by(
+            ProductionProduct.short_product_id.asc(),
+            ProductionProduct.original_product_id.is_(None).desc(),
+            ProductionProduct.id.asc(),
+        )
+
         products = query.all()
 
         # KROK 3: Grupowanie produktow po zamowieniach
