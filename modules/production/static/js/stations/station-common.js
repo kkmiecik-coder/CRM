@@ -206,7 +206,7 @@ async function fetchProducts(stationCode, sortBy = 'priority') {
  * @param {string} stationCode - Station code
  * @returns {Promise<Object>} Response
  */
-async function completeTask(productId, stationCode) {
+async function completeTask(productId, stationCode, recordId = null) {
     try {
         const config = window.STATION_STATE.config;
         const url = `${config.apiBaseUrl}/complete-task`;
@@ -218,6 +218,7 @@ async function completeTask(productId, stationCode) {
             },
             body: JSON.stringify({
                 product_id: productId,
+                record_id: recordId,
                 station_code: stationCode
             })
         });

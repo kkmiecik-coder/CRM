@@ -255,6 +255,7 @@
         const productId = button.dataset.productId;
         const action = button.dataset.action;
         const productRow = button.closest('.product-row');
+        const recordId = productRow ? productRow.dataset.recordId : null;
 
         if (!productId || !action || !productRow) {
             console.warn('[Formatting] Invalid button data');
@@ -311,10 +312,10 @@
         updateCompleteButtonState(card);
 
         // Send to API with rate limiting
-        await sendQuantityUpdate(productId, action, productRow, qtyDone, card);
+        await sendQuantityUpdate(productId, action, productRow, qtyDone, card, recordId);
     }
 
-    async function sendQuantityUpdate(productId, action, productRow, previousValue, card) {
+    async function sendQuantityUpdate(productId, action, productRow, previousValue, card, recordId) {
         // Rate limiting - cancel pending request for this product
         if (state.pendingRequests.has(productId)) {
             clearTimeout(state.pendingRequests.get(productId));
@@ -335,6 +336,7 @@
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         product_id: productId,
+                        record_id: recordId ? parseInt(recordId, 10) : null,
                         station: 'formatting',
                         action: action
                     })
@@ -522,11 +524,15 @@
             return;
         }
 
-        // Get all product IDs
+        // Get all product IDs (+ record_ids dla disambiguacji oryginal vs doróbka)
         const productIds = [];
+        const recordIds = [];
         const productRows = card.querySelectorAll('.product-row');
         productRows.forEach(row => {
             productIds.push(row.dataset.productId);
+            if (row.dataset.recordId) {
+                recordIds.push(parseInt(row.dataset.recordId, 10));
+            }
         });
 
         if (productIds.length === 0) {
@@ -540,10 +546,10 @@
         card.classList.add('processing');
 
         // Start 10-second countdown
-        startCountdown(card, orderNumber, productIds);
+        startCountdown(card, orderNumber, productIds, recordIds);
     }
 
-    function startCountdown(card, orderNumber, productIds) {
+    function startCountdown(card, orderNumber, productIds, recordIds) {
         console.log(`[Formatting] Starting 10-second countdown for ${orderNumber}`);
 
         const actionContainer = card.querySelector('.order-action');
@@ -584,7 +590,7 @@
                 // Countdown complete - execute bulk completion
                 clearInterval(timerId);
                 state.activeCountdowns.delete(orderNumber);
-                completeOrder(card, orderNumber, productIds);
+                completeOrder(card, orderNumber, productIds, recordIds);
             }
         }, 1000);
 
@@ -638,8 +644,8 @@
     // BULK COMPLETION - Optimistic UI
     // ========================================================================
 
-    async function completeOrder(card, orderNumber, productIds) {
-        console.log(`[Formatting] Starting bulk completion for ${orderNumber}`, productIds);
+    async function completeOrder(card, orderNumber, productIds, recordIds) {
+        console.log(`[Formatting] Starting bulk completion for ${orderNumber}`, productIds, recordIds);
 
         // BACKUP before removal
         const cardBackup = card.cloneNode(true);
@@ -665,6 +671,7 @@
                 body: JSON.stringify({
                     order_number: orderNumber,
                     product_ids: productIds,
+                    record_ids: (recordIds && recordIds.length > 0) ? recordIds : undefined,
                     station: 'formatting',
                     action: 'complete'
                 }),
@@ -1151,6 +1158,7 @@
             return `
                 <div class="product-row ${completeClass}${priorityClass}${disabledClass}"
                      data-product-id="${product.id}"
+                     data-record-id="${product.record_id || ''}"
                      data-quantity="${quantity}"
                      data-quantity-done="${quantityDone}"
                      data-status="${product.current_status}"
@@ -1159,6 +1167,7 @@
                      data-wood-class="${product.wood_class || ''}"
                      data-is-priority="${product.is_priority ? 'true' : 'false'}"
                      data-disabled="${isDisabled ? 'true' : 'false'}">
+                    ${product.original_product_id ? '<div class="rework-banner">Doróbka</div>' : ''}
                     <div class="product-left-col">
                         <div class="product-params">${stationBadgeHTML}${paramsHTML}</div>
                         <div class="product-dimensions-row">${dimensionsBadge}</div>
@@ -1323,4 +1332,136 @@
 
     console.log('[Formatting] Module loaded v3.0 (quantity-based with +/- buttons)');
 
+})();
+
+// === Reject (cofanie do doróbki) ===
+(function setupRejectModal() {
+    const modal = document.getElementById('rejectModal');
+    if (!modal) return;
+
+    let currentProductId = null;
+    let currentMax = 0;
+
+    const qtyInput = document.getElementById('rejectModalQty');
+    const qtyMax = document.getElementById('rejectModalQtyMax');
+    const reasonSelect = document.getElementById('rejectModalReason');
+    const errorBox = document.getElementById('rejectModalError');
+    const confirmBtn = document.getElementById('rejectModalConfirm');
+    const productLabel = document.getElementById('rejectModalProductId');
+
+    function openModal(btn) {
+        currentProductId = parseInt(btn.dataset.productId, 10);
+        const qty = parseInt(btn.dataset.quantity, 10) || 0;
+        const done = parseInt(btn.dataset.quantityDoneFormatting, 10) || 0;
+        currentMax = Math.max(0, qty - done);
+
+        productLabel.textContent = btn.dataset.shortId || currentProductId;
+
+        // Render badges z data-attrs
+        const badges = document.getElementById('rejectModalBadges');
+        if (badges) {
+            badges.innerHTML = '';
+            const species = btn.dataset.species;
+            const technology = btn.dataset.technology;
+            const woodClass = btn.dataset.woodClass;
+            const dimensions = btn.dataset.dimensions;
+            function addBadge(text, cls) {
+                if (!text) return;
+                const el = document.createElement('span');
+                el.className = 'reject-modal-badge ' + cls;
+                el.textContent = text;
+                badges.appendChild(el);
+            }
+            addBadge(species, 'species');
+            addBadge(technology, 'technology');
+            addBadge(woodClass, 'wood-class');
+            addBadge(dimensions, 'dimensions');
+        }
+
+        qtyInput.value = '1';
+        qtyInput.min = '1';
+        qtyInput.max = String(currentMax);
+        qtyMax.textContent = String(currentMax);
+        reasonSelect.value = 'wymiary';
+        errorBox.hidden = true;
+        errorBox.textContent = '';
+
+        modal.hidden = false;
+    }
+
+    function closeModal() {
+        modal.hidden = true;
+        currentProductId = null;
+    }
+
+    function clampQty() {
+        let v = parseInt(qtyInput.value, 10);
+        if (isNaN(v) || v < 1) v = 1;
+        if (v > currentMax) v = currentMax;
+        qtyInput.value = String(v);
+    }
+
+    // Delegated click on reject buttons
+    document.addEventListener('click', (e) => {
+        const btn = e.target.closest('.btn-reject-product');
+        if (btn) {
+            e.preventDefault();
+            openModal(btn);
+            return;
+        }
+        if (e.target.matches('[data-close]')) {
+            closeModal();
+            return;
+        }
+        const step = e.target.closest('.btn-qty-step');
+        if (step && modal && !modal.hidden) {
+            const delta = parseInt(step.dataset.step, 10) || 0;
+            qtyInput.value = String(parseInt(qtyInput.value, 10) + delta);
+            clampQty();
+        }
+    });
+
+    qtyInput.addEventListener('input', clampQty);
+
+    confirmBtn.addEventListener('click', async () => {
+        if (!currentProductId) return;
+        clampQty();
+        const quantity = parseInt(qtyInput.value, 10);
+        if (quantity < 1) {
+            errorBox.textContent = 'Ilość musi być >= 1';
+            errorBox.hidden = false;
+            return;
+        }
+        confirmBtn.disabled = true;
+        errorBox.hidden = true;
+        try {
+            const res = await fetch(`/production/api/products/${currentProductId}/reject`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    quantity,
+                    reason_category: reasonSelect.value,
+                    station_code: 'formatting',
+                })
+            });
+            const data = await res.json();
+            if (!res.ok || !data.success) {
+                errorBox.textContent = data.detail || data.error || 'Błąd cofania';
+                errorBox.hidden = false;
+                confirmBtn.disabled = false;
+                return;
+            }
+            closeModal();
+            // Refresh listy stanowiska
+            if (typeof refreshStationData === 'function') {
+                refreshStationData();
+            } else {
+                location.reload();
+            }
+        } catch (err) {
+            errorBox.textContent = 'Błąd sieci: ' + err.message;
+            errorBox.hidden = false;
+            confirmBtn.disabled = false;
+        }
+    });
 })();

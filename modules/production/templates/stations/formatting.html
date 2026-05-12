@@ -207,6 +207,7 @@
                     {% set is_disabled = product.current_status != 'czeka_na_formatowanie' %}
                     <div class="product-row{% if product.is_priority %} priority-product{% endif %}{% if is_disabled %} product-disabled{% endif %}{% if product.quantity_done == product.quantity and not is_disabled %} product-complete{% endif %}"
                          data-product-id="{{ product.id }}"
+                         data-record-id="{{ product.record_id }}"
                          data-quantity="{{ product.quantity }}"
                          data-quantity-done="{{ product.quantity_done }}"
                          data-status="{{ product.current_status }}"
@@ -216,6 +217,9 @@
                          data-is-priority="{{ 'true' if product.is_priority else 'false' }}"
                          data-disabled="{{ 'true' if is_disabled else 'false' }}">
 
+                        {% if product.original_product_id %}
+                        <div class="rework-banner">Doróbka</div>
+                        {% endif %}
                         <div class="product-params">
                             <span class="badge badge-product-id">{{ product.id }}</span>
                             {% if is_disabled %}
@@ -248,6 +252,21 @@
                                       station_code='formatting' %}
                                 {% include 'stations/_print_label_button.html' %}
                               {% endwith %}
+                            {% endif %}
+                            {% if not is_disabled %}
+                            <button type="button"
+                                    class="btn-reject-product"
+                                    data-product-id="{{ product.record_id }}"
+                                    data-short-id="{{ product.id }}"
+                                    data-quantity="{{ product.quantity }}"
+                                    data-quantity-done-formatting="{{ product.quantity_done_formatting or 0 }}"
+                                    data-species="{{ product.wood_species or '' }}"
+                                    data-technology="{{ product.technology or '' }}"
+                                    data-wood-class="{{ product.wood_class or '' }}"
+                                    data-dimensions="{{ product.dimensions or product.original_name or '' }}"
+                                    title="Cofnij sztuki do doróbki">
+                                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 14 4 9 9 4"/><path d="M20 20v-7a4 4 0 0 0-4-4H4"/></svg>
+                            </button>
                             {% endif %}
                             {% if product.dimensions %}<span class="badge badge-dimensions">{{ product.dimensions }}</span>
                             {% elif product.original_name %}<span class="badge badge-dimensions">{{ product.original_name }}</span>
@@ -324,6 +343,43 @@
           </div>
         </div>
         <div id="edgeModalBody"></div>
+      </div>
+    </div>
+
+    <!-- Modal: cofnij sztuki do doróbki -->
+    <div id="rejectModal" class="reject-modal" hidden>
+      <div class="reject-modal-backdrop" data-close></div>
+      <div class="reject-modal-dialog" role="dialog" aria-modal="true" aria-labelledby="rejectModalTitle">
+        <h2 id="rejectModalTitle">Cofnij do doróbki</h2>
+        <div class="reject-modal-product-info">
+          <span class="reject-modal-product-id" id="rejectModalProductId">—</span>
+          <div class="reject-modal-badges" id="rejectModalBadges">
+            <!-- wypełniane przez JS -->
+          </div>
+        </div>
+
+        <label class="reject-modal-label">Ilość sztuk do cofnięcia</label>
+        <div class="reject-modal-qty">
+          <button type="button" class="btn-qty-step" data-step="-1">−</button>
+          <input id="rejectModalQty" type="number" min="1" value="1" />
+          <button type="button" class="btn-qty-step" data-step="1">+</button>
+          <span class="reject-modal-qty-hint">max: <span id="rejectModalQtyMax">—</span></span>
+        </div>
+
+        <label class="reject-modal-label" for="rejectModalReason">Powód</label>
+        <select id="rejectModalReason">
+          <option value="wymiary">Wymiary</option>
+          <option value="jakosc_sklejenia">Jakość sklejenia</option>
+          <option value="jakosc_produktu">Jakość produktu</option>
+          <option value="inne">Inne</option>
+        </select>
+
+        <div id="rejectModalError" class="reject-modal-error" hidden></div>
+
+        <div class="reject-modal-actions">
+          <button type="button" class="btn-reject-cancel" data-close>Anuluj</button>
+          <button type="button" class="btn-reject-confirm" id="rejectModalConfirm">Potwierdź</button>
+        </div>
       </div>
     </div>
 

@@ -198,6 +198,13 @@ def ajax_get_orders_packaging():
         elif sort_by == 'created_at':
             query = query.order_by(asc(ProductionItem.created_at))
 
+        # Sortowanie w grupie zamowienia: oryginal (NULL) przed dorobka
+        query = query.order_by(
+            ProductionProduct.short_product_id.asc(),
+            ProductionProduct.original_product_id.is_(None).desc(),
+            ProductionProduct.id.asc(),
+        )
+
         products = query.all()
 
         # KROK 3: Grupowanie produktow po zamowieniach
@@ -253,6 +260,7 @@ def ajax_get_orders_packaging():
             # Dodaj produkt do zamowienia
             product_data = {
                 'id': product.short_product_id,
+                'record_id': product.id,
                 'original_name': product.original_product_name or 'Brak nazwy',
                 'volume_m3': float(product.volume_m3 or 0),
                 'current_status': product.current_status,
@@ -260,8 +268,10 @@ def ajax_get_orders_packaging():
                 'deadline_date': product.deadline_date.isoformat() if product.deadline_date else None,
                 'quantity': product.quantity,
                 'quantity_done': product.quantity_done_packaging,
-                'is_complete': product.quantity_done_packaging == product.quantity,
+                'is_complete': product.is_station_complete('packaging'),
                 'is_priority': product.is_priority,
+                'is_rework': product.is_rework,
+                'original_product_id': product.original_product_id,
                 # Pola potrzebne do renderowania badges
                 'wood_species': product.configuration.species if product.configuration else None,
                 'technology': product.configuration.technology if product.configuration else None,
@@ -510,6 +520,7 @@ def ajax_get_orders_cutting():
 
             product_data = {
                 'id': product.short_product_id,
+                'record_id': product.id,
                 'short_product_id': product.short_product_id,
                 'product_sequence_in_order': product.product_sequence_in_order,
                 'internal_order_number': product.order.internal_order_number if product.order else None,
@@ -532,8 +543,10 @@ def ajax_get_orders_cutting():
                 'quantity_done': product.quantity_done_cutting,
                 'quantity_done_assembly': product.quantity_done_assembly,
                 'assembly_completed_at': product.assembly_completed_at.isoformat() if product.assembly_completed_at else None,
-                'is_complete': product.quantity_done_cutting == product.quantity,
+                'is_complete': product.is_station_complete('cutting'),
                 'is_priority': product.is_priority,
+                'is_rework': product.is_rework,
+                'original_product_id': product.original_product_id,
                 'order_notes': product.order.order_notes if product.order else None,
                 'production_notes': product.production_notes,
                 'client_order_number': product.order.client_order_number if product.order else None,
@@ -667,6 +680,7 @@ def ajax_get_orders_assembly():
 
             product_data = {
                 'id': product.short_product_id,
+                'record_id': product.id,
                 'short_product_id': product.short_product_id,
                 'product_sequence_in_order': product.product_sequence_in_order,
                 'internal_order_number': product.order.internal_order_number if product.order else None,
@@ -690,8 +704,10 @@ def ajax_get_orders_assembly():
                 # Pola specyficzne dla skladania
                 'quantity_done_cutting': product.quantity_done_cutting or 0,
                 'cutting_completed_at': product.cutting_completed_at.isoformat() if product.cutting_completed_at else None,
-                'is_complete': product.quantity_done_assembly == product.quantity,
+                'is_complete': product.is_station_complete('assembly'),
                 'is_priority': product.is_priority,
+                'is_rework': product.is_rework,
+                'original_product_id': product.original_product_id,
                 'order_notes': product.order.order_notes if product.order else None,
                 'production_notes': product.production_notes,
                 'client_order_number': product.order.client_order_number if product.order else None,
@@ -825,6 +841,7 @@ def ajax_get_orders_completion():
 
             product_data = {
                 'id': product.short_product_id,
+                'record_id': product.id,
                 'short_product_id': product.short_product_id,
                 'product_sequence_in_order': product.product_sequence_in_order,
                 'internal_order_number': product.order.internal_order_number if product.order else None,
@@ -845,8 +862,10 @@ def ajax_get_orders_completion():
                 'attachment_file_url': product.order.attachment_file_url if product.order else None,
                 'quantity': product.quantity,
                 'quantity_done': product.quantity_done_completion,
-                'is_complete': product.quantity_done_completion == product.quantity,
+                'is_complete': product.is_station_complete('completion'),
                 'is_priority': product.is_priority,
+                'is_rework': product.is_rework,
+                'original_product_id': product.original_product_id,
                 'order_notes': product.order.order_notes if product.order else None,
                 'production_notes': product.production_notes,
                 'client_order_number': product.order.client_order_number if product.order else None,
@@ -981,6 +1000,7 @@ def ajax_get_orders_gluing():
 
             product_data = {
                 'id': product.short_product_id,
+                'record_id': product.id,
                 'short_product_id': product.short_product_id,
                 'product_sequence_in_order': product.product_sequence_in_order,
                 'internal_order_number': product.order.internal_order_number if product.order else None,
@@ -1001,8 +1021,10 @@ def ajax_get_orders_gluing():
                 'attachment_file_url': product.order.attachment_file_url if product.order else None,
                 'quantity': product.quantity,
                 'quantity_done': product.quantity_done_gluing,
-                'is_complete': product.quantity_done_gluing == product.quantity,
+                'is_complete': product.is_station_complete('gluing'),
                 'is_priority': product.is_priority,
+                'is_rework': product.is_rework,
+                'original_product_id': product.original_product_id,
                 'order_notes': product.order.order_notes if product.order else None,
                 'production_notes': product.production_notes,
                 'client_order_number': product.order.client_order_number if product.order else None,

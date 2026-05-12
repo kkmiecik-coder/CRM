@@ -34,6 +34,17 @@ from modules.production.models import (
 
 logger = get_structured_logger('production.mobile_api')
 
+
+def _rework_open_count(item):
+    """Zwraca liczbę otwartych doróbek dla danego oryginału (0 dla doróbki samej w sobie)."""
+    if item.is_rework or item.id is None:
+        return 0
+    from modules.production.models import ProductionReworkLog
+    return db.session.query(ProductionReworkLog).filter(
+        ProductionReworkLog.original_product_id == item.id,
+        ProductionReworkLog.closed_at.is_(None),
+    ).count()
+
 # ============================================================================
 # MAPOWANIE STANOWISK
 # ============================================================================
@@ -577,6 +588,9 @@ def serialize_order(item, station_code=None):
         'cut_to_size': bool(getattr(item, 'cut_to_size', True)),
         'lamella_direction': item.lamella_direction,
         'updated_at': _iso(item.updated_at),
+        'is_rework': item.is_rework,
+        'original_product_id': item.original_product_id,
+        'rework_open_count': _rework_open_count(item),
     }
 
 

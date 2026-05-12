@@ -432,6 +432,7 @@ def get_products_for_station(station_code, limit=50, sort_by='priority'):
             product_data = {
                 # Podstawowe ID
                 'id': product.short_product_id,
+                'record_id': product.id,
                 'internal_order': product.order.internal_order_number if product.order else None,
                 'baselinker_order_id': product.order.baselinker_order_id if product.order else None,
                 'original_name': product.original_product_name,
@@ -477,6 +478,8 @@ def get_products_for_station(station_code, limit=50, sort_by='priority'):
                 'quantity_done': getattr(product, f'quantity_done_{station_code}', 0),
                 'is_complete': getattr(product, f'quantity_done_{station_code}', 0) == product.quantity,
                 'is_priority': product.is_priority,
+                'is_rework': product.is_rework,
+                'original_product_id': product.original_product_id,
 
                 # Notatki
                 'order_notes': product.order.order_notes if product.order else None,
@@ -876,6 +879,13 @@ def _ajax_get_orders_simple(station_code: str, status_filter: str, quantity_done
         elif sort_by == 'created_at':
             query = query.order_by(asc(ProductionItem.created_at))
 
+        # Sortowanie w grupie zamowienia: oryginal (NULL) przed dorobka
+        query = query.order_by(
+            ProductionProduct.short_product_id.asc(),
+            ProductionProduct.original_product_id.is_(None).desc(),
+            ProductionProduct.id.asc(),
+        )
+
         products = query.all()
 
         # KROK 3: Grupowanie produktow po zamowieniach
@@ -902,6 +912,7 @@ def _ajax_get_orders_simple(station_code: str, status_filter: str, quantity_done
             # Dodaj produkt do zamowienia
             product_data = {
                 'id': product.short_product_id,
+                'record_id': product.id,
                 'short_product_id': product.short_product_id,
                 'product_sequence_in_order': product.product_sequence_in_order,
                 'original_name': product.original_product_name or 'Brak nazwy',
@@ -919,7 +930,9 @@ def _ajax_get_orders_simple(station_code: str, status_filter: str, quantity_done
                 'quantity': product.quantity,
                 'quantity_done': quantity_done,
                 'is_complete': quantity_done == product.quantity,
-                'is_priority': product.is_priority
+                'is_priority': product.is_priority,
+                'is_rework': product.is_rework,
+                'original_product_id': product.original_product_id
             }
 
             # Oblicz wymiary z parsowanych pol
@@ -1127,23 +1140,63 @@ def complete_order_bulk():
                 'error': 'product_ids musi byc niepusta lista'
             }), 400
 
+        # Mapa oczekiwanych statusow per stanowisko (uzywana w KROK 1 fallback i KROK 3)
+        expected_status_map = {
+            'cutting': ['czeka_na_wyciecie'],
+            'assembly': ['czeka_na_skladanie'],
+            'completion': ['czeka_na_kompletacje'],
+            'gluing': ['czeka_na_sklejanie'],
+            'formatting': ['czeka_na_formatowanie'],
+            'finishing': ['czeka_na_wykanczanie'],
+            'painting': ['czeka_na_lakiernie'],
+            'packaging': ['czeka_na_pakowanie']
+        }
+
         from ...models import ProductionItem
 
         # KROK 1: Pobierz wszystkie produkty
-        products = ProductionItem.query.options(
-            joinedload(ProductionItem.order),
-            joinedload(ProductionItem.configuration),
-        ).filter(
-            ProductionItem.short_product_id.in_(product_ids)
-        ).all()
+        # Preferuj record_ids (PK) — disambiguacja oryginał vs doróbka (oba mają ten sam short_product_id)
+        record_ids = data.get('record_ids')
 
-        if len(products) != len(product_ids):
-            found_ids = [p.short_product_id for p in products]
-            missing_ids = list(set(product_ids) - set(found_ids))
-            return jsonify({
-                'success': False,
-                'error': f'Nie znaleziono produktow: {missing_ids}'
-            }), 404
+        if record_ids and isinstance(record_ids, list) and len(record_ids) > 0:
+            try:
+                record_ids_int = [int(r) for r in record_ids]
+            except (ValueError, TypeError):
+                return jsonify({'success': False, 'error': 'record_ids musi byc lista intow'}), 400
+
+            products = ProductionItem.query.options(
+                joinedload(ProductionItem.order),
+                joinedload(ProductionItem.configuration),
+            ).filter(
+                ProductionItem.id.in_(record_ids_int)
+            ).all()
+
+            if len(products) != len(record_ids_int):
+                found_pks = [p.id for p in products]
+                missing_pks = list(set(record_ids_int) - set(found_pks))
+                return jsonify({
+                    'success': False,
+                    'error': f'Nie znaleziono rekordow: {missing_pks}'
+                }), 404
+        else:
+            # LEGACY fallback: filtr po short_product_id + status (chroni przed anulowanym oryginalem)
+            expected_statuses_for_filter = expected_status_map[station]
+
+            products = ProductionItem.query.options(
+                joinedload(ProductionItem.order),
+                joinedload(ProductionItem.configuration),
+            ).filter(
+                ProductionItem.short_product_id.in_(product_ids),
+                ProductionItem.current_status.in_(expected_statuses_for_filter),
+            ).all()
+
+            found_short_ids = set(p.short_product_id for p in products)
+            missing_short_ids = list(set(product_ids) - found_short_ids)
+            if missing_short_ids:
+                return jsonify({
+                    'success': False,
+                    'error': f'Nie znaleziono produktow: {missing_short_ids}'
+                }), 404
 
         # KROK 2: Walidacja ze wszystkie produkty naleza do tego samego zamowienia
         for product in products:
@@ -1155,16 +1208,6 @@ def complete_order_bulk():
                 }), 400
 
         # KROK 3: Walidacja statusow — stanowiska równoległe, każde widzi tylko swój status
-        expected_status_map = {
-            'cutting': ['czeka_na_wyciecie'],
-            'assembly': ['czeka_na_skladanie'],
-            'completion': ['czeka_na_kompletacje'],
-            'gluing': ['czeka_na_sklejanie'],
-            'formatting': ['czeka_na_formatowanie'],
-            'finishing': ['czeka_na_wykanczanie'],
-            'painting': ['czeka_na_lakiernie'],
-            'packaging': ['czeka_na_pakowanie']
-        }
         expected_statuses = expected_status_map[station]
 
         invalid_products = []
@@ -1174,6 +1217,7 @@ def complete_order_bulk():
             if not is_valid:
                 invalid_products.append({
                     'id': product.short_product_id,
+                    'record_id': product.id,
                     'current_status': product.current_status,
                     'expected_statuses': expected_statuses
                 })

@@ -221,6 +221,7 @@
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         product_id: productId,
+                        record_id: card.dataset.recordId ? parseInt(card.dataset.recordId, 10) : null,
                         station: state.config.stationCode,
                         action: action
                     })
@@ -401,6 +402,7 @@
                 body: JSON.stringify({
                     order_number: card.dataset.internalOrder,
                     product_ids: [productId],
+                    record_ids: card.dataset.recordId ? [parseInt(card.dataset.recordId, 10)] : undefined,
                     station: state.config.stationCode,
                     action: 'complete'
                 }),

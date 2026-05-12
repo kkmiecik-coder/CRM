@@ -319,6 +319,7 @@
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         product_id: productId,
+                        record_id: card.dataset.recordId ? parseInt(card.dataset.recordId, 10) : null,
                         station: state.config.stationCode,
                         action: action
                     })
@@ -580,6 +581,7 @@
                 body: JSON.stringify({
                     order_number: card.dataset.internalOrder,  // wysylamy internal_order_number (np. "25/123") zamiast productId
                     product_ids: [productId],
+                    record_ids: card.dataset.recordId ? [parseInt(card.dataset.recordId, 10)] : undefined,
                     station: window.STATION_CONFIG.stationCode,
                     action: 'complete'
                 }),
@@ -1024,11 +1026,13 @@
         return `
             <div class="order-card${priorityClass}"
                  data-product-id="${product.id}"
+                 data-record-id="${product.record_id || ''}"
                  data-internal-order="${product.internal_order || ''}"
                  data-quantity="${quantity}"
                  data-quantity-done="${quantityDone}"
                  data-in-progress="false"
                  data-is-priority="${product.is_priority ? 'true' : 'false'}">
+                ${product.original_product_id ? '<div class="rework-banner">Doróbka</div>' : ''}
                 <div class="order-header">
                     <div class="order-header-row order-ids-row">
                         <div class="order-ids">

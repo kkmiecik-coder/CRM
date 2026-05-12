@@ -67,15 +67,20 @@ def complete_task():
         })
         
         from ...models import ProductionItem
-        
-        # Znajdź produkt
-        product = ProductionItem.query.filter_by(short_product_id=product_id).first()
+
+        # Znajdź produkt - preferuj record_id (PK) gdy obecny (disambig dla doróbek)
+        record_id = data.get('record_id')
+        if record_id is not None:
+            product = ProductionItem.query.filter_by(id=int(record_id)).first()
+        else:
+            # Fallback do short_product_id (legacy)
+            product = ProductionItem.query.filter_by(short_product_id=product_id).first()
         if not product:
             return jsonify({
                 'success': False,
                 'error': f'Produkt {product_id} nie znaleziony'
             }), 404
-        
+
         # Sprawdź czy produkt jest w odpowiednim statusie dla danego stanowiska
         expected_status_map = {
             'cutting': 'czeka_na_wyciecie',
@@ -193,8 +198,13 @@ def toggle_product_done():
 
         from ...models import ProductionItem
 
-        # Znajdź produkt
-        product = ProductionItem.query.filter_by(short_product_id=product_id).first()
+        # Znajdź produkt - preferuj record_id (PK) gdy obecny (disambig dla doróbek)
+        record_id = data.get('record_id')
+        if record_id is not None:
+            product = ProductionItem.query.filter_by(id=int(record_id)).first()
+        else:
+            # Fallback do short_product_id (legacy)
+            product = ProductionItem.query.filter_by(short_product_id=product_id).first()
         if not product:
             return jsonify({
                 'success': False,
@@ -308,8 +318,13 @@ def update_quantity_done():
 
         from ...models import ProductionItem
 
-        # Znajdź produkt
-        product = ProductionItem.query.filter_by(short_product_id=product_id).first()
+        # Znajdź produkt - preferuj record_id (PK) gdy obecny (disambig dla doróbek)
+        record_id = data.get('record_id')
+        if record_id is not None:
+            product = ProductionItem.query.filter_by(id=int(record_id)).first()
+        else:
+            # Fallback do short_product_id (legacy)
+            product = ProductionItem.query.filter_by(short_product_id=product_id).first()
         if not product:
             return jsonify({
                 'success': False,
@@ -363,6 +378,64 @@ def update_quantity_done():
             'error': str(e)
         }), 500
 
+
+
+@api_bp.route('/products/<int:product_id>/reject', methods=['POST'])
+def product_reject(product_id):
+    """
+    POST /api/products/<id>/reject - Cofnięcie sztuk produktu z formatowania.
+
+    Body JSON: {
+        quantity: int (>= 1),
+        reason_category: 'wymiary'|'jakosc_sklejenia'|'jakosc_produktu'|'inne',
+        station_code: 'formatting' (opcjonalne, MVP zawsze formatting)
+    }
+
+    Autoryzacja: brak (jak inne endpointy tabletów). Tablet wpisuje POST z widoku web.
+    Returns: {original: serialized, rework: serialized, rework_log_id: int}
+    """
+    from ...services.rework_service import reject_product_quantity, RejectError
+
+    data = request.get_json(silent=True) or {}
+    quantity = data.get('quantity')
+    reason_category = (data.get('reason_category') or '').strip()
+    station_code = (data.get('station_code') or 'formatting').strip()
+
+    try:
+        original, rework, log_entry = reject_product_quantity(
+            product_id=product_id,
+            quantity=int(quantity) if quantity is not None else None,
+            reason_category=reason_category,
+            rejected_at_station=station_code,
+            user_id=None,
+            device_id=None,
+        )
+    except RejectError as e:
+        return jsonify({'success': False, 'error': e.code, 'detail': e.message}), e.status
+    except Exception as e:
+        logger.error("Web API reject błąd", extra={'product_id': product_id}, exc_info=True)
+        db.session.rollback()
+        return jsonify({'success': False, 'error': 'reject_failed', 'detail': str(e)}), 500
+
+    return jsonify({
+        'success': True,
+        'original': {
+            'id': original.id,
+            'short_product_id': original.short_product_id,
+            'quantity': original.quantity,
+            'quantity_done_formatting': original.quantity_done_formatting,
+            'current_status': original.current_status,
+        },
+        'rework': {
+            'id': rework.id,
+            'short_product_id': rework.short_product_id,
+            'quantity': rework.quantity,
+            'current_status': rework.current_status,
+            'is_rework': True,
+            'original_product_id': original.id,
+        },
+        'rework_log_id': log_entry.id,
+    }), 200
 
 
 @api_bp.route('/get-cutting-progress', methods=['POST'])
@@ -1117,8 +1190,13 @@ def admin_update_quantity_done():
 
         from ...models import ProductionItem
 
-        # Znajdź produkt
-        product = ProductionItem.query.filter_by(short_product_id=product_id).first()
+        # Znajdź produkt - preferuj record_id (PK) gdy obecny (disambig dla doróbek)
+        record_id = data.get('record_id')
+        if record_id is not None:
+            product = ProductionItem.query.filter_by(id=int(record_id)).first()
+        else:
+            # Fallback do short_product_id (legacy)
+            product = ProductionItem.query.filter_by(short_product_id=product_id).first()
         if not product:
             return jsonify({
                 'success': False,

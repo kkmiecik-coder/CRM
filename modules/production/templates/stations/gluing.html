@@ -129,12 +129,16 @@
             {% set priority_class = 'priority-order' if product.is_priority else '' %}
             <div class="order-card {{ priority_class }}"
                  data-product-id="{{ product.id }}"
+                 data-record-id="{{ product.record_id }}"
                  data-internal-order="{{ product.internal_order }}"
                  data-priority-rank="{{ product.priority_rank }}"
                  data-quantity="{{ product.quantity }}"
                  data-quantity-done="{{ product.quantity_done }}"
                  data-in-progress="false"
                  data-is-priority="{{ 'true' if product.is_priority else 'false' }}">
+                {% if product.original_product_id %}
+                <div class="rework-banner">Doróbka</div>
+                {% endif %}
                 <div class="order-header">
                     <div class="order-header-row order-ids-row">
                         <div class="order-ids">

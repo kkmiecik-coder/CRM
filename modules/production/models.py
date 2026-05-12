@@ -222,7 +222,14 @@ class ProductionProduct(db.Model):
     configuration_id = Column(Integer, ForeignKey('prod_configurations.id'),
                               nullable=True, index=True)
 
-    short_product_id = Column(String(20), unique=True, nullable=False, index=True)
+    short_product_id = Column(String(20), nullable=False, index=True)
+    original_product_id = Column(
+        Integer,
+        ForeignKey('prod_products.id', ondelete='SET NULL'),
+        nullable=True,
+        index=True,
+        comment='FK do oryginalnego prod_products gdy ten rekord jest doróbką; NULL dla oryginałów'
+    )
     product_sequence_in_order = Column(Integer, nullable=False)
     baselinker_product_id = Column(String(50))
     original_product_name = Column(Text, nullable=False)
@@ -298,6 +305,12 @@ class ProductionProduct(db.Model):
 
     order = relationship('ProductionOrder', back_populates='products')
     configuration = relationship('ProductionConfiguration')
+    original = relationship(
+        'ProductionProduct',
+        remote_side='ProductionProduct.id',
+        backref='rework_children',
+        foreign_keys=[original_product_id],
+    )
 
     def __repr__(self):
         return f'<ProductionProduct {self.short_product_id}: {self.current_status}>'
@@ -317,6 +330,10 @@ class ProductionProduct(db.Model):
     @property
     def finish_state(self):
         return self.parsed_finish_state
+
+    @property
+    def is_rework(self):
+        return self.original_product_id is not None
 
     @property
     def status_display_name(self):
@@ -370,6 +387,7 @@ class ProductionProduct(db.Model):
             raise ValueError("Numer priorytetu musi być >= 1")
         self.priority_rank = rank
         self.priority_manual_override = True
+        self.is_priority = True
 
     def unlock_priority(self):
         self.priority_manual_override = False
@@ -403,13 +421,15 @@ class ProductionProduct(db.Model):
                           actor_user_id=None, actor_device_id=None, source='web'):
         attr_name = f'quantity_done_{station_code}'
         old_value = getattr(self, attr_name, 0) or 0
-        value = max(0, min(value, self.quantity))
+        # quantity_done może przekraczać quantity gdy oryginał stracił sztuki przez reject
+        # (statystyki pracy stanowisk są pełną historią, niezależnie od bieżącego batcha).
+        value = max(0, value)
         setattr(self, attr_name, value)
 
         now = get_local_now()
 
         completed_attr = f'{station_code}_completed_at'
-        if value == self.quantity:
+        if value >= self.quantity:
             if getattr(self, completed_attr) is None:
                 setattr(self, completed_attr, now)
         else:
@@ -441,7 +461,7 @@ class ProductionProduct(db.Model):
         return self.set_quantity_done(station_code, current - amount, **actor_kwargs)
 
     def is_station_complete(self, station_code):
-        return self.get_quantity_done(station_code) == self.quantity
+        return self.get_quantity_done(station_code) >= self.quantity
 
     def should_skip_finishing(self):
         if self.parsed_finish_type == 'surowe':
@@ -493,6 +513,21 @@ class ProductionProduct(db.Model):
                 setattr(self, completed_attr, now)
 
         self.updated_at = now
+
+        # Domknięcie doróbki: gdy rekord-doróbka (original_product_id NOT NULL) osiąga
+        # status czeka_na_formatowanie, jej życie "w trasie" się kończy.
+        if self.original_product_id is not None and self.current_status == 'czeka_na_formatowanie':
+            # Odznaczenie manual priority — doróbka dotarła na formatowanie,
+            # gdzie ma już banner "Doróbka". Pomarańczowa ramka zbędna.
+            self.priority_manual_override = False
+            self.priority_rank = None
+            self.is_priority = False
+
+            # Domknięcie audit log
+            ProductionReworkLog.query.filter(
+                ProductionReworkLog.rework_product_id == self.id,
+                ProductionReworkLog.closed_at.is_(None),
+            ).update({'closed_at': now}, synchronize_session=False)
 
 
 # Alias kompatybilności dla starego kodu — zostanie usunięty osobnym commitem
@@ -1002,3 +1037,59 @@ class ProductionStationEvent(db.Model):
         return (f'<ProductionStationEvent item={self.production_item_id} '
                 f'{self.station_code} {sign}{self.delta} '
                 f'→ {self.quantity_done_after}>')
+
+
+class ProductionReworkLog(db.Model):
+    """
+    Audit log doróbek — każdy reject z formatowania (przyszłościowo też innych stanowisk)
+    zapisuje wpis z powodem, kto, kiedy, dokąd wraca. closed_at ustawiany gdy doróbka
+    wraca do statusu czeka_na_formatowanie.
+    """
+    __tablename__ = 'prod_rework_log'
+
+    id = Column(Integer, primary_key=True)
+    original_product_id = Column(
+        Integer,
+        ForeignKey('prod_products.id', ondelete='CASCADE'),
+        nullable=False, index=True
+    )
+    rework_product_id = Column(
+        Integer,
+        ForeignKey('prod_products.id', ondelete='CASCADE'),
+        nullable=False, index=True
+    )
+
+    quantity = Column(Integer, nullable=False,
+                      comment='Liczba sztuk cofniętych w tym evencie')
+
+    rejected_at_station = Column(
+        Enum('formatting', 'finishing', 'painting', name='rework_reject_station'),
+        nullable=False, index=True,
+        comment='Stanowisko, z którego cofnięto (MVP: zawsze formatting)'
+    )
+    returned_to_station = Column(
+        Enum('cutting', 'assembly', name='rework_return_station'),
+        nullable=False
+    )
+
+    reason_category = Column(
+        Enum('wymiary', 'jakosc_sklejenia', 'jakosc_produktu', 'inne',
+             name='rework_reason'),
+        nullable=False, index=True
+    )
+
+    created_at = Column(DateTime, default=get_local_now, nullable=False, index=True)
+    closed_at = Column(DateTime, nullable=True, index=True,
+                       comment='Kiedy doróbka wróciła do statusu czeka_na_formatowanie')
+
+    user_id = Column(Integer, ForeignKey('users.id', ondelete='SET NULL'), nullable=True)
+    device_id = Column(String(64), nullable=True,
+                       comment='ID tabletu z mobile API; NULL dla operacji web')
+
+    original = relationship('ProductionProduct', foreign_keys=[original_product_id])
+    rework = relationship('ProductionProduct', foreign_keys=[rework_product_id])
+
+    def __repr__(self):
+        return (f'<ProductionReworkLog #{self.id} '
+                f'{self.original_product_id}→{self.rework_product_id} '
+                f'qty={self.quantity} reason={self.reason_category}>')

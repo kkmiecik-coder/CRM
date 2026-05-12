@@ -330,6 +330,26 @@ body {
     color: #ce93d8;
 }
 
+/* Banner doróbka — fioletowy, pełna szerokość kafelka, nad rzędem badge'y */
+.rework-banner {
+    display: block;
+    width: 100%;
+    box-sizing: border-box;
+    padding: 4px 10px;
+    margin-bottom: 6px;
+    border: 1px solid #5c3570;
+    background: #3a1f4a;
+    color: #ce93d8;
+    font-weight: 600;
+    font-size: 12px;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    text-align: center;
+    border-radius: 4px;
+    flex-basis: 100%;
+    order: -1;
+}
+
 /* Obróbka krawędzi - pomarańczowy */
 .badge-edge {
     background: rgba(245, 158, 11, 0.15);
@@ -2146,3 +2166,175 @@ body {
     border: 2px solid var(--btn-plus-color);
     color: var(--btn-plus-color);
 }
+
+/* Przycisk reject (zawracająca strzałka) */
+.btn-reject-product {
+    background: transparent;
+    border: 1px solid #5c3570;
+    color: #ce93d8;
+    border-radius: 4px;
+    padding: 6px 8px;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 48px;
+    min-height: 48px;
+    transition: background 0.15s, color 0.15s;
+}
+.btn-reject-product:hover {
+    background: #3a1f4a;
+    color: #fff;
+}
+
+/* Modal reject */
+.reject-modal[hidden] { display: none; }
+.reject-modal {
+    position: fixed;
+    inset: 0;
+    z-index: 1000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.reject-modal-backdrop {
+    position: absolute;
+    inset: 0;
+    background: rgba(0,0,0,0.6);
+}
+.reject-modal-dialog {
+    position: relative;
+    background: #1e1e26;
+    color: #e0e0e0;
+    border: 1px solid #3a3a44;
+    border-radius: 8px;
+    padding: 24px;
+    min-width: 360px;
+    max-width: 90vw;
+    box-shadow: 0 10px 40px rgba(0,0,0,0.5);
+}
+.reject-modal-dialog h2 {
+    margin: 0 0 8px 0;
+    font-size: 18px;
+    color: #ce93d8;
+}
+.reject-modal-product { margin: 0 0 16px 0; font-size: 13px; color: #aaa; }
+.reject-modal-product-info {
+    margin-bottom: 16px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid #3a3a44;
+}
+.reject-modal-product-id {
+    display: inline-block;
+    font-family: monospace;
+    font-size: 15px;
+    color: #ce93d8;
+    background: #2a2a32;
+    padding: 4px 10px;
+    border-radius: 4px;
+    border: 1px solid #5c3570;
+    margin-right: 8px;
+}
+.reject-modal-badges {
+    display: inline-flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin-top: 8px;
+    align-items: center;
+}
+.reject-modal-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 3px;
+    font-size: 11px;
+    line-height: 1.4;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    font-weight: 600;
+    border: 1px solid;
+}
+.reject-modal-badge.species { background: rgba(180,120,60,0.15); border-color: rgba(180,120,60,0.4); color: #d4a87a; }
+.reject-modal-badge.technology { background: rgba(80,180,100,0.12); border-color: rgba(80,180,100,0.4); color: #8fd9a0; }
+.reject-modal-badge.wood-class { background: rgba(200,180,60,0.12); border-color: rgba(200,180,60,0.4); color: #d9c870; }
+.reject-modal-badge.dimensions { background: #2a2a32; border-color: #555; color: #ccc; font-family: monospace; }
+.reject-modal-label {
+    display: block;
+    margin-top: 12px;
+    margin-bottom: 4px;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: #888;
+}
+.reject-modal-qty {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.reject-modal-qty input {
+    width: 80px;
+    padding: 8px;
+    background: #2a2a32;
+    border: 1px solid #444;
+    color: #fff;
+    border-radius: 4px;
+    text-align: center;
+    font-size: 16px;
+}
+.reject-modal-qty .btn-qty-step {
+    width: 40px;
+    height: 40px;
+    background: #2a2a32;
+    border: 1px solid #444;
+    color: #fff;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 18px;
+}
+.reject-modal-qty-hint { font-size: 12px; color: #888; margin-left: 8px; }
+.reject-modal-dialog select,
+.reject-modal-dialog textarea {
+    width: 100%;
+    padding: 8px;
+    background: #2a2a32;
+    border: 1px solid #444;
+    color: #fff;
+    border-radius: 4px;
+    box-sizing: border-box;
+    font-family: inherit;
+    font-size: 14px;
+}
+.reject-modal-error {
+    margin-top: 12px;
+    padding: 8px;
+    background: rgba(220,53,69,0.15);
+    border: 1px solid #dc3545;
+    color: #f5a3aa;
+    border-radius: 4px;
+    font-size: 13px;
+}
+.reject-modal-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 12px;
+    margin-top: 20px;
+}
+.reject-modal-actions button {
+    padding: 10px 18px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-weight: 600;
+    min-height: 48px;
+    border: 1px solid transparent;
+}
+.btn-reject-cancel {
+    background: #2a2a32;
+    color: #ccc;
+    border-color: #444;
+}
+.btn-reject-confirm {
+    background: #3a1f4a;
+    color: #ce93d8;
+    border-color: #5c3570;
+}
+.btn-reject-confirm:hover { background: #5c3570; color: #fff; }

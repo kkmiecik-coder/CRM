@@ -208,6 +208,10 @@ def _process_pending(app, internal_order_number: str, station_code: str) -> None
     from ..models import ProductionItem, ProductionOrder
     from sqlalchemy.orm import joinedload
 
+    # Agregator stanu zamówienia liczy WSZYSTKIE prod_products zamówienia,
+    # włącznie z doróbkami (original_product_id IS NOT NULL). BL status
+    # "wyprodukowane" / "spakowane" zostaje wysłany dopiero gdy oryginał
+    # + wszystkie doróbki są gotowe (brak filtra po original_product_id IS NULL).
     products = (
         ProductionItem.query
         .options(joinedload(ProductionItem.order))

@@ -93,6 +93,7 @@ def cutting_station():
 
                 product_data = {
                     'id': product.short_product_id,
+                    'record_id': product.id,
                     'internal_order': product.order.internal_order_number if product.order else None,
                     'baselinker_order_id': product.order.baselinker_order_id if product.order else None,
                     'original_name': product.original_product_name,
@@ -113,8 +114,10 @@ def cutting_station():
                     'quantity_done': product.quantity_done_cutting,
                     'quantity_done_assembly': product.quantity_done_assembly,
                     'assembly_completed_at': product.assembly_completed_at,
-                    'is_complete': product.quantity_done_cutting == product.quantity,
+                    'is_complete': product.is_station_complete('cutting'),
                     'is_priority': product.is_priority,
+                    'is_rework': product.is_rework,
+                    'original_product_id': product.original_product_id,
                     'order_notes': product.order.order_notes if product.order else None,
                     'production_notes': product.production_notes,
                     'client_order_number': product.order.client_order_number if product.order else None
@@ -288,6 +291,7 @@ def assembly_station():
 
                 product_data = {
                     'id': product.short_product_id,
+                    'record_id': product.id,
                     'internal_order': product.order.internal_order_number if product.order else None,
                     'baselinker_order_id': product.order.baselinker_order_id if product.order else None,
                     'original_name': product.original_product_name,
@@ -308,8 +312,10 @@ def assembly_station():
                     'quantity_done': product.quantity_done_assembly,
                     'quantity_done_cutting': product.quantity_done_cutting or 0,
                     'cutting_completed_at': product.cutting_completed_at,
-                    'is_complete': product.quantity_done_assembly == product.quantity,
+                    'is_complete': product.is_station_complete('assembly'),
                     'is_priority': product.is_priority,
+                    'is_rework': product.is_rework,
+                    'original_product_id': product.original_product_id,
                     'order_notes': product.order.order_notes if product.order else None,
                     'production_notes': product.production_notes,
                     'client_order_number': product.order.client_order_number if product.order else None
@@ -492,6 +498,7 @@ def _render_completion_or_gluing(active_tab):
 
             products.append({
                 'id': product.short_product_id,
+                'record_id': product.id,
                 'internal_order': product.order.internal_order_number if product.order else None,
                 'baselinker_order_id': product.order.baselinker_order_id if product.order else None,
                 'original_name': product.original_product_name,
@@ -512,6 +519,8 @@ def _render_completion_or_gluing(active_tab):
                 'quantity_done': qty_done,
                 'is_complete': qty_done == product.quantity,
                 'is_priority': product.is_priority,
+                'is_rework': product.is_rework,
+                'original_product_id': product.original_product_id,
                 'order_notes': product.order.order_notes if product.order else None,
                 'production_notes': product.production_notes,
                 'client_order_number': product.order.client_order_number if product.order else None,
@@ -649,6 +658,13 @@ def formatting_station():
             else:
                 query = query.order_by(asc(ProductionItem.created_at))
 
+            # Sortowanie w grupie zamowienia: oryginal (NULL) przed dorobka
+            query = query.order_by(
+                ProductionProduct.short_product_id.asc(),
+                ProductionProduct.original_product_id.is_(None).desc(),
+                ProductionProduct.id.asc(),
+            )
+
             products_db = query.all()
 
             products = []
@@ -670,6 +686,7 @@ def formatting_station():
 
                 product_data = {
                     'id': product.short_product_id,
+                    'record_id': product.id,
                     'internal_order': product.order.internal_order_number if product.order else None,
                     'baselinker_order_id': product.order.baselinker_order_id if product.order else None,
                     'original_name': product.original_product_name,
@@ -688,8 +705,10 @@ def formatting_station():
                     'product_sequence_in_order': product.product_sequence_in_order,
                     'quantity': product.quantity,
                     'quantity_done': product.quantity_done_formatting,
-                    'is_complete': product.quantity_done_formatting == product.quantity,
+                    'is_complete': product.is_station_complete('formatting'),
                     'is_priority': product.is_priority,
+                    'is_rework': product.is_rework,
+                    'original_product_id': product.original_product_id,
                     'order_notes': product.order.order_notes if product.order else None,
                     'production_notes': product.production_notes,
                     'client_order_number': product.order.client_order_number if product.order else None,
@@ -914,6 +933,7 @@ def finishing_station():
 
             product_data = {
                 'id': product.short_product_id,
+                'record_id': product.id,
                 'internal_order': product.order.internal_order_number if product.order else None,
                 'baselinker_order_id': product.order.baselinker_order_id if product.order else None,
                 'original_name': product.original_product_name,
@@ -935,6 +955,8 @@ def finishing_station():
                 'quantity_done': qty_done,
                 'is_complete': qty_done == product.quantity,
                 'is_priority': product.is_priority,
+                'is_rework': product.is_rework,
+                'original_product_id': product.original_product_id,
                 'order_notes': product.order.order_notes if product.order else None,
                 'production_notes': product.production_notes,
                 'client_order_number': product.order.client_order_number if product.order else None,
@@ -1056,6 +1078,13 @@ def packaging_station():
             else:
                 query = query.order_by(asc(ProductionItem.created_at))
 
+            # Sortowanie w grupie zamowienia: oryginal (NULL) przed dorobka
+            query = query.order_by(
+                ProductionProduct.short_product_id.asc(),
+                ProductionProduct.original_product_id.is_(None).desc(),
+                ProductionProduct.id.asc(),
+            )
+
             products_db = query.all()
 
             # Przygotuj dane produktow (uzywajac tej samej logiki co get_products_for_station)
@@ -1126,6 +1155,7 @@ def packaging_station():
 
                 product_data = {
                     'id': product.short_product_id,
+                    'record_id': product.id,
                     'internal_order': product.order.internal_order_number if product.order else None,
                     'baselinker_order_id': product.order.baselinker_order_id if product.order else None,
                     'original_name': product.original_product_name,
@@ -1154,8 +1184,10 @@ def packaging_station():
                     'display_deadline': display_deadline,
                     'quantity': product.quantity,
                     'quantity_done': product.quantity_done_packaging,
-                    'is_complete': product.quantity_done_packaging == product.quantity,
+                    'is_complete': product.is_station_complete('packaging'),
                     'is_priority': product.is_priority,
+                    'is_rework': product.is_rework,
+                    'original_product_id': product.original_product_id,
                     'order_notes': product.order.order_notes if product.order else None,
                     'production_notes': product.production_notes,
                     'client_order_number': product.order.client_order_number if product.order else None,

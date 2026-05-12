@@ -287,6 +287,81 @@ def order_quantity(order_id):
     return jsonify(serialize_order(item, station_code=station_code)), 200
 
 
+@mobile_api_bp.route('/orders/<int:order_id>/reject', methods=['POST'])
+@require_device_token
+@with_idempotency
+def order_reject(order_id):
+    """
+    POST /api/mobile/orders/<id>/reject
+
+    Body JSON: {
+        quantity: int,
+        reason_category: 'wymiary' | 'jakosc_sklejenia' | 'jakosc_produktu' | 'inne',
+        station_code: 'formatting' (opcjonalne, domyślnie z g.device.station_code)
+    }
+
+    Response: { original: serialized, rework: serialized, rework_log_id: int }
+    """
+    from modules.production.services.rework_service import (
+        reject_product_quantity,
+        RejectError,
+    )
+
+    data = request.get_json(silent=True) or {}
+
+    station_code, err = _resolve_station_code(data.get('station_code'))
+    if err is not None:
+        return err
+
+    quantity = data.get('quantity')
+    reason_category = (data.get('reason_category') or '').strip()
+
+    try:
+        original, rework, log_entry = reject_product_quantity(
+            product_id=order_id,
+            quantity=int(quantity) if quantity is not None else None,
+            reason_category=reason_category,
+            rejected_at_station=station_code,
+            user_id=None,  # mobile API używa device, nie user
+            device_id=g.device.device_id,
+        )
+    except RejectError as e:
+        logger.warning(
+            "Mobile API reject odrzucony",
+            extra={
+                'product_id': order_id,
+                'code': e.code,
+                'device_id': g.device.device_id,
+            },
+        )
+        return jsonify({'error': e.code, 'detail': e.message}), e.status
+    except Exception as e:
+        logger.error(
+            "Mobile API reject błąd",
+            extra={'product_id': order_id, 'device_id': g.device.device_id},
+            exc_info=True,
+        )
+        db.session.rollback()
+        return jsonify({'error': 'reject_failed', 'detail': str(e)}), 500
+
+    logger.info(
+        "Mobile API: reject wykonany",
+        extra={
+            'product_id': original.id,
+            'rework_id': rework.id,
+            'quantity': log_entry.quantity,
+            'reason': log_entry.reason_category,
+            'device_id': g.device.device_id,
+        },
+    )
+
+    return jsonify({
+        'original': serialize_order(original, station_code=station_code),
+        'rework': serialize_order(rework, station_code=station_code),
+        'rework_log_id': log_entry.id,
+    }), 200
+
+
 # ============================================================================
 # SUMMARY (metryki stanowiska)
 # ============================================================================
