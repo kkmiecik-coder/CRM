@@ -222,7 +222,14 @@ class ProductionProduct(db.Model):
     configuration_id = Column(Integer, ForeignKey('prod_configurations.id'),
                               nullable=True, index=True)
 
-    short_product_id = Column(String(20), unique=True, nullable=False, index=True)
+    short_product_id = Column(String(20), nullable=False, index=True)
+    original_product_id = Column(
+        Integer,
+        ForeignKey('prod_products.id', ondelete='SET NULL'),
+        nullable=True,
+        index=True,
+        comment='FK do oryginalnego prod_products gdy ten rekord jest doróbką; NULL dla oryginałów'
+    )
     product_sequence_in_order = Column(Integer, nullable=False)
     baselinker_product_id = Column(String(50))
     original_product_name = Column(Text, nullable=False)
@@ -298,6 +305,12 @@ class ProductionProduct(db.Model):
 
     order = relationship('ProductionOrder', back_populates='products')
     configuration = relationship('ProductionConfiguration')
+    original = relationship(
+        'ProductionProduct',
+        remote_side='ProductionProduct.id',
+        backref='rework_children',
+        foreign_keys=[original_product_id],
+    )
 
     def __repr__(self):
         return f'<ProductionProduct {self.short_product_id}: {self.current_status}>'
@@ -317,6 +330,10 @@ class ProductionProduct(db.Model):
     @property
     def finish_state(self):
         return self.parsed_finish_state
+
+    @property
+    def is_rework(self):
+        return self.original_product_id is not None
 
     @property
     def status_display_name(self):
