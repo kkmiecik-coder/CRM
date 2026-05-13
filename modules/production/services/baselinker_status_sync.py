@@ -43,6 +43,10 @@ PRODUCTION_COMPLETED_STATUS_ID = 138620
 ORDER_PACKED_STATUS_ID = 138623
 PRODUCTION_RAW_STATUS_ID = 138619  # fallback dla "W produkcji - surowe"
 
+# Statusy po pakowaniu - zależne od metody dostawy (patrz _determine_packaging_target_status)
+WAITING_PERSONAL_PICKUP_STATUS_ID = 149777  # "Czeka na odbiór osobisty"
+PLANNED_ROUTE_STATUS_ID = 417343            # "Planowana trasa" (transport WoodPower)
+
 # Statusy lokalne CRM oznaczające "produkcja zakończona, czekamy na logistykę/pakowanie/po pakowaniu"
 POSTPROD_STATUSES = frozenset({'czeka_na_logistyke', 'czeka_na_pakowanie', 'spakowane'})
 
@@ -203,6 +207,36 @@ def flush_pending_syncs() -> None:
             })
 
 
+def _determine_packaging_target_status(order) -> int:
+    """
+    Wybiera ID statusu BL po ukończeniu pakowania na podstawie typu dostawy zamówienia.
+
+    Reguła decyzyjna (kolejność istotna):
+    1. is_personal_pickup                              → 149777 (Czeka na odbiór osobisty)
+    2. override_delivery_method == 'transport_woodpower' → 417343 (Planowana trasa)
+    3. override_delivery_method == 'kurier_baselinker'   → 138623 (Zamówienie spakowane)
+    4. fallback (NULL/unknown)                           → 138623 + warn log
+
+    is_personal_pickup musi być pierwsze, bo dla odbioru osobistego logistyka
+    jest pomijana i override_delivery_method jest NULL.
+    """
+    if order.is_personal_pickup:
+        return WAITING_PERSONAL_PICKUP_STATUS_ID
+
+    override = (order.override_delivery_method or '').strip()
+    if override == 'transport_woodpower':
+        return PLANNED_ROUTE_STATUS_ID
+    if override == 'kurier_baselinker':
+        return ORDER_PACKED_STATUS_ID
+
+    logger.warning("Pakowanie ukończone bez decyzji logistyki - fallback na 'spakowane'", extra={
+        'internal_order_number': order.internal_order_number,
+        'baselinker_order_id': order.baselinker_order_id,
+        'override_delivery_method': order.override_delivery_method,
+    })
+    return ORDER_PACKED_STATUS_ID
+
+
 def _process_pending(app, internal_order_number: str, station_code: str) -> None:
     """Określa target_status i odpala próbę setOrderStatus."""
     from ..models import ProductionItem, ProductionOrder
@@ -225,7 +259,7 @@ def _process_pending(app, internal_order_number: str, station_code: str) -> None
     if station_code == 'packaging':
         if not all(p.current_status == 'spakowane' for p in products):
             return
-        target = ORDER_PACKED_STATUS_ID
+        target = _determine_packaging_target_status(products[0].order)
     elif station_code in PRODUCTION_STATIONS:
         if not all(p.current_status in POSTPROD_STATUSES for p in products):
             return
