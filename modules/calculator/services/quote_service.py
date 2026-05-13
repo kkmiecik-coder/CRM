@@ -40,7 +40,7 @@ logger = logging.getLogger(__name__)
 
 def _validate_quote_access(quote, current_user):
     """Sprawdza czy uzytkownik ma prawo edytowac wycene."""
-    if current_user.role == 'admin':
+    if current_user.role in ('admin', 'user'):
         return True
     if quote.user_id == current_user.id:
         return True
