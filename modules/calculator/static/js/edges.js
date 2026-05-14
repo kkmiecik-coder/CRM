@@ -2548,16 +2548,20 @@ const EdgesModule = (function() {
             topPathD += topPts[tpi].x + ',' + topPts[tpi].y + (tpi < topPts.length - 1 ? ' L ' : '');
         }
         topPathD += ' Z';
-        // Wierzchołki dziur w projekcji top face (z=0)
+        // Wierzchołki dziur w projekcji top face (z=0) i bottom face (z=thickness)
         var holeTopPts = [];
+        var holeBotPts = [];
         for (var hi = 0; hi < holes.length; hi++) {
             var hole = holes[hi];
-            if (!hole || hole.length < 3) { holeTopPts.push(null); continue; }
+            if (!hole || hole.length < 3) { holeTopPts.push(null); holeBotPts.push(null); continue; }
             var ringPts = [];
+            var ringBotPts = [];
             for (var hj = 0; hj < hole.length; hj++) {
                 ringPts.push(project3D(hole[hj][0], hole[hj][1], 0));
+                ringBotPts.push(project3D(hole[hj][0], hole[hj][1], effectiveThickness));
             }
             holeTopPts.push(ringPts);
+            holeBotPts.push(ringBotPts);
             topPathD += ' M ';
             for (var hk = 0; hk < ringPts.length; hk++) {
                 topPathD += ringPts[hk].x + ',' + ringPts[hk].y + (hk < ringPts.length - 1 ? ' L ' : '');
@@ -2623,15 +2627,15 @@ const EdgesModule = (function() {
             }
         }
 
-        // Narożniki dziur (H{h}.N{j}) — klikalne kółka na wierzchołkach top face
+        // Obrys dziury na dolnej powierzchni — tylko wizualnie, bez klikalności
         for (var hi3 = 0; hi3 < holes.length; hi3++) {
-            var ringPts3 = holeTopPts[hi3];
-            if (!ringPts3) continue;
-            for (var hj3 = 0; hj3 < ringPts3.length; hj3++) {
-                var hnEdgeId = 'H' + (hi3 + 1) + '.N' + (hj3 + 1);
-                var hnCls = 'edges-corner-dot' + (activeEdges.has(hnEdgeId) ? ' active' : '');
-                svg += '<circle class="' + hnCls + '" data-edge="' + hnEdgeId + '"' +
-                    ' cx="' + ringPts3[hj3].x + '" cy="' + ringPts3[hj3].y + '" r="5"/>';
+            var ringPtsBot = holeBotPts[hi3];
+            if (!ringPtsBot) continue;
+            for (var hj3 = 0; hj3 < ringPtsBot.length; hj3++) {
+                var hk3 = (hj3 + 1) % ringPtsBot.length;
+                svg += '<line class="edges-hole-bottom" '
+                    + 'x1="' + ringPtsBot[hj3].x + '" y1="' + ringPtsBot[hj3].y + '"'
+                    + ' x2="' + ringPtsBot[hk3].x + '" y2="' + ringPtsBot[hk3].y + '"/>';
             }
         }
 
