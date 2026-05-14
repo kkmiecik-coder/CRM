@@ -1129,6 +1129,7 @@ const EdgesModule = (function() {
     function updateSvgEdge(edge, active) {
         const line = elements.svg?.querySelector(`.edges-line[data-edge="${edge}"]`);
         const label = elements.svg?.querySelector(`.edges-label[data-edge="${edge}"]`);
+        const dot = elements.svg?.querySelector(`.edges-corner-dot[data-edge="${edge}"]`);
 
         if (line) {
             line.classList.toggle('active', active);
@@ -1136,16 +1137,23 @@ const EdgesModule = (function() {
         if (label) {
             label.classList.toggle('active', active);
         }
+        if (dot) {
+            dot.classList.toggle('active', active);
+        }
     }
 
     function highlightEdge(edge, highlight) {
         const line = elements.svg?.querySelector(`.edges-line[data-edge="${edge}"]`);
         const label = elements.svg?.querySelector(`.edges-label[data-edge="${edge}"]`);
+        const dot = elements.svg?.querySelector(`.edges-corner-dot[data-edge="${edge}"]`);
         if (line) {
             line.classList.toggle('highlight', highlight);
         }
         if (label) {
             label.classList.toggle('highlight', highlight);
+        }
+        if (dot) {
+            dot.classList.toggle('highlight', highlight);
         }
     }
 
