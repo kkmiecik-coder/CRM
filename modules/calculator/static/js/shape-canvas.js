@@ -238,13 +238,24 @@ var ShapeCanvas = (function() {
             // Klamerki: dla każdego wierzchołka rzutujemy na krawędzie bbox
             // i rysujemy klamerkę od rogu bbox do rzutu wierzchołka
 
-            // Linie prowadzące: od wierzchołków kształtu do krawędzi bbox
+            // Wszystkie wierzchołki branie pod uwagę przy klamerkach: outer + hole
+            var allBracketVerts = verts.slice();
+            for (var ahi = 0; ahi < state.holes.length; ahi++) {
+                var hRing = state.holes[ahi];
+                if (hRing && hRing.length >= 3) {
+                    for (var ahj = 0; ahj < hRing.length; ahj++) {
+                        allBracketVerts.push(hRing[ahj]);
+                    }
+                }
+            }
+
+            // Linie prowadzące: od wierzchołków (outer + hole) do krawędzi bbox
             ctx.save();
             ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
             ctx.lineWidth = 1.5;
             ctx.setLineDash([6, 6]);
-            for (var gi = 0; gi < verts.length; gi++) {
-                var gvx = verts[gi][0], gvy = verts[gi][1];
+            for (var gi = 0; gi < allBracketVerts.length; gi++) {
+                var gvx = allBracketVerts[gi][0], gvy = allBracketVerts[gi][1];
                 var isOnBboxCorner = (Math.abs(gvx - bMinX) < tolerance || Math.abs(gvx - bMaxX) < tolerance)
                     && (Math.abs(gvy - bMinY) < tolerance || Math.abs(gvy - bMaxY) < tolerance);
                 if (isOnBboxCorner) continue;
@@ -270,19 +281,24 @@ var ShapeCanvas = (function() {
             var xPositions = []; // rzuty na dolną/górną krawędź
             var yPositions = []; // rzuty na lewą/prawą krawędź
 
-            for (var bi = 0; bi < verts.length; bi++) {
-                var vx = verts[bi][0], vy = verts[bi][1];
-                // Rzut X na dolną krawędź — pomijaj jeśli w rogu bbox
+            function _pushUniqueX(arr, v) {
+                for (var k = 0; k < arr.length; k++) if (Math.abs(arr[k] - v) < tolerance) return;
+                arr.push(v);
+            }
+
+            for (var bi = 0; bi < allBracketVerts.length; bi++) {
+                var vx = allBracketVerts[bi][0], vy = allBracketVerts[bi][1];
+                // Rzut X — pomijaj jeśli na lewej/prawej krawędzi bbox lub duplikat
                 if (Math.abs(vx - bMinX) > tolerance && Math.abs(vx - bMaxX) > tolerance) {
-                    xPositions.push(vx);
+                    _pushUniqueX(xPositions, vx);
                 }
-                // Rzut Y na lewą krawędź — pomijaj jeśli w rogu bbox
+                // Rzut Y — pomijaj jeśli na dolnej/górnej krawędzi bbox lub duplikat
                 if (Math.abs(vy - bMinY) > tolerance && Math.abs(vy - bMaxY) > tolerance) {
-                    yPositions.push(vy);
+                    _pushUniqueX(yPositions, vy);
                 }
             }
 
-            // Sortuj i usuń duplikaty
+            // Sortuj
             xPositions.sort(function(a, b) { return a - b; });
             yPositions.sort(function(a, b) { return a - b; });
 
