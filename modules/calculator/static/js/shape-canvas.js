@@ -52,8 +52,17 @@ var ShapeCanvas = (function() {
             holes: [],
             activeHole: null,
             hoverHoleStart: false,
-            _hintTimeout: null
+            _hintTimeout: null,
+            visibility: { dimensions: true, brackets: true, guides: true, angles: true }
         };
+
+        // Load visibility z localStorage (per-przeglądarka)
+        try {
+            var savedVis = JSON.parse(localStorage.getItem('wp.canvas.visibility') || 'null');
+            if (savedVis && typeof savedVis === 'object') {
+                state.visibility = Object.assign(state.visibility, savedVis);
+            }
+        } catch (e) { /* ignore */ }
 
         // Pozycje wymiarów do obsługi dblclick
         var dimensionHitAreas = []; // [{x, y, edgeIndex, labelX, labelY}]
@@ -250,6 +259,7 @@ var ShapeCanvas = (function() {
             }
 
             // Linie prowadzące: od wierzchołków (outer + hole) do krawędzi bbox
+            if (state.visibility.guides) {
             ctx.save();
             ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
             ctx.lineWidth = 1.5;
@@ -276,13 +286,15 @@ var ShapeCanvas = (function() {
                 }
             }
             ctx.restore();
+            } // koniec if (visibility.guides)
 
             // Zbierz unikalne pozycje X i Y wierzchołków (rzuty na krawędzie)
             var xPositions = []; // rzuty na dolną/górną krawędź
             var yPositions = []; // rzuty na lewą/prawą krawędź
 
             function _pushUniqueX(arr, v) {
-                for (var k = 0; k < arr.length; k++) if (Math.abs(arr[k] - v) < tolerance) return;
+                // Dedup po dokładnej pozycji (z mikro-epsilon na float jitter, NIE chowamy klamerek różniących się o 1mm)
+                for (var k = 0; k < arr.length; k++) if (Math.abs(arr[k] - v) < 0.001) return;
                 arr.push(v);
             }
 
@@ -301,6 +313,8 @@ var ShapeCanvas = (function() {
             // Sortuj
             xPositions.sort(function(a, b) { return a - b; });
             yPositions.sort(function(a, b) { return a - b; });
+
+            if (!state.visibility.brackets) return;
 
             // Klamerki na górnej krawędzi bbox (poziome) — każda kolejna wyżej
             for (var xi = 0; xi < xPositions.length; xi++) {
@@ -485,8 +499,90 @@ var ShapeCanvas = (function() {
 
             _renderDimensionLines(verts);
             _renderHoleDimensions();
+            _renderAngles();
             _renderVertexHandles(verts);
             _renderHoleHandles();
+        }
+
+        // Etykiety kątów wewnętrznych (tylko nie-90° ±1°)
+        function _renderAngles() {
+            if (!state.visibility.angles) return;
+
+            function _renderRing(ring) {
+                if (!ring || ring.length < 3) return;
+                var n = ring.length;
+                for (var i = 0; i < n; i++) {
+                    var prev = ring[(i - 1 + n) % n];
+                    var curr = ring[i];
+                    var next = ring[(i + 1) % n];
+
+                    var inDx = curr[0] - prev[0], inDy = curr[1] - prev[1];
+                    var outDx = next[0] - curr[0], outDy = next[1] - curr[1];
+                    var inLen = Math.sqrt(inDx * inDx + inDy * inDy);
+                    var outLen = Math.sqrt(outDx * outDx + outDy * outDy);
+                    if (inLen < 0.01 || outLen < 0.01) continue;
+
+                    var nInDx = inDx / inLen, nInDy = inDy / inLen;
+                    var nOutDx = outDx / outLen, nOutDy = outDy / outLen;
+                    // Kąt wewnętrzny: między -inVec i outVec
+                    var dot = (-nInDx) * nOutDx + (-nInDy) * nOutDy;
+                    if (dot > 1) dot = 1; if (dot < -1) dot = -1;
+                    var angleDeg = Math.round(Math.acos(dot) * 180 / Math.PI);
+                    if (Math.abs(angleDeg - 90) <= 1) continue;
+
+                    // Bisektor (cm) → wnętrze rogu = uśredniony kierunek od curr w stronę "do środka"
+                    var bx = (-nInDx) + nOutDx;
+                    var by = (-nInDy) + nOutDy;
+                    var bLen = Math.sqrt(bx * bx + by * by);
+                    if (bLen < 0.001) continue;
+                    bx /= bLen; by /= bLen;
+
+                    // Pozycje w pixelach
+                    var cPx = cmToPixel(curr[0], curr[1]);
+                    // Wektory in/out w układzie ekranowym (Y odwrócone w cmToPixel)
+                    var pPx = cmToPixel(prev[0], prev[1]);
+                    var nPx = cmToPixel(next[0], next[1]);
+                    var scrInX = cPx[0] - pPx[0], scrInY = cPx[1] - pPx[1];
+                    var scrOutX = nPx[0] - cPx[0], scrOutY = nPx[1] - cPx[1];
+                    var scrInLen = Math.sqrt(scrInX * scrInX + scrInY * scrInY);
+                    var scrOutLen = Math.sqrt(scrOutX * scrOutX + scrOutY * scrOutY);
+                    if (scrInLen < 1 || scrOutLen < 1) continue;
+
+                    // Łuk: od kierunku -in do +out, na promieniu 14px
+                    var startAng = Math.atan2(-scrInY, -scrInX); // wektor od curr w stronę prev (na ekranie)
+                    var endAng = Math.atan2(scrOutY, scrOutX);   // wektor od curr w stronę next (na ekranie)
+                    var r = 14;
+
+                    // Wybierz kierunek łuku po krótszej stronie (ta będzie po stronie wnętrza)
+                    var diff = endAng - startAng;
+                    while (diff > Math.PI) diff -= 2 * Math.PI;
+                    while (diff < -Math.PI) diff += 2 * Math.PI;
+                    var ccw = diff < 0;
+
+                    ctx.save();
+                    ctx.strokeStyle = 'rgba(230, 126, 34, 0.7)';
+                    ctx.lineWidth = 1;
+                    ctx.beginPath();
+                    ctx.arc(cPx[0], cPx[1], r, startAng, endAng, ccw);
+                    ctx.stroke();
+
+                    // Tekst na bisektorze ekranowym (w stronę środka łuku)
+                    var midAng = startAng + (ccw ? -Math.abs(diff) / 2 : Math.abs(diff) / 2);
+                    var tx = cPx[0] + Math.cos(midAng) * (r + 10);
+                    var ty = cPx[1] + Math.sin(midAng) * (r + 10);
+                    ctx.font = 'bold 10px sans-serif';
+                    ctx.fillStyle = 'rgba(230, 126, 34, 0.9)';
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'middle';
+                    ctx.fillText(angleDeg + '°', tx, ty);
+                    ctx.restore();
+                }
+            }
+
+            _renderRing(state.vertices);
+            for (var hi = 0; hi < state.holes.length; hi++) {
+                _renderRing(state.holes[hi]);
+            }
         }
 
         function _renderHoleHandles() {
@@ -500,6 +596,7 @@ var ShapeCanvas = (function() {
         }
 
         function _renderHoleDimensions() {
+            if (!state.visibility.dimensions) return;
             for (var hi = 0; hi < state.holes.length; hi++) {
                 var h = state.holes[hi];
                 if (!h || h.length < 2) continue;
@@ -571,6 +668,7 @@ var ShapeCanvas = (function() {
 
         function _renderDimensionLines(verts) {
             dimensionHitAreas = [];
+            if (!state.visibility.dimensions) return;
             var n = verts.length;
             for (var i = 0; i < n; i++) {
                 var j = (i + 1) % n;
@@ -1569,6 +1667,17 @@ var ShapeCanvas = (function() {
             return state.activeTool;
         }
 
+        function setVisibility(key, value) {
+            if (!(key in state.visibility)) return;
+            state.visibility[key] = !!value;
+            try { localStorage.setItem('wp.canvas.visibility', JSON.stringify(state.visibility)); } catch (e) { /* ignore */ }
+            render();
+        }
+
+        function getVisibility() {
+            return Object.assign({}, state.visibility);
+        }
+
         return {
             setShape: setShape,
             updateFromParams: updateFromParams,
@@ -1590,6 +1699,8 @@ var ShapeCanvas = (function() {
             getLamellaDirection: function() { return state.lamellaDirection; },
             setActiveTool: setActiveTool,
             getActiveTool: getActiveTool,
+            setVisibility: setVisibility,
+            getVisibility: getVisibility,
             destroy: function() { resizeObserver.disconnect(); }
         };
     }

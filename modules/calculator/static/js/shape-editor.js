@@ -16,6 +16,25 @@ var ShapeEditor = (function() {
         var hintEl = form.querySelector('[data-shape-hint]');
         var toolbarEl = form.querySelector('[data-shape-toolbar]');
         var toolButtons = toolbarEl ? toolbarEl.querySelectorAll('[data-shape-tool]') : [];
+        var viewToggleEl = form.querySelector('[data-shape-view-toggle]');
+        var visibilityCheckboxes = viewToggleEl ? viewToggleEl.querySelectorAll('input[data-visibility-key]') : [];
+
+        function _syncVisibilityCheckboxes() {
+            if (!canvas || !visibilityCheckboxes.length) return;
+            var vis = canvas.getVisibility();
+            for (var vi = 0; vi < visibilityCheckboxes.length; vi++) {
+                var cb = visibilityCheckboxes[vi];
+                cb.checked = !!vis[cb.dataset.visibilityKey];
+            }
+        }
+
+        for (var vci = 0; vci < visibilityCheckboxes.length; vci++) {
+            (function(cb) {
+                cb.addEventListener('change', function() {
+                    if (canvas) canvas.setVisibility(cb.dataset.visibilityKey, cb.checked);
+                });
+            })(visibilityCheckboxes[vci]);
+        }
 
         var TOOL_HINTS = {
             cursor: 'Przeciągnij wierzchołek lub tło canvasu',
@@ -66,6 +85,7 @@ var ShapeEditor = (function() {
                 onParamsChange: _onCanvasParamsChange,
                 onShapeTypeChange: _onCanvasShapeTypeChange
             });
+            _syncVisibilityCheckboxes();
         }
 
         // ============================================
@@ -160,6 +180,7 @@ var ShapeEditor = (function() {
             editorContainer.classList.toggle('collapsed-canvas', hideCanvas);
             form.classList.toggle('shape-canvas-active', !hideCanvas);
 
+            if (viewToggleEl) viewToggleEl.style.display = hideCanvas ? 'none' : 'block';
             if (toolbarEl) {
                 toolbarEl.style.display = hideCanvas ? 'none' : 'flex';
                 var isCircleLike = (shapeType === 'circle' || shapeType === 'oval');
