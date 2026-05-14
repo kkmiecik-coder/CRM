@@ -14,6 +14,24 @@ var ShapeEditor = (function() {
         var redoBtn = form.querySelector('[data-shape-redo]');
         var fitBtn = form.querySelector('[data-shape-fit]');
         var hintEl = form.querySelector('[data-shape-hint]');
+        var toolbarEl = form.querySelector('[data-shape-toolbar]');
+        var toolButtons = toolbarEl ? toolbarEl.querySelectorAll('[data-shape-tool]') : [];
+
+        var TOOL_HINTS = {
+            cursor: 'Przeciągnij wierzchołek lub tło canvasu',
+            add: 'Klik krawędź = dodaj punkt. Klik wnętrze = nowa dziura. Prawy klik = zakończ dziurę.',
+            remove: 'Klik wierzchołek = usuń (min 3 punkty)'
+        };
+
+        function _setActiveToolButton(tool) {
+            for (var i = 0; i < toolButtons.length; i++) {
+                toolButtons[i].classList.toggle('active', toolButtons[i].dataset.shapeTool === tool);
+            }
+            if (hintEl && currentShape !== 'rectangular' && currentShape !== 'circle' && currentShape !== 'oval') {
+                hintEl.textContent = TOOL_HINTS[tool] || TOOL_HINTS.cursor;
+                hintEl.style.display = '';
+            }
+        }
         var lengthWrapper = form.querySelector('[data-dim-field="length-wrapper"]');
         var widthWrapper = form.querySelector('[data-dim-field="width-wrapper"]');
         var validDiv = form.querySelector('[data-shape-validation]');
@@ -90,6 +108,36 @@ var ShapeEditor = (function() {
             });
         }
 
+        for (var ti = 0; ti < toolButtons.length; ti++) {
+            (function(btn) {
+                btn.addEventListener('click', function() {
+                    if (btn.classList.contains('disabled')) return;
+                    var tool = btn.dataset.shapeTool;
+                    if (canvas) canvas.setActiveTool(tool);
+                    _setActiveToolButton(tool);
+                });
+            })(toolButtons[ti]);
+        }
+
+        // Skróty V/A/D — tylko gdy canvas aktywny i fokus poza inputami
+        document.addEventListener('keydown', function(e) {
+            if (!canvas) return;
+            if (!form.classList.contains('shape-canvas-active')) return;
+            var tag = (document.activeElement && document.activeElement.tagName) || '';
+            if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+            var key = e.key.toLowerCase();
+            var tool = null;
+            if (key === 'v') tool = 'cursor';
+            else if (key === 'a') tool = 'add';
+            else if (key === 'd') tool = 'remove';
+            if (!tool || !toolbarEl) return;
+            var btn = toolbarEl.querySelector('[data-shape-tool="' + tool + '"]');
+            if (!btn || btn.classList.contains('disabled')) return;
+            e.preventDefault();
+            canvas.setActiveTool(tool);
+            _setActiveToolButton(tool);
+        });
+
         // ============================================
         // DROPDOWN CHANGE
         // ============================================
@@ -112,6 +160,16 @@ var ShapeEditor = (function() {
             editorContainer.classList.toggle('collapsed-canvas', hideCanvas);
             form.classList.toggle('shape-canvas-active', !hideCanvas);
 
+            if (toolbarEl) {
+                toolbarEl.style.display = hideCanvas ? 'none' : 'flex';
+                var isCircleLike = (shapeType === 'circle' || shapeType === 'oval');
+                for (var bi = 0; bi < toolButtons.length; bi++) {
+                    toolButtons[bi].classList.toggle('disabled', isCircleLike);
+                }
+                _setActiveToolButton('cursor');
+                if (canvas) canvas.setActiveTool('cursor');
+            }
+
             // Pokaż/ukryj oryginalne inputy length/width (prostokąt i koło ich używają)
             if (lengthWrapper) {
                 lengthWrapper.style.display = usesOriginalInputs ? '' : 'none';
@@ -127,7 +185,9 @@ var ShapeEditor = (function() {
             }
 
             if (hintEl) {
-                hintEl.style.display = shapeType === 'polygon' ? '' : 'none';
+                var showHint = !(shapeType === 'rectangular' || shapeType === 'circle' || shapeType === 'oval');
+                hintEl.style.display = showHint ? '' : 'none';
+                if (showHint) hintEl.textContent = TOOL_HINTS.cursor;
             }
 
             currentParams = Object.assign({}, config.defaults);
@@ -195,24 +255,10 @@ var ShapeEditor = (function() {
                 return;
             }
 
-            // Pokaż inputy potrzebne dla aktualnego kształtu + ustaw wartości
-            for (var j = 0; j < config.inputs.length; j++) {
-                var inp = config.inputs[j];
-                var wrapper = form.querySelector('[data-shape-param-wrapper="' + inp.key + '"]');
-                if (wrapper) {
-                    wrapper.style.display = '';
-                    // Aktualizuj label z konfiguracji (na wypadek współdzielonych kluczy z różnymi labelami)
-                    var label = wrapper.querySelector('label');
-                    if (label) label.textContent = inp.label + ' (' + inp.unit + ')';
-                    // Ustaw wartość domyślną
-                    var inputEl = wrapper.querySelector('input');
-                    if (inputEl) inputEl.value = currentParams[inp.key] || '';
-                }
-            }
-
+            // Pozostałe (trapez, trójkąt, polygon, oval...) — edycja TYLKO na canvasie.
+            // Nie pokazujemy inputów parametrycznych — wszystko przez toolbar.
             if (validDiv) {
-                // Pokaż validDiv tylko jeśli kształt ma inputy do walidacji
-                validDiv.style.display = config.inputs.length > 0 ? '' : 'none';
+                validDiv.style.display = 'none';
                 validDiv.textContent = '';
             }
 
@@ -482,13 +528,26 @@ var ShapeEditor = (function() {
                 var usesOriginalInputs = (shapeType === 'rectangular' || shapeType === 'circle');
                 editorContainer.classList.toggle('collapsed-canvas', hideCanvas);
                 form.classList.toggle('shape-canvas-active', !hideCanvas);
+                if (toolbarEl) {
+                    toolbarEl.style.display = hideCanvas ? 'none' : 'flex';
+                    var isCircleLike = (shapeType === 'circle' || shapeType === 'oval');
+                    for (var bi = 0; bi < toolButtons.length; bi++) {
+                        toolButtons[bi].classList.toggle('disabled', isCircleLike);
+                    }
+                    _setActiveToolButton('cursor');
+                    if (canvas) canvas.setActiveTool('cursor');
+                }
                 if (lengthWrapper) {
                     lengthWrapper.style.display = usesOriginalInputs ? '' : 'none';
                     var lengthLabel = lengthWrapper.querySelector('label');
                     if (lengthLabel) lengthLabel.textContent = (shapeType === 'circle') ? 'Średnica (cm)' : 'Długość (cm)';
                 }
                 if (widthWrapper) widthWrapper.style.display = (shapeType === 'rectangular') ? '' : 'none';
-                if (hintEl) hintEl.style.display = shapeType === 'polygon' ? '' : 'none';
+                if (hintEl) {
+                    var showHintR = !(shapeType === 'rectangular' || shapeType === 'circle' || shapeType === 'oval');
+                    hintEl.style.display = showHintR ? '' : 'none';
+                    if (showHintR) hintEl.textContent = TOOL_HINTS.cursor;
+                }
 
                 _showShapeInputs(config);
 
