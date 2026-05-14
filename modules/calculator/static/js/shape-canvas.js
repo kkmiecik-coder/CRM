@@ -672,7 +672,6 @@ var ShapeCanvas = (function() {
             if (state.dragVertex >= 0) {
                 state.dragVertex = -1;
                 canvasElement.classList.remove('dragging-vertex');
-                _detectAndSwitchVariant();
             }
             state.isPanning = false;
             canvasElement.style.cursor = '';
@@ -845,20 +844,6 @@ var ShapeCanvas = (function() {
             state.vertices.splice(vi, 1);
             _emitChange();
             render();
-        }
-
-        // ============================================
-        // AUTO-DETECT VARIANT CHANGE
-        // ============================================
-
-        function _detectAndSwitchVariant() {
-            var isVariantShape = state.shapeType.indexOf('trapezoid') === 0 || state.shapeType.indexOf('triangle') === 0;
-            if (!isVariantShape || state.shapeType === 'trapezoid_custom' || state.shapeType === 'triangle_custom') return;
-            var detected = ShapeGeometry.detectVariant(state.shapeType, state.vertices);
-            if (detected !== state.shapeType) {
-                state.shapeType = detected;
-                state.onShapeTypeChange(detected);
-            }
         }
 
         // ============================================
