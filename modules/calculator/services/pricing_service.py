@@ -30,6 +30,7 @@ def get_finishing_prices_data():
                     prices_data.append({
                         'id': opt['id'],
                         'name': opt['name'],
+                        'code': opt.get('code') or opt.get('inherited_code'),
                         'full_path': opt['full_path'],
                         'price_netto': opt['effective_price_netto'],
                         'level': opt['level'],
