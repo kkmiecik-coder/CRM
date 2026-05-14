@@ -40,6 +40,30 @@ def parse_edge_id(edge_id):
         }
     return None
 
+
+_HOLE_TYPE_PL = {'G': 'góra', 'D': 'dół', 'P': 'pion', 'N': 'narożnik'}
+_OUTER_TYPE_PL = {'G': 'Krawędź', 'D': 'Krawędź dolna', 'P': 'Krawędź boczna', 'N': 'Narożnik'}
+
+
+def human_edge_label(edge_id):
+    """
+    Zwraca polską czytelną etykietę dla ID krawędzi.
+    Przykłady:
+    - 'G1' -> 'Krawędź 1'
+    - 'N4' -> 'Narożnik 4'
+    - 'H1.G2' -> 'Wycięcie 1, góra 2'
+    - 'H2.P3' -> 'Wycięcie 2, pion 3'
+    Jeśli nieznany format — zwraca surowe ID.
+    """
+    parsed = parse_edge_id(edge_id)
+    if not parsed:
+        return str(edge_id) if edge_id is not None else ''
+    if parsed['kind'] == 'hole':
+        type_name = _HOLE_TYPE_PL.get(parsed['type'], 'element')
+        return 'Wycięcie {}, {} {}'.format(parsed['hole_idx'] + 1, type_name, parsed['idx'] + 1)
+    type_name = _OUTER_TYPE_PL.get(parsed['type'], 'Element')
+    return '{} {}'.format(type_name, parsed['idx'] + 1)
+
 # ============================================
 # DEFINICJE KRAWĘDZI
 # ============================================

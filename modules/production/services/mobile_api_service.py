@@ -529,11 +529,14 @@ def serialize_order(item, station_code=None):
 
     edge = None
     if item.parsed_edge_processing:
+        from modules.calculator.services.edge_calculator import human_edge_label
+        raw_letters = item.parsed_edge_letters or []
         edge = {
             'type': item.parsed_edge_type,
             'radius': item.parsed_edge_radius,
             'angle': item.parsed_edge_angle,
-            'letters': item.parsed_edge_letters,
+            'letters': raw_letters,
+            'letters_labeled': [human_edge_label(l) for l in raw_letters],
         }
 
     quantity_done = None
