@@ -523,6 +523,8 @@ const EdgesModule = (function() {
             showDynamicEdgesUI(shapeData, state.dimensions.thickness);
             if (elements.svg && shapeData && shapeData.vertices) {
                 generateShapePreviewSVG(elements.svg, shapeData, state.dimensions.thickness, state.selectedEdges, state.productShape);
+                attachSvgEventListeners();
+                state.selectedEdges.forEach(function(edge) { updateSvgEdge(edge, true); });
             }
         } else {
             showRectangularEdgesUI();
