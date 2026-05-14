@@ -171,3 +171,67 @@
 .lamella-icon-container:hover .lamella-icon-box {
     background: rgba(100, 100, 100, 0.4);
 }
+
+/* ============================================
+   SHAPE TOOLBAR — narzędzia edycji punktów
+   ============================================ */
+.shape-toolbar {
+    position: absolute;
+    top: 60px; /* pod ikoną lameli (lamella-icon-container zajmuje ~52px) */
+    left: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    z-index: 5;
+    background: rgba(26, 26, 46, 0.85);
+    border: 1px solid rgba(230, 126, 34, 0.3);
+    border-radius: 6px;
+    padding: 4px;
+    backdrop-filter: blur(4px);
+}
+
+.shape-tool-btn {
+    width: 36px;
+    height: 36px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 4px;
+    color: #ccc;
+    cursor: pointer;
+    padding: 0;
+    transition: background-color 120ms, color 120ms, border-color 120ms;
+}
+
+.shape-tool-btn:hover {
+    background: rgba(230, 126, 34, 0.15);
+    color: #fff;
+}
+
+.shape-tool-btn.active {
+    background: rgba(230, 126, 34, 0.25);
+    border-color: #e67e22;
+    color: #e67e22;
+}
+
+.shape-tool-btn.disabled,
+.shape-tool-btn[disabled] {
+    opacity: 0.35;
+    cursor: not-allowed;
+    pointer-events: none;
+}
+
+/* Tryby kursora canvasu wg narzędzia */
+canvas[data-shape-canvas].tool-add {
+    cursor: crosshair;
+}
+
+canvas[data-shape-canvas].tool-remove {
+    cursor: not-allowed;
+}
+
+canvas[data-shape-canvas].tool-cursor {
+    cursor: default;
+}
