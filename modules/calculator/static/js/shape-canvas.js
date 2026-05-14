@@ -47,7 +47,8 @@ var ShapeCanvas = (function() {
             height: 0,
             colorTheme: 'normal',
             outOfRangeDims: { length: false, width: false },  // które wymiary bbox na czerwono
-            lamellaDirection: 0
+            lamellaDirection: 0,
+            activeTool: 'cursor'  // 'cursor' | 'add' | 'remove'
         };
 
         // Pozycje wymiarów do obsługi dblclick
@@ -602,28 +603,48 @@ var ShapeCanvas = (function() {
             var my = e.clientY - rect.top;
 
             if (e.button === 2) {
-                _handleRightClick(mx, my);
+                // PPM — w trybie add zamknie activeHole (Faza B). Tu no-op.
                 return;
             }
 
+            var tool = state.activeTool;
+            var isCircleLike = (state.shapeType === 'circle' || state.shapeType === 'oval');
+
+            // Tryb REMOVE — klik wierzchołka go usuwa
+            if (tool === 'remove' && !isCircleLike) {
+                var vRem = _findVertexAt(mx, my);
+                if (vRem >= 0 && state.vertices && state.vertices.length > 3) {
+                    _pushUndo();
+                    state.vertices.splice(vRem, 1);
+                    _convertToPolygonIfNeeded();
+                    _emitChange();
+                    render();
+                }
+                return;
+            }
+
+            // Tryb ADD — klik krawędzi outer = +punkt
+            if (tool === 'add' && !isCircleLike) {
+                var edgeIdx = _findEdgeAt(mx, my);
+                if (edgeIdx >= 0 && state.vertices && state.vertices.length < 20) {
+                    var cmPtA = pixelToCm(mx, my);
+                    _pushUndo();
+                    state.vertices.splice(edgeIdx + 1, 0, [_round(cmPtA[0]), _round(cmPtA[1])]);
+                    _convertToPolygonIfNeeded();
+                    _emitChange();
+                    render();
+                    return;
+                }
+                // Brak hit — fall through do CURSOR (pan/drag), żeby user nie utknął w trybie add.
+            }
+
+            // Tryb CURSOR (default) — drag wierzchołka lub pan
             var vi = _findVertexAt(mx, my);
             if (vi >= 0) {
                 state.dragVertex = vi;
                 _pushUndo();
                 canvasElement.classList.add('dragging-vertex');
                 return;
-            }
-
-            if (state.shapeType === 'polygon') {
-                var edgeIdx = _findEdgeAt(mx, my);
-                if (edgeIdx >= 0 && state.vertices && state.vertices.length < 20) {
-                    var cmPt = pixelToCm(mx, my);
-                    _pushUndo();
-                    state.vertices.splice(edgeIdx + 1, 0, [_round(cmPt[0]), _round(cmPt[1])]);
-                    _emitChange();
-                    render();
-                    return;
-                }
             }
 
             state.isPanning = true;
@@ -647,6 +668,7 @@ var ShapeCanvas = (function() {
                     _handleEllipseVertexDrag(sx, sy);
                 } else {
                     state.vertices[state.dragVertex] = [_round(sx), _round(sy)];
+                    _convertToPolygonIfNeeded();
                 }
                 _emitChange();
                 render();
@@ -738,6 +760,7 @@ var ShapeCanvas = (function() {
                         var scale = newLen / oldLen;
                         state.vertices[vj][0] = state.vertices[vi][0] + oldDx * scale;
                         state.vertices[vj][1] = state.vertices[vi][1] + oldDy * scale;
+                        _convertToPolygonIfNeeded();
                         _emitChange();
                         render();
                     }
@@ -832,23 +855,15 @@ var ShapeCanvas = (function() {
         }
 
         // ============================================
-        // RIGHT CLICK: REMOVE VERTEX
-        // ============================================
-
-        function _handleRightClick(mx, my) {
-            if (state.shapeType !== 'polygon') return;
-            if (!state.vertices || state.vertices.length <= 3) return;
-            var vi = _findVertexAt(mx, my);
-            if (vi < 0) return;
-            _pushUndo();
-            state.vertices.splice(vi, 1);
-            _emitChange();
-            render();
-        }
-
-        // ============================================
         // UNDO / REDO
         // ============================================
+
+        function _convertToPolygonIfNeeded() {
+            // Pierwsza edycja punktu na nie-polygon nie-eliptycznym kształcie → konwersja typu
+            if (state.shapeType === 'polygon' || state.shapeType === 'circle' || state.shapeType === 'oval') return;
+            state.shapeType = 'polygon';
+            state.onShapeTypeChange('polygon');
+        }
 
         function _pushUndo() {
             state.undoStack.push(JSON.stringify(state.vertices));
@@ -1180,6 +1195,17 @@ var ShapeCanvas = (function() {
             render();
         }
 
+        function setActiveTool(tool) {
+            if (tool !== 'cursor' && tool !== 'add' && tool !== 'remove') return;
+            state.activeTool = tool;
+            canvasElement.classList.remove('tool-cursor', 'tool-add', 'tool-remove');
+            canvasElement.classList.add('tool-' + tool);
+        }
+
+        function getActiveTool() {
+            return state.activeTool;
+        }
+
         return {
             setShape: setShape,
             updateFromParams: updateFromParams,
@@ -1197,6 +1223,8 @@ var ShapeCanvas = (function() {
             setOutOfRangeDims: setOutOfRangeDims,
             setLamellaDirection: function(deg) { state.lamellaDirection = deg; },
             getLamellaDirection: function() { return state.lamellaDirection; },
+            setActiveTool: setActiveTool,
+            getActiveTool: getActiveTool,
             destroy: function() { resizeObserver.disconnect(); }
         };
     }
