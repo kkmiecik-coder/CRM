@@ -1098,6 +1098,28 @@ const EdgesModule = (function() {
                 highlightEdge(edge, false);
             });
         });
+
+        // Narożniki dziur (H{h}.N{j}) — klikalne kółka
+        elements.svg.querySelectorAll('.edges-corner-dot').forEach(dot => {
+            dot.addEventListener('click', function(e) {
+                e.preventDefault();
+                e.stopPropagation();
+                const edge = this.dataset.edge;
+                toggleEdgeSelection(edge);
+            });
+            dot.addEventListener('mouseenter', function() {
+                const edge = this.dataset.edge;
+                highlightListItem(edge, true);
+                highlightEdge(edge, true);
+                this.classList.add('highlight');
+            });
+            dot.addEventListener('mouseleave', function() {
+                const edge = this.dataset.edge;
+                highlightListItem(edge, false);
+                highlightEdge(edge, false);
+                this.classList.remove('highlight');
+            });
+        });
     }
 
     // ==========================================
@@ -2444,9 +2466,30 @@ const EdgesModule = (function() {
         // Renderuj SVG
         var svg = '';
 
-        // Górna powierzchnia (wypełnienie)
-        var topPolyPts = topPts.map(function(p) { return p.x + ',' + p.y; }).join(' ');
-        svg += '<polygon class="edges-face edges-face-top" points="' + topPolyPts + '"/>';
+        // Górna powierzchnia (wypełnienie) — path z dziurami (evenodd)
+        var holes = (shapeData.holes || []);
+        var topPathD = 'M ';
+        for (var tpi = 0; tpi < topPts.length; tpi++) {
+            topPathD += topPts[tpi].x + ',' + topPts[tpi].y + (tpi < topPts.length - 1 ? ' L ' : '');
+        }
+        topPathD += ' Z';
+        // Wierzchołki dziur w projekcji top face (z=0)
+        var holeTopPts = [];
+        for (var hi = 0; hi < holes.length; hi++) {
+            var hole = holes[hi];
+            if (!hole || hole.length < 3) { holeTopPts.push(null); continue; }
+            var ringPts = [];
+            for (var hj = 0; hj < hole.length; hj++) {
+                ringPts.push(project3D(hole[hj][0], hole[hj][1], 0));
+            }
+            holeTopPts.push(ringPts);
+            topPathD += ' M ';
+            for (var hk = 0; hk < ringPts.length; hk++) {
+                topPathD += ringPts[hk].x + ',' + ringPts[hk].y + (hk < ringPts.length - 1 ? ' L ' : '');
+            }
+            topPathD += ' Z';
+        }
+        svg += '<path class="edges-face edges-face-top" d="' + topPathD + '" fill-rule="evenodd"/>';
 
         // Boczne ściany (łączą górę z dołem) — renderuj tylko widoczne
         for (var k = 0; k < n; k++) {
@@ -2491,6 +2534,32 @@ const EdgesModule = (function() {
                 ' x2="' + botPts[p].x + '" y2="' + botPts[p].y + '"/>';
         }
 
+        // Krawędzie dziur (H{h}.G{j}) — klikalne na top face
+        for (var hi2 = 0; hi2 < holes.length; hi2++) {
+            var ringPts2 = holeTopPts[hi2];
+            if (!ringPts2) continue;
+            for (var hj2 = 0; hj2 < ringPts2.length; hj2++) {
+                var hk2 = (hj2 + 1) % ringPts2.length;
+                var hgEdgeId = 'H' + (hi2 + 1) + '.G' + (hj2 + 1);
+                var hgCls = 'edges-line' + (activeEdges.has(hgEdgeId) ? ' active' : '');
+                svg += '<line class="' + hgCls + '" data-edge="' + hgEdgeId + '"' +
+                    ' x1="' + ringPts2[hj2].x + '" y1="' + ringPts2[hj2].y + '"' +
+                    ' x2="' + ringPts2[hk2].x + '" y2="' + ringPts2[hk2].y + '"/>';
+            }
+        }
+
+        // Narożniki dziur (H{h}.N{j}) — klikalne kółka na wierzchołkach top face
+        for (var hi3 = 0; hi3 < holes.length; hi3++) {
+            var ringPts3 = holeTopPts[hi3];
+            if (!ringPts3) continue;
+            for (var hj3 = 0; hj3 < ringPts3.length; hj3++) {
+                var hnEdgeId = 'H' + (hi3 + 1) + '.N' + (hj3 + 1);
+                var hnCls = 'edges-corner-dot' + (activeEdges.has(hnEdgeId) ? ' active' : '');
+                svg += '<circle class="' + hnCls + '" data-edge="' + hnEdgeId + '"' +
+                    ' cx="' + ringPts3[hj3].x + '" cy="' + ringPts3[hj3].y + '" r="5"/>';
+            }
+        }
+
         // Etykiety z badge'ami (kółko + tekst) w grupie edgeLabelsGroup
         svg += '<g class="edges-labels" id="edgeLabelsGroup">';
 
@@ -2530,6 +2599,23 @@ const EdgesModule = (function() {
             svg += '<circle cx="' + plx + '" cy="' + ply + '" r="12"/>';
             svg += '<text x="' + plx + '" y="' + (ply + 4) + '">' + plEdgeId + '</text>';
             svg += '</g>';
+        }
+
+        // Etykiety krawędzi dziur (H{h}.G{j}) — badge pomiędzy wierzchołkami
+        for (var hi4 = 0; hi4 < holes.length; hi4++) {
+            var ringPts4 = holeTopPts[hi4];
+            if (!ringPts4) continue;
+            for (var hj4 = 0; hj4 < ringPts4.length; hj4++) {
+                var hk4 = (hj4 + 1) % ringPts4.length;
+                var hLx = (ringPts4[hj4].x + ringPts4[hk4].x) / 2;
+                var hLy = (ringPts4[hj4].y + ringPts4[hk4].y) / 2;
+                var hLEdgeId = 'H' + (hi4 + 1) + '.G' + (hj4 + 1);
+                var hLCls = activeEdges.has(hLEdgeId) ? ' active' : '';
+                svg += '<g class="edges-label' + hLCls + '" data-edge="' + hLEdgeId + '">';
+                svg += '<circle cx="' + hLx + '" cy="' + (hLy - 2) + '" r="11"/>';
+                svg += '<text x="' + hLx + '" y="' + (hLy + 2) + '" font-size="8">' + hLEdgeId + '</text>';
+                svg += '</g>';
+            }
         }
 
         svg += '</g>';

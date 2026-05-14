@@ -672,3 +672,22 @@
     color: #333;
 }
 
+/* Narożniki wycięć (H{h}.N{j}) — klikalne kółka na wierzchołkach dziury */
+.edges-corner-dot {
+    fill: #888;
+    stroke: #444;
+    stroke-width: 1;
+    cursor: pointer;
+    transition: fill 120ms, stroke 120ms;
+    pointer-events: all;
+}
+.edges-corner-dot:hover,
+.edges-corner-dot.active {
+    fill: #ED6B24;
+    stroke: #c0651a;
+}
+.edges-corner-dot.highlight {
+    fill: #ED6B24;
+    stroke: #c0651a;
+}
+
