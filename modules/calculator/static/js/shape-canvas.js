@@ -373,9 +373,11 @@ var ShapeCanvas = (function() {
             var verts = state.vertices;
             if (!verts || verts.length < 2) return;
 
-            // Bounding box (pod kształtem)
             _renderBbox();
 
+            var theme = COLOR_THEMES[state.colorTheme] || COLOR_THEMES.normal;
+
+            // Outer + holes jako jedna ścieżka z evenodd (dziury wycinają)
             ctx.beginPath();
             var start = cmToPixel(verts[0][0], verts[0][1]);
             ctx.moveTo(start[0], start[1]);
@@ -384,16 +386,99 @@ var ShapeCanvas = (function() {
                 ctx.lineTo(pt[0], pt[1]);
             }
             ctx.closePath();
-            var theme = COLOR_THEMES[state.colorTheme] || COLOR_THEMES.normal;
-            ctx.fillStyle = theme.shapeFill;
-            ctx.fill();
 
+            for (var hi = 0; hi < state.holes.length; hi++) {
+                var h = state.holes[hi];
+                if (!h || h.length < 3) continue;
+                var hs = cmToPixel(h[0][0], h[0][1]);
+                ctx.moveTo(hs[0], hs[1]);
+                for (var hj = 1; hj < h.length; hj++) {
+                    var hp = cmToPixel(h[hj][0], h[hj][1]);
+                    ctx.lineTo(hp[0], hp[1]);
+                }
+                ctx.closePath();
+            }
+
+            ctx.fillStyle = theme.shapeFill;
+            ctx.fill('evenodd');
+
+            // Outer stroke (2px)
+            ctx.beginPath();
+            var s0 = cmToPixel(verts[0][0], verts[0][1]);
+            ctx.moveTo(s0[0], s0[1]);
+            for (var k = 1; k < verts.length; k++) {
+                var kp = cmToPixel(verts[k][0], verts[k][1]);
+                ctx.lineTo(kp[0], kp[1]);
+            }
+            ctx.closePath();
             ctx.strokeStyle = theme.shapeStroke;
             ctx.lineWidth = 2;
             ctx.stroke();
 
+            // Hole strokes (1.5px)
+            ctx.lineWidth = 1.5;
+            for (var hi2 = 0; hi2 < state.holes.length; hi2++) {
+                var hh = state.holes[hi2];
+                if (!hh || hh.length < 3) continue;
+                ctx.beginPath();
+                var hhs = cmToPixel(hh[0][0], hh[0][1]);
+                ctx.moveTo(hhs[0], hhs[1]);
+                for (var hhj = 1; hhj < hh.length; hhj++) {
+                    var hhp = cmToPixel(hh[hhj][0], hh[hhj][1]);
+                    ctx.lineTo(hhp[0], hhp[1]);
+                }
+                ctx.closePath();
+                ctx.stroke();
+            }
+
+            // Active hole (rysowana w toku) — przerywana
+            if (state.activeHole && state.activeHole.length > 0) {
+                ctx.save();
+                ctx.strokeStyle = theme.shapeStroke;
+                ctx.lineWidth = 1.5;
+                ctx.setLineDash([6, 4]);
+                ctx.beginPath();
+                var as = cmToPixel(state.activeHole[0][0], state.activeHole[0][1]);
+                ctx.moveTo(as[0], as[1]);
+                for (var ai = 1; ai < state.activeHole.length; ai++) {
+                    var ap = cmToPixel(state.activeHole[ai][0], state.activeHole[ai][1]);
+                    ctx.lineTo(ap[0], ap[1]);
+                }
+                ctx.stroke();
+                ctx.setLineDash([]);
+                // Pierwszy pkt — podświetlony jeśli snap-hover
+                ctx.beginPath();
+                ctx.arc(as[0], as[1], state.hoverHoleStart ? 9 : 6, 0, Math.PI * 2);
+                ctx.fillStyle = state.hoverHoleStart ? theme.shapeStroke : '#fff';
+                ctx.fill();
+                ctx.strokeStyle = theme.shapeStroke;
+                ctx.lineWidth = 2;
+                ctx.stroke();
+                // Pozostałe punkty activeHole
+                for (var ai2 = 1; ai2 < state.activeHole.length; ai2++) {
+                    var aap = cmToPixel(state.activeHole[ai2][0], state.activeHole[ai2][1]);
+                    ctx.beginPath();
+                    ctx.arc(aap[0], aap[1], 4, 0, Math.PI * 2);
+                    ctx.fillStyle = '#fff';
+                    ctx.fill();
+                    ctx.stroke();
+                }
+                ctx.restore();
+            }
+
             _renderDimensionLines(verts);
             _renderVertexHandles(verts);
+            _renderHoleHandles();
+        }
+
+        function _renderHoleHandles() {
+            for (var hi = 0; hi < state.holes.length; hi++) {
+                var h = state.holes[hi];
+                for (var hj = 0; hj < h.length; hj++) {
+                    var pt = cmToPixel(h[hj][0], h[hj][1]);
+                    _drawHandle(pt[0], pt[1], false);
+                }
+            }
         }
 
         function _renderEllipse() {
