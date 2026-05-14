@@ -2044,7 +2044,7 @@ class BaselinkerSyncService:
         Returns:
             Dict z wynikiem operacji
         """
-        from ..models import ProductionItem
+        from ..models import ProductionItem, ProductionOrder
         from .parser_service import ProductNameParser
 
         result = {
