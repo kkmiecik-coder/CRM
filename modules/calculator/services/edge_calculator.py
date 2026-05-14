@@ -475,13 +475,14 @@ def _generate_edge_definitions(shape_type, shape_data, thickness_cm):
     for i in range(n):
         edges.append({'id': 'P{}'.format(i + 1), 'type_label': 'vertical', 'length_cm': thickness_cm, 'name': 'Pion {}'.format(i + 1)})
 
-    # Krawędzie i narożniki dziur (G + N tylko — D/P out-of-scope tej iteracji)
+    # Krawędzie dziur: pełna symetria z outer dynamicznym (G góra, D dół, P pion)
     holes = shape_data.get('holes') or []
     for h_idx, hole in enumerate(holes):
         if not hole or len(hole) < 3:
             continue
         h_num = h_idx + 1
         m = len(hole)
+        # G — góra (per krawędź dziury)
         for j in range(m):
             k = (j + 1) % m
             hdx = hole[k][0] - hole[j][0]
@@ -491,14 +492,27 @@ def _generate_edge_definitions(shape_type, shape_data, thickness_cm):
                 'id': 'H{}.G{}'.format(h_num, j + 1),
                 'type_label': 'top',
                 'length_cm': h_length,
-                'name': 'Wycięcie {}, krawędź {}'.format(h_num, j + 1),
+                'name': 'Wycięcie {}, góra {}'.format(h_num, j + 1),
             })
+        # D — dół (per krawędź dziury, ta sama długość co góra)
+        for j in range(m):
+            k = (j + 1) % m
+            hdx = hole[k][0] - hole[j][0]
+            hdy = hole[k][1] - hole[j][1]
+            h_length = math.sqrt(hdx * hdx + hdy * hdy)
+            edges.append({
+                'id': 'H{}.D{}'.format(h_num, j + 1),
+                'type_label': 'bottom',
+                'length_cm': h_length,
+                'name': 'Wycięcie {}, dół {}'.format(h_num, j + 1),
+            })
+        # P — pion (per wierzchołek dziury, długość = grubość)
         for j in range(m):
             edges.append({
-                'id': 'H{}.N{}'.format(h_num, j + 1),
-                'type_label': 'corner',
+                'id': 'H{}.P{}'.format(h_num, j + 1),
+                'type_label': 'vertical',
                 'length_cm': thickness_cm,
-                'name': 'Wycięcie {}, narożnik {}'.format(h_num, j + 1),
+                'name': 'Wycięcie {}, pion {}'.format(h_num, j + 1),
             })
 
     return edges

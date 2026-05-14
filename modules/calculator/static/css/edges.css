@@ -672,12 +672,4 @@
     color: #333;
 }
 
-/* Obrys dziury na dolnej powierzchni — tylko wizualnie (nie klikalne) */
-.edges-hole-bottom {
-    fill: none;
-    stroke: #999;
-    stroke-width: 1;
-    stroke-dasharray: 3 2;
-    pointer-events: none;
-}
 

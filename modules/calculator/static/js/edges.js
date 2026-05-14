@@ -1947,13 +1947,14 @@ const EdgesModule = (function() {
             edges.push({ id: 'P' + (i3 + 1), group: 'vertical', name: 'Pion ' + (i3 + 1), length: thickness });
         }
 
-        // Krawędzie dziur (H{h}.G{j}) i narożniki dziur (H{h}.N{j}) — spec: tylko G+N
+        // Krawędzie dziur: pełna symetria z outer dynamicznym — G góra, D dół, P pion
         var holes = (shapeData.holes || []);
         for (var hi = 0; hi < holes.length; hi++) {
             var hole = holes[hi];
             if (!hole || hole.length < 3) continue;
             var hNum = hi + 1;
             var m = hole.length;
+            // G — góra
             for (var hj = 0; hj < m; hj++) {
                 var hk = (hj + 1) % m;
                 var hdx = hole[hk][0] - hole[hj][0];
@@ -1962,15 +1963,29 @@ const EdgesModule = (function() {
                 edges.push({
                     id: 'H' + hNum + '.G' + (hj + 1),
                     group: 'hole_top',
-                    name: 'Wycięcie ' + hNum + ', krawędź ' + (hj + 1),
+                    name: 'Wycięcie ' + hNum + ', góra ' + (hj + 1),
                     length: hlen
                 });
             }
+            // D — dół (ta sama długość co góra)
             for (var hj2 = 0; hj2 < m; hj2++) {
+                var hk2 = (hj2 + 1) % m;
+                var hdx2 = hole[hk2][0] - hole[hj2][0];
+                var hdy2 = hole[hk2][1] - hole[hj2][1];
+                var hlen2 = Math.sqrt(hdx2 * hdx2 + hdy2 * hdy2);
                 edges.push({
-                    id: 'H' + hNum + '.N' + (hj2 + 1),
-                    group: 'hole_corner',
-                    name: 'Wycięcie ' + hNum + ', narożnik ' + (hj2 + 1),
+                    id: 'H' + hNum + '.D' + (hj2 + 1),
+                    group: 'hole_bottom',
+                    name: 'Wycięcie ' + hNum + ', dół ' + (hj2 + 1),
+                    length: hlen2
+                });
+            }
+            // P — pion (per wierzchołek, długość = grubość)
+            for (var hj3 = 0; hj3 < m; hj3++) {
+                edges.push({
+                    id: 'H' + hNum + '.P' + (hj3 + 1),
+                    group: 'hole_vertical',
+                    name: 'Wycięcie ' + hNum + ', pion ' + (hj3 + 1),
                     length: thickness
                 });
             }
@@ -2036,16 +2051,17 @@ const EdgesModule = (function() {
         }
         html += '</div></div>';
 
-        // Grupy: per dziura (WYCIĘCIE 1, WYCIĘCIE 2, ...)
+        // Grupy: per dziura (WYCIĘCIE 1, WYCIĘCIE 2, ...) — G/D/P jak outer
         for (var hgi = 0; hgi < holes.length; hgi++) {
             var hgNum = hgi + 1;
             var anyHoleEdges = edges.some(function(en) {
-                return (en.group === 'hole_top' || en.group === 'hole_corner') && en.id.indexOf('H' + hgNum + '.') === 0;
+                return (en.group === 'hole_top' || en.group === 'hole_bottom' || en.group === 'hole_vertical')
+                    && en.id.indexOf('H' + hgNum + '.') === 0;
             });
             if (!anyHoleEdges) continue;
 
             html += '<div class="edges-group edges-group-hole"><h5>WYCIĘCIE ' + hgNum + '</h5><div class="edges-list">';
-            // Najpierw krawędzie boczne dziury (H{h}.G{j})
+            // G (góra)
             for (var hgj = 0; hgj < edges.length; hgj++) {
                 var he = edges[hgj];
                 if (he.group !== 'hole_top' || he.id.indexOf('H' + hgNum + '.') !== 0) continue;
@@ -2058,17 +2074,30 @@ const EdgesModule = (function() {
                     '<span class="edges-length">(' + heLenStr + ' cm)</span>' +
                     '</label></div>';
             }
-            // Następnie narożniki dziury (H{h}.N{j})
-            for (var hgk = 0; hgk < edges.length; hgk++) {
-                var hc = edges[hgk];
-                if (hc.group !== 'hole_corner' || hc.id.indexOf('H' + hgNum + '.') !== 0) continue;
-                var hcLenStr = (Math.round(hc.length * 10) / 10);
-                html += '<div class="edges-item edges-corner-item" data-edge="' + hc.id + '">' +
+            // D (dół)
+            for (var hgd = 0; hgd < edges.length; hgd++) {
+                var hd = edges[hgd];
+                if (hd.group !== 'hole_bottom' || hd.id.indexOf('H' + hgNum + '.') !== 0) continue;
+                var hdLenStr = (Math.round(hd.length * 10) / 10);
+                html += '<div class="edges-item" data-edge="' + hd.id + '">' +
                     '<label class="edges-checkbox">' +
-                    '<input type="checkbox" name="edge_' + hc.id + '">' +
-                    '<span class="edges-letter edges-letter-corner">' + hc.id + '</span>' +
-                    '<span class="edges-name">' + hc.name + '</span>' +
-                    '<span class="edges-length">(' + hcLenStr + ' cm)</span>' +
+                    '<input type="checkbox" name="edge_' + hd.id + '">' +
+                    '<span class="edges-letter">' + hd.id + '</span>' +
+                    '<span class="edges-name">' + hd.name + '</span>' +
+                    '<span class="edges-length">(' + hdLenStr + ' cm)</span>' +
+                    '</label></div>';
+            }
+            // P (pion / krawędź boczna dziury)
+            for (var hgk = 0; hgk < edges.length; hgk++) {
+                var hp = edges[hgk];
+                if (hp.group !== 'hole_vertical' || hp.id.indexOf('H' + hgNum + '.') !== 0) continue;
+                var hpLenStr = (Math.round(hp.length * 10) / 10);
+                html += '<div class="edges-item edges-corner-item" data-edge="' + hp.id + '">' +
+                    '<label class="edges-checkbox">' +
+                    '<input type="checkbox" name="edge_' + hp.id + '">' +
+                    '<span class="edges-letter edges-letter-corner">' + hp.id + '</span>' +
+                    '<span class="edges-name">' + hp.name + '</span>' +
+                    '<span class="edges-length">(' + hpLenStr + ' cm)</span>' +
                     '</label></div>';
             }
             html += '</div></div>';
@@ -2627,15 +2656,31 @@ const EdgesModule = (function() {
             }
         }
 
-        // Obrys dziury na dolnej powierzchni — tylko wizualnie, bez klikalności
+        // Krawędzie dolne dziur (H{h}.D{j}) — klikalne na bottom face
         for (var hi3 = 0; hi3 < holes.length; hi3++) {
             var ringPtsBot = holeBotPts[hi3];
             if (!ringPtsBot) continue;
             for (var hj3 = 0; hj3 < ringPtsBot.length; hj3++) {
                 var hk3 = (hj3 + 1) % ringPtsBot.length;
-                svg += '<line class="edges-hole-bottom" '
-                    + 'x1="' + ringPtsBot[hj3].x + '" y1="' + ringPtsBot[hj3].y + '"'
+                var hdEdgeId = 'H' + (hi3 + 1) + '.D' + (hj3 + 1);
+                var hdCls = 'edges-line' + (activeEdges.has(hdEdgeId) ? ' active' : '');
+                svg += '<line class="' + hdCls + '" data-edge="' + hdEdgeId + '"'
+                    + ' x1="' + ringPtsBot[hj3].x + '" y1="' + ringPtsBot[hj3].y + '"'
                     + ' x2="' + ringPtsBot[hk3].x + '" y2="' + ringPtsBot[hk3].y + '"/>';
+            }
+        }
+
+        // Krawędzie pionowe dziur (H{h}.P{j}) — klikalne, łączą top z bottom przy każdym wierzchołku
+        for (var hi4 = 0; hi4 < holes.length; hi4++) {
+            var ringPtsTop4 = holeTopPts[hi4];
+            var ringPtsBot4 = holeBotPts[hi4];
+            if (!ringPtsTop4 || !ringPtsBot4) continue;
+            for (var hj4 = 0; hj4 < ringPtsTop4.length; hj4++) {
+                var hpEdgeId = 'H' + (hi4 + 1) + '.P' + (hj4 + 1);
+                var hpCls = 'edges-line edges-corner' + (activeEdges.has(hpEdgeId) ? ' active' : '');
+                svg += '<line class="' + hpCls + '" data-edge="' + hpEdgeId + '"'
+                    + ' x1="' + ringPtsTop4[hj4].x + '" y1="' + ringPtsTop4[hj4].y + '"'
+                    + ' x2="' + ringPtsBot4[hj4].x + '" y2="' + ringPtsBot4[hj4].y + '"/>';
             }
         }
 
