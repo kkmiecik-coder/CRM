@@ -545,11 +545,16 @@ def calculate_dynamic_edges(shape_type, shape_data_json, thickness_cm, edges_con
 
         length_mm = edge_def['length_cm'] * 10
         type_prices = prices.get(edge_type, DEFAULT_PRICES.get(edge_type, {}))
-        per_mb = type_prices.get('per_mb', Decimal('0'))
 
-        price_netto = (Decimal(str(length_mm)) / Decimal('1000') * per_mb).quantize(
-            Decimal('0.01'), rounding=ROUND_HALF_UP
-        )
+        # Narożniki — cena flat per sztuka (zgodnie z legacy calculate_edge_price)
+        if edge_def.get('type_label') == 'corner':
+            per_corner = type_prices.get('per_corner', Decimal('0'))
+            price_netto = Decimal(str(per_corner)).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+        else:
+            per_mb = type_prices.get('per_mb', Decimal('0'))
+            price_netto = (Decimal(str(length_mm)) / Decimal('1000') * per_mb).quantize(
+                Decimal('0.01'), rounding=ROUND_HALF_UP
+            )
 
         price_brutto = (price_netto * VAT_RATE).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
         total_netto += price_netto
