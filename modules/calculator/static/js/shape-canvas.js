@@ -1405,11 +1405,28 @@ var ShapeCanvas = (function() {
             var totalW = bw + oX + pad + marginRight;
             var totalH = bh + oY + pad + levelH; // + bbox klamerka na dole
 
-            // Kształt (polygon) — flip Y
-            var pts = verts.map(function(v) {
-                return _round(v[0] - minX + oX) + ',' + _round(maxY - v[1] + oY);
-            }).join(' ');
-            shapeEl = '<polygon points="' + pts + '" fill="rgba(230,126,34,0.15)" stroke="#e67e22" stroke-width="1.5"/>';
+            // Kształt — <path> z outer i opcjonalnymi dziurami (fill-rule evenodd)
+            var pathD = 'M ';
+            for (var pi = 0; pi < verts.length; pi++) {
+                var pvx = _round(verts[pi][0] - minX + oX);
+                var pvy = _round(maxY - verts[pi][1] + oY);
+                pathD += pvx + ',' + pvy + (pi < verts.length - 1 ? ' L ' : '');
+            }
+            pathD += ' Z';
+
+            for (var bhi = 0; bhi < state.holes.length; bhi++) {
+                var bh_ring = state.holes[bhi];
+                if (!bh_ring || bh_ring.length < 3) continue;
+                pathD += ' M ';
+                for (var bhpi = 0; bhpi < bh_ring.length; bhpi++) {
+                    var bhx = _round(bh_ring[bhpi][0] - minX + oX);
+                    var bhy = _round(maxY - bh_ring[bhpi][1] + oY);
+                    pathD += bhx + ',' + bhy + (bhpi < bh_ring.length - 1 ? ' L ' : '');
+                }
+                pathD += ' Z';
+            }
+
+            shapeEl = '<path d="' + pathD + '" fill="rgba(230,126,34,0.15)" stroke="#e67e22" stroke-width="1.5" fill-rule="evenodd"/>';
 
             // Bbox przerywany dla nieregularnych
             if (state.shapeType !== 'rectangular') {
