@@ -205,10 +205,6 @@
     transition: background-color 120ms, color 120ms, border-color 120ms;
 }
 
-.shape-tool-btn-wide {
-    width: 52px;
-}
-
 .shape-tool-btn:hover {
     background: rgba(230, 126, 34, 0.15);
     color: #fff;
