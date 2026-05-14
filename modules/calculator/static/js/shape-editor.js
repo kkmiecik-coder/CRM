@@ -350,6 +350,18 @@ var ShapeEditor = (function() {
             // Powiadom system backupu o zmianie z canvasu
             _notifyBackup();
 
+            // Trigger re-build listy edges w modalu (gdy otwarty) po zmianie holes/wierzchołków
+            if (typeof window.EdgesModule !== 'undefined' && typeof window.EdgesModule.refresh === 'function') {
+                try {
+                    var shapeData = ShapeGeometry.buildShapeData(currentShape, currentParams, vertices, holes);
+                    var thicknessInput = form.querySelector('input[data-field="thickness"]');
+                    var thicknessVal = thicknessInput ? (parseFloat(thicknessInput.value) || 0) : 0;
+                    window.EdgesModule.refresh(shapeData, thicknessVal);
+                } catch (e) {
+                    console.warn('[ShapeEditor] EdgesModule.refresh failed:', e);
+                }
+            }
+
             isUpdating = false;
         }
 

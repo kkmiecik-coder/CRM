@@ -1947,6 +1947,35 @@ const EdgesModule = (function() {
             edges.push({ id: 'P' + (i3 + 1), group: 'vertical', name: 'Pion ' + (i3 + 1), length: thickness });
         }
 
+        // Krawędzie dziur (H{h}.G{j}) i narożniki dziur (H{h}.N{j}) — spec: tylko G+N
+        var holes = (shapeData.holes || []);
+        for (var hi = 0; hi < holes.length; hi++) {
+            var hole = holes[hi];
+            if (!hole || hole.length < 3) continue;
+            var hNum = hi + 1;
+            var m = hole.length;
+            for (var hj = 0; hj < m; hj++) {
+                var hk = (hj + 1) % m;
+                var hdx = hole[hk][0] - hole[hj][0];
+                var hdy = hole[hk][1] - hole[hj][1];
+                var hlen = Math.sqrt(hdx * hdx + hdy * hdy);
+                edges.push({
+                    id: 'H' + hNum + '.G' + (hj + 1),
+                    group: 'hole_top',
+                    name: 'Wycięcie ' + hNum + ', krawędź ' + (hj + 1),
+                    length: hlen
+                });
+            }
+            for (var hj2 = 0; hj2 < m; hj2++) {
+                edges.push({
+                    id: 'H' + hNum + '.N' + (hj2 + 1),
+                    group: 'hole_corner',
+                    name: 'Wycięcie ' + hNum + ', narożnik ' + (hj2 + 1),
+                    length: thickness
+                });
+            }
+        }
+
         // Zapisz definicje do state (do calculatePrice)
         state.dynamicEdgeDefs = {};
         for (var ei = 0; ei < edges.length; ei++) {
@@ -2006,6 +2035,44 @@ const EdgesModule = (function() {
                 '</label></div>';
         }
         html += '</div></div>';
+
+        // Grupy: per dziura (WYCIĘCIE 1, WYCIĘCIE 2, ...)
+        for (var hgi = 0; hgi < holes.length; hgi++) {
+            var hgNum = hgi + 1;
+            var anyHoleEdges = edges.some(function(en) {
+                return (en.group === 'hole_top' || en.group === 'hole_corner') && en.id.indexOf('H' + hgNum + '.') === 0;
+            });
+            if (!anyHoleEdges) continue;
+
+            html += '<div class="edges-group edges-group-hole"><h5>WYCIĘCIE ' + hgNum + '</h5><div class="edges-list">';
+            // Najpierw krawędzie boczne dziury (H{h}.G{j})
+            for (var hgj = 0; hgj < edges.length; hgj++) {
+                var he = edges[hgj];
+                if (he.group !== 'hole_top' || he.id.indexOf('H' + hgNum + '.') !== 0) continue;
+                var heLenStr = (Math.round(he.length * 10) / 10);
+                html += '<div class="edges-item" data-edge="' + he.id + '">' +
+                    '<label class="edges-checkbox">' +
+                    '<input type="checkbox" name="edge_' + he.id + '">' +
+                    '<span class="edges-letter">' + he.id + '</span>' +
+                    '<span class="edges-name">' + he.name + '</span>' +
+                    '<span class="edges-length">(' + heLenStr + ' cm)</span>' +
+                    '</label></div>';
+            }
+            // Następnie narożniki dziury (H{h}.N{j})
+            for (var hgk = 0; hgk < edges.length; hgk++) {
+                var hc = edges[hgk];
+                if (hc.group !== 'hole_corner' || hc.id.indexOf('H' + hgNum + '.') !== 0) continue;
+                var hcLenStr = (Math.round(hc.length * 10) / 10);
+                html += '<div class="edges-item edges-corner-item" data-edge="' + hc.id + '">' +
+                    '<label class="edges-checkbox">' +
+                    '<input type="checkbox" name="edge_' + hc.id + '">' +
+                    '<span class="edges-letter edges-letter-corner">' + hc.id + '</span>' +
+                    '<span class="edges-name">' + hc.name + '</span>' +
+                    '<span class="edges-length">(' + hcLenStr + ' cm)</span>' +
+                    '</label></div>';
+            }
+            html += '</div></div>';
+        }
 
         html += '</div>';
 
@@ -2635,10 +2702,26 @@ const EdgesModule = (function() {
     // PUBLICZNE API
     // ==========================================
 
+    /**
+     * Re-build listy edges w modalu (np. po zmianie holes z canvasu).
+     * No-op gdy modal nie jest otwarty.
+     */
+    function refresh(shapeData, thickness) {
+        if (!elements.modal) return;
+        // Modal może być otwarty bez klasy open (różne ścieżki) — sprawdzaj display
+        var isOpen = elements.modal.classList.contains('open') ||
+                     (elements.modal.style.display && elements.modal.style.display !== 'none');
+        if (!isOpen) return;
+        if (!shapeData || !shapeData.vertices || shapeData.vertices.length < 3) return;
+        var th = (typeof thickness === 'number' && thickness > 0) ? thickness : state.dimensions.thickness;
+        showDynamicEdgesUI(shapeData, th);
+    }
+
     return {
         init,
         openModal,
         closeModal,
+        refresh,
         getState: () => ({ ...state }),
         getSelectedEdges: () => Array.from(state.selectedEdges),
         getEdgesData: (form) => {
