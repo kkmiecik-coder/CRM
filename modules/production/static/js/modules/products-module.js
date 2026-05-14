@@ -4964,7 +4964,7 @@ class ProductsModule {
                 );
 
                 // Odśwież listę produktów
-                this.loadProducts(true);
+                this.refresh();
 
                 // Zamknij też modal szczegółów produktu
                 const detailModal = document.getElementById('productModal');
