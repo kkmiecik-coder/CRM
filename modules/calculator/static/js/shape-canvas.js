@@ -710,7 +710,18 @@ var ShapeCanvas = (function() {
             // Tryb REMOVE — klik wierzchołka go usuwa
             if (tool === 'remove' && !isCircleLike) {
                 var vRem = _findVertexAt(mx, my);
-                if (vRem >= 0 && state.vertices && state.vertices.length > 3) {
+                if (vRem && typeof vRem === 'object' && vRem.kind === 'hole') {
+                    _pushUndo();
+                    var holeR = state.holes[vRem.hi];
+                    holeR.splice(vRem.hj, 1);
+                    if (holeR.length < 3) {
+                        state.holes.splice(vRem.hi, 1);
+                    }
+                    _emitChange();
+                    render();
+                    return;
+                }
+                if (typeof vRem === 'number' && vRem >= 0 && state.vertices && state.vertices.length > 3) {
                     _pushUndo();
                     state.vertices.splice(vRem, 1);
                     _convertToPolygonIfNeeded();
@@ -787,7 +798,7 @@ var ShapeCanvas = (function() {
 
             // Tryb CURSOR (default) — drag wierzchołka lub pan
             var vi = _findVertexAt(mx, my);
-            if (vi >= 0) {
+            if (_isVertexHit(vi)) {
                 state.dragVertex = vi;
                 _pushUndo();
                 canvasElement.classList.add('dragging-vertex');
@@ -818,7 +829,7 @@ var ShapeCanvas = (function() {
                 render();
             }
 
-            if (state.dragVertex >= 0) {
+            if (_isVertexHit(state.dragVertex)) {
                 var cmPt = pixelToCm(mx, my);
                 var snap = state.currentGridCm;
                 var sx = Math.round(cmPt[0] / snap) * snap;
@@ -826,6 +837,25 @@ var ShapeCanvas = (function() {
 
                 if (state.shapeType === 'circle') {
                     _handleEllipseVertexDrag(sx, sy);
+                } else if (typeof state.dragVertex === 'object' && state.dragVertex.kind === 'hole') {
+                    var dv = state.dragVertex;
+                    var prevPos = state.holes[dv.hi][dv.hj];
+                    state.holes[dv.hi][dv.hj] = [_round(sx), _round(sy)];
+                    var thisHole = state.holes[dv.hi];
+                    var valid = ShapeGeometry.holeInsideOuter(thisHole, state.vertices)
+                        && !ShapeGeometry.ringSelfIntersects(thisHole);
+                    if (valid) {
+                        for (var oh = 0; oh < state.holes.length; oh++) {
+                            if (oh === dv.hi) continue;
+                            if (ShapeGeometry.ringsIntersect(thisHole, state.holes[oh])) {
+                                valid = false;
+                                break;
+                            }
+                        }
+                    }
+                    if (!valid) {
+                        state.holes[dv.hi][dv.hj] = prevPos;
+                    }
                 } else {
                     state.vertices[state.dragVertex] = [_round(sx), _round(sy)];
                     _convertToPolygonIfNeeded();
@@ -851,7 +881,7 @@ var ShapeCanvas = (function() {
         });
 
         canvasElement.addEventListener('mouseup', function() {
-            if (state.dragVertex >= 0) {
+            if (_isVertexHit(state.dragVertex)) {
                 state.dragVertex = -1;
                 canvasElement.classList.remove('dragging-vertex');
             }
@@ -861,7 +891,9 @@ var ShapeCanvas = (function() {
 
         canvasElement.addEventListener('mouseleave', function() {
             state.isPanning = false;
-            state.dragVertex = -1;
+            if (_isVertexHit(state.dragVertex)) {
+                state.dragVertex = -1;
+            }
             canvasElement.classList.remove('dragging-vertex');
             canvasElement.style.cursor = '';
         });
@@ -969,20 +1001,33 @@ var ShapeCanvas = (function() {
         // VERTEX / EDGE HIT TESTING
         // ============================================
 
+        function _isVertexHit(hit) {
+            return (typeof hit === 'number' && hit >= 0) || (hit && typeof hit === 'object' && hit.kind === 'hole');
+        }
+
         function _findVertexAt(px, py) {
             var hitR = 12;
             if (state.shapeType === 'circle') {
                 var p = state.params;
-                var a = p.diameter || 0;
-                var b = p.diameter || 0;
-                var hPt = cmToPixel(a, b / 2);
+                var d = p.diameter || 0;
+                var hPt = cmToPixel(d, d / 2);
                 if (Math.hypot(px - hPt[0], py - hPt[1]) < hitR) return 0;
                 return -1;
             }
-            if (!state.vertices) return -1;
-            for (var i = 0; i < state.vertices.length; i++) {
-                var vPt = cmToPixel(state.vertices[i][0], state.vertices[i][1]);
-                if (Math.hypot(px - vPt[0], py - vPt[1]) < hitR) return i;
+            if (state.vertices) {
+                for (var i = 0; i < state.vertices.length; i++) {
+                    var vPt = cmToPixel(state.vertices[i][0], state.vertices[i][1]);
+                    if (Math.hypot(px - vPt[0], py - vPt[1]) < hitR) return i;
+                }
+            }
+            // Hole vertices
+            for (var hi = 0; hi < state.holes.length; hi++) {
+                for (var hj = 0; hj < state.holes[hi].length; hj++) {
+                    var hPtT = cmToPixel(state.holes[hi][hj][0], state.holes[hi][hj][1]);
+                    if (Math.hypot(px - hPtT[0], py - hPtT[1]) < hitR) {
+                        return { kind: 'hole', hi: hi, hj: hj };
+                    }
+                }
             }
             return -1;
         }
