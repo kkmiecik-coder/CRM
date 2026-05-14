@@ -197,7 +197,7 @@ var ShapeEditor = (function() {
             if (!hideCanvas) {
                 _ensureCanvas();
                 var vertices = ShapeGeometry.generateVertices(shapeType, currentParams);
-                canvas.setShape(shapeType, currentParams, vertices);
+                canvas.setShape(shapeType, currentParams, vertices, []);
             } else if (canvas) {
                 // Zniszcz canvas przy przełączeniu na prostokąt/koło,
                 // żeby getShapeSvg() nie zwracał starego kształtu
@@ -304,7 +304,7 @@ var ShapeEditor = (function() {
         // CANVAS -> INPUT SYNC
         // ============================================
 
-        function _onCanvasParamsChange(params, vertices) {
+        function _onCanvasParamsChange(params, vertices, holes) {
             if (isUpdating) return;
             isUpdating = true;
 
@@ -568,7 +568,8 @@ var ShapeEditor = (function() {
                     var vertices = (shapeData && shapeData.vertices)
                         ? shapeData.vertices
                         : ShapeGeometry.generateVertices(shapeType, currentParams);
-                    canvas.setShape(shapeType, currentParams, vertices);
+                    var holesR = (shapeData && shapeData.holes) ? shapeData.holes : [];
+                    canvas.setShape(shapeType, currentParams, vertices, holesR);
                 } else if (canvas) {
                     canvas.destroy();
                     canvas = null;
