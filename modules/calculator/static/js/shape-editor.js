@@ -554,6 +554,7 @@ var ShapeEditor = (function() {
                 var usesOriginalInputs = (shapeType === 'rectangular' || shapeType === 'circle');
                 editorContainer.classList.toggle('collapsed-canvas', hideCanvas);
                 form.classList.toggle('shape-canvas-active', !hideCanvas);
+                if (viewToggleEl) viewToggleEl.style.display = hideCanvas ? 'none' : 'block';
                 if (toolbarEl) {
                     toolbarEl.style.display = hideCanvas ? 'none' : 'flex';
                     var isCircleLike = (shapeType === 'circle' || shapeType === 'oval');
