@@ -238,6 +238,24 @@ const ShapeGeometry = (function() {
         return Math.abs(area) / 2;
     }
 
+    function calculateAreaWithHoles(shapeType, params, vertices, holes) {
+        var outer = calculateArea(shapeType, params, vertices);
+        var holesArea = 0;
+        if (holes && holes.length) {
+            for (var i = 0; i < holes.length; i++) {
+                var h = holes[i];
+                if (h && h.length >= 3) {
+                    holesArea += _shoelaceArea(h);
+                }
+            }
+        }
+        return {
+            outer: outer,
+            holes: holesArea,
+            net: Math.max(0, outer - holesArea)
+        };
+    }
+
     // ============================================
     // BOUNDING BOX
     // ============================================
@@ -523,13 +541,24 @@ const ShapeGeometry = (function() {
     // BUILD shape_data OBJECT FOR PERSISTENCE
     // ============================================
 
-    function buildShapeData(shapeType, params, vertices) {
-        var area = calculateArea(shapeType, params, vertices);
+    function buildShapeData(shapeType, params, vertices, holes) {
+        var areaObj = calculateAreaWithHoles(shapeType, params, vertices, holes);
         var bbox = calculateBbox(shapeType, params, vertices);
+        var roundedHoles = [];
+        if (holes && holes.length) {
+            for (var hi = 0; hi < holes.length; hi++) {
+                if (holes[hi] && holes[hi].length >= 3) {
+                    roundedHoles.push(holes[hi].map(function(v) { return [_round(v[0]), _round(v[1])]; }));
+                }
+            }
+        }
         return {
             params: Object.assign({}, params),
             vertices: vertices ? vertices.map(function(v) { return [_round(v[0]), _round(v[1])]; }) : null,
-            real_area_cm2: _round(area),
+            holes: roundedHoles,
+            real_area_cm2: _round(areaObj.outer),
+            holes_area_cm2: _round(areaObj.holes),
+            net_area_cm2: _round(areaObj.net),
             bbox: bbox
         };
     }
@@ -542,6 +571,7 @@ const ShapeGeometry = (function() {
         SHAPE_CONFIG: SHAPE_CONFIG,
         generateVertices: generateVertices,
         calculateArea: calculateArea,
+        calculateAreaWithHoles: calculateAreaWithHoles,
         calculateBbox: calculateBbox,
         calculateEdgeLengths: calculateEdgeLengths,
         validate: validate,

@@ -370,8 +370,12 @@ var ShapeEditor = (function() {
                 widthInput.value = Math.round(bbox.height * 10) / 10;
             }
 
-            var area = ShapeGeometry.calculateArea(currentShape, currentParams, vertices);
-            form.dataset.shapeRealAreaCm2 = area;
+            var holes = canvas && typeof canvas.getHoles === 'function' ? canvas.getHoles() : null;
+            var areaObj = ShapeGeometry.calculateAreaWithHoles(currentShape, currentParams, vertices, holes);
+            form.dataset.shapeRealAreaCm2 = areaObj.outer;
+            form.dataset.shapeNetAreaCm2 = areaObj.net;
+            form.dataset.shapeHolesAreaCm2 = areaObj.holes;
+            form.dataset.shapeHolesCount = holes ? holes.length : 0;
         }
 
         // ============================================
@@ -438,7 +442,8 @@ var ShapeEditor = (function() {
                 } else {
                     vertices = null;
                 }
-                return ShapeGeometry.buildShapeData(currentShape, currentParams, vertices);
+                var holesG = canvas && typeof canvas.getHoles === 'function' ? canvas.getHoles() : [];
+                return ShapeGeometry.buildShapeData(currentShape, currentParams, vertices, holesG);
             },
 
             getShapeSvg: function() {
