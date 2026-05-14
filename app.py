@@ -382,8 +382,8 @@ def create_app():
     app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
             'pool_pre_ping': True,              # Sprawdź połączenie przed użyciem
             'pool_recycle': 280,                # Recycle połączeń przed MySQL timeout (300s)
-            'pool_size': 10,                    # ZWIĘKSZONE: więcej równoległych połączeń
-            'max_overflow': 20,                 # ZWIĘKSZONE: więcej overflow connections
+            'pool_size': 5,                     # Pod limit hostingu max_user_connections=40
+            'max_overflow': 10,                 # 15 conn/worker × 2 workery + scheduler ≤ 40
             'pool_timeout': 30,                 # Timeout oczekiwania na połączenie
             'echo': False,                      # Wyłącz echo SQL (performance)
             'echo_pool': False,                 # Wyłącz echo pool events
