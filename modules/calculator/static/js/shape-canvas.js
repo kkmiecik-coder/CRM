@@ -468,6 +468,7 @@ var ShapeCanvas = (function() {
             }
 
             _renderDimensionLines(verts);
+            _renderHoleDimensions();
             _renderVertexHandles(verts);
             _renderHoleHandles();
         }
@@ -478,6 +479,24 @@ var ShapeCanvas = (function() {
                 for (var hj = 0; hj < h.length; hj++) {
                     var pt = cmToPixel(h[hj][0], h[hj][1]);
                     _drawHandle(pt[0], pt[1], false);
+                }
+            }
+        }
+
+        function _renderHoleDimensions() {
+            for (var hi = 0; hi < state.holes.length; hi++) {
+                var h = state.holes[hi];
+                if (!h || h.length < 2) continue;
+                var n = h.length;
+                for (var i = 0; i < n; i++) {
+                    var j = (i + 1) % n;
+                    var dx = h[j][0] - h[i][0];
+                    var dy = h[j][1] - h[i][1];
+                    var len = Math.sqrt(dx * dx + dy * dy);
+                    if (len < 0.1) continue;
+                    var dimLabel = (Math.round(len * 10) / 10) + ' cm';
+                    // Bez edgeId — wymiary dziur nie mają oznaczeń Gx (mniej szumu)
+                    _renderSingleDimension(h[i][0], h[i][1], h[j][0], h[j][1], dimLabel, null, -16);
                 }
             }
         }

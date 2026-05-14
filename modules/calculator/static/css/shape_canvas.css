@@ -177,8 +177,8 @@
    ============================================ */
 .shape-toolbar {
     position: absolute;
-    top: 60px; /* pod ikoną lameli (lamella-icon-container zajmuje ~52px) */
-    left: 8px;
+    top: 110px; /* pod kontenerem ikony lameli (lamella-icon-container ma label + 50px box + padding ≈ 95px) */
+    left: 6px;
     display: flex;
     flex-direction: column;
     gap: 4px;
@@ -191,8 +191,8 @@
 }
 
 .shape-tool-btn {
-    width: 36px;
-    height: 36px;
+    width: 40px;
+    height: 40px;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -203,6 +203,10 @@
     cursor: pointer;
     padding: 0;
     transition: background-color 120ms, color 120ms, border-color 120ms;
+}
+
+.shape-tool-btn-wide {
+    width: 52px;
 }
 
 .shape-tool-btn:hover {

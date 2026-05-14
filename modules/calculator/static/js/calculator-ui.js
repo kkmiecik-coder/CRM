@@ -86,7 +86,8 @@ function renderFinishingTree(form) {
     const container = form.querySelector('.finishing-tree-container');
     if (!container) return;
 
-    const options = window.finishingOptionsFlat || [];
+    // Wyklucz wpisy systemowe (CUTOUT to sentinel cennika wycięć — nie pokazujemy go w drzewku wykończeń)
+    const options = (window.finishingOptionsFlat || []).filter(o => o.code !== 'CUTOUT');
     if (options.length === 0) {
         container.innerHTML = '<p class="input-txt">Brak opcji wykończeń</p>';
         return;
