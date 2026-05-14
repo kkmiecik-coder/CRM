@@ -3,10 +3,42 @@ Serwis do kalkulacji cen obróbki krawędzi.
 Wzorowany na WoodPriceCalculator.php z PrestaShop woodconfigurator.
 """
 
+import re
+
 from decimal import Decimal, ROUND_HALF_UP
 from modules.logging import get_logger
 
 logger = get_logger('calculator.edge_calculator')
+
+HOLE_EDGE_RE = re.compile(r'^H(\d+)\.(G|N|D|P)(\d+)$')
+OUTER_EDGE_RE = re.compile(r'^(G|N|D|P)(\d+)$')
+
+
+def parse_edge_id(edge_id):
+    """
+    Parsuje ID krawędzi do struktury:
+    - outer:  {'kind': 'outer', 'type': 'G'|'N'|'D'|'P', 'idx': int 0-based}
+    - hole:   {'kind': 'hole',  'type': 'G'|'N'|'D'|'P', 'hole_idx': int 0-based, 'idx': int 0-based}
+    - None gdy nieznany format / pusty / nie-string.
+    """
+    if not edge_id or not isinstance(edge_id, str):
+        return None
+    m = HOLE_EDGE_RE.match(edge_id)
+    if m:
+        return {
+            'kind': 'hole',
+            'hole_idx': int(m.group(1)) - 1,
+            'type': m.group(2),
+            'idx': int(m.group(3)) - 1,
+        }
+    m = OUTER_EDGE_RE.match(edge_id)
+    if m:
+        return {
+            'kind': 'outer',
+            'type': m.group(1),
+            'idx': int(m.group(2)) - 1,
+        }
+    return None
 
 # ============================================
 # DEFINICJE KRAWĘDZI
