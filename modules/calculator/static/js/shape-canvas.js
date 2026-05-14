@@ -51,7 +51,8 @@ var ShapeCanvas = (function() {
             activeTool: 'cursor',  // 'cursor' | 'add' | 'remove'
             holes: [],
             activeHole: null,
-            hoverHoleStart: false
+            hoverHoleStart: false,
+            _hintTimeout: null
         };
 
         // Pozycje wymiarów do obsługi dblclick
@@ -691,7 +692,15 @@ var ShapeCanvas = (function() {
             var my = e.clientY - rect.top;
 
             if (e.button === 2) {
-                // PPM — w trybie add zamknie activeHole (Faza B). Tu no-op.
+                if (state.activeTool === 'add' && state.activeHole) {
+                    if (state.activeHole.length >= 3) {
+                        _commitActiveHole();
+                    } else {
+                        state.activeHole = null;
+                        state.hoverHoleStart = false;
+                        render();
+                    }
+                }
                 return;
             }
 
@@ -711,8 +720,10 @@ var ShapeCanvas = (function() {
                 return;
             }
 
-            // Tryb ADD — klik krawędzi outer = +punkt
+            // Tryb ADD — klik krawędzi outer = +punkt; klik krawędzi dziury = +punkt dziury;
+            // klik wewnątrz = start/kontynuacja activeHole.
             if (tool === 'add' && !isCircleLike) {
+                // 1. Klik krawędzi outer = +punkt outer
                 var edgeIdx = _findEdgeAt(mx, my);
                 if (edgeIdx >= 0 && state.vertices && state.vertices.length < 20) {
                     var cmPtA = pixelToCm(mx, my);
@@ -723,7 +734,55 @@ var ShapeCanvas = (function() {
                     render();
                     return;
                 }
-                // Brak hit — fall through do CURSOR (pan/drag), żeby user nie utknął w trybie add.
+
+                // 2. Klik krawędzi istniejącej dziury = +punkt tej dziury
+                if (!state.activeHole) {
+                    var hEdge = _findHoleEdgeAt(mx, my);
+                    if (hEdge) {
+                        var cmH = pixelToCm(mx, my);
+                        _pushUndo();
+                        state.holes[hEdge.holeIdx].splice(hEdge.edgeIdx + 1, 0, [_round(cmH[0]), _round(cmH[1])]);
+                        _emitChange();
+                        render();
+                        return;
+                    }
+                }
+
+                // 3. Klik wewnątrz = start/kontynuacja activeHole
+                var cmP = pixelToCm(mx, my);
+                var pxCm = _round(cmP[0]);
+                var pyCm = _round(cmP[1]);
+
+                if (state.activeHole) {
+                    // Snap do pierwszego punktu — zamknij
+                    var first = state.activeHole[0];
+                    var firstPx = cmToPixel(first[0], first[1]);
+                    if (Math.hypot(mx - firstPx[0], my - firstPx[1]) < 12 && state.activeHole.length >= 3) {
+                        _commitActiveHole();
+                        return;
+                    }
+                    // Walidacja: punkt wewnątrz outer i poza istniejącymi dziurami
+                    if (!state.vertices || !ShapeGeometry.pointInPolygon(pxCm, pyCm, state.vertices)) return;
+                    for (var hch = 0; hch < state.holes.length; hch++) {
+                        if (ShapeGeometry.pointInPolygon(pxCm, pyCm, state.holes[hch])) return;
+                    }
+                    state.activeHole.push([pxCm, pyCm]);
+                    render();
+                    return;
+                }
+
+                // Start nowej dziury
+                if (state.holes.length >= 5) {
+                    _showHint('Maksymalnie 5 wycięć na produkt.');
+                    return;
+                }
+                if (!state.vertices || !ShapeGeometry.pointInPolygon(pxCm, pyCm, state.vertices)) return;
+                for (var hch2 = 0; hch2 < state.holes.length; hch2++) {
+                    if (ShapeGeometry.pointInPolygon(pxCm, pyCm, state.holes[hch2])) return;
+                }
+                state.activeHole = [[pxCm, pyCm]];
+                render();
+                return;
             }
 
             // Tryb CURSOR (default) — drag wierzchołka lub pan
@@ -745,6 +804,19 @@ var ShapeCanvas = (function() {
             var rect = canvasElement.getBoundingClientRect();
             var mx = e.clientX - rect.left;
             var my = e.clientY - rect.top;
+
+            if (state.activeTool === 'add' && state.activeHole && state.activeHole.length >= 3) {
+                var firstHv = state.activeHole[0];
+                var firstHvPx = cmToPixel(firstHv[0], firstHv[1]);
+                var isSnap = Math.hypot(mx - firstHvPx[0], my - firstHvPx[1]) < 12;
+                if (isSnap !== state.hoverHoleStart) {
+                    state.hoverHoleStart = isSnap;
+                    render();
+                }
+            } else if (state.hoverHoleStart) {
+                state.hoverHoleStart = false;
+                render();
+            }
 
             if (state.dragVertex >= 0) {
                 var cmPt = pixelToCm(mx, my);
@@ -877,6 +949,14 @@ var ShapeCanvas = (function() {
             } else if (isCtrl && e.key === 'z' && e.shiftKey) {
                 e.preventDefault();
                 redo();
+            } else if (e.key === 'Enter' && state.activeHole && state.activeHole.length >= 3) {
+                e.preventDefault();
+                _commitActiveHole();
+            } else if (e.key === 'Escape' && state.activeHole) {
+                e.preventDefault();
+                state.activeHole = null;
+                state.hoverHoleStart = false;
+                render();
             }
         });
 
@@ -905,6 +985,67 @@ var ShapeCanvas = (function() {
                 if (Math.hypot(px - vPt[0], py - vPt[1]) < hitR) return i;
             }
             return -1;
+        }
+
+        function _findHoleEdgeAt(px, py) {
+            var hitDist = 8;
+            for (var hi = 0; hi < state.holes.length; hi++) {
+                var h = state.holes[hi];
+                if (!h || h.length < 3) continue;
+                for (var i = 0; i < h.length; i++) {
+                    var j = (i + 1) % h.length;
+                    var p1 = cmToPixel(h[i][0], h[i][1]);
+                    var p2 = cmToPixel(h[j][0], h[j][1]);
+                    var dist = _pointToSegmentDist(px, py, p1[0], p1[1], p2[0], p2[1]);
+                    if (dist < hitDist) return { holeIdx: hi, edgeIdx: i };
+                }
+            }
+            return null;
+        }
+
+        function _commitActiveHole() {
+            if (!state.activeHole || state.activeHole.length < 3) {
+                state.activeHole = null;
+                state.hoverHoleStart = false;
+                render();
+                return;
+            }
+            var newHole = state.activeHole;
+            if (ShapeGeometry.ringSelfIntersects(newHole)) {
+                _showHint('Wycięcie nie może przecinać samo siebie.');
+                return;
+            }
+            if (!ShapeGeometry.holeInsideOuter(newHole, state.vertices)) {
+                _showHint('Wycięcie musi mieścić się wewnątrz kształtu.');
+                return;
+            }
+            for (var i = 0; i < state.holes.length; i++) {
+                if (ShapeGeometry.ringsIntersect(newHole, state.holes[i])) {
+                    _showHint('Wycięcia nie mogą się przecinać.');
+                    return;
+                }
+            }
+            _pushUndo();
+            state.holes.push(newHole);
+            state.activeHole = null;
+            state.hoverHoleStart = false;
+            _emitChange();
+            render();
+        }
+
+        function _showHint(msg) {
+            var form = canvasElement.closest('.quote-form');
+            var hintEl = form ? form.querySelector('[data-shape-hint]') : null;
+            if (!hintEl) return;
+            var prev = hintEl.textContent;
+            var prevColor = hintEl.style.color;
+            hintEl.textContent = msg;
+            hintEl.style.color = '#dc2626';
+            clearTimeout(state._hintTimeout);
+            state._hintTimeout = setTimeout(function() {
+                hintEl.textContent = prev;
+                hintEl.style.color = prevColor || '';
+            }, 3000);
         }
 
         function _findEdgeAt(px, py) {
@@ -1319,6 +1460,12 @@ var ShapeCanvas = (function() {
             state.activeTool = tool;
             canvasElement.classList.remove('tool-cursor', 'tool-add', 'tool-remove');
             canvasElement.classList.add('tool-' + tool);
+            // Anuluj activeHole przy zmianie narzędzia
+            if (state.activeHole) {
+                state.activeHole = null;
+                state.hoverHoleStart = false;
+                render();
+            }
         }
 
         function getActiveTool() {
