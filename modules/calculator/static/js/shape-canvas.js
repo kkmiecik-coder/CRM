@@ -48,7 +48,10 @@ var ShapeCanvas = (function() {
             colorTheme: 'normal',
             outOfRangeDims: { length: false, width: false },  // które wymiary bbox na czerwono
             lamellaDirection: 0,
-            activeTool: 'cursor'  // 'cursor' | 'add' | 'remove'
+            activeTool: 'cursor',  // 'cursor' | 'add' | 'remove'
+            holes: [],
+            activeHole: null,
+            hoverHoleStart: false
         };
 
         // Pozycje wymiarów do obsługi dblclick
@@ -866,23 +869,36 @@ var ShapeCanvas = (function() {
         }
 
         function _pushUndo() {
-            state.undoStack.push(JSON.stringify(state.vertices));
+            state.undoStack.push(JSON.stringify({
+                vertices: state.vertices,
+                holes: state.holes
+            }));
             if (state.undoStack.length > state.maxUndo) state.undoStack.shift();
             state.redoStack = [];
         }
 
         function undo() {
             if (state.undoStack.length === 0) return;
-            state.redoStack.push(JSON.stringify(state.vertices));
-            state.vertices = JSON.parse(state.undoStack.pop());
+            state.redoStack.push(JSON.stringify({
+                vertices: state.vertices,
+                holes: state.holes
+            }));
+            var prev = JSON.parse(state.undoStack.pop());
+            state.vertices = prev.vertices;
+            state.holes = prev.holes || [];
             _emitChange();
             render();
         }
 
         function redo() {
             if (state.redoStack.length === 0) return;
-            state.undoStack.push(JSON.stringify(state.vertices));
-            state.vertices = JSON.parse(state.redoStack.pop());
+            state.undoStack.push(JSON.stringify({
+                vertices: state.vertices,
+                holes: state.holes
+            }));
+            var nxt = JSON.parse(state.redoStack.pop());
+            state.vertices = nxt.vertices;
+            state.holes = nxt.holes || [];
             _emitChange();
             render();
         }
@@ -949,13 +965,31 @@ var ShapeCanvas = (function() {
         // PUBLIC API: SET SHAPE / PARAMS
         // ============================================
 
-        function setShape(shapeType, params, vertices) {
+        function setShape(shapeType, params, vertices, holes) {
             state.shapeType = shapeType;
             state.params = Object.assign({}, params);
             state.vertices = vertices ? vertices.map(function(v) { return [v[0], v[1]]; }) : null;
+            state.holes = holes ? holes.map(function(h) {
+                return h.map(function(v) { return [v[0], v[1]]; });
+            }) : [];
+            state.activeHole = null;
             state.undoStack = [];
             state.redoStack = [];
             fitToView();
+        }
+
+        function getHoles() {
+            return state.holes.map(function(h) {
+                return h.map(function(v) { return [v[0], v[1]]; });
+            });
+        }
+
+        function setHoles(holes) {
+            state.holes = holes ? holes.map(function(h) {
+                return h.map(function(v) { return [v[0], v[1]]; });
+            }) : [];
+            state.activeHole = null;
+            render();
         }
 
         function updateFromParams(params) {
@@ -987,7 +1021,7 @@ var ShapeCanvas = (function() {
                 var newParams = ShapeGeometry.extractParams(state.shapeType, state.vertices);
                 state.params = Object.assign({}, state.params, newParams);
             }
-            state.onParamsChange(state.params, state.vertices);
+            state.onParamsChange(state.params, state.vertices, state.holes);
         }
 
         function _round(val) {
@@ -1210,6 +1244,8 @@ var ShapeCanvas = (function() {
             setShape: setShape,
             updateFromParams: updateFromParams,
             getVertices: getVertices,
+            getHoles: getHoles,
+            setHoles: setHoles,
             getParams: getParams,
             fitToView: fitToView,
             undo: undo,
