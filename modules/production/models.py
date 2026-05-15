@@ -261,7 +261,7 @@ class ProductionProduct(db.Model):
     quantity = Column(Integer, default=1, nullable=False)
 
     current_status = Column(Enum(
-        'czeka_na_wyciecie', 'czeka_na_skladanie', 'czeka_na_kompletacje',
+        'czeka_na_wyciecie', 'czeka_na_skladanie',
         'czeka_na_sklejanie', 'czeka_na_formatowanie', 'czeka_na_wykanczanie',
         'czeka_na_lakiernie', 'czeka_na_logistyke', 'czeka_na_pakowanie',
         'spakowane', 'anulowane', 'wstrzymane', 'w_realizacji',
@@ -278,7 +278,6 @@ class ProductionProduct(db.Model):
     # quantity_done_* i *_completed_at - jak w starym modelu
     quantity_done_cutting = Column(Integer, default=0, nullable=False)
     quantity_done_assembly = Column(Integer, default=0, nullable=False)
-    quantity_done_completion = Column(Integer, default=0, nullable=False)
     quantity_done_gluing = Column(Integer, default=0, nullable=False)
     quantity_done_formatting = Column(Integer, default=0, nullable=False)
     quantity_done_finishing = Column(Integer, default=0, nullable=False)
@@ -287,7 +286,6 @@ class ProductionProduct(db.Model):
 
     cutting_completed_at = Column(DateTime, index=True)
     assembly_completed_at = Column(DateTime, index=True)
-    completion_completed_at = Column(DateTime, index=True)
     gluing_completed_at = Column(DateTime, index=True)
     formatting_completed_at = Column(DateTime, index=True)
     finishing_completed_at = Column(DateTime, index=True)
@@ -340,7 +338,6 @@ class ProductionProduct(db.Model):
         status_names = {
             'czeka_na_wyciecie': 'Czeka na wycięcie',
             'czeka_na_skladanie': 'Czeka na składanie',
-            'czeka_na_kompletacje': 'Czeka na kompletację',
             'czeka_na_sklejanie': 'Czeka na sklejanie',
             'czeka_na_formatowanie': 'Czeka na formatowanie',
             'czeka_na_wykanczanie': 'Czeka na wykańczanie',
@@ -474,9 +471,8 @@ class ProductionProduct(db.Model):
     def complete_task(self, station_code):
         now = get_local_now()
         next_status_map = {
-            'cutting': 'czeka_na_kompletacje',
-            'assembly': 'czeka_na_kompletacje',
-            'completion': 'czeka_na_sklejanie',
+            'cutting': 'czeka_na_sklejanie',
+            'assembly': 'czeka_na_sklejanie',
             'gluing': 'czeka_na_formatowanie',
             'formatting': 'czeka_na_wykanczanie',
             'finishing': 'czeka_na_logistyke',
@@ -876,7 +872,7 @@ class ProductionDevice(db.Model):
     is_active = Column(Boolean, nullable=False, default=True, index=True)
 
     VALID_STATION_CODES = {
-        'packaging', 'cutting', 'assembly', 'completion', 'gluing', 'formatting', 'finishing'
+        'packaging', 'cutting', 'assembly', 'gluing', 'formatting', 'finishing'
     }
 
     @validates('station_code')
