@@ -92,7 +92,6 @@ def dashboard():
         station_pending_status = {
             'cutting': 'czeka_na_wyciecie',
             'assembly': 'czeka_na_skladanie',
-            'completion': 'czeka_na_kompletacje',
             'gluing': 'czeka_na_sklejanie',
             'formatting': 'czeka_na_formatowanie',
             'finishing': 'czeka_na_wykanczanie',
