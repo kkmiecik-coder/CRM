@@ -297,3 +297,110 @@ canvas[data-shape-canvas].tool-remove {
 canvas[data-shape-canvas].tool-cursor {
     cursor: default;
 }
+
+/* === Fullscreen canvas modal === */
+
+.shape-canvas-fullscreen-btn {
+    width: 32px;
+    height: 32px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    border: 1px solid #d0d0d0;
+    border-radius: 4px;
+    cursor: pointer;
+    color: #444;
+    padding: 0;
+    transition: background-color .15s, border-color .15s;
+}
+.shape-canvas-fullscreen-btn:hover {
+    background: #f4f4f4;
+    border-color: #999;
+}
+
+body.fs-canvas-open {
+    overflow: hidden;
+}
+
+.fullscreen-canvas-modal {
+    position: fixed;
+    inset: 0;
+    z-index: 1000;
+    display: none;
+}
+.fullscreen-canvas-modal.is-open {
+    display: block;
+}
+.fullscreen-canvas-modal__backdrop {
+    position: absolute;
+    inset: 0;
+    background: rgba(0, 0, 0, .5);
+}
+.fullscreen-canvas-modal__dialog {
+    position: absolute;
+    inset: 2.5vh 2.5vw;
+    background: #0f1729;
+    border-radius: 8px;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, .25);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+.fullscreen-canvas-modal__close {
+    position: absolute;
+    top: 10px;
+    right: 12px;
+    z-index: 2;
+    background: rgba(0, 0, 0, .35);
+    border: 1px solid rgba(255, 255, 255, .15);
+    border-radius: 4px;
+    font-size: 22px;
+    line-height: 1;
+    cursor: pointer;
+    color: #eee;
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.fullscreen-canvas-modal__close:hover {
+    background: rgba(0, 0, 0, .6);
+    color: #fff;
+}
+.fullscreen-canvas-modal__main {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    padding: 0;
+    overflow: hidden;
+    background: #0f1729;
+}
+.fullscreen-canvas-modal__main .shape-canvas-hint {
+    display: none !important;
+}
+
+.fullscreen-canvas-modal__main [data-shape-editor] {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    margin: 0;
+}
+.fullscreen-canvas-modal__main .shape-canvas-column {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+}
+.fullscreen-canvas-modal__main .shape-canvas-wrapper {
+    flex: 1;
+    min-height: 0;
+}
+.fullscreen-canvas-modal__main canvas[data-shape-canvas] {
+    width: 100%;
+    height: 100%;
+    display: block;
+}

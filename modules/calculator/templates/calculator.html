@@ -308,6 +308,11 @@
                                             <button type="button" data-shape-undo title="Cofnij" disabled>&#8617;</button>
                                             <button type="button" data-shape-redo title="Ponów" disabled>&#8618;</button>
                                             <button type="button" data-shape-fit title="Dopasuj do widoku">&#8865;</button>
+                                            <button type="button" class="shape-canvas-fullscreen-btn" data-fullscreen-toggle title="Tryb pełnoekranowy" aria-label="Tryb pełnoekranowy">
+                                                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                                                    <path d="M2 6V2h4M14 6V2h-4M2 10v4h4M14 10v4h-4"/>
+                                                </svg>
+                                            </button>
                                         </div>
                                     </div>
                                     <div class="shape-canvas-hint" data-shape-hint style="display:none">
@@ -669,6 +674,7 @@
     <script src="{{ url_for('calculator.static', filename='js/shape-geometry.js') }}"></script>
     <script src="{{ url_for('calculator.static', filename='js/lamella-icon.js') }}"></script>
     <script src="{{ url_for('calculator.static', filename='js/shape-canvas.js') }}"></script>
+    <script src="{{ url_for('calculator.static', filename='js/fullscreen-canvas.js') }}"></script>
     <script src="{{ url_for('calculator.static', filename='js/shape-editor.js') }}"></script>
     <script src="{{ url_for('calculator.static', filename='js/calculator-core.js') }}"></script>
     <script src="{{ url_for('calculator.static', filename='js/calculator-ui.js') }}"></script>
@@ -1188,5 +1194,14 @@
         });
     })();
     </script>
+
+    <!-- Fullscreen canvas modal -->
+    <div class="fullscreen-canvas-modal" data-fs-modal hidden>
+        <div class="fullscreen-canvas-modal__backdrop" data-fs-close></div>
+        <div class="fullscreen-canvas-modal__dialog">
+            <button type="button" class="fullscreen-canvas-modal__close" data-fs-close aria-label="Zamknij">&times;</button>
+            <main class="fullscreen-canvas-modal__main" data-fs-slot="canvas"></main>
+        </div>
+    </div>
 </body>
 </html>

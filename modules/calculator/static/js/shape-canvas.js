@@ -76,19 +76,24 @@ var ShapeCanvas = (function() {
             var rect = canvasElement.parentElement.getBoundingClientRect();
             state.width = rect.width;
 
-            var viewW = window.innerWidth;
-            var viewH = window.innerHeight;
-            var targetH = 400; // fallback (mobile)
-            var maxH = 600;
+            var inFullscreen = !!canvasElement.closest('.fullscreen-canvas-modal__main');
 
-            if (viewW > 768) {
-                // Desktop / tablet: 70% wysokości viewportu
-                targetH = viewH * 0.7;
-                maxH = viewH * 0.7;
+            if (inFullscreen) {
+                state.height = Math.max(rect.height, 200);
+            } else {
+                var viewW = window.innerWidth;
+                var viewH = window.innerHeight;
+                var targetH = 400;
+                var maxH = 600;
+
+                if (viewW > 768) {
+                    targetH = viewH * 0.7;
+                    maxH = viewH * 0.7;
+                }
+
+                state.height = Math.min(Math.max(targetH, 200), maxH);
             }
-            // Mobile (<=768): fallback 400px, cap 600px
 
-            state.height = Math.min(Math.max(targetH, 200), maxH);
             canvasElement.width = state.width * state.dpr;
             canvasElement.height = state.height * state.dpr;
             canvasElement.style.height = state.height + 'px';
