@@ -749,164 +749,6 @@ def ajax_get_orders_assembly():
         }), 500
 
 
-@station_bp.route('/ajax/orders/completion')
-def ajax_get_orders_completion():
-    """
-    AJAX endpoint dla odswiezania PRODUKTOW na stanowisku kompletacji.
-    Zwraca plaska liste produktow (bez grupowania po zamowieniach).
-
-    Query params:
-        sort: priority|deadline|created_at (default: priority)
-
-    Returns:
-        JSON: { success, data: { products: [...], stats: {...} } }
-    """
-    try:
-        from ...models import ProductionItem
-        from sqlalchemy import asc
-
-        sort_by = request.args.get('sort', 'priority')
-
-        # KROK 1: Pobierz produkty czekajace na kompletacje
-        query = ProductionItem.query.options(
-            joinedload(ProductionItem.order),
-            joinedload(ProductionItem.configuration),
-        ).filter(
-            ProductionItem.current_status == 'czeka_na_kompletacje'
-        )
-
-        # Sortowanie
-        if sort_by == 'priority':
-            query = query.order_by(asc(ProductionItem.priority_rank))
-        elif sort_by == 'deadline':
-            query = query.order_by(asc(ProductionItem.deadline_date))
-        elif sort_by == 'created_at':
-            query = query.order_by(asc(ProductionItem.created_at))
-
-        products = query.all()
-
-        if not products:
-            return jsonify({
-                'success': True,
-                'data': {
-                    'products': [],
-                    'stats': {
-                        'total_products': 0,
-                        'high_priority_count': 0,
-                        'overdue_count': 0,
-                        'total_volume': 0
-                    }
-                }
-            }), 200
-
-        # KROK 2: Budowanie plaskiej listy produktow z polami wyswietlania
-        products_list = []
-        today = date.today()
-
-        for product in products:
-            rank = product.priority_rank or 999
-
-            # Oblicz wymiary z parsowanych pol (w CM z jednostka)
-            dimensions_text = None
-            if product.parsed_length_cm and product.parsed_width_cm and product.parsed_thickness_cm:
-                dimensions_text = f"{_format_dimension(product.parsed_length_cm)} × {_format_dimension(product.parsed_width_cm)} × {_format_dimension(product.parsed_thickness_cm)} cm"
-
-            # Klasa i etykieta priorytetu per produkt
-            if rank <= 10:
-                priority_class = 'priority-critical'
-                priority_label = 'KRYTYCZNY'
-            elif rank <= 50:
-                priority_class = 'priority-high'
-                priority_label = 'WYSOKI'
-            elif rank <= 100:
-                priority_class = 'priority-normal'
-                priority_label = 'NORMALNY'
-            else:
-                priority_class = 'priority-low'
-                priority_label = 'NISKI'
-
-            # Wyswietlany termin per produkt
-            if product.deadline_date:
-                days_diff = (product.deadline_date - today).days
-                if days_diff < 0:
-                    display_deadline = f"Opoznione o {abs(days_diff)} dni"
-                elif days_diff == 0:
-                    display_deadline = "Dzis!"
-                elif days_diff == 1:
-                    display_deadline = "Jutro"
-                else:
-                    display_deadline = f"Za {days_diff} dni"
-            else:
-                display_deadline = "Brak terminu"
-
-            product_data = {
-                'id': product.short_product_id,
-                'record_id': product.id,
-                'short_product_id': product.short_product_id,
-                'product_sequence_in_order': product.product_sequence_in_order,
-                'internal_order_number': product.order.internal_order_number if product.order else None,
-                'original_name': product.original_product_name or 'Brak nazwy',
-                'dimensions': dimensions_text,
-                'volume_m3': float(product.volume_m3 or 0),
-                'wood_species': product.configuration.species if product.configuration else None,
-                'technology': product.configuration.technology if product.configuration else None,
-                'wood_class': product.configuration.wood_class if product.configuration else None,
-                'finish_state': product.parsed_finish_state,
-                'current_status': product.current_status,
-                'priority_rank': rank,
-                'priority_class': priority_class,
-                'priority_label': priority_label,
-                'display_deadline': display_deadline,
-                'deadline_date': product.deadline_date.isoformat() if product.deadline_date else None,
-                'attachment_file_name': product.order.attachment_file_name if product.order else None,
-                'attachment_file_url': product.order.attachment_file_url if product.order else None,
-                'quantity': product.quantity,
-                'quantity_done': product.quantity_done_completion,
-                'is_complete': product.is_station_complete('completion'),
-                'is_priority': product.is_priority,
-                'is_rework': product.is_rework,
-                'original_product_id': product.original_product_id,
-                'order_notes': product.order.order_notes if product.order else None,
-                'production_notes': product.production_notes,
-                'client_order_number': product.order.client_order_number if product.order else None,
-                'baselinker_order_id': product.order.baselinker_order_id if product.order else None,
-            }
-
-            products_list.append(product_data)
-
-        # KROK 3: Statystyki
-        high_priority_count = sum(1 for p in products_list if p['priority_rank'] <= 50)
-        overdue_count = sum(1 for p in products_list
-                           if p['deadline_date'] and p['deadline_date'] < today.isoformat())
-        total_volume = sum(p['volume_m3'] * p.get('quantity', 1) for p in products_list)
-
-        stats = {
-            'total_products': len(products_list),
-            'high_priority_count': high_priority_count,
-            'overdue_count': overdue_count,
-            'total_volume': round(total_volume, 4)
-        }
-
-        return jsonify({
-            'success': True,
-            'data': {
-                'products': products_list,
-                'stats': stats
-            }
-        }), 200
-
-    except Exception as e:
-        logger.error("Blad AJAX orders completion", extra={
-            'error': str(e),
-            'traceback': traceback.format_exc()
-        })
-
-        return jsonify({
-            'success': False,
-            'error': str(e)
-        }), 500
-
-
 @station_bp.route('/ajax/orders/gluing')
 def ajax_get_orders_gluing():
     """
@@ -1099,10 +941,10 @@ def ajax_station_today_m3(station_code):
     """
     try:
         # Walidacja station_code
-        if station_code not in ['cutting', 'assembly', 'completion', 'gluing', 'formatting', 'finishing', 'painting', 'packaging']:
+        if station_code not in ['cutting', 'assembly', 'gluing', 'formatting', 'finishing', 'painting', 'packaging']:
             return jsonify({
                 'success': False,
-                'error': f'Nieprawidlowy station_code. Dozwolone: cutting, assembly, completion, gluing, formatting, finishing, packaging'
+                'error': f'Nieprawidlowy station_code. Dozwolone: cutting, assembly, gluing, formatting, finishing, packaging'
             }), 400
 
         record_heartbeat(station_code)
