@@ -683,12 +683,6 @@ MONITOR_STATION_MAP = {
         'label': 'Składanie - lite',
         'css_class': 'status-assembly',
     },
-    'completion': {
-        'status': 'czeka_na_kompletacje',
-        'quantity_col': 'quantity_done_completion',
-        'label': 'Kompletacja',
-        'css_class': 'status-completion',
-    },
     'gluing': {
         'status': 'czeka_na_sklejanie',
         'quantity_col': 'quantity_done_gluing',
@@ -1122,10 +1116,10 @@ def complete_order_bulk():
                 'error': 'Wymagane pola: order_number, product_ids, station, action'
             }), 400
 
-        if station not in ['cutting', 'assembly', 'completion', 'gluing', 'formatting', 'finishing', 'painting', 'packaging']:
+        if station not in ['cutting', 'assembly', 'gluing', 'formatting', 'finishing', 'painting', 'packaging']:
             return jsonify({
                 'success': False,
-                'error': f'Nieprawidlowe stanowisko: {station}. Dozwolone: cutting, assembly, completion, gluing, formatting, finishing, painting, packaging'
+                'error': f'Nieprawidlowe stanowisko: {station}. Dozwolone: cutting, assembly, gluing, formatting, finishing, painting, packaging'
             }), 400
 
         if action != 'complete':
@@ -1144,7 +1138,6 @@ def complete_order_bulk():
         expected_status_map = {
             'cutting': ['czeka_na_wyciecie'],
             'assembly': ['czeka_na_skladanie'],
-            'completion': ['czeka_na_kompletacje'],
             'gluing': ['czeka_na_sklejanie'],
             'formatting': ['czeka_na_formatowanie'],
             'finishing': ['czeka_na_wykanczanie'],
