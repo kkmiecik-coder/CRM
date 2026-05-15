@@ -155,7 +155,10 @@
                                    data-shape-svg="{{ (product.shape_svg or '')|e }}"
                                    data-lamella-direction="{{ product.lamella_direction if product.lamella_direction is not none else '' }}"
                                    data-has-edge="{{ product.parsed_edge_processing|tojson }}"
-                                   data-product-id="{{ product.id }}">
+                                   data-product-id="{{ product.id }}"
+                                   data-length-cm="{{ product.parsed_length_cm if product.parsed_length_cm is not none else '' }}"
+                                   data-width-cm="{{ product.parsed_width_cm if product.parsed_width_cm is not none else '' }}"
+                                   data-thickness-cm="{{ product.parsed_thickness_cm if product.parsed_thickness_cm is not none else '' }}">
                                 <svg class="header-icon" width="22" height="22"><use href="{{ url_for('production.static', filename='icons/station-icons.svg') }}#icon-edge"/></svg>
                               </div>
                             {% endif %}

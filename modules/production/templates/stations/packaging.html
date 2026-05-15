@@ -199,7 +199,7 @@
                               </div>
                               {% for ep in visual_products %}
                               <script type="application/json" class="edge-product-data" data-product-id="{{ ep.id }}">
-                              {"id":"{{ ep.id }}","edge_type":"{{ ep.parsed_edge_type or '' }}","edge_radius":"{{ ep.parsed_edge_radius or '' }}","edge_angle":"{{ ep.parsed_edge_angle or '' }}","edge_letters":{{ ep.parsed_edge_letters|tojson if ep.parsed_edge_letters else '[]' }},"edge_svg":{{ (ep.edge_svg or '')|tojson }},"shape_svg":{{ (ep.shape_svg or '')|tojson }},"lamella_direction":{{ ep.lamella_direction|tojson }},"has_edge":{{ ep.parsed_edge_processing|tojson }}}
+                              {"id":"{{ ep.id }}","edge_type":"{{ ep.parsed_edge_type or '' }}","edge_radius":"{{ ep.parsed_edge_radius or '' }}","edge_angle":"{{ ep.parsed_edge_angle or '' }}","edge_letters":{{ ep.parsed_edge_letters|tojson if ep.parsed_edge_letters else '[]' }},"edge_svg":{{ (ep.edge_svg or '')|tojson }},"shape_svg":{{ (ep.shape_svg or '')|tojson }},"lamella_direction":{{ ep.lamella_direction|tojson }},"has_edge":{{ ep.parsed_edge_processing|tojson }},"length_cm":{{ ep.parsed_length_cm|tojson }},"width_cm":{{ ep.parsed_width_cm|tojson }},"thickness_cm":{{ ep.parsed_thickness_cm|tojson }}}
                               </script>
                               {% endfor %}
                             {% endif %}
