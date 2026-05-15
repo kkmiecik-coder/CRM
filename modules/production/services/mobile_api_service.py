@@ -82,23 +82,6 @@ STATION_COMPLETED_AT_FIELD = {
     'painting': 'painting_completed_at',
 }
 
-# Alias dla wstecznej kompatybilności ze starymi APK Android.
-# Stanowisko kompletacji zostało usunięte 2026-05-15, ale stare tablety
-# mogą wciąż wysyłać station_code='completion' do momentu update APK.
-# Po wdrożeniu nowego APK na wszystkich tabletach — usunąć ten alias
-# w osobnym commicie.
-STATION_CODE_ALIASES = {
-    'completion': 'gluing',
-}
-
-
-def resolve_station_code(station_code):
-    """Mapuje legacy station_code na obowiązujący kod stacji."""
-    if station_code is None:
-        return None
-    return STATION_CODE_ALIASES.get(station_code, station_code)
-
-
 # Aliasy stanowisk — urządzenie zarejestrowane jako jedno z poniższych może
 # operować na pozostałych z tego samego zbioru. Tablet w wykańczalni rejestruje
 # się jako `finishing`, ale w UI ma TabBar z dwiema zakładkami (Produkcja /
@@ -114,10 +97,9 @@ def device_can_access_station(device, station_code):
     (device.station_code == station_code) lub przez alias (np. tablet
     zarejestrowany jako 'finishing' obsługuje też 'painting').
     """
-    station_code = resolve_station_code(station_code)
     if not device or not station_code:
         return False
-    device_station = resolve_station_code(device.station_code)
+    device_station = device.station_code
     if device_station == station_code:
         return True
     for group in STATION_GROUPS:
@@ -441,7 +423,6 @@ def register_device(device_id, device_name, station_code):
     Re-rejestracja: aktualizuje station_code/device_name, reaktywuje is_active.
     Zwraca (device, token).
     """
-    station_code = resolve_station_code(station_code)
     device = ProductionDevice.query.filter_by(device_id=device_id).first()
     if device:
         device.station_code = station_code
@@ -517,7 +498,6 @@ def serialize_order(item, station_code=None):
     ProductionItem → dict (OrderDto).
     Gdy podano station_code, dokłada quantity_done dla tego stanowiska.
     """
-    station_code = resolve_station_code(station_code)
     def _num(value):
         return float(value) if value is not None else None
 
@@ -632,7 +612,6 @@ def mark_order_complete(item, station_code):
     `with_idempotency`) który może zmienić status zamówienia w BaseLinker
     na "Produkcja zakończona" / "Zamówienie spakowane".
     """
-    station_code = resolve_station_code(station_code)
     if station_code not in STATION_QUANTITY_FIELD:
         raise ValueError(f'Nieznane stanowisko: {station_code}')
 
@@ -650,7 +629,6 @@ def update_order_quantity(item, station_code, quantity_done, *, device_id=None):
     Deleguje do `ProductionItem.set_quantity_done()` żeby spójnie z webem
     zalogować zdarzenie w `prod_station_events` (source='mobile').
     """
-    station_code = resolve_station_code(station_code)
     if station_code not in STATION_QUANTITY_FIELD:
         raise ValueError(f'Nieznane stanowisko: {station_code}')
 
@@ -931,7 +909,6 @@ def compute_station_summary(station_code):
     - queue: count aktualnie oczekujących + łączne m³ + ile priorytetów
     - completed_today: count ukończonych dzisiaj + łączne m³ (na tym stanowisku)
     """
-    station_code = resolve_station_code(station_code)
     status = STATION_STATUS_MAP.get(station_code)
     completed_field_name = STATION_COMPLETED_AT_FIELD.get(station_code)
     if not status or not completed_field_name:
@@ -1028,7 +1005,6 @@ def get_station_queue_delta(station_code, since_ts):
     - usuwa ze swojego cache'u te których nie ma w all_ids
     - aktualizuje DTO dla zleceń z listy changed
     """
-    station_code = resolve_station_code(station_code)
     status = STATION_STATUS_MAP.get(station_code)
     if not status:
         raise ValueError(f'Nieznane stanowisko: {station_code}')
