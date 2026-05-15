@@ -26,7 +26,7 @@
             <img src="{{ url_for('static', filename='images/logo-light.svg') }}"
                  class="station-logo"
                  alt="WoodPower">
-            <h1 class="station-title">{{ station_name }}</h1>
+            <h1 class="station-title">Sklejanie</h1>
             <div class="header-buttons">
                 <!-- SEARCH ORDERS BUTTON -->
                 <button class="search-orders-btn" id="search-orders-btn">
@@ -107,18 +107,6 @@
             </div>
         </div>
     </header>
-
-    <!-- BELKA ZAKŁADEK -->
-    <div class="gluing-tabs">
-        <a href="{{ url_for('production.production_stations.completion_station') }}?sort={{ sort_by }}"
-           class="tab-btn {% if active_tab == 'completion' %}active{% endif %}">
-            Kompletacja <span class="tab-count">({{ completion_count }})</span>
-        </a>
-        <a href="{{ url_for('production.production_stations.gluing_station') }}?sort={{ sort_by }}"
-           class="tab-btn {% if active_tab == 'gluing' %}active{% endif %}">
-            Klejenie <span class="tab-count">({{ gluing_count }})</span>
-        </a>
-    </div>
 
     <!-- MAIN CONTENT -->
     <main class="station-content">
@@ -217,7 +205,7 @@
                     </div>
                 </div>
                 <div class="order-action">
-                    <button class="btn-complete" data-product-id="{{ product.id }}" data-action="complete" disabled>{% if active_tab == 'completion' %}ZAKONCZ KOMPLETACJE{% else %}ZAKONCZ SKLEJANIE{% endif %}</button>
+                    <button class="btn-complete" data-product-id="{{ product.id }}" data-action="complete" disabled>ZAKONCZ SKLEJANIE</button>
                 </div>
             </div>
             {% else %}
@@ -260,9 +248,8 @@
     <!-- SCRIPTS -->
     <script>
         window.STATION_CONFIG = {
-            stationCode: '{{ station_code }}',
-            stationName: '{{ station_name }}',
-            activeTab: '{{ active_tab }}',
+            stationCode: 'gluing',
+            stationName: 'Sklejanie',
             sort: '{{ sort_by }}',
             refreshInterval: {{ config['refresh_interval'] }},
             debugMode: {{ 'true' if config['debug_frontend'] else 'false' }},
