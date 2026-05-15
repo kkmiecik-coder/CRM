@@ -15,14 +15,13 @@ from . import api_bp, logger, ProductionItem, ProductionSyncLog, get_local_now
 from modules.production.models import ProductionConfiguration
 
 VALID_STATIONS = {
-    'cutting', 'assembly', 'completion', 'gluing', 'formatting',
+    'cutting', 'assembly', 'gluing', 'formatting',
     'finishing', 'painting', 'packaging'
 }
 
 STATION_LABELS = {
     'cutting': 'Wycinanie',
     'assembly': 'Składanie',
-    'completion': 'Kompletacja',
     'gluing': 'Sklejanie',
     'formatting': 'Formatowanie',
     'finishing': 'Wykańczanie',
