@@ -7,6 +7,7 @@ var ShapeCanvas = (function() {
 
     function create(canvasElement, options) {
         var ctx = canvasElement.getContext('2d');
+        var realCtx = ctx;
         // Palety kolorów: normalny (pomarańczowy) i błędny (czerwony)
         var COLOR_THEMES = {
             normal: {
@@ -196,8 +197,10 @@ var ShapeCanvas = (function() {
             ctx.lineTo(p3[0], p3[1]);
             ctx.lineTo(p4[0], p4[1]);
             ctx.closePath();
-            ctx.fillStyle = 'rgba(230, 126, 34, 0.15)';
-            ctx.fill();
+            if (!state._svgExportMode) {
+                ctx.fillStyle = 'rgba(230, 126, 34, 0.15)';
+                ctx.fill();
+            }
             ctx.strokeStyle = 'rgba(230, 126, 34, 0.7)';
             ctx.lineWidth = 1;
             ctx.setLineDash([4, 4]);
@@ -211,9 +214,9 @@ var ShapeCanvas = (function() {
             var bMaxY = bMinY + bbox.height;
             var tolerance = 0.05;
 
-            // Sprawdź czy dolna krawędź bbox pokrywa się z krawędzią kształtu
+            // Sprawdź czy dolna/lewa krawędź bbox pokrywa się z krawędzią kształtu
             var bottomEdgeOverlaps = false;
-            var rightEdgeOverlaps = false;
+            var leftEdgeOverlaps = false;
             for (var ei = 0; ei < verts.length; ei++) {
                 var ej = (ei + 1) % verts.length;
                 var v1 = verts[ei], v2 = verts[ej];
@@ -225,12 +228,12 @@ var ShapeCanvas = (function() {
                         bottomEdgeOverlaps = true;
                     }
                 }
-                // Prawa: oba wierzchołki na X=bMaxX i rozciągają się na całą wysokość bbox
-                if (Math.abs(v1[0] - bMaxX) < tolerance && Math.abs(v2[0] - bMaxX) < tolerance) {
+                // Lewa: oba wierzchołki na X=bMinX i rozciągają się na całą wysokość bbox
+                if (Math.abs(v1[0] - bMinX) < tolerance && Math.abs(v2[0] - bMinX) < tolerance) {
                     var edgeMinY = Math.min(v1[1], v2[1]);
                     var edgeMaxY = Math.max(v1[1], v2[1]);
                     if (Math.abs(edgeMinY - bMinY) < tolerance && Math.abs(edgeMaxY - bMaxY) < tolerance) {
-                        rightEdgeOverlaps = true;
+                        leftEdgeOverlaps = true;
                     }
                 }
             }
@@ -239,9 +242,10 @@ var ShapeCanvas = (function() {
                 var bboxWColor = state.outOfRangeDims.length ? '#dc2626' : null;
                 _renderSingleDimension(bMinX, bMinY, bMaxX, bMinY, bboxW + ' cm', 'Formatka', undefined, bboxWColor);
             }
-            if (!rightEdgeOverlaps) {
+            if (!leftEdgeOverlaps) {
                 var bboxHColor = state.outOfRangeDims.width ? '#dc2626' : null;
-                _renderSingleDimension(bMaxX, bMinY, bMaxX, bMaxY, bboxH + ' cm', 'Formatka', 40, bboxHColor);
+                // Od góry do dołu (w cm), żeby normal pixel wskazywał w LEWO
+                _renderSingleDimension(bMinX, bMaxY, bMinX, bMinY, bboxH + ' cm', 'Formatka', 40, bboxHColor);
             }
 
             // Klamerki: dla każdego wierzchołka rzutujemy na krawędzie bbox
@@ -261,7 +265,7 @@ var ShapeCanvas = (function() {
             // Linie prowadzące: od wierzchołków (outer + hole) do krawędzi bbox
             if (state.visibility.guides) {
             ctx.save();
-            ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
+            ctx.strokeStyle = state._svgExportMode ? 'rgba(120, 120, 120, 0.55)' : 'rgba(255, 255, 255, 0.5)';
             ctx.lineWidth = 1.5;
             ctx.setLineDash([6, 6]);
             for (var gi = 0; gi < allBracketVerts.length; gi++) {
@@ -1333,10 +1337,10 @@ var ShapeCanvas = (function() {
 
             // Dodatkowy margines na klamerki i wymiary (px)
             var bracketSpacing = 28;
-            var extraRight = isSimple ? 30 : (bracketCountY * bracketSpacing + 60);
+            var extraRight = isSimple ? 30 : (bracketCountY * bracketSpacing + 30);
             var extraTop = isSimple ? 30 : (bracketCountX * bracketSpacing + 40);
             var extraBottom = 60; // margines na wymiar dolny formatki
-            var extraLeft = 30;
+            var extraLeft = 60; // margines na wymiar lewy formatki
 
             // Oblicz skalę żeby kształt + marginesy zmieścił się w canvasie
             var availW = state.width - extraLeft - extraRight;
@@ -1437,191 +1441,96 @@ var ShapeCanvas = (function() {
         // ============================================
 
         function exportSVG() {
+            if (typeof C2S === 'undefined') {
+                console.warn('canvas2svg (C2S) not loaded — SVG export unavailable');
+                return '';
+            }
             var bbox = ShapeGeometry.calculateBbox(state.shapeType, state.params, state.vertices);
             if (bbox.width <= 0 || bbox.height <= 0) return '';
 
-            var bw = bbox.width;
-            var bh = bbox.height;
-            var tol = 0.5;
-            var fs = Math.max(5, Math.min(12, Math.min(bw, bh) * 0.15));
-            var tick = fs * 0.6;
-            var gap = fs * 0.4;
-            var levelH = fs * 2.2; // odstęp między poziomami klamerek
-            var pad = 5;
-            var col = '#888';
-            var colVertex = '#e67e22';
-            var sw = Math.max(0.3, fs * 0.12);
-            var guideCol = 'rgba(150,150,150,0.4)';
-            var guideSw = Math.max(0.3, sw * 0.8);
+            // Snapshot stanu view + visibility (SVG eksportujemy ZAWSZE w pełni —
+            // niezależnie od ustawień UI toggle eye)
+            var saved = {
+                scale: state.scale, offsetX: state.offsetX, offsetY: state.offsetY,
+                width: state.width, height: state.height,
+                visibility: Object.assign({}, state.visibility)
+            };
+            state.visibility = { dimensions: true, brackets: true, guides: true, angles: true };
 
-            // Helpery SVG klamerek
-            function hBracket(x1, x2, y, label, color, textAbove) {
-                var c = color || col;
-                var midX = (x1 + x2) / 2;
-                var by = y + gap;
-                var textY = textAbove ? (by - 2) : (by + tick + fs + 1);
-                return '<line x1="' + x1 + '" y1="' + by + '" x2="' + x1 + '" y2="' + (by + tick) + '" stroke="' + c + '" stroke-width="' + sw + '"/>'
-                    + '<line x1="' + x2 + '" y1="' + by + '" x2="' + x2 + '" y2="' + (by + tick) + '" stroke="' + c + '" stroke-width="' + sw + '"/>'
-                    + '<line x1="' + x1 + '" y1="' + (by + tick / 2) + '" x2="' + x2 + '" y2="' + (by + tick / 2) + '" stroke="' + c + '" stroke-width="' + sw + '"/>'
-                    + '<text x="' + midX + '" y="' + textY + '" text-anchor="middle" font-size="' + fs + '" fill="' + c + '" font-family="Poppins,sans-serif">' + label + '</text>';
-            }
-            // Klamerka pionowa — po prawej stronie
-            function vBracket(y1, y2, x, label, color) {
-                var c = color || col;
-                var midY = (y1 + y2) / 2;
-                var bx = x + gap;
-                return '<line x1="' + bx + '" y1="' + y1 + '" x2="' + (bx + tick) + '" y2="' + y1 + '" stroke="' + c + '" stroke-width="' + sw + '"/>'
-                    + '<line x1="' + bx + '" y1="' + y2 + '" x2="' + (bx + tick) + '" y2="' + y2 + '" stroke="' + c + '" stroke-width="' + sw + '"/>'
-                    + '<line x1="' + (bx + tick / 2) + '" y1="' + y1 + '" x2="' + (bx + tick / 2) + '" y2="' + y2 + '" stroke="' + c + '" stroke-width="' + sw + '"/>'
-                    + '<text x="' + (bx + tick + 2) + '" y="' + (midY + fs * 0.35) + '" font-size="' + fs + '" fill="' + c + '" font-family="Poppins,sans-serif">' + label + '</text>';
-            }
-            // Klamerka pionowa — po lewej stronie
-            function vBracketLeft(y1, y2, x, label, color) {
-                var c = color || col;
-                var midY = (y1 + y2) / 2;
-                var bx = x - gap;
-                return '<line x1="' + (bx - tick) + '" y1="' + y1 + '" x2="' + bx + '" y2="' + y1 + '" stroke="' + c + '" stroke-width="' + sw + '"/>'
-                    + '<line x1="' + (bx - tick) + '" y1="' + y2 + '" x2="' + bx + '" y2="' + y2 + '" stroke="' + c + '" stroke-width="' + sw + '"/>'
-                    + '<line x1="' + (bx - tick / 2) + '" y1="' + y1 + '" x2="' + (bx - tick / 2) + '" y2="' + y2 + '" stroke="' + c + '" stroke-width="' + sw + '"/>'
-                    + '<text x="' + (bx - tick - 2) + '" y="' + (midY + fs * 0.35) + '" text-anchor="end" font-size="' + fs + '" fill="' + c + '" font-family="Poppins,sans-serif">' + label + '</text>';
-            }
-
-            var shapeEl = '';
-            var guides = '';
-            var brackets = '';
-
-            if (state.shapeType === 'circle') {
-                var r = (state.params.diameter || 0) / 2;
-                var d = _round(state.params.diameter || 0) + '';
-                var totalW = bw + pad * 2;
-                var totalH = bh + pad * 2 + levelH;
-                shapeEl = '<circle cx="' + (r + pad) + '" cy="' + (r + pad) + '" r="' + r + '" fill="rgba(230,126,34,0.15)" stroke="#e67e22" stroke-width="1.5"/>';
-                brackets = hBracket(pad, pad + r * 2, pad + r * 2, '\u2300' + d);
-                return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ' + totalW + ' ' + totalH + '">' + shapeEl + brackets + '</svg>';
-            }
-
-            if (!state.vertices || state.vertices.length < 3) return '';
-
-            var verts = state.vertices;
-            var minX = verts.reduce(function(m, v) { return Math.min(m, v[0]); }, Infinity);
-            var minY = verts.reduce(function(m, v) { return Math.min(m, v[1]); }, Infinity);
-            var maxX = verts.reduce(function(m, v) { return Math.max(m, v[0]); }, -Infinity);
-            var maxY = verts.reduce(function(m, v) { return Math.max(m, v[1]); }, -Infinity);
-
-            // Zbierz unikalne X/Y wewnątrz bbox (nie w rogach) — rzuty wierzchołków
-            var innerXs = [];
-            var innerYs = [];
-            for (var vi = 0; vi < verts.length; vi++) {
-                var vx = verts[vi][0], vy = verts[vi][1];
-                if (Math.abs(vx - minX) > tol && Math.abs(vx - maxX) > tol) {
-                    var dup = false;
-                    for (var xi = 0; xi < innerXs.length; xi++) { if (Math.abs(innerXs[xi] - vx) < tol) { dup = true; break; } }
-                    if (!dup) innerXs.push(vx);
-                }
-                if (Math.abs(vy - minY) > tol && Math.abs(vy - maxY) > tol) {
-                    var dup2 = false;
-                    for (var yi = 0; yi < innerYs.length; yi++) { if (Math.abs(innerYs[yi] - vy) < tol) { dup2 = true; break; } }
-                    if (!dup2) innerYs.push(vy);
+            // Policz marginesy potrzebne na klamerki i wymiary (px)
+            var bracketCountX = 0, bracketCountY = 0;
+            var isSimple = (state.shapeType === 'rectangular' || state.shapeType === 'circle');
+            if (!isSimple && state.vertices) {
+                var bMinXc = state.vertices.reduce(function(m, v) { return Math.min(m, v[0]); }, Infinity);
+                var bMinYc = state.vertices.reduce(function(m, v) { return Math.min(m, v[1]); }, Infinity);
+                var bMaxXc = bMinXc + bbox.width, bMaxYc = bMinYc + bbox.height;
+                var bTol = 0.3;
+                for (var fi = 0; fi < state.vertices.length; fi++) {
+                    var fvx = state.vertices[fi][0], fvy = state.vertices[fi][1];
+                    if (Math.abs(fvx - bMinXc) > bTol && Math.abs(fvx - bMaxXc) > bTol) bracketCountX++;
+                    if (Math.abs(fvy - bMinYc) > bTol && Math.abs(fvy - bMaxYc) > bTol) bracketCountY++;
                 }
             }
-            innerXs.sort(function(a, b) { return a - b; });
-            innerYs.sort(function(a, b) { return a - b; });
+            var bracketSpacing = 28;
+            var extraRight = isSimple ? 30 : (bracketCountY * bracketSpacing + 30);
+            var extraTop = isSimple ? 30 : (bracketCountX * bracketSpacing + 40);
+            var extraBottom = 60;
+            var extraLeft = 60;
 
-            // Margines na klamerki: bbox (1 poziom) + wewnętrzne (po jednym na każdy rzut)
-            var topLevels = innerXs.length; // klamerki nad kształtem
-            var rightLevels = innerYs.length; // klamerki po prawej
-            var marginTop = (topLevels + 1) * levelH + pad;
-            var marginRight = rightLevels > 0 ? (rightLevels * levelH + pad) : pad;
-            var marginLeft = levelH + pad; // bbox klamerka wysokości po lewej
-            var oX = marginLeft; // offset X kształtu w SVG
-            var oY = marginTop; // offset Y (zostawiamy miejsce na klamerki u góry)
-            var totalW = bw + oX + pad + marginRight;
-            var totalH = bh + oY + pad + levelH; // + bbox klamerka na dole
+            // Policz scale tak, by content + marginesy zmieścił się w MAX wymiarach.
+            // SVG_W/H wyliczamy DYNAMICZNIE — ciasno otacza content (brak pustego zapasu).
+            var MAX_W = 1200, MAX_H = 900;
+            var scaleW = (MAX_W - extraLeft - extraRight) / bbox.width;
+            var scaleH = (MAX_H - extraTop - extraBottom) / bbox.height;
+            state.scale = Math.min(scaleW, scaleH);
+            state.scale = Math.max(0.1, Math.min(100, state.scale));
 
-            // Kształt — <path> z outer i opcjonalnymi dziurami (fill-rule evenodd)
-            var pathD = 'M ';
-            for (var pi = 0; pi < verts.length; pi++) {
-                var pvx = _round(verts[pi][0] - minX + oX);
-                var pvy = _round(maxY - verts[pi][1] + oY);
-                pathD += pvx + ',' + pvy + (pi < verts.length - 1 ? ' L ' : '');
+            var minX = 0, minY = 0;
+            if (state.vertices && state.vertices.length) {
+                minX = state.vertices.reduce(function(m, v) { return Math.min(m, v[0]); }, Infinity);
+                minY = state.vertices.reduce(function(m, v) { return Math.min(m, v[1]); }, Infinity);
             }
-            pathD += ' Z';
+            var SVG_W = Math.ceil(bbox.width * state.scale + extraLeft + extraRight);
+            var SVG_H = Math.ceil(bbox.height * state.scale + extraTop + extraBottom);
+            state.width = SVG_W;
+            state.height = SVG_H;
+            state.offsetX = extraLeft - minX * state.scale;
+            state.offsetY = extraBottom - minY * state.scale;
 
-            for (var bhi = 0; bhi < state.holes.length; bhi++) {
-                var bh_ring = state.holes[bhi];
-                if (!bh_ring || bh_ring.length < 3) continue;
-                pathD += ' M ';
-                for (var bhpi = 0; bhpi < bh_ring.length; bhpi++) {
-                    var bhx = _round(bh_ring[bhpi][0] - minX + oX);
-                    var bhy = _round(maxY - bh_ring[bhpi][1] + oY);
-                    pathD += bhx + ',' + bhy + (bhpi < bh_ring.length - 1 ? ' L ' : '');
-                }
-                pathD += ' Z';
-            }
-
-            shapeEl = '<path d="' + pathD + '" fill="rgba(230,126,34,0.15)" stroke="#e67e22" stroke-width="1.5" fill-rule="evenodd"/>';
-
-            // Bbox przerywany dla nieregularnych
-            if (state.shapeType !== 'rectangular') {
-                shapeEl += '<rect x="' + oX + '" y="' + oY + '" width="' + bw + '" height="' + bh + '" fill="none" stroke="#ccc" stroke-width="0.5" stroke-dasharray="2,2"/>';
+            // Swap ctx → canvas2svg (bez DPR setTransform, bez tła, bez gridu)
+            ctx = new C2S(SVG_W, SVG_H);
+            state._svgExportMode = true;
+            var svg = '';
+            try {
+                _renderShape();
+                svg = ctx.getSerializedSvg(true);
+            } catch (err) {
+                console.error('exportSVG render failed', err);
+                svg = '';
             }
 
-            // Linie prowadzące od wierzchołków do ich klamerek (przerywane)
-            for (var gi = 0; gi < verts.length; gi++) {
-                var gvx = verts[gi][0] - minX;
-                var gvy = maxY - verts[gi][1]; // flipped Y
-                var isCorner = (Math.abs(gvx) < tol || Math.abs(gvx - bw) < tol) && (Math.abs(gvy) < tol || Math.abs(gvy - bh) < tol);
-                if (isCorner) continue;
+            // Restore
+            state._svgExportMode = false;
+            ctx = realCtx;
+            state.scale = saved.scale;
+            state.offsetX = saved.offsetX;
+            state.offsetY = saved.offsetY;
+            state.width = saved.width;
+            state.height = saved.height;
+            state.visibility = saved.visibility;
 
-                var svgX = gvx + oX;
-                var svgY = gvy + oY;
+            if (!svg) return '';
 
-                // Linia w górę — do poziomu odpowiedniej klamerki
-                if (Math.abs(gvx) > tol && Math.abs(gvx - bw) > tol) {
-                    // Znajdź indeks tego X w innerXs
-                    var xIdx = -1;
-                    for (var xi2 = 0; xi2 < innerXs.length; xi2++) {
-                        if (Math.abs(innerXs[xi2] - verts[gi][0]) < tol) { xIdx = xi2; break; }
-                    }
-                    var guideTopY = oY - (xIdx + 1) * levelH;
-                    guides += '<line x1="' + svgX + '" y1="' + svgY + '" x2="' + svgX + '" y2="' + guideTopY + '" stroke="' + guideCol + '" stroke-width="' + guideSw + '" stroke-dasharray="2,2"/>';
-                }
-                // Linia w prawo — do pozycji odpowiedniej klamerki
-                if (Math.abs(gvy) > tol && Math.abs(gvy - bh) > tol) {
-                    // Znajdź indeks tego Y w innerYs (oryginalne Y)
-                    var origY = verts[gi][1];
-                    var yIdx = -1;
-                    for (var yi2 = 0; yi2 < innerYs.length; yi2++) {
-                        if (Math.abs(innerYs[yi2] - origY) < tol) { yIdx = yi2; break; }
-                    }
-                    var guideRightX = oX + bw + yIdx * levelH + gap + tick;
-                    guides += '<line x1="' + svgX + '" y1="' + svgY + '" x2="' + guideRightX + '" y2="' + svgY + '" stroke="' + guideCol + '" stroke-width="' + guideSw + '" stroke-dasharray="2,2"/>';
-                }
+            // canvas2svg dodaje width/height ale NIE viewBox — wstrzyknij viewBox + preserveAspectRatio,
+            // zostaw natural width/height (800×600). Skalowanie/maksymalne wymiary do CSS w miejscu osadzenia.
+            if (svg.indexOf('viewBox') === -1) {
+                svg = svg.replace(/<svg /,
+                    '<svg viewBox="0 0 ' + SVG_W + ' ' + SVG_H + '" preserveAspectRatio="xMidYMid meet" ');
             }
 
-            // Klamerki na górze (od lewego rogu bbox do rzutu wierzchołka) — pomarańczowe
-            for (var ti = 0; ti < innerXs.length; ti++) {
-                var dist = _round(innerXs[ti] - minX);
-                var lvlY = oY - (ti + 1) * levelH;
-                brackets += hBracket(oX, oX + dist, lvlY, dist + '', colVertex, true);
-            }
-
-            // Klamerki po prawej (od dolnego rogu bbox do rzutu wierzchołka) — pomarańczowe
-            for (var ri = 0; ri < innerYs.length; ri++) {
-                var distY = _round(innerYs[ri] - minY);
-                var svgDistY = bh - distY; // flipped
-                var lvlX = oX + bw + ri * levelH;
-                brackets += vBracket(oY + svgDistY, oY + bh, lvlX, distY + '', colVertex);
-            }
-
-            // Bbox klamerki (szare) — dolna (szerokość) i lewa (wysokość)
-            var bboxBottomY = oY + bh;
-            brackets += hBracket(oX, oX + bw, bboxBottomY, _round(bw) + '');
-            brackets += vBracketLeft(oY, oY + bh, oX, _round(bh) + '');
-
-            return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ' + totalW + ' ' + totalH + '">'
-                + guides + shapeEl + brackets + '</svg>';
+            return svg;
         }
+
 
         // ============================================
         // INIT
