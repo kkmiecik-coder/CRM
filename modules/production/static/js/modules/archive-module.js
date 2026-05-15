@@ -12,7 +12,6 @@
 const STATUS_DISPLAY_NAMES = {
     'czeka_na_wyciecie': 'Czeka na wycięcie',
     'czeka_na_skladanie': 'Czeka na składanie',
-    'czeka_na_kompletacje': 'Czeka na kompletację',
     'czeka_na_sklejanie': 'Czeka na sklejanie',
     'czeka_na_formatowanie': 'Czeka na formatowanie',
     'czeka_na_wykanczanie': 'Czeka na wykańczanie',
@@ -790,7 +789,6 @@ class ArchiveModule {
         const map = {
             'czeka_na_wyciecie': 'status-cutting',
             'czeka_na_skladanie': 'status-assembly',
-            'czeka_na_kompletacje': 'status-completion',
             'czeka_na_sklejanie': 'status-gluing',
             'czeka_na_formatowanie': 'status-formatting',
             'czeka_na_wykanczanie': 'status-finishing',
@@ -806,7 +804,6 @@ class ArchiveModule {
         const map = {
             'czeka_na_wyciecie': 'badge-cutting',
             'czeka_na_skladanie': 'badge-assembly',
-            'czeka_na_kompletacje': 'badge-completion',
             'czeka_na_sklejanie': 'badge-gluing',
             'czeka_na_formatowanie': 'badge-formatting',
             'czeka_na_wykanczanie': 'badge-finishing',

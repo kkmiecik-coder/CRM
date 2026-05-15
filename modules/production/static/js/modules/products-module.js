@@ -26,7 +26,6 @@ class ProductsModule {
     static STATUS_TRANSLATIONS = {
         'czeka_na_wyciecie': 'Wycinanie - mikro',
         'czeka_na_skladanie': 'Składanie - lite',
-        'czeka_na_kompletacje': 'Kompletacja',
         'czeka_na_sklejanie': 'Sklejanie',
         'czeka_na_formatowanie': 'Formatowanie',
         'czeka_na_wykanczanie': 'Wykańczanie',
@@ -45,8 +44,6 @@ class ProductsModule {
         'w_trakcie_ciecia': { icon: 'fa-cut', displayName: 'Wycinanie - mikro', color: 'cutting-theme', badgeClass: 'badge-cutting' },
         'czeka_na_skladanie': { icon: 'fa-hammer', displayName: 'Składanie - lite', color: 'assembly-theme', badgeClass: 'badge-assembly' },
         'w_trakcie_skladania': { icon: 'fa-hammer', displayName: 'Składanie - lite', color: 'assembly-theme', badgeClass: 'badge-assembly' },
-        'czeka_na_kompletacje': { icon: 'fa-puzzle-piece', displayName: 'Kompletacja', color: 'completion-theme', badgeClass: 'badge-completion' },
-        'w_trakcie_kompletacji': { icon: 'fa-puzzle-piece', displayName: 'Kompletacja', color: 'completion-theme', badgeClass: 'badge-completion' },
         'czeka_na_sklejanie': { icon: 'fa-compress-arrows-alt', displayName: 'Sklejanie', color: 'gluing-theme', badgeClass: 'badge-gluing' },
         'w_trakcie_sklejania': { icon: 'fa-compress-arrows-alt', displayName: 'Sklejanie', color: 'gluing-theme', badgeClass: 'badge-gluing' },
         'czeka_na_formatowanie': { icon: 'fa-ruler-combined', displayName: 'Formatowanie', color: 'formatting-theme', badgeClass: 'badge-formatting' },
@@ -1739,7 +1736,6 @@ class ProductsModule {
         const map = {
             'czeka_na_wyciecie': 'status-cutting',
             'czeka_na_skladanie': 'status-assembly',
-            'czeka_na_kompletacje': 'status-completion',
             'czeka_na_sklejanie': 'status-gluing',
             'czeka_na_formatowanie': 'status-formatting',
             'czeka_na_wykanczanie': 'status-finishing',
@@ -1760,7 +1756,6 @@ class ProductsModule {
         const map = {
             'czeka_na_wyciecie': 'badge-cutting',
             'czeka_na_skladanie': 'badge-assembly',
-            'czeka_na_kompletacje': 'badge-completion',
             'czeka_na_sklejanie': 'badge-gluing',
             'czeka_na_formatowanie': 'badge-formatting',
             'czeka_na_wykanczanie': 'badge-finishing',
@@ -2735,7 +2730,6 @@ class ProductsModule {
         const statuses = [
             { value: 'czeka_na_wyciecie', label: 'Wycinanie - mikro' },
             { value: 'czeka_na_skladanie', label: 'Składanie - lite' },
-            { value: 'czeka_na_kompletacje', label: 'Kompletacja' },
             { value: 'czeka_na_sklejanie', label: 'Sklejanie' },
             { value: 'czeka_na_formatowanie', label: 'Formatowanie' },
             { value: 'czeka_na_wykanczanie', label: 'Wykańczanie' },
@@ -3844,8 +3838,8 @@ class ProductsModule {
         // Sprawdź czy produkt wymaga lakierni (olejowane, lakierowane, bejcowane)
         const needsPainting = ['olej', 'lakier', 'bejc'].some(k => finishState.includes(k));
 
-        // Wspólne stanowiska (od kompletacji dalej)
-        const commonStations = ['completion', 'gluing', 'formatting', 'finishing'];
+        // Wspólne stanowiska (od sklejania dalej)
+        const commonStations = ['gluing', 'formatting', 'finishing'];
 
         if (needsPainting) {
             commonStations.push('painting');
@@ -3890,16 +3884,6 @@ class ProductsModule {
                 startField: 'assembly_started_at',
                 endField: 'assembly_completed_at',
                 durationField: 'assembly_duration_minutes'
-            },
-            {
-                code: 'completion',
-                name: 'Kompletacja',
-                status: 'czeka_na_kompletacje',
-                icon: 'fas fa-puzzle-piece',
-                color: 'completion-theme',
-                startField: 'completion_started_at',
-                endField: 'completion_completed_at',
-                durationField: 'completion_duration_minutes'
             },
             {
                 code: 'gluing',
@@ -4020,7 +4004,6 @@ class ProductsModule {
         const endFields = {
             'cutting': 'cutting_completed_at',
             'assembly': 'assembly_completed_at',
-            'completion': 'completion_completed_at',
             'gluing': 'gluing_completed_at',
             'formatting': 'formatting_completed_at',
             'finishing': 'finishing_completed_at',
@@ -4030,7 +4013,6 @@ class ProductsModule {
         const statusMap = {
             'cutting': 'czeka_na_wyciecie',
             'assembly': 'czeka_na_skladanie',
-            'completion': 'czeka_na_kompletacje',
             'gluing': 'czeka_na_sklejanie',
             'formatting': 'czeka_na_formatowanie',
             'finishing': 'czeka_na_wykanczanie',
@@ -4070,11 +4052,10 @@ class ProductsModule {
      * Określa stan timeline dla stacji
      */
     getTimelineState(station, product) {
-        const stationOrder = ['cutting', 'assembly', 'completion', 'gluing', 'formatting', 'finishing', 'painting', 'logistics', 'packaging'];
+        const stationOrder = ['cutting', 'assembly', 'gluing', 'formatting', 'finishing', 'painting', 'logistics', 'packaging'];
         const endFields = {
             'cutting': 'cutting_completed_at',
             'assembly': 'assembly_completed_at',
-            'completion': 'completion_completed_at',
             'gluing': 'gluing_completed_at',
             'formatting': 'formatting_completed_at',
             'finishing': 'finishing_completed_at',
@@ -4085,7 +4066,6 @@ class ProductsModule {
         const statusMap = {
             'cutting': 'czeka_na_wyciecie',
             'assembly': 'czeka_na_skladanie',
-            'completion': 'czeka_na_kompletacje',
             'gluing': 'czeka_na_sklejanie',
             'formatting': 'czeka_na_formatowanie',
             'finishing': 'czeka_na_wykanczanie',
@@ -4211,18 +4191,6 @@ class ProductsModule {
                 displayName: 'Składanie - lite',
                 color: 'assembly-theme',
                 cssClass: 'assembly'
-            },
-            'czeka_na_kompletacje': {
-                icon: 'fa-puzzle-piece',
-                displayName: 'Kompletacja',
-                color: 'completion-theme',
-                cssClass: 'completion'
-            },
-            'w_trakcie_kompletacji': {
-                icon: 'fa-puzzle-piece',
-                displayName: 'Kompletacja',
-                color: 'completion-theme',
-                cssClass: 'completion'
             },
             'czeka_na_sklejanie': {
                 icon: 'fa-compress-arrows-alt',

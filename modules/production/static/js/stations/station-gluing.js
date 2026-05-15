@@ -51,7 +51,7 @@
     function initializeGluingStation() {
         const config = window.STATION_CONFIG;
 
-        if (!config || (config.stationCode !== 'gluing' && config.stationCode !== 'completion')) {
+        if (!config || config.stationCode !== 'gluing') {
             console.error('[Gluing] Nieprawidłowa konfiguracja stacji');
             return;
         }
