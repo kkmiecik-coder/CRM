@@ -61,7 +61,6 @@ class NewPriorityCalculator:
         self.active_statuses = [
             'czeka_na_wyciecie',
             'czeka_na_skladanie',
-            'czeka_na_kompletacje',
             'czeka_na_sklejanie',
             'czeka_na_formatowanie',
             'czeka_na_wykanczanie',
@@ -640,7 +639,7 @@ def get_priority_statistics() -> Dict[str, Any]:
         active_count = ProductionItem.query.filter(
             ProductionItem.current_status.in_([
                 'czeka_na_wyciecie', 'czeka_na_skladanie',
-                'czeka_na_kompletacje', 'czeka_na_sklejanie',
+                'czeka_na_sklejanie',
                 'czeka_na_formatowanie', 'czeka_na_wykanczanie',
                 'czeka_na_pakowanie', 'w_realizacji'
             ])
@@ -651,7 +650,7 @@ def get_priority_statistics() -> Dict[str, Any]:
             ProductionItem.priority_manual_override == True,
             ProductionItem.current_status.in_([
                 'czeka_na_wyciecie', 'czeka_na_skladanie',
-                'czeka_na_kompletacje', 'czeka_na_sklejanie',
+                'czeka_na_sklejanie',
                 'czeka_na_formatowanie', 'czeka_na_wykanczanie',
                 'czeka_na_pakowanie', 'w_realizacji'
             ])
