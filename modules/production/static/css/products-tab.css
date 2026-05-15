@@ -39,7 +39,6 @@
     /* Station / operation colors */
     --il-cutting:        #2d8a3e;
     --il-assembly:       #2563eb;
-    --il-completion:     #4f46e5;
     --il-gluing:         #9333ea;
     --il-formatting:     #d97706;
     --il-finishing:      #0891b2;
@@ -438,9 +437,6 @@
 .il-order-header.status-assembly,
 .order-header.status-assembly   { border-left-color: var(--il-assembly); }
 
-.il-order-header.status-completion,
-.order-header.status-completion { border-left-color: var(--il-completion); }
-
 .il-order-header.status-gluing,
 .order-header.status-gluing     { border-left-color: var(--il-gluing); }
 
@@ -566,12 +562,6 @@
     background: rgba(37, 99, 235, 0.1);
     color: var(--il-assembly);
     border: 1px solid var(--il-assembly);
-}
-.il-badge-completion,
-.badge-completion {
-    background: rgba(79, 70, 229, 0.1);
-    color: var(--il-completion);
-    border: 1px solid var(--il-completion);
 }
 .il-badge-gluing,
 .badge-gluing {
@@ -1195,7 +1185,6 @@
 
     .il-order-card.status-cutting    { border-left-color: var(--il-cutting); }
     .il-order-card.status-assembly   { border-left-color: var(--il-assembly); }
-    .il-order-card.status-completion { border-left-color: var(--il-completion); }
     .il-order-card.status-gluing     { border-left-color: var(--il-gluing); }
     .il-order-card.status-formatting { border-left-color: var(--il-formatting); }
     .il-order-card.status-finishing  { border-left-color: var(--il-finishing); }
@@ -1869,7 +1858,6 @@
 }
 .timeline-item.timeline-completed .timeline-icon.cutting-theme { background: var(--il-cutting); }
 .timeline-item.timeline-completed .timeline-icon.assembly-theme { background: var(--il-assembly); }
-.timeline-item.timeline-completed .timeline-icon.completion-theme { background: var(--il-completion); }
 .timeline-item.timeline-completed .timeline-icon.gluing-theme { background: var(--il-gluing); }
 .timeline-item.timeline-completed .timeline-icon.formatting-theme { background: var(--il-formatting); }
 .timeline-item.timeline-completed .timeline-icon.finishing-theme { background: var(--il-finishing); }
@@ -1889,7 +1877,6 @@
 }
 .timeline-item.timeline-active .timeline-icon.cutting-theme { background: var(--il-cutting); box-shadow: 0 0 0 5px rgba(45, 138, 62, 0.2), 0 2px 8px rgba(45, 138, 62, 0.3); }
 .timeline-item.timeline-active .timeline-icon.assembly-theme { background: var(--il-assembly); box-shadow: 0 0 0 5px rgba(37, 99, 235, 0.2), 0 2px 8px rgba(37, 99, 235, 0.3); }
-.timeline-item.timeline-active .timeline-icon.completion-theme { background: var(--il-completion); box-shadow: 0 0 0 5px rgba(79, 70, 229, 0.2), 0 2px 8px rgba(79, 70, 229, 0.3); }
 .timeline-item.timeline-active .timeline-icon.gluing-theme { background: var(--il-gluing); box-shadow: 0 0 0 5px rgba(147, 51, 234, 0.2), 0 2px 8px rgba(147, 51, 234, 0.3); }
 .timeline-item.timeline-active .timeline-icon.formatting-theme { background: var(--il-formatting); box-shadow: 0 0 0 5px rgba(217, 119, 6, 0.2), 0 2px 8px rgba(217, 119, 6, 0.3); }
 .timeline-item.timeline-active .timeline-icon.finishing-theme { background: var(--il-finishing); box-shadow: 0 0 0 5px rgba(8, 145, 178, 0.2), 0 2px 8px rgba(8, 145, 178, 0.3); }
@@ -1939,8 +1926,6 @@
 .timeline-item.timeline-active .timeline-title.cutting-theme { color: var(--il-cutting); }
 .timeline-item.timeline-completed .timeline-title.assembly-theme,
 .timeline-item.timeline-active .timeline-title.assembly-theme { color: var(--il-assembly); }
-.timeline-item.timeline-completed .timeline-title.completion-theme,
-.timeline-item.timeline-active .timeline-title.completion-theme { color: var(--il-completion); }
 .timeline-item.timeline-completed .timeline-title.gluing-theme,
 .timeline-item.timeline-active .timeline-title.gluing-theme { color: var(--il-gluing); }
 .timeline-item.timeline-completed .timeline-title.formatting-theme,
@@ -2248,7 +2233,6 @@
 
 .bulk-status-dropdown .status-item.badge-cutting { background: rgba(45, 138, 62, 0.1); color: var(--il-cutting); border-left: 3px solid var(--il-cutting); }
 .bulk-status-dropdown .status-item.badge-assembly { background: rgba(37, 99, 235, 0.1); color: var(--il-assembly); border-left: 3px solid var(--il-assembly); }
-.bulk-status-dropdown .status-item.badge-completion { background: rgba(79, 70, 229, 0.1); color: var(--il-completion); border-left: 3px solid var(--il-completion); }
 .bulk-status-dropdown .status-item.badge-gluing { background: rgba(147, 51, 234, 0.1); color: var(--il-gluing); border-left: 3px solid var(--il-gluing); }
 .bulk-status-dropdown .status-item.badge-formatting { background: rgba(217, 119, 6, 0.1); color: var(--il-formatting); border-left: 3px solid var(--il-formatting); }
 .bulk-status-dropdown .status-item.badge-finishing { background: rgba(8, 145, 178, 0.1); color: var(--il-finishing); border-left: 3px solid var(--il-finishing); }
