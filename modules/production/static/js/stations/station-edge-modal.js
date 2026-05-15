@@ -70,7 +70,10 @@
             edge_svg: wrapper.dataset.edgeSvg,
             shape_svg: wrapper.dataset.shapeSvg,
             lamella_direction: lamella,
-            has_edge: hasEdge
+            has_edge: hasEdge,
+            length_cm: wrapper.dataset.lengthCm || '',
+            width_cm: wrapper.dataset.widthCm || '',
+            thickness_cm: wrapper.dataset.thicknessCm || ''
         });
 
         resetToggle();
@@ -120,7 +123,10 @@
                 edge_svg: data.edge_svg,
                 shape_svg: data.shape_svg,
                 lamella_direction: data.lamella_direction,
-                has_edge: data.has_edge
+                has_edge: data.has_edge,
+                length_cm: data.length_cm,
+                width_cm: data.width_cm,
+                thickness_cm: data.thickness_cm
             });
         }
 
@@ -155,6 +161,18 @@
         return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ' + size + ' ' + size + '" width="' + size + '" height="' + size + '">' + clip + '<g clip-path="url(#lc)"><g' + transform + '>' + bars + '</g></g></svg>';
     }
 
+    function formatDimensions(length, width, thickness) {
+        var parts = [];
+        var l = (length !== null && length !== undefined && length !== '') ? parseFloat(length) : null;
+        var w = (width !== null && width !== undefined && width !== '') ? parseFloat(width) : null;
+        var t = (thickness !== null && thickness !== undefined && thickness !== '') ? parseFloat(thickness) : null;
+        if (l && !isNaN(l)) parts.push(l.toString());
+        if (w && !isNaN(w)) parts.push(w.toString());
+        if (t && !isNaN(t)) parts.push(t.toString());
+        if (parts.length === 0) return null;
+        return parts.join(' × ') + ' cm';
+    }
+
     function buildProductSection(productId, data) {
         var html = '';
         var hasEdge = data.has_edge;
@@ -164,6 +182,12 @@
 
         // Nagłówek produktu
         html += '<div class="edge-modal-product-header">#' + productId + '</div>';
+
+        // Wymiary
+        var dimsText = formatDimensions(data.length_cm, data.width_cm, data.thickness_cm);
+        if (dimsText) {
+            html += '<div class="edge-modal-dimensions">' + dimsText + '</div>';
+        }
 
         // Previews
         if (hasShape || hasIso || hasLamella) {

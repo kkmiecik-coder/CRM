@@ -1503,7 +1503,14 @@ body {
     font-size: 14px;
     font-weight: 700;
     color: #f59e0b;
-    margin-bottom: 12px;
+    margin-bottom: 4px;
+}
+
+.edge-modal-dimensions {
+    font-size: 14px;
+    color: var(--text-secondary, #aaa);
+    margin: 0 0 12px 0;
+    letter-spacing: 0.5px;
 }
 
 .edge-modal-separator {
