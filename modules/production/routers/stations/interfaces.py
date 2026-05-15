@@ -3,7 +3,7 @@
 Station tablet interfaces: cutting, assembly, gluing, formatting, finishing, packaging
 """
 
-from flask import render_template, request, url_for
+from flask import render_template, request, url_for, redirect
 from datetime import datetime, date
 from extensions import db
 from sqlalchemy.orm import joinedload
@@ -415,64 +415,26 @@ def assembly_station():
 # ============================================================================
 
 @station_bp.route('/completion')
-def completion_station():
-    """Interfejs stanowiska kompletacji - bramka kompletnosci po szlifierce.
-    Domyslny tab dla zamowien swiezo przyjetych z cutting/assembly."""
-    return _render_completion_or_gluing(active_tab='completion')
+def completion_station_redirect():
+    """Stanowisko kompletacji usunięte 2026-05-15. Redirect na sklejanie
+    dla starych zakładek w przeglądarce."""
+    return redirect(url_for('production.production_stations.gluing_station'), code=302)
 
 
 @station_bp.route('/gluing')
 def gluing_station():
-    """Interfejs stanowiska sklejania - drugi tab w widoku stanowiska sklejania."""
-    return _render_completion_or_gluing(active_tab='gluing')
-
-
-def _render_completion_or_gluing(active_tab):
-    """
-    Wspolny render dla tabow 'completion' i 'gluing'. Filtruje produkty po
-    statusie odpowiadajacym aktywnemu tabowi i dostarcza liczniki obu kolejek
-    do tab-bara.
-    """
+    """Interfejs stanowiska sklejania - filtruje produkty o statusie czeka_na_sklejanie."""
     try:
         from ...models import ProductionItem
         from sqlalchemy import asc
 
         sort_by = request.args.get('sort', 'priority')
 
-        TAB_CONFIG = {
-            'completion': {
-                'status': 'czeka_na_kompletacje',
-                'quantity_field': 'quantity_done_completion',
-                'station_code': 'completion',
-                'station_name': 'Kompletacja',
-                'page_title': 'Stanowisko Kompletacji',
-                'error_message': 'Blad ladowania stanowiska kompletacji',
-                'log_message': 'Blad interfejsu kompletacji',
-            },
-            'gluing': {
-                'status': 'czeka_na_sklejanie',
-                'quantity_field': 'quantity_done_gluing',
-                'station_code': 'gluing',
-                'station_name': 'Sklejanie',
-                'page_title': 'Stanowisko Sklejania',
-                'error_message': 'Blad ladowania stanowiska sklejania',
-                'log_message': 'Blad interfejsu sklejania',
-            },
-        }
-        cfg = TAB_CONFIG[active_tab]
-
-        completion_count = ProductionItem.query.filter(
-            ProductionItem.current_status == 'czeka_na_kompletacje'
-        ).count()
-        gluing_count = ProductionItem.query.filter(
-            ProductionItem.current_status == 'czeka_na_sklejanie'
-        ).count()
-
         query = ProductionItem.query.options(
             joinedload(ProductionItem.order),
             joinedload(ProductionItem.configuration),
         ).filter(
-            ProductionItem.current_status == cfg['status']
+            ProductionItem.current_status == 'czeka_na_sklejanie'
         )
         if sort_by == 'priority':
             query = query.order_by(asc(ProductionItem.priority_rank))
@@ -494,7 +456,7 @@ def _render_completion_or_gluing(active_tab):
                 dimensions_parts.append(_format_dimension(product.parsed_thickness_cm))
             dimensions_text = '×'.join(dimensions_parts) + ' cm' if dimensions_parts else None
             volume_m3 = float(product.volume_m3) if product.volume_m3 else 0.0
-            qty_done = getattr(product, cfg['quantity_field'])
+            qty_done = product.quantity_done_gluing
 
             products.append({
                 'id': product.short_product_id,
@@ -574,21 +536,18 @@ def _render_completion_or_gluing(active_tab):
         return render_template(
             'stations/gluing.html',
             products_flat=products_flat,
-            station_code=cfg['station_code'],
-            station_name=cfg['station_name'],
-            active_tab=active_tab,
-            completion_count=completion_count,
-            gluing_count=gluing_count,
+            station_code='gluing',
+            station_name='Sklejanie',
             station_stats=station_stats,
             config=config,
             sort_by=sort_by,
             now=now,
             last_updated=datetime.utcnow(),
-            page_title=cfg['page_title'],
+            page_title='Stanowisko Sklejania',
         )
 
     except Exception as e:
-        logger.error(cfg['log_message'] if 'cfg' in locals() else 'Blad interfejsu kompletacja/sklejanie', extra={
+        logger.error('Blad interfejsu sklejania', extra={
             'client_ip': request.remote_addr,
             'error': str(e),
             'traceback': traceback.format_exc()
@@ -596,7 +555,7 @@ def _render_completion_or_gluing(active_tab):
 
         return render_template(
             'stations/error.html',
-            error_message=cfg['error_message'] if 'cfg' in locals() else 'Blad ladowania stanowiska',
+            error_message='Blad ladowania stanowiska sklejania',
             error_details=str(e),
             back_url=url_for('production.production_stations.station_select')
         ), 500
