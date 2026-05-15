@@ -2797,12 +2797,11 @@ class BaselinkerSyncService:
 
     def _enrich_edge_data_from_quote(self, product_data, order_data):
         """
-        Kaskada wzbogacania danych krawędzi z QuoteItemDetails.
-        Poziom 1: Metadane PDF → Poziom 2: order_product_id → Poziom 3: parser (już w product_data)
+        Kaskada wzbogacania danych z QuoteItemDetails.
+        Zawsze próbuje znaleźć detail i kopiuje pola wizualne (shape_svg,
+        lamella_direction). Pola edge'owe kopiuje tylko gdy parsed_edge_processing=True.
+        Poziom 1: Metadane PDF → Poziom 2: order_product_id → Poziom 3: fallback SVG.
         """
-        if not product_data.get('parsed_edge_processing'):
-            return product_data
-
         # Reużyj cache z _resolve_cut_to_size (jeśli było wywołane wcześniej)
         if '_quote_detail' in product_data:
             detail = product_data['_quote_detail']
@@ -2817,31 +2816,36 @@ class BaselinkerSyncService:
                     product_data.get('baselinker_product_id')
                 )
 
-        # Jeśli znaleziono QuoteItemDetails — kopiuj dane
         if detail:
-            if detail.edges_type:
-                edge_type_map = {'round': 'zaokrąglenie', 'chamfer': 'fazowanie'}
-                product_data['parsed_edge_type'] = edge_type_map.get(detail.edges_type, detail.edges_type)
-            if detail.edges_r_value:
-                product_data['parsed_edge_radius'] = detail.edges_r_value
-            if detail.edges_angle_value:
-                product_data['parsed_edge_angle'] = detail.edges_angle_value
-            if detail.edges_config:
-                product_data['parsed_edge_letters'] = [
-                    e.get('letter') for e in detail.edges_config if e.get('letter')
-                ]
-            if detail.edges_svg:
-                product_data['edge_svg'] = detail.edges_svg
+            # Pola wizualne — kopiuj ZAWSZE gdy detail znaleziony
             if detail.shape_svg:
                 product_data['shape_svg'] = detail.shape_svg
             if detail.lamella_direction is not None:
                 product_data['lamella_direction'] = detail.lamella_direction
             product_data['quote_item_detail_id'] = detail.id
 
-            logger.info("Wzbogacono dane krawędzi z QuoteItemDetails",
-                       extra={'detail_id': detail.id, 'source': 'quote'})
+            # Pola edge'owe — tylko gdy produkt ma obróbkę krawędzi
+            if product_data.get('parsed_edge_processing'):
+                if detail.edges_type:
+                    edge_type_map = {'round': 'zaokrąglenie', 'chamfer': 'fazowanie'}
+                    product_data['parsed_edge_type'] = edge_type_map.get(detail.edges_type, detail.edges_type)
+                if detail.edges_r_value:
+                    product_data['parsed_edge_radius'] = detail.edges_r_value
+                if detail.edges_angle_value:
+                    product_data['parsed_edge_angle'] = detail.edges_angle_value
+                if detail.edges_config:
+                    product_data['parsed_edge_letters'] = [
+                        e.get('letter') for e in detail.edges_config if e.get('letter')
+                    ]
+                if detail.edges_svg:
+                    product_data['edge_svg'] = detail.edges_svg
+
+            logger.info("Wzbogacono dane z QuoteItemDetails",
+                       extra={'detail_id': detail.id, 'source': 'quote',
+                              'has_shape_svg': bool(detail.shape_svg),
+                              'has_edge_processing': bool(product_data.get('parsed_edge_processing'))})
         else:
-            # Poziom 3: Generuj SVG z parsera (tylko prostokąty)
+            # Poziom 3: Generuj SVG z parsera (tylko prostokąty z literkami)
             if product_data.get('parsed_edge_letters'):
                 self._generate_fallback_svg(product_data)
 
