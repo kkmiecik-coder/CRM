@@ -1,0 +1,785 @@
+/* ============================================================================
+   STATION GLUING CSS - Order-based layout z Masonry
+   ============================================================================ */
+
+/* ============================================================================
+   ORDERS LIST - MASONRY LAYOUT (zgodnie z PRD Section 3.3)
+   ============================================================================ */
+.orders-list {
+    column-count: 1;
+    column-gap: 20px;
+}
+
+.order-card {
+    break-inside: avoid;
+    margin-bottom: 20px;
+}
+
+/* Telefon (portrait) - 1 kolumna */
+@media (max-width: 767px) {
+    .orders-list {
+        column-count: 1;
+    }
+}
+
+/* Tablet (portrait) - 2 kolumny */
+@media (min-width: 768px) {
+    .orders-list {
+        column-count: 2;
+    }
+}
+
+/* Desktop/Tablet (landscape) - 3 kolumny */
+@media (min-width: 1024px) {
+    .orders-list {
+        column-count: 3;
+    }
+}
+
+/* ============================================================================
+   ORDER CARD
+   ============================================================================ */
+.order-card {
+    background: var(--bg-card);
+    border: 2px solid var(--border-color);
+    border-radius: 0;
+    overflow: visible; /* ZMIENIONE: było hidden - obcinało tooltips */
+    box-shadow: var(--shadow-sm);
+    display: flex;
+    flex-direction: column;
+}
+
+    .order-card:hover {
+        box-shadow: var(--shadow-md);
+    }
+
+
+/* ============================================================================
+   ORDER HEADER - 2 ROWS LAYOUT
+   ============================================================================ */
+.order-header {
+    background: var(--bg-card-header);
+    border-bottom: 1px solid var(--border-color);
+    display: flex;
+    flex-direction: column;
+    border-radius: 0;
+}
+
+/* Row styles */
+.order-header-row {
+    display: flex;
+    align-items: center;
+    width: 100%;
+}
+
+/* Row 1: Order IDs with space-between */
+.order-ids-row {
+    gap: 8px;
+    padding: 8px 12px;
+}
+
+.order-ids {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex: 1;
+    gap: 8px;
+}
+
+/* Row 2: Stats left, Icons right */
+.order-stats-row {
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 20px;
+    border-top: 1px solid var(--border-color-light);
+}
+
+.order-number {
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--accent-orange);
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+
+.order-baselinker {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--accent-blue);
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+
+.order-client-number {
+    font-size: 14px;
+    font-weight: 600;
+    color: #ffffff;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+
+.order-stats {
+    color: var(--text-primary);
+    font-weight: 600;
+    font-size: 14px;
+    white-space: nowrap;
+}
+
+.products-checked {
+    color: var(--accent-green);
+    font-weight: bold;
+}
+
+/* Icons container */
+.order-icons {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-left: auto;
+}
+
+/* Deadline info (used in packaging) */
+.deadline-info {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+
+/* ============================================================================
+   PRODUCTS LIST
+   ============================================================================ */
+.products-list {
+    display: flex;
+    flex-direction: column;
+    background: var(--bg-card);
+    max-height: 600px;
+    overflow-y: auto;
+    overflow-x: visible; /* DODANE: pozwól tooltipom wychodzić poza kontener */
+}
+
+/* ============================================================================
+   PRODUCT ROW
+   ============================================================================ */
+.product-row {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    align-items: center;
+    gap: 16px;
+    padding: 5px;
+    border-bottom: 1px solid var(--border-color-light);
+    position: relative;
+    overflow: visible;
+}
+
+    .product-row:last-child {
+        border-bottom: none;
+    }
+
+    .product-row:hover {
+        background: var(--bg-secondary);
+    }
+
+/* LEFT COLUMN: Product Info (badges stack vertically) */
+.product-left-col {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    flex: 1;
+    min-width: 0;
+    width: 100%;
+}
+
+/* ============================================================================
+   QUANTITY CONTROLS - Przyciski +/- zamiast checkboxów
+   ============================================================================ */
+
+/* Domyślny układ: pionowy (licznik nad przyciskami) dla małych ilości */
+.quantity-controls {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+    position: relative;
+    z-index: 1;
+}
+
+/* Układ poziomy dla dużych ilości (>=10) */
+
+/* Licznik ilości */
+
+.qty-done {
+    color: var(--accent-orange);
+    min-width: 24px;
+    text-align: right;
+}
+
+.qty-separator {
+    color: var(--text-tertiary);
+}
+
+.qty-total {
+    color: var(--text-secondary);
+    min-width: 24px;
+    text-align: left;
+}
+
+/* Kontener przycisków - domyślnie flex poziomy */
+.quantity-buttons {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+/* Grid 2x2 dla dużych ilości (>=10 szt) */
+
+/* Kolejność w grid: -, + na górze; -10, +10 na dole */
+
+/* Przyciski +/- */
+.btn-qty {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 48px; width: 48px;
+    min-height: 48px; height: 48px;
+    border: 2px solid var(--border-color);
+    border-radius: 0;
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+    font-size: 24px;
+    font-weight: bold;
+    cursor: pointer;
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
+}
+
+.btn-qty:hover:not(:disabled) {
+    border-color: var(--accent-orange);
+    background: var(--bg-tertiary);
+}
+
+.btn-qty:disabled {
+    
+    cursor: not-allowed;
+    background: var(--bg-primary); border-color: var(--border-color);
+}
+
+/* Przycisk minus - czerwonawy akcent */
+.btn-minus {
+    border-color: rgba(220, 53, 69, 0.4);
+    color: #dc3545;
+}
+
+.btn-minus:hover:not(:disabled) {
+    border-color: #dc3545;
+    background: rgba(220, 53, 69, 0.15);
+}
+
+/* Przycisk plus - zielony akcent */
+.btn-plus {
+    border-color: rgba(40, 167, 69, 0.4);
+    color: #28a745;
+}
+
+.btn-plus:hover:not(:disabled) {
+    border-color: #28a745;
+    background: rgba(40, 167, 69, 0.15);
+}
+
+/* Przyciski ±10 - mniejsze, z tekstem */
+.btn-minus-10,
+.btn-plus-10 {
+    width: 48px;
+    font-size: 14px;
+    font-weight: 600;
+}
+
+.btn-minus-10 {
+    border-color: rgba(220, 53, 69, 0.3);
+    color: #dc3545;
+}
+
+.btn-minus-10:hover:not(:disabled) {
+    border-color: #dc3545;
+    background: rgba(220, 53, 69, 0.1);
+}
+
+.btn-plus-10 {
+    border-color: rgba(40, 167, 69, 0.3);
+    color: #28a745;
+}
+
+.btn-plus-10:hover:not(:disabled) {
+    border-color: #28a745;
+    background: rgba(40, 167, 69, 0.1);
+}
+
+/* Light mode adjustments */
+/* Produkt ukończony - podświetlenie */
+.product-row.product-complete {
+    background: rgba(40, 167, 69, 0.08);
+    border-left: 3px solid #28a745;
+}
+
+.product-row.product-complete .qty-done {
+    color: #28a745;
+}
+
+/* Animacja aktualizacji licznika */
+/* Disabled podczas offline */
+.btn-qty.offline-disabled {
+    opacity: 0.3;
+    cursor: not-allowed;
+    pointer-events: none;
+}
+
+/* LEGACY - zachowane dla kompatybilności wstecznej */
+.product-checkbox {
+    display: none;
+}
+
+.product-check {
+    display: none;
+}
+
+/* ============================================================================
+   PRODUCT ID + ATTACHMENT
+   ============================================================================ */
+.product-id-wrapper {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+}
+
+.product-id {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--accent-orange);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* ============================================================================
+   PRODUCT INFO CONTAINER
+   ============================================================================ */
+.product-info {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    width: 100%;
+    min-width: 0;
+}
+
+/* Usuń gap gdy product-params jest ukryty */
+.product-info:has(.product-params[style*="display: none"]) {
+    gap: 0;
+}
+
+/* Badge'e parametrów — style w station-shared.css */
+
+/* Wiersz z wymiarami */
+.product-dimensions-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+}
+
+
+/* Gatunek drewna - BUK (domyślny brązowy) */
+.badge-species {
+    background: #4a3000;
+    border-color: #806000;
+    color: #ffd966;
+}
+
+/* DĄB - ciemny brązowy */
+[data-species*="dąb"] .badge-species,
+[data-species*="DĄB"] .badge-species,
+[data-species*="dab"] .badge-species,
+[data-species*="DAB"] .badge-species {
+    background: #2d1f00;
+    border-color: #5c3d00;
+    color: #ffcc80;
+}
+
+/* JESION - żółty */
+[data-species*="jesion"] .badge-species,
+[data-species*="JESION"] .badge-species {
+    background: #3a3000;
+    border-color: #666000;
+    color: #ffff66;
+}
+
+/* Technologia - LITY (domyślny zielony) */
+.badge-technology {
+    background: #1a3a1f;
+    border-color: #2d5f31;
+    color: #66bb6a;
+}
+
+/* MIKROWCZEP - niebieski */
+[data-technology*="mikrowczep"] .badge-technology,
+[data-technology*="MIKROWCZEP"] .badge-technology {
+    background: #001f3f;
+    border-color: #003d7a;
+    color: #64b5f6;
+}
+
+/* KLEJONY - pomarańczowy */
+[data-technology*="klejony"] .badge-technology,
+[data-technology*="KLEJONY"] .badge-technology {
+    background: #3d1f00;
+    border-color: #6b3500;
+    color: #ffab40;
+}
+
+/* Klasa drewna - A/B (domyślny żółty) */
+.badge-class {
+    background: #4a4a00;
+    border-color: #7d7d00;
+    color: #fff176;
+}
+
+/* A/A - ciemnozielony */
+[data-wood-class*="A/A"] .badge-class,
+[data-wood-class*="AA"] .badge-class {
+    background: #1b5e20;
+    border-color: #2e7d32;
+    color: #81c784;
+}
+
+/* B/B - czerwony */
+[data-wood-class*="B/B"] .badge-class,
+[data-wood-class*="BB"] .badge-class {
+    background: #4a1f1f;
+    border-color: #7d3535;
+    color: #ff8a65;
+}
+
+/* A/C - pomarańczowy */
+[data-wood-class*="A/C"] .badge-class,
+[data-wood-class*="AC"] .badge-class {
+    background: #4a2e00;
+    border-color: #7d4f00;
+    color: #ffb74d;
+}
+
+/* B/C - bordowy */
+[data-wood-class*="B/C"] .badge-class,
+[data-wood-class*="BC"] .badge-class {
+    background: #3a0f1f;
+    border-color: #6d2535;
+    color: #ec407a;
+}
+
+/* C/C - fioletowy */
+[data-wood-class*="C/C"] .badge-class,
+[data-wood-class*="CC"] .badge-class {
+    background: #2e1a4a;
+    border-color: #5c3590;
+    color: #b39ddb;
+}
+
+/* Wymiary - szary/neutralny */
+.badge-dimensions {
+    background: var(--bg-tertiary);
+    border-color: var(--border-color);
+    color: var(--text-primary);
+    font-family: 'Courier New', monospace;
+}
+
+/* ============================================================================
+   ORDER ACTION (button)
+   ============================================================================ */
+.order-action {
+    border-top: 1px solid var(--border-color);
+    background: var(--bg-card);
+    border-radius: 0 0 12px 12px;
+}
+
+
+.btn-complete:hover:not(:disabled):not(.processing):not(.saving) {
+    background: var(--btn-primary-hover);
+}
+
+.btn-complete:disabled {
+    
+    opacity: 0.3;
+    cursor: not-allowed;
+    background: var(--bg-tertiary);
+    color: var(--text-muted);
+}
+
+.btn-complete.saving,
+.btn-complete.processing {
+    background: var(--btn-processing);
+    color: var(--text-primary);
+    cursor: wait;
+    pointer-events: none;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+}
+
+.btn-complete.saving:hover,
+.btn-complete.processing:hover {
+    background: var(--btn-processing);
+}
+
+.btn-complete.saving .spinner,
+.btn-complete.processing .spinner {
+    width: 18px;
+    height: 18px;
+    border: 2px solid rgba(255,255,255,0.3);
+    border-top-color: #fff;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+
+.action-countdown {
+    display: flex;
+    gap: 4px;
+}
+
+.action-countdown .btn-complete {
+    flex: 1;
+}
+
+.btn-cancel {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: var(--text-primary);
+    background: var(--btn-cancel);
+    border: none;
+    min-height: 48px;
+    padding: 12px 16px;
+    cursor: pointer;
+}
+
+.btn-cancel:hover {
+    background: var(--btn-cancel-hover);
+}
+}
+
+/* ============================================================================
+   RESPONSIVE
+   ============================================================================ */
+
+/* Tablet (768px - 1023px) - 2 kolumny */
+@media (min-width: 768px) and (max-width: 1023px) {
+    .product-left-col {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 8px;
+    }
+
+    .product-id-wrapper {
+        margin-left: 0;
+    }
+
+    /* Quantity controls */
+    .quantity-counter {
+        font-size: 24px;
+    }
+
+    .btn-qty {
+        width: 40px;
+        height: 40px;
+        font-size: 20px;
+    }
+
+    .btn-minus-10,
+    .btn-plus-10 {
+        width: 44px;
+        font-size: 12px;
+    }
+}
+
+/* Mobile (max-width: 767px) */
+@media (max-width: 767px) {
+    .product-row {
+        grid-template-columns: 1fr auto;
+        gap: 12px;
+        padding: 12px 16px;
+    }
+
+    /* Quantity controls - kompaktowe na mobile */
+    .quantity-controls {
+        gap: 6px;
+    }
+
+    .quantity-counter {
+        font-size: 24px;
+        min-width: 60px;
+    }
+
+    .qty-done,
+    .qty-total {
+        min-width: 20px;
+    }
+
+    .quantity-buttons {
+        gap: 4px;
+    }
+
+    .btn-qty {
+        width: 36px;
+        height: 36px;
+        font-size: 18px;
+    }
+
+    .btn-minus-10,
+    .btn-plus-10 {
+        width: 40px;
+        font-size: 11px;
+    }
+}
+
+/* ============================================================================
+   NOTES ICON & MODAL - Ikona uwag i popup
+   ============================================================================ */
+
+/* Ikona uwag - podobna do załącznika */
+.notes-icon-wrapper {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    border-radius: 0;
+    background: rgba(255, 193, 7, 0.15);
+    border: 1px solid rgba(255, 193, 7, 0.3);
+    cursor: pointer;
+    position: relative;
+    flex-shrink: 0;
+}
+
+.notes-icon-wrapper:hover {
+    background: rgba(255, 193, 7, 0.25);
+    border-color: rgba(255, 193, 7, 0.5);
+}
+
+.notes-icon {
+    color: #ffc107;
+}
+
+.notes-icon-wrapper:hover .notes-icon {
+    color: #ffca2c;
+}
+
+/* Tooltip na hover */
+.notes-icon-wrapper::after {
+    content: attr(title);
+    position: absolute;
+    bottom: calc(100% + 8px);
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+    padding: 8px 12px;
+    border-radius: 0;
+    font-size: 12px;
+    white-space: nowrap;
+    max-width: 300px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    box-shadow: var(--shadow-md);
+    border: 1px solid var(--border-color);
+    opacity: 0;
+    visibility: hidden;
+    z-index: 1000;
+    pointer-events: none;
+}
+
+.notes-icon-wrapper:hover::after {
+    opacity: 1;
+    visibility: visible;
+}
+
+/* Notes Modal */
+.notes-modal {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.7);
+    z-index: 2000;
+    justify-content: center;
+    align-items: center;
+    padding: 20px;
+}
+
+.notes-modal.active {
+    display: flex;
+}
+
+.notes-modal-content {
+    background: var(--bg-card);
+    border-radius: 0;
+    max-width: 600px;
+    width: 100%;
+    max-height: 80vh;
+    overflow: hidden;
+    box-shadow: var(--shadow-md);
+    border: 1px solid var(--border-color);
+    display: flex;
+    flex-direction: column;
+}
+
+.notes-modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 16px 20px;
+    background: var(--bg-secondary);
+    border-bottom: 1px solid var(--border-color);
+}
+
+.notes-modal-header h3 {
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin: 0;
+}
+
+.notes-modal-close {
+    width: 36px;
+    height: 36px;
+    border: none;
+    background: transparent;
+    color: var(--text-secondary);
+    font-size: 24px;
+    cursor: pointer;
+    border-radius: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.notes-modal-close:hover {
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+}
+
+.notes-modal-body {
+    padding: 20px;
+    overflow-y: auto;
+    color: var(--text-primary);
+    font-size: 15px;
+    line-height: 1.6;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+}
+
+/* Light mode */
