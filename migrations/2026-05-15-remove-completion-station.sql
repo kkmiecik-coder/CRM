@@ -2,7 +2,7 @@
 -- Data: 2026-05-15
 -- Spec: docs/superpowers/specs/2026-05-15-remove-completion-station-design.md
 -- Cofa: migrations/2026-04-30-add-completion-station.sql
--- Tabela: prod_items
+-- Tabela: prod_products (po splicie prod_items z 11.05.2026)
 --
 -- UWAGA: Plik referencyjny — uruchamiany RĘCZNIE przez phpMyAdmin
 -- w dwóch fazach (PRE-DEPLOY i POST-DEPLOY).
@@ -14,12 +14,12 @@
 -- to inne fizyczne czynności. Operator zaczyna sklejanie od 0/N.
 -- ============================================================
 
-UPDATE prod_items
+UPDATE prod_products
    SET current_status = 'czeka_na_sklejanie'
  WHERE current_status = 'czeka_na_kompletacje';
 
 -- Weryfikacja (powinno zwrócić 0):
--- SELECT COUNT(*) FROM prod_items WHERE current_status = 'czeka_na_kompletacje';
+-- SELECT COUNT(*) FROM prod_products WHERE current_status = 'czeka_na_kompletacje';
 
 
 -- ============================================================
@@ -29,11 +29,11 @@ UPDATE prod_items
 -- crashuje w panelu admina.
 -- ============================================================
 
-ALTER TABLE prod_items DROP COLUMN quantity_done_completion;
-ALTER TABLE prod_items DROP COLUMN completion_completed_at;
+ALTER TABLE prod_products DROP COLUMN quantity_done_completion;
+ALTER TABLE prod_products DROP COLUMN completion_completed_at;
 -- Indeks idx_completion_completed_at zostanie automatycznie usunięty z kolumną.
 
-ALTER TABLE prod_items MODIFY COLUMN current_status ENUM(
+ALTER TABLE prod_products MODIFY COLUMN current_status ENUM(
   'czeka_na_wyciecie',
   'czeka_na_skladanie',
   'czeka_na_sklejanie',
@@ -51,5 +51,5 @@ ALTER TABLE prod_items MODIFY COLUMN current_status ENUM(
 DELETE FROM prod_station_events WHERE station_code = 'completion';
 
 -- Weryfikacja po fazie C:
--- SHOW COLUMNS FROM prod_items LIKE '%completion%';        -- powinno być puste
+-- SHOW COLUMNS FROM prod_products LIKE '%completion%';        -- powinno być puste
 -- SELECT COUNT(*) FROM prod_station_events WHERE station_code='completion';  -- 0
