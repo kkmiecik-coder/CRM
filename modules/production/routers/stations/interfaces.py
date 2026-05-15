@@ -721,6 +721,9 @@ def formatting_station():
                     'shape_svg': product.shape_svg,
                     'lamella_direction': product.lamella_direction,
                     'has_visual_data': bool(product.shape_svg or product.edge_svg),
+                    'parsed_length_cm': float(product.parsed_length_cm) if product.parsed_length_cm is not None else None,
+                    'parsed_width_cm': float(product.parsed_width_cm) if product.parsed_width_cm is not None else None,
+                    'parsed_thickness_cm': float(product.parsed_thickness_cm) if product.parsed_thickness_cm is not None else None,
                 }
 
                 products.append(product_data)
@@ -970,6 +973,9 @@ def finishing_station():
                 'shape_svg': product.shape_svg,
                 'lamella_direction': product.lamella_direction,
                 'has_visual_data': bool(product.shape_svg or product.edge_svg),
+                'parsed_length_cm': float(product.parsed_length_cm) if product.parsed_length_cm is not None else None,
+                'parsed_width_cm': float(product.parsed_width_cm) if product.parsed_width_cm is not None else None,
+                'parsed_thickness_cm': float(product.parsed_thickness_cm) if product.parsed_thickness_cm is not None else None,
                 'quantity_done_assembly': product.quantity_done_assembly,
             }
 
@@ -1222,6 +1228,9 @@ def packaging_station():
                     'shape_svg': product.shape_svg,
                     'lamella_direction': product.lamella_direction,
                     'has_visual_data': bool(product.shape_svg or product.edge_svg),
+                    'parsed_length_cm': float(product.parsed_length_cm) if product.parsed_length_cm is not None else None,
+                    'parsed_width_cm': float(product.parsed_width_cm) if product.parsed_width_cm is not None else None,
+                    'parsed_thickness_cm': float(product.parsed_thickness_cm) if product.parsed_thickness_cm is not None else None,
                 }
 
                 products.append(product_data)
