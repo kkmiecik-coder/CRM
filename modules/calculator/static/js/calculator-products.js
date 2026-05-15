@@ -150,6 +150,10 @@ function prepareNewProductForm(form, index) {
         if (finishingRow) {
             finishingRow.style.display = 'none';
         }
+        const cutoutRow = finishingOptionsSummary.querySelector('.cutout-row');
+        if (cutoutRow) {
+            cutoutRow.style.display = 'none';
+        }
     }
 
     // ✅ Resetuj wizualnie podsumowanie krawędzi
@@ -187,6 +191,11 @@ function prepareNewProductForm(form, index) {
     form.dataset.productShape = 'rectangular';
     delete form.dataset.shapeEditorInit; // Pozwól initShapeToggle zainicjalizować nowy ShapeEditor
     delete form.dataset.shapeRealAreaCm2;
+    delete form.dataset.shapeNetAreaCm2;
+    delete form.dataset.shapeHolesAreaCm2;
+    delete form.dataset.shapeHolesCount;
+    // Wymuś przeliczenie wycięć (window.cutoutPriceNetto * holesCount = 0 po resecie)
+    void window.cutoutPriceNetto;
     var shapeSelect = form.querySelector('[data-field="shapeSelect"]');
     if (shapeSelect) shapeSelect.value = 'rectangular';
     // Zniszcz stary ShapeEditor jeśli istnieje (z klonowanego formularza)

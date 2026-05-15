@@ -549,6 +549,13 @@ function updatePrices() {
                 unitNetto += window._roundShapeSurchargeNetto;
             }
 
+            // Wycięcia — flat koszt per dziura
+            const holesCount = parseInt(activeQuoteForm.dataset.shapeHolesCount || '0', 10);
+            const cutoutPrice = parseFloat(window.cutoutPriceNetto || '0');
+            if (holesCount > 0 && cutoutPrice > 0) {
+                unitNetto += holesCount * cutoutPrice;
+            }
+
             variant.style.backgroundColor = "";
 
             const unitBrutto = roundToGrosze(unitNetto * 1.23);
@@ -815,6 +822,13 @@ function updatePricesInOtherProducts() {
                                 unitNetto += window._roundShapeSurchargeNetto;
                             }
 
+                            // Wycięcia — flat koszt per dziura
+                            const holesCount2 = parseInt(form.dataset.shapeHolesCount || '0', 10);
+                            const cutoutPrice2 = parseFloat(window.cutoutPriceNetto || '0');
+                            if (holesCount2 > 0 && cutoutPrice2 > 0) {
+                                unitNetto += holesCount2 * cutoutPrice2;
+                            }
+
                             // Wyczyść kolor tła (usunięto starą regułę Detal+)
                             variant.style.backgroundColor = "";
 
@@ -972,14 +986,21 @@ function calculateProductVolume(form) {
 
     const productShape = form.dataset.productShape || 'rectangular';
 
-    // Nie-prostokątne kształty: realne pole z ShapeEditor (w dataset)
+    // Nie-prostokątne kształty: pole NETTO (po odjęciu wycięć) — waga/objętość odzwierciedlają fizyczny produkt
     if (productShape !== 'rectangular') {
+        const netAreaCm2 = parseFloat(form.dataset.shapeNetAreaCm2);
         const realAreaCm2 = parseFloat(form.dataset.shapeRealAreaCm2);
-        if (!isNaN(realAreaCm2) && realAreaCm2 > 0) {
-            return (realAreaCm2 / 10000) * (thickness / 100) * quantity;
+        const effectiveCm2 = !isNaN(netAreaCm2) && netAreaCm2 > 0 ? netAreaCm2 : realAreaCm2;
+        if (!isNaN(effectiveCm2) && effectiveCm2 > 0) {
+            return (effectiveCm2 / 10000) * (thickness / 100) * quantity;
         }
     }
 
+    // Rectangular: jeśli są dziury — użyj net z dataset
+    const netRect = parseFloat(form.dataset.shapeNetAreaCm2);
+    if (!isNaN(netRect) && netRect > 0 && parseInt(form.dataset.shapeHolesCount || '0', 10) > 0) {
+        return (netRect / 10000) * (thickness / 100) * quantity;
+    }
     if (length <= 0 || width <= 0) return 0;
     return calculateSingleVolume(length, width, thickness) * quantity;
 }

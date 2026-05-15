@@ -12,6 +12,21 @@
 
     var modalBody = document.getElementById('edgeModalBody');
 
+    function humanEdgeLabel(edgeId) {
+        if (!edgeId || typeof edgeId !== 'string') return String(edgeId || '');
+        var mH = edgeId.match(/^H(\d+)\.(G|N|D|P)(\d+)$/);
+        if (mH) {
+            var typesH = { G: 'krawędź', N: 'narożnik', D: 'krawędź dolna', P: 'krawędź boczna' };
+            return 'Wycięcie ' + mH[1] + ', ' + (typesH[mH[2]] || 'element') + ' ' + mH[3];
+        }
+        var mO = edgeId.match(/^(G|N|D|P)(\d+)$/);
+        if (mO) {
+            var typesO = { G: 'Krawędź', N: 'Narożnik', D: 'Krawędź dolna', P: 'Krawędź boczna' };
+            return (typesO[mO[1]] || 'Element') + ' ' + mO[2];
+        }
+        return edgeId;
+    }
+
     function initializeEdgeHandlers() {
         document.querySelectorAll('.edge-icon-wrapper').forEach(function(wrapper) {
             wrapper.addEventListener('click', function(e) {
@@ -186,7 +201,9 @@
             if (data.edge_angle) {
                 radiusText += ' ' + data.edge_angle + '°';
             }
-            var lettersText = (data.edge_letters && data.edge_letters.length > 0) ? data.edge_letters.join(', ') : '—';
+            var lettersText = (data.edge_letters && data.edge_letters.length > 0)
+                ? data.edge_letters.map(humanEdgeLabel).join(', ')
+                : '—';
 
             html += '<div class="edge-modal-info">';
             html += '<div><div class="edge-modal-info-label">Typ obróbki</div><div class="edge-modal-info-value accent">' + typeText + '</div></div>';

@@ -30,6 +30,7 @@ def get_finishing_prices_data():
                     prices_data.append({
                         'id': opt['id'],
                         'name': opt['name'],
+                        'code': opt.get('code') or opt.get('inherited_code'),
                         'full_path': opt['full_path'],
                         'price_netto': opt['effective_price_netto'],
                         'level': opt['level'],
@@ -54,3 +55,19 @@ def get_finishing_prices_data():
     except Exception as e:
         current_app.logger.error(f"Błąd pobierania cen wykończeń: {str(e)}")
         return {"success": False, "error": "Blad pobierania cen wykonczeń"}, 500
+
+
+def get_cutout_price_netto():
+    """
+    Zwraca cenę netto za jedno wycięcie z FinishingOption(code='CUTOUT').
+    Fallback: 0.0 jeśli nie skonfigurowano.
+    """
+    from modules.calculator.models import FinishingOption
+
+    try:
+        opt = FinishingOption.query.filter_by(code='CUTOUT', is_active=True).first()
+        if opt and opt.price_netto is not None:
+            return float(opt.price_netto)
+    except Exception as e:
+        current_app.logger.warning(f"get_cutout_price_netto fallback do 0: {e}")
+    return 0.0

@@ -3,10 +3,66 @@ Serwis do kalkulacji cen obróbki krawędzi.
 Wzorowany na WoodPriceCalculator.php z PrestaShop woodconfigurator.
 """
 
+import re
+
 from decimal import Decimal, ROUND_HALF_UP
 from modules.logging import get_logger
 
 logger = get_logger('calculator.edge_calculator')
+
+HOLE_EDGE_RE = re.compile(r'^H(\d+)\.(G|N|D|P)(\d+)$')
+OUTER_EDGE_RE = re.compile(r'^(G|N|D|P)(\d+)$')
+
+
+def parse_edge_id(edge_id):
+    """
+    Parsuje ID krawędzi do struktury:
+    - outer:  {'kind': 'outer', 'type': 'G'|'N'|'D'|'P', 'idx': int 0-based}
+    - hole:   {'kind': 'hole',  'type': 'G'|'N'|'D'|'P', 'hole_idx': int 0-based, 'idx': int 0-based}
+    - None gdy nieznany format / pusty / nie-string.
+    """
+    if not edge_id or not isinstance(edge_id, str):
+        return None
+    m = HOLE_EDGE_RE.match(edge_id)
+    if m:
+        return {
+            'kind': 'hole',
+            'hole_idx': int(m.group(1)) - 1,
+            'type': m.group(2),
+            'idx': int(m.group(3)) - 1,
+        }
+    m = OUTER_EDGE_RE.match(edge_id)
+    if m:
+        return {
+            'kind': 'outer',
+            'type': m.group(1),
+            'idx': int(m.group(2)) - 1,
+        }
+    return None
+
+
+_HOLE_TYPE_PL = {'G': 'góra', 'D': 'dół', 'P': 'pion', 'N': 'narożnik'}
+_OUTER_TYPE_PL = {'G': 'Krawędź', 'D': 'Krawędź dolna', 'P': 'Krawędź boczna', 'N': 'Narożnik'}
+
+
+def human_edge_label(edge_id):
+    """
+    Zwraca polską czytelną etykietę dla ID krawędzi.
+    Przykłady:
+    - 'G1' -> 'Krawędź 1'
+    - 'N4' -> 'Narożnik 4'
+    - 'H1.G2' -> 'Wycięcie 1, góra 2'
+    - 'H2.P3' -> 'Wycięcie 2, pion 3'
+    Jeśli nieznany format — zwraca surowe ID.
+    """
+    parsed = parse_edge_id(edge_id)
+    if not parsed:
+        return str(edge_id) if edge_id is not None else ''
+    if parsed['kind'] == 'hole':
+        type_name = _HOLE_TYPE_PL.get(parsed['type'], 'element')
+        return 'Wycięcie {}, {} {}'.format(parsed['hole_idx'] + 1, type_name, parsed['idx'] + 1)
+    type_name = _OUTER_TYPE_PL.get(parsed['type'], 'Element')
+    return '{} {}'.format(type_name, parsed['idx'] + 1)
 
 # ============================================
 # DEFINICJE KRAWĘDZI
@@ -443,6 +499,46 @@ def _generate_edge_definitions(shape_type, shape_data, thickness_cm):
     for i in range(n):
         edges.append({'id': 'P{}'.format(i + 1), 'type_label': 'vertical', 'length_cm': thickness_cm, 'name': 'Pion {}'.format(i + 1)})
 
+    # Krawędzie dziur: pełna symetria z outer dynamicznym (G góra, D dół, P pion)
+    holes = shape_data.get('holes') or []
+    for h_idx, hole in enumerate(holes):
+        if not hole or len(hole) < 3:
+            continue
+        h_num = h_idx + 1
+        m = len(hole)
+        # G — góra (per krawędź dziury)
+        for j in range(m):
+            k = (j + 1) % m
+            hdx = hole[k][0] - hole[j][0]
+            hdy = hole[k][1] - hole[j][1]
+            h_length = math.sqrt(hdx * hdx + hdy * hdy)
+            edges.append({
+                'id': 'H{}.G{}'.format(h_num, j + 1),
+                'type_label': 'top',
+                'length_cm': h_length,
+                'name': 'Wycięcie {}, góra {}'.format(h_num, j + 1),
+            })
+        # D — dół (per krawędź dziury, ta sama długość co góra)
+        for j in range(m):
+            k = (j + 1) % m
+            hdx = hole[k][0] - hole[j][0]
+            hdy = hole[k][1] - hole[j][1]
+            h_length = math.sqrt(hdx * hdx + hdy * hdy)
+            edges.append({
+                'id': 'H{}.D{}'.format(h_num, j + 1),
+                'type_label': 'bottom',
+                'length_cm': h_length,
+                'name': 'Wycięcie {}, dół {}'.format(h_num, j + 1),
+            })
+        # P — pion (per wierzchołek dziury, długość = grubość)
+        for j in range(m):
+            edges.append({
+                'id': 'H{}.P{}'.format(h_num, j + 1),
+                'type_label': 'vertical',
+                'length_cm': thickness_cm,
+                'name': 'Wycięcie {}, pion {}'.format(h_num, j + 1),
+            })
+
     return edges
 
 
@@ -487,11 +583,16 @@ def calculate_dynamic_edges(shape_type, shape_data_json, thickness_cm, edges_con
 
         length_mm = edge_def['length_cm'] * 10
         type_prices = prices.get(edge_type, DEFAULT_PRICES.get(edge_type, {}))
-        per_mb = type_prices.get('per_mb', Decimal('0'))
 
-        price_netto = (Decimal(str(length_mm)) / Decimal('1000') * per_mb).quantize(
-            Decimal('0.01'), rounding=ROUND_HALF_UP
-        )
+        # Narożniki — cena flat per sztuka (zgodnie z legacy calculate_edge_price)
+        if edge_def.get('type_label') == 'corner':
+            per_corner = type_prices.get('per_corner', Decimal('0'))
+            price_netto = Decimal(str(per_corner)).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+        else:
+            per_mb = type_prices.get('per_mb', Decimal('0'))
+            price_netto = (Decimal(str(length_mm)) / Decimal('1000') * per_mb).quantize(
+                Decimal('0.01'), rounding=ROUND_HALF_UP
+            )
 
         price_brutto = (price_netto * VAT_RATE).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
         total_netto += price_netto

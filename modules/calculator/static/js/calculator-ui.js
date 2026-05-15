@@ -52,6 +52,9 @@ async function loadFinishingPrices() {
                 }
             });
 
+            // Cena wycięcia — flat per dziura, sentinel code 'CUTOUT'
+            var cutoutOpt = prices.find(function(p) { return p.code === 'CUTOUT'; });
+            window.cutoutPriceNetto = cutoutOpt ? parseFloat(cutoutOpt.price_netto) : 0;
 
             // Renderuj drzewko we wszystkich formularzach
             document.querySelectorAll('.quote-form').forEach(form => {
@@ -71,6 +74,7 @@ async function loadFinishingPrices() {
             'Olejowanie': 250
         };
         window.finishingOptionsFlat = [];
+        window.cutoutPriceNetto = 0;
 
     }
 }
@@ -82,7 +86,8 @@ function renderFinishingTree(form) {
     const container = form.querySelector('.finishing-tree-container');
     if (!container) return;
 
-    const options = window.finishingOptionsFlat || [];
+    // Wyklucz wpisy systemowe (CUTOUT to sentinel cennika wycięć — nie pokazujemy go w drzewku wykończeń)
+    const options = (window.finishingOptionsFlat || []).filter(o => o.code !== 'CUTOUT');
     if (options.length === 0) {
         container.innerHTML = '<p class="input-txt">Brak opcji wykończeń</p>';
         return;
@@ -656,6 +661,9 @@ function updateFinishingSummaryRow(form, finishingType, finishingVariant, priceN
 
     if (!finishingRow) return;
 
+    // Zawsze aktualizuj wiersz wycięć (niezależnie od wykończenia)
+    updateCutoutSummaryRow(form);
+
     // Jeśli surowe lub brak ceny - ukryj wiersz
     if (finishingType === 'Surowe' || !priceBrutto || priceBrutto <= 0) {
         finishingRow.style.display = 'none';
@@ -697,10 +705,46 @@ function updateFinishingSummaryRow(form, finishingType, finishingVariant, priceN
 function updateOptionsSummaryVisibility(optionsSummary) {
     if (!optionsSummary) return;
 
-    const row = optionsSummary.querySelector('.options-summary-row');
-    const rowVisible = row && row.style.display !== 'none';
+    const rows = optionsSummary.querySelectorAll('.options-summary-row');
+    let anyVisible = false;
+    rows.forEach(function(r) {
+        if (r.style.display !== 'none') anyVisible = true;
+    });
 
-    optionsSummary.style.display = rowVisible ? 'flex' : 'none';
+    optionsSummary.style.display = anyVisible ? 'flex' : 'none';
+}
+
+/**
+ * Aktualizuje wiersz wycięć (cutout-row) w options-summary
+ */
+function updateCutoutSummaryRow(form) {
+    if (!form) return;
+    const optionsSummary = form.querySelector('.finishing-options-summary');
+    const cutoutRow = optionsSummary?.querySelector('.cutout-row');
+    if (!cutoutRow) return;
+
+    const holesCount = parseInt(form.dataset.shapeHolesCount || '0', 10);
+    const cutoutPrice = parseFloat(window.cutoutPriceNetto || '0');
+
+    if (holesCount > 0 && cutoutPrice > 0) {
+        const totalNetto = holesCount * cutoutPrice;
+        const totalBrutto = totalNetto * 1.23;
+        const unit = cutoutPrice.toFixed(2).replace('.', ',');
+        const totalNettoStr = totalNetto.toFixed(2).replace('.', ',');
+        const totalBruttoStr = totalBrutto.toFixed(2).replace('.', ',');
+
+        const textEl = cutoutRow.querySelector('.cutout-summary-text');
+        const priceEl = cutoutRow.querySelector('.cutout-summary-price');
+        const priceNettoEl = cutoutRow.querySelector('.cutout-summary-price-netto');
+        if (textEl) textEl.textContent = 'Wycięcia: ' + holesCount + ' × ' + unit + ' zł';
+        if (priceEl) priceEl.textContent = totalBruttoStr + ' PLN brutto';
+        if (priceNettoEl) priceNettoEl.textContent = totalNettoStr + ' PLN netto';
+
+        cutoutRow.style.display = 'flex';
+    } else {
+        cutoutRow.style.display = 'none';
+    }
+    updateOptionsSummaryVisibility(optionsSummary);
 }
 
 /**

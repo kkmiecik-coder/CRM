@@ -7,6 +7,7 @@ var ShapeCanvas = (function() {
 
     function create(canvasElement, options) {
         var ctx = canvasElement.getContext('2d');
+        var realCtx = ctx;
         // Palety kolorów: normalny (pomarańczowy) i błędny (czerwony)
         var COLOR_THEMES = {
             normal: {
@@ -47,8 +48,22 @@ var ShapeCanvas = (function() {
             height: 0,
             colorTheme: 'normal',
             outOfRangeDims: { length: false, width: false },  // które wymiary bbox na czerwono
-            lamellaDirection: 0
+            lamellaDirection: 0,
+            activeTool: 'cursor',  // 'cursor' | 'add' | 'remove'
+            holes: [],
+            activeHole: null,
+            hoverHoleStart: false,
+            _hintTimeout: null,
+            visibility: { dimensions: true, brackets: true, guides: true, angles: true }
         };
+
+        // Load visibility z localStorage (per-przeglądarka)
+        try {
+            var savedVis = JSON.parse(localStorage.getItem('wp.canvas.visibility') || 'null');
+            if (savedVis && typeof savedVis === 'object') {
+                state.visibility = Object.assign(state.visibility, savedVis);
+            }
+        } catch (e) { /* ignore */ }
 
         // Pozycje wymiarów do obsługi dblclick
         var dimensionHitAreas = []; // [{x, y, edgeIndex, labelX, labelY}]
@@ -182,8 +197,10 @@ var ShapeCanvas = (function() {
             ctx.lineTo(p3[0], p3[1]);
             ctx.lineTo(p4[0], p4[1]);
             ctx.closePath();
-            ctx.fillStyle = 'rgba(230, 126, 34, 0.15)';
-            ctx.fill();
+            if (!state._svgExportMode) {
+                ctx.fillStyle = 'rgba(230, 126, 34, 0.15)';
+                ctx.fill();
+            }
             ctx.strokeStyle = 'rgba(230, 126, 34, 0.7)';
             ctx.lineWidth = 1;
             ctx.setLineDash([4, 4]);
@@ -197,9 +214,9 @@ var ShapeCanvas = (function() {
             var bMaxY = bMinY + bbox.height;
             var tolerance = 0.05;
 
-            // Sprawdź czy dolna krawędź bbox pokrywa się z krawędzią kształtu
+            // Sprawdź czy dolna/lewa krawędź bbox pokrywa się z krawędzią kształtu
             var bottomEdgeOverlaps = false;
-            var rightEdgeOverlaps = false;
+            var leftEdgeOverlaps = false;
             for (var ei = 0; ei < verts.length; ei++) {
                 var ej = (ei + 1) % verts.length;
                 var v1 = verts[ei], v2 = verts[ej];
@@ -211,12 +228,12 @@ var ShapeCanvas = (function() {
                         bottomEdgeOverlaps = true;
                     }
                 }
-                // Prawa: oba wierzchołki na X=bMaxX i rozciągają się na całą wysokość bbox
-                if (Math.abs(v1[0] - bMaxX) < tolerance && Math.abs(v2[0] - bMaxX) < tolerance) {
+                // Lewa: oba wierzchołki na X=bMinX i rozciągają się na całą wysokość bbox
+                if (Math.abs(v1[0] - bMinX) < tolerance && Math.abs(v2[0] - bMinX) < tolerance) {
                     var edgeMinY = Math.min(v1[1], v2[1]);
                     var edgeMaxY = Math.max(v1[1], v2[1]);
                     if (Math.abs(edgeMinY - bMinY) < tolerance && Math.abs(edgeMaxY - bMaxY) < tolerance) {
-                        rightEdgeOverlaps = true;
+                        leftEdgeOverlaps = true;
                     }
                 }
             }
@@ -225,21 +242,34 @@ var ShapeCanvas = (function() {
                 var bboxWColor = state.outOfRangeDims.length ? '#dc2626' : null;
                 _renderSingleDimension(bMinX, bMinY, bMaxX, bMinY, bboxW + ' cm', 'Formatka', undefined, bboxWColor);
             }
-            if (!rightEdgeOverlaps) {
+            if (!leftEdgeOverlaps) {
                 var bboxHColor = state.outOfRangeDims.width ? '#dc2626' : null;
-                _renderSingleDimension(bMaxX, bMinY, bMaxX, bMaxY, bboxH + ' cm', 'Formatka', 40, bboxHColor);
+                // Od góry do dołu (w cm), żeby normal pixel wskazywał w LEWO
+                _renderSingleDimension(bMinX, bMaxY, bMinX, bMinY, bboxH + ' cm', 'Formatka', 40, bboxHColor);
             }
 
             // Klamerki: dla każdego wierzchołka rzutujemy na krawędzie bbox
             // i rysujemy klamerkę od rogu bbox do rzutu wierzchołka
 
-            // Linie prowadzące: od wierzchołków kształtu do krawędzi bbox
+            // Wszystkie wierzchołki branie pod uwagę przy klamerkach: outer + hole
+            var allBracketVerts = verts.slice();
+            for (var ahi = 0; ahi < state.holes.length; ahi++) {
+                var hRing = state.holes[ahi];
+                if (hRing && hRing.length >= 3) {
+                    for (var ahj = 0; ahj < hRing.length; ahj++) {
+                        allBracketVerts.push(hRing[ahj]);
+                    }
+                }
+            }
+
+            // Linie prowadzące: od wierzchołków (outer + hole) do krawędzi bbox
+            if (state.visibility.guides) {
             ctx.save();
-            ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
+            ctx.strokeStyle = state._svgExportMode ? 'rgba(120, 120, 120, 0.55)' : 'rgba(255, 255, 255, 0.5)';
             ctx.lineWidth = 1.5;
             ctx.setLineDash([6, 6]);
-            for (var gi = 0; gi < verts.length; gi++) {
-                var gvx = verts[gi][0], gvy = verts[gi][1];
+            for (var gi = 0; gi < allBracketVerts.length; gi++) {
+                var gvx = allBracketVerts[gi][0], gvy = allBracketVerts[gi][1];
                 var isOnBboxCorner = (Math.abs(gvx - bMinX) < tolerance || Math.abs(gvx - bMaxX) < tolerance)
                     && (Math.abs(gvy - bMinY) < tolerance || Math.abs(gvy - bMaxY) < tolerance);
                 if (isOnBboxCorner) continue;
@@ -260,26 +290,35 @@ var ShapeCanvas = (function() {
                 }
             }
             ctx.restore();
+            } // koniec if (visibility.guides)
 
             // Zbierz unikalne pozycje X i Y wierzchołków (rzuty na krawędzie)
             var xPositions = []; // rzuty na dolną/górną krawędź
             var yPositions = []; // rzuty na lewą/prawą krawędź
 
-            for (var bi = 0; bi < verts.length; bi++) {
-                var vx = verts[bi][0], vy = verts[bi][1];
-                // Rzut X na dolną krawędź — pomijaj jeśli w rogu bbox
+            function _pushUniqueX(arr, v) {
+                // Dedup po dokładnej pozycji (z mikro-epsilon na float jitter, NIE chowamy klamerek różniących się o 1mm)
+                for (var k = 0; k < arr.length; k++) if (Math.abs(arr[k] - v) < 0.001) return;
+                arr.push(v);
+            }
+
+            for (var bi = 0; bi < allBracketVerts.length; bi++) {
+                var vx = allBracketVerts[bi][0], vy = allBracketVerts[bi][1];
+                // Rzut X — pomijaj jeśli na lewej/prawej krawędzi bbox lub duplikat
                 if (Math.abs(vx - bMinX) > tolerance && Math.abs(vx - bMaxX) > tolerance) {
-                    xPositions.push(vx);
+                    _pushUniqueX(xPositions, vx);
                 }
-                // Rzut Y na lewą krawędź — pomijaj jeśli w rogu bbox
+                // Rzut Y — pomijaj jeśli na dolnej/górnej krawędzi bbox lub duplikat
                 if (Math.abs(vy - bMinY) > tolerance && Math.abs(vy - bMaxY) > tolerance) {
-                    yPositions.push(vy);
+                    _pushUniqueX(yPositions, vy);
                 }
             }
 
-            // Sortuj i usuń duplikaty
+            // Sortuj
             xPositions.sort(function(a, b) { return a - b; });
             yPositions.sort(function(a, b) { return a - b; });
+
+            if (!state.visibility.brackets) return;
 
             // Klamerki na górnej krawędzi bbox (poziome) — każda kolejna wyżej
             for (var xi = 0; xi < xPositions.length; xi++) {
@@ -369,9 +408,11 @@ var ShapeCanvas = (function() {
             var verts = state.vertices;
             if (!verts || verts.length < 2) return;
 
-            // Bounding box (pod kształtem)
             _renderBbox();
 
+            var theme = COLOR_THEMES[state.colorTheme] || COLOR_THEMES.normal;
+
+            // Outer + holes jako jedna ścieżka z evenodd (dziury wycinają)
             ctx.beginPath();
             var start = cmToPixel(verts[0][0], verts[0][1]);
             ctx.moveTo(start[0], start[1]);
@@ -380,16 +421,201 @@ var ShapeCanvas = (function() {
                 ctx.lineTo(pt[0], pt[1]);
             }
             ctx.closePath();
-            var theme = COLOR_THEMES[state.colorTheme] || COLOR_THEMES.normal;
-            ctx.fillStyle = theme.shapeFill;
-            ctx.fill();
 
+            for (var hi = 0; hi < state.holes.length; hi++) {
+                var h = state.holes[hi];
+                if (!h || h.length < 3) continue;
+                var hs = cmToPixel(h[0][0], h[0][1]);
+                ctx.moveTo(hs[0], hs[1]);
+                for (var hj = 1; hj < h.length; hj++) {
+                    var hp = cmToPixel(h[hj][0], h[hj][1]);
+                    ctx.lineTo(hp[0], hp[1]);
+                }
+                ctx.closePath();
+            }
+
+            ctx.fillStyle = theme.shapeFill;
+            ctx.fill('evenodd');
+
+            // Outer stroke (2px)
+            ctx.beginPath();
+            var s0 = cmToPixel(verts[0][0], verts[0][1]);
+            ctx.moveTo(s0[0], s0[1]);
+            for (var k = 1; k < verts.length; k++) {
+                var kp = cmToPixel(verts[k][0], verts[k][1]);
+                ctx.lineTo(kp[0], kp[1]);
+            }
+            ctx.closePath();
             ctx.strokeStyle = theme.shapeStroke;
             ctx.lineWidth = 2;
             ctx.stroke();
 
+            // Hole strokes (1.5px)
+            ctx.lineWidth = 1.5;
+            for (var hi2 = 0; hi2 < state.holes.length; hi2++) {
+                var hh = state.holes[hi2];
+                if (!hh || hh.length < 3) continue;
+                ctx.beginPath();
+                var hhs = cmToPixel(hh[0][0], hh[0][1]);
+                ctx.moveTo(hhs[0], hhs[1]);
+                for (var hhj = 1; hhj < hh.length; hhj++) {
+                    var hhp = cmToPixel(hh[hhj][0], hh[hhj][1]);
+                    ctx.lineTo(hhp[0], hhp[1]);
+                }
+                ctx.closePath();
+                ctx.stroke();
+            }
+
+            // Active hole (rysowana w toku) — przerywana
+            if (state.activeHole && state.activeHole.length > 0) {
+                ctx.save();
+                ctx.strokeStyle = theme.shapeStroke;
+                ctx.lineWidth = 1.5;
+                ctx.setLineDash([6, 4]);
+                ctx.beginPath();
+                var as = cmToPixel(state.activeHole[0][0], state.activeHole[0][1]);
+                ctx.moveTo(as[0], as[1]);
+                for (var ai = 1; ai < state.activeHole.length; ai++) {
+                    var ap = cmToPixel(state.activeHole[ai][0], state.activeHole[ai][1]);
+                    ctx.lineTo(ap[0], ap[1]);
+                }
+                ctx.stroke();
+                ctx.setLineDash([]);
+                // Pierwszy pkt — podświetlony jeśli snap-hover
+                ctx.beginPath();
+                ctx.arc(as[0], as[1], state.hoverHoleStart ? 9 : 6, 0, Math.PI * 2);
+                ctx.fillStyle = state.hoverHoleStart ? theme.shapeStroke : '#fff';
+                ctx.fill();
+                ctx.strokeStyle = theme.shapeStroke;
+                ctx.lineWidth = 2;
+                ctx.stroke();
+                // Pozostałe punkty activeHole
+                for (var ai2 = 1; ai2 < state.activeHole.length; ai2++) {
+                    var aap = cmToPixel(state.activeHole[ai2][0], state.activeHole[ai2][1]);
+                    ctx.beginPath();
+                    ctx.arc(aap[0], aap[1], 4, 0, Math.PI * 2);
+                    ctx.fillStyle = '#fff';
+                    ctx.fill();
+                    ctx.stroke();
+                }
+                ctx.restore();
+            }
+
             _renderDimensionLines(verts);
+            _renderHoleDimensions();
+            _renderAngles();
             _renderVertexHandles(verts);
+            _renderHoleHandles();
+        }
+
+        // Etykiety kątów wewnętrznych (tylko nie-90° ±1°)
+        function _renderAngles() {
+            if (!state.visibility.angles) return;
+
+            function _renderRing(ring) {
+                if (!ring || ring.length < 3) return;
+                var n = ring.length;
+                for (var i = 0; i < n; i++) {
+                    var prev = ring[(i - 1 + n) % n];
+                    var curr = ring[i];
+                    var next = ring[(i + 1) % n];
+
+                    var inDx = curr[0] - prev[0], inDy = curr[1] - prev[1];
+                    var outDx = next[0] - curr[0], outDy = next[1] - curr[1];
+                    var inLen = Math.sqrt(inDx * inDx + inDy * inDy);
+                    var outLen = Math.sqrt(outDx * outDx + outDy * outDy);
+                    if (inLen < 0.01 || outLen < 0.01) continue;
+
+                    var nInDx = inDx / inLen, nInDy = inDy / inLen;
+                    var nOutDx = outDx / outLen, nOutDy = outDy / outLen;
+                    // Kąt wewnętrzny: między -inVec i outVec
+                    var dot = (-nInDx) * nOutDx + (-nInDy) * nOutDy;
+                    if (dot > 1) dot = 1; if (dot < -1) dot = -1;
+                    var angleDeg = Math.round(Math.acos(dot) * 180 / Math.PI);
+                    if (Math.abs(angleDeg - 90) <= 1) continue;
+
+                    // Bisektor (cm) → wnętrze rogu = uśredniony kierunek od curr w stronę "do środka"
+                    var bx = (-nInDx) + nOutDx;
+                    var by = (-nInDy) + nOutDy;
+                    var bLen = Math.sqrt(bx * bx + by * by);
+                    if (bLen < 0.001) continue;
+                    bx /= bLen; by /= bLen;
+
+                    // Pozycje w pixelach
+                    var cPx = cmToPixel(curr[0], curr[1]);
+                    // Wektory in/out w układzie ekranowym (Y odwrócone w cmToPixel)
+                    var pPx = cmToPixel(prev[0], prev[1]);
+                    var nPx = cmToPixel(next[0], next[1]);
+                    var scrInX = cPx[0] - pPx[0], scrInY = cPx[1] - pPx[1];
+                    var scrOutX = nPx[0] - cPx[0], scrOutY = nPx[1] - cPx[1];
+                    var scrInLen = Math.sqrt(scrInX * scrInX + scrInY * scrInY);
+                    var scrOutLen = Math.sqrt(scrOutX * scrOutX + scrOutY * scrOutY);
+                    if (scrInLen < 1 || scrOutLen < 1) continue;
+
+                    // Łuk: od kierunku -in do +out, na promieniu 14px
+                    var startAng = Math.atan2(-scrInY, -scrInX); // wektor od curr w stronę prev (na ekranie)
+                    var endAng = Math.atan2(scrOutY, scrOutX);   // wektor od curr w stronę next (na ekranie)
+                    var r = 14;
+
+                    // Wybierz kierunek łuku po krótszej stronie (ta będzie po stronie wnętrza)
+                    var diff = endAng - startAng;
+                    while (diff > Math.PI) diff -= 2 * Math.PI;
+                    while (diff < -Math.PI) diff += 2 * Math.PI;
+                    var ccw = diff < 0;
+
+                    ctx.save();
+                    ctx.strokeStyle = 'rgba(230, 126, 34, 0.7)';
+                    ctx.lineWidth = 1;
+                    ctx.beginPath();
+                    ctx.arc(cPx[0], cPx[1], r, startAng, endAng, ccw);
+                    ctx.stroke();
+
+                    // Tekst na bisektorze ekranowym (w stronę środka łuku)
+                    var midAng = startAng + (ccw ? -Math.abs(diff) / 2 : Math.abs(diff) / 2);
+                    var tx = cPx[0] + Math.cos(midAng) * (r + 10);
+                    var ty = cPx[1] + Math.sin(midAng) * (r + 10);
+                    ctx.font = 'bold 10px sans-serif';
+                    ctx.fillStyle = 'rgba(230, 126, 34, 0.9)';
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'middle';
+                    ctx.fillText(angleDeg + '°', tx, ty);
+                    ctx.restore();
+                }
+            }
+
+            _renderRing(state.vertices);
+            for (var hi = 0; hi < state.holes.length; hi++) {
+                _renderRing(state.holes[hi]);
+            }
+        }
+
+        function _renderHoleHandles() {
+            for (var hi = 0; hi < state.holes.length; hi++) {
+                var h = state.holes[hi];
+                for (var hj = 0; hj < h.length; hj++) {
+                    var pt = cmToPixel(h[hj][0], h[hj][1]);
+                    _drawHandle(pt[0], pt[1], false);
+                }
+            }
+        }
+
+        function _renderHoleDimensions() {
+            if (!state.visibility.dimensions) return;
+            for (var hi = 0; hi < state.holes.length; hi++) {
+                var h = state.holes[hi];
+                if (!h || h.length < 2) continue;
+                var n = h.length;
+                for (var i = 0; i < n; i++) {
+                    var j = (i + 1) % n;
+                    var dx = h[j][0] - h[i][0];
+                    var dy = h[j][1] - h[i][1];
+                    var len = Math.sqrt(dx * dx + dy * dy);
+                    if (len < 0.1) continue;
+                    var dimLabel = (Math.round(len * 10) / 10) + ' cm';
+                    // Bez edgeId — wymiary dziur nie mają oznaczeń Gx (mniej szumu)
+                    _renderSingleDimension(h[i][0], h[i][1], h[j][0], h[j][1], dimLabel, null, -16);
+                }
+            }
         }
 
         function _renderEllipse() {
@@ -446,6 +672,7 @@ var ShapeCanvas = (function() {
 
         function _renderDimensionLines(verts) {
             dimensionHitAreas = [];
+            if (!state.visibility.dimensions) return;
             var n = verts.length;
             for (var i = 0; i < n; i++) {
                 var j = (i + 1) % n;
@@ -602,28 +829,117 @@ var ShapeCanvas = (function() {
             var my = e.clientY - rect.top;
 
             if (e.button === 2) {
-                _handleRightClick(mx, my);
+                if (state.activeTool === 'add' && state.activeHole) {
+                    if (state.activeHole.length >= 3) {
+                        _commitActiveHole();
+                    } else {
+                        state.activeHole = null;
+                        state.hoverHoleStart = false;
+                        render();
+                    }
+                }
                 return;
             }
 
-            var vi = _findVertexAt(mx, my);
-            if (vi >= 0) {
-                state.dragVertex = vi;
-                _pushUndo();
-                canvasElement.classList.add('dragging-vertex');
-                return;
-            }
+            var tool = state.activeTool;
+            var isCircleLike = (state.shapeType === 'circle' || state.shapeType === 'oval');
 
-            if (state.shapeType === 'polygon') {
-                var edgeIdx = _findEdgeAt(mx, my);
-                if (edgeIdx >= 0 && state.vertices && state.vertices.length < 20) {
-                    var cmPt = pixelToCm(mx, my);
+            // Tryb REMOVE — klik wierzchołka go usuwa
+            if (tool === 'remove' && !isCircleLike) {
+                var vRem = _findVertexAt(mx, my);
+                if (vRem && typeof vRem === 'object' && vRem.kind === 'hole') {
                     _pushUndo();
-                    state.vertices.splice(edgeIdx + 1, 0, [_round(cmPt[0]), _round(cmPt[1])]);
+                    var holeR = state.holes[vRem.hi];
+                    holeR.splice(vRem.hj, 1);
+                    if (holeR.length < 3) {
+                        state.holes.splice(vRem.hi, 1);
+                    }
                     _emitChange();
                     render();
                     return;
                 }
+                if (typeof vRem === 'number' && vRem >= 0 && state.vertices && state.vertices.length > 3) {
+                    _pushUndo();
+                    state.vertices.splice(vRem, 1);
+                    _convertToPolygonIfNeeded();
+                    _emitChange();
+                    render();
+                }
+                return;
+            }
+
+            // Tryb ADD — klik krawędzi outer = +punkt; klik krawędzi dziury = +punkt dziury;
+            // klik wewnątrz = start/kontynuacja activeHole.
+            if (tool === 'add' && !isCircleLike) {
+                // 1. Klik krawędzi outer = +punkt outer
+                var edgeIdx = _findEdgeAt(mx, my);
+                if (edgeIdx >= 0 && state.vertices && state.vertices.length < 20) {
+                    var cmPtA = pixelToCm(mx, my);
+                    _pushUndo();
+                    state.vertices.splice(edgeIdx + 1, 0, [_round(cmPtA[0]), _round(cmPtA[1])]);
+                    _convertToPolygonIfNeeded();
+                    _emitChange();
+                    render();
+                    return;
+                }
+
+                // 2. Klik krawędzi istniejącej dziury = +punkt tej dziury
+                if (!state.activeHole) {
+                    var hEdge = _findHoleEdgeAt(mx, my);
+                    if (hEdge) {
+                        var cmH = pixelToCm(mx, my);
+                        _pushUndo();
+                        state.holes[hEdge.holeIdx].splice(hEdge.edgeIdx + 1, 0, [_round(cmH[0]), _round(cmH[1])]);
+                        _emitChange();
+                        render();
+                        return;
+                    }
+                }
+
+                // 3. Klik wewnątrz = start/kontynuacja activeHole
+                var cmP = pixelToCm(mx, my);
+                var pxCm = _round(cmP[0]);
+                var pyCm = _round(cmP[1]);
+
+                if (state.activeHole) {
+                    // Snap do pierwszego punktu — zamknij
+                    var first = state.activeHole[0];
+                    var firstPx = cmToPixel(first[0], first[1]);
+                    if (Math.hypot(mx - firstPx[0], my - firstPx[1]) < 12 && state.activeHole.length >= 3) {
+                        _commitActiveHole();
+                        return;
+                    }
+                    // Walidacja: punkt wewnątrz outer i poza istniejącymi dziurami
+                    if (!state.vertices || !ShapeGeometry.pointInPolygon(pxCm, pyCm, state.vertices)) return;
+                    for (var hch = 0; hch < state.holes.length; hch++) {
+                        if (ShapeGeometry.pointInPolygon(pxCm, pyCm, state.holes[hch])) return;
+                    }
+                    state.activeHole.push([pxCm, pyCm]);
+                    render();
+                    return;
+                }
+
+                // Start nowej dziury
+                if (state.holes.length >= 5) {
+                    _showHint('Maksymalnie 5 wycięć na produkt.');
+                    return;
+                }
+                if (!state.vertices || !ShapeGeometry.pointInPolygon(pxCm, pyCm, state.vertices)) return;
+                for (var hch2 = 0; hch2 < state.holes.length; hch2++) {
+                    if (ShapeGeometry.pointInPolygon(pxCm, pyCm, state.holes[hch2])) return;
+                }
+                state.activeHole = [[pxCm, pyCm]];
+                render();
+                return;
+            }
+
+            // Tryb CURSOR (default) — drag wierzchołka lub pan
+            var vi = _findVertexAt(mx, my);
+            if (_isVertexHit(vi)) {
+                state.dragVertex = vi;
+                _pushUndo();
+                canvasElement.classList.add('dragging-vertex');
+                return;
             }
 
             state.isPanning = true;
@@ -637,7 +953,20 @@ var ShapeCanvas = (function() {
             var mx = e.clientX - rect.left;
             var my = e.clientY - rect.top;
 
-            if (state.dragVertex >= 0) {
+            if (state.activeTool === 'add' && state.activeHole && state.activeHole.length >= 3) {
+                var firstHv = state.activeHole[0];
+                var firstHvPx = cmToPixel(firstHv[0], firstHv[1]);
+                var isSnap = Math.hypot(mx - firstHvPx[0], my - firstHvPx[1]) < 12;
+                if (isSnap !== state.hoverHoleStart) {
+                    state.hoverHoleStart = isSnap;
+                    render();
+                }
+            } else if (state.hoverHoleStart) {
+                state.hoverHoleStart = false;
+                render();
+            }
+
+            if (_isVertexHit(state.dragVertex)) {
                 var cmPt = pixelToCm(mx, my);
                 var snap = state.currentGridCm;
                 var sx = Math.round(cmPt[0] / snap) * snap;
@@ -645,8 +974,28 @@ var ShapeCanvas = (function() {
 
                 if (state.shapeType === 'circle') {
                     _handleEllipseVertexDrag(sx, sy);
+                } else if (typeof state.dragVertex === 'object' && state.dragVertex.kind === 'hole') {
+                    var dv = state.dragVertex;
+                    var prevPos = state.holes[dv.hi][dv.hj];
+                    state.holes[dv.hi][dv.hj] = [_round(sx), _round(sy)];
+                    var thisHole = state.holes[dv.hi];
+                    var valid = ShapeGeometry.holeInsideOuter(thisHole, state.vertices)
+                        && !ShapeGeometry.ringSelfIntersects(thisHole);
+                    if (valid) {
+                        for (var oh = 0; oh < state.holes.length; oh++) {
+                            if (oh === dv.hi) continue;
+                            if (ShapeGeometry.ringsIntersect(thisHole, state.holes[oh])) {
+                                valid = false;
+                                break;
+                            }
+                        }
+                    }
+                    if (!valid) {
+                        state.holes[dv.hi][dv.hj] = prevPos;
+                    }
                 } else {
                     state.vertices[state.dragVertex] = [_round(sx), _round(sy)];
+                    _convertToPolygonIfNeeded();
                 }
                 _emitChange();
                 render();
@@ -669,10 +1018,9 @@ var ShapeCanvas = (function() {
         });
 
         canvasElement.addEventListener('mouseup', function() {
-            if (state.dragVertex >= 0) {
+            if (_isVertexHit(state.dragVertex)) {
                 state.dragVertex = -1;
                 canvasElement.classList.remove('dragging-vertex');
-                _detectAndSwitchVariant();
             }
             state.isPanning = false;
             canvasElement.style.cursor = '';
@@ -680,7 +1028,9 @@ var ShapeCanvas = (function() {
 
         canvasElement.addEventListener('mouseleave', function() {
             state.isPanning = false;
-            state.dragVertex = -1;
+            if (_isVertexHit(state.dragVertex)) {
+                state.dragVertex = -1;
+            }
             canvasElement.classList.remove('dragging-vertex');
             canvasElement.style.cursor = '';
         });
@@ -739,6 +1089,7 @@ var ShapeCanvas = (function() {
                         var scale = newLen / oldLen;
                         state.vertices[vj][0] = state.vertices[vi][0] + oldDx * scale;
                         state.vertices[vj][1] = state.vertices[vi][1] + oldDy * scale;
+                        _convertToPolygonIfNeeded();
                         _emitChange();
                         render();
                     }
@@ -767,6 +1118,14 @@ var ShapeCanvas = (function() {
             } else if (isCtrl && e.key === 'z' && e.shiftKey) {
                 e.preventDefault();
                 redo();
+            } else if (e.key === 'Enter' && state.activeHole && state.activeHole.length >= 3) {
+                e.preventDefault();
+                _commitActiveHole();
+            } else if (e.key === 'Escape' && state.activeHole) {
+                e.preventDefault();
+                state.activeHole = null;
+                state.hoverHoleStart = false;
+                render();
             }
         });
 
@@ -779,22 +1138,96 @@ var ShapeCanvas = (function() {
         // VERTEX / EDGE HIT TESTING
         // ============================================
 
+        function _isVertexHit(hit) {
+            return (typeof hit === 'number' && hit >= 0) || (hit && typeof hit === 'object' && hit.kind === 'hole');
+        }
+
         function _findVertexAt(px, py) {
             var hitR = 12;
             if (state.shapeType === 'circle') {
                 var p = state.params;
-                var a = p.diameter || 0;
-                var b = p.diameter || 0;
-                var hPt = cmToPixel(a, b / 2);
+                var d = p.diameter || 0;
+                var hPt = cmToPixel(d, d / 2);
                 if (Math.hypot(px - hPt[0], py - hPt[1]) < hitR) return 0;
                 return -1;
             }
-            if (!state.vertices) return -1;
-            for (var i = 0; i < state.vertices.length; i++) {
-                var vPt = cmToPixel(state.vertices[i][0], state.vertices[i][1]);
-                if (Math.hypot(px - vPt[0], py - vPt[1]) < hitR) return i;
+            if (state.vertices) {
+                for (var i = 0; i < state.vertices.length; i++) {
+                    var vPt = cmToPixel(state.vertices[i][0], state.vertices[i][1]);
+                    if (Math.hypot(px - vPt[0], py - vPt[1]) < hitR) return i;
+                }
+            }
+            // Hole vertices
+            for (var hi = 0; hi < state.holes.length; hi++) {
+                for (var hj = 0; hj < state.holes[hi].length; hj++) {
+                    var hPtT = cmToPixel(state.holes[hi][hj][0], state.holes[hi][hj][1]);
+                    if (Math.hypot(px - hPtT[0], py - hPtT[1]) < hitR) {
+                        return { kind: 'hole', hi: hi, hj: hj };
+                    }
+                }
             }
             return -1;
+        }
+
+        function _findHoleEdgeAt(px, py) {
+            var hitDist = 8;
+            for (var hi = 0; hi < state.holes.length; hi++) {
+                var h = state.holes[hi];
+                if (!h || h.length < 3) continue;
+                for (var i = 0; i < h.length; i++) {
+                    var j = (i + 1) % h.length;
+                    var p1 = cmToPixel(h[i][0], h[i][1]);
+                    var p2 = cmToPixel(h[j][0], h[j][1]);
+                    var dist = _pointToSegmentDist(px, py, p1[0], p1[1], p2[0], p2[1]);
+                    if (dist < hitDist) return { holeIdx: hi, edgeIdx: i };
+                }
+            }
+            return null;
+        }
+
+        function _commitActiveHole() {
+            if (!state.activeHole || state.activeHole.length < 3) {
+                state.activeHole = null;
+                state.hoverHoleStart = false;
+                render();
+                return;
+            }
+            var newHole = state.activeHole;
+            if (ShapeGeometry.ringSelfIntersects(newHole)) {
+                _showHint('Wycięcie nie może przecinać samo siebie.');
+                return;
+            }
+            if (!ShapeGeometry.holeInsideOuter(newHole, state.vertices)) {
+                _showHint('Wycięcie musi mieścić się wewnątrz kształtu.');
+                return;
+            }
+            for (var i = 0; i < state.holes.length; i++) {
+                if (ShapeGeometry.ringsIntersect(newHole, state.holes[i])) {
+                    _showHint('Wycięcia nie mogą się przecinać.');
+                    return;
+                }
+            }
+            _pushUndo();
+            state.holes.push(newHole);
+            state.activeHole = null;
+            state.hoverHoleStart = false;
+            _emitChange();
+            render();
+        }
+
+        function _showHint(msg) {
+            var form = canvasElement.closest('.quote-form');
+            var hintEl = form ? form.querySelector('[data-shape-hint]') : null;
+            if (!hintEl) return;
+            var prev = hintEl.textContent;
+            var prevColor = hintEl.style.color;
+            hintEl.textContent = msg;
+            hintEl.style.color = '#dc2626';
+            clearTimeout(state._hintTimeout);
+            state._hintTimeout = setTimeout(function() {
+                hintEl.textContent = prev;
+                hintEl.style.color = prevColor || '';
+            }, 3000);
         }
 
         function _findEdgeAt(px, py) {
@@ -833,56 +1266,47 @@ var ShapeCanvas = (function() {
         }
 
         // ============================================
-        // RIGHT CLICK: REMOVE VERTEX
-        // ============================================
-
-        function _handleRightClick(mx, my) {
-            if (state.shapeType !== 'polygon') return;
-            if (!state.vertices || state.vertices.length <= 3) return;
-            var vi = _findVertexAt(mx, my);
-            if (vi < 0) return;
-            _pushUndo();
-            state.vertices.splice(vi, 1);
-            _emitChange();
-            render();
-        }
-
-        // ============================================
-        // AUTO-DETECT VARIANT CHANGE
-        // ============================================
-
-        function _detectAndSwitchVariant() {
-            var isVariantShape = state.shapeType.indexOf('trapezoid') === 0 || state.shapeType.indexOf('triangle') === 0;
-            if (!isVariantShape || state.shapeType === 'trapezoid_custom' || state.shapeType === 'triangle_custom') return;
-            var detected = ShapeGeometry.detectVariant(state.shapeType, state.vertices);
-            if (detected !== state.shapeType) {
-                state.shapeType = detected;
-                state.onShapeTypeChange(detected);
-            }
-        }
-
-        // ============================================
         // UNDO / REDO
         // ============================================
 
+        function _convertToPolygonIfNeeded() {
+            // Pierwsza edycja punktu na nie-polygon nie-eliptycznym kształcie → konwersja typu
+            if (state.shapeType === 'polygon' || state.shapeType === 'circle' || state.shapeType === 'oval') return;
+            state.shapeType = 'polygon';
+            state.onShapeTypeChange('polygon');
+        }
+
         function _pushUndo() {
-            state.undoStack.push(JSON.stringify(state.vertices));
+            state.undoStack.push(JSON.stringify({
+                vertices: state.vertices,
+                holes: state.holes
+            }));
             if (state.undoStack.length > state.maxUndo) state.undoStack.shift();
             state.redoStack = [];
         }
 
         function undo() {
             if (state.undoStack.length === 0) return;
-            state.redoStack.push(JSON.stringify(state.vertices));
-            state.vertices = JSON.parse(state.undoStack.pop());
+            state.redoStack.push(JSON.stringify({
+                vertices: state.vertices,
+                holes: state.holes
+            }));
+            var prev = JSON.parse(state.undoStack.pop());
+            state.vertices = prev.vertices;
+            state.holes = prev.holes || [];
             _emitChange();
             render();
         }
 
         function redo() {
             if (state.redoStack.length === 0) return;
-            state.undoStack.push(JSON.stringify(state.vertices));
-            state.vertices = JSON.parse(state.redoStack.pop());
+            state.undoStack.push(JSON.stringify({
+                vertices: state.vertices,
+                holes: state.holes
+            }));
+            var nxt = JSON.parse(state.redoStack.pop());
+            state.vertices = nxt.vertices;
+            state.holes = nxt.holes || [];
             _emitChange();
             render();
         }
@@ -913,10 +1337,10 @@ var ShapeCanvas = (function() {
 
             // Dodatkowy margines na klamerki i wymiary (px)
             var bracketSpacing = 28;
-            var extraRight = isSimple ? 30 : (bracketCountY * bracketSpacing + 60);
+            var extraRight = isSimple ? 30 : (bracketCountY * bracketSpacing + 30);
             var extraTop = isSimple ? 30 : (bracketCountX * bracketSpacing + 40);
             var extraBottom = 60; // margines na wymiar dolny formatki
-            var extraLeft = 30;
+            var extraLeft = 60; // margines na wymiar lewy formatki
 
             // Oblicz skalę żeby kształt + marginesy zmieścił się w canvasie
             var availW = state.width - extraLeft - extraRight;
@@ -949,13 +1373,31 @@ var ShapeCanvas = (function() {
         // PUBLIC API: SET SHAPE / PARAMS
         // ============================================
 
-        function setShape(shapeType, params, vertices) {
+        function setShape(shapeType, params, vertices, holes) {
             state.shapeType = shapeType;
             state.params = Object.assign({}, params);
             state.vertices = vertices ? vertices.map(function(v) { return [v[0], v[1]]; }) : null;
+            state.holes = holes ? holes.map(function(h) {
+                return h.map(function(v) { return [v[0], v[1]]; });
+            }) : [];
+            state.activeHole = null;
             state.undoStack = [];
             state.redoStack = [];
             fitToView();
+        }
+
+        function getHoles() {
+            return state.holes.map(function(h) {
+                return h.map(function(v) { return [v[0], v[1]]; });
+            });
+        }
+
+        function setHoles(holes) {
+            state.holes = holes ? holes.map(function(h) {
+                return h.map(function(v) { return [v[0], v[1]]; });
+            }) : [];
+            state.activeHole = null;
+            render();
         }
 
         function updateFromParams(params) {
@@ -987,7 +1429,7 @@ var ShapeCanvas = (function() {
                 var newParams = ShapeGeometry.extractParams(state.shapeType, state.vertices);
                 state.params = Object.assign({}, state.params, newParams);
             }
-            state.onParamsChange(state.params, state.vertices);
+            state.onParamsChange(state.params, state.vertices, state.holes);
         }
 
         function _round(val) {
@@ -999,174 +1441,96 @@ var ShapeCanvas = (function() {
         // ============================================
 
         function exportSVG() {
+            if (typeof C2S === 'undefined') {
+                console.warn('canvas2svg (C2S) not loaded — SVG export unavailable');
+                return '';
+            }
             var bbox = ShapeGeometry.calculateBbox(state.shapeType, state.params, state.vertices);
             if (bbox.width <= 0 || bbox.height <= 0) return '';
 
-            var bw = bbox.width;
-            var bh = bbox.height;
-            var tol = 0.5;
-            var fs = Math.max(5, Math.min(12, Math.min(bw, bh) * 0.15));
-            var tick = fs * 0.6;
-            var gap = fs * 0.4;
-            var levelH = fs * 2.2; // odstęp między poziomami klamerek
-            var pad = 5;
-            var col = '#888';
-            var colVertex = '#e67e22';
-            var sw = Math.max(0.3, fs * 0.12);
-            var guideCol = 'rgba(150,150,150,0.4)';
-            var guideSw = Math.max(0.3, sw * 0.8);
+            // Snapshot stanu view + visibility (SVG eksportujemy ZAWSZE w pełni —
+            // niezależnie od ustawień UI toggle eye)
+            var saved = {
+                scale: state.scale, offsetX: state.offsetX, offsetY: state.offsetY,
+                width: state.width, height: state.height,
+                visibility: Object.assign({}, state.visibility)
+            };
+            state.visibility = { dimensions: true, brackets: true, guides: true, angles: true };
 
-            // Helpery SVG klamerek
-            function hBracket(x1, x2, y, label, color, textAbove) {
-                var c = color || col;
-                var midX = (x1 + x2) / 2;
-                var by = y + gap;
-                var textY = textAbove ? (by - 2) : (by + tick + fs + 1);
-                return '<line x1="' + x1 + '" y1="' + by + '" x2="' + x1 + '" y2="' + (by + tick) + '" stroke="' + c + '" stroke-width="' + sw + '"/>'
-                    + '<line x1="' + x2 + '" y1="' + by + '" x2="' + x2 + '" y2="' + (by + tick) + '" stroke="' + c + '" stroke-width="' + sw + '"/>'
-                    + '<line x1="' + x1 + '" y1="' + (by + tick / 2) + '" x2="' + x2 + '" y2="' + (by + tick / 2) + '" stroke="' + c + '" stroke-width="' + sw + '"/>'
-                    + '<text x="' + midX + '" y="' + textY + '" text-anchor="middle" font-size="' + fs + '" fill="' + c + '" font-family="Poppins,sans-serif">' + label + '</text>';
-            }
-            // Klamerka pionowa — po prawej stronie
-            function vBracket(y1, y2, x, label, color) {
-                var c = color || col;
-                var midY = (y1 + y2) / 2;
-                var bx = x + gap;
-                return '<line x1="' + bx + '" y1="' + y1 + '" x2="' + (bx + tick) + '" y2="' + y1 + '" stroke="' + c + '" stroke-width="' + sw + '"/>'
-                    + '<line x1="' + bx + '" y1="' + y2 + '" x2="' + (bx + tick) + '" y2="' + y2 + '" stroke="' + c + '" stroke-width="' + sw + '"/>'
-                    + '<line x1="' + (bx + tick / 2) + '" y1="' + y1 + '" x2="' + (bx + tick / 2) + '" y2="' + y2 + '" stroke="' + c + '" stroke-width="' + sw + '"/>'
-                    + '<text x="' + (bx + tick + 2) + '" y="' + (midY + fs * 0.35) + '" font-size="' + fs + '" fill="' + c + '" font-family="Poppins,sans-serif">' + label + '</text>';
-            }
-            // Klamerka pionowa — po lewej stronie
-            function vBracketLeft(y1, y2, x, label, color) {
-                var c = color || col;
-                var midY = (y1 + y2) / 2;
-                var bx = x - gap;
-                return '<line x1="' + (bx - tick) + '" y1="' + y1 + '" x2="' + bx + '" y2="' + y1 + '" stroke="' + c + '" stroke-width="' + sw + '"/>'
-                    + '<line x1="' + (bx - tick) + '" y1="' + y2 + '" x2="' + bx + '" y2="' + y2 + '" stroke="' + c + '" stroke-width="' + sw + '"/>'
-                    + '<line x1="' + (bx - tick / 2) + '" y1="' + y1 + '" x2="' + (bx - tick / 2) + '" y2="' + y2 + '" stroke="' + c + '" stroke-width="' + sw + '"/>'
-                    + '<text x="' + (bx - tick - 2) + '" y="' + (midY + fs * 0.35) + '" text-anchor="end" font-size="' + fs + '" fill="' + c + '" font-family="Poppins,sans-serif">' + label + '</text>';
-            }
-
-            var shapeEl = '';
-            var guides = '';
-            var brackets = '';
-
-            if (state.shapeType === 'circle') {
-                var r = (state.params.diameter || 0) / 2;
-                var d = _round(state.params.diameter || 0) + '';
-                var totalW = bw + pad * 2;
-                var totalH = bh + pad * 2 + levelH;
-                shapeEl = '<circle cx="' + (r + pad) + '" cy="' + (r + pad) + '" r="' + r + '" fill="rgba(230,126,34,0.15)" stroke="#e67e22" stroke-width="1.5"/>';
-                brackets = hBracket(pad, pad + r * 2, pad + r * 2, '\u2300' + d);
-                return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ' + totalW + ' ' + totalH + '">' + shapeEl + brackets + '</svg>';
-            }
-
-            if (!state.vertices || state.vertices.length < 3) return '';
-
-            var verts = state.vertices;
-            var minX = verts.reduce(function(m, v) { return Math.min(m, v[0]); }, Infinity);
-            var minY = verts.reduce(function(m, v) { return Math.min(m, v[1]); }, Infinity);
-            var maxX = verts.reduce(function(m, v) { return Math.max(m, v[0]); }, -Infinity);
-            var maxY = verts.reduce(function(m, v) { return Math.max(m, v[1]); }, -Infinity);
-
-            // Zbierz unikalne X/Y wewnątrz bbox (nie w rogach) — rzuty wierzchołków
-            var innerXs = [];
-            var innerYs = [];
-            for (var vi = 0; vi < verts.length; vi++) {
-                var vx = verts[vi][0], vy = verts[vi][1];
-                if (Math.abs(vx - minX) > tol && Math.abs(vx - maxX) > tol) {
-                    var dup = false;
-                    for (var xi = 0; xi < innerXs.length; xi++) { if (Math.abs(innerXs[xi] - vx) < tol) { dup = true; break; } }
-                    if (!dup) innerXs.push(vx);
-                }
-                if (Math.abs(vy - minY) > tol && Math.abs(vy - maxY) > tol) {
-                    var dup2 = false;
-                    for (var yi = 0; yi < innerYs.length; yi++) { if (Math.abs(innerYs[yi] - vy) < tol) { dup2 = true; break; } }
-                    if (!dup2) innerYs.push(vy);
+            // Policz marginesy potrzebne na klamerki i wymiary (px)
+            var bracketCountX = 0, bracketCountY = 0;
+            var isSimple = (state.shapeType === 'rectangular' || state.shapeType === 'circle');
+            if (!isSimple && state.vertices) {
+                var bMinXc = state.vertices.reduce(function(m, v) { return Math.min(m, v[0]); }, Infinity);
+                var bMinYc = state.vertices.reduce(function(m, v) { return Math.min(m, v[1]); }, Infinity);
+                var bMaxXc = bMinXc + bbox.width, bMaxYc = bMinYc + bbox.height;
+                var bTol = 0.3;
+                for (var fi = 0; fi < state.vertices.length; fi++) {
+                    var fvx = state.vertices[fi][0], fvy = state.vertices[fi][1];
+                    if (Math.abs(fvx - bMinXc) > bTol && Math.abs(fvx - bMaxXc) > bTol) bracketCountX++;
+                    if (Math.abs(fvy - bMinYc) > bTol && Math.abs(fvy - bMaxYc) > bTol) bracketCountY++;
                 }
             }
-            innerXs.sort(function(a, b) { return a - b; });
-            innerYs.sort(function(a, b) { return a - b; });
+            var bracketSpacing = 28;
+            var extraRight = isSimple ? 30 : (bracketCountY * bracketSpacing + 30);
+            var extraTop = isSimple ? 30 : (bracketCountX * bracketSpacing + 40);
+            var extraBottom = 60;
+            var extraLeft = 60;
 
-            // Margines na klamerki: bbox (1 poziom) + wewnętrzne (po jednym na każdy rzut)
-            var topLevels = innerXs.length; // klamerki nad kształtem
-            var rightLevels = innerYs.length; // klamerki po prawej
-            var marginTop = (topLevels + 1) * levelH + pad;
-            var marginRight = rightLevels > 0 ? (rightLevels * levelH + pad) : pad;
-            var marginLeft = levelH + pad; // bbox klamerka wysokości po lewej
-            var oX = marginLeft; // offset X kształtu w SVG
-            var oY = marginTop; // offset Y (zostawiamy miejsce na klamerki u góry)
-            var totalW = bw + oX + pad + marginRight;
-            var totalH = bh + oY + pad + levelH; // + bbox klamerka na dole
+            // Policz scale tak, by content + marginesy zmieścił się w MAX wymiarach.
+            // SVG_W/H wyliczamy DYNAMICZNIE — ciasno otacza content (brak pustego zapasu).
+            var MAX_W = 1200, MAX_H = 900;
+            var scaleW = (MAX_W - extraLeft - extraRight) / bbox.width;
+            var scaleH = (MAX_H - extraTop - extraBottom) / bbox.height;
+            state.scale = Math.min(scaleW, scaleH);
+            state.scale = Math.max(0.1, Math.min(100, state.scale));
 
-            // Kształt (polygon) — flip Y
-            var pts = verts.map(function(v) {
-                return _round(v[0] - minX + oX) + ',' + _round(maxY - v[1] + oY);
-            }).join(' ');
-            shapeEl = '<polygon points="' + pts + '" fill="rgba(230,126,34,0.15)" stroke="#e67e22" stroke-width="1.5"/>';
+            var minX = 0, minY = 0;
+            if (state.vertices && state.vertices.length) {
+                minX = state.vertices.reduce(function(m, v) { return Math.min(m, v[0]); }, Infinity);
+                minY = state.vertices.reduce(function(m, v) { return Math.min(m, v[1]); }, Infinity);
+            }
+            var SVG_W = Math.ceil(bbox.width * state.scale + extraLeft + extraRight);
+            var SVG_H = Math.ceil(bbox.height * state.scale + extraTop + extraBottom);
+            state.width = SVG_W;
+            state.height = SVG_H;
+            state.offsetX = extraLeft - minX * state.scale;
+            state.offsetY = extraBottom - minY * state.scale;
 
-            // Bbox przerywany dla nieregularnych
-            if (state.shapeType !== 'rectangular') {
-                shapeEl += '<rect x="' + oX + '" y="' + oY + '" width="' + bw + '" height="' + bh + '" fill="none" stroke="#ccc" stroke-width="0.5" stroke-dasharray="2,2"/>';
+            // Swap ctx → canvas2svg (bez DPR setTransform, bez tła, bez gridu)
+            ctx = new C2S(SVG_W, SVG_H);
+            state._svgExportMode = true;
+            var svg = '';
+            try {
+                _renderShape();
+                svg = ctx.getSerializedSvg(true);
+            } catch (err) {
+                console.error('exportSVG render failed', err);
+                svg = '';
             }
 
-            // Linie prowadzące od wierzchołków do ich klamerek (przerywane)
-            for (var gi = 0; gi < verts.length; gi++) {
-                var gvx = verts[gi][0] - minX;
-                var gvy = maxY - verts[gi][1]; // flipped Y
-                var isCorner = (Math.abs(gvx) < tol || Math.abs(gvx - bw) < tol) && (Math.abs(gvy) < tol || Math.abs(gvy - bh) < tol);
-                if (isCorner) continue;
+            // Restore
+            state._svgExportMode = false;
+            ctx = realCtx;
+            state.scale = saved.scale;
+            state.offsetX = saved.offsetX;
+            state.offsetY = saved.offsetY;
+            state.width = saved.width;
+            state.height = saved.height;
+            state.visibility = saved.visibility;
 
-                var svgX = gvx + oX;
-                var svgY = gvy + oY;
+            if (!svg) return '';
 
-                // Linia w górę — do poziomu odpowiedniej klamerki
-                if (Math.abs(gvx) > tol && Math.abs(gvx - bw) > tol) {
-                    // Znajdź indeks tego X w innerXs
-                    var xIdx = -1;
-                    for (var xi2 = 0; xi2 < innerXs.length; xi2++) {
-                        if (Math.abs(innerXs[xi2] - verts[gi][0]) < tol) { xIdx = xi2; break; }
-                    }
-                    var guideTopY = oY - (xIdx + 1) * levelH;
-                    guides += '<line x1="' + svgX + '" y1="' + svgY + '" x2="' + svgX + '" y2="' + guideTopY + '" stroke="' + guideCol + '" stroke-width="' + guideSw + '" stroke-dasharray="2,2"/>';
-                }
-                // Linia w prawo — do pozycji odpowiedniej klamerki
-                if (Math.abs(gvy) > tol && Math.abs(gvy - bh) > tol) {
-                    // Znajdź indeks tego Y w innerYs (oryginalne Y)
-                    var origY = verts[gi][1];
-                    var yIdx = -1;
-                    for (var yi2 = 0; yi2 < innerYs.length; yi2++) {
-                        if (Math.abs(innerYs[yi2] - origY) < tol) { yIdx = yi2; break; }
-                    }
-                    var guideRightX = oX + bw + yIdx * levelH + gap + tick;
-                    guides += '<line x1="' + svgX + '" y1="' + svgY + '" x2="' + guideRightX + '" y2="' + svgY + '" stroke="' + guideCol + '" stroke-width="' + guideSw + '" stroke-dasharray="2,2"/>';
-                }
+            // canvas2svg dodaje width/height ale NIE viewBox — wstrzyknij viewBox + preserveAspectRatio,
+            // zostaw natural width/height (800×600). Skalowanie/maksymalne wymiary do CSS w miejscu osadzenia.
+            if (svg.indexOf('viewBox') === -1) {
+                svg = svg.replace(/<svg /,
+                    '<svg viewBox="0 0 ' + SVG_W + ' ' + SVG_H + '" preserveAspectRatio="xMidYMid meet" ');
             }
 
-            // Klamerki na górze (od lewego rogu bbox do rzutu wierzchołka) — pomarańczowe
-            for (var ti = 0; ti < innerXs.length; ti++) {
-                var dist = _round(innerXs[ti] - minX);
-                var lvlY = oY - (ti + 1) * levelH;
-                brackets += hBracket(oX, oX + dist, lvlY, dist + '', colVertex, true);
-            }
-
-            // Klamerki po prawej (od dolnego rogu bbox do rzutu wierzchołka) — pomarańczowe
-            for (var ri = 0; ri < innerYs.length; ri++) {
-                var distY = _round(innerYs[ri] - minY);
-                var svgDistY = bh - distY; // flipped
-                var lvlX = oX + bw + ri * levelH;
-                brackets += vBracket(oY + svgDistY, oY + bh, lvlX, distY + '', colVertex);
-            }
-
-            // Bbox klamerki (szare) — dolna (szerokość) i lewa (wysokość)
-            var bboxBottomY = oY + bh;
-            brackets += hBracket(oX, oX + bw, bboxBottomY, _round(bw) + '');
-            brackets += vBracketLeft(oY, oY + bh, oX, _round(bh) + '');
-
-            return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ' + totalW + ' ' + totalH + '">'
-                + guides + shapeEl + brackets + '</svg>';
+            return svg;
         }
+
 
         // ============================================
         // INIT
@@ -1195,10 +1559,40 @@ var ShapeCanvas = (function() {
             render();
         }
 
+        function setActiveTool(tool) {
+            if (tool !== 'cursor' && tool !== 'add' && tool !== 'remove') return;
+            state.activeTool = tool;
+            canvasElement.classList.remove('tool-cursor', 'tool-add', 'tool-remove');
+            canvasElement.classList.add('tool-' + tool);
+            // Anuluj activeHole przy zmianie narzędzia
+            if (state.activeHole) {
+                state.activeHole = null;
+                state.hoverHoleStart = false;
+                render();
+            }
+        }
+
+        function getActiveTool() {
+            return state.activeTool;
+        }
+
+        function setVisibility(key, value) {
+            if (!(key in state.visibility)) return;
+            state.visibility[key] = !!value;
+            try { localStorage.setItem('wp.canvas.visibility', JSON.stringify(state.visibility)); } catch (e) { /* ignore */ }
+            render();
+        }
+
+        function getVisibility() {
+            return Object.assign({}, state.visibility);
+        }
+
         return {
             setShape: setShape,
             updateFromParams: updateFromParams,
             getVertices: getVertices,
+            getHoles: getHoles,
+            setHoles: setHoles,
             getParams: getParams,
             fitToView: fitToView,
             undo: undo,
@@ -1212,6 +1606,10 @@ var ShapeCanvas = (function() {
             setOutOfRangeDims: setOutOfRangeDims,
             setLamellaDirection: function(deg) { state.lamellaDirection = deg; },
             getLamellaDirection: function() { return state.lamellaDirection; },
+            setActiveTool: setActiveTool,
+            getActiveTool: getActiveTool,
+            setVisibility: setVisibility,
+            getVisibility: getVisibility,
             destroy: function() { resizeObserver.disconnect(); }
         };
     }

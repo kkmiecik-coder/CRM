@@ -2013,9 +2013,10 @@
     background: #fff;
     border-radius: 12px;
     box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
-    max-width: 700px;
-    width: 90%;
-    max-height: 80vh;
+    max-width: 90vw;
+    max-height: 90vh;
+    display: flex;
+    flex-direction: column;
     overflow: hidden;
     animation: svgModalIn 0.2s ease-out;
 }
@@ -2070,9 +2071,9 @@
 }
 
 .svg-zoom-modal-body svg {
-    width: 100%;
+    width: min(80vw, 1000px);
     height: auto;
-    max-height: 60vh;
+    max-height: 75vh;
     display: block;
 }
 

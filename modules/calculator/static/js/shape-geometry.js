@@ -238,6 +238,24 @@ const ShapeGeometry = (function() {
         return Math.abs(area) / 2;
     }
 
+    function calculateAreaWithHoles(shapeType, params, vertices, holes) {
+        var outer = calculateArea(shapeType, params, vertices);
+        var holesArea = 0;
+        if (holes && holes.length) {
+            for (var i = 0; i < holes.length; i++) {
+                var h = holes[i];
+                if (h && h.length >= 3) {
+                    holesArea += _shoelaceArea(h);
+                }
+            }
+        }
+        return {
+            outer: outer,
+            holes: holesArea,
+            net: Math.max(0, outer - holesArea)
+        };
+    }
+
     // ============================================
     // BOUNDING BOX
     // ============================================
@@ -451,16 +469,96 @@ const ShapeGeometry = (function() {
     }
 
     // ============================================
+    // GEOMETRY HELPERS (point-in-polygon, segment intersect)
+    // ============================================
+
+    function pointInPolygon(px, py, ring) {
+        if (!ring || ring.length < 3) return false;
+        var inside = false;
+        var n = ring.length;
+        for (var i = 0, j = n - 1; i < n; j = i++) {
+            var xi = ring[i][0], yi = ring[i][1];
+            var xj = ring[j][0], yj = ring[j][1];
+            var intersect = ((yi > py) !== (yj > py))
+                && (px < (xj - xi) * (py - yi) / (yj - yi + 1e-12) + xi);
+            if (intersect) inside = !inside;
+        }
+        return inside;
+    }
+
+    function segmentsIntersect(p1, p2, p3, p4) {
+        function cross(o, a, b) {
+            return (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
+        }
+        var d1 = cross(p3, p4, p1);
+        var d2 = cross(p3, p4, p2);
+        var d3 = cross(p1, p2, p3);
+        var d4 = cross(p1, p2, p4);
+        if (((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0))
+            && ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0))) return true;
+        return false;
+    }
+
+    function ringSelfIntersects(ring) {
+        if (!ring || ring.length < 4) return false;
+        var n = ring.length;
+        for (var i = 0; i < n; i++) {
+            var a1 = ring[i];
+            var a2 = ring[(i + 1) % n];
+            for (var j = i + 2; j < n; j++) {
+                if (i === 0 && j === n - 1) continue;
+                var b1 = ring[j];
+                var b2 = ring[(j + 1) % n];
+                if (segmentsIntersect(a1, a2, b1, b2)) return true;
+            }
+        }
+        return false;
+    }
+
+    function ringsIntersect(ringA, ringB) {
+        if (!ringA || !ringB || ringA.length < 3 || ringB.length < 3) return false;
+        for (var i = 0; i < ringA.length; i++) {
+            var a1 = ringA[i];
+            var a2 = ringA[(i + 1) % ringA.length];
+            for (var j = 0; j < ringB.length; j++) {
+                var b1 = ringB[j];
+                var b2 = ringB[(j + 1) % ringB.length];
+                if (segmentsIntersect(a1, a2, b1, b2)) return true;
+            }
+        }
+        return false;
+    }
+
+    function holeInsideOuter(hole, outer) {
+        if (!hole || !outer) return false;
+        for (var i = 0; i < hole.length; i++) {
+            if (!pointInPolygon(hole[i][0], hole[i][1], outer)) return false;
+        }
+        return true;
+    }
+
+    // ============================================
     // BUILD shape_data OBJECT FOR PERSISTENCE
     // ============================================
 
-    function buildShapeData(shapeType, params, vertices) {
-        var area = calculateArea(shapeType, params, vertices);
+    function buildShapeData(shapeType, params, vertices, holes) {
+        var areaObj = calculateAreaWithHoles(shapeType, params, vertices, holes);
         var bbox = calculateBbox(shapeType, params, vertices);
+        var roundedHoles = [];
+        if (holes && holes.length) {
+            for (var hi = 0; hi < holes.length; hi++) {
+                if (holes[hi] && holes[hi].length >= 3) {
+                    roundedHoles.push(holes[hi].map(function(v) { return [_round(v[0]), _round(v[1])]; }));
+                }
+            }
+        }
         return {
             params: Object.assign({}, params),
             vertices: vertices ? vertices.map(function(v) { return [_round(v[0]), _round(v[1])]; }) : null,
-            real_area_cm2: _round(area),
+            holes: roundedHoles,
+            real_area_cm2: _round(areaObj.outer),
+            holes_area_cm2: _round(areaObj.holes),
+            net_area_cm2: _round(areaObj.net),
             bbox: bbox
         };
     }
@@ -473,12 +571,18 @@ const ShapeGeometry = (function() {
         SHAPE_CONFIG: SHAPE_CONFIG,
         generateVertices: generateVertices,
         calculateArea: calculateArea,
+        calculateAreaWithHoles: calculateAreaWithHoles,
         calculateBbox: calculateBbox,
         calculateEdgeLengths: calculateEdgeLengths,
         validate: validate,
         detectVariant: detectVariant,
         extractParams: extractParams,
-        buildShapeData: buildShapeData
+        buildShapeData: buildShapeData,
+        pointInPolygon: pointInPolygon,
+        segmentsIntersect: segmentsIntersect,
+        ringSelfIntersects: ringSelfIntersects,
+        ringsIntersect: ringsIntersect,
+        holeInsideOuter: holeInsideOuter
     };
 })();
 
