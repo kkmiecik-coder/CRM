@@ -25,6 +25,7 @@ from modules.production.services.label_print_service import StationNotAllowed
 from modules.production.services.station_heartbeat import record_heartbeat
 from modules.production.services.mobile_api_service import (
     STATION_STATUS_MAP,
+    STATUS_TO_STATION,
     compute_station_summary,
     device_can_access_station,
     get_app_version_info,
@@ -33,6 +34,7 @@ from modules.production.services.mobile_api_service import (
     parse_since_ts,
     register_device,
     require_device_token,
+    search_orders_global,
     serialize_order,
     stream_apk_response,
     update_order_quantity,
@@ -185,6 +187,57 @@ def station_orders(station_code):
         'count': len(items),
         'orders': [serialize_order(it, station_code=station_code) for it in items],
     }, etag)
+
+
+@mobile_api_bp.route('/orders/search', methods=['GET'])
+@require_device_token
+def orders_search():
+    """
+    GET /api/mobile/orders/search?q=<query>&limit=<n>
+
+    Globalne wyszukiwanie zamówień po wszystkich stanowiskach (bez
+    ograniczeń per device.station_code — operator może znaleźć "cudze"
+    zamówienie). Match tekstowy (internal_order_number, baselinker_order_id,
+    client_order_number, client_name) LUB wymiarowy (1-3 liczby cm, multiset
+    z tolerancją ±5 mm). Zwraca wszystkie pozycje pasujących zamówień,
+    każda z dodatkowym polem `current_station` (mapowanie current_status →
+    kod stanowiska, lub null gdy pozycja poza produkcją).
+    """
+    q_raw = request.args.get('q', '')
+    q = q_raw.strip()
+    if len(q) < 3:
+        return jsonify({'error': 'Query too short'}), 400
+
+    limit_raw = request.args.get('limit', '50').strip()
+    try:
+        limit = int(limit_raw)
+    except (TypeError, ValueError):
+        limit = 50
+    if limit < 1:
+        limit = 1
+    elif limit > 100:
+        limit = 100
+
+    try:
+        items, has_more, _total = search_orders_global(q, limit=limit)
+    except Exception as e:
+        logger.error("Mobile API global search failed", extra={
+            'q': q, 'limit': limit, 'error': str(e),
+        })
+        return jsonify({'error': 'search_failed', 'detail': str(e)}), 500
+
+    serialized = []
+    for it in items:
+        dto = serialize_order(it)
+        dto['current_station'] = STATUS_TO_STATION.get(it.current_status)
+        serialized.append(dto)
+
+    return jsonify({
+        'query': q,
+        'count': len(serialized),
+        'has_more': has_more,
+        'orders': serialized,
+    }), 200
 
 
 @mobile_api_bp.route('/orders/<int:order_id>', methods=['GET'])

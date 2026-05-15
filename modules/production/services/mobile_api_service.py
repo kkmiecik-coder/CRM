@@ -82,6 +82,10 @@ STATION_COMPLETED_AT_FIELD = {
     'painting': 'painting_completed_at',
 }
 
+# Odwrotne mapowanie current_status → station_code (dla globalnego search,
+# żeby UI wiedział na którym stanowisku aktualnie wisi pozycja).
+STATUS_TO_STATION = {v: k for k, v in STATION_STATUS_MAP.items()}
+
 # Aliasy stanowisk — urządzenie zarejestrowane jako jedno z poniższych może
 # operować na pozostałych z tego samego zbioru. Tablet w wykańczalni rejestruje
 # się jako `finishing`, ale w UI ma TabBar z dwiema zakładkami (Produkcja /
@@ -448,6 +452,217 @@ def register_device(device_id, device_name, station_code):
     db.session.commit()
     token = generate_token(device)
     return device, token
+
+
+# ============================================================================
+# GLOBALNE WYSZUKIWANIE ZAMÓWIEŃ (mobile)
+# ============================================================================
+
+import re
+
+DIMENSION_TOLERANCE_MM = 5
+
+# Akceptujemy x, X, ×, * lub białe znaki jako separator między liczbami.
+# Liczby z kropką lub przecinkiem jako separatorem dziesiętnym.
+_DIM_TOKEN_RE = re.compile(r'^-?\d+(?:[.,]\d+)?$')
+_DIM_SPLIT_RE = re.compile(r'[xX×*\s]+')
+
+
+def parse_dimension_query(query):
+    """
+    Parsuje query jako 1-3 liczby (cm) → posortowana lista wymiarów w mm.
+
+    Zwraca None gdy query nie wygląda na zapytanie wymiarowe (np. zawiera
+    litery inne niż x/X poza separatorami). Lista pusta jest niemożliwa —
+    zwracamy None w takim przypadku.
+
+    Identyczna logika jak StationSearchDialog.kt#parseDimensionQuery w
+    crm_prod_app — zachowanie 1:1 (multiset matching + tolerancja ±5 mm
+    aplikowane potem w `_match_item_dimensions`).
+    """
+    if not query:
+        return None
+    raw = query.strip()
+    if not raw:
+        return None
+    tokens = [t for t in _DIM_SPLIT_RE.split(raw) if t]
+    if not tokens or len(tokens) > 3:
+        return None
+    mm_values = []
+    for tok in tokens:
+        if not _DIM_TOKEN_RE.match(tok):
+            return None
+        try:
+            cm = float(tok.replace(',', '.'))
+        except ValueError:
+            return None
+        if cm <= 0:
+            return None
+        mm_values.append(int(round(cm * 10)))
+    mm_values.sort()
+    return mm_values
+
+
+def _match_item_dimensions(item, query_mm_sorted):
+    """
+    Greedy multiset match — dla każdej liczby z query szuka najmniejszej
+    wolnej osi (length/width/thickness) w tolerancji ±5 mm.
+    """
+    axes_cm = [
+        item.parsed_length_cm,
+        item.parsed_width_cm,
+        item.parsed_thickness_cm,
+    ]
+    axes_mm = sorted(
+        [int(round(float(a) * 10)) for a in axes_cm if a is not None]
+    )
+    if not axes_mm:
+        return False
+    used = [False] * len(axes_mm)
+    for q in query_mm_sorted:
+        lo, hi = q - DIMENSION_TOLERANCE_MM, q + DIMENSION_TOLERANCE_MM
+        picked = -1
+        for i, axis in enumerate(axes_mm):
+            if used[i]:
+                continue
+            if lo <= axis <= hi:
+                picked = i
+                break
+        if picked == -1:
+            return False
+        used[picked] = True
+    return True
+
+
+def search_orders_global(query, limit=50):
+    """
+    Globalne wyszukiwanie zamówień (po wszystkich stanowiskach).
+
+    Etapy:
+      1. Parsuj query — czy wygląda na wymiary?
+      2. SQL: szeroki pre-filter — text ILIKE OR (luźny zakres wymiarów).
+         Dla wymiarów pre-filtr zwraca pozycje gdzie którakolwiek z osi
+         mieści się w [min(q)-5, max(q)+5]; właściwy multiset-match
+         robimy w Pythonie.
+      3. Python: dopasuj wymiarowo (multiset, tolerancja ±5 mm).
+      4. Zbierz internal_order_number pasujących pozycji, posortuj po
+         priority_rank ASC NULLS LAST, internal_order_number.
+      5. Po przycięciu do `limit` zamówień dociągnij WSZYSTKIE pozycje
+         z tych zamówień.
+
+    Zwraca: (items_list, has_more, total_matching_orders).
+    `items_list` — lista ProductionItem (z joinedload(order, configuration)).
+    `has_more` — True gdy total_matching_orders > limit.
+    """
+    from sqlalchemy import or_, and_, cast, String
+
+    # Klauzule SQL — szeroki kandydat.
+    from modules.production.models import ProductionOrder  # local import — unika cykli
+
+    q = (query or '').strip()
+    like = f'%{q}%'
+    text_clauses = [
+        ProductionOrder.internal_order_number.ilike(like),
+        cast(ProductionOrder.baselinker_order_id, String).ilike(like),
+        ProductionOrder.client_order_number.ilike(like),
+        ProductionOrder.client_name.ilike(like),
+    ]
+
+    dim_mm_sorted = parse_dimension_query(q)
+    dim_clauses = []
+    if dim_mm_sorted:
+        lo = min(dim_mm_sorted) - DIMENSION_TOLERANCE_MM
+        hi = max(dim_mm_sorted) + DIMENSION_TOLERANCE_MM
+        # Numeric * 10 → mm
+        lo_cm = lo / 10.0
+        hi_cm = hi / 10.0
+        dim_clauses = [
+            and_(ProductionItem.parsed_length_cm.isnot(None),
+                 ProductionItem.parsed_length_cm.between(lo_cm, hi_cm)),
+            and_(ProductionItem.parsed_width_cm.isnot(None),
+                 ProductionItem.parsed_width_cm.between(lo_cm, hi_cm)),
+            and_(ProductionItem.parsed_thickness_cm.isnot(None),
+                 ProductionItem.parsed_thickness_cm.between(lo_cm, hi_cm)),
+        ]
+
+    candidate_filter = or_(*text_clauses, *dim_clauses)
+
+    candidates = db.session.query(ProductionItem).options(
+        joinedload(ProductionItem.order),
+        joinedload(ProductionItem.configuration),
+    ).join(
+        ProductionOrder, ProductionItem.order_id == ProductionOrder.id,
+    ).filter(candidate_filter).all()
+
+    # Sprawdź czy pozycja pasuje TEXT-em (na poziomie order) lub wymiarowo.
+    # Pre-filter SQL mógł zwrócić pozycje, które same nie pasują wymiarowo,
+    # ale pasuje TEXT na ich zamówieniu — wtedy też ok.
+    q_lower = q.lower()
+    def _text_match(item):
+        order = item.order
+        if not order:
+            return False
+        if order.internal_order_number and q_lower in order.internal_order_number.lower():
+            return True
+        if order.baselinker_order_id is not None and q_lower in str(order.baselinker_order_id):
+            return True
+        if order.client_order_number and q_lower in order.client_order_number.lower():
+            return True
+        if order.client_name and q_lower in order.client_name.lower():
+            return True
+        return False
+
+    matching_order_ids = set()
+    for item in candidates:
+        if not item.order:
+            continue
+        text_ok = _text_match(item)
+        dim_ok = bool(dim_mm_sorted) and _match_item_dimensions(item, dim_mm_sorted)
+        if text_ok or dim_ok:
+            matching_order_ids.add(item.order_id)
+
+    if not matching_order_ids:
+        return [], False, 0
+
+    # Sortuj zamówienia po (priority_rank ASC NULLS LAST, internal_order_number).
+    # Priorytet zamówienia = MIN(priority_rank) jego pozycji.
+    NULLS_LAST = 999999
+    order_min_prio = {}
+    order_internal_no = {}
+    for item in candidates:
+        if item.order_id not in matching_order_ids:
+            continue
+        rank = item.priority_rank if item.priority_rank is not None else NULLS_LAST
+        if item.order_id not in order_min_prio or rank < order_min_prio[item.order_id]:
+            order_min_prio[item.order_id] = rank
+        if item.order and item.order_id not in order_internal_no:
+            order_internal_no[item.order_id] = item.order.internal_order_number or ''
+
+    sorted_order_ids = sorted(
+        matching_order_ids,
+        key=lambda oid: (order_min_prio.get(oid, NULLS_LAST), order_internal_no.get(oid, '')),
+    )
+    total_orders = len(sorted_order_ids)
+    has_more = total_orders > limit
+    selected_order_ids = sorted_order_ids[:limit]
+
+    if not selected_order_ids:
+        return [], has_more, total_orders
+
+    # Pełne pozycje dla wybranych zamówień — łącznie z tymi które nie pasują
+    # do query (UI grupuje per internal_order_number i pokazuje całą grupę).
+    items = db.session.query(ProductionItem).options(
+        joinedload(ProductionItem.order),
+        joinedload(ProductionItem.configuration),
+    ).filter(
+        ProductionItem.order_id.in_(selected_order_ids),
+    ).order_by(
+        func.coalesce(ProductionItem.priority_rank, NULLS_LAST).asc(),
+        ProductionItem.order_id.asc(),
+        ProductionItem.product_sequence_in_order.asc(),
+    ).all()
+
+    return items, has_more, total_orders
 
 
 # ============================================================================
