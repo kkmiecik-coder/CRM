@@ -716,6 +716,7 @@ class QuoteItemDetails(db.Model):
     edges_angle_value = db.Column(db.Integer, nullable=True)
     edges_price_netto = db.Column(db.Numeric(10, 2), default=0)
     edges_price_brutto = db.Column(db.Numeric(10, 2), default=0)
+    edges_mode = db.Column(db.String(16), nullable=True)  # 'basic' | 'advanced' | NULL (legacy=basic)
     edges_svg = db.Column(db.Text, nullable=True)
     baselinker_order_product_id = db.Column(db.Integer, nullable=True,
                                             comment='ID produktu z BaseLinker getOrders — do matchowania z ProductionItem')
@@ -754,6 +755,7 @@ class QuoteItemDetails(db.Model):
             'edges_angle_value': self.edges_angle_value,
             'edges_price_netto': float(self.edges_price_netto) if self.edges_price_netto else 0.0,
             'edges_price_brutto': float(self.edges_price_brutto) if self.edges_price_brutto else 0.0,
+            'edges_mode': self.edges_mode,
             'edges_svg': self.edges_svg,
             'shape': self.shape or 'rectangular',
             'round_surcharge_netto': float(self.round_surcharge_netto) if self.round_surcharge_netto else 0.0,

@@ -314,6 +314,7 @@ def _update_or_create_product(quote, product_data):
         edges_price_netto = edges_raw.get('netto', 0)
         edges_price_brutto = edges_raw.get('brutto', 0)
         edges_svg = edges_raw.get('svg')
+        edges_mode = edges_raw.get('mode')
     else:
         edges_config = edges_raw if isinstance(edges_raw, list) and edges_raw else None
         edges_type = product_data.get('edges_type')
@@ -322,6 +323,7 @@ def _update_or_create_product(quote, product_data):
         edges_price_netto = product_data.get('edges_netto', 0)
         edges_price_brutto = product_data.get('edges_brutto', 0)
         edges_svg = product_data.get('edges_svg')
+        edges_mode = product_data.get('edges_mode')
 
     if detail:
         detail.quantity = quantity
@@ -338,6 +340,7 @@ def _update_or_create_product(quote, product_data):
         detail.edges_price_netto = edges_price_netto
         detail.edges_price_brutto = edges_price_brutto
         detail.edges_svg = edges_svg
+        detail.edges_mode = edges_mode
         detail.shape = shape
         detail.shape_data = shape_data_json
         detail.shape_svg = shape_svg
@@ -363,6 +366,7 @@ def _update_or_create_product(quote, product_data):
             edges_price_netto=edges_price_netto,
             edges_price_brutto=edges_price_brutto,
             edges_svg=edges_svg,
+            edges_mode=edges_mode,
             shape=shape,
             shape_data=shape_data_json,
             shape_svg=shape_svg,
