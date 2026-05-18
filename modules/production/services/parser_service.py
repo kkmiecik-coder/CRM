@@ -373,6 +373,7 @@ class ProductNameParser:
             result['edge_radius'] = edge_data.get('edge_radius')
             result['edge_angle'] = edge_data.get('edge_angle')
             result['edge_letters'] = edge_data.get('edge_letters')
+            result['edges_groups'] = edge_data.get('edges_groups', [])
 
             # 6. Parsowanie klasy drewna
             wood_class = self._parse_wood_class(normalized_name)
@@ -563,35 +564,36 @@ class ProductNameParser:
 
     def _parse_edge_processing(self, name: str) -> dict:
         """
-        Parsuje obróbkę krawędzi z nazwy produktu.
+        Parsuje obróbkę krawędzi z nazwy produktu — wspiera multi-group (tryb Zaawansowany).
 
-        Wykrywane wzorce:
-          zaokrąglenie R3 (A)
-          fazowanie R3 45° E, F, G, H
-          zaokrąglenie R30 (N4, N2, N1, N3)
-          zaokrąglenie R3 (G1, G2, G3, D1, D2, D3, P1, P2, P3)
+        Wykrywa wiele grup rozdzielonych `; ` lub innym separatorem:
+          "zaokrąglenie R3 (A, B); fazowanie R5 45° (C, D); zaokrąglenie R10 (E)"
 
         Returns:
-            dict: {
+            {
                 'has_edge': bool,
-                'edge_type': str|None,
-                'edge_radius': int|None,
+                'edges_groups': [
+                    {'type': 'zaokrąglenie'|'fazowanie', 'radius': int, 'angle': int|None, 'letters': [str]},
+                    ...
+                ],
+                # legacy:
+                'edge_type': 'zaokrąglenie'|'fazowanie'|'mixed'|None,
+                'edge_radius': int|None,    # NULL gdy >1 grupa
                 'edge_angle': int|None,
-                'edge_letters': list|None
+                'edge_letters': [str]|None, # union liter ze wszystkich grup
             }
         """
         import re
 
         result = {
             'has_edge': False,
+            'edges_groups': [],
             'edge_type': None,
             'edge_radius': None,
             'edge_angle': None,
             'edge_letters': None,
         }
 
-        # Główny wzorzec: typ + R + opcjonalny kąt + krawędzie
-        # Uwaga: [GDPN]\d+ musi być PRZED [A-H] żeby uniknąć pochłonięcia pierwszej litery
         pattern = (
             r'(zaokr[aą]glenie|fazowanie)\s+'
             r'R(\d+)\s*'
@@ -601,19 +603,39 @@ class ProductNameParser:
             r'\s*[\)]?'
         )
 
-        match = re.search(pattern, name, re.IGNORECASE)
-        if match:
+        matches = list(re.finditer(pattern, name, re.IGNORECASE))
+
+        if matches:
             result['has_edge'] = True
-            edge_type_raw = match.group(1).lower()
-            if edge_type_raw.startswith('zaokr'):
-                result['edge_type'] = 'zaokrąglenie'
+            groups = []
+            for m in matches:
+                type_raw = m.group(1).lower()
+                type_norm = 'zaokrąglenie' if type_raw.startswith('zaokr') else 'fazowanie'
+                radius = int(m.group(2))
+                angle = int(m.group(3)) if m.group(3) else None
+                letters = [l.strip().upper() for l in m.group(4).split(',')]
+                groups.append({'type': type_norm, 'radius': radius, 'angle': angle, 'letters': letters})
+
+            result['edges_groups'] = groups
+
+            union_letters = []
+            seen = set()
+            for g in groups:
+                for l in g['letters']:
+                    if l not in seen:
+                        seen.add(l)
+                        union_letters.append(l)
+            result['edge_letters'] = union_letters
+
+            if len(groups) == 1:
+                g0 = groups[0]
+                result['edge_type'] = g0['type']
+                result['edge_radius'] = g0['radius']
+                result['edge_angle'] = g0['angle']
             else:
-                result['edge_type'] = 'fazowanie'
-            result['edge_radius'] = int(match.group(2))
-            if match.group(3):
-                result['edge_angle'] = int(match.group(3))
-            letters_raw = match.group(4)
-            result['edge_letters'] = [l.strip().upper() for l in letters_raw.split(',')]
+                result['edge_type'] = 'mixed'
+                # edge_radius / edge_angle pozostają None
+
             return result
 
         # Fallback: proste wykrywanie słów kluczowych (zachowanie wstecznej kompatybilności)
