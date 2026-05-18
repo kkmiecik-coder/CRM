@@ -736,9 +736,9 @@ var ShapeCanvas = (function() {
 
             // Clamp pozycji wzdłuż krawędzi (parametr t: 0=p1, 1=p2)
             // Oblicz t dla którego label jest w widocznym obszarze
+            var bestT = 0.5;
             if (edgeId && len > 10) {
                 // Znajdź zakres t dla którego punkt na krawędzi + offset mieści się w canvasie
-                var bestT = 0.5; // domyślnie środek
                 var candidateX = p1[0] + bestT * dx + nx;
                 var candidateY = p1[1] + bestT * dy + ny;
 
@@ -773,6 +773,28 @@ var ShapeCanvas = (function() {
                 // Finalny clamp do granic canvasu
                 labelX = Math.max(pad, Math.min(state.width - pad, labelX));
                 labelY = Math.max(pad, Math.min(state.height - pad, labelY));
+            }
+
+            // Detekcja kolizji label krawędzi outer ring z label bbox/Formatka
+            // (flip TYLKO dla outer ring — edgeId zaczyna się od 'G', np. G1, G2, G3)
+            var isOuterRingLabel = edgeId && edgeId.charAt(0) === 'G';
+            if (isOuterRingLabel && state._bboxLabelBoxes && state._bboxLabelBoxes.length > 0) {
+                var collides = false;
+                for (var bi = 0; bi < state._bboxLabelBoxes.length; bi++) {
+                    var b = state._bboxLabelBoxes[bi];
+                    if (Math.abs(labelX - b.x) < COLLISION_RADIUS &&
+                        Math.abs(labelY - b.y) < COLLISION_RADIUS) {
+                        collides = true;
+                        break;
+                    }
+                }
+                if (collides) {
+                    // Flip na wewnętrzną stronę krawędzi: zamień znak normalnej (nx, ny)
+                    labelX = p1[0] + bestT * dx - nx;
+                    labelY = p1[1] + bestT * dy - ny;
+                    labelX = Math.max(pad, Math.min(state.width - pad, labelX));
+                    labelY = Math.max(pad, Math.min(state.height - pad, labelY));
+                }
             }
 
             // Jeśli to label bbox (Formatka), zapisz pozycję do detekcji kolizji
