@@ -39,11 +39,6 @@ certifi==2025.1.31
 charset-normalizer==2.0.12
 idna==3.10
 
-# Scheduler
-APScheduler==3.10.4
-tzlocal==5.3.1
-tzdata==2025.2
-
 # DXF / CNC
 ezdxf>=1.0.0
 
