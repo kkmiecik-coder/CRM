@@ -599,7 +599,7 @@ var ShapeCanvas = (function() {
                     // sin(kąt/2) * angleRadius > ~12px → angleRadius > 12 / sin(kąt/2).
                     var safeAngle = Math.max(2, angleDeg);
                     var edgeClearance = 12 / Math.sin(safeAngle / 2 * Math.PI / 180);
-                    var angleRadius = Math.min(90, Math.max(r + 22, edgeClearance));
+                    var angleRadius = Math.min(95, Math.max(r + 32, edgeClearance));
                     var tx = cPx[0] + Math.cos(midAng) * angleRadius;
                     var ty = cPx[1] + Math.sin(midAng) * angleRadius;
 
