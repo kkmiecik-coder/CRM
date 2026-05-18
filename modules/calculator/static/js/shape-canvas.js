@@ -575,7 +575,7 @@ var ShapeCanvas = (function() {
                     var startAng = Math.atan2(-scrInY, -scrInX); // wektor od curr w stronę prev (na ekranie)
                     var endAng = Math.atan2(scrOutY, scrOutX);   // wektor od curr w stronę next (na ekranie)
                     var _safeAngForArc = Math.max(2, angleDeg);
-                    var r = Math.min(45, Math.max(14, 5 / Math.sin(_safeAngForArc / 2 * Math.PI / 180)));
+                    var r = Math.min(55, Math.max(24, 8 / Math.sin(_safeAngForArc / 2 * Math.PI / 180)));
 
                     // Wybierz kierunek łuku po krótszej stronie (ta będzie po stronie wnętrza)
                     var diff = endAng - startAng;
