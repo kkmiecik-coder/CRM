@@ -731,23 +731,33 @@ class BaselinkerSyncService:
             Dict z kluczami 'title' i 'url' lub None
         """
         try:
-            custom_fields = order_data.get('custom_extra_fields', {})
-            if not custom_fields or not isinstance(custom_fields, dict):
-                return None
+            custom_fields = order_data.get('custom_extra_fields')
+            if not isinstance(custom_fields, dict):
+                custom_fields = {}
 
-            # Znane ID pola załącznika (sprawdzane jako pierwsze dla back-compat),
-            # następnie fallback: dowolne custom_extra_field o strukturze {title, url}
+            # BL trzyma pola custom albo w custom_extra_fields (ID jako klucz),
+            # albo top-level w order_data jako "extra_field_<ID>" — szukamy w obu.
+            candidates = []
+
+            # 1) custom_extra_fields: znane ID najpierw (back-compat)
             ATTACHMENT_FIELD_IDS = ['56476']
-            candidate_keys = ATTACHMENT_FIELD_IDS + [
-                k for k in custom_fields.keys() if k not in ATTACHMENT_FIELD_IDS
-            ]
+            for fid in ATTACHMENT_FIELD_IDS:
+                if fid in custom_fields:
+                    candidates.append((f'custom_extra_fields.{fid}', custom_fields[fid]))
+            for k, v in custom_fields.items():
+                if k not in ATTACHMENT_FIELD_IDS:
+                    candidates.append((f'custom_extra_fields.{k}', v))
 
-            for key in candidate_keys:
-                attachment_data = custom_fields.get(key)
-                if not (attachment_data and isinstance(attachment_data, dict)):
+            # 2) top-level extra_field_* (np. extra_field_56476)
+            for k, v in order_data.items():
+                if isinstance(k, str) and k.startswith('extra_field_'):
+                    candidates.append((k, v))
+
+            for key, value in candidates:
+                if not (value and isinstance(value, dict)):
                     continue
-                title = (attachment_data.get('title') or '').strip()
-                url = (attachment_data.get('url') or '').strip()
+                title = (value.get('title') or '').strip()
+                url = (value.get('url') or '').strip()
                 if url:
                     logger.info("Znaleziono załącznik w zamówieniu", extra={
                         'order_id': order_data.get('order_id'),
