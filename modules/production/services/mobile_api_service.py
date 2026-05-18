@@ -742,12 +742,22 @@ def serialize_order(item, station_code=None):
     if item.parsed_edge_processing:
         from modules.calculator.services.edge_calculator import human_edge_label
         raw_letters = item.parsed_edge_letters or []
+        raw_groups = item.parsed_edges_groups or []
         edge = {
             'type': item.parsed_edge_type,
             'radius': item.parsed_edge_radius,
             'angle': item.parsed_edge_angle,
             'letters': raw_letters,
             'letters_labeled': [human_edge_label(l) for l in raw_letters],
+            # Multi-group (tryb Zaawansowany) — lista grup {type, radius, angle, letters}.
+            # Pusta lista = legacy single-group (użyj pól type/radius/angle/letters powyżej jako fallback).
+            'groups': [
+                {
+                    **g,
+                    'letters_labeled': [human_edge_label(l) for l in (g.get('letters') or [])],
+                }
+                for g in raw_groups
+            ],
         }
 
     quantity_done = None
