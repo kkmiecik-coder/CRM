@@ -673,3 +673,71 @@
 }
 
 
+
+/* ============================================
+   TABS: Podstawowy / Zaawansowany
+   ============================================ */
+.edges-tabs-bar {
+    display: flex;
+    gap: 0;
+    border-bottom: 1px solid #e0e0e0;
+    padding: 0 16px;
+    align-items: center;
+}
+.edges-tab {
+    padding: 12px 20px;
+    background: transparent;
+    border: none;
+    border-bottom: 3px solid transparent;
+    cursor: pointer;
+    font-size: 14px;
+    color: #666;
+    transition: color .15s, border-color .15s;
+}
+.edges-tab.active {
+    color: #ED6B24;
+    border-bottom-color: #ED6B24;
+    font-weight: 600;
+}
+.edges-tab:hover:not(.active) {
+    color: #333;
+}
+.edges-tab-reset {
+    margin-left: auto;
+    padding: 6px 14px;
+    background: #f5f5f5;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 12px;
+}
+.edges-tab-reset:hover { background: #ED6B24; color: white; border-color: #ED6B24; }
+.edges-basic-disabled-banner {
+    background: #fff3cd; color: #856404; padding: 10px 14px;
+    border-left: 4px solid #ffc107; border-radius: 4px;
+    margin: 12px 0; font-size: 13px;
+}
+.edges-basic-panel-disabled { opacity: .4; pointer-events: none; }
+.edges-advanced-top {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 16px;
+    padding: 16px 0; border-bottom: 1px solid #eee;
+}
+.edges-advanced-controls { display: flex; flex-direction: column; gap: 12px; }
+.edges-advanced-import {
+    padding: 8px 14px; background: #f0f0f0; border: 1px solid #ddd;
+    border-radius: 4px; cursor: pointer; font-size: 13px;
+}
+.edges-advanced-bulk { display: flex; gap: 6px; align-items: center; font-size: 13px; flex-wrap: wrap; }
+.edges-advanced-bulk select, .edges-advanced-bulk input { padding: 4px 6px; }
+.edges-advanced-list { max-height: 360px; overflow-y: auto; padding-top: 12px; }
+.edges-advanced-row {
+    display: grid;
+    grid-template-columns: 28px 1fr 110px 70px 70px 80px 20px;
+    gap: 8px; align-items: center;
+    padding: 8px 6px; border-bottom: 1px solid #f0f0f0;
+}
+.edges-advanced-row.highlight { background: #fff5ec; }
+.edges-advanced-row .edge-letter { font-weight: 600; color: #ED6B24; }
+.edges-advanced-row .edge-name { font-size: 13px; color: #555; }
+.edges-advanced-row .edge-price { font-size: 12px; text-align: right; color: #333; }
+.edges-advanced-row select, .edges-advanced-row input { padding: 4px 6px; font-size: 12px; }

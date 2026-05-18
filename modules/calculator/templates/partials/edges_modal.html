@@ -6,7 +6,18 @@
             <button type="button" class="edges-modal-close" id="closeEdgesModal">&times;</button>
         </div>
 
+        <div class="edges-tabs-bar">
+            <button type="button" class="edges-tab active" data-tab="basic">Podstawowy</button>
+            <button type="button" class="edges-tab" data-tab="advanced">Zaawansowany</button>
+            <button type="button" class="edges-tab-reset" id="edgesTabReset" title="Resetuj aktywną zakładkę">Reset</button>
+        </div>
+
         <div class="edges-modal-body">
+            <!-- Panel Podstawowy -->
+            <div class="edges-tab-panel" data-panel="basic">
+                <div class="edges-basic-disabled-banner" id="edgesBasicDisabledBanner" style="display:none;">
+                    Konfiguracja zaawansowana zawiera różne typy/promienie. Zresetuj zakładkę „Zaawansowany", aby pracować w Podstawowym.
+                </div>
             <!-- Sekcja górna: Wizualizacja + Opcje -->
             <div class="edges-top-section">
                 <!-- Wizualizacja SVG -->
@@ -262,6 +273,37 @@
                             <span class="edges-length" data-dimension="thickness">(0 cm)</span>
                         </label>
                     </div>
+                </div>
+            </div>
+            </div><!-- /panel basic -->
+
+            <!-- Panel Zaawansowany -->
+            <div class="edges-tab-panel" data-panel="advanced" style="display:none;">
+                <div class="edges-advanced-top">
+                    <div class="edges-visualization" id="edgesAdvancedVisualization">
+                        <!-- SVG renderowany przez JS (klon basic SVG z kolorowaniem per typ) -->
+                    </div>
+                    <div class="edges-advanced-controls">
+                        <button type="button" class="edges-advanced-import" id="edgesAdvancedImport">
+                            Skopiuj z Podstawowego
+                        </button>
+                        <div class="edges-advanced-bulk">
+                            <label>Ustaw wszystkim:</label>
+                            <select id="edgesAdvancedBulkType">
+                                <option value="sharp">Ostra</option>
+                                <option value="round" selected>Zaokrąglenie</option>
+                                <option value="chamfer">Fazowanie</option>
+                            </select>
+                            <input type="number" id="edgesAdvancedBulkR" min="3" max="20" value="5" style="width:60px;">
+                            <select id="edgesAdvancedBulkAngle" style="display:none;">
+                                <!-- wypełniane dynamicznie -->
+                            </select>
+                            <button type="button" id="edgesAdvancedBulkApply">Zastosuj</button>
+                        </div>
+                    </div>
+                </div>
+                <div class="edges-advanced-list" id="edgesAdvancedList">
+                    <!-- Wiersze per-edge renderowane przez JS -->
                 </div>
             </div>
         </div>
