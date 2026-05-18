@@ -775,8 +775,13 @@ var ShapeCanvas = (function() {
                 labelY = Math.max(pad, Math.min(state.height - pad, labelY));
             }
 
+            // Jeśli to label bbox (Formatka), zapisz pozycję do detekcji kolizji
+            if (edgeId === 'Formatka' && state._bboxLabelBoxes) {
+                state._bboxLabelBoxes.push({ x: labelX, y: labelY });
+            }
+
             // Wymiar
-            ctx.font = '11px sans-serif';
+            ctx.font = _fontPx(13) + 'px sans-serif';
             ctx.fillStyle = colorOverride || '#e67e22';
             ctx.textAlign = 'center';
             ctx.textBaseline = 'bottom';
@@ -784,7 +789,7 @@ var ShapeCanvas = (function() {
 
             // Oznaczenie boku (G1, G2...) — pod wymiarem
             if (edgeId) {
-                ctx.font = 'bold 10px sans-serif';
+                ctx.font = 'bold ' + _fontPx(11) + 'px sans-serif';
                 ctx.fillStyle = colorOverride ? colorOverride : 'rgba(230, 126, 34, 0.6)';
                 ctx.textBaseline = 'top';
                 ctx.fillText(edgeId, labelX, labelY + 2);
