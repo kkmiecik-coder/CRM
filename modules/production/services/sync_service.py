@@ -1792,7 +1792,8 @@ class BaselinkerSyncService:
                 'token': self.api_key,
                 'method': 'getOrders',
                 'parameters': json.dumps({
-                    'order_id': order_id
+                    'order_id': order_id,
+                    'include_custom_extra_fields': True
                 })
             }
 
