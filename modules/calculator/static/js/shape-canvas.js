@@ -415,6 +415,7 @@ var ShapeCanvas = (function() {
         }
 
         function _renderShape() {
+            state._bboxLabelBoxes = [];
             if (state.shapeType === 'circle') {
                 _renderEllipse();
                 return;
