@@ -735,22 +735,27 @@ class BaselinkerSyncService:
             if not custom_fields or not isinstance(custom_fields, dict):
                 return None
 
-            # ID pola załącznika w Baselinker
-            ATTACHMENT_FIELD_ID = '56476'
+            # Znane ID pola załącznika (sprawdzane jako pierwsze dla back-compat),
+            # następnie fallback: dowolne custom_extra_field o strukturze {title, url}
+            ATTACHMENT_FIELD_IDS = ['56476']
+            candidate_keys = ATTACHMENT_FIELD_IDS + [
+                k for k in custom_fields.keys() if k not in ATTACHMENT_FIELD_IDS
+            ]
 
-            attachment_data = custom_fields.get(ATTACHMENT_FIELD_ID)
-
-            if attachment_data and isinstance(attachment_data, dict):
-                title = attachment_data.get('title', '').strip()
-                url = attachment_data.get('url', '').strip()
-
-                if title and url:
+            for key in candidate_keys:
+                attachment_data = custom_fields.get(key)
+                if not (attachment_data and isinstance(attachment_data, dict)):
+                    continue
+                title = (attachment_data.get('title') or '').strip()
+                url = (attachment_data.get('url') or '').strip()
+                if url:
                     logger.info("Znaleziono załącznik w zamówieniu", extra={
                         'order_id': order_data.get('order_id'),
+                        'field_id': key,
                         'attachment_name': title,
                         'attachment_url': url[:100]
                     })
-                    return {'title': title, 'url': url}
+                    return {'title': title or url.rsplit('/', 1)[-1], 'url': url}
 
             return None
 
