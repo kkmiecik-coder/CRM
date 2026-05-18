@@ -3419,9 +3419,12 @@ def set_product_priority():
 
         if mode == 'order' and order_number:
             # Aktualizuj wszystkie produkty w zamówieniu
-            products = ProductionItem.query.filter_by(
-                internal_order_number=order_number
-            ).all()
+            products = (
+                ProductionItem.query
+                .join(ProductionOrder, ProductionItem.order_id == ProductionOrder.id)
+                .filter(ProductionOrder.internal_order_number == order_number)
+                .all()
+            )
 
             if not products:
                 return jsonify({
@@ -3513,9 +3516,12 @@ def get_order_products_count(order_number: str):
         JSON: Liczba produktów w zamówieniu
     """
     try:
-        count = ProductionItem.query.filter_by(
-            internal_order_number=order_number
-        ).count()
+        count = (
+            ProductionItem.query
+            .join(ProductionOrder, ProductionItem.order_id == ProductionOrder.id)
+            .filter(ProductionOrder.internal_order_number == order_number)
+            .count()
+        )
 
         return jsonify({
             'success': True,
