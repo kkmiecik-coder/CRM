@@ -590,7 +590,7 @@ var ShapeCanvas = (function() {
 
                     // Tekst na bisektorze ekranowym (w stronę środka łuku)
                     var midAng = startAng + (ccw ? -Math.abs(diff) / 2 : Math.abs(diff) / 2);
-                    var angleRadius = r + 10;
+                    var angleRadius = r + 22;
                     var tx = cPx[0] + Math.cos(midAng) * angleRadius;
                     var ty = cPx[1] + Math.sin(midAng) * angleRadius;
 
@@ -600,7 +600,7 @@ var ShapeCanvas = (function() {
                             var ab = state._bboxLabelBoxes[abi];
                             if (Math.abs(tx - ab.x) < ANGLE_COLLISION_RADIUS &&
                                 Math.abs(ty - ab.y) < ANGLE_COLLISION_RADIUS) {
-                                angleRadius = r + 28;
+                                angleRadius = r + 40;
                                 tx = cPx[0] + Math.cos(midAng) * angleRadius;
                                 ty = cPx[1] + Math.sin(midAng) * angleRadius;
                                 break;
