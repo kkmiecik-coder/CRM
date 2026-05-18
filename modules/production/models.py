@@ -249,6 +249,7 @@ class ProductionProduct(db.Model):
     parsed_edge_radius = Column(Integer)
     parsed_edge_angle = Column(Integer)
     parsed_edge_letters = Column(JSON)
+    parsed_edges_groups = Column(JSON, nullable=True)
     edge_svg = Column(Text)
     shape_svg = Column(Text)
     lamella_direction = Column(Integer)

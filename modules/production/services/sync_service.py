@@ -1142,6 +1142,7 @@ class BaselinkerSyncService:
                 'parsed_edge_radius': parsed_data.get('edge_radius'),
                 'parsed_edge_angle': parsed_data.get('edge_angle'),
                 'parsed_edge_letters': parsed_data.get('edge_letters'),
+                'parsed_edges_groups': parsed_data.get('edges_groups'),
                 'volume_m3': volume_m3
             })
 
@@ -2876,6 +2877,46 @@ class BaselinkerSyncService:
                     product_data['parsed_edge_letters'] = [
                         e.get('letter') for e in detail.edges_config if e.get('letter')
                     ]
+                # Multi-group: jeśli advanced — zgrupuj edges_config po (type, radius, angle)
+                if detail.edges_mode == 'advanced' and detail.edges_config:
+                    edge_type_map = {'round': 'zaokrąglenie', 'chamfer': 'fazowanie'}
+                    groups_dict = {}
+                    groups_order = []
+                    for entry in detail.edges_config:
+                        if not entry or not entry.get('letter'):
+                            continue
+                        e_type_raw = entry.get('type')
+                        if not e_type_raw:
+                            continue
+                        e_type = edge_type_map.get(e_type_raw, e_type_raw)
+                        e_radius = entry.get('r_value') or entry.get('radius')
+                        e_angle = entry.get('angle_value') or entry.get('angle')
+                        key = (e_type, e_radius, e_angle)
+                        if key not in groups_dict:
+                            groups_dict[key] = {
+                                'type': e_type,
+                                'radius': e_radius,
+                                'angle': e_angle,
+                                'letters': [],
+                            }
+                            groups_order.append(key)
+                        groups_dict[key]['letters'].append(entry['letter'])
+                    if groups_order:
+                        product_data['parsed_edges_groups'] = [groups_dict[k] for k in groups_order]
+                        product_data['parsed_edge_type'] = 'mixed' if len(groups_order) > 1 else groups_dict[groups_order[0]]['type']
+                        if len(groups_order) > 1:
+                            product_data['parsed_edge_radius'] = None
+                            product_data['parsed_edge_angle'] = None
+                elif detail.edges_config:
+                    # Basic mode — pojedyncza grupa wynika z edges_type/r_value/angle_value
+                    if detail.edges_type and detail.edges_r_value:
+                        edge_type_map = {'round': 'zaokrąglenie', 'chamfer': 'fazowanie'}
+                        product_data['parsed_edges_groups'] = [{
+                            'type': edge_type_map.get(detail.edges_type, detail.edges_type),
+                            'radius': detail.edges_r_value,
+                            'angle': detail.edges_angle_value,
+                            'letters': [e.get('letter') for e in detail.edges_config if e.get('letter')],
+                        }]
                 if detail.edges_svg:
                     product_data['edge_svg'] = detail.edges_svg
 

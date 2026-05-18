@@ -151,6 +151,7 @@ def reject_product_quantity(
         parsed_edge_radius=original.parsed_edge_radius,
         parsed_edge_angle=original.parsed_edge_angle,
         parsed_edge_letters=original.parsed_edge_letters,
+        parsed_edges_groups=original.parsed_edges_groups,
         edge_svg=original.edge_svg,
         shape_svg=original.shape_svg,
         lamella_direction=original.lamella_direction,
