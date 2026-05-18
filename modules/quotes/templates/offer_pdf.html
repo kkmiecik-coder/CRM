@@ -37,9 +37,9 @@
             {%- endfor -%}
             Krawędzie (mieszane):
             {% for g in ns.groups|sort(attribute='key') -%}
-                {%- if g.type == 'chamfer' %}Fazowanie{% elif g.type == 'round' %}Zaokrąglenie{% else %}{{ g.type }}{% endif -%}
+                <br>• {% if g.type == 'chamfer' %}Fazowanie{% elif g.type == 'round' %}Zaokrąglenie{% else %}{{ g.type }}{% endif -%}
                 {{ ' ' }}R{{ g.r }}{%- if g.type == 'chamfer' and g.angle %} {{ g.angle }}°{% endif %}
-                ({{ g.letters|sort|join(', ') }}){%- if not loop.last %}; {% endif -%}
+                ({{ g.letters|sort|join(', ') }})
             {%- endfor -%}
         {%- else -%}
             Krawędzie:

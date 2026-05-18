@@ -2839,10 +2839,10 @@ function renderVariantSummary(groupedItemsForIndex, quoteData, productIndex) {
         if (finishing.edges_mode === 'advanced') {
             const _groupsTbl = _groupEdgesConfig(finishing.edges_config);
             const _rowsHtml = _groupsTbl.map(function(g) {
-                return '<div>' + g.text + ' — ' + g.letters + '</div>';
+                return '<div>• ' + g.text + ' (' + g.letters + ')</div>';
             }).join('');
             edgesTableRows += '<tr><td>Tryb</td><td>Mieszany (zaawansowany)</td></tr>';
-            edgesTableRows += '<tr><td>Grupy</td><td>' + _rowsHtml + '</td></tr>';
+            edgesTableRows += '<tr><td>Grupy</td><td style="text-align:left;">' + _rowsHtml + '</td></tr>';
         } else {
             const edgesConfig = finishing.edges_config;
             const edgesType = finishing.edges_type === 'chamfer' ? 'Fazowanie' :
