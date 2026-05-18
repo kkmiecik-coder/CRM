@@ -688,18 +688,48 @@ class EdgesPdfGenerator:
         # Info o krawędziach
         edges_info_html = ''
         edges_config = product.get('edges_config')
+        edges_mode = product.get('edges_mode')
         if edges_config and len(edges_config) > 0:
-            edge_type = self.EDGE_TYPE_NAMES.get(
-                product.get('edges_type', ''), product.get('edges_type', ''))
-            r_value = product.get('edges_r_value', '-')
-            angle_value = product.get('edges_angle_value')
-            letters = ', '.join(sorted([e.get('letter', '?') for e in edges_config]))
+            if edges_mode == 'advanced':
+                # Tryb Zaawansowany: grupuj krawędzie po (type, r_value, angle_value)
+                from collections import defaultdict
+                buckets = defaultdict(list)
+                for e in edges_config:
+                    key = (
+                        (e.get('type') or '').lower(),
+                        e.get('r_value') or 0,
+                        e.get('angle_value') or 0,
+                    )
+                    buckets[key].append(e.get('letter', '?'))
 
-            angle_html = ''
-            if product.get('edges_type') == 'chamfer' and angle_value:
-                angle_html = f' ({angle_value}°)'
+                groups_html_parts = []
+                for (t, r, a) in sorted(buckets.keys()):
+                    type_name = self.EDGE_TYPE_NAMES.get(t, t)
+                    angle_html = f' ({a}°)' if t == 'chamfer' and a else ''
+                    letters_str = ', '.join(sorted(buckets[(t, r, a)]))
+                    groups_html_parts.append(
+                        f'<div><strong>{type_name} R{r}{angle_html}:</strong> {letters_str}</div>'
+                    )
+                groups_html = ''.join(groups_html_parts)
 
-            edges_info_html = f"""
+                edges_info_html = f"""
+            <div class="cell-info">
+                <div><strong>Obróbka krawędzi (mieszana):</strong></div>
+                {groups_html}
+                <div class="cell-note">Krawędzie zaznaczone kolorem pomarańczowym zostaną poddane obróbce.</div>
+            </div>"""
+            else:
+                edge_type = self.EDGE_TYPE_NAMES.get(
+                    product.get('edges_type', ''), product.get('edges_type', ''))
+                r_value = product.get('edges_r_value', '-')
+                angle_value = product.get('edges_angle_value')
+                letters = ', '.join(sorted([e.get('letter', '?') for e in edges_config]))
+
+                angle_html = ''
+                if product.get('edges_type') == 'chamfer' and angle_value:
+                    angle_html = f' ({angle_value}°)'
+
+                edges_info_html = f"""
             <div class="cell-info">
                 <div><strong>Obróbka:</strong> {edge_type} R{r_value}{angle_html}</div>
                 <div><strong>Krawędzie:</strong> {letters}</div>

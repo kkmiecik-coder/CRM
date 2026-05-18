@@ -645,12 +645,14 @@ def get_order_modal_data(quote_id):
                 edge_letters = [edge.get('letter', '?') for edge in finishing_details.edges_config]
 
                 edges_data = {
+                    'mode': getattr(finishing_details, 'edges_mode', None),
                     'type': edge_type,
                     'type_name': edge_type_name,
                     'r_value': r_value,
                     'angle_value': finishing_details.edges_angle_value,
                     'letters': edge_letters,
                     'count': len(edge_letters),
+                    'config': finishing_details.edges_config,
                     'price_netto': edges_total_netto,
                     'price_brutto': edges_total_brutto
                 }

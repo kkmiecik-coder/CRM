@@ -881,6 +881,7 @@ class BaselinkerService:
                 'shape': finishing_details.shape if finishing_details else 'rectangular',
                 'shape_svg': finishing_details.shape_svg if finishing_details else None,
                 'edges_config': finishing_details.edges_config if finishing_details else None,
+                'edges_mode': getattr(finishing_details, 'edges_mode', None) if finishing_details else None,
                 'edges_type': finishing_details.edges_type if finishing_details else None,
                 'edges_r_value': finishing_details.edges_r_value if finishing_details else None,
                 'edges_angle_value': finishing_details.edges_angle_value if finishing_details else None,
