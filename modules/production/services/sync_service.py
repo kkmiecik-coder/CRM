@@ -2001,6 +2001,24 @@ class BaselinkerSyncService:
                     'new_value': bl_notes[:100] + '...' if bl_notes and len(bl_notes) > 100 else bl_notes
                 })
 
+            # załącznik (custom_extra_fields)
+            bl_attachment = self._extract_attachment_from_order(bl_order)
+            bl_att_name = bl_attachment['title'] if bl_attachment else None
+            bl_att_url = bl_attachment['url'] if bl_attachment else None
+            current_att_name = _first_order.attachment_file_name if _first_order else None
+            current_att_url = _first_order.attachment_file_url if _first_order else None
+            if bl_att_url != current_att_url or bl_att_name != current_att_name:
+                order_level_changes.append({
+                    'field': 'attachment',
+                    'label': 'Załącznik',
+                    'old_value': current_att_name or '(brak)',
+                    'new_value': bl_att_name or '(brak)',
+                    'new_attachment': {
+                        'name': bl_att_name,
+                        'url': bl_att_url,
+                    },
+                })
+
             if order_level_changes:
                 result['changes']['order_level'] = order_level_changes
 
@@ -2214,7 +2232,12 @@ class BaselinkerSyncService:
                     for change in changes['order_level']:
                         field = change['field']
                         new_value = change['new_value']
-                        setattr(order_obj, field, new_value)
+                        if field == 'attachment':
+                            new_attachment = change.get('new_attachment') or {}
+                            order_obj.attachment_file_name = new_attachment.get('name')
+                            order_obj.attachment_file_url = new_attachment.get('url')
+                        else:
+                            setattr(order_obj, field, new_value)
 
                 logger.info("Zaktualizowano dane zamówienia", extra={
                     'order_id': baselinker_order_id,
