@@ -2756,8 +2756,10 @@ function renderVariantSummary(groupedItemsForIndex, quoteData, productIndex) {
     if (hasEdges) {
         if (finishing.edges_mode === 'advanced') {
             var _groups = _groupEdgesConfig(finishing.edges_config);
-            var _parts = _groups.map(function(g) { return g.text + ' (' + g.letters + ')'; });
-            edgesCaption = '<div class="vsh-edges-caption">Obróbka krawędzi (mieszana): ' + _parts.join('; ') + '</div>';
+            var _lines = _groups.map(function(g) {
+                return '<div class="vsh-edges-caption-line">• ' + g.text + ' (' + g.letters + ')</div>';
+            });
+            edgesCaption = '<div class="vsh-edges-caption"><div class="vsh-edges-caption-title">Obróbka krawędzi (mieszana):</div>' + _lines.join('') + '</div>';
         } else {
             var _et = finishing.edges_type === 'chamfer' ? 'Fazowanie' : finishing.edges_type === 'round' ? 'Zaokrąglenie' : finishing.edges_type;
             var _desc = _et + ' R' + (finishing.edges_r_value || '-');

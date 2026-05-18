@@ -1841,9 +1841,16 @@
 .vsh-edges-caption {
     font-size: 10px;
     color: #666;
-    text-align: center;
+    text-align: left;
     margin-top: 2px;
+}
+.vsh-edges-caption-title {
+    font-weight: 600;
+    margin-bottom: 2px;
+}
+.vsh-edges-caption-line {
     white-space: nowrap;
+    line-height: 1.35;
 }
 
 /* SVG kształtu 2D */
