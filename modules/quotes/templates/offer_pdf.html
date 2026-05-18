@@ -743,7 +743,7 @@
                             {% if shape_images and shape_images.get(detail.product_index) %}
                             <img src="{{ shape_images[detail.product_index] }}" alt="Kształt" />
                             {% elif detail.shape_svg %}
-                            {{ detail.shape_svg|safe }}
+                            <div class="edge-item-svg-inline">{{ detail.shape_svg|safe }}</div>
                             {% endif %}
                         </td>
                         {% endif %}

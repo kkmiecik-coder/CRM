@@ -154,11 +154,13 @@ class EdgesPdfGenerator:
                     remaining_styles.append(f'{prop}: {value}')
 
             new_tag = full_tag
+            # Lookbehind (?<![-\w]) — bez tego substring style="..." zżerany jest
+            # z wewnątrz atrybutów typu font-style="normal" → SVG malformed.
             if remaining_styles:
                 new_style = '; '.join(remaining_styles)
-                new_tag = re.sub(r'style="[^"]*"', f'style="{new_style}"', new_tag)
+                new_tag = re.sub(r'(?<![-\w])style="[^"]*"', f'style="{new_style}"', new_tag)
             else:
-                new_tag = re.sub(r'\s*style="[^"]*"', '', new_tag)
+                new_tag = re.sub(r'\s*(?<![-\w])style="[^"]*"', '', new_tag)
 
             if new_attrs:
                 for attr in new_attrs:

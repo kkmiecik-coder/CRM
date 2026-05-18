@@ -395,7 +395,7 @@ def generate_quote_pdf(token, format):
 
         # Konwersja SVG → PNG za pomocą EdgesPdfGenerator (sprawdzona metoda)
         from modules.baselinker.edges_pdf_generator import EdgesPdfGenerator
-        pdf_gen = EdgesPdfGenerator()
+        pdf_gen = EdgesPdfGenerator(logger=logger)
 
         edges_images = {}
         shape_images = {}
@@ -406,15 +406,19 @@ def generate_quote_pdf(token, format):
                     png_data_uri = pdf_gen._svg_to_png_base64(svg_fixed, 300)
                     if png_data_uri:
                         edges_images[fd.product_index] = png_data_uri
+                    else:
+                        logger.warning(f"[PDF {quote.quote_number}] Poz {fd.product_index}: edges PNG = None (sanitize/cairo fail) — fallback inline SVG")
                 except Exception as e:
-                    print(f"[PDF] Poz {fd.product_index}: edges PNG BŁĄD: {e}", file=sys.stderr)
+                    logger.error(f"[PDF {quote.quote_number}] Poz {fd.product_index}: edges PNG BŁĄD: {e}", exc_info=True)
             if fd.shape_svg:
                 try:
                     png_data_uri = pdf_gen._svg_to_png_base64(fd.shape_svg, 300)
                     if png_data_uri:
                         shape_images[fd.product_index] = png_data_uri
+                    else:
+                        logger.warning(f"[PDF {quote.quote_number}] Poz {fd.product_index}: shape PNG = None (sanitize/cairo fail) — fallback inline SVG")
                 except Exception as e:
-                    print(f"[PDF] Poz {fd.product_index}: shape PNG BŁĄD: {e}", file=sys.stderr)
+                    logger.error(f"[PDF {quote.quote_number}] Poz {fd.product_index}: shape PNG BŁĄD: {e}", exc_info=True)
 
         # Lamella direction icons
         lamella_images = {}
