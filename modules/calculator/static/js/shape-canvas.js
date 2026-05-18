@@ -396,10 +396,18 @@ var ShapeCanvas = (function() {
             var label = (Math.round(distCm * 10) / 10) + ' cm';
             var mx = (sx + ex) / 2;
             var my = (sy + ey) / 2;
-            ctx.font = 'bold 11px sans-serif';
+            ctx.font = 'bold ' + _fontPx(13) + 'px sans-serif';
             ctx.fillStyle = '#e67e22';
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
+
+            // Capture pozycji label dla detekcji kolizji z label krawędzi/kątów
+            var labelCenterX, labelCenterY;
+            if (side === 'right') { labelCenterX = mx + 14; labelCenterY = my; }
+            else if (side === 'left') { labelCenterX = mx - 14; labelCenterY = my; }
+            else if (side === 'bottom') { labelCenterX = mx; labelCenterY = my + 12; }
+            else { labelCenterX = mx; labelCenterY = my - 12; } // top
+            if (state._bboxLabelBoxes) state._bboxLabelBoxes.push({ x: labelCenterX, y: labelCenterY });
 
             if (side === 'right' || side === 'left') {
                 // Pionowe klamerki — tekst obrócony o 90° w prawo
