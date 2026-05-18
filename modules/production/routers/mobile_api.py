@@ -13,7 +13,7 @@ from sqlalchemy.orm import joinedload
 
 from extensions import db
 from modules.logging import get_structured_logger
-from modules.production.models import ProductionDevice, ProductionItem, ProductionOrder
+from modules.production.models import ProductionConfig, ProductionDevice, ProductionItem, ProductionOrder
 from modules.production.utils.cache import (
     cached_json,
     if_none_match,
@@ -452,9 +452,15 @@ def station_summary(station_code):
         func.count(ProductionItem.id),
     ).filter(cache_filter).first()
     etag_ts = int(max_updated.timestamp()) if max_updated else 0
+    # Payload zawiera refresh_interval_seconds z prod_config — bez tego segmentu
+    # zmiany konfigu nie unieważniają ETag i tablet (OkHttp) serwuje stale 304.
+    config_max_updated = db.session.query(
+        func.max(ProductionConfig.updated_at)
+    ).scalar()
+    config_etag_ts = int(config_max_updated.timestamp()) if config_max_updated else 0
     etag = make_weak_etag(
         'summary', station_code, today_start.date().isoformat(),
-        etag_ts, total_count or 0,
+        etag_ts, total_count or 0, config_etag_ts,
     )
     if if_none_match(etag):
         return not_modified(etag)
