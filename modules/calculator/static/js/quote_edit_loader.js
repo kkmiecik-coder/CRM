@@ -380,12 +380,13 @@ class QuoteEditLoader {
     // ========================================
 
     restoreEdges(form, edges) {
-        if (!edges || !edges.type) return;
+        if (!edges || (!edges.type && !edges.mode)) return;
 
 
         // Zapisz do dataset
         if (edges.config) form.dataset.edgesData = JSON.stringify(edges.config);
         if (edges.type) form.dataset.edgesType = edges.type;
+        if (edges.mode) form.dataset.edgesMode = edges.mode;
         if (edges.rValue) form.dataset.edgesRValue = edges.rValue;
         if (edges.angleValue) form.dataset.edgesAngleValue = edges.angleValue;
         if (edges.netto !== undefined) form.dataset.edgesNetto = edges.netto;

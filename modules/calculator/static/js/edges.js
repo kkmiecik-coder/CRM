@@ -1532,13 +1532,93 @@ const EdgesModule = (function() {
     function applyEdges() {
         if (!state.currentForm) return;
 
-        const prices = calculatePrice();
-
-        // Pobierz ilość sztuk z formularza
         const quantityInput = state.currentForm.querySelector('input[data-field="quantity"]');
         const quantity = parseInt(quantityInput?.value) || 1;
 
-        // Pomnóż ceny przez ilość sztuk
+        const edgesMode = state.activeTab;
+        let edgesData = [];
+        let totalPrices;
+
+        if (edgesMode === 'advanced') {
+            // Tryb zaawansowany — per-edge
+            getActiveEdgeDefinitions().forEach(def => {
+                const cfg = state.advanced.edges.get(def.letter);
+                if (!cfg || cfg.type === 'sharp') return;
+                const lengthCm = computeEdgeLengthCm(def);
+                const lengthMm = lengthCm * 10;
+                const priceNetto = computeEdgePrice(def, cfg, lengthCm);
+                const isCorner = (def.dimensionKey === 'thickness' || (def.dynamicDef && def.dynamicDef.group === 'vertical'));
+                edgesData.push({
+                    letter: def.letter,
+                    type: cfg.type,
+                    r_value: cfg.r_value,
+                    angle_value: cfg.angle_value || null,
+                    length_mm: Math.round(lengthMm * 100) / 100,
+                    length_cm: Math.round(lengthCm * 100) / 100,
+                    is_corner: isCorner,
+                    price_netto: Math.round(priceNetto * 100) / 100,
+                    price_brutto: Math.round(priceNetto * CONFIG.VAT_RATE * 100) / 100,
+                });
+            });
+            // Sumy z mnożnikiem quantity
+            let netto = 0, brutto = 0, horizontalCount = 0, cornerCount = 0;
+            edgesData.forEach(e => {
+                netto += e.price_netto; brutto += e.price_brutto;
+                if (e.is_corner) cornerCount++; else horizontalCount++;
+            });
+            totalPrices = {
+                netto: Math.round(netto * quantity * 100) / 100,
+                brutto: Math.round(brutto * quantity * 100) / 100,
+                horizontalCount, cornerCount,
+            };
+        } else {
+            const result = buildBasicEdgesData(quantity);
+            edgesData = result.edgesData;
+            totalPrices = result.totalPrices;
+        }
+
+        // ====== SVG zapis ======
+        let edgesSvg = buildEdgesSvgForSave(edgesData, edgesMode);
+
+        // Zapisz w dataset formularza (ceny już pomnożone przez ilość sztuk)
+        state.currentForm.dataset.edgesData = JSON.stringify(edgesData);
+        state.currentForm.dataset.edgesMode = edgesMode;
+        state.currentForm.dataset.edgesNetto = totalPrices.netto;
+        state.currentForm.dataset.edgesBrutto = totalPrices.brutto;
+        state.currentForm.dataset.edgesCount = edgesData.length;
+        state.currentForm.dataset.edgesSvg = edgesSvg;
+        state.currentForm.dataset.edgesQuantity = quantity;
+        state.currentForm.dataset.edgesDimHash = state.dimensions.length + '|' + state.dimensions.width + '|' + state.dimensions.thickness + '|' + (state.currentForm.dataset.productShape || 'rectangular');
+
+        if (edgesMode === 'basic') {
+            state.currentForm.dataset.edgesType = state.basic.edgeType;
+            state.currentForm.dataset.edgesRValue = state.basic.rValue;
+            state.currentForm.dataset.edgesAngleValue = state.basic.edgeType === 'chamfer' ? (state.basic.angleValue || '') : '';
+        } else {
+            state.currentForm.dataset.edgesType = 'mixed';
+            state.currentForm.dataset.edgesRValue = '';
+            state.currentForm.dataset.edgesAngleValue = '';
+        }
+
+        // Aktualizuj przycisk (pokazuj cenę łączną z uwzględnieniem ilości)
+        updateOpenButton(state.currentForm, totalPrices);
+
+        // Wywołaj aktualizację globalnego podsumowania
+        if (typeof updateGlobalSummary === 'function') {
+            updateGlobalSummary();
+        }
+
+        // Zaktualizuj podgląd SVG w sekcji krawędzi
+        updateEdgesPreview(state.currentForm);
+
+        closeModal();
+    }
+
+    // ==========================================
+    // BASIC: zbieranie edgesData (wyciągnięte z applyEdges)
+    // ==========================================
+    function buildBasicEdgesData(quantity) {
+        const prices = calculatePrice();
         const totalPrices = {
             netto: Math.round(prices.netto * quantity * 100) / 100,
             brutto: Math.round(prices.brutto * quantity * 100) / 100,
@@ -1546,11 +1626,8 @@ const EdgesModule = (function() {
             cornerCount: prices.cornerCount
         };
 
-        // Pobierz ceny dla aktualnie wybranego typu obróbki
         const pricePerMb = getPricePerMb(state.basic.edgeType);
         const pricePerCorner = getPricePerCorner(state.basic.edgeType);
-
-        // Zbierz dane o wybranych krawędziach
         const edgesData = [];
 
         if (_isRoundShape(state.productShape)) {
@@ -1634,87 +1711,80 @@ const EdgesModule = (function() {
             });
         }
 
-        // Pobierz SVG jako string do zapisu w bazie
-        let edgesSvg = '';
-        if (elements.svg && state.basic.selectedEdges.size > 0) {
-            // Klonuj SVG, aby nie modyfikować oryginału
-            const svgClone = elements.svg.cloneNode(true);
-            // Usuń grupę etykiet z klonu (dla czystszego podglądu)
-            const labelsGroup = svgClone.querySelector('#edgeLabelsGroup');
-            if (labelsGroup) {
-                labelsGroup.remove();
-            }
+        return { edgesData, totalPrices };
+    }
 
-            // WAŻNE: Dodaj inline style do elementów SVG (style CSS nie są osadzone w SVG)
-            const styleMap = {
-                '.edges-face': { fill: '#f0f0f0', stroke: 'none' },
-                '.edges-face-top': { fill: '#e8e8e8' },
-                '.edges-face-front': { fill: '#d8d8d8' },
-                '.edges-face-right': { fill: '#c8c8c8' },
-                '.edges-face-left': { fill: '#d0d0d0' },
-                '.edges-face-back': { fill: '#b8b8b8' },
-                '.edges-line': { stroke: '#666', 'stroke-width': '2', fill: 'none' },
-                '.edges-line.active': { stroke: '#ED6B24', 'stroke-width': '3' }
-            };
+    /**
+     * Buduje SVG do zapisu w bazie.
+     * Mode 'basic': zachowanie 1:1 (pomarańcz dla aktywnych).
+     * Mode 'advanced': kolorowanie per typ (zielony=round, pomarańcz=chamfer, szary=sharp).
+     */
+    function buildEdgesSvgForSave(edgesData, mode) {
+        if (!elements.svg || edgesData.length === 0) return '';
+        const svgClone = elements.svg.cloneNode(true);
+        const labelsGroup = svgClone.querySelector('#edgeLabelsGroup');
+        if (labelsGroup) labelsGroup.remove();
 
-            // Aplikuj style inline do każdego elementu
-            Object.entries(styleMap).forEach(([selector, styles]) => {
-                svgClone.querySelectorAll(selector).forEach(el => {
-                    Object.entries(styles).forEach(([prop, value]) => {
-                        el.style.setProperty(prop, value);
-                    });
-                });
+        // Bazowe style faces (wspólne dla obu trybów)
+        const baseStyleMap = {
+            '.edges-face': { fill: '#f0f0f0', stroke: 'none' },
+            '.edges-face-top': { fill: '#e8e8e8' },
+            '.edges-face-front': { fill: '#d8d8d8' },
+            '.edges-face-right': { fill: '#c8c8c8' },
+            '.edges-face-left': { fill: '#d0d0d0' },
+            '.edges-face-back': { fill: '#b8b8b8' },
+        };
+        Object.entries(baseStyleMap).forEach(([selector, styles]) => {
+            svgClone.querySelectorAll(selector).forEach(el => {
+                Object.entries(styles).forEach(([prop, value]) => el.style.setProperty(prop, value));
             });
+        });
 
-            // Dopasuj viewBox do rzeczywistej zawartości (bez etykiet)
-            try {
-                // Tymczasowo dodaj klon do DOM żeby obliczyć bbox
-                svgClone.style.position = 'absolute';
-                svgClone.style.visibility = 'hidden';
-                document.body.appendChild(svgClone);
-
-                const bbox = svgClone.getBBox();
-                const padding = 5; // Mały margines
-                const newViewBox = `${bbox.x - padding} ${bbox.y - padding} ${bbox.width + 2*padding} ${bbox.height + 2*padding}`;
-                svgClone.setAttribute('viewBox', newViewBox);
-
-                document.body.removeChild(svgClone);
-
-                // Usuń tymczasowe style przed zapisem
-                svgClone.style.removeProperty('position');
-                svgClone.style.removeProperty('visibility');
-            } catch (e) {
-                // Ignore errors during SVG clone cleanup
-            }
-
-            edgesSvg = svgClone.outerHTML;
+        if (mode === 'advanced') {
+            const colorFor = (type) => type === 'round' ? '#2E7D32' : (type === 'chamfer' ? '#ED6B24' : '#666');
+            const byLetter = new Map(edgesData.map(e => [e.letter, e]));
+            svgClone.querySelectorAll('.edges-line').forEach(line => {
+                const e = byLetter.get(line.dataset.edge);
+                line.style.fill = 'none';
+                if (e) {
+                    line.style.stroke = colorFor(e.type);
+                    line.style.strokeWidth = '3';
+                } else {
+                    line.style.stroke = '#666';
+                    line.style.strokeWidth = '2';
+                }
+            });
+        } else {
+            // basic — pomarańcz dla aktywnych, szary dla pozostałych
+            const activeSet = new Set(edgesData.map(e => e.letter));
+            svgClone.querySelectorAll('.edges-line').forEach(line => {
+                line.style.fill = 'none';
+                if (activeSet.has(line.dataset.edge)) {
+                    line.style.stroke = '#ED6B24';
+                    line.style.strokeWidth = '3';
+                } else {
+                    line.style.stroke = '#666';
+                    line.style.strokeWidth = '2';
+                }
+            });
         }
 
-        // Zapisz w dataset formularza (ceny już pomnożone przez ilość sztuk)
-        state.currentForm.dataset.edgesData = JSON.stringify(edgesData);
-        state.currentForm.dataset.edgesNetto = totalPrices.netto;
-        state.currentForm.dataset.edgesBrutto = totalPrices.brutto;
-        state.currentForm.dataset.edgesCount = state.basic.selectedEdges.size;
-        state.currentForm.dataset.edgesType = state.basic.edgeType;
-        state.currentForm.dataset.edgesRValue = state.basic.rValue;
-        state.currentForm.dataset.edgesAngleValue = state.basic.edgeType === 'chamfer' ? state.basic.angleValue : '';
-        state.currentForm.dataset.edgesSvg = edgesSvg;
-        state.currentForm.dataset.edgesQuantity = quantity;
-        // Zapamiętaj wymiary przy których krawędzie zostały obliczone
-        state.currentForm.dataset.edgesDimHash = state.dimensions.length + '|' + state.dimensions.width + '|' + state.dimensions.thickness + '|' + (state.currentForm.dataset.productShape || 'rectangular');
-
-        // Aktualizuj przycisk (pokazuj cenę łączną z uwzględnieniem ilości)
-        updateOpenButton(state.currentForm, totalPrices);
-
-        // Wywołaj aktualizację globalnego podsumowania
-        if (typeof updateGlobalSummary === 'function') {
-            updateGlobalSummary();
+        // viewBox auto-fit (jak dotychczas)
+        try {
+            svgClone.style.position = 'absolute';
+            svgClone.style.visibility = 'hidden';
+            document.body.appendChild(svgClone);
+            const bbox = svgClone.getBBox();
+            const padding = 5;
+            svgClone.setAttribute('viewBox', `${bbox.x - padding} ${bbox.y - padding} ${bbox.width + 2*padding} ${bbox.height + 2*padding}`);
+            document.body.removeChild(svgClone);
+            svgClone.style.removeProperty('position');
+            svgClone.style.removeProperty('visibility');
+        } catch (e) {
+            // Ignore errors during SVG clone cleanup
         }
 
-        // Zaktualizuj podgląd SVG w sekcji krawędzi
-        updateEdgesPreview(state.currentForm);
-
-        closeModal();
+        return svgClone.outerHTML;
     }
 
     function updateOpenButton(form, prices) {

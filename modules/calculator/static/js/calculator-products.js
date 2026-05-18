@@ -139,6 +139,7 @@ function prepareNewProductForm(form, index) {
     delete form.dataset.edgesBrutto;
     delete form.dataset.edgesCount;
     delete form.dataset.edgesType;
+    delete form.dataset.edgesMode;
     delete form.dataset.edgesRValue;
     delete form.dataset.edgesSvg;
 
@@ -318,6 +319,7 @@ function duplicateProduct(sourceIndex) {
         edgesBrutto: sourceForm.dataset.edgesBrutto || null,
         edgesCount: sourceForm.dataset.edgesCount || null,
         edgesType: sourceForm.dataset.edgesType || null,
+        edgesMode: sourceForm.dataset.edgesMode || null,
         edgesRValue: sourceForm.dataset.edgesRValue || null,
         edgesSvg: sourceForm.dataset.edgesSvg || null,
 
@@ -515,6 +517,7 @@ function duplicateProduct(sourceIndex) {
             newForm.dataset.edgesBrutto = sourceData.edgesBrutto;
             newForm.dataset.edgesCount = sourceData.edgesCount;
             newForm.dataset.edgesType = sourceData.edgesType;
+            if (sourceData.edgesMode) newForm.dataset.edgesMode = sourceData.edgesMode;
             newForm.dataset.edgesRValue = sourceData.edgesRValue;
             newForm.dataset.edgesSvg = sourceData.edgesSvg;
 

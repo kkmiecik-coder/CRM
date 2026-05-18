@@ -1138,6 +1138,7 @@ function collectQuoteData() {
         const edgesRValue = parseInt(form.dataset.edgesRValue) || null;
         const edgesAngleValue = form.dataset.edgesAngleValue ? parseInt(form.dataset.edgesAngleValue) : null;
         const edgesSvg = form.dataset.edgesSvg || '';
+        const edgesMode = form.dataset.edgesMode || (form.dataset.edgesData ? 'basic' : null);
         let edgesData = [];
         try {
             edgesData = form.dataset.edgesData ? JSON.parse(form.dataset.edgesData) : [];
@@ -1230,6 +1231,7 @@ function collectQuoteData() {
             finishing_netto: finishingNetto,
             finishing_brutto: finishingBrutto,
             edges: edgesData,
+            edges_mode: edgesMode,
             edges_type: edgesType,
             edges_r_value: edgesRValue,
             edges_angle_value: edgesAngleValue,
@@ -1245,6 +1247,7 @@ function collectQuoteData() {
             finishing_netto: 0,
             finishing_brutto: 0,
             edges: null,
+            edges_mode: null,
             edges_type: null,
             edges_r_value: null,
             edges_angle_value: null,
