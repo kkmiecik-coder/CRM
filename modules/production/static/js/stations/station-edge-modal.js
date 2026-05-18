@@ -27,6 +27,47 @@
         return edgeId;
     }
 
+    function renderEdgesContent(data) {
+        // data: { edge_type, edge_radius, edge_angle, edge_letters, edges_groups }
+        var groups = data.edges_groups;
+        if (typeof groups === 'string') {
+            try { groups = JSON.parse(groups); } catch(e) { groups = []; }
+        }
+        if (!Array.isArray(groups)) groups = [];
+
+        // Fallback: jeśli edges_groups puste a są legacy pola, skonstruuj jedną grupę
+        if (groups.length === 0 && data.edge_type && data.edge_letters && data.edge_letters.length > 0) {
+            var lettersFb;
+            if (Array.isArray(data.edge_letters)) {
+                lettersFb = data.edge_letters;
+            } else {
+                try { lettersFb = JSON.parse(data.edge_letters || '[]'); } catch(e) { lettersFb = []; }
+            }
+            groups = [{
+                type: data.edge_type,
+                radius: data.edge_radius,
+                angle: data.edge_angle,
+                letters: lettersFb
+            }];
+        }
+        if (groups.length === 0) return '<em>Brak obróbki krawędzi</em>';
+
+        var TYPE_PL = { 'zaokrąglenie': 'Zaokrąglenie', 'fazowanie': 'Fazowanie', 'round': 'Zaokrąglenie', 'chamfer': 'Fazowanie' };
+        var COLOR = { 'zaokrąglenie': '#2E7D32', 'fazowanie': '#ED6B24', 'round': '#2E7D32', 'chamfer': '#ED6B24' };
+
+        var items = groups.map(function(g) {
+            var typeName = TYPE_PL[g.type] || g.type;
+            var color = COLOR[g.type] || '#666';
+            var anglePart = (g.angle) ? (' ' + g.angle + '°') : '';
+            var letters = (g.letters || []).map(humanEdgeLabel).join(', ');
+            return '<li style="border-left:3px solid ' + color + '; padding-left:8px; margin-bottom:6px; list-style:none;">' +
+                       '<strong>' + typeName + ' R' + g.radius + anglePart + '</strong> &rarr; ' + letters +
+                   '</li>';
+        }).join('');
+
+        return '<ul style="list-style:none; padding:0; margin:0;">' + items + '</ul>';
+    }
+
     function initializeEdgeHandlers() {
         document.querySelectorAll('.edge-icon-wrapper').forEach(function(wrapper) {
             wrapper.addEventListener('click', function(e) {
@@ -62,11 +103,19 @@
         var lamellaDir = wrapper.dataset.lamellaDirection;
         var lamella = (lamellaDir !== '' && lamellaDir !== undefined) ? parseInt(lamellaDir) : null;
 
+        var edgesGroups = [];
+        try {
+            edgesGroups = JSON.parse(wrapper.dataset.edgesGroups || '[]');
+        } catch(e) {
+            edgesGroups = [];
+        }
+
         modalBody.innerHTML = buildProductSection(productId, {
             edge_type: wrapper.dataset.edgeType,
             edge_radius: wrapper.dataset.edgeRadius,
             edge_angle: wrapper.dataset.edgeAngle,
             edge_letters: edgeLetters,
+            edges_groups: edgesGroups,
             edge_svg: wrapper.dataset.edgeSvg,
             shape_svg: wrapper.dataset.shapeSvg,
             lamella_direction: lamella,
@@ -115,11 +164,19 @@
                 html += '<div class="edge-modal-separator"></div>';
             }
 
+            var edgesGroupsMulti = [];
+            if (Array.isArray(data.edges_groups)) {
+                edgesGroupsMulti = data.edges_groups;
+            } else if (data.edges_groups) {
+                try { edgesGroupsMulti = JSON.parse(data.edges_groups || '[]'); } catch(e) { edgesGroupsMulti = []; }
+            }
+
             html += buildProductSection(data.id, {
                 edge_type: data.edge_type,
                 edge_radius: data.edge_radius,
                 edge_angle: data.edge_angle,
                 edge_letters: edgeLetters,
+                edges_groups: edgesGroupsMulti,
                 edge_svg: data.edge_svg,
                 shape_svg: data.shape_svg,
                 lamella_direction: data.lamella_direction,
@@ -220,20 +277,7 @@
 
         // Info krawędzi — tylko gdy ma obróbkę
         if (hasEdge) {
-            var typeText = data.edge_type ? (data.edge_type.charAt(0).toUpperCase() + data.edge_type.slice(1)) : '—';
-            var radiusText = data.edge_radius ? ('R' + data.edge_radius) : '—';
-            if (data.edge_angle) {
-                radiusText += ' ' + data.edge_angle + '°';
-            }
-            var lettersText = (data.edge_letters && data.edge_letters.length > 0)
-                ? data.edge_letters.map(humanEdgeLabel).join(', ')
-                : '—';
-
-            html += '<div class="edge-modal-info">';
-            html += '<div><div class="edge-modal-info-label">Typ obróbki</div><div class="edge-modal-info-value accent">' + typeText + '</div></div>';
-            html += '<div><div class="edge-modal-info-label">Promień</div><div class="edge-modal-info-value">' + radiusText + '</div></div>';
-            html += '<div><div class="edge-modal-info-label">Krawędzie</div><div class="edge-modal-info-value">' + lettersText + '</div></div>';
-            html += '</div>';
+            html += '<div class="edge-modal-info">' + renderEdgesContent(data) + '</div>';
         }
 
         return html;

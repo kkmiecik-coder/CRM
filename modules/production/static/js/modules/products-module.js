@@ -3783,7 +3783,15 @@ class ProductsModule {
                 const edgeValue = edgeFieldGroup.querySelector('[data-field="parsed_edge_processing"]');
                 if (edgeValue) {
                     var edgeText = '';
-                    if (product.parsed_edge_type) {
+                    if (product.parsed_edges_groups && product.parsed_edges_groups.length > 0) {
+                        var TYPE_SHORT = { 'zaokrąglenie': 'zaokr.', 'fazowanie': 'faz.' };
+                        edgeText = product.parsed_edges_groups.map(function(g) {
+                            var t = TYPE_SHORT[g.type] || g.type;
+                            var ang = g.angle ? (' ' + g.angle + '°') : '';
+                            return t + ' R' + g.radius + ang;
+                        }).join(' / ');
+                        edgeText += ' (' + (product.parsed_edge_letters || []).join(', ') + ')';
+                    } else if (product.parsed_edge_type) {
                         edgeText = product.parsed_edge_type.charAt(0).toUpperCase() + product.parsed_edge_type.slice(1);
                         if (product.parsed_edge_radius) {
                             edgeText += ' R' + product.parsed_edge_radius;

@@ -151,6 +151,7 @@
                                    data-edge-radius="{{ product.parsed_edge_radius or '' }}"
                                    data-edge-angle="{{ product.parsed_edge_angle or '' }}"
                                    data-edge-letters='{{ product.parsed_edge_letters|tojson if product.parsed_edge_letters else "[]" }}'
+                                   data-edges-groups='{{ product.parsed_edges_groups|tojson if product.parsed_edges_groups else "[]" }}'
                                    data-edge-svg="{{ (product.edge_svg or '')|e }}"
                                    data-shape-svg="{{ (product.shape_svg or '')|e }}"
                                    data-lamella-direction="{{ product.lamella_direction if product.lamella_direction is not none else '' }}"
