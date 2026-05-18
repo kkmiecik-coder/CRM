@@ -1155,39 +1155,51 @@ class BaselinkerService:
         return result
 
     def _translate_edges_to_description(self, finishing_details):
-        """Tłumaczy szczegóły obróbki krawędzi na czytelny opis (np. 'fazowanie R3')"""
-        if not finishing_details or not finishing_details.edges_type or not finishing_details.edges_config:
+        """Tłumaczy szczegóły obróbki krawędzi na czytelny opis.
+        Obsługuje multi-group dla trybu Zaawansowanego: 'zaokrąglenie R3 (A, B); fazowanie R5 45° (C, D)'.
+        """
+        if not finishing_details or not finishing_details.edges_config:
             return None
 
         edges_config = finishing_details.edges_config
-        if not edges_config or len(edges_config) == 0:
+        if not edges_config:
             return None
 
-        edge_type = finishing_details.edges_type
-        r_value = finishing_details.edges_r_value or 0
+        TYPE_NAMES = {'round': 'zaokrąglenie', 'chamfer': 'fazowanie'}
+        edges_mode = getattr(finishing_details, 'edges_mode', None)
 
-        # Mapowanie typów na polskie nazwy
-        type_names = {
-            'round': 'zaokrąglenie',
-            'chamfer': 'fazowanie'
-        }
-        type_name = type_names.get(edge_type, edge_type)
+        def _group_key(edge):
+            # Sortowanie grup: typ asc, R asc, kąt asc
+            t = (edge.get('type') or '').lower()
+            return (t, edge.get('r_value') or 0, edge.get('angle_value') or 0)
 
-        # Format: "zaokrąglenie R5 (A, B)" lub "fazowanie R3 45° (KD)"
-        angle_part = ''
-        if edge_type == 'chamfer' and finishing_details.edges_angle_value:
-            angle_part = f" {finishing_details.edges_angle_value}°"
-        edge_letters = [edge.get('letter', '?') for edge in edges_config]
-        letters_str = ', '.join(edge_letters)
-        result = f"{type_name} R{r_value}{angle_part} ({letters_str})"
+        # Tryb Podstawowy lub legacy — zachowanie historyczne (jednolite typ/R/kąt na całość)
+        if edges_mode != 'advanced':
+            edge_type = (finishing_details.edges_type or '').lower()
+            type_name = TYPE_NAMES.get(edge_type, edge_type)
+            r_value = finishing_details.edges_r_value or 0
+            angle_part = ''
+            if edge_type == 'chamfer' and finishing_details.edges_angle_value:
+                angle_part = f" {finishing_details.edges_angle_value}°"
+            letters = [e.get('letter', '?') for e in edges_config]
+            return f"{type_name} R{r_value}{angle_part} ({', '.join(letters)})"
 
-        self.logger.debug("Przetłumaczono obróbkę krawędzi na opis",
-                         edges_type=edge_type,
-                         edges_r_value=r_value,
-                         edge_count=len(edges_config),
-                         result=result)
+        # Tryb Zaawansowany: grupowanie po (type, r_value, angle_value)
+        from collections import defaultdict
+        buckets = defaultdict(list)
+        for e in edges_config:
+            key = _group_key(e)
+            buckets[key].append(e.get('letter', '?'))
 
-        return result
+        sorted_keys = sorted(buckets.keys())
+        parts = []
+        for (t, r, a) in sorted_keys:
+            type_name = TYPE_NAMES.get(t, t)
+            angle_part = f" {a}°" if t == 'chamfer' and a else ''
+            letters_sorted = sorted(buckets[(t, r, a)])
+            parts.append(f"{type_name} R{r}{angle_part} ({', '.join(letters_sorted)})")
+
+        return '; '.join(parts)
 
     def _build_user_comments(self, quote):
         """Buduje komentarz użytkownika z numerem wyceny i notatką"""
