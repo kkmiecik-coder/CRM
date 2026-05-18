@@ -1007,6 +1007,14 @@ var ShapeCanvas = (function() {
             var vi = _findVertexAt(mx, my);
             if (_isVertexHit(vi)) {
                 state.dragVertex = vi;
+                // Zapamiętaj pozycję startową (cm) — używana przy axis-lock z Shift
+                var _startPos;
+                if (typeof vi === 'object' && vi.kind === 'hole') {
+                    _startPos = state.holes[vi.hi][vi.hj];
+                } else {
+                    _startPos = state.vertices[vi];
+                }
+                state.dragStartCm = [_startPos[0], _startPos[1]];
                 _pushUndo();
                 canvasElement.classList.add('dragging-vertex');
                 return;
@@ -1041,6 +1049,21 @@ var ShapeCanvas = (function() {
                 var snap = state.currentGridCm;
                 var sx = Math.round(cmPt[0] / snap) * snap;
                 var sy = Math.round(cmPt[1] / snap) * snap;
+
+                // Axis-lock z Shift: blokuj ruch do dominującej osi (X albo Y)
+                // względem pozycji startowej drag-a. Tolerancja 1cm: poniżej tego
+                // pomijamy lock, żeby drobne ruchy nie skakały.
+                if (e.shiftKey && state.dragStartCm) {
+                    var _dx = sx - state.dragStartCm[0];
+                    var _dy = sy - state.dragStartCm[1];
+                    if (Math.abs(_dx) >= 1 || Math.abs(_dy) >= 1) {
+                        if (Math.abs(_dx) >= Math.abs(_dy)) {
+                            sy = state.dragStartCm[1];
+                        } else {
+                            sx = state.dragStartCm[0];
+                        }
+                    }
+                }
 
                 if (state.shapeType === 'circle') {
                     _handleEllipseVertexDrag(sx, sy);
