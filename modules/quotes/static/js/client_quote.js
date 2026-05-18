@@ -349,7 +349,28 @@ const render = {
             'KG': 'Krawędź górna (obwód)', 'KD': 'Krawędź dolna (obwód)'
         };
 
-        // Typ obróbki
+        const isAdvanced = finishing.edges_mode === 'advanced';
+
+        // Helper grupujący per-edge config po (type, r_value, angle_value)
+        const groupEdgesByType = (cfg) => {
+            const TYPE_PL = { round: 'Zaokrąglenie', chamfer: 'Fazowanie' };
+            const groups = new Map();
+            cfg.forEach(e => {
+                const key = `${e.type || ''}|${e.r_value}|${e.angle_value != null ? e.angle_value : ''}`;
+                if (!groups.has(key)) groups.set(key, { key, type: e.type, r: e.r_value, angle: e.angle_value, letters: [] });
+                groups.get(key).letters.push(e.letter);
+            });
+            const arr = Array.from(groups.values());
+            arr.sort((a, b) => a.key < b.key ? -1 : a.key > b.key ? 1 : 0);
+            return arr.map(g => ({
+                typeName: TYPE_PL[g.type] || g.type,
+                r: g.r,
+                angle: g.angle,
+                letters: g.letters.slice().sort()
+            }));
+        };
+
+        // Typ obróbki (basic)
         const typeLabel = edgesType === 'chamfer' ? 'Fazowanie' : 'Zaokrąglenie';
 
         // Kąt (tylko dla fazowania)
@@ -402,18 +423,39 @@ const render = {
                     ${svgPreview}
                     <div class="edges-display-spec">
                         <div class="edges-spec-summary">
-                            <div class="edges-spec-row">
-                                <span class="edges-spec-label">Sposób obróbki:</span>
-                                <span class="edges-spec-value">${typeLabel}</span>
-                            </div>
-                            <div class="edges-spec-row">
-                                <span class="edges-spec-label">Promień R:</span>
-                                <span class="edges-spec-value">${edgesRValue} mm${angleInfo}</span>
-                            </div>
-                            <div class="edges-spec-row">
-                                <span class="edges-spec-label">Liczba krawędzi:</span>
-                                <span class="edges-spec-value">${edgesConfig.length}</span>
-                            </div>
+                            ${isAdvanced ? `
+                                <div class="edges-spec-row">
+                                    <span class="edges-spec-label">Sposób obróbki:</span>
+                                    <span class="edges-spec-value">Mieszana</span>
+                                </div>
+                                <div class="edges-spec-row" style="align-items: flex-start;">
+                                    <span class="edges-spec-label">Konfiguracja:</span>
+                                    <span class="edges-spec-value">
+                                        <ul style="margin: 0; padding-left: 18px;">
+                                            ${groupEdgesByType(edgesConfig).map(g => `
+                                                <li>${g.typeName} R${g.r}${(g.typeName === 'Fazowanie' && g.angle) ? ` ${g.angle}°` : ''} — ${g.letters.join(', ')}</li>
+                                            `).join('')}
+                                        </ul>
+                                    </span>
+                                </div>
+                                <div class="edges-spec-row">
+                                    <span class="edges-spec-label">Liczba krawędzi:</span>
+                                    <span class="edges-spec-value">${edgesConfig.length}</span>
+                                </div>
+                            ` : `
+                                <div class="edges-spec-row">
+                                    <span class="edges-spec-label">Sposób obróbki:</span>
+                                    <span class="edges-spec-value">${typeLabel}</span>
+                                </div>
+                                <div class="edges-spec-row">
+                                    <span class="edges-spec-label">Promień R:</span>
+                                    <span class="edges-spec-value">${edgesRValue} mm${angleInfo}</span>
+                                </div>
+                                <div class="edges-spec-row">
+                                    <span class="edges-spec-label">Liczba krawędzi:</span>
+                                    <span class="edges-spec-value">${edgesConfig.length}</span>
+                                </div>
+                            `}
                         </div>
                         <div class="edges-spec-details">
                             ${renderEdgeGroup('Krawędzie górne', topEdges)}

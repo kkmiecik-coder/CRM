@@ -1,3 +1,101 @@
+{#- Makra grupujące edges_config po (type, r_value, angle_value) dla trybu advanced -#}
+{%- macro _edges_grouped(detail) -%}
+    {%- set ns = namespace(groups=[]) -%}
+    {%- for e in detail.edges_config -%}
+        {%- set key = (e.type or '') ~ '|' ~ (e.r_value|string) ~ '|' ~ (e.angle_value|string if e.angle_value is not none else '') -%}
+        {%- set ns.found = false -%}
+        {%- for g in ns.groups -%}
+            {%- if g.key == key -%}
+                {%- set _ = g.letters.append(e.letter) -%}
+                {%- set ns.found = true -%}
+            {%- endif -%}
+        {%- endfor -%}
+        {%- if not ns.found -%}
+            {%- set _ = ns.groups.append({'key': key, 'type': e.type, 'r': e.r_value, 'angle': e.angle_value, 'letters': [e.letter]}) -%}
+        {%- endif -%}
+    {%- endfor -%}
+    {{- ns.groups|sort(attribute='key')|list -}}
+{%- endmacro -%}
+
+{%- macro render_edges_inline(detail) -%}
+    {%- if detail and detail.edges_config and detail.edges_config|length > 0 -%}
+    <br><span class="finishing-details">
+        {%- if detail.edges_mode == 'advanced' -%}
+            {%- set ns = namespace(groups=[]) -%}
+            {%- for e in detail.edges_config -%}
+                {%- set key = (e.type or '') ~ '|' ~ (e.r_value|string) ~ '|' ~ (e.angle_value|string if e.angle_value is not none else '') -%}
+                {%- set ns.found = false -%}
+                {%- for g in ns.groups -%}
+                    {%- if g.key == key -%}
+                        {%- set _ = g.letters.append(e.letter) -%}
+                        {%- set ns.found = true -%}
+                    {%- endif -%}
+                {%- endfor -%}
+                {%- if not ns.found -%}
+                    {%- set _ = ns.groups.append({'key': key, 'type': e.type, 'r': e.r_value, 'angle': e.angle_value, 'letters': [e.letter]}) -%}
+                {%- endif -%}
+            {%- endfor -%}
+            Krawędzie (mieszane):
+            {% for g in ns.groups|sort(attribute='key') -%}
+                {%- if g.type == 'chamfer' %}Fazowanie{% elif g.type == 'round' %}Zaokrąglenie{% else %}{{ g.type }}{% endif -%}
+                {{ ' ' }}R{{ g.r }}{%- if g.type == 'chamfer' and g.angle %} {{ g.angle }}°{% endif %}
+                ({{ g.letters|sort|join(', ') }}){%- if not loop.last %}; {% endif -%}
+            {%- endfor -%}
+        {%- else -%}
+            Krawędzie:
+            {% if detail.edges_type == 'chamfer' %}Fazowanie{% elif detail.edges_type == 'round' %}Zaokrąglenie{% else %}{{ detail.edges_type }}{% endif %}
+            R{{ detail.edges_r_value }}
+            {%- if detail.edges_type == 'chamfer' and detail.edges_angle_value %} ({{ detail.edges_angle_value }}°){% endif %}
+            - {{ detail.edges_config|map(attribute='letter')|list|sort|join(', ') }}
+        {%- endif -%}
+    </span>
+    {%- endif -%}
+{%- endmacro -%}
+
+{%- macro render_edges_block(detail) -%}
+    {%- if detail.edges_config and detail.edges_config|length > 0 -%}
+    <div class="edge-item-caption">
+        {%- if detail.edges_mode == 'advanced' -%}
+            {%- set ns = namespace(groups=[]) -%}
+            {%- for e in detail.edges_config -%}
+                {%- set key = (e.type or '') ~ '|' ~ (e.r_value|string) ~ '|' ~ (e.angle_value|string if e.angle_value is not none else '') -%}
+                {%- set ns.found = false -%}
+                {%- for g in ns.groups -%}
+                    {%- if g.key == key -%}
+                        {%- set _ = g.letters.append(e.letter) -%}
+                        {%- set ns.found = true -%}
+                    {%- endif -%}
+                {%- endfor -%}
+                {%- if not ns.found -%}
+                    {%- set _ = ns.groups.append({'key': key, 'type': e.type, 'r': e.r_value, 'angle': e.angle_value, 'letters': [e.letter]}) -%}
+                {%- endif -%}
+            {%- endfor -%}
+            <div><strong>Obróbka krawędzi (mieszana):</strong></div>
+            <ul style="margin: 4px 0 4px 16px; padding: 0;">
+                {% for g in ns.groups|sort(attribute='key') %}
+                <li>
+                    {% if g.type == 'chamfer' %}Fazowanie{% elif g.type == 'round' %}Zaokrąglenie{% else %}{{ g.type }}{% endif %}
+                    R{{ g.r }}{%- if g.type == 'chamfer' and g.angle %} {{ g.angle }}°{% endif %}
+                    — {{ g.letters|sort|join(', ') }}
+                </li>
+                {% endfor %}
+            </ul>
+        {%- else -%}
+            <div><strong>Typ:</strong>
+                {% if detail.edges_type == 'chamfer' %}Fazowanie
+                {% elif detail.edges_type == 'round' %}Zaokrąglenie
+                {% else %}{{ detail.edges_type or 'Standardowa' }}
+                {% endif %}
+            </div>
+            <div><strong>Promień:</strong> R{{ detail.edges_r_value or '-' }}
+                {%- if detail.edges_type == 'chamfer' and detail.edges_angle_value %} ({{ detail.edges_angle_value }}°){% endif %}
+            </div>
+            <div><strong>Krawędzie:</strong> {{ detail.edges_config|map(attribute='letter')|list|sort|join(', ') }}</div>
+        {%- endif -%}
+        <div class="edge-note">Krawędzie zaznaczone kolorem pomarańczowym zostaną poddane obróbce.</div>
+    </div>
+    {%- endif -%}
+{%- endmacro -%}
 <!DOCTYPE html>
 <html lang="pl">
 <head>
@@ -613,14 +711,8 @@
                             {% endif %}
                         </span>
                         <!-- Obróbka krawędzi -->
-                        {% if finishing_detail and finishing_detail.edges_type and finishing_detail.edges_config %}
-                        <br><span class="finishing-details">
-                            Krawędzie:
-                            {% if finishing_detail.edges_type == 'chamfer' %}Fazowanie{% elif finishing_detail.edges_type == 'round' %}Zaokrąglenie{% else %}{{ finishing_detail.edges_type }}{% endif %}
-                            R{{ finishing_detail.edges_r_value }}
-                            {%- if finishing_detail.edges_type == 'chamfer' and finishing_detail.edges_angle_value %} ({{ finishing_detail.edges_angle_value }}°){% endif %}
-                            - {{ finishing_detail.edges_config|map(attribute='letter')|list|sort|join(', ') }}
-                        </span>
+                        {% if finishing_detail and finishing_detail.edges_config and finishing_detail.edges_config|length > 0 %}
+                        {{ render_edges_inline(finishing_detail) }}
                         {% endif %}
                         <!-- Docięcie do wymiaru — pokazujemy TYLKO gdy klient sam dotina (cut_to_size = false) -->
                         {% if finishing_detail and finishing_detail.cut_to_size == False %}
@@ -764,21 +856,7 @@
                 {% endif %}
 
                 <!-- Info o obróbce krawędzi -->
-                {% if detail.edges_config and detail.edges_config|length > 0 %}
-                <div class="edge-item-caption">
-                    <div><strong>Typ:</strong>
-                        {% if detail.edges_type == 'chamfer' %}Fazowanie
-                        {% elif detail.edges_type == 'round' %}Zaokrąglenie
-                        {% else %}{{ detail.edges_type or 'Standardowa' }}
-                        {% endif %}
-                    </div>
-                    <div><strong>Promień:</strong> R{{ detail.edges_r_value or '-' }}
-                        {%- if detail.edges_type == 'chamfer' and detail.edges_angle_value %} ({{ detail.edges_angle_value }}°){% endif %}
-                    </div>
-                    <div><strong>Krawędzie:</strong> {{ detail.edges_config|map(attribute='letter')|list|sort|join(', ') }}</div>
-                    <div class="edge-note">Krawędzie zaznaczone kolorem pomarańczowym zostaną poddane obróbce.</div>
-                </div>
-                {% endif %}
+                {{ render_edges_block(detail) }}
             </div>
             {% endfor %}
         </div>

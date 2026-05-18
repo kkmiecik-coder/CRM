@@ -2734,13 +2734,37 @@ function renderVariantSummary(groupedItemsForIndex, quoteData, productIndex) {
         : '';
 
     // Edges SVG — klikalny z tooltipem + info o obróbce pod spodem
+    // Helper: grupuj edges_config po (type, r_value, angle_value) dla trybu Advanced
+    function _groupEdgesConfig(cfg) {
+        var TYPE_PL = { round: 'Zaokrąglenie', chamfer: 'Fazowanie' };
+        var groups = new Map();
+        cfg.forEach(function(e) {
+            var key = (e.type || '') + '|' + e.r_value + '|' + (e.angle_value != null ? e.angle_value : '');
+            if (!groups.has(key)) groups.set(key, { key: key, type: e.type, r: e.r_value, angle: e.angle_value, letters: [] });
+            groups.get(key).letters.push(e.letter);
+        });
+        var arr = Array.from(groups.values());
+        arr.sort(function(a, b) { return a.key < b.key ? -1 : a.key > b.key ? 1 : 0; });
+        return arr.map(function(g) {
+            var typeName = TYPE_PL[g.type] || g.type;
+            var anglePart = (g.type === 'chamfer' && g.angle) ? ' ' + g.angle + '\u00b0' : '';
+            return { text: typeName + ' R' + g.r + anglePart, letters: g.letters.slice().sort().join(', ') };
+        });
+    }
+
     var edgesCaption = '';
     if (hasEdges) {
-        var _et = finishing.edges_type === 'chamfer' ? 'Fazowanie' : finishing.edges_type === 'round' ? 'Zaokrąglenie' : finishing.edges_type;
-        var _desc = _et + ' R' + (finishing.edges_r_value || '-');
-        if (finishing.edges_type === 'chamfer' && finishing.edges_angle_value) _desc += ' (' + finishing.edges_angle_value + '\u00b0)';
-        var _letters = finishing.edges_config.map(function(e) { return e.letter; }).sort().join(', ');
-        edgesCaption = '<div class="vsh-edges-caption">' + _desc + ' — ' + _letters + '</div>';
+        if (finishing.edges_mode === 'advanced') {
+            var _groups = _groupEdgesConfig(finishing.edges_config);
+            var _parts = _groups.map(function(g) { return g.text + ' (' + g.letters + ')'; });
+            edgesCaption = '<div class="vsh-edges-caption">Obróbka krawędzi (mieszana): ' + _parts.join('; ') + '</div>';
+        } else {
+            var _et = finishing.edges_type === 'chamfer' ? 'Fazowanie' : finishing.edges_type === 'round' ? 'Zaokrąglenie' : finishing.edges_type;
+            var _desc = _et + ' R' + (finishing.edges_r_value || '-');
+            if (finishing.edges_type === 'chamfer' && finishing.edges_angle_value) _desc += ' (' + finishing.edges_angle_value + '\u00b0)';
+            var _letters = finishing.edges_config.map(function(e) { return e.letter; }).sort().join(', ');
+            edgesCaption = '<div class="vsh-edges-caption">' + _desc + ' — ' + _letters + '</div>';
+        }
     }
     const edgesSvgWithLabel = edgesSvgHtml
         ? '<div class="shape-preview-item shape-zoomable" data-svg-title="Widok izometryczny"><div class="shape-preview-label">Izometria</div>' + edgesSvgHtml + edgesCaption + '</div>'
@@ -2807,22 +2831,32 @@ function renderVariantSummary(groupedItemsForIndex, quoteData, productIndex) {
     // Buduj tabelę Krawędzie
     let edgesTableRows = '';
     if (hasEdges) {
-        const edgesConfig = finishing.edges_config;
-        const edgesType = finishing.edges_type === 'chamfer' ? 'Fazowanie' :
-                         finishing.edges_type === 'round' ? 'Zaokrąglenie' : finishing.edges_type;
-        const edgesRValue = finishing.edges_r_value || '-';
-        const edgesAngleValue = finishing.edges_angle_value;
         const edgesPriceBrutto = parseFloat(finishing.edges_price_brutto || 0);
         const edgesPriceNetto = parseFloat(finishing.edges_price_netto || 0);
-        const edgeLetters = edgesConfig.map(e => e.letter).sort().join(', ');
 
-        let edgesDescription = edgesType + ' R' + edgesRValue;
-        if (finishing.edges_type === 'chamfer' && edgesAngleValue) {
-            edgesDescription += ' (' + edgesAngleValue + '\u00b0)';
+        if (finishing.edges_mode === 'advanced') {
+            const _groupsTbl = _groupEdgesConfig(finishing.edges_config);
+            const _rowsHtml = _groupsTbl.map(function(g) {
+                return '<div>' + g.text + ' — ' + g.letters + '</div>';
+            }).join('');
+            edgesTableRows += '<tr><td>Tryb</td><td>Mieszany (zaawansowany)</td></tr>';
+            edgesTableRows += '<tr><td>Grupy</td><td>' + _rowsHtml + '</td></tr>';
+        } else {
+            const edgesConfig = finishing.edges_config;
+            const edgesType = finishing.edges_type === 'chamfer' ? 'Fazowanie' :
+                             finishing.edges_type === 'round' ? 'Zaokrąglenie' : finishing.edges_type;
+            const edgesRValue = finishing.edges_r_value || '-';
+            const edgesAngleValue = finishing.edges_angle_value;
+            const edgeLetters = edgesConfig.map(e => e.letter).sort().join(', ');
+
+            let edgesDescription = edgesType + ' R' + edgesRValue;
+            if (finishing.edges_type === 'chamfer' && edgesAngleValue) {
+                edgesDescription += ' (' + edgesAngleValue + '\u00b0)';
+            }
+
+            edgesTableRows += '<tr><td>Typ</td><td>' + edgesDescription + '</td></tr>';
+            edgesTableRows += '<tr><td>Krawędzie</td><td>' + edgeLetters + '</td></tr>';
         }
-
-        edgesTableRows += '<tr><td>Typ</td><td>' + edgesDescription + '</td></tr>';
-        edgesTableRows += '<tr><td>Krawędzie</td><td>' + edgeLetters + '</td></tr>';
         edgesTableRows += '<tr><td>Koszt</td><td>' + edgesPriceBrutto.toFixed(2) + ' PLN <span class="cost-netto">' + edgesPriceNetto.toFixed(2) + ' PLN</span></td></tr>';
     }
     let edgesTableHtml = '';
