@@ -570,10 +570,12 @@ var ShapeCanvas = (function() {
                     var scrOutLen = Math.sqrt(scrOutX * scrOutX + scrOutY * scrOutY);
                     if (scrInLen < 1 || scrOutLen < 1) continue;
 
-                    // Łuk: od kierunku -in do +out, na promieniu 14px
+                    // Łuk: od kierunku -in do +out. Dla ostrych kątów zwiększamy promień,
+                    // żeby łuk miał sensowną długość (przy 13° na r=14 to ~3px ledwo widoczna kreseczka).
                     var startAng = Math.atan2(-scrInY, -scrInX); // wektor od curr w stronę prev (na ekranie)
                     var endAng = Math.atan2(scrOutY, scrOutX);   // wektor od curr w stronę next (na ekranie)
-                    var r = 14;
+                    var _safeAngForArc = Math.max(2, angleDeg);
+                    var r = Math.min(45, Math.max(14, 5 / Math.sin(_safeAngForArc / 2 * Math.PI / 180)));
 
                     // Wybierz kierunek łuku po krótszej stronie (ta będzie po stronie wnętrza)
                     var diff = endAng - startAng;
