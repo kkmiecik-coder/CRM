@@ -595,9 +595,25 @@ var ShapeCanvas = (function() {
 
                     // Tekst na bisektorze ekranowym (w stronę środka łuku)
                     var midAng = startAng + (ccw ? -Math.abs(diff) / 2 : Math.abs(diff) / 2);
-                    var tx = cPx[0] + Math.cos(midAng) * (r + 10);
-                    var ty = cPx[1] + Math.sin(midAng) * (r + 10);
-                    ctx.font = 'bold 10px sans-serif';
+                    var angleRadius = r + 10;
+                    var tx = cPx[0] + Math.cos(midAng) * angleRadius;
+                    var ty = cPx[1] + Math.sin(midAng) * angleRadius;
+
+                    // Detekcja kolizji z label bbox/Formatka — zwiększ promień jeśli kolizja
+                    if (state._bboxLabelBoxes && state._bboxLabelBoxes.length > 0) {
+                        for (var abi = 0; abi < state._bboxLabelBoxes.length; abi++) {
+                            var ab = state._bboxLabelBoxes[abi];
+                            if (Math.abs(tx - ab.x) < ANGLE_COLLISION_RADIUS &&
+                                Math.abs(ty - ab.y) < ANGLE_COLLISION_RADIUS) {
+                                angleRadius = r + 28;
+                                tx = cPx[0] + Math.cos(midAng) * angleRadius;
+                                ty = cPx[1] + Math.sin(midAng) * angleRadius;
+                                break;
+                            }
+                        }
+                    }
+
+                    ctx.font = 'bold ' + _fontPx(12) + 'px sans-serif';
                     ctx.fillStyle = 'rgba(230, 126, 34, 0.9)';
                     ctx.textAlign = 'center';
                     ctx.textBaseline = 'middle';
