@@ -1,15 +1,16 @@
 (function () {
     'use strict';
 
-    var modal, canvasSlot, toggleBtn;
+    var modal, canvasSlot;
     var movedEditor = null;
     var originalParent = null;
     var originalNextSibling = null;
     var isOpen = false;
 
-    function open() {
+    function open(triggerBtn) {
         if (isOpen) return;
-        var canvasEditor = document.querySelector('[data-shape-editor]');
+        // Znajdź edytor związany z klikniętym przyciskiem (nie pierwszy na stronie!)
+        var canvasEditor = triggerBtn && triggerBtn.closest('[data-shape-editor]');
         if (!canvasEditor) return;
 
         modal.hidden = false;
@@ -56,12 +57,18 @@
 
     function init() {
         modal = document.querySelector('[data-fs-modal]');
-        toggleBtn = document.querySelector('[data-fullscreen-toggle]');
-        if (!modal || !toggleBtn) return;
+        if (!modal) return;
 
         canvasSlot = modal.querySelector('[data-fs-slot="canvas"]');
 
-        toggleBtn.addEventListener('click', open);
+        // Delegacja — działa dla wszystkich produktów (także skopiowanych/dodanych po init)
+        document.addEventListener('click', function (e) {
+            var btn = e.target.closest('[data-fullscreen-toggle]');
+            if (!btn) return;
+            e.preventDefault();
+            open(btn);
+        });
+
         modal.querySelectorAll('[data-fs-close]').forEach(function (el) {
             el.addEventListener('click', close);
         });
