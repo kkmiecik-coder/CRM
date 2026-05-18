@@ -68,6 +68,15 @@ var ShapeCanvas = (function() {
         // Pozycje wymiarów do obsługi dblclick
         var dimensionHitAreas = []; // [{x, y, edgeIndex, labelX, labelY}]
 
+        // === Czytelność wymiarów (2026-05-18) ===
+        var SVG_FONT_MUL = 1.4;            // mnożnik fontów w trybie eksportu SVG
+        var COLLISION_RADIUS = 28;         // px — promień detekcji kolizji label krawędzi ↔ bbox
+        var ANGLE_COLLISION_RADIUS = 24;   // px — promień detekcji kolizji kąt ↔ bbox
+
+        function _fontPx(basePx) {
+            return state._svgExportMode ? Math.round(basePx * SVG_FONT_MUL) : basePx;
+        }
+
         // ============================================
         // CANVAS SIZING
         // ============================================
