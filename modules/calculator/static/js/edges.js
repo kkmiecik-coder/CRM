@@ -571,11 +571,181 @@ const EdgesModule = (function() {
         return false;
     }
 
-    // Placeholder no-op implementations (filled in Task 8)
-    function renderAdvancedList() { /* implemented in Task 8 */ }
-    function renderAdvancedVisualization() { /* implemented in Task 8 */ }
-    function updateAdvancedPrice() { /* implemented in Task 8 */ }
-    function setupAdvancedActions() { /* implemented in Task 8 */ }
+    // ==========================================
+    // ZAAWANSOWANY — render per-edge + bulk apply
+    // ==========================================
+
+    function getActiveEdgeDefinitions() {
+        if (_isRoundShape(state.productShape)) {
+            return [
+                { letter: 'KG', name: 'Krawędź górna (obwód)', dimensionKey: 'perimeter' },
+                { letter: 'KD', name: 'Krawędź dolna (obwód)', dimensionKey: 'perimeter' },
+            ];
+        }
+        if (state.productShape !== 'rectangular' && Object.keys(state.dynamicEdgeDefs).length > 0) {
+            return Object.entries(state.dynamicEdgeDefs).map(([letter, def]) => ({
+                letter, name: def.name || letter, dimensionKey: 'dynamic', dynamicDef: def,
+            }));
+        }
+        // rectangular
+        return Object.entries(EDGES).map(([letter, def]) => ({
+            letter, name: def.name, dimensionKey: def.dimension,
+        }));
+    }
+
+    function computeEdgeLengthCm(def) {
+        if (def.dimensionKey === 'perimeter') {
+            return calculateEllipsePerimeterCm(state.dimensions.length, state.dimensions.width);
+        }
+        if (def.dimensionKey === 'dynamic') {
+            return def.dynamicDef.length_cm || 0;
+        }
+        return state.dimensions[def.dimensionKey] || 0;
+    }
+
+    function computeEdgePrice(def, cfg, lengthCm) {
+        if (cfg.type === 'sharp') return 0;
+        const pricePerMb = getPricePerMb(cfg.type);
+        const pricePerCorner = getPricePerCorner(cfg.type);
+        const isCorner = (def.dimensionKey === 'thickness' || (def.dynamicDef && def.dynamicDef.group === 'vertical'));
+        return isCorner ? pricePerCorner : (lengthCm / 100) * pricePerMb;
+    }
+
+    function renderAngleOptions(selected) {
+        const angles = (CONFIG.CHAMFER_ANGLES && CONFIG.CHAMFER_ANGLES.angles) || [45, 30, 60];
+        return angles.map(a => `<option value="${a}"${a===selected?' selected':''}>${a}°</option>`).join('');
+    }
+
+    function renderAdvancedList() {
+        const container = elements.advancedList;
+        if (!container) return;
+        container.innerHTML = '';
+
+        const definitions = getActiveEdgeDefinitions();
+        definitions.forEach(def => {
+            const cfg = state.advanced.edges.get(def.letter) || { type: 'sharp', r_value: null, angle_value: null };
+            const row = document.createElement('div');
+            row.className = 'edges-advanced-row';
+            row.dataset.edge = def.letter;
+
+            const lengthCm = computeEdgeLengthCm(def);
+            const price = computeEdgePrice(def, cfg, lengthCm);
+
+            row.innerHTML = `
+                <span class="edge-letter">${def.letter}</span>
+                <span class="edge-name">${def.name} <small>(${lengthCm.toFixed(1)} cm)</small></span>
+                <select class="edge-type">
+                    <option value="sharp"${cfg.type==='sharp'?' selected':''}>Ostra</option>
+                    <option value="round"${cfg.type==='round'?' selected':''}>Zaokrąglenie</option>
+                    <option value="chamfer"${cfg.type==='chamfer'?' selected':''}>Fazowanie</option>
+                </select>
+                <input class="edge-r" type="number" min="3" max="20" value="${cfg.r_value || 5}" ${cfg.type==='sharp'?'disabled':''}>
+                <select class="edge-angle" ${cfg.type!=='chamfer'?'disabled':''}>
+                    ${renderAngleOptions(cfg.angle_value)}
+                </select>
+                <span class="edge-price">${price.toFixed(2)} zł</span>
+                <span></span>
+            `;
+
+            container.appendChild(row);
+
+            row.querySelector('.edge-type').addEventListener('change', e => {
+                onAdvancedRowChange(def.letter, { type: e.target.value });
+            });
+            row.querySelector('.edge-r').addEventListener('input', e => {
+                onAdvancedRowChange(def.letter, { r_value: parseInt(e.target.value, 10) });
+            });
+            row.querySelector('.edge-angle').addEventListener('change', e => {
+                onAdvancedRowChange(def.letter, { angle_value: parseInt(e.target.value, 10) });
+            });
+        });
+
+        updateAdvancedPrice();
+    }
+
+    function onAdvancedRowChange(letter, patch) {
+        const current = state.advanced.edges.get(letter) || { type: 'sharp', r_value: null, angle_value: null };
+        const next = { ...current, ...patch };
+        if (next.type === 'sharp') {
+            state.advanced.edges.delete(letter);
+        } else {
+            if (!next.r_value) next.r_value = (next.type === 'round') ? 5 : 3;
+            if (next.type !== 'chamfer') next.angle_value = null;
+            else if (!next.angle_value) next.angle_value = 45;
+            state.advanced.edges.set(letter, next);
+        }
+        renderAdvancedList();
+        renderAdvancedVisualization();
+    }
+
+    function updateAdvancedPrice() {
+        let total = 0;
+        getActiveEdgeDefinitions().forEach(def => {
+            const cfg = state.advanced.edges.get(def.letter);
+            if (!cfg || cfg.type === 'sharp') return;
+            total += computeEdgePrice(def, cfg, computeEdgeLengthCm(def));
+        });
+        const brutto = total * CONFIG.VAT_RATE;
+        if (elements.priceBrutto) elements.priceBrutto.textContent = brutto.toFixed(2).replace('.', ',') + ' zł';
+        if (elements.priceNetto) elements.priceNetto.textContent = '(' + total.toFixed(2).replace('.', ',') + ' zł netto)';
+    }
+
+    function renderAdvancedVisualization() {
+        const container = elements.advancedVisualization;
+        if (!container) return;
+        container.innerHTML = '';
+        if (!elements.svg) return;
+        const clone = elements.svg.cloneNode(true);
+        clone.querySelectorAll('.edges-line').forEach(line => {
+            const letter = line.dataset.edge;
+            const cfg = state.advanced.edges.get(letter);
+            const type = cfg?.type || 'sharp';
+            line.style.stroke = (type === 'round') ? '#2E7D32'
+                              : (type === 'chamfer') ? '#ED6B24'
+                              : '#cccccc';
+            line.style.strokeWidth = (type === 'sharp') ? '2' : '3';
+        });
+        container.appendChild(clone);
+    }
+
+    function setupAdvancedActions() {
+        if (!elements.advancedImportBtn) return;
+
+        elements.advancedImportBtn.addEventListener('click', () => {
+            state.advanced.edges.clear();
+            state.basic.selectedEdges.forEach(letter => {
+                state.advanced.edges.set(letter, {
+                    type: state.basic.edgeType,
+                    r_value: state.basic.rValue,
+                    angle_value: state.basic.angleValue,
+                });
+            });
+            renderAdvancedList();
+            renderAdvancedVisualization();
+        });
+
+        // Wypełnij select kąta dynamicznie tym samym mechanizmem co render w wierszu
+        if (elements.advancedBulkAngle) {
+            elements.advancedBulkAngle.innerHTML = renderAngleOptions(45);
+        }
+
+        elements.advancedBulkType.addEventListener('change', () => {
+            elements.advancedBulkAngle.style.display =
+                (elements.advancedBulkType.value === 'chamfer') ? '' : 'none';
+        });
+
+        elements.advancedBulkApply.addEventListener('click', () => {
+            const type = elements.advancedBulkType.value;
+            const r = parseInt(elements.advancedBulkR.value, 10);
+            const angle = (type === 'chamfer') ? parseInt(elements.advancedBulkAngle.value, 10) : null;
+            getActiveEdgeDefinitions().forEach(def => {
+                if (type === 'sharp') state.advanced.edges.delete(def.letter);
+                else state.advanced.edges.set(def.letter, { type, r_value: r, angle_value: angle });
+            });
+            renderAdvancedList();
+            renderAdvancedVisualization();
+        });
+    }
 
     // ==========================================
     // MODAL
