@@ -575,20 +575,30 @@ def create_quote(data, user_email):
 
             # Dane obróbki krawędzi
             edges_data = product.get('edges', [])
-            edges_type = None
-            edges_r_value = None
+            edges_mode = product.get('edges_mode')
+            edges_type = product.get('edges_type')
+            edges_r_value = product.get('edges_r_value')
             edges_angle_value = product.get('edges_angle_value')
             edges_price_netto = float(product.get('edges_netto', 0.0))
             edges_price_brutto = float(product.get('edges_brutto', 0.0))
 
             if edges_data:
-                edges_type = edges_data[0].get('type')
-                edges_r_value = edges_data[0].get('r_value')
-                if edges_angle_value is None and edges_type == 'chamfer':
-                    edges_angle_value = edges_data[0].get('angle_value')
+                if edges_mode == 'advanced':
+                    # Mieszane typy — sentinel
+                    edges_type = 'mixed'
+                    edges_r_value = None
+                    edges_angle_value = None
+                else:
+                    # Basic / legacy — fallback z payloadu lub z pierwszego elementu
+                    if not edges_type:
+                        edges_type = edges_data[0].get('type')
+                    if edges_r_value is None:
+                        edges_r_value = edges_data[0].get('r_value')
+                    if edges_angle_value is None and edges_type == 'chamfer':
+                        edges_angle_value = edges_data[0].get('angle_value')
                 current_app.logger.info(
                     f"[save_quote] Produkt #{i + 1}: {len(edges_data)} krawędzi, "
-                    f"typ={edges_type}, R={edges_r_value}, kąt={edges_angle_value}, "
+                    f"mode={edges_mode}, typ={edges_type}, R={edges_r_value}, kąt={edges_angle_value}, "
                     f"netto={edges_price_netto}, brutto={edges_price_brutto}"
                 )
 
@@ -627,6 +637,7 @@ def create_quote(data, user_email):
                 finishing_price_brutto=finishing_price_brutto,
                 quantity=product_quantity,
                 edges_config=edges_data if edges_data else None,
+                edges_mode=edges_mode,
                 edges_type=edges_type,
                 edges_r_value=edges_r_value,
                 edges_angle_value=edges_angle_value,
