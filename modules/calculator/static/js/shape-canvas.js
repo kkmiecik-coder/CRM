@@ -590,7 +590,14 @@ var ShapeCanvas = (function() {
 
                     // Tekst na bisektorze ekranowym (w stronę środka łuku)
                     var midAng = startAng + (ccw ? -Math.abs(diff) / 2 : Math.abs(diff) / 2);
-                    var angleRadius = r + 22;
+                    // Promień bazowy + dynamiczne odsunięcie dla ostrych kątów,
+                    // żeby tekst nie wpadł między krawędzie tworzące klin.
+                    // Odległość perpendykularna do krawędzi = angleRadius * sin(kąt/2).
+                    // Aby tekst (~wys. 14px) zmieścił się obok krawędzi, potrzebujemy
+                    // sin(kąt/2) * angleRadius > ~12px → angleRadius > 12 / sin(kąt/2).
+                    var safeAngle = Math.max(2, angleDeg);
+                    var edgeClearance = 12 / Math.sin(safeAngle / 2 * Math.PI / 180);
+                    var angleRadius = Math.min(90, Math.max(r + 22, edgeClearance));
                     var tx = cPx[0] + Math.cos(midAng) * angleRadius;
                     var ty = cPx[1] + Math.sin(midAng) * angleRadius;
 
