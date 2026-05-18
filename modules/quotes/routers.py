@@ -403,7 +403,7 @@ def generate_quote_pdf(token, format):
             if fd.edges_svg:
                 try:
                     svg_fixed = pdf_gen._ensure_dashed_lines(fd.edges_svg)
-                    png_data_uri = pdf_gen._svg_to_png_base64(svg_fixed, 300)
+                    png_data_uri = pdf_gen._svg_to_png_base64(svg_fixed, 300, preserve_aspect=True)
                     if png_data_uri:
                         edges_images[fd.product_index] = png_data_uri
                     else:
@@ -412,7 +412,7 @@ def generate_quote_pdf(token, format):
                     logger.error(f"[PDF {quote.quote_number}] Poz {fd.product_index}: edges PNG BŁĄD: {e}", exc_info=True)
             if fd.shape_svg:
                 try:
-                    png_data_uri = pdf_gen._svg_to_png_base64(fd.shape_svg, 300)
+                    png_data_uri = pdf_gen._svg_to_png_base64(fd.shape_svg, 300, preserve_aspect=True)
                     if png_data_uri:
                         shape_images[fd.product_index] = png_data_uri
                     else:
@@ -776,6 +776,7 @@ def get_quote_details(quote_id):
                 # Dane obróbki krawędzi
                 "edges_config": d.edges_config,
                 "edges_type": d.edges_type,
+                "edges_mode": d.edges_mode,
                 "edges_r_value": d.edges_r_value,
                 "edges_price_netto": float(d.edges_price_netto) if d.edges_price_netto else 0.0,
                 "edges_price_brutto": float(d.edges_price_brutto) if d.edges_price_brutto else 0.0,
@@ -1056,6 +1057,7 @@ def get_client_quote_data(token):
                 # Dane obróbki krawędzi
                 "edges_config": detail.edges_config,
                 "edges_type": detail.edges_type,
+                "edges_mode": detail.edges_mode,
                 "edges_r_value": detail.edges_r_value,
                 "edges_price_netto": float(detail.edges_price_netto or 0),
                 "edges_price_brutto": float(detail.edges_price_brutto or 0),

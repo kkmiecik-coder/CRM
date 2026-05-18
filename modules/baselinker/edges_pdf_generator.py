@@ -182,8 +182,12 @@ class EdgesPdfGenerator:
 
         return svg_html
 
-    def _fix_svg_for_conversion(self, svg_html: str, output_width=300) -> str:
-        """Naprawia SVG przed konwersją na PNG"""
+    def _fix_svg_for_conversion(self, svg_html: str, output_width=300, force_square=True) -> str:
+        """Naprawia SVG przed konwersją na PNG.
+
+        force_square=False — usuwa width/height z <svg>, zostawia tylko viewBox,
+        żeby cairosvg sam policzył wymiary z output_width zachowując proporcje.
+        """
         if not svg_html:
             return svg_html
 
@@ -192,12 +196,13 @@ class EdgesPdfGenerator:
         # Usuń istniejące width/height TYLKO z tagu <svg>, nie z elementów wewnętrznych
         svg_html = re.sub(r'(<svg\s[^>]*?)\s+width="[^"]*"', r'\1', svg_html)
         svg_html = re.sub(r'(<svg\s[^>]*?)\s+height="[^"]*"', r'\1', svg_html)
-        svg_html = re.sub(
-            r'<svg\s+',
-            f'<svg width="{output_width}" height="{output_width}" ',
-            svg_html,
-            count=1
-        )
+        if force_square:
+            svg_html = re.sub(
+                r'<svg\s+',
+                f'<svg width="{output_width}" height="{output_width}" ',
+                svg_html,
+                count=1
+            )
 
         if 'xmlns=' not in svg_html:
             svg_html = re.sub(
@@ -291,21 +296,35 @@ class EdgesPdfGenerator:
         return (f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {size} {size}" '
                 f'width="{size}" height="{size}">{clip}<g clip-path="url(#lc)"><g{transform}>{bars}</g></g></svg>')
 
-    def _svg_to_png_base64(self, svg_html: str, output_width=300) -> str:
-        """Konwertuje SVG na PNG base64 data URI"""
+    def _svg_to_png_base64(self, svg_html: str, output_width=300, preserve_aspect=False) -> str:
+        """Konwertuje SVG na PNG base64 data URI.
+
+        preserve_aspect=True — height liczone z viewBox (zachowuje proporcje),
+        plus 4× supersampling względem output_width żeby PNG miał gęstość
+        wystarczającą do druku po przeskalowaniu CSS w PDF (~150 DPI).
+        """
         if not svg_html:
             return None
 
         try:
             svg_html = self._sanitize_svg_text(svg_html)
             svg_html = self._convert_css_to_svg_attributes(svg_html)
-            svg_html = self._fix_svg_for_conversion(svg_html, output_width)
-
-            png_bytes = cairosvg.svg2png(
-                bytestring=svg_html.encode('utf-8'),
-                output_width=output_width,
-                output_height=output_width
+            svg_html = self._fix_svg_for_conversion(
+                svg_html, output_width, force_square=not preserve_aspect
             )
+
+            if preserve_aspect:
+                render_width = max(output_width * 4, 1200)
+                png_bytes = cairosvg.svg2png(
+                    bytestring=svg_html.encode('utf-8'),
+                    output_width=render_width,
+                )
+            else:
+                png_bytes = cairosvg.svg2png(
+                    bytestring=svg_html.encode('utf-8'),
+                    output_width=output_width,
+                    output_height=output_width
+                )
 
             png_base64 = base64.b64encode(png_bytes).decode('utf-8')
             return f'data:image/png;base64,{png_base64}'
