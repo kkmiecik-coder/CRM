@@ -69,13 +69,8 @@ var ShapeCanvas = (function() {
         var dimensionHitAreas = []; // [{x, y, edgeIndex, labelX, labelY}]
 
         // === Czytelność wymiarów (2026-05-18) ===
-        var SVG_FONT_MUL = 1.4;            // mnożnik fontów w trybie eksportu SVG
-        var COLLISION_RADIUS = 28;         // px — promień detekcji kolizji label krawędzi ↔ bbox
-        var ANGLE_COLLISION_RADIUS = 24;   // px — promień detekcji kolizji kąt ↔ bbox
-
-        function _fontPx(basePx) {
-            return state._svgExportMode ? Math.round(basePx * SVG_FONT_MUL) : basePx;
-        }
+        var COLLISION_RADIUS = 32;         // px — promień detekcji kolizji label krawędzi ↔ bbox
+        var ANGLE_COLLISION_RADIUS = 28;   // px — promień detekcji kolizji kąt ↔ bbox
 
         // ============================================
         // CANVAS SIZING
@@ -396,7 +391,7 @@ var ShapeCanvas = (function() {
             var label = (Math.round(distCm * 10) / 10) + ' cm';
             var mx = (sx + ex) / 2;
             var my = (sy + ey) / 2;
-            ctx.font = 'bold ' + _fontPx(13) + 'px sans-serif';
+            ctx.font = 'bold 15px sans-serif';
             ctx.fillStyle = '#e67e22';
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
@@ -613,7 +608,7 @@ var ShapeCanvas = (function() {
                         }
                     }
 
-                    ctx.font = 'bold ' + _fontPx(12) + 'px sans-serif';
+                    ctx.font = 'bold 14px sans-serif';
                     ctx.fillStyle = 'rgba(230, 126, 34, 0.9)';
                     ctx.textAlign = 'center';
                     ctx.textBaseline = 'middle';
@@ -819,7 +814,7 @@ var ShapeCanvas = (function() {
             }
 
             // Wymiar
-            ctx.font = _fontPx(13) + 'px sans-serif';
+            ctx.font = '15px sans-serif';
             ctx.fillStyle = colorOverride || '#e67e22';
             ctx.textAlign = 'center';
             ctx.textBaseline = 'bottom';
@@ -827,7 +822,7 @@ var ShapeCanvas = (function() {
 
             // Oznaczenie boku (G1, G2...) — pod wymiarem
             if (edgeId) {
-                ctx.font = 'bold ' + _fontPx(11) + 'px sans-serif';
+                ctx.font = 'bold 13px sans-serif';
                 ctx.fillStyle = colorOverride ? colorOverride : 'rgba(230, 126, 34, 0.6)';
                 ctx.textBaseline = 'top';
                 ctx.fillText(edgeId, labelX, labelY + 2);
