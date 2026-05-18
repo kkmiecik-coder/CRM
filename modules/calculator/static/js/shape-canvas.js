@@ -71,6 +71,10 @@ var ShapeCanvas = (function() {
         // === Czytelność wymiarów (2026-05-18) ===
         var COLLISION_RADIUS = 32;         // px — promień detekcji kolizji label krawędzi ↔ bbox
         var ANGLE_COLLISION_RADIUS = 28;   // px — promień detekcji kolizji kąt ↔ bbox
+        var SVG_SCALE = 1.5;               // mnożnik fontów i offsetów w trybie eksportu SVG
+
+        function _mul() { return state._svgExportMode ? SVG_SCALE : 1; }
+        function _scaled(v) { return Math.round(v * _mul()); }
 
         // ============================================
         // CANVAS SIZING
@@ -350,10 +354,10 @@ var ShapeCanvas = (function() {
         function _renderBracket(x1cm, y1cm, x2cm, y2cm, side, distCm, level) {
             var p1 = cmToPixel(x1cm, y1cm);
             var p2 = cmToPixel(x2cm, y2cm);
-            var baseOffset = 14;
-            var levelSpacing = 28; // px odstęp między kolejnymi klamerkami
+            var baseOffset = _scaled(14);
+            var levelSpacing = _scaled(28); // px odstęp między kolejnymi klamerkami
             var offset = baseOffset + (level || 0) * levelSpacing;
-            var tick = 6;    // px kreski |
+            var tick = _scaled(6);    // px kreski |
 
             var ox = 0, oy = 0;
             if (side === 'bottom') oy = offset;
@@ -391,27 +395,29 @@ var ShapeCanvas = (function() {
             var label = (Math.round(distCm * 10) / 10) + ' cm';
             var mx = (sx + ex) / 2;
             var my = (sy + ey) / 2;
-            ctx.font = 'bold 15px sans-serif';
+            ctx.font = 'bold ' + _scaled(15) + 'px sans-serif';
             ctx.fillStyle = '#e67e22';
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
 
             // Capture pozycji label dla detekcji kolizji z label krawędzi/kątów
+            var _hOff = _scaled(14);
+            var _vOff = _scaled(12);
             var labelCenterX, labelCenterY;
-            if (side === 'right') { labelCenterX = mx + 14; labelCenterY = my; }
-            else if (side === 'left') { labelCenterX = mx - 14; labelCenterY = my; }
-            else if (side === 'bottom') { labelCenterX = mx; labelCenterY = my + 12; }
-            else { labelCenterX = mx; labelCenterY = my - 12; } // top
+            if (side === 'right') { labelCenterX = mx + _hOff; labelCenterY = my; }
+            else if (side === 'left') { labelCenterX = mx - _hOff; labelCenterY = my; }
+            else if (side === 'bottom') { labelCenterX = mx; labelCenterY = my + _vOff; }
+            else { labelCenterX = mx; labelCenterY = my - _vOff; } // top
             if (state._bboxLabelBoxes) state._bboxLabelBoxes.push({ x: labelCenterX, y: labelCenterY });
 
             if (side === 'right' || side === 'left') {
                 // Pionowe klamerki — tekst obrócony o 90° w prawo
-                var rotOx = (side === 'right' ? 14 : -14);
+                var rotOx = (side === 'right' ? _hOff : -_hOff);
                 ctx.translate(mx + rotOx, my);
                 ctx.rotate(Math.PI / 2);
                 ctx.fillText(label, 0, 0);
             } else {
-                var labelOy = (side === 'bottom' ? 12 : -12);
+                var labelOy = (side === 'bottom' ? _vOff : -_vOff);
                 ctx.fillText(label, mx, my + labelOy);
             }
             ctx.restore();
@@ -575,7 +581,7 @@ var ShapeCanvas = (function() {
                     var startAng = Math.atan2(-scrInY, -scrInX); // wektor od curr w stronę prev (na ekranie)
                     var endAng = Math.atan2(scrOutY, scrOutX);   // wektor od curr w stronę next (na ekranie)
                     var _safeAngForArc = Math.max(2, angleDeg);
-                    var r = Math.min(72, Math.max(36, 8 / Math.sin(_safeAngForArc / 2 * Math.PI / 180)));
+                    var r = Math.min(72, Math.max(36, 8 / Math.sin(_safeAngForArc / 2 * Math.PI / 180))) * _mul();
 
                     // Wybierz kierunek łuku po krótszej stronie (ta będzie po stronie wnętrza)
                     var diff = endAng - startAng;
@@ -598,8 +604,8 @@ var ShapeCanvas = (function() {
                     // Aby tekst (~wys. 14px) zmieścił się obok krawędzi, potrzebujemy
                     // sin(kąt/2) * angleRadius > ~12px → angleRadius > 12 / sin(kąt/2).
                     var safeAngle = Math.max(2, angleDeg);
-                    var edgeClearance = 20 / Math.sin(safeAngle / 2 * Math.PI / 180);
-                    var angleRadius = Math.min(110, Math.max(r + 14, edgeClearance));
+                    var edgeClearance = (20 / Math.sin(safeAngle / 2 * Math.PI / 180)) * _mul();
+                    var angleRadius = Math.min(110 * _mul(), Math.max(r + _scaled(14), edgeClearance));
                     var tx = cPx[0] + Math.cos(midAng) * angleRadius;
                     var ty = cPx[1] + Math.sin(midAng) * angleRadius;
 
@@ -607,9 +613,9 @@ var ShapeCanvas = (function() {
                     if (state._bboxLabelBoxes && state._bboxLabelBoxes.length > 0) {
                         for (var abi = 0; abi < state._bboxLabelBoxes.length; abi++) {
                             var ab = state._bboxLabelBoxes[abi];
-                            if (Math.abs(tx - ab.x) < ANGLE_COLLISION_RADIUS &&
-                                Math.abs(ty - ab.y) < ANGLE_COLLISION_RADIUS) {
-                                angleRadius = r + 40;
+                            if (Math.abs(tx - ab.x) < ANGLE_COLLISION_RADIUS * _mul() &&
+                                Math.abs(ty - ab.y) < ANGLE_COLLISION_RADIUS * _mul()) {
+                                angleRadius = r + _scaled(40);
                                 tx = cPx[0] + Math.cos(midAng) * angleRadius;
                                 ty = cPx[1] + Math.sin(midAng) * angleRadius;
                                 break;
@@ -617,7 +623,7 @@ var ShapeCanvas = (function() {
                         }
                     }
 
-                    ctx.font = 'bold 14px sans-serif';
+                    ctx.font = 'bold ' + _scaled(14) + 'px sans-serif';
                     ctx.fillStyle = 'rgba(230, 126, 34, 0.9)';
                     ctx.textAlign = 'center';
                     ctx.textBaseline = 'middle';
@@ -741,7 +747,7 @@ var ShapeCanvas = (function() {
             var dx = p2[0] - p1[0], dy = p2[1] - p1[1];
             var len = Math.sqrt(dx * dx + dy * dy);
             if (len < 1) { ctx.restore(); return; }
-            var dist = offsetOverride || 22;
+            var dist = (offsetOverride !== undefined ? offsetOverride : 22) * _mul();
             var nx = -dy / len * dist, ny = dx / len * dist;
 
             // Pozycja wymiaru: domyślnie środek krawędzi
@@ -802,8 +808,8 @@ var ShapeCanvas = (function() {
                 var collides = false;
                 for (var bi = 0; bi < state._bboxLabelBoxes.length; bi++) {
                     var b = state._bboxLabelBoxes[bi];
-                    if (Math.abs(labelX - b.x) < COLLISION_RADIUS &&
-                        Math.abs(labelY - b.y) < COLLISION_RADIUS) {
+                    if (Math.abs(labelX - b.x) < COLLISION_RADIUS * _mul() &&
+                        Math.abs(labelY - b.y) < COLLISION_RADIUS * _mul()) {
                         collides = true;
                         break;
                     }
@@ -823,7 +829,7 @@ var ShapeCanvas = (function() {
             }
 
             // Wymiar
-            ctx.font = '15px sans-serif';
+            ctx.font = _scaled(15) + 'px sans-serif';
             ctx.fillStyle = colorOverride || '#e67e22';
             ctx.textAlign = 'center';
             ctx.textBaseline = 'bottom';
@@ -831,10 +837,10 @@ var ShapeCanvas = (function() {
 
             // Oznaczenie boku (G1, G2...) — pod wymiarem
             if (edgeId) {
-                ctx.font = 'bold 13px sans-serif';
+                ctx.font = 'bold ' + _scaled(13) + 'px sans-serif';
                 ctx.fillStyle = colorOverride ? colorOverride : 'rgba(230, 126, 34, 0.6)';
                 ctx.textBaseline = 'top';
-                ctx.fillText(edgeId, labelX, labelY + 2);
+                ctx.fillText(edgeId, labelX, labelY + _scaled(2));
             }
 
             ctx.restore();
