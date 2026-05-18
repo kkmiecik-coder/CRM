@@ -166,15 +166,27 @@ const EdgesModule = (function() {
     let state = {
         isOpen: false,
         currentForm: null,
-        selectedEdges: new Set(),
-        edgeType: 'round',
-        rValue: 5,
-        angleValue: null,         // Kąt fazowania (tylko dla chamfer)
         dimensions: { length: 0, width: 0, thickness: 0 },
         labelsVisible: true,
         modalInitialized: false,
         productShape: 'rectangular', // 'rectangular' lub 'round'
-        dynamicEdgeDefs: {}  // {G1: {length_cm: 80, group: 'top'}, D1: {...}, P1: {...}}
+        dynamicEdgeDefs: {},  // {G1: {length_cm: 80, group: 'top'}, D1: {...}, P1: {...}}
+
+        // tabs
+        activeTab: 'basic',  // 'basic' | 'advanced'
+
+        // basic state (jak dotychczas)
+        basic: {
+            edgeType: 'round',
+            rValue: 5,
+            angleValue: null,         // Kąt fazowania (tylko dla chamfer)
+            selectedEdges: new Set(),
+        },
+
+        // advanced state — Map<letter, {type, r_value, angle_value}>
+        advanced: {
+            edges: new Map(),
+        },
     };
 
     // ==========================================
@@ -204,6 +216,19 @@ const EdgesModule = (function() {
             checkboxes: modal.querySelectorAll('.edges-item input[type="checkbox"]'),
             items: modal.querySelectorAll('.edges-item')
         };
+        elements.tabsBar = modal.querySelector('.edges-tabs-bar');
+        elements.tabBtns = modal.querySelectorAll('.edges-tab');
+        elements.tabResetBtn = document.getElementById('edgesTabReset');
+        elements.panelBasic = modal.querySelector('[data-panel="basic"]');
+        elements.panelAdvanced = modal.querySelector('[data-panel="advanced"]');
+        elements.basicDisabledBanner = document.getElementById('edgesBasicDisabledBanner');
+        elements.advancedList = document.getElementById('edgesAdvancedList');
+        elements.advancedImportBtn = document.getElementById('edgesAdvancedImport');
+        elements.advancedBulkType = document.getElementById('edgesAdvancedBulkType');
+        elements.advancedBulkR = document.getElementById('edgesAdvancedBulkR');
+        elements.advancedBulkAngle = document.getElementById('edgesAdvancedBulkAngle');
+        elements.advancedBulkApply = document.getElementById('edgesAdvancedBulkApply');
+        elements.advancedVisualization = document.getElementById('edgesAdvancedVisualization');
         return true;
     }
 
@@ -467,8 +492,90 @@ const EdgesModule = (function() {
         // UWAGA: Event listenery dla SVG są teraz dodawane w attachSvgEventListeners()
         // wywoływanym po każdej regeneracji SVG w generateProportionalSVG()
 
+        // Setup tabs (Podstawowy / Zaawansowany)
+        setupTabs();
+        // Setup akcje w Zaawansowanym (Import, Bulk apply)
+        setupAdvancedActions();
+
         state.modalInitialized = true;
     }
+
+    // ==========================================
+    // TABS: Podstawowy / Zaawansowany
+    // ==========================================
+
+    function setupTabs() {
+        if (!elements.tabBtns || !elements.tabBtns.length) return;
+        elements.tabBtns.forEach(btn => {
+            btn.addEventListener('click', () => switchTab(btn.dataset.tab));
+        });
+        if (elements.tabResetBtn) {
+            elements.tabResetBtn.addEventListener('click', resetActiveTab);
+        }
+    }
+
+    function switchTab(tabName) {
+        if (state.activeTab === tabName) return;
+        state.activeTab = tabName;
+        elements.tabBtns.forEach(b => b.classList.toggle('active', b.dataset.tab === tabName));
+        if (elements.panelBasic) elements.panelBasic.style.display = (tabName === 'basic') ? '' : 'none';
+        if (elements.panelAdvanced) elements.panelAdvanced.style.display = (tabName === 'advanced') ? '' : 'none';
+        if (tabName === 'advanced') {
+            renderAdvancedList();
+            renderAdvancedVisualization();
+        } else {
+            refreshBasicDisabledState();
+        }
+    }
+
+    function resetActiveTab() {
+        if (state.activeTab === 'basic') {
+            state.basic.selectedEdges.clear();
+            state.basic.edgeType = 'round';
+            state.basic.rValue = 5;
+            state.basic.angleValue = null;
+            // odśwież widok basic (uncheck checkboxes)
+            if (elements.checkboxes) elements.checkboxes.forEach(cb => { cb.checked = false; });
+            if (elements.typeSelect) elements.typeSelect.value = 'round';
+            if (elements.rValueInput) elements.rValueInput.value = 5;
+            // Odśwież SVG (wyczyść aktywne podświetlenia)
+            elements.svg && elements.svg.querySelectorAll('.edges-line.edges-line-active').forEach(l => l.classList.remove('edges-line-active'));
+            if (typeof updateAngleButtons === 'function') updateAngleButtons();
+            calculatePrice();
+        } else {
+            state.advanced.edges.clear();
+            renderAdvancedList();
+            renderAdvancedVisualization();
+            updateAdvancedPrice();
+        }
+    }
+
+    function refreshBasicDisabledState() {
+        if (!elements.panelBasic || !elements.basicDisabledBanner) return;
+        if (advancedIsMixed()) {
+            elements.panelBasic.classList.add('edges-basic-panel-disabled');
+            elements.basicDisabledBanner.style.display = '';
+        } else {
+            elements.panelBasic.classList.remove('edges-basic-panel-disabled');
+            elements.basicDisabledBanner.style.display = 'none';
+        }
+    }
+
+    function advancedIsMixed() {
+        const tuples = new Set();
+        for (const [_, cfg] of state.advanced.edges) {
+            if (cfg.type === 'sharp') continue;
+            tuples.add(`${cfg.type}|${cfg.r_value}|${cfg.angle_value ?? ''}`);
+            if (tuples.size > 1) return true;
+        }
+        return false;
+    }
+
+    // Placeholder no-op implementations (filled in Task 8)
+    function renderAdvancedList() { /* implemented in Task 8 */ }
+    function renderAdvancedVisualization() { /* implemented in Task 8 */ }
+    function updateAdvancedPrice() { /* implemented in Task 8 */ }
+    function setupAdvancedActions() { /* implemented in Task 8 */ }
 
     // ==========================================
     // MODAL
@@ -522,9 +629,9 @@ const EdgesModule = (function() {
             var shapeData = state.currentForm._shapeEditor.getShapeData();
             showDynamicEdgesUI(shapeData, state.dimensions.thickness);
             if (elements.svg && shapeData && shapeData.vertices) {
-                generateShapePreviewSVG(elements.svg, shapeData, state.dimensions.thickness, state.selectedEdges, state.productShape);
+                generateShapePreviewSVG(elements.svg, shapeData, state.dimensions.thickness, state.basic.selectedEdges, state.productShape);
                 attachSvgEventListeners();
-                state.selectedEdges.forEach(function(edge) { updateSvgEdge(edge, true); });
+                state.basic.selectedEdges.forEach(function(edge) { updateSvgEdge(edge, true); });
             }
         } else {
             showRectangularEdgesUI();
@@ -591,17 +698,17 @@ const EdgesModule = (function() {
     // ==========================================
 
     function onTypeChange() {
-        state.edgeType = elements.typeSelect.value;
+        state.basic.edgeType = elements.typeSelect.value;
 
         // Aktualizuj limity promienia R
-        const limits = CONFIG.R_LIMITS[state.edgeType];
+        const limits = CONFIG.R_LIMITS[state.basic.edgeType];
         if (limits) {
             elements.rValueInput.min = limits.min;
             elements.rValueInput.max = limits.max;
 
             // Jeśli aktualna wartość poza limitami, ustaw domyślną
-            if (state.rValue < limits.min || state.rValue > limits.max) {
-                state.rValue = limits.default;
+            if (state.basic.rValue < limits.min || state.basic.rValue > limits.max) {
+                state.basic.rValue = limits.default;
                 elements.rValueInput.value = limits.default;
             }
         }
@@ -618,7 +725,7 @@ const EdgesModule = (function() {
     function updateAngleButtons() {
         if (!elements.angleGroup || !elements.angleButtons) return;
 
-        if (state.edgeType === 'chamfer') {
+        if (state.basic.edgeType === 'chamfer') {
             // Pokaż grupę kąta
             elements.angleGroup.style.display = 'flex';
 
@@ -627,12 +734,12 @@ const EdgesModule = (function() {
             const defaultAngle = CONFIG.CHAMFER_ANGLES.default;
 
             // Ustaw domyślną wartość jeśli nie ustawiona
-            if (!state.angleValue || !angles.includes(state.angleValue)) {
-                state.angleValue = defaultAngle;
+            if (!state.basic.angleValue || !angles.includes(state.basic.angleValue)) {
+                state.basic.angleValue = defaultAngle;
             }
 
             elements.angleButtons.innerHTML = angles.map(angle =>
-                `<button type="button" class="edges-angle-btn ${angle === state.angleValue ? 'active' : ''}" data-angle="${angle}">${angle}°</button>`
+                `<button type="button" class="edges-angle-btn ${angle === state.basic.angleValue ? 'active' : ''}" data-angle="${angle}">${angle}°</button>`
             ).join('');
 
             // Dodaj event listenery do przycisków
@@ -642,13 +749,13 @@ const EdgesModule = (function() {
         } else {
             // Ukryj grupę kąta i wyczyść wartość
             elements.angleGroup.style.display = 'none';
-            state.angleValue = null;
+            state.basic.angleValue = null;
         }
     }
 
     function onAngleButtonClick(e) {
         const angle = parseInt(e.target.dataset.angle);
-        state.angleValue = angle;
+        state.basic.angleValue = angle;
 
         // Aktualizuj klasy active
         elements.angleButtons.querySelectorAll('.edges-angle-btn').forEach(btn => {
@@ -657,7 +764,7 @@ const EdgesModule = (function() {
     }
 
     function onRValueChange() {
-        state.rValue = parseInt(elements.rValueInput.value) || 3;
+        state.basic.rValue = parseInt(elements.rValueInput.value) || 3;
         calculatePrice();
     }
 
@@ -666,11 +773,11 @@ const EdgesModule = (function() {
         const edge = item.dataset.edge;
 
         if (e.target.checked) {
-            state.selectedEdges.add(edge);
+            state.basic.selectedEdges.add(edge);
             item.classList.add('selected');
             updateSvgEdge(edge, true);
         } else {
-            state.selectedEdges.delete(edge);
+            state.basic.selectedEdges.delete(edge);
             item.classList.remove('selected');
             updateSvgEdge(edge, false);
         }
@@ -725,16 +832,16 @@ const EdgesModule = (function() {
             if (action === 'select-top') targetEdges = topEdges;
             else if (action === 'select-bottom') targetEdges = bottomEdges;
             else if (action === 'select-all') targetEdges = allEdges;
-            else if (action === 'deselect-all') { targetEdges = []; state.selectedEdges.clear(); }
+            else if (action === 'deselect-all') { targetEdges = []; state.basic.selectedEdges.clear(); }
 
             if (action !== 'deselect-all') {
-                targetEdges.forEach(function(eid) { state.selectedEdges.add(eid); });
+                targetEdges.forEach(function(eid) { state.basic.selectedEdges.add(eid); });
             }
 
             dynSection.querySelectorAll('.edges-item').forEach(function(item) {
                 var eid = item.dataset.edge;
                 var cb = item.querySelector('input[type="checkbox"]');
-                var isSelected = state.selectedEdges.has(eid);
+                var isSelected = state.basic.selectedEdges.has(eid);
                 if (cb) cb.checked = isSelected;
                 item.classList.toggle('active', isSelected);
                 updateSvgEdge(eid, isSelected);
@@ -767,7 +874,7 @@ const EdgesModule = (function() {
 
     function selectEdges(edges) {
         edges.forEach(edge => {
-            state.selectedEdges.add(edge);
+            state.basic.selectedEdges.add(edge);
             // Szukaj elementu krawędzi w całym modalu (obsługuje zarówno prostokąt, jak i okrągły)
             const item = elements.modal?.querySelector(`.edges-item[data-edge="${edge}"]`);
             if (item) {
@@ -783,7 +890,7 @@ const EdgesModule = (function() {
     }
 
     function deselectAllEdges() {
-        state.selectedEdges.clear();
+        state.basic.selectedEdges.clear();
         // Odznacz checkboxy prostokąta
         elements.checkboxes.forEach(cb => {
             cb.checked = false;
@@ -1010,7 +1117,7 @@ const EdgesModule = (function() {
         attachSvgEventListeners();
 
         // Przywróć stan zaznaczonych krawędzi
-        state.selectedEdges.forEach(edge => {
+        state.basic.selectedEdges.forEach(edge => {
             updateSvgEdge(edge, true);
         });
 
@@ -1176,8 +1283,8 @@ const EdgesModule = (function() {
         let cornerCount = 0;
 
         // Pobierz ceny dla aktualnie wybranego typu obróbki
-        const pricePerMb = getPricePerMb(state.edgeType);
-        const pricePerCorner = getPricePerCorner(state.edgeType);
+        const pricePerMb = getPricePerMb(state.basic.edgeType);
+        const pricePerCorner = getPricePerCorner(state.basic.edgeType);
 
         if (_isRoundShape(state.productShape)) {
             // Kształt okrągły: krawędzie obwodowe KG/KD
@@ -1186,7 +1293,7 @@ const EdgesModule = (function() {
             );
             const perimeterMb = perimeterCm / 100;
 
-            state.selectedEdges.forEach(edge => {
+            state.basic.selectedEdges.forEach(edge => {
                 if (ROUND_EDGES[edge]) {
                     totalNetto += perimeterMb * pricePerMb;
                     horizontalCount++;
@@ -1194,7 +1301,7 @@ const EdgesModule = (function() {
             });
         } else if (state.productShape !== 'rectangular' && Object.keys(state.dynamicEdgeDefs).length > 0) {
             // Nieregularny kształt: dynamiczne krawędzie G/D/P
-            state.selectedEdges.forEach(edge => {
+            state.basic.selectedEdges.forEach(edge => {
                 const def = state.dynamicEdgeDefs[edge];
                 if (!def) return;
 
@@ -1211,7 +1318,7 @@ const EdgesModule = (function() {
             });
         } else {
             // Kształt prostokątny: standardowe 12 krawędzi
-            state.selectedEdges.forEach(edge => {
+            state.basic.selectedEdges.forEach(edge => {
                 const def = EDGES[edge];
                 if (!def) return;
 
@@ -1270,8 +1377,8 @@ const EdgesModule = (function() {
         };
 
         // Pobierz ceny dla aktualnie wybranego typu obróbki
-        const pricePerMb = getPricePerMb(state.edgeType);
-        const pricePerCorner = getPricePerCorner(state.edgeType);
+        const pricePerMb = getPricePerMb(state.basic.edgeType);
+        const pricePerCorner = getPricePerCorner(state.basic.edgeType);
 
         // Zbierz dane o wybranych krawędziach
         const edgesData = [];
@@ -1284,7 +1391,7 @@ const EdgesModule = (function() {
             const perimeterMm = perimeterCm * 10;
             const perimeterMb = perimeterCm / 100;
 
-            state.selectedEdges.forEach(edge => {
+            state.basic.selectedEdges.forEach(edge => {
                 const def = ROUND_EDGES[edge];
                 if (!def) return;
 
@@ -1292,9 +1399,9 @@ const EdgesModule = (function() {
 
                 edgesData.push({
                     letter: edge,
-                    type: state.edgeType,
-                    r_value: state.rValue,
-                    angle_value: state.edgeType === 'chamfer' ? state.angleValue : null,
+                    type: state.basic.edgeType,
+                    r_value: state.basic.rValue,
+                    angle_value: state.basic.edgeType === 'chamfer' ? state.basic.angleValue : null,
                     length_mm: Math.round(perimeterMm * 100) / 100,
                     length_cm: Math.round(perimeterCm * 100) / 100,
                     is_corner: false,
@@ -1305,7 +1412,7 @@ const EdgesModule = (function() {
             });
         } else if (state.productShape !== 'rectangular' && Object.keys(state.dynamicEdgeDefs).length > 0) {
             // Nieregularny kształt: dynamiczne krawędzie G/D/P
-            state.selectedEdges.forEach(edge => {
+            state.basic.selectedEdges.forEach(edge => {
                 const def = state.dynamicEdgeDefs[edge];
                 if (!def) return;
 
@@ -1317,9 +1424,9 @@ const EdgesModule = (function() {
 
                 edgesData.push({
                     letter: edge,
-                    type: state.edgeType,
-                    r_value: state.rValue,
-                    angle_value: state.edgeType === 'chamfer' ? state.angleValue : null,
+                    type: state.basic.edgeType,
+                    r_value: state.basic.rValue,
+                    angle_value: state.basic.edgeType === 'chamfer' ? state.basic.angleValue : null,
                     length_mm: Math.round(lengthMm * 100) / 100,
                     length_cm: Math.round(lengthCm * 100) / 100,
                     is_corner: isVertical,
@@ -1329,7 +1436,7 @@ const EdgesModule = (function() {
             });
         } else {
             // Kształt prostokątny: standardowe krawędzie
-            state.selectedEdges.forEach(edge => {
+            state.basic.selectedEdges.forEach(edge => {
                 const def = EDGES[edge];
                 if (!def) return;
 
@@ -1345,9 +1452,9 @@ const EdgesModule = (function() {
 
                 edgesData.push({
                     letter: edge,
-                    type: state.edgeType,
-                    r_value: state.rValue,
-                    angle_value: state.edgeType === 'chamfer' ? state.angleValue : null,
+                    type: state.basic.edgeType,
+                    r_value: state.basic.rValue,
+                    angle_value: state.basic.edgeType === 'chamfer' ? state.basic.angleValue : null,
                     length_mm: lengthMm,
                     length_cm: lengthCm,
                     is_corner: def.group === 'corner',
@@ -1359,7 +1466,7 @@ const EdgesModule = (function() {
 
         // Pobierz SVG jako string do zapisu w bazie
         let edgesSvg = '';
-        if (elements.svg && state.selectedEdges.size > 0) {
+        if (elements.svg && state.basic.selectedEdges.size > 0) {
             // Klonuj SVG, aby nie modyfikować oryginału
             const svgClone = elements.svg.cloneNode(true);
             // Usuń grupę etykiet z klonu (dla czystszego podglądu)
@@ -1417,10 +1524,10 @@ const EdgesModule = (function() {
         state.currentForm.dataset.edgesData = JSON.stringify(edgesData);
         state.currentForm.dataset.edgesNetto = totalPrices.netto;
         state.currentForm.dataset.edgesBrutto = totalPrices.brutto;
-        state.currentForm.dataset.edgesCount = state.selectedEdges.size;
-        state.currentForm.dataset.edgesType = state.edgeType;
-        state.currentForm.dataset.edgesRValue = state.rValue;
-        state.currentForm.dataset.edgesAngleValue = state.edgeType === 'chamfer' ? state.angleValue : '';
+        state.currentForm.dataset.edgesCount = state.basic.selectedEdges.size;
+        state.currentForm.dataset.edgesType = state.basic.edgeType;
+        state.currentForm.dataset.edgesRValue = state.basic.rValue;
+        state.currentForm.dataset.edgesAngleValue = state.basic.edgeType === 'chamfer' ? state.basic.angleValue : '';
         state.currentForm.dataset.edgesSvg = edgesSvg;
         state.currentForm.dataset.edgesQuantity = quantity;
         // Zapamiętaj wymiary przy których krawędzie zostały obliczone
@@ -1461,15 +1568,15 @@ const EdgesModule = (function() {
             }
         }
 
-        if (state.selectedEdges.size > 0) {
+        if (state.basic.selectedEdges.size > 0) {
             // Buduj tekst podsumowania
-            const edgeNames = Array.from(state.selectedEdges).sort().join(', ');
-            const typeLabel = state.edgeType === 'chamfer' ? 'Fazowanie' : 'Zaokrąglenie';
+            const edgeNames = Array.from(state.basic.selectedEdges).sort().join(', ');
+            const typeLabel = state.basic.edgeType === 'chamfer' ? 'Fazowanie' : 'Zaokrąglenie';
 
             // Dla fazowania dodaj kąt do opisu
-            let summaryText = `${typeLabel} R${state.rValue}`;
-            if (state.edgeType === 'chamfer' && state.angleValue) {
-                summaryText += ` (${state.angleValue}°)`;
+            let summaryText = `${typeLabel} R${state.basic.rValue}`;
+            if (state.basic.edgeType === 'chamfer' && state.basic.angleValue) {
+                summaryText += ` (${state.basic.angleValue}°)`;
             }
             summaryText += `: ${edgeNames}`;
 
@@ -1512,7 +1619,7 @@ const EdgesModule = (function() {
         if (!state.currentForm) return;
 
         // Wyczyść zaznaczenie w stanie
-        state.selectedEdges.clear();
+        state.basic.selectedEdges.clear();
 
         // Wyczyść dataset
         delete state.currentForm.dataset.edgesData;
@@ -1556,9 +1663,40 @@ const EdgesModule = (function() {
         const savedType = state.currentForm.dataset.edgesType;
         const savedRValue = state.currentForm.dataset.edgesRValue;
         const savedAngleValue = state.currentForm.dataset.edgesAngleValue;
+        const edgesMode = state.currentForm.dataset.edgesMode || 'basic';
 
-        // Reset stanu globalnego - WAŻNE dla izolacji między formularzami
-        state.selectedEdges.clear();
+        // Reset stanu obu zakładek
+        state.basic.selectedEdges.clear();
+        state.advanced.edges.clear();
+
+        // Ustaw aktywną zakładkę
+        state.activeTab = (edgesMode === 'advanced') ? 'advanced' : 'basic';
+        if (elements.tabBtns && elements.tabBtns.length) {
+            elements.tabBtns.forEach(b => b.classList.toggle('active', b.dataset.tab === state.activeTab));
+        }
+        if (elements.panelBasic) elements.panelBasic.style.display = (state.activeTab === 'basic') ? '' : 'none';
+        if (elements.panelAdvanced) elements.panelAdvanced.style.display = (state.activeTab === 'advanced') ? '' : 'none';
+
+        // Jeśli mamy zapisany tryb advanced — wypełnij mapę i zakończ tutaj
+        if (edgesMode === 'advanced' && savedData) {
+            try {
+                const arr = JSON.parse(savedData);
+                arr.forEach(e => {
+                    state.advanced.edges.set(e.letter, {
+                        type: e.type,
+                        r_value: e.r_value,
+                        angle_value: e.angle_value || null,
+                    });
+                });
+            } catch (err) {
+                console.error('EdgesModule: Błąd wczytywania zaawansowanego stanu:', err);
+            }
+            // Render listy + wizualizacji nastąpi przy otwarciu panelu advanced (switchTab),
+            // a tu wywołujemy bezpośrednio bo panel już jest pokazany.
+            renderAdvancedList();
+            renderAdvancedVisualization();
+            return;
+        }
 
         // Reset UI checkboxów (SVG będzie generowany później z prawidłowym stanem)
         elements.checkboxes.forEach(cb => {
@@ -1566,14 +1704,14 @@ const EdgesModule = (function() {
             cb.closest('.edges-item').classList.remove('selected');
         });
         // NIE wywołuj updateSvgEdge tutaj - SVG będzie generowany PÓŹNIEJ
-        // i sam zaznaczy prawidłowe krawędzie na podstawie state.selectedEdges
+        // i sam zaznaczy prawidłowe krawędzie na podstawie state.basic.selectedEdges
 
         if (!savedData) {
             // Brak zapisanych danych dla tego formularza - ustaw domyślne wartości z CONFIG.R_LIMITS
-            state.edgeType = 'round';
+            state.basic.edgeType = 'round';
             const defaultLimits = CONFIG.R_LIMITS['round'] || { min: 3, max: 20, default: 5 };
-            state.rValue = defaultLimits.default;
-            state.angleValue = null;
+            state.basic.rValue = defaultLimits.default;
+            state.basic.angleValue = null;
             if (elements.typeSelect) elements.typeSelect.value = 'round';
             if (elements.rValueInput) {
                 elements.rValueInput.value = defaultLimits.default;
@@ -1590,26 +1728,26 @@ const EdgesModule = (function() {
 
             // Przywróć stan z zapisanych danych formularza
             edges.forEach(edge => {
-                state.selectedEdges.add(edge.letter);
+                state.basic.selectedEdges.add(edge.letter);
             });
 
             // Przywróć typ i promień R
-            state.edgeType = savedType || 'round';
-            state.rValue = parseInt(savedRValue) || 5;
+            state.basic.edgeType = savedType || 'round';
+            state.basic.rValue = parseInt(savedRValue) || 5;
 
             // Przywróć kąt fazowania
-            if (savedAngleValue && state.edgeType === 'chamfer') {
-                state.angleValue = parseInt(savedAngleValue);
+            if (savedAngleValue && state.basic.edgeType === 'chamfer') {
+                state.basic.angleValue = parseInt(savedAngleValue);
             } else {
-                state.angleValue = null;
+                state.basic.angleValue = null;
             }
 
             // Aktualizuj UI kontrolek
-            if (elements.typeSelect) elements.typeSelect.value = state.edgeType;
-            if (elements.rValueInput) elements.rValueInput.value = state.rValue;
+            if (elements.typeSelect) elements.typeSelect.value = state.basic.edgeType;
+            if (elements.rValueInput) elements.rValueInput.value = state.basic.rValue;
 
             // Aktualizuj limity R dla wybranego typu
-            const limits = CONFIG.R_LIMITS[state.edgeType];
+            const limits = CONFIG.R_LIMITS[state.basic.edgeType];
             if (limits && elements.rValueInput) {
                 elements.rValueInput.min = limits.min;
                 elements.rValueInput.max = limits.max;
@@ -1623,7 +1761,7 @@ const EdgesModule = (function() {
             elements.checkboxes.forEach(cb => {
                 const item = cb.closest('.edges-item');
                 const edge = item.dataset.edge;
-                const isSelected = state.selectedEdges.has(edge);
+                const isSelected = state.basic.selectedEdges.has(edge);
 
                 cb.checked = isSelected;
                 item.classList.toggle('selected', isSelected);
@@ -1852,10 +1990,10 @@ const EdgesModule = (function() {
                 cb.addEventListener('change', function () {
                     const edgeLetter = this.closest('.edges-item').dataset.edge;
                     if (this.checked) {
-                        state.selectedEdges.add(edgeLetter);
+                        state.basic.selectedEdges.add(edgeLetter);
                         this.closest('.edges-item').classList.add('selected');
                     } else {
-                        state.selectedEdges.delete(edgeLetter);
+                        state.basic.selectedEdges.delete(edgeLetter);
                         this.closest('.edges-item').classList.remove('selected');
                     }
                     // Aktualizuj SVG
@@ -1874,13 +2012,13 @@ const EdgesModule = (function() {
             });
         }
 
-        // Synchronizuj checkboxy z state.selectedEdges
+        // Synchronizuj checkboxy z state.basic.selectedEdges
         roundSection.querySelectorAll('.edges-item').forEach(item => {
             const edgeLetter = item.dataset.edge;
             const cb = item.querySelector('input[type="checkbox"]');
             if (cb) {
-                cb.checked = state.selectedEdges.has(edgeLetter);
-                item.classList.toggle('selected', state.selectedEdges.has(edgeLetter));
+                cb.checked = state.basic.selectedEdges.has(edgeLetter);
+                item.classList.toggle('selected', state.basic.selectedEdges.has(edgeLetter));
             }
         });
 
@@ -2122,15 +2260,15 @@ const EdgesModule = (function() {
                 if (!checkbox) return;
 
                 // Ustaw stan z aktualnie wybranych krawędzi
-                checkbox.checked = state.selectedEdges.has(edgeId);
+                checkbox.checked = state.basic.selectedEdges.has(edgeId);
                 if (checkbox.checked) item.classList.add('active');
 
                 checkbox.addEventListener('change', function() {
                     if (this.checked) {
-                        state.selectedEdges.add(edgeId);
+                        state.basic.selectedEdges.add(edgeId);
                         item.classList.add('active');
                     } else {
-                        state.selectedEdges.delete(edgeId);
+                        state.basic.selectedEdges.delete(edgeId);
                         item.classList.remove('active');
                     }
                     updateSvgEdge(edgeId, this.checked);
@@ -2197,10 +2335,10 @@ const EdgesModule = (function() {
         const bottomEdge = svg.querySelector('[data-edge="KD"]');
 
         if (topEdge) {
-            topEdge.classList.toggle('active', state.selectedEdges.has('KG'));
+            topEdge.classList.toggle('active', state.basic.selectedEdges.has('KG'));
         }
         if (bottomEdge) {
-            bottomEdge.classList.toggle('active', state.selectedEdges.has('KD'));
+            bottomEdge.classList.toggle('active', state.basic.selectedEdges.has('KD'));
         }
     }
 
@@ -2265,7 +2403,7 @@ const EdgesModule = (function() {
         bottomEdge.setAttribute('fill', 'none');
         bottomEdge.setAttribute('stroke-width', '3');
         bottomEdge.setAttribute('data-edge', 'KD');
-        bottomEdge.setAttribute('class', 'edges-line' + (state.selectedEdges.has('KD') ? ' active' : ''));
+        bottomEdge.setAttribute('class', 'edges-line' + (state.basic.selectedEdges.has('KD') ? ' active' : ''));
         svg.appendChild(bottomEdge);
 
         // Krawędź górna (KG) - elipsa obwodowa (na wierzchu)
@@ -2277,7 +2415,7 @@ const EdgesModule = (function() {
         topEdge.setAttribute('fill', 'none');
         topEdge.setAttribute('stroke-width', '3');
         topEdge.setAttribute('data-edge', 'KG');
-        topEdge.setAttribute('class', 'edges-line' + (state.selectedEdges.has('KG') ? ' active' : ''));
+        topEdge.setAttribute('class', 'edges-line' + (state.basic.selectedEdges.has('KG') ? ' active' : ''));
         svg.appendChild(topEdge);
 
         // Linie boczne (krawędzie pionowe łączące)
@@ -2774,7 +2912,7 @@ const EdgesModule = (function() {
         closeModal,
         refresh,
         getState: () => ({ ...state }),
-        getSelectedEdges: () => Array.from(state.selectedEdges),
+        getSelectedEdges: () => Array.from(state.basic.selectedEdges),
         getEdgesData: (form) => {
             const data = form?.dataset?.edgesData;
             return data ? JSON.parse(data) : [];
