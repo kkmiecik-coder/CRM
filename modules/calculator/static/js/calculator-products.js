@@ -958,7 +958,7 @@ function scrollToLatestProduct() {
 
 // Warianty niedostępne — ustawiane przez kod, nie przez użytkownika.
 // Stan niedostępności definiowany jest w HTML (class="unavailable", disabled na radio).
-const unavailableVariants = ['jes-micro-ab'];
+const unavailableVariants = [];
 
 /**
  * Inicjalizuje niedostępność wariantów na podstawie konfiguracji.

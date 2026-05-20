@@ -329,13 +329,18 @@ class ProductNameParser:
                         'error': str(e)
                     })
             
-            # 2. Parsowanie wymiarów
-            dimensions = self._parse_dimensions(normalized_name)
-            if dimensions:
-                result.update(dimensions)
-                confidence_factors.append(0.9)  # Wymiary są bardzo pewne
+            # 2. Parsowanie wymiarów — tylko jeśli reports parser ich nie znalazł.
+            # Lokalne wzorce nie wymagają sufiksu "cm", więc mogłyby nadpisać
+            # poprawny wynik przypadkową trójką liczb (kod, ID, wymiar w mm).
+            if not all(result.get(d) for d in ['length_cm', 'width_cm', 'thickness_cm']):
+                dimensions = self._parse_dimensions(normalized_name)
+                if dimensions:
+                    result.update(dimensions)
+                    confidence_factors.append(0.9)
+                else:
+                    errors.append("Nie znaleziono wymiarów w nazwie")
             else:
-                errors.append("Nie znaleziono wymiarów w nazwie")
+                confidence_factors.append(0.9)
             
             # 3. Parsowanie gatunku drewna
             wood_species = self._parse_wood_species(normalized_name)
