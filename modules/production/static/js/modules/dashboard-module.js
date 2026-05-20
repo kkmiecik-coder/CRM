@@ -416,14 +416,6 @@ class DashboardModule {
         this.components.alertsWidget = this.initAlertsWidget();
         this.components.systemHealthWidget = this.initSystemHealthWidget();
 
-        // Refresh dashboard button
-        const refreshBtn = document.getElementById('refresh-dashboard-btn');
-        if (refreshBtn) {
-            refreshBtn.addEventListener('click', () => {
-                this.refreshDataOnly();
-            });
-        }
-
         // Chart period buttons (Industrial Light template)
         const periodBtns = document.querySelectorAll('.il-chart-period');
         periodBtns.forEach(btn => {

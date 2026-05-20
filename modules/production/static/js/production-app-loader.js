@@ -41,8 +41,6 @@ class ProductionApp {
         };
 
         this.modules = {};
-        this.autoRefreshTimer = null;
-        this.AUTO_REFRESH_INTERVAL = 60000; // 60 seconds
 
         // Hot tabs loaded on page entry
         this.HOT_TABS = ['dashboard-tab', 'products-tab'];
@@ -74,12 +72,6 @@ class ProductionApp {
 
         // Prefetch hot tabs in parallel
         await this.prefetchHotTabs(initialTab);
-
-        // Setup global auto-refresh
-        this.setupAutoRefresh();
-
-        // Setup refresh button
-        this.setupRefreshButton();
 
         this.state.isInitialized = true;
         this.shared.eventBus.emit('app:ready', { tab: initialTab });
@@ -532,24 +524,8 @@ class ProductionApp {
     }
 
     // ========================================================================
-    // GLOBAL AUTO REFRESH
+    // MANUAL REFRESH (used by error recovery + forceRefresh)
     // ========================================================================
-
-    setupAutoRefresh() {
-        if (this.autoRefreshTimer) clearInterval(this.autoRefreshTimer);
-
-        this.autoRefreshTimer = setInterval(() => {
-            if (!document.hidden && !this.state.isLoading) {
-                this.refreshActiveTab();
-            }
-        }, this.AUTO_REFRESH_INTERVAL);
-
-        console.log(`[ProductionApp] Global auto-refresh: ${this.AUTO_REFRESH_INTERVAL / 1000}s`);
-    }
-
-    resetAutoRefreshTimer() {
-        this.setupAutoRefresh(); // restart the interval
-    }
 
     async refreshActiveTab() {
         const tabName = this.state.currentTab;
@@ -579,30 +555,6 @@ class ProductionApp {
     }
 
     // ========================================================================
-    // REFRESH BUTTON
-    // ========================================================================
-
-    setupRefreshButton() {
-        const btn = document.getElementById('tab-refresh-btn');
-        if (!btn) return;
-
-        btn.addEventListener('click', async () => {
-            if (btn.classList.contains('refreshing')) return;
-
-            btn.classList.add('refreshing');
-            try {
-                await this.refreshActiveTab();
-                this.resetAutoRefreshTimer();
-                this.shared.toastSystem.show('Dane odświeżone', 'success');
-            } catch (error) {
-                this.shared.toastSystem.show('Błąd odświeżania: ' + error.message, 'error');
-            } finally {
-                btn.classList.remove('refreshing');
-            }
-        });
-    }
-
-    // ========================================================================
     // EVENT HANDLERS
     // ========================================================================
 
@@ -627,8 +579,7 @@ class ProductionApp {
         if (document.hidden) {
             console.log('[ProductionApp] Page hidden');
         } else {
-            console.log('[ProductionApp] Page visible - scheduling refresh');
-            setTimeout(() => this.refreshActiveTab(), 1000);
+            console.log('[ProductionApp] Page visible');
         }
     }
 
@@ -646,12 +597,6 @@ class ProductionApp {
     }
 
     handleKeyboardShortcuts(event) {
-        // Ctrl+R - refresh current tab
-        if (event.ctrlKey && event.key === 'r') {
-            event.preventDefault();
-            this.refreshActiveTab();
-        }
-
         // Tab navigation shortcuts (Ctrl+1, Ctrl+2, etc.)
         if (event.ctrlKey && event.key >= '1' && event.key <= '5') {
             event.preventDefault();
@@ -776,7 +721,6 @@ class ProductionApp {
 
     async forceRefresh() {
         await this.refreshActiveTab();
-        this.resetAutoRefreshTimer();
     }
 
     debugModuleState() {
