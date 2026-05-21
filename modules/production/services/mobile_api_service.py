@@ -216,6 +216,39 @@ def _version_too_old(actual, minimum):
 
 
 # ============================================================================
+# HEARTBEAT — walidacja payloadu
+# ============================================================================
+
+def validate_heartbeat_payload(payload):
+    """
+    Waliduje payload heartbeata urządzenia. Zwraca None gdy OK, lub
+    krótki string z opisem błędu (do umieszczenia w response).
+
+    Pure function — bez Flask context, bez DB. Testowalna unit.
+    """
+    battery_pct = payload.get('battery_pct')
+    if battery_pct is not None:
+        if not isinstance(battery_pct, int) or isinstance(battery_pct, bool) or not (0 <= battery_pct <= 100):
+            return 'battery_pct out of range'
+
+    temp = payload.get('temperature_c')
+    if temp is not None:
+        if isinstance(temp, bool) or not isinstance(temp, (int, float)) or not (-20.0 <= temp <= 100.0):
+            return 'temperature_c out of range'
+
+    if 'app_version_code' not in payload or payload.get('app_version_code') is None:
+        return 'app_version_code required'
+    if not isinstance(payload['app_version_code'], int) or isinstance(payload['app_version_code'], bool):
+        return 'app_version_code required'
+
+    name = payload.get('app_version_name')
+    if not name or not isinstance(name, str):
+        return 'app_version_name required'
+
+    return None
+
+
+# ============================================================================
 # DEKORATOR
 # ============================================================================
 
