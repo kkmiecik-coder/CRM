@@ -236,8 +236,14 @@ def build_devices_telemetry(devices, now=None):
 
     Reguły:
     - Tylko is_active=True urządzenia są brane pod uwagę (fleet max APK i mapping).
-    - Gdy >1 urządzenie na station_code, bierzemy to z najświeższym last_heartbeat_at.
-    - Próg `active`: heartbeat w ciągu ostatnich 20 min.
+    - "Najświeższy sygnał" = max(last_heartbeat_at, last_seen_at). HeartbeatWorker bije
+      co 15 min, ale last_seen_at jest pingowane przy każdym requeście mobile (poprzez
+      require_device_token), więc tablet aktywnie korzystający z API liczy się jako
+      "Aktywne" zanim wyśle pierwszy heartbeat.
+    - Gdy >1 urządzenie na station_code, bierzemy to z najświeższym sygnałem.
+    - Próg `active`: najświeższy sygnał w ciągu ostatnich 20 min.
+    - Telemetria (bateria/temp/version_code) wypełniona dopiero po pierwszym heartbeat —
+      do tego czasu pola pozostają None, ale status_label już może być "Aktywne".
     - `apk_outdated`: tablet z last_app_version_code < max(last_app_version_code)
       ze wszystkich aktywnych urządzeń.
     """
@@ -252,6 +258,13 @@ def build_devices_telemetry(devices, now=None):
         if v is not None and (fleet_max_apk is None or v > fleet_max_apk):
             fleet_max_apk = v
 
+    def _latest_signal(d):
+        hb = getattr(d, 'last_heartbeat_at', None)
+        seen = getattr(d, 'last_seen_at', None)
+        if hb and seen:
+            return max(hb, seen)
+        return hb or seen
+
     per_station = {}
     for d in active_devices:
         sc = getattr(d, 'station_code', None)
@@ -261,9 +274,9 @@ def build_devices_telemetry(devices, now=None):
         if current is None:
             per_station[sc] = d
             continue
-        d_hb = getattr(d, 'last_heartbeat_at', None)
-        c_hb = getattr(current, 'last_heartbeat_at', None)
-        if d_hb and (c_hb is None or d_hb > c_hb):
+        d_sig = _latest_signal(d)
+        c_sig = _latest_signal(current)
+        if d_sig and (c_sig is None or d_sig > c_sig):
             per_station[sc] = d
 
     threshold = timedelta(minutes=HEARTBEAT_ACTIVE_THRESHOLD_MINUTES)
@@ -287,7 +300,8 @@ def build_devices_telemetry(devices, now=None):
             continue
 
         last_hb = getattr(d, 'last_heartbeat_at', None)
-        active = bool(last_hb and (now - last_hb) < threshold)
+        latest = _latest_signal(d)
+        active = bool(latest and (now - latest) < threshold)
         apk_code = getattr(d, 'last_app_version_code', None)
         apk_outdated = bool(
             fleet_max_apk and apk_code and apk_code < fleet_max_apk

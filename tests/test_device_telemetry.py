@@ -224,3 +224,36 @@ def test_telemetry_inactive_device_excluded_from_fleet_max():
     ]
     result = build_devices_telemetry(devices, now=now)
     assert result['cutting']['apk_outdated'] is False
+
+
+def test_telemetry_active_via_last_seen_at_without_heartbeat():
+    """Tablet pinguje last_seen_at (przez require_device_token) ale jeszcze nie
+    wysłał heartbeata. Status = Aktywne, telemetria pusta."""
+    now = datetime(2026, 5, 21, 15, 0, 0)
+    devices = [_make_device(
+        'cutting',
+        last_heartbeat_at=None,
+        last_seen_at=now - timedelta(minutes=2),
+        app_version='1.0.15',
+    )]
+    result = build_devices_telemetry(devices, now=now)
+    assert result['cutting']['active'] is True
+    assert result['cutting']['status_label'] == 'Aktywne'
+    assert result['cutting']['battery_pct'] is None
+    assert result['cutting']['temperature_c'] is None
+
+
+def test_telemetry_uses_freshest_signal_across_hb_and_seen():
+    """Heartbeat stary (>20 min), last_seen_at świeże → Aktywne."""
+    now = datetime(2026, 5, 21, 15, 0, 0)
+    devices = [_make_device(
+        'cutting',
+        last_heartbeat_at=now - timedelta(minutes=25),
+        last_seen_at=now - timedelta(minutes=3),
+        last_battery_pct=87,
+        last_app_version_code=16,
+        app_version='1.0.15',
+    )]
+    result = build_devices_telemetry(devices, now=now)
+    assert result['cutting']['active'] is True
+    assert result['cutting']['battery_pct'] == 87
