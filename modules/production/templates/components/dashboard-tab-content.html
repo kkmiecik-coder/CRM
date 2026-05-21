@@ -38,11 +38,6 @@
       <i class="fas fa-thermometer-half"></i>
       <span class="tel-value">{{ temp if (active and temp is not none) else '—' }}{% if active and temp is not none %}°C{% endif %}</span>
     </span>
-    <span class="tel-icon tel-apk {{ aclass }}">
-      <i class="fas fa-mobile-alt"></i>
-      <span class="tel-value">{{ vname if active else '—' }}</span>
-      {% if active and outdated %}<span class="tel-badge-desync">DESYNC</span>{% endif %}
-    </span>
   </span>
 {% endmacro %}
 
