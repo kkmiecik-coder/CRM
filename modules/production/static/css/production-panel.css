@@ -2817,3 +2817,52 @@ body {
     flex: 1;
     min-height: 0;
 }
+
+/* ============================================================
+   STATION TELEMETRY — ikony przy badge stanowiska (Task 7)
+   ============================================================ */
+.il-station-telemetry {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    margin-left: 8px;
+    font-size: 0.85rem;
+    cursor: help;
+}
+
+.il-station-telemetry--stale .tel-icon {
+    opacity: 0.45;
+}
+
+.tel-icon {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 6px;
+    border-radius: 4px;
+    background: rgba(0, 0, 0, 0.04);
+}
+
+.tel-icon .tel-value {
+    font-variant-numeric: tabular-nums;
+}
+
+.tel-icon.tel-ok { color: #2ecc71; }
+.tel-icon.tel-warn { color: #f39c12; }
+.tel-icon.tel-crit { color: #e74c3c; }
+.tel-icon.tel-none { color: #7f8c8d; }
+
+.tel-icon.tel-desync { color: #e74c3c; }
+.tel-icon .tel-charge { margin-left: 2px; color: #f1c40f; }
+
+.tel-badge-desync {
+    display: inline-block;
+    margin-left: 4px;
+    padding: 1px 5px;
+    background: #e74c3c;
+    color: #fff;
+    border-radius: 3px;
+    font-size: 0.65rem;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+}
