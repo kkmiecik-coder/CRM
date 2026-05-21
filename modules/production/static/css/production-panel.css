@@ -2824,23 +2824,24 @@ body {
 .il-station-telemetry {
     display: inline-flex;
     align-items: center;
-    gap: 8px;
-    margin-left: 8px;
+    gap: 6px;
+    margin-right: 8px;
     font-size: 0.85rem;
     cursor: help;
 }
 
 .il-station-telemetry--stale .tel-icon {
-    opacity: 0.45;
+    opacity: 0.7;
 }
 
 .tel-icon {
     display: inline-flex;
     align-items: center;
     gap: 4px;
-    padding: 2px 6px;
+    padding: 3px 7px;
     border-radius: 4px;
-    background: rgba(0, 0, 0, 0.04);
+    background: #ffffff;
+    border: 1px solid rgba(0, 0, 0, 0.12);
 }
 
 .tel-icon .tel-value {
