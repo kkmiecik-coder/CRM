@@ -753,15 +753,36 @@ function updateCutoutSummaryRow(form) {
 function resetFinishing(form) {
     if (!form) return;
 
-    // Resetuj drzewko wykończeń - usuń wszystkie poziomy poniżej 0
+    // Resetuj drzewko wykończeń - usuń tylko dynamiczne poziomy.
+    // Statyczne .finishing-level-variants i .finishing-level-gloss zostają
+    // w DOM (z parent-option-id), żeby ponowny wybór Lakierowania mógł je
+    // włączyć — inaczej handler kliknięcia nie znajduje variantLevel i nie
+    // pokazuje kolorów ani połysku.
     const container = form.querySelector('.finishing-tree-container');
     if (container) {
         const allLevels = container.querySelectorAll('.finishing-level');
         allLevels.forEach(level => {
-            if (parseInt(level.dataset.level) > 0) {
+            const levelNum = parseInt(level.dataset.level);
+            if (levelNum > 0
+                && !level.classList.contains('finishing-level-variants')
+                && !level.classList.contains('finishing-level-gloss')) {
                 level.remove();
             }
         });
+
+        // Statyczny poziom wariantów: wyłącz i odznacz przyciski
+        const variantLevel = container.querySelector('.finishing-level-variants');
+        if (variantLevel) {
+            variantLevel.classList.remove('enabled');
+            variantLevel.querySelectorAll('.finishing-option-btn').forEach(b => b.classList.remove('active'));
+        }
+
+        // Statyczny poziom połysku: ukryj i odznacz przyciski
+        const glossLevel = container.querySelector('.finishing-level-gloss');
+        if (glossLevel) {
+            glossLevel.style.display = 'none';
+            glossLevel.querySelectorAll('.finishing-gloss-btn').forEach(b => b.classList.remove('active'));
+        }
 
         // Na poziomie 0: odznacz wszystkie i zaznacz "Surowe" (pierwszy przycisk)
         const level0Buttons = container.querySelectorAll('.finishing-level[data-level="0"] .finishing-option-btn');
@@ -778,6 +799,7 @@ function resetFinishing(form) {
     form.dataset.finishingType = 'Surowe';
     form.dataset.finishingVariant = '';
     form.dataset.finishingColor = '';
+    form.dataset.finishingGloss = '';
 
     // Ukryj wiersz wykończenia w options-summary
     const optionsSummary = form.querySelector('.finishing-options-summary');

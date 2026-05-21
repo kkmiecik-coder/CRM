@@ -57,6 +57,12 @@ function prepareNewProductForm(form, index) {
         }
     });
 
+    // cloneNode kopiuje data-cut-to-size-group ze źródła, przez co bind()
+    // pomijał rename i klon dzielił name/id z formularzem źródłowym
+    // (jedna grupa radio w całym dokumencie → kliknięcie label trafiało
+    // w pierwsze radio o tym id, czyli zwykle nie w ten formularz).
+    delete form.dataset.cutToSizeGroup;
+
     // KROK 3: Resetuj wszystkie inputy wymiarów (pomiń radio buttony kształtu)
     form.querySelectorAll('input[data-field]').forEach(input => {
         if (input.type === 'radio') return; // Nie resetuj radio (kształt obsługiwany osobno)
