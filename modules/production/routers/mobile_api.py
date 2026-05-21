@@ -625,3 +625,60 @@ def mobile_print_labels_for_order(baselinker_order_id):
         'failed_count': result['failed_count'],
         'message': result['message'],
     }), 200
+
+
+# ============================================================================
+# DEVICES — heartbeat / telemetria
+# ============================================================================
+
+@mobile_api_bp.route('/devices/heartbeat', methods=['POST'])
+@require_device_token
+def device_heartbeat():
+    """
+    Tablet wysyła co 15 min telemetrię (bateria/temp/wersja APK/IP).
+    Brak idempotency — każdy heartbeat nadpisuje pola na ProductionDevice.
+    """
+    from modules.production.services.mobile_api_service import (
+        validate_heartbeat_payload,
+        get_local_now,
+    )
+
+    payload = request.get_json(silent=True) or {}
+    err = validate_heartbeat_payload(payload)
+    if err:
+        return jsonify({'error': 'validation', 'detail': err}), 422
+
+    device = g.device
+    device.last_heartbeat_at = get_local_now()
+    device.last_battery_pct = payload.get('battery_pct')
+    device.last_battery_charging = payload.get('battery_charging')
+    device.last_temperature_c = payload.get('temperature_c')
+    device.last_app_version_code = payload['app_version_code']
+    device.app_version = payload['app_version_name']
+    ip_addr = payload.get('ip_address')
+    if ip_addr:
+        device.last_ip = ip_addr
+
+    try:
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        logger.error("Mobile API: heartbeat commit failed", extra={
+            'device_id': device.device_id,
+            'station_code': device.station_code,
+            'error': str(e),
+        })
+        return jsonify({'error': 'internal'}), 500
+
+    logger.info("Mobile API: heartbeat OK", extra={
+        'event': 'device_heartbeat',
+        'device_id': device.device_id,
+        'station_code': device.station_code,
+        'battery_pct': payload.get('battery_pct'),
+        'battery_charging': payload.get('battery_charging'),
+        'temperature_c': payload.get('temperature_c'),
+        'app_version_code': payload['app_version_code'],
+        'app_version_name': payload['app_version_name'],
+    })
+
+    return '', 204
