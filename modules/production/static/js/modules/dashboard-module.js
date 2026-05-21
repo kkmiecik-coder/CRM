@@ -104,6 +104,8 @@ class DashboardModule {
                 this.systemErrorsModalInstance = null;
                 this.systemErrorsModalElement = null;
                 this.systemErrorsHiddenListenerAttached = false;
+
+                wrapper.querySelectorAll('[data-bs-toggle="tooltip"]').forEach(el => new bootstrap.Tooltip(el));
             }
 
             // Inicjalizacja komponentów (tylko raz przy ładowaniu template)
@@ -388,6 +390,8 @@ class DashboardModule {
             this.systemErrorsModalInstance = null;
             this.systemErrorsModalElement = null;
             this.systemErrorsHiddenListenerAttached = false;
+
+            wrapper.querySelectorAll('[data-bs-toggle="tooltip"]').forEach(el => new bootstrap.Tooltip(el));
         }
 
         // Store stats for widgets
