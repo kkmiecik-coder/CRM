@@ -216,6 +216,109 @@ def _version_too_old(actual, minimum):
 
 
 # ============================================================================
+# HEARTBEAT — agregacja telemetrii dla dashboardu
+# ============================================================================
+
+HEARTBEAT_ACTIVE_THRESHOLD_MINUTES = 20
+
+_STATION_CODES_WITH_TABLETS = (
+    'cutting', 'assembly', 'gluing', 'formatting', 'finishing', 'packaging'
+)
+
+
+def build_devices_telemetry(devices, now=None):
+    """
+    Buduje słownik telemetrii per station_code z listy ProductionDevice.
+
+    Pure function — testowalna z stubami (SimpleNamespace).
+    `devices`: iterable obiektów z atrybutami modelu ProductionDevice.
+    `now`: datetime do liczenia progu (testowalność); default = get_local_now().
+
+    Reguły:
+    - Tylko is_active=True urządzenia są brane pod uwagę (fleet max APK i mapping).
+    - Gdy >1 urządzenie na station_code, bierzemy to z najświeższym last_heartbeat_at.
+    - Próg `active`: heartbeat w ciągu ostatnich 20 min.
+    - `apk_outdated`: tablet z last_app_version_code < max(last_app_version_code)
+      ze wszystkich aktywnych urządzeń.
+    """
+    if now is None:
+        now = get_local_now()
+
+    active_devices = [d for d in devices if getattr(d, 'is_active', True)]
+
+    fleet_max_apk = None
+    for d in active_devices:
+        v = getattr(d, 'last_app_version_code', None)
+        if v is not None and (fleet_max_apk is None or v > fleet_max_apk):
+            fleet_max_apk = v
+
+    per_station = {}
+    for d in active_devices:
+        sc = getattr(d, 'station_code', None)
+        if sc not in _STATION_CODES_WITH_TABLETS:
+            continue
+        current = per_station.get(sc)
+        if current is None:
+            per_station[sc] = d
+            continue
+        d_hb = getattr(d, 'last_heartbeat_at', None)
+        c_hb = getattr(current, 'last_heartbeat_at', None)
+        if d_hb and (c_hb is None or d_hb > c_hb):
+            per_station[sc] = d
+
+    threshold = timedelta(minutes=HEARTBEAT_ACTIVE_THRESHOLD_MINUTES)
+
+    result = {}
+    for code in _STATION_CODES_WITH_TABLETS:
+        d = per_station.get(code)
+        if d is None:
+            result[code] = {
+                'active': False,
+                'status_label': 'Niedostępne',
+                'last_heartbeat_at': None,
+                'battery_pct': None,
+                'battery_charging': None,
+                'temperature_c': None,
+                'app_version_name': None,
+                'app_version_code': None,
+                'ip_address': None,
+                'apk_outdated': False,
+            }
+            continue
+
+        last_hb = getattr(d, 'last_heartbeat_at', None)
+        active = bool(last_hb and (now - last_hb) < threshold)
+        apk_code = getattr(d, 'last_app_version_code', None)
+        apk_outdated = bool(
+            fleet_max_apk and apk_code and apk_code < fleet_max_apk
+        )
+
+        result[code] = {
+            'active': active,
+            'status_label': 'Aktywne' if active else 'Niedostępne',
+            'last_heartbeat_at': last_hb.isoformat() if last_hb else None,
+            'battery_pct': getattr(d, 'last_battery_pct', None),
+            'battery_charging': getattr(d, 'last_battery_charging', None),
+            'temperature_c': getattr(d, 'last_temperature_c', None),
+            'app_version_name': getattr(d, 'app_version', None),
+            'app_version_code': apk_code,
+            'ip_address': getattr(d, 'last_ip', None),
+            'apk_outdated': apk_outdated,
+        }
+
+    return result
+
+
+def get_devices_telemetry():
+    """
+    Thin wrapper — pobiera urządzenia z DB i deleguje do build_devices_telemetry.
+    Wywoływane z routerów dashboardu.
+    """
+    devices = ProductionDevice.query.all()
+    return build_devices_telemetry(devices)
+
+
+# ============================================================================
 # HEARTBEAT — walidacja payloadu
 # ============================================================================
 
