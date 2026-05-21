@@ -836,8 +836,8 @@ def dashboard_tab_content():
         }
 
         # Heartbeat status per station
-        from modules.production.services.station_heartbeat import get_all_statuses
-        heartbeat_statuses = get_all_statuses()
+        from modules.production.services.mobile_api_service import get_devices_telemetry
+        heartbeat_statuses = get_devices_telemetry()
 
         for st_code in ['cutting', 'assembly', 'gluing', 'formatting', 'finishing', 'packaging']:
             dashboard_stats['stations'][st_code]['tablet_status'] = heartbeat_statuses.get(st_code, {'active': False, 'last_seen': None, 'status_label': 'Niedostępne'})
@@ -1020,7 +1020,7 @@ def dashboard_data():
         })
 
         from ...models import ProductionItem, ProductionError
-        from modules.production.services.station_heartbeat import get_all_statuses as _get_all_heartbeat_statuses
+        from modules.production.services.mobile_api_service import get_devices_telemetry as _get_all_heartbeat_statuses
 
         heartbeat_statuses = _get_all_heartbeat_statuses()
 

@@ -8,7 +8,6 @@ from flask_login import current_user, login_required
 from datetime import datetime, date
 from extensions import db
 from sqlalchemy.orm import joinedload
-from ...services.station_heartbeat import record_heartbeat
 from ...services import label_print_service
 from ...services.label_print_service import StationNotAllowed
 from ...models import ProductionItem, ProductionOrder, ProductionProduct
@@ -43,7 +42,6 @@ def ajax_get_products(station_code):
                 'error': 'Invalid station code'
             }), 400
 
-        record_heartbeat(station_code)
         sort_by = request.args.get('sort', 'priority')
         limit = min(int(request.args.get('limit', 50)), 100)
 
@@ -946,8 +944,6 @@ def ajax_station_today_m3(station_code):
                 'success': False,
                 'error': f'Nieprawidlowy station_code. Dozwolone: cutting, assembly, gluing, formatting, finishing, packaging'
             }), 400
-
-        record_heartbeat(station_code)
 
         from datetime import timedelta
         from ...services.station_events_service import get_station_work_in_range

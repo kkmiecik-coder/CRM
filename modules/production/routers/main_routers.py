@@ -54,7 +54,7 @@ def dashboard():
         })
         
         from ..models import ProductionItem
-        from modules.production.services.station_heartbeat import get_all_statuses
+        from modules.production.services.mobile_api_service import get_devices_telemetry
         from modules.production.services.station_events_service import get_station_work_in_range
 
         # Podstawowe statystyki - zgodnie z PRD API response structure
@@ -86,7 +86,7 @@ def dashboard():
         today_start = datetime.combine(today, datetime.min.time())
         tomorrow_start = today_start + timedelta(days=1)
 
-        heartbeat_statuses = get_all_statuses()
+        heartbeat_statuses = get_devices_telemetry()
 
         # Mapowanie stanowisko → status czekania (kolejka)
         station_pending_status = {
