@@ -17,7 +17,7 @@ Data: 2025-01-22
 """
 
 from datetime import datetime, date
-from sqlalchemy import Column, Integer, BigInteger, String, Text, DateTime, Date, Numeric, Enum, Boolean, JSON, ForeignKey
+from sqlalchemy import Column, Integer, BigInteger, String, Text, DateTime, Date, Numeric, Enum, Boolean, JSON, ForeignKey, SmallInteger, Float
 from sqlalchemy.dialects.mysql import LONGTEXT
 from sqlalchemy.orm import relationship, validates, backref
 from sqlalchemy.sql import func
@@ -871,6 +871,11 @@ class ProductionDevice(db.Model):
     registered_at = Column(DateTime, default=get_local_now, nullable=False)
     app_version = Column(String(32), nullable=True)
     is_active = Column(Boolean, nullable=False, default=True, index=True)
+    last_heartbeat_at = Column(DateTime, nullable=True, index=True)
+    last_battery_pct = Column(SmallInteger, nullable=True)
+    last_battery_charging = Column(Boolean, nullable=True)
+    last_temperature_c = Column(Float, nullable=True)
+    last_app_version_code = Column(Integer, nullable=True)
 
     VALID_STATION_CODES = {
         'packaging', 'cutting', 'assembly', 'gluing', 'formatting', 'finishing'
