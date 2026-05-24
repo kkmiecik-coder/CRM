@@ -841,8 +841,9 @@ class BaselinkerService:
             'extra_field_1': '',
             'extra_field_2': '',
             'custom_extra_fields': {
-                '105623': creator_name,  # Opiekun
-                '106169': payment_type_value  # 🆕 NOWE: Typ płatności (Brutto/Netto)
+                '105623': creator_name,                  # Opiekun
+                '106169': payment_type_value,            # Typ płatności (Brutto/Netto)
+                '170043': quote.quote_number or '',      # 🆕 Numer wyceny
             },
             'products': products
         }
@@ -1203,27 +1204,18 @@ class BaselinkerService:
         return '; '.join(parts)
 
     def _build_user_comments(self, quote):
-        """Buduje komentarz użytkownika z numerem wyceny i notatką"""
-        # Zawsze dodaj numer wyceny
-        comments = f"Wycena {quote.quote_number}"
-
-        # Dodaj notatkę jeśli istnieje
-        if quote.notes and quote.notes.strip():
-            comments += f" - {quote.notes}"
-
-        # Ogranicz do 200 znaków (limit Baselinker)
-        if len(comments) > 200:
-            comments = comments[:197] + "..."
-            self.logger.warning("Komentarz został skrócony do 200 znaków",
-                              quote_number=quote.quote_number,
-                              original_length=len(f"Wycena {quote.quote_number}. {quote.notes}"))
-
-        self.logger.debug("Zbudowano komentarz użytkownika",
-                         quote_number=quote.quote_number,
-                         has_notes=bool(quote.notes and quote.notes.strip()),
-                         comment_length=len(comments))
-
-        return comments
+        """Zwraca samą notatkę użytkownika (numer wyceny idzie do extra_field_170043)."""
+        notes = (quote.notes or '').strip()
+        if len(notes) > 200:
+            notes = notes[:197] + '...'
+            self.logger.warning("Notatka została skrócona do 200 znaków",
+                                quote_number=quote.quote_number,
+                                original_length=len(quote.notes or ''))
+        self.logger.debug("Zbudowano notatkę użytkownika",
+                          quote_number=quote.quote_number,
+                          has_notes=bool(notes),
+                          comment_length=len(notes))
+        return notes
     
     def _calculate_item_weight(self, item) -> float:
         """Oblicza wagę produktu na podstawie rzeczywistej objętości (gęstość drewna 800kg/m³)"""

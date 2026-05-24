@@ -684,6 +684,7 @@ def products_tab_content():
             search_conditions.append(ProductionOrder.client_name.ilike(search_pattern))
             search_conditions.append(ProductionOrder.internal_order_number.ilike(search_pattern))
             search_conditions.append(ProductionOrder.client_order_number.ilike(search_pattern))
+            search_conditions.append(ProductionOrder.quote_number.ilike(search_pattern))
             search_conditions.append(cast(ProductionOrder.baselinker_order_id, String).ilike(search_pattern))
 
             if search_conditions:
@@ -889,6 +890,7 @@ def products_tab_content():
 
                 # Dodatkowe pola z zamówienia
                 'client_order_number': product.order.client_order_number if product.order else None,
+                'quote_number': product.order.quote_number if product.order else None,
                 'order_notes': product.order.order_notes if product.order else None,
 
                 # Priorytet ręczny (gwiazdka)
@@ -1068,6 +1070,7 @@ def products_paginated():
             search_conditions.append(ProductionOrder.client_name.ilike(search_pattern))
             search_conditions.append(ProductionOrder.internal_order_number.ilike(search_pattern))
             search_conditions.append(ProductionOrder.client_order_number.ilike(search_pattern))
+            search_conditions.append(ProductionOrder.quote_number.ilike(search_pattern))
             search_conditions.append(cast(ProductionOrder.baselinker_order_id, String).ilike(search_pattern))
 
             if search_conditions:
@@ -2490,6 +2493,7 @@ def _serialize_production_item(item, today=None):
         'quantity_done_finishing': getattr(item, 'quantity_done_finishing', 0),
         'quantity_done_packaging': getattr(item, 'quantity_done_packaging', 0),
         'client_order_number': item.order.client_order_number if item.order else None,
+        'quote_number': item.order.quote_number if item.order else None,
         'unit_price_net': float(getattr(item, 'unit_price_net', 0) or 0),
         'updated_at': item.updated_at.isoformat() if getattr(item, 'updated_at', None) else None,
         'sync_source': item.order.sync_source if item.order else None,
@@ -2553,6 +2557,8 @@ def products_filtered():
             search_conditions.append(ProductionOrder.client_name.ilike(search_pattern))
             # Wyszukiwanie po numerze zamówienia klienta (np. "1617/2025")
             search_conditions.append(ProductionOrder.client_order_number.ilike(search_pattern))
+            # Wyszukiwanie po numerze wyceny (np. "226/04/26/W")
+            search_conditions.append(ProductionOrder.quote_number.ilike(search_pattern))
             # Wyszukiwanie po numerze Baselinker — Integer, cast do String
             search_conditions.append(cast(ProductionOrder.baselinker_order_id, String).ilike(search_pattern))
 

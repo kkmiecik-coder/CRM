@@ -356,7 +356,7 @@ class ProductsModule {
                 const queryLower = query.toLowerCase().trim();
 
                 // Pola które używają exact match (numery zamówień)
-                const exactMatchFields = ['baselinker_order_id', 'client_order_number'];
+                const exactMatchFields = ['baselinker_order_id', 'client_order_number', 'quote_number'];
 
                 return items.filter(item => {
                     return fields.some(field => {
@@ -1347,6 +1347,7 @@ class ProductsModule {
                     clientName: product.client_name || 'Brak danych',
                     baselinkerOrderId: product.baselinker_order_id,
                     clientOrderNumber: product.client_order_number,
+                    quoteNumber: product.quote_number,
                     internalOrderNumber: product.internal_order_number,
                     products: [],
                     totalVolume: 0,
@@ -1368,6 +1369,7 @@ class ProductsModule {
 
             if (product.is_priority) order.isPriority = true;
             if (product.order_notes && !order.orderNotes) order.orderNotes = product.order_notes;
+            if (product.quote_number && !order.quoteNumber) order.quoteNumber = product.quote_number;
             if (product.attachment_file_url) order.attachmentUrl = product.attachment_file_url;
 
             // Earliest deadline
@@ -1531,6 +1533,9 @@ class ProductsModule {
         }
         if (order.clientOrderNumber) {
             idsContainer.innerHTML += `<span class="il-order-id-tag">${order.clientOrderNumber}</span>`;
+        }
+        if (order.quoteNumber) {
+            idsContainer.innerHTML += `<span class="il-order-id-tag">${order.quoteNumber}</span>`;
         }
 
         // Metrics
@@ -2448,7 +2453,7 @@ class ProductsModule {
             const textSearch = this.state.currentFilters.textSearch?.trim();
             if (textSearch && this.components.fuzzySearchEngine) {
                 productsToCheck = this.components.fuzzySearchEngine.search(textSearch, productsToCheck, {
-                    fields: ['original_product_name', 'short_product_id', 'client_name', 'baselinker_order_id', 'client_order_number'],
+                    fields: ['original_product_name', 'short_product_id', 'client_name', 'baselinker_order_id', 'client_order_number', 'quote_number'],
                     threshold: 2
                 });
             }
