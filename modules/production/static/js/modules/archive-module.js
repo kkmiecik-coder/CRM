@@ -178,6 +178,7 @@ class ArchiveModule {
                     clientName: product.client_name || 'Brak danych',
                     baselinkerOrderId: product.baselinker_order_id,
                     clientOrderNumber: product.client_order_number,
+                    quoteNumber: product.quote_number,
                     internalOrderNumber: product.internal_order_number,
                     products: [],
                     totalVolume: 0,
@@ -196,6 +197,7 @@ class ArchiveModule {
             order.productCount += 1;
             order.totalVolume += (parseFloat(product.volume_m3) || 0) * (product.quantity || 1);
             order.totalValue += parseFloat(product.total_value_net) || 0;
+            if (product.quote_number && !order.quoteNumber) order.quoteNumber = product.quote_number;
 
             // completedAt: backend już ustawia order_completed_at = MAX(packaging_completed_at)
             if (product.order_completed_at && (!order.completedAt || product.order_completed_at > order.completedAt)) {
@@ -246,8 +248,10 @@ class ArchiveModule {
                 order.internalOrderNumber,
                 order.baselinkerOrderId ? `bl-${order.baselinkerOrderId}` : '',
                 order.clientOrderNumber,
+                order.quoteNumber,
                 ...order.products.map(p => p.original_product_name || ''),
-                ...order.products.map(p => p.short_product_id || '')
+                ...order.products.map(p => p.short_product_id || ''),
+                ...order.products.map(p => p.quote_number || '')
             ].filter(Boolean).join(' ').toLowerCase();
             if (!hay.includes(needle)) return false;
         }
@@ -351,6 +355,9 @@ class ArchiveModule {
         }
         if (order.clientOrderNumber) {
             idsContainer.innerHTML += `<span class="il-order-id-tag">${this.escapeHtml(order.clientOrderNumber)}</span>`;
+        }
+        if (order.quoteNumber) {
+            idsContainer.innerHTML += `<span class="il-order-id-tag">${this.escapeHtml(order.quoteNumber)}</span>`;
         }
 
         header.querySelector('.il-order-positions').textContent = order.productCount;
