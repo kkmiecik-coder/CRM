@@ -684,6 +684,7 @@ def products_tab_content():
             search_conditions.append(ProductionOrder.client_name.ilike(search_pattern))
             search_conditions.append(ProductionOrder.internal_order_number.ilike(search_pattern))
             search_conditions.append(ProductionOrder.client_order_number.ilike(search_pattern))
+            search_conditions.append(ProductionOrder.quote_number.ilike(search_pattern))
             search_conditions.append(cast(ProductionOrder.baselinker_order_id, String).ilike(search_pattern))
 
             if search_conditions:
@@ -889,6 +890,7 @@ def products_tab_content():
 
                 # Dodatkowe pola z zamówienia
                 'client_order_number': product.order.client_order_number if product.order else None,
+                'quote_number': product.order.quote_number if product.order else None,
                 'order_notes': product.order.order_notes if product.order else None,
 
                 # Priorytet ręczny (gwiazdka)
@@ -1068,6 +1070,7 @@ def products_paginated():
             search_conditions.append(ProductionOrder.client_name.ilike(search_pattern))
             search_conditions.append(ProductionOrder.internal_order_number.ilike(search_pattern))
             search_conditions.append(ProductionOrder.client_order_number.ilike(search_pattern))
+            search_conditions.append(ProductionOrder.quote_number.ilike(search_pattern))
             search_conditions.append(cast(ProductionOrder.baselinker_order_id, String).ilike(search_pattern))
 
             if search_conditions:
