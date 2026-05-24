@@ -2493,6 +2493,7 @@ def _serialize_production_item(item, today=None):
         'quantity_done_finishing': getattr(item, 'quantity_done_finishing', 0),
         'quantity_done_packaging': getattr(item, 'quantity_done_packaging', 0),
         'client_order_number': item.order.client_order_number if item.order else None,
+        'quote_number': item.order.quote_number if item.order else None,
         'unit_price_net': float(getattr(item, 'unit_price_net', 0) or 0),
         'updated_at': item.updated_at.isoformat() if getattr(item, 'updated_at', None) else None,
         'sync_source': item.order.sync_source if item.order else None,
