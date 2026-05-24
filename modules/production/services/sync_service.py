@@ -1090,6 +1090,16 @@ class BaselinkerSyncService:
             })
 
         # Ekstrakcja dodatkowych pól z Baselinker (2025-11)
+        # custom_extra_fields[170043] = numer wyceny
+        custom_fields = order.get('custom_extra_fields', {}) or {}
+        quote_number = (custom_fields.get('170043') or '').strip() or None
+        if quote_number:
+            product_data['quote_number'] = quote_number[:16]
+            logger.debug("Dodano quote_number", extra={
+                'product_id': product_id,
+                'quote_number': quote_number
+            })
+
         # extra_field_1 = wewnętrzny numer zamówienia klienta
         client_order_number = order.get('extra_field_1', '').strip() if order.get('extra_field_1') else None
         if client_order_number:
@@ -1201,7 +1211,7 @@ class BaselinkerSyncService:
 
         ORDER_LEVEL_KEYS = {
             'baselinker_order_id', 'internal_order_number', 'baselinker_status_id',
-            'payment_date', 'client_order_number', 'order_notes',
+            'payment_date', 'client_order_number', 'quote_number', 'order_notes',
             'client_name', 'client_email', 'client_phone', 'delivery_address',
             'delivery_method', 'delivery_fullname', 'delivery_company',
             'delivery_city', 'delivery_postcode', 'delivery_country_code',
@@ -2005,6 +2015,18 @@ class BaselinkerSyncService:
                     'label': 'Nr zamówienia klienta',
                     'old_value': current_client_order,
                     'new_value': bl_client_order
+                })
+
+            # quote_number (custom_extra_fields[170043])
+            bl_custom = bl_order.get('custom_extra_fields', {}) or {}
+            bl_quote_number = (bl_custom.get('170043') or '').strip() or None
+            current_quote_number = _first_order.quote_number if _first_order else None
+            if bl_quote_number != current_quote_number:
+                order_level_changes.append({
+                    'field': 'quote_number',
+                    'label': 'Numer wyceny',
+                    'old_value': current_quote_number,
+                    'new_value': bl_quote_number
                 })
 
             # order_notes (admin_comments)
