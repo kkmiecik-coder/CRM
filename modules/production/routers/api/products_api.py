@@ -2556,6 +2556,8 @@ def products_filtered():
             search_conditions.append(ProductionOrder.client_name.ilike(search_pattern))
             # Wyszukiwanie po numerze zamówienia klienta (np. "1617/2025")
             search_conditions.append(ProductionOrder.client_order_number.ilike(search_pattern))
+            # Wyszukiwanie po numerze wyceny (np. "226/04/26/W")
+            search_conditions.append(ProductionOrder.quote_number.ilike(search_pattern))
             # Wyszukiwanie po numerze Baselinker — Integer, cast do String
             search_conditions.append(cast(ProductionOrder.baselinker_order_id, String).ilike(search_pattern))
 
