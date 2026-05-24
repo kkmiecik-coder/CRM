@@ -124,6 +124,7 @@ class ProductionOrder(db.Model):
     id = Column(Integer, primary_key=True)
     baselinker_order_id = Column(Integer, nullable=False, unique=True, index=True)
     internal_order_number = Column(String(20), nullable=False)
+    quote_number = Column(String(16), index=True)
     baselinker_status_id = Column(Integer, index=True)
     payment_date = Column(DateTime, index=True)
 
