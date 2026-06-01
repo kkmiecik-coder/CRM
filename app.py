@@ -378,12 +378,19 @@ def create_app():
 
     app.config.setdefault('RUN_DB_SETUP', False)
 
+    # Tryb DEBUG wymuszamy ze zmiennej środowiskowej FLASK_DEBUG (ustawianej przez .htaccess
+    # na produkcji = 0, lokalnie = 1), a NIE z core.json — inaczej produkcja dziedziczy
+    # DEBUG:true z configu i wystawia tracebacki oraz wyłącza cache szablonów.
+    flask_debug_env = os.environ.get('FLASK_DEBUG')
+    if flask_debug_env is not None:
+        app.config['DEBUG'] = flask_debug_env == '1'
+
     # Dodajemy ustawienia utrzymujące połączenie z bazą:
     app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
             'pool_pre_ping': True,              # Sprawdź połączenie przed użyciem
             'pool_recycle': 280,                # Recycle połączeń przed MySQL timeout (300s)
-            'pool_size': 5,                     # Pod limit hostingu max_user_connections=40
-            'max_overflow': 10,                 # 15 conn/worker × 2 workery + scheduler ≤ 40
+            'pool_size': 2,                     # Limit per-user MySQL = 40; LSAPI bursuje do 8 workerów → 8×(2+2)=32, zapas ~8
+            'max_overflow': 2,                  # Worker obsługuje 1 request naraz; 5/10 zakładało 2 workery, a realnie jest 8
             'pool_timeout': 30,                 # Timeout oczekiwania na połączenie
             'echo': False,                      # Wyłącz echo SQL (performance)
             'echo_pool': False,                 # Wyłącz echo pool events

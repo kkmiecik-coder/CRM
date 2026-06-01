@@ -20,6 +20,8 @@ class MigrationService:
 
     MIGRATIONS_DIR = Path(__file__).parent
     MIGRATION_PATTERN = re.compile(r'^(\d{3})_(.+)\.(sql|py)$')
+    # Nazwa named-locka MySQL chroniącego migracje przed równoległym startem workerów.
+    MIGRATION_LOCK_NAME = 'crm_schema_migrations'
 
     def __init__(self, db, logger=None):
         self.db = db
@@ -151,11 +153,78 @@ class MigrationService:
             self.log(f"Błąd zapisu migracji: {e}", 'error')
             self.db.session.rollback()
 
+    def _is_mysql(self):
+        """Czy backend to MySQL/MariaDB (locki GET_LOCK dostępne tylko tam)."""
+        try:
+            return self.db.engine.dialect.name in ('mysql', 'mariadb')
+        except Exception:
+            return False
+
+    def _acquire_migration_lock(self):
+        """
+        Nieblokująco próbuje zająć named-lock MySQL.
+        Lock jest trzymany na DEDYKOWANYM połączeniu przez cały czas migracji
+        (GET_LOCK jest związany z połączeniem; db.session po commit() mógłby
+        podmienić połączenie z puli i lock by "wyciekł").
+        Zwraca: True  – lock zajęty (ten proces wykonuje migracje),
+                False – lock trzyma inny proces (pomijamy migracje),
+                None  – locki niedostępne (np. SQLite) → wykonaj bez locka.
+        """
+        self._lock_conn = None
+        if not self._is_mysql():
+            return None
+        try:
+            conn = self.db.engine.connect()
+            acquired = conn.execute(
+                self.db.text("SELECT GET_LOCK(:name, 0)"),
+                {'name': self.MIGRATION_LOCK_NAME}
+            ).scalar()
+            if acquired == 1:
+                self._lock_conn = conn
+                return True
+            conn.close()
+            return False
+        except Exception as e:
+            self.log(f"Nie udało się uzyskać locka migracji: {e}", 'warning')
+            return None
+
+    def _release_migration_lock(self):
+        """Zwalnia named-lock MySQL i oddaje dedykowane połączenie do puli."""
+        conn = getattr(self, '_lock_conn', None)
+        if conn is None:
+            return
+        try:
+            conn.execute(
+                self.db.text("SELECT RELEASE_LOCK(:name)"),
+                {'name': self.MIGRATION_LOCK_NAME}
+            )
+        except Exception as e:
+            self.log(f"Nie udało się zwolnić locka migracji: {e}", 'warning')
+        finally:
+            conn.close()
+            self._lock_conn = None
+
     def run_pending_migrations(self):
         """
         Wykonuje wszystkie oczekujące migracje.
         Zwraca liczbę wykonanych migracji.
+
+        Chronione named-lockiem MySQL: przy równoległym starcie wielu workerów
+        Passengera tylko JEDEN proces wykonuje migracje, reszta je pomija
+        (unika nawału połączeń i błędów przy boocie).
         """
+        lock = self._acquire_migration_lock()
+        if lock is False:
+            self.log("Migracje wykonuje już inny proces — pomijam")
+            return 0
+        try:
+            return self._run_pending_migrations_locked()
+        finally:
+            if lock is True:
+                self._release_migration_lock()
+
+    def _run_pending_migrations_locked(self):
+        """Właściwe wykonanie migracji (po uzyskaniu locka)."""
         self.ensure_migrations_table()
         pending = self.get_pending_migrations()
 
