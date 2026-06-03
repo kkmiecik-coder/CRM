@@ -281,7 +281,8 @@ def reports_home():
                            error=str(e),
                            error_type=type(e).__name__)
         flash("Wystąpił błąd podczas ładowania danych.")
-        return redirect(url_for('home'))
+        # 'home' nie istnieje jako endpoint — root route nazywa się 'index' (app.py)
+        return redirect(url_for('index'))
 
 @reports_bp.route('/api/data')
 @require_module_access('reports')
