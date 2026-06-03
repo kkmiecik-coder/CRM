@@ -42,19 +42,22 @@ def get_quotes_chart_data(months=6):
         
         # Pobierz dane miesięczne dla wycen
         # Lejek konwersji liczony w CAŁOŚCI z tabeli quotes i kubełkowany po tej samej
-        # dacie (created_at), więc zawsze: total >= zaakceptowane >= zamówione.
-        #  - zaakceptowane: wycena ma acceptance_date,
-        #  - zamówione: wycena trafiła do zamówienia (base_linker_order_id lub status 4).
-        # Wcześniej "zamówione" pochodziły z tabeli baselinker_reports_orders (wszystkie
-        # zamówienia BL, też spoza CRM), przez co słupek był wyższy niż akceptacje.
-        ordered_quote = case(
-            (or_(Quote.base_linker_order_id.isnot(None), Quote.status_id == 4), Quote.id)
-        )
+        # dacie (created_at), więc ZAWSZE total >= zaakceptowane >= zamówione —
+        # niezależnie od stanu danych (monotoniczność wymuszona definicją):
+        #  - zamówione: wycena trafiła do zamówienia (base_linker_order_id lub status 4),
+        #  - zaakceptowane: wycena ma acceptance_date LUB jest zamówiona (zamówienie
+        #    z definicji wymaga wcześniejszej akceptacji, nawet jeśli datę zgubiono —
+        #    np. status ustawiony ręcznie przez /api/quotes/<id>/status).
+        # Wcześniej "zamówione" liczono z baselinker_reports_orders (wszystkie zamówienia
+        # BL, też spoza CRM), przez co słupek bywał wyższy niż akceptacje.
+        is_ordered = or_(Quote.base_linker_order_id.isnot(None), Quote.status_id == 4)
+        ordered_quote = case((is_ordered, Quote.id))
+        accepted_quote = case((or_(Quote.acceptance_date.isnot(None), is_ordered), Quote.id))
         monthly_quotes = db.session.query(
             extract('year', Quote.created_at).label('year'),
             extract('month', Quote.created_at).label('month'),
             func.count(Quote.id).label('total_quotes'),
-            func.count(Quote.acceptance_date).label('accepted_quotes'),
+            func.count(accepted_quote).label('accepted_quotes'),
             func.count(ordered_quote).label('ordered_quotes')
         ).filter(
             Quote.created_at >= start_date

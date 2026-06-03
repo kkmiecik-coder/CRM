@@ -20,7 +20,7 @@
     <div class="quotes-metrics">
         <div class="quotes-metric">
             <div class="metric-dot total"></div>
-            <span>Wszystkie wyceny: {{ chart_data.summary.total_queries or 0 }}</span>
+            <span>Wszystkie wyceny: {{ chart_data.summary.total_quotes or 0 }}</span>
         </div>
         <div class="quotes-metric">
             <div class="metric-dot accepted"></div>
@@ -28,7 +28,7 @@
         </div>
         <div class="quotes-metric">
             <div class="metric-dot ordered"></div>
-            <span>Zamówienia (BL): {{ chart_data.summary.ordered_quotes or 0 }}</span>
+            <span>Zamówione: {{ chart_data.summary.ordered_quotes or 0 }}</span>
         </div>
     </div>
 </div>

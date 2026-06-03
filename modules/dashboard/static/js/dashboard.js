@@ -770,7 +770,7 @@ function initQuotesChart() {
             acceptedElement.nextElementSibling.textContent = `Zaakceptowane: ${window.chartData.summary.accepted_quotes || 0}`;
         }
         if (orderedElement && orderedElement.nextElementSibling) {
-            orderedElement.nextElementSibling.textContent = `Zamówienia (BL): ${window.chartData.summary.ordered_quotes || 0}`;
+            orderedElement.nextElementSibling.textContent = `Zamówione: ${window.chartData.summary.ordered_quotes || 0}`;
         }
     }
 }
