@@ -52,7 +52,7 @@ function init() {
         currentMultiplier = userMultiplier;
     } else if (isPartner && isFlexiblePartner) {
         // ✅ NOWE: Flexible partner - ustaw domyślny mnożnik ID=5
-        const FLEXIBLE_PARTNER_DEFAULT_MULTIPLIER_ID = 5;
+        const FLEXIBLE_PARTNER_DEFAULT_MULTIPLIER_ID = 11;  // Czernecki (1.05)
         const defaultClientType = getDefaultClientTypeForId(FLEXIBLE_PARTNER_DEFAULT_MULTIPLIER_ID);
 
         if (defaultClientType && multiplierMapping[defaultClientType]) {

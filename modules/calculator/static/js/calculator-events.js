@@ -43,7 +43,7 @@ function setDefaultClientType(form, skipIfAlreadySet = true) {
     }
 
     // ✅ NOWE: Różny domyślny mnożnik dla flexible partners
-    const FLEXIBLE_PARTNER_DEFAULT_MULTIPLIER_ID = 5;  // Domyślny mnożnik dla flexible partners
+    const FLEXIBLE_PARTNER_DEFAULT_MULTIPLIER_ID = 11;  // Domyślny mnożnik dla flexible partners — Czernecki (1.05)
 
     let defaultMultiplierId;
     if (isFlexiblePartner) {

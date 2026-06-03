@@ -41,9 +41,10 @@ def register_routes(bp):
 
         # Konfiguracja flexible partners
         FLEXIBLE_PARTNER_IDS = [14, 15]
+        # Flexible partnerzy mają dostępny tylko mnożnik id 11 (Czernecki, 1.05)
         FLEXIBLE_PARTNER_ALLOWED_MULTIPLIERS = {
-            14: [5, 6],
-            15: [5, 6],
+            14: [11],
+            15: [11],
         }
 
         if user_role == 'partner' and user_id in FLEXIBLE_PARTNER_IDS:
