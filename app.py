@@ -123,6 +123,63 @@ def register_cli_commands(app):
         create_admin()
         click.echo("[setup-db] Gotowe.")
 
+    @app.cli.command("backfill-ordered-acceptance")
+    @click.option("--dry-run", is_flag=True, help="Pokaż zmiany bez zapisu do bazy.")
+    @with_appcontext
+    def backfill_ordered_acceptance_command(dry_run):
+        """Uzupełnia datę akceptacji dla zamówionych wycen bez acceptance_date.
+
+        Zamówiona wycena (base_linker_order_id lub status 4) jest z definicji
+        zaakceptowana. Komenda ustawia acceptance_date i autora akceptacji.
+        Status (status_id) NIE jest zmieniany — zostaje "Złożone".
+        """
+        from modules.calculator.models import Quote
+        from modules.baselinker.models import BaselinkerOrderLog
+        from sqlalchemy import or_
+
+        quotes = Quote.query.filter(
+            Quote.acceptance_date.is_(None),
+            or_(
+                Quote.base_linker_order_id.isnot(None),
+                Quote.status_id == 4,
+            )
+        ).all()
+
+        click.echo(f"[backfill] Znaleziono {len(quotes)} zamówionych wycen bez daty akceptacji.")
+
+        updated = 0
+        for quote in quotes:
+            # Najlepsze źródło daty/autora: pierwszy udany log utworzenia zamówienia.
+            log = BaselinkerOrderLog.query.filter_by(
+                quote_id=quote.id, status='success'
+            ).order_by(BaselinkerOrderLog.created_at.asc()).first()
+
+            if log and log.created_at:
+                quote.acceptance_date = log.created_at
+                if log.created_by and not quote.accepted_by_user_id:
+                    quote.accepted_by_user_id = log.created_by
+                source = 'log BL'
+            else:
+                # Fallback: brak logu — użyj daty utworzenia wyceny.
+                quote.acceptance_date = quote.created_at
+                source = 'created_at'
+
+            if not quote.accepted_by_email:
+                quote.accepted_by_email = 'order_auto_accept'
+
+            updated += 1
+            click.echo(
+                f"  • Wycena {quote.quote_number or quote.id}: "
+                f"acceptance_date -> {quote.acceptance_date} (źródło: {source})"
+            )
+
+        if dry_run:
+            db.session.rollback()
+            click.echo(f"[backfill] DRY-RUN: {updated} wycen zostałoby zaktualizowanych. Brak zapisu.")
+        else:
+            db.session.commit()
+            click.echo(f"[backfill] Zaktualizowano {updated} wycen.")
+
     @app.cli.command("migrate")
     @with_appcontext
     def migrate_command():

@@ -420,7 +420,17 @@ class BaselinkerService:
                 
                 # NOWE: Zmień status wyceny na "Złożone" (ID=4)
                 quote.status_id = 4
-                
+
+                # Zamówiona wycena jest z definicji zaakceptowana — uzupełnij dane
+                # akceptacji, jeśli nie były ustawione. Status zostaje "Złożone" (4),
+                # NIE zmieniamy go z powrotem na "Zaakceptowane".
+                if not quote.acceptance_date:
+                    quote.acceptance_date = datetime.utcnow()
+                    if not quote.accepted_by_user_id:
+                        quote.accepted_by_user_id = user_id
+                    if not quote.accepted_by_email:
+                        quote.accepted_by_email = 'order_auto_accept'
+
                 db.session.commit()
 
                 # Zapisz order_product_id w QuoteItemDetails
