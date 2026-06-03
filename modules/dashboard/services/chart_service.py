@@ -3,7 +3,7 @@ Serwis do pobierania danych dla wykresów dashboard
 """
 
 from datetime import datetime, timedelta
-from sqlalchemy import func, and_, extract
+from sqlalchemy import func, and_, extract, case
 from extensions import db
 import logging
 
@@ -67,10 +67,18 @@ def get_quotes_chart_data(months=6):
             logger.info(f"[ChartService] DEBUG: Month {i+1}: {quote.year}-{quote.month}, total: {quote.total_quotes}, accepted: {quote.accepted_quotes}")
         
         # Pobierz dane zamówień z Baselinker
+        # UWAGA: każdy wiersz w baselinker_reports_orders = jeden PRODUKT w zamówieniu,
+        # a nie całe zamówienie. Dlatego liczymy unikalne zamówienia tak samo jak
+        # reports/models.py (grupowanie po baselinker_order_id, a ręczne wpisy z NULL
+        # traktujemy jako osobne zamówienia per wiersz) — inaczej widget zawyżał słupek.
+        unique_orders_count = (
+            func.count(func.distinct(BaselinkerReportOrder.baselinker_order_id)) +
+            func.count(case((BaselinkerReportOrder.baselinker_order_id.is_(None), BaselinkerReportOrder.id)))
+        )
         monthly_orders = db.session.query(
             extract('year', BaselinkerReportOrder.date_created).label('year'),
             extract('month', BaselinkerReportOrder.date_created).label('month'),
-            func.count(BaselinkerReportOrder.id).label('ordered_count')
+            unique_orders_count.label('ordered_count')
         ).filter(
             BaselinkerReportOrder.date_created >= start_date
         ).group_by(
