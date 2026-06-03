@@ -429,7 +429,10 @@ class BaselinkerService:
                     if not quote.accepted_by_user_id:
                         quote.accepted_by_user_id = user_id
                     if not quote.accepted_by_email:
-                        quote.accepted_by_email = 'order_auto_accept'
+                        # Ta sama konwencja co user_accept_quote — dzięki prefiksowi
+                        # 'internal_user_' UI poprawnie przypisuje akceptację do
+                        # użytkownika (modules/quotes/routers.py:699-702).
+                        quote.accepted_by_email = f"internal_user_{quote.accepted_by_user_id or user_id}"
 
                 db.session.commit()
 

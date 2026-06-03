@@ -165,7 +165,12 @@ def register_cli_commands(app):
                 source = 'created_at'
 
             if not quote.accepted_by_email:
-                quote.accepted_by_email = 'order_auto_accept'
+                # Konwencja jak w user_accept_quote — prefiks 'internal_user_'
+                # pozwala UI poprawnie przypisać akceptację do użytkownika.
+                if quote.accepted_by_user_id:
+                    quote.accepted_by_email = f"internal_user_{quote.accepted_by_user_id}"
+                else:
+                    quote.accepted_by_email = 'order_auto_accept'
 
             updated += 1
             click.echo(
