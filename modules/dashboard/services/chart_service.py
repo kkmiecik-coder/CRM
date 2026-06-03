@@ -3,7 +3,7 @@ Serwis do pobierania danych dla wykresów dashboard
 """
 
 from datetime import datetime, timedelta
-from sqlalchemy import func, and_, extract, case
+from sqlalchemy import func, and_, extract, case, or_
 from extensions import db
 import logging
 
@@ -21,11 +21,9 @@ def get_quotes_chart_data(months=6):
     """
     try:
         from ...quotes.models import Quote
-        from ...reports.models import BaselinkerReportOrder  # POPRAWIONY IMPORT
         
         # DEBUG - sprawdź czy modele się importują
         logger.info(f"[ChartService] DEBUG: Quote model imported: {Quote}")
-        logger.info(f"[ChartService] DEBUG: BaselinkerReportOrder model imported: {BaselinkerReportOrder}")
         
         # Oblicz datę początkową
         end_date = datetime.now().date()
@@ -36,22 +34,28 @@ def get_quotes_chart_data(months=6):
         
         # DEBUG - sprawdź ile rekordów mamy w bazie
         total_quotes = Quote.query.count()
-        total_orders = BaselinkerReportOrder.query.count()
         logger.info(f"[ChartService] DEBUG: Total quotes in DB: {total_quotes}")
-        logger.info(f"[ChartService] DEBUG: Total orders in DB: {total_orders}")
         
         # DEBUG - sprawdź ile rekordów w okresie
         period_quotes = Quote.query.filter(Quote.created_at >= start_date).count()
-        period_orders = BaselinkerReportOrder.query.filter(BaselinkerReportOrder.date_created >= start_date).count()
         logger.info(f"[ChartService] DEBUG: Quotes in period: {period_quotes}")
-        logger.info(f"[ChartService] DEBUG: Orders in period: {period_orders}")
         
         # Pobierz dane miesięczne dla wycen
+        # Lejek konwersji liczony w CAŁOŚCI z tabeli quotes i kubełkowany po tej samej
+        # dacie (created_at), więc zawsze: total >= zaakceptowane >= zamówione.
+        #  - zaakceptowane: wycena ma acceptance_date,
+        #  - zamówione: wycena trafiła do zamówienia (base_linker_order_id lub status 4).
+        # Wcześniej "zamówione" pochodziły z tabeli baselinker_reports_orders (wszystkie
+        # zamówienia BL, też spoza CRM), przez co słupek był wyższy niż akceptacje.
+        ordered_quote = case(
+            (or_(Quote.base_linker_order_id.isnot(None), Quote.status_id == 4), Quote.id)
+        )
         monthly_quotes = db.session.query(
             extract('year', Quote.created_at).label('year'),
             extract('month', Quote.created_at).label('month'),
             func.count(Quote.id).label('total_quotes'),
-            func.count(Quote.acceptance_date).label('accepted_quotes')
+            func.count(Quote.acceptance_date).label('accepted_quotes'),
+            func.count(ordered_quote).label('ordered_quotes')
         ).filter(
             Quote.created_at >= start_date
         ).group_by(
@@ -66,33 +70,8 @@ def get_quotes_chart_data(months=6):
         for i, quote in enumerate(monthly_quotes):
             logger.info(f"[ChartService] DEBUG: Month {i+1}: {quote.year}-{quote.month}, total: {quote.total_quotes}, accepted: {quote.accepted_quotes}")
         
-        # Pobierz dane zamówień z Baselinker
-        # UWAGA: każdy wiersz w baselinker_reports_orders = jeden PRODUKT w zamówieniu,
-        # a nie całe zamówienie. Dlatego liczymy unikalne zamówienia tak samo jak
-        # reports/models.py (grupowanie po baselinker_order_id, a ręczne wpisy z NULL
-        # traktujemy jako osobne zamówienia per wiersz) — inaczej widget zawyżał słupek.
-        unique_orders_count = (
-            func.count(func.distinct(BaselinkerReportOrder.baselinker_order_id)) +
-            func.count(case((BaselinkerReportOrder.baselinker_order_id.is_(None), BaselinkerReportOrder.id)))
-        )
-        monthly_orders = db.session.query(
-            extract('year', BaselinkerReportOrder.date_created).label('year'),
-            extract('month', BaselinkerReportOrder.date_created).label('month'),
-            unique_orders_count.label('ordered_count')
-        ).filter(
-            BaselinkerReportOrder.date_created >= start_date
-        ).group_by(
-            extract('year', BaselinkerReportOrder.date_created),
-            extract('month', BaselinkerReportOrder.date_created)
-        ).order_by(
-            extract('year', BaselinkerReportOrder.date_created),
-            extract('month', BaselinkerReportOrder.date_created)
-        ).all()
-        
-        logger.info(f"[ChartService] DEBUG: Monthly orders query returned {len(monthly_orders)} rows")
-        for i, order in enumerate(monthly_orders):
-            logger.info(f"[ChartService] DEBUG: Order month {i+1}: {order.year}-{order.month}, count: {order.ordered_count}")
-        
+        # "Zamówione" liczone bezpośrednio w monthly_quotes powyżej (ordered_quote).
+
         # Przetwórz dane na format JSON
         chart_data = {
             'labels': [],
@@ -108,38 +87,27 @@ def get_quotes_chart_data(months=6):
             }
         }
         
-        # Utwórz mapę zamówień według miesięcy
-        orders_map = {}
-        for order in monthly_orders:
-            key = f"{int(order.year)}-{int(order.month):02d}"
-            orders_map[key] = order.ordered_count
-        
-        logger.info(f"[ChartService] DEBUG: Orders map: {orders_map}")
-        
         # Przetwórz dane wycen
+        month_names = [
+            '', 'Sty', 'Lut', 'Mar', 'Kwi', 'Maj', 'Cze',
+            'Lip', 'Sie', 'Wrz', 'Paź', 'Lis', 'Gru'
+        ]
         for quote in monthly_quotes:
             year = int(quote.year)
             month = int(quote.month)
-            month_key = f"{year}-{month:02d}"
-            
-            # Dodaj label miesiąca
-            month_names = [
-                '', 'Sty', 'Lut', 'Mar', 'Kwi', 'Maj', 'Cze',
-                'Lip', 'Sie', 'Wrz', 'Paź', 'Lis', 'Gru'
-            ]
             chart_data['labels'].append(f"{month_names[month]} {year}")
             
             # Dodaj dane
             chart_data['datasets']['total_quotes'].append(quote.total_quotes)
             chart_data['datasets']['accepted_quotes'].append(quote.accepted_quotes)
-            chart_data['datasets']['ordered_quotes'].append(orders_map.get(month_key, 0))
+            chart_data['datasets']['ordered_quotes'].append(quote.ordered_quotes)
             
             # Aktualizuj sumy
             chart_data['summary']['total_quotes'] += quote.total_quotes
             chart_data['summary']['accepted_quotes'] += quote.accepted_quotes
-            chart_data['summary']['ordered_quotes'] += orders_map.get(month_key, 0)
+            chart_data['summary']['ordered_quotes'] += quote.ordered_quotes
             
-            logger.info(f"[ChartService] DEBUG: Processed {month_key}: quotes={quote.total_quotes}, accepted={quote.accepted_quotes}, orders={orders_map.get(month_key, 0)}")
+            logger.info(f"[ChartService] DEBUG: Processed {year}-{month:02d}: total={quote.total_quotes}, accepted={quote.accepted_quotes}, ordered={quote.ordered_quotes}")
         
         logger.info(f"[ChartService] Wygenerowano dane dla {len(chart_data['labels'])} miesięcy")
         logger.info(f"[ChartService] DEBUG: Final summary: {chart_data['summary']}")
