@@ -371,6 +371,36 @@ def register_cli_commands(app):
             click.echo(f'[seed] BŁĄD, rollback: {e}', err=True)
             raise click.Abort()
 
+    @app.cli.command('init-display-monitor')
+    def init_display_monitor():
+        """Initialize DISPLAY_MONITOR_TOKEN and DISPLAY_MONITOR_SPECIES in prod_config."""
+        import secrets
+        import json
+        from modules.production.models import ProductionConfig
+
+        token_row = ProductionConfig.query.filter_by(config_key='DISPLAY_MONITOR_TOKEN').first()
+        if not token_row:
+            token = secrets.token_urlsafe(32)
+            token_row = ProductionConfig(config_key='DISPLAY_MONITOR_TOKEN', config_value=token)
+            db.session.add(token_row)
+            print(f'[display-monitor] generated token: {token}')
+        else:
+            print(f'[display-monitor] token already exists (value: {token_row.config_value[:8]}...)')
+
+        species_row = ProductionConfig.query.filter_by(config_key='DISPLAY_MONITOR_SPECIES').first()
+        if not species_row:
+            species_row = ProductionConfig(
+                config_key='DISPLAY_MONITOR_SPECIES',
+                config_value=json.dumps(['dąb', 'jesion', 'buk'], ensure_ascii=False),
+            )
+            db.session.add(species_row)
+            print('[display-monitor] species list initialized: dąb, jesion, buk')
+        else:
+            print(f'[display-monitor] species list already configured: {species_row.config_value}')
+
+        db.session.commit()
+        print('[display-monitor] OK')
+
 # Funkcje do generowania i weryfikacji tokena resetującego hasło
 def generate_reset_token(email, secret_key, salt='password-reset-salt'):
     serializer = URLSafeTimedSerializer(secret_key)
