@@ -13,7 +13,21 @@ from sqlalchemy import text
 
 from . import api_bp, logger, ProductionItem, ProductionError, ProductionSyncLog, ProductionConfig, get_local_now
 from .common_api import admin_required, cron_secret_required
-from modules.production.services.parser_service import parse_product_name
+from modules.production.services.parser_service import parse_product_name, is_non_production_item
+
+
+def order_has_blocking_parsing_error(processed_products):
+    """
+    Czy zamówienie ma blokujący błąd parsowania w podglądzie synchronizacji.
+
+    Blokujemy tylko, gdy któryś NOWY produkt produkcyjny ma błąd parsowania.
+    Pozycje usługowe/dopłaty (is_service_item) oraz produkty już w bazie
+    (already_in_db) są pomijane — nie powinny blokować całego zamówienia.
+    """
+    return any(
+        p.get('has_parsing_error', False) for p in processed_products
+        if not p.get('already_in_db', False) and not p.get('is_service_item', False)
+    )
 
 
 @api_bp.route('/sync-cron', methods=['GET'])
@@ -922,6 +936,11 @@ def fetch_orders_preview():
                             is_valid_dimensions, is_valid_finish
                         ])
 
+                        # Pozycja usługowa/dopłata (np. "Docięcie do wymiaru - usługa...")
+                        # — fraza usługi ORAZ brak wymiarów. Takie pozycje nie są produktem
+                        # do produkcji i nie powinny blokować zamówienia jako błąd parsowania.
+                        is_service_item = is_non_production_item(product_name) and not is_valid_dimensions
+
                         processed_products.append({
                             'name': product_name,
                             'sku': product.get('sku', ''),
@@ -930,6 +949,7 @@ def fetch_orders_preview():
                             'price': float(product.get('price_brutto', 0)),
                             'unit': product.get('unit', 'szt.'),
                             'already_in_db': already_exists,
+                            'is_service_item': is_service_item,
                             'parsed_technology': parsed_technology,
                             'parsed_wood_species': parsed_wood_species,
                             'parsed_wood_class': parsed_wood_class,
@@ -960,11 +980,10 @@ def fetch_orders_preview():
                         order['partially_exists'] = False
                         order['existing_products_count'] = 0
 
-                # Sprawdź czy zamówienie ma błędy parsowania (wśród nowych produktów)
-                has_parsing_error = any(
-                    p.get('has_parsing_error', False) for p in processed_products
-                    if not p.get('already_in_db', False)
-                )
+                # Zamówienie ma błąd parsowania tylko jeśli któryś NOWY produkt
+                # produkcyjny (nie usługa) jest nieparsowalny. Pozycje usługowe
+                # nie blokują zamówienia.
+                has_parsing_error = order_has_blocking_parsing_error(processed_products)
                 order['parsing_error'] = has_parsing_error
                 # Backwards compatibility
                 order['technology_error'] = has_parsing_error
