@@ -384,23 +384,30 @@ def register_cli_commands(app):
             token = secrets.token_urlsafe(32)
             token_row = ProductionConfig(config_key='DISPLAY_MONITOR_TOKEN', config_value=token)
             db.session.add(token_row)
-            print(f'[display-monitor] generated token: {token}')
+            click.echo(f'[display-monitor] generated token: {token}')
         else:
-            print(f'[display-monitor] token already exists (value: {token_row.config_value[:8]}...)')
+            click.echo(f'[display-monitor] token already exists (value: {token_row.config_value[:8]}...)')
 
         species_row = ProductionConfig.query.filter_by(config_key='DISPLAY_MONITOR_SPECIES').first()
         if not species_row:
             species_row = ProductionConfig(
                 config_key='DISPLAY_MONITOR_SPECIES',
                 config_value=json.dumps(['dąb', 'jesion', 'buk'], ensure_ascii=False),
+                config_type='json',
             )
             db.session.add(species_row)
-            print('[display-monitor] species list initialized: dąb, jesion, buk')
+            click.echo('[display-monitor] species list initialized: dąb, jesion, buk')
         else:
-            print(f'[display-monitor] species list already configured: {species_row.config_value}')
+            click.echo(f'[display-monitor] species list already configured: {species_row.config_value}')
 
-        db.session.commit()
-        print('[display-monitor] OK')
+        try:
+            db.session.commit()
+        except Exception as e:
+            db.session.rollback()
+            click.echo(f'[display-monitor] error, rolled back: {e}', err=True)
+            raise click.Abort()
+
+        click.echo('[display-monitor] OK')
 
 # Funkcje do generowania i weryfikacji tokena resetującego hasło
 def generate_reset_token(email, secret_key, salt='password-reset-salt'):
