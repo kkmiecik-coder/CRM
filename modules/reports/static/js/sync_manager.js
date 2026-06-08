@@ -2676,7 +2676,9 @@ class SyncManager {
                 console.log(`[DEBUG] Sprawdzam zamówienie ${order.order_id}, has_volume_issues: ${order.has_volume_issues}`);
                 
                 if (order.products) {
-                    order.products.forEach(product => {
+                    // ✅ productIndex = pełny indeks w order.products (liczy też usługi),
+                    // identyczny z enumerate() po stronie backendu - to jest kanoniczny klucz produktu
+                    order.products.forEach((product, productIndex) => {
                         const analysis = product.volume_analysis;
                         console.log(`[DEBUG] Produkt ${product.name}:`, {
                             analysis_type: analysis?.analysis_type,
@@ -2699,6 +2701,8 @@ class SyncManager {
                             productsNeedingVolume.push({
                                 order_id: order.order_id,
                                 product_id: product.id || product.product_id,
+                                order_product_id: product.order_product_id, // ✅ potrzebne do spójnego klucza
+                                product_index: productIndex,                 // ✅ pełny indeks - kanoniczny klucz produktu
                                 product_name: product.name,
                                 quantity: product.quantity || 1,
                                 analysis: product.volume_analysis,

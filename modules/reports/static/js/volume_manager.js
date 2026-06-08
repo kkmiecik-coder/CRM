@@ -207,8 +207,8 @@ class VolumeManager {
         console.log('[VolumeManager] Auto-wypełnianie wykrytych objętości');
 
         this.productsNeedingVolume.forEach((product, index) => {
-            // ✅ UŻYJ INDEKSU Z PĘTLI JAKO product_index
-            const productKey = this.generateProductKey(product.order_id, product, product.product_index || index);
+            // ✅ UŻYJ INDEKSU Z PĘTLI JAKO product_index (?? bo indeks 0 jest falsy)
+            const productKey = this.generateProductKey(product.order_id, product, product.product_index ?? index);
             const analysis = product.analysis || {};
 
             // ✅ POPRAWKA: Tylko ustaw dane które zostały wykryte DLA TEGO KONKRETNEGO PRODUKTU
@@ -303,7 +303,7 @@ class VolumeManager {
 
     createProductsChecklist() {
         return this.productsNeedingVolume.map((product, index) => {
-            const productKey = this.generateProductKey(product.order_id, product);
+            const productKey = this.generateProductKey(product.order_id, product, product.product_index);
             const isCompleted = this.volumeData[productKey] && this.volumeData[productKey].volume > 0;
             const isCurrent = index === this.currentProductIndex;
             
@@ -350,7 +350,7 @@ class VolumeManager {
         const container = document.getElementById('currentProductForm');
         if (!container) return;
 
-        const productKey = this.generateProductKey(product.order_id, product);
+        const productKey = this.generateProductKey(product.order_id, product, product.product_index);
         const savedData = this.volumeData[productKey] || {
             volume: '',
             wood_species: '',
@@ -709,8 +709,8 @@ class VolumeManager {
         this.lastSkipTime = null;
 
         this.productsNeedingVolume.forEach((product, productIndex) => {
-            // ✅ UŻYJ POPRAWNEJ LOGIKI GENEROWANIA KLUCZY
-            const productKey = this.generateProductKey(product.order_id, product, product.product_index || productIndex);
+            // ✅ UŻYJ POPRAWNEJ LOGIKI GENEROWANIA KLUCZY (?? bo indeks 0 jest falsy)
+            const productKey = this.generateProductKey(product.order_id, product, product.product_index ?? productIndex);
             this.volumeData[productKey] = { volume: 0 };
         });
 
@@ -784,7 +784,7 @@ class VolumeManager {
             const productData = this.volumeData[productKey];
             // ✅ UŻYJ POPRAWNEJ LOGIKI GENEROWANIA KLUCZY
             const correspondingProduct = this.productsNeedingVolume.find((p, index) =>
-                this.generateProductKey(p.order_id, p, p.product_index || index) === productKey
+                this.generateProductKey(p.order_id, p, p.product_index ?? index) === productKey
             );
 
             if (!correspondingProduct) {
@@ -899,7 +899,7 @@ class VolumeManager {
     }
 
     createProductElement(product) {
-        const productIndex = product.product_index || this.productsNeedingVolume.indexOf(product);
+        const productIndex = product.product_index ?? this.productsNeedingVolume.indexOf(product);
         const productKey = this.generateProductKey(product.order_id, product, productIndex);
 
         const savedData = this.volumeData[productKey] || {};
