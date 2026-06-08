@@ -246,3 +246,6 @@ docs/superpowers/
 # macOS
 .DS_Store
 **/.DS_Store
+
+# Factory firmware backups (binary, not source-controlled)
+tools/production-monitor/backups/
