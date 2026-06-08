@@ -30,6 +30,31 @@ from modules.logging import get_structured_logger
 
 logger = get_structured_logger('production.parser')
 
+# Frazy-rdzenie wskazujące, że pozycja zamówienia to usługa/dopłata, a nie
+# produkt do wyprodukowania. Dopasowanie podłańcuchem łapie warianty:
+# usługa, usługi, usluga, uslugi, usługowa itd. (dowolna wielkość liter).
+# 'usług' łapie warianty z polskim "ł", 'uslug' warianty bez polskich znaków.
+IGNORED_PRODUCT_KEYWORDS = ('usług', 'uslug')
+
+
+def is_non_production_item(name: str) -> bool:
+    """
+    Czy nazwa pozycji wskazuje na usługę/dopłatę zamiast produktu produkcyjnego.
+
+    Takie pozycje (np. aukcja "Docięcie do wymiaru - usługa cięcia blatów...")
+    trafiają z Allegro/BaseLinker jako osobny "produkt", choć są tylko dodatkowym
+    kosztem usługi — nie mają wymiarów i nie powinny trafiać do produkcji.
+
+    Args:
+        name (str): Nazwa pozycji zamówienia
+
+    Returns:
+        bool: True jeśli pozycja powinna być ignorowana przy synchronizacji
+    """
+    normalized = str(name or '').lower()
+    return any(keyword in normalized for keyword in IGNORED_PRODUCT_KEYWORDS)
+
+
 class ParsingError(Exception):
     """Wyjątek dla błędów parsowania"""
     pass

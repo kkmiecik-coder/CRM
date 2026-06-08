@@ -308,7 +308,38 @@ class BaselinkerSyncService:
                         'order_id': order_id,
                         'error': str(e)
                     })
-        
+
+                # Odfiltruj pozycje nieprodukcyjne (usługi/dopłaty) ZANIM trafią do
+                # walidacji i tworzenia produktów. Pozycje typu "Docięcie do wymiaru -
+                # usługa..." nie mają wymiarów i bez tego filtra blokowałyby całe
+                # zamówienie komunikatem "Brak danych do produkcji".
+                all_products = order_data.get('products', []) if isinstance(order_data, dict) else []
+                production_products, ignored_products = self._split_production_items(all_products)
+
+                if ignored_products:
+                    ignored_qty = sum(self._coerce_quantity(p.get('quantity', 1)) for p in ignored_products)
+                    processing_stats['products_skipped'] += ignored_qty
+                    logger.info("Pominięto pozycje usługowe w zamówieniu", extra={
+                        'order_id': order_id,
+                        'ignored_count': len(ignored_products),
+                        'ignored_quantity': ignored_qty,
+                        'ignored_names': [str(p.get('name', ''))[:50] for p in ignored_products]
+                    })
+                    # Dalsze przetwarzanie widzi już tylko realne produkty
+                    order_data['products'] = production_products
+
+                    # Zamówienie wyłącznie usługowe → brak produkcji, komentarz informacyjny
+                    if not production_products:
+                        try:
+                            existing_comment = order_data.get('admin_comments', '')
+                            self.add_service_only_comment_to_baselinker(order_id, existing_comment)
+                        except Exception as comment_error:
+                            logger.error("Błąd dodawania komentarza o pozycjach usługowych", extra={
+                                'order_id': order_id,
+                                'error': str(comment_error)
+                            })
+                        continue
+
                 validation_result = self.validate_order_products_completeness(order_data)
                 is_valid, validation_errors = validation_result
         
@@ -919,41 +950,38 @@ class BaselinkerSyncService:
             })
             return False, [f'Błąd walidacji: {str(e)}']
 
-    def add_validation_comment_to_baselinker(self, order_id: int, errors: List[str], existing_comment: str = "") -> bool:
+    def _upsert_system_order_comment(self, order_id: int, message: str, dedup_marker: str, existing_comment: str = "") -> bool:
         """
-        Dodaje komentarz walidacji do Baselinker, zachowując istniejący komentarz
-    
+        Dodaje systemowy komentarz do zamówienia w Baselinker, zachowując istniejący
+        komentarz i unikając duplikatów.
+
         Args:
             order_id: ID zamówienia
-            errors: Lista błędów walidacji
+            message: Pełny komunikat do dodania
+            dedup_marker: Fragment, którego obecność w istniejącym komentarzu oznacza,
+                że komunikat już był dodany (zapobiega duplikatom)
             existing_comment: Istniejący komentarz z zamówienia (już pobrany)
         """
-        if not self.api_key or not errors:
+        if not self.api_key:
             return False
-    
+
         try:
-            # Przygotuj nowy komunikat
-            error_summary = '; '.join(errors[:2])
-            if len(errors) > 2:
-                error_summary += f' (+{len(errors)-2})'
-        
-            validation_message = f"SYSTEM: Brak danych do produkcji. {error_summary}"
-        
-            # Połącz z istniejącym komentarzem
+            # Połącz z istniejącym komentarzem (z deduplikacją po markerze)
             if existing_comment and existing_comment.strip():
-                # Sprawdź czy nasz komunikat już nie jest w komentarzu
-                if "SYSTEM: Brak danych do produkcji" not in existing_comment:
-                    new_comment = f"{existing_comment} | {validation_message}"
-                else:
-                    logger.info("Komentarz walidacji już istnieje", extra={'order_id': order_id})
+                if dedup_marker in existing_comment:
+                    logger.info("Komentarz systemowy już istnieje", extra={
+                        'order_id': order_id,
+                        'marker': dedup_marker
+                    })
                     return True
+                new_comment = f"{existing_comment} | {message}"
             else:
-                new_comment = validation_message
-        
+                new_comment = message
+
             # Obetnij do 200 znaków
             if len(new_comment) > 200:
                 new_comment = new_comment[:197] + "..."
-        
+
             request_data = {
                 'token': self.api_key,
                 'method': 'setOrderFields',
@@ -962,13 +990,13 @@ class BaselinkerSyncService:
                     'admin_comments': new_comment
                 })
             }
-        
+
             response_data = self._make_api_request(request_data)
-        
+
             if response_data.get('status') == 'SUCCESS':
-                logger.info("Dodano komentarz walidacji do Baselinker", extra={
+                logger.info("Dodano komentarz systemowy do Baselinker", extra={
                     'order_id': order_id,
-                    'errors_count': len(errors),
+                    'marker': dedup_marker,
                     'existing_comment_preserved': bool(existing_comment.strip())
                 })
                 return True
@@ -978,13 +1006,85 @@ class BaselinkerSyncService:
                     'api_error': response_data.get('error_message')
                 })
                 return False
-            
+
         except Exception as e:
             logger.error("Wyjątek podczas dodawania komentarza", extra={
                 'order_id': order_id,
                 'error': str(e)
             })
             return False
+
+    def add_validation_comment_to_baselinker(self, order_id: int, errors: List[str], existing_comment: str = "") -> bool:
+        """
+        Dodaje komentarz walidacji do Baselinker, zachowując istniejący komentarz
+
+        Args:
+            order_id: ID zamówienia
+            errors: Lista błędów walidacji
+            existing_comment: Istniejący komentarz z zamówienia (już pobrany)
+        """
+        if not self.api_key or not errors:
+            return False
+
+        error_summary = '; '.join(errors[:2])
+        if len(errors) > 2:
+            error_summary += f' (+{len(errors)-2})'
+
+        message = f"SYSTEM: Brak danych do produkcji. {error_summary}"
+        return self._upsert_system_order_comment(
+            order_id, message, "SYSTEM: Brak danych do produkcji", existing_comment
+        )
+
+    def _split_production_items(self, products: List[Dict[str, Any]]) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+        """
+        Dzieli pozycje zamówienia na produkcyjne i nieprodukcyjne (usługi/dopłaty).
+
+        Pozycje usługowe (np. "Docięcie do wymiaru - usługa...") nie mają wymiarów
+        i nie powinny trafiać do produkcji ani blokować walidacji zamówienia.
+
+        Args:
+            products: Lista pozycji zamówienia (słowniki z BaseLinker)
+
+        Returns:
+            Tuple[production_items, ignored_items] — zachowuje oryginalną kolejność
+            i referencje do obiektów wejściowych.
+        """
+        from ..services.parser_service import is_non_production_item, get_parser_service
+
+        parser = get_parser_service()
+        production_items: List[Dict[str, Any]] = []
+        ignored_items: List[Dict[str, Any]] = []
+
+        for product in products:
+            name = product.get('name', '') if isinstance(product, dict) else ''
+            if is_non_production_item(name):
+                # Zabezpieczenie przed fałszywym trafieniem: ignorujemy pozycję tylko,
+                # gdy oprócz frazy usługi NIE ma sparsowanych wymiarów. Realny produkt
+                # z "usługą" w nazwie (np. "Blat 120x80x4 + usługa olejowania") ma
+                # wymiary i musi trafić do produkcji.
+                parsed = parser.parse_product_name(name)
+                has_dimensions = all(parsed.get(dim) for dim in ('length_cm', 'width_cm', 'thickness_cm'))
+                if not has_dimensions:
+                    ignored_items.append(product)
+                    continue
+
+            production_items.append(product)
+
+        return production_items, ignored_items
+
+    def add_service_only_comment_to_baselinker(self, order_id: int, existing_comment: str = "") -> bool:
+        """
+        Dodaje informacyjny komentarz do Baselinker dla zamówienia zawierającego
+        wyłącznie pozycje usługowe (brak produktów do produkcji).
+
+        Args:
+            order_id: ID zamówienia
+            existing_comment: Istniejący komentarz z zamówienia (już pobrany)
+        """
+        message = "SYSTEM: Zamówienie zawiera wyłącznie pozycje usługowe - pominięto w produkcji"
+        return self._upsert_system_order_comment(
+            order_id, message, "SYSTEM: Zamówienie zawiera wyłącznie pozycje usługowe", existing_comment
+        )
 
     def _fetch_paid_orders_for_cron(self) -> List[Dict[str, Any]]:
         if not self.api_key:
