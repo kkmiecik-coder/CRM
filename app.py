@@ -372,6 +372,7 @@ def register_cli_commands(app):
             raise click.Abort()
 
     @app.cli.command('init-display-monitor')
+    @with_appcontext
     def init_display_monitor():
         """Initialize DISPLAY_MONITOR_TOKEN and DISPLAY_MONITOR_SPECIES in prod_config."""
         import secrets
