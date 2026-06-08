@@ -31,6 +31,7 @@ from modules.production import production_bp
 from modules.production.routers import register_production_routers
 from modules.production.routers.mobile_api import mobile_api_bp
 from modules.production.routers.api.print_agent_api import print_agent_bp
+from modules.production.routers.api.display_api import display_bp as production_display_bp
 from modules.dashboard.services.user_activity_service import UserActivityService
 from modules.partner_academy import partner_academy_bp
 from modules.partner_academy.models import PartnerApplication
@@ -564,6 +565,7 @@ def create_app():
         app.register_blueprint(production_bp, url_prefix='/production')
         app.register_blueprint(mobile_api_bp, url_prefix='/api/mobile')
         app.register_blueprint(print_agent_bp, url_prefix='/api/print-agent')
+        app.register_blueprint(production_display_bp, url_prefix='/production')
         app.register_blueprint(partner_academy_bp, url_prefix='/partner-academy')
         app.register_blueprint(sales_bp, url_prefix='/sales')
         app.register_blueprint(users_bp)
