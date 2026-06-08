@@ -31,6 +31,7 @@ from modules.production import production_bp
 from modules.production.routers import register_production_routers
 from modules.production.routers.mobile_api import mobile_api_bp
 from modules.production.routers.api.print_agent_api import print_agent_bp
+from modules.production.routers.api.display_api import display_bp as production_display_bp
 from modules.dashboard.services.user_activity_service import UserActivityService
 from modules.partner_academy import partner_academy_bp
 from modules.partner_academy.models import PartnerApplication
@@ -371,6 +372,44 @@ def register_cli_commands(app):
             click.echo(f'[seed] BŁĄD, rollback: {e}', err=True)
             raise click.Abort()
 
+    @app.cli.command('init-display-monitor')
+    @with_appcontext
+    def init_display_monitor():
+        """Initialize DISPLAY_MONITOR_TOKEN and DISPLAY_MONITOR_SPECIES in prod_config."""
+        import secrets
+        import json
+        from modules.production.models import ProductionConfig
+
+        token_row = ProductionConfig.query.filter_by(config_key='DISPLAY_MONITOR_TOKEN').first()
+        if not token_row:
+            token = secrets.token_urlsafe(32)
+            token_row = ProductionConfig(config_key='DISPLAY_MONITOR_TOKEN', config_value=token)
+            db.session.add(token_row)
+            click.echo(f'[display-monitor] generated token: {token}')
+        else:
+            click.echo(f'[display-monitor] token already exists (value: {token_row.config_value[:8]}...)')
+
+        species_row = ProductionConfig.query.filter_by(config_key='DISPLAY_MONITOR_SPECIES').first()
+        if not species_row:
+            species_row = ProductionConfig(
+                config_key='DISPLAY_MONITOR_SPECIES',
+                config_value=json.dumps(['dąb', 'jesion', 'buk'], ensure_ascii=False),
+                config_type='json',
+            )
+            db.session.add(species_row)
+            click.echo('[display-monitor] species list initialized: dąb, jesion, buk')
+        else:
+            click.echo(f'[display-monitor] species list already configured: {species_row.config_value}')
+
+        try:
+            db.session.commit()
+        except Exception as e:
+            db.session.rollback()
+            click.echo(f'[display-monitor] error, rolled back: {e}', err=True)
+            raise click.Abort()
+
+        click.echo('[display-monitor] OK')
+
 # Funkcje do generowania i weryfikacji tokena resetującego hasło
 def generate_reset_token(email, secret_key, salt='password-reset-salt'):
     serializer = URLSafeTimedSerializer(secret_key)
@@ -526,6 +565,7 @@ def create_app():
         app.register_blueprint(production_bp, url_prefix='/production')
         app.register_blueprint(mobile_api_bp, url_prefix='/api/mobile')
         app.register_blueprint(print_agent_bp, url_prefix='/api/print-agent')
+        app.register_blueprint(production_display_bp, url_prefix='/production')
         app.register_blueprint(partner_academy_bp, url_prefix='/partner-academy')
         app.register_blueprint(sales_bp, url_prefix='/sales')
         app.register_blueprint(users_bp)
