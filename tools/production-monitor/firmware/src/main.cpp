@@ -1,5 +1,6 @@
 #include <Arduino.h>
 #include <TFT_eSPI.h>
+#include "data_model.h"
 
 TFT_eSPI tft = TFT_eSPI();
 
