@@ -1,3 +1,4 @@
+#include <Arduino.h>
 #include "rotation.h"
 #include "screen_overall.h"
 #include "screen_stations.h"
@@ -13,6 +14,13 @@ void render_current(TFT_eSPI& tft, const MonitorPayload& p, uint8_t screen_idx) 
     render_stations(tft, p);
   } else {
     render_station_species(tft, p, idx - 2);
+  }
+
+  unsigned long age_ms = millis() - p.last_fetch_ms;
+  if (age_ms > 5UL * 60UL * 1000UL) {
+    tft.setTextColor(TFT_ORANGE, TFT_BLACK);
+    tft.setTextSize(1);
+    tft.drawString("STALE", 200, 6);
   }
 }
 

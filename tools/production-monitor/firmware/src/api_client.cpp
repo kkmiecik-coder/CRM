@@ -29,8 +29,13 @@ bool wifi_is_connected() { return WiFi.status() == WL_CONNECTED; }
 
 bool fetch_monitor(MonitorPayload& out) {
   if (!wifi_is_connected()) {
-    Serial.println("[api] wifi not connected, skipping fetch");
-    return false;
+    Serial.println("[api] wifi down, reconnecting");
+    WiFi.reconnect();
+    unsigned long start = millis();
+    while (WiFi.status() != WL_CONNECTED && millis() - start < 10000UL) {
+      delay(200);
+    }
+    if (!wifi_is_connected()) return false;
   }
 
   std::unique_ptr<BearSSL::WiFiClientSecure> client(new BearSSL::WiFiClientSecure());
