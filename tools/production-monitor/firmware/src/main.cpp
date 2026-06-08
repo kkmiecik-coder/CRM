@@ -2,6 +2,7 @@
 #include <TFT_eSPI.h>
 #include "data_model.h"
 #include "api_client.h"
+#include "ui/screen_overall.h"
 
 TFT_eSPI tft = TFT_eSPI();
 monitor::MonitorPayload payload{};
@@ -35,9 +36,7 @@ void loop() {
     tft.fillScreen(TFT_BLACK);
     tft.setTextSize(2);
     if (ok) {
-      tft.drawString("IP=" + String(payload.overall.in_progress), 20, 80);
-      tft.drawString("Q=" + String(payload.overall.queued), 20, 110);
-      tft.drawString("D=" + String(payload.overall.done_today), 20, 140);
+      monitor::ui::render_overall(tft, payload);
     } else {
       tft.drawString("FETCH FAIL", 20, 100);
     }
