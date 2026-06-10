@@ -631,6 +631,10 @@ const EdgesModule = (function() {
             const lengthCm = computeEdgeLengthCm(def);
             const price = computeEdgePrice(def, cfg, lengthCm);
 
+            // Limity promienia R z konfiguracji (aktualizowane z bazy danych),
+            // a nie zahardkodowane - aby widok zaawansowany respektował ustawienia
+            const rLimits = CONFIG.R_LIMITS[cfg.type] || CONFIG.R_LIMITS.round || { min: 3, max: 20, default: 5 };
+
             row.innerHTML = `
                 <span class="edge-letter">${def.letter}</span>
                 <span class="edge-name">${def.name} <small>(${lengthCm.toFixed(1)} cm)</small></span>
@@ -639,7 +643,7 @@ const EdgesModule = (function() {
                     <option value="round"${cfg.type==='round'?' selected':''}>Zaokrąglenie</option>
                     <option value="chamfer"${cfg.type==='chamfer'?' selected':''}>Fazowanie</option>
                 </select>
-                <input class="edge-r" type="number" min="3" max="20" value="${cfg.r_value || 5}" ${cfg.type==='sharp'?'disabled':''}>
+                <input class="edge-r" type="number" min="${rLimits.min}" max="${rLimits.max}" value="${cfg.r_value || rLimits.default || 5}" ${cfg.type==='sharp'?'disabled':''}>
                 <select class="edge-angle" ${cfg.type!=='chamfer'?'disabled':''}>
                     ${renderAngleOptions(cfg.angle_value)}
                 </select>
