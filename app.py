@@ -580,6 +580,31 @@ def create_app():
     init_ai_service(app)
 
     # =========================================================================
+    # Synchronizacja sesji z remember_token (Flask-Login)
+    # =========================================================================
+    @app.before_request
+    def sync_session_from_remember_cookie():
+        """Domyka rozjazd dwóch źródeł prawdy o zalogowaniu.
+
+        Flask-Login odtwarza current_user z ciasteczka remember_token, ale NIE
+        wypełnia session['user_email']/['user_id'] — a od TYCH kluczy zależy
+        cała ochrona stron (require_module_access, login_required). Bez
+        synchronizacji user wracający przez remember_token jest "zalogowany"
+        dla Flask-Login (login → redirect(dashboard)), lecz "niezalogowany"
+        dla require_module_access (dashboard → redirect(login)) → wieczna pętla
+        redirectów. Tryb incognito to maskuje, bo nie ma tam remember_token.
+
+        Dotknięcie current_user.is_authenticated wymusza leniwe załadowanie
+        użytkownika z remember_token; jeśli się udało, a session jest pusta —
+        uzupełniamy ją tym, czego oczekuje reszta aplikacji."""
+        from flask_login import current_user
+
+        if current_user.is_authenticated and not session.get('user_email'):
+            session['user_email'] = current_user.email
+            session['user_id'] = current_user.id
+            session.permanent = True
+
+    # =========================================================================
     # Auto-login przez HTTP Basic Auth (dla Fully Kiosk Browser na tabletach)
     # =========================================================================
     @app.before_request
