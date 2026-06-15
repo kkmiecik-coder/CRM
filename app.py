@@ -46,6 +46,7 @@ from modules.settings.models import AppSetting
 
 from flask_login import login_user, logout_user  # DODANE importy
 from sqlalchemy.exc import ResourceClosedError, OperationalError, SQLAlchemyError
+from db_resilience import is_corrupted_result_error
 from flask.cli import with_appcontext
 
 os.environ['PYTHONIOENCODING'] = 'utf-8:replace'
@@ -1513,6 +1514,38 @@ def create_app():
 
         current_app.logger.error(f"SQLAlchemyError ({type(e).__name__}) – rollback wykonany")
         return _db_error_response("Problem z bazą danych. Spróbuj ponownie.", type(e).__name__)
+
+    @app.errorhandler(AttributeError)
+    def handle_corrupted_connection(e):
+        # Zatrute/rozsynchronizowane połączenie MySQL ("commands out of sync")
+        # potrafi rzucić CZYSTYM AttributeError ('_NoResultMetaData' object has
+        # no attribute '_indexes_for_keys') z głębi SQLAlchemy przy odczycie
+        # wiersza. To NIE jest SQLAlchemyError, więc omija handlery powyżej oraz
+        # invalidację w teardown → leci jako nieobsłużony 500, a zatrute
+        # połączenie zostaje w puli i truje kolejne requesty. (Patrz db_resilience.)
+        if not is_corrupted_result_error(e):
+            raise e  # zwykły bug w kodzie — niech leci normalnie do Sentry
+
+        # Samo rollback nie naprawi rozsynchronizowanego połączenia — trzeba je
+        # WYRZUCIĆ z puli, żeby następny checkout dostał świeże.
+        try:
+            db.session.invalidate()
+        except Exception:
+            pass
+
+        try:
+            import sentry_sdk
+            sentry_sdk.capture_exception(e)
+        except Exception:
+            pass
+
+        error_logger = get_structured_logger('app.errors')
+        error_logger.error("Corrupted DB connection (poisoned pool)",
+                          error=str(e),
+                          error_type='AttributeError')
+
+        current_app.logger.error("Zatrute połączenie DB (_NoResultMetaData) – invalidate wykonany")
+        return _db_error_response("Problem z bazą danych. Spróbuj ponownie.", 'CorruptedConnection')
 
     @app.teardown_appcontext
     def shutdown_session(exception=None):
