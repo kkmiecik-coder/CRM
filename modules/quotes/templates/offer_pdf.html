@@ -105,6 +105,9 @@
         @page {
             size: A4;
             margin: 20mm 15mm 55px 15mm; /* Górny (na nagłówek), prawy, dolny (na stopkę), lewy */
+            /* Tło @page maluje cały arkusz łącznie z marginesami, w których leży
+               nagłówek (logo + numer) i stopka. Bez tego ten obszar w PNG jest przezroczysty. */
+            background-color: #ffffff;
         }
 
         /* Białe tło root – tło elementu html propaguje się na całe płótno renderowania.
