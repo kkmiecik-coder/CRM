@@ -107,6 +107,12 @@
             margin: 20mm 15mm 55px 15mm; /* Górny (na nagłówek), prawy, dolny (na stopkę), lewy */
         }
 
+        /* Białe tło root – tło elementu html propaguje się na całe płótno renderowania.
+           Bez tego PNG (WeasyPrint write_png) ma przezroczyste tło; na PDF biel jest neutralna. */
+        html {
+            background-color: #ffffff;
+        }
+
         body {
             font-family: Arial, sans-serif;
             font-size: 12px;
@@ -114,6 +120,7 @@
             margin: 0;
             padding: 0;
             color: #000;
+            background-color: #ffffff;
         }
 
         /* NAGŁÓWEK Z LOGO I NUMEREM - NA KAŻDEJ STRONIE */
