@@ -288,6 +288,7 @@
                         </tbody>
                     </table>
 
+                    {% if user_role in ['admin', 'user'] %}
                     <table class="costs-table">
                         <tbody>
                             <tr id="production-status-row" style="display: none;">
@@ -301,6 +302,7 @@
                     <div id="production-timeline" class="production-timeline" style="display: none;">
                         <div id="production-timeline-track" class="production-timeline-track"></div>
                     </div>
+                    {% endif %}
                 </div>
             </div>
 

@@ -1333,6 +1333,8 @@ function hideProductionTimeline() {
 }
 
 async function loadProductionTimeline(baselinkerOrderId) {
+    // Sekcja produkcyjna tylko dla ról admin/user (partnerzy jej nie widzą)
+    if (!['admin', 'user'].includes(window.userRole)) { hideProductionTimeline(); return; }
     if (!baselinkerOrderId) { hideProductionTimeline(); return; }
     try {
         const resp = await fetch(`/production/api/order-timeline/${baselinkerOrderId}`);
