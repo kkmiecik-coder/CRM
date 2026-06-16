@@ -2943,6 +2943,7 @@ def get_order_timeline(baselinker_order_id):
 
     except Exception as e:
         logger.error("API: Błąd budowy linii czasu zamówienia", extra={
+            'user_id': current_user.id,
             'baselinker_order_id': baselinker_order_id,
             'error': str(e),
         })
