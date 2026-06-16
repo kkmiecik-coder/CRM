@@ -1140,23 +1140,6 @@
     right: -1px;
 }
 
-.costs-docs-cell {
-    padding: 0 !important;
-}
-
-.costs-docs-cell .documents-message {
-    border-radius: 0;
-    border-left: none;
-    border-right: none;
-    margin: 0;
-    font-size: 12px;
-    padding: 8px 10px;
-}
-
-.costs-docs-cell .sales-documents-list {
-    gap: 0;
-}
-
 .costs-courier-label {
     font-size: 11px;
     color: #999;
@@ -5690,293 +5673,11 @@
         font-size: 14px;
     }
 
-/* Lista przycisków dokumentów */
-.sales-documents-list {
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-}
-
-/* ============================================
-   PRZYCISK DOKUMENTU - STYLE BAZOWE
-   ============================================ */
-
-.doc-btn {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    width: 100%;
-    padding: 12px 16px;
-    border: 1px solid #e0e0e0;
-    border-radius: 6px;
-    background: #ffffff;
-    text-align: left;
-    font-family: inherit;
-    font-size: 14px;
-    transition: all 0.2s ease;
-    cursor: default;
-}
-
-    .doc-btn:focus {
-        outline: 2px solid #4284F3;
-        outline-offset: 2px;
-    }
-
-/* Ikona dokumentu (emoji) */
-.doc-icon {
-    font-size: 18px;
-    flex-shrink: 0;
-}
-
-/* Etykieta dokumentu */
-.doc-label {
-    font-weight: 600;
-    color: #333333;
-    flex-shrink: 0;
-}
-
-/* Wartość/status dokumentu */
-.doc-value {
-    font-weight: normal;
-    margin-left: auto;
-}
-
-/* ============================================
-   STAN: LOADING (Ładowanie...)
-   ============================================ */
-
-.doc-btn.doc-loading {
-    background: #f8f9fa;
-    border-color: #4284F3;
-    cursor: wait;
-}
-
-    .doc-btn.doc-loading .doc-value {
-        color: #4284F3;
-        display: flex;
-        align-items: center;
-        gap: 8px;
-    }
-
-        /* Spinner animowany */
-        .doc-btn.doc-loading .doc-value::before {
-            content: "";
-            display: inline-block;
-            width: 14px;
-            height: 14px;
-            border: 2px solid #4284F3;
-            border-top-color: transparent;
-            border-radius: 50%;
-            animation: doc-spinner 0.8s linear infinite;
-        }
-
-@keyframes doc-spinner {
-    from {
-        transform: rotate(0deg);
-    }
-
-    to {
-        transform: rotate(360deg);
-    }
-}
-
-/* ============================================
-   STAN: READY (Dokument dostępny)
-   ============================================ */
-
-.doc-btn.doc-ready {
-    border-color: #4284F3;
-    background: #f0f7ff;
-    cursor: pointer;
-}
-
-    .doc-btn.doc-ready:hover {
-        background: #e3f2fd;
-        border-color: #1967d2;
-        transform: translateY(-1px);
-        box-shadow: 0 2px 4px rgba(66, 132, 243, 0.2);
-    }
-
-    .doc-btn.doc-ready:active {
-        transform: translateY(0);
-        box-shadow: none;
-    }
-
-    .doc-btn.doc-ready .doc-value {
-        color: #4284F3;
-        font-weight: 600;
-        text-decoration: underline;
-    }
-
-    .doc-btn.doc-ready:hover .doc-value {
-        color: #1967d2;
-    }
-
-/* ============================================
-   STAN: NOT ISSUED (Niewystawiony)
-   ============================================ */
-
-.doc-btn.doc-not-issued {
-    background: #fafafa;
-    border-color: #e0e0e0;
-    cursor: not-allowed;
-    opacity: 0.7;
-}
-
-    .doc-btn.doc-not-issued .doc-value {
-        color: #999999;
-        font-style: italic;
-    }
-
-    .doc-btn.doc-not-issued .doc-icon {
-        opacity: 0.5;
-    }
-
-/* ============================================
-   STAN: ERROR (Błąd pobierania)
-   ============================================ */
-
-.doc-btn.doc-error {
-    background: #fff5f5;
-    border-color: #dc3545;
-    cursor: help;
-}
-
-    .doc-btn.doc-error .doc-value {
-        color: #dc3545;
-        font-weight: 600;
-    }
-
-    .doc-btn.doc-error:hover {
-        background: #ffe5e5;
-    }
-
-    /* Tooltip dla błędu (native title attribute) */
-    .doc-btn.doc-error[title] {
-        position: relative;
-    }
-
-/* ============================================
-   KOREKTA - SPECJALNE STYLE
-   ============================================ */
-
-/* Korekta zawsze czerwona (nawet w stanie ready) */
-#baselinker-correction-btn.doc-ready {
-    border-color: #dc3545;
-    background: #fff5f5;
-}
-
-    #baselinker-correction-btn.doc-ready:hover {
-        background: #ffe5e5;
-        border-color: #c82333;
-    }
-
-    #baselinker-correction-btn.doc-ready .doc-value {
-        color: #dc3545;
-    }
-
-    #baselinker-correction-btn.doc-ready:hover .doc-value {
-        color: #c82333;
-    }
-
-    /* Ikona korekty pulsująca */
-    #baselinker-correction-btn.doc-ready .doc-icon {
-        animation: pulse-warning 2s ease-in-out infinite;
-    }
-
-@keyframes pulse-warning {
-    0%, 100% {
-        opacity: 1;
-    }
-
-    50% {
-        opacity: 0.6;
-    }
-}
-
-/* ============================================
-   PRZYCISK: Strona informacyjna zamówienia
-   ============================================ */
-
-#baselinker-order-page-btn {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    padding: 10px 20px;
-    background: #ffffff;
-    border: 1px solid #4284F3;
-    color: #4284F3;
-    text-decoration: none;
-    border-radius: 6px;
-    font-size: 14px;
-    font-weight: 500;
-    transition: all 0.2s ease;
-}
-
-    #baselinker-order-page-btn:hover {
-        background: #f0f7ff;
-        border-color: #1967d2;
-        color: #1967d2;
-        transform: translateY(-1px);
-        box-shadow: 0 2px 4px rgba(66, 132, 243, 0.2);
-    }
-
-    #baselinker-order-page-btn:active {
-        transform: translateY(0);
-        box-shadow: none;
-    }
-
-/* ============================================
-   RESPONSIVE (Mobile)
-   ============================================ */
-
-@media (max-width: 768px) {
-    .doc-btn {
-        padding: 10px 12px;
-        font-size: 13px;
-    }
-
-    .doc-icon {
-        font-size: 16px;
-    }
-
-    .doc-label {
-        font-size: 13px;
-    }
-
-    .doc-value {
-        font-size: 13px;
-    }
-
-    #baselinker-order-page-btn {
-        width: 100%;
-        justify-content: center;
-    }
-}
-
 /* Komunikaty w sekcji dokumentów */
 .documents-message {
     padding: 12px 16px;
     border-radius: 6px;
     font-size: 14px;
-}
-
-.documents-message-loading {
-    background: #e3f2fd;
-    border: 1px solid #90caf9;
-    color: #1976d2;
-}
-
-.documents-message-info {
-    background: #fff3e0;
-    border: 1px solid #ffb74d;
-    color: #f57c00;
-}
-
-.documents-message-error {
-    background: #ffebee;
-    border: 1px solid #ef5350;
-    color: #c62828;
 }
 
 .documents-message-content {
@@ -7517,3 +7218,109 @@ a[href^="tel:"]:hover {
 .dxf-submenu-item + .dxf-submenu-item {
     border-top: 1px solid #f0f0f0;
 }
+
+/* === Blok zamówienia: linia czasu produkcji === */
+.production-timeline {
+    padding: 20px 10px 10px;
+}
+.production-timeline-track {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+.production-timeline-track::before {
+    content: "";
+    position: absolute;
+    left: 12px;
+    right: 12px;
+    top: 50%;
+    height: 2px;
+    background: #e5e7eb;
+    transform: translateY(-50%);
+    z-index: 0;
+}
+.timeline-dot {
+    position: relative;
+    z-index: 1;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: #d1d5db;
+    border: 2px solid #fff;
+    cursor: default;
+}
+.timeline-dot.dot-gray   { background: #d1d5db; }
+.timeline-dot.dot-yellow { background: #eab308; box-shadow: 0 0 0 2px #eab308; }
+.timeline-dot.dot-green  { background: #22c55e; box-shadow: 0 0 0 1px #22c55e; }
+
+/* Tooltip */
+.timeline-dot .timeline-tooltip {
+    position: absolute;
+    left: 50%;
+    bottom: calc(100% + 10px);
+    transform: translateX(-50%);
+    background: #1f2937;
+    color: #fff;
+    border-radius: 8px;
+    padding: 9px 11px;
+    font-size: 11.5px;
+    line-height: 1.4;
+    width: max-content;
+    max-width: 240px;
+    box-shadow: 0 4px 14px rgba(0,0,0,.25);
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity .12s ease;
+    z-index: 10;
+    pointer-events: none;
+}
+.timeline-dot:hover .timeline-tooltip {
+    opacity: 1;
+    visibility: visible;
+}
+.timeline-tooltip::after {
+    content: "";
+    position: absolute;
+    left: 50%;
+    top: 100%;
+    transform: translateX(-50%);
+    border: 6px solid transparent;
+    border-top-color: #1f2937;
+}
+.timeline-tooltip-title {
+    font-weight: 700;
+    color: #fde68a;
+    margin-bottom: 5px;
+    white-space: nowrap;
+}
+.timeline-tooltip-list { border-top: 1px solid #374151; padding-top: 5px; }
+.timeline-tooltip-item { margin-bottom: 5px; }
+.timeline-tooltip-item:last-child { margin-bottom: 0; }
+.timeline-tooltip-item .ti-spec { color: #9ca3af; }
+
+/* Badge statusu produkcji (kolory z modułu produkcji) */
+.prod-status-badge {
+    display: inline-block;
+    padding: 3px 10px;
+    border-radius: 12px;
+    font-size: 12px;
+    font-weight: 600;
+    border: 1px solid transparent;
+}
+.prod-status-badge.badge-cutting    { background: rgba(45,138,62,.1);  color: #2d8a3e; border-color: #2d8a3e; }
+.prod-status-badge.badge-assembly   { background: rgba(37,99,235,.1);  color: #2563eb; border-color: #2563eb; }
+.prod-status-badge.badge-gluing     { background: rgba(147,51,234,.1); color: #9333ea; border-color: #9333ea; }
+.prod-status-badge.badge-formatting { background: rgba(217,119,6,.1);  color: #d97706; border-color: #d97706; }
+.prod-status-badge.badge-finishing  { background: rgba(8,145,178,.1);  color: #0891b2; border-color: #0891b2; }
+.prod-status-badge.badge-painting   { background: rgba(225,29,72,.1);  color: #e11d48; border-color: #e11d48; }
+.prod-status-badge.badge-logistics  { background: rgba(124,58,237,.1); color: #7c3aed; border-color: #7c3aed; }
+.prod-status-badge.badge-packaging  { background: rgba(22,163,74,.1);  color: #16a34a; border-color: #16a34a; }
+.prod-status-badge.badge-completed  { background: #eef0f4;             color: #9ba3b0; border-color: #c8cdd5; }
+.prod-status-badge.badge-paused     { background: rgba(217,119,6,.1);  color: #d97706; border-color: #d97706; }
+.prod-status-badge.badge-cancelled  { background: rgba(220,38,38,.1);  color: #dc2626; border-color: #dc2626; }
+.prod-status-badge.badge-mixed      { background: rgba(147,51,234,.1); color: #9333ea; border-color: #9333ea; }
+
+/* Linki dokumentów w wierszach */
+.doc-row-link { color: #4284F3; text-decoration: none; }
+.doc-row-link:hover { text-decoration: underline; }

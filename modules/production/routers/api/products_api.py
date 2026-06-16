@@ -2907,6 +2907,48 @@ def get_order_products(product_id):
         }), 500
 
 
+@api_bp.route('/order-timeline/<int:baselinker_order_id>', methods=['GET'])
+@login_required
+def get_order_timeline(baselinker_order_id):
+    """
+    GET /production/api/order-timeline/<baselinker_order_id>
+
+    Zwraca linię czasu stanowisk produkcyjnych i status zamówienia
+    dla bloku 'Zamówienie' w modalu szczegółów wyceny.
+    """
+    try:
+        from sqlalchemy.orm import joinedload
+        from ...models import ProductionProduct, ProductionOrder
+        from ...services.order_timeline_service import (
+            build_timeline_payload, order_status_badge,
+        )
+
+        products = (ProductionProduct.query
+                    .join(ProductionOrder)
+                    .options(joinedload(ProductionProduct.configuration))
+                    .filter(ProductionOrder.baselinker_order_id == baselinker_order_id)
+                    .order_by(ProductionProduct.product_sequence_in_order.asc())
+                    .all())
+
+        active = [p for p in products if p.current_status != 'anulowane']
+        if not active:
+            return jsonify({'success': True, 'has_data': False}), 200
+
+        return jsonify({
+            'success': True,
+            'has_data': True,
+            'order_status': order_status_badge(products),
+            'stations': build_timeline_payload(products),
+        }), 200
+
+    except Exception as e:
+        logger.error("API: Błąd budowy linii czasu zamówienia", extra={
+            'user_id': current_user.id,
+            'baselinker_order_id': baselinker_order_id,
+            'error': str(e),
+        })
+        return jsonify({'success': False, 'has_data': False, 'error': str(e)}), 500
+
 
 def _format_product_for_navigation(product):
     """

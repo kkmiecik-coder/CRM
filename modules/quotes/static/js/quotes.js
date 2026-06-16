@@ -1286,8 +1286,12 @@ function updateBaselinkerSection(quoteData) {
         // NOWE: Załaduj dokumenty sprzedaży
         console.log('[Baselinker] Ładuję dokumenty sprzedaży...');
         loadSalesDocuments(quoteData);
+
+        // NOWE: Linia czasu produkcji + status produkcji
+        loadProductionTimeline(quoteData.base_linker_order_id);
     } else {
         orderBlock.style.display = 'none';
+        hideProductionTimeline();
     }
 }
 
@@ -1319,6 +1323,86 @@ async function fetchBaselinkerOrderStatus(orderId) {
         console.error('[fetchBaselinkerOrderStatus] Stack trace:', error.stack);
         return 'Błąd pobierania lub nie znaleziono zamówienia';
     }
+}
+
+function hideProductionTimeline() {
+    const tl = document.getElementById('production-timeline');
+    const row = document.getElementById('production-status-row');
+    if (tl) tl.style.display = 'none';
+    if (row) row.style.display = 'none';
+}
+
+async function loadProductionTimeline(baselinkerOrderId) {
+    // Sekcja produkcyjna tylko dla ról admin/user (partnerzy jej nie widzą)
+    if (!['admin', 'user'].includes(window.userRole)) { hideProductionTimeline(); return; }
+    if (!baselinkerOrderId) { hideProductionTimeline(); return; }
+    try {
+        const resp = await fetch(`/production/api/order-timeline/${baselinkerOrderId}`);
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        const data = await resp.json();
+        if (!data.success || !data.has_data) { hideProductionTimeline(); return; }
+        renderProductionStatus(data.order_status);
+        renderProductionTimeline(data.stations);
+    } catch (err) {
+        console.error('[Timeline] Błąd ładowania linii czasu produkcji:', err);
+        hideProductionTimeline();
+    }
+}
+
+function renderProductionStatus(orderStatus) {
+    const row = document.getElementById('production-status-row');
+    const badge = document.getElementById('production-status-badge');
+    if (!row || !badge || !orderStatus) return;
+    badge.textContent = orderStatus.label;
+    badge.className = `prod-status-badge ${orderStatus.badge_class || ''}`;
+    row.style.display = '';
+}
+
+function renderProductionTimeline(stations) {
+    const wrap = document.getElementById('production-timeline');
+    const track = document.getElementById('production-timeline-track');
+    if (!wrap || !track) return;
+    if (!stations || stations.length === 0) { wrap.style.display = 'none'; return; }
+
+    track.innerHTML = '';
+    stations.forEach(st => {
+        const dot = document.createElement('div');
+        dot.className = `timeline-dot dot-${st.color}`;
+
+        const tip = document.createElement('div');
+        tip.className = 'timeline-tooltip';
+
+        const title = document.createElement('div');
+        title.className = 'timeline-tooltip-title';
+        title.textContent = st.name;
+        tip.appendChild(title);
+
+        if (st.active && st.products_here && st.products_here.length > 0) {
+            const list = document.createElement('div');
+            list.className = 'timeline-tooltip-list';
+            st.products_here.forEach(p => {
+                const item = document.createElement('div');
+                item.className = 'timeline-tooltip-item';
+                const dims = `${p.length_cm}×${p.width_cm}×${p.thickness_cm} cm`;
+                const spec = [p.species, p.technology, p.wood_class].filter(Boolean).join(' · ');
+                item.innerHTML =
+                    `<b>Poz. ${escapeHtmlTimeline(p.short_product_id)}</b> — ${escapeHtmlTimeline(dims)}` +
+                    (spec ? `<br><span class="ti-spec">${escapeHtmlTimeline(spec)}</span>` : '');
+                list.appendChild(item);
+            });
+            tip.appendChild(list);
+        }
+
+        dot.appendChild(tip);
+        track.appendChild(dot);
+    });
+    wrap.style.display = '';
+}
+
+function escapeHtmlTimeline(str) {
+    const d = document.createElement('div');
+    d.textContent = str == null ? '' : String(str);
+    return d.innerHTML;
 }
 
 function calculateCostsClientSide(quoteData) {
@@ -4908,180 +4992,65 @@ async function loadSalesDocuments(quoteData) {
     }
 }
 
-/**
- * Ustawia stan ładowania dla dokumentu
- */
 function setDocumentLoading(docType) {
-    const btn = document.getElementById(`baselinker-${docType}-btn`);
-    const valueSpan = document.getElementById(`baselinker-${docType}-value`);
-
-    if (!btn || !valueSpan) return;
-
-    btn.className = 'doc-btn doc-loading';
-    btn.dataset.status = 'loading';
-    btn.disabled = true;
-    valueSpan.textContent = 'Ładowanie...';
-
-    console.log(`[SalesDocuments] ${docType}: ustawiono stan ładowania`);
+    const link = document.getElementById(`baselinker-${docType}-link`);
+    if (link) link.textContent = 'Ładowanie...';
 }
 
-/**
- * Ustawia błąd dla dokumentu
- */
 function setDocumentError(docType, errorMessage) {
-    const btn = document.getElementById(`baselinker-${docType}-btn`);
-    const valueSpan = document.getElementById(`baselinker-${docType}-value`);
-
-    if (!btn || !valueSpan) return;
-
-    btn.className = 'doc-btn doc-error';
-    btn.dataset.status = 'error';
-    btn.disabled = true;
-    btn.title = `Błąd: ${errorMessage}`;
-    valueSpan.textContent = 'Błąd pobierania';
-
+    const row = document.getElementById(`baselinker-${docType}-row`);
+    const link = document.getElementById(`baselinker-${docType}-link`);
+    if (link) { link.textContent = 'Błąd pobierania'; link.removeAttribute('href'); }
+    if (row) row.title = `Błąd: ${errorMessage}`;
     console.error(`[SalesDocuments] ${docType}: błąd - ${errorMessage}`);
 }
 
-/**
- * Aktualizuje wyświetlanie faktury
- */
 function updateInvoiceDisplay(invoiceData, quoteId) {
-    console.log('[SalesDocuments] Aktualizacja faktury:', invoiceData);
-
-    const btn = document.getElementById('baselinker-invoice-btn');
-    const valueSpan = document.getElementById('baselinker-invoice-value');
-
-    if (!btn || !valueSpan) {
-        console.warn('[SalesDocuments] Brak elementów faktury w DOM');
-        return;
-    }
-
-    if (!invoiceData || !invoiceData.exists) {
-        // ZMIANA: Ukryj przycisk zamiast pokazywać "Niewystawiona"
-        btn.style.display = 'none';
-        console.log('[SalesDocuments] Faktura: nie wystawiona - ukryto');
-    } else {
-        // Faktura dostępna - pokaż
-        btn.style.display = 'flex';
-        btn.className = 'doc-btn doc-ready';
-        btn.dataset.status = 'ready';
-        btn.disabled = false;
-        valueSpan.textContent = invoiceData.number;
-
-        // Usuń stare event listenery i dodaj nowy
-        const newBtn = btn.cloneNode(true);
-        btn.parentNode.replaceChild(newBtn, btn);
-
-        newBtn.addEventListener('click', () => {
-            console.log('[SalesDocuments] Klik faktury - pobieranie PDF');
-            downloadInvoice(quoteId);
-        });
-
-        console.log(`[SalesDocuments] Faktura: gotowa (${invoiceData.number})`);
-    }
+    const row = document.getElementById('baselinker-invoice-row');
+    const link = document.getElementById('baselinker-invoice-link');
+    if (!row || !link) return;
+    if (!invoiceData || !invoiceData.exists) { row.style.display = 'none'; return; }
+    row.style.display = '';
+    link.textContent = `${invoiceData.number} ↓`;
+    link.href = '#';
+    const fresh = link.cloneNode(true);
+    link.parentNode.replaceChild(fresh, link);
+    fresh.addEventListener('click', (e) => { e.preventDefault(); downloadInvoice(quoteId); });
 }
 
-/**
- * Aktualizuje wyświetlanie korekty
- */
 function updateCorrectionDisplay(correctionData, quoteId) {
-    console.log('[SalesDocuments] Aktualizacja korekty:', correctionData);
-
-    const btn = document.getElementById('baselinker-correction-btn');
-    const valueSpan = document.getElementById('baselinker-correction-value');
-
-    if (!btn || !valueSpan) {
-        console.warn('[SalesDocuments] Brak elementów korekty w DOM');
-        return;
-    }
-
-    if (!correctionData || !correctionData.exists) {
-        // Korekta nie istnieje - ukryj
-        btn.style.display = 'none';
-        console.log('[SalesDocuments] Korekta: brak - ukryto');
-    } else {
-        // Korekta istnieje - pokaż
-        btn.style.display = 'flex';
-        btn.className = 'doc-btn doc-ready';
-        btn.dataset.status = 'ready';
-        btn.disabled = false;
-        valueSpan.textContent = correctionData.number;
-
-        // Usuń stare event listenery i dodaj nowy
-        const newBtn = btn.cloneNode(true);
-        btn.parentNode.replaceChild(newBtn, btn);
-
-        newBtn.addEventListener('click', () => {
-            console.log('[SalesDocuments] Klik korekty - pobieranie PDF');
-            downloadCorrection(quoteId);
-        });
-
-        console.log(`[SalesDocuments] Korekta: gotowa (${correctionData.number})`);
-    }
+    const row = document.getElementById('baselinker-correction-row');
+    const link = document.getElementById('baselinker-correction-link');
+    if (!row || !link) return;
+    if (!correctionData || !correctionData.exists) { row.style.display = 'none'; return; }
+    row.style.display = '';
+    link.textContent = `${correctionData.number} ↓`;
+    link.href = '#';
+    const fresh = link.cloneNode(true);
+    link.parentNode.replaceChild(fresh, link);
+    fresh.addEventListener('click', (e) => { e.preventDefault(); downloadCorrection(quoteId); });
 }
 
-/**
- * Aktualizuje wyświetlanie e-paragonu
- */
+function safeHttpUrl(url) {
+    return /^https?:\/\//i.test(url || '') ? url : '#';
+}
+
 function updateReceiptDisplay(receiptData) {
-    console.log('[SalesDocuments] Aktualizacja e-paragonu:', receiptData);
-
-    const btn = document.getElementById('baselinker-receipt-btn');
-    const valueSpan = document.getElementById('baselinker-receipt-value');
-
-    if (!btn || !valueSpan) {
-        console.warn('[SalesDocuments] Brak elementów e-paragonu w DOM');
-        return;
-    }
-
-    if (!receiptData || !receiptData.exists) {
-        // E-paragon nie istnieje - ukryj
-        btn.style.display = 'none';
-        console.log('[SalesDocuments] E-paragon: brak - ukryto');
-    } else {
-        // E-paragon istnieje - pokaż
-        btn.style.display = 'flex';
-        btn.className = 'doc-btn doc-ready';
-        btn.dataset.status = 'ready';
-        btn.disabled = false;
-        valueSpan.textContent = 'Otwórz';
-
-        // Usuń stare event listenery i dodaj nowy
-        const newBtn = btn.cloneNode(true);
-        btn.parentNode.replaceChild(newBtn, btn);
-
-        newBtn.addEventListener('click', () => {
-            console.log('[SalesDocuments] Klik e-paragonu - otwieranie URL:', receiptData.url);
-            window.open(receiptData.url, '_blank', 'noopener,noreferrer');
-        });
-
-        console.log(`[SalesDocuments] E-paragon: gotowy (${receiptData.url})`);
-    }
+    const row = document.getElementById('baselinker-receipt-row');
+    const link = document.getElementById('baselinker-receipt-link');
+    if (!row || !link) return;
+    if (!receiptData || !receiptData.exists) { row.style.display = 'none'; return; }
+    row.style.display = '';
+    link.textContent = 'Otwórz ↗';
+    link.href = safeHttpUrl(receiptData.url);
 }
 
-/**
- * Aktualizuje link strony informacyjnej zamówienia
- */
 function updateOrderPageLink(orderPageUrl) {
-    console.log('[SalesDocuments] Aktualizacja order_page:', orderPageUrl);
-
-    const pageBtn = document.getElementById('baselinker-order-page-btn');
-
-    if (!pageBtn) {
-        console.warn('[SalesDocuments] Brak przycisku order_page w DOM');
-        return;
-    }
-
-    const pageRow = document.getElementById('baselinker-order-page-row');
-    if (orderPageUrl) {
-        pageBtn.href = orderPageUrl;
-        if (pageRow) pageRow.style.display = '';
-        console.log('[SalesDocuments] Order page: link ustawiony');
-    } else {
-        if (pageRow) pageRow.style.display = 'none';
-        console.log('[SalesDocuments] Order page: brak URL - ukryto');
-    }
+    const row = document.getElementById('baselinker-order-page-row');
+    const link = document.getElementById('baselinker-order-page-btn');
+    if (!row || !link) return;
+    if (orderPageUrl) { link.href = safeHttpUrl(orderPageUrl); row.style.display = ''; }
+    else { row.style.display = 'none'; }
 }
 
 /**
@@ -5184,18 +5153,10 @@ async function downloadCorrection(quoteId) {
 * Pokazuje stan ładowania dla dokumentów
 */
 function showDocumentsLoading() {
-    console.log('[SalesDocuments] Pokazuję stan ładowania');
-
-    // Ukryj wszystkie przyciski dokumentów
-    const invoiceBtn = document.getElementById('baselinker-invoice-btn');
-    const correctionBtn = document.getElementById('baselinker-correction-btn');
-    const receiptBtn = document.getElementById('baselinker-receipt-btn');
-
-    if (invoiceBtn) invoiceBtn.style.display = 'none';
-    if (correctionBtn) correctionBtn.style.display = 'none';
-    if (receiptBtn) receiptBtn.style.display = 'none';
-
-    // Pokaż komunikat ładowania
+    ['invoice', 'correction', 'receipt', 'order-page'].forEach(t => {
+        const row = document.getElementById(`baselinker-${t}-row`);
+        if (row) row.style.display = 'none';
+    });
     showDocumentsMessage('Ładowanie dokumentów...', 'loading');
 }
 
@@ -5219,33 +5180,32 @@ function showDocumentsError(errorMessage) {
  * Wyświetla komunikat w sekcji dokumentów
  */
 function showDocumentsMessage(message, type = 'info') {
-    // Usuń istniejący komunikat jeśli jest
-    const existingMessage = document.querySelector('.documents-message');
-    if (existingMessage) {
-        existingMessage.remove();
-    }
+    const existing = document.querySelector('.documents-message');
+    if (existing) existing.remove();
 
-    // Znajdź sekcję dokumentów (container dla przycisków)
-    const invoiceBtn = document.getElementById('baselinker-invoice-btn');
-    if (!invoiceBtn || !invoiceBtn.parentElement) {
+    const tbody = document.getElementById('baselinker-docs-tbody');
+    if (!tbody) {
         console.warn('[SalesDocuments] Nie znaleziono kontenera dokumentów');
         return;
     }
-
-    const container = invoiceBtn.parentElement;
-
-    // Utwórz komunikat
-    const messageDiv = document.createElement('div');
-    messageDiv.className = `documents-message documents-message-${type}`;
-    messageDiv.innerHTML = `
-        <div class="documents-message-content">
-            ${type === 'loading' ? '<div class="documents-spinner"></div>' : ''}
-            <span class="documents-message-text">${message}</span>
-        </div>
-    `;
-
-    // Dodaj na początku kontenera
-    container.insertBefore(messageDiv, container.firstChild);
+    const tr = document.createElement('tr');
+    tr.className = 'documents-message';
+    const td = document.createElement('td');
+    td.colSpan = 2;
+    const content = document.createElement('div');
+    content.className = 'documents-message-content';
+    if (type === 'loading') {
+        const spinner = document.createElement('div');
+        spinner.className = 'documents-spinner';
+        content.appendChild(spinner);
+    }
+    const msgSpan = document.createElement('span');
+    msgSpan.className = 'documents-message-text';
+    msgSpan.textContent = message;
+    content.appendChild(msgSpan);
+    td.appendChild(content);
+    tr.appendChild(td);
+    tbody.insertBefore(tr, tbody.firstChild);
 }
 
 /**

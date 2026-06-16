@@ -246,11 +246,11 @@
                 </div>
             </div>
 
-            <!-- NOWA SEKCJA: Dane zamówienia -->
+            <!-- Blok: Zamówienie (Baselinker + produkcja) -->
             <div id="baselinker-order-block" class="modal-block modal-block-costs" style="display: none;">
-                <h3 class="quotes-details-modal-subtitle">Zamówienie Base.</h3>
+                <h3 class="quotes-details-modal-subtitle">Zamówienie</h3>
                 <div class="costs-wrapper">
-                    <table class="costs-table costs-table-top">
+                    <table class="costs-table">
                         <tbody>
                             <tr>
                                 <td>Numer zamówienia</td>
@@ -266,53 +266,43 @@
                             </tr>
                         </tbody>
                     </table>
-                    <table class="costs-table costs-table-bottom">
-                        <tbody>
-                            <tr>
-                                <td colspan="2" class="costs-docs-cell">
-                                    <div class="sales-documents-list">
-                                        <button id="baselinker-invoice-btn"
-                                                class="doc-btn doc-loading"
-                                                data-status="loading"
-                                                disabled>
-                                            <span class="doc-icon">📄</span>
-                                            <span class="doc-label">Faktura:</span>
-                                            <span id="baselinker-invoice-value" class="doc-value">Ładowanie...</span>
-                                        </button>
-                                        <button id="baselinker-correction-btn"
-                                                class="doc-btn doc-loading"
-                                                data-status="loading"
-                                                style="display: none;"
-                                                disabled>
-                                            <span class="doc-icon">⚠️</span>
-                                            <span class="doc-label">Korekta:</span>
-                                            <span id="baselinker-correction-value" class="doc-value">Ładowanie...</span>
-                                        </button>
-                                        <button id="baselinker-receipt-btn"
-                                                class="doc-btn doc-loading"
-                                                data-status="loading"
-                                                style="display: none;"
-                                                disabled>
-                                            <span class="doc-icon">🧾</span>
-                                            <span class="doc-label">E-paragon:</span>
-                                            <span id="baselinker-receipt-value" class="doc-value">Ładowanie...</span>
-                                        </button>
-                                    </div>
-                                </td>
+
+                    <table class="costs-table">
+                        <tbody id="baselinker-docs-tbody">
+                            <tr id="baselinker-invoice-row" style="display: none;">
+                                <td>Faktura</td>
+                                <td class="num"><a id="baselinker-invoice-link" href="#" class="doc-row-link">—</a></td>
+                            </tr>
+                            <tr id="baselinker-correction-row" style="display: none;">
+                                <td>Korekta</td>
+                                <td class="num"><a id="baselinker-correction-link" href="#" class="doc-row-link">—</a></td>
+                            </tr>
+                            <tr id="baselinker-receipt-row" style="display: none;">
+                                <td>E-paragon</td>
+                                <td class="num"><a id="baselinker-receipt-link" href="#" target="_blank" rel="noopener noreferrer" class="doc-row-link">—</a></td>
                             </tr>
                             <tr id="baselinker-order-page-row" style="display: none;">
-                                <td colspan="2" class="costs-docs-cell">
-                                    <a id="baselinker-order-page-btn"
-                                       href="#"
-                                       target="_blank"
-                                       rel="noopener noreferrer"
-                                       class="quotes-btn quotes-btn-secondary">
-                                        📋 Strona informacyjna zamówienia
-                                    </a>
-                                </td>
+                                <td>Strona informacyjna</td>
+                                <td class="num"><a id="baselinker-order-page-btn" href="#" target="_blank" rel="noopener noreferrer" class="doc-row-link">Otwórz ↗</a></td>
                             </tr>
                         </tbody>
                     </table>
+
+                    {% if user_role in ['admin', 'user'] %}
+                    <table class="costs-table">
+                        <tbody>
+                            <tr id="production-status-row" style="display: none;">
+                                <td>Status produkcji</td>
+                                <td><span id="production-status-badge" class="prod-status-badge"></span></td>
+                            </tr>
+                        </tbody>
+                    </table>
+
+                    <!-- Linia czasu produkcji (pipeline) -->
+                    <div id="production-timeline" class="production-timeline" style="display: none;">
+                        <div id="production-timeline-track" class="production-timeline-track"></div>
+                    </div>
+                    {% endif %}
                 </div>
             </div>
 
