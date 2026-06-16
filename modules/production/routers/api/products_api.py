@@ -638,11 +638,20 @@ def products_tab_content():
                 ProductionOrder.internal_order_number
             )
 
-            # archive: tylko w pełni spakowane + opcjonalnie zakres dat zakończenia (na poziomie zamówienia)
+            # Zamówienie należy do archiwum, gdy:
+            #  - WSZYSTKIE pozycje mają status 'spakowane' (zakończone produkcyjnie), LUB
+            #  - WSZYSTKIE pozycje mają status 'anulowane' (całe zamówienie anulowane)
+            fully_packed_cond = func.sum(
+                case((ProductionItem.current_status != 'spakowane', 1), else_=0)
+            ) == 0
+            fully_cancelled_cond = func.sum(
+                case((ProductionItem.current_status != 'anulowane', 1), else_=0)
+            ) == 0
+            archived_cond = or_(fully_packed_cond, fully_cancelled_cond)
+
+            # archive: tylko zamówienia archiwalne + opcjonalnie zakres dat zakończenia (na poziomie zamówienia)
             if view_mode == 'archive':
-                order_agg_q = order_agg_q.having(
-                    func.sum(case((ProductionItem.current_status != 'spakowane', 1), else_=0)) == 0
-                )
+                order_agg_q = order_agg_q.having(archived_cond)
                 if completed_from_dt is not None:
                     order_agg_q = order_agg_q.having(
                         func.max(ProductionItem.packaging_completed_at) >= completed_from_dt
@@ -658,12 +667,10 @@ def products_tab_content():
                     )
                 )
             else:  # active
-                fully_packed_subq = order_agg_q.having(
-                    func.sum(case((ProductionItem.current_status != 'spakowane', 1), else_=0)) == 0
-                ).subquery()
+                archived_subq = order_agg_q.having(archived_cond).subquery()
                 products_query = products_query.filter(
                     ~ProductionOrder.internal_order_number.in_(
-                        db.session.query(fully_packed_subq.c.ion)
+                        db.session.query(archived_subq.c.ion)
                     )
                 )
 
