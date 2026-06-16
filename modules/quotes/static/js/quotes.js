@@ -5147,18 +5147,10 @@ async function downloadCorrection(quoteId) {
 * Pokazuje stan ładowania dla dokumentów
 */
 function showDocumentsLoading() {
-    console.log('[SalesDocuments] Pokazuję stan ładowania');
-
-    // Ukryj wszystkie przyciski dokumentów
-    const invoiceBtn = document.getElementById('baselinker-invoice-btn');
-    const correctionBtn = document.getElementById('baselinker-correction-btn');
-    const receiptBtn = document.getElementById('baselinker-receipt-btn');
-
-    if (invoiceBtn) invoiceBtn.style.display = 'none';
-    if (correctionBtn) correctionBtn.style.display = 'none';
-    if (receiptBtn) receiptBtn.style.display = 'none';
-
-    // Pokaż komunikat ładowania
+    ['invoice', 'correction', 'receipt', 'order-page'].forEach(t => {
+        const row = document.getElementById(`baselinker-${t}-row`);
+        if (row) row.style.display = 'none';
+    });
     showDocumentsMessage('Ładowanie dokumentów...', 'loading');
 }
 
@@ -5182,33 +5174,21 @@ function showDocumentsError(errorMessage) {
  * Wyświetla komunikat w sekcji dokumentów
  */
 function showDocumentsMessage(message, type = 'info') {
-    // Usuń istniejący komunikat jeśli jest
-    const existingMessage = document.querySelector('.documents-message');
-    if (existingMessage) {
-        existingMessage.remove();
-    }
+    const existing = document.querySelector('.documents-message');
+    if (existing) existing.remove();
 
-    // Znajdź sekcję dokumentów (container dla przycisków)
-    const invoiceBtn = document.getElementById('baselinker-invoice-btn');
-    if (!invoiceBtn || !invoiceBtn.parentElement) {
+    const tbody = document.getElementById('baselinker-docs-tbody');
+    if (!tbody) {
         console.warn('[SalesDocuments] Nie znaleziono kontenera dokumentów');
         return;
     }
-
-    const container = invoiceBtn.parentElement;
-
-    // Utwórz komunikat
-    const messageDiv = document.createElement('div');
-    messageDiv.className = `documents-message documents-message-${type}`;
-    messageDiv.innerHTML = `
-        <div class="documents-message-content">
-            ${type === 'loading' ? '<div class="documents-spinner"></div>' : ''}
-            <span class="documents-message-text">${message}</span>
-        </div>
-    `;
-
-    // Dodaj na początku kontenera
-    container.insertBefore(messageDiv, container.firstChild);
+    const tr = document.createElement('tr');
+    tr.className = 'documents-message';
+    const td = document.createElement('td');
+    td.colSpan = 2;
+    td.innerHTML = `<div class="documents-message-content">${type === 'loading' ? '<div class="documents-spinner"></div>' : ''}<span class="documents-message-text">${message}</span></div>`;
+    tr.appendChild(td);
+    tbody.insertBefore(tr, tbody.firstChild);
 }
 
 /**
