@@ -5029,6 +5029,10 @@ function updateCorrectionDisplay(correctionData, quoteId) {
     fresh.addEventListener('click', (e) => { e.preventDefault(); downloadCorrection(quoteId); });
 }
 
+function safeHttpUrl(url) {
+    return /^https?:\/\//i.test(url || '') ? url : '#';
+}
+
 function updateReceiptDisplay(receiptData) {
     const row = document.getElementById('baselinker-receipt-row');
     const link = document.getElementById('baselinker-receipt-link');
@@ -5036,14 +5040,14 @@ function updateReceiptDisplay(receiptData) {
     if (!receiptData || !receiptData.exists) { row.style.display = 'none'; return; }
     row.style.display = '';
     link.textContent = 'Otwórz ↗';
-    link.href = receiptData.url;
+    link.href = safeHttpUrl(receiptData.url);
 }
 
 function updateOrderPageLink(orderPageUrl) {
     const row = document.getElementById('baselinker-order-page-row');
     const link = document.getElementById('baselinker-order-page-btn');
     if (!row || !link) return;
-    if (orderPageUrl) { link.href = orderPageUrl; row.style.display = ''; }
+    if (orderPageUrl) { link.href = safeHttpUrl(orderPageUrl); row.style.display = ''; }
     else { row.style.display = 'none'; }
 }
 
@@ -5186,7 +5190,18 @@ function showDocumentsMessage(message, type = 'info') {
     tr.className = 'documents-message';
     const td = document.createElement('td');
     td.colSpan = 2;
-    td.innerHTML = `<div class="documents-message-content">${type === 'loading' ? '<div class="documents-spinner"></div>' : ''}<span class="documents-message-text">${message}</span></div>`;
+    const content = document.createElement('div');
+    content.className = 'documents-message-content';
+    if (type === 'loading') {
+        const spinner = document.createElement('div');
+        spinner.className = 'documents-spinner';
+        content.appendChild(spinner);
+    }
+    const msgSpan = document.createElement('span');
+    msgSpan.className = 'documents-message-text';
+    msgSpan.textContent = message;
+    content.appendChild(msgSpan);
+    td.appendChild(content);
     tr.appendChild(td);
     tbody.insertBefore(tr, tbody.firstChild);
 }
