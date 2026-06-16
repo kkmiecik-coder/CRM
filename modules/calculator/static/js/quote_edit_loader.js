@@ -613,6 +613,7 @@ class QuoteEditLoader {
                 edges_angle_value: p.edges_angle_value,
                 edges: p.edges ? JSON.stringify(p.edges) : null,
                 shape: p.shape,
+                shape_data: p.shape_data,
                 cut_to_size: p.cut_to_size,
             })),
             courier_name: data.courier_name,
