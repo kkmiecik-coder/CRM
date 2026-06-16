@@ -136,3 +136,11 @@ def test_format_dimension_polish_comma():
     assert ots.format_dimension(2.5) == '2,5'
     assert ots.format_dimension(180) == '180'
     assert ots.format_dimension(None) == '-'
+
+
+def test_order_status_counts_cancelled_to_mirror_admin():
+    # świadoma asymetria: badge liczy anulowane (jak panel admina), timeline ich nie liczy
+    products = [_prod('spakowane'), _prod('anulowane')]
+    badge = ots.order_status_badge(products)
+    assert badge['label'] == 'Różne (1/2)'
+    assert badge['badge_class'] == 'badge-mixed'

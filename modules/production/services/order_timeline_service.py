@@ -15,11 +15,8 @@ TIMELINE_STATIONS = [
     {'key': 'packaging',  'name': 'Pakowanie'},
 ]
 
-# Indeks etapu każdej kropki w przepływie.
-STATION_STAGE = {
-    'entry': 0, 'gluing': 1, 'formatting': 2,
-    'finishing': 3, 'painting': 4, 'packaging': 5,
-}
+# Indeks etapu każdej kropki w przepływie (wyprowadzony z TIMELINE_STATIONS).
+STATION_STAGE = {st['key']: i for i, st in enumerate(TIMELINE_STATIONS)}
 
 # Statusy oznaczające "produkt stoi na tej kropce".
 STATION_AT_STATUSES = {
@@ -74,6 +71,7 @@ _STATUS_BADGE = {
 }
 
 
+# Sync z ProductionProduct.should_skip_finishing w modules/production/models.py
 def _should_skip_finishing(product):
     if product.parsed_finish_type == 'surowe':
         return not product.parsed_edge_processing
@@ -169,6 +167,7 @@ def build_timeline_payload(products):
 
 def order_status_badge(products):
     """Status całego zamówienia (jak panel admina). Liczy wszystkie produkty."""
+    # UWAGA: świadomie liczy WSZYSTKIE produkty (także anulowane), aby odwzorować panel administracyjny produkcji. Timeline (build_timeline_payload) anulowane wyklucza — asymetria zamierzona.
     if not products:
         return {'label': '-', 'badge_class': 'badge-completed'}
     statuses = {p.current_status for p in products}
