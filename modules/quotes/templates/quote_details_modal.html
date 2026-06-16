@@ -250,7 +250,7 @@
             <div id="baselinker-order-block" class="modal-block modal-block-costs" style="display: none;">
                 <h3 class="quotes-details-modal-subtitle">Zamówienie</h3>
                 <div class="costs-wrapper">
-                    <table class="costs-table costs-table-top">
+                    <table class="costs-table">
                         <tbody>
                             <tr>
                                 <td>Numer zamówienia</td>
@@ -264,19 +264,10 @@
                                 <td>Status BL</td>
                                 <td id="baselinker-order-status">Pobieranie...</td>
                             </tr>
-                            <tr id="production-status-row" style="display: none;">
-                                <td>Status produkcji</td>
-                                <td><span id="production-status-badge" class="prod-status-badge"></span></td>
-                            </tr>
                         </tbody>
                     </table>
 
-                    <!-- Linia czasu produkcji -->
-                    <div id="production-timeline" class="production-timeline" style="display: none;">
-                        <div id="production-timeline-track" class="production-timeline-track"></div>
-                    </div>
-
-                    <table class="costs-table costs-table-bottom">
+                    <table class="costs-table">
                         <tbody id="baselinker-docs-tbody">
                             <tr id="baselinker-invoice-row" style="display: none;">
                                 <td>Faktura</td>
@@ -296,6 +287,20 @@
                             </tr>
                         </tbody>
                     </table>
+
+                    <table class="costs-table">
+                        <tbody>
+                            <tr id="production-status-row" style="display: none;">
+                                <td>Status produkcji</td>
+                                <td><span id="production-status-badge" class="prod-status-badge"></span></td>
+                            </tr>
+                        </tbody>
+                    </table>
+
+                    <!-- Linia czasu produkcji (pipeline) -->
+                    <div id="production-timeline" class="production-timeline" style="display: none;">
+                        <div id="production-timeline-track" class="production-timeline-track"></div>
+                    </div>
                 </div>
             </div>
 

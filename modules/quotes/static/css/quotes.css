@@ -5894,66 +5894,6 @@
     }
 }
 
-/* ============================================
-   PRZYCISK: Strona informacyjna zamówienia
-   ============================================ */
-
-#baselinker-order-page-btn {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    padding: 10px 20px;
-    background: #ffffff;
-    border: 1px solid #4284F3;
-    color: #4284F3;
-    text-decoration: none;
-    border-radius: 6px;
-    font-size: 14px;
-    font-weight: 500;
-    transition: all 0.2s ease;
-}
-
-    #baselinker-order-page-btn:hover {
-        background: #f0f7ff;
-        border-color: #1967d2;
-        color: #1967d2;
-        transform: translateY(-1px);
-        box-shadow: 0 2px 4px rgba(66, 132, 243, 0.2);
-    }
-
-    #baselinker-order-page-btn:active {
-        transform: translateY(0);
-        box-shadow: none;
-    }
-
-/* ============================================
-   RESPONSIVE (Mobile)
-   ============================================ */
-
-@media (max-width: 768px) {
-    .doc-btn {
-        padding: 10px 12px;
-        font-size: 13px;
-    }
-
-    .doc-icon {
-        font-size: 16px;
-    }
-
-    .doc-label {
-        font-size: 13px;
-    }
-
-    .doc-value {
-        font-size: 13px;
-    }
-
-    #baselinker-order-page-btn {
-        width: 100%;
-        justify-content: center;
-    }
-}
-
 /* Komunikaty w sekcji dokumentów */
 .documents-message {
     padding: 12px 16px;
