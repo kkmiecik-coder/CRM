@@ -7255,11 +7255,8 @@ a[href^="tel:"]:hover {
 .timeline-dot.dot-green  { background: #22c55e; box-shadow: 0 0 0 1px #22c55e; }
 
 /* Tooltip */
-.timeline-dot .timeline-tooltip {
-    position: absolute;
-    left: 50%;
-    bottom: calc(100% + 10px);
-    transform: translateX(-50%);
+.timeline-tooltip {
+    position: fixed;            /* left/top ustawiane z JS; fixed omija overflow modala */
     background: #1f2937;
     color: #fff;
     border-radius: 8px;
@@ -7269,24 +7266,28 @@ a[href^="tel:"]:hover {
     width: max-content;
     max-width: 240px;
     box-shadow: 0 4px 14px rgba(0,0,0,.25);
-    opacity: 0;
-    visibility: hidden;
-    transition: opacity .12s ease;
-    z-index: 10;
+    z-index: 10000;            /* ponad modalem */
     pointer-events: none;
+    display: none;
 }
-.timeline-dot:hover .timeline-tooltip {
-    opacity: 1;
-    visibility: visible;
+.timeline-tooltip.tt-visible {
+    display: block;
 }
 .timeline-tooltip::after {
     content: "";
     position: absolute;
-    left: 50%;
+    left: var(--arrow-left, 50%);
     top: 100%;
     transform: translateX(-50%);
     border: 6px solid transparent;
     border-top-color: #1f2937;
+}
+/* Gdy tooltip jest pod kropką (brak miejsca u góry) — strzałka skierowana w górę */
+.timeline-tooltip.tt-below::after {
+    top: auto;
+    bottom: 100%;
+    border-top-color: transparent;
+    border-bottom-color: #1f2937;
 }
 .timeline-tooltip-title {
     font-weight: 700;

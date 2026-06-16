@@ -1364,6 +1364,9 @@ function renderProductionTimeline(stations) {
     if (!wrap || !track) return;
     if (!stations || stations.length === 0) { wrap.style.display = 'none'; return; }
 
+    // Sprzątnij ewentualne osierocone tooltipy z body (po poprzednim renderze)
+    document.querySelectorAll('body > .timeline-tooltip').forEach(t => t.remove());
+
     track.innerHTML = '';
     stations.forEach(st => {
         const dot = document.createElement('div');
@@ -1394,9 +1397,36 @@ function renderProductionTimeline(stations) {
         }
 
         dot.appendChild(tip);
+        // Tooltip przenoszony do body i pozycjonowany fixed — żeby overflow modala go nie przycinał
+        dot.addEventListener('mouseenter', () => showTimelineTooltip(dot, tip));
+        dot.addEventListener('mouseleave', () => hideTimelineTooltip(dot, tip));
         track.appendChild(dot);
     });
     wrap.style.display = '';
+}
+
+function showTimelineTooltip(dot, tip) {
+    document.body.appendChild(tip);
+    tip.classList.add('tt-visible');
+    const margin = 8;
+    const dotRect = dot.getBoundingClientRect();
+    const tipRect = tip.getBoundingClientRect();
+    const dotCenterX = dotRect.left + dotRect.width / 2;
+    let left = dotCenterX - tipRect.width / 2;
+    left = Math.max(margin, Math.min(left, window.innerWidth - tipRect.width - margin));
+    let top = dotRect.top - tipRect.height - 10;
+    let below = false;
+    if (top < margin) { top = dotRect.bottom + 10; below = true; }
+    tip.classList.toggle('tt-below', below);
+    tip.style.left = `${Math.round(left)}px`;
+    tip.style.top = `${Math.round(top)}px`;
+    // Strzałka wskazuje środek kropki
+    tip.style.setProperty('--arrow-left', `${Math.round(dotCenterX - left)}px`);
+}
+
+function hideTimelineTooltip(dot, tip) {
+    tip.classList.remove('tt-visible');
+    dot.appendChild(tip); // wróć pod kropkę, by track.innerHTML='' sprzątał
 }
 
 function escapeHtmlTimeline(str) {
