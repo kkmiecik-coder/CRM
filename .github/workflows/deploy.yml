@@ -1,10 +1,8 @@
 name: Deploy to Production
 
 on:
-  push:
-    branches:
-      - main
-  workflow_dispatch:  # Pozwala na ręczne uruchomienie
+  workflow_dispatch:  # Tylko ręcznie (fallback). Auto-deploy idzie webhookiem GitHub -> /deploy/webhook
+                      # (push przez SSH był loteryjny przez ochronę SSH Hostingera — patrz modules/deploy).
 
 jobs:
   deploy:

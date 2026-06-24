@@ -574,6 +574,9 @@ def create_app():
         app.register_blueprint(issues_bp)
         app.register_blueprint(ai_assistant_bp)
         app.register_blueprint(settings_bp, url_prefix='/settings')
+        # Webhook auto-deployu (GitHub push -> deploy.sh); bez CSRF (autoryzacja HMAC)
+        from modules.deploy import deploy_bp
+        app.register_blueprint(deploy_bp)
 
     register_blueprints_lazy(app)
 
@@ -653,6 +656,10 @@ def create_app():
 
         # /login — zawsze dostępny (formularz logowania dla admina podczas konserwacji)
         if request.endpoint == 'login':
+            return
+
+        # Webhook auto-deployu — musi działać też w trybie konserwacji
+        if request.endpoint and request.endpoint.startswith('deploy.'):
             return
 
         # Cache: sprawdzaj DB co 5 sekund
