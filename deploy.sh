@@ -1,6 +1,7 @@
 #!/bin/bash
 # CRM WoodPower — Auto-Deploy (wołany przez webhook GitHub po push do main)
 # Wzorzec z ThunderOrders. Uruchamiany przez modules/deploy/routes.py (subprocess, start_new_session).
+# Webhook aktywny od 2026-06-24.
 
 export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 
