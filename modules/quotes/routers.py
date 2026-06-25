@@ -2708,11 +2708,47 @@ def chatwoot_client_quotes():
         return jsonify({"ok": False, "error": "unauthorized"}), 401
 
     email = (request.args.get('email') or '').strip().lower()
-    if not email:
+    phone = (request.args.get('phone') or '').strip()
+    name = (request.args.get('name') or '').strip()
+
+    if not (email or phone or name):
         return jsonify({"ok": True, "client": None, "quotes": []})
 
-    # Dopasowanie klienta po e-mailu (case-insensitive)
-    client = Client.query.filter(func.lower(Client.email) == email).first()
+    # Dopasowanie klienta: e-mail -> telefon -> nazwa (pierwsze trafienie wygrywa)
+    client = None
+    matched_by = None
+
+    # 1) E-mail (case-insensitive)
+    if email:
+        client = Client.query.filter(func.lower(Client.email) == email).first()
+        if client:
+            matched_by = "email"
+
+    # 2) Telefon (normalizacja: tylko cyfry, porównanie po 9 ostatnich)
+    if client is None and phone:
+        digits = re.sub(r'\D', '', phone)
+        if len(digits) >= 9:
+            last9 = digits[-9:]
+            # Usuwamy z zapisanego telefonu spacje/myślniki/plus/nawiasy przed porównaniem
+            phone_norm = func.replace(
+                func.replace(
+                    func.replace(
+                        func.replace(
+                            func.replace(Client.phone, ' ', ''),
+                            '-', ''),
+                        '+', ''),
+                    '(', ''),
+                ')', '')
+            client = Client.query.filter(Client.phone.isnot(None), phone_norm.like('%' + last9)).first()
+            if client:
+                matched_by = "phone"
+
+    # 3) Nazwa klienta (case-insensitive, dokładne dopasowanie po przycięciu)
+    if client is None and name:
+        client = Client.query.filter(func.lower(func.trim(Client.client_name)) == name.lower()).first()
+        if client:
+            matched_by = "name"
+
     if not client:
         return jsonify({"ok": True, "client": None, "quotes": []})
 
@@ -2736,6 +2772,7 @@ def chatwoot_client_quotes():
 
     return jsonify({
         "ok": True,
+        "matched_by": matched_by,
         "client": {"name": client.client_name, "email": client.email, "phone": client.phone},
         "quotes": data,
     })
@@ -2807,13 +2844,19 @@ _CHATWOOT_PANEL_HTML = """<!DOCTYPE html>
     root.innerHTML = html;
   }
 
-  function loadQuotes(email){
-    if(!email){
-      root.innerHTML = '<div class="empty">Ta rozmowa nie ma adresu e-mail kontaktu.</div>';
+  function loadQuotes(email, phone, name){
+    email = email || ''; phone = phone || ''; name = name || '';
+    if(!email && !phone && !name){
+      root.innerHTML = '<div class="empty">Ta rozmowa nie ma danych kontaktu (e-mail / telefon / nazwa).</div>';
       return;
     }
-    root.innerHTML = '<div class="spin">Szukam wycen dla ' + esc(email) + '…</div>';
-    fetch('/quotes/chatwoot/api/quotes?token=' + encodeURIComponent(CW_TOKEN) + '&email=' + encodeURIComponent(email))
+    var label = email || phone || name;
+    root.innerHTML = '<div class="spin">Szukam wycen dla ' + esc(label) + '…</div>';
+    var qs = 'token=' + encodeURIComponent(CW_TOKEN)
+           + '&email=' + encodeURIComponent(email)
+           + '&phone=' + encodeURIComponent(phone)
+           + '&name=' + encodeURIComponent(name);
+    fetch('/quotes/chatwoot/api/quotes?' + qs)
       .then(function(r){ return r.json(); })
       .then(render)
       .catch(function(){ root.innerHTML = '<div class="empty">Błąd pobierania wycen z CRM.</div>'; });
@@ -2828,7 +2871,7 @@ _CHATWOOT_PANEL_HTML = """<!DOCTYPE html>
     if(payload && payload.event === 'appContext'){
       var d = payload.data || {};
       var contact = d.contact || {};
-      loadQuotes(contact.email || '');
+      loadQuotes(contact.email || '', contact.phone_number || '', contact.name || '');
     }
   });
 
