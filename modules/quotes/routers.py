@@ -2838,8 +2838,8 @@ def chatwoot_quote_items(quote_id):
             "brutto": f"{it.get_total_price_brutto():.2f}",
         })
 
-    # Waga: przybliżenie ~0,7 kg/dm³ (spójnie z modalem BaseLinker)
-    weight = vol_total * 700.0
+    # Waga: ~0,8 kg/dm³ (spójnie z widokiem szczegółów wyceny, np. 0,268 m³ -> 214,4 kg)
+    weight = vol_total * 800.0
     return jsonify({
         "ok": True,
         "quote_number": quote.quote_number,
