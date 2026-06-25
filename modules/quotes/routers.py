@@ -2778,6 +2778,76 @@ def chatwoot_client_quotes():
     })
 
 
+# Mapowania kodów wariantu na etykiety (jak w module quotes/baselinker)
+_CW_SPECIES = {'dab': 'Dąb', 'jes': 'Jesion', 'buk': 'Buk', 'brzoza': 'Brzoza', 'sosna': 'Sosna'}
+_CW_TECH = {'lity': 'Lity', 'micro': 'Mikrowczep', 'finger': 'Finger-joint'}
+_CW_SHAPE = {'rectangular': 'Prostokąt', 'round': 'Okrągły'}
+
+
+def _cw_variant_label(code):
+    """'dab-lity-ab' -> 'Dąb lity A/B'"""
+    if not code:
+        return '—'
+    p = code.lower().split('-')
+    sp = _CW_SPECIES.get(p[0], p[0].capitalize()) if len(p) > 0 else ''
+    te = _CW_TECH.get(p[1], p[1].capitalize()) if len(p) > 1 else ''
+    cl = '/'.join(list(p[2].upper())) if len(p) > 2 and p[2] else ''
+    return ' '.join(x for x in [sp, te, cl] if x)
+
+
+def _cw_num(x):
+    """Formatuje wymiar: 198.0 -> '198', 4.5 -> '4.5'"""
+    f = float(x or 0)
+    return str(int(f)) if f == int(f) else f"{f:.1f}"
+
+
+@quotes_bp.route('/chatwoot/api/quote/<int:quote_id>/items', methods=['GET'])
+def chatwoot_quote_items(quote_id):
+    """Lista produktów (wybranych) danej wyceny + podsumowanie objętość/waga."""
+    if not _chatwoot_token_ok():
+        return jsonify({"ok": False, "error": "unauthorized"}), 401
+
+    quote = Quote.query.get(quote_id)
+    if not quote:
+        return jsonify({"ok": False, "error": "not_found"}), 404
+
+    # Szczegóły per product_index (wykończenie, kształt)
+    details = {d.product_index: d for d in QuoteItemDetails.query.filter_by(quote_id=quote.id).all()}
+
+    items = [it for it in quote.items if it.is_selected]
+    if not items:
+        items = list(quote.items)
+
+    rows = []
+    vol_total = 0.0
+    for it in items:
+        d = details.get(it.product_index)
+        qty = it.get_quantity()
+        unit_vol = float(it.volume_m3 or 0)
+        vol_total += unit_vol * qty
+        shape_code = (d.shape if d else 'rectangular') or 'rectangular'
+        finishing = (d.finishing_type if (d and d.finishing_type) else 'Surowe')
+        rows.append({
+            "lp": it.product_index,
+            "shape": _CW_SHAPE.get(shape_code, shape_code.capitalize()),
+            "variant": _cw_variant_label(it.variant_code),
+            "dimensions": f"{_cw_num(it.length_cm)}×{_cw_num(it.width_cm)}×{_cw_num(it.thickness_cm)}",
+            "finishing": finishing,
+            "quantity": qty,
+            "netto": f"{it.get_total_price_netto():.2f}",
+            "brutto": f"{it.get_total_price_brutto():.2f}",
+        })
+
+    # Waga: przybliżenie ~0,7 kg/dm³ (spójnie z modalem BaseLinker)
+    weight = vol_total * 700.0
+    return jsonify({
+        "ok": True,
+        "quote_number": quote.quote_number,
+        "items": rows,
+        "summary": {"volume_m3": round(vol_total, 4), "weight_kg": round(weight, 1)},
+    })
+
+
 # Strona iframe (HTML+JS). Token wstrzykiwany przez prosty replace (bez Jinja),
 # żeby uniknąć kolizji z nawiasami klamrowymi w JS/CSS.
 _CHATWOOT_PANEL_HTML = """<!DOCTYPE html>
@@ -2805,6 +2875,12 @@ _CHATWOOT_PANEL_HTML = """<!DOCTYPE html>
   .btn-primary { background:#2563eb; color:#fff; }
   .btn-ghost { background:#f1f5f9; color:#334155; border:1px solid #e2e8f0; }
   .spin { padding:24px; text-align:center; color:#6b7280; }
+  .toggle { margin-top:8px; width:100%; background:#fff; border:1px dashed #cbd5e1; color:#475569; border-radius:6px; padding:6px; font-size:12px; cursor:pointer; }
+  .items { display:none; margin-top:8px; }
+  .it { border-top:1px solid #eef2f7; padding:6px 0; }
+  .it-h { font-weight:600; font-size:12px; }
+  .it-m { font-size:12px; color:#6b7280; margin-top:1px; }
+  .sum { margin-top:6px; padding-top:6px; border-top:1px solid #e5e7eb; font-size:12px; font-weight:600; color:#334155; }
 </style>
 </head>
 <body>
@@ -2816,6 +2892,41 @@ _CHATWOOT_PANEL_HTML = """<!DOCTYPE html>
 <script>
   var CW_TOKEN = "__CW_TOKEN__";
   var root = document.getElementById('root');
+
+  // Delegacja: rozwijanie listy produktów per wycena (lazy-load)
+  root.addEventListener('click', function(ev){
+    var btn = ev.target.closest ? ev.target.closest('.toggle') : null;
+    if(!btn) return;
+    var qid = btn.getAttribute('data-qid');
+    var box = document.getElementById('cwitems-' + qid);
+    if(!box) return;
+    if(box.style.display === 'block'){ box.style.display = 'none'; btn.textContent = 'Pokaż produkty ▾'; return; }
+    btn.textContent = 'Ukryj produkty ▴';
+    box.style.display = 'block';
+    if(box.dataset.loaded === '1') return;
+    box.innerHTML = '<div class="spin">Ładowanie produktów…</div>';
+    fetch('/quotes/chatwoot/api/quote/' + encodeURIComponent(qid) + '/items?token=' + encodeURIComponent(CW_TOKEN))
+      .then(function(r){ return r.json(); })
+      .then(function(res){ renderItems(box, res); box.dataset.loaded = '1'; })
+      .catch(function(){ box.innerHTML = '<div class="empty">Błąd pobierania produktów.</div>'; });
+  });
+
+  function renderItems(box, res){
+    if(!res || !res.ok || !res.items || res.items.length === 0){
+      box.innerHTML = '<div class="empty">Brak pozycji.</div>'; return;
+    }
+    var h = '';
+    res.items.forEach(function(it){
+      h += '<div class="it">';
+      h += '<div class="it-h">' + esc(it.shape) + ' · ' + esc(it.variant) + '</div>';
+      h += '<div class="it-m">' + esc(it.dimensions) + ' cm · ' + esc(it.finishing) + ' · ×' + esc(it.quantity) + ' · ' + esc(it.brutto) + ' zł</div>';
+      h += '</div>';
+    });
+    if(res.summary){
+      h += '<div class="sum">Objętość: ' + esc(res.summary.volume_m3) + ' m³ · Waga: ~' + esc(res.summary.weight_kg) + ' kg</div>';
+    }
+    box.innerHTML = h;
+  }
 
   function esc(s){ return (s==null?'':String(s)).replace(/[&<>"]/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
 
@@ -2839,7 +2950,10 @@ _CHATWOOT_PANEL_HTML = """<!DOCTYPE html>
       html += '<div class="actions">';
       html += '<a class="btn btn-primary" target="_blank" rel="noopener" href="' + esc(q.open_url) + '">Otwórz wycenę</a>';
       if(q.public_url){ html += '<a class="btn btn-ghost" target="_blank" rel="noopener" href="' + esc(q.public_url) + '">Podgląd klienta</a>'; }
-      html += '</div></div>';
+      html += '</div>';
+      html += '<button class="toggle" data-qid="' + esc(q.id) + '">Pokaż produkty ▾</button>';
+      html += '<div class="items" id="cwitems-' + esc(q.id) + '"></div>';
+      html += '</div>';
     });
     root.innerHTML = html;
   }
