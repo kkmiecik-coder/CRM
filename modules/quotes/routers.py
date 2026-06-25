@@ -2932,7 +2932,7 @@ _CHATWOOT_PANEL_HTML = """<!DOCTYPE html>
 
   function render(payload){
     if(!payload || !payload.client){
-      root.innerHTML = '<div class="empty">Brak klienta o tym adresie e-mail w CRM.<br><span class="muted">Wyceny pojawią się, gdy kontakt ma e-mail przypisany do klienta.</span></div>';
+      root.innerHTML = '<div class="empty">Nie znaleziono klienta w CRM.<br><span class="muted">Dopasowujemy po e-mailu, telefonie lub nazwie kontaktu — sprawdź, czy któreś z tych pól jest uzupełnione i zgodne z danymi w CRM.</span></div>';
       return;
     }
     var c = payload.client;
