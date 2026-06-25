@@ -2681,3 +2681,180 @@ def generate_quote_dxf_zip(token):
         import traceback
         traceback.print_exc(file=sys.stderr)
         return jsonify({"error": "Błąd generowania archiwum DXF", "details": str(e)}), 500
+
+
+# ============================================================
+# INTEGRACJA CHATWOOT — Dashboard App (podgląd wycen klienta)
+# ============================================================
+# Endpoint osadzany jako iframe w panelu rozmowy Chatwoota.
+# Chatwoot przekazuje kontekst (e-mail kontaktu) przez postMessage,
+# a my po e-mailu pokazujemy wyceny danego klienta + przyciski:
+#  - "Otwórz wycenę" -> wewnętrzny moduł quotes z modalem (/quotes/?open_quote=<id>)
+#  - "Podgląd klienta" -> publiczny link tokenowy (/quotes/c/<token>)
+# Ochrona: współdzielony token z config/core.json (CHATWOOT_INTEGRATION.iframe_token).
+
+def _chatwoot_token_ok():
+    """Sprawdza współdzielony token z core.json (CHATWOOT_INTEGRATION.iframe_token)."""
+    cfg = current_app.config.get('CHATWOOT_INTEGRATION') or {}
+    expected = cfg.get('iframe_token')
+    provided = request.args.get('token', '')
+    return bool(expected) and provided == expected
+
+
+@quotes_bp.route('/chatwoot/api/quotes', methods=['GET'])
+def chatwoot_client_quotes():
+    """Zwraca wyceny klienta dopasowanego po e-mailu (dla iframe Chatwoota)."""
+    if not _chatwoot_token_ok():
+        return jsonify({"ok": False, "error": "unauthorized"}), 401
+
+    email = (request.args.get('email') or '').strip().lower()
+    if not email:
+        return jsonify({"ok": True, "client": None, "quotes": []})
+
+    # Dopasowanie klienta po e-mailu (case-insensitive)
+    client = Client.query.filter(func.lower(Client.email) == email).first()
+    if not client:
+        return jsonify({"ok": True, "client": None, "quotes": []})
+
+    quotes = (Quote.query
+              .filter_by(client_id=client.id)
+              .order_by(Quote.created_at.desc())
+              .all())
+
+    data = []
+    for q in quotes:
+        data.append({
+            "id": q.id,
+            "number": q.quote_number,
+            "status": q.quote_status.name if q.quote_status else "—",
+            "status_color": (q.quote_status.color_hex if (q.quote_status and q.quote_status.color_hex) else "#9ca3af"),
+            "total": (f"{float(q.total_price):.2f}" if q.total_price is not None else None),
+            "created": (q.created_at.strftime("%Y-%m-%d") if q.created_at else ""),
+            "open_url": f"/quotes/?open_quote={q.id}",
+            "public_url": (f"/quotes/c/{q.public_token}" if q.public_token else None),
+        })
+
+    return jsonify({
+        "ok": True,
+        "client": {"name": client.client_name, "email": client.email, "phone": client.phone},
+        "quotes": data,
+    })
+
+
+# Strona iframe (HTML+JS). Token wstrzykiwany przez prosty replace (bez Jinja),
+# żeby uniknąć kolizji z nawiasami klamrowymi w JS/CSS.
+_CHATWOOT_PANEL_HTML = """<!DOCTYPE html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Wyceny klienta</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif; font-size:13px; color:#1f2933; background:#f8fafc; }
+  .wrap { padding:10px; }
+  .muted { color:#6b7280; }
+  .hdr { font-weight:600; margin-bottom:2px; }
+  .sub { font-size:12px; color:#6b7280; margin-bottom:10px; }
+  .empty { padding:24px 10px; text-align:center; color:#6b7280; }
+  .q { background:#fff; border:1px solid #e5e7eb; border-radius:8px; padding:10px; margin-bottom:8px; }
+  .q-top { display:flex; justify-content:space-between; align-items:center; gap:8px; }
+  .q-num { font-weight:600; }
+  .q-meta { font-size:12px; color:#6b7280; margin-top:2px; }
+  .badge { display:inline-block; padding:2px 8px; border-radius:999px; color:#fff; font-size:11px; white-space:nowrap; }
+  .total { font-weight:600; white-space:nowrap; }
+  .actions { margin-top:8px; display:flex; gap:6px; }
+  .btn { flex:1; text-align:center; text-decoration:none; padding:6px 8px; border-radius:6px; font-size:12px; cursor:pointer; }
+  .btn-primary { background:#2563eb; color:#fff; }
+  .btn-ghost { background:#f1f5f9; color:#334155; border:1px solid #e2e8f0; }
+  .spin { padding:24px; text-align:center; color:#6b7280; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div id="root">
+    <div class="spin">Ładowanie kontekstu rozmowy…</div>
+  </div>
+</div>
+<script>
+  var CW_TOKEN = "__CW_TOKEN__";
+  var root = document.getElementById('root');
+
+  function esc(s){ return (s==null?'':String(s)).replace(/[&<>"]/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
+
+  function render(payload){
+    if(!payload || !payload.client){
+      root.innerHTML = '<div class="empty">Brak klienta o tym adresie e-mail w CRM.<br><span class="muted">Wyceny pojawią się, gdy kontakt ma e-mail przypisany do klienta.</span></div>';
+      return;
+    }
+    var c = payload.client;
+    var html = '<div class="hdr">' + esc(c.name) + '</div>';
+    html += '<div class="sub">' + esc(c.email || '') + (c.phone ? ' · ' + esc(c.phone) : '') + '</div>';
+    if(!payload.quotes || payload.quotes.length === 0){
+      html += '<div class="empty">Ten klient nie ma jeszcze wycen.</div>';
+      root.innerHTML = html; return;
+    }
+    payload.quotes.forEach(function(q){
+      html += '<div class="q">';
+      html += '<div class="q-top"><span class="q-num">' + esc(q.number) + '</span>';
+      html += '<span class="badge" style="background:' + esc(q.status_color) + '">' + esc(q.status) + '</span></div>';
+      html += '<div class="q-meta">' + esc(q.created) + (q.total ? ' · <span class="total">' + esc(q.total) + ' zł</span>' : '') + '</div>';
+      html += '<div class="actions">';
+      html += '<a class="btn btn-primary" target="_blank" rel="noopener" href="' + esc(q.open_url) + '">Otwórz wycenę</a>';
+      if(q.public_url){ html += '<a class="btn btn-ghost" target="_blank" rel="noopener" href="' + esc(q.public_url) + '">Podgląd klienta</a>'; }
+      html += '</div></div>';
+    });
+    root.innerHTML = html;
+  }
+
+  function loadQuotes(email){
+    if(!email){
+      root.innerHTML = '<div class="empty">Ta rozmowa nie ma adresu e-mail kontaktu.</div>';
+      return;
+    }
+    root.innerHTML = '<div class="spin">Szukam wycen dla ' + esc(email) + '…</div>';
+    fetch('/quotes/chatwoot/api/quotes?token=' + encodeURIComponent(CW_TOKEN) + '&email=' + encodeURIComponent(email))
+      .then(function(r){ return r.json(); })
+      .then(render)
+      .catch(function(){ root.innerHTML = '<div class="empty">Błąd pobierania wycen z CRM.</div>'; });
+  }
+
+  // Chatwoot przekazuje kontekst przez postMessage (event: appContext)
+  window.addEventListener('message', function(event){
+    var payload = event.data;
+    if(typeof payload === 'string'){
+      try { payload = JSON.parse(payload); } catch(e){ return; }
+    }
+    if(payload && payload.event === 'appContext'){
+      var d = payload.data || {};
+      var contact = d.contact || {};
+      loadQuotes(contact.email || '');
+    }
+  });
+
+  // Fallback: jeśli po 4s brak kontekstu, pokaż komunikat
+  setTimeout(function(){
+    if(root.querySelector('.spin')){
+      root.innerHTML = '<div class="empty">Oczekiwanie na kontekst z Chatwoota…<br><span class="muted">Otwórz rozmowę, aby zobaczyć wyceny.</span></div>';
+    }
+  }, 4000);
+</script>
+</body>
+</html>"""
+
+
+@quotes_bp.route('/chatwoot/panel', methods=['GET'])
+def chatwoot_panel():
+    """Strona iframe dla Dashboard App Chatwoota (podgląd wycen klienta)."""
+    cfg = current_app.config.get('CHATWOOT_INTEGRATION') or {}
+    expected = cfg.get('iframe_token')
+    token = request.args.get('token', '')
+    if not expected or token != expected:
+        return "Brak autoryzacji", 401
+
+    html = _CHATWOOT_PANEL_HTML.replace("__CW_TOKEN__", token)
+    resp = current_app.response_class(html, mimetype="text/html")
+    # Pozwól osadzić iframe tylko w panelu Chatwoota
+    resp.headers['Content-Security-Policy'] = "frame-ancestors https://chat.woodpower.pl"
+    resp.headers.pop('X-Frame-Options', None)
+    return resp
