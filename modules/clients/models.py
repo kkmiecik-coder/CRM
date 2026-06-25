@@ -4,7 +4,9 @@ from extensions import db
 class Client(db.Model):
     __tablename__ = 'clients'
     id = db.Column(db.Integer, primary_key=True)
-    client_number = db.Column(db.String(20), unique=True, nullable=False)
+    # UWAGA: pole trzyma "Nazwę klienta" (wolny tekst / nazwa firmy), nie krótki numer
+    # — dlatego musi być szerokie jak pozostałe pola nazw (255), inaczej MySQL rzuca 1406.
+    client_number = db.Column(db.String(255), unique=True, nullable=False)
     client_name = db.Column(db.String(255), nullable=False)
     email = db.Column(db.String(120), nullable=True)  # Email opcjonalny, ale unikalny jeśli podany
     phone = db.Column(db.String(20), nullable=True)
