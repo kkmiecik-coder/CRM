@@ -2685,6 +2685,42 @@ class BaselinkerSyncService:
             'delivery_country_code': order.get('delivery_country_code', '').strip() if order.get('delivery_country_code') else None,
         }
 
+    def _order_has_finished_product(self, order: Dict[str, Any]) -> bool:
+        """
+        Sprawdza czy zamówienie zawiera choć jeden produkt wykończony
+        (olejowany / lakierowany / inny niż surowy).
+
+        Reguła deadline'u jest na poziomie ZAMÓWIENIA: jeśli choć jedna
+        pozycja nie jest surowa, całe zamówienie (łącznie z surowymi
+        pozycjami) traktujemy jako wykończone i dajemy dłuższy termin.
+        """
+        try:
+            from ..services.parser_service import ProductNameParser
+            parser = ProductNameParser()
+        except Exception as e:
+            # Brak parsera — bezpieczny fallback: traktuj jak surowe (krótszy termin)
+            logger.warning("Nie udało się zainicjalizować parsera przy ocenie wykończenia", extra={
+                'error': str(e)
+            })
+            return False
+
+        for product in order.get('products', []):
+            if not isinstance(product, dict):
+                continue
+            name = (product.get('name') or '').strip()
+            if not name:
+                continue
+            try:
+                parsed = parser.parse_product_name(name)
+            except Exception:
+                # Nierozpoznana nazwa — nie traktujemy jako wykończona
+                continue
+            finish_type = parsed.get('finish_type')
+            if finish_type and finish_type != 'surowe':
+                return True
+
+        return False
+
     def _calculate_deadline_date(self, order: Dict[str, Any]) -> date:
         base_timestamp = None
 
@@ -2714,20 +2750,25 @@ class BaselinkerSyncService:
         else:
             base_date = date.today()
 
+        # Wybór liczby dni: surowe zamówienie = 16, wykończone (choć 1 produkt) = 21.
+        # Wartości konfigurowalne w panelu (z fallbackiem do defaultów przez config service).
         try:
-            from ..models import ProductionConfig
-            config_record = ProductionConfig.query.filter_by(config_key='DEADLINE_DEFAULT_DAYS').first()
-            if config_record and config_record.parsed_value:
-                deadline_days = int(config_record.parsed_value)
+            from .config_service import get_config_service
+            config = get_config_service()
+            if self._order_has_finished_product(order):
+                deadline_days = int(config.get_config('DEADLINE_FINISHED_DAYS', 21))
             else:
-                deadline_days = 14
+                deadline_days = int(config.get_config('DEADLINE_DEFAULT_DAYS', 16))
         except Exception as e:
-            deadline_days = 14
+            logger.warning("Błąd odczytu konfiguracji deadline — fallback", extra={
+                'error': str(e)
+            })
+            deadline_days = 21 if self._order_has_finished_product(order) else 16
 
         try:
             deadline_date = self._add_business_days(base_date, deadline_days)
         except Exception as e:
-            deadline_date = self._add_business_days(date.today(), 14)
+            deadline_date = self._add_business_days(date.today(), deadline_days)
 
         return deadline_date
 

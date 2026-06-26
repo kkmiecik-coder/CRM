@@ -195,7 +195,8 @@ def config_tab_content():
             'STATION_MAX_PRODUCTS_DISPLAY': ('stations',    50,          'integer'),
 
             # Priorytety i Deadlines
-            'DEADLINE_DEFAULT_DAYS':        ('priorities',  14,          'integer'),
+            'DEADLINE_DEFAULT_DAYS':        ('priorities',  16,          'integer'),
+            'DEADLINE_FINISHED_DAYS':       ('priorities',  21,          'integer'),
             'PRIORITY_RECALC_INTERVAL_HOURS': ('priorities', 24,         'integer'),
             'PRIORITY_ALGORITHM_VERSION':   ('priorities',  '2.0',       'string'),
 
