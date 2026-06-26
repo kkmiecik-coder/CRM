@@ -2977,6 +2977,8 @@ class BaselinkerSyncService:
                 baselinker_order_id,
                 product_data.get('baselinker_product_id')
             )
+        if not detail:
+            detail = self._try_match_via_quote_position(product_data, order_data)
 
         # Cache resolved detail for downstream consumers (np. _enrich_edge_data_from_quote)
         # — unika ponownego dopasowania (PDF fetch / DB lookup) na ten sam produkt.
@@ -3019,72 +3021,13 @@ class BaselinkerSyncService:
                     product_data.get('baselinker_product_id')
                 )
 
+            # Poziom 2.5: pozycyjnie po quote_number + product_index
+            # (fallback gdy baselinker_order_product_id w wycenie jest pusty)
+            if not detail:
+                detail = self._try_match_via_quote_position(product_data, order_data)
+
         if detail:
-            # Pola wizualne — kopiuj ZAWSZE gdy detail znaleziony
-            if detail.shape_svg:
-                product_data['shape_svg'] = detail.shape_svg
-            if detail.shape:
-                product_data['shape'] = detail.shape
-            if detail.lamella_direction is not None:
-                product_data['lamella_direction'] = detail.lamella_direction
-            product_data['quote_item_detail_id'] = detail.id
-
-            # Pola edge'owe — tylko gdy produkt ma obróbkę krawędzi
-            if product_data.get('parsed_edge_processing'):
-                if detail.edges_type:
-                    edge_type_map = {'round': 'zaokrąglenie', 'chamfer': 'fazowanie'}
-                    product_data['parsed_edge_type'] = edge_type_map.get(detail.edges_type, detail.edges_type)
-                if detail.edges_r_value:
-                    product_data['parsed_edge_radius'] = detail.edges_r_value
-                if detail.edges_angle_value:
-                    product_data['parsed_edge_angle'] = detail.edges_angle_value
-                if detail.edges_config:
-                    product_data['parsed_edge_letters'] = [
-                        e.get('letter') for e in detail.edges_config if e.get('letter')
-                    ]
-                # Multi-group: jeśli advanced — zgrupuj edges_config po (type, radius, angle)
-                if detail.edges_mode == 'advanced' and detail.edges_config:
-                    edge_type_map = {'round': 'zaokrąglenie', 'chamfer': 'fazowanie'}
-                    groups_dict = {}
-                    groups_order = []
-                    for entry in detail.edges_config:
-                        if not entry or not entry.get('letter'):
-                            continue
-                        e_type_raw = entry.get('type')
-                        if not e_type_raw:
-                            continue
-                        e_type = edge_type_map.get(e_type_raw, e_type_raw)
-                        e_radius = entry.get('r_value') or entry.get('radius')
-                        e_angle = entry.get('angle_value') or entry.get('angle')
-                        key = (e_type, e_radius, e_angle)
-                        if key not in groups_dict:
-                            groups_dict[key] = {
-                                'type': e_type,
-                                'radius': e_radius,
-                                'angle': e_angle,
-                                'letters': [],
-                            }
-                            groups_order.append(key)
-                        groups_dict[key]['letters'].append(entry['letter'])
-                    if groups_order:
-                        product_data['parsed_edges_groups'] = [groups_dict[k] for k in groups_order]
-                        product_data['parsed_edge_type'] = 'mixed' if len(groups_order) > 1 else groups_dict[groups_order[0]]['type']
-                        if len(groups_order) > 1:
-                            product_data['parsed_edge_radius'] = None
-                            product_data['parsed_edge_angle'] = None
-                elif detail.edges_config:
-                    # Basic mode — pojedyncza grupa wynika z edges_type/r_value/angle_value
-                    if detail.edges_type and detail.edges_r_value:
-                        edge_type_map = {'round': 'zaokrąglenie', 'chamfer': 'fazowanie'}
-                        product_data['parsed_edges_groups'] = [{
-                            'type': edge_type_map.get(detail.edges_type, detail.edges_type),
-                            'radius': detail.edges_r_value,
-                            'angle': detail.edges_angle_value,
-                            'letters': [e.get('letter') for e in detail.edges_config if e.get('letter')],
-                        }]
-                if detail.edges_svg:
-                    product_data['edge_svg'] = detail.edges_svg
-
+            self._apply_quote_detail_to_product_data(product_data, detail)
             logger.info("Wzbogacono dane z QuoteItemDetails",
                        extra={'detail_id': detail.id, 'source': 'quote',
                               'has_shape_svg': bool(detail.shape_svg),
@@ -3093,6 +3036,80 @@ class BaselinkerSyncService:
             # Poziom 3: Generuj SVG z parsera (tylko prostokąty z literkami)
             if product_data.get('parsed_edge_letters'):
                 self._generate_fallback_svg(product_data)
+
+        return product_data
+
+    def _apply_quote_detail_to_product_data(self, product_data, detail):
+        """
+        Kopiuje pola wizualne z QuoteItemDetails do product_data.
+        Pola kształtu/lameli kopiowane ZAWSZE; pola krawędzi tylko gdy produkt
+        ma obróbkę krawędzi (parsed_edge_processing). Wydzielone, by ta sama
+        logika działała w sync i w backfillu historycznych rekordów.
+        """
+        # Pola wizualne — kopiuj ZAWSZE gdy detail znaleziony
+        if detail.shape_svg:
+            product_data['shape_svg'] = detail.shape_svg
+        if detail.shape:
+            product_data['shape'] = detail.shape
+        if detail.lamella_direction is not None:
+            product_data['lamella_direction'] = detail.lamella_direction
+        product_data['quote_item_detail_id'] = detail.id
+
+        # Pola edge'owe — tylko gdy produkt ma obróbkę krawędzi
+        if product_data.get('parsed_edge_processing'):
+            if detail.edges_type:
+                edge_type_map = {'round': 'zaokrąglenie', 'chamfer': 'fazowanie'}
+                product_data['parsed_edge_type'] = edge_type_map.get(detail.edges_type, detail.edges_type)
+            if detail.edges_r_value:
+                product_data['parsed_edge_radius'] = detail.edges_r_value
+            if detail.edges_angle_value:
+                product_data['parsed_edge_angle'] = detail.edges_angle_value
+            if detail.edges_config:
+                product_data['parsed_edge_letters'] = [
+                    e.get('letter') for e in detail.edges_config if e.get('letter')
+                ]
+            # Multi-group: jeśli advanced — zgrupuj edges_config po (type, radius, angle)
+            if detail.edges_mode == 'advanced' and detail.edges_config:
+                edge_type_map = {'round': 'zaokrąglenie', 'chamfer': 'fazowanie'}
+                groups_dict = {}
+                groups_order = []
+                for entry in detail.edges_config:
+                    if not entry or not entry.get('letter'):
+                        continue
+                    e_type_raw = entry.get('type')
+                    if not e_type_raw:
+                        continue
+                    e_type = edge_type_map.get(e_type_raw, e_type_raw)
+                    e_radius = entry.get('r_value') or entry.get('radius')
+                    e_angle = entry.get('angle_value') or entry.get('angle')
+                    key = (e_type, e_radius, e_angle)
+                    if key not in groups_dict:
+                        groups_dict[key] = {
+                            'type': e_type,
+                            'radius': e_radius,
+                            'angle': e_angle,
+                            'letters': [],
+                        }
+                        groups_order.append(key)
+                    groups_dict[key]['letters'].append(entry['letter'])
+                if groups_order:
+                    product_data['parsed_edges_groups'] = [groups_dict[k] for k in groups_order]
+                    product_data['parsed_edge_type'] = 'mixed' if len(groups_order) > 1 else groups_dict[groups_order[0]]['type']
+                    if len(groups_order) > 1:
+                        product_data['parsed_edge_radius'] = None
+                        product_data['parsed_edge_angle'] = None
+            elif detail.edges_config:
+                # Basic mode — pojedyncza grupa wynika z edges_type/r_value/angle_value
+                if detail.edges_type and detail.edges_r_value:
+                    edge_type_map = {'round': 'zaokrąglenie', 'chamfer': 'fazowanie'}
+                    product_data['parsed_edges_groups'] = [{
+                        'type': edge_type_map.get(detail.edges_type, detail.edges_type),
+                        'radius': detail.edges_r_value,
+                        'angle': detail.edges_angle_value,
+                        'letters': [e.get('letter') for e in detail.edges_config if e.get('letter')],
+                    }]
+            if detail.edges_svg:
+                product_data['edge_svg'] = detail.edges_svg
 
         return product_data
 
@@ -3172,6 +3189,55 @@ class BaselinkerSyncService:
 
         except Exception as e:
             logger.warning("Błąd matchowania order_product_id", extra={'error': str(e)})
+
+        return None
+
+    def _try_match_via_quote_position(self, product_data, order_data):
+        """
+        Fallback pozycyjny: dopasowanie detalu wyceny po quote_number + pozycji.
+        Używany gdy PDF i baselinker_order_product_id zawiodą (typowo wycena
+        bez wypełnionego baselinker_order_product_id).
+
+        Bezpieczny tylko przy mapowaniu 1:1 — liczba detali wyceny musi być
+        równa liczbie pozycji w zamówieniu BaseLinker. Dopasowanie po
+        product_index detalu == product_sequence_in_order produktu.
+        """
+        quote_number = product_data.get('quote_number')
+        sequence = product_data.get('product_sequence_in_order')
+        if not quote_number or not sequence:
+            return None
+
+        try:
+            from modules.calculator.models import QuoteItemDetails, Quote
+
+            quote = Quote.query.filter_by(quote_number=quote_number).first()
+            if not quote:
+                return None
+
+            details = QuoteItemDetails.query.filter_by(quote_id=quote.id)\
+                .order_by(QuoteItemDetails.product_index).all()
+            if not details:
+                return None
+
+            # Guard liczności — pozycyjny match tylko gdy 1:1 z pozycjami zamówienia
+            order_products_count = len(order_data.get('products') or [])
+            if order_products_count and order_products_count != len(details):
+                logger.debug("Pomijam match pozycyjny — różna liczba pozycji",
+                             extra={'quote_number': quote_number,
+                                    'order_products': order_products_count,
+                                    'quote_details': len(details)})
+                return None
+
+            for d in details:
+                if d.product_index == sequence:
+                    logger.info("Dopasowano detal wyceny pozycyjnie",
+                                extra={'quote_number': quote_number,
+                                       'product_index': sequence,
+                                       'detail_id': d.id})
+                    return d
+
+        except Exception as e:
+            logger.warning("Błąd matchowania pozycyjnego", extra={'error': str(e)})
 
         return None
 
