@@ -957,6 +957,7 @@ def serialize_order(item, station_code=None):
         'production_notes': item.production_notes,
         'attachments': _build_attachments(item),
         'shape_svg': item.shape_svg,
+        'shape': item.shape,
         'edge_svg': item.edge_svg,
         'has_edge': bool(item.parsed_edge_processing),
         'cut_to_size': bool(getattr(item, 'cut_to_size', True)),

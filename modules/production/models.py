@@ -253,6 +253,7 @@ class ProductionProduct(db.Model):
     parsed_edges_groups = Column(JSON, nullable=True)
     edge_svg = Column(Text)
     shape_svg = Column(Text)
+    shape = Column(String(50), default='rectangular')  # typ kształtu z quotes: rectangular/round/custom
     lamella_direction = Column(Integer)
     quote_item_detail_id = Column(Integer)
 
