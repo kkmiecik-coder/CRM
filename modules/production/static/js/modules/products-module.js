@@ -3760,8 +3760,16 @@ class ProductsModule {
                 const total = product.total_products_in_order || '--';
                 value = `${product.product_sequence_in_order || 1}/${total}`;
             } else if (fieldName === 'shape') {
-                // Tłumaczenie kodu kształtu z quotes na etykietę PL
-                const SHAPE_LABELS = { rectangular: 'Prostokątny', circle: 'Okrągły', custom: 'Niestandardowy' };
+                // Tłumaczenie kodu kształtu z quotes na etykietę PL (zgodnie z kalkulatorem)
+                const SHAPE_LABELS = {
+                    rectangular: 'Prostokątny',
+                    circle: 'Okrągły', round: 'Okrągły', oval: 'Owal',
+                    polygon: 'Wielokąt', parallelogram: 'Równoległobok',
+                    triangle_right: 'Trójkąt', triangle_equilateral: 'Trójkąt',
+                    triangle_isosceles: 'Trójkąt', triangle_custom: 'Trójkąt',
+                    trapezoid_symmetric: 'Trapez', trapezoid_asymmetric: 'Trapez',
+                    trapezoid_custom: 'Trapez', custom: 'Niestandardowy'
+                };
                 value = value ? (SHAPE_LABELS[value] || value) : value;
             } else if (fieldName === 'dimensions_display') {
                 value = this.formatDimensions(product);
