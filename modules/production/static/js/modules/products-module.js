@@ -3759,6 +3759,10 @@ class ProductsModule {
                 // Użyj total_products_in_order jeśli istnieje, inaczej pokaż placeholder
                 const total = product.total_products_in_order || '--';
                 value = `${product.product_sequence_in_order || 1}/${total}`;
+            } else if (fieldName === 'shape') {
+                // Tłumaczenie kodu kształtu z quotes na etykietę PL
+                const SHAPE_LABELS = { rectangular: 'Prostokątny', circle: 'Okrągły', custom: 'Niestandardowy' };
+                value = value ? (SHAPE_LABELS[value] || value) : value;
             } else if (fieldName === 'dimensions_display') {
                 value = this.formatDimensions(product);
             } else if (fieldName === 'baselinker_link') {
