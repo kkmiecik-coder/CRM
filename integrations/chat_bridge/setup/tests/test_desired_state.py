@@ -5,7 +5,7 @@ ds = importlib.import_module("setup.desired_state")
 
 def test_labels_maja_tytul_i_kolor():
     assert {l["title"] for l in ds.LABELS} >= {
-        "wycena", "dostepnosc-termin", "platnosc-faktura",
+        "wycena", "dostępność-termin", "płatność-faktura",
         "transport-dostawa", "reklamacja", "techniczne",
         "nowy-kontakt", "pilne",
     }
@@ -14,7 +14,7 @@ def test_labels_maja_tytul_i_kolor():
 
 
 def test_keywords_pokrywaja_etykiety_tematyczne():
-    for t in ["wycena", "platnosc-faktura", "reklamacja"]:
+    for t in ["wycena", "płatność-faktura", "reklamacja"]:
         assert ds.KEYWORDS[t], "brak slow-kluczy dla %s" % t
 
 

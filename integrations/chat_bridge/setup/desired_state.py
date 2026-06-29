@@ -21,9 +21,9 @@ SOURCE_INBOXES = {
 LABELS = [
     # tematyczne
     {"title": "wycena", "color": "#1f9d55"},
-    {"title": "status-zamowienia", "color": "#6cb2eb"},
-    {"title": "dostepnosc-termin", "color": "#3490dc"},
-    {"title": "platnosc-faktura", "color": "#9561e2"},
+    {"title": "status-zamówienia", "color": "#6cb2eb"},
+    {"title": "dostępność-termin", "color": "#3490dc"},
+    {"title": "płatność-faktura", "color": "#9561e2"},
     {"title": "transport-dostawa", "color": "#f6993f"},
     {"title": "reklamacja", "color": "#e3342f"},
     {"title": "techniczne", "color": "#8795a1"},
@@ -39,11 +39,11 @@ LABELS = [
 # --- Slowa-klucze (contains, bez ogonkow odmiany) ---
 KEYWORDS = {
     "wycena": ["wycen", "ile kosztuje", "cena", "koszt", "oferta", "zapytanie"],
-    "status-zamowienia": ["status zamowien", "gdzie zamowien", "gdzie jest moje", "numer zamowien",
+    "status-zamówienia": ["status zamowien", "gdzie zamowien", "gdzie jest moje", "numer zamowien",
                           "sledzen", "list przewozow", "numer przesylk", "kiedy dotrze",
                           "co z zamowieniem", "czy wyslal", "czy nadal"],
-    "dostepnosc-termin": ["dostepn", "termin", "kiedy", "na kiedy", "czas realizacji", "ile czeka"],
-    "platnosc-faktura": ["faktur", "platnos", "przelew", "zaplat", "proform", "paragon", "vat"],
+    "dostępność-termin": ["dostepn", "termin", "kiedy", "na kiedy", "czas realizacji", "ile czeka"],
+    "płatność-faktura": ["faktur", "platnos", "przelew", "zaplat", "proform", "paragon", "vat"],
     "transport-dostawa": ["transport", "dostaw", "wysylk", "kurier", "paczk", "odbior"],
     "reklamacja": ["reklamac", "uszkodz", "wadliw", "zwrot", "niezgodn", "skarg"],
     "techniczne": ["wymiar", "material", "grubosc", "kolor", "rozmiar", "wzor", "jak zamontow"],
@@ -151,7 +151,7 @@ FOLDERS = [
         {"attribute_key": "labels", "filter_operator": "equal_to", "values": ["pilne"], "query_operator": "and"},
         {"attribute_key": "status", "filter_operator": "equal_to", "values": ["open"], "query_operator": None},
     ]},
-    {"name": "Zalegle", "query": [
+    {"name": "Zaległe", "query": [
         {"attribute_key": "status", "filter_operator": "equal_to", "values": ["open"], "query_operator": "and"},
         {"attribute_key": "last_activity_at", "filter_operator": "days_before", "values": [1], "query_operator": None},
     ]},
