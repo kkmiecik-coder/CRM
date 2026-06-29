@@ -154,6 +154,18 @@ def new_contact_rule_payload():
 # nie wolno auto-odpowiadac. OLX=3, Allegro wiadomosci=4, Allegro dyskusje=6.
 AUTORESPONDER_INBOXES = [3, 4, 6]
 
+# Jeden komunikat na kazda nowa rozmowe OLX/Allegro (decyzja: bez osobnego OOO -
+# tekst sam wspomina godziny pracy). Wysylany dopiero po wlaczeniu reguly.
+GREETING_TEXT = (
+    "Witamy,\n\n"
+    "Dziękujemy za kontakt! Otrzymaliśmy Twoją wiadomość i odpowiemy na nią "
+    "najszybciej, jak to możliwe. Nasze Biuro Obsługi Klienta pracuje w godzinach "
+    "8:00 - 16:00 od poniedziałku do piątku.\n\n"
+    "Pozdrawiamy\n"
+    "Zespół WoodPower\n"
+    "[Wiadomość wysłana automatycznie]"
+)
+
 
 def greeting_rule_payload(text):
     # Auto-powitanie: NIEAKTYWNE do czasu przepiecia z Responso; tylko OLX/Allegro.

@@ -21,24 +21,19 @@ Settings → Inboxes → (każdy inbox) → Collaborators:
 Jeśli custom_filters nie wspiera „assignee = ja" — utwórz ręcznie filtr:
 Status: Open + Assignee: (zalogowany agent), zapisz jako widok „Moje otwarte".
 
-### 3. Godziny pracy + komunikat poza godzinami (NA RAZIE WYŁĄCZONE)
-⚠️ TYLKO inboxy OLX (3) i Allegro (4, 6). **NIGDY na skrzynkach mailowych** —
-na pocztę trafiają maile wewnętrzne (pracownik↔pracownik), którym nie wolno
-auto-odpowiadać.
-Settings → Inboxes → OLX / Allegro → Business Hours:
-- Pn–Pt 08:00–16:00, strefa Europe/Warsaw
-- wklej tekst OOO (szablon z Responso)
-- **Enabled: NIE** (włączyć dopiero po przepięciu z Responso)
+### 3. Auto-powitanie (NA RAZIE WYŁĄCZONE)
+Decyzja: JEDEN komunikat (msg1) na każdą nową rozmowę OLX/Allegro — bez
+osobnego "poza godzinami" (tekst msg1 sam wspomina godziny 8–16). Realizacja:
+reguła "Auto: powitanie (wylaczone)" (event conversation_created, inbox 3/4/6,
+send_message). Business Hours/OOO NIE używamy.
+⚠️ Reguła ograniczona do OLX/Allegro — **nigdy poczta** (maile wewnętrzne).
 
 ### 4. Tekst powitania
-Settings → Automation → „Auto: powitanie (wylaczone)" → podmień
-`[[SZABLON_POWITALNY]]` na finalny tekst z Responso. Zostaw regułę wyłączoną.
+Tekst (msg1) jest już wpisany w regule (stała `GREETING_TEXT` w desired_state.py).
+Nic nie trzeba wklejać.
 
-## Po przepięciu z Responso — WŁĄCZENIE auto-responderów (TYLKO OLX/Allegro)
-1. Settings → Automation → „Auto: powitanie (wylaczone)" → podmień
-   `[[SZABLON_POWITALNY]]` na finalny tekst → Toggle ON. (Reguła już ograniczona
-   do inboxów 3/4/6 — poczty nie dotknie.)
-2. Settings → Inboxes → OLX / Allegro → Business Hours → Enabled ON.
-   **Skrzynek mailowych NIE włączać.**
-3. Test: napisz z zewnątrz na OLX/Allegro w godzinach pracy (ma przyjść
-   powitanie) i poza godzinami (ma przyjść OOO).
+## Po przepięciu z Responso — WŁĄCZENIE auto-powitania (TYLKO OLX/Allegro)
+1. Settings → Automation → „Auto: powitanie (wylaczone)" → Toggle ON.
+   (Reguła ograniczona do inboxów 3/4/6 — poczty nie dotknie. Można też zmienić
+   nazwę na „Auto: powitanie".)
+2. Test: napisz z zewnątrz na OLX/Allegro — ma przyjść powitanie (msg1).
