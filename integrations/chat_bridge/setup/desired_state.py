@@ -34,10 +34,19 @@ LABELS = [
     # segment klienta (b2b juz istnieje na koncie; tworzenie pominie dedup)
     {"title": "b2b", "color": "#2779bd"},
     {"title": "b2c", "color": "#bf9000"},
+    {"title": "wewnetrzny", "color": "#606f7b"},
     # pomocnicze
     {"title": "nowy-kontakt", "color": "#38c172"},
     {"title": "pilne", "color": "#e3342f"},
 ]
+
+# Domeny wewnetrzne (grupa) - maile od nich to korespondencja pracownicza,
+# NIE klienci: oznaczamy 'wewnetrzny' i zdejmujemy wszystkie auto-etykiety.
+INTERNAL_DOMAINS = ["@woodpower.pl", "@office360circus.pl", "@360circus.pl", "@rsholding.com.pl"]
+
+# Etykiety tematyczne (do zdjecia z maili wewnetrznych).
+TOPIC_LABELS = ["wycena", "status-zamówienia", "dostępność-termin", "płatność-faktura",
+                "transport-dostawa", "reklamacja", "techniczne"]
 
 # Frazy sygnalizujace klienta biznesowego (B2B). 'nip' zapisane z kontekstem,
 # zeby nie lapac przypadkowych slow zawierajacych "nip".
@@ -64,15 +73,15 @@ def label_payload(label):
     return {"title": label["title"], "color": label["color"], "show_on_sidebar": True}
 
 
-def _contains_conditions(keywords):
-    # Lista warunkow "content contains X" laczona operatorem OR.
+def _contains_conditions(values, attribute="content"):
+    # Lista warunkow "<attribute> contains X" laczona operatorem OR.
     conds = []
-    for i, kw in enumerate(keywords):
+    for i, v in enumerate(values):
         conds.append({
-            "attribute_key": "content",
+            "attribute_key": attribute,
             "filter_operator": "contains",
-            "values": [kw],
-            "query_operator": "or" if i < len(keywords) - 1 else None,
+            "values": [v],
+            "query_operator": "or" if i < len(values) - 1 else None,
             "custom_attribute_type": "",
         })
     return conds
@@ -175,6 +184,22 @@ def b2b_detect_rule_payload(keywords):
     }
 
 
+def internal_rule_payload(domains, topic_labels):
+    # Mail od nadawcy z domeny grupowej: oznacz 'wewnetrzny' i zdejmij wszystkie
+    # auto-etykiety (b2c/b2b/nowy-kontakt + tematyczne). Tworzona jako ostatnia
+    # regula message_created, wiec sprzata po regulach tagujacych.
+    removed = ["b2c", "b2b", "nowy-kontakt"] + list(topic_labels)
+    actions = [{"action_name": "add_label", "action_params": ["wewnetrzny"]}]
+    actions += [{"action_name": "remove_label", "action_params": [lbl]} for lbl in removed]
+    return {
+        "name": "Segment: wykryto wewnetrzny (grupa)",
+        "event_name": "message_created",
+        "active": True,
+        "conditions": _contains_conditions(domains, attribute="email"),
+        "actions": actions,
+    }
+
+
 def folder_payload(name, query_payload):
     return {
         "name": name,
@@ -200,5 +225,8 @@ FOLDERS = [
     {"name": "⚠️ Zaległe", "query": [
         {"attribute_key": "status", "filter_operator": "equal_to", "values": ["open"], "query_operator": "and"},
         {"attribute_key": "last_activity_at", "filter_operator": "days_before", "values": [1], "query_operator": None},
+    ]},
+    {"name": "🏢 Wewnętrzne", "query": [
+        {"attribute_key": "labels", "filter_operator": "equal_to", "values": ["wewnetrzny"], "query_operator": None},
     ]},
 ]

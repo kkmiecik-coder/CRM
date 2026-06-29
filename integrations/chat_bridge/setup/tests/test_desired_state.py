@@ -74,6 +74,19 @@ def test_b2b_detect_dodaje_b2b_i_usuwa_b2c():
     assert "regon" in str(p["conditions"])
 
 
+def test_internal_rule_oznacza_i_zdejmuje_wszystko():
+    p = ds.internal_rule_payload(ds.INTERNAL_DOMAINS, ds.TOPIC_LABELS)
+    assert p["event_name"] == "message_created"
+    # warunek po email z domenami
+    assert p["conditions"][0]["attribute_key"] == "email"
+    assert "@woodpower.pl" in str(p["conditions"])
+    adds = [a["action_params"][0] for a in p["actions"] if a["action_name"] == "add_label"]
+    rems = [a["action_params"][0] for a in p["actions"] if a["action_name"] == "remove_label"]
+    assert adds == ["wewnetrzny"]
+    assert {"b2c", "b2b", "nowy-kontakt"}.issubset(set(rems))
+    assert set(ds.TOPIC_LABELS).issubset(set(rems))
+
+
 def test_folder_payload_ma_typ_conversation():
     p = ds.folder_payload("Pilne", [{"attribute_key": "labels"}])
     assert p["name"] == "Pilne"
