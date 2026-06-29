@@ -10,8 +10,12 @@ from setup.cw_admin import CwAdmin, to_create
 
 
 def _names(resp, key):
+    # Niektore endpointy zwracaja {"payload": [...]}, a custom_filters - gola liste.
     try:
-        return {x.get(key) for x in resp.json().get("payload", [])}
+        data = resp.json()
+        if isinstance(data, dict):
+            data = data.get("payload", [])
+        return {x.get(key) for x in data}
     except Exception:
         return set()
 

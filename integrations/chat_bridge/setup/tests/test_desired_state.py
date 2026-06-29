@@ -36,10 +36,12 @@ def test_topic_rule_dodaje_etykiete_i_zawiera_slowa():
 
 
 def test_source_rule_wiaze_inbox_i_etykiete():
-    p = ds.source_rule_payload("olx", 3)
+    p = ds.source_rule_payload("allegro", [4, 6])
     assert p["event_name"] == "conversation_created"
-    assert any(c.get("attribute_key") == "inbox_id" and 3 in c["values"] for c in p["conditions"])
-    assert any(a["action_name"] == "add_label" and "olx" in a["action_params"] for a in p["actions"])
+    cond = p["conditions"][0]
+    assert cond["attribute_key"] == "inbox_id"
+    assert cond["values"] == [4, 6]
+    assert any(a["action_name"] == "add_label" and "allegro" in a["action_params"] for a in p["actions"])
 
 
 def test_greeting_rule_jest_nieaktywna():

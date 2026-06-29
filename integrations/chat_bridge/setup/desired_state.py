@@ -8,21 +8,30 @@
 # custom_filters: type / query.payload                 -> potwierdzone: TAK/NIE
 import os
 
-# Inbox IDs potwierdzone rekonesansem (Task 1). Domyslne wartosci z konfiguracji
-# mostka; uzupelnic realnymi po Task 1 (zwlaszcza OLX, ktory nie ma stalej w configu).
+# Inbox IDs potwierdzone rekonesansem (account 2, Chatwoot 4.12.1).
+# Etykieta zrodlowa -> lista inboxow danego kanalu (allegro = wiadomosci 4 + dyskusje 6).
 SOURCE_INBOXES = {
-    "olx": int(os.environ.get("CHATWOOT_OLX_INBOX_ID", "3")),
-    "allegro": int(os.environ.get("CHATWOOT_ALLEGRO_MSG_INBOX_ID", "4")),
+    "olx": [3],
+    "allegro": [4, 6],
+    "chat-live": [5],
 }
 
 # --- Etykiety ---
+# Tematyczne (auto z tresci) + zrodlowe (auto z inboxa) + pomocnicze.
 LABELS = [
+    # tematyczne
     {"title": "wycena", "color": "#1f9d55"},
+    {"title": "status-zamowienia", "color": "#6cb2eb"},
     {"title": "dostepnosc-termin", "color": "#3490dc"},
     {"title": "platnosc-faktura", "color": "#9561e2"},
     {"title": "transport-dostawa", "color": "#f6993f"},
     {"title": "reklamacja", "color": "#e3342f"},
     {"title": "techniczne", "color": "#8795a1"},
+    # zrodlowe (kanaly zbiorcze)
+    {"title": "olx", "color": "#2d9b5a"},
+    {"title": "allegro", "color": "#ff5a00"},
+    {"title": "chat-live", "color": "#4dc0b5"},
+    # pomocnicze
     {"title": "nowy-kontakt", "color": "#38c172"},
     {"title": "pilne", "color": "#e3342f"},
 ]
@@ -30,6 +39,9 @@ LABELS = [
 # --- Slowa-klucze (contains, bez ogonkow odmiany) ---
 KEYWORDS = {
     "wycena": ["wycen", "ile kosztuje", "cena", "koszt", "oferta", "zapytanie"],
+    "status-zamowienia": ["status zamowien", "gdzie zamowien", "gdzie jest moje", "numer zamowien",
+                          "sledzen", "list przewozow", "numer przesylk", "kiedy dotrze",
+                          "co z zamowieniem", "czy wyslal", "czy nadal"],
     "dostepnosc-termin": ["dostepn", "termin", "kiedy", "na kiedy", "czas realizacji", "ile czeka"],
     "platnosc-faktura": ["faktur", "platnos", "przelew", "zaplat", "proform", "paragon", "vat"],
     "transport-dostawa": ["transport", "dostaw", "wysylk", "kurier", "paczk", "odbior"],
@@ -52,6 +64,7 @@ def _contains_conditions(keywords):
             "filter_operator": "contains",
             "values": [kw],
             "query_operator": "or" if i < len(keywords) - 1 else None,
+            "custom_attribute_type": "",
         })
     return conds
 
@@ -66,7 +79,8 @@ def topic_rule_payload(label, keywords):
     }
 
 
-def source_rule_payload(label, inbox_id):
+def source_rule_payload(label, inbox_ids):
+    # inbox_ids: lista ID inboxow danego kanalu (np. allegro = [4, 6]).
     return {
         "name": "Zrodlo: %s" % label,
         "event_name": "conversation_created",
@@ -74,8 +88,9 @@ def source_rule_payload(label, inbox_id):
         "conditions": [{
             "attribute_key": "inbox_id",
             "filter_operator": "equal_to",
-            "values": [inbox_id],
+            "values": list(inbox_ids),
             "query_operator": None,
+            "custom_attribute_type": "",
         }],
         "actions": [{"action_name": "add_label", "action_params": [label]}],
     }
@@ -91,6 +106,7 @@ def new_contact_rule_payload():
             "filter_operator": "equal_to",
             "values": ["open"],
             "query_operator": None,
+            "custom_attribute_type": "",
         }],
         "actions": [{"action_name": "add_label", "action_params": ["nowy-kontakt"]}],
     }
@@ -107,6 +123,7 @@ def greeting_rule_payload(text):
             "filter_operator": "equal_to",
             "values": ["open"],
             "query_operator": None,
+            "custom_attribute_type": "",
         }],
         "actions": [{"action_name": "send_message", "action_params": [text]}],
     }
