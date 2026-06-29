@@ -31,10 +31,19 @@ LABELS = [
     {"title": "olx", "color": "#2d9b5a"},
     {"title": "allegro", "color": "#ff5a00"},
     {"title": "chat-live", "color": "#4dc0b5"},
+    # segment klienta (b2b juz istnieje na koncie; tworzenie pominie dedup)
+    {"title": "b2b", "color": "#2779bd"},
+    {"title": "b2c", "color": "#bf9000"},
     # pomocnicze
     {"title": "nowy-kontakt", "color": "#38c172"},
     {"title": "pilne", "color": "#e3342f"},
 ]
+
+# Frazy sygnalizujace klienta biznesowego (B2B). 'nip' zapisane z kontekstem,
+# zeby nie lapac przypadkowych slow zawierajacych "nip".
+B2B_KEYWORDS = ["numer nip", "nr nip", "nip:", " nip ", "faktura na firm", "fakture na firm",
+                "na firmę", "na firme", "regon", "hurt", "wspolprac", "współprac",
+                "dla firmy", "zakup na firm", "b2b"]
 
 # --- Slowa-klucze (contains, bez ogonkow odmiany) ---
 KEYWORDS = {
@@ -126,6 +135,37 @@ def greeting_rule_payload(text):
             "custom_attribute_type": "",
         }],
         "actions": [{"action_name": "send_message", "action_params": [text]}],
+    }
+
+
+def b2c_default_rule_payload():
+    # Domyslnie kazda nowa rozmowa = b2c (konsument). B2B nadpisze regula ponizej.
+    return {
+        "name": "Segment: domyslnie b2c",
+        "event_name": "conversation_created",
+        "active": True,
+        "conditions": [{
+            "attribute_key": "status",
+            "filter_operator": "equal_to",
+            "values": ["open"],
+            "query_operator": None,
+            "custom_attribute_type": "",
+        }],
+        "actions": [{"action_name": "add_label", "action_params": ["b2c"]}],
+    }
+
+
+def b2b_detect_rule_payload(keywords):
+    # Gdy w tresci pojawi sie fraza biznesowa: dodaj b2b i zdejmij b2c.
+    return {
+        "name": "Segment: wykryto b2b (zamiana z b2c)",
+        "event_name": "message_created",
+        "active": True,
+        "conditions": _contains_conditions(keywords),
+        "actions": [
+            {"action_name": "add_label", "action_params": ["b2b"]},
+            {"action_name": "remove_label", "action_params": ["b2c"]},
+        ],
     }
 
 

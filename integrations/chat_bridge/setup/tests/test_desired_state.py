@@ -51,6 +51,21 @@ def test_greeting_rule_jest_nieaktywna():
     assert any(a["action_name"] == "send_message" for a in p["actions"])
 
 
+def test_b2c_default_dodaje_b2c():
+    p = ds.b2c_default_rule_payload()
+    assert p["event_name"] == "conversation_created"
+    assert any(a["action_name"] == "add_label" and "b2c" in a["action_params"] for a in p["actions"])
+
+
+def test_b2b_detect_dodaje_b2b_i_usuwa_b2c():
+    p = ds.b2b_detect_rule_payload(ds.B2B_KEYWORDS)
+    assert p["event_name"] == "message_created"
+    acts = {a["action_name"]: a["action_params"] for a in p["actions"]}
+    assert "b2b" in acts["add_label"]
+    assert "b2c" in acts["remove_label"]
+    assert "regon" in str(p["conditions"])
+
+
 def test_folder_payload_ma_typ_conversation():
     p = ds.folder_payload("Pilne", [{"attribute_key": "labels"}])
     assert p["name"] == "Pilne"

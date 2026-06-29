@@ -39,6 +39,8 @@ def build_plan(client):
     for label, inbox_id in ds.SOURCE_INBOXES.items():
         desired_rules.append(ds.source_rule_payload(label, inbox_id))
     desired_rules.append(ds.new_contact_rule_payload())
+    desired_rules.append(ds.b2c_default_rule_payload())
+    desired_rules.append(ds.b2b_detect_rule_payload(ds.B2B_KEYWORDS))
     desired_rules.append(ds.greeting_rule_payload("[[SZABLON_POWITALNY]]"))
     rules = to_create(have_rules, desired_rules, "name")
 
