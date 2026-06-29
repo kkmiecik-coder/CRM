@@ -140,18 +140,18 @@ def folder_payload(name, query_payload):
 # --- Foldery (custom_filters) ---
 # Operatory/atrybuty potwierdzic rekonesansem; ponizej typowy Chatwoot.
 FOLDERS = [
-    {"name": "Nieodebrane", "query": [
+    {"name": "🔴 Nieodebrane", "query": [
         {"attribute_key": "status", "filter_operator": "equal_to", "values": ["open"], "query_operator": "and"},
         {"attribute_key": "assignee_id", "filter_operator": "is_not_present", "values": [], "query_operator": None},
     ]},
-    {"name": "Czeka na klienta", "query": [
+    {"name": "⏳ Czeka na klienta", "query": [
         {"attribute_key": "status", "filter_operator": "equal_to", "values": ["pending"], "query_operator": None},
     ]},
-    {"name": "Pilne", "query": [
+    {"name": "🔥 Pilne", "query": [
         {"attribute_key": "labels", "filter_operator": "equal_to", "values": ["pilne"], "query_operator": "and"},
         {"attribute_key": "status", "filter_operator": "equal_to", "values": ["open"], "query_operator": None},
     ]},
-    {"name": "Zaległe", "query": [
+    {"name": "⚠️ Zaległe", "query": [
         {"attribute_key": "status", "filter_operator": "equal_to", "values": ["open"], "query_operator": "and"},
         {"attribute_key": "last_activity_at", "filter_operator": "days_before", "values": [1], "query_operator": None},
     ]},
