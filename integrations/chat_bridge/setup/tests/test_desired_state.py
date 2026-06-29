@@ -74,17 +74,23 @@ def test_b2b_detect_dodaje_b2b_i_usuwa_b2c():
     assert "regon" in str(p["conditions"])
 
 
-def test_internal_rule_oznacza_i_zdejmuje_wszystko():
-    p = ds.internal_rule_payload(ds.INTERNAL_DOMAINS, ds.TOPIC_LABELS)
+def test_internal_rule_tylko_dodaje_wewnetrzny():
+    p = ds.internal_rule_payload(ds.INTERNAL_DOMAINS)
     assert p["event_name"] == "message_created"
-    # warunek po email z domenami
     assert p["conditions"][0]["attribute_key"] == "email"
     assert "@woodpower.pl" in str(p["conditions"])
-    adds = [a["action_params"][0] for a in p["actions"] if a["action_name"] == "add_label"]
-    rems = [a["action_params"][0] for a in p["actions"] if a["action_name"] == "remove_label"]
-    assert adds == ["wewnetrzny"]
-    assert {"b2c", "b2b", "nowy-kontakt"}.issubset(set(rems))
-    assert set(ds.TOPIC_LABELS).issubset(set(rems))
+    # zadnych remove_label - tylko dodanie etykiety wewnetrzny
+    assert [a["action_name"] for a in p["actions"]] == ["add_label"]
+    assert p["actions"][0]["action_params"] == ["wewnetrzny"]
+
+
+def test_reguly_klienckie_wykluczaja_domeny_wewnetrzne():
+    # b2c, nowy-kontakt i tematyczne maja warunek "email does_not_contain domena".
+    for p in [ds.b2c_default_rule_payload(), ds.new_contact_rule_payload(),
+              ds.topic_rule_payload("wycena", ds.KEYWORDS["wycena"])]:
+        emails = [c for c in p["conditions"] if c["attribute_key"] == "email"]
+        assert len(emails) == len(ds.INTERNAL_DOMAINS)
+        assert all(c["filter_operator"] == "does_not_contain" for c in emails)
 
 
 def test_folder_payload_ma_typ_conversation():

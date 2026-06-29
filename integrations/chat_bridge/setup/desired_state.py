@@ -73,6 +73,25 @@ def label_payload(label):
     return {"title": label["title"], "color": label["color"], "show_on_sidebar": True}
 
 
+def _exclude_internal(conditions):
+    # Doklej warunki "email NIE zawiera domeny grupowej" (AND) do listy warunkow.
+    # Dzieki temu reguly klienckie NIE odpalaja sie dla poczty wewnetrznej -
+    # deterministycznie, bez usuwania etykiet po fakcie. Chatwoot sklada warunki
+    # lewostronnie: (kw1 OR kw2 ... ) AND not_dom1 AND not_dom2 ...
+    if conditions:
+        conditions[-1] = dict(conditions[-1], query_operator="and")
+    tail = []
+    for i, dom in enumerate(INTERNAL_DOMAINS):
+        tail.append({
+            "attribute_key": "email",
+            "filter_operator": "does_not_contain",
+            "values": [dom],
+            "query_operator": "and" if i < len(INTERNAL_DOMAINS) - 1 else None,
+            "custom_attribute_type": "",
+        })
+    return conditions + tail
+
+
 def _contains_conditions(values, attribute="content"):
     # Lista warunkow "<attribute> contains X" laczona operatorem OR.
     conds = []
@@ -92,7 +111,7 @@ def topic_rule_payload(label, keywords):
         "name": "Tag: %s" % label,
         "event_name": "message_created",
         "active": True,
-        "conditions": _contains_conditions(keywords),
+        "conditions": _exclude_internal(_contains_conditions(keywords)),
         "actions": [{"action_name": "add_label", "action_params": [label]}],
     }
 
@@ -119,13 +138,13 @@ def new_contact_rule_payload():
         "name": "Tag: nowy-kontakt",
         "event_name": "conversation_created",
         "active": True,
-        "conditions": [{
+        "conditions": _exclude_internal([{
             "attribute_key": "status",
             "filter_operator": "equal_to",
             "values": ["open"],
             "query_operator": None,
             "custom_attribute_type": "",
-        }],
+        }]),
         "actions": [{"action_name": "add_label", "action_params": ["nowy-kontakt"]}],
     }
 
@@ -159,13 +178,13 @@ def b2c_default_rule_payload():
         "name": "Segment: domyslnie b2c",
         "event_name": "conversation_created",
         "active": True,
-        "conditions": [{
+        "conditions": _exclude_internal([{
             "attribute_key": "status",
             "filter_operator": "equal_to",
             "values": ["open"],
             "query_operator": None,
             "custom_attribute_type": "",
-        }],
+        }]),
         "actions": [{"action_name": "add_label", "action_params": ["b2c"]}],
     }
 
@@ -176,7 +195,7 @@ def b2b_detect_rule_payload(keywords):
         "name": "Segment: wykryto b2b (zamiana z b2c)",
         "event_name": "message_created",
         "active": True,
-        "conditions": _contains_conditions(keywords),
+        "conditions": _exclude_internal(_contains_conditions(keywords)),
         "actions": [
             {"action_name": "add_label", "action_params": ["b2b"]},
             {"action_name": "remove_label", "action_params": ["b2c"]},
@@ -184,19 +203,16 @@ def b2b_detect_rule_payload(keywords):
     }
 
 
-def internal_rule_payload(domains, topic_labels):
-    # Mail od nadawcy z domeny grupowej: oznacz 'wewnetrzny' i zdejmij wszystkie
-    # auto-etykiety (b2c/b2b/nowy-kontakt + tematyczne). Tworzona jako ostatnia
-    # regula message_created, wiec sprzata po regulach tagujacych.
-    removed = ["b2c", "b2b", "nowy-kontakt"] + list(topic_labels)
-    actions = [{"action_name": "add_label", "action_params": ["wewnetrzny"]}]
-    actions += [{"action_name": "remove_label", "action_params": [lbl]} for lbl in removed]
+def internal_rule_payload(domains):
+    # Mail od nadawcy z domeny grupowej: oznacz 'wewnetrzny'. TYLKO dodanie -
+    # reguly klienckie (b2c/nowy-kontakt/tematyczne) maja juz wykluczenie tych
+    # domen, wiec nie ma czego usuwac (i nie ma wyscigu nadpisujacego etykiety).
     return {
         "name": "Segment: wykryto wewnetrzny (grupa)",
         "event_name": "message_created",
         "active": True,
         "conditions": _contains_conditions(domains, attribute="email"),
-        "actions": actions,
+        "actions": [{"action_name": "add_label", "action_params": ["wewnetrzny"]}],
     }
 
 
