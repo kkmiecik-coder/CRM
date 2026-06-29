@@ -249,3 +249,6 @@ docs/superpowers/
 
 # Factory firmware backups (binary, not source-controlled)
 tools/production-monitor/backups/
+
+# Sekrety mostka Chatwoot — nigdy w repo
+integrations/chat_bridge/bridge.env
