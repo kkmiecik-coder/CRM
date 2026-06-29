@@ -22,7 +22,10 @@ Jeśli custom_filters nie wspiera „assignee = ja" — utwórz ręcznie filtr:
 Status: Open + Assignee: (zalogowany agent), zapisz jako widok „Moje otwarte".
 
 ### 3. Godziny pracy + komunikat poza godzinami (NA RAZIE WYŁĄCZONE)
-Settings → Inboxes → (inbox) → Business Hours:
+⚠️ TYLKO inboxy OLX (3) i Allegro (4, 6). **NIGDY na skrzynkach mailowych** —
+na pocztę trafiają maile wewnętrzne (pracownik↔pracownik), którym nie wolno
+auto-odpowiadać.
+Settings → Inboxes → OLX / Allegro → Business Hours:
 - Pn–Pt 08:00–16:00, strefa Europe/Warsaw
 - wklej tekst OOO (szablon z Responso)
 - **Enabled: NIE** (włączyć dopiero po przepięciu z Responso)
@@ -31,8 +34,11 @@ Settings → Inboxes → (inbox) → Business Hours:
 Settings → Automation → „Auto: powitanie (wylaczone)" → podmień
 `[[SZABLON_POWITALNY]]` na finalny tekst z Responso. Zostaw regułę wyłączoną.
 
-## Po przepięciu z Responso — WŁĄCZENIE auto-responderów
-1. Settings → Automation → „Auto: powitanie (wylaczone)" → Toggle ON.
-2. Settings → Inboxes → (każdy inbox) → Business Hours → Enabled ON.
-3. Test: napisz z zewnątrz w godzinach pracy (ma przyjść powitanie)
-   i poza godzinami (ma przyjść OOO).
+## Po przepięciu z Responso — WŁĄCZENIE auto-responderów (TYLKO OLX/Allegro)
+1. Settings → Automation → „Auto: powitanie (wylaczone)" → podmień
+   `[[SZABLON_POWITALNY]]` na finalny tekst → Toggle ON. (Reguła już ograniczona
+   do inboxów 3/4/6 — poczty nie dotknie.)
+2. Settings → Inboxes → OLX / Allegro → Business Hours → Enabled ON.
+   **Skrzynek mailowych NIE włączać.**
+3. Test: napisz z zewnątrz na OLX/Allegro w godzinach pracy (ma przyjść
+   powitanie) i poza godzinami (ma przyjść OOO).

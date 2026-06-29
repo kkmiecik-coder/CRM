@@ -51,6 +51,14 @@ def test_greeting_rule_jest_nieaktywna():
     assert any(a["action_name"] == "send_message" for a in p["actions"])
 
 
+def test_greeting_rule_tylko_olx_allegro():
+    # Autoresponder NIE moze dzialac na poczcie (maile wewnetrzne).
+    p = ds.greeting_rule_payload("Dzien dobry!")
+    cond = p["conditions"][0]
+    assert cond["attribute_key"] == "inbox_id"
+    assert set(cond["values"]) == {3, 4, 6}
+
+
 def test_b2c_default_dodaje_b2c():
     p = ds.b2c_default_rule_payload()
     assert p["event_name"] == "conversation_created"

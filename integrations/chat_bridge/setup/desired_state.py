@@ -121,16 +121,22 @@ def new_contact_rule_payload():
     }
 
 
+# Auto-powitanie WYLACZNIE dla kanalow OLX + Allegro (NIGDY mail/czat) -
+# na poczcie traffiaja tez maile wewnetrzne pracownik<->pracownik, ktorym
+# nie wolno auto-odpowiadac. OLX=3, Allegro wiadomosci=4, Allegro dyskusje=6.
+AUTORESPONDER_INBOXES = [3, 4, 6]
+
+
 def greeting_rule_payload(text):
-    # Auto-powitanie: NIEAKTYWNE do czasu przepiecia z Responso.
+    # Auto-powitanie: NIEAKTYWNE do czasu przepiecia z Responso; tylko OLX/Allegro.
     return {
         "name": "Auto: powitanie (wylaczone)",
         "event_name": "conversation_created",
         "active": False,
         "conditions": [{
-            "attribute_key": "status",
+            "attribute_key": "inbox_id",
             "filter_operator": "equal_to",
-            "values": ["open"],
+            "values": list(AUTORESPONDER_INBOXES),
             "query_operator": None,
             "custom_attribute_type": "",
         }],
