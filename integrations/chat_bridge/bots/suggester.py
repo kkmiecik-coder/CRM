@@ -25,6 +25,10 @@ def run_suggestion(conv_id, inbox_id, message_id, content):
     messages = [{"role": "system", "content": system}]
     messages += [{"role": m["role"], "content": m["text"]} for m in history]
 
+    # Fallback: gdy historia jest pusta, ale wiadomosc triggerujaca jest znana — dodaj turn klienta.
+    if not history and (content or "").strip():
+        messages.append({"role": "user", "content": content})
+
     reply = chat(messages)
     if not reply:
         raise RuntimeError("AI: brak odpowiedzi modelu")

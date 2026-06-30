@@ -42,3 +42,24 @@ def test_inbox_bez_bota_rzuca(monkeypatch):
     _patch(monkeypatch, "cokolwiek")
     with pytest.raises(Exception):
         sug.run_suggestion(10, "999", "m1", "hej")
+
+
+def test_pusta_historia_dodaje_turn_uzytkownika(monkeypatch):
+    # Gdy historia CW jest pusta, wiadomosc triggerujaca musi trafic do modelu jako turn "user".
+    monkeypatch.setattr(sug, "cw_messages", lambda cid, limit=12: [])
+    monkeypatch.setattr(sug, "cw_contact", lambda cid: {"name": "Anonim", "identifier": "olx-2"})
+    monkeypatch.setattr(sug, "retrieve", lambda q, k=None: [])
+    captured = {}
+    def fake_chat(messages, **kw):
+        captured["messages"] = messages
+        return "Odpowiedz bota"
+    monkeypatch.setattr(sug, "chat", fake_chat)
+    notes = []
+    monkeypatch.setattr(sug, "cw_note", lambda cid, text, *a, **kw: notes.append((cid, text)))
+    sug.run_suggestion(20, "3", "m2", "Ile trwa realizacja?")
+    # Notatka musi zostac opublikowana
+    assert len(notes) == 1
+    # W liscie wiadomosci do modelu musi byc co najmniej jeden turn "user"
+    user_turns = [m for m in captured.get("messages", []) if m.get("role") == "user"]
+    assert user_turns, "Model nie dostal zadnego turnu uzytkownika przy pustej historii"
+    assert "Ile trwa realizacja?" in user_turns[-1]["content"]

@@ -61,19 +61,22 @@ def sync_index():
 
     c = db()
     existing = {r["hash"] for r in c.execute("SELECT hash FROM kb_chunks").fetchall()}
-    # Usun chunki, ktorych juz nie ma w zrodle (artykul zmieniony/usuniety).
     to_delete = [h for h in existing if h not in wanted_hashes]
-    for h in to_delete:
-        c.execute("DELETE FROM kb_chunks WHERE hash=?", (h,))
-    c.commit()
-
     new = [(aid, ch, h) for (aid, ch, h) in wanted if h not in existing]
+
+    # Embeduj PRZED usunieciem starych chunkow — jesli embed zawiedzie, KB pozostaje nienaruszony.
+    vecs = None
     if new:
         vecs = embed([ch for (_, ch, _) in new])
         if vecs is None:
             c.close()
-            log("KB sync: embed zwrocil None — pomijam nowe chunki w tym cyklu")
-            return len(wanted) - len(new)
+            log("KB sync: embed zwrocil None — pomijam cykl, KB bez zmian")
+            return len(existing)
+
+    # Usun nieaktualne i wstaw nowe dopiero po udanym embedowaniu.
+    for h in to_delete:
+        c.execute("DELETE FROM kb_chunks WHERE hash=?", (h,))
+    if new and vecs is not None:
         for (aid, ch, h), v in zip(new, vecs):
             c.execute("INSERT OR IGNORE INTO kb_chunks(article_id, chunk, embedding, hash) VALUES(?,?,?,?)",
                       (aid, ch, json.dumps(v), h))

@@ -26,12 +26,12 @@ def _enqueue_suggestion(d):
         return
     if not bot_for_inbox(inbox_id):
         return
+    # mid jest gwarantowany niepusty (guard powyzej odrzuca puste mid)
     c = db()
-    if mid:
-        try:
-            c.execute("INSERT INTO bot_seen(mid) VALUES(?)", (mid,)); c.commit()
-        except Exception:
-            c.close(); return  # duplikat
+    try:
+        c.execute("INSERT INTO bot_seen(mid) VALUES(?)", (mid,)); c.commit()
+    except Exception:
+        c.close(); return  # duplikat
     c.execute("INSERT INTO suggest_queue(conv_id, inbox_id, message_id, content, next_at) VALUES(?,?,?,?,0)",
               (conv_id, inbox_id, mid, content))
     c.commit(); c.close()
