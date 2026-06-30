@@ -26,6 +26,34 @@ def test_olx_klient_incoming_my_note_oraz_kolejnosc_po_id():
     assert kinds(recs) == ["incoming", "incoming", "note"]
 
 
+def test_olx_zachowuje_przeplatana_kolejnosc_rozmowy():
+    # Rozmowa: klient -> my -> klient -> my -> klient (wg id). Backfill MUSI zachowac
+    # ten przeplot, a nie zgrupowac "najpierw wszyscy klienci, potem nasze".
+    msgs = [
+        {"id": "10", "type": "received", "text": "k1"},
+        {"id": "11", "type": "sent", "text": "n1"},
+        {"id": "12", "type": "received", "text": "k2"},
+        {"id": "13", "type": "sent", "text": "n2"},
+        {"id": "14", "type": "received", "text": "k3"},
+    ]
+    recs = bf.build_olx_records(msgs)
+    assert [r["text"] for r in recs] == ["k1", "n1", "k2", "n2", "k3"]
+    assert kinds(recs) == ["incoming", "note", "incoming", "note", "incoming"]
+
+
+def test_dispute_zachowuje_przeplatana_kolejnosc():
+    chat = [
+        {"createdAt": "2026-05-01T09:00:00Z", "author": {"role": "BUYER"}, "text": "k1"},
+        {"createdAt": "2026-05-01T09:10:00Z", "author": {"role": "SELLER"}, "text": "n1"},
+        {"createdAt": "2026-05-01T09:20:00Z", "author": {"role": "BUYER"}, "text": "k2"},
+        {"createdAt": "2026-05-01T09:30:00Z", "author": {"role": "ADMIN"}, "text": "m1"},
+        {"createdAt": "2026-05-01T09:40:00Z", "author": {"role": "SELLER"}, "text": "n2"},
+    ]
+    recs = bf.build_dispute_records(chat)
+    assert [r["text"] for r in recs] == ["k1", "n1", "k2", "[Mediator Allegro] m1", "n2"]
+    assert kinds(recs) == ["incoming", "note", "incoming", "incoming", "note"]
+
+
 def test_allegro_msg_klasyfikacja_i_sklejenie_tematu():
     msgs = [
         {"createdAt": "2026-05-01T10:00:00Z", "author": {"isInterlocutor": True},
