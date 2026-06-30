@@ -16,4 +16,3 @@ def test_domyslne_wartosci_botow():
     assert cfg.BOT_HISTORY_LIMIT == 12
     assert cfg.BOT_MAX_ATTEMPTS == 3
     assert cfg.OPENAI_API_BASE == "https://api.openai.com/v1"
-    assert cfg.CW_MAIL_BOT_INBOXES == "8,9"

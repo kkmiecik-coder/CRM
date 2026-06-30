@@ -15,6 +15,7 @@ wh = importlib.import_module("webhooks"); importlib.reload(wh)
 
 
 def setup_function(_):
+    os.environ["BOT_INBOX_MAP"] = "3:olx"
     db_mod.init_db()
     c = db_mod.db()
     c.execute("DELETE FROM suggest_queue"); c.execute("DELETE FROM bot_seen"); c.commit(); c.close()

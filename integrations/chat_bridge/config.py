@@ -48,5 +48,3 @@ BOT_HISTORY_LIMIT   = int(os.environ.get("BOT_HISTORY_LIMIT", "12"))
 BOT_INDEX_INTERVAL  = int(os.environ.get("BOT_INDEX_INTERVAL", "600"))
 BOT_MAX_ATTEMPTS    = int(os.environ.get("BOT_MAX_ATTEMPTS", "3"))
 BOT_MAX_TOKENS      = int(os.environ.get("BOT_MAX_TOKENS", "700"))
-# Inboxy mailowe objete botem (CSV id-kow Chatwoota): #8 Biuro, #9 Sprzedaz.
-CW_MAIL_BOT_INBOXES = os.environ.get("CW_MAIL_BOT_INBOXES", "8,9")

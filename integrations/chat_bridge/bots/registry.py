@@ -1,27 +1,29 @@
 # -*- coding: utf-8 -*-
-# Rejestr botow: mapa inbox_id -> BotConfig(name, persona_key). Dodanie kanalu = wpis tutaj.
+# Rejestr botow: mapuje inbox_id -> BotConfig(name, persona_key) na podstawie
+# zmiennej srodowiskowej BOT_INBOX_MAP, czytanej NA BIEZACO (format
+# "3:olx,4:allegro,8:mail,9:mail"). Pusta mapa = zaden bot nie jest aktywny (uspiony).
+# Wlaczanie per kanal = dopisanie wpisu do BOT_INBOX_MAP i restart mostka (bez zmian w kodzie).
+# Czytamy os.environ wprost (nie przez config), zeby uniknac cache'owania przy imporcie
+# i umozliwic prosty rollout/test per inbox.
+import os
 from collections import namedtuple
-from config import CW_OLX_INBOX, CW_ALLEGRO_MSG_INBOX, CW_MAIL_BOT_INBOXES
 
 BotConfig = namedtuple("BotConfig", ["name", "persona_key"])
 
 
-def _build():
+def _parse_map():
     m = {}
-    if CW_OLX_INBOX:
-        m[str(CW_OLX_INBOX)] = BotConfig("olx", "olx")
-    if CW_ALLEGRO_MSG_INBOX:
-        m[str(CW_ALLEGRO_MSG_INBOX)] = BotConfig("allegro", "allegro")
-    for iid in (CW_MAIL_BOT_INBOXES or "").split(","):
-        iid = iid.strip()
-        if iid:
-            m[iid] = BotConfig("mail", "mail")
+    for part in (os.environ.get("BOT_INBOX_MAP", "") or "").split(","):
+        part = part.strip()
+        if not part or ":" not in part:
+            continue
+        iid, persona = part.split(":", 1)
+        iid = iid.strip(); persona = persona.strip()
+        if iid and persona:
+            m[iid] = BotConfig(persona, persona)
     return m
 
 
-BOTS = _build()
-
-
 def bot_for_inbox(inbox_id):
-    # Zwraca BotConfig dla inboxu objetego botem albo None.
-    return BOTS.get(str(inbox_id))
+    # Zwraca BotConfig dla aktywnego inboxu albo None (gdy nie ma w BOT_INBOX_MAP).
+    return _parse_map().get(str(inbox_id))

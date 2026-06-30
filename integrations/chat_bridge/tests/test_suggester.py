@@ -13,6 +13,10 @@ import bots.registry as reg; importlib.reload(reg)
 sug = importlib.import_module("bots.suggester"); importlib.reload(sug)
 
 
+def setup_function(_):
+    os.environ["BOT_INBOX_MAP"] = "3:olx"
+
+
 def _patch(monkeypatch, reply):
     monkeypatch.setattr(sug, "cw_messages", lambda cid, limit=12: [{"role": "user", "text": "Czas realizacji?"}])
     monkeypatch.setattr(sug, "cw_contact", lambda cid: {"name": "Jan", "identifier": "olx-1"})

@@ -51,12 +51,15 @@ Wiedza pochodzi z Help Center (retrieval RAG na embeddingach OpenAI).
 ```
 OPENAI_API_KEY=sk-...            # ten sam klucz co w Chatwoocie, ale tu osobno
 BOT_HELP_CENTER_SLUG=woodpower   # slug portalu Help Center (po jego utworzeniu)
-CW_MAIL_BOT_INBOXES=8,9          # Biuro, Sprzedaz (potwierdzic ID-ki)
+BOT_INBOX_MAP=                   # PUSTE = boty uspione (deploy bez podlaczania do skrzynek)
+# Wlaczanie per kanal (restart mostka po kazdej zmianie):
+#   tylko OLX:        BOT_INBOX_MAP=3:olx
+#   + Allegro:        BOT_INBOX_MAP=3:olx,4:allegro
+#   + mail (Biuro/Sprzedaz): BOT_INBOX_MAP=3:olx,4:allegro,8:mail,9:mail
 ```
 Opcjonalne (mają sensowne domyślne): `BOT_OPENAI_MODEL` (gpt-4.1-mini),
 `BOT_EMBEDDING_MODEL` (text-embedding-3-small), `BOT_RETRIEVAL_K` (5),
-`BOT_HISTORY_LIMIT` (12), `BOT_INDEX_INTERVAL` (600), `BOT_MAX_ATTEMPTS` (3),
-`CHATWOOT_OLX_INBOX_ID`, `CHATWOOT_ALLEGRO_MSG_INBOX_ID`.
+`BOT_HISTORY_LIMIT` (12), `BOT_INDEX_INTERVAL` (600), `BOT_MAX_ATTEMPTS` (3).
 
 ### 2. Portal Help Center w Chatwoocie
 Help Center → utwórz Portal → zapamiętaj `slug` → wpisz do `BOT_HELP_CENTER_SLUG`.
