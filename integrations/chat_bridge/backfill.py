@@ -119,8 +119,9 @@ def _post_record(conv_id, rec, atts_fn):
 
 
 def _summ(recs):
+    # incoming = klient + mediator(ADMIN); notatki = nasze (sprzedawca)
     n_in = sum(1 for r in recs if r["kind"] == "incoming")
-    return "%d wiad (%d klient / %d my+mediator-jako-incoming)" % (len(recs), n_in, len(recs) - n_in)
+    return "%d wiad (%d incoming / %d notatki-nasze)" % (len(recs), n_in, len(recs) - n_in)
 
 
 # ---------- BACKFILL PER KANAL ----------
