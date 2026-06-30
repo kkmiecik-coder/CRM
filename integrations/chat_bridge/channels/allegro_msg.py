@@ -7,7 +7,7 @@ from config import (ALLEGRO_API, ALLEGRO_ACCEPT, POLL_INTERVAL, CW_ALLEGRO_MSG_I
 from channels.allegro_auth import get_allegro_token, allegro_get
 from core.log import log
 from core.db import db, init_db, meta_get, meta_set
-from core.util import parse_ts, upsert_thread
+from core.util import parse_ts, upsert_thread, deliver_in_order
 from core.chatwoot import ensure_conversation, cw_incoming, conv_exists, clear_thread_conv
 
 name = "allegro_msg"
@@ -119,6 +119,7 @@ def allegro_poller():
                     continue
                 last_seen = st.get("last_seen_msg_id") if st else None
                 conv_id = st.get("conv_id") if st else None
+                all_ok = True; delivered_key = None
                 new = []
                 for m in msgs:
                     if not (m.get("author") or {}).get("isInterlocutor"):
@@ -142,7 +143,7 @@ def allegro_poller():
                         cimg = card.get("image") if card else None
                         conv_id = ensure_conversation("allegro_msg", tid, CW_ALLEGRO_MSG_INBOX, name, ident, ctext, cimg)
                     if conv_id:
-                        for m in new:
+                        def _send(m):
                             txt = (m.get("text") or "").strip()
                             subj = (m.get("subject") or "").strip()
                             if subj and subj not in txt:
@@ -155,9 +156,20 @@ def allegro_poller():
                                                  "headers": {"Authorization": "Bearer " + get_allegro_token()}})
                             if not txt and not atts:
                                 txt = "(wiadomosc bez tresci)"
-                            cw_incoming(conv_id, txt, atts)
-                        log("Allegro watek %s -> %d nowych do conv %s" % (tid, len(new), conv_id))
-                upsert_thread(tid, conv_id, (msgs[-1].get("createdAt") or last_dt), None, "allegro_msg")
+                            return cw_incoming(conv_id, txt, atts)
+                        delivered_key, all_ok = deliver_in_order(new, lambda m: m.get("createdAt"), _send)
+                        if delivered_key is not None:
+                            log("Allegro watek %s -> dostarczono do %s (conv %s)" % (tid, delivered_key, conv_id))
+                        if not all_ok:
+                            log("Allegro watek %s: dostawa do Chatwoota wstrzymana — wodowskaz nieprzesuwany" % tid)
+                    else:
+                        all_ok = False  # brak rozmowy => nic nie dostarczono
+                # Wodowskaz: pelna dostawa => biezacy stan; czesciowa/zerowa => do ostatniej dostarczonej.
+                if all_ok:
+                    upsert_thread(tid, conv_id, (msgs[-1].get("createdAt") or last_dt), None, "allegro_msg")
+                else:
+                    ls = delivered_key if delivered_key is not None else last_seen
+                    upsert_thread(tid, conv_id, ls, None, "allegro_msg")
         except Exception as e:
             log("Allegro poller ERROR:", repr(e)); traceback.print_exc()
         time.sleep(POLL_INTERVAL)

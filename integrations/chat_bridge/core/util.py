@@ -4,6 +4,7 @@ import re
 import html as _htmlmod
 from datetime import datetime
 from core.db import db
+from core.log import log
 
 
 def html_to_text(s):
@@ -20,6 +21,38 @@ def html_to_text(s):
     s = re.sub(r'[ \t]+\n', '\n', s)
     s = re.sub(r'\n{3,}', '\n\n', s)
     return s.strip()
+
+
+def cw_ok(resp):
+    """Czy odpowiedz Chatwoota to sukces (200/201). None = brak odpowiedzi => porazka."""
+    return resp is not None and getattr(resp, "status_code", 0) in (200, 201)
+
+
+def deliver_in_order(new_msgs, msg_key, send_fn):
+    """Dostarcza wiadomosci po kolei: send_fn(m) -> odpowiedz Chatwoota.
+    Zatrzymuje sie na pierwszej nieudanej dostawie (status != 2xx / None).
+    Zwraca (delivered_key, all_ok):
+      - delivered_key: msg_key(m) ostatniej DOSTARCZONEJ wiadomosci (None gdy zadna),
+      - all_ok: True gdy wszystkie dostarczone (lub lista pusta).
+    Dzieki temu wodowskaz (last_seen) przesuwamy wylacznie za realnie dostarczone
+    wiadomosci — niedostarczone (np. 401 z Chatwoota) zostaja do ponowienia w kolejnym
+    cyklu pollera, zamiast byc po cichu oznaczone jako 'widziane'.
+    Wyjatek z send_fn (np. timeout sieci) tez traktujemy jak niedostawe: zatrzymujemy sie
+    i zwracamy postep do ostatniej DOSTARCZONEJ wiadomosci (bez gubienia juz wyslanych).
+    Klucz None (brak uzytecznego identyfikatora) nie cofa wodowskazu — trzymamy poprzedni."""
+    delivered_key = None
+    for m in new_msgs:
+        try:
+            ok = cw_ok(send_fn(m))
+        except Exception as e:
+            log("deliver_in_order: wyjatek dostawy, wstrzymuje wodowskaz:", repr(e))
+            return delivered_key, False
+        if not ok:
+            return delivered_key, False
+        k = msg_key(m)
+        if k is not None:
+            delivered_key = k
+    return delivered_key, True
 
 
 def parse_ts(s):

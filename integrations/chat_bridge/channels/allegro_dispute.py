@@ -8,7 +8,7 @@ from config import (ALLEGRO_API, ALLEGRO_ACCEPT, ALLEGRO_BETA_ACCEPT, POLL_INTER
 from channels.allegro_auth import get_allegro_token, allegro_get
 from core.log import log
 from core.db import db, init_db, meta_get, meta_set
-from core.util import parse_ts, upsert_thread
+from core.util import parse_ts, upsert_thread, deliver_in_order
 from core.chatwoot import ensure_conversation, cw_incoming, conv_exists, clear_thread_conv
 
 name = "allegro_dispute"
@@ -111,6 +111,7 @@ def allegro_dispute_poller():
                     continue
                 last_seen = st.get("last_seen_msg_id") if st else None
                 conv_id = st.get("conv_id") if st else None
+                all_ok = True; delivered_key = None
                 new = []
                 for m in chat:
                     if (m.get("author") or {}).get("role") == "SELLER":
@@ -131,7 +132,7 @@ def allegro_dispute_poller():
                         card = allegro_issue_card(iss)
                         conv_id = ensure_conversation("allegro_dispute", iid, CW_ALLEGRO_DISPUTE_INBOX, login, ident, card.get("text"), card.get("image"))
                     if conv_id:
-                        for m in new:
+                        def _send(m):
                             txt = (m.get("text") or "").strip()
                             if (m.get("author") or {}).get("role") == "ADMIN":
                                 txt = "[Mediator Allegro] " + txt
@@ -143,9 +144,20 @@ def allegro_dispute_poller():
                                                  "headers": {"Authorization": "Bearer " + get_allegro_token(), "Accept": ALLEGRO_BETA_ACCEPT}})
                             if not txt and not atts:
                                 txt = "(wiadomosc bez tresci)"
-                            cw_incoming(conv_id, txt, atts)
-                        log("Allegro dyskusja %s -> %d nowych do conv %s" % (iid, len(new), conv_id))
-                upsert_thread(iid, conv_id, chat[-1].get("createdAt"), None, "allegro_dispute")
+                            return cw_incoming(conv_id, txt, atts)
+                        delivered_key, all_ok = deliver_in_order(new, lambda m: m.get("createdAt"), _send)
+                        if delivered_key is not None:
+                            log("Allegro dyskusja %s -> dostarczono do %s (conv %s)" % (iid, delivered_key, conv_id))
+                        if not all_ok:
+                            log("Allegro dyskusja %s: dostawa do Chatwoota wstrzymana — wodowskaz nieprzesuwany" % iid)
+                    else:
+                        all_ok = False  # brak rozmowy => nic nie dostarczono
+                # Wodowskaz: pelna dostawa => biezacy stan; czesciowa/zerowa => do ostatniej dostarczonej.
+                if all_ok:
+                    upsert_thread(iid, conv_id, chat[-1].get("createdAt"), None, "allegro_dispute")
+                else:
+                    ls = delivered_key if delivered_key is not None else last_seen
+                    upsert_thread(iid, conv_id, ls, None, "allegro_dispute")
         except Exception as e:
             log("Allegro dyskusje poller ERROR:", repr(e)); traceback.print_exc()
         time.sleep(max(POLL_INTERVAL, 60))

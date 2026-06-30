@@ -8,7 +8,7 @@ from config import (OLX_CLIENT_ID, OLX_CLIENT_SECRET, OLX_REFRESH_TOKEN,
                     OLX_TOKEN_URL, OLX_API_BASE, POLL_INTERVAL, CW_OLX_INBOX)
 from core.log import log
 from core.db import db, init_db, meta_get, meta_set
-from core.util import parse_ts, upsert_thread
+from core.util import parse_ts, upsert_thread, deliver_in_order
 from core.chatwoot import ensure_conversation, cw_incoming, conv_exists, clear_thread_conv
 from core.http import get_with_retry
 
@@ -98,6 +98,7 @@ def olx_poller():
                         continue
                     last_seen = st.get("last_seen_msg_id") if st else None
                     conv_id = st.get("conv_id") if st else None
+                    all_ok = True; delivered_id = None
                     new = []
                     for m in msgs:
                         if m.get("type") != "received":
@@ -131,14 +132,27 @@ def olx_poller():
                             card = ("Oferta: %s\nLink: %s" % (title, url)) if (title and url) else ("Ogloszenie OLX #%s" % th.get("advert_id"))
                             conv_id = ensure_conversation("olx", tid, CW_OLX_INBOX, name, ident, card, img)
                         if conv_id:
-                            for m in new:
+                            def _send(m):
                                 txt = (m.get("text") or "").strip()
                                 atts = m.get("attachments") or []
                                 if not txt and not atts:
                                     txt = "(wiadomosc bez tresci)"
-                                cw_incoming(conv_id, txt, atts)
-                            log("OLX watek %s -> %d nowych do conv %s" % (tid, len(new), conv_id))
-                    upsert_thread(tid, conv_id, msgs[-1]["id"], th.get("total_count"), "olx")
+                                return cw_incoming(conv_id, txt, atts)
+                            delivered_id, all_ok = deliver_in_order(new, lambda m: m["id"], _send)
+                            if delivered_id is not None:
+                                log("OLX watek %s -> dostarczono do msg %s (conv %s)" % (tid, delivered_id, conv_id))
+                            if not all_ok:
+                                log("OLX watek %s: dostawa do Chatwoota wstrzymana — wodowskaz nieprzesuwany" % tid)
+                        else:
+                            all_ok = False  # brak rozmowy => nic nie dostarczono, ponowimy w kolejnym cyklu
+                    # Wodowskaz: po pelnej dostawie (lub gdy nie bylo nowych) zapisujemy biezacy stan watku.
+                    # Po czesciowej/zerowej dostawie cofamy last_seen do ostatniej DOSTARCZONEJ wiadomosci
+                    # i NIE ruszamy total_count, by changed=True wymusilo ponowienie w kolejnym cyklu.
+                    if all_ok:
+                        upsert_thread(tid, conv_id, msgs[-1]["id"], th.get("total_count"), "olx")
+                    else:
+                        ls = delivered_id if delivered_id is not None else last_seen
+                        upsert_thread(tid, conv_id, ls, None, "olx")
                 except Exception as e:
                     log("OLX watek %s pominiety (blad przejsciowy):" % tid, repr(e))
                     continue
