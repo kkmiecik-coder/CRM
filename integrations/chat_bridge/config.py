@@ -36,3 +36,16 @@ BL_API = "https://api.baselinker.com/connector.php"
 
 DB_PATH = os.environ.get("BRIDGE_DB", "/data/bridge.db")
 MAX_ATTEMPTS = 5
+
+# ----- Boty AI (podpowiadacze) -----
+OPENAI_API_KEY      = os.environ.get("OPENAI_API_KEY")
+OPENAI_API_BASE     = os.environ.get("OPENAI_API_BASE", "https://api.openai.com/v1")
+BOT_CHAT_MODEL      = os.environ.get("BOT_OPENAI_MODEL", "gpt-4.1-mini")
+BOT_EMBEDDING_MODEL = os.environ.get("BOT_EMBEDDING_MODEL", "text-embedding-3-small")
+BOT_RETRIEVAL_K     = int(os.environ.get("BOT_RETRIEVAL_K", "5"))
+BOT_HELP_CENTER_SLUG = os.environ.get("BOT_HELP_CENTER_SLUG", "")
+BOT_HISTORY_LIMIT   = int(os.environ.get("BOT_HISTORY_LIMIT", "12"))
+BOT_INDEX_INTERVAL  = int(os.environ.get("BOT_INDEX_INTERVAL", "600"))
+BOT_MAX_ATTEMPTS    = int(os.environ.get("BOT_MAX_ATTEMPTS", "3"))
+# Inboxy mailowe objete botem (CSV id-kow Chatwoota): #8 Biuro, #9 Sprzedaz.
+CW_MAIL_BOT_INBOXES = os.environ.get("CW_MAIL_BOT_INBOXES", "8,9")
