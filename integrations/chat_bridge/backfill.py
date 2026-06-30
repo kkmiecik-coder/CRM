@@ -164,7 +164,9 @@ def backfill_olx(dry):
                 continue
             for r in recs:
                 _post_record(conv_id, r, _olx_atts)
-            upsert_thread(tid, conv_id, msgs[-1]["id"], th.get("total_count"), "olx")
+            # last_seen = id chronologicznie OSTATNIEJ wiadomosci (recs sa juz posortowane),
+            # nie msgs[-1] (API potrafi zwrocic nie-chronologicznie) — inaczej poller re-dostarcza.
+            upsert_thread(tid, conv_id, recs[-1]["m"]["id"], th.get("total_count"), "olx")
             log("OLX %s -> zaimportowano %s (conv %s)" % (tid, _summ(recs), conv_id))
         except Exception as e:
             log("OLX backfill %s pominiety (blad):" % tid, repr(e))
@@ -197,7 +199,8 @@ def backfill_allegro_msg(dry):
                 continue
             for r in recs:
                 _post_record(conv_id, r, _allegro_msg_atts)
-            upsert_thread(tid, conv_id, msgs[-1].get("createdAt"), None, "allegro_msg")
+            # last_seen = createdAt chronologicznie OSTATNIEJ wiadomosci (recs posortowane).
+            upsert_thread(tid, conv_id, recs[-1]["ts"], None, "allegro_msg")
             log("Allegro msg %s -> zaimportowano %s (conv %s)" % (tid, _summ(recs), conv_id))
         except Exception as e:
             log("Allegro msg backfill %s pominiety (blad):" % tid, repr(e))
@@ -226,10 +229,10 @@ def backfill_allegro_dispute(dry):
             if not conv_id:
                 log("Allegro dyskusja %s: nie utworzono rozmowy, pomijam" % iid)
                 continue
-            chat_sorted = sorted(chat, key=lambda m: m.get("createdAt") or "")
             for r in recs:
                 _post_record(conv_id, r, _dispute_atts)
-            upsert_thread(iid, conv_id, chat_sorted[-1].get("createdAt"), None, "allegro_dispute")
+            # last_seen = createdAt chronologicznie OSTATNIEJ wiadomosci (recs posortowane).
+            upsert_thread(iid, conv_id, recs[-1]["ts"], None, "allegro_dispute")
             log("Allegro dyskusja %s -> zaimportowano %s (conv %s)" % (iid, _summ(recs), conv_id))
         except Exception as e:
             log("Allegro dyskusja backfill %s pominieta (blad):" % iid, repr(e))

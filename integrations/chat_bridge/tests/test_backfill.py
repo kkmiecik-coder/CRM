@@ -54,6 +54,22 @@ def test_dispute_zachowuje_przeplatana_kolejnosc():
     assert kinds(recs) == ["incoming", "note", "incoming", "incoming", "note"]
 
 
+def test_watermark_z_ostatniego_rekordu_przy_nieposortowanym_wejsciu():
+    # last_seen liczymy z recs[-1]; przy nie-chronologicznym wejsciu MUSI to byc
+    # najnowsza wiadomosc (max id / max createdAt), nie ostatni element wejsciowej listy.
+    olx = [{"id": "30", "type": "sent", "text": "n"},
+           {"id": "10", "type": "received", "text": "k1"},
+           {"id": "20", "type": "received", "text": "k2"}]
+    recs = bf.build_olx_records(olx)
+    assert recs[-1]["m"]["id"] == "30"   # max id, nie wejsciowe msgs[-1] ("20")
+
+    msgs = [{"createdAt": "2026-05-03T10:00:00Z", "author": {"isInterlocutor": False}, "text": "n"},
+            {"createdAt": "2026-05-01T10:00:00Z", "author": {"isInterlocutor": True}, "text": "k1"},
+            {"createdAt": "2026-05-02T10:00:00Z", "author": {"isInterlocutor": True}, "text": "k2"}]
+    recs2 = bf.build_allegro_msg_records(msgs)
+    assert recs2[-1]["ts"] == "2026-05-03T10:00:00Z"   # max createdAt, nie wejsciowe msgs[-1]
+
+
 def test_allegro_msg_klasyfikacja_i_sklejenie_tematu():
     msgs = [
         {"createdAt": "2026-05-01T10:00:00Z", "author": {"isInterlocutor": True},
