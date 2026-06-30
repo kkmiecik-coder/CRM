@@ -35,7 +35,7 @@ def process_one(now):
             except Exception:
                 pass
         else:
-            backoff = 0 if attempts == 1 else min(60, 2 ** (attempts - 1))
+            backoff = min(60, 2 ** attempts)
             c = db(); c.execute("UPDATE suggest_queue SET attempts=?, next_at=?, last_error=? WHERE id=?",
                                 (attempts, now + backoff, err, qid)); c.commit(); c.close()
             log("podpowiedz AI retry (conv %s) za %ss (proba %s): %s" % (conv_id, backoff, attempts, err))

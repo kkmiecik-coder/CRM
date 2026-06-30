@@ -51,8 +51,8 @@ def test_po_wyczerpaniu_prob_failed_i_notatka(monkeypatch):
     notes = []
     monkeypatch.setattr(sw, "cw_note", lambda cid, text, *a, **kw: notes.append(text))
     # proba 1 -> retry (attempts=1 < 2), proba 2 -> failed (attempts=2 >= 2)
-    sw.process_one(9999999999)
-    sw.process_one(9999999999)
+    sw.process_one(0)
+    sw.process_one(100)
     assert _status() == "failed"
     assert len(notes) == 1
     assert "Nie udało się" in notes[0]
