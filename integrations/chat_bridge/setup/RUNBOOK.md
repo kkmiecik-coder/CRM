@@ -37,3 +37,56 @@ Nic nie trzeba wklejać.
    (Reguła ograniczona do inboxów 3/4/6 — poczty nie dotknie. Można też zmienić
    nazwę na „Auto: powitanie".)
 2. Test: napisz z zewnątrz na OLX/Allegro — ma przyjść powitanie (msg1).
+
+---
+
+# Boty AI (podpowiadacze) — uruchomienie
+
+Boty proponują odpowiedź jako PRYWATNĄ notatkę (`🤖 Podpowiedź AI:`) na każdą
+wiadomość przychodzącą w inboxach: #3 OLX, #4 Allegro-Wiadomości, #8 Biuro,
+#9 Sprzedaż. Tryb tylko-podpowiedź (agent zatwierdza i wysyła ręcznie).
+Wiedza pochodzi z Help Center (retrieval RAG na embeddingach OpenAI).
+
+### 1. Env na VPS (`bridge.env`, NIE w repo)
+```
+OPENAI_API_KEY=sk-...            # ten sam klucz co w Chatwoocie, ale tu osobno
+BOT_HELP_CENTER_SLUG=woodpower   # slug portalu Help Center (po jego utworzeniu)
+BOT_INBOX_MAP=                   # PUSTE = boty uspione (deploy bez podlaczania do skrzynek)
+# Wlaczanie per kanal (restart mostka po kazdej zmianie):
+#   tylko OLX:        BOT_INBOX_MAP=3:olx
+#   + Allegro:        BOT_INBOX_MAP=3:olx,4:allegro
+#   + mail (Biuro/Sprzedaz): BOT_INBOX_MAP=3:olx,4:allegro,8:mail,9:mail
+```
+Opcjonalne (mają sensowne domyślne): `BOT_OPENAI_MODEL` (gpt-4.1-mini),
+`BOT_EMBEDDING_MODEL` (text-embedding-3-small), `BOT_RETRIEVAL_K` (5),
+`BOT_HISTORY_LIMIT` (12), `BOT_INDEX_INTERVAL` (600), `BOT_MAX_ATTEMPTS` (3).
+
+### 2. Portal Help Center w Chatwoocie
+Help Center → utwórz Portal → zapamiętaj `slug` → wpisz do `BOT_HELP_CENTER_SLUG`.
+Weryfikacja (token mostka w kontenerze `cw-olx-bridge`):
+```
+docker exec cw-olx-bridge sh -c 'curl -s -H "api_access_token: $CHATWOOT_API_TOKEN" \
+  "$CHATWOOT_BASE/api/v1/accounts/$CHATWOOT_ACCOUNT_ID/portals" | head -c 400'
+```
+
+### 3. Treść wiedzy (osobny task redakcyjny)
+Artykuły (cennik/parametry wyceny, czasy realizacji, gatunki/możliwości,
+wykończenia, obróbka krawędzi, wysyłka, FAQ) zbierane z CRM (`modules/calculator`)
+i strony woodpower.pl, zatwierdzane z zespołem, publikowane jako „published".
+Bez artykułów boty działają, ale głównie dopytują i odsyłają do konsultanta.
+
+### 4. Webhook Chatwoota
+Webhook konta (kierujący na `/chatwoot-webhook` mostka) musi subskrybować
+`message_created` — domyślnie dostaje incoming i outgoing (incoming napędza boty).
+
+### 5. Deploy mostka
+```
+bash bridge-deploy.sh
+docker logs --tail 50 cw-olx-bridge | grep -E "KB index|suggest_worker|poller"
+```
+Oczekiwane: `KB index: N chunkow` (N>0 po zasianiu artykułów).
+
+### 6. Test E2E
+Napisz z zewnątrz na OLX/Allegro/Sprzedaż → w wątku ma pojawić się prywatna
+notatka `🤖 Podpowiedź AI: …` zgodna z wiedzą i regułami kanału (Allegro:
+bez kontaktu poza platformą; przy pytaniu o cenę: dopytanie o parametry).

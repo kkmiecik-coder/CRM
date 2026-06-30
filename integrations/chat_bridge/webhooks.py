@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# Trasy HTTP mostka: webhook Chatwoota (outgoing -> kolejka), callback OAuth Allegro, health.
+# Trasy HTTP mostka: webhook Chatwoota (outgoing -> kolejka wysylki, incoming -> kolejka podpowiedzi AI), callback OAuth Allegro, health.
 import time
 import json
 from flask import Blueprint, request, jsonify
@@ -8,8 +8,34 @@ from core.log import log
 from core.db import db
 from footer import build_footer
 from channels.allegro_auth import exchange_authorization_code
+from bots.registry import bot_for_inbox
 
 bp = Blueprint("webhooks", __name__)
+
+
+# ---------- ENQUEUE SUGGESTION ----------
+def _enqueue_suggestion(d):
+    # INCOMING z inboxu objetego botem -> zadanie podpowiedzi. Dedup po message_id (bot_seen).
+    conv = d.get("conversation") or {}
+    conv_id = conv.get("id") or d.get("conversation_id")
+    inbox_id = str(d.get("inbox_id") or conv.get("inbox_id") or (conv.get("inbox") or {}).get("id") or "")
+    content = (d.get("content") or "").strip()
+    mid = str(d.get("id") or "")
+    # bez message_id nie ma dedup -> nie kolejkujemy
+    if not conv_id or not inbox_id or not content or not mid:
+        return
+    if not bot_for_inbox(inbox_id):
+        return
+    # mid jest gwarantowany niepusty (guard powyzej odrzuca puste mid)
+    c = db()
+    try:
+        c.execute("INSERT INTO bot_seen(mid) VALUES(?)", (mid,)); c.commit()
+    except Exception:
+        c.close(); return  # duplikat
+    c.execute("INSERT INTO suggest_queue(conv_id, inbox_id, message_id, content, next_at) VALUES(?,?,?,?,0)",
+              (conv_id, inbox_id, mid, content))
+    c.commit(); c.close()
+    log("zakolejkowano podpowiedz AI (inbox %s, conv %s)" % (inbox_id, conv_id))
 
 
 # ---------- WEBHOOK (Chatwoot -> most) ----------
@@ -19,6 +45,11 @@ def hook():
         return jsonify(ok=False, error="unauthorized"), 401
     d = request.get_json(force=True, silent=True) or {}
     if d.get("event") != "message_created":
+        return jsonify(ok=True)
+    # INCOMING (od klienta) -> kolejka podpowiedzi bota; nie blokuje dalszej logiki wysylki.
+    mtype = str(d.get("message_type"))
+    if mtype in ("incoming", "0") and not d.get("private"):
+        _enqueue_suggestion(d)
         return jsonify(ok=True)
     if str(d.get("message_type")) not in ("outgoing", "1"):
         return jsonify(ok=True)

@@ -108,3 +108,50 @@ def clear_thread_conv(channel, tid):
     c = db()
     c.execute("UPDATE threads SET conv_id=NULL WHERE thread_id=? AND channel=?", (str(tid), channel))
     c.commit(); c.close()
+
+
+def cw_messages(conv_id, limit=12):
+    """Historia watku jako [{role, text}] (najstarsze->najnowsze), bez notatek private i pustych."""
+    try:
+        payload = cw("GET", "/conversations/%s/messages" % conv_id).json().get("payload", [])
+    except Exception:
+        return []
+    out = []
+    for m in payload:
+        if m.get("private"):
+            continue
+        txt = html_to_text(m.get("content") or "")
+        if not txt:
+            continue
+        mt = m.get("message_type")
+        role = "user" if mt in (0, "incoming") else "assistant"
+        out.append({"role": role, "text": txt})
+    return out[-limit:]
+
+
+def cw_contact(conv_id):
+    """Tozsamosc klienta z meta.sender: {name, identifier}."""
+    try:
+        meta = cw("GET", "/conversations/%s" % conv_id).json().get("meta", {})
+        sender = meta.get("sender") or {}
+        return {"name": sender.get("name") or "", "identifier": sender.get("identifier") or ""}
+    except Exception:
+        return {"name": "", "identifier": ""}
+
+
+def cw_articles(slug):
+    """Opublikowane artykuly Help Center danego portalu: [{id, title, content}]."""
+    if not slug:
+        return []
+    try:
+        payload = cw("GET", "/portals/%s/articles" % slug).json().get("payload", [])
+    except Exception:
+        return []
+    out = []
+    for a in payload:
+        status = a.get("status")
+        if status not in (None, 1, "published"):
+            continue
+        out.append({"id": a.get("id"), "title": a.get("title") or "",
+                    "content": html_to_text(a.get("content") or "")})
+    return out
