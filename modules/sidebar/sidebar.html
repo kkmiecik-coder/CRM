@@ -1,4 +1,6 @@
 {% include '_sentry_init.html' %}
+{# Widżet live chat tylko dla adminów (faza testowa) #}
+{% if user_role == 'admin' %}{% include '_chatwoot_init.html' %}{% endif %}
 
 <script>
 // Natychmiast zastosuj stan sidebara PRZED renderowaniem — eliminuje flash
