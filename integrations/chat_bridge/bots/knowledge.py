@@ -90,7 +90,8 @@ def retrieve(query, k=None):
     if not rows:
         return []
     qv = embed([query])
-    if not qv:
+    if not qv or qv[0] is None:
+        # zabezpieczenie: brak/uszkodzony embedding zapytania -> brak wynikow
         return []
     qv = qv[0]
     scored = []
