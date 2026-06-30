@@ -22,6 +22,14 @@ def init_db():
       next_at REAL DEFAULT 0, last_error TEXT, attachments TEXT, channel TEXT);
     CREATE TABLE IF NOT EXISTS meta(k TEXT PRIMARY KEY, v TEXT);
     CREATE TABLE IF NOT EXISTS seen(mid TEXT PRIMARY KEY);
+    CREATE TABLE IF NOT EXISTS suggest_queue(
+      id INTEGER PRIMARY KEY AUTOINCREMENT, conv_id INTEGER, inbox_id TEXT,
+      message_id TEXT, content TEXT, attempts INTEGER DEFAULT 0,
+      status TEXT DEFAULT 'pending', next_at REAL DEFAULT 0, last_error TEXT);
+    CREATE TABLE IF NOT EXISTS bot_seen(mid TEXT PRIMARY KEY);
+    CREATE TABLE IF NOT EXISTS kb_chunks(
+      id INTEGER PRIMARY KEY AUTOINCREMENT, article_id INTEGER, chunk TEXT,
+      embedding TEXT, hash TEXT UNIQUE);
     """)
     for stmt in ("ALTER TABLE queue ADD COLUMN attachments TEXT",
                  "ALTER TABLE threads ADD COLUMN channel TEXT",
