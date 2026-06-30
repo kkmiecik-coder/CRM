@@ -49,3 +49,10 @@ def test_pomija_inbox_bez_bota():
 def test_pomija_pusta_tresc():
     wh._enqueue_suggestion(_payload(content="   "))
     assert _count() == 0
+
+
+def test_pomija_brak_message_id():
+    p = _payload()
+    del p["id"]
+    wh._enqueue_suggestion(p)
+    assert _count() == 0

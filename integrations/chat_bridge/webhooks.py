@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# Trasy HTTP mostka: webhook Chatwoota (outgoing -> kolejka), callback OAuth Allegro, health.
+# Trasy HTTP mostka: webhook Chatwoota (outgoing -> kolejka wysylki, incoming -> kolejka podpowiedzi AI), callback OAuth Allegro, health.
 import time
 import json
 from flask import Blueprint, request, jsonify
@@ -21,7 +21,8 @@ def _enqueue_suggestion(d):
     inbox_id = str(d.get("inbox_id") or conv.get("inbox_id") or (conv.get("inbox") or {}).get("id") or "")
     content = (d.get("content") or "").strip()
     mid = str(d.get("id") or "")
-    if not conv_id or not inbox_id or not content:
+    # bez message_id nie ma dedup -> nie kolejkujemy
+    if not conv_id or not inbox_id or not content or not mid:
         return
     if not bot_for_inbox(inbox_id):
         return
