@@ -6,6 +6,7 @@ from flask import Blueprint, request, jsonify
 from config import WEBHOOK_TOKEN
 from core.log import log
 from core.db import db
+from footer import build_footer
 from channels.allegro_auth import exchange_authorization_code
 
 bp = Blueprint("webhooks", __name__)
@@ -42,10 +43,16 @@ def hook():
     if not row:
         c.close(); return jsonify(ok=True, note="no_thread")
     tid, channel = row["thread_id"], row["channel"]
-    c.execute("INSERT INTO queue(thread_id, conv_id, content, attachments, channel, next_at) VALUES(?,?,?,?,?,0)",
-              (tid, conv_id, content, json.dumps(att_urls), channel))
+    # Footer doklejamy TYLKO do wiadomosci agenta-czlowieka (sender.type == "user").
+    # Auto-powitania z reguly automatyzacji maja sender=nil -> nie zlapie ich (brak dublowania).
+    sender = d.get("sender") or {}
+    footer = ""
+    if sender.get("type") == "user":
+        footer = build_footer(channel, sender.get("name"))
+    c.execute("INSERT INTO queue(thread_id, conv_id, content, attachments, channel, footer, next_at) VALUES(?,?,?,?,?,?,0)",
+              (tid, conv_id, content, json.dumps(att_urls), channel, footer))
     c.commit(); c.close()
-    log("zakolejkowano wysylke (%s) watek %s (conv %s)" % (channel, tid, conv_id))
+    log("zakolejkowano wysylke (%s) watek %s (conv %s)%s" % (channel, tid, conv_id, " +footer" if footer else ""))
     return jsonify(ok=True)
 
 

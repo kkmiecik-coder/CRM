@@ -25,7 +25,8 @@ def init_db():
     """)
     for stmt in ("ALTER TABLE queue ADD COLUMN attachments TEXT",
                  "ALTER TABLE threads ADD COLUMN channel TEXT",
-                 "ALTER TABLE queue ADD COLUMN channel TEXT"):
+                 "ALTER TABLE queue ADD COLUMN channel TEXT",
+                 "ALTER TABLE queue ADD COLUMN footer TEXT"):
         try:
             c.execute(stmt)
         except Exception:

@@ -21,6 +21,10 @@ def worker():
                 time.sleep(2); continue
             qid, tid, conv_id, content, attempts = row["id"], row["thread_id"], row["conv_id"], row["content"], row["attempts"]
             channel = row["channel"] or "olx"
+            # Stopka (jesli ustawiona przy kolejkowaniu = wiadomosc agenta) doklejana do tresci.
+            footer = row["footer"] if "footer" in row.keys() else None
+            if footer:
+                content = (content + "\n\n" + footer) if content else footer
             att_urls = []
             try:
                 if row["attachments"]:
