@@ -104,60 +104,66 @@ def allegro_dispute_poller():
             c.close()
             for iss in issues:
                 iid = str(iss["id"])
-                st = known.get(iid)
-                chat = allegro_get("/sale/issues/%s/chat" % iid, beta=True).get("chat", [])
-                chat = sorted(chat, key=lambda m: m.get("createdAt") or "")
-                if not chat:
-                    continue
-                last_seen = st.get("last_seen_msg_id") if st else None
-                conv_id = st.get("conv_id") if st else None
-                all_ok = True; delivered_key = None
-                new = []
-                for m in chat:
-                    if (m.get("author") or {}).get("role") == "SELLER":
-                        continue  # nasze wiadomosci - pomijamy (brak echa)
-                    cat = m.get("createdAt") or ""
-                    ts = parse_ts(cat)
-                    if ts is not None and ts <= START_TS:
+                # Izolacja per-watek: przejsciowy blad (np. 503 Allegro) jednej sprawy
+                # nie przerywa juz calego cyklu — pozostale sprawy sa przetwarzane dalej.
+                try:
+                    st = known.get(iid)
+                    chat = allegro_get("/sale/issues/%s/chat" % iid, beta=True).get("chat", [])
+                    chat = sorted(chat, key=lambda m: m.get("createdAt") or "")
+                    if not chat:
                         continue
-                    if last_seen and cat <= last_seen:
-                        continue
-                    new.append(m)
-                if new:
-                    if conv_id and not conv_exists(conv_id):
-                        clear_thread_conv("allegro_dispute", iid); conv_id = None
-                    if not conv_id:
-                        login = (iss.get("buyer") or {}).get("login") or "klient"
-                        ident = "allegrodisp-%s-%s" % (login, iid)
-                        card = allegro_issue_card(iss)
-                        conv_id = ensure_conversation("allegro_dispute", iid, CW_ALLEGRO_DISPUTE_INBOX, login, ident, card.get("text"), card.get("image"))
-                    if conv_id:
-                        def _send(m):
-                            txt = (m.get("text") or "").strip()
-                            if (m.get("author") or {}).get("role") == "ADMIN":
-                                txt = "[Mediator Allegro] " + txt
-                            atts = []
-                            for a in (m.get("attachments") or []):
-                                u = a.get("url") or (ALLEGRO_API + "/sale/issues/attachments/%s" % a.get("id") if a.get("id") else None)
-                                if u:
-                                    atts.append({"name": a.get("fileName") or "plik", "url": u,
-                                                 "headers": {"Authorization": "Bearer " + get_allegro_token(), "Accept": ALLEGRO_BETA_ACCEPT}})
-                            if not txt and not atts:
-                                txt = "(wiadomosc bez tresci)"
-                            return cw_incoming(conv_id, txt, atts)
-                        delivered_key, all_ok = deliver_in_order(new, lambda m: m.get("createdAt"), _send)
-                        if delivered_key is not None:
-                            log("Allegro dyskusja %s -> dostarczono do %s (conv %s)" % (iid, delivered_key, conv_id))
-                        if not all_ok:
-                            log("Allegro dyskusja %s: dostawa do Chatwoota wstrzymana — wodowskaz nieprzesuwany" % iid)
+                    last_seen = st.get("last_seen_msg_id") if st else None
+                    conv_id = st.get("conv_id") if st else None
+                    all_ok = True; delivered_key = None
+                    new = []
+                    for m in chat:
+                        if (m.get("author") or {}).get("role") == "SELLER":
+                            continue  # nasze wiadomosci - pomijamy (brak echa)
+                        cat = m.get("createdAt") or ""
+                        ts = parse_ts(cat)
+                        if ts is not None and ts <= START_TS:
+                            continue
+                        if last_seen and cat <= last_seen:
+                            continue
+                        new.append(m)
+                    if new:
+                        if conv_id and not conv_exists(conv_id):
+                            clear_thread_conv("allegro_dispute", iid); conv_id = None
+                        if not conv_id:
+                            login = (iss.get("buyer") or {}).get("login") or "klient"
+                            ident = "allegrodisp-%s-%s" % (login, iid)
+                            card = allegro_issue_card(iss)
+                            conv_id = ensure_conversation("allegro_dispute", iid, CW_ALLEGRO_DISPUTE_INBOX, login, ident, card.get("text"), card.get("image"))
+                        if conv_id:
+                            def _send(m):
+                                txt = (m.get("text") or "").strip()
+                                if (m.get("author") or {}).get("role") == "ADMIN":
+                                    txt = "[Mediator Allegro] " + txt
+                                atts = []
+                                for a in (m.get("attachments") or []):
+                                    u = a.get("url") or (ALLEGRO_API + "/sale/issues/attachments/%s" % a.get("id") if a.get("id") else None)
+                                    if u:
+                                        atts.append({"name": a.get("fileName") or "plik", "url": u,
+                                                     "headers": {"Authorization": "Bearer " + get_allegro_token(), "Accept": ALLEGRO_BETA_ACCEPT}})
+                                if not txt and not atts:
+                                    txt = "(wiadomosc bez tresci)"
+                                return cw_incoming(conv_id, txt, atts)
+                            delivered_key, all_ok = deliver_in_order(new, lambda m: m.get("createdAt"), _send)
+                            if delivered_key is not None:
+                                log("Allegro dyskusja %s -> dostarczono do %s (conv %s)" % (iid, delivered_key, conv_id))
+                            if not all_ok:
+                                log("Allegro dyskusja %s: dostawa do Chatwoota wstrzymana — wodowskaz nieprzesuwany" % iid)
+                        else:
+                            all_ok = False  # brak rozmowy => nic nie dostarczono
+                    # Wodowskaz: pelna dostawa => biezacy stan; czesciowa/zerowa => do ostatniej dostarczonej.
+                    if all_ok:
+                        upsert_thread(iid, conv_id, chat[-1].get("createdAt"), None, "allegro_dispute")
                     else:
-                        all_ok = False  # brak rozmowy => nic nie dostarczono
-                # Wodowskaz: pelna dostawa => biezacy stan; czesciowa/zerowa => do ostatniej dostarczonej.
-                if all_ok:
-                    upsert_thread(iid, conv_id, chat[-1].get("createdAt"), None, "allegro_dispute")
-                else:
-                    ls = delivered_key if delivered_key is not None else last_seen
-                    upsert_thread(iid, conv_id, ls, None, "allegro_dispute")
+                        ls = delivered_key if delivered_key is not None else last_seen
+                        upsert_thread(iid, conv_id, ls, None, "allegro_dispute")
+                except Exception as e:
+                    log("Allegro dyskusja %s pominieta (blad przejsciowy):" % iid, repr(e))
+                    continue
         except Exception as e:
             log("Allegro dyskusje poller ERROR:", repr(e)); traceback.print_exc()
         time.sleep(max(POLL_INTERVAL, 60))

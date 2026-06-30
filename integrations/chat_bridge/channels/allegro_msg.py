@@ -108,68 +108,74 @@ def allegro_poller():
             c.close()
             for th in threads:
                 tid = str(th["id"])
-                st = known.get(tid)
-                last_dt = th.get("lastMessageDateTime") or ""
-                changed = (st is None) or (not th.get("read", True)) or (last_dt > (st.get("last_seen_msg_id") or ""))
-                if st is not None and not changed:
-                    continue
-                msgs = allegro_get("/messaging/threads/%s/messages?limit=20" % tid).get("messages", [])
-                msgs = sorted(msgs, key=lambda m: m.get("createdAt") or "")
-                if not msgs:
-                    continue
-                last_seen = st.get("last_seen_msg_id") if st else None
-                conv_id = st.get("conv_id") if st else None
-                all_ok = True; delivered_key = None
-                new = []
-                for m in msgs:
-                    if not (m.get("author") or {}).get("isInterlocutor"):
-                        continue  # nasza wiadomosc -> pomijamy (brak echa)
-                    cat = m.get("createdAt") or ""
-                    ts = parse_ts(cat)
-                    if ts is not None and ts <= START_TS:
+                # Izolacja per-watek: przejsciowy blad (np. 503 Allegro) jednego watku
+                # nie przerywa juz calego cyklu — pozostale watki sa przetwarzane dalej.
+                try:
+                    st = known.get(tid)
+                    last_dt = th.get("lastMessageDateTime") or ""
+                    changed = (st is None) or (not th.get("read", True)) or (last_dt > (st.get("last_seen_msg_id") or ""))
+                    if st is not None and not changed:
                         continue
-                    if last_seen and cat <= last_seen:
+                    msgs = allegro_get("/messaging/threads/%s/messages?limit=20" % tid).get("messages", [])
+                    msgs = sorted(msgs, key=lambda m: m.get("createdAt") or "")
+                    if not msgs:
                         continue
-                    new.append(m)
-                if new:
-                    if conv_id and not conv_exists(conv_id):
-                        clear_thread_conv("allegro_msg", tid); conv_id = None
-                    if not conv_id:
-                        login = (th.get("interlocutor") or {}).get("login") or "klient"
-                        name = login
-                        ident = "allegro-%s-%s" % (login, tid)
-                        card = allegro_offer_card(new[0].get("relatesTo"))
-                        ctext = card.get("text") if card else None
-                        cimg = card.get("image") if card else None
-                        conv_id = ensure_conversation("allegro_msg", tid, CW_ALLEGRO_MSG_INBOX, name, ident, ctext, cimg)
-                    if conv_id:
-                        def _send(m):
-                            txt = (m.get("text") or "").strip()
-                            subj = (m.get("subject") or "").strip()
-                            if subj and subj not in txt:
-                                txt = (subj + "\n\n" + txt).strip()
-                            atts = []
-                            for a in (m.get("attachments") or []):
-                                if a.get("url"):
-                                    atts.append({"name": a.get("fileName") or "plik", "url": a["url"],
-                                                 "mime": a.get("mimeType"),
-                                                 "headers": {"Authorization": "Bearer " + get_allegro_token()}})
-                            if not txt and not atts:
-                                txt = "(wiadomosc bez tresci)"
-                            return cw_incoming(conv_id, txt, atts)
-                        delivered_key, all_ok = deliver_in_order(new, lambda m: m.get("createdAt"), _send)
-                        if delivered_key is not None:
-                            log("Allegro watek %s -> dostarczono do %s (conv %s)" % (tid, delivered_key, conv_id))
-                        if not all_ok:
-                            log("Allegro watek %s: dostawa do Chatwoota wstrzymana — wodowskaz nieprzesuwany" % tid)
+                    last_seen = st.get("last_seen_msg_id") if st else None
+                    conv_id = st.get("conv_id") if st else None
+                    all_ok = True; delivered_key = None
+                    new = []
+                    for m in msgs:
+                        if not (m.get("author") or {}).get("isInterlocutor"):
+                            continue  # nasza wiadomosc -> pomijamy (brak echa)
+                        cat = m.get("createdAt") or ""
+                        ts = parse_ts(cat)
+                        if ts is not None and ts <= START_TS:
+                            continue
+                        if last_seen and cat <= last_seen:
+                            continue
+                        new.append(m)
+                    if new:
+                        if conv_id and not conv_exists(conv_id):
+                            clear_thread_conv("allegro_msg", tid); conv_id = None
+                        if not conv_id:
+                            login = (th.get("interlocutor") or {}).get("login") or "klient"
+                            name = login
+                            ident = "allegro-%s-%s" % (login, tid)
+                            card = allegro_offer_card(new[0].get("relatesTo"))
+                            ctext = card.get("text") if card else None
+                            cimg = card.get("image") if card else None
+                            conv_id = ensure_conversation("allegro_msg", tid, CW_ALLEGRO_MSG_INBOX, name, ident, ctext, cimg)
+                        if conv_id:
+                            def _send(m):
+                                txt = (m.get("text") or "").strip()
+                                subj = (m.get("subject") or "").strip()
+                                if subj and subj not in txt:
+                                    txt = (subj + "\n\n" + txt).strip()
+                                atts = []
+                                for a in (m.get("attachments") or []):
+                                    if a.get("url"):
+                                        atts.append({"name": a.get("fileName") or "plik", "url": a["url"],
+                                                     "mime": a.get("mimeType"),
+                                                     "headers": {"Authorization": "Bearer " + get_allegro_token()}})
+                                if not txt and not atts:
+                                    txt = "(wiadomosc bez tresci)"
+                                return cw_incoming(conv_id, txt, atts)
+                            delivered_key, all_ok = deliver_in_order(new, lambda m: m.get("createdAt"), _send)
+                            if delivered_key is not None:
+                                log("Allegro watek %s -> dostarczono do %s (conv %s)" % (tid, delivered_key, conv_id))
+                            if not all_ok:
+                                log("Allegro watek %s: dostawa do Chatwoota wstrzymana — wodowskaz nieprzesuwany" % tid)
+                        else:
+                            all_ok = False  # brak rozmowy => nic nie dostarczono
+                    # Wodowskaz: pelna dostawa => biezacy stan; czesciowa/zerowa => do ostatniej dostarczonej.
+                    if all_ok:
+                        upsert_thread(tid, conv_id, (msgs[-1].get("createdAt") or last_dt), None, "allegro_msg")
                     else:
-                        all_ok = False  # brak rozmowy => nic nie dostarczono
-                # Wodowskaz: pelna dostawa => biezacy stan; czesciowa/zerowa => do ostatniej dostarczonej.
-                if all_ok:
-                    upsert_thread(tid, conv_id, (msgs[-1].get("createdAt") or last_dt), None, "allegro_msg")
-                else:
-                    ls = delivered_key if delivered_key is not None else last_seen
-                    upsert_thread(tid, conv_id, ls, None, "allegro_msg")
+                        ls = delivered_key if delivered_key is not None else last_seen
+                        upsert_thread(tid, conv_id, ls, None, "allegro_msg")
+                except Exception as e:
+                    log("Allegro watek %s pominiety (blad przejsciowy):" % tid, repr(e))
+                    continue
         except Exception as e:
             log("Allegro poller ERROR:", repr(e)); traceback.print_exc()
         time.sleep(POLL_INTERVAL)
