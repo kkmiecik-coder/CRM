@@ -139,6 +139,19 @@ def cw_contact(conv_id):
         return {"name": "", "identifier": ""}
 
 
+def cw_inboxes():
+    """Katalog inboxow: [{id, name, channel_type}] z Application API; [] przy bledzie."""
+    try:
+        payload = cw("GET", "/inboxes").json().get("payload", [])
+    except Exception:
+        return []
+    out = []
+    for i in payload:
+        out.append({"id": i.get("id"), "name": i.get("name") or "",
+                    "channel_type": i.get("channel_type") or ""})
+    return out
+
+
 def cw_articles(slug):
     """Opublikowane artykuly Help Center danego portalu: [{id, title, content}]."""
     if not slug:
