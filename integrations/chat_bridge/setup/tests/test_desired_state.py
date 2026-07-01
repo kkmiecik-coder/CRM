@@ -93,6 +93,19 @@ def test_reguly_klienckie_wykluczaja_domeny_wewnetrzne():
         assert all(c["filter_operator"] == "does_not_contain" for c in emails)
 
 
+def test_assign_on_reply_last_responding_i_wyklucza_imienne():
+    p = ds.assign_on_reply_rule_payload(ds.PERSONAL_INBOXES)
+    assert p["event_name"] == "conversation_updated"
+    assert p["actions"] == [{"action_name": "assign_agent", "action_params": ["last_responding_agent"]}]
+    # warunek: assignee brak
+    assert any(c["attribute_key"] == "assignee_id" and c["filter_operator"] == "is_not_present"
+               for c in p["conditions"])
+    # wykluczenie kazdej skrzynki imiennej
+    excluded = {c["values"][0] for c in p["conditions"]
+                if c["attribute_key"] == "inbox_id" and c["filter_operator"] == "not_equal_to"}
+    assert excluded == set(ds.PERSONAL_INBOXES)
+
+
 def test_folder_payload_ma_typ_conversation():
     p = ds.folder_payload("Pilne", [{"attribute_key": "labels"}])
     assert p["name"] == "Pilne"

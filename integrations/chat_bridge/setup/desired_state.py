@@ -154,6 +154,38 @@ def new_contact_rule_payload():
 # nie wolno auto-odpowiadac. OLX=3, Allegro wiadomosci=4, Allegro dyskusje=6.
 AUTORESPONDER_INBOXES = [3, 4, 6]
 
+# Skrzynki imienne - maja wlasne reguly przypisania (inbox 16->Anna, 17->Sylwester),
+# wiec wykluczamy je z "przypisz do tego, kto odpisal".
+PERSONAL_INBOXES = [16, 17]
+
+
+def assign_on_reply_rule_payload(personal_inboxes):
+    # Gdy agent odpisze na NIEPRZYPISANA rozmowe (poza skrzynkami imiennymi),
+    # przypisz ja do niego (last_responding_agent). Po przypisaniu warunek
+    # "assignee brak" przestaje pasowac, wiec regula nie zapetla sie.
+    conds = [{
+        "attribute_key": "assignee_id",
+        "filter_operator": "is_not_present",
+        "values": [],
+        "query_operator": "and",
+        "custom_attribute_type": "",
+    }]
+    for i, inbox_id in enumerate(personal_inboxes):
+        conds.append({
+            "attribute_key": "inbox_id",
+            "filter_operator": "not_equal_to",
+            "values": [inbox_id],
+            "query_operator": "and" if i < len(personal_inboxes) - 1 else None,
+            "custom_attribute_type": "",
+        })
+    return {
+        "name": "Auto-przypisz do odpowiadajacego (nieprzypisane)",
+        "event_name": "conversation_updated",
+        "active": True,
+        "conditions": conds,
+        "actions": [{"action_name": "assign_agent", "action_params": ["last_responding_agent"]}],
+    }
+
 # Jeden komunikat na kazda nowa rozmowe OLX/Allegro (decyzja: bez osobnego OOO -
 # tekst sam wspomina godziny pracy). Wysylany dopiero po wlaczeniu reguly.
 GREETING_TEXT = (
