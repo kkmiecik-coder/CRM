@@ -109,13 +109,13 @@ Podane czasy mają charakter orientacyjny i mogą się zmieniać w zależności 
 Gotowe produkty dostarczamy na dwa sposoby:
 
 - **wysyłka kurierem** — korzystamy z różnych firm kurierskich, w zależności od aktualnej oferty,
-- **transport spedycyjny / własny** — dla dużych lub ciężkich blatów, organizowany w zależności od lokalizacji dostawy oraz tras innych realizowanych zamówień.
+- **dostawa własnym transportem** — dla dużych lub ciężkich blatów, organizowana w zależności od lokalizacji dostawy oraz tras innych realizowanych zamówień.
 
 Koszt dostawy zależy od wymiarów, ilości oraz rodzaju zamawianego produktu i ustalany jest indywidualnie.
 
 W przypadku **przesyłek kurierskich** doręczenie odbywa się na standardowych zasadach danej firmy kurierskiej.
 
-W przypadku **transportu spedycyjnego lub własnego** (dotyczy zwykle dużych lub ciężkich blatów) dostawa realizowana jest do miejsc dostępnych dla samochodów ciężarowych, bez wnoszenia do wnętrza.
+W przypadku **dostawy własnym transportem** (dotyczy zwykle dużych lub ciężkich blatów) szczegóły dostawy ustalamy indywidualnie; dostawa realizowana jest do miejsca dostępnego dla pojazdu dostawczego, bez wnoszenia do wnętrza.
 
 ## Formy płatności
 
