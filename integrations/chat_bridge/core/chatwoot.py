@@ -2,7 +2,7 @@
 # Klient Chatwoot Application API: tworzenie/uzupelnianie rozmow, wiadomosci przychodzace,
 # prywatne notatki (karty ofert/alerty), sprawdzanie istnienia rozmowy.
 import requests
-from config import CW_BASE, CW_ACC, CW_TOKEN
+from config import CW_BASE, CW_ACC, CW_TOKEN, BOT_CW_AGENT_TOKEN
 from core.log import log
 from core.db import db
 from core.util import upsert_thread, html_to_text
@@ -139,6 +139,19 @@ def cw_contact(conv_id):
         return {"name": "", "identifier": ""}
 
 
+def cw_inboxes():
+    """Katalog inboxow: [{id, name, channel_type}] z Application API; [] przy bledzie."""
+    try:
+        payload = cw("GET", "/inboxes").json().get("payload", [])
+    except Exception:
+        return []
+    out = []
+    for i in payload:
+        out.append({"id": i.get("id"), "name": i.get("name") or "",
+                    "channel_type": i.get("channel_type") or ""})
+    return out
+
+
 def cw_articles(slug):
     """Opublikowane artykuly Help Center danego portalu: [{id, title, content}]."""
     if not slug:
@@ -155,3 +168,18 @@ def cw_articles(slug):
         out.append({"id": a.get("id"), "title": a.get("title") or "",
                     "content": html_to_text(a.get("content") or "")})
     return out
+
+
+def cw_bot_handoff(conv_id):
+    """Oddaje rozmowe z 'pending' do agentow (status open). Uzywa tokenu bota (fallback: admin).
+    Nigdy nie rzuca — True gdy 200, inaczej False + log."""
+    tok = BOT_CW_AGENT_TOKEN or CW_TOKEN
+    try:
+        url = "%s/api/v1/accounts/%s/conversations/%s/toggle_status" % (CW_BASE, CW_ACC, conv_id)
+        r = requests.post(url, headers={"api_access_token": tok, "Content-Type": "application/json"},
+                          json={"status": "open"}, timeout=20)
+        if r.status_code != 200:
+            log("bot_handoff kod:", r.status_code, r.text[:150]); return False
+        return True
+    except Exception as e:
+        log("bot_handoff blad:", repr(e)); return False

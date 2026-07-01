@@ -28,6 +28,8 @@ CW_ALLEGRO_MSG_INBOX = os.environ.get("CHATWOOT_ALLEGRO_MSG_INBOX_ID", "4")
 CW_ALLEGRO_DISPUTE_INBOX = os.environ.get("CHATWOOT_ALLEGRO_DISPUTE_INBOX_ID", "6")
 CW_TOKEN    = os.environ.get("CHATWOOT_API_TOKEN")
 WEBHOOK_TOKEN = os.environ.get("WEBHOOK_TOKEN")
+BOT_CW_AGENT_TOKEN     = os.environ.get("BOT_CW_AGENT_TOKEN")      # access_token Agent Bota (do handoffu)
+BOT_AGENT_WEBHOOK_TOKEN = os.environ.get("BOT_AGENT_WEBHOOK_TOKEN") # token w URL webhooka /agent-bot
 
 # ----- BaseLinker -----
 BASELINKER_TOKEN = os.environ.get("BASELINKER_TOKEN")
