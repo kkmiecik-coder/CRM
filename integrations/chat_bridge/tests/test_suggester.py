@@ -9,15 +9,13 @@ import importlib
 import pytest
 
 import config; importlib.reload(config)
-import bots.registry as reg; importlib.reload(reg)
 sug = importlib.import_module("bots.suggester"); importlib.reload(sug)
 
 
-def setup_function(_):
-    os.environ["BOT_INBOX_MAP"] = "3:olx"
-
-
-def _patch(monkeypatch, reply):
+def _patch(monkeypatch, reply, persona_for_func=None):
+    if persona_for_func is None:
+        persona_for_func = lambda inbox_id: "olx"
+    monkeypatch.setattr(sug, "persona_for", persona_for_func)
     monkeypatch.setattr(sug, "cw_messages", lambda cid, limit=12: [{"role": "user", "text": "Czas realizacji?"}])
     monkeypatch.setattr(sug, "cw_contact", lambda cid: {"name": "Jan", "identifier": "olx-1"})
     monkeypatch.setattr(sug, "retrieve", lambda q, k=None: ["Realizacja 14 dni."])
@@ -43,13 +41,14 @@ def test_model_none_rzuca_wyjatek(monkeypatch):
 
 
 def test_inbox_bez_bota_rzuca(monkeypatch):
-    _patch(monkeypatch, "cokolwiek")
+    _patch(monkeypatch, "cokolwiek", persona_for_func=lambda inbox_id: None)
     with pytest.raises(Exception):
         sug.run_suggestion(10, "999", "m1", "hej")
 
 
 def test_pusta_historia_dodaje_turn_uzytkownika(monkeypatch):
     # Gdy historia CW jest pusta, wiadomosc triggerujaca musi trafic do modelu jako turn "user".
+    monkeypatch.setattr(sug, "persona_for", lambda inbox_id: "olx")
     monkeypatch.setattr(sug, "cw_messages", lambda cid, limit=12: [])
     monkeypatch.setattr(sug, "cw_contact", lambda cid: {"name": "Anonim", "identifier": "olx-2"})
     monkeypatch.setattr(sug, "retrieve", lambda q, k=None: [])
