@@ -1,52 +1,87 @@
 # -*- coding: utf-8 -*-
 # Persony botow per kanal + budowa promptu systemowego. Teksty po polsku.
+# Konfiguracja (rola, zasady, kanaly) zyje w personas.json - edytowalna bez zmiany kodu.
+# W razie braku/uszkodzenia pliku uzywamy _DEFAULT (kopia tresci JSON), zeby bot nigdy nie padl.
+import json
+import logging
+import os
 
-COMMON_RULES = (
-    "Jesteś asystentem obsługi klienta firmy WoodPower (produkcja z drewna). "
-    "Twoim zadaniem jest przygotować PROPOZYCJĘ odpowiedzi dla agenta — to człowiek ją wyśle.\n"
-    "Zasady ogólne:\n"
-    "- Pisz po polsku, formą grzecznościową Pan/Pani. Jeśli z danych klienta (nazwa kontaktu, "
-    "login) lub z treści wiadomości znasz jego PRAWDZIWE imię, zwracaj się \"Panie [Imię]\" / "
-    "\"Pani [Imię]\" w poprawnym wołaczu (np. \"Panie Tomaszu\", \"Pani Anno\"). Jeśli login to "
-    "nick/pseudonim albo imienia nie znasz — użyj neutralnego \"Dzień dobry\" bez imienia.\n"
-    "- NIE podawaj konkretnych cen — wycena jest indywidualna. Gdy klient pyta o cenę lub "
-    "zamówienie, DOPYTAJ o parametry potrzebne do wyceny (wymiary, gatunek drewna, grubość, "
-    "rodzaj wykończenia, obróbka krawędzi, ewentualne wycięcia/otwory, docięcie do wymiaru, "
-    "ilość) i napisz, że na tej podstawie konsultant przygotuje wycenę.\n"
-    "- Odpowiadaj WYŁĄCZNIE na podstawie wiedzy podanej niżej. Gdy brak informacji — nie zmyślaj, "
-    "napisz uprzejmie, że przekażesz pytanie konsultantowi.\n"
-    "- Nie dodawaj podpisu ani stopki. Zwróć samą treść odpowiedzi."
-)
+logger = logging.getLogger(__name__)
 
-PERSONAS = {
-    "olx": (
-        "Kanał: OLX. Ton profesjonalny i branżowy, ale przystępny — klienci zwykle nie są z "
-        "branży, więc unikaj żargonu i nadęcia. Pisz zwięźle i konkretnie."
-    ),
-    "allegro": (
-        "Kanał: Allegro. OBOWIĄZUJĄ reguły komunikacji Allegro:\n"
-        "- NIE proponuj kontaktu poza Allegro — żadnego telefonu, e-maila, adresów, linków "
-        "zewnętrznych ani komunikatorów.\n"
-        "- NIE powtarzaj informacji, które Allegro wysyła automatycznie (potwierdzenia "
-        "zamówienia, płatności, numer śledzenia, prośby o opinię).\n"
-        "- Faktury i dokumenty tylko na wyraźne żądanie kupującego.\n"
-        "- Odpowiadaj rzeczowo, wyłącznie na pytanie kupującego."
-    ),
-    "mail": (
-        "Kanał: e-mail. Forma profesjonalnej wiadomości e-mail: powitanie i treść. "
-        "NIE dodawaj podpisu — agent doda własny przy wysyłce."
-    ),
+_PATH = os.path.join(os.path.dirname(__file__), "personas.json")
+
+# Minimalny bezpiecznik na wypadek braku/uszkodzenia personas.json — NIE pelna kopia.
+# Pelna, edytowalna tresc person zyje TYLKO w personas.json. Tu zostaja wylacznie reguly
+# krytyczne (1. osoba, brak cen, Allegro: zero kontaktu poza platforma, bez podpisu),
+# zeby bot nigdy nie padl i nie zlamal zgodnosci przy zepsutym pliku.
+_DEFAULT = {
+    "common": {
+        "rola": "Jesteś konsultantem obsługi klienta firmy WoodPower — piszesz jako konsultant, nie jako bot.",
+        "zasady": [
+            "Pisz w PIERWSZEJ OSOBIE jako konsultant WoodPower; nie pisz o sobie jako bocie/AI.",
+            "NIE podawaj konkretnych cen — dopytaj o parametry potrzebne do wyceny i napisz, że przygotujemy wycenę.",
+            "Odpowiadaj tylko na podstawie podanej wiedzy; gdy brak — napisz, że sprawdzimy i wrócimy z odpowiedzią.",
+            "Nie dodawaj podpisu ani stopki.",
+        ],
+    },
+    "channels": {
+        "olx": {"opis": "Kanał: OLX. Profesjonalnie, ale przystępnie.", "zasady": []},
+        "allegro": {
+            "opis": "Kanał: Allegro.",
+            "zasady": [
+                "NIE proponuj kontaktu poza Allegro (telefon, e-mail, adresy, linki, komunikatory).",
+                "Faktury i dokumenty tylko na żądanie kupującego.",
+            ],
+        },
+        "mail": {"opis": "Kanał: e-mail. Forma profesjonalnej wiadomości.", "zasady": []},
+    },
 }
+
+
+def load_personas():
+    """Wczytuje konfiguracje person z personas.json (bez cache - plik jest maly,
+    umozliwia to edycje na zywo). Przy dowolnym bledzie wraca do _DEFAULT,
+    zeby bot nigdy nie przestal dzialac i nie stracil regul bezpieczenstwa (np. Allegro)."""
+    try:
+        with open(_PATH, "r", encoding="utf-8") as f:
+            dane = json.load(f)
+        if "common" not in dane or "channels" not in dane:
+            raise ValueError("personas.json: brak klucza 'common' lub 'channels'")
+        return dane
+    except Exception:
+        logger.exception("personas.json: blad wczytywania, uzywam wbudowanej konfiguracji domyslnej")
+        return _DEFAULT
+
+
+def _bullets(items):
+    return "\n".join("- " + x for x in items if x)
 
 
 def build_system_prompt(persona_key, knowledge_text, identity):
     identity = identity or {}
-    parts = [COMMON_RULES, PERSONAS.get(persona_key, "")]
+    dane = load_personas()
+    common = dane.get("common", {})
+    channel = dane.get("channels", {}).get(persona_key, {})
+
+    parts = [
+        common.get("rola") or "",
+        "Zasady:\n" + _bullets(common.get("zasady") or []),
+        channel.get("opis") or "",
+    ]
+
+    zasady_kanalu = channel.get("zasady") or []
+    if zasady_kanalu:
+        parts.append("Zasady kanału:\n" + _bullets(zasady_kanalu))
+
     parts.append("Dane klienta: nazwa='%s', login='%s'." % (
         identity.get("name") or "", identity.get("identifier") or ""))
+
     if knowledge_text:
         parts.append("WIEDZA (Help Center):\n" + knowledge_text)
     else:
-        parts.append("WIEDZA: brak dopasowanych artykułów — nie zmyślaj, w razie potrzeby "
-                     "przekaż pytanie do konsultanta.")
+        parts.append(
+            "WIEDZA: brak dopasowanych artykułów — nie zmyślaj; napisz, że sprawdzimy i "
+            "wrócimy z odpowiedzią."
+        )
+
     return "\n\n".join(x for x in parts if x)

@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# Test: prompt systemowy zawiera reguly wspolne i kanalowe.
+# Test: prompt systemowy zawiera reguly wspolne i kanalowe, persony ladowane z JSON.
 import os
 os.environ.setdefault("OLX_CLIENT_ID", "x")
 os.environ.setdefault("OLX_CLIENT_SECRET", "x")
@@ -9,15 +9,27 @@ import importlib
 p = importlib.import_module("bots.personas")
 
 
-def test_wspolne_reguly_ceny_i_imie():
-    s = p.build_system_prompt("olx", "", {"name": "", "identifier": ""})
-    assert "nie podawaj" in s.lower() or "nie podaje" in s.lower()
+def test_load_personas_zwraca_common_i_channels():
+    dane = p.load_personas()
+    assert "common" in dane
+    assert "channels" in dane
+    assert "olx" in dane["channels"]
+    assert "allegro" in dane["channels"]
+    assert "mail" in dane["channels"]
+
+
+def test_pierwsza_osoba_i_wspolne_reguly():
+    s = p.build_system_prompt("olx", "", {})
+    assert "PIERWSZEJ OSOBIE" in s
+    assert "przygotujemy" in s
     assert "Pan/Pani" in s
-    assert "wycen" in s.lower()
+    assert "cen" in s.lower()
+    # Nie moze byc starej, trzecioosobowej frazy bota
+    assert "nasz konsultant przygotuje" not in s.lower()
 
 
 def test_allegro_zakaz_kontaktu_poza_platforma():
-    s = p.build_system_prompt("allegro", "", {"name": "", "identifier": ""})
+    s = p.build_system_prompt("allegro", "", {})
     assert "poza Allegro" in s
     assert "telefon" in s.lower()
 
@@ -35,3 +47,17 @@ def test_wiedza_wstawiona_do_promptu():
 def test_brak_wiedzy_komunikat():
     s = p.build_system_prompt("olx", "", {})
     assert "brak" in s.lower()
+
+
+def test_fallback_gdy_brak_pliku_json(monkeypatch):
+    # Symulujemy zepsuty/brakujacy plik JSON - bot nie moze sie wywalic,
+    # a reguly bezpieczenstwa (Allegro, 1. osoba) musza przetrwac.
+    monkeypatch.setattr(p, "_PATH", os.path.join(os.path.dirname(p.__file__), "nieistniejacy_plik.json"))
+    dane = p.load_personas()
+    assert "common" in dane
+    assert "channels" in dane
+    assert "allegro" in dane["channels"]
+
+    s = p.build_system_prompt("allegro", "", {})
+    assert "PIERWSZEJ OSOBIE" in s
+    assert "poza Allegro" in s
