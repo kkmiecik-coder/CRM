@@ -8,16 +8,9 @@
 # custom_filters: type / query.payload                 -> potwierdzone: TAK/NIE
 import os
 
-# Inbox IDs potwierdzone rekonesansem (account 2, Chatwoot 4.12.1).
-# Etykieta zrodlowa -> lista inboxow danego kanalu (allegro = wiadomosci 4 + dyskusje 6).
-SOURCE_INBOXES = {
-    "olx": [3],
-    "allegro": [4, 6],
-    "chat-live": [5],
-}
-
 # --- Etykiety ---
-# Tematyczne (auto z tresci) + zrodlowe (auto z inboxa) + pomocnicze.
+# Tematyczne (auto z tresci) + segment + pomocnicze.
+# (Etykiet zrodlowych olx/allegro/chat-live NIE ma - kanal widac przy ticketcie.)
 LABELS = [
     # tematyczne
     {"title": "wycena", "color": "#1f9d55"},
@@ -27,10 +20,6 @@ LABELS = [
     {"title": "transport-dostawa", "color": "#f6993f"},
     {"title": "reklamacja", "color": "#e3342f"},
     {"title": "techniczne", "color": "#8795a1"},
-    # zrodlowe (kanaly zbiorcze)
-    {"title": "olx", "color": "#2d9b5a"},
-    {"title": "allegro", "color": "#ff5a00"},
-    {"title": "chat-live", "color": "#4dc0b5"},
     # segment klienta (b2b juz istnieje na koncie; tworzenie pominie dedup)
     {"title": "b2b", "color": "#2779bd"},
     {"title": "b2c", "color": "#bf9000"},
@@ -112,23 +101,6 @@ def topic_rule_payload(label, keywords):
         "event_name": "message_created",
         "active": True,
         "conditions": _exclude_internal(_contains_conditions(keywords)),
-        "actions": [{"action_name": "add_label", "action_params": [label]}],
-    }
-
-
-def source_rule_payload(label, inbox_ids):
-    # inbox_ids: lista ID inboxow danego kanalu (np. allegro = [4, 6]).
-    return {
-        "name": "Zrodlo: %s" % label,
-        "event_name": "conversation_created",
-        "active": True,
-        "conditions": [{
-            "attribute_key": "inbox_id",
-            "filter_operator": "equal_to",
-            "values": list(inbox_ids),
-            "query_operator": None,
-            "custom_attribute_type": "",
-        }],
         "actions": [{"action_name": "add_label", "action_params": [label]}],
     }
 

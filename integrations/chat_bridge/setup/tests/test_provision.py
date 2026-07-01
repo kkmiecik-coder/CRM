@@ -49,15 +49,6 @@ def test_apply_plan_wola_post_dla_kazdego_elementu():
     assert any("etykieta" in l.lower() for l in log)
 
 
-def test_build_plan_zawiera_reguly_zrodlowe():
-    from setup import desired_state as ds
-    client = _fake_client()
-    plan = prov.build_plan(client)
-    names = [r["name"] for r in plan["rules"]]
-    for label in ds.SOURCE_INBOXES:
-        assert "Zrodlo: %s" % label in names
-
-
 def test_run_dry_run_nie_wola_post():
     client = _fake_client()
     with mock.patch.object(prov, "_make_client", return_value=client):

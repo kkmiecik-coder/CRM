@@ -28,16 +28,11 @@ def build_plan(client):
     labels = to_create(have_labels, ds.LABELS, "title")
     folders = to_create(have_folders, ds.FOLDERS, "name")
 
-    # Reguly: tematyczne + nowy-kontakt + powitanie (nieaktywne).
-    # Zrodlowe (OLX/Allegro) dokladamy w Task 5 po potwierdzeniu inbox IDs.
+    # Reguly: tematyczne + nowy-kontakt + segment + auto-przypisanie + powitanie.
+    # (Etykiety/reguly zrodlowe olx/allegro/chat-live usuniete - kanal widac przy ticketcie.)
     desired_rules = []
     for label, kws in ds.KEYWORDS.items():
-        if label == "pilne":
-            desired_rules.append(ds.topic_rule_payload("pilne", kws))
-        else:
-            desired_rules.append(ds.topic_rule_payload(label, kws))
-    for label, inbox_id in ds.SOURCE_INBOXES.items():
-        desired_rules.append(ds.source_rule_payload(label, inbox_id))
+        desired_rules.append(ds.topic_rule_payload(label, kws))
     desired_rules.append(ds.new_contact_rule_payload())
     desired_rules.append(ds.b2c_default_rule_payload())
     desired_rules.append(ds.b2b_detect_rule_payload(ds.B2B_KEYWORDS))
