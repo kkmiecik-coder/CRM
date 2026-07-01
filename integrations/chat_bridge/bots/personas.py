@@ -59,10 +59,7 @@ _DEFAULT = {
             ],
         },
         "mail": {
-            "opis": (
-                "Kanał: e-mail. Forma profesjonalnej wiadomości e-mail: powitanie i treść. "
-                "Nie dodawaj podpisu — konsultant doda własny."
-            ),
+            "opis": "Kanał: e-mail. Forma profesjonalnej wiadomości e-mail: powitanie i treść.",
             "zasady": [],
         },
     },
