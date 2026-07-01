@@ -26,7 +26,7 @@ def _process_agent_bot(d):
         return
     conv = d.get("conversation") or {}
     conv_id = conv.get("id") or d.get("conversation_id")
-    inbox_id = str(conv.get("inbox_id") or (d.get("inbox") or {}).get("id") or "")
+    inbox_id = str(d.get("inbox_id") or conv.get("inbox_id") or (d.get("inbox") or {}).get("id") or "")
     content = (d.get("content") or "").strip()
     mid = str(d.get("id") or "")
     if not conv_id or not inbox_id:

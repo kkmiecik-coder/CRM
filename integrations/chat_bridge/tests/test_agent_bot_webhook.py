@@ -166,3 +166,31 @@ def test_inny_event_ignorowany(monkeypatch):
 
     assert len(handoffs) == 0
     assert _count_queue() == 0
+
+
+# ---------------------------------------------------------------------------
+# Test 8: inbox_id na poziomie top-level payloadu -> handoff + kolejka
+# ---------------------------------------------------------------------------
+
+def test_toplevel_inbox_id_fallback(monkeypatch):
+    """Payload z inbox_id na poziomie top-level (bez conversation.inbox_id) jest przetwarzany."""
+    handoffs = []
+    monkeypatch.setattr(wh, "cw_bot_handoff", lambda conv_id: handoffs.append(conv_id) or True)
+    monkeypatch.setattr(wh, "persona_for", lambda inbox_id: "olx")
+
+    # Payload z inbox_id na poziomie top-level, bez conversation.inbox_id
+    payload = {
+        "event": "message_created",
+        "message_type": 0,
+        "id": "mTL",
+        "content": "pytanie",
+        "inbox_id": 3,
+        "conversation": {
+            "id": 88,
+        },
+    }
+    wh._process_agent_bot(payload)
+
+    assert len(handoffs) == 1, "cw_bot_handoff powinien byc wywolany dla top-level inbox_id"
+    assert handoffs[0] == 88, "handoff dla conv_id=88"
+    assert _count_queue() == 1, "powinien byc 1 wpis w suggest_queue (pomimo braku conversation.inbox_id)"
