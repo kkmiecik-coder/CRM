@@ -23,10 +23,14 @@ _FORMAT = (
     "FORMAT ODPOWIEDZI: odpowiedz WYŁĄCZNIE poprawnym JSON (bez tekstu przed/po):\n"
     '{"odpowiedz": "tekst do klienta", "handoff": false, "powod": "", '
     '"dane": {"produkt": "", "wymiary": "", "grubosc": "", "gatunek": "", '
-    '"wykonczenie": "", "ilosc": "", "termin": "", "kontakt": ""}}\n'
-    "Ustaw handoff=true gdy: klient prosi o człowieka/konsultanta, pyta o cenę, "
-    "pytanie wykracza poza podaną wiedzę, albo masz komplet danych do wyceny. "
-    "W 'dane' uzupełniaj wszystko, co klient dotąd podał (całość rozmowy, nie tylko ostatnia wiadomość)."
+    '"technologia": "", "klasa": "", "ilosc": "", "wykonczenie": "", '
+    '"otwory": "", "krawedzie": "", "schody": "", "termin": "", "kontakt": ""}}\n'
+    "Ustaw handoff=true gdy: klient prosi o człowieka/konsultanta, pytanie wykracza poza "
+    "podaną wiedzę, albo masz KOMPLET danych do wyceny wg checklisty z zasad. "
+    "NIE ustawiaj handoff na samo pytanie o cenę — wtedy zbieraj brakujące dane do wyceny. "
+    "W 'dane' uzupełniaj wszystko, co klient dotąd podał (całość rozmowy, nie tylko ostatnia "
+    "wiadomość). Wymiary zapisuj w centymetrach. Pole 'schody' wypełniaj tylko dla produktu "
+    "schody (liczba stopni, wymiar stopnia, podstopnice)."
 )
 
 # Twarde wyzwalacze w kodzie (podwojne zabezpieczenie obok decyzji LLM):
@@ -84,7 +88,9 @@ def _parse_llm(raw):
 
 
 _POLA = [("produkt", "Produkt"), ("wymiary", "Wymiary"), ("grubosc", "Grubość"),
-         ("gatunek", "Gatunek"), ("wykonczenie", "Wykończenie"), ("ilosc", "Ilość"),
+         ("gatunek", "Gatunek"), ("technologia", "Technologia"), ("klasa", "Klasa"),
+         ("ilosc", "Ilość"), ("wykonczenie", "Wykończenie"),
+         ("otwory", "Otwory/wycięcia"), ("krawedzie", "Krawędzie"), ("schody", "Schody"),
          ("termin", "Termin"), ("kontakt", "Kontakt")]
 
 

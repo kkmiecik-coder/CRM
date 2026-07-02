@@ -250,3 +250,22 @@ def test_handoff_resetuje_licznik_tur(monkeypatch):
     row = c.execute("SELECT * FROM live_state WHERE conv_id=77").fetchone()
     c.close()
     assert row is None, "live_state dla conv 77 powinien byc usuniety po handoffie"
+
+
+def test_summary_note_zawiera_nowe_pola():
+    """Notatka handoffu wypisuje nowe pola krytyczne (technologia, klasa, otwory, krawedzie, schody)."""
+    dane = {"produkt": "blat", "wymiary": "320x115.5", "grubosc": "3.8", "gatunek": "dąb",
+            "technologia": "lita", "klasa": "A/B", "ilosc": "1",
+            "wykonczenie": "lakier mat bezbarwny", "otwory": "brak", "krawedzie": "fazowana"}
+    note = lc._summary_note(dane, "komplet danych")
+    assert "Technologia: lita" in note
+    assert "Klasa: A/B" in note
+    assert "Otwory/wycięcia: brak" in note
+    assert "Krawędzie: fazowana" in note
+
+
+def test_format_ma_nowe_pola_i_bez_handoffu_na_cene():
+    """Schemat 'dane' w _FORMAT ma nowe pola; instrukcja nie każe robić handoffu na samą cenę."""
+    for pole in ('"technologia"', '"klasa"', '"otwory"', '"krawedzie"', '"schody"'):
+        assert pole in lc._FORMAT
+    assert "NIE ustawiaj handoff na samo pytanie o cenę" in lc._FORMAT
