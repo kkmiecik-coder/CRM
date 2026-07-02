@@ -81,3 +81,18 @@ def test_checklista_dziedziczona_w_podpowiadaczu_olx():
     s = p.build_system_prompt("olx", "", {}).lower()
     assert "mikrowczep" in s
     assert "klasa" in s
+
+
+def test_livechat_ma_regule_koperty_wymiarow():
+    s = p.build_system_prompt("livechat", "", {})
+    low = s.lower()
+    assert "120 cm" in low                 # max szerokość
+    assert "450" in low and "500" in low   # max długość lita / mikrowczep
+    assert "ponadstandard" in low          # grubość > 4 cm nie odrzucana
+    assert "860" in low                    # worked example (nie przyjmuj)
+
+
+def test_regula_koperty_dziedziczona_w_olx():
+    s = p.build_system_prompt("olx", "", {}).lower()
+    assert "120 cm" in s
+    assert "500" in s
