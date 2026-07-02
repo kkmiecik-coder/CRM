@@ -335,3 +335,13 @@ def test_straznik_przepuszcza_prosbe_o_czlowieka_mimo_brakow(monkeypatch):
     lc.run_livechat_turn(77, "12", "m1", "wolę porozmawiać z kimś")
     assert len(calls["handoff"]) == 1
     assert calls["reply"] == [lc.CLOSING_MSG]
+
+
+def test_pytanie_o_braki_gramatyczne():
+    """Regresja: ramka nie moze generowac 'prosze o czy...' dla etykiet-pytan."""
+    jedno = lc._pytanie_o_braki(["technologia"])
+    assert jedno == "Żeby przygotować wycenę, potrzebuję jeszcze: technologię (lita czy mikrowczep)."
+    dwa = lc._pytanie_o_braki(["otwory", "krawedzie"])
+    assert dwa == ("Żeby przygotować wycenę, potrzebuję jeszcze: "
+                   "czy potrzebne są otwory lub wycięcia oraz jak wykończyć krawędzie.")
+    assert "o czy" not in dwa

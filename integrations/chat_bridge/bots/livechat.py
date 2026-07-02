@@ -161,8 +161,8 @@ def _pytanie_o_braki(brak):
     """Backstop: krotkie pytanie o max 2 pierwsze brakujace pola (pacing 1-2 na ture)."""
     etyk = [_ETYKIETY_PYTAN.get(k, k) for k in brak[:2]]
     if len(etyk) == 1:
-        return "Żeby przygotować wycenę, proszę jeszcze o %s." % etyk[0]
-    return "Żeby przygotować wycenę, proszę jeszcze o %s oraz %s." % (etyk[0], etyk[1])
+        return "Żeby przygotować wycenę, potrzebuję jeszcze: %s." % etyk[0]
+    return "Żeby przygotować wycenę, potrzebuję jeszcze: %s oraz %s." % (etyk[0], etyk[1])
 
 
 def _do_handoff(conv_id, powod, dane, closing=CLOSING_MSG):
