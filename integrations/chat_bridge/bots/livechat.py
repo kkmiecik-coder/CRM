@@ -33,21 +33,17 @@ _FORMAT = (
     "schody (liczba stopni, wymiar stopnia, podstopnice)."
 )
 
-# Twarde wyzwalacze w kodzie (podwojne zabezpieczenie obok decyzji LLM):
-# E — temat ceny; A — prosba o czlowieka.
-# Jawne odmiany "cena" (nie \w* — "cen\w*" lapalo tez "centymetrow" i wywolywalo falszywy handoff).
-_PRICE_RE = re.compile(r"\b(cen(a|y|ie|ę|ą)?\b|cennik\w*|koszt\w*|ile\s+kosztuje|wycen\w*|drogo|tanio)\b", re.IGNORECASE)
+# Twardy wyzwalacz A w kodzie (obok decyzji LLM): prosba o czlowieka.
+# Wyzwalacz E (cena) USUNIETY — pytanie o cene uruchamia zbieranie danych (persona), nie handoff.
 _HUMAN_RE = re.compile(r"\b(konsultant\w*|człowiek\w*|czlowiek\w*|doradc\w*|pracownik\w*|"
                        r"zadzwoń\w*|zadzwon\w*|oddzwon\w*)\b", re.IGNORECASE)
 
 
 def _hard_handoff(text):
-    """Zwraca powod handoffu gdy tresc klienta trafia w twardy wyzwalacz, inaczej None."""
+    """Zwraca powod handoffu gdy tresc klienta trafia w twardy wyzwalacz A, inaczej None."""
     t = text or ""
     if _HUMAN_RE.search(t):
         return "klient prosi o kontakt z konsultantem"
-    if _PRICE_RE.search(t):
-        return "pytanie o cenę"
     return None
 
 

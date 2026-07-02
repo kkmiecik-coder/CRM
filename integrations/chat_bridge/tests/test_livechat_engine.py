@@ -73,25 +73,29 @@ def test_llm_handoff_true_przekazuje_z_notatka(monkeypatch):
     assert "200x80" in calls["note"][0]
 
 
-def test_twarde_slowo_cena_wymusza_handoff_bez_llm(monkeypatch):
-    """Wyzwalacz E: slowo o cenie w tresci klienta -> handoff BEZ wolania LLM."""
-    calls = _mock_env(monkeypatch)
+def test_pytanie_o_cene_uruchamia_zbieranie_nie_handoff(monkeypatch):
+    """Zmiana: cena NIE wymusza handoffu — LLM jest wolany i zbiera dane (persona)."""
+    calls = _mock_env(monkeypatch, llm_json={
+        "odpowiedz": "Chętnie przygotujemy wycenę — proszę o wymiary i gatunek.",
+        "handoff": False, "powod": "", "dane": {}})
 
     lc.run_livechat_turn(77, "12", "m1", "Ile kosztuje taki blat?")
 
-    assert calls["chat"] == [], "LLM nie powinien byc wolany przy twardym wyzwalaczu"
-    assert calls["reply"] == [lc.CLOSING_MSG]
-    assert len(calls["handoff"]) == 1
+    assert len(calls["chat"]) == 1, "LLM POWINIEN byc wolany — cena uruchamia zbieranie danych"
+    assert calls["handoff"] == []
+    assert calls["reply"] == ["Chętnie przygotujemy wycenę — proszę o wymiary i gatunek."]
 
 
-def test_cennik_wymusza_handoff_bez_llm(monkeypatch):
-    """Wyzwalacz E: 'macie cennik?' -> handoff BEZ wolania LLM."""
-    calls = _mock_env(monkeypatch)
+def test_cennik_uruchamia_zbieranie_nie_handoff(monkeypatch):
+    """Zmiana: 'macie cennik?' -> LLM zbiera dane, bez natychmiastowego handoffu."""
+    calls = _mock_env(monkeypatch, llm_json={
+        "odpowiedz": "Wycena jest indywidualna — podam szczegóły, gdy poznam parametry.",
+        "handoff": False, "powod": "", "dane": {}})
 
     lc.run_livechat_turn(77, "12", "m1", "macie cennik?")
 
-    assert calls["chat"] == []
-    assert len(calls["handoff"]) == 1
+    assert len(calls["chat"]) == 1
+    assert calls["handoff"] == []
 
 
 def test_centymetry_nie_wywoluja_falszywego_handoffu(monkeypatch):
@@ -219,7 +223,7 @@ def test_nieudany_toggle_rzuca_i_nic_nie_wysyla(monkeypatch):
     monkeypatch.setattr(lc, "cw_bot_handoff", lambda cid, token=None: False)
 
     with pytest.raises(RuntimeError):
-        lc.run_livechat_turn(77, "12", "m1", "Ile kosztuje blat?")
+        lc.run_livechat_turn(77, "12", "m1", "Chcę rozmawiać z konsultantem")
 
     assert calls["reply"] == [], "klient nie moze dostac 'przekazuje' gdy handoff padl"
     assert calls["note"] == []
