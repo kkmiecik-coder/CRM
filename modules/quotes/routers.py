@@ -2962,7 +2962,9 @@ _CHATWOOT_PANEL_HTML = """<!DOCTYPE html>
 
   function render(payload){
     if(!payload || !payload.client){
-      root.innerHTML = '<div class="empty">Nie znaleziono klienta w CRM.<br><span class="muted">Dla OLX dopasowujemy po identyfikatorze kupującego (olx-…) wklejonym w nazwę klienta; dla pozostałych kontaktów po e-mailu, telefonie lub nazwie. Sprawdź, czy odpowiednie dane są zapisane w CRM.</span></div>';
+      var dbg = '';
+      try { dbg = '<pre style="text-align:left;font-size:10px;white-space:pre-wrap;word-break:break-all;background:#f1f5f9;color:#334155;padding:6px;border-radius:6px;margin-top:10px">DEBUG: ' + esc(JSON.stringify(window.__CW_DBG || {}, null, 1)) + '</pre>'; } catch(e){}
+      root.innerHTML = '<div class="empty">Nie znaleziono klienta w CRM.<br><span class="muted">Dla OLX dopasowujemy po identyfikatorze kupującego (olx-…) wklejonym w nazwę klienta; dla pozostałych kontaktów po e-mailu, telefonie lub nazwie. Sprawdź, czy odpowiednie dane są zapisane w CRM.</span>' + dbg + '</div>';
       return;
     }
     var c = payload.client;
@@ -3017,11 +3019,27 @@ _CHATWOOT_PANEL_HTML = """<!DOCTYPE html>
     if(payload && payload.event === 'appContext'){
       var d = payload.data || {};
       var contact = d.contact || {};
-      // Identyfikator OLX (olx-<kupujacy>-<watek>) bierzemy z kontaktu, a gdyby go tam brakowalo —
-      // z nadawcy rozmowy (conversation.meta.sender.identifier), gdzie most tez go ustawia.
+      // Identyfikator OLX (olx-<kupujacy>-<watek>) probujemy z kilku miejsc appContext,
+      // bo rozne wersje Chatwoota inaczej buduja obiekt kontaktu/rozmowy.
       var conv = d.conversation || {};
       var sender = (conv.meta && conv.meta.sender) || {};
-      var ident = contact.identifier || sender.identifier || '';
+      var ident = contact.identifier || sender.identifier
+                || (contact.additional_attributes && contact.additional_attributes.identifier)
+                || (conv.additional_attributes && conv.additional_attributes.identifier)
+                || '';
+      // DEBUG (tymczasowe): zapisujemy co realnie przyszlo z Chatwoota, by zdiagnozowac dopasowanie.
+      try {
+        window.__CW_DBG = {
+          dataType: typeof event.data,
+          ident: ident,
+          contactIdentifier: contact.identifier,
+          senderIdentifier: sender.identifier,
+          contactKeys: Object.keys(contact),
+          convKeys: Object.keys(conv),
+          senderKeys: Object.keys(sender),
+          contactName: contact.name
+        };
+      } catch(e){}
       loadQuotes(contact.email || '', contact.phone_number || '', contact.name || '', ident);
     }
   });
