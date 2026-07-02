@@ -884,9 +884,11 @@ def create_app():
                                     password_error='Błędne hasło lub e-mail.',
                                     email_error=None)
             if not user.active:
+                # Konto nieaktywne: zwracamy ten sam generyczny komunikat co przy
+                # zlym haslo/e-mailu, zeby nie ujawniac statusu konta (ochrona przed enumeracja).
                 return render_template('login.html',
                                     email_value=email,
-                                    password_error='Twoje konto zostało dezaktywowane.',
+                                    password_error='Błędne hasło lub e-mail.',
                                     email_error=None)
 
             # Sprawdzenie hasła z obsługą niekompatybilnego algorytmu hashowania
