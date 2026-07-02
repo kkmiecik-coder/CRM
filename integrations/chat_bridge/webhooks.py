@@ -1,10 +1,11 @@
 # -*- coding: utf-8 -*-
 # Trasy HTTP mostka: webhook konta Chatwoota (outgoing -> kolejka wysylki), webhook Agent Bota
-# (/agent-bot -> handoff + kolejka podpowiedzi AI), callback OAuth Allegro, health.
+# (/agent-bot -> handoff + kolejka podpowiedzi AI), webhook Agent Bota live-chat
+# (/agent-bot-live -> kolejka tur konwersacyjnych), callback OAuth Allegro, health.
 import time
 import json
 from flask import Blueprint, request, jsonify
-from config import WEBHOOK_TOKEN, BOT_AGENT_WEBHOOK_TOKEN
+from config import WEBHOOK_TOKEN, BOT_AGENT_WEBHOOK_TOKEN, BOT_LIVE_AGENT_WEBHOOK_TOKEN
 from core.log import log
 from core.db import db
 from core.chatwoot import cw_bot_handoff
@@ -56,6 +57,42 @@ def agent_bot():
         return jsonify(ok=False, error="unauthorized"), 401
     d = request.get_json(force=True, silent=True) or {}
     _process_agent_bot(d)
+    return jsonify(ok=True)
+
+
+# ---------- AGENT BOT LIVE-CHAT (konwersacyjny) ----------
+def _process_livechat_bot(d):
+    # Webhook live-bota: kolejkuje ture rozmowy. BEZ natychmiastowego handoffu —
+    # o przekazaniu decyduje silnik (bots/livechat.py, wyzwalacze A-E).
+    if d.get("event") != "message_created":
+        return
+    mtype = str(d.get("message_type"))
+    if mtype not in ("incoming", "0") or d.get("private"):
+        return
+    conv = d.get("conversation") or {}
+    conv_id = conv.get("id") or d.get("conversation_id")
+    inbox_id = str(d.get("inbox_id") or conv.get("inbox_id") or (d.get("inbox") or {}).get("id") or "")
+    content = (d.get("content") or "").strip()
+    mid = str(d.get("id") or "")
+    if not conv_id or not content or not mid:
+        return
+    c = db()
+    try:
+        c.execute("INSERT INTO live_seen(mid) VALUES(?)", (mid,)); c.commit()
+    except Exception:
+        c.close(); return  # duplikat
+    c.execute("INSERT INTO live_queue(conv_id, inbox_id, message_id, content, next_at) VALUES(?,?,?,?,0)",
+              (conv_id, inbox_id, mid, content))
+    c.commit(); c.close()
+    log("agent-bot-live: zakolejkowano ture (inbox %s, conv %s)" % (inbox_id, conv_id))
+
+
+@bp.post("/agent-bot-live")
+def agent_bot_live():
+    if BOT_LIVE_AGENT_WEBHOOK_TOKEN and request.args.get("token") != BOT_LIVE_AGENT_WEBHOOK_TOKEN:
+        return jsonify(ok=False, error="unauthorized"), 401
+    d = request.get_json(force=True, silent=True) or {}
+    _process_livechat_bot(d)
     return jsonify(ok=True)
 
 
