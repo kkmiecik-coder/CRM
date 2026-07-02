@@ -38,8 +38,9 @@ def _payload(mid="m1", content="Szukam blatu", inbox_id=12, conv_id=77, mtype=0,
             "private": private, "conversation": {"id": conv_id, "inbox_id": inbox_id}}
 
 
-def test_incoming_kolejkuje_ture():
+def test_incoming_kolejkuje_ture(monkeypatch):
     """Wiadomosc klienta -> 1 wpis w live_queue, BEZ natychmiastowego handoffu."""
+    monkeypatch.setattr(wh, "persona_for", lambda inbox_id: "livechat")
     wh._process_livechat_bot(_payload())
     assert _count() == 1
     c = db_mod.db()
@@ -50,31 +51,43 @@ def test_incoming_kolejkuje_ture():
     assert row["status"] == "pending"
 
 
-def test_dedup_po_mid():
+def test_dedup_po_mid(monkeypatch):
+    monkeypatch.setattr(wh, "persona_for", lambda inbox_id: "livechat")
     wh._process_livechat_bot(_payload(mid="dup"))
     wh._process_livechat_bot(_payload(mid="dup"))
     assert _count() == 1
 
 
-def test_outgoing_i_private_ignorowane():
+def test_outgoing_i_private_ignorowane(monkeypatch):
+    monkeypatch.setattr(wh, "persona_for", lambda inbox_id: "livechat")
     wh._process_livechat_bot(_payload(mtype=1))
     wh._process_livechat_bot(_payload(mtype="outgoing"))
     wh._process_livechat_bot(_payload(private=True))
     assert _count() == 0
 
 
-def test_inny_event_ignorowany():
+def test_inny_event_ignorowany(monkeypatch):
+    monkeypatch.setattr(wh, "persona_for", lambda inbox_id: "livechat")
     wh._process_livechat_bot(_payload(event="conversation_updated"))
     assert _count() == 0
 
 
-def test_pusta_tresc_ignorowana():
+def test_pusta_tresc_ignorowana(monkeypatch):
     """Live-bot bez tresci nie ma na co odpowiadac (inaczej niz podpowiadacz — tu zero handoffu)."""
+    monkeypatch.setattr(wh, "persona_for", lambda inbox_id: "livechat")
     wh._process_livechat_bot(_payload(content="  "))
     assert _count() == 0
 
 
-def test_endpoint_wymaga_tokenu():
+def test_inbox_bez_persony_livechat_ignorowany(monkeypatch):
+    """Guard: inbox omylkowo przypiety (np. persona 'olx') -> bot live nie odpowiada publicznie."""
+    monkeypatch.setattr(wh, "persona_for", lambda inbox_id: "olx")
+    wh._process_livechat_bot(_payload())
+    assert _count() == 0
+
+
+def test_endpoint_wymaga_tokenu(monkeypatch):
+    monkeypatch.setattr(wh, "persona_for", lambda inbox_id: "livechat")
     cl = app.test_client()
     assert cl.post("/agent-bot-live", json=_payload()).status_code == 401
     assert cl.post("/agent-bot-live?token=zly", json=_payload()).status_code == 401

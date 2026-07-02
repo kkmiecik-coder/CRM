@@ -169,6 +169,22 @@ def test_inny_event_ignorowany(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
+# Test 9: persona "livechat" -> handoff TAK, kolejka podpowiedzi NIE (symetria z live-botem)
+# ---------------------------------------------------------------------------
+
+def test_persona_livechat_handoff_bez_kolejki_podpowiedzi(monkeypatch):
+    """Inbox z persona 'livechat': handoff jak zawsze, ale bez notatki-podpowiedzi (ma ja bot live)."""
+    handoffs = []
+    monkeypatch.setattr(wh, "cw_bot_handoff", lambda conv_id: handoffs.append(conv_id) or True)
+    monkeypatch.setattr(wh, "persona_for", lambda inbox_id: "livechat")
+
+    wh._process_agent_bot(_payload())
+
+    assert len(handoffs) == 1, "handoff musi byc wywolany takze dla persony livechat"
+    assert _count_queue() == 0, "persona livechat -> brak wpisu w suggest_queue"
+
+
+# ---------------------------------------------------------------------------
 # Test 8: inbox_id na poziomie top-level payloadu -> handoff + kolejka
 # ---------------------------------------------------------------------------
 

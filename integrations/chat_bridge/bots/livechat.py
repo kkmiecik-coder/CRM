@@ -31,7 +31,8 @@ _FORMAT = (
 
 # Twarde wyzwalacze w kodzie (podwojne zabezpieczenie obok decyzji LLM):
 # E — temat ceny; A — prosba o czlowieka.
-_PRICE_RE = re.compile(r"\b(cen\w*|koszt\w*|ile\s+kosztuje|wycen\w*|drogo|tanio)\b", re.IGNORECASE)
+# Jawne odmiany "cena" (nie \w* — "cen\w*" lapalo tez "centymetrow" i wywolywalo falszywy handoff).
+_PRICE_RE = re.compile(r"\b(cen(a|y|ie|ę|ą)?\b|cennik\w*|koszt\w*|ile\s+kosztuje|wycen\w*|drogo|tanio)\b", re.IGNORECASE)
 _HUMAN_RE = re.compile(r"\b(konsultant\w*|człowiek\w*|czlowiek\w*|doradc\w*|pracownik\w*|"
                        r"zadzwoń\w*|zadzwon\w*|oddzwon\w*)\b", re.IGNORECASE)
 
@@ -63,22 +64,23 @@ def _bump_turns(conv_id):
 
 
 def _parse_llm(raw):
-    """Parsuje odpowiedz LLM do dict. Toleruje ploty ```json. Nie-JSON -> caly tekst jako odpowiedz."""
+    """Parsuje odpowiedz LLM do dict. Toleruje ploty ```json (takze kilka blokow).
+    Nie-JSON -> caly tekst jako odpowiedz."""
     txt = (raw or "").strip()
-    m = re.search(r"```(?:json)?\s*(\{.*\})\s*```", txt, re.DOTALL)
-    if m:
-        txt = m.group(1)
-    try:
-        d = json.loads(txt)
-        if not isinstance(d, dict):
-            raise ValueError("nie-obiekt")
-        return {"odpowiedz": (d.get("odpowiedz") or "").strip(),
-                "handoff": bool(d.get("handoff")),
-                "powod": (d.get("powod") or "").strip(),
-                "dane": d.get("dane") if isinstance(d.get("dane"), dict) else {}}
-    except Exception:
-        # Fallback: model zignorowal format — traktujemy calosc jako tekst do klienta.
-        return {"odpowiedz": txt, "handoff": False, "powod": "", "dane": {}}
+    candidates = re.findall(r"```(?:json)?\s*(.+?)\s*```", txt, re.DOTALL) or [txt]
+    for cand in candidates:
+        try:
+            d = json.loads(cand)
+            if not isinstance(d, dict):
+                continue
+            return {"odpowiedz": (d.get("odpowiedz") or "").strip(),
+                    "handoff": bool(d.get("handoff")),
+                    "powod": (d.get("powod") or "").strip(),
+                    "dane": d.get("dane") if isinstance(d.get("dane"), dict) else {}}
+        except Exception:
+            continue
+    # Fallback: model zignorowal format — traktujemy calosc jako tekst do klienta.
+    return {"odpowiedz": txt, "handoff": False, "powod": "", "dane": {}}
 
 
 _POLA = [("produkt", "Produkt"), ("wymiary", "Wymiary"), ("grubosc", "Grubość"),
@@ -103,6 +105,10 @@ def _do_handoff(conv_id, powod, dane, closing=CLOSING_MSG):
     retry w workerze przebiega czysto, bez zdublowanych wiadomosci."""
     if not cw_bot_handoff(conv_id, token=BOT_LIVE_CW_AGENT_TOKEN):
         raise RuntimeError("livechat: handoff nieudany (conv %s)" % conv_id)
+    # Reset licznika tur: gdy agent kiedys odda rozmowe botowi (open->pending), bot startuje od zera.
+    c = db()
+    c.execute("DELETE FROM live_state WHERE conv_id=?", (conv_id,))
+    c.commit(); c.close()
     cw_note(conv_id, _summary_note(dane, powod))
     cw_agent_reply(conv_id, closing)
     log("livechat: handoff conv %s (%s)" % (conv_id, powod))
@@ -111,9 +117,11 @@ def _do_handoff(conv_id, powod, dane, closing=CLOSING_MSG):
 def run_livechat_turn(conv_id, inbox_id, message_id, content):
     """Pelna tura bota. Rzuca RuntimeError przy braku odpowiedzi LLM (retry w workerze)."""
     # Cisza po handoffie: bot prowadzi TYLKO rozmowy w statusie pending.
-    # None (blad API) traktujemy jak pending — wysylka i tak by wtedy padla, retry w workerze.
     status = cw_conv_status(conv_id)
-    if status is not None and status != "pending":
+    if status is None:
+        # Nie zgadujemy: bez statusu nie wolno pisac do klienta — retry w workerze.
+        raise RuntimeError("livechat: nie mozna odczytac statusu rozmowy (conv %s)" % conv_id)
+    if status != "pending":
         log("livechat: conv %s status=%s - bot milczy" % (conv_id, status))
         return
 
@@ -152,7 +160,8 @@ def run_livechat_turn(conv_id, inbox_id, message_id, content):
     reply = out["odpowiedz"]
     if not reply:
         raise RuntimeError("livechat: pusta odpowiedz modelu")
-    cw_agent_reply(conv_id, reply)
+    if not cw_agent_reply(conv_id, reply):
+        raise RuntimeError("livechat: wysylka odpowiedzi nieudana (conv %s)" % conv_id)
     _bump_turns(conv_id)
     log("livechat: odpowiedz wyslana (conv %s, tura %s)" % (conv_id, _bot_turns(conv_id)))
 

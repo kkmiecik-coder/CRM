@@ -81,6 +81,28 @@ def test_twarde_slowo_cena_wymusza_handoff_bez_llm(monkeypatch):
     assert len(calls["handoff"]) == 1
 
 
+def test_cennik_wymusza_handoff_bez_llm(monkeypatch):
+    """Wyzwalacz E: 'macie cennik?' -> handoff BEZ wolania LLM."""
+    calls = _mock_env(monkeypatch)
+
+    lc.run_livechat_turn(77, "12", "m1", "macie cennik?")
+
+    assert calls["chat"] == []
+    assert len(calls["handoff"]) == 1
+
+
+def test_centymetry_nie_wywoluja_falszywego_handoffu(monkeypatch):
+    """Regresja: 'centymetrow' nie moze pasowac do wyzwalacza ceny (regex cen\\w* byl zbyt szeroki)."""
+    calls = _mock_env(monkeypatch, llm_json={
+        "odpowiedz": "Dziękuję, notuję wymiary.", "handoff": False, "powod": "", "dane": {}})
+
+    lc.run_livechat_turn(77, "12", "m1", "blat 120 centymetrów na 60")
+
+    assert len(calls["chat"]) == 1, "LLM POWINIEN byc wolany - to nie jest pytanie o cene"
+    assert calls["handoff"] == []
+    assert calls["reply"] == ["Dziękuję, notuję wymiary."]
+
+
 def test_twarde_slowo_konsultant_wymusza_handoff(monkeypatch):
     """Wyzwalacz A: prosba o czlowieka -> handoff bez LLM."""
     calls = _mock_env(monkeypatch)
@@ -96,6 +118,19 @@ def test_status_open_bot_milczy(monkeypatch):
     calls = _mock_env(monkeypatch, status="open")
 
     lc.run_livechat_turn(77, "12", "m1", "Halo?")
+
+    assert calls["reply"] == []
+    assert calls["handoff"] == []
+    assert calls["chat"] == []
+
+
+def test_status_none_rzuca_i_nic_nie_wysyla(monkeypatch):
+    """Blad odczytu statusu (None) NIE moze byc traktowany jak pending — rzucamy, retry w workerze."""
+    import pytest
+    calls = _mock_env(monkeypatch, status=None)
+
+    with pytest.raises(RuntimeError):
+        lc.run_livechat_turn(77, "12", "m1", "Halo?")
 
     assert calls["reply"] == []
     assert calls["handoff"] == []
@@ -138,6 +173,20 @@ def test_json_w_plocie_markdown_parsowany(monkeypatch):
     assert calls["reply"] == ["OK"]
 
 
+def test_dwa_ploty_markdown_drugi_poprawny_json(monkeypatch):
+    """LLM zwrocil dwa bloki ```...``` - pierwszy nie-JSON/przyklad, drugi poprawny JSON.
+    Zachlanny regex ```(.+)``` zlapalby caly blob miedzy pierwszym otwarciem a ostatnim zamknieciem;
+    poprawka iteruje po kazdym bloku z osobna."""
+    payload = json.dumps({"odpowiedz": "Druga odpowiedz OK", "handoff": False, "powod": "", "dane": {}})
+    raw = "Przyklad:\n```\nto nie jest json\n```\n\nWlasciwa odpowiedz:\n```json\n" + payload + "\n```"
+    calls = _mock_env(monkeypatch, llm_raw=raw)
+
+    lc.run_livechat_turn(77, "12", "m1", "hej")
+
+    assert calls["reply"] == ["Druga odpowiedz OK"]
+    assert calls["handoff"] == []
+
+
 def test_brak_odpowiedzi_llm_rzuca(monkeypatch):
     """LLM zwraca None -> RuntimeError (retry w workerze)."""
     import pytest
@@ -171,3 +220,33 @@ def test_nieudany_toggle_rzuca_i_nic_nie_wysyla(monkeypatch):
 
     assert calls["reply"] == [], "klient nie moze dostac 'przekazuje' gdy handoff padl"
     assert calls["note"] == []
+
+
+def test_nieudana_wysylka_odpowiedzi_rzuca_i_nie_bumpuje_licznika(monkeypatch):
+    """cw_agent_reply zwraca False -> RuntimeError, licznik tur NIE jest inkrementowany
+    (POST nie dotarl do klienta, wiec retry w workerze nie zdubluje wiadomosci)."""
+    import pytest
+    calls = _mock_env(monkeypatch, llm_json={
+        "odpowiedz": "Jaki gatunek Pana interesuje?", "handoff": False, "powod": "", "dane": {}})
+    monkeypatch.setattr(lc, "cw_agent_reply", lambda cid, t: False)
+
+    with pytest.raises(RuntimeError):
+        lc.run_livechat_turn(77, "12", "m1", "Szukam blatu")
+
+    assert lc._bot_turns(77) == 0, "licznik tur nie moze wzrosnac przy nieudanej wysylce"
+
+
+def test_handoff_resetuje_licznik_tur(monkeypatch):
+    """Po udanym handoffie wpis w live_state dla danej rozmowy znika (agent moze oddac rozmowe botowi od zera)."""
+    calls = _mock_env(monkeypatch, llm_json={
+        "odpowiedz": "", "handoff": True, "powod": "komplet danych", "dane": {}})
+    c = db_mod.db()
+    c.execute("INSERT INTO live_state(conv_id, bot_turns) VALUES(77, 3)")
+    c.commit(); c.close()
+
+    lc.run_livechat_turn(77, "12", "m1", "To wszystko")
+
+    c = db_mod.db()
+    row = c.execute("SELECT * FROM live_state WHERE conv_id=77").fetchone()
+    c.close()
+    assert row is None, "live_state dla conv 77 powinien byc usuniety po handoffie"

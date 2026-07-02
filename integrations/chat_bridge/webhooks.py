@@ -37,8 +37,8 @@ def _process_agent_bot(d):
     if not content or not mid:
         return
     persona = persona_for(inbox_id)
-    if not persona:
-        log("agent-bot: niezmapowany inbox %s - bez podpowiedzi" % inbox_id)
+    if not persona or persona == "livechat":
+        log("agent-bot: inbox %s bez persony podpowiedzi - bez podpowiedzi" % inbox_id)
         return
     c = db()
     try:
@@ -76,9 +76,14 @@ def _process_livechat_bot(d):
     mid = str(d.get("id") or "")
     if not conv_id or not content or not mid:
         return
+    # Guard: live-bot dziala TYLKO na inboxach WebWidget (persona livechat) — ochrona przed
+    # omylkowym przypieciem bota do inboxu OLX/Allegro w UI.
+    if persona_for(inbox_id) != "livechat":
+        log("agent-bot-live: inbox %s bez persony livechat - pomijam" % inbox_id)
+        return
     c = db()
     try:
-        c.execute("INSERT INTO live_seen(mid) VALUES(?)", (mid,)); c.commit()
+        c.execute("INSERT INTO live_seen(mid) VALUES(?)", (mid,))
     except Exception:
         c.close(); return  # duplikat
     c.execute("INSERT INTO live_queue(conv_id, inbox_id, message_id, content, next_at) VALUES(?,?,?,?,0)",
