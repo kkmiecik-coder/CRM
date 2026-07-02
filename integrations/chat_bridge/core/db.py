@@ -30,6 +30,13 @@ def init_db():
     CREATE TABLE IF NOT EXISTS kb_chunks(
       id INTEGER PRIMARY KEY AUTOINCREMENT, article_id INTEGER, chunk TEXT,
       embedding TEXT, hash TEXT UNIQUE);
+    CREATE TABLE IF NOT EXISTS live_queue(
+      id INTEGER PRIMARY KEY AUTOINCREMENT, conv_id INTEGER, inbox_id TEXT,
+      message_id TEXT, content TEXT, attempts INTEGER DEFAULT 0,
+      status TEXT DEFAULT 'pending', next_at REAL DEFAULT 0, last_error TEXT);
+    CREATE TABLE IF NOT EXISTS live_seen(mid TEXT PRIMARY KEY);
+    CREATE TABLE IF NOT EXISTS live_state(
+      conv_id INTEGER PRIMARY KEY, bot_turns INTEGER DEFAULT 0);
     """)
     for stmt in ("ALTER TABLE queue ADD COLUMN attachments TEXT",
                  "ALTER TABLE threads ADD COLUMN channel TEXT",
