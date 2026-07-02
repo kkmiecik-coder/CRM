@@ -2743,8 +2743,16 @@ def chatwoot_client_quotes():
     if buyer_prefix:
         candidates = Client.query.filter(Client.client_name.ilike('%' + buyer_prefix + '%')).all()
         clients = [c for c in candidates if name_matches_olx_prefix(c.client_name, buyer_prefix)]
+        # DEBUG (tymczasowe): serwerowy widok dopasowania OLX, do usuniecia po diagnozie.
+        _dbg = {
+            "identifier": identifier,
+            "buyer_prefix": buyer_prefix,
+            "candidate_count": len(candidates),
+            "candidate_names": [c.client_name for c in candidates][:10],
+            "matched_count": len(clients),
+        }
         if not clients:
-            return jsonify({"ok": True, "client": None, "quotes": []})
+            return jsonify({"ok": True, "client": None, "quotes": [], "_debug": _dbg})
         client_ids = [c.id for c in clients]
         quotes = (Quote.query
                   .filter(Quote.client_id.in_(client_ids))
@@ -2963,7 +2971,10 @@ _CHATWOOT_PANEL_HTML = """<!DOCTYPE html>
   function render(payload){
     if(!payload || !payload.client){
       var dbg = '';
-      try { dbg = '<pre style="text-align:left;font-size:10px;white-space:pre-wrap;word-break:break-all;background:#f1f5f9;color:#334155;padding:6px;border-radius:6px;margin-top:10px">DEBUG: ' + esc(JSON.stringify(window.__CW_DBG || {}, null, 1)) + '</pre>'; } catch(e){}
+      try {
+        var dbgObj = { client_side: window.__CW_DBG || {}, server_side: (payload && payload._debug) || null };
+        dbg = '<pre style="text-align:left;font-size:10px;white-space:pre-wrap;word-break:break-all;background:#f1f5f9;color:#334155;padding:6px;border-radius:6px;margin-top:10px">DEBUG: ' + esc(JSON.stringify(dbgObj, null, 1)) + '</pre>';
+      } catch(e){}
       root.innerHTML = '<div class="empty">Nie znaleziono klienta w CRM.<br><span class="muted">Dla OLX dopasowujemy po identyfikatorze kupującego (olx-…) wklejonym w nazwę klienta; dla pozostałych kontaktów po e-mailu, telefonie lub nazwie. Sprawdź, czy odpowiednie dane są zapisane w CRM.</span>' + dbg + '</div>';
       return;
     }
