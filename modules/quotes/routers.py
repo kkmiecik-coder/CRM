@@ -17,7 +17,7 @@ from functools import wraps
 import logging
 import sys
 from sqlalchemy.orm import joinedload
-from sqlalchemy import func, text
+from sqlalchemy import func, text, or_
 import re
 from datetime import datetime
 import base64
@@ -2735,24 +2735,24 @@ def chatwoot_client_quotes():
 
     # Kontakt OLX: dopasowanie po STALYM id kupujacego, nie po nazwie (imiona sie powtarzaja).
     # Most tworzy identyfikator kontaktu jako "olx-<id_kupujacego>-<id_watku>"
-    # (integrations/chat_bridge/channels/olx.py), a agent wkleja go w nazwe klienta w CRM.
+    # (integrations/chat_bridge/channels/olx.py), a agent wkleja go w pole "Nazwa klienta" w CRM.
+    # UWAGA: pola w tabeli clients sa mylnie nazwane — UI "Nazwa klienta" zapisuje sie do kolumny
+    # client_number, a client_name trzyma "Imie i nazwisko" (patrz modules/clients/routers.py).
+    # Dlatego szukamy identyfikatora w OBU kolumnach (glownie client_number).
     # Ten sam kupujacy moze prowadzic wiele watkow -> wiele kart klienta z tym samym prefiksem;
     # agregujemy wyceny ze wszystkich, by pokazac pelna historie kupujacego. Dla OLX nie ma
     # fallbacku po nazwie — brak trafienia po prefiksie oznacza pusta liste.
     buyer_prefix = olx_buyer_prefix(identifier)
     if buyer_prefix:
-        candidates = Client.query.filter(Client.client_name.ilike('%' + buyer_prefix + '%')).all()
-        clients = [c for c in candidates if name_matches_olx_prefix(c.client_name, buyer_prefix)]
-        # DEBUG (tymczasowe): serwerowy widok dopasowania OLX, do usuniecia po diagnozie.
-        _dbg = {
-            "identifier": identifier,
-            "buyer_prefix": buyer_prefix,
-            "candidate_count": len(candidates),
-            "candidate_names": [c.client_name for c in candidates][:10],
-            "matched_count": len(clients),
-        }
+        like = '%' + buyer_prefix + '%'
+        candidates = Client.query.filter(
+            or_(Client.client_number.ilike(like), Client.client_name.ilike(like))
+        ).all()
+        clients = [c for c in candidates
+                   if name_matches_olx_prefix(c.client_number, buyer_prefix)
+                   or name_matches_olx_prefix(c.client_name, buyer_prefix)]
         if not clients:
-            return jsonify({"ok": True, "client": None, "quotes": [], "_debug": _dbg})
+            return jsonify({"ok": True, "client": None, "quotes": []})
         client_ids = [c.id for c in clients]
         quotes = (Quote.query
                   .filter(Quote.client_id.in_(client_ids))
@@ -2970,12 +2970,7 @@ _CHATWOOT_PANEL_HTML = """<!DOCTYPE html>
 
   function render(payload){
     if(!payload || !payload.client){
-      var dbg = '';
-      try {
-        var dbgObj = { client_side: window.__CW_DBG || {}, server_side: (payload && payload._debug) || null };
-        dbg = '<pre style="text-align:left;font-size:10px;white-space:pre-wrap;word-break:break-all;background:#f1f5f9;color:#334155;padding:6px;border-radius:6px;margin-top:10px">DEBUG: ' + esc(JSON.stringify(dbgObj, null, 1)) + '</pre>';
-      } catch(e){}
-      root.innerHTML = '<div class="empty">Nie znaleziono klienta w CRM.<br><span class="muted">Dla OLX dopasowujemy po identyfikatorze kupującego (olx-…) wklejonym w nazwę klienta; dla pozostałych kontaktów po e-mailu, telefonie lub nazwie. Sprawdź, czy odpowiednie dane są zapisane w CRM.</span>' + dbg + '</div>';
+      root.innerHTML = '<div class="empty">Nie znaleziono klienta w CRM.<br><span class="muted">Dla OLX dopasowujemy po identyfikatorze kupującego (olx-…) wklejonym w nazwę klienta; dla pozostałych kontaktów po e-mailu, telefonie lub nazwie. Sprawdź, czy odpowiednie dane są zapisane w CRM.</span></div>';
       return;
     }
     var c = payload.client;
@@ -3030,27 +3025,11 @@ _CHATWOOT_PANEL_HTML = """<!DOCTYPE html>
     if(payload && payload.event === 'appContext'){
       var d = payload.data || {};
       var contact = d.contact || {};
-      // Identyfikator OLX (olx-<kupujacy>-<watek>) probujemy z kilku miejsc appContext,
-      // bo rozne wersje Chatwoota inaczej buduja obiekt kontaktu/rozmowy.
+      // Identyfikator OLX (olx-<kupujacy>-<watek>) bierzemy z kontaktu, a gdyby go tam brakowalo —
+      // z nadawcy rozmowy (conversation.meta.sender.identifier), gdzie most tez go ustawia.
       var conv = d.conversation || {};
       var sender = (conv.meta && conv.meta.sender) || {};
-      var ident = contact.identifier || sender.identifier
-                || (contact.additional_attributes && contact.additional_attributes.identifier)
-                || (conv.additional_attributes && conv.additional_attributes.identifier)
-                || '';
-      // DEBUG (tymczasowe): zapisujemy co realnie przyszlo z Chatwoota, by zdiagnozowac dopasowanie.
-      try {
-        window.__CW_DBG = {
-          dataType: typeof event.data,
-          ident: ident,
-          contactIdentifier: contact.identifier,
-          senderIdentifier: sender.identifier,
-          contactKeys: Object.keys(contact),
-          convKeys: Object.keys(conv),
-          senderKeys: Object.keys(sender),
-          contactName: contact.name
-        };
-      } catch(e){}
+      var ident = contact.identifier || sender.identifier || '';
       loadQuotes(contact.email || '', contact.phone_number || '', contact.name || '', ident);
     }
   });
