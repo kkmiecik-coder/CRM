@@ -105,6 +105,70 @@ def _summary_note(dane, powod):
     return "\n".join(lines)
 
 
+# --- Straznik kompletnosci danych do wyceny (approach B ze specu) ---
+# Pola krytyczne wspolne dla kazdego produktu. Wymiary/grubosc (blat/parapet) albo pole
+# 'schody' (schody) dokladane sa zaleznie od typu produktu w _brakujace_pola.
+_KRYT_WSPOLNE = ("gatunek", "technologia", "klasa", "ilosc", "wykonczenie", "otwory", "krawedzie")
+
+# Powody handoffu, ktore straznik PRZEPUSZCZA (A: czlowiek, C: poza wiedza) — to nie sa
+# roszczenia o "komplet danych", wiec brak pol nie moze ich blokowac.
+_POWOD_PRZEPUSC = re.compile(
+    r"(człowiek|czlowiek|konsultant|doradc|pracownik|poza (wiedz|zakres)|"
+    r"nie wiem|nie potrafi|reklamacj)", re.IGNORECASE)
+
+# Etykiety pol do backstopowego pytania o braki (gdy LLM ustawil handoff mimo brakow).
+_ETYKIETY_PYTAN = {
+    "produkt": "co dokładnie mamy wycenić (blat, parapet czy schody)",
+    "wymiary": "wymiary (długość × szerokość w cm)",
+    "grubosc": "grubość (w cm)",
+    "gatunek": "gatunek drewna (dąb, jesion lub buk)",
+    "technologia": "technologię (lita czy mikrowczep)",
+    "klasa": "klasę drewna (A/B, a dla dębu również B/B)",
+    "ilosc": "ilość (liczba sztuk)",
+    "wykonczenie": "wykończenie (surowe, olejowane czy lakierowane)",
+    "otwory": "czy potrzebne są otwory lub wycięcia",
+    "krawedzie": "jak wykończyć krawędzie",
+    "schody": "szczegóły schodów (liczba stopni, wymiar stopnia, podstopnice)",
+}
+
+
+def _brakujace_pola(dane):
+    """Lista brakujacych pol krytycznych do wyceny dla wykrytego produktu
+    (kolejnosc = kolejnosc dopytywania). Pusta lista = komplet."""
+    dane = dane or {}
+    def pusto(k):
+        return not str(dane.get(k) or "").strip()
+    produkt = str(dane.get("produkt") or "").strip().lower()
+    if not produkt:
+        return ["produkt"]  # najpierw ustal produkt; reszte pol dopytamy w kolejnej turze
+    brak = []
+    if "schod" in produkt or "stopni" in produkt or "stopie" in produkt:
+        if pusto("schody"):
+            brak.append("schody")
+    else:
+        for k in ("wymiary", "grubosc"):
+            if pusto(k):
+                brak.append(k)
+    for k in _KRYT_WSPOLNE:
+        if pusto(k):
+            brak.append(k)
+    return brak
+
+
+def _czy_powod_kompletu(powod):
+    """True gdy handoff to roszczenie o 'komplet danych' (B) — pilnuje go straznik.
+    False dla prosby o czlowieka / pytania poza wiedza (A/C) — przepuszczamy zawsze."""
+    return not _POWOD_PRZEPUSC.search(powod or "")
+
+
+def _pytanie_o_braki(brak):
+    """Backstop: krotkie pytanie o max 2 pierwsze brakujace pola (pacing 1-2 na ture)."""
+    etyk = [_ETYKIETY_PYTAN.get(k, k) for k in brak[:2]]
+    if len(etyk) == 1:
+        return "Żeby przygotować wycenę, proszę jeszcze o %s." % etyk[0]
+    return "Żeby przygotować wycenę, proszę jeszcze o %s oraz %s." % (etyk[0], etyk[1])
+
+
 def _do_handoff(conv_id, powod, dane, closing=CLOSING_MSG):
     """Przekazanie rozmowy agentom: NAJPIERW toggle statusu (open), potem notatka i domkniecie.
     Kolejnosc celowa: gdy toggle padnie, rzucamy PRZED wyslaniem czegokolwiek do klienta —
@@ -158,9 +222,21 @@ def run_livechat_turn(conv_id, inbox_id, message_id, content):
         raise RuntimeError("livechat: brak odpowiedzi modelu")
     out = _parse_llm(raw)
 
-    # Wyzwalacze B/C (decyzja LLM).
+    # Wyzwalacze B/C (decyzja LLM) + straznik kompletnosci.
     if out["handoff"]:
-        _do_handoff(conv_id, out["powod"] or "decyzja bota", out["dane"])
+        powod = out["powod"] or "decyzja bota"
+        brak = _brakujace_pola(out["dane"])
+        # Handoff "komplet danych" (B) tylko gdy komplet; prosbe o czlowieka / poza wiedza
+        # (A/C) przepuszczamy zawsze. Przy brakach nie oddajemy rozmowy — dopytujemy.
+        if brak and _czy_powod_kompletu(powod):
+            reply = _pytanie_o_braki(brak)
+            if not cw_agent_reply(conv_id, reply):
+                raise RuntimeError("livechat: wysylka pytania o braki nieudana (conv %s)" % conv_id)
+            _bump_turns(conv_id)
+            log("livechat: straznik wstrzymal handoff, braki: %s (conv %s)"
+                % (",".join(brak), conv_id))
+            return
+        _do_handoff(conv_id, powod, out["dane"])
         return
 
     reply = out["odpowiedz"]

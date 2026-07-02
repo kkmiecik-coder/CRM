@@ -55,10 +55,13 @@ def test_normalna_tura_publiczna_odpowiedz_bez_handoffu(monkeypatch):
 
 
 def test_llm_handoff_true_przekazuje_z_notatka(monkeypatch):
-    """LLM: handoff=true (wyzwalacze B/C) -> domkniecie + notatka-podsumowanie + toggle open."""
+    """LLM: handoff=true (B) z KOMPLETEM -> domkniecie + notatka-podsumowanie + toggle open."""
     calls = _mock_env(monkeypatch, llm_json={
         "odpowiedz": "", "handoff": True, "powod": "komplet danych",
-        "dane": {"produkt": "blat", "wymiary": "200x80", "ilosc": "1", "termin": "", "kontakt": "jan@x.pl"}})
+        "dane": {"produkt": "blat", "wymiary": "200x80", "grubosc": "3.8", "gatunek": "dąb",
+                 "technologia": "lita", "klasa": "A/B", "ilosc": "1",
+                 "wykonczenie": "lakier", "otwory": "brak", "krawedzie": "prosta",
+                 "kontakt": "jan@x.pl"}})
 
     lc.run_livechat_turn(77, "12", "m1", "To wszystko")
 
@@ -239,12 +242,12 @@ def test_nieudana_wysylka_odpowiedzi_rzuca_i_nie_bumpuje_licznika(monkeypatch):
 def test_handoff_resetuje_licznik_tur(monkeypatch):
     """Po udanym handoffie wpis w live_state dla danej rozmowy znika (agent moze oddac rozmowe botowi od zera)."""
     calls = _mock_env(monkeypatch, llm_json={
-        "odpowiedz": "", "handoff": True, "powod": "komplet danych", "dane": {}})
+        "odpowiedz": "", "handoff": True, "powod": "klient prosi o człowieka", "dane": {}})
     c = db_mod.db()
     c.execute("INSERT INTO live_state(conv_id, bot_turns) VALUES(77, 3)")
     c.commit(); c.close()
 
-    lc.run_livechat_turn(77, "12", "m1", "To wszystko")
+    lc.run_livechat_turn(77, "12", "m1", "wolę z kimś porozmawiać")
 
     c = db_mod.db()
     row = c.execute("SELECT * FROM live_state WHERE conv_id=77").fetchone()
@@ -269,3 +272,62 @@ def test_format_ma_nowe_pola_i_bez_handoffu_na_cene():
     for pole in ('"technologia"', '"klasa"', '"otwory"', '"krawedzie"', '"schody"'):
         assert pole in lc._FORMAT
     assert "NIE ustawiaj handoff na samo pytanie o cenę" in lc._FORMAT
+
+
+def test_brakujace_pola_pusty_produkt_pyta_o_produkt():
+    assert lc._brakujace_pola({}) == ["produkt"]
+
+
+def test_brakujace_pola_komplet_blat_pusta_lista():
+    dane = {"produkt": "blat", "wymiary": "320x115", "grubosc": "3.8", "gatunek": "dąb",
+            "technologia": "lita", "klasa": "A/B", "ilosc": "1",
+            "wykonczenie": "lakier", "otwory": "brak", "krawedzie": "prosta"}
+    assert lc._brakujace_pola(dane) == []
+
+
+def test_brakujace_pola_blat_bez_technologii_i_klasy():
+    dane = {"produkt": "blat", "wymiary": "320x115", "grubosc": "3.8", "gatunek": "dąb",
+            "ilosc": "1", "wykonczenie": "lakier", "otwory": "brak", "krawedzie": "prosta"}
+    assert lc._brakujace_pola(dane) == ["technologia", "klasa"]
+
+
+def test_brakujace_pola_schody_wymaga_pola_schody():
+    dane = {"produkt": "schody", "gatunek": "dąb", "technologia": "lita", "klasa": "A/B",
+            "ilosc": "1", "wykonczenie": "olej", "otwory": "brak", "krawedzie": "prosta"}
+    assert lc._brakujace_pola(dane) == ["schody"]
+
+
+def test_straznik_wstrzymuje_handoff_przy_brakach(monkeypatch):
+    """B z niekompletnymi danymi -> bot NIE oddaje rozmowy, dopytuje, licznik tur +1."""
+    calls = _mock_env(monkeypatch, llm_json={
+        "odpowiedz": "", "handoff": True, "powod": "komplet danych do wyceny",
+        "dane": {"produkt": "blat", "wymiary": "320x115.5", "grubosc": "3.8",
+                 "gatunek": "dąb", "wykonczenie": "lakier", "ilosc": "1",
+                 "otwory": "brak", "krawedzie": "prosta"}})  # brak: technologia, klasa
+    lc.run_livechat_turn(77, "12", "m1", "to wszystko")
+    assert calls["handoff"] == [], "niekompletne dane nie moga oddac rozmowy"
+    assert len(calls["reply"]) == 1
+    assert "technologi" in calls["reply"][0].lower()
+    assert lc._bot_turns(77) == 1
+
+
+def test_straznik_przepuszcza_komplet(monkeypatch):
+    """B z kompletem -> handoff normalnie (domkniecie + notatka)."""
+    calls = _mock_env(monkeypatch, llm_json={
+        "odpowiedz": "", "handoff": True, "powod": "komplet danych",
+        "dane": {"produkt": "blat", "wymiary": "320x115.5", "grubosc": "3.8",
+                 "gatunek": "dąb", "technologia": "lita", "klasa": "A/B", "ilosc": "1",
+                 "wykonczenie": "lakier mat", "otwory": "brak", "krawedzie": "fazowana"}})
+    lc.run_livechat_turn(77, "12", "m1", "to wszystko")
+    assert len(calls["handoff"]) == 1
+    assert calls["reply"] == [lc.CLOSING_MSG]
+
+
+def test_straznik_przepuszcza_prosbe_o_czlowieka_mimo_brakow(monkeypatch):
+    """A/C: handoff z powodu 'klient prosi o człowieka' NIE jest blokowany brakiem pol."""
+    calls = _mock_env(monkeypatch, llm_json={
+        "odpowiedz": "", "handoff": True, "powod": "klient prosi o człowieka",
+        "dane": {"produkt": "blat"}})  # prawie puste
+    lc.run_livechat_turn(77, "12", "m1", "wolę porozmawiać z kimś")
+    assert len(calls["handoff"]) == 1
+    assert calls["reply"] == [lc.CLOSING_MSG]
