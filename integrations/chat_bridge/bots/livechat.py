@@ -98,10 +98,13 @@ def _summary_note(dane, powod):
 
 
 def _do_handoff(conv_id, powod, dane, closing=CLOSING_MSG):
-    """Domkniecie do klienta + notatka dla agenta + toggle status open (token live-bota)."""
-    cw_agent_reply(conv_id, closing)
+    """Przekazanie rozmowy agentom: NAJPIERW toggle statusu (open), potem notatka i domkniecie.
+    Kolejnosc celowa: gdy toggle padnie, rzucamy PRZED wyslaniem czegokolwiek do klienta —
+    retry w workerze przebiega czysto, bez zdublowanych wiadomosci."""
+    if not cw_bot_handoff(conv_id, token=BOT_LIVE_CW_AGENT_TOKEN):
+        raise RuntimeError("livechat: handoff nieudany (conv %s)" % conv_id)
     cw_note(conv_id, _summary_note(dane, powod))
-    cw_bot_handoff(conv_id, token=BOT_LIVE_CW_AGENT_TOKEN)
+    cw_agent_reply(conv_id, closing)
     log("livechat: handoff conv %s (%s)" % (conv_id, powod))
 
 

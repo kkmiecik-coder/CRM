@@ -155,3 +155,16 @@ def test_handoff_with_apology(monkeypatch):
     assert calls["reply"] == [lc.APOLOGY_MSG]
     assert len(calls["handoff"]) == 1
     assert len(calls["note"]) == 1
+
+
+def test_nieudany_toggle_rzuca_i_nic_nie_wysyla(monkeypatch):
+    """Porazka toggle_status -> RuntimeError PRZED wyslaniem czegokolwiek do klienta (retry w workerze)."""
+    import pytest
+    calls = _mock_env(monkeypatch)
+    monkeypatch.setattr(lc, "cw_bot_handoff", lambda cid, token=None: False)
+
+    with pytest.raises(RuntimeError):
+        lc.run_livechat_turn(77, "12", "m1", "Ile kosztuje blat?")
+
+    assert calls["reply"] == [], "klient nie moze dostac 'przekazuje' gdy handoff padl"
+    assert calls["note"] == []
