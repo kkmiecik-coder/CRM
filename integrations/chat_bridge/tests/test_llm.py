@@ -34,6 +34,35 @@ def test_chat_blad_zwraca_none(monkeypatch):
     assert llm.chat([{"role": "user", "content": "hej"}]) is None
 
 
+def test_chat_gpt5_payload(monkeypatch):
+    # Dla GPT-5: brak temperature, jest max_completion_tokens + reasoning_effort + verbosity.
+    captured = {}
+    def fake_post(url, **kw):
+        captured.update(kw["json"])
+        return FakeResp(200, {"choices": [{"message": {"content": "ok"}}]})
+    monkeypatch.setattr(llm.requests, "post", fake_post)
+    llm.chat([{"role": "user", "content": "hej"}], model="gpt-5-nano")
+    assert "temperature" not in captured
+    assert "max_tokens" not in captured
+    assert captured["max_completion_tokens"] == llm.BOT_MAX_TOKENS
+    assert captured["reasoning_effort"] == llm.BOT_REASONING_EFFORT
+    assert captured["verbosity"] == llm.BOT_VERBOSITY
+
+
+def test_chat_stary_model_payload(monkeypatch):
+    # Dla gpt-4.1-mini: jest temperature, brak parametrow GPT-5.
+    captured = {}
+    def fake_post(url, **kw):
+        captured.update(kw["json"])
+        return FakeResp(200, {"choices": [{"message": {"content": "ok"}}]})
+    monkeypatch.setattr(llm.requests, "post", fake_post)
+    llm.chat([{"role": "user", "content": "hej"}], model="gpt-4.1-mini")
+    assert captured["temperature"] == 0.3
+    assert captured["max_completion_tokens"] == llm.BOT_MAX_TOKENS
+    assert "reasoning_effort" not in captured
+    assert "verbosity" not in captured
+
+
 def test_embed_zwraca_wektory(monkeypatch):
     def fake_post(url, **kw):
         assert "embeddings" in url

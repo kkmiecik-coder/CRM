@@ -50,6 +50,9 @@ BOT_HISTORY_LIMIT   = int(os.environ.get("BOT_HISTORY_LIMIT", "12"))
 BOT_INDEX_INTERVAL  = int(os.environ.get("BOT_INDEX_INTERVAL", "600"))
 BOT_MAX_ATTEMPTS    = int(os.environ.get("BOT_MAX_ATTEMPTS", "3"))
 BOT_MAX_TOKENS      = int(os.environ.get("BOT_MAX_TOKENS", "700"))
+# Parametry specyficzne dla modeli GPT-5 (ignorowane dla starszych, np. gpt-4.1-mini)
+BOT_REASONING_EFFORT = os.environ.get("BOT_REASONING_EFFORT", "minimal")  # minimal|low|medium|high — bot RAG nie potrzebuje glebokiego myslenia
+BOT_VERBOSITY        = os.environ.get("BOT_VERBOSITY", "low")             # low|medium|high — krotkie, konkretne odpowiedzi na czacie
 
 # ----- Bot live-chat (konwersacyjny, osobna encja "WoodPower Chat") -----
 BOT_LIVE_CW_AGENT_TOKEN      = os.environ.get("BOT_LIVE_CW_AGENT_TOKEN")       # access_token live-bota (odpowiedzi + handoff)
