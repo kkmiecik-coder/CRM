@@ -7,10 +7,10 @@
    FLOATING WIDGET
    ============================================ */
 
-/* Trigger button */
+/* Trigger button — podniesiony nad babelek widgetu Chatwoota (ten siedzi w prawym dolnym rogu) */
 .ai-chat-trigger {
     position: fixed;
-    bottom: 24px;
+    bottom: 104px;
     right: 24px;
     width: 56px;
     height: 56px;
@@ -32,10 +32,10 @@
     background: #d55a1f;
 }
 
-/* Panel */
+/* Panel — otwiera sie nad podniesionym triggerem */
 .ai-chat-panel {
     position: fixed;
-    bottom: 90px;
+    bottom: 170px;
     right: 24px;
     width: 400px;
     height: 520px;
@@ -500,13 +500,13 @@
 @media (max-width: 768px) {
     .ai-chat-panel {
         width: calc(100vw - 32px);
-        height: calc(100vh - 120px);
+        height: calc(100vh - 200px);
         right: 16px;
-        bottom: 80px;
+        bottom: 160px;
     }
 
     .ai-chat-trigger {
-        bottom: 16px;
+        bottom: 96px;
         right: 16px;
     }
 
