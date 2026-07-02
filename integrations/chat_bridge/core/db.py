@@ -37,6 +37,8 @@ def init_db():
     CREATE TABLE IF NOT EXISTS live_seen(mid TEXT PRIMARY KEY);
     CREATE TABLE IF NOT EXISTS live_state(
       conv_id INTEGER PRIMARY KEY, bot_turns INTEGER DEFAULT 0);
+    CREATE TABLE IF NOT EXISTS live_dane(
+      conv_id INTEGER PRIMARY KEY, dane_json TEXT);
     """)
     for stmt in ("ALTER TABLE queue ADD COLUMN attachments TEXT",
                  "ALTER TABLE threads ADD COLUMN channel TEXT",

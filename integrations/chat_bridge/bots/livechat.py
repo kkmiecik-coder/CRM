@@ -63,6 +63,35 @@ def _bump_turns(conv_id):
     c.commit(); c.close()
 
 
+def _load_dane(conv_id):
+    """Wczytuje zaakumulowane 'dane' rozmowy (pusty dict, gdy brak/uszkodzone)."""
+    c = db()
+    row = c.execute("SELECT dane_json FROM live_dane WHERE conv_id=?", (conv_id,)).fetchone()
+    c.close()
+    if not row or not row["dane_json"]:
+        return {}
+    try:
+        d = json.loads(row["dane_json"])
+        return d if isinstance(d, dict) else {}
+    except Exception:
+        return {}
+
+
+def _merge_dane(conv_id, out_dane):
+    """Scala swieze 'dane' z LLM z zaakumulowanymi: niepusta nowa wartosc nadpisuje,
+    pusta NIE kasuje juz zebranej. Zapisuje i zwraca scalony dict."""
+    stored = _load_dane(conv_id)
+    for k, v in (out_dane or {}).items():
+        if str(v or "").strip():
+            stored[k] = v
+    c = db()
+    c.execute("INSERT INTO live_dane(conv_id, dane_json) VALUES(?,?) "
+              "ON CONFLICT(conv_id) DO UPDATE SET dane_json=excluded.dane_json",
+              (conv_id, json.dumps(stored, ensure_ascii=False)))
+    c.commit(); c.close()
+    return stored
+
+
 def _parse_llm(raw):
     """Parsuje odpowiedz LLM do dict. Toleruje ploty ```json (takze kilka blokow).
     Nie-JSON -> caly tekst jako odpowiedz."""
@@ -174,6 +203,7 @@ def _do_handoff(conv_id, powod, dane, closing=CLOSING_MSG):
     # Reset licznika tur: gdy agent kiedys odda rozmowe botowi (open->pending), bot startuje od zera.
     c = db()
     c.execute("DELETE FROM live_state WHERE conv_id=?", (conv_id,))
+    c.execute("DELETE FROM live_dane WHERE conv_id=?", (conv_id,))
     c.commit(); c.close()
     cw_note(conv_id, _summary_note(dane, powod))
     cw_agent_reply(conv_id, closing)
@@ -193,13 +223,13 @@ def run_livechat_turn(conv_id, inbox_id, message_id, content):
 
     # Bezpiecznik D: limit tur bota.
     if _bot_turns(conv_id) >= BOT_LIVE_MAX_TURNS:
-        _do_handoff(conv_id, "limit tur bota (bezpiecznik)", {})
+        _do_handoff(conv_id, "limit tur bota (bezpiecznik)", _load_dane(conv_id))
         return
 
     # Twardy wyzwalacz A — deterministycznie, bez LLM.
     powod = _hard_handoff(content)
     if powod:
-        _do_handoff(conv_id, powod, {})
+        _do_handoff(conv_id, powod, _load_dane(conv_id))
         return
 
     history = cw_messages(conv_id, BOT_HISTORY_LIMIT)
@@ -217,11 +247,12 @@ def run_livechat_turn(conv_id, inbox_id, message_id, content):
     if not raw:
         raise RuntimeError("livechat: brak odpowiedzi modelu")
     out = _parse_llm(raw)
+    dane = _merge_dane(conv_id, out["dane"])   # akumulacja: raz zebrane pole zostaje
 
-    # Wyzwalacze B/C (decyzja LLM) + straznik kompletnosci.
+    # Wyzwalacze B/C (decyzja LLM) + straznik kompletnosci (na danych scalonych).
     if out["handoff"]:
         powod = out["powod"] or "decyzja bota"
-        brak = _brakujace_pola(out["dane"])
+        brak = _brakujace_pola(dane)
         # Handoff "komplet danych" (B) tylko gdy komplet; prosbe o czlowieka / poza wiedza
         # (A/C) przepuszczamy zawsze. Przy brakach nie oddajemy rozmowy — dopytujemy.
         if brak and _czy_powod_kompletu(powod):
@@ -232,7 +263,7 @@ def run_livechat_turn(conv_id, inbox_id, message_id, content):
             log("livechat: straznik wstrzymal handoff, braki: %s (conv %s)"
                 % (",".join(brak), conv_id))
             return
-        _do_handoff(conv_id, powod, out["dane"])
+        _do_handoff(conv_id, powod, dane)
         return
 
     reply = out["odpowiedz"]

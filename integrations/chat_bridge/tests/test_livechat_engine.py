@@ -20,6 +20,7 @@ def setup_function(_):
     db_mod.init_db()
     c = db_mod.db()
     c.execute("DELETE FROM live_state")
+    c.execute("DELETE FROM live_dane")
     c.commit(); c.close()
 
 
@@ -345,3 +346,42 @@ def test_pytanie_o_braki_gramatyczne():
     assert dwa == ("Żeby przygotować wycenę, potrzebuję jeszcze: "
                    "czy potrzebne są otwory lub wycięcia oraz jak wykończyć krawędzie.")
     assert "o czy" not in dwa
+
+
+def test_merge_dane_akumuluje():
+    lc._merge_dane(77, {"produkt": "blat"})
+    lc._merge_dane(77, {"wymiary": "200x80"})
+    d = lc._load_dane(77)
+    assert d["produkt"] == "blat"
+    assert d["wymiary"] == "200x80"
+
+
+def test_merge_dane_niepusta_nadpisuje_pusta_nie_kasuje():
+    lc._merge_dane(77, {"otwory": "brak"})
+    lc._merge_dane(77, {"otwory": ""})
+    assert lc._load_dane(77)["otwory"] == "brak"
+    lc._merge_dane(77, {"otwory": "pod zlew"})
+    assert lc._load_dane(77)["otwory"] == "pod zlew"
+
+
+def test_load_dane_pusty_gdy_brak():
+    assert lc._load_dane(999) == {}
+
+
+def test_akumulacja_zapobiega_pytaniu_o_zebrane_pole(monkeypatch):
+    """Fix petli: gdy LLM zgubi pola w danej turze, scalone dane nadal maja komplet -> handoff."""
+    calls = _mock_env(monkeypatch, llm_json={
+        "odpowiedz": "", "handoff": True, "powod": "komplet danych", "dane": {}})
+    lc._merge_dane(77, {"produkt": "blat", "wymiary": "200x80", "grubosc": "3", "gatunek": "dąb",
+                        "technologia": "lita", "klasa": "A/B", "ilosc": "1", "wykonczenie": "surowe",
+                        "otwory": "brak", "krawedzie": "proste"})
+    lc.run_livechat_turn(77, "12", "m1", "to wszystko")
+    assert len(calls["handoff"]) == 1, "komplet z akumulacji -> handoff, bez ponownego pytania"
+
+
+def test_reset_dane_po_handoffie(monkeypatch):
+    calls = _mock_env(monkeypatch, llm_json={
+        "odpowiedz": "", "handoff": True, "powod": "klient prosi o człowieka", "dane": {}})
+    lc._merge_dane(77, {"produkt": "blat", "otwory": "brak"})
+    lc.run_livechat_turn(77, "12", "m1", "wolę z kimś porozmawiać")
+    assert lc._load_dane(77) == {}, "live_dane czyszczone po handoffie"
