@@ -132,3 +132,28 @@ wariantu B. Podpowiedzi przychodzą wyłącznie przez `/agent-bot` gdy bot jest
 przypisany do skrzynki. Subskrypcja `message_created` w webhooku konta może
 pozostać (używana przez inne zdarzenia mostka), ale INCOMING nie generuje już
 podpowiedzi.
+
+---
+
+## Bot live-chat „WoodPower Chat" (konwersacyjny)
+
+Osobna encja Agent Bota i osobna ścieżka (`/agent-bot-live` + `live_queue` + `live_worker`) —
+niezależna od bota-podpowiadacza. Bot ROZMAWIA z klientem publicznie i sam decyduje o handoffie
+(prośba o człowieka / cena / poza wiedzą / komplet danych / limit tur `BOT_LIVE_MAX_TURNS`, dom. 6).
+Po handoffie (status != pending) bot milczy.
+
+Uruchomienie:
+1. Encja bota utworzona w UI (Ustawienia → Boty): nazwa „WoodPower Chat",
+   Outgoing URL: `https://chatbridge.woodpower.pl/agent-bot-live?token=<BOT_LIVE_AGENT_WEBHOOK_TOKEN>`
+   (token MUSI być w URL — most weryfikuje `?token=`, nie natywny HMAC).
+2. `bridge.env`: dodaj `BOT_LIVE_CW_AGENT_TOKEN` (access token bota z UI)
+   i `BOT_LIVE_AGENT_WEBHOOK_TOKEN` (sekret z URL). Wartości: spec lokalny / KeePass.
+3. Restart mostu: `cd /root/chatwoot-test && docker compose up -d --force-recreate olx-bridge`.
+4. Przypnij bota „WoodPower Chat" do skrzynki TESTOWEJ Website (Skrzynka → Konfiguracja bota).
+   NIE przypinaj do skrzynki produkcyjnej sklepu do czasu zakończenia testów.
+5. Test E2E: napisz z widgetu w CRM (sidebar, admin) → bot odpowiada publicznie;
+   napisz „ile kosztuje" → domknięcie + prywatna notatka-podsumowanie + status open.
+
+Persona/reguły: `bots/personas.json` → `channels.livechat` (edycja bez deployu kodu persony,
+ale plik jest w obrazie — zmiana wymaga redeployu mostu).
+Komunikaty stałe (domknięcie, przeprosiny): `bots/livechat.py` → `CLOSING_MSG`, `APOLOGY_MSG`.
