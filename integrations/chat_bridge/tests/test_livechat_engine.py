@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# Test: silnik live-bota — parsowanie JSON LLM, wyzwalacze handoffu A-E,
+# Test: silnik live-bota — parsowanie JSON LLM, wyzwalacze handoffu A/B/C/D,
 # cisza gdy status != pending, licznik tur (bezpiecznik D), sciezka awaryjna.
 import os, tempfile, json
 os.environ.setdefault("OLX_CLIENT_ID", "x")

@@ -63,7 +63,7 @@ def agent_bot():
 # ---------- AGENT BOT LIVE-CHAT (konwersacyjny) ----------
 def _process_livechat_bot(d):
     # Webhook live-bota: kolejkuje ture rozmowy. BEZ natychmiastowego handoffu —
-    # o przekazaniu decyduje silnik (bots/livechat.py, wyzwalacze A-E).
+    # o przekazaniu decyduje silnik (bots/livechat.py, wyzwalacze A/B/C/D).
     if d.get("event") != "message_created":
         return
     mtype = str(d.get("message_type"))

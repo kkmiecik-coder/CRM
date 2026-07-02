@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 # Silnik konwersacyjnego bota live-chat: publiczne odpowiedzi do klienta (RAG + persona livechat),
-# decyzja o handoffie (wyzwalacze A-E ze specu), cisza po przekazaniu do agenta.
+# decyzja o handoffie (wyzwalacze A/B/C/D ze specu), cisza po przekazaniu do agenta.
 # Rzuca wyjatkiem przy niepowodzeniu LLM; retry i sciezke awaryjna obsluguje live_worker.
 import json
 import re
@@ -196,7 +196,7 @@ def run_livechat_turn(conv_id, inbox_id, message_id, content):
         _do_handoff(conv_id, "limit tur bota (bezpiecznik)", {})
         return
 
-    # Twarde wyzwalacze A/E — deterministycznie, bez LLM.
+    # Twardy wyzwalacz A — deterministycznie, bez LLM.
     powod = _hard_handoff(content)
     if powod:
         _do_handoff(conv_id, powod, {})
