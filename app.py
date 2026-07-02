@@ -751,43 +751,64 @@ def create_app():
             # Nie przerywaj żądania jeśli tracking się nie powiedzie
             current_app.logger.debug(f"[Activity] Błąd tracking aktywności: {e}")
 
-    def check_user_session_validity():
-        """
-        Sprawdza ważność sesji użytkownika i wylogowuje jeśli nieważna
-        """
+    @app.before_request
+    def enforce_session_validity():
+        """Egzekwuje ważność sesji przy każdym żądaniu.
+
+        Jeśli sesja usera została zamknięta po stronie serwera (np. wymuszone
+        wylogowanie przez admina — flaga user_sessions.is_active=False) albo jest
+        przeterminowana (>24h bezczynności), czyścimy sesję Flaska ORAZ token
+        „remember me" (logout_user) i przekierowujemy na login. Bez tego samo
+        zdjęcie flagi w bazie nie wylogowałoby zalogowanego usera, a ciasteczko
+        remember i tak odtworzyłoby sesję przy kolejnym żądaniu."""
+        # Pomiń statyczne pliki (nie ma sensu ich przekierowywać)
+        if request.endpoint and ('static' in request.endpoint or request.endpoint == 'favicon'):
+            return None
+
         try:
             session_token = session.get('user_session_token')
             user_id = session.get('user_id')
-        
+
+            # Brak trackowanej sesji (żądania publiczne/anonimowe) — nie ruszamy
             if not session_token or not user_id:
-                return True  # Brak sesji - OK
-        
-            # Sprawdź czy sesja istnieje w bazie
+                return None
+
             user_session = UserSession.query.filter_by(
                 session_token=session_token,
                 user_id=user_id,
                 is_active=True
             ).first()
-        
-            if not user_session:
-                # Sesja nieważna - wyloguj
-                current_app.logger.warning(f"[Security] Wykryto nieważną sesję dla user_id={user_id}")
+
+            expired = False
+            if user_session is not None:
+                # Wygaśnięcie po 24h bezczynności; last_activity_at trzymane w UTC,
+                # więc porównujemy z utcnow() (nie z czasem lokalnym).
+                from datetime import datetime, timedelta
+                if user_session.last_activity_at < datetime.utcnow() - timedelta(hours=24):
+                    user_session.force_logout()
+                    expired = True
+
+            # Sesja nie istnieje/nieaktywna lub właśnie wygasła → twarde wylogowanie
+            if user_session is None or expired:
+                current_app.logger.info(f"[Security] Sesja nieważna/zamknięta dla user_id={user_id} — wylogowanie")
+                logout_user()      # unieważnia ciasteczko remember_token
                 session.clear()
-                return False
-        
-            # Sprawdź czy sesja nie jest zbyt stara (ponad 24h)
-            from datetime import datetime, timedelta
-            if user_session.last_activity_at < get_local_now() - timedelta(hours=24):
-                current_app.logger.info(f"[Security] Sesja wygasła dla user_id={user_id}")
-                user_session.force_logout()
-                session.clear()
-                return False
-        
-            return True
-        
+
+                is_api = '/api/' in request.path or \
+                    request.headers.get('X-Requested-With') == 'XMLHttpRequest'
+                if is_api:
+                    return jsonify({
+                        'success': False,
+                        'error': 'Sesja wygasła',
+                        'redirect': url_for('login')
+                    }), 401
+                return redirect(url_for('login'))
+
+            return None
+
         except Exception as e:
-            current_app.logger.error(f"[Security] Błąd sprawdzania sesji: {e}")
-            return True  # W razie błędu nie wylogowuj
+            current_app.logger.error(f"[Security] Błąd egzekwowania sesji: {e}")
+            return None  # W razie błędu nie wylogowuj
 
     @app.errorhandler(401)
     def handle_unauthorized(error):
