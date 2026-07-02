@@ -3,6 +3,7 @@ from flask import render_template, jsonify, request, make_response, current_app,
 from . import quotes_bp
 from modules.calculator.models import Quote, User, QuoteItemDetails, QuoteItem, QuoteLog, Multiplier
 from modules.clients.models import Client
+from .chatwoot_match import olx_buyer_prefix, name_matches_olx_prefix
 from modules.baselinker.service import BaselinkerService
 from modules.baselinker.models import BaselinkerConfig
 from modules.users.decorators import require_module_access
@@ -2701,18 +2702,60 @@ def _chatwoot_token_ok():
     return bool(expected) and provided == expected
 
 
+def _serialize_quotes(quotes):
+    """Serializuje wyceny do formatu panelu Chatwoota (wspolne dla obu sciezek dopasowania)."""
+    data = []
+    for q in quotes:
+        data.append({
+            "id": q.id,
+            "number": q.quote_number,
+            "status": q.quote_status.name if q.quote_status else "—",
+            "status_color": (q.quote_status.color_hex if (q.quote_status and q.quote_status.color_hex) else "#9ca3af"),
+            "total": (f"{float(q.total_price):.2f}" if q.total_price is not None else None),
+            "created": (q.created_at.strftime("%Y-%m-%d") if q.created_at else ""),
+            "open_url": f"/quotes/?open_quote={q.id}",
+            "public_url": (f"/quotes/c/{q.public_token}" if q.public_token else None),
+        })
+    return data
+
+
 @quotes_bp.route('/chatwoot/api/quotes', methods=['GET'])
 def chatwoot_client_quotes():
-    """Zwraca wyceny klienta dopasowanego po e-mailu (dla iframe Chatwoota)."""
+    """Zwraca wyceny klienta dopasowanego po identyfikatorze OLX lub e-mailu/telefonie/nazwie (iframe Chatwoota)."""
     if not _chatwoot_token_ok():
         return jsonify({"ok": False, "error": "unauthorized"}), 401
 
     email = (request.args.get('email') or '').strip().lower()
     phone = (request.args.get('phone') or '').strip()
     name = (request.args.get('name') or '').strip()
+    identifier = (request.args.get('identifier') or '').strip()
 
-    if not (email or phone or name):
+    if not (email or phone or name or identifier):
         return jsonify({"ok": True, "client": None, "quotes": []})
+
+    # Kontakt OLX: dopasowanie po STALYM id kupujacego, nie po nazwie (imiona sie powtarzaja).
+    # Most tworzy identyfikator kontaktu jako "olx-<id_kupujacego>-<id_watku>"
+    # (integrations/chat_bridge/channels/olx.py), a agent wkleja go w nazwe klienta w CRM.
+    # Ten sam kupujacy moze prowadzic wiele watkow -> wiele kart klienta z tym samym prefiksem;
+    # agregujemy wyceny ze wszystkich, by pokazac pelna historie kupujacego. Dla OLX nie ma
+    # fallbacku po nazwie — brak trafienia po prefiksie oznacza pusta liste.
+    buyer_prefix = olx_buyer_prefix(identifier)
+    if buyer_prefix:
+        candidates = Client.query.filter(Client.client_name.ilike('%' + buyer_prefix + '%')).all()
+        clients = [c for c in candidates if name_matches_olx_prefix(c.client_name, buyer_prefix)]
+        if not clients:
+            return jsonify({"ok": True, "client": None, "quotes": []})
+        client_ids = [c.id for c in clients]
+        quotes = (Quote.query
+                  .filter(Quote.client_id.in_(client_ids))
+                  .order_by(Quote.created_at.desc())
+                  .all())
+        return jsonify({
+            "ok": True,
+            "matched_by": "olx_identifier",
+            "client": {"name": name or buyer_prefix, "email": "", "phone": ""},
+            "quotes": _serialize_quotes(quotes),
+        })
 
     # Dopasowanie klienta: e-mail -> telefon -> nazwa (pierwsze trafienie wygrywa)
     client = None
@@ -2757,24 +2800,11 @@ def chatwoot_client_quotes():
               .order_by(Quote.created_at.desc())
               .all())
 
-    data = []
-    for q in quotes:
-        data.append({
-            "id": q.id,
-            "number": q.quote_number,
-            "status": q.quote_status.name if q.quote_status else "—",
-            "status_color": (q.quote_status.color_hex if (q.quote_status and q.quote_status.color_hex) else "#9ca3af"),
-            "total": (f"{float(q.total_price):.2f}" if q.total_price is not None else None),
-            "created": (q.created_at.strftime("%Y-%m-%d") if q.created_at else ""),
-            "open_url": f"/quotes/?open_quote={q.id}",
-            "public_url": (f"/quotes/c/{q.public_token}" if q.public_token else None),
-        })
-
     return jsonify({
         "ok": True,
         "matched_by": matched_by,
         "client": {"name": client.client_name, "email": client.email, "phone": client.phone},
-        "quotes": data,
+        "quotes": _serialize_quotes(quotes),
     })
 
 
@@ -2932,7 +2962,7 @@ _CHATWOOT_PANEL_HTML = """<!DOCTYPE html>
 
   function render(payload){
     if(!payload || !payload.client){
-      root.innerHTML = '<div class="empty">Nie znaleziono klienta w CRM.<br><span class="muted">Dopasowujemy po e-mailu, telefonie lub nazwie kontaktu — sprawdź, czy któreś z tych pól jest uzupełnione i zgodne z danymi w CRM.</span></div>';
+      root.innerHTML = '<div class="empty">Nie znaleziono klienta w CRM.<br><span class="muted">Dla OLX dopasowujemy po identyfikatorze kupującego (olx-…) wklejonym w nazwę klienta; dla pozostałych kontaktów po e-mailu, telefonie lub nazwie. Sprawdź, czy odpowiednie dane są zapisane w CRM.</span></div>';
       return;
     }
     var c = payload.client;
@@ -2958,18 +2988,20 @@ _CHATWOOT_PANEL_HTML = """<!DOCTYPE html>
     root.innerHTML = html;
   }
 
-  function loadQuotes(email, phone, name){
-    email = email || ''; phone = phone || ''; name = name || '';
-    if(!email && !phone && !name){
+  function loadQuotes(email, phone, name, identifier){
+    email = email || ''; phone = phone || ''; name = name || ''; identifier = identifier || '';
+    if(!email && !phone && !name && !identifier){
       root.innerHTML = '<div class="empty">Ta rozmowa nie ma danych kontaktu (e-mail / telefon / nazwa).</div>';
       return;
     }
-    var label = email || phone || name;
+    // Dla kontaktow OLX identyfikatorem jest "olx-<kupujacy>-<watek>" — pokazujemy nazwe kontaktu.
+    var label = name || email || phone || identifier;
     root.innerHTML = '<div class="spin">Szukam wycen dla ' + esc(label) + '…</div>';
     var qs = 'token=' + encodeURIComponent(CW_TOKEN)
            + '&email=' + encodeURIComponent(email)
            + '&phone=' + encodeURIComponent(phone)
-           + '&name=' + encodeURIComponent(name);
+           + '&name=' + encodeURIComponent(name)
+           + '&identifier=' + encodeURIComponent(identifier);
     fetch('/quotes/chatwoot/api/quotes?' + qs)
       .then(function(r){ return r.json(); })
       .then(render)
@@ -2985,7 +3017,12 @@ _CHATWOOT_PANEL_HTML = """<!DOCTYPE html>
     if(payload && payload.event === 'appContext'){
       var d = payload.data || {};
       var contact = d.contact || {};
-      loadQuotes(contact.email || '', contact.phone_number || '', contact.name || '');
+      // Identyfikator OLX (olx-<kupujacy>-<watek>) bierzemy z kontaktu, a gdyby go tam brakowalo —
+      // z nadawcy rozmowy (conversation.meta.sender.identifier), gdzie most tez go ustawia.
+      var conv = d.conversation || {};
+      var sender = (conv.meta && conv.meta.sender) || {};
+      var ident = contact.identifier || sender.identifier || '';
+      loadQuotes(contact.email || '', contact.phone_number || '', contact.name || '', ident);
     }
   });
 
