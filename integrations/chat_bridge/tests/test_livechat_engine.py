@@ -6,11 +6,14 @@ os.environ.setdefault("OLX_CLIENT_ID", "x")
 os.environ.setdefault("OLX_CLIENT_SECRET", "x")
 os.environ.setdefault("OLX_REFRESH_TOKEN", "x")
 os.environ["BRIDGE_DB"] = os.path.join(tempfile.mkdtemp(), "bridge_liveng.db")
+os.environ["BOT_LIVE_CW_AGENT_TOKEN"] = "live-tok-eng"
 import importlib
 
 import config; importlib.reload(config)
 db_mod = importlib.import_module("core.db")
-lc = importlib.import_module("bots.livechat")
+# import przez test_live_worker moze nastapic wczesniej (kolejnosc alfabetyczna) i
+# zamrozic bots.livechat na starym config (from-import); reload wiaze token z aktualnego config
+lc = importlib.import_module("bots.livechat"); importlib.reload(lc)
 
 
 def setup_function(_):
