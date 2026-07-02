@@ -59,7 +59,7 @@ def test_llm_handoff_true_przekazuje_z_notatka(monkeypatch):
     """LLM: handoff=true (B) z KOMPLETEM -> domkniecie + notatka-podsumowanie + toggle open."""
     calls = _mock_env(monkeypatch, llm_json={
         "odpowiedz": "", "handoff": True, "powod": "komplet danych",
-        "dane": {"produkt": "blat", "wymiary": "200x80", "grubosc": "3.8", "gatunek": "dąb",
+        "dane": {"produkt": "blat", "dlugosc": "200", "szerokosc": "80", "grubosc": "3.8", "gatunek": "dąb",
                  "technologia": "lita", "klasa": "A/B", "ilosc": "1",
                  "wykonczenie": "lakier", "otwory": "brak", "krawedzie": "prosta",
                  "kontakt": "jan@x.pl"}})
@@ -71,7 +71,7 @@ def test_llm_handoff_true_przekazuje_z_notatka(monkeypatch):
     assert calls["handoff"][0] == config.BOT_LIVE_CW_AGENT_TOKEN
     assert len(calls["note"]) == 1
     assert "komplet danych" in calls["note"][0]
-    assert "200x80" in calls["note"][0]
+    assert "Szerokość: 80" in calls["note"][0]
 
 
 def test_pytanie_o_cene_uruchamia_zbieranie_nie_handoff(monkeypatch):
@@ -262,7 +262,7 @@ def test_handoff_resetuje_licznik_tur(monkeypatch):
 
 def test_summary_note_zawiera_nowe_pola():
     """Notatka handoffu wypisuje nowe pola krytyczne (technologia, klasa, otwory, krawedzie, schody)."""
-    dane = {"produkt": "blat", "wymiary": "320x115.5", "grubosc": "3.8", "gatunek": "dąb",
+    dane = {"produkt": "blat", "dlugosc": "320", "szerokosc": "115.5", "grubosc": "3.8", "gatunek": "dąb",
             "technologia": "lita", "klasa": "A/B", "ilosc": "1",
             "wykonczenie": "lakier mat bezbarwny", "otwory": "brak", "krawedzie": "fazowana"}
     note = lc._summary_note(dane, "komplet danych")
@@ -274,7 +274,7 @@ def test_summary_note_zawiera_nowe_pola():
 
 def test_format_ma_nowe_pola_i_bez_handoffu_na_cene():
     """Schemat 'dane' w _FORMAT ma nowe pola; instrukcja nie każe robić handoffu na samą cenę."""
-    for pole in ('"technologia"', '"klasa"', '"otwory"', '"krawedzie"', '"schody"'):
+    for pole in ('"dlugosc"', '"szerokosc"', '"technologia"', '"klasa"', '"otwory"', '"krawedzie"', '"schody"'):
         assert pole in lc._FORMAT
     assert "NIE ustawiaj handoff na samo pytanie o cenę" in lc._FORMAT
 
@@ -284,14 +284,14 @@ def test_brakujace_pola_pusty_produkt_pyta_o_produkt():
 
 
 def test_brakujace_pola_komplet_blat_pusta_lista():
-    dane = {"produkt": "blat", "wymiary": "320x115", "grubosc": "3.8", "gatunek": "dąb",
+    dane = {"produkt": "blat", "dlugosc": "320", "szerokosc": "115", "grubosc": "3.8", "gatunek": "dąb",
             "technologia": "lita", "klasa": "A/B", "ilosc": "1",
             "wykonczenie": "lakier", "otwory": "brak", "krawedzie": "prosta"}
     assert lc._brakujace_pola(dane) == []
 
 
 def test_brakujace_pola_blat_bez_technologii_i_klasy():
-    dane = {"produkt": "blat", "wymiary": "320x115", "grubosc": "3.8", "gatunek": "dąb",
+    dane = {"produkt": "blat", "dlugosc": "320", "szerokosc": "115", "grubosc": "3.8", "gatunek": "dąb",
             "ilosc": "1", "wykonczenie": "lakier", "otwory": "brak", "krawedzie": "prosta"}
     assert lc._brakujace_pola(dane) == ["technologia", "klasa"]
 
@@ -306,7 +306,7 @@ def test_straznik_wstrzymuje_handoff_przy_brakach(monkeypatch):
     """B z niekompletnymi danymi -> bot NIE oddaje rozmowy, dopytuje, licznik tur +1."""
     calls = _mock_env(monkeypatch, llm_json={
         "odpowiedz": "", "handoff": True, "powod": "komplet danych do wyceny",
-        "dane": {"produkt": "blat", "wymiary": "320x115.5", "grubosc": "3.8",
+        "dane": {"produkt": "blat", "dlugosc": "320", "szerokosc": "115.5", "grubosc": "3.8",
                  "gatunek": "dąb", "wykonczenie": "lakier", "ilosc": "1",
                  "otwory": "brak", "krawedzie": "prosta"}})  # brak: technologia, klasa
     lc.run_livechat_turn(77, "12", "m1", "to wszystko")
@@ -320,7 +320,7 @@ def test_straznik_przepuszcza_komplet(monkeypatch):
     """B z kompletem -> handoff normalnie (domkniecie + notatka)."""
     calls = _mock_env(monkeypatch, llm_json={
         "odpowiedz": "", "handoff": True, "powod": "komplet danych",
-        "dane": {"produkt": "blat", "wymiary": "320x115.5", "grubosc": "3.8",
+        "dane": {"produkt": "blat", "dlugosc": "320", "szerokosc": "115.5", "grubosc": "3.8",
                  "gatunek": "dąb", "technologia": "lita", "klasa": "A/B", "ilosc": "1",
                  "wykonczenie": "lakier mat", "otwory": "brak", "krawedzie": "fazowana"}})
     lc.run_livechat_turn(77, "12", "m1", "to wszystko")
@@ -350,10 +350,10 @@ def test_pytanie_o_braki_gramatyczne():
 
 def test_merge_dane_akumuluje():
     lc._merge_dane(77, {"produkt": "blat"})
-    lc._merge_dane(77, {"wymiary": "200x80"})
+    lc._merge_dane(77, {"szerokosc": "80"})
     d = lc._load_dane(77)
     assert d["produkt"] == "blat"
-    assert d["wymiary"] == "200x80"
+    assert d["szerokosc"] == "80"
 
 
 def test_merge_dane_niepusta_nadpisuje_pusta_nie_kasuje():
@@ -372,7 +372,7 @@ def test_akumulacja_zapobiega_pytaniu_o_zebrane_pole(monkeypatch):
     """Fix petli: gdy LLM zgubi pola w danej turze, scalone dane nadal maja komplet -> handoff."""
     calls = _mock_env(monkeypatch, llm_json={
         "odpowiedz": "", "handoff": True, "powod": "komplet danych", "dane": {}})
-    lc._merge_dane(77, {"produkt": "blat", "wymiary": "200x80", "grubosc": "3", "gatunek": "dąb",
+    lc._merge_dane(77, {"produkt": "blat", "dlugosc": "200", "szerokosc": "80", "grubosc": "3", "gatunek": "dąb",
                         "technologia": "lita", "klasa": "A/B", "ilosc": "1", "wykonczenie": "surowe",
                         "otwory": "brak", "krawedzie": "proste"})
     lc.run_livechat_turn(77, "12", "m1", "to wszystko")
@@ -394,45 +394,46 @@ def test_liczby_parsuje_przecinek_i_znaki():
 
 
 def test_walidacja_szerokosc_ponad_max_odrzucona():
-    msg = lc._walidacja_wymiarow({"wymiary": "265 x 860 x 3"})
+    msg = lc._walidacja_wymiarow({"szerokosc": "860"})
     assert msg is not None and "120 cm" in msg
 
 
 def test_walidacja_dlugosc_lita_ponad_max_odrzucona():
-    msg = lc._walidacja_wymiarow({"wymiary": "480 x 90", "technologia": "lita"})
+    msg = lc._walidacja_wymiarow({"dlugosc": "480", "szerokosc": "90", "technologia": "lita"})
     assert msg is not None and "450 cm" in msg
 
 
 def test_walidacja_dlugosc_mikrowczep_480_ok():
-    assert lc._walidacja_wymiarow({"wymiary": "480 x 90", "technologia": "mikrowczep"}) is None
+    assert lc._walidacja_wymiarow({"dlugosc": "480", "szerokosc": "90", "technologia": "mikrowczep"}) is None
 
 
 def test_walidacja_dlugosc_nieznana_470_ok():
-    assert lc._walidacja_wymiarow({"wymiary": "470 x 90"}) is None
+    assert lc._walidacja_wymiarow({"dlugosc": "470", "szerokosc": "90"}) is None
 
 
 def test_walidacja_dlugosc_nieznana_560_odrzucona():
-    msg = lc._walidacja_wymiarow({"wymiary": "560 x 90"})
+    msg = lc._walidacja_wymiarow({"dlugosc": "560", "szerokosc": "90"})
     assert msg is not None and "500 cm" in msg
 
 
 def test_walidacja_grubosc_nie_egzekwowana():
-    assert lc._walidacja_wymiarow({"wymiary": "200 x 90 x 6", "technologia": "lita"}) is None
+    assert lc._walidacja_wymiarow({"dlugosc": "200", "szerokosc": "90", "grubosc": "6", "technologia": "lita"}) is None
 
 
 def test_walidacja_norma_ok():
-    assert lc._walidacja_wymiarow({"wymiary": "265 x 90", "technologia": "lita"}) is None
+    assert lc._walidacja_wymiarow({"dlugosc": "265", "szerokosc": "90", "technologia": "lita"}) is None
 
 
-def test_walidacja_za_malo_liczb_none():
-    assert lc._walidacja_wymiarow({"wymiary": "265"}) is None
+def test_walidacja_brak_szerokosci_none():
+    # sama dlugosc bez szerokosci -> nie odrzucamy (nie ma czego sprawdzic w szerokosci)
+    assert lc._walidacja_wymiarow({"dlugosc": "265"}) is None
 
 
 def test_wymiar_ponad_koperte_odrzucony_bez_handoffu(monkeypatch):
     """Integracja: 860 cm szerokosci -> odrzucenie w kodzie, BEZ handoffu, mimo handoff=true z LLM."""
     calls = _mock_env(monkeypatch, llm_json={
         "odpowiedz": "", "handoff": True, "powod": "komplet danych",
-        "dane": {"produkt": "blat", "wymiary": "265 x 860 x 3", "grubosc": "3", "gatunek": "dąb",
+        "dane": {"produkt": "blat", "dlugosc": "265", "szerokosc": "860", "grubosc": "3", "gatunek": "dąb",
                  "technologia": "lita", "klasa": "A/B", "ilosc": "5", "wykonczenie": "surowe",
                  "otwory": "brak", "krawedzie": "proste"}})
     lc.run_livechat_turn(77, "12", "m1", "265 x 860 x 3 cm dąb lity A/B surowy")
@@ -440,3 +441,19 @@ def test_wymiar_ponad_koperte_odrzucony_bez_handoffu(monkeypatch):
     assert len(calls["reply"]) == 1
     assert "120 cm" in calls["reply"][0]
     assert lc._bot_turns(77) == 1
+
+
+def test_korekta_szerokosci_zachowuje_dlugosc(monkeypatch):
+    """Korekta jednego wymiaru: tura 1 odrzuca 860; tura 2 (tylko szerokosc=118) -> merge zachowuje
+    dlugosc=265, walidacja przechodzi, handoff. Dlugosc nie moze zginac (pole atomowe)."""
+    _mock_env(monkeypatch, llm_json={
+        "odpowiedz": "", "handoff": True, "powod": "komplet",
+        "dane": {"produkt": "blat", "dlugosc": "265", "szerokosc": "860", "grubosc": "3", "gatunek": "dąb",
+                 "technologia": "lita", "klasa": "A/B", "ilosc": "1", "wykonczenie": "surowe",
+                 "otwory": "brak", "krawedzie": "proste"}})
+    lc.run_livechat_turn(77, "12", "m1", "265 x 860 x 3 dąb lity A/B surowy")
+    calls2 = _mock_env(monkeypatch, llm_json={
+        "odpowiedz": "", "handoff": True, "powod": "komplet", "dane": {"szerokosc": "118"}})
+    lc.run_livechat_turn(77, "12", "m2", "niech będzie 118")
+    assert len(calls2["handoff"]) == 1, "po korekcie dlugosc=265 zachowana -> komplet -> handoff"
+    assert calls2["reply"] == [lc.CLOSING_MSG]

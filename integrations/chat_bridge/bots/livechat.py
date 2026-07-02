@@ -22,7 +22,7 @@ APOLOGY_MSG = ("Przepraszam, mam chwilowy problem techniczny z odpowiedzią. "
 _FORMAT = (
     "FORMAT ODPOWIEDZI: odpowiedz WYŁĄCZNIE poprawnym JSON (bez tekstu przed/po):\n"
     '{"odpowiedz": "tekst do klienta", "handoff": false, "powod": "", '
-    '"dane": {"produkt": "", "wymiary": "", "grubosc": "", "gatunek": "", '
+    '"dane": {"produkt": "", "dlugosc": "", "szerokosc": "", "grubosc": "", "gatunek": "", '
     '"technologia": "", "klasa": "", "ilosc": "", "wykonczenie": "", '
     '"otwory": "", "krawedzie": "", "schody": "", "termin": "", "kontakt": ""}}\n'
     "Ustaw handoff=true gdy: klient prosi o człowieka/konsultanta, pytanie wykracza poza "
@@ -112,7 +112,7 @@ def _parse_llm(raw):
     return {"odpowiedz": txt, "handoff": False, "powod": "", "dane": {}}
 
 
-_POLA = [("produkt", "Produkt"), ("wymiary", "Wymiary"), ("grubosc", "Grubość"),
+_POLA = [("produkt", "Produkt"), ("dlugosc", "Długość"), ("szerokosc", "Szerokość"), ("grubosc", "Grubość"),
          ("gatunek", "Gatunek"), ("technologia", "Technologia"), ("klasa", "Klasa"),
          ("ilosc", "Ilość"), ("wykonczenie", "Wykończenie"),
          ("otwory", "Otwory/wycięcia"), ("krawedzie", "Krawędzie"), ("schody", "Schody"),
@@ -144,7 +144,8 @@ _POWOD_PRZEPUSC = re.compile(
 # Etykiety pol do backstopowego pytania o braki (gdy LLM ustawil handoff mimo brakow).
 _ETYKIETY_PYTAN = {
     "produkt": "co dokładnie mamy wycenić (blat, parapet czy schody)",
-    "wymiary": "wymiary (długość × szerokość w cm)",
+    "dlugosc": "długość (w cm)",
+    "szerokosc": "szerokość (w cm)",
     "grubosc": "grubość (w cm)",
     "gatunek": "gatunek drewna (dąb, jesion lub buk)",
     "technologia": "technologię (lita czy mikrowczep)",
@@ -171,7 +172,7 @@ def _brakujace_pola(dane):
         if pusto("schody"):
             brak.append("schody")
     else:
-        for k in ("wymiary", "grubosc"):
+        for k in ("dlugosc", "szerokosc", "grubosc"):
             if pusto(k):
                 brak.append(k)
     for k in _KRYT_WSPOLNE:
@@ -225,23 +226,24 @@ def _walidacja_wymiarow(dane):
     """Twarda walidacja koperty (szerokosc, dlugosc) niezaleznie od LLM.
     Zwraca komunikat odrzucenia (str) albo None. Kolejnosc: szerokosc, potem dlugosc."""
     dane = dane or {}
-    liczby = _liczby(dane.get("wymiary"))
-    if len(liczby) < 2:
-        return None  # za malo danych, by ocenic szerokosc/dlugosc
-    dlugosc, szerokosc = liczby[0], liczby[1]
-    if szerokosc > _MAX_SZEROKOSC:
+    szer = _liczby(dane.get("szerokosc"))
+    dlug = _liczby(dane.get("dlugosc"))
+    szerokosc = szer[0] if szer else None
+    dlugosc = dlug[0] if dlug else None
+    if szerokosc is not None and szerokosc > _MAX_SZEROKOSC:
         return ("Maksymalna szerokość naszych blatów to %d cm, a podana to %s cm. "
                 "Proszę o korektę szerokości." % (_MAX_SZEROKOSC, _fmt(szerokosc)))
-    tech = _technologia_typ(dane)
-    if tech == "lita":
-        if dlugosc > _MAX_DLUGOSC_LITA:
-            return ("Dla technologii litej maksymalna długość to %d cm (dla mikrowczepu 500 cm), "
-                    "a podana to %s cm. Proszę o korektę długości lub zmianę technologii na mikrowczep."
-                    % (_MAX_DLUGOSC_LITA, _fmt(dlugosc)))
-    else:  # mikrowczep albo technologia nieznana -> limit absolutny 500
-        if dlugosc > _MAX_DLUGOSC_MIKRO:
-            return ("Maksymalna długość to %d cm (mikrowczep), a podana to %s cm. "
-                    "Proszę o korektę długości." % (_MAX_DLUGOSC_MIKRO, _fmt(dlugosc)))
+    if dlugosc is not None:
+        tech = _technologia_typ(dane)
+        if tech == "lita":
+            if dlugosc > _MAX_DLUGOSC_LITA:
+                return ("Dla technologii litej maksymalna długość to %d cm (dla mikrowczepu 500 cm), "
+                        "a podana to %s cm. Proszę o korektę długości lub zmianę technologii na mikrowczep."
+                        % (_MAX_DLUGOSC_LITA, _fmt(dlugosc)))
+        else:  # mikrowczep albo technologia nieznana -> limit absolutny 500
+            if dlugosc > _MAX_DLUGOSC_MIKRO:
+                return ("Maksymalna długość to %d cm (mikrowczep), a podana to %s cm. "
+                        "Proszę o korektę długości." % (_MAX_DLUGOSC_MIKRO, _fmt(dlugosc)))
     return None
 
 
