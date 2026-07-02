@@ -157,3 +157,10 @@ Uruchomienie:
 Persona/reguły: `bots/personas.json` → `channels.livechat` (edycja bez deployu kodu persony,
 ale plik jest w obrazie — zmiana wymaga redeployu mostu).
 Komunikaty stałe (domknięcie, przeprosiny): `bots/livechat.py` → `CLOSING_MSG`, `APOLOGY_MSG`.
+
+---
+
+Sweeper pending (samonaprawa): co `SWEEP_INTERVAL` s (dom. 120) otwiera rozmowy pending,
+w ktorych ostatnia wiadomosc klienta jest starsza niz `SWEEP_PENDING_AGE` s (dom. 600) —
+czyli bot nie odpowiedzial (zgubiony webhook / restart mostu). Toggle tokenem admina.
+Wylaczenie: `SWEEP_INTERVAL=0` w bridge.env. Rozmowy czekajace na klienta nie sa ruszane.

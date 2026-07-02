@@ -55,3 +55,7 @@ BOT_MAX_TOKENS      = int(os.environ.get("BOT_MAX_TOKENS", "700"))
 BOT_LIVE_CW_AGENT_TOKEN      = os.environ.get("BOT_LIVE_CW_AGENT_TOKEN")       # access_token live-bota (odpowiedzi + handoff)
 BOT_LIVE_AGENT_WEBHOOK_TOKEN = os.environ.get("BOT_LIVE_AGENT_WEBHOOK_TOKEN")  # token w URL webhooka /agent-bot-live
 BOT_LIVE_MAX_TURNS           = int(os.environ.get("BOT_LIVE_MAX_TURNS", "6"))  # bezpiecznik D: max tur bota przed wymuszonym handoffem
+
+# ----- Sweeper pending (samonaprawa rozmow bez odpowiedzi bota) -----
+SWEEP_INTERVAL    = int(os.environ.get("SWEEP_INTERVAL", "120"))    # sekundy miedzy przejsciami; <=0 = wylaczony
+SWEEP_PENDING_AGE = int(os.environ.get("SWEEP_PENDING_AGE", "600")) # min. wiek ostatniej wiadomosci klienta (s)

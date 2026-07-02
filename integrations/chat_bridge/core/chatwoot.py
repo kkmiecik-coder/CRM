@@ -206,3 +206,26 @@ def cw_conv_status(conv_id):
         return cw("GET", "/conversations/%s" % conv_id).json().get("status")
     except Exception:
         return None
+
+
+def cw_pending_conversations(max_pages=5):
+    """Rozmowy w statusie pending: [{id, inbox_id, last_msg_type, last_msg_ts}].
+    Czyta liste stronami (Application API); przerywa na pustej/niepelnej stronie; [] przy bledzie."""
+    out = []
+    for page in range(1, max_pages + 1):
+        try:
+            data = cw("GET", "/conversations?status=pending&assignee_type=all&page=%s" % page).json().get("data", {})
+        except Exception:
+            break
+        payload = data.get("payload") or []
+        if not payload:
+            break
+        for conv in payload:
+            last = conv.get("last_non_activity_message") or {}
+            out.append({"id": conv.get("id"),
+                        "inbox_id": conv.get("inbox_id"),
+                        "last_msg_type": last.get("message_type"),
+                        "last_msg_ts": last.get("created_at") or conv.get("timestamp") or 0})
+        if len(payload) < 25:  # Chatwoot stronicuje po 25 — niepelna strona = ostatnia
+            break
+    return out
