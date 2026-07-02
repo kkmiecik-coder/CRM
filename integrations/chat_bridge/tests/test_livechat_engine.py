@@ -385,3 +385,58 @@ def test_reset_dane_po_handoffie(monkeypatch):
     lc._merge_dane(77, {"produkt": "blat", "otwory": "brak"})
     lc.run_livechat_turn(77, "12", "m1", "wolę z kimś porozmawiać")
     assert lc._load_dane(77) == {}, "live_dane czyszczone po handoffie"
+
+
+def test_liczby_parsuje_przecinek_i_znaki():
+    assert lc._liczby("265 × 860 × 3,8 cm") == [265.0, 860.0, 3.8]
+    assert lc._liczby("265x90") == [265.0, 90.0]
+    assert lc._liczby("") == []
+
+
+def test_walidacja_szerokosc_ponad_max_odrzucona():
+    msg = lc._walidacja_wymiarow({"wymiary": "265 x 860 x 3"})
+    assert msg is not None and "120 cm" in msg
+
+
+def test_walidacja_dlugosc_lita_ponad_max_odrzucona():
+    msg = lc._walidacja_wymiarow({"wymiary": "480 x 90", "technologia": "lita"})
+    assert msg is not None and "450 cm" in msg
+
+
+def test_walidacja_dlugosc_mikrowczep_480_ok():
+    assert lc._walidacja_wymiarow({"wymiary": "480 x 90", "technologia": "mikrowczep"}) is None
+
+
+def test_walidacja_dlugosc_nieznana_470_ok():
+    assert lc._walidacja_wymiarow({"wymiary": "470 x 90"}) is None
+
+
+def test_walidacja_dlugosc_nieznana_560_odrzucona():
+    msg = lc._walidacja_wymiarow({"wymiary": "560 x 90"})
+    assert msg is not None and "500 cm" in msg
+
+
+def test_walidacja_grubosc_nie_egzekwowana():
+    assert lc._walidacja_wymiarow({"wymiary": "200 x 90 x 6", "technologia": "lita"}) is None
+
+
+def test_walidacja_norma_ok():
+    assert lc._walidacja_wymiarow({"wymiary": "265 x 90", "technologia": "lita"}) is None
+
+
+def test_walidacja_za_malo_liczb_none():
+    assert lc._walidacja_wymiarow({"wymiary": "265"}) is None
+
+
+def test_wymiar_ponad_koperte_odrzucony_bez_handoffu(monkeypatch):
+    """Integracja: 860 cm szerokosci -> odrzucenie w kodzie, BEZ handoffu, mimo handoff=true z LLM."""
+    calls = _mock_env(monkeypatch, llm_json={
+        "odpowiedz": "", "handoff": True, "powod": "komplet danych",
+        "dane": {"produkt": "blat", "wymiary": "265 x 860 x 3", "grubosc": "3", "gatunek": "dąb",
+                 "technologia": "lita", "klasa": "A/B", "ilosc": "5", "wykonczenie": "surowe",
+                 "otwory": "brak", "krawedzie": "proste"}})
+    lc.run_livechat_turn(77, "12", "m1", "265 x 860 x 3 cm dąb lity A/B surowy")
+    assert calls["handoff"] == [], "wymiar ponad koperte nie moze przejsc do handoffu"
+    assert len(calls["reply"]) == 1
+    assert "120 cm" in calls["reply"][0]
+    assert lc._bot_turns(77) == 1

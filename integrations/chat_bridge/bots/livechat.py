@@ -194,6 +194,57 @@ def _pytanie_o_braki(brak):
     return "Żeby przygotować wycenę, potrzebuję jeszcze: %s oraz %s." % (etyk[0], etyk[1])
 
 
+# Koperta maksimow (cm) — egzekwowana w kodzie niezaleznie od LLM/persony.
+# Grubosc celowo poza kodem (obsluguje persona: >4 ponadstandardowa, <1.5 niestandardowa).
+_MAX_SZEROKOSC = 120
+_MAX_DLUGOSC_LITA = 450
+_MAX_DLUGOSC_MIKRO = 500
+
+
+def _liczby(txt):
+    """Wyciaga liczby (float) z tekstu; przecinek dziesietny -> kropka."""
+    return [float(x.replace(",", ".")) for x in re.findall(r"\d+(?:[.,]\d+)?", txt or "")]
+
+
+def _technologia_typ(dane):
+    """'lita' | 'mikrowczep' | None na podstawie pola technologia."""
+    t = str(dane.get("technologia") or "").lower()
+    if "lit" in t:
+        return "lita"
+    if "mikro" in t or "wczep" in t:
+        return "mikrowczep"
+    return None
+
+
+def _fmt(x):
+    """Liczba bez zbednego .0 (860.0 -> '860', 3.8 -> '3.8')."""
+    return str(int(x)) if x == int(x) else str(x)
+
+
+def _walidacja_wymiarow(dane):
+    """Twarda walidacja koperty (szerokosc, dlugosc) niezaleznie od LLM.
+    Zwraca komunikat odrzucenia (str) albo None. Kolejnosc: szerokosc, potem dlugosc."""
+    dane = dane or {}
+    liczby = _liczby(dane.get("wymiary"))
+    if len(liczby) < 2:
+        return None  # za malo danych, by ocenic szerokosc/dlugosc
+    dlugosc, szerokosc = liczby[0], liczby[1]
+    if szerokosc > _MAX_SZEROKOSC:
+        return ("Maksymalna szerokość naszych blatów to %d cm, a podana to %s cm. "
+                "Proszę o korektę szerokości." % (_MAX_SZEROKOSC, _fmt(szerokosc)))
+    tech = _technologia_typ(dane)
+    if tech == "lita":
+        if dlugosc > _MAX_DLUGOSC_LITA:
+            return ("Dla technologii litej maksymalna długość to %d cm (dla mikrowczepu 500 cm), "
+                    "a podana to %s cm. Proszę o korektę długości lub zmianę technologii na mikrowczep."
+                    % (_MAX_DLUGOSC_LITA, _fmt(dlugosc)))
+    else:  # mikrowczep albo technologia nieznana -> limit absolutny 500
+        if dlugosc > _MAX_DLUGOSC_MIKRO:
+            return ("Maksymalna długość to %d cm (mikrowczep), a podana to %s cm. "
+                    "Proszę o korektę długości." % (_MAX_DLUGOSC_MIKRO, _fmt(dlugosc)))
+    return None
+
+
 def _do_handoff(conv_id, powod, dane, closing=CLOSING_MSG):
     """Przekazanie rozmowy agentom: NAJPIERW toggle statusu (open), potem notatka i domkniecie.
     Kolejnosc celowa: gdy toggle padnie, rzucamy PRZED wyslaniem czegokolwiek do klienta —
@@ -248,6 +299,15 @@ def run_livechat_turn(conv_id, inbox_id, message_id, content):
         raise RuntimeError("livechat: brak odpowiedzi modelu")
     out = _parse_llm(raw)
     dane = _merge_dane(conv_id, out["dane"])   # akumulacja: raz zebrane pole zostaje
+
+    # Straznik wymiarow (deterministyczny, niezalezny od LLM) — przed bramka kompletnosci.
+    odrzucenie = _walidacja_wymiarow(dane)
+    if odrzucenie:
+        if not cw_agent_reply(conv_id, odrzucenie):
+            raise RuntimeError("livechat: wysylka odrzucenia wymiaru nieudana (conv %s)" % conv_id)
+        _bump_turns(conv_id)
+        log("livechat: odrzucony wymiar poza koperta (conv %s)" % conv_id)
+        return
 
     # Wyzwalacze B/C (decyzja LLM) + straznik kompletnosci (na danych scalonych).
     if out["handoff"]:
