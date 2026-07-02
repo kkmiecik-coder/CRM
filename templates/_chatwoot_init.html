@@ -1,8 +1,9 @@
-{# Widżet live chat Chatwoota — faza testowa w CRM.
+{# Widżet live chat Chatwoota — TOKEN TESTOWY (skrzynka testowa agenta AI w CRM).
    Wpięty w sidebar.html (bramkowany rolą 'admin' przy include), renderuje się na każdej zalogowanej stronie admina (multi-page, nie SPA).
    Token Website inboxa jest publiczny (i tak ląduje w HTML każdej strony), więc trzymany inline.
    Tryb anonimowy — bez identyfikacji użytkownika (brak setUser).
-   Docelowo ten sam snippet trafi do stopki szablonu PrestaShop. #}
+   UWAGA: to skrzynka TESTOWA do strojenia bota — NIE wdrażać tego tokenu na sklep.
+   Produkcyjny widget sklepu używa tokenu PxeXDqFMuz7C18KEACYkXJQN (stopka szablonu PrestaShop). #}
 <script>
   window.chatwootSettings = {"position":"right","type":"standard","launcherTitle":""};
   (function(d,t) {
@@ -13,7 +14,7 @@
     s.parentNode.insertBefore(g,s);
     g.onload=function(){
       window.chatwootSDK.run({
-        websiteToken: 'PxeXDqFMuz7C18KEACYkXJQN',
+        websiteToken: 'ferLAZCNzhHBmhnCsLgMWtJ1',
         baseUrl: BASE_URL
       })
     }
