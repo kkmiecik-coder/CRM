@@ -10,6 +10,7 @@ from core.db import init_db
 from channels import REGISTRY
 from worker import worker
 from suggest_worker import suggest_worker
+from live_worker import live_worker
 from bots.knowledge import index_loop
 from panels.base_orders import bp as base_orders_bp
 from webhooks import bp as webhooks_bp
@@ -28,4 +29,6 @@ if __name__ == "__main__":
     # Worker kolejki podpowiedzi AI + cykliczna indeksacja wiedzy (Help Center).
     threading.Thread(target=suggest_worker, daemon=True).start()
     threading.Thread(target=index_loop, daemon=True).start()
+    # Worker kolejki tur konwersacyjnego live-bota.
+    threading.Thread(target=live_worker, daemon=True).start()
     app.run(host="0.0.0.0", port=5005, threaded=True)
