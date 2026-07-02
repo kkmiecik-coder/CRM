@@ -73,9 +73,9 @@ def test_api_bez_olx_allegro_zwraca_none(monkeypatch):
     assert cr.persona_for(10) is None
 
 
-def test_webwidget_zwraca_none(monkeypatch):
+def test_webwidget_zwraca_livechat(monkeypatch):
     monkeypatch.setattr(cr, "cw_inboxes", _fake_cw_inboxes)
-    assert cr.persona_for(5) is None
+    assert cr.persona_for(5) == "livechat"
 
 
 def test_nieznane_id_zwraca_none_po_force_refresh(monkeypatch):
