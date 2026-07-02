@@ -61,3 +61,23 @@ def test_fallback_gdy_brak_pliku_json(monkeypatch):
     s = p.build_system_prompt("allegro", "", {})
     assert "PIERWSZEJ OSOBIE" in s
     assert "poza Allegro" in s
+
+
+def test_livechat_ma_pelna_checkliste_do_wyceny():
+    s = p.build_system_prompt("livechat", "", {})
+    low = s.lower()
+    assert "technologia" in low and "mikrowczep" in low
+    assert "klasa" in low                      # klasa drewna A/B / B/B
+    assert "otwory" in low                     # otwory / wycięcia
+    assert "krawęd" in low                     # krawędzie
+    assert "podstopnic" in low                 # pola schodów
+    assert "surowe" in low                     # reguła wykończenia
+    assert "centymetr" in low                  # normalizacja jednostek
+    assert "nie potwierdzaj docięcia" in low   # twardy zakaz pytania o docięcie
+
+
+def test_checklista_dziedziczona_w_podpowiadaczu_olx():
+    # common.zasady sa wspolne — podpowiadacz OLX tez dostaje checkliste (technologia/klasa).
+    s = p.build_system_prompt("olx", "", {}).lower()
+    assert "mikrowczep" in s
+    assert "klasa" in s
