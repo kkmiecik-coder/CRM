@@ -2,7 +2,7 @@
 # Klient Chatwoot Application API: tworzenie/uzupelnianie rozmow, wiadomosci przychodzace,
 # prywatne notatki (karty ofert/alerty), sprawdzanie istnienia rozmowy.
 import requests
-from config import CW_BASE, CW_ACC, CW_TOKEN, BOT_CW_AGENT_TOKEN
+from config import CW_BASE, CW_ACC, CW_TOKEN, BOT_CW_AGENT_TOKEN, BOT_LIVE_CW_AGENT_TOKEN
 from core.log import log
 from core.db import db
 from core.util import upsert_thread, html_to_text
@@ -170,10 +170,10 @@ def cw_articles(slug):
     return out
 
 
-def cw_bot_handoff(conv_id):
-    """Oddaje rozmowe z 'pending' do agentow (status open). Uzywa tokenu bota (fallback: admin).
-    Nigdy nie rzuca — True gdy 200, inaczej False + log."""
-    tok = BOT_CW_AGENT_TOKEN or CW_TOKEN
+def cw_bot_handoff(conv_id, token=None):
+    """Oddaje rozmowe z 'pending' do agentow (status open). Token z parametru (live-bot)
+    lub domyslnie token bota-podpowiadacza (fallback: admin). Nigdy nie rzuca."""
+    tok = token or BOT_CW_AGENT_TOKEN or CW_TOKEN
     try:
         url = "%s/api/v1/accounts/%s/conversations/%s/toggle_status" % (CW_BASE, CW_ACC, conv_id)
         r = requests.post(url, headers={"api_access_token": tok, "Content-Type": "application/json"},
@@ -183,3 +183,26 @@ def cw_bot_handoff(conv_id):
         return True
     except Exception as e:
         log("bot_handoff blad:", repr(e)); return False
+
+
+def cw_agent_reply(conv_id, text):
+    """Publiczna odpowiedz live-bota do klienta (message_type=outgoing, token live-bota).
+    Nigdy nie rzuca — True gdy 200, inaczej False + log."""
+    tok = BOT_LIVE_CW_AGENT_TOKEN or CW_TOKEN
+    try:
+        url = "%s/api/v1/accounts/%s/conversations/%s/messages" % (CW_BASE, CW_ACC, conv_id)
+        r = requests.post(url, headers={"api_access_token": tok, "Content-Type": "application/json"},
+                          json={"content": text, "message_type": "outgoing"}, timeout=25)
+        if r.status_code not in (200, 201):
+            log("agent_reply kod:", r.status_code, r.text[:150]); return False
+        return True
+    except Exception as e:
+        log("agent_reply blad:", repr(e)); return False
+
+
+def cw_conv_status(conv_id):
+    """Status rozmowy ('pending'/'open'/'resolved'/'snoozed') lub None przy bledzie."""
+    try:
+        return cw("GET", "/conversations/%s" % conv_id).json().get("status")
+    except Exception:
+        return None
