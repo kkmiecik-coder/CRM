@@ -402,12 +402,48 @@ def test_komplet_wysyla_podsumowanie_zamiast_handoffu(monkeypatch):
 
 
 def test_komplet_bez_handoffu_tez_wysyla_podsumowanie(monkeypatch):
-    """Takze gdy LLM nie ustawil handoff: komplet wymaganych -> podsumowanie + stan potwierdzenia."""
+    """Takze gdy LLM nie ustawil handoff: komplet wymaganych -> podsumowanie + stan potwierdzenia.
+    Proza LLM NIE poprzedza podsumowania (koniec podwojnego podsumowania)."""
     calls = _mock_env(monkeypatch, llm_json=_odp("Dziękuję!", pozycje=[_poz()]))
     lc.run_livechat_turn(77, "12", "m1", "wykończenie lakier")
     assert len(calls["reply"]) == 1
-    assert calls["reply"][0].startswith("Dziękuję!"), "odpowiedz LLM poprzedza podsumowanie"
-    assert "Podsumowuję dane do wyceny" in calls["reply"][0]
+    assert calls["reply"][0].startswith("Podsumowuję dane do wyceny"), "podsumowanie bez prozy LLM"
+    assert lc._awaiting_confirm(77) is True
+
+
+def test_podsumowanie_bez_prozy_llm(monkeypatch):
+    """Na turze z podsumowaniem NIE doklejamy prozy LLM (koniec podwojnego podsumowania)."""
+    calls = _mock_env(monkeypatch, llm_json=_odp("Potwierdzam parametry: blat debowy...", pozycje=[_poz()]))
+    lc.run_livechat_turn(77, "12", "m1", "wykończenie olej")
+    assert len(calls["reply"]) == 1
+    assert "Potwierdzam parametry" not in calls["reply"][0], "proza LLM nie moze poprzedzac podsumowania"
+    assert calls["reply"][0].startswith("Podsumowuję dane do wyceny")
+
+
+def test_potwierdzenie_deterministyczne_robi_handoff(monkeypatch):
+    """Awaiting + 'tak, zgadza sie' bez zmian danych -> handoff w kodzie, bez handoff=true od LLM."""
+    calls = _mock_env(monkeypatch, llm_json=_odp("Świetnie!", pozycje=[_poz()]))  # LLM handoff=false
+    lc._merge_dane(77, _odp(pozycje=[_poz()]))
+    lc._set_awaiting(77, True)
+    lc.run_livechat_turn(77, "12", "m2", "tak, wszystko się zgadza")
+    assert len(calls["handoff"]) == 1
+    assert calls["reply"] == [lc.CLOSING_MSG]
+
+
+def test_negacja_ze_slowem_zgadza_nie_jest_potwierdzeniem():
+    assert lc._jest_potwierdzenie("tak, zgadza się") is True
+    assert lc._jest_potwierdzenie("nie, źle, zmień grubość") is False
+    assert lc._jest_potwierdzenie("a ile to kosztuje?") is False
+
+
+def test_pytanie_w_stanie_confirm_nadal_zwykla_odpowiedz(monkeypatch):
+    """Awaiting + pytanie (nie-potwierdzenie) -> zwykla odpowiedz, stan zostaje."""
+    calls = _mock_env(monkeypatch, llm_json=_odp("Olej podkreśla słoje."))
+    lc._merge_dane(77, _odp(pozycje=[_poz()]))
+    lc._set_awaiting(77, True)
+    lc.run_livechat_turn(77, "12", "m2", "czym różni się olej od lakieru?")
+    assert calls["handoff"] == []
+    assert calls["reply"] == ["Olej podkreśla słoje."]
     assert lc._awaiting_confirm(77) is True
 
 

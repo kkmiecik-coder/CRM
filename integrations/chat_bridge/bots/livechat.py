@@ -62,6 +62,20 @@ def _hard_handoff(text):
     return None
 
 
+# Deterministyczne wykrycie potwierdzenia podsumowania (obok decyzji LLM).
+_POTW_RE = re.compile(r"\b(tak|zgadza|zgadzam|potwierdzam|potwierdzone|ok|okej|okay|zgoda|"
+                      r"pasuje|dokładnie|dokladnie|wysyłam|wysylam|super|świetnie|swietnie)\b",
+                      re.IGNORECASE)
+_NEG_RE = re.compile(r"\b(nie|źle|zle|błąd|blad|popraw\w*|zmień|zmien|inaczej|niepopr\w*)\b",
+                     re.IGNORECASE)
+
+
+def _jest_potwierdzenie(text):
+    """True gdy tresc to czyste potwierdzenie (bez negacji/korekty). 'nie zgadza sie' -> False."""
+    t = text or ""
+    return bool(_POTW_RE.search(t)) and not _NEG_RE.search(t)
+
+
 # --- Stan rozmowy: licznik tur + flaga oczekiwania na potwierdzenie podsumowania ---
 
 def _bot_turns(conv_id):
@@ -454,19 +468,12 @@ def _do_handoff(conv_id, powod, dane, closing=CLOSING_MSG):
     log("livechat: handoff conv %s (%s)" % (conv_id, powod))
 
 
-def _wyslij_podsumowanie(conv_id, odpowiedz_llm, dane):
-    """Deterministyczne podsumowanie do potwierdzenia; krotka odpowiedz LLM (jesli jest)
-    poprzedza je w tej samej wiadomosci. Ustawia stan oczekiwania na potwierdzenie.
-    Kolejnosc CELOWO wysylka -> stan (odwrotnie niz _do_handoff): gdy POST padnie,
-    retry ponawia cala ture bez stanu awaiting i podsumowanie dociera do klienta;
-    przy stanie-przed-wysylka nieudany POST zostawialby awaiting=1 i retry z niepusta
-    odpowiedzia LLM ominalby podsumowanie. Koszt: rzadki crash MIEDZY udanym POST
-    a zapisem stanu duplikuje podsumowanie (nieszkodliwe)."""
-    msg = _podsumowanie_msg(dane)
-    odp = (odpowiedz_llm or "").strip()
-    if odp:
-        msg = odp + "\n\n" + msg
-    if not cw_agent_reply(conv_id, msg):
+def _wyslij_podsumowanie(conv_id, dane):
+    """Wysyla WYLACZNIE deterministyczne podsumowanie (bez prozy LLM — koniec podwojnego
+    'Potwierdzam parametry.../Podsumowuje dane...'). Ustawia stan oczekiwania na potwierdzenie.
+    Kolejnosc CELOWO wysylka -> stan: gdy POST padnie, retry ponawia ture bez awaiting i
+    podsumowanie dociera; stan-przed-wysylka po nieudanym POST omijalby podsumowanie."""
+    if not cw_agent_reply(conv_id, _podsumowanie_msg(dane)):
         raise RuntimeError("livechat: wysylka podsumowania nieudana (conv %s)" % conv_id)
     _set_awaiting(conv_id, True)
     _bump_turns(conv_id)
@@ -549,7 +556,7 @@ def run_livechat_turn(conv_id, inbox_id, message_id, content):
                 return
             if not awaiting:
                 # Bramka: handoff "komplet danych" dopiero PO potwierdzeniu podsumowania.
-                _wyslij_podsumowanie(conv_id, out["odpowiedz"], dane)
+                _wyslij_podsumowanie(conv_id, dane)
                 return
         _do_handoff(conv_id, powod, dane)
         return
@@ -557,17 +564,18 @@ def run_livechat_turn(conv_id, inbox_id, message_id, content):
     # Bez handoffu: komplet wymaganych -> podsumowanie (pierwsze lub po korekcie danych).
     if not brak:
         if not awaiting or zmienione:
-            _wyslij_podsumowanie(conv_id, out["odpowiedz"], dane)
+            _wyslij_podsumowanie(conv_id, dane)
+            return
+        # Awaiting bez zmian: czyste potwierdzenie -> handoff deterministyczny (nie czekamy na LLM).
+        if _jest_potwierdzenie(content):
+            _do_handoff(conv_id, "klient potwierdził dane do wyceny", dane)
             return
         if not out["odpowiedz"]:
-            # Awaiting bez zmian i pusta odpowiedz (persona dopuszcza puste przy komplecie)
-            # -> ponow podsumowanie zamiast rzucac; blad tutaj konczylby sie falszywym
-            # handoffem "blad techniczny" po wyczerpaniu retry.
-            _wyslij_podsumowanie(conv_id, "", dane)
+            # Pusta odpowiedz przy komplecie -> ponow podsumowanie zamiast rzucac (falszywy handoff).
+            _wyslij_podsumowanie(conv_id, dane)
             return
-        # awaiting bez zmian danych -> klient pyta o cos innego, zwykla odpowiedz nizej.
+        # awaiting bez zmian, nie-potwierdzenie -> klient pyta o cos innego, zwykla odpowiedz nizej.
     elif awaiting:
-        # Korekta rozkompletowala dane (np. nowa pozycja) -> powrot do zbierania.
         _set_awaiting(conv_id, False)
 
     reply = out["odpowiedz"]
