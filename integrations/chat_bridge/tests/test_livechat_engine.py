@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
-# Test: silnik live-bota — parsowanie JSON LLM, wyzwalacze handoffu A/B/C/D,
-# cisza gdy status != pending, licznik tur (bezpiecznik D), sciezka awaryjna.
+# Test: silnik live-bota — pozycje wyceny, merge per pozycja, straznik kompletnosci,
+# podsumowanie do potwierdzenia (awaiting_confirm), wyzwalacze handoffu A/B/C/D,
+# walidacja koperty wymiarow, cisza gdy status != pending, sciezka awaryjna.
 import os, tempfile, json
 os.environ.setdefault("OLX_CLIENT_ID", "x")
 os.environ.setdefault("OLX_CLIENT_SECRET", "x")
@@ -43,10 +44,29 @@ def _mock_env(monkeypatch, status="pending", llm_json=None, llm_raw=None):
     return calls
 
 
+def _poz(**pola):
+    """Pozycja-blat z kompletem pol wymaganych; nadpisywalna przez kwargs."""
+    d = {"id": "1", "produkt": "blat", "dlugosc": "200", "szerokosc": "80", "grubosc": "3.8",
+         "gatunek": "dąb", "technologia": "lita", "klasa": "A/B", "ilosc": "2",
+         "wykonczenie": "lakier"}
+    d.update(pola)
+    return d
+
+
+def _dane(*pozycje, **wspolne):
+    return {"pozycje": list(pozycje), "wspolne": wspolne}
+
+
+def _odp(odpowiedz="", handoff=False, powod="", pozycje=None, wspolne=None):
+    return {"odpowiedz": odpowiedz, "handoff": handoff, "powod": powod,
+            "pozycje": pozycje or [], "wspolne": wspolne or {}}
+
+
+# ---------- tury podstawowe / statusy / awarie ----------
+
 def test_normalna_tura_publiczna_odpowiedz_bez_handoffu(monkeypatch):
     """LLM: handoff=false -> publiczna odpowiedz, zero handoffu, licznik tur +1."""
-    calls = _mock_env(monkeypatch, llm_json={
-        "odpowiedz": "Jaki gatunek Pana interesuje?", "handoff": False, "powod": "", "dane": {}})
+    calls = _mock_env(monkeypatch, llm_json=_odp("Jaki gatunek Pana interesuje?"))
 
     lc.run_livechat_turn(77, "12", "m1", "Szukam blatu")
 
@@ -55,60 +75,15 @@ def test_normalna_tura_publiczna_odpowiedz_bez_handoffu(monkeypatch):
     assert lc._bot_turns(77) == 1
 
 
-def test_llm_handoff_true_przekazuje_z_notatka(monkeypatch):
-    """LLM: handoff=true (B) z KOMPLETEM -> domkniecie + notatka-podsumowanie + toggle open."""
-    calls = _mock_env(monkeypatch, llm_json={
-        "odpowiedz": "", "handoff": True, "powod": "komplet danych",
-        "dane": {"produkt": "blat", "dlugosc": "200", "szerokosc": "80", "grubosc": "3.8", "gatunek": "dąb",
-                 "technologia": "lita", "klasa": "A/B", "ilosc": "1",
-                 "wykonczenie": "lakier", "otwory": "brak", "krawedzie": "prosta",
-                 "kontakt": "jan@x.pl"}})
+def test_tryb_informacyjny_bez_pozycji_zwykla_odpowiedz(monkeypatch):
+    """Pytanie poboczne (dostawa itp.): brak pozycji i handoffu -> zwykla odpowiedz, zero dopytek o wycene."""
+    calls = _mock_env(monkeypatch, llm_json=_odp("Dostawa kurierem, zwykle kilka dni roboczych."))
 
-    lc.run_livechat_turn(77, "12", "m1", "To wszystko")
+    lc.run_livechat_turn(77, "12", "m1", "Jak wyglada dostawa?")
 
-    assert calls["reply"] == [lc.CLOSING_MSG]
-    assert len(calls["handoff"]) == 1
-    assert calls["handoff"][0] == config.BOT_LIVE_CW_AGENT_TOKEN
-    assert len(calls["note"]) == 1
-    assert "komplet danych" in calls["note"][0]
-    assert "Szerokość: 80" in calls["note"][0]
-
-
-def test_pytanie_o_cene_uruchamia_zbieranie_nie_handoff(monkeypatch):
-    """Zmiana: cena NIE wymusza handoffu — LLM jest wolany i zbiera dane (persona)."""
-    calls = _mock_env(monkeypatch, llm_json={
-        "odpowiedz": "Chętnie przygotujemy wycenę — proszę o wymiary i gatunek.",
-        "handoff": False, "powod": "", "dane": {}})
-
-    lc.run_livechat_turn(77, "12", "m1", "Ile kosztuje taki blat?")
-
-    assert len(calls["chat"]) == 1, "LLM POWINIEN byc wolany — cena uruchamia zbieranie danych"
+    assert calls["reply"] == ["Dostawa kurierem, zwykle kilka dni roboczych."]
     assert calls["handoff"] == []
-    assert calls["reply"] == ["Chętnie przygotujemy wycenę — proszę o wymiary i gatunek."]
-
-
-def test_cennik_uruchamia_zbieranie_nie_handoff(monkeypatch):
-    """Zmiana: 'macie cennik?' -> LLM zbiera dane, bez natychmiastowego handoffu."""
-    calls = _mock_env(monkeypatch, llm_json={
-        "odpowiedz": "Wycena jest indywidualna — podam szczegóły, gdy poznam parametry.",
-        "handoff": False, "powod": "", "dane": {}})
-
-    lc.run_livechat_turn(77, "12", "m1", "macie cennik?")
-
-    assert len(calls["chat"]) == 1
-    assert calls["handoff"] == []
-
-
-def test_centymetry_nie_wywoluja_falszywego_handoffu(monkeypatch):
-    """Regresja: 'centymetrow' nie moze pasowac do wyzwalacza ceny (regex cen\\w* byl zbyt szeroki)."""
-    calls = _mock_env(monkeypatch, llm_json={
-        "odpowiedz": "Dziękuję, notuję wymiary.", "handoff": False, "powod": "", "dane": {}})
-
-    lc.run_livechat_turn(77, "12", "m1", "blat 120 centymetrów na 60")
-
-    assert len(calls["chat"]) == 1, "LLM POWINIEN byc wolany - to nie jest pytanie o cene"
-    assert calls["handoff"] == []
-    assert calls["reply"] == ["Dziękuję, notuję wymiary."]
+    assert lc._awaiting_confirm(77) is False
 
 
 def test_twarde_slowo_konsultant_wymusza_handoff(monkeypatch):
@@ -122,27 +97,17 @@ def test_twarde_slowo_konsultant_wymusza_handoff(monkeypatch):
 
 
 def test_status_open_bot_milczy(monkeypatch):
-    """Cisza po handoffie: status != pending -> zero odpowiedzi/handoffu/LLM."""
     calls = _mock_env(monkeypatch, status="open")
-
     lc.run_livechat_turn(77, "12", "m1", "Halo?")
-
-    assert calls["reply"] == []
-    assert calls["handoff"] == []
-    assert calls["chat"] == []
+    assert calls["reply"] == [] and calls["handoff"] == [] and calls["chat"] == []
 
 
 def test_status_none_rzuca_i_nic_nie_wysyla(monkeypatch):
-    """Blad odczytu statusu (None) NIE moze byc traktowany jak pending — rzucamy, retry w workerze."""
     import pytest
     calls = _mock_env(monkeypatch, status=None)
-
     with pytest.raises(RuntimeError):
         lc.run_livechat_turn(77, "12", "m1", "Halo?")
-
-    assert calls["reply"] == []
-    assert calls["handoff"] == []
-    assert calls["chat"] == []
+    assert calls["reply"] == [] and calls["handoff"] == [] and calls["chat"] == []
 
 
 def test_licznik_tur_wymusza_handoff(monkeypatch):
@@ -161,154 +126,235 @@ def test_licznik_tur_wymusza_handoff(monkeypatch):
     assert "limit tur" in calls["note"][0].lower()
 
 
-def test_zly_json_traktowany_jako_tekst(monkeypatch):
-    """Fallback: LLM zwraca goly tekst (nie-JSON) -> wysylamy go jako odpowiedz, bez handoffu."""
-    calls = _mock_env(monkeypatch, llm_raw="Dzień dobry, w czym mogę pomóc?")
-
-    lc.run_livechat_turn(77, "12", "m1", "hej")
-
-    assert calls["reply"] == ["Dzień dobry, w czym mogę pomóc?"]
-    assert calls["handoff"] == []
-
-
-def test_json_w_plocie_markdown_parsowany(monkeypatch):
-    """LLM opakowal JSON w ```json ...``` -> parsujemy poprawnie."""
-    payload = json.dumps({"odpowiedz": "OK", "handoff": False, "powod": "", "dane": {}})
-    calls = _mock_env(monkeypatch, llm_raw="```json\n" + payload + "\n```")
-
-    lc.run_livechat_turn(77, "12", "m1", "hej")
-
-    assert calls["reply"] == ["OK"]
-
-
-def test_dwa_ploty_markdown_drugi_poprawny_json(monkeypatch):
-    """LLM zwrocil dwa bloki ```...``` - pierwszy nie-JSON/przyklad, drugi poprawny JSON.
-    Zachlanny regex ```(.+)``` zlapalby caly blob miedzy pierwszym otwarciem a ostatnim zamknieciem;
-    poprawka iteruje po kazdym bloku z osobna."""
-    payload = json.dumps({"odpowiedz": "Druga odpowiedz OK", "handoff": False, "powod": "", "dane": {}})
-    raw = "Przyklad:\n```\nto nie jest json\n```\n\nWlasciwa odpowiedz:\n```json\n" + payload + "\n```"
-    calls = _mock_env(monkeypatch, llm_raw=raw)
-
-    lc.run_livechat_turn(77, "12", "m1", "hej")
-
-    assert calls["reply"] == ["Druga odpowiedz OK"]
-    assert calls["handoff"] == []
-
-
 def test_brak_odpowiedzi_llm_rzuca(monkeypatch):
-    """LLM zwraca None -> RuntimeError (retry w workerze)."""
     import pytest
     calls = _mock_env(monkeypatch)
     monkeypatch.setattr(lc, "chat", lambda m, **kw: None)
-
     with pytest.raises(RuntimeError):
         lc.run_livechat_turn(77, "12", "m1", "hej")
     assert calls["reply"] == [], "przy bledzie LLM nie wysylamy nic klientowi (retry w workerze)"
 
 
 def test_handoff_with_apology(monkeypatch):
-    """Awaryjne przekazanie: uprzejma wiadomosc + handoff + notatka."""
     calls = _mock_env(monkeypatch)
-
     lc.handoff_with_apology(77)
-
     assert calls["reply"] == [lc.APOLOGY_MSG]
     assert len(calls["handoff"]) == 1
     assert len(calls["note"]) == 1
 
 
 def test_nieudany_toggle_rzuca_i_nic_nie_wysyla(monkeypatch):
-    """Porazka toggle_status -> RuntimeError PRZED wyslaniem czegokolwiek do klienta (retry w workerze)."""
     import pytest
     calls = _mock_env(monkeypatch)
     monkeypatch.setattr(lc, "cw_bot_handoff", lambda cid, token=None: False)
-
     with pytest.raises(RuntimeError):
         lc.run_livechat_turn(77, "12", "m1", "Chcę rozmawiać z konsultantem")
-
     assert calls["reply"] == [], "klient nie moze dostac 'przekazuje' gdy handoff padl"
     assert calls["note"] == []
 
 
 def test_nieudana_wysylka_odpowiedzi_rzuca_i_nie_bumpuje_licznika(monkeypatch):
-    """cw_agent_reply zwraca False -> RuntimeError, licznik tur NIE jest inkrementowany
-    (POST nie dotarl do klienta, wiec retry w workerze nie zdubluje wiadomosci)."""
     import pytest
-    calls = _mock_env(monkeypatch, llm_json={
-        "odpowiedz": "Jaki gatunek Pana interesuje?", "handoff": False, "powod": "", "dane": {}})
+    calls = _mock_env(monkeypatch, llm_json=_odp("Jaki gatunek Pana interesuje?"))
     monkeypatch.setattr(lc, "cw_agent_reply", lambda cid, t: False)
-
     with pytest.raises(RuntimeError):
         lc.run_livechat_turn(77, "12", "m1", "Szukam blatu")
-
     assert lc._bot_turns(77) == 0, "licznik tur nie moze wzrosnac przy nieudanej wysylce"
 
 
-def test_handoff_resetuje_licznik_tur(monkeypatch):
-    """Po udanym handoffie wpis w live_state dla danej rozmowy znika (agent moze oddac rozmowe botowi od zera)."""
-    calls = _mock_env(monkeypatch, llm_json={
-        "odpowiedz": "", "handoff": True, "powod": "klient prosi o człowieka", "dane": {}})
+def test_handoff_resetuje_stan(monkeypatch):
+    """Po handoffie znikaja live_state (licznik+awaiting) i live_dane."""
+    calls = _mock_env(monkeypatch, llm_json=_odp(handoff=True, powod="klient prosi o człowieka"))
     c = db_mod.db()
-    c.execute("INSERT INTO live_state(conv_id, bot_turns) VALUES(77, 3)")
+    c.execute("INSERT INTO live_state(conv_id, bot_turns, awaiting_confirm) VALUES(77, 3, 1)")
     c.commit(); c.close()
+    lc._merge_dane(77, _odp(pozycje=[_poz()]))
 
     lc.run_livechat_turn(77, "12", "m1", "wolę z kimś porozmawiać")
 
     c = db_mod.db()
     row = c.execute("SELECT * FROM live_state WHERE conv_id=77").fetchone()
     c.close()
-    assert row is None, "live_state dla conv 77 powinien byc usuniety po handoffie"
+    assert row is None
+    assert lc._load_dane(77) == {"pozycje": [], "wspolne": {}}
 
 
-def test_summary_note_zawiera_nowe_pola():
-    """Notatka handoffu wypisuje nowe pola krytyczne (technologia, klasa, otwory, krawedzie, schody)."""
-    dane = {"produkt": "blat", "dlugosc": "320", "szerokosc": "115.5", "grubosc": "3.8", "gatunek": "dąb",
-            "technologia": "lita", "klasa": "A/B", "ilosc": "1",
-            "wykonczenie": "lakier mat bezbarwny", "otwory": "brak", "krawedzie": "fazowana"}
-    note = lc._summary_note(dane, "komplet danych")
-    assert "Technologia: lita" in note
-    assert "Klasa: A/B" in note
-    assert "Otwory/wycięcia: brak" in note
-    assert "Krawędzie: fazowana" in note
+# ---------- parsowanie LLM ----------
+
+def test_zly_json_traktowany_jako_tekst(monkeypatch):
+    calls = _mock_env(monkeypatch, llm_raw="Dzień dobry, w czym mogę pomóc?")
+    lc.run_livechat_turn(77, "12", "m1", "hej")
+    assert calls["reply"] == ["Dzień dobry, w czym mogę pomóc?"]
+    assert calls["handoff"] == []
 
 
-def test_format_ma_nowe_pola_i_bez_handoffu_na_cene():
-    """Schemat 'dane' w _FORMAT ma nowe pola; instrukcja nie każe robić handoffu na samą cenę."""
-    for pole in ('"dlugosc"', '"szerokosc"', '"technologia"', '"klasa"', '"otwory"', '"krawedzie"', '"schody"'):
-        assert pole in lc._FORMAT
+def test_json_w_plocie_markdown_parsowany(monkeypatch):
+    payload = json.dumps(_odp("OK"))
+    calls = _mock_env(monkeypatch, llm_raw="```json\n" + payload + "\n```")
+    lc.run_livechat_turn(77, "12", "m1", "hej")
+    assert calls["reply"] == ["OK"]
+
+
+def test_dwa_ploty_markdown_drugi_poprawny_json(monkeypatch):
+    payload = json.dumps(_odp("Druga odpowiedz OK"))
+    raw = "Przyklad:\n```\nto nie jest json\n```\n\nWlasciwa odpowiedz:\n```json\n" + payload + "\n```"
+    calls = _mock_env(monkeypatch, llm_raw=raw)
+    lc.run_livechat_turn(77, "12", "m1", "hej")
+    assert calls["reply"] == ["Druga odpowiedz OK"]
+
+
+def test_parse_llm_pozycje_i_wspolne():
+    d = lc._parse_llm(json.dumps(_odp("ok", pozycje=[{"id": "1", "produkt": "blat"}],
+                                      wspolne={"kontakt": "jan@x.pl"})))
+    assert d["pozycje"] == [{"id": "1", "produkt": "blat"}]
+    assert d["wspolne"] == {"kontakt": "jan@x.pl"}
+
+
+def test_parse_llm_smieci_w_pozycjach_ignorowane():
+    d = lc._parse_llm('{"odpowiedz": "ok", "handoff": false, "pozycje": "nie-lista", "wspolne": []}')
+    assert d["pozycje"] == [] and d["wspolne"] == {}
+
+
+def test_format_ma_pozycje_i_zasady_handoffu():
+    for frag in ('"pozycje"', '"wspolne"', '"id"', '"usun"', '"ilosc"', '"schody"'):
+        assert frag in lc._FORMAT
     assert "NIE ustawiaj handoff na samo pytanie o cenę" in lc._FORMAT
+    assert "POTWIERDZIŁ" in lc._FORMAT
+    assert "reklamacja" in lc._FORMAT
 
 
-def test_brakujace_pola_pusty_produkt_pyta_o_produkt():
-    assert lc._brakujace_pola({}) == ["produkt"]
+# ---------- warstwa danych: load/merge pozycji ----------
+
+def test_load_dane_pusty_gdy_brak():
+    assert lc._load_dane(999) == {"pozycje": [], "wspolne": {}}
 
 
-def test_brakujace_pola_komplet_blat_pusta_lista():
-    dane = {"produkt": "blat", "dlugosc": "320", "szerokosc": "115", "grubosc": "3.8", "gatunek": "dąb",
-            "technologia": "lita", "klasa": "A/B", "ilosc": "1",
-            "wykonczenie": "lakier", "otwory": "brak", "krawedzie": "prosta"}
-    assert lc._brakujace_pola(dane) == []
+def test_load_dane_stary_plaski_zapis_jako_pozycja_1():
+    """Kompatybilnosc wstecz: rozmowy w toku sprzed deployu (plaski dict) czytane jako pozycja 1."""
+    c = db_mod.db()
+    c.execute("INSERT INTO live_dane(conv_id, dane_json) VALUES(77, ?)",
+              (json.dumps({"produkt": "blat", "dlugosc": "200", "kontakt": "jan@x.pl"}),))
+    c.commit(); c.close()
+    d = lc._load_dane(77)
+    assert d["pozycje"][0]["id"] == "1"
+    assert d["pozycje"][0]["produkt"] == "blat"
+    assert d["pozycje"][0]["dlugosc"] == "200"
+    assert d["wspolne"] == {"kontakt": "jan@x.pl"}
 
 
-def test_brakujace_pola_blat_bez_technologii_i_klasy():
-    dane = {"produkt": "blat", "dlugosc": "320", "szerokosc": "115", "grubosc": "3.8", "gatunek": "dąb",
-            "ilosc": "1", "wykonczenie": "lakier", "otwory": "brak", "krawedzie": "prosta"}
-    assert lc._brakujace_pola(dane) == ["technologia", "klasa"]
+def test_merge_dane_dwie_pozycje_naraz():
+    """'2 blaty ... i 3 parapety ...' -> dwie osobne pozycje."""
+    d = lc._merge_dane(77, _odp(pozycje=[
+        {"id": "1", "produkt": "blat", "dlugosc": "150", "szerokosc": "40", "grubosc": "4", "ilosc": "2"},
+        {"id": "2", "produkt": "parapet", "dlugosc": "150", "szerokosc": "30", "grubosc": "2", "ilosc": "3"}]))
+    assert len(d["pozycje"]) == 2
+    assert d["pozycje"][0]["produkt"] == "blat"
+    assert d["pozycje"][1]["produkt"] == "parapet"
 
 
-def test_brakujace_pola_schody_wymaga_pola_schody():
-    dane = {"produkt": "schody", "gatunek": "dąb", "technologia": "lita", "klasa": "A/B",
-            "ilosc": "1", "wykonczenie": "olej", "otwory": "brak", "krawedzie": "prosta"}
-    assert lc._brakujace_pola(dane) == ["schody"]
+def test_merge_dane_korekta_pozycji_2_nie_rusza_pozycji_1():
+    lc._merge_dane(77, _odp(pozycje=[
+        {"id": "1", "produkt": "blat", "dlugosc": "150"},
+        {"id": "2", "produkt": "parapet", "dlugosc": "150"}]))
+    d = lc._merge_dane(77, _odp(pozycje=[{"id": "2", "dlugosc": "170"}]))
+    assert d["pozycje"][0]["dlugosc"] == "150", "pozycja 1 nietknieta"
+    assert d["pozycje"][1]["dlugosc"] == "170"
+
+
+def test_merge_dane_pozycja_nieobecna_w_odpowiedzi_zostaje():
+    lc._merge_dane(77, _odp(pozycje=[{"id": "1", "produkt": "blat"}]))
+    d = lc._merge_dane(77, _odp(pozycje=[]))
+    assert len(d["pozycje"]) == 1, "krotka odpowiedz LLM nie moze zgubic pozycji"
+
+
+def test_merge_dane_usun_true_usuwa_pozycje():
+    lc._merge_dane(77, _odp(pozycje=[{"id": "1", "produkt": "blat"},
+                                     {"id": "2", "produkt": "parapet"}]))
+    d = lc._merge_dane(77, _odp(pozycje=[{"id": "1", "usun": True}]))
+    assert len(d["pozycje"]) == 1
+    assert d["pozycje"][0]["produkt"] == "parapet"
+
+
+def test_merge_dane_niepusta_nadpisuje_pusta_nie_kasuje():
+    lc._merge_dane(77, _odp(pozycje=[{"id": "1", "produkt": "blat", "otwory": "pod zlew"}]))
+    d = lc._merge_dane(77, _odp(pozycje=[{"id": "1", "otwory": ""}]))
+    assert d["pozycje"][0]["otwory"] == "pod zlew"
+
+
+def test_merge_dane_bez_id_dopasowanie_po_produkcie():
+    """LLM zgubil id: jedyna pozycja o tym samym produkcie -> merge, nie duplikat."""
+    lc._merge_dane(77, _odp(pozycje=[{"id": "1", "produkt": "blat", "dlugosc": "150"}]))
+    d = lc._merge_dane(77, _odp(pozycje=[{"produkt": "blat", "gatunek": "dąb"}]))
+    assert len(d["pozycje"]) == 1
+    assert d["pozycje"][0]["gatunek"] == "dąb"
+    assert d["pozycje"][0]["dlugosc"] == "150"
+
+
+def test_merge_dane_nowe_id_nowa_pozycja():
+    lc._merge_dane(77, _odp(pozycje=[{"id": "1", "produkt": "blat"}]))
+    d = lc._merge_dane(77, _odp(pozycje=[{"id": "2", "produkt": "schody"}]))
+    assert len(d["pozycje"]) == 2
+
+
+def test_merge_dane_wspolne_akumulowane():
+    lc._merge_dane(77, _odp(wspolne={"kontakt": "jan@x.pl"}))
+    d = lc._merge_dane(77, _odp(wspolne={"termin": "wrzesień"}))
+    assert d["wspolne"] == {"kontakt": "jan@x.pl", "termin": "wrzesień"}
+
+
+# ---------- straznik kompletnosci ----------
+
+def test_brakujace_bez_pozycji_pyta_o_produkt():
+    assert [k for _, k in lc._brakujace(_dane())] == ["produkt"]
+
+
+def test_brakujace_komplet_pusta_lista():
+    assert lc._brakujace(_dane(_poz())) == []
+
+
+def test_brakujace_bez_technologii_i_klasy():
+    poz = _poz(technologia="", klasa="")
+    assert [k for _, k in lc._brakujace(_dane(poz))] == ["technologia", "klasa"]
+
+
+def test_brakujace_ilosc_wymagana():
+    poz = _poz(ilosc="")
+    assert [k for _, k in lc._brakujace(_dane(poz))] == ["ilosc"]
+
+
+def test_brakujace_otwory_krawedzie_niewymagane():
+    """Otwory/krawedzie nie sa polami krytycznymi — komplet bez nich."""
+    assert lc._brakujace(_dane(_poz(otwory="", krawedzie=""))) == []
+
+
+def test_brakujace_schody_wymaga_pola_schody():
+    poz = _poz(produkt="schody", dlugosc="", szerokosc="", grubosc="", schody="")
+    assert [k for _, k in lc._brakujace(_dane(poz))] == ["schody"]
+
+
+def test_brakujace_kazda_pozycja_musi_byc_kompletna():
+    braki = lc._brakujace(_dane(_poz(), _poz(id="2", produkt="parapet", gatunek="")))
+    assert [k for _, k in braki] == ["gatunek"]
+
+
+def test_pytanie_o_braki_jedna_pozycja_bez_prefiksu():
+    braki = lc._brakujace(_dane(_poz(technologia="")))
+    assert lc._pytanie_o_braki(braki, False) == \
+        "Żeby przygotować wycenę, potrzebuję jeszcze: technologię (lita czy mikrowczep)."
+
+
+def test_pytanie_o_braki_wiele_pozycji_wskazuje_produkt():
+    braki = lc._brakujace(_dane(_poz(), _poz(id="2", produkt="parapet", grubosc="", gatunek="")))
+    pyt = lc._pytanie_o_braki(braki, True)
+    assert "parapet" in pyt
+    assert "grubość" in pyt and "gatunek" in pyt
 
 
 def test_straznik_wstrzymuje_handoff_przy_brakach(monkeypatch):
     """B z niekompletnymi danymi -> bot NIE oddaje rozmowy, dopytuje, licznik tur +1."""
-    calls = _mock_env(monkeypatch, llm_json={
-        "odpowiedz": "", "handoff": True, "powod": "komplet danych do wyceny",
-        "dane": {"produkt": "blat", "dlugosc": "320", "szerokosc": "115.5", "grubosc": "3.8",
-                 "gatunek": "dąb", "wykonczenie": "lakier", "ilosc": "1",
-                 "otwory": "brak", "krawedzie": "prosta"}})  # brak: technologia, klasa
+    calls = _mock_env(monkeypatch, llm_json=_odp(
+        handoff=True, powod="komplet danych do wyceny",
+        pozycje=[_poz(technologia="", klasa="")]))
     lc.run_livechat_turn(77, "12", "m1", "to wszystko")
     assert calls["handoff"] == [], "niekompletne dane nie moga oddac rozmowy"
     assert len(calls["reply"]) == 1
@@ -316,76 +362,174 @@ def test_straznik_wstrzymuje_handoff_przy_brakach(monkeypatch):
     assert lc._bot_turns(77) == 1
 
 
-def test_straznik_przepuszcza_komplet(monkeypatch):
-    """B z kompletem -> handoff normalnie (domkniecie + notatka)."""
-    calls = _mock_env(monkeypatch, llm_json={
-        "odpowiedz": "", "handoff": True, "powod": "komplet danych",
-        "dane": {"produkt": "blat", "dlugosc": "320", "szerokosc": "115.5", "grubosc": "3.8",
-                 "gatunek": "dąb", "technologia": "lita", "klasa": "A/B", "ilosc": "1",
-                 "wykonczenie": "lakier mat", "otwory": "brak", "krawedzie": "fazowana"}})
-    lc.run_livechat_turn(77, "12", "m1", "to wszystko")
-    assert len(calls["handoff"]) == 1
-    assert calls["reply"] == [lc.CLOSING_MSG]
-
-
 def test_straznik_przepuszcza_prosbe_o_czlowieka_mimo_brakow(monkeypatch):
-    """A/C: handoff z powodu 'klient prosi o człowieka' NIE jest blokowany brakiem pol."""
-    calls = _mock_env(monkeypatch, llm_json={
-        "odpowiedz": "", "handoff": True, "powod": "klient prosi o człowieka",
-        "dane": {"produkt": "blat"}})  # prawie puste
+    calls = _mock_env(monkeypatch, llm_json=_odp(
+        handoff=True, powod="klient prosi o człowieka", pozycje=[{"id": "1", "produkt": "blat"}]))
     lc.run_livechat_turn(77, "12", "m1", "wolę porozmawiać z kimś")
     assert len(calls["handoff"]) == 1
     assert calls["reply"] == [lc.CLOSING_MSG]
 
 
-def test_pytanie_o_braki_gramatyczne():
-    """Regresja: ramka nie moze generowac 'prosze o czy...' dla etykiet-pytan."""
-    jedno = lc._pytanie_o_braki(["technologia"])
-    assert jedno == "Żeby przygotować wycenę, potrzebuję jeszcze: technologię (lita czy mikrowczep)."
-    dwa = lc._pytanie_o_braki(["otwory", "krawedzie"])
-    assert dwa == ("Żeby przygotować wycenę, potrzebuję jeszcze: "
-                   "czy potrzebne są otwory lub wycięcia oraz jak wykończyć krawędzie.")
-    assert "o czy" not in dwa
+def test_straznik_przepuszcza_sprawe_indywidualna_mimo_brakow(monkeypatch):
+    """Reklamacja / status zamowienia / faktura / zwrot -> handoff bez wzgledu na braki."""
+    for powod in ("reklamacja produktu", "klient pyta o status zamówienia",
+                  "prośba o fakturę", "zwrot towaru", "sprawa indywidualna"):
+        setup_function(None)
+        calls = _mock_env(monkeypatch, llm_json=_odp(handoff=True, powod=powod))
+        lc.run_livechat_turn(77, "12", "m1", "mam sprawę")
+        assert len(calls["handoff"]) == 1, "powod '%s' musi przejsc mimo brakow" % powod
 
 
-def test_merge_dane_akumuluje():
-    lc._merge_dane(77, {"produkt": "blat"})
-    lc._merge_dane(77, {"szerokosc": "80"})
-    d = lc._load_dane(77)
-    assert d["produkt"] == "blat"
-    assert d["szerokosc"] == "80"
+def test_kontakt_zwrotny_nie_przepuszcza_strażnika():
+    """Regresja regexu: 'zwrotny' (kontakt zwrotny) NIE moze pasowac do 'zwrot'."""
+    assert lc._czy_powod_kompletu("klient podał kontakt zwrotny") is True
 
 
-def test_merge_dane_niepusta_nadpisuje_pusta_nie_kasuje():
-    lc._merge_dane(77, {"otwory": "brak"})
-    lc._merge_dane(77, {"otwory": ""})
-    assert lc._load_dane(77)["otwory"] == "brak"
-    lc._merge_dane(77, {"otwory": "pod zlew"})
-    assert lc._load_dane(77)["otwory"] == "pod zlew"
+# ---------- podsumowanie i potwierdzenie ----------
 
-
-def test_load_dane_pusty_gdy_brak():
-    assert lc._load_dane(999) == {}
-
-
-def test_akumulacja_zapobiega_pytaniu_o_zebrane_pole(monkeypatch):
-    """Fix petli: gdy LLM zgubi pola w danej turze, scalone dane nadal maja komplet -> handoff."""
-    calls = _mock_env(monkeypatch, llm_json={
-        "odpowiedz": "", "handoff": True, "powod": "komplet danych", "dane": {}})
-    lc._merge_dane(77, {"produkt": "blat", "dlugosc": "200", "szerokosc": "80", "grubosc": "3", "gatunek": "dąb",
-                        "technologia": "lita", "klasa": "A/B", "ilosc": "1", "wykonczenie": "surowe",
-                        "otwory": "brak", "krawedzie": "proste"})
+def test_komplet_wysyla_podsumowanie_zamiast_handoffu(monkeypatch):
+    """Bramka B: LLM chce handoff 'komplet', ale klient jeszcze nie potwierdzil ->
+    kod wysyla podsumowanie i ustawia awaiting_confirm."""
+    calls = _mock_env(monkeypatch, llm_json=_odp(handoff=True, powod="komplet danych",
+                                                 pozycje=[_poz()]))
     lc.run_livechat_turn(77, "12", "m1", "to wszystko")
-    assert len(calls["handoff"]) == 1, "komplet z akumulacji -> handoff, bez ponownego pytania"
+    assert calls["handoff"] == [], "handoff komplet bez potwierdzenia klienta zabroniony"
+    assert len(calls["reply"]) == 1
+    assert "Podsumowuję dane do wyceny" in calls["reply"][0]
+    assert "Czy wszystko się zgadza?" in calls["reply"][0]
+    assert lc._awaiting_confirm(77) is True
+    assert lc._bot_turns(77) == 1
 
 
-def test_reset_dane_po_handoffie(monkeypatch):
-    calls = _mock_env(monkeypatch, llm_json={
-        "odpowiedz": "", "handoff": True, "powod": "klient prosi o człowieka", "dane": {}})
-    lc._merge_dane(77, {"produkt": "blat", "otwory": "brak"})
-    lc.run_livechat_turn(77, "12", "m1", "wolę z kimś porozmawiać")
-    assert lc._load_dane(77) == {}, "live_dane czyszczone po handoffie"
+def test_komplet_bez_handoffu_tez_wysyla_podsumowanie(monkeypatch):
+    """Takze gdy LLM nie ustawil handoff: komplet wymaganych -> podsumowanie + stan potwierdzenia."""
+    calls = _mock_env(monkeypatch, llm_json=_odp("Dziękuję!", pozycje=[_poz()]))
+    lc.run_livechat_turn(77, "12", "m1", "wykończenie lakier")
+    assert len(calls["reply"]) == 1
+    assert calls["reply"][0].startswith("Dziękuję!"), "odpowiedz LLM poprzedza podsumowanie"
+    assert "Podsumowuję dane do wyceny" in calls["reply"][0]
+    assert lc._awaiting_confirm(77) is True
 
+
+def test_potwierdzenie_w_stanie_confirm_robi_handoff(monkeypatch):
+    calls = _mock_env(monkeypatch, llm_json=_odp(
+        handoff=True, powod="klient potwierdził dane do wyceny", pozycje=[_poz()]))
+    lc._merge_dane(77, _odp(pozycje=[_poz()]))
+    lc._set_awaiting(77, True)
+    lc.run_livechat_turn(77, "12", "m2", "tak, zgadza się")
+    assert len(calls["handoff"]) == 1
+    assert calls["reply"] == [lc.CLOSING_MSG]
+    assert len(calls["note"]) == 1
+    assert "Blat" in calls["note"][0] or "blat" in calls["note"][0]
+
+
+def test_korekta_w_stanie_confirm_wysyla_nowe_podsumowanie(monkeypatch):
+    calls = _mock_env(monkeypatch, llm_json=_odp(
+        "Poprawiłem grubość.", pozycje=[{"id": "1", "grubosc": "4"}]))
+    lc._merge_dane(77, _odp(pozycje=[_poz()]))
+    lc._set_awaiting(77, True)
+    lc.run_livechat_turn(77, "12", "m2", "grubość zmień na 4")
+    assert calls["handoff"] == []
+    assert len(calls["reply"]) == 1
+    assert "Podsumowuję dane do wyceny" in calls["reply"][0]
+    assert "4 cm" in calls["reply"][0]
+    assert lc._awaiting_confirm(77) is True, "stan potwierdzenia zostaje po korekcie"
+
+
+def test_pytanie_w_stanie_confirm_zwykla_odpowiedz_stan_zostaje(monkeypatch):
+    calls = _mock_env(monkeypatch, llm_json=_odp("Olejowanie podkreśla usłojenie."))
+    lc._merge_dane(77, _odp(pozycje=[_poz()]))
+    lc._set_awaiting(77, True)
+    lc.run_livechat_turn(77, "12", "m2", "a czym różni się olej od lakieru?")
+    assert calls["reply"] == ["Olejowanie podkreśla usłojenie."]
+    assert calls["handoff"] == []
+    assert lc._awaiting_confirm(77) is True
+
+
+def test_nowa_pozycja_w_stanie_confirm_niekompletna_wraca_do_zbierania(monkeypatch):
+    """Klient dorzuca produkt przy potwierdzaniu -> stan wraca do zbierania, bot dopytuje."""
+    calls = _mock_env(monkeypatch, llm_json=_odp(
+        "Jasne — jaki gatunek parapetu?", pozycje=[{"id": "2", "produkt": "parapet"}]))
+    lc._merge_dane(77, _odp(pozycje=[_poz()]))
+    lc._set_awaiting(77, True)
+    lc.run_livechat_turn(77, "12", "m2", "dorzućmy jeszcze parapet")
+    assert calls["handoff"] == []
+    assert lc._awaiting_confirm(77) is False, "niekomplet -> powrot do zbierania"
+    assert calls["reply"] == ["Jasne — jaki gatunek parapetu?"]
+
+
+def test_prosba_o_czlowieka_w_stanie_confirm_handoff(monkeypatch):
+    calls = _mock_env(monkeypatch)
+    lc._merge_dane(77, _odp(pozycje=[_poz()]))
+    lc._set_awaiting(77, True)
+    lc.run_livechat_turn(77, "12", "m2", "wolę dokończyć z konsultantem")
+    assert len(calls["handoff"]) == 1
+
+
+def test_podsumowanie_dwie_pozycje_numerowane():
+    msg = lc._podsumowanie_msg(_dane(
+        _poz(ilosc="2", dlugosc="150", szerokosc="40", grubosc="4"),
+        _poz(id="2", produkt="parapet", ilosc="3", dlugosc="150", szerokosc="30", grubosc="2")))
+    assert "1. Blat — 2 szt." in msg
+    assert "2. Parapet — 3 szt." in msg
+    assert "Długość: 150 cm" in msg
+    assert "Czy wszystko się zgadza?" in msg
+
+
+def test_podsumowanie_jedna_pozycja_bez_numeracji():
+    msg = lc._podsumowanie_msg(_dane(_poz()))
+    assert "1." not in msg.split("\n")[2], "jedna pozycja bez numeru"
+    assert "Blat — 2 szt." in msg
+
+
+def test_podsumowanie_pomija_puste_pola_i_pokazuje_wspolne():
+    msg = lc._podsumowanie_msg(_dane(_poz(otwory="", krawedzie=""), kontakt="jan@x.pl"))
+    assert "Otwory" not in msg
+    assert "Krawędzie" not in msg
+    assert "Kontakt: jan@x.pl" in msg
+
+
+def test_podsumowanie_otwory_podane_przez_klienta_widoczne():
+    msg = lc._podsumowanie_msg(_dane(_poz(otwory="pod zlew", krawedzie="fazowane")))
+    assert "Otwory/wycięcia: pod zlew" in msg
+    assert "Krawędzie: fazowane" in msg
+
+
+def test_summary_note_pozycje_i_wspolne():
+    note = lc._summary_note(_dane(
+        _poz(), _poz(id="2", produkt="parapet", ilosc="3")), "klient potwierdził dane do wyceny")
+    assert "klient potwierdził dane do wyceny" in note
+    assert "Blat" in note and "Parapet" in note
+    assert "Technologia: lita" in note
+
+
+def test_summary_note_pusty_stan_nie_pada():
+    note = lc._summary_note({"pozycje": [], "wspolne": {}}, "błąd techniczny")
+    assert "błąd techniczny" in note
+
+
+# ---------- stan w promptcie ----------
+
+def test_prompt_zawiera_zebrane_dane_i_instrukcje_confirm(monkeypatch):
+    calls = _mock_env(monkeypatch, llm_json=_odp("ok"))
+    lc._merge_dane(77, _odp(pozycje=[{"id": "1", "produkt": "blat", "dlugosc": "150"}]))
+    lc._set_awaiting(77, True)
+    lc.run_livechat_turn(77, "12", "m2", "hm")
+    system = calls["chat"][0][0]["content"]
+    assert "DOTYCHCZAS ZEBRANE DANE WYCENY (utrzymuj" in system
+    assert '"dlugosc": "150"' in system
+    assert "STAN ROZMOWY" in system, "instrukcja potwierdzenia doklejona w stanie confirm"
+
+
+def test_prompt_bez_danych_bez_bloku_stanu(monkeypatch):
+    calls = _mock_env(monkeypatch, llm_json=_odp("ok"))
+    lc.run_livechat_turn(77, "12", "m1", "dzień dobry")
+    system = calls["chat"][0][0]["content"]
+    assert "DOTYCHCZAS ZEBRANE DANE WYCENY (utrzymuj" not in system
+    assert "STAN ROZMOWY" not in system
+
+
+# ---------- walidacja koperty wymiarow ----------
 
 def test_liczby_parsuje_przecinek_i_znaki():
     assert lc._liczby("265 × 860 × 3,8 cm") == [265.0, 860.0, 3.8]
@@ -394,66 +538,57 @@ def test_liczby_parsuje_przecinek_i_znaki():
 
 
 def test_walidacja_szerokosc_ponad_max_odrzucona():
-    msg = lc._walidacja_wymiarow({"szerokosc": "860"})
+    msg = lc._walidacja_wymiarow(_dane(_poz(szerokosc="860")))
     assert msg is not None and "120 cm" in msg
 
 
 def test_walidacja_dlugosc_lita_ponad_max_odrzucona():
-    msg = lc._walidacja_wymiarow({"dlugosc": "480", "szerokosc": "90", "technologia": "lita"})
+    msg = lc._walidacja_wymiarow(_dane(_poz(dlugosc="480")))
     assert msg is not None and "450 cm" in msg
 
 
 def test_walidacja_dlugosc_mikrowczep_480_ok():
-    assert lc._walidacja_wymiarow({"dlugosc": "480", "szerokosc": "90", "technologia": "mikrowczep"}) is None
-
-
-def test_walidacja_dlugosc_nieznana_470_ok():
-    assert lc._walidacja_wymiarow({"dlugosc": "470", "szerokosc": "90"}) is None
+    assert lc._walidacja_wymiarow(_dane(_poz(dlugosc="480", technologia="mikrowczep"))) is None
 
 
 def test_walidacja_dlugosc_nieznana_560_odrzucona():
-    msg = lc._walidacja_wymiarow({"dlugosc": "560", "szerokosc": "90"})
+    msg = lc._walidacja_wymiarow(_dane(_poz(dlugosc="560", technologia="")))
     assert msg is not None and "500 cm" in msg
 
 
 def test_walidacja_grubosc_nie_egzekwowana():
-    assert lc._walidacja_wymiarow({"dlugosc": "200", "szerokosc": "90", "grubosc": "6", "technologia": "lita"}) is None
+    assert lc._walidacja_wymiarow(_dane(_poz(grubosc="6"))) is None
 
 
-def test_walidacja_norma_ok():
-    assert lc._walidacja_wymiarow({"dlugosc": "265", "szerokosc": "90", "technologia": "lita"}) is None
+def test_walidacja_wskazuje_pozycje_przy_wielu():
+    msg = lc._walidacja_wymiarow(_dane(_poz(), _poz(id="2", produkt="parapet", szerokosc="130")))
+    assert msg is not None and "parapet" in msg
 
 
-def test_walidacja_brak_szerokosci_none():
-    # sama dlugosc bez szerokosci -> nie odrzucamy (nie ma czego sprawdzic w szerokosci)
-    assert lc._walidacja_wymiarow({"dlugosc": "265"}) is None
+def test_walidacja_pusty_stan_ok():
+    assert lc._walidacja_wymiarow(_dane()) is None
 
 
 def test_wymiar_ponad_koperte_odrzucony_bez_handoffu(monkeypatch):
-    """Integracja: 860 cm szerokosci -> odrzucenie w kodzie, BEZ handoffu, mimo handoff=true z LLM."""
-    calls = _mock_env(monkeypatch, llm_json={
-        "odpowiedz": "", "handoff": True, "powod": "komplet danych",
-        "dane": {"produkt": "blat", "dlugosc": "265", "szerokosc": "860", "grubosc": "3", "gatunek": "dąb",
-                 "technologia": "lita", "klasa": "A/B", "ilosc": "5", "wykonczenie": "surowe",
-                 "otwory": "brak", "krawedzie": "proste"}})
-    lc.run_livechat_turn(77, "12", "m1", "265 x 860 x 3 cm dąb lity A/B surowy")
-    assert calls["handoff"] == [], "wymiar ponad koperte nie moze przejsc do handoffu"
+    """Integracja: 860 cm szerokosci -> odrzucenie w kodzie, BEZ handoffu, BEZ podsumowania."""
+    calls = _mock_env(monkeypatch, llm_json=_odp(
+        handoff=True, powod="komplet danych", pozycje=[_poz(szerokosc="860")]))
+    lc.run_livechat_turn(77, "12", "m1", "265 x 860 x 3 cm dąb lity A/B 2 szt lakier")
+    assert calls["handoff"] == []
     assert len(calls["reply"]) == 1
     assert "120 cm" in calls["reply"][0]
+    assert "Podsumowuję" not in calls["reply"][0]
     assert lc._bot_turns(77) == 1
 
 
 def test_korekta_szerokosci_zachowuje_dlugosc(monkeypatch):
-    """Korekta jednego wymiaru: tura 1 odrzuca 860; tura 2 (tylko szerokosc=118) -> merge zachowuje
-    dlugosc=265, walidacja przechodzi, handoff. Dlugosc nie moze zginac (pole atomowe)."""
-    _mock_env(monkeypatch, llm_json={
-        "odpowiedz": "", "handoff": True, "powod": "komplet",
-        "dane": {"produkt": "blat", "dlugosc": "265", "szerokosc": "860", "grubosc": "3", "gatunek": "dąb",
-                 "technologia": "lita", "klasa": "A/B", "ilosc": "1", "wykonczenie": "surowe",
-                 "otwory": "brak", "krawedzie": "proste"}})
-    lc.run_livechat_turn(77, "12", "m1", "265 x 860 x 3 dąb lity A/B surowy")
-    calls2 = _mock_env(monkeypatch, llm_json={
-        "odpowiedz": "", "handoff": True, "powod": "komplet", "dane": {"szerokosc": "118"}})
+    """Korekta jednego pola pozycji: dlugosc z tury 1 przezywa, komplet -> podsumowanie."""
+    _mock_env(monkeypatch, llm_json=_odp(handoff=True, powod="komplet",
+                                         pozycje=[_poz(szerokosc="860")]))
+    lc.run_livechat_turn(77, "12", "m1", "265 x 860 x 3.8 dąb lity A/B 2 szt lakier")
+    calls2 = _mock_env(monkeypatch, llm_json=_odp(pozycje=[{"id": "1", "szerokosc": "118"}]))
     lc.run_livechat_turn(77, "12", "m2", "niech będzie 118")
-    assert len(calls2["handoff"]) == 1, "po korekcie dlugosc=265 zachowana -> komplet -> handoff"
-    assert calls2["reply"] == [lc.CLOSING_MSG]
+    assert len(calls2["reply"]) == 1
+    assert "Podsumowuję dane do wyceny" in calls2["reply"][0]
+    assert "200 cm" in calls2["reply"][0], "dlugosc z tury 1 zachowana"
+    assert lc._awaiting_confirm(77) is True
