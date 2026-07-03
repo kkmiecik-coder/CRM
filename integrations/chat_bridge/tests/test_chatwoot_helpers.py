@@ -41,3 +41,26 @@ def test_cw_contact_czyta_sender(monkeypatch):
 
 def test_cw_articles_pusty_slug_zwraca_liste():
     assert cw.cw_articles("") == []
+
+
+def test_cw_articles_przechodzi_wszystkie_strony(monkeypatch):
+    # 60 artykulow: 25 + 25 + 10 na trzech stronach — musi zebrac wszystkie.
+    def art(i):
+        return {"id": i, "title": "T%d" % i, "content": "C%d" % i, "status": "published"}
+    pages = {
+        1: [art(i) for i in range(0, 25)],
+        2: [art(i) for i in range(25, 50)],
+        3: [art(i) for i in range(50, 60)],
+    }
+
+    def fake_cw(method, path, payload=None):
+        page = 1
+        if "page=" in path:
+            page = int(path.split("page=")[1])
+        return FakeResp({"payload": pages.get(page, [])})
+
+    monkeypatch.setattr(cw, "cw", fake_cw)
+    monkeypatch.setattr(cw, "html_to_text", lambda s: s)
+    out = cw.cw_articles("woodpower")
+    assert len(out) == 60
+    assert out[0]["id"] == 0 and out[-1]["id"] == 59

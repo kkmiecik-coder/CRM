@@ -153,20 +153,29 @@ def cw_inboxes():
 
 
 def cw_articles(slug):
-    """Opublikowane artykuly Help Center danego portalu: [{id, title, content}]."""
+    """Opublikowane artykuly Help Center danego portalu: [{id, title, content}].
+    Przechodzi WSZYSTKIE strony — Chatwoot stronicuje liste po 25 (bez tego bot
+    indeksowalby tylko pierwsze 25 artykulow)."""
     if not slug:
         return []
-    try:
-        payload = cw("GET", "/portals/%s/articles" % slug).json().get("payload", [])
-    except Exception:
-        return []
     out = []
-    for a in payload:
-        status = a.get("status")
-        if status not in (None, 1, "published"):
-            continue
-        out.append({"id": a.get("id"), "title": a.get("title") or "",
-                    "content": html_to_text(a.get("content") or "")})
+    page = 1
+    while page <= 100:  # bezpiecznik przed nieskonczona petla
+        try:
+            payload = cw("GET", "/portals/%s/articles?page=%s" % (slug, page)).json().get("payload", []) or []
+        except Exception:
+            break
+        if not payload:
+            break
+        for a in payload:
+            status = a.get("status")
+            if status not in (None, 1, "published"):
+                continue
+            out.append({"id": a.get("id"), "title": a.get("title") or "",
+                        "content": html_to_text(a.get("content") or "")})
+        if len(payload) < 25:  # niepelna strona = ostatnia
+            break
+        page += 1
     return out
 
 
