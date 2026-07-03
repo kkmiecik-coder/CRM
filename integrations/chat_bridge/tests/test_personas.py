@@ -63,17 +63,51 @@ def test_fallback_gdy_brak_pliku_json(monkeypatch):
     assert "poza Allegro" in s
 
 
-def test_livechat_ma_pelna_checkliste_do_wyceny():
+def test_livechat_ma_checkliste_pol_wymaganych():
     s = p.build_system_prompt("livechat", "", {})
     low = s.lower()
     assert "technologia" in low and "mikrowczep" in low
-    assert "klasa" in low                      # klasa drewna A/B / B/B
-    assert "otwory" in low                     # otwory / wycięcia
-    assert "krawęd" in low                     # krawędzie
+    assert "klasa" in low
+    assert "ilość" in low                      # ilosc wymagana
     assert "podstopnic" in low                 # pola schodów
     assert "surowe" in low                     # reguła wykończenia
     assert "centymetr" in low                  # normalizacja jednostek
     assert "nie potwierdzaj docięcia" in low   # twardy zakaz pytania o docięcie
+
+
+def test_livechat_debus_i_uczciwosc_wobec_pytania_o_bota():
+    s = p.build_system_prompt("livechat", "", {})
+    assert "Dębuś" in s
+    low = s.lower()
+    assert "nie witaj się" in low or "nie przedstawiaj" in low
+    assert "asystentem ai" in low, "na wprost pytanie o bota odpowiada uczciwie"
+
+
+def test_livechat_otwory_krawedzie_nie_proponowane():
+    s = p.build_system_prompt("livechat", "", {}).lower()
+    assert "nie proponuj otworów" in s or "nie proponuj otworow" in s
+    assert "zapytaj też raz" not in s, "stara zasada zbiorczego pytania usunieta"
+
+
+def test_livechat_tryb_informacyjny_i_sprawy_indywidualne():
+    s = p.build_system_prompt("livechat", "", {}).lower()
+    assert "nie każda rozmowa to wycena" in s
+    assert "reklamacj" in s
+    assert "status" in s and "faktur" in s
+
+
+def test_livechat_pozycje_i_potwierdzenie():
+    s = p.build_system_prompt("livechat", "", {}).lower()
+    assert "osobne pozycje" in s, "wiele produktow = osobne pozycje"
+    assert "nie nadpisuj" in s
+    assert "podsumowanie" in s and "potwierdzi" in s
+    assert "nie podsumowuj" in s, "podsumowanie wysyla system, nie LLM"
+
+
+def test_livechat_kontakt_raz_nieblokujaco():
+    s = p.build_system_prompt("livechat", "", {}).lower()
+    assert "kontakt zwrotny" in s
+    assert "nie blokuje" in s or "niczego nie blokuje" in s
 
 
 def test_checklista_dziedziczona_w_podpowiadaczu_olx():
