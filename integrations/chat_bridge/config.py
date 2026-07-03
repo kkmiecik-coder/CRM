@@ -42,16 +42,16 @@ MAX_ATTEMPTS = 5
 # ----- Boty AI (podpowiadacze) -----
 OPENAI_API_KEY      = os.environ.get("OPENAI_API_KEY")
 OPENAI_API_BASE     = os.environ.get("OPENAI_API_BASE", "https://api.openai.com/v1")
-BOT_CHAT_MODEL      = os.environ.get("BOT_OPENAI_MODEL", "gpt-4.1-mini")
+BOT_CHAT_MODEL      = os.environ.get("BOT_OPENAI_MODEL", "gpt-5.4-nano")
 BOT_EMBEDDING_MODEL = os.environ.get("BOT_EMBEDDING_MODEL", "text-embedding-3-small")
 BOT_RETRIEVAL_K     = int(os.environ.get("BOT_RETRIEVAL_K", "5"))
 BOT_HELP_CENTER_SLUG = os.environ.get("BOT_HELP_CENTER_SLUG", "")
 BOT_HISTORY_LIMIT   = int(os.environ.get("BOT_HISTORY_LIMIT", "12"))
 BOT_INDEX_INTERVAL  = int(os.environ.get("BOT_INDEX_INTERVAL", "600"))
 BOT_MAX_ATTEMPTS    = int(os.environ.get("BOT_MAX_ATTEMPTS", "3"))
-BOT_MAX_TOKENS      = int(os.environ.get("BOT_MAX_TOKENS", "700"))
+BOT_MAX_TOKENS      = int(os.environ.get("BOT_MAX_TOKENS", "2000"))  # obejmuje tokeny rozumowania modelu — margines na JSON pozycji
 # Parametry specyficzne dla modeli GPT-5 (ignorowane dla starszych, np. gpt-4.1-mini)
-BOT_REASONING_EFFORT = os.environ.get("BOT_REASONING_EFFORT", "minimal")  # minimal|low|medium|high — bot RAG nie potrzebuje glebokiego myslenia
+BOT_REASONING_EFFORT = os.environ.get("BOT_REASONING_EFFORT", "low")  # gpt-5.4: none|low|medium|high|xhigh (NIE minimal) — „low" = lekkie rozumowanie, dobra jakosc/koszt
 BOT_VERBOSITY        = os.environ.get("BOT_VERBOSITY", "low")             # low|medium|high — krotkie, konkretne odpowiedzi na czacie
 
 # ----- Bot live-chat (konwersacyjny, osobna encja "WoodPower Chat") -----
