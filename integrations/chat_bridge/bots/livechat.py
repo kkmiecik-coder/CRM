@@ -55,6 +55,15 @@ _HUMAN_RE = re.compile(r"\b(konsultant\w*|człowiek\w*|czlowiek\w*|doradc\w*|pra
 _HUMAN_PASYWNE_RE = re.compile(r"\b(od|przez|do)\s+(konsultant\w*|doradc\w*|pracownik\w*|agent\w*)",
                                re.IGNORECASE)
 
+# Pytanie o tozsamosc rozmowcy — NIE traktujemy jako prosby o czlowieka; niech LLM odpowie uczciwie.
+_PYTANIE_O_BOTA_RE = re.compile(
+    r"(czy (jesteś|jestes) (botem|człowiekiem|czlowiekiem|robotem|prawdziw|maszyn)|"
+    r"czy rozmawiam z (botem|człowiekiem|czlowiekiem|robotem|maszyn|prawdziw|ai|sztuczn)|"
+    r"z kim (rozmawiam|mam przyjemność|mam przyjemnosc)|"
+    r"(jesteś|jestes) (botem|robotem|sztuczn|prawdziw)|"
+    r"czy to (jest )?(bot|robot|ai|sztuczna)|"
+    r"bot\w* czy (człowiek|czlowiek)|człowiek\w* czy bot|czlowiek\w* czy bot)", re.IGNORECASE)
+
 # Reklamacja — twardy wyzwalacz. Sam rzeczownik uszkodzenia (wadliwy/pekl) NIE wystarcza:
 # musi byc intencja reklamacji ("reklamacj/reklamowa") ALBO uszkodzenie + kontekst posiadania
 # (moj/kupilem/zamowilem/dostalem/mi), zeby pytania przedsprzedazowe o trwalosc nie wyzwalaly handoffu.
@@ -98,8 +107,11 @@ _NEG_RE = re.compile(r"\b(nie|źle|zle|błąd|blad|popraw\w*|zmień|zmien|inacze
 
 
 def _jest_potwierdzenie(text):
-    """True gdy tresc to czyste potwierdzenie (bez negacji/korekty). 'nie zgadza sie' -> False."""
+    """True gdy tresc to czyste potwierdzenie (bez negacji/korekty/pytania). 'nie zgadza sie' -> False;
+    'tak, ale zaokraglicie krawedzie?' -> False (pytanie -> LLM ma na nie odpowiedziec, nie handoff)."""
     t = text or ""
+    if "?" in t:
+        return False
     return bool(_POTW_RE.search(t)) and not _NEG_RE.search(t)
 
 
@@ -592,10 +604,11 @@ def run_livechat_turn(conv_id, inbox_id, message_id, content):
         _do_handoff(conv_id, "reklamacja produktu", _load_dane(conv_id), closing=COMPLAINT_MSG)
         return
 
-    # Prosba o czlowieka — miekkie odbicie raz, przy ponownej prosbie przekazanie.
-    if _czy_prosi_o_czlowieka(content):
-        if _human_deflected(conv_id):
-            _do_handoff(conv_id, "klient ponownie prosi o konsultanta", _load_dane(conv_id))
+    # Prosba o czlowieka. Guard: pytanie o tozsamosc -> pomijamy (niech LLM odpowie uczciwie).
+    # W stanie potwierdzenia (komplet zebrany) prosba o konsultanta = przekaz od razu, bez deflect.
+    if _czy_prosi_o_czlowieka(content) and not _PYTANIE_O_BOTA_RE.search(content or ""):
+        if _awaiting_confirm(conv_id) or _human_deflected(conv_id):
+            _do_handoff(conv_id, "klient prosi o konsultanta", _load_dane(conv_id))
             return
         if not cw_agent_reply(conv_id, DEFLECT_MSG):
             raise RuntimeError("livechat: wysylka odbicia nieudana (conv %s)" % conv_id)

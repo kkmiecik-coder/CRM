@@ -154,6 +154,34 @@ def test_od_doradcy_nie_wyzwala_odbicia():
     assert lc._czy_prosi_o_czlowieka("materiał polecony od doradcy") is False
 
 
+def test_awaiting_prosba_o_czlowieka_handoff_bez_deflect(monkeypatch):
+    """W stanie potwierdzenia prosba o konsultanta -> od razu handoff (nie deflect)."""
+    calls = _mock_env(monkeypatch)
+    lc._merge_dane(77, _odp(pozycje=[_poz()]))
+    lc._set_awaiting(77, True)
+    lc.run_livechat_turn(77, "12", "m1", "tak, proszę przekazać konsultantowi do wyceny")
+    assert calls["chat"] == []
+    assert len(calls["handoff"]) == 1
+    assert calls["reply"] == [lc.CLOSING_MSG]
+
+
+def test_pytanie_o_bota_nie_odbija_tylko_llm(monkeypatch):
+    """'czy rozmawiam z botem czy z człowiekiem' -> NIE deflect, odpowiada LLM (uczciwie)."""
+    calls = _mock_env(monkeypatch, llm_json=_odp("Jestem asystentem AI wspierającym zespół WoodPower."))
+    lc.run_livechat_turn(77, "12", "m1", "Chcę blat dębowy. Czy rozmawiam z botem, czy z człowiekiem?")
+    assert len(calls["chat"]) == 1, "pytanie o tozsamosc idzie do LLM"
+    assert calls["reply"] == ["Jestem asystentem AI wspierającym zespół WoodPower."]
+    assert calls["handoff"] == []
+
+
+def test_prosba_o_czlowieka_pierwsza_deflect_druga_handoff(monkeypatch):
+    calls = _mock_env(monkeypatch)
+    lc.run_livechat_turn(77, "12", "m1", "Chcę rozmawiać z konsultantem")
+    assert calls["reply"] == [lc.DEFLECT_MSG] and calls["handoff"] == []
+    lc.run_livechat_turn(77, "12", "m2", "no dawaj tego konsultanta")
+    assert len(calls["handoff"]) == 1
+
+
 def test_status_open_bot_milczy(monkeypatch):
     calls = _mock_env(monkeypatch, status="open")
     lc.run_livechat_turn(77, "12", "m1", "Halo?")
@@ -498,6 +526,12 @@ def test_potwierdzenie_z_negacja_false():
     assert lc._jest_potwierdzenie("nie, to się nie zgadza") is False
 
 
+def test_jest_potwierdzenie_z_pytaniem_false():
+    assert lc._jest_potwierdzenie("tak, zgadza się") is True
+    assert lc._jest_potwierdzenie("tak, ale zaokrąglicie krawędzie?") is False
+    assert lc._jest_potwierdzenie("nie, to się nie zgadza") is False
+
+
 def test_pytanie_w_stanie_confirm_nadal_zwykla_odpowiedz(monkeypatch):
     """Awaiting + pytanie (nie-potwierdzenie) -> zwykla odpowiedz, stan zostaje."""
     calls = _mock_env(monkeypatch, llm_json=_odp("Olej podkreśla słoje."))
@@ -570,15 +604,15 @@ def test_nowa_pozycja_w_stanie_confirm_niekompletna_wraca_do_zbierania(monkeypat
 
 
 def test_prosba_o_czlowieka_w_stanie_confirm_handoff(monkeypatch):
-    """Pierwsza prosba w stanie confirm to tez odbicie; dopiero druga -> handoff."""
+    """W stanie confirm (komplet zebrany) prosba o konsultanta to OD RAZU handoff, bez
+    posredniego odbicia — regresja conv 552/561 (potwierdzenie z prosba o czlowieka gubilo
+    sprawe w deflect zamiast przekazac od razu)."""
     calls = _mock_env(monkeypatch)
     lc._merge_dane(77, _odp(pozycje=[_poz()]))
     lc._set_awaiting(77, True)
     lc.run_livechat_turn(77, "12", "m2", "wolę dokończyć z konsultantem")
-    assert calls["handoff"] == []
-    assert calls["reply"] == [lc.DEFLECT_MSG]
-    lc.run_livechat_turn(77, "12", "m3", "no chcę jednak człowieka")
     assert len(calls["handoff"]) == 1
+    assert calls["reply"] == [lc.CLOSING_MSG]
 
 
 def test_podsumowanie_dwie_pozycje_numerowane():
