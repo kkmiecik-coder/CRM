@@ -75,6 +75,17 @@ def test_livechat_ma_checkliste_pol_wymaganych():
     assert "nie potwierdzaj docięcia" in low   # twardy zakaz pytania o docięcie
 
 
+def test_livechat_regula_jednostek_dopytaj():
+    s = p.build_system_prompt("livechat", "", {}).lower()
+    assert "centymetr" in s
+    assert "dopytaj" in s or "dopyta" in s
+
+
+def test_livechat_klasa_wymagana():
+    s = p.build_system_prompt("livechat", "", {}).lower()
+    assert "klasa" in s and "wymagan" in s
+
+
 def test_livechat_debus_i_uczciwosc_wobec_pytania_o_bota():
     s = p.build_system_prompt("livechat", "", {})
     assert "Dębuś" in s

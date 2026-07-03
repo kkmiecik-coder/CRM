@@ -756,44 +756,14 @@ def test_korekta_szerokosci_zachowuje_dlugosc(monkeypatch):
     assert lc._awaiting_confirm(77) is True
 
 
-# ---------- normalizacja mm->cm ----------
+# ---------- jednostki: bez heurystyki mm->cm (konwersje robi LLM/persona) ----------
 
-def test_normalizuj_jednostki_mm_na_cm():
-    poz = {"dlugosc": "3200", "szerokosc": "650", "grubosc": "40"}
-    lc._normalizuj_jednostki(poz)
-    assert poz["dlugosc"] == "320" and poz["szerokosc"] == "65" and poz["grubosc"] == "4"
-
-
-def test_normalizuj_jednostki_cm_niezmienione():
-    poz = {"dlugosc": "200", "szerokosc": "60", "grubosc": "4"}
-    lc._normalizuj_jednostki(poz)
-    assert poz["dlugosc"] == "200" and poz["szerokosc"] == "60" and poz["grubosc"] == "4"
-
-
-def test_normalizuj_grubosc_mm_nie_psuje_wymiarow_cm():
-    """Cross-turn: dl/szer juz w cm, grubosc podana w mm -> tylko grubosc dzielona."""
-    poz = {"dlugosc": "200", "szerokosc": "65", "grubosc": "40"}
-    lc._normalizuj_jednostki(poz)
-    assert poz["dlugosc"] == "200" and poz["szerokosc"] == "65" and poz["grubosc"] == "4"
-
-
-def test_normalizuj_granica_15_bez_zmian():
-    poz = {"grubosc": "15"}
-    lc._normalizuj_jednostki(poz)
-    assert poz["grubosc"] == "15"
-
-
-def test_normalizuj_grubosc_nieliczbowa_bez_zmian():
-    poz = {"grubosc": "gruba"}
-    lc._normalizuj_jednostki(poz)
-    assert poz["grubosc"] == "gruba"
-
-
-def test_merge_normalizuje_mm(monkeypatch):
+def test_merge_nie_przelicza_jednostek(monkeypatch):
+    """Bez heurystyki: wartosci zapisywane 1:1 (konwersje robi LLM/persona)."""
     _mock_env(monkeypatch)
     d = lc._merge_dane(77, _odp(pozycje=[{"id": "1", "produkt": "blat",
         "dlugosc": "3200", "szerokosc": "650", "grubosc": "40"}]))
-    assert d["pozycje"][0]["szerokosc"] == "65"
+    assert d["pozycje"][0]["szerokosc"] == "650"
 
 
 # ---------- loop-breaker odrzucen wymiaru ----------

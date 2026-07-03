@@ -280,8 +280,6 @@ def _merge_dane(conv_id, out):
         else:
             _merge_pola(istn, p)
     _merge_pola(stan["wspolne"], out.get("wspolne") or {})
-    for p in stan["pozycje"]:
-        _normalizuj_jednostki(p)
     _zapisz_dane(conv_id, stan)
     return stan
 
@@ -484,35 +482,6 @@ def _technologia_typ(poz):
 def _fmt(x):
     """Liczba bez zbednego .0 (860.0 -> '860', 3.8 -> '3.8')."""
     return str(int(x)) if x == int(x) else str(x)
-
-
-# Progi mm->cm per pole: wartosc powyzej realnego maksimum cm danego wymiaru = mm (dziel /10).
-# Per pole (nie globalnie), zeby grubosc podana w mm w osobnej turze nie psula dlugosc/szerokosc
-# juz zapisanych w cm. Dlugosc max ~500 cm, szerokosc max 120 cm, grubosc do kilku cm.
-# Progi dl/szer > kopertowe maksima (450/500 i 120), zeby nie "naprawiac" cichcem wartosci
-# ktore powinny trafic do wlasciwej walidacji koperty (np. szerokosc=860 -> odrzucenie, nie 86cm).
-_MM_PROG = (("dlugosc", 600), ("szerokosc", 200), ("grubosc", 15))
-
-
-def _normalizuj_jednostki(poz):
-    """Heurystyka mm->cm per pole. Grubosc: czysto per-pole (wartosc wlasna >15 => mm), niezalezna od
-    pozostalych pol, zeby grubosc w mm podana w osobnej turze nie psula juz poprawnych dl/szer w cm.
-    Dlugosc/szerokosc: dzielone TYLKO gdy takze grubosc w tym samym zapisie wyglada na mm (>15) —
-    zachowuje to oryginalna semantyke 'caly rekord w mm', wiec wartosci jak szerokosc=860 przy
-    normalnej grubosci (np. 3.8 cm) NIE sa cichcem przycinane, tylko trafiaja do walidacji koperty."""
-    g = _liczby(poz.get("grubosc"))
-    cala_krotka_mm = bool(g and g[0] > _MM_PROG[2][1])
-    for k, prog in _MM_PROG:
-        if k == "grubosc":
-            if g and g[0] > prog:
-                poz[k] = _fmt(g[0] / 10.0)
-            continue
-        if not cala_krotka_mm:
-            continue
-        vals = _liczby(poz.get(k))
-        if vals and vals[0] > prog:
-            poz[k] = _fmt(vals[0] / 10.0)
-    return poz
 
 
 def _walidacja_pozycji(poz):
