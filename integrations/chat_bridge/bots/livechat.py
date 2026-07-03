@@ -49,17 +49,29 @@ _CONFIRM_INSTR = (
     "normalnie, handoff=false."
 )
 
-# Twardy wyzwalacz A w kodzie (obok decyzji LLM): prosba o czlowieka.
+# Twardy wyzwalacz: prosba o czlowieka. Bierne wzmianki ('od/przez konsultanta') NIE licza sie.
 _HUMAN_RE = re.compile(r"\b(konsultant\w*|człowiek\w*|czlowiek\w*|doradc\w*|pracownik\w*|"
-                       r"zadzwoń\w*|zadzwon\w*|oddzwon\w*)\b", re.IGNORECASE)
+                       r"agent\w*|zadzwoń\w*|zadzwon\w*|oddzwon\w*)\b", re.IGNORECASE)
+_HUMAN_PASYWNE_RE = re.compile(r"\b(od|przez|do)\s+konsultant\w*", re.IGNORECASE)
+
+# Twardy wyzwalacz: reklamacja -> instrukcja mailowa + przekazanie.
+_COMPLAINT_RE = re.compile(r"(reklamacj\w*|reklamować|reklamowac|wadliw\w*|uszkodz\w*|"
+                           r"pęk(ł|nie|nięt|l|niet)\w*|pekni\w*)", re.IGNORECASE)
+
+COMPLAINT_MSG = ("Przykro nam z powodu problemu. Reklamacje przyjmujemy mailowo — prosimy o "
+                 "wiadomość na reklamacje@woodpower.pl z numerem i szczegółami zamówienia oraz "
+                 "zdjęciami reklamowanego produktu w treści maila. Przekazuję rozmowę do "
+                 "konsultanta WoodPower, który poprowadzi zgłoszenie.")
+DEFLECT_MSG = ("Chętnie pomogę i spróbuję najpierw ustalić szczegóły. Jeśli będzie potrzeba, "
+               "w każdej chwili przekażę rozmowę konsultantowi. W czym mogę pomóc?")
 
 
-def _hard_handoff(text):
-    """Zwraca powod handoffu gdy tresc klienta trafia w twardy wyzwalacz A, inaczej None."""
+def _czy_prosi_o_czlowieka(text):
+    """True gdy tresc to prosba o czlowieka. Bierna wzmianka 'od/przez konsultanta' -> False."""
     t = text or ""
-    if _HUMAN_RE.search(t):
-        return "klient prosi o kontakt z konsultantem"
-    return None
+    if _HUMAN_PASYWNE_RE.search(t):
+        return False
+    return bool(_HUMAN_RE.search(t))
 
 
 # Deterministyczne wykrycie potwierdzenia podsumowania (obok decyzji LLM).
@@ -107,6 +119,21 @@ def _set_awaiting(conv_id, flag):
     c = db()
     c.execute("INSERT INTO live_state(conv_id, bot_turns, awaiting_confirm) VALUES(?,0,?) "
               "ON CONFLICT(conv_id) DO UPDATE SET awaiting_confirm=excluded.awaiting_confirm",
+              (conv_id, 1 if flag else 0))
+    c.commit(); c.close()
+
+
+def _human_deflected(conv_id):
+    c = db()
+    row = c.execute("SELECT human_deflected FROM live_state WHERE conv_id=?", (conv_id,)).fetchone()
+    c.close()
+    return bool(row["human_deflected"]) if row else False
+
+
+def _set_human_deflected(conv_id, flag):
+    c = db()
+    c.execute("INSERT INTO live_state(conv_id, bot_turns, human_deflected) VALUES(?,0,?) "
+              "ON CONFLICT(conv_id) DO UPDATE SET human_deflected=excluded.human_deflected",
               (conv_id, 1 if flag else 0))
     c.commit(); c.close()
 
@@ -530,10 +557,21 @@ def run_livechat_turn(conv_id, inbox_id, message_id, content):
         _do_handoff(conv_id, "limit tur bota (bezpiecznik)", _load_dane(conv_id))
         return
 
-    # Twardy wyzwalacz A — deterministycznie, bez LLM.
-    powod = _hard_handoff(content)
-    if powod:
-        _do_handoff(conv_id, powod, _load_dane(conv_id))
+    # Reklamacja — twardy wyzwalacz: instrukcja mailowa + przekazanie do konsultanta.
+    if _COMPLAINT_RE.search(content or ""):
+        _do_handoff(conv_id, "reklamacja produktu", _load_dane(conv_id), closing=COMPLAINT_MSG)
+        return
+
+    # Prosba o czlowieka — miekkie odbicie raz, przy ponownej prosbie przekazanie.
+    if _czy_prosi_o_czlowieka(content):
+        if _human_deflected(conv_id):
+            _do_handoff(conv_id, "klient ponownie prosi o konsultanta", _load_dane(conv_id))
+            return
+        if not cw_agent_reply(conv_id, DEFLECT_MSG):
+            raise RuntimeError("livechat: wysylka odbicia nieudana (conv %s)" % conv_id)
+        _set_human_deflected(conv_id, True)
+        _bump_turns(conv_id)
+        log("livechat: miekkie odbicie prosby o czlowieka (conv %s)" % conv_id)
         return
 
     history = cw_messages(conv_id, BOT_HISTORY_LIMIT)

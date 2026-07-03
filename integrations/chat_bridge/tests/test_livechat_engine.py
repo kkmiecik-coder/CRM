@@ -86,14 +86,41 @@ def test_tryb_informacyjny_bez_pozycji_zwykla_odpowiedz(monkeypatch):
     assert lc._awaiting_confirm(77) is False
 
 
-def test_twarde_slowo_konsultant_wymusza_handoff(monkeypatch):
-    """Wyzwalacz A: prosba o czlowieka -> handoff bez LLM."""
+def test_reklamacja_mail_i_handoff(monkeypatch):
     calls = _mock_env(monkeypatch)
-
-    lc.run_livechat_turn(77, "12", "m1", "Chcę rozmawiać z konsultantem")
-
-    assert calls["chat"] == []
+    lc.run_livechat_turn(77, "12", "m1", "Blat mi pękł, chcę zgłosić reklamację")
+    assert calls["chat"] == [], "reklamacja to twardy wyzwalacz, bez LLM"
     assert len(calls["handoff"]) == 1
+    assert "reklamacje@woodpower.pl" in calls["reply"][0]
+
+
+def test_czlowiek_pierwsza_prosba_miekkie_odbicie(monkeypatch):
+    calls = _mock_env(monkeypatch)
+    lc.run_livechat_turn(77, "12", "m1", "Chcę rozmawiać z konsultantem")
+    assert calls["chat"] == []
+    assert calls["handoff"] == [], "pierwsza prosba -> odbicie, nie handoff"
+    assert calls["reply"] == [lc.DEFLECT_MSG]
+    assert lc._human_deflected(77) is True
+
+
+def test_czlowiek_druga_prosba_handoff(monkeypatch):
+    calls = _mock_env(monkeypatch)
+    lc.run_livechat_turn(77, "12", "m1", "Chcę konsultanta")
+    lc.run_livechat_turn(77, "12", "m2", "no dawaj tego człowieka")
+    assert len(calls["handoff"]) == 1
+
+
+def test_od_konsultanta_nie_wyzwala_odbicia(monkeypatch):
+    """Regresja conv 542: 'czekam na potwierdzenie od konsultanta' to wzmianka, nie prosba."""
+    calls = _mock_env(monkeypatch, llm_json=_odp("Jasne."))
+    lc.run_livechat_turn(77, "12", "m1", "czekam na potwierdzenie od konsultanta")
+    assert calls["reply"] == ["Jasne."], "wzmianka nie moze odbic ani przekazac"
+    assert calls["handoff"] == []
+
+
+def test_czy_prosi_o_czlowieka():
+    assert lc._czy_prosi_o_czlowieka("chcę konsultanta") is True
+    assert lc._czy_prosi_o_czlowieka("potwierdzenie od konsultanta") is False
 
 
 def test_status_open_bot_milczy(monkeypatch):
@@ -148,7 +175,7 @@ def test_nieudany_toggle_rzuca_i_nic_nie_wysyla(monkeypatch):
     calls = _mock_env(monkeypatch)
     monkeypatch.setattr(lc, "cw_bot_handoff", lambda cid, token=None: False)
     with pytest.raises(RuntimeError):
-        lc.run_livechat_turn(77, "12", "m1", "Chcę rozmawiać z konsultantem")
+        lc.run_livechat_turn(77, "12", "m1", "Blat mi pękł, chcę zgłosić reklamację")
     assert calls["reply"] == [], "klient nie moze dostac 'przekazuje' gdy handoff padl"
     assert calls["note"] == []
 
@@ -508,10 +535,14 @@ def test_nowa_pozycja_w_stanie_confirm_niekompletna_wraca_do_zbierania(monkeypat
 
 
 def test_prosba_o_czlowieka_w_stanie_confirm_handoff(monkeypatch):
+    """Pierwsza prosba w stanie confirm to tez odbicie; dopiero druga -> handoff."""
     calls = _mock_env(monkeypatch)
     lc._merge_dane(77, _odp(pozycje=[_poz()]))
     lc._set_awaiting(77, True)
     lc.run_livechat_turn(77, "12", "m2", "wolę dokończyć z konsultantem")
+    assert calls["handoff"] == []
+    assert calls["reply"] == [lc.DEFLECT_MSG]
+    lc.run_livechat_turn(77, "12", "m3", "no chcę jednak człowieka")
     assert len(calls["handoff"]) == 1
 
 
