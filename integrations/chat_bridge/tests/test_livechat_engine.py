@@ -641,3 +641,41 @@ def test_korekta_szerokosci_zachowuje_dlugosc(monkeypatch):
     assert "Podsumowuję dane do wyceny" in calls2["reply"][0]
     assert "200 cm" in calls2["reply"][0], "dlugosc z tury 1 zachowana"
     assert lc._awaiting_confirm(77) is True
+
+
+# ---------- normalizacja mm->cm ----------
+
+def test_normalizuj_jednostki_mm_na_cm():
+    poz = {"dlugosc": "3200", "szerokosc": "650", "grubosc": "40"}
+    lc._normalizuj_jednostki(poz)
+    assert poz["dlugosc"] == "320" and poz["szerokosc"] == "65" and poz["grubosc"] == "4"
+
+
+def test_normalizuj_jednostki_cm_niezmienione():
+    poz = {"dlugosc": "200", "szerokosc": "60", "grubosc": "4"}
+    lc._normalizuj_jednostki(poz)
+    assert poz["dlugosc"] == "200" and poz["szerokosc"] == "60" and poz["grubosc"] == "4"
+
+
+def test_merge_normalizuje_mm(monkeypatch):
+    _mock_env(monkeypatch)
+    d = lc._merge_dane(77, _odp(pozycje=[{"id": "1", "produkt": "blat",
+        "dlugosc": "3200", "szerokosc": "650", "grubosc": "40"}]))
+    assert d["pozycje"][0]["szerokosc"] == "65"
+
+
+# ---------- loop-breaker odrzucen wymiaru ----------
+
+def test_loop_breaker_drugie_odrzucenie_dodaje_podpowiedz_cm(monkeypatch):
+    calls = _mock_env(monkeypatch, llm_json=_odp(pozycje=[_poz(szerokosc="860", grubosc="3")]))
+    lc.run_livechat_turn(77, "12", "m1", "szerokosc 860")   # 1. odrzucenie
+    lc.run_livechat_turn(77, "12", "m2", "nadal 860")        # 2. to samo
+    assert "centymetrach" in calls["reply"][-1]
+
+
+def test_loop_breaker_trzecie_odrzucenie_handoff(monkeypatch):
+    calls = _mock_env(monkeypatch, llm_json=_odp(pozycje=[_poz(szerokosc="860", grubosc="3")]))
+    lc.run_livechat_turn(77, "12", "m1", "860")
+    lc.run_livechat_turn(77, "12", "m2", "860")
+    lc.run_livechat_turn(77, "12", "m3", "860")   # 3. -> handoff
+    assert len(calls["handoff"]) == 1

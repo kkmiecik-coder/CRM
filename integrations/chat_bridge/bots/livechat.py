@@ -111,6 +111,24 @@ def _set_awaiting(conv_id, flag):
     c.commit(); c.close()
 
 
+def _reject_state(conv_id):
+    """(sygnatura ostatniego odrzucenia, licznik powtorzen) — 0/'' gdy brak."""
+    c = db()
+    row = c.execute("SELECT reject_sig, reject_count FROM live_state WHERE conv_id=?", (conv_id,)).fetchone()
+    c.close()
+    if not row:
+        return "", 0
+    return (row["reject_sig"] or ""), (row["reject_count"] or 0)
+
+
+def _set_reject(conv_id, sig, count):
+    c = db()
+    c.execute("INSERT INTO live_state(conv_id, bot_turns, reject_sig, reject_count) VALUES(?,0,?,?) "
+              "ON CONFLICT(conv_id) DO UPDATE SET reject_sig=excluded.reject_sig, "
+              "reject_count=excluded.reject_count", (conv_id, sig, count))
+    c.commit(); c.close()
+
+
 # --- Warstwa danych wyceny: pozycje (wiele produktow) + pola wspolne ---
 
 _POZ_POLA = ("produkt", "dlugosc", "szerokosc", "grubosc", "gatunek", "technologia",
@@ -207,6 +225,8 @@ def _merge_dane(conv_id, out):
         else:
             _merge_pola(istn, p)
     _merge_pola(stan["wspolne"], out.get("wspolne") or {})
+    for p in stan["pozycje"]:
+        _normalizuj_jednostki(p)
     _zapisz_dane(conv_id, stan)
     return stan
 
@@ -411,6 +431,20 @@ def _fmt(x):
     return str(int(x)) if x == int(x) else str(x)
 
 
+def _normalizuj_jednostki(poz):
+    """Heurystyka mm->cm: gdy grubosc liczbowo > 15 (grubosc w cm to 1,5-4; >15 => mm),
+    dziel dlugosc/szerokosc/grubosc przez 10 i zapisz jako cm. Lapie najczestszy przypadek
+    'wszystko w mm'. Mieszane jednostki lapie loop-breaker walidacji."""
+    g = _liczby(poz.get("grubosc"))
+    if not g or g[0] <= 15:
+        return poz
+    for k in ("dlugosc", "szerokosc", "grubosc"):
+        vals = _liczby(poz.get(k))
+        if vals:
+            poz[k] = _fmt(vals[0] / 10.0)
+    return poz
+
+
 def _walidacja_pozycji(poz):
     """Twarda walidacja koperty jednej pozycji. Komunikat odrzucenia albo None."""
     szer = _liczby(poz.get("szerokosc"))
@@ -530,14 +564,27 @@ def run_livechat_turn(conv_id, inbox_id, message_id, content):
     dane = _merge_dane(conv_id, out)   # akumulacja per pozycja: raz zebrane pole zostaje
     zmienione = dane != dane_przed   # porownanie wartosci (dict ==), nie tozsamosci — oba swieze obiekty z _load_dane
 
-    # Straznik wymiarow (deterministyczny, niezalezny od LLM) — przed wszystkimi bramkami.
+    # Straznik wymiarow (deterministyczny) + loop-breaker: 2. to samo odrzucenie -> podpowiedz cm,
+    # 3. -> handoff (koniec nieskonczonej petli, np. mm mylone z cm).
     odrzucenie = _walidacja_wymiarow(dane)
     if odrzucenie:
-        if not cw_agent_reply(conv_id, odrzucenie):
+        sig_prev, cnt_prev = _reject_state(conv_id)
+        cnt = cnt_prev + 1 if odrzucenie == sig_prev else 1
+        if cnt >= 3:
+            _do_handoff(conv_id, "wymiar poza zakresem — do ustalenia z konsultantem", dane)
+            return
+        _set_reject(conv_id, odrzucenie, cnt)
+        msg = odrzucenie
+        if cnt >= 2:
+            msg += ("\n\nJeśli podał Pan/Pani wymiar w milimetrach, proszę o wartość w "
+                    "centymetrach (np. 65 zamiast 650).")
+        if not cw_agent_reply(conv_id, msg):
             raise RuntimeError("livechat: wysylka odrzucenia wymiaru nieudana (conv %s)" % conv_id)
         _bump_turns(conv_id)
-        log("livechat: odrzucony wymiar poza koperta (conv %s)" % conv_id)
+        log("livechat: odrzucony wymiar (conv %s, powt %s)" % (conv_id, cnt))
         return
+    if _reject_state(conv_id)[1]:
+        _set_reject(conv_id, "", 0)   # walidacja OK -> reset licznika odrzucen
 
     brak = _brakujace(dane)
 
