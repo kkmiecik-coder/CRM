@@ -84,10 +84,11 @@ def _czy_reklamacja(text):
 
 COMPLAINT_MSG = ("Przykro nam z powodu problemu. Reklamacje przyjmujemy mailowo — prosimy o "
                  "wiadomość na reklamacje@woodpower.pl z numerem i szczegółami zamówienia oraz "
-                 "zdjęciami reklamowanego produktu w treści maila. Przekazuję rozmowę do "
-                 "konsultanta WoodPower, który poprowadzi zgłoszenie.")
-DEFLECT_MSG = ("Chętnie pomogę i spróbuję najpierw ustalić szczegóły. Jeśli będzie potrzeba, "
-               "w każdej chwili przekażę rozmowę konsultantowi. W czym mogę pomóc?")
+                 "zdjęciami reklamowanego produktu w treści maila. Nasz zespół reklamacji zajmie "
+                 "się zgłoszeniem. Czy mogę jeszcze w czymś pomóc?")
+DEFLECT_MSG = ("Jasne, mogę połączyć Pana/Panią z konsultantem. Zanim to zrobię — chętnie spróbuję "
+               "pomóc od razu, często udaje się wszystko ustalić tu, na czacie. W czym mogę pomóc? "
+               "A jeśli woli Pan/Pani rozmowę z konsultantem, od razu przełączę.")
 
 
 def _czy_prosi_o_czlowieka(text):
@@ -599,9 +600,12 @@ def run_livechat_turn(conv_id, inbox_id, message_id, content):
         _do_handoff(conv_id, "limit tur bota (bezpiecznik)", _load_dane(conv_id))
         return
 
-    # Reklamacja — twardy wyzwalacz: instrukcja mailowa + przekazanie do konsultanta.
+    # Reklamacja — twardy wyzwalacz: instrukcja mailowa, BEZ handoffu (bot zostaje w rozmowie).
     if _czy_reklamacja(content):
-        _do_handoff(conv_id, "reklamacja produktu", _load_dane(conv_id), closing=COMPLAINT_MSG)
+        if not cw_agent_reply(conv_id, COMPLAINT_MSG):
+            raise RuntimeError("livechat: wysylka instrukcji reklamacji nieudana (conv %s)" % conv_id)
+        _bump_turns(conv_id)
+        log("livechat: reklamacja - instrukcja mailowa, bez handoffu (conv %s)" % conv_id)
         return
 
     # Prosba o czlowieka. Guard: pytanie o tozsamosc -> pomijamy (niech LLM odpowie uczciwie).

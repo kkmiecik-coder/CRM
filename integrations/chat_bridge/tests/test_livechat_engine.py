@@ -86,32 +86,34 @@ def test_tryb_informacyjny_bez_pozycji_zwykla_odpowiedz(monkeypatch):
     assert lc._awaiting_confirm(77) is False
 
 
-def test_reklamacja_mail_i_handoff(monkeypatch):
+def test_reklamacja_bez_handoffu(monkeypatch):
+    """Reklamacja -> instrukcja mailowa, BEZ handoffu, rozmowa zostaje (pending)."""
     calls = _mock_env(monkeypatch)
-    lc.run_livechat_turn(77, "12", "m1", "Blat mi pękł, chcę zgłosić reklamację")
-    assert calls["chat"] == [], "reklamacja to twardy wyzwalacz, bez LLM"
-    assert len(calls["handoff"]) == 1
+    lc.run_livechat_turn(77, "12", "m1", "Kupiłem blat i pękł, chcę zgłosić reklamację")
+    assert calls["chat"] == []
+    assert calls["handoff"] == [], "reklamacja nie robi juz handoffu"
+    assert len(calls["reply"]) == 1
     assert "reklamacje@woodpower.pl" in calls["reply"][0]
+    assert "pomóc" in calls["reply"][0].lower()
 
 
 def test_reklamacja_jawna_slowo(monkeypatch):
     calls = _mock_env(monkeypatch)
     lc.run_livechat_turn(77, "12", "m1", "Chcę zgłosić reklamację blatu")
-    assert calls["chat"] == [] and len(calls["handoff"]) == 1
+    assert calls["chat"] == [] and calls["handoff"] == []
     assert "reklamacje@woodpower.pl" in calls["reply"][0]
 
 
 def test_reklamacja_uszkodzenie_z_posiadaniem(monkeypatch):
     calls = _mock_env(monkeypatch)
     lc.run_livechat_turn(77, "12", "m1", "Kupiłem blat 3 miesiące temu i pękł przy zlewie")
-    assert len(calls["handoff"]) == 1
+    assert calls["handoff"] == []
 
 
 def test_pytanie_o_trwalosc_nie_jest_reklamacja(monkeypatch):
     calls = _mock_env(monkeypatch, llm_json=_odp("Dąb jest bardzo trwały."))
     lc.run_livechat_turn(77, "12", "m1", "czy drewno jest odporne na uszkodzenia?")
-    assert calls["handoff"] == [], "pytanie przedsprzedazowe nie moze wywolac handoffu reklamacyjnego"
-    assert calls["reply"] == ["Dąb jest bardzo trwały."]
+    assert calls["handoff"] == [] and calls["reply"] == ["Dąb jest bardzo trwały."]
 
 
 def test_czy_reklamacja_helper():
@@ -119,6 +121,11 @@ def test_czy_reklamacja_helper():
     assert lc._czy_reklamacja("mój blat pękł") is True
     assert lc._czy_reklamacja("jak uniknąć pęknięć w blacie?") is False
     assert lc._czy_reklamacja("czy to się nie uszkodzi?") is False
+
+
+def test_deflect_msg_obiecuje_przelaczenie():
+    low = lc.DEFLECT_MSG.lower()
+    assert "konsultant" in low and ("przełącz" in low or "połącz" in low)
 
 
 def test_czlowiek_pierwsza_prosba_miekkie_odbicie(monkeypatch):
@@ -230,11 +237,17 @@ def test_handoff_with_apology(monkeypatch):
 
 
 def test_nieudany_toggle_rzuca_i_nic_nie_wysyla(monkeypatch):
+    """Reklamacja juz nie robi handoffu (patrz test_reklamacja_bez_handoffu), wiec toggle
+    testujemy na innej sciezce przez _do_handoff: bezpiecznik D (limit tur bota)."""
     import pytest
     calls = _mock_env(monkeypatch)
+    c = db_mod.db()
+    c.execute("INSERT INTO live_state(conv_id, bot_turns) VALUES(77, ?)",
+              (config.BOT_LIVE_MAX_TURNS,))
+    c.commit(); c.close()
     monkeypatch.setattr(lc, "cw_bot_handoff", lambda cid, token=None: False)
     with pytest.raises(RuntimeError):
-        lc.run_livechat_turn(77, "12", "m1", "Blat mi pękł, chcę zgłosić reklamację")
+        lc.run_livechat_turn(77, "12", "m1", "A jeszcze jedno pytanie")
     assert calls["reply"] == [], "klient nie moze dostac 'przekazuje' gdy handoff padl"
     assert calls["note"] == []
 
