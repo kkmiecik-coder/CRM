@@ -57,7 +57,7 @@ BOT_VERBOSITY        = os.environ.get("BOT_VERBOSITY", "low")             # low|
 # ----- Bot live-chat (konwersacyjny, osobna encja "WoodPower Chat") -----
 BOT_LIVE_CW_AGENT_TOKEN      = os.environ.get("BOT_LIVE_CW_AGENT_TOKEN")       # access_token live-bota (odpowiedzi + handoff)
 BOT_LIVE_AGENT_WEBHOOK_TOKEN = os.environ.get("BOT_LIVE_AGENT_WEBHOOK_TOKEN")  # token w URL webhooka /agent-bot-live
-BOT_LIVE_MAX_TURNS           = int(os.environ.get("BOT_LIVE_MAX_TURNS", "10"))  # bezpiecznik D: max tur bota przed wymuszonym handoffem (podniesione z 6 — wiecej pol do zebrania)
+BOT_LIVE_MAX_TURNS           = int(os.environ.get("BOT_LIVE_MAX_TURNS", "30"))  # bezpiecznik D: max tur bota przed wymuszonym handoffem (podniesione z 10 — dluzsze rozmowy informacyjne + potwierdzenie)
 
 # ----- Sweeper pending (samonaprawa rozmow bez odpowiedzi bota) -----
 SWEEP_INTERVAL    = int(os.environ.get("SWEEP_INTERVAL", "120"))    # sekundy miedzy przejsciami; <=0 = wylaczony
