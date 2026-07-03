@@ -446,6 +446,19 @@ def test_pytanie_w_stanie_confirm_zwykla_odpowiedz_stan_zostaje(monkeypatch):
     assert lc._awaiting_confirm(77) is True
 
 
+def test_pusta_odpowiedz_w_stanie_confirm_ponawia_podsumowanie(monkeypatch):
+    """Awaiting + brak zmian + pusta odpowiedz LLM -> ponowione podsumowanie, BEZ RuntimeError
+    (falszywy handoff techniczny). Persona dopuszcza puste 'odpowiedz' przy komplecie."""
+    calls = _mock_env(monkeypatch, llm_json=_odp())
+    lc._merge_dane(77, _odp(pozycje=[_poz()]))
+    lc._set_awaiting(77, True)
+    lc.run_livechat_turn(77, "12", "m2", "no i?")
+    assert calls["handoff"] == []
+    assert len(calls["reply"]) == 1
+    assert "Podsumowuję dane do wyceny" in calls["reply"][0]
+    assert lc._awaiting_confirm(77) is True
+
+
 def test_nowa_pozycja_w_stanie_confirm_niekompletna_wraca_do_zbierania(monkeypatch):
     """Klient dorzuca produkt przy potwierdzaniu -> stan wraca do zbierania, bot dopytuje."""
     calls = _mock_env(monkeypatch, llm_json=_odp(

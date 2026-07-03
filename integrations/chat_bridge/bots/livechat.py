@@ -456,7 +456,12 @@ def _do_handoff(conv_id, powod, dane, closing=CLOSING_MSG):
 
 def _wyslij_podsumowanie(conv_id, odpowiedz_llm, dane):
     """Deterministyczne podsumowanie do potwierdzenia; krotka odpowiedz LLM (jesli jest)
-    poprzedza je w tej samej wiadomosci. Ustawia stan oczekiwania na potwierdzenie."""
+    poprzedza je w tej samej wiadomosci. Ustawia stan oczekiwania na potwierdzenie.
+    Kolejnosc CELOWO wysylka -> stan (odwrotnie niz _do_handoff): gdy POST padnie,
+    retry ponawia cala ture bez stanu awaiting i podsumowanie dociera do klienta;
+    przy stanie-przed-wysylka nieudany POST zostawialby awaiting=1 i retry z niepusta
+    odpowiedzia LLM ominalby podsumowanie. Koszt: rzadki crash MIEDZY udanym POST
+    a zapisem stanu duplikuje podsumowanie (nieszkodliwe)."""
     msg = _podsumowanie_msg(dane)
     odp = (odpowiedz_llm or "").strip()
     if odp:
@@ -516,7 +521,7 @@ def run_livechat_turn(conv_id, inbox_id, message_id, content):
         raise RuntimeError("livechat: brak odpowiedzi modelu")
     out = _parse_llm(raw)
     dane = _merge_dane(conv_id, out)   # akumulacja per pozycja: raz zebrane pole zostaje
-    zmienione = dane != dane_przed
+    zmienione = dane != dane_przed   # porownanie wartosci (dict ==), nie tozsamosci — oba swieze obiekty z _load_dane
 
     # Straznik wymiarow (deterministyczny, niezalezny od LLM) — przed wszystkimi bramkami.
     odrzucenie = _walidacja_wymiarow(dane)
@@ -553,6 +558,12 @@ def run_livechat_turn(conv_id, inbox_id, message_id, content):
     if not brak:
         if not awaiting or zmienione:
             _wyslij_podsumowanie(conv_id, out["odpowiedz"], dane)
+            return
+        if not out["odpowiedz"]:
+            # Awaiting bez zmian i pusta odpowiedz (persona dopuszcza puste przy komplecie)
+            # -> ponow podsumowanie zamiast rzucac; blad tutaj konczylby sie falszywym
+            # handoffem "blad techniczny" po wyczerpaniu retry.
+            _wyslij_podsumowanie(conv_id, "", dane)
             return
         # awaiting bez zmian danych -> klient pyta o cos innego, zwykla odpowiedz nizej.
     elif awaiting:
