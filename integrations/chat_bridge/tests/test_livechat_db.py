@@ -47,3 +47,13 @@ def test_live_seen_dedup_po_mid():
     except sqlite3.IntegrityError:
         pass  # Expected
     c.close()
+
+
+def test_live_state_ma_kolumne_awaiting_confirm():
+    """Stan potwierdzenia podsumowania wyceny zyje w live_state (migracja ALTER)."""
+    from core import db as db_mod
+    db_mod.init_db()
+    c = db_mod.db()
+    cols = {r["name"] for r in c.execute("PRAGMA table_info(live_state)").fetchall()}
+    c.close()
+    assert "awaiting_confirm" in cols
