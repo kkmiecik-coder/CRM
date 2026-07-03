@@ -94,6 +94,33 @@ def test_reklamacja_mail_i_handoff(monkeypatch):
     assert "reklamacje@woodpower.pl" in calls["reply"][0]
 
 
+def test_reklamacja_jawna_slowo(monkeypatch):
+    calls = _mock_env(monkeypatch)
+    lc.run_livechat_turn(77, "12", "m1", "Chcę zgłosić reklamację blatu")
+    assert calls["chat"] == [] and len(calls["handoff"]) == 1
+    assert "reklamacje@woodpower.pl" in calls["reply"][0]
+
+
+def test_reklamacja_uszkodzenie_z_posiadaniem(monkeypatch):
+    calls = _mock_env(monkeypatch)
+    lc.run_livechat_turn(77, "12", "m1", "Kupiłem blat 3 miesiące temu i pękł przy zlewie")
+    assert len(calls["handoff"]) == 1
+
+
+def test_pytanie_o_trwalosc_nie_jest_reklamacja(monkeypatch):
+    calls = _mock_env(monkeypatch, llm_json=_odp("Dąb jest bardzo trwały."))
+    lc.run_livechat_turn(77, "12", "m1", "czy drewno jest odporne na uszkodzenia?")
+    assert calls["handoff"] == [], "pytanie przedsprzedazowe nie moze wywolac handoffu reklamacyjnego"
+    assert calls["reply"] == ["Dąb jest bardzo trwały."]
+
+
+def test_czy_reklamacja_helper():
+    assert lc._czy_reklamacja("chcę reklamować") is True
+    assert lc._czy_reklamacja("mój blat pękł") is True
+    assert lc._czy_reklamacja("jak uniknąć pęknięć w blacie?") is False
+    assert lc._czy_reklamacja("czy to się nie uszkodzi?") is False
+
+
 def test_czlowiek_pierwsza_prosba_miekkie_odbicie(monkeypatch):
     calls = _mock_env(monkeypatch)
     lc.run_livechat_turn(77, "12", "m1", "Chcę rozmawiać z konsultantem")
@@ -121,6 +148,10 @@ def test_od_konsultanta_nie_wyzwala_odbicia(monkeypatch):
 def test_czy_prosi_o_czlowieka():
     assert lc._czy_prosi_o_czlowieka("chcę konsultanta") is True
     assert lc._czy_prosi_o_czlowieka("potwierdzenie od konsultanta") is False
+
+
+def test_od_doradcy_nie_wyzwala_odbicia():
+    assert lc._czy_prosi_o_czlowieka("materiał polecony od doradcy") is False
 
 
 def test_status_open_bot_milczy(monkeypatch):
@@ -463,6 +494,10 @@ def test_negacja_ze_slowem_zgadza_nie_jest_potwierdzeniem():
     assert lc._jest_potwierdzenie("a ile to kosztuje?") is False
 
 
+def test_potwierdzenie_z_negacja_false():
+    assert lc._jest_potwierdzenie("nie, to się nie zgadza") is False
+
+
 def test_pytanie_w_stanie_confirm_nadal_zwykla_odpowiedz(monkeypatch):
     """Awaiting + pytanie (nie-potwierdzenie) -> zwykla odpowiedz, stan zostaje."""
     calls = _mock_env(monkeypatch, llm_json=_odp("Olej podkreśla słoje."))
@@ -686,6 +721,25 @@ def test_normalizuj_jednostki_cm_niezmienione():
     poz = {"dlugosc": "200", "szerokosc": "60", "grubosc": "4"}
     lc._normalizuj_jednostki(poz)
     assert poz["dlugosc"] == "200" and poz["szerokosc"] == "60" and poz["grubosc"] == "4"
+
+
+def test_normalizuj_grubosc_mm_nie_psuje_wymiarow_cm():
+    """Cross-turn: dl/szer juz w cm, grubosc podana w mm -> tylko grubosc dzielona."""
+    poz = {"dlugosc": "200", "szerokosc": "65", "grubosc": "40"}
+    lc._normalizuj_jednostki(poz)
+    assert poz["dlugosc"] == "200" and poz["szerokosc"] == "65" and poz["grubosc"] == "4"
+
+
+def test_normalizuj_granica_15_bez_zmian():
+    poz = {"grubosc": "15"}
+    lc._normalizuj_jednostki(poz)
+    assert poz["grubosc"] == "15"
+
+
+def test_normalizuj_grubosc_nieliczbowa_bez_zmian():
+    poz = {"grubosc": "gruba"}
+    lc._normalizuj_jednostki(poz)
+    assert poz["grubosc"] == "gruba"
 
 
 def test_merge_normalizuje_mm(monkeypatch):

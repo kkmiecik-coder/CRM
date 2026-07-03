@@ -52,11 +52,26 @@ _CONFIRM_INSTR = (
 # Twardy wyzwalacz: prosba o czlowieka. Bierne wzmianki ('od/przez konsultanta') NIE licza sie.
 _HUMAN_RE = re.compile(r"\b(konsultant\w*|człowiek\w*|czlowiek\w*|doradc\w*|pracownik\w*|"
                        r"agent\w*|zadzwoń\w*|zadzwon\w*|oddzwon\w*)\b", re.IGNORECASE)
-_HUMAN_PASYWNE_RE = re.compile(r"\b(od|przez|do)\s+konsultant\w*", re.IGNORECASE)
+_HUMAN_PASYWNE_RE = re.compile(r"\b(od|przez|do)\s+(konsultant\w*|doradc\w*|pracownik\w*|agent\w*)",
+                               re.IGNORECASE)
 
-# Twardy wyzwalacz: reklamacja -> instrukcja mailowa + przekazanie.
-_COMPLAINT_RE = re.compile(r"(reklamacj\w*|reklamować|reklamowac|wadliw\w*|uszkodz\w*|"
-                           r"pęk(ł|nie|nięt|l|niet)\w*|pekni\w*)", re.IGNORECASE)
+# Reklamacja — twardy wyzwalacz. Sam rzeczownik uszkodzenia (wadliwy/pekl) NIE wystarcza:
+# musi byc intencja reklamacji ("reklamacj/reklamowa") ALBO uszkodzenie + kontekst posiadania
+# (moj/kupilem/zamowilem/dostalem/mi), zeby pytania przedsprzedazowe o trwalosc nie wyzwalaly handoffu.
+_REKLAMACJA_RE = re.compile(r"(reklamacj\w*|reklamowa\w*)", re.IGNORECASE)
+_USZKODZENIE_RE = re.compile(r"(pęk\w*|pek\w*|uszkodz\w*|wadliw\w*|zepsu\w*|wypacz\w*|odklei\w*)",
+                             re.IGNORECASE)
+_POSIADANIE_RE = re.compile(r"\b(mój|moje|moja|moim|kupi\w*|zamówi\w*|zamowi\w*|dostał\w*|dostal\w*|"
+                            r"otrzymał\w*|otrzymal\w*|zamówieni\w*|zamowieni\w*|mi)\b", re.IGNORECASE)
+
+
+def _czy_reklamacja(text):
+    """True gdy tresc to reklamacja: jawne 'reklamacj/reklamowa' albo uszkodzenie + posiadanie."""
+    t = text or ""
+    if _REKLAMACJA_RE.search(t):
+        return True
+    return bool(_USZKODZENIE_RE.search(t) and _POSIADANIE_RE.search(t))
+
 
 COMPLAINT_MSG = ("Przykro nam z powodu problemu. Reklamacje przyjmujemy mailowo — prosimy o "
                  "wiadomość na reklamacje@woodpower.pl z numerem i szczegółami zamówienia oraz "
@@ -458,16 +473,31 @@ def _fmt(x):
     return str(int(x)) if x == int(x) else str(x)
 
 
+# Progi mm->cm per pole: wartosc powyzej realnego maksimum cm danego wymiaru = mm (dziel /10).
+# Per pole (nie globalnie), zeby grubosc podana w mm w osobnej turze nie psula dlugosc/szerokosc
+# juz zapisanych w cm. Dlugosc max ~500 cm, szerokosc max 120 cm, grubosc do kilku cm.
+# Progi dl/szer > kopertowe maksima (450/500 i 120), zeby nie "naprawiac" cichcem wartosci
+# ktore powinny trafic do wlasciwej walidacji koperty (np. szerokosc=860 -> odrzucenie, nie 86cm).
+_MM_PROG = (("dlugosc", 600), ("szerokosc", 200), ("grubosc", 15))
+
+
 def _normalizuj_jednostki(poz):
-    """Heurystyka mm->cm: gdy grubosc liczbowo > 15 (grubosc w cm to 1,5-4; >15 => mm),
-    dziel dlugosc/szerokosc/grubosc przez 10 i zapisz jako cm. Lapie najczestszy przypadek
-    'wszystko w mm'. Mieszane jednostki lapie loop-breaker walidacji."""
+    """Heurystyka mm->cm per pole. Grubosc: czysto per-pole (wartosc wlasna >15 => mm), niezalezna od
+    pozostalych pol, zeby grubosc w mm podana w osobnej turze nie psula juz poprawnych dl/szer w cm.
+    Dlugosc/szerokosc: dzielone TYLKO gdy takze grubosc w tym samym zapisie wyglada na mm (>15) —
+    zachowuje to oryginalna semantyke 'caly rekord w mm', wiec wartosci jak szerokosc=860 przy
+    normalnej grubosci (np. 3.8 cm) NIE sa cichcem przycinane, tylko trafiaja do walidacji koperty."""
     g = _liczby(poz.get("grubosc"))
-    if not g or g[0] <= 15:
-        return poz
-    for k in ("dlugosc", "szerokosc", "grubosc"):
+    cala_krotka_mm = bool(g and g[0] > _MM_PROG[2][1])
+    for k, prog in _MM_PROG:
+        if k == "grubosc":
+            if g and g[0] > prog:
+                poz[k] = _fmt(g[0] / 10.0)
+            continue
+        if not cala_krotka_mm:
+            continue
         vals = _liczby(poz.get(k))
-        if vals:
+        if vals and vals[0] > prog:
             poz[k] = _fmt(vals[0] / 10.0)
     return poz
 
@@ -558,7 +588,7 @@ def run_livechat_turn(conv_id, inbox_id, message_id, content):
         return
 
     # Reklamacja — twardy wyzwalacz: instrukcja mailowa + przekazanie do konsultanta.
-    if _COMPLAINT_RE.search(content or ""):
+    if _czy_reklamacja(content):
         _do_handoff(conv_id, "reklamacja produktu", _load_dane(conv_id), closing=COMPLAINT_MSG)
         return
 
