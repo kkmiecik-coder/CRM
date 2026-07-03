@@ -57,3 +57,13 @@ def test_live_state_ma_kolumne_awaiting_confirm():
     cols = {r["name"] for r in c.execute("PRAGMA table_info(live_state)").fetchall()}
     c.close()
     assert "awaiting_confirm" in cols
+
+
+def test_live_state_ma_kolumny_poprawek_e2e():
+    """Kolumny stanu dla miekkiego odbicia czlowieka i loop-breakera walidacji."""
+    from core import db as db_mod
+    db_mod.init_db()
+    c = db_mod.db()
+    cols = {r["name"] for r in c.execute("PRAGMA table_info(live_state)").fetchall()}
+    c.close()
+    assert {"human_deflected", "reject_sig", "reject_count"} <= cols
