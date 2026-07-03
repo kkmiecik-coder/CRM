@@ -166,6 +166,22 @@ def _set_human_deflected(conv_id, flag):
     c.commit(); c.close()
 
 
+def _complaint_sent(conv_id):
+    """Czy w tej rozmowie wyslano juz instrukcje reklamacyjna (COMPLAINT_MSG)."""
+    c = db()
+    row = c.execute("SELECT complaint_sent FROM live_state WHERE conv_id=?", (conv_id,)).fetchone()
+    c.close()
+    return bool(row["complaint_sent"]) if row else False
+
+
+def _set_complaint_sent(conv_id, flag):
+    c = db()
+    c.execute("INSERT INTO live_state(conv_id, bot_turns, complaint_sent) VALUES(?,0,?) "
+              "ON CONFLICT(conv_id) DO UPDATE SET complaint_sent=excluded.complaint_sent",
+              (conv_id, 1 if flag else 0))
+    c.commit(); c.close()
+
+
 def _reject_state(conv_id):
     """(sygnatura ostatniego odrzucenia, licznik powtorzen) — 0/'' gdy brak."""
     c = db()
@@ -599,10 +615,13 @@ def run_livechat_turn(conv_id, inbox_id, message_id, content):
         _do_handoff(conv_id, "limit tur bota (bezpiecznik)", _load_dane(conv_id))
         return
 
-    # Reklamacja — twardy wyzwalacz: instrukcja mailowa, BEZ handoffu (bot zostaje w rozmowie).
-    if _czy_reklamacja(content):
+    # Reklamacja — twardy wyzwalacz RAZ: instrukcja mailowa, BEZ handoffu (bot zostaje w rozmowie).
+    # Kolejne wiadomosci reklamacyjne (klient echuje adres/temat) ida do LLM, zeby odpowiedziec
+    # na follow-up zamiast powtarzac canned (fix petli reklamacji z E2E tura 3).
+    if _czy_reklamacja(content) and not _complaint_sent(conv_id):
         if not cw_agent_reply(conv_id, COMPLAINT_MSG):
             raise RuntimeError("livechat: wysylka instrukcji reklamacji nieudana (conv %s)" % conv_id)
+        _set_complaint_sent(conv_id, True)
         _bump_turns(conv_id)
         log("livechat: reklamacja - instrukcja mailowa, bez handoffu (conv %s)" % conv_id)
         return

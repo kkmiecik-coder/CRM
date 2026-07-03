@@ -38,7 +38,7 @@ def init_db():
     CREATE TABLE IF NOT EXISTS live_state(
       conv_id INTEGER PRIMARY KEY, bot_turns INTEGER DEFAULT 0,
       awaiting_confirm INTEGER DEFAULT 0, human_deflected INTEGER DEFAULT 0,
-      reject_sig TEXT, reject_count INTEGER DEFAULT 0);
+      reject_sig TEXT, reject_count INTEGER DEFAULT 0, complaint_sent INTEGER DEFAULT 0);
     CREATE TABLE IF NOT EXISTS live_dane(
       conv_id INTEGER PRIMARY KEY, dane_json TEXT);
     """)
@@ -49,7 +49,8 @@ def init_db():
                  "ALTER TABLE live_state ADD COLUMN awaiting_confirm INTEGER DEFAULT 0",
                  "ALTER TABLE live_state ADD COLUMN human_deflected INTEGER DEFAULT 0",
                  "ALTER TABLE live_state ADD COLUMN reject_sig TEXT",
-                 "ALTER TABLE live_state ADD COLUMN reject_count INTEGER DEFAULT 0"):
+                 "ALTER TABLE live_state ADD COLUMN reject_count INTEGER DEFAULT 0",
+                 "ALTER TABLE live_state ADD COLUMN complaint_sent INTEGER DEFAULT 0"):
         try:
             c.execute(stmt)
         except Exception:

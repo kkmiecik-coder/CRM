@@ -95,6 +95,19 @@ def test_reklamacja_bez_handoffu(monkeypatch):
     assert len(calls["reply"]) == 1
     assert "reklamacje@woodpower.pl" in calls["reply"][0]
     assert "pomóc" in calls["reply"][0].lower()
+    assert lc._complaint_sent(77) is True
+
+
+def test_reklamacja_odpala_sie_raz_potem_llm(monkeypatch):
+    """Fix petli (E2E tura 3): 1. reklamacja -> COMPLAINT_MSG bez LLM; kolejna wiadomosc z 'reklamacj'
+    (klient echuje adres) -> idzie do LLM (follow-up), NIE powtarza canned."""
+    calls = _mock_env(monkeypatch, llm_json=_odp("Do czasu decyzji proszę nie użytkować blatu."))
+    lc.run_livechat_turn(77, "12", "m1", "Mam reklamację, blat pękł przy zlewie")
+    assert calls["chat"] == [] and calls["reply"] == [lc.COMPLAINT_MSG]
+    lc.run_livechat_turn(77, "12", "m2", "Wyślę na reklamacje@woodpower.pl. Czy wstrzymać montaż?")
+    assert len(calls["chat"]) == 1, "druga wiadomosc reklamacyjna idzie do LLM (koniec petli)"
+    assert calls["reply"][-1] == "Do czasu decyzji proszę nie użytkować blatu."
+    assert calls["handoff"] == []
 
 
 def test_reklamacja_jawna_slowo(monkeypatch):
