@@ -314,6 +314,23 @@ def test_parse_llm_smieci_w_pozycjach_ignorowane():
     assert d["pozycje"] == [] and d["wspolne"] == {}
 
 
+def test_parse_llm_wyciek_json_nie_trafia_do_klienta():
+    raw = ('Polecam bukowy blat. Chcesz propozycję?\n\n'
+           '{"odpowiedz": "Polecam bukowy blat.", "handoff": false, "pozycje": [], "wspolne": {}}')
+    d = lc._parse_llm(raw)
+    assert d["odpowiedz"] == "Polecam bukowy blat."
+    assert "{" not in d["odpowiedz"]
+
+
+def test_parse_llm_czysty_tekst_bez_json_bez_zmian():
+    d = lc._parse_llm("Dzień dobry, w czym mogę pomóc?")
+    assert d["odpowiedz"] == "Dzień dobry, w czym mogę pomóc?"
+
+
+def test_znajdz_json_ignoruje_niepelne_nawiasy():
+    assert lc._znajdz_json("cena orientacyjna to {mniej wiecej}") is None
+
+
 def test_format_ma_pozycje_i_zasady_handoffu():
     for frag in ('"pozycje"', '"wspolne"', '"id"', '"usun"', '"ilosc"', '"schody"'):
         assert frag in lc._FORMAT

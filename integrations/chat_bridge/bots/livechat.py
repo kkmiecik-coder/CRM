@@ -284,23 +284,53 @@ def _merge_dane(conv_id, out):
     return stan
 
 
+def _z_dict(d):
+    """Buduje znormalizowany wynik tury z dict-a LLM."""
+    return {"odpowiedz": (d.get("odpowiedz") or "").strip(),
+            "handoff": bool(d.get("handoff")),
+            "powod": (d.get("powod") or "").strip(),
+            "pozycje": d.get("pozycje") if isinstance(d.get("pozycje"), list) else [],
+            "wspolne": d.get("wspolne") if isinstance(d.get("wspolne"), dict) else {}}
+
+
+def _znajdz_json(txt):
+    """Wyciaga pierwszy zbalansowany obiekt {...} z tekstu (przypadek proza+JSON) i parsuje.
+    Zwraca dict albo None — chroni przed wyciekiem surowego JSON do klienta."""
+    start = (txt or "").find("{")
+    while start != -1:
+        depth = 0
+        for i in range(start, len(txt)):
+            if txt[i] == "{":
+                depth += 1
+            elif txt[i] == "}":
+                depth -= 1
+                if depth == 0:
+                    try:
+                        d = json.loads(txt[start:i + 1])
+                        if isinstance(d, dict):
+                            return d
+                    except Exception:
+                        pass
+                    break
+        start = txt.find("{", start + 1)
+    return None
+
+
 def _parse_llm(raw):
-    """Parsuje odpowiedz LLM do dict. Toleruje ploty ```json (takze kilka blokow).
-    Nie-JSON -> caly tekst jako odpowiedz."""
+    """Parsuje odpowiedz LLM do dict. Toleruje ploty ```json (takze kilka blokow) oraz JSON
+    osadzony w prozie. Dopiero gdy nie ma zadnego JSON -> caly tekst jako odpowiedz."""
     txt = (raw or "").strip()
     candidates = re.findall(r"```(?:json)?\s*(.+?)\s*```", txt, re.DOTALL) or [txt]
     for cand in candidates:
         try:
             d = json.loads(cand)
-            if not isinstance(d, dict):
-                continue
-            return {"odpowiedz": (d.get("odpowiedz") or "").strip(),
-                    "handoff": bool(d.get("handoff")),
-                    "powod": (d.get("powod") or "").strip(),
-                    "pozycje": d.get("pozycje") if isinstance(d.get("pozycje"), list) else [],
-                    "wspolne": d.get("wspolne") if isinstance(d.get("wspolne"), dict) else {}}
+            if isinstance(d, dict):
+                return _z_dict(d)
         except Exception:
             continue
+    emb = _znajdz_json(txt)   # proza + JSON -> uzyj osadzonego obiektu (bez wycieku JSON do klienta)
+    if emb is not None:
+        return _z_dict(emb)
     # Fallback: model zignorowal format — traktujemy calosc jako tekst do klienta.
     return {"odpowiedz": txt, "handoff": False, "powod": "", "pozycje": [], "wspolne": {}}
 
