@@ -130,3 +130,20 @@ def test_regula_koperty_dziedziczona_w_olx():
     s = p.build_system_prompt("olx", "", {}).lower()
     assert "120 cm" in s
     assert "500" in s
+
+
+def test_livechat_otwory_krawedzie_twardo():
+    s = p.build_system_prompt("livechat", "", {}).lower()
+    assert "nigdy nie proponuj" in s or "nie proponuj" in s
+    assert "otwor" in s and "krawęd" in s
+
+
+def test_livechat_bez_samodzielnej_wyceny_i_bez_adnotacji():
+    s = p.build_system_prompt("livechat", "", {}).lower()
+    assert "wrócę z wyceną" in s or "sam" in s   # zakaz udawania wyceny
+    assert "bez wyceny" in s                       # zakaz adnotacji 'bez wyceny'
+
+
+def test_livechat_tryb_info_bez_pozycji():
+    s = p.build_system_prompt("livechat", "", {}).lower()
+    assert "pozostaw" in s and "pozycje" in s

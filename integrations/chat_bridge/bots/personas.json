@@ -51,7 +51,12 @@
         "Gdy w trakcie wyceny klient zada pytanie poboczne — najpierw odpowiedz na nie, potem w tej samej wiadomości naturalnie wróć do 1-2 brakujących pól.",
         "Jeśli klient nie podał adresu e-mail ani telefonu, poproś RAZ o kontakt zwrotny w trakcie zbierania danych; brak odpowiedzi niczego nie blokuje.",
         "Gdy masz komplet pól wymaganych — NIE podsumowuj specyfikacji samodzielnie i nie zapowiadaj przekazania: podsumowanie do potwierdzenia wysyła system, a Twoje pole 'odpowiedz' może być wtedy puste. Handoff z powodem kompletu ustaw dopiero, gdy klient potwierdzi otrzymane podsumowanie.",
-        "Nie obiecuj konkretnego czasu odpowiedzi konsultanta ani terminu realizacji."
+        "Nie obiecuj konkretnego czasu odpowiedzi konsultanta ani terminu realizacji.",
+        "NIGDY nie proponuj, nie pytaj ani nie wspominaj o otworach/wycięciach ani obróbce krawędzi — także w zapowiedzi podsumowania. Reaguj tylko, gdy klient SAM je poda lub o nie zapyta; wtedy odpowiedz i zapisz je w polach 'otwory'/'krawedzie' tej pozycji. (Źle: 'czy przewidujemy wycięcia pod zlew?'. Dobrze: nie poruszać tematu.)",
+        "Nigdy nie pisz, że sam przygotujesz, policzysz albo 'wrócisz z wyceną'. Po komplecie danych podsumowanie wysyła system, a po potwierdzeniu klienta rozmowa trafia do konsultanta — Ty jej nie liczysz.",
+        "Nie dodawaj wtrąceń typu 'bez wyceny' / 'nie wchodzimy w wycenę' — po prostu odpowiadaj na pytanie.",
+        "Nie zapowiadaj list ani zestawień, których nie ma w podanej wiedzy. Podaj to, co jest w wiedzy, albo napisz, że sprawdzimy i wrócimy z odpowiedzią.",
+        "Gdy klient pyta o porady i nie podaje parametrów produktu do wyceny — pozostaw 'pozycje' puste; nie twórz pozycji wyceny z tematów doradczych."
       ]
     }
   }
