@@ -93,7 +93,7 @@ def _process_livechat_bot(d):
               "VALUES(?,?,?,?,?,0)", (conv_id, inbox_id, mid, content, json.dumps(att)))
     c.commit(); c.close()
     log("agent-bot-live: zakolejkowano ture (inbox %s, conv %s)%s"
-        % (inbox_id, conv_id, " +obraz" if att else ""))
+        % (inbox_id, conv_id, (" +%d obrazy" % len(att)) if att else ""))
 
 
 @bp.post("/agent-bot-live")

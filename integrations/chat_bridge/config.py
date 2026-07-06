@@ -59,10 +59,9 @@ BOT_LIVE_CW_AGENT_TOKEN      = os.environ.get("BOT_LIVE_CW_AGENT_TOKEN")       #
 BOT_LIVE_AGENT_WEBHOOK_TOKEN = os.environ.get("BOT_LIVE_AGENT_WEBHOOK_TOKEN")  # token w URL webhooka /agent-bot-live
 BOT_LIVE_MAX_TURNS           = int(os.environ.get("BOT_LIVE_MAX_TURNS", "30"))  # bezpiecznik D: max tur bota przed wymuszonym handoffem (podniesione z 10 — dluzsze rozmowy informacyjne + potwierdzenie)
 
-import os.path as _osp
 # Katalog zdjec wysylanych przez bota (assety w repo; nadpisywalny env).
 BOT_IMAGES_DIR = os.environ.get(
-    "BOT_IMAGES_DIR", _osp.join(_osp.dirname(__file__), "assets", "bot_images"))
+    "BOT_IMAGES_DIR", os.path.join(os.path.dirname(__file__), "assets", "bot_images"))
 
 # ----- Sweeper pending (samonaprawa rozmow bez odpowiedzi bota) -----
 SWEEP_INTERVAL    = int(os.environ.get("SWEEP_INTERVAL", "120"))    # sekundy miedzy przejsciami; <=0 = wylaczony

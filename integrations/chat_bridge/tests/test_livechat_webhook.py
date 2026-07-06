@@ -101,6 +101,15 @@ def test_livechat_webhook_kolejkuje_obraz_bez_tekstu(monkeypatch):
     assert json.loads(row["attachments"]) == ["http://cw/img1.png"]  # tylko obrazy
 
 
+def test_pusta_tresc_tylko_plik_nieobraz_ignorowana(monkeypatch):
+    """Brak tresci + WYLACZNIE zalacznik nie-obrazowy (pdf/file) -> guard not content and not att -> brak kolejki."""
+    monkeypatch.setattr(wh, "persona_for", lambda inbox_id: "livechat")
+    d = _payload(mid="mplik1", content="", inbox_id=9, conv_id=502)
+    d["attachments"] = [{"data_url": "http://cw/dokument.pdf", "file_type": "file"}]
+    wh._process_livechat_bot(d)
+    assert _count() == 0
+
+
 def test_endpoint_wymaga_tokenu(monkeypatch):
     monkeypatch.setattr(wh, "persona_for", lambda inbox_id: "livechat")
     cl = app.test_client()

@@ -206,7 +206,7 @@ def cw_agent_reply(conv_id, text, image_path=None, image_name=None, image_mime="
         try:
             with open(image_path, "rb") as f:
                 dane = f.read()
-            files = [("attachments[]", (image_name or "obraz.jpg", dane, image_mime or "image/jpeg"))]
+            files = [("attachments[]", (image_name or "obraz.jpg", dane, image_mime))]  # image_mime ma default "image/jpeg"
         except Exception as e:
             log("agent_reply obraz nieczytelny:", repr(e))  # fallback -> tekst bez obrazu
     try:
