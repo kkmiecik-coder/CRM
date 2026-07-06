@@ -22,8 +22,9 @@ function init() {
         return;
     }
     try {
+        // pricesFromDatabase służy już tylko walidacji wizualnej zakresów wymiarów
+        // (getPricingLimits) — ceny liczy backend przez /api/calculate
         pricesFromDatabase = JSON.parse(pricesDataEl.textContent);
-        buildPriceIndex();
     } catch (e) {
         console.error("Niepoprawny JSON w #prices-data", e);
     }
