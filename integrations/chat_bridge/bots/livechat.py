@@ -200,6 +200,31 @@ def _set_reject(conv_id, sig, count):
     c.commit(); c.close()
 
 
+def _sent_images(conv_id):
+    """Zbior kluczy obrazow juz wyslanych w tej rozmowie (dedup)."""
+    c = db()
+    row = c.execute("SELECT sent_images FROM live_state WHERE conv_id=?", (conv_id,)).fetchone()
+    c.close()
+    if not row or not row["sent_images"]:
+        return set()
+    try:
+        v = json.loads(row["sent_images"])
+        return set(v) if isinstance(v, list) else set()
+    except Exception:
+        return set()
+
+
+def _mark_image_sent(conv_id, key):
+    """Dopisuje klucz obrazu do sent_images (INSERT lub UPDATE)."""
+    obecne = _sent_images(conv_id)
+    obecne.add(key)
+    c = db()
+    c.execute("INSERT INTO live_state(conv_id, bot_turns, sent_images) VALUES(?,0,?) "
+              "ON CONFLICT(conv_id) DO UPDATE SET sent_images=excluded.sent_images",
+              (conv_id, json.dumps(sorted(obecne), ensure_ascii=False)))
+    c.commit(); c.close()
+
+
 # --- Warstwa danych wyceny: pozycje (wiele produktow) + pola wspolne ---
 
 _POZ_POLA = ("produkt", "dlugosc", "szerokosc", "grubosc", "gatunek", "technologia",
