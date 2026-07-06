@@ -1,73 +1,86 @@
-# modules/calculator/services/pricing_service.py
 """
-Serwis cennika wykończeń - hierarchia opcji z fallbackiem.
-Wyciągnięty z routers.py (linie 357-393).
+Serwis cenowy — jedyne źródło prawdy o liczeniu wycen.
+Port logiki z JS (calculator-core.js, calculator-ui.js, edges.js).
+Czyste funkcje: dane cennikowe wstrzykiwane przez PricingData (testy bez DB).
+
+UWAGA PARYTET: liczymy na floatach i zaokrąglamy dokładnie tam, gdzie JS.
+Wszelkie "dziwactwa" (ceil grubości, circle liczony wzorem prostokąta w wykończeniu,
+piony P* jako narożniki w krawędziach) są CELOWE — tak liczy frontend na produkcji.
 """
 
-import logging
-from flask import current_app
+import math
+from dataclasses import dataclass, field
 
-logger = logging.getLogger(__name__)
+VAT = 1.23
 
-
-def get_finishing_prices_data():
-    """
-    Pobiera ceny wykończeń z bazy danych - hierarchiczne drzewko.
-    Jeśli nowa tabela finishing_options nie działa, fallback do finishing_type_prices.
-
-    Returns:
-        tuple: (lista cen, kod HTTP)
-    """
-    from modules.calculator.models import FinishingOption, FinishingTypePrice
-
-    try:
-        # Spróbuj z nowej tabeli hierarchicznej
-        try:
-            flat_list = FinishingOption.get_flat_list(include_inactive=False)
-            if flat_list:
-                prices_data = []
-                for opt in flat_list:
-                    prices_data.append({
-                        'id': opt['id'],
-                        'name': opt['name'],
-                        'code': opt.get('code') or opt.get('inherited_code'),
-                        'full_path': opt['full_path'],
-                        'price_netto': opt['effective_price_netto'],
-                        'level': opt['level'],
-                        'parent_id': opt['parent_id'],
-                        'image_path': opt.get('image_path'),
-                    })
-                return prices_data, 200
-        except Exception as e:
-            current_app.logger.warning(f"Fallback do starej tabeli finishing: {e}")
-
-        # Fallback: stara tabela
-        prices = FinishingTypePrice.query.filter_by(is_active=True).all()
-        prices_data = []
-        for price in prices:
-            prices_data.append({
-                'id': price.id,
-                'name': price.name,
-                'price_netto': float(price.price_netto),
-            })
-        return prices_data, 200
-
-    except Exception as e:
-        current_app.logger.error(f"Błąd pobierania cen wykończeń: {str(e)}")
-        return {"success": False, "error": "Blad pobierania cen wykonczeń"}, 500
+# Odpowiednik variantMapping z calculator-core.js:155
+VARIANT_MAPPING = {
+    'dab-lity-ab': {'species': 'Dąb', 'technology': 'Lity', 'wood_class': 'A/B'},
+    'dab-lity-bb': {'species': 'Dąb', 'technology': 'Lity', 'wood_class': 'B/B'},
+    'dab-micro-ab': {'species': 'Dąb', 'technology': 'Mikrowczep', 'wood_class': 'A/B'},
+    'dab-micro-bb': {'species': 'Dąb', 'technology': 'Mikrowczep', 'wood_class': 'B/B'},
+    'jes-lity-ab': {'species': 'Jesion', 'technology': 'Lity', 'wood_class': 'A/B'},
+    'jes-micro-ab': {'species': 'Jesion', 'technology': 'Mikrowczep', 'wood_class': 'A/B'},
+    'buk-lity-ab': {'species': 'Buk', 'technology': 'Lity', 'wood_class': 'A/B'},
+    'buk-micro-ab': {'species': 'Buk', 'technology': 'Mikrowczep', 'wood_class': 'A/B'},
+}
 
 
-def get_cutout_price_netto():
-    """
-    Zwraca cenę netto za jedno wycięcie z FinishingOption(code='CUTOUT').
-    Fallback: 0.0 jeśli nie skonfigurowano.
-    """
-    from modules.calculator.models import FinishingOption
+def round_grosze(value):
+    """Odpowiednik JS roundToGrosze: Math.round((v+EPSILON)*100)/100 (half-up dla cen >= 0)."""
+    return math.floor((value + 1e-9) * 100 + 0.5) / 100
 
-    try:
-        opt = FinishingOption.query.filter_by(code='CUTOUT', is_active=True).first()
-        if opt and opt.price_netto is not None:
-            return float(opt.price_netto)
-    except Exception as e:
-        current_app.logger.warning(f"get_cutout_price_netto fallback do 0: {e}")
-    return 0.0
+
+@dataclass
+class PricingData:
+    """Zrzut cenników z DB — zwykłe typy, żeby testy nie potrzebowały bazy."""
+    price_entries: list = field(default_factory=list)          # wiersze prices jako dict (jak Price.to_dict())
+    multipliers: dict = field(default_factory=dict)            # client_type -> float(multiplier)
+    finishing_options_by_id: dict = field(default_factory=dict)   # id -> dict opcji (price_netto, full_path, ...)
+    finishing_options_by_path: dict = field(default_factory=dict) # full_path -> float(price_netto)
+    edge_prices: dict = field(default_factory=dict)            # type -> {'per_mb': float, 'per_corner': float}
+    cutout_price_netto: float = 0.0
+    round_surcharge_netto: float = 0.0
+
+
+def load_pricing_data():
+    """Ładuje cenniki z DB. Jedyna funkcja w tym module dotykająca bazy."""
+    from modules.calculator.models import (
+        Price, Multiplier, FinishingOption, EdgeOption, CalculatorSetting
+    )
+
+    price_entries = [p.to_dict() for p in Price.query.all()]
+
+    multipliers = {
+        m.client_type: float(m.multiplier)
+        for m in Multiplier.query.all() if m.client_type
+    }
+
+    finishing_by_id = {}
+    finishing_by_path = {}
+    cutout_price = 0.0
+    for opt in FinishingOption.get_flat_list():
+        finishing_by_id[opt['id']] = opt
+        if opt.get('price_netto') is not None:
+            finishing_by_path[opt['full_path']] = float(opt['price_netto'])
+        if opt.get('code') == 'CUTOUT' or opt.get('inherited_code') == 'CUTOUT':
+            cutout_price = float(opt.get('price_netto') or 0)
+
+    edge_prices = {}
+    for e in EdgeOption.query.filter_by(is_active=True).all():
+        edge_prices[e.type] = {
+            'per_mb': float(e.price_per_mb or 0),
+            'per_corner': float(e.corner_price or 0),
+        }
+
+    surcharge = float(CalculatorSetting.get_value('round_shape_surcharge_netto', '50.00'))
+
+    return PricingData(
+        price_entries=price_entries,
+        multipliers=multipliers,
+        finishing_options_by_id=finishing_by_id,
+        finishing_options_by_path=finishing_by_path,
+        edge_prices=edge_prices,
+        cutout_price_netto=cutout_price,
+        round_surcharge_netto=surcharge,
+    )
