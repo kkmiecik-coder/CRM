@@ -384,274 +384,24 @@ function updateGlobalSummary() {
 // ------------------------------
 
 /**
- * Aktualizuje ceny jednostkowe i sumaryczne dla aktywnego formularza
+ * Aktualizuje ceny jednostkowe i sumaryczne dla aktywnego formularza.
+ * Cała matematyka żyje w backendzie (POST /calculator/api/calculate) — tu tylko
+ * delegacja z debounce 1 s do CalculatorApi. Walidację wizualną pól (error-outline)
+ * zostawiamy zdarzeniom w calculator-events.js.
  */
 function updatePrices() {
-    if (!activeQuoteForm) {
-        return;
+    if (!activeQuoteForm) return;
+    if (window.CalculatorApi) {
+        window.CalculatorApi.requestRecalculation(false);
     }
+}
 
-    // DEBUG: Sprawdź który formularz jest aktywny
-    const allForms = Array.from(quoteFormsContainer.querySelectorAll('.quote-form'));
-    const activeFormIndex = allForms.indexOf(activeQuoteForm);
-
-    const lengthEl = activeQuoteForm.querySelector('input[data-field="length"]');
-    const widthEl = activeQuoteForm.querySelector('input[data-field="width"]');
-    const thicknessEl = activeQuoteForm.querySelector('input[data-field="thickness"]');
-    const quantityEl = activeQuoteForm.querySelector('input[data-field="quantity"]');
-    const clientTypeEl = activeQuoteForm.querySelector('select[data-field="clientType"]');
-    const variantContainer = activeQuoteForm.querySelector('.variants');
-
-    if (!lengthEl || !widthEl || !thicknessEl || !quantityEl || !variantContainer) {
-        return;
-    }
-
-    const length = parseFloat(lengthEl.value);
-    const width = parseFloat(widthEl.value);
-    const thickness = parseFloat(thicknessEl.value);
-    let quantity = parseInt(quantityEl.value);
-
-    // Walidacja quantity — pozwalamy na puste pole i 0 (wygoda na telefonie),
-    // ale traktujemy jako blad i nie liczymy cen
-    if (isNaN(quantity) || quantity < 1) {
-        // Nie nadpisujemy wartosci w inpucie — uzytkownik moze kasowac i wpisywac nowa
-    }
-
-    const clientType = clientTypeEl ? clientTypeEl.value : "";
-
-    // Walidacja grupy cenowej — tylko jeśli pole było dotknięte
-    if (clientTypeEl) {
-        if (!clientType && clientTypeEl.dataset.touched === 'true') clientTypeEl.classList.add('error-outline');
-        else if (clientType) clientTypeEl.classList.remove('error-outline');
-    }
-
-    if (!isPartner && !clientType) {
-        showErrorForAllVariants("Brak grupy", variantContainer);
-        activeQuoteForm.dataset.orderBrutto = "";
-        activeQuoteForm.dataset.orderNetto = "";
-        var selectedRadioNoGroup = activeQuoteForm.querySelector('.variants input[type="radio"]:checked');
-        _updateCanvasColorForVariant(activeQuoteForm, selectedRadioNoGroup, length, width, thickness);
-        updateGlobalSummary();
-        return;
-    }
-
-    // Szczegółowe komunikaty błędów
-    let errorMsg = "";
-    const limits = getPricingLimits();
-    if (isNaN(length)) errorMsg = "Brak dług.";
-    else if (isNaN(width)) errorMsg = "Brak szer.";
-    else if (isNaN(thickness)) errorMsg = "Brak grub.";
-    else if (isNaN(quantity) || quantity < 1) errorMsg = "Brak ilości";
-    else if (limits) {
-        var shape = activeQuoteForm.dataset.productShape || 'rectangular';
-        if (shape === 'circle') {
-            // Koło: średnica musi mieścić się w obu zakresach (length i width)
-            var diameterMax = Math.min(limits.length_max, limits.width_max);
-            var diameterMin = Math.max(limits.length_min, limits.width_min);
-            if (length > diameterMax) errorMsg = "Śr. poza zakr.";
-            else if (length < diameterMin) errorMsg = "Śr. poza zakr.";
-            else if (thickness < limits.thickness_min || thickness > limits.thickness_max) errorMsg = "Grub. poza zakr.";
-        } else {
-            if (length < limits.length_min || length > limits.length_max) errorMsg = "Dług. poza zakr.";
-            else if (width < limits.width_min || width > limits.width_max) errorMsg = "Szer. poza zakr.";
-            else if (thickness < limits.thickness_min || thickness > limits.thickness_max) errorMsg = "Grub. poza zakr.";
-        }
-    }
-
-    // Podświetlaj puste pola na czerwono TYLKO jeśli były dotknięte przez użytkownika.
-    // Nie usuwaj error-outline jeśli wartość przekracza zakres (walidacja z calculator-events).
-    const touched = (el) => el && el.dataset.touched === 'true';
-    const outOfRange = (el) => el && el.parentNode && el.parentNode.querySelector('.error-message-length, .error-message-width, .error-message-thickness');
-
-    if (lengthEl) {
-        if (isNaN(length) && touched(lengthEl)) lengthEl.classList.add('error-outline');
-        else if (!isNaN(length) && !outOfRange(lengthEl)) lengthEl.classList.remove('error-outline');
-    }
-    if (widthEl) {
-        if (isNaN(width) && touched(widthEl)) widthEl.classList.add('error-outline');
-        else if (!isNaN(width) && !outOfRange(widthEl)) widthEl.classList.remove('error-outline');
-    }
-    if (thicknessEl) {
-        if (isNaN(thickness) && touched(thicknessEl)) thicknessEl.classList.add('error-outline');
-        else if (!isNaN(thickness) && !outOfRange(thicknessEl)) thicknessEl.classList.remove('error-outline');
-    }
-    if (quantityEl) {
-        if ((isNaN(quantity) || quantity < 1) && touched(quantityEl)) quantityEl.classList.add('error-outline');
-        else if (!isNaN(quantity) && quantity >= 1) quantityEl.classList.remove('error-outline');
-    }
-
-    if (errorMsg) {
-        showErrorForAllVariants(errorMsg, variantContainer);
-        activeQuoteForm.dataset.orderBrutto = "";
-        activeQuoteForm.dataset.orderNetto = "";
-        activeQuoteForm.dataset.outOfRange = "true";
-        activeQuoteForm.dataset.errorMessage = errorMsg;
-        // Canvas: sprawdź kolory na podstawie wybranego wariantu
-        var selectedRadioEarly = activeQuoteForm.querySelector('.variants input[type="radio"]:checked');
-        _updateCanvasColorForVariant(activeQuoteForm, selectedRadioEarly, length, width, thickness);
-        updateGlobalSummary();
-        return;
-    }
-    // Wyczyść błąd gdy wymiary poprawne
-    delete activeQuoteForm.dataset.errorMessage;
-
-    const singleVolume = calculateSingleVolume(length, width, Math.ceil(thickness));
-    // Flexible partner używa selecta, standardowy partner używa userMultiplier
-    const isFlexiblePartner = document.body.dataset.flexiblePartner === 'true';
-
-    let multiplier;
-    if (isPartner && !isFlexiblePartner) {
-        // Standardowy partner - fixed multiplier
-        multiplier = userMultiplier;
-    } else {
-        // Admin/User/Flexible Partner - multiplier z selecta
-        multiplier = multiplierMapping[clientType] || 1.0;
-    }
-
-    const variantItems = Array.from(variantContainer.children)
-        .filter(child => child.querySelector('input[type="radio"]'));
-
-    const tabIndex = Array.from(quoteFormsContainer.querySelectorAll('.quote-form')).indexOf(activeQuoteForm);
-
-    if (tabIndex === -1) {
-        console.error("updatePrices: activeQuoteForm nie jest w tablicy formularzy");
-        return;
-    }
-
-    // Reset kolorów wariantów
-    variantItems.forEach(variant => {
-        variant.querySelectorAll('*').forEach(el => el.style.color = "");
-    });
-
-    // Oblicz ceny dla wszystkich wariantów
-    variantItems.forEach(variant => {
-        const radio = variant.querySelector('input[type="radio"]');
-        if (!radio) return;
-
-        const id = radio.value;
-        const config = variantMapping[id];
-        if (!config) return;
-
-        const match = getPrice(config.species, config.technology, config.wood_class, thickness, length, width);
-        const unitBruttoSpan = variant.querySelector('.unit-brutto');
-        const unitNettoSpan = variant.querySelector('.unit-netto');
-        const totalBruttoSpan = variant.querySelector('.total-brutto');
-        const totalNettoSpan = variant.querySelector('.total-netto');
-
-        if (match && unitBruttoSpan && unitNettoSpan && totalBruttoSpan && totalNettoSpan) {
-            const basePrice = match.price_per_m3;
-            let effectiveMultiplier = multiplier;
-            let unitNetto = singleVolume * basePrice * effectiveMultiplier;
-
-            // Dopłata za kształt okrągły/koło (per sztuka) - po mnożniku
-            const productShape = activeQuoteForm.dataset.productShape || 'rectangular';
-            if ((productShape === 'round' || productShape === 'circle') && window._roundShapeSurchargeNetto) {
-                unitNetto += window._roundShapeSurchargeNetto;
-            }
-
-            // Wycięcia — flat koszt per dziura
-            const holesCount = parseInt(activeQuoteForm.dataset.shapeHolesCount || '0', 10);
-            const cutoutPrice = parseFloat(window.cutoutPriceNetto || '0');
-            if (holesCount > 0 && cutoutPrice > 0) {
-                unitNetto += holesCount * cutoutPrice;
-            }
-
-            variant.style.backgroundColor = "";
-
-            const unitBrutto = roundToGrosze(unitNetto * 1.23);
-            const totalNetto = roundToGrosze(unitNetto * quantity);
-            const totalBrutto = roundToGrosze(unitBrutto * quantity);
-
-            radio.dataset.totalNetto = totalNetto;
-            radio.dataset.totalBrutto = totalBrutto;
-            radio.dataset.volumeM3 = singleVolume;
-            radio.dataset.pricePerM3 = basePrice;
-            radio.dataset.multiplier = effectiveMultiplier;
-            radio.dataset.finalPrice = unitNetto;
-
-            unitBruttoSpan.textContent = formatPLN(unitBrutto);
-            unitNettoSpan.textContent = formatPLN(unitNetto);
-            totalBruttoSpan.textContent = formatPLN(totalBrutto);
-            totalNettoSpan.textContent = formatPLN(totalNetto);
-        } else {
-            // Szczegółowe komunikaty błędów dla brakujących cen
-            if (unitBruttoSpan) unitBruttoSpan.textContent = 'Brak ceny';
-            if (unitNettoSpan) unitNettoSpan.textContent = 'Brak ceny';
-            if (totalBruttoSpan) totalBruttoSpan.textContent = 'Brak ceny';
-            if (totalNettoSpan) totalNettoSpan.textContent = 'Brak ceny';
-
-            // Wyczyść dataset żeby stare wartości nie były używane
-            delete radio.dataset.totalNetto;
-            delete radio.dataset.totalBrutto;
-            delete radio.dataset.pricePerM3;
-            delete radio.dataset.volumeM3;
-            delete radio.dataset.multiplier;
-            delete radio.dataset.finalPrice;
-        }
-    });
-
-    // Znajdź zaznaczony radio button wariantu (pomiń radio kształtu)
-    const selectedRadio = activeQuoteForm.querySelector('.variants input[type="radio"]:checked');
-
-    if (selectedRadio && selectedRadio.dataset.totalBrutto && selectedRadio.dataset.totalNetto) {
-        activeQuoteForm.dataset.orderBrutto = selectedRadio.dataset.totalBrutto;
-        activeQuoteForm.dataset.orderNetto = selectedRadio.dataset.totalNetto;
-        delete activeQuoteForm.dataset.outOfRange;
-
-        // Pokoloruj wybrany wariant
-        const selectedVariant = selectedRadio.closest('div');
-        if (selectedVariant) {
-            selectedVariant.querySelectorAll('*').forEach(el => el.style.color = "#ED6B24");
-        }
-
-    } else {
-        activeQuoteForm.dataset.orderBrutto = "";
-        activeQuoteForm.dataset.orderNetto = "";
-        // Sprawdź czy jakikolwiek wariant ma cenę
-        var anyVariantHasPrice = false;
-        activeQuoteForm.querySelectorAll('.variants input[type="radio"]').forEach(function(r) {
-            if (r.dataset.totalBrutto && parseFloat(r.dataset.totalBrutto) > 0) anyVariantHasPrice = true;
-        });
-
-        if (selectedRadio && !anyVariantHasPrice) {
-            // Żaden wariant nie ma ceny — pełny błąd
-            activeQuoteForm.dataset.outOfRange = "true";
-            activeQuoteForm.dataset.errorMessage = "Wszystkie warianty poza zakresem";
-        } else if (selectedRadio) {
-            // Wybrany wariant poza zakresem, ale inne mają cenę
-            activeQuoteForm.dataset.outOfRange = "true";
-            activeQuoteForm.dataset.errorMessage = "Wybrany wariant poza zakresem";
-        } else {
-            delete activeQuoteForm.dataset.outOfRange;
-            delete activeQuoteForm.dataset.errorMessage;
-        }
-    }
-
-    // Aktualizuj wykończenie i krawędzie
-    calculateFinishingCost(activeQuoteForm);
-
-    // Przelicz krawędzie jeśli są zapisane
-    if (window.EdgesModule && typeof window.EdgesModule.recalculateEdgesForForm === 'function') {
-        window.EdgesModule.recalculateEdgesForForm(activeQuoteForm);
-    }
-
-    // Zaktualizuj podgląd SVG krawędzi
-    if (window.EdgesModule && typeof window.EdgesModule.updateEdgesPreview === 'function') {
-        window.EdgesModule.updateEdgesPreview(activeQuoteForm);
-    }
-
-    // ======= Aktualizacja kolorów canvasa na podstawie wybranego wariantu =======
-    _updateCanvasColorForVariant(activeQuoteForm, selectedRadio, length, width, thickness);
-
-    updateGlobalSummary();
-    updateCalculateDeliveryButtonState();
-    generateProductsSummary();
-
-    // Przelicz inne produkty tylko przy zmianie wymiarów
-    if (lengthEl.matches(':focus') || widthEl.matches(':focus') || thicknessEl.matches(':focus') || quantityEl.matches(':focus')) {
-        updatePricesInOtherProducts();
-    }
-
+/**
+ * Wariant natychmiastowy (bez debounce) — do zdarzeń, które muszą przeliczyć
+ * od razu (np. zmiana grupy cenowej, zapis wyceny).
+ */
+function updatePricesNow() {
+    if (window.CalculatorApi) window.CalculatorApi.requestRecalculation(true);
 }
 
 /**
@@ -1104,6 +854,7 @@ window.CalculatorCore = {
     getPrice,
     updateGlobalSummary,
     updatePrices,
+    updatePricesNow,
     showErrorForAllVariants,
     updatePricesInOtherProducts,
     resetVariantPrices,

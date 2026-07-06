@@ -159,7 +159,8 @@ function syncClientTypeAcrossProducts(selectedType, sourceForm) {
 
     allForms.forEach(form => {
         activeQuoteForm = form;
-        updatePrices();
+        // Zmiana grupy cenowej ma przeliczyć od razu, bez debounce 1 s
+        updatePricesNow();
     });
 
     activeQuoteForm = originalActiveForm;
