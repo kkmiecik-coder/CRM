@@ -383,6 +383,17 @@
     transition: opacity 1s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
+/* Podczas przeliczania (~1 s) blokujemy akcje na podsumowaniu — nie można kopiować,
+   liczyć wysyłki ani zapisywać wyceny, gdy ceny są w trakcie przeliczania.
+   Używamy pointer-events (NIE atrybutu disabled), żeby nie nadpisać realnego stanu
+   przycisków — ten zależy od walidacji/kompletności i po przeliczeniu wraca sam. */
+.quote-summary.prices-recalculating .copy-to-clipboard,
+.quote-summary.prices-recalculating .calculate-delivery,
+.quote-summary.prices-recalculating .save-quote {
+    pointer-events: none;
+    opacity: 0.5;
+}
+
 .variants-header {
     display: flex;
     padding: 8px 6px;
