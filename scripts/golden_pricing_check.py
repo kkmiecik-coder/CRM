@@ -4,6 +4,10 @@ Złote przypadki: bierze N ostatnich wycen z DB, odtwarza parametry produktów,
 liczy pricing_service i porównuje ze wartościami zapisanymi przez frontendowy JS.
 Tolerancja 1 grosz. Rozjazd price_per_m3 (zapisany vs aktualny cennik) oznacza
 zmianę cennika w międzyczasie — raportowany osobno, nie jako bug logiki.
+Analogicznie rozjazd krawędzi: jeśli suma per-edge price_netto zapisana w
+edges_config (× qty) zgadza się z zapisanym edges_price_netto (zapis
+wewnętrznie spójny), a różni się od dzisiejszego przeliczenia — to zmiana
+stawek w cenniku krawędzi (edge_pricelist_changed/legacy_edges), nie bug.
 
 Uruchomienie (lokalna kopia DB!): python3 scripts/golden_pricing_check.py --limit 200
 Selftest (bez DB, obiekty in-memory): python3 scripts/golden_pricing_check.py --selftest
@@ -92,7 +96,43 @@ def _is_legacy_edges(det):
     return det is not None and det.edges_mode is None and bool(det.edges_config)
 
 
-def _compare_product(p_out, p_in, det, saved_items, quantity, stats):
+def _edges_internally_consistent(det, quantity):
+    """
+    Sprawdza, czy zapisany `edges_price_netto` jest wewnętrznie spójny z sumą
+    per-edge `price_netto` w `edges_config` (× qty) — czyli zapis jest zgodny
+    SAM ZE SOBĄ, niezależnie od tego, jakie stawki obowiązują dziś.
+
+    edges_config to lista słowników per krawędź, zapisana w momencie liczenia
+    wyceny przez modal applyEdges (edges.js) — każdy wpis ma już wyliczone
+    `price_netto` wg stawek obowiązujących wtedy. Suma tych wartości × qty
+    powinna dać dokładnie `edges_price_netto` (z dokładnością do zaokrągleń
+    per-edge, stąd TOL, nie ==).
+
+    Gdy spójne: różnica między dzisiejszym przeliczeniem (pricing_service)
+    a zapisem wynika WYŁĄCZNIE ze zmiany stawek w cenniku (edge_pricelist_changed),
+    nie z błędu logiki — geometria/klasyfikacja krawędzi w zapisie się zgadza.
+    Gdy NIESpójne: sam zapis jest wewnętrznie sprzeczny (np. ręczna edycja,
+    bug przy zapisie) — to prawdziwy mismatch, nie kwalifikuje się do
+    kategorii cennikowej.
+
+    Zwraca (is_consistent: bool, reconstructed_total: float | None).
+    """
+    if not det or not det.edges_config:
+        return False, None
+    try:
+        cfg = det.edges_config
+        if isinstance(cfg, str):
+            import json
+            cfg = json.loads(cfg)
+        per_edge_sum = sum(float(e.get('price_netto') or 0) for e in cfg)
+    except Exception:
+        return False, None
+    reconstructed = round(per_edge_sum * quantity, 2)
+    saved_total = float(det.edges_price_netto or 0)
+    return abs(reconstructed - saved_total) <= TOL, reconstructed
+
+
+def _compare_product(p_out, p_in, det, saved_items, quantity, stats, quote_number=None):
     """
     Porównuje jeden produkt (obliczone przez pricing_service vs zapisane w DB).
 
@@ -102,12 +142,15 @@ def _compare_product(p_out, p_in, det, saved_items, quantity, stats):
     `saved_items` — dict {variant_code: QuoteItem-like} dla tego produktu.
     `quantity` — ilość sztuk (do liczenia unit price z total).
     `stats` — słownik liczników, mutowany in-place.
+    `quote_number` — numer wyceny (do printów mismatch); może być None (selftest).
 
     Zwraca True jeśli produkt bez rozjazdów (MATERIAŁ/WYKOŃCZENIE zawsze liczone
-    do wyniku; KRAWĘDZIE na produkcie z legacy edges_mode liczone osobno do
-    `legacy_edges`, bez wpływu na ogólny wynik/exit code).
+    do wyniku; KRAWĘDZIE z rozjazdem wynikającym WYŁĄCZNIE ze zmiany cennika
+    krawędzi liczone osobno do `edge_pricelist_changed`/`legacy_edges`, bez
+    wpływu na ogólny wynik/exit code).
     """
     idx = p_in['index']
+    qn = quote_number or '?'
     ok = True
 
     # 1) Materiał: porównaj unit_price_netto/brutto per wariant (zawsze mismatch, nie legacy)
@@ -130,7 +173,7 @@ def _compare_product(p_out, p_in, det, saved_items, quantity, stats):
                      if has_discount and saved.original_price_netto is not None
                      else float(saved.price_netto or 0))
         if abs(calc_unit_n - reference) > TOL:
-            print(f"[MATERIAŁ] p{idx} {v['variant_code']}: "
+            print(f"[MATERIAŁ] {qn} p{idx} {v['variant_code']}: "
                   f"obliczono unit {calc_unit_n}, zapisano "
                   f"{'original ' if has_discount else ''}{reference}")
             ok = False
@@ -141,28 +184,43 @@ def _compare_product(p_out, p_in, det, saved_items, quantity, stats):
     else:
         stats['compared_finishing'] += 1
         if abs(p_out['finishing']['netto'] - float(det.finishing_price_netto or 0)) > TOL:
-            print(f"[WYKOŃCZENIE] p{idx}: "
+            print(f"[WYKOŃCZENIE] {qn} p{idx}: "
                   f"obliczono {p_out['finishing']['netto']}, zapisano {det.finishing_price_netto}")
             ok = False
 
-    # 3) Krawędzie — rozjazd na produkcie z legacy edges_mode idzie do osobnej
-    # kategorii `legacy_edges` (nie wpływa na exit code); inne rozjazdy = mismatch.
+    # 3) Krawędzie — rozjazd wyjaśniony WYŁĄCZNIE zmianą cennika krawędzi
+    # (zapis wewnętrznie spójny ze swoimi stawkami, tylko stawki inne niż dziś)
+    # idzie do `edge_pricelist_changed` (produkty z edges_mode) albo
+    # `legacy_edges` (produkty sprzed edges_mode) — żadna z tych kategorii
+    # nie wpływa na exit code. Rozjazd na zapisie NIEspójnym wewnętrznie
+    # to prawdziwy mismatch.
     if det is None:
         # skipped_no_details już zliczony wyżej
         pass
     else:
         stats['compared_edges'] += 1
-        edges_mismatch = abs(p_out['edges']['netto'] - float(det.edges_price_netto or 0)) > TOL
+        computed = p_out['edges']['netto']
+        saved_total = float(det.edges_price_netto or 0)
+        edges_mismatch = abs(computed - saved_total) > TOL
         if edges_mismatch:
-            if _is_legacy_edges(det):
+            consistent, reconstructed = _edges_internally_consistent(det, quantity)
+            is_legacy = _is_legacy_edges(det)
+            if consistent:
+                # Zapis zgadza się sam ze sobą (per-edge suma × qty == zapisany total) —
+                # różnica wynika ze zmiany stawek cennika krawędzi w międzyczasie.
+                stats['edge_pricelist_changed'] += 1
+                print(f"[CENNIK-KRAWĘDZIE] {qn} p{idx}: stawka przy zapisie inna niż dziś "
+                      f"(zapisano {saved_total}, dziś wychodzi {computed})")
+                # nie zrzuca quote_ok / mismatch
+            elif is_legacy:
                 stats['legacy_edges'] += 1
-                print(f"[LEGACY-KRAWĘDZIE] p{idx}: rozjazd na starej wycenie sprzed "
-                      f"edges_mode — obliczono {p_out['edges']['netto']}, "
-                      f"zapisano {det.edges_price_netto} (raportowane, nie naprawiane na siłę)")
+                print(f"[LEGACY-KRAWĘDZIE] {qn} p{idx}: rozjazd na starej wycenie sprzed "
+                      f"edges_mode — obliczono {computed}, "
+                      f"zapisano {saved_total} (raportowane, nie naprawiane na siłę)")
                 # legacy krawędzie NIE zrzucają quote_ok / mismatch
             else:
-                print(f"[KRAWĘDZIE] p{idx}: "
-                      f"obliczono {p_out['edges']['netto']}, zapisano {det.edges_price_netto}")
+                print(f"[KRAWĘDZIE] {qn} p{idx}: "
+                      f"obliczono {computed}, zapisano {saved_total}")
                 ok = False
 
     return ok
@@ -195,7 +253,7 @@ def main():
 
         stats = {
             'ok': 0, 'mismatch': 0, 'pricelist_changed': 0, 'skipped': 0,
-            'legacy_edges': 0,
+            'legacy_edges': 0, 'edge_pricelist_changed': 0,
             'skipped_no_details': 0, 'skipped_unmatched_variant': 0,
             'compared_material': 0, 'compared_finishing': 0, 'compared_edges': 0,
         }
@@ -224,7 +282,8 @@ def main():
 
                 before_pricelist = stats['pricelist_changed']
                 product_ok = _compare_product(
-                    p_out, p_in, det, saved_items, p_in['quantity'], stats)
+                    p_out, p_in, det, saved_items, p_in['quantity'], stats,
+                    quote_number=quote.quote_number)
                 if stats['pricelist_changed'] > before_pricelist:
                     quote_pricelist_changed = True
                 if not product_ok:
@@ -238,6 +297,7 @@ def main():
 
         print(f"\n=== WYNIK: {stats['ok']} OK, {stats['mismatch']} rozjazdów, "
               f"{stats['pricelist_changed']} zmian cennika, "
+              f"{stats['edge_pricelist_changed']} zmian cennika krawędzi, "
               f"{stats['legacy_edges']} legacy-krawędzie, "
               f"{stats['skipped']} pominiętych wycen ===")
         print(f"=== POMINIĘTE PRZY PORÓWNANIU: {stats['skipped_no_details']} bez QuoteItemDetails, "
@@ -265,7 +325,7 @@ def _run_selftest():
     def new_stats():
         return {
             'ok': 0, 'mismatch': 0, 'pricelist_changed': 0, 'skipped': 0,
-            'legacy_edges': 0,
+            'legacy_edges': 0, 'edge_pricelist_changed': 0,
             'skipped_no_details': 0, 'skipped_unmatched_variant': 0,
             'compared_material': 0, 'compared_finishing': 0, 'compared_edges': 0,
         }
@@ -336,6 +396,66 @@ def _run_selftest():
             f"jest {stats['legacy_edges']}"
         )
 
+    # --- (d) zmiana cennika krawędzi: zapis spójny wewnętrznie przy 7.5/mb,
+    # dzisiejsza stawka 15/mb -> edge_pricelist_changed, NIE mismatch ---
+    stats = new_stats()
+    p_in = {'index': 4, 'quantity': 1}
+    # krawędź mb 100 cm: dziś (15/mb) -> 15.0 zł; zapisano wg starej stawki 7.5/mb -> 7.5 zł
+    p_out = {
+        'variants': [],
+        'finishing': {'netto': 0.0, 'brutto': 0.0},
+        'edges': {'netto': 15.0, 'brutto': 18.45},
+    }
+    det = types.SimpleNamespace(
+        finishing_price_netto=0.0,
+        edges_price_netto=7.5,
+        edges_mode='basic',
+        edges_config=[
+            {'letter': 'A', 'type': 'sharp', 'length_cm': 100, 'is_corner': False,
+             'price_netto': 7.5},
+        ],
+    )
+    ok = _compare_product(p_out, p_in, det, {}, 1, stats)
+    if not ok:
+        failures.append("(d) zmiana cennika krawędzi: oczekiwano OK (rozjazd wyjaśniony cennikiem)")
+    if stats['edge_pricelist_changed'] != 1:
+        failures.append(
+            f"(d) zmiana cennika krawędzi: edge_pricelist_changed powinno być 1, "
+            f"jest {stats['edge_pricelist_changed']}"
+        )
+    if stats['legacy_edges'] != 0:
+        failures.append(
+            f"(d) zmiana cennika krawędzi: legacy_edges powinno zostać 0 (edges_mode='basic'), "
+            f"jest {stats['legacy_edges']}"
+        )
+
+    # --- (e) zapis krawędzi NIEspójny wewnętrznie (suma per-edge != zapisany total)
+    # -> prawdziwy mismatch, NIE edge_pricelist_changed ---
+    stats = new_stats()
+    p_in = {'index': 5, 'quantity': 1}
+    p_out = {
+        'variants': [],
+        'finishing': {'netto': 0.0, 'brutto': 0.0},
+        'edges': {'netto': 15.0, 'brutto': 18.45},
+    }
+    det = types.SimpleNamespace(
+        finishing_price_netto=0.0,
+        edges_price_netto=999.0,  # nie zgadza się z sumą per-edge (7.5) ani z dzisiejszym (15.0)
+        edges_mode='basic',
+        edges_config=[
+            {'letter': 'A', 'type': 'sharp', 'length_cm': 100, 'is_corner': False,
+             'price_netto': 7.5},
+        ],
+    )
+    ok = _compare_product(p_out, p_in, det, {}, 1, stats)
+    if ok:
+        failures.append("(e) zapis krawędzi niespójny: oczekiwano mismatch (ok=False)")
+    if stats['edge_pricelist_changed'] != 0:
+        failures.append(
+            f"(e) zapis krawędzi niespójny: edge_pricelist_changed powinno zostać 0, "
+            f"jest {stats['edge_pricelist_changed']}"
+        )
+
     if failures:
         print("SELFTEST: FAIL")
         for f in failures:
@@ -343,7 +463,8 @@ def _run_selftest():
         return 1
 
     print("SELFTEST: PASS (a) rabat->original, (b) brak det->skipped_no_details, "
-          "(c) wykończenie legacy-edges->mismatch")
+          "(c) wykończenie legacy-edges->mismatch, (d) zmiana cennika krawędzi->OK, "
+          "(e) zapis krawędzi niespójny->mismatch")
     return 0
 
 
