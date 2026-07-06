@@ -6,6 +6,10 @@ import requests
 from config import CW_TOKEN
 from core.log import log
 
+# Limit rozmiaru pobranego obrazu — chroni przed wyslaniem gigantycznego base64 do OpenAI
+# (ryzyko kosztu/timeoutu przy chat() timeout=40s).
+_MAX_IMG_BYTES = 5 * 1024 * 1024
+
 
 def to_data_uri(url, timeout=30):
     """Pobiera obraz i zwraca 'data:<mime>;base64,<...>' albo None przy bledzie."""
@@ -13,6 +17,8 @@ def to_data_uri(url, timeout=30):
         r = requests.get(url, headers={"api_access_token": CW_TOKEN or ""}, timeout=timeout)
         if r.status_code != 200:
             log("vision fetch kod:", r.status_code); return None
+        if len(r.content) > _MAX_IMG_BYTES:
+            log("vision fetch za duzy obraz:", len(r.content)); return None
         mime = (r.headers.get("Content-Type") or "image/jpeg").split(";")[0].strip()
         b64 = base64.b64encode(r.content).decode("ascii")
         return "data:%s;base64,%s" % (mime, b64)

@@ -25,6 +25,21 @@ def test_to_data_uri_kod_bledu_none(monkeypatch):
     assert vision.to_data_uri("http://cw/x.png") is None
 
 
+def test_to_data_uri_wyjatek_none(monkeypatch):
+    """requests.get rzuca (np. ConnectionError) -> None, nie propaguje (zasada mostka)."""
+    def _boom(*a, **k):
+        raise requests.exceptions.ConnectionError("brak sieci")
+    monkeypatch.setattr(vision.requests, "get", _boom)
+    assert vision.to_data_uri("http://cw/x.png") is None
+
+
+def test_to_data_uri_za_duzy_obraz_none(monkeypatch):
+    """Obraz powyzej _MAX_IMG_BYTES -> None (nie wysylamy gigantycznego base64 do OpenAI)."""
+    big = b"x" * (vision._MAX_IMG_BYTES + 1)
+    monkeypatch.setattr(vision.requests, "get", lambda u, headers=None, timeout=None: FakeResp(big))
+    assert vision.to_data_uri("http://cw/big.png") is None
+
+
 def test_attach_images_dokleja_wiadomosc_user(monkeypatch):
     monkeypatch.setattr(vision, "to_data_uri", lambda u: "data:image/png;base64,QUJD")
     msgs = [{"role": "system", "content": "S"}, {"role": "user", "content": "co to?"}]
