@@ -78,5 +78,7 @@
         "current_app_version": null,
         "apk_file_path": null,
         "release_notes_url": null
-    }
+    },
+    "BOT_API_KEY": "wygeneruj-dlugi-losowy-klucz",
+    "BOT_USER_ID": 0
 }

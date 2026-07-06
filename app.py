@@ -577,6 +577,9 @@ def create_app():
         # Webhook auto-deployu (GitHub push -> deploy.sh); bez CSRF (autoryzacja HMAC)
         from modules.deploy import deploy_bp
         app.register_blueprint(deploy_bp)
+        # API bota AI (Chatwoot/chat_bridge) — auth przez X-Bot-Api-Key, bez sesji
+        from modules.calculator.routers.bot_api import bot_api_bp
+        app.register_blueprint(bot_api_bp, url_prefix='/api/bot')
 
     register_blueprints_lazy(app)
 
