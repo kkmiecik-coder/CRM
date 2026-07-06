@@ -340,6 +340,28 @@ def test_parse_llm_czysty_tekst_bez_json_bez_zmian():
     assert d["odpowiedz"] == "Dzień dobry, w czym mogę pomóc?"
 
 
+def test_parse_llm_czyta_send_image():
+    d = lc._parse_llm(json.dumps({"odpowiedz": "ok", "send_image": "gatunki_porownanie"}))
+    assert d["send_image"] == "gatunki_porownanie"
+
+
+def test_parse_llm_send_image_domyslnie_pusty():
+    d = lc._parse_llm(json.dumps({"odpowiedz": "ok"}))
+    assert d["send_image"] == ""
+
+
+def test_format_opisuje_send_image():
+    assert "send_image" in lc._FORMAT
+
+
+def test_prompt_zawiera_dostepne_obrazy(monkeypatch):
+    calls = _mock_env(monkeypatch, llm_json=_odp("ok"))
+    lc.run_livechat_turn(77, "12", "m1", "jaka różnica między dębem a bukiem?")
+    system = calls["chat"][0][0]["content"]
+    assert "DOSTĘPNE OBRAZY" in system
+    assert "gatunki_porownanie" in system
+
+
 def test_znajdz_json_ignoruje_niepelne_nawiasy():
     assert lc._znajdz_json("cena orientacyjna to {mniej wiecej}") is None
 

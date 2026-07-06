@@ -13,6 +13,7 @@ from core.chatwoot import (cw_messages, cw_contact, cw_note, cw_agent_reply,
 from bots.knowledge import retrieve
 from bots.personas import build_system_prompt
 from bots.llm import chat
+from bots import images
 
 # Komunikaty stale (edytowalne). Bez obietnic czasowych — patrz spec §13.
 CLOSING_MSG = "Dziękuję za informacje! Przekazuję rozmowę do konsultanta WoodPower — odpowiemy w tej rozmowie."
@@ -23,7 +24,7 @@ APOLOGY_MSG = ("Przepraszam, mam chwilowy problem techniczny z odpowiedzią. "
 # Kazdy produkt klienta = OSOBNA pozycja ze stalym id; pola wspolne calej wyceny poza pozycjami.
 _FORMAT = (
     "FORMAT ODPOWIEDZI: odpowiedz WYŁĄCZNIE poprawnym JSON (bez tekstu przed/po):\n"
-    '{"odpowiedz": "tekst do klienta", "handoff": false, "powod": "", '
+    '{"odpowiedz": "tekst do klienta", "handoff": false, "powod": "", "send_image": "", '
     '"pozycje": [{"id": "1", "produkt": "", "dlugosc": "", "szerokosc": "", "grubosc": "", '
     '"gatunek": "", "technologia": "", "klasa": "", "ilosc": "", "wykonczenie": "", '
     '"otwory": "", "krawedzie": "", "schody": ""}], '
@@ -37,7 +38,10 @@ _FORMAT = (
     "Ustaw handoff=true gdy: klient prosi o człowieka/konsultanta, pytanie wykracza poza podaną "
     "wiedzę, sprawa indywidualna (reklamacja, status lub zmiana zamówienia, faktura, zwrot), "
     "albo klient POTWIERDZIŁ wysłane wcześniej podsumowanie danych do wyceny. "
-    "NIE ustawiaj handoff na samo pytanie o cenę — wtedy zbieraj brakujące dane do wyceny."
+    "NIE ustawiaj handoff na samo pytanie o cenę — wtedy zbieraj brakujące dane do wyceny. "
+    "Pole 'send_image' ustaw na DOKŁADNY tag obrazu z listy DOSTĘPNE OBRAZY tylko wtedy, gdy "
+    "obraz realnie pomoże klientowi (np. pyta o różnice gatunków). W innym razie zostaw pusty "
+    "string. NIGDY nie wymyślaj tagów spoza listy i nie obiecuj zdjęć, których nie ma."
 )
 
 # Instrukcja stanu potwierdzenia — doklejana do promptu, gdy klient dostal podsumowanie od systemu.
@@ -330,6 +334,7 @@ def _z_dict(d):
     return {"odpowiedz": (d.get("odpowiedz") or "").strip(),
             "handoff": bool(d.get("handoff")),
             "powod": (d.get("powod") or "").strip(),
+            "send_image": (d.get("send_image") or "").strip(),
             "pozycje": d.get("pozycje") if isinstance(d.get("pozycje"), list) else [],
             "wspolne": d.get("wspolne") if isinstance(d.get("wspolne"), dict) else {}}
 
@@ -373,7 +378,8 @@ def _parse_llm(raw):
     if emb is not None:
         return _z_dict(emb)
     # Fallback: model zignorowal format — traktujemy calosc jako tekst do klienta.
-    return {"odpowiedz": txt, "handoff": False, "powod": "", "pozycje": [], "wspolne": {}}
+    return {"odpowiedz": txt, "handoff": False, "powod": "", "send_image": "",
+            "pozycje": [], "wspolne": {}}
 
 
 # --- Podsumowanie do potwierdzenia + notatka dla agenta ---
@@ -672,6 +678,10 @@ def run_livechat_turn(conv_id, inbox_id, message_id, content):
     awaiting = _awaiting_confirm(conv_id)
 
     system = build_system_prompt("livechat", knowledge, identity) + "\n\n" + _FORMAT
+    wl = images.whitelist_prompt()
+    if wl:
+        system += ("\n\nDOSTĘPNE OBRAZY (możesz dołączyć maks. jeden przez pole send_image, "
+                   "tylko gdy realnie pomaga):\n" + wl)
     if dane_przed["pozycje"] or dane_przed["wspolne"]:
         # Akumulowany stan w promptcie: LLM widzi wszystkie pozycje i ich id nawet wtedy,
         # gdy poczatek rozmowy wypadl poza limit historii.
