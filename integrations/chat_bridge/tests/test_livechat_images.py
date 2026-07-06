@@ -39,3 +39,36 @@ def test_mark_i_odczyt_sent_images():
     lc._mark_image_sent(1, "gatunki_porownanie")
     lc._mark_image_sent(1, "sample:dab|lity|ab|olejowane")
     assert lc._sent_images(1) == {"gatunki_porownanie", "sample:dab|lity|ab|olejowane"}
+
+
+def _mock_env_img(monkeypatch, llm_json):
+    calls = {"reply": []}
+    monkeypatch.setattr(lc, "cw_conv_status", lambda cid: "pending")
+    monkeypatch.setattr(lc, "cw_messages", lambda cid, lim: [{"role": "user", "text": "hej"}])
+    monkeypatch.setattr(lc, "cw_contact", lambda cid: {"name": "", "identifier": ""})
+    monkeypatch.setattr(lc, "retrieve", lambda q: ["wiedza"])
+    monkeypatch.setattr(lc, "cw_bot_handoff", lambda cid, token=None: True)
+    def fake_reply(cid, text, image_path=None, image_name=None, image_mime="image/jpeg"):
+        calls["reply"].append({"text": text, "image_path": image_path})
+        return True
+    monkeypatch.setattr(lc, "cw_agent_reply", fake_reply)
+    monkeypatch.setattr(lc, "chat", lambda messages, **kw: json.dumps(llm_json))
+    return calls
+
+
+def test_send_image_dolacza_obraz_raz(monkeypatch):
+    _plik("gatunki_porownanie.jpg")
+    calls = _mock_env_img(monkeypatch, {"odpowiedz": "Oto różnice.", "send_image": "gatunki_porownanie"})
+    lc.run_livechat_turn(77, "12", "m1", "różnice gatunków?")
+    assert len(calls["reply"]) == 1
+    assert calls["reply"][0]["image_path"].endswith("gatunki_porownanie.jpg")
+    assert "gatunki_porownanie" in lc._sent_images(77)
+    # druga tura z tym samym tagiem -> obraz NIE leci ponownie
+    lc.run_livechat_turn(77, "12", "m2", "a jeszcze raz pokaż")
+    assert calls["reply"][1]["image_path"] is None
+
+
+def test_send_image_nieznany_tag_bez_obrazu(monkeypatch):
+    calls = _mock_env_img(monkeypatch, {"odpowiedz": "ok", "send_image": "nie_istnieje"})
+    lc.run_livechat_turn(77, "12", "m1", "hej")
+    assert calls["reply"][0]["image_path"] is None

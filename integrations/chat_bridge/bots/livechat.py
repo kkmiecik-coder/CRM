@@ -766,7 +766,18 @@ def run_livechat_turn(conv_id, inbox_id, message_id, content):
     reply = out["odpowiedz"]
     if not reply:
         raise RuntimeError("livechat: pusta odpowiedz modelu")
-    if not cw_agent_reply(conv_id, reply):
+    # 1a: obraz semantyczny wybrany przez model (whitelist), raz na rozmowe.
+    tag = out.get("send_image") or ""
+    sciezka = images.resolve(tag) if tag else None
+    if sciezka and tag not in _sent_images(conv_id):
+        meta = images.IMAGES[tag]
+        ok = cw_agent_reply(conv_id, reply, image_path=sciezka,
+                            image_name=meta["nazwa"], image_mime=meta["mime"])
+        if ok:
+            _mark_image_sent(conv_id, tag)
+    else:
+        ok = cw_agent_reply(conv_id, reply)
+    if not ok:
         raise RuntimeError("livechat: wysylka odpowiedzi nieudana (conv %s)" % conv_id)
     _bump_turns(conv_id)
     log("livechat: odpowiedz wyslana (conv %s, tura %s)" % (conv_id, _bot_turns(conv_id)))
