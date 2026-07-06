@@ -345,6 +345,21 @@
     flex: 1;
 }
 
+/* Wskaźnik "przeliczanie" (POPRAWKA 1) — przygaśnięcie zamiast podmiany tekstu.
+   Stan bazowy pełna widoczność; klasa dodawana na starcie requestRecalculation(),
+   usuwana po applyProductResult/updateGlobalSummary. Bez klasy = natychmiastowy
+   powrót (brak transition na bazie), z klasą = płynne przygaśnięcie 1s ease-out. */
+.variants,
+.quote-summary {
+    opacity: 1;
+}
+
+.variants.prices-recalculating,
+.quote-summary.prices-recalculating {
+    opacity: 0.3;
+    transition: opacity 1s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
 .variants-header {
     display: flex;
     padding: 8px 6px;

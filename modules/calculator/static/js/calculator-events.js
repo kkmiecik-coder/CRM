@@ -739,8 +739,22 @@ function safeAttachFormListeners(form) {
             }
         }
 
-        // Wywołaj oryginalną funkcję updatePrices
-        updatePrices();
+        // POPRAWKA 2: backend już policzył ceny WSZYSTKICH wariantów przy
+        // ostatnim przeliczeniu — są w radio.dataset.totalNetto/totalBrutto.
+        // Zmiana zaznaczenia wariantu to więc tylko przepisanie gotowej ceny
+        // do form.dataset.order*, BEZ nowego fetcha. Jeśli wybrany wariant
+        // nie ma ceny w dataset (poza zakresem / produkt z błędem) — zachowaj
+        // stare zachowanie i przelicz przez backend.
+        const hasPrice = window.CalculatorApi
+            ? window.CalculatorApi.applySelectedVariantToOrder(form)
+            : false;
+
+        if (hasPrice) {
+            window.updateGlobalSummary();
+            if (typeof generateProductsSummary === 'function') generateProductsSummary();
+        } else {
+            updatePrices();
+        }
 
         // Sprawdź integralność po zmianie
         setTimeout(() => {

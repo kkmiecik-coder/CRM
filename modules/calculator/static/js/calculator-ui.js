@@ -318,9 +318,29 @@ function setupFinishingTreeHandlers(form, optionsByParent) {
         const glossBtn = e.target.closest('.finishing-gloss-btn');
         if (!glossBtn) return;
 
+        // POPRAWKA 3: cena zależy od połysku TYLKO na granicy "brak ↔ jest"
+        // (guard w backendzie: Lakierowane bez połysku = 0 — pricing_service.py).
+        // Przełączanie między wartościami połysku (Matowy ↔ Półmatowy) NIE
+        // zmienia ceny — nie ma sensu robić fetcha do backendu za każdym razem.
+        const wasActive = !!(form.dataset.finishingGloss);
+
         container.querySelectorAll('.finishing-gloss-btn').forEach(b => b.classList.remove('active'));
         glossBtn.classList.add('active');
         form.dataset.finishingGloss = glossBtn.dataset.glossValue;
+
+        const isActive = !!(form.dataset.finishingGloss);
+        const crossesBoundary = wasActive !== isActive;   // 0→value lub value→0
+
+        if (!crossesBoundary) {
+            // value→value: cena się nie zmienia, tylko opis + podsumowanie
+            if (typeof generateProductsSummary === 'function') {
+                generateProductsSummary();
+            }
+            if (typeof window.updateGlobalSummary === 'function') {
+                window.updateGlobalSummary();
+            }
+            return;
+        }
 
         // Odśwież UI z ostatnią znaną wartością (mogła być zablokowana brakiem wyboru połysku)
         if (typeof calculateFinishingCost === 'function') {

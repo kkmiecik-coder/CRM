@@ -51,29 +51,99 @@
     }
 
     /**
-     * Ustawia tekst "Obliczam..." we wszystkich miejscach cen — wołane od razu
-     * przy zmianie pola (jeszcze w oknie debounce), nie dopiero przy wysyłce.
-     * Idempotentne: kolejne zmiany pól w oknie debounce nie migoczą.
+     * Wskaźnik "przeliczanie" — zamiast podmiany tekstu na "Obliczam...",
+     * przygaszamy (opacity) kontenery sekcji liczb: tabelę wariantów każdego
+     * formularza oraz sekcję podsumowania. Treść (ostatnie ceny/ostrzeżenia)
+     * zostaje widoczna pod spodem — patrz .prices-recalculating w
+     * calculator_variants.css. Idempotentne: wołane wielokrotnie w oknie
+     * debounce nic nie migocze (klasa już jest dodana).
      */
     function showCalculatingState() {
         const core = window.CalculatorCore;
         if (!core || !core.quoteFormsContainer) return;
-        const CALCULATING = 'Obliczam...';
 
-        const forms = Array.from(core.quoteFormsContainer.querySelectorAll('.quote-form'));
-        forms.forEach(form => {
-            form.querySelectorAll('.unit-brutto, .unit-netto, .total-brutto, .total-netto').forEach(span => {
-                span.textContent = CALCULATING;
-            });
-            form.querySelectorAll('.finishing-brutto, .finishing-netto').forEach(span => {
-                span.textContent = CALCULATING;
-            });
+        core.quoteFormsContainer.querySelectorAll('.variants').forEach(el => {
+            el.classList.add('prices-recalculating');
         });
 
-        [core.orderSummaryEls, core.finishingSummaryEls, core.finalSummaryEls].forEach(els => {
-            if (!els) return;
-            if (els.brutto) els.brutto.textContent = CALCULATING;
-            if (els.netto) els.netto.textContent = CALCULATING;
+        const quoteSummaryEl = document.querySelector('.quote-summary');
+        if (quoteSummaryEl) quoteSummaryEl.classList.add('prices-recalculating');
+    }
+
+    /**
+     * Usuwa wskaźnik "przeliczanie" — wołane po nadejściu odpowiedzi
+     * (applyProductResult/updateGlobalSummary), niezależnie od sukcesu/błędu,
+     * żeby zawsze wrócić do pełnej widoczności.
+     */
+    function clearCalculatingState() {
+        const core = window.CalculatorCore;
+        if (!core || !core.quoteFormsContainer) return;
+
+        core.quoteFormsContainer.querySelectorAll('.variants').forEach(el => {
+            el.classList.remove('prices-recalculating');
+        });
+
+        const quoteSummaryEl = document.querySelector('.quote-summary');
+        if (quoteSummaryEl) quoteSummaryEl.classList.remove('prices-recalculating');
+    }
+
+    /**
+     * POPRAWKA 4 — krótka etykieta błędu do wąskich komórek cen (`.unit-*`/`.total-*`).
+     * Pełny message z backendu (potrzebny botowi/LLM) zostaje w odpowiedzi i trafia
+     * do atrybutu title (tooltip) — patrz applyFullErrorTitles. Wzorowane na starych
+     * produkcyjnych etykietach (resetVariantPrices w calculator-core.js).
+     */
+    function shortErrorLabel(err, shape) {
+        if (!err) return 'Poza zakresem';
+        const field = err.field;
+        const code = err.code;
+
+        if (field === 'length' && shape === 'circle') {
+            if (code === 'MAX_EXCEEDED' || code === 'MIN_NOT_MET') return 'Śr. poza zakr.';
+            if (code === 'MISSING') return 'Brak średnicy';
+        }
+        if (field === 'length') {
+            if (code === 'MAX_EXCEEDED' || code === 'MIN_NOT_MET') return 'Dług. poza zakr.';
+            if (code === 'MISSING') return 'Brak dług.';
+        }
+        if (field === 'width') {
+            if (code === 'MAX_EXCEEDED' || code === 'MIN_NOT_MET') return 'Szer. poza zakr.';
+            if (code === 'MISSING') return 'Brak szer.';
+        }
+        if (field === 'thickness') {
+            if (code === 'MAX_EXCEEDED' || code === 'MIN_NOT_MET') return 'Grub. poza zakr.';
+            if (code === 'MISSING') return 'Brak grub.';
+        }
+        if (field === 'quantity') {
+            return 'Brak ilości';
+        }
+        if (field === 'selected_variant' && code === 'VARIANT_UNAVAILABLE') {
+            return 'Wariant poza zakr.';
+        }
+        return 'Poza zakresem';
+    }
+
+    /**
+     * Ustawia pełny komunikat błędu jako title (tooltip) na komórkach cen —
+     * te same selektory co showErrorForAllVariants (calculator-core.js).
+     */
+    function applyFullErrorTitles(form, fullMessage) {
+        const variantsEl = form.querySelector('.variants');
+        if (!variantsEl) return;
+        variantsEl.querySelectorAll('.unit-brutto, .unit-netto, .total-brutto, .total-netto').forEach(span => {
+            span.title = fullMessage;
+        });
+    }
+
+    /**
+     * Czyści title ustawiony przez applyFullErrorTitles (wołane gdy produkt wraca
+     * do stanu bez błędów).
+     */
+    function clearFullErrorTitles(form) {
+        const variantsEl = form.querySelector('.variants');
+        if (!variantsEl) return;
+        variantsEl.querySelectorAll('.unit-brutto, .unit-netto, .total-brutto, .total-netto').forEach(span => {
+            span.removeAttribute('title');
         });
     }
 
@@ -110,28 +180,45 @@
         if (spans.totalNetto) spans.totalNetto.textContent = fmt(variantResult.total_netto);
     }
 
-    function applyProductResult(form, productResult) {
-        if (productResult.errors && productResult.errors.length) {
-            const msg = productResult.errors[0].message;
-            window.showErrorForAllVariants(msg, form.querySelector('.variants'));
-            form.dataset.orderBrutto = '';
-            form.dataset.orderNetto = '';
-            form.dataset.outOfRange = 'true';
-            form.dataset.errorMessage = msg;
-            return;
-        }
-        delete form.dataset.outOfRange;
-        delete form.dataset.errorMessage;
-        (productResult.variants || []).forEach(v => applyVariantResult(form, v));
-
+    /**
+     * Przepisuje cenę WYBRANEGO wariantu (radio.dataset.totalBrutto/totalNetto,
+     * uzupełnione wcześniej przez applyVariantResult z odpowiedzi backendu) do
+     * form.dataset.orderBrutto/orderNetto. Współdzielony helper — używany po
+     * odpowiedzi backendu (applyProductResult) ORAZ przy samej zmianie
+     * zaznaczenia wariantu (POPRAWKA 2, calculator-events.js), gdzie ceny
+     * wszystkich wariantów już są w DOM i nie trzeba nowego fetcha.
+     * Zwraca true jeśli wybrany wariant miał cenę (dataset), false w p.p.
+     */
+    function applySelectedVariantToOrder(form) {
         const selectedRadio = form.querySelector('.variants input[type="radio"]:checked');
         if (selectedRadio && selectedRadio.dataset.totalBrutto) {
             form.dataset.orderBrutto = selectedRadio.dataset.totalBrutto;
             form.dataset.orderNetto = selectedRadio.dataset.totalNetto;
-        } else {
+            return true;
+        }
+        form.dataset.orderBrutto = '';
+        form.dataset.orderNetto = '';
+        return false;
+    }
+
+    function applyProductResult(form, productResult) {
+        if (productResult.errors && productResult.errors.length) {
+            const err = productResult.errors[0];
+            const shape = form.dataset.productShape || 'rectangular';
+            window.showErrorForAllVariants(shortErrorLabel(err, shape), form.querySelector('.variants'));
+            applyFullErrorTitles(form, err.message);
             form.dataset.orderBrutto = '';
             form.dataset.orderNetto = '';
+            form.dataset.outOfRange = 'true';
+            form.dataset.errorMessage = err.message;
+            return;
         }
+        delete form.dataset.outOfRange;
+        delete form.dataset.errorMessage;
+        clearFullErrorTitles(form);
+        (productResult.variants || []).forEach(v => applyVariantResult(form, v));
+
+        applySelectedVariantToOrder(form);
 
         const fmt = window.CalculatorCore.formatPLN;
         if (productResult.finishing) {
@@ -226,16 +313,24 @@
                 showErrorState(core, 'Błąd obliczeń');
             }
         } finally {
-            if (seq === requestSeq) document.body.classList.remove('prices-loading');
+            if (seq === requestSeq) {
+                document.body.classList.remove('prices-loading');
+                clearCalculatingState();
+            }
         }
     }
 
     function requestRecalculation(immediate) {
         clearTimeout(debounceTimer);
-        showCalculatingState();   // "Obliczam..." od razu przy zmianie, nie dopiero przy wysyłce
+        showCalculatingState();   // przygaszenie od razu przy zmianie, nie dopiero przy wysyłce
         if (immediate) { doRequest(); return; }
         debounceTimer = setTimeout(doRequest, DEBOUNCE_MS);
     }
 
-    window.CalculatorApi = { requestRecalculation, buildCalculatePayload };
+    window.CalculatorApi = {
+        requestRecalculation,
+        buildCalculatePayload,
+        applySelectedVariantToOrder,
+        shortErrorLabel,
+    };
 })();
