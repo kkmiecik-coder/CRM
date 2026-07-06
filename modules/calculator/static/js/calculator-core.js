@@ -227,25 +227,6 @@ function getPricingLimits() {
     return limits;
 }
 
-/**
- * MARTWE (usunięte ciało): liczenie ceny po stronie frontendu.
- * Cała matematyka żyje w backendzie (POST /calculator/api/calculate).
- * Zostawione jako eksport rzucający ostrzeżenie na wypadek nieusuniętego wywołania.
- */
-function buildPriceIndex() {
-    console.warn('[CalculatorCore] buildPriceIndex() jest martwe — ceny liczy backend (POST /calculator/api/calculate).');
-}
-
-/**
- * MARTWE (usunięte ciało): liczenie ceny po stronie frontendu.
- * Cała matematyka żyje w backendzie (POST /calculator/api/calculate).
- * Zostawione jako eksport rzucający ostrzeżenie na wypadek nieusuniętego wywołania.
- */
-function getPrice() {
-    console.warn('[CalculatorCore] getPrice() jest martwe — ceny liczy backend (POST /calculator/api/calculate).');
-    return undefined;
-}
-
 // ------------------------------
 // PODSUMOWANIE GLOBALNE
 // ------------------------------
@@ -352,35 +333,6 @@ function updatePrices() {
 function updatePricesNow() {
     if (window.CalculatorApi) window.CalculatorApi.requestRecalculation(true);
 }
-
-// ========== FUNKCJA TESTOWA ==========
-
-window.testRadioNames = function() {
-    const allForms = document.querySelectorAll('.quote-form');
-    allForms.forEach((form, formIndex) => {
-        const radios = form.querySelectorAll('input[type="radio"]');
-
-        const nameGroups = {};
-        radios.forEach(radio => {
-            if (!nameGroups[radio.name]) {
-                nameGroups[radio.name] = [];
-            }
-            nameGroups[radio.name].push({
-                id: radio.id,
-                checked: radio.checked,
-                value: radio.value
-            });
-        });
-
-        Object.entries(nameGroups).forEach(([name, radios]) => {
-            const checkedCount = radios.filter(r => r.checked).length;
-
-            if (checkedCount > 1) {
-                console.error(`BŁĄD: Więcej niż 1 zaznaczony radio button w grupie ${name}`);
-            }
-        });
-    });
-};
 
 // ------------------------------
 // OBSŁUGA BŁĘDÓW WARIANTÓW
@@ -606,9 +558,7 @@ window.CalculatorCore = {
     calculateSingleVolume,
     roundToGrosze,
     formatPLN,
-    buildPriceIndex,
     getPricingLimits,
-    getPrice,
     updateGlobalSummary,
     updatePrices,
     updatePricesNow,
