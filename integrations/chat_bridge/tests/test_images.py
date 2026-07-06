@@ -76,3 +76,20 @@ def test_resolve_sample_nie_dict_none():
 def test_sample_key_nie_dict_none():
     assert images.sample_key(["lista"]) is None
     assert images.sample_key(None) is None
+
+
+def test_klasa_z_dopiskiem_llm_normalizowana():
+    # LLM zapisuje np. "A/B (AB)" / "B/B (BB)" — dopisek nie moze psuc lookupu (fix E2E 06.07).
+    baz = {"gatunek": "dąb", "technologia": "lita", "wykonczenie": "surowe"}
+    assert images.sample_key(dict(baz, klasa="A/B (AB)")) == "sample:dab|lity|ab|surowe"
+    assert images.sample_key(dict(baz, klasa="B/B (BB)")) == "sample:dab|lity|bb|surowe"
+    assert images.sample_key(dict(baz, klasa="AB")) == "sample:dab|lity|ab|surowe"
+    assert images.sample_key(dict(baz, klasa="klasa A/B")) == "sample:dab|lity|ab|surowe"
+
+
+def test_klasa_niejednoznaczna_zwraca_none():
+    # "A/B lub B/B" = klient niezdecydowany -> nie zgadujemy (None), poza tym "-"/pusta -> None.
+    baz = {"gatunek": "dąb", "technologia": "lita", "wykonczenie": "surowe"}
+    assert images.sample_key(dict(baz, klasa="A/B lub B/B")) is None
+    assert images.sample_key(dict(baz, klasa="-")) is None
+    assert images.sample_key(dict(baz, klasa="")) is None

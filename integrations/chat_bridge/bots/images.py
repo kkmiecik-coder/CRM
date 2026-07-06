@@ -4,6 +4,7 @@
 # (b) probki dobierane deterministycznie z konwencji nazwy pliku {g}_{t}_{k}_{w}.jpg.
 # Zadna funkcja nie rzuca wyjatku (zasada mostka: obraz nie wywraca tury).
 import os
+import re
 import unicodedata
 from config import BOT_IMAGES_DIR as _DEFAULT_DIR
 
@@ -61,9 +62,15 @@ def _norm_technologia(v):
 
 
 def _norm_klasa(v):
-    a = "".join(ch for ch in _ascii_low(v) if ch.isalnum())
-    if a in ("ab", "bb"):
-        return a
+    # Odporne na dopiski LLM ("A/B (AB)", "klasa A/B"): wykrywa wzorzec a/b vs b/b.
+    # Gdy oba obecne ("A/B lub B/B" — klient niezdecydowany) -> None (nie zgadujemy).
+    a = _ascii_low(v)
+    ma = bool(re.search(r"a\s*/?\s*b", a))
+    mb = bool(re.search(r"b\s*/?\s*b", a))
+    if ma and not mb:
+        return "ab"
+    if mb and not ma:
+        return "bb"
     return None
 
 
