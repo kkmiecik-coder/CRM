@@ -8,8 +8,13 @@ Wszelkie "dziwactwa" (ceil grubości, circle liczony wzorem prostokąta w wykoń
 piony P* jako narożniki w krawędziach) są CELOWE — tak liczy frontend na produkcji.
 """
 
+import json as _json
 import math
 from dataclasses import dataclass, field
+
+from modules.calculator.services.edge_calculator import (
+    EDGE_DEFINITIONS, calculate_ellipse_perimeter_mm, _generate_edge_definitions,
+)
 
 # Legacy fallbacki cen wykończenia (calculator-ui.js:606-614)
 _LEGACY_FINISHING_FALLBACK = {
@@ -202,3 +207,85 @@ def calculate_finishing(product, data):
     brutto = round_grosze(netto * VAT)
     return {'netto': netto, 'brutto': brutto,
             'price_per_m2': price_per_m2, 'surface_m2': surface_total}
+
+
+# Krawędzie obwodowe dla kształtów okrągłych
+_ROUND_EDGE_LETTERS = {'KG', 'KD'}
+
+
+def calculate_edges_pricing(edges, product, data):
+    """
+    Odpowiednik semantyki edges.js recalculateEdgesForForm (2028-2177):
+    - per krawędź netto NIEzaokrąglone, suma zaokrąglana raz i mnożona przez ilość,
+    - narożniki N1-N4 i piony P*/H*.P* -> flat per_corner,
+    - kształt okrągły -> obwód elipsy (Ramanujan) dla KG/KD,
+    - nieregularny -> długości G*/D* z shape_data (lub length_cm z payloadu).
+    NIE używać tu edge_calculator.calculate_all_edges — liczy inaczej (patrz plan).
+    """
+    if not edges:
+        return {'netto': 0.0, 'brutto': 0.0, 'details': []}
+
+    dims = {'length': float(product['length']), 'width': float(product['width']),
+            'thickness': float(product['thickness'])}
+    quantity = int(product.get('quantity', 1))
+    shape = product.get('shape', 'rectangular')
+    is_round = shape in ('round', 'circle')
+
+    # Definicje dynamiczne dla nieregularnych — do wyznaczenia długości G*/D*
+    dynamic_defs = {}
+    shape_data = product.get('shape_data')
+    if shape_data and shape not in ('rectangular',):
+        if isinstance(shape_data, str):
+            shape_data = _json.loads(shape_data)
+        for d in _generate_edge_definitions(shape, shape_data, dims['thickness']):
+            dynamic_defs[d['id']] = d
+
+    total_netto = 0.0
+    details = []
+    for edge in edges:
+        letter = str(edge.get('letter') or edge.get('id') or '').upper()
+        etype = edge.get('type', 'sharp')
+        prices = data.edge_prices.get(etype, {'per_mb': 0.0, 'per_corner': 0.0})
+
+        length_cm = 0.0
+        is_corner = False
+        if etype == 'sharp':
+            pass  # 0 zł, ale zostaje w details
+        elif is_round and letter in _ROUND_EDGE_LETTERS:
+            length_cm = calculate_ellipse_perimeter_mm(dims['length'] * 10, dims['width'] * 10) / 10
+        elif letter in EDGE_DEFINITIONS:
+            d = EDGE_DEFINITIONS[letter]
+            is_corner = d['group'] == 'corner'
+            length_cm = dims['thickness'] if is_corner else dims[d['dimension']]
+        else:
+            # Nieregularny: piony (P*, H*.P*) = narożniki flat; G*/D* per mb (JS 2092-2101)
+            base_id = letter.split('.')[-1] if '.' in letter else letter
+            if base_id.startswith('P'):
+                is_corner = True
+                length_cm = dims['thickness']
+            elif letter in dynamic_defs:
+                length_cm = dynamic_defs[letter]['length_cm']
+            elif edge.get('length_cm') is not None:
+                length_cm = float(edge['length_cm'])
+            else:
+                continue  # nieznana krawędź — jak JS (return w forEach)
+
+        if etype == 'sharp':
+            price_netto = 0.0
+        elif is_corner:
+            price_netto = prices['per_corner']
+        else:
+            price_netto = (length_cm / 100) * prices['per_mb']
+
+        total_netto += price_netto
+        details.append({'letter': letter, 'type': etype,
+                        'length_cm': round_grosze(length_cm),
+                        'price_netto': round_grosze(price_netto),
+                        'price_brutto': round_grosze(price_netto * VAT),
+                        'is_corner': is_corner})
+
+    return {
+        'netto': round_grosze(total_netto * quantity),
+        'brutto': round_grosze(total_netto * VAT * quantity),
+        'details': details,
+    }
