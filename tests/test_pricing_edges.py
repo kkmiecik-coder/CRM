@@ -61,3 +61,52 @@ def test_sharp_bez_kosztu():
     edges = [{'letter': 'A', 'type': 'sharp'}]
     r = calculate_edges_pricing(edges, _product(), PricingData(edge_prices=CENY))
     assert r['netto'] == 0.0
+
+
+# =============================================================================
+# Tryb ADVANCED (edges.js applyEdges:1546-1577) — per-edge rounding, brutto
+# liczone z RAW, suma ZAOKRĄGLONYCH wartości. Różni się od trybu basic (powyżej),
+# który sumuje wartości NIEzaokrąglone i zaokrągla raz na końcu.
+# =============================================================================
+
+
+def test_advanced_mieszane_typy_krawedzi():
+    # A round: length 100cm -> raw 15.0 -> netto_i=15.00, brutto_i=round2(15.0*1.23)=18.45
+    # C chamfer: width 33.3cm -> raw 4.995 -> netto_i=round2(4.995)=5.00,
+    #            brutto_i=round2(4.995*1.23)=round2(6.14385)=6.14 (z RAW, nie z 5.00!)
+    # N1 chamfer: narożnik -> raw=per_corner=5.0 -> netto_i=5.00, brutto_i=round2(5.0*1.23)=6.15
+    # suma zaokraglonych: netto 15.00+5.00+5.00=25.00; brutto 18.45+6.14+6.15=30.74
+    # qty=2 -> total_netto=round2(25.00*2)=50.0; total_brutto=round2(30.74*2)=61.48
+    edges = [
+        {'letter': 'A', 'type': 'round', 'r_value': 5},
+        {'letter': 'C', 'type': 'chamfer', 'angle_value': 45},
+        {'letter': 'N1', 'type': 'chamfer', 'angle_value': 45},
+    ]
+    p = _product(width=33.3, quantity=2, edges_mode='advanced')
+    r = calculate_edges_pricing(edges, p, PricingData(edge_prices=CENY))
+    assert r['netto'] == 50.0
+    assert r['brutto'] == 61.48
+
+
+def test_basic_vs_advanced_roznica_zaokraglen():
+    # 3x krawędź C (33.3cm, per_mb=15.0): raw per krawędź = 4.995
+    edges = [{'letter': 'C', 'type': 'round', 'r_value': 5}] * 3
+    p_basic = _product(width=33.3, quantity=1)
+    p_advanced = _product(width=33.3, quantity=1, edges_mode='advanced')
+
+    r_basic = calculate_edges_pricing(edges, p_basic, PricingData(edge_prices=CENY))
+    r_advanced = calculate_edges_pricing(edges, p_advanced, PricingData(edge_prices=CENY))
+
+    # basic: round2(3*4.995) = round2(14.985) = 14.99
+    assert r_basic['netto'] == 14.99
+    # advanced: 3*round2(4.995) = 3*5.00 = 15.00
+    assert r_advanced['netto'] == 15.00
+
+
+def test_brak_wymiaru_zwraca_zero():
+    edges = [{'letter': 'A', 'type': 'round', 'r_value': 5}]
+    p = _product(width=None)
+    r = calculate_edges_pricing(edges, p, PricingData(edge_prices=CENY))
+    assert r['netto'] == 0.0
+    assert r['brutto'] == 0.0
+    assert r['details'] == []

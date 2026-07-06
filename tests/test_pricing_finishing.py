@@ -56,6 +56,13 @@ def test_lakierowanie_bez_polysku_zero():
     assert r['netto'] == 0
 
 
+def test_brak_wymiaru_zwraca_zero():
+    # Guard analogiczny do calculate_edges_pricing — brak wymiaru -> zero jak 'Surowe'.
+    r = calculate_finishing(_product(width=None), PricingData(finishing_options_by_id=OPCJE))
+    assert r['netto'] == 0
+    assert r['brutto'] == 0
+
+
 # =============================================================================
 # Testy _finishing_maps_from_flat_list — parytet z loadFinishingPrices()
 # (calculator-ui.js:33-56). JS liczy na effective_price_netto (cena dziedziczona

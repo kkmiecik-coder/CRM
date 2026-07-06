@@ -216,6 +216,18 @@ def calculate_finishing(product, data):
     if finishing_type == 'Lakierowanie' and not product.get('finishing_gloss_level'):
         return zero
 
+    # Guard: brak któregoś wymiaru (None/pusty/nie-liczbowy) -> zero,
+    # odpowiednik JS recalculateEdgesForForm:2050-2052 (analogiczny guard
+    # zastosowany też w calculate_edges_pricing).
+    for dim_key in ('length', 'width', 'thickness'):
+        dim_val = product.get(dim_key)
+        if dim_val is None or dim_val == '':
+            return zero
+        try:
+            float(dim_val)
+        except (TypeError, ValueError):
+            return zero
+
     length_m = float(product['length']) / 100
     width_m = float(product['width']) / 100
     thickness_m = float(product['thickness']) / 100
@@ -263,21 +275,48 @@ _ROUND_EDGE_LETTERS = {'KG', 'KD'}
 
 def calculate_edges_pricing(edges, product, data):
     """
-    Odpowiednik semantyki edges.js recalculateEdgesForForm (2028-2177):
-    - per krawędź netto NIEzaokrąglone, suma zaokrąglana raz i mnożona przez ilość,
-    - narożniki N1-N4 i piony P*/H*.P* -> flat per_corner,
-    - kształt okrągły -> obwód elipsy (Ramanujan) dla KG/KD,
-    - nieregularny -> długości G*/D* z shape_data (lub length_cm z payloadu).
+    Ceny krawędzi zapisywane do DB liczy modal applyEdges (edges.js:1536-1582) —
+    TO jest źródło prawdy dla semantyki cenowej, nie recalculateEdgesForForm.
+    Klasyfikacja krawędzi (narożniki N1-N4, piony P*/H*.P*, kształt okrągły/
+    nieregularny, długości) jest wspólna dla obu trybów i pokrywa się z tym,
+    co dziś jest w tej funkcji.
+
+    Tryb liczenia zależy od `product['edges_mode']`:
+    - 'advanced' (edges.js:1546-1577): PER KRAWĘDŹ zaokrąglamy netto_i=round2(raw_i)
+      i brutto_i=round2(raw_i*VAT) (brutto liczone z RAW, nie z zaokrąglonego netto!),
+      a total_netto/total_brutto to round2(Σ zaokrąglonych × qty).
+    - basic/None/legacy (domyślne, jak dotychczas): sumujemy NIEzaokrąglone
+      wartości per-edge, a zaokrąglamy dopiero raz na końcu × qty.
+
+    Narożniki: krawędź o wymiarze thickness (N1-N4) LUB pion dynamiczny
+    (P*, H*.P*) — modal applyEdges klasyfikuje piony po group=='vertical'
+    z definicji dynamicznych, więc traktowanie H*.P* jako narożnik flat
+    per_corner jest tu POPRAWNE. Quirk `letter.startsWith('P')` widoczny w
+    recalculateEdgesForForm to znany bug tamtej (nieużywanej do zapisu) funkcji
+    JS — celowo NIE replikowany.
+
     NIE używać tu edge_calculator.calculate_all_edges — liczy inaczej (patrz plan).
     """
     if not edges:
         return {'netto': 0.0, 'brutto': 0.0, 'details': []}
+
+    # Guard: brak któregoś wymiaru (None/pusty/nie-liczbowy) -> zero,
+    # odpowiednik JS recalculateEdgesForForm:2050-2052.
+    for dim_key in ('length', 'width', 'thickness'):
+        dim_val = product.get(dim_key)
+        if dim_val is None or dim_val == '':
+            return {'netto': 0.0, 'brutto': 0.0, 'details': []}
+        try:
+            float(dim_val)
+        except (TypeError, ValueError):
+            return {'netto': 0.0, 'brutto': 0.0, 'details': []}
 
     dims = {'length': float(product['length']), 'width': float(product['width']),
             'thickness': float(product['thickness'])}
     quantity = int(product.get('quantity', 1))
     shape = product.get('shape', 'rectangular')
     is_round = shape in ('round', 'circle')
+    is_advanced = product.get('edges_mode') == 'advanced'
 
     # Definicje dynamiczne dla nieregularnych — do wyznaczenia długości G*/D*
     dynamic_defs = {}
@@ -288,7 +327,9 @@ def calculate_edges_pricing(edges, product, data):
         for d in _generate_edge_definitions(shape, shape_data, dims['thickness']):
             dynamic_defs[d['id']] = d
 
-    total_netto = 0.0
+    total_netto = 0.0          # suma RAW (tryb basic)
+    total_netto_rounded = 0.0  # suma zaokrąglonych per-edge netto (tryb advanced)
+    total_brutto_rounded = 0.0  # suma zaokrąglonych per-edge brutto liczonych z RAW (tryb advanced)
     details = []
     for edge in edges:
         letter = str(edge.get('letter') or edge.get('id') or '').upper()
@@ -326,11 +367,24 @@ def calculate_edges_pricing(edges, product, data):
             price_netto = (length_cm / 100) * prices['per_mb']
 
         total_netto += price_netto
+        price_netto_rounded = round_grosze(price_netto)
+        price_brutto_rounded = round_grosze(price_netto * VAT)
+        total_netto_rounded += price_netto_rounded
+        total_brutto_rounded += price_brutto_rounded
         details.append({'letter': letter, 'type': etype,
                         'length_cm': round_grosze(length_cm),
-                        'price_netto': round_grosze(price_netto),
-                        'price_brutto': round_grosze(price_netto * VAT),
+                        'price_netto': price_netto_rounded,
+                        'price_brutto': price_brutto_rounded,
                         'is_corner': is_corner})
+
+    if is_advanced:
+        # applyEdges (edges.js:1546-1577): sumujemy ZAOKRĄGLONE per-edge
+        # wartości, brutto per-edge liczone z RAW (nie z zaokrąglonego netto).
+        return {
+            'netto': round_grosze(total_netto_rounded * quantity),
+            'brutto': round_grosze(total_brutto_rounded * quantity),
+            'details': details,
+        }
 
     return {
         'netto': round_grosze(total_netto * quantity),
