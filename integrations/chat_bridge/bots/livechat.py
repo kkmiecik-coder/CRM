@@ -642,6 +642,8 @@ def _wyslij_probki(conv_id, dane):
             _mark_image_sent(conv_id, key)
             wyslane.add(key)
             ile += 1
+        else:
+            log("livechat: wysylka probki nieudana (conv %s, %s)" % (conv_id, key))
 
 
 def _wyslij_podsumowanie(conv_id, dane):
