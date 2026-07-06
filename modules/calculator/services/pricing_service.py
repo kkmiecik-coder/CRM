@@ -462,3 +462,164 @@ def get_cutout_price_netto():
     except Exception as e:
         current_app.logger.warning(f"get_cutout_price_netto fallback do 0: {e}")
     return 0.0
+
+
+# =============================================================================
+# Task 5: Walidacja i agregacja wyceny — calculate_quote i helper'y
+# =============================================================================
+
+def _err(field, code, message, product_index=None, limit=None, given=None):
+    """Buduje błąd w standardowym formacie: field, code, message + opcjonalne metadane."""
+    e = {'field': field, 'code': code, 'message': message}
+    if product_index is not None:
+        e['product_index'] = product_index
+    if limit is not None:
+        e['limit'] = limit
+    if given is not None:
+        e['given'] = given
+    return e
+
+
+def _pricing_limits(data):
+    """Globalne min/max z cennika — jak JS getPricingLimits (calculator-core.js:225)."""
+    if not data.price_entries:
+        return None
+    return {
+        'length_min': min(e['length_min'] for e in data.price_entries),
+        'length_max': max(e['length_max'] for e in data.price_entries),
+        'width_min': min(e['width_min'] for e in data.price_entries),
+        'width_max': max(e['width_max'] for e in data.price_entries),
+        'thickness_min': min(e['thickness_min'] for e in data.price_entries),
+        'thickness_max': max(e['thickness_max'] for e in data.price_entries),
+    }
+
+
+def resolve_multiplier(client_type, explicit_multiplier, data):
+    """Partner z fixed mnożnikiem podaje explicit_multiplier; reszta grupę cenową."""
+    if explicit_multiplier is not None:
+        return float(explicit_multiplier), None
+    if not client_type:
+        return None, _err('client_type', 'MISSING', 'Nie wybrano grupy cenowej.')
+    if client_type not in data.multipliers:
+        dostepne = ', '.join(sorted(data.multipliers)) or 'brak'
+        return None, _err('client_type', 'UNKNOWN_CLIENT_TYPE',
+                          f'Nieznana grupa cenowa "{client_type}". Dostępne: {dostepne}.')
+    return data.multipliers[client_type], None
+
+
+_FIELD_PL = {'length': 'długość', 'width': 'szerokość', 'thickness': 'grubość'}
+
+
+def validate_product(product, data):
+    """Walidacja wymiarów — komunikaty PL gotowe do przekazania klientowi przez LLM."""
+    errors = []
+    idx = product.get('index')
+
+    for field in ('length', 'width', 'thickness'):
+        val = product.get(field)
+        if val is None or val == '':
+            errors.append(_err(field, 'MISSING',
+                               f'Brak wymiaru: {_FIELD_PL[field]} (w cm).', idx))
+    qty = product.get('quantity')
+    if not qty or int(qty) < 1:
+        errors.append(_err('quantity', 'MISSING', 'Podaj ilość sztuk (minimum 1).', idx))
+    if errors:
+        return errors
+
+    limits = _pricing_limits(data)
+    if not limits:
+        return [_err(None, 'NO_PRICELIST', 'Brak cennika w systemie.', idx)]
+
+    shape = product.get('shape', 'rectangular')
+    checks = []
+    if shape == 'circle':
+        # Koło: średnica (length) musi mieścić się w obu zakresach (JS 448-453)
+        d_min = max(limits['length_min'], limits['width_min'])
+        d_max = min(limits['length_max'], limits['width_max'])
+        checks.append(('length', 'średnica', float(product['length']), d_min, d_max))
+    else:
+        checks.append(('length', 'długość', float(product['length']),
+                       limits['length_min'], limits['length_max']))
+        checks.append(('width', 'szerokość', float(product['width']),
+                       limits['width_min'], limits['width_max']))
+    checks.append(('thickness', 'grubość', float(product['thickness']),
+                   limits['thickness_min'], limits['thickness_max']))
+
+    for field, name_pl, val, vmin, vmax in checks:
+        if val > vmax:
+            errors.append(_err(field, 'MAX_EXCEEDED',
+                               f'Maksymalna {name_pl} to {vmax:g} cm (podano {val:g} cm).',
+                               idx, limit=vmax, given=val))
+        elif val < vmin:
+            errors.append(_err(field, 'MIN_NOT_MET',
+                               f'Minimalna {name_pl} to {vmin:g} cm (podano {val:g} cm).',
+                               idx, limit=vmin, given=val))
+    return errors
+
+
+def calculate_quote(payload, data):
+    """Główna funkcja: pełny breakdown wyceny albo lista błędów. Nic nie zapisuje."""
+    errors = []
+    multiplier, m_err = resolve_multiplier(
+        payload.get('client_type'), payload.get('multiplier'), data)
+    if m_err:
+        return {'ok': False, 'errors': [m_err], 'products': [], 'totals': None}
+
+    products_out = []
+    sums = {'order_netto': 0.0, 'order_brutto': 0.0,
+            'finishing_netto': 0.0, 'finishing_brutto': 0.0,
+            'edges_netto': 0.0, 'edges_brutto': 0.0}
+
+    for product in payload.get('products', []):
+        idx = product.get('index')
+        p_errors = validate_product(product, data)
+        if p_errors:
+            errors.extend(p_errors)
+            products_out.append({'index': idx, 'errors': p_errors,
+                                 'variants': [], 'finishing': None, 'edges': None})
+            continue
+
+        variants = calculate_material_variants(product, multiplier, data)
+        finishing = calculate_finishing(product, data)
+        edges = calculate_edges_pricing(product.get('edges'), product, data)
+
+        selected_code = product.get('selected_variant')
+        selected = next((v for v in variants
+                         if v['variant_code'] == selected_code and v.get('available')), None)
+        if selected_code and not selected:
+            available = [v['variant_code'] for v in variants if v.get('available')]
+            e = _err('selected_variant', 'VARIANT_UNAVAILABLE',
+                     f'Wariant "{selected_code}" jest niedostępny dla tych wymiarów. '
+                     f'Dostępne warianty: {", ".join(available) or "żadne"}.', idx)
+            errors.append(e)
+            products_out.append({'index': idx, 'errors': [e], 'variants': variants,
+                                 'finishing': finishing, 'edges': edges})
+            continue
+
+        if selected:
+            sums['order_netto'] += selected['total_netto']
+            sums['order_brutto'] += selected['total_brutto']
+        sums['finishing_netto'] += finishing['netto']
+        sums['finishing_brutto'] += finishing['brutto']
+        sums['edges_netto'] += edges['netto']
+        sums['edges_brutto'] += edges['brutto']
+
+        products_out.append({'index': idx, 'errors': [], 'variants': variants,
+                             'finishing': finishing, 'edges': edges})
+
+    shipping = payload.get('shipping') or {}
+    ship_netto = float(shipping.get('netto') or 0)
+    ship_brutto = float(shipping.get('brutto') or 0)
+
+    totals = None
+    if not errors:
+        # Jak JS updateGlobalSummary: total = order + finishing + edges + shipping
+        totals = {**{k: round_grosze(v) for k, v in sums.items()},
+                  'shipping_netto': ship_netto, 'shipping_brutto': ship_brutto,
+                  'total_netto': round_grosze(sums['order_netto'] + sums['finishing_netto']
+                                              + sums['edges_netto'] + ship_netto),
+                  'total_brutto': round_grosze(sums['order_brutto'] + sums['finishing_brutto']
+                                               + sums['edges_brutto'] + ship_brutto)}
+
+    return {'ok': not errors, 'errors': errors, 'products': products_out,
+            'totals': totals, 'multiplier': multiplier}
