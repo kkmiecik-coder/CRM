@@ -8,6 +8,7 @@ Odpowiedzi projektowane pod LLM: zawsze {ok, ...}, błędy z {code, message PL, 
 import hmac
 from functools import wraps
 from flask import Blueprint, request, jsonify, current_app
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
 bot_api_bp = Blueprint('bot_api', __name__)
 
@@ -95,6 +96,20 @@ def _missing_fields(product):
     return [f for f in _REQUIRED_PRODUCT_FIELDS if not product.get(f)]
 
 
+def _quote_level_missing(payload, alt_field=None):
+    """Braki na poziomie całej wyceny (nie produktu) — na razie tylko client_type.
+    W /calculate klucz to 'client_type', w /quotes bot może podać 'quote_client_type'
+    (alt_field) — akceptujemy oba, brak obu = pole do dopytania."""
+    missing = []
+    has_client_type = bool(payload.get('client_type')) or (
+        alt_field is not None and bool(payload.get(alt_field))
+    )
+    if not has_client_type:
+        missing.append({'product_index': None, 'field': 'client_type',
+                        'hint': 'grupa cenowa (client_types z /options)'})
+    return missing
+
+
 @bot_api_bp.route('/calculate', methods=['POST'])
 @require_bot_api_key
 def bot_calculate():
@@ -111,6 +126,7 @@ def bot_calculate():
     if not payload.get('products'):
         missing.append({'product_index': None, 'field': 'products',
                         'hint': 'co najmniej jeden produkt z wymiarami'})
+    missing.extend(_quote_level_missing(payload))
     if missing:
         return jsonify({'ok': False, 'missing_fields': missing, 'errors': []}), 200
 
@@ -155,11 +171,40 @@ def bot_find_or_create_client():
     while Client.query.filter_by(client_number=number).first():
         suffix += 1
         number = f'{base_number} ({suffix})'
-    client = Client(client_number=number, client_name=name, email=email, phone=phone,
-                    created_by_user_id=current_app.config.get('BOT_USER_ID'),
-                    source='Asystent AI')
-    db.session.add(client)
-    db.session.commit()
+
+    # Konto bota może nie istnieć w DB (BOT_USER_ID=0 lub nieustawione) — created_by_user_id
+    # jest nullable, więc zamiast łamać FK po prostu zostawiamy None.
+    from modules.users.models import User
+    bot_user_id = current_app.config.get('BOT_USER_ID')
+    if bot_user_id and not User.query.get(bot_user_id):
+        bot_user_id = None
+
+    try:
+        client = Client(client_number=number, client_name=name, email=email, phone=phone,
+                        created_by_user_id=bot_user_id,
+                        source='Asystent AI')
+        db.session.add(client)
+        db.session.commit()
+    except (IntegrityError, SQLAlchemyError):
+        # Wyścig dwóch równoległych żądań z tym samym e-mailem/telefonem — jeden proces
+        # wygrywa insert, drugi dostaje IntegrityError na unique client_number/email.
+        # Zamiast wywalać globalny errorhandler (inny kształt JSON niż kontrakt bota),
+        # cofamy transakcję i ponawiamy wyszukiwanie — przegrany wyścigu znajdzie zwycięzcę.
+        db.session.rollback()
+        client = None
+        if email:
+            client = Client.query.filter_by(email=email).first()
+        if not client and phone:
+            client = Client.query.filter_by(phone=phone).first()
+        if client:
+            return jsonify({'ok': True, 'matched': True, 'created': False,
+                            'client': {'id': client.id, 'client_name': client.client_name,
+                                       'email': client.email, 'phone': client.phone}}), 200
+        return jsonify({'ok': False, 'errors': [
+            {'field': None, 'code': 'CLIENT_CONFLICT',
+             'message': 'Nie udało się utworzyć klienta — konflikt danych. Spróbuj ponownie.'}
+        ]}), 200
+
     return jsonify({'ok': True, 'matched': False, 'created': True,
                     'client': {'id': client.id, 'client_name': client.client_name,
                                'email': client.email, 'phone': client.phone}}), 200
@@ -171,6 +216,7 @@ def bot_create_quote():
     """Tworzy pełnoprawną wycenę w CRM. Body jak /calculate + client_id (+ opcjonalnie notes).
     Zwraca numer wyceny i publiczny link dla klienta."""
     from modules.users.models import User
+    from modules.clients.models import Client
     from modules.calculator.models import Quote
     from modules.calculator.services.quote_service import create_quote
 
@@ -181,24 +227,49 @@ def bot_create_quote():
              'message': 'Brak client_id — najpierw wywołaj /clients/find-or-create.'}
         ]}), 200
 
+    # Jawny check klienta przed próbą zapisu — bez tego create_quote zwróciłby dopiero
+    # błąd zapisu (np. FK), z mniej czytelnym kodem dla LLM.
+    if not Client.query.get(payload['client_id']):
+        return jsonify({'ok': False, 'errors': [
+            {'field': 'client_id', 'code': 'CLIENT_NOT_FOUND',
+             'message': f"Nie znaleziono klienta o id {payload['client_id']} — "
+                        "najpierw wywołaj /clients/find-or-create."}
+        ]}), 200
+
+    missing = _quote_level_missing(payload, alt_field='quote_client_type')
+    if missing:
+        return jsonify({'ok': False, 'missing_fields': missing, 'errors': []}), 200
+
+    # BOT_USER_ID nieustawiony/nieistniejący w DB — status 200 (spójnie z resztą kontraktu:
+    # LLM czyta pole "ok", nie kody HTTP; kody 4xx/5xx zostawiamy realnym błędom transportu).
     bot_user = User.query.get(current_app.config.get('BOT_USER_ID') or 0)
     if not bot_user:
         return jsonify({'ok': False, 'errors': [
             {'field': None, 'code': 'BOT_USER_NOT_CONFIGURED',
              'message': 'Konto bota nie jest skonfigurowane (BOT_USER_ID).'}
-        ]}), 500
+        ]}), 200
 
     # Przekształć payload bota (products jak w /calculate) na format create_quote:
     # bot podaje tylko selected_variant — create_quote i tak przeliczy wszystko (Task 10),
     # ale potrzebuje struktury variants z is_selected.
+    # Budujemy NOWY dict zamiast mutować payload in-place (setdefault+pop) — czytelniej
+    # i odporne na to, że payload mógłby być użyty ponownie przez wołający kod.
+    products = []
     for p in payload.get('products', []):
+        p = dict(p)
         if 'variants' not in p:
             p['variants'] = [{'variant_code': p.get('selected_variant'), 'is_selected': True}]
-    payload.setdefault('quote_client_type', payload.pop('client_type', None))
-    payload.setdefault('quote_note', payload.pop('notes', ''))
-    payload.setdefault('quote_source', 'Asystent AI')
+        products.append(p)
 
-    result, status = create_quote(payload, bot_user.email)
+    quote_payload = dict(payload)
+    quote_payload['products'] = products
+    quote_payload.setdefault('quote_client_type', payload.get('client_type'))
+    quote_payload.pop('client_type', None)
+    quote_payload.setdefault('quote_note', payload.get('notes', ''))
+    quote_payload.pop('notes', None)
+    quote_payload.setdefault('quote_source', 'Asystent AI')
+
+    result, status = create_quote(quote_payload, bot_user.email)
     if status != 200:
         errors = result.get('errors') or [{'field': None, 'code': 'SAVE_FAILED',
                                            'message': result.get('error', 'Błąd zapisu wyceny.')}]
