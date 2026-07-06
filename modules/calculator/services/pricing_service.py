@@ -11,6 +11,13 @@ piony P* jako narożniki w krawędziach) są CELOWE — tak liczy frontend na pr
 import math
 from dataclasses import dataclass, field
 
+# Legacy fallbacki cen wykończenia (calculator-ui.js:606-614)
+_LEGACY_FINISHING_FALLBACK = {
+    ('Lakierowanie', 'Bezbarwne'): ('Lakierowane bezbarwne', 200.0),
+    ('Lakierowanie', 'Barwne'): ('Lakierowane barwne', 250.0),
+    ('Olejowanie', None): ('Olejowanie', 250.0),
+}
+
 VAT = 1.23
 
 # Odpowiednik variantMapping z calculator-core.js:155
@@ -142,3 +149,56 @@ def calculate_material_variants(product, multiplier, data):
             'total_brutto': round_grosze(unit_brutto * quantity),
         })
     return results
+
+
+def calculate_finishing(product, data):
+    """Odpowiednik JS calculateFinishingCost (calculator-ui.js:493-651)."""
+    finishing_type = product.get('finishing_type') or 'Surowe'
+    zero = {'netto': 0.0, 'brutto': 0.0, 'price_per_m2': 0.0, 'surface_m2': 0.0}
+
+    if finishing_type == 'Surowe':
+        return zero
+
+    # JS: Lakierowanie pokazuje sekcję połysku; brak wyboru połysku -> cena 0
+    if finishing_type == 'Lakierowanie' and not product.get('finishing_gloss_level'):
+        return zero
+
+    length_m = float(product['length']) / 100
+    width_m = float(product['width']) / 100
+    thickness_m = float(product['thickness']) / 100
+    quantity = int(product.get('quantity', 1))
+    shape = product.get('shape', 'rectangular')
+
+    # Powierzchnia — UWAGA: tylko 'round' ma wzór elipsy; 'circle' i nieregularne
+    # wpadają we wzór prostopadłościanu (tak liczy JS — nie "poprawiać")
+    if shape == 'round':
+        a, b = length_m / 2, width_m / 2
+        top_bottom = 2 * math.pi * a * b
+        perimeter = math.pi * (3 * (a + b) - math.sqrt((3 * a + b) * (a + 3 * b)))
+        surface_per_piece = top_bottom + perimeter * thickness_m
+    else:
+        surface_per_piece = 2 * (length_m * width_m + length_m * thickness_m + width_m * thickness_m)
+
+    surface_total = surface_per_piece * quantity
+
+    # Cena za m² — kolejność fallbacków jak w JS (593-614)
+    price_per_m2 = 0.0
+    option_id = product.get('finishing_option_id')
+    if option_id and option_id in data.finishing_options_by_id:
+        opt = data.finishing_options_by_id[option_id]
+        if opt.get('price_netto'):
+            price_per_m2 = float(opt['price_netto'])
+    if price_per_m2 == 0.0 and product.get('finishing_full_path'):
+        price_per_m2 = data.finishing_options_by_path.get(product['finishing_full_path'], 0.0)
+    if price_per_m2 == 0.0:
+        variant = product.get('finishing_variant')
+        key = (finishing_type, variant if finishing_type == 'Lakierowanie' else None)
+        legacy = _LEGACY_FINISHING_FALLBACK.get(key)
+        if legacy:
+            path_name, default = legacy
+            price_per_m2 = data.finishing_options_by_path.get(path_name, default)
+
+    netto = round_grosze(surface_total * price_per_m2)
+    brutto = round_grosze(netto * VAT)
+    return {'netto': netto, 'brutto': brutto,
+            'price_per_m2': price_per_m2, 'surface_m2': surface_total}
