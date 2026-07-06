@@ -72,3 +72,38 @@ def test_send_image_nieznany_tag_bez_obrazu(monkeypatch):
     calls = _mock_env_img(monkeypatch, {"odpowiedz": "ok", "send_image": "nie_istnieje"})
     lc.run_livechat_turn(77, "12", "m1", "hej")
     assert calls["reply"][0]["image_path"] is None
+
+
+def test_podsumowanie_dolacza_probke_konfiguracji(monkeypatch):
+    _plik("dab_lity_ab_lakierowane.jpg")
+    calls = {"reply": []}
+    def fake_reply(cid, text, image_path=None, image_name=None, image_mime="image/jpeg"):
+        calls["reply"].append({"text": text, "image_path": image_path}); return True
+    monkeypatch.setattr(lc, "cw_agent_reply", fake_reply)
+    dane = {"pozycje": [{"id": "1", "produkt": "blat", "gatunek": "dąb", "technologia": "lita",
+                         "klasa": "A/B", "wykonczenie": "lakier", "ilosc": "1",
+                         "dlugosc": "200", "szerokosc": "80", "grubosc": "3"}], "wspolne": {}}
+    lc._merge_dane(77, {"odpowiedz": "", "handoff": False, "powod": "", "send_image": "",
+                        "pozycje": dane["pozycje"], "wspolne": {}})
+    lc._wyslij_podsumowanie(77, lc._load_dane(77))
+    # 1. podsumowanie (tekst) + 2. probka (obraz)
+    assert calls["reply"][0]["image_path"] is None
+    assert "Podsumowuję dane do wyceny" in calls["reply"][0]["text"]
+    assert calls["reply"][1]["image_path"].endswith("dab_lity_ab_lakierowane.jpg")
+    assert "sample:dab|lity|ab|lakierowane" in lc._sent_images(77)
+
+
+def test_podsumowanie_bez_pliku_probki_tylko_tekst(monkeypatch):
+    calls = {"reply": []}
+    def fake_reply(cid, text, image_path=None, image_name=None, image_mime="image/jpeg"):
+        calls["reply"].append({"text": text, "image_path": image_path}); return True
+    monkeypatch.setattr(lc, "cw_agent_reply", fake_reply)
+    # buk lity lakierowane: brak pliku -> tylko tekst podsumowania
+    poz = {"id": "1", "produkt": "blat", "gatunek": "buk", "technologia": "lity",
+           "klasa": "AB", "wykonczenie": "lakierowane", "ilosc": "1",
+           "dlugosc": "200", "szerokosc": "80", "grubosc": "3"}
+    lc._merge_dane(77, {"odpowiedz": "", "handoff": False, "powod": "", "send_image": "",
+                        "pozycje": [poz], "wspolne": {}})
+    lc._wyslij_podsumowanie(77, lc._load_dane(77))
+    assert len(calls["reply"]) == 1
+    assert calls["reply"][0]["image_path"] is None

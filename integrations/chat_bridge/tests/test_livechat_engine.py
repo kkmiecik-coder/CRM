@@ -32,7 +32,8 @@ def _mock_env(monkeypatch, status="pending", llm_json=None, llm_raw=None):
     monkeypatch.setattr(lc, "cw_messages", lambda cid, lim: [{"role": "user", "text": "hej"}])
     monkeypatch.setattr(lc, "cw_contact", lambda cid: {"name": "Jan", "identifier": ""})
     monkeypatch.setattr(lc, "retrieve", lambda q: ["wiedza"])
-    monkeypatch.setattr(lc, "cw_agent_reply", lambda cid, t: calls["reply"].append(t) or True)
+    monkeypatch.setattr(lc, "cw_agent_reply",
+                        lambda cid, t, **kw: calls["reply"].append(t) or True)
     monkeypatch.setattr(lc, "cw_note", lambda cid, t: calls["note"].append(t))
     monkeypatch.setattr(lc, "cw_bot_handoff",
                         lambda cid, token=None: calls["handoff"].append(token) or True)
@@ -41,6 +42,8 @@ def _mock_env(monkeypatch, status="pending", llm_json=None, llm_raw=None):
         calls["chat"].append(messages)
         return raw
     monkeypatch.setattr(lc, "chat", fake_chat)
+    # Testy silnika nie dotycza obrazow: probki wg konfiguracji wylaczone niezaleznie od assetow.
+    monkeypatch.setattr(lc.images, "resolve_sample", lambda poz: None)
     return calls
 
 

@@ -3,6 +3,7 @@
 # wycena na POZYCJACH (wiele produktow bez wzajemnego nadpisywania), deterministyczne podsumowanie
 # do potwierdzenia przez klienta przed handoffem, wyzwalacze A/B/C/D, cisza po przekazaniu.
 # Rzuca wyjatkiem przy niepowodzeniu LLM; retry i sciezke awaryjna obsluguje live_worker.
+import os
 import json
 import re
 from config import BOT_HISTORY_LIMIT, BOT_LIVE_MAX_TURNS, BOT_LIVE_CW_AGENT_TOKEN
@@ -19,6 +20,9 @@ from bots import images
 CLOSING_MSG = "Dziękuję za informacje! Przekazuję rozmowę do konsultanta WoodPower — odpowiemy w tej rozmowie."
 APOLOGY_MSG = ("Przepraszam, mam chwilowy problem techniczny z odpowiedzią. "
                "Przekazuję rozmowę do konsultanta WoodPower.")
+
+_MAX_PROBEK = 3   # limit probek wg konfiguracji doklejanych do jednego podsumowania
+_PROBKA_PODPIS = "Poniżej próbka wybranego wykończenia 👇"
 
 # Instrukcja formatu odpowiedzi LLM — doklejana do promptu systemowego persony.
 # Kazdy produkt klienta = OSOBNA pozycja ze stalym id; pola wspolne calej wyceny poza pozycjami.
@@ -618,15 +622,38 @@ def _do_handoff(conv_id, powod, dane, closing=CLOSING_MSG):
     log("livechat: handoff conv %s (%s)" % (conv_id, powod))
 
 
+def _wyslij_probki(conv_id, dane):
+    """Deterministycznie dokleja probki wybranej konfiguracji (lookup po nazwie pliku).
+    Nigdy nie rzuca — obraz nie moze wywrocic tury po wyslanym podsumowaniu. Dedup + cap."""
+    wyslane = _sent_images(conv_id)
+    ile = 0
+    for poz in (dane.get("pozycje") or []):
+        if ile >= _MAX_PROBEK:
+            break
+        key = images.sample_key(poz)
+        if not key or key in wyslane:
+            continue
+        sciezka = images.resolve_sample(poz)
+        if not sciezka:
+            continue
+        if cw_agent_reply(conv_id, _PROBKA_PODPIS, image_path=sciezka,
+                          image_name=os.path.basename(sciezka), image_mime="image/jpeg"):
+            _mark_image_sent(conv_id, key)
+            wyslane.add(key)
+            ile += 1
+
+
 def _wyslij_podsumowanie(conv_id, dane):
     """Wysyla WYLACZNIE deterministyczne podsumowanie (bez prozy LLM — koniec podwojnego
-    'Potwierdzam parametry.../Podsumowuje dane...'). Ustawia stan oczekiwania na potwierdzenie.
+    'Potwierdzam parametry.../Podsumowuje dane...'). Ustawia stan oczekiwania na potwierdzenie,
+    po czym dokleja probki wybranej konfiguracji (jesli sa).
     Kolejnosc CELOWO wysylka -> stan: gdy POST padnie, retry ponawia ture bez awaiting i
     podsumowanie dociera; stan-przed-wysylka po nieudanym POST omijalby podsumowanie."""
     if not cw_agent_reply(conv_id, _podsumowanie_msg(dane)):
         raise RuntimeError("livechat: wysylka podsumowania nieudana (conv %s)" % conv_id)
     _set_awaiting(conv_id, True)
     _bump_turns(conv_id)
+    _wyslij_probki(conv_id, dane)
     log("livechat: podsumowanie do potwierdzenia (conv %s)" % conv_id)
 
 
