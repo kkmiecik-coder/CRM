@@ -3,7 +3,10 @@
 // Frontend NIE liczy cen — zbiera parametry, wysyła (debounce 1 s), renderuje wynik.
 
 (function () {
-    const DEBOUNCE_MS = 1000;
+    // Opóźnienie przed wysłaniem żądania (nie czas odpowiedzi serwera);
+    // 700 ms zwija wpisywanie w jeden request, żwawsze niż 1 s, koszt
+    // serwera i tak zbity cachem cenników.
+    const DEBOUNCE_MS = 700;
     let debounceTimer = null;
     let requestSeq = 0;          // guard: odrzucamy odpowiedzi starsze niż ostatnie żądanie
     let abortController = null;
