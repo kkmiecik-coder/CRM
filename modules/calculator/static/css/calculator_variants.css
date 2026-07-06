@@ -385,13 +385,17 @@
 
 /* Podczas przeliczania (~1 s) blokujemy akcje na podsumowaniu — nie można kopiować,
    liczyć wysyłki ani zapisywać wyceny, gdy ceny są w trakcie przeliczania.
-   Używamy pointer-events (NIE atrybutu disabled), żeby nie nadpisać realnego stanu
+   Wygląd = identyczny jak natywny stan :disabled (szare tło, patrz calculator_layout.css:485),
+   ale przez pointer-events (NIE atrybut disabled), żeby nie nadpisać realnego stanu
    przycisków — ten zależy od walidacji/kompletności i po przeliczeniu wraca sam. */
 .quote-summary.prices-recalculating .copy-to-clipboard,
 .quote-summary.prices-recalculating .calculate-delivery,
 .quote-summary.prices-recalculating .save-quote {
+    background-color: #cccccc;
+    color: #888;
+    cursor: not-allowed;
     pointer-events: none;
-    opacity: 0.5;
+    opacity: 0.6;
 }
 
 .variants-header {
