@@ -8,7 +8,7 @@ import traceback
 from flask import render_template, session, jsonify, current_app, request
 from sqlalchemy import text
 from extensions import db
-from modules.calculator.models import Multiplier, User, CalculatorSetting
+from modules.calculator.models import Multiplier, User
 from modules.users.decorators import require_module_access
 
 
@@ -72,19 +72,6 @@ def register_routes(bp):
             user_client_type=user_client_type,
             is_flexible_partner=is_flexible_partner,
         )
-
-    @bp.route('/api/calculator-settings', methods=['GET'])
-    @require_module_access('calculator')
-    def get_calculator_settings():
-        """Zwraca ustawienia kalkulatora (dopłata za kształt okrągły itp.)"""
-        try:
-            surcharge = CalculatorSetting.get_value('round_shape_surcharge_netto', '50.00')
-            return jsonify({
-                'round_shape_surcharge_netto': float(surcharge)
-            })
-        except Exception as e:
-            current_app.logger.error(f"[get_calculator_settings] Błąd: {str(e)}")
-            return jsonify({'round_shape_surcharge_netto': 50.00})
 
     @bp.route('/api/calculate', methods=['POST'])
     @require_module_access('calculator')

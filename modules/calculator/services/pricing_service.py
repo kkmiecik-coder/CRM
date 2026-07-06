@@ -300,11 +300,14 @@ def calculate_edges_pricing(edges, product, data):
     Narożniki: krawędź o wymiarze thickness (N1-N4) LUB pion dynamiczny
     (P*, H*.P*) — modal applyEdges klasyfikuje piony po group=='vertical'
     z definicji dynamicznych, więc traktowanie H*.P* jako narożnik flat
-    per_corner jest tu POPRAWNE. Quirk `letter.startsWith('P')` widoczny w
-    recalculateEdgesForForm to znany bug tamtej (nieużywanej do zapisu) funkcji
-    JS — celowo NIE replikowany.
+    per_corner jest tu POPRAWNE. Quirk `letter.startsWith('P')`, wcześniej
+    widoczny w JS recalculateEdgesForForm (Task 9: ciało tej funkcji
+    przebudowane, liczenie cen w JS usunięte na rzecz danych z backendu)
+    — celowo NIE replikowany.
 
-    NIE używać tu edge_calculator.calculate_all_edges — liczy inaczej (patrz plan).
+    UWAGA: legacy edge_calculator.calculate_all_edges (liczył inaczej) zostało
+    usunięte jako martwy kod (Task 9, zero referencji) — ta funkcja jest teraz
+    jedynym źródłem prawdy dla cen krawędzi.
     """
     if not edges:
         return {'netto': 0.0, 'brutto': 0.0, 'details': []}
@@ -455,22 +458,6 @@ def get_finishing_prices_data():
     except Exception as e:
         current_app.logger.error(f"Błąd pobierania cen wykończeń: {str(e)}")
         return {"success": False, "error": "Blad pobierania cen wykonczeń"}, 500
-
-
-def get_cutout_price_netto():
-    """
-    Zwraca cenę netto za jedno wycięcie z FinishingOption(code='CUTOUT').
-    Fallback: 0.0 jeśli nie skonfigurowano.
-    """
-    from modules.calculator.models import FinishingOption
-
-    try:
-        opt = FinishingOption.query.filter_by(code='CUTOUT', is_active=True).first()
-        if opt and opt.price_netto is not None:
-            return float(opt.price_netto)
-    except Exception as e:
-        current_app.logger.warning(f"get_cutout_price_netto fallback do 0: {e}")
-    return 0.0
 
 
 # =============================================================================

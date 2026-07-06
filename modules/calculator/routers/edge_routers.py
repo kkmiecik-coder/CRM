@@ -51,46 +51,6 @@ def register_routes(bp):
             current_app.logger.error(f"[get_edge_definitions] Błąd: {str(e)}")
             return jsonify({"success": False, "error": "Blad pobierania definicji krawedzi"}), 500
 
-    @bp.route('/api/calculate-edges', methods=['POST'])
-    @require_module_access('calculator')
-    def calculate_edges():
-        """Oblicza cenę obróbki krawędzi na podstawie przesłanych danych."""
-        try:
-            data = request.get_json()
-            if not data:
-                return jsonify({"success": False, "error": "Brak danych"}), 400
-
-            shape = data.get('shape', 'rectangular')
-            shape_data = data.get('shape_data')
-
-            # Nieregularne kształty — dynamiczny system krawędzi G/D/P
-            if shape not in ('rectangular', 'round') and shape_data:
-                from modules.calculator.services.edge_calculator import calculate_dynamic_edges
-                result = calculate_dynamic_edges(
-                    shape_type=shape,
-                    shape_data_json=shape_data,
-                    thickness_cm=float(data.get('thickness', 0)),
-                    edges_config=data.get('edges', [])
-                )
-                return jsonify(result)
-
-            # Prostokątne / okrągłe — istniejący system A-H / N1-N4
-            from modules.calculator.services.edge_calculator import calculate_all_edges
-
-            edges_config = data.get('edges', [])
-            dimensions = {
-                'length': float(data.get('length', 0)),
-                'width': float(data.get('width', 0)),
-                'thickness': float(data.get('thickness', 0)),
-            }
-
-            result = calculate_all_edges(edges_config, dimensions)
-            return jsonify(result)
-
-        except Exception as e:
-            current_app.logger.error(f"[calculate_edges] Błąd: {str(e)}")
-            return jsonify({"success": False, "error": "Blad kalkulacji krawedzi"}), 500
-
     @bp.route('/api/dynamic-edge-definitions', methods=['POST'])
     @require_module_access('calculator')
     def get_dynamic_edge_definitions_api():

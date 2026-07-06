@@ -403,6 +403,10 @@ def _update_or_create_product(quote, product_data):
         # Obsluga dwoch formatow:
         # Format A (load_quote): unit_price_netto/brutto (cena jednostkowa)
         # Format B (frontend): final_price_netto/brutto (cena calkowita za ilosc)
+        # UWAGA: galaz "unit_price_netto" jest defensywna — realny frontend
+        # (calculator-api.js/save_quote.js) zawsze wysyla final_price_netto
+        # (Format B). Ta galaz obsluguje tylko Format A (np. load_quote_for_edit
+        # / inne wewnetrzne wywolania), nie usuwac bez potwierdzenia braku uzycia.
         if 'unit_price_netto' in variant:
             unit_price_netto = variant.get('unit_price_netto', 0)
             unit_price_brutto = variant.get('unit_price_brutto', 0)
