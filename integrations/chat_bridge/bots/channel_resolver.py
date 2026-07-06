@@ -36,10 +36,11 @@ def persona_for(inbox_id) -> "str | None":
     """
     Zwraca klucz persony dla danego inbox_id lub None gdy typ kanalu nieobslugiwany.
     Tier 1 — typ kanalu:
-        Channel::Email     -> "mail" (dowolna skrzynka mailowa)
-        Channel::WebWidget -> "livechat" (konwersacyjny bot na stronie)
-        Channel::Api       -> tier 2 po nazwie inboxu
-        inne typy          -> None
+        Channel::Email        -> "mail" (dowolna skrzynka mailowa)
+        Channel::WebWidget    -> "livechat" (konwersacyjny bot na stronie)
+        Channel::FacebookPage -> "livechat" (Messenger — ten sam bot konwersacyjny, np. reklamy click-to-Messenger)
+        Channel::Api          -> tier 2 po nazwie inboxu
+        inne typy             -> None
     Tier 2 — nazwa inboxu (tylko Channel::Api):
         zawiera "allegro" -> "allegro"  (sprawdzane PIERWSZE — restrykcyjna wygrywa)
         zawiera "olx"     -> "olx"
@@ -59,6 +60,9 @@ def persona_for(inbox_id) -> "str | None":
         return "mail"
     if ctype == "Channel::WebWidget":
         # Live chat na stronie — konwersacyjny bot (osobna sciezka, nie podpowiadacz)
+        return "livechat"
+    if ctype == "Channel::FacebookPage":
+        # Messenger (m.in. reklamy click-to-Messenger) — ten sam konwersacyjny bot co live chat
         return "livechat"
     if ctype == "Channel::Api":
         name = (info.get("name") or "").lower()

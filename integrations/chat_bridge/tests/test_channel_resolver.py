@@ -15,6 +15,7 @@ FAKE_CATALOG = [
     {"id": 4,  "name": "Allegro - Wiadomosci",    "channel_type": "Channel::Api"},
     {"id": 6,  "name": "Allegro - Dyskusje",      "channel_type": "Channel::Api"},
     {"id": 5,  "name": "Wsparcie WoodPower",       "channel_type": "Channel::WebWidget"},
+    {"id": 19, "name": "WOOD POWER",               "channel_type": "Channel::FacebookPage"},
     {"id": 7,  "name": "kontakt@woodpower.pl",     "channel_type": "Channel::Email"},
     {"id": 8,  "name": "info@woodpower.pl",        "channel_type": "Channel::Email"},
     {"id": 10, "name": "Cokolwiek Api",            "channel_type": "Channel::Api"},
@@ -76,6 +77,13 @@ def test_api_bez_olx_allegro_zwraca_none(monkeypatch):
 def test_webwidget_zwraca_livechat(monkeypatch):
     monkeypatch.setattr(cr, "cw_inboxes", _fake_cw_inboxes)
     assert cr.persona_for(5) == "livechat"
+
+
+def test_facebookpage_messenger_zwraca_livechat(monkeypatch):
+    # Messenger (Channel::FacebookPage, np. inbox 19 "WOOD POWER" z reklam click-to-Messenger)
+    # ma dostac ten sam konwersacyjny bot co live chat na stronie.
+    monkeypatch.setattr(cr, "cw_inboxes", _fake_cw_inboxes)
+    assert cr.persona_for(19) == "livechat"
 
 
 def test_nieznane_id_zwraca_none_po_force_refresh(monkeypatch):
