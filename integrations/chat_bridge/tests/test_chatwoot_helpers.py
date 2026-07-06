@@ -64,3 +64,44 @@ def test_cw_articles_przechodzi_wszystkie_strony(monkeypatch):
     out = cw.cw_articles("woodpower")
     assert len(out) == 60
     assert out[0]["id"] == 0 and out[-1]["id"] == 59
+
+
+def test_cw_agent_reply_bez_obrazu_json_post(monkeypatch):
+    zapis = {}
+    def fake_post(url, headers=None, json=None, timeout=None, **kw):
+        zapis["json"] = json
+        zapis["files"] = kw.get("files")
+        return FakeResp({})  # status 200
+    monkeypatch.setattr(cw.requests, "post", fake_post)
+    ok = cw.cw_agent_reply(5, "cześć")
+    assert ok is True
+    assert zapis["json"] == {"content": "cześć", "message_type": "outgoing"}
+    assert zapis["files"] is None
+
+
+def test_cw_agent_reply_z_obrazem_multipart(monkeypatch, tmp_path):
+    p = tmp_path / "probka.jpg"
+    p.write_bytes(b"\xff\xd8\xffDANE")
+    zapis = {}
+    def fake_post(url, headers=None, data=None, files=None, timeout=None, **kw):
+        zapis["data"] = data
+        zapis["files"] = files
+        return FakeResp({})
+    monkeypatch.setattr(cw.requests, "post", fake_post)
+    ok = cw.cw_agent_reply(5, "opis", image_path=str(p), image_name="probka.jpg", image_mime="image/jpeg")
+    assert ok is True
+    assert zapis["data"] == {"content": "opis", "message_type": "outgoing"}
+    assert zapis["files"][0][0] == "attachments[]"
+    assert zapis["files"][0][1][0] == "probka.jpg"
+    assert zapis["files"][0][1][1] == b"\xff\xd8\xffDANE"
+
+
+def test_cw_agent_reply_brak_pliku_fallback_json(monkeypatch):
+    zapis = {}
+    def fake_post(url, headers=None, json=None, timeout=None, **kw):
+        zapis["json"] = json
+        return FakeResp({})
+    monkeypatch.setattr(cw.requests, "post", fake_post)
+    ok = cw.cw_agent_reply(5, "opis", image_path="/nie/ma/pliku.jpg")
+    assert ok is True
+    assert zapis["json"] == {"content": "opis", "message_type": "outgoing"}

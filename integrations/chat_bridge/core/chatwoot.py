@@ -194,14 +194,29 @@ def cw_bot_handoff(conv_id, token=None):
         log("bot_handoff blad:", repr(e)); return False
 
 
-def cw_agent_reply(conv_id, text):
+def cw_agent_reply(conv_id, text, image_path=None, image_name=None, image_mime="image/jpeg"):
     """Publiczna odpowiedz live-bota do klienta (message_type=outgoing, token live-bota).
-    Nigdy nie rzuca — True gdy 200, inaczej False + log."""
+    Bez image_path -> JSON POST (jak dotychczas). Z image_path -> multipart z lokalnym plikiem;
+    gdy plik nieczytelny, fallback do JSON POST (obraz nie moze zablokowac tekstu).
+    Nigdy nie rzuca — True gdy 200/201, inaczej False + log."""
     tok = BOT_LIVE_CW_AGENT_TOKEN or CW_TOKEN
+    url = "%s/api/v1/accounts/%s/conversations/%s/messages" % (CW_BASE, CW_ACC, conv_id)
+    files = None
+    if image_path:
+        try:
+            with open(image_path, "rb") as f:
+                dane = f.read()
+            files = [("attachments[]", (image_name or "obraz.jpg", dane, image_mime or "image/jpeg"))]
+        except Exception as e:
+            log("agent_reply obraz nieczytelny:", repr(e))  # fallback -> tekst bez obrazu
     try:
-        url = "%s/api/v1/accounts/%s/conversations/%s/messages" % (CW_BASE, CW_ACC, conv_id)
-        r = requests.post(url, headers={"api_access_token": tok, "Content-Type": "application/json"},
-                          json={"content": text, "message_type": "outgoing"}, timeout=25)
+        if files:
+            r = requests.post(url, headers={"api_access_token": tok},
+                              data={"content": text, "message_type": "outgoing"},
+                              files=files, timeout=60)
+        else:
+            r = requests.post(url, headers={"api_access_token": tok, "Content-Type": "application/json"},
+                              json={"content": text, "message_type": "outgoing"}, timeout=25)
         if r.status_code not in (200, 201):
             log("agent_reply kod:", r.status_code, r.text[:150]); return False
         return True
