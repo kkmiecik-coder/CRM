@@ -228,33 +228,156 @@ class FinishingOption(db.Model):
 
         return result
 
+    @staticmethod
+    def _build_lookup_maps():
+        """
+        Ładuje WSZYSTKIE opcje jednym zapytaniem i buduje mapy pomocnicze:
+        - by_id: id -> FinishingOption
+        - children_by_parent: parent_id -> lista dzieci (posortowana po sort_order)
+        Eliminuje N+1 z relacji parent/children (lazy='dynamic').
+        """
+        all_options = FinishingOption.query.all()
+        by_id = {opt.id: opt for opt in all_options}
+        children_by_parent = {}
+        for opt in all_options:
+            children_by_parent.setdefault(opt.parent_id, []).append(opt)
+        for parent_id in children_by_parent:
+            children_by_parent[parent_id].sort(key=lambda x: x.sort_order)
+        return by_id, children_by_parent
+
+    @staticmethod
+    def _compute_ancestor_chains(by_id):
+        """
+        Iteracyjnie (od korzeni w dół, bez rekurencji po relacji parent)
+        liczy dla każdego węzła: pełną ścieżkę nazw, efektywną cenę
+        i efektywny (dziedziczony) kod. Zwraca mapy id -> wartość.
+        Odpowiednik get_full_path()/get_effective_price()/get_code(), ale
+        bez chodzenia po self.parent per węzeł (0 dodatkowych zapytań SQL).
+        """
+        full_path_by_id = {}
+        effective_price_by_id = {}
+        effective_code_by_id = {}
+
+        # Kolejność przetwarzania: rodzic zawsze przed dzieckiem.
+        # Budujemy ją przechodząc od korzeni (parent_id is None) w dół po
+        # kolejności id (parent zawsze ma niższy poziom niż dziecko, ale
+        # dla pewności iterujemy dopóki wszystkie węzły nie zostaną policzone).
+        pending = list(by_id.values())
+        resolved = set()
+
+        # Sortujemy tak, by rodzice byli liczeni przed dziećmi - proste
+        # sortowanie topologiczne po poziomie relacji parent_id.
+        def resolve(opt):
+            if opt.id in resolved:
+                return
+            if opt.parent_id is not None and opt.parent_id in by_id:
+                parent = by_id[opt.parent_id]
+                if parent.id not in resolved:
+                    resolve(parent)
+                full_path_by_id[opt.id] = full_path_by_id[parent.id] + ' > ' + opt.name
+                effective_price_by_id[opt.id] = (
+                    float(opt.price_netto) if opt.price_netto is not None
+                    else effective_price_by_id[parent.id]
+                )
+                effective_code_by_id[opt.id] = opt.code if opt.code else effective_code_by_id[parent.id]
+            else:
+                full_path_by_id[opt.id] = opt.name
+                effective_price_by_id[opt.id] = float(opt.price_netto) if opt.price_netto is not None else 0.0
+                effective_code_by_id[opt.id] = opt.code if opt.code else None
+            resolved.add(opt.id)
+
+        for opt in pending:
+            resolve(opt)
+
+        return full_path_by_id, effective_price_by_id, effective_code_by_id
+
+    @staticmethod
+    def _to_dict_precomputed(opt, full_path, effective_price, effective_code,
+                              include_effective_price=True):
+        """
+        Odpowiednik to_dict(include_children=False), ale korzysta z wcześniej
+        policzonych wartości (full_path/effective_price/effective_code) zamiast
+        chodzić po relacjach parent. Klucze i wartości wyniku identyczne jak
+        w FinishingOption.to_dict(). Budowanie 'children' (jeśli potrzebne)
+        odbywa się osobno w get_tree() - tam, gdzie mamy already gotowe mapy.
+        """
+        result = {
+            'id': opt.id,
+            'parent_id': opt.parent_id,
+            'level': opt.level,
+            'name': opt.name,
+            'code': opt.code,
+            'price_netto': float(opt.price_netto) if opt.price_netto is not None else None,
+            'image_path': opt.image_path,
+            'is_active': opt.is_active,
+            'sort_order': opt.sort_order,
+            'full_path': full_path,
+        }
+
+        if include_effective_price:
+            result['effective_price_netto'] = effective_price
+            result['inherited_code'] = effective_code
+
+        return result
+
     @classmethod
     def get_tree(cls):
-        roots = cls.query.filter_by(parent_id=None, is_active=True).order_by(cls.sort_order).all()
-        return [root.to_dict(include_children=True) for root in roots]
+        # Jedno zapytanie zamiast N+1 po relacji parent/children per węzeł.
+        by_id, children_by_parent = cls._build_lookup_maps()
+        full_path_by_id, effective_price_by_id, effective_code_by_id = cls._compute_ancestor_chains(by_id)
+
+        def build(opt):
+            result = cls._to_dict_precomputed(
+                opt,
+                full_path_by_id[opt.id],
+                effective_price_by_id[opt.id],
+                effective_code_by_id[opt.id],
+                include_effective_price=True,
+            )
+            children = children_by_parent.get(opt.id, [])
+            active_children = [c for c in children if c.is_active]
+            result['children'] = [build(child) for child in active_children]
+            return result
+
+        roots = [
+            opt for opt in children_by_parent.get(None, [])
+            if opt.is_active
+        ]
+        roots = sorted(roots, key=lambda x: x.sort_order)
+        return [build(root) for root in roots]
 
     @classmethod
     def get_flat_list(cls, include_inactive=False):
+        # Jedno zapytanie zamiast N+1 po relacji parent/children per węzeł.
+        by_id, children_by_parent = cls._build_lookup_maps()
+        full_path_by_id, effective_price_by_id, effective_code_by_id = cls._compute_ancestor_chains(by_id)
+
         result = []
 
         def traverse(options, depth=0):
             for opt in sorted(options, key=lambda x: x.sort_order):
                 if include_inactive or opt.is_active:
-                    item = opt.to_dict()
+                    item = cls._to_dict_precomputed(
+                        opt,
+                        full_path_by_id[opt.id],
+                        effective_price_by_id[opt.id],
+                        effective_code_by_id[opt.id],
+                        include_effective_price=True,
+                    )
                     item['depth'] = depth
                     item['indent'] = '—' * depth
                     result.append(item)
 
-                    children = list(opt.children)
+                    children = children_by_parent.get(opt.id, [])
                     if include_inactive:
                         traverse(children, depth + 1)
                     else:
                         traverse([c for c in children if c.is_active], depth + 1)
 
-        query = cls.query.filter_by(parent_id=None)
+        roots = children_by_parent.get(None, [])
         if not include_inactive:
-            query = query.filter_by(is_active=True)
-        roots = query.order_by(cls.sort_order).all()
+            roots = [r for r in roots if r.is_active]
+        roots = sorted(roots, key=lambda x: x.sort_order)
         traverse(roots)
         return result
 
