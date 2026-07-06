@@ -10,6 +10,8 @@ piony P* jako narożniki w krawędziach) są CELOWE — tak liczy frontend na pr
 
 import json as _json
 import math
+import time
+import threading
 from dataclasses import dataclass, field
 
 from flask import current_app
@@ -115,7 +117,7 @@ def _finishing_maps_from_flat_list(flat_list):
     return by_id, by_path, cutout_price
 
 
-def load_pricing_data():
+def _build_pricing_data():
     """Ładuje cenniki z DB. Jedyna funkcja w tym module dotykająca bazy."""
     from modules.calculator.models import (
         Price, Multiplier, FinishingOption, EdgeOption, CalculatorSetting
@@ -150,6 +152,51 @@ def load_pricing_data():
         cutout_price_netto=cutout_price,
         round_surcharge_netto=surcharge,
     )
+
+
+# Cache cenników w pamięci procesu — cenniki zmieniają się raz na
+# tygodnie/miesiące (potwierdzone przez usera), więc odpytywanie 5 tabel
+# przy KAŻDYM /calculate jest zbędnym obciążeniem bazy. TTL to tylko siatka
+# bezpieczeństwa na wypadek edycji poza aplikacją (np. phpMyAdmin) —
+# normalnie cache jest odświeżany od razu przez invalidate_pricing_cache()
+# wołane po zapisie w panelu admina.
+_PRICING_CACHE = {'data': None, 'ts': 0.0}
+_PRICING_CACHE_LOCK = threading.Lock()
+# 1 godzina — cenniki zmieniają się raz na tygodnie/miesiące, a zmiany przez
+# panel admina i tak odświeżają cache natychmiast przez invalidate_pricing_cache();
+# TTL to wyłącznie siatka bezpieczeństwa na zmiany poza aplikacją (np. phpMyAdmin).
+PRICING_CACHE_TTL = 3600  # sekundy
+
+
+def load_pricing_data(use_cache=True):
+    """Zwraca PricingData — z cache (domyślnie) albo świeżo z bazy.
+
+    use_cache=False wymusza pominięcie cache (np. golden check / testy
+    porównawcze, gdzie chcemy mieć pewność, że dane pochodzą wprost z DB).
+    """
+    if use_cache:
+        now = time.time()
+        cached = _PRICING_CACHE['data']
+        if cached is not None and (now - _PRICING_CACHE['ts']) < PRICING_CACHE_TTL:
+            return cached
+
+    data = _build_pricing_data()
+
+    if use_cache:
+        with _PRICING_CACHE_LOCK:
+            _PRICING_CACHE['data'] = data
+            _PRICING_CACHE['ts'] = time.time()
+
+    return data
+
+
+def invalidate_pricing_cache():
+    """Czyści cache cenników — wołać zaraz po zapisie zmian w panelu admina
+    (prices/finishing_options/edge_options/calculator_settings), żeby zmiana
+    była widoczna natychmiast w /calculate, bez czekania na TTL."""
+    with _PRICING_CACHE_LOCK:
+        _PRICING_CACHE['data'] = None
+        _PRICING_CACHE['ts'] = 0.0
 
 
 def find_price_entry(data, species, technology, wood_class, thickness, length, width):

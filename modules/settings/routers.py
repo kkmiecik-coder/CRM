@@ -750,6 +750,8 @@ def api_update_price(price_id):
                 return jsonify({'success': False, 'error': 'Nieprawidłowa wartość ceny'}), 400
 
         db.session.commit()
+        from modules.calculator.services.pricing_service import invalidate_pricing_cache
+        invalidate_pricing_cache()
 
         return jsonify({
             'success': True,
@@ -803,6 +805,8 @@ def api_create_price():
 
         db.session.add(price)
         db.session.commit()
+        from modules.calculator.services.pricing_service import invalidate_pricing_cache
+        invalidate_pricing_cache()
 
         return jsonify({
             'success': True,
@@ -826,6 +830,8 @@ def api_delete_price(price_id):
 
         db.session.delete(price)
         db.session.commit()
+        from modules.calculator.services.pricing_service import invalidate_pricing_cache
+        invalidate_pricing_cache()
 
         return jsonify({
             'success': True,
@@ -912,6 +918,9 @@ def api_update_calculator_settings():
             except (InvalidOperation, ValueError):
                 return jsonify({'success': False, 'error': 'Nieprawidłowa wartość dopłaty'}), 400
 
+        from modules.calculator.services.pricing_service import invalidate_pricing_cache
+        invalidate_pricing_cache()
+
         return jsonify({'success': True})
     except Exception as e:
         current_app.logger.error(f"[api_update_calculator_settings] Błąd: {str(e)}")
@@ -987,6 +996,8 @@ def api_update_edge_option(option_id):
             option.is_active = bool(data['is_active'])
 
         db.session.commit()
+        from modules.calculator.services.pricing_service import invalidate_pricing_cache
+        invalidate_pricing_cache()
 
         return jsonify({
             'success': True,
@@ -1093,6 +1104,8 @@ def api_create_finishing_option():
 
         db.session.add(option)
         db.session.commit()
+        from modules.calculator.services.pricing_service import invalidate_pricing_cache
+        invalidate_pricing_cache()
 
         return jsonify({
             'success': True,
@@ -1140,6 +1153,8 @@ def api_update_finishing_option(option_id):
             option.is_active = bool(data['is_active'])
 
         db.session.commit()
+        from modules.calculator.services.pricing_service import invalidate_pricing_cache
+        invalidate_pricing_cache()
 
         return jsonify({
             'success': True,
@@ -1169,6 +1184,8 @@ def api_delete_finishing_option(option_id):
 
         deactivate_recursive(option)
         db.session.commit()
+        from modules.calculator.services.pricing_service import invalidate_pricing_cache
+        invalidate_pricing_cache()
 
         return jsonify({
             'success': True,
@@ -1227,6 +1244,8 @@ def api_move_finishing_option(option_id):
         siblings[swap_index].sort_order = current_order
 
         db.session.commit()
+        from modules.calculator.services.pricing_service import invalidate_pricing_cache
+        invalidate_pricing_cache()
 
         return jsonify({'success': True})
     except Exception as e:
@@ -1276,6 +1295,8 @@ def api_upload_finishing_option_image(option_id):
         relative_path = f"images/finishes/{filename}"
         option.image_path = relative_path
         db.session.commit()
+        from modules.calculator.services.pricing_service import invalidate_pricing_cache
+        invalidate_pricing_cache()
 
         return jsonify({
             'success': True,
@@ -1388,6 +1409,8 @@ def api_bulk_update_prices():
                 errors.append(f"Błąd dla ID {price_id}: {str(e)}")
 
         db.session.commit()
+        from modules.calculator.services.pricing_service import invalidate_pricing_cache
+        invalidate_pricing_cache()
 
         result = {'success': True, 'updated': updated}
         if errors:
@@ -1450,6 +1473,8 @@ def api_bulk_update_finishing_options():
                 errors.append(f"Błąd dla ID {option_id}: {str(e)}")
 
         db.session.commit()
+        from modules.calculator.services.pricing_service import invalidate_pricing_cache
+        invalidate_pricing_cache()
 
         result = {'success': True, 'updated': updated}
         if errors:
@@ -1531,6 +1556,8 @@ def api_bulk_update_edge_options():
                 errors.append(f"Błąd dla ID {option_id}: {str(e)}")
 
         db.session.commit()
+        from modules.calculator.services.pricing_service import invalidate_pricing_cache
+        invalidate_pricing_cache()
 
         result = {'success': True, 'updated': updated}
         if errors:
