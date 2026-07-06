@@ -209,6 +209,21 @@ def update_quote(edit_uuid, data, current_user):
         return {"success": False, "error": "Brak uprawnien do edycji tej wyceny"}, 403
 
     try:
+        # === BACKEND LICZY CENY OD ZERA — payload frontu to tylko parametry ===
+        # Wykonane PRZED jakąkolwiek mutacją `quote`/DB, zeby przy bledzie
+        # walidacji nic nie zostalo zmienione (return 400 bez zapisu).
+        from modules.calculator.services.pricing_service import (
+            load_pricing_data, calculate_quote as calc_quote,
+        )
+        pricing_data = load_pricing_data()
+        calc = calc_quote(_payload_to_calc_request(data), pricing_data)
+        if not calc['ok']:
+            return {"success": False, "error": "Błędy walidacji wyceny",
+                    "errors": calc['errors']}, 400
+
+        # Nadpisz ceny w payloadzie wynikami backendu (per produkt / wariant)
+        _inject_backend_prices(data.get('products', []), calc)
+
         settings = data.get('settings', {})
 
         # 1. Aktualizacja ustawien Quote
@@ -218,11 +233,13 @@ def update_quote(edit_uuid, data, current_user):
         quote.shipping_cost_brutto = settings.get('shippingBrutto', quote.shipping_cost_brutto)
         quote.quote_type = settings.get('quoteType', quote.quote_type)
         quote.quote_client_type = settings.get('clientType', quote.quote_client_type)
-        quote.quote_multiplier = settings.get('multiplier', quote.quote_multiplier)
+        # quote_multiplier zapisywany do Quote to wartosc rozstrzygnieta przez
+        # backend (grupa cenowa lub partner fixed), NIE surowy payload frontu.
+        quote.quote_multiplier = calc['multiplier']
         quote.source = settings.get('source', quote.source)
 
-        if 'total_price' in data:
-            quote.total_price = data['total_price']
+        # total_price liczony przez backend (calc['totals']), nie payload frontu.
+        quote.total_price = calc['totals']['total_brutto']
 
         # 2. Usun WSZYSTKIE stare produkty i dodaj nowe (pelna nadpisanie)
         QuoteItem.query.filter_by(quote_id=quote.id).delete()
@@ -524,12 +541,30 @@ def _payload_to_calc_request(data):
             'edges': edges_list,
             'edges_mode': edges_mode,
         })
+
+    # Ustawienia calej wyceny: Format B (save_quote) trzyma je na plasko
+    # w gornym poziomie payloadu; Format A (update_quote/edycja) zagniezdza
+    # je w 'settings' (patrz save_quote.js - payload.settings.{clientType,
+    # multiplier, shippingNetto, shippingBrutto}). Format A ma pierwszenstwo
+    # gdy 'settings' jest obecne, bo klucze plaskie tam nie wystepuja.
+    settings = data.get('settings')
+    if isinstance(settings, dict):
+        client_type = settings.get('clientType')
+        multiplier_raw = settings.get('multiplier')
+        shipping_netto = settings.get('shippingNetto', 0)
+        shipping_brutto = settings.get('shippingBrutto', 0)
+    else:
+        client_type = data.get('quote_client_type')
+        multiplier_raw = data.get('quote_multiplier')
+        shipping_netto = data.get('shipping_cost_netto', 0)
+        shipping_brutto = data.get('shipping_cost_brutto', 0)
+
     return {
-        'client_type': data.get('quote_client_type'),
-        'multiplier': data.get('quote_multiplier') if data.get('is_partner_fixed') else None,
+        'client_type': client_type,
+        'multiplier': multiplier_raw if data.get('is_partner_fixed') else None,
         'products': products,
-        'shipping': {'netto': data.get('shipping_cost_netto', 0),
-                     'brutto': data.get('shipping_cost_brutto', 0)},
+        'shipping': {'netto': shipping_netto,
+                     'brutto': shipping_brutto},
     }
 
 

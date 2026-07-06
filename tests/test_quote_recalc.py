@@ -58,6 +58,49 @@ def test_mapowanie_payloadu_formatu_a_edycji():
     assert 'priceNetto' not in p
 
 
+def test_mapowanie_formatu_edycji():
+    """Test z brief Taska 11 (Step 2) - mapowanie produktu w formacie edycji."""
+    product = {'index': 1, 'length': 100, 'width': 50, 'thickness': 3, 'quantity': 1,
+               'finishing': {'type': 'Olejowanie', 'variant': None, 'gloss': None},
+               'edges': {'config': [{'letter': 'A', 'type': 'round'}], 'mode': 'basic'},
+               'variants': [{'variant_code': 'dab-lity-ab', 'is_selected': True}]}
+    calc = _payload_to_calc_request({'quote_client_type': 'Detal+', 'products': [product]})
+    p = calc['products'][0]
+    assert p['finishing_type'] == 'Olejowanie'
+    assert p['edges'] == [{'letter': 'A', 'type': 'round'}]
+    assert p['edges_mode'] == 'basic'
+
+
+def test_mapowanie_ustawien_zagniezdzonych_w_settings_edycja():
+    """update_quote (edycja) wysyła client_type/multiplier/shipping zagnieżdżone
+    w 'settings' (patrz save_quote.js payload.settings.{clientType, multiplier,
+    shippingNetto, shippingBrutto}) - BEZ płaskich kluczy quote_client_type/
+    quote_multiplier/shipping_cost_netto/shipping_cost_brutto na górnym poziomie.
+    _payload_to_calc_request musi czytać z 'settings' gdy jest obecne,
+    inaczej client_type wychodzi None i calculate_quote zwraca błąd MISSING."""
+    payload = {
+        'products': [{
+            'index': 1, 'length': 100, 'width': 50, 'thickness': 3, 'quantity': 1,
+            'finishing': {'type': 'Olejowanie'},
+            'edges': {'config': None},
+            'variants': [{'variant_code': 'dab-lity-ab', 'is_selected': True}],
+        }],
+        'settings': {
+            'clientType': 'Detal+',
+            'multiplier': 1.5,
+            'shippingNetto': 20.0,
+            'shippingBrutto': 24.6,
+        },
+    }
+    calc = _payload_to_calc_request(payload)
+    assert calc['client_type'] == 'Detal+'
+    assert calc['shipping'] == {'netto': 20.0, 'brutto': 24.6}
+    # is_partner_fixed nie jest wysyłany w edycji -> multiplier ma być
+    # rozstrzygnięty przez resolve_multiplier na podstawie client_type,
+    # NIE nadpisany na sztywno przez 'settings.multiplier'.
+    assert calc['multiplier'] is None
+
+
 def test_inject_backend_prices_nadpisuje_zawyzone_ceny_frontu():
     """_inject_backend_prices: payload z zawyżonymi cenami frontu ma zostać
     nadpisany wynikami calculate_quote (ceny/volume/price_per_m3/multiplier)."""
