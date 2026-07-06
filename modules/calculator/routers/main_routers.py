@@ -86,6 +86,28 @@ def register_routes(bp):
             current_app.logger.error(f"[get_calculator_settings] Błąd: {str(e)}")
             return jsonify({'round_shape_surcharge_netto': 50.00})
 
+    @bp.route('/api/calculate', methods=['POST'])
+    @require_module_access('calculator')
+    def calculate():
+        """Liczy pełny breakdown wyceny — jedyne źródło cen dla UI kalkulatora."""
+        from modules.calculator.services.pricing_service import (
+            load_pricing_data, calculate_quote,
+        )
+        payload = request.get_json(silent=True)
+        if not payload:
+            return jsonify({'ok': False, 'errors': [
+                {'field': None, 'code': 'BAD_REQUEST', 'message': 'Brak danych wyceny.'}
+            ]}), 400
+        try:
+            data = load_pricing_data()
+            result = calculate_quote(payload, data)
+            return jsonify(result), 200
+        except Exception as e:
+            current_app.logger.exception(f'[calculate] Błąd: {e}')
+            return jsonify({'ok': False, 'errors': [
+                {'field': None, 'code': 'INTERNAL', 'message': 'Błąd serwera podczas liczenia wyceny.'}
+            ]}), 500
+
     @bp.route('/api/import-dxf', methods=['POST'])
     def import_dxf():
         """Importuje plik DXF i zwraca listę produktów."""
