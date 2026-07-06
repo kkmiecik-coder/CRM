@@ -66,3 +66,13 @@ def test_sample_key_stabilny():
 
 def test_sample_key_niepelna_none():
     assert images.sample_key({"gatunek": "dąb"}) is None
+
+
+def test_resolve_sample_nie_dict_none():
+    assert images.resolve_sample("nie dict") is None
+    assert images.resolve_sample(42) is None
+
+
+def test_sample_key_nie_dict_none():
+    assert images.sample_key(["lista"]) is None
+    assert images.sample_key(None) is None

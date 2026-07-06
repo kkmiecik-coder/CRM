@@ -80,6 +80,8 @@ def _norm_wykonczenie(v):
 
 def _tokeny(poz):
     """(gatunek, technologia, klasa, wykonczenie) znormalizowane albo None gdy niepelne."""
+    if not isinstance(poz, dict):
+        poz = {}   # zabezpieczenie: zly typ (nie-dict) -> brak tokenow, nie wyjatek
     g = _norm_gatunek(poz.get("gatunek"))
     t = _norm_technologia(poz.get("technologia"))
     k = _norm_klasa(poz.get("klasa"))
