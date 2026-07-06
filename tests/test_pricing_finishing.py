@@ -1,6 +1,8 @@
 """Testy parytetu wykończenia z JS calculateFinishingCost (calculator-ui.js:493)."""
 import math
-from modules.calculator.services.pricing_service import PricingData, calculate_finishing
+from modules.calculator.services.pricing_service import (
+    PricingData, calculate_finishing, _finishing_maps_from_flat_list,
+)
 
 OPCJE = {7: {'id': 7, 'price_netto': 200.0, 'full_path': 'Lakierowanie > Bezbarwne > Mat'}}
 
@@ -52,3 +54,60 @@ def test_lakierowanie_bez_polysku_zero():
     r = calculate_finishing(_product(finishing_gloss_level=None),
                             PricingData(finishing_options_by_id=OPCJE))
     assert r['netto'] == 0
+
+
+# =============================================================================
+# Testy _finishing_maps_from_flat_list — parytet z loadFinishingPrices()
+# (calculator-ui.js:33-56). JS liczy na effective_price_netto (cena dziedziczona
+# z rodzica gdy opcja nie ma własnej), NIE na surowym price_netto.
+# =============================================================================
+
+FLAT_LIST_RODZIC_DZIECKO = [
+    {
+        'id': 1, 'name': 'Lakierowanie', 'code': None, 'inherited_code': None,
+        'full_path': 'Lakierowanie', 'level': 0, 'parent_id': None,
+        'price_netto': 150.0, 'effective_price_netto': 150.0,
+    },
+    {
+        # Dziecko BEZ własnej ceny (price_netto=None) — dziedziczy z rodzica.
+        # To jest kluczowy przypadek problemu 2: musi mieć cenę w obu mapach.
+        'id': 2, 'name': 'Bezbarwne', 'code': None, 'inherited_code': None,
+        'full_path': 'Lakierowanie > Bezbarwne', 'level': 1, 'parent_id': 1,
+        'price_netto': None, 'effective_price_netto': 150.0,
+    },
+    {
+        'id': 3, 'name': 'Wycięcie', 'code': None, 'inherited_code': 'CUTOUT',
+        'full_path': 'Wycięcie', 'level': 0, 'parent_id': None,
+        'price_netto': None, 'effective_price_netto': 81.30,
+    },
+]
+
+
+def test_finishing_maps_dziecko_bez_wlasnej_ceny_ma_cene_efektywna():
+    by_id, by_path, cutout_price = _finishing_maps_from_flat_list(FLAT_LIST_RODZIC_DZIECKO)
+
+    # Dziecko (id=2) nie ma własnej ceny, ale MUSI mieć effective_price_netto
+    # w obu mapach — inaczej rozjedzie się z frontendem (bug parytetu).
+    assert by_id[2]['price_netto'] == 150.0
+    assert by_path['Lakierowanie > Bezbarwne'] == 150.0
+
+
+def test_finishing_maps_klucz_legacy():
+    by_id, by_path, cutout_price = _finishing_maps_from_flat_list(FLAT_LIST_RODZIC_DZIECKO)
+
+    # JS: fullPath.replace(' > ', ' ') -> "Lakierowanie Bezbarwne" -> capitalize
+    assert by_path['Lakierowanie bezbarwne'] == 150.0
+
+
+def test_finishing_maps_level_zero_klucz_samej_nazwy():
+    by_id, by_path, cutout_price = _finishing_maps_from_flat_list(FLAT_LIST_RODZIC_DZIECKO)
+
+    # Opcja level==0 dodatkowo pod samą nazwą (JS:49-52)
+    assert by_path['Lakierowanie'] == 150.0
+
+
+def test_finishing_maps_cutout_po_inherited_code():
+    by_id, by_path, cutout_price = _finishing_maps_from_flat_list(FLAT_LIST_RODZIC_DZIECKO)
+
+    # code=None ale inherited_code='CUTOUT' -> musi zostać wykryte (JS:56)
+    assert cutout_price == 81.30

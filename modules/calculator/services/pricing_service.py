@@ -12,6 +12,8 @@ import json as _json
 import math
 from dataclasses import dataclass, field
 
+from flask import current_app
+
 from modules.calculator.services.edge_calculator import (
     EDGE_DEFINITIONS, calculate_ellipse_perimeter_mm, _generate_edge_definitions,
 )
@@ -55,6 +57,58 @@ class PricingData:
     round_surcharge_netto: float = 0.0
 
 
+def _finishing_maps_from_flat_list(flat_list):
+    """
+    Buduje mapy cen wykończeń z płaskiej listy FinishingOption.get_flat_list().
+
+    UWAGA PARYTET: musi odpowiadać dokładnie temu, co robi frontend w
+    loadFinishingPrices() (calculator-ui.js:33-56) — JS liczy na
+    effective_price_netto (cena EFEKTYWNA, dziedziczona z rodzica gdy opcja
+    nie ma własnej ceny), NIE na surowym price_netto. Stary endpoint
+    get_finishing_prices_data() też zwraca effective_price_netto (patrz wyżej).
+
+    Zwraca (by_id, by_path, cutout_price_netto):
+    - by_id[id]: dict opcji z price_netto ustawionym na effective_price_netto,
+      plus full_path/level/code/inherited_code.
+    - by_path[full_path] = float(effective_price_netto) dla KAŻDEJ opcji
+      (jak window.finishingPrices w JS), plus klucz legacy
+      fullPath.replace(' > ', ' ') z pierwszą literą wielką (JS:44-47),
+      plus — dla level==0 — klucz z samą nazwą (JS:49-52).
+    - cutout_price_netto = effective_price_netto opcji, której code lub
+      inherited_code == 'CUTOUT' (JS:56).
+    """
+    by_id = {}
+    by_path = {}
+    cutout_price = 0.0
+
+    for opt in flat_list:
+        effective_price = opt.get('effective_price_netto')
+        opt_with_effective = dict(opt)
+        opt_with_effective['price_netto'] = effective_price
+        by_id[opt['id']] = opt_with_effective
+
+        full_path = opt.get('full_path') or opt.get('name')
+        if effective_price is not None:
+            price_float = float(effective_price)
+            by_path[full_path] = price_float
+
+            # Klucz legacy: "Lakierowanie > Bezbarwne" -> "Lakierowanie bezbarwne"
+            # (JS String.replace(' > ', ' ') zamienia tylko PIERWSZE wystąpienie)
+            legacy_name = full_path.replace(' > ', ' ', 1).lower()
+            legacy_name_capitalized = legacy_name[:1].upper() + legacy_name[1:] if legacy_name else legacy_name
+            by_path[legacy_name_capitalized] = price_float
+
+            # Opcje główne (poziom 0) — też pod samą nazwą
+            if opt.get('level') == 0:
+                by_path[opt['name']] = price_float
+
+        code = opt.get('code') or opt.get('inherited_code')
+        if code == 'CUTOUT':
+            cutout_price = float(effective_price or 0)
+
+    return by_id, by_path, cutout_price
+
+
 def load_pricing_data():
     """Ładuje cenniki z DB. Jedyna funkcja w tym module dotykająca bazy."""
     from modules.calculator.models import (
@@ -68,15 +122,9 @@ def load_pricing_data():
         for m in Multiplier.query.all() if m.client_type
     }
 
-    finishing_by_id = {}
-    finishing_by_path = {}
-    cutout_price = 0.0
-    for opt in FinishingOption.get_flat_list():
-        finishing_by_id[opt['id']] = opt
-        if opt.get('price_netto') is not None:
-            finishing_by_path[opt['full_path']] = float(opt['price_netto'])
-        if opt.get('code') == 'CUTOUT' or opt.get('inherited_code') == 'CUTOUT':
-            cutout_price = float(opt.get('price_netto') or 0)
+    finishing_by_id, finishing_by_path, cutout_price = _finishing_maps_from_flat_list(
+        FinishingOption.get_flat_list()
+    )
 
     edge_prices = {}
     for e in EdgeOption.query.filter_by(is_active=True).all():
@@ -289,3 +337,74 @@ def calculate_edges_pricing(edges, product, data):
         'brutto': round_grosze(total_netto * VAT * quantity),
         'details': details,
     }
+
+
+# =============================================================================
+# Istniejące API endpointu GET /calculator/api/finishing-prices (sprzed przebudowy).
+# Przywrócone verbatim z main po tym, jak przebudowa nadpisała plik i skasowała
+# te funkcje — używane przez modules/calculator/routers/finishing_routers.py
+# oraz frontend (calculator-ui.js: loadFinishingPrices / window.cutoutPriceNetto).
+# =============================================================================
+
+
+def get_finishing_prices_data():
+    """
+    Pobiera ceny wykończeń z bazy danych - hierarchiczne drzewko.
+    Jeśli nowa tabela finishing_options nie działa, fallback do finishing_type_prices.
+
+    Returns:
+        tuple: (lista cen, kod HTTP)
+    """
+    from modules.calculator.models import FinishingOption, FinishingTypePrice
+
+    try:
+        # Spróbuj z nowej tabeli hierarchicznej
+        try:
+            flat_list = FinishingOption.get_flat_list(include_inactive=False)
+            if flat_list:
+                prices_data = []
+                for opt in flat_list:
+                    prices_data.append({
+                        'id': opt['id'],
+                        'name': opt['name'],
+                        'code': opt.get('code') or opt.get('inherited_code'),
+                        'full_path': opt['full_path'],
+                        'price_netto': opt['effective_price_netto'],
+                        'level': opt['level'],
+                        'parent_id': opt['parent_id'],
+                        'image_path': opt.get('image_path'),
+                    })
+                return prices_data, 200
+        except Exception as e:
+            current_app.logger.warning(f"Fallback do starej tabeli finishing: {e}")
+
+        # Fallback: stara tabela
+        prices = FinishingTypePrice.query.filter_by(is_active=True).all()
+        prices_data = []
+        for price in prices:
+            prices_data.append({
+                'id': price.id,
+                'name': price.name,
+                'price_netto': float(price.price_netto),
+            })
+        return prices_data, 200
+
+    except Exception as e:
+        current_app.logger.error(f"Błąd pobierania cen wykończeń: {str(e)}")
+        return {"success": False, "error": "Blad pobierania cen wykonczeń"}, 500
+
+
+def get_cutout_price_netto():
+    """
+    Zwraca cenę netto za jedno wycięcie z FinishingOption(code='CUTOUT').
+    Fallback: 0.0 jeśli nie skonfigurowano.
+    """
+    from modules.calculator.models import FinishingOption
+
+    try:
+        opt = FinishingOption.query.filter_by(code='CUTOUT', is_active=True).first()
+        if opt and opt.price_netto is not None:
+            return float(opt.price_netto)
+    except Exception as e:
+        current_app.logger.warning(f"get_cutout_price_netto fallback do 0: {e}")
+    return 0.0
