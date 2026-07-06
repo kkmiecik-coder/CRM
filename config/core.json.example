@@ -80,5 +80,6 @@
         "release_notes_url": null
     },
     "BOT_API_KEY": "wygeneruj-dlugi-losowy-klucz",
-    "BOT_USER_ID": 0
+    "BOT_USER_ID": 0,
+    "APP_BASE_URL": "https://crm.woodpower.pl"
 }
