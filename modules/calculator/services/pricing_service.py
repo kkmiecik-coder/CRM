@@ -84,3 +84,61 @@ def load_pricing_data():
         cutout_price_netto=cutout_price,
         round_surcharge_netto=surcharge,
     )
+
+
+def find_price_entry(data, species, technology, wood_class, thickness, length, width):
+    """Odpowiednik JS getPrice (calculator-core.js:286) — ceil grubości, zakresy z cennika."""
+    rounded_thickness = math.ceil(thickness)
+    for entry in data.price_entries:
+        if (entry['species'] == species
+                and entry['technology'] == technology
+                and entry['wood_class'] == wood_class
+                and entry['thickness_min'] <= rounded_thickness <= entry['thickness_max']
+                and entry['length_min'] <= length <= entry['length_max']
+                and entry['width_min'] <= width <= entry['width_max']):
+            return entry
+    return None
+
+
+def calculate_material_variants(product, multiplier, data):
+    """Odpowiednik pętli wariantów w JS updatePrices (calculator-core.js:527-591)."""
+    length = float(product['length'])
+    width = float(product['width'])
+    thickness = float(product['thickness'])
+    quantity = int(product.get('quantity', 1))
+    shape = product.get('shape', 'rectangular')
+    holes_count = int(product.get('holes_count', 0))
+
+    # JS: calculateSingleVolume(length, width, Math.ceil(thickness))
+    volume = (length / 100) * (width / 100) * (math.ceil(thickness) / 100)
+
+    results = []
+    for code, cfg in VARIANT_MAPPING.items():
+        match = find_price_entry(
+            data, cfg['species'], cfg['technology'], cfg['wood_class'],
+            thickness, length, width
+        )
+        if not match:
+            results.append({'variant_code': code, 'available': False})
+            continue
+
+        unit_netto = volume * match['price_per_m3'] * multiplier
+        # Dopłaty PO mnożniku, per sztuka (JS 546-556)
+        if shape in ('round', 'circle') and data.round_surcharge_netto:
+            unit_netto += data.round_surcharge_netto
+        if holes_count > 0 and data.cutout_price_netto > 0:
+            unit_netto += holes_count * data.cutout_price_netto
+
+        unit_brutto = round_grosze(unit_netto * VAT)
+        results.append({
+            'variant_code': code,
+            'available': True,
+            'volume_m3': volume,
+            'price_per_m3': match['price_per_m3'],
+            'multiplier': multiplier,
+            'unit_netto': unit_netto,                       # celowo niezaokrąglone (jak JS finalPrice)
+            'unit_brutto': unit_brutto,
+            'total_netto': round_grosze(unit_netto * quantity),
+            'total_brutto': round_grosze(unit_brutto * quantity),
+        })
+    return results
