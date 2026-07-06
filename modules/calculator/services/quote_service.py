@@ -561,7 +561,13 @@ def _payload_to_calc_request(data):
 
     return {
         'client_type': client_type,
-        'multiplier': multiplier_raw if data.get('is_partner_fixed') else None,
+        # 'multiplier' celowo zawsze None: resolve_multiplier() w pricing_service
+        # rozstrzyga mnoznik na podstawie client_type (grupa cenowa). Explicit
+        # multiplier w resolve_multiplier() to sciezka dla partnera z fixed
+        # mnoznikiem, ale frontend nigdy nie wysyla is_partner_fixed/tego trybu —
+        # martwa galaz (is_partner_fixed) usunieta, multiplier_raw z payloadu
+        # swiadomie ignorowany, zeby nie omijac walidacji client_type.
+        'multiplier': None,
         'products': products,
         'shipping': {'netto': shipping_netto,
                      'brutto': shipping_brutto},
@@ -630,6 +636,29 @@ def create_quote(data, user_email):
         # Typ wyceny (brutto/netto)
         quote_type = data.get('quote_type', 'brutto')
 
+        if not products:
+            return {"success": False, "error": "Brakuje produktow."}, 400
+
+        # === BACKEND LICZY CENY — payload frontu jest tylko parametrami ===
+        # Wykonane PRZED obsluga klienta (tworzenie Clienta), zeby przy bledzie
+        # walidacji (return 400) nie zostal osierocony wpis Client w DB.
+        from modules.calculator.services.pricing_service import (
+            load_pricing_data, calculate_quote as calc_quote,
+        )
+        pricing_data = load_pricing_data()
+        calc = calc_quote(_payload_to_calc_request(data), pricing_data)
+        if not calc['ok']:
+            return {"success": False, "error": "Błędy walidacji wyceny",
+                    "errors": calc['errors']}, 400
+
+        # Nadpisz ceny w payload wynikami backendu (per produkt / wariant)
+        _inject_backend_prices(products, calc)
+        data['total_price'] = calc['totals']['total_brutto']
+        total_price = data['total_price']
+        # quote_multiplier zapisywany do Quote to wartosc rozstrzygnieta przez
+        # backend (grupa cenowa lub partner fixed), NIE surowy payload frontu.
+        quote_multiplier = calc['multiplier']
+
         # Obsługa klienta - tworzenie nowego jeśli nie podano ID
         if not client_id:
             login = data.get('client_login')
@@ -657,27 +686,6 @@ def create_quote(data, user_email):
             db.session.add(client)
             db.session.commit()
             client_id = client.id
-
-        if not products:
-            return {"success": False, "error": "Brakuje produktow."}, 400
-
-        # === BACKEND LICZY CENY — payload frontu jest tylko parametrami ===
-        from modules.calculator.services.pricing_service import (
-            load_pricing_data, calculate_quote as calc_quote,
-        )
-        pricing_data = load_pricing_data()
-        calc = calc_quote(_payload_to_calc_request(data), pricing_data)
-        if not calc['ok']:
-            return {"success": False, "error": "Błędy walidacji wyceny",
-                    "errors": calc['errors']}, 400
-
-        # Nadpisz ceny w payload wynikami backendu (per produkt / wariant)
-        _inject_backend_prices(products, calc)
-        data['total_price'] = calc['totals']['total_brutto']
-        total_price = data['total_price']
-        # quote_multiplier zapisywany do Quote to wartosc rozstrzygnieta przez
-        # backend (grupa cenowa lub partner fixed), NIE surowy payload frontu.
-        quote_multiplier = calc['multiplier']
 
         now = datetime.utcnow()
         quote_number = generate_quote_number(now.year, now.month)
