@@ -346,16 +346,39 @@
 }
 
 /* Wskaźnik "przeliczanie" (POPRAWKA 1) — przygaśnięcie zamiast podmiany tekstu.
-   Stan bazowy pełna widoczność; klasa dodawana na starcie requestRecalculation(),
-   usuwana po applyProductResult/updateGlobalSummary. Bez klasy = natychmiastowy
-   powrót (brak transition na bazie), z klasą = płynne przygaśnięcie 1s ease-out. */
-.variants,
-.quote-summary {
+   Klasa .prices-recalculating jest na kontenerach .variants/.quote-summary, ale
+   przygaszamy WYŁĄCZNIE spany z liczbami (ceny + ich ostrzeżenia) — nie kontener,
+   przyciski, etykiety wariantów ani radio. Stan bazowy pełna widoczność; klasa
+   dodawana na starcie requestRecalculation(), usuwana po applyProductResult/
+   updateGlobalSummary. Bez klasy = natychmiastowy powrót (brak transition na bazie),
+   z klasą = płynne przygaśnięcie 1s ease-out. */
+.variants .unit-brutto,
+.variants .unit-netto,
+.variants .total-brutto,
+.variants .total-netto,
+.quote-summary .order-brutto,
+.quote-summary .order-netto,
+.quote-summary .finishing-brutto,
+.quote-summary .finishing-netto,
+.quote-summary .delivery-brutto,
+.quote-summary .delivery-netto,
+.quote-summary .final-brutto,
+.quote-summary .final-netto {
     opacity: 1;
 }
 
-.variants.prices-recalculating,
-.quote-summary.prices-recalculating {
+.variants.prices-recalculating .unit-brutto,
+.variants.prices-recalculating .unit-netto,
+.variants.prices-recalculating .total-brutto,
+.variants.prices-recalculating .total-netto,
+.quote-summary.prices-recalculating .order-brutto,
+.quote-summary.prices-recalculating .order-netto,
+.quote-summary.prices-recalculating .finishing-brutto,
+.quote-summary.prices-recalculating .finishing-netto,
+.quote-summary.prices-recalculating .delivery-brutto,
+.quote-summary.prices-recalculating .delivery-netto,
+.quote-summary.prices-recalculating .final-brutto,
+.quote-summary.prices-recalculating .final-netto {
     opacity: 0.3;
     transition: opacity 1s cubic-bezier(0.16, 1, 0.3, 1);
 }
