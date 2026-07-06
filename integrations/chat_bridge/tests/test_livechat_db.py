@@ -77,3 +77,13 @@ def test_live_state_ma_kolumne_sent_images():
     cols = {r["name"] for r in c.execute("PRAGMA table_info(live_state)").fetchall()}
     c.close()
     assert "sent_images" in cols
+
+
+def test_live_queue_ma_kolumne_attachments():
+    """live_queue przechowuje liste data_url obrazow klienta (migracja ALTER)."""
+    from core import db as db_mod
+    db_mod.init_db()
+    c = db_mod.db()
+    cols = {r["name"] for r in c.execute("PRAGMA table_info(live_queue)").fetchall()}
+    c.close()
+    assert "attachments" in cols

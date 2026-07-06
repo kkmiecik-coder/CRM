@@ -86,6 +86,21 @@ def test_inbox_bez_persony_livechat_ignorowany(monkeypatch):
     assert _count() == 0
 
 
+def test_livechat_webhook_kolejkuje_obraz_bez_tekstu(monkeypatch):
+    """Zdjecie bez tekstu tez ma zakolejkowac ture — filtr tylko obrazow (nie pliki/pdf)."""
+    monkeypatch.setattr(wh, "persona_for", lambda inbox_id: "livechat")
+    d = _payload(mid="mimg1", content="", inbox_id=9, conv_id=501)
+    d["attachments"] = [{"data_url": "http://cw/img1.png", "file_type": "image"},
+                         {"data_url": "http://cw/plik.pdf", "file_type": "file"}]
+    wh._process_livechat_bot(d)
+    c = db_mod.db()
+    row = c.execute("SELECT content, attachments FROM live_queue WHERE conv_id=501").fetchone()
+    c.close()
+    assert row is not None, "obraz bez tekstu musi zakolejkowac ture"
+    import json
+    assert json.loads(row["attachments"]) == ["http://cw/img1.png"]  # tylko obrazy
+
+
 def test_endpoint_wymaga_tokenu(monkeypatch):
     monkeypatch.setattr(wh, "persona_for", lambda inbox_id: "livechat")
     cl = app.test_client()

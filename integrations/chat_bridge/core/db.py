@@ -51,7 +51,8 @@ def init_db():
                  "ALTER TABLE live_state ADD COLUMN reject_sig TEXT",
                  "ALTER TABLE live_state ADD COLUMN reject_count INTEGER DEFAULT 0",
                  "ALTER TABLE live_state ADD COLUMN complaint_sent INTEGER DEFAULT 0",
-                 "ALTER TABLE live_state ADD COLUMN sent_images TEXT"):
+                 "ALTER TABLE live_state ADD COLUMN sent_images TEXT",
+                 "ALTER TABLE live_queue ADD COLUMN attachments TEXT"):
         try:
             c.execute(stmt)
         except Exception:

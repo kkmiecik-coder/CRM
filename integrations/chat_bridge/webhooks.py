@@ -74,7 +74,10 @@ def _process_livechat_bot(d):
     inbox_id = str(d.get("inbox_id") or conv.get("inbox_id") or (d.get("inbox") or {}).get("id") or "")
     content = (d.get("content") or "").strip()
     mid = str(d.get("id") or "")
-    if not conv_id or not content or not mid:
+    # Tylko zalaczniki-obrazy (file_type == 'image') trafiaja do LLM jako vision.
+    att = [a.get("data_url") for a in (d.get("attachments") or [])
+           if a.get("data_url") and str(a.get("file_type") or "").lower() == "image"]
+    if not conv_id or not mid or (not content and not att):
         return
     # Guard: live-bot dziala TYLKO na inboxach WebWidget (persona livechat) — ochrona przed
     # omylkowym przypieciem bota do inboxu OLX/Allegro w UI.
@@ -86,10 +89,11 @@ def _process_livechat_bot(d):
         c.execute("INSERT INTO live_seen(mid) VALUES(?)", (mid,))
     except Exception:
         c.close(); return  # duplikat
-    c.execute("INSERT INTO live_queue(conv_id, inbox_id, message_id, content, next_at) VALUES(?,?,?,?,0)",
-              (conv_id, inbox_id, mid, content))
+    c.execute("INSERT INTO live_queue(conv_id, inbox_id, message_id, content, attachments, next_at) "
+              "VALUES(?,?,?,?,?,0)", (conv_id, inbox_id, mid, content, json.dumps(att)))
     c.commit(); c.close()
-    log("agent-bot-live: zakolejkowano ture (inbox %s, conv %s)" % (inbox_id, conv_id))
+    log("agent-bot-live: zakolejkowano ture (inbox %s, conv %s)%s"
+        % (inbox_id, conv_id, " +obraz" if att else ""))
 
 
 @bp.post("/agent-bot-live")
