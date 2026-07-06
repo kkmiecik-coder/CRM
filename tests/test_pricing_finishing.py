@@ -63,6 +63,21 @@ def test_brak_wymiaru_zwraca_zero():
     assert r['brutto'] == 0
 
 
+def test_lakierowane_realna_nazwa_bez_polysku_zero():
+    # Realna nazwa roota w DB to 'Lakierowane' (zweryfikowane
+    # FinishingOption.query.filter_by(parent_id=None) -> id=2, code='LAK').
+    # Bez wyboru połysku -> cena 0, tak samo jak dla legacy 'Lakierowanie'.
+    r = calculate_finishing(_product(finishing_type='Lakierowane', finishing_gloss_level=None),
+                            PricingData(finishing_options_by_id=OPCJE))
+    assert r['netto'] == 0
+
+
+def test_lakierowane_realna_nazwa_z_polyskiem_liczy_cene():
+    r = calculate_finishing(_product(finishing_type='Lakierowane'),
+                            PricingData(finishing_options_by_id=OPCJE))
+    assert r['netto'] > 0
+
+
 # =============================================================================
 # Testy _finishing_maps_from_flat_list — parytet z loadFinishingPrices()
 # (calculator-ui.js:33-56). JS liczy na effective_price_netto (cena dziedziczona

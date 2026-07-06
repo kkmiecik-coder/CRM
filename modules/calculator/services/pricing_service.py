@@ -19,9 +19,15 @@ from modules.calculator.services.edge_calculator import (
 )
 
 # Legacy fallbacki cen wykończenia (calculator-ui.js:606-614)
+# UWAGA: realna nazwa roota w drzewku FinishingOption to 'Lakierowane'
+# (zweryfikowane FinishingOption.query.filter_by(parent_id=None) — id=2,
+# code='LAK'). Klucz 'Lakierowanie' zostaje obok dla legacy payloadów
+# (starsze integracje/testy mogły wysyłać tę formę).
 _LEGACY_FINISHING_FALLBACK = {
     ('Lakierowanie', 'Bezbarwne'): ('Lakierowane bezbarwne', 200.0),
     ('Lakierowanie', 'Barwne'): ('Lakierowane barwne', 250.0),
+    ('Lakierowane', 'Bezbarwne'): ('Lakierowane bezbarwne', 200.0),
+    ('Lakierowane', 'Barwne'): ('Lakierowane barwne', 250.0),
     ('Olejowanie', None): ('Olejowanie', 250.0),
 }
 
@@ -212,8 +218,11 @@ def calculate_finishing(product, data):
     if finishing_type == 'Surowe':
         return zero
 
-    # JS: Lakierowanie pokazuje sekcję połysku; brak wyboru połysku -> cena 0
-    if finishing_type == 'Lakierowanie' and not product.get('finishing_gloss_level'):
+    # JS: Lakierowanie pokazuje sekcję połysku; brak wyboru połysku -> cena 0.
+    # UWAGA: realna nazwa roota w drzewku FinishingOption to 'Lakierowane'
+    # (zweryfikowane w DB — id=2, code='LAK'); 'Lakierowanie' zostaje w
+    # sprawdzeniu dla legacy payloadów (starsze wywołania/testy).
+    if finishing_type in ('Lakierowanie', 'Lakierowane') and not product.get('finishing_gloss_level'):
         return zero
 
     # Guard: brak któregoś wymiaru (None/pusty/nie-liczbowy) -> zero,
@@ -257,7 +266,7 @@ def calculate_finishing(product, data):
         price_per_m2 = data.finishing_options_by_path.get(product['finishing_full_path'], 0.0)
     if price_per_m2 == 0.0:
         variant = product.get('finishing_variant')
-        key = (finishing_type, variant if finishing_type == 'Lakierowanie' else None)
+        key = (finishing_type, variant if finishing_type in ('Lakierowanie', 'Lakierowane') else None)
         legacy = _LEGACY_FINISHING_FALLBACK.get(key)
         if legacy:
             path_name, default = legacy
@@ -510,25 +519,61 @@ def resolve_multiplier(client_type, explicit_multiplier, data):
 _FIELD_PL = {'length': 'długość', 'width': 'szerokość', 'thickness': 'grubość'}
 
 
+def _safe_number(raw, caster):
+    """Próbuje skonwertować raw przez caster (float/int); (True, wartość) albo (False, None)."""
+    try:
+        return True, caster(raw)
+    except (TypeError, ValueError):
+        return False, None
+
+
 def validate_product(product, data):
-    """Walidacja wymiarów — komunikaty PL gotowe do przekazania klientowi przez LLM."""
+    """
+    Walidacja wymiarów — komunikaty PL gotowe do przekazania klientowi przez LLM.
+
+    UWAGA (bot/LLM): pola numeryczne (length/width/thickness/quantity) mogą
+    przyjść jako string z LLM (np. '"abc"' zamiast liczby) — konwersja jest
+    tu bezpieczna (bez wyjątku), nieudana konwersja daje błąd INVALID_TYPE
+    zamiast crashować calculate_quote. Wcześniejszy zwrot błędów (return
+    errors) gwarantuje, że dalsze float(...)/int(...) w calculate_material_variants/
+    calculate_finishing/calculate_edges_pricing NIE zostaną wywołane dla
+    produktu z błędami walidacji (patrz calculate_quote: `if p_errors: ... continue`).
+    """
     errors = []
     idx = product.get('index')
 
+    parsed = {}
     for field in ('length', 'width', 'thickness'):
         val = product.get(field)
         if val is None or val == '':
             errors.append(_err(field, 'MISSING',
                                f'Brak wymiaru: {_FIELD_PL[field]} (w cm).', idx))
+            continue
+        ok, num = _safe_number(val, float)
+        if not ok:
+            errors.append(_err(field, 'INVALID_TYPE',
+                               f'{_FIELD_PL[field].capitalize()} musi być liczbą (podano: "{val}").',
+                               idx))
+            continue
+        parsed[field] = num
+
     qty = product.get('quantity')
-    if not qty or int(qty) < 1:
+    if not qty:
         errors.append(_err('quantity', 'MISSING', 'Podaj ilość sztuk (minimum 1).', idx))
+    else:
+        ok, qty_num = _safe_number(qty, int)
+        if not ok:
+            errors.append(_err('quantity', 'INVALID_TYPE',
+                               f'Ilość sztuk musi być liczbą (podano: "{qty}").', idx))
+        elif qty_num < 1:
+            errors.append(_err('quantity', 'MISSING', 'Podaj ilość sztuk (minimum 1).', idx))
+
     if errors:
         return errors
 
     limits = _pricing_limits(data)
     if not limits:
-        return [_err(None, 'NO_PRICELIST', 'Brak cennika w systemie.', idx)]
+        return [_err('products', 'NO_PRICELIST', 'Brak cennika w systemie.', idx)]
 
     shape = product.get('shape', 'rectangular')
     checks = []
@@ -536,13 +581,13 @@ def validate_product(product, data):
         # Koło: średnica (length) musi mieścić się w obu zakresach (JS 448-453)
         d_min = max(limits['length_min'], limits['width_min'])
         d_max = min(limits['length_max'], limits['width_max'])
-        checks.append(('length', 'średnica', float(product['length']), d_min, d_max))
+        checks.append(('length', 'średnica', parsed['length'], d_min, d_max))
     else:
-        checks.append(('length', 'długość', float(product['length']),
+        checks.append(('length', 'długość', parsed['length'],
                        limits['length_min'], limits['length_max']))
-        checks.append(('width', 'szerokość', float(product['width']),
+        checks.append(('width', 'szerokość', parsed['width'],
                        limits['width_min'], limits['width_max']))
-    checks.append(('thickness', 'grubość', float(product['thickness']),
+    checks.append(('thickness', 'grubość', parsed['thickness'],
                    limits['thickness_min'], limits['thickness_max']))
 
     for field, name_pl, val, vmin, vmax in checks:

@@ -55,3 +55,23 @@ def test_wybrany_wariant_poza_zakresem_ale_inne_licza():
     assert r['ok'] is False
     assert r['errors'][0]['code'] == 'VARIANT_UNAVAILABLE'
     assert any(v['available'] for v in r['products'][0]['variants'])
+
+
+def test_length_niepoprawny_string_daje_invalid_type_a_nie_crash():
+    # Review Taska 5 (krytyczne dla bota): LLM może przysłać length jako
+    # nienumeryczny string ("abc") — validate_product NIE ma crashować
+    # ValueError, tylko zwrócić błąd INVALID_TYPE.
+    r = calculate_quote(_payload(length='abc'), DATA)
+    assert r['ok'] is False
+    err = r['errors'][0]
+    assert err['code'] == 'INVALID_TYPE'
+    assert err['field'] == 'length'
+    assert 'abc' in err['message']
+
+
+def test_quantity_niepoprawny_string_daje_invalid_type():
+    r = calculate_quote(_payload(quantity='dwa'), DATA)
+    assert r['ok'] is False
+    err = next(e for e in r['errors'] if e['field'] == 'quantity')
+    assert err['code'] == 'INVALID_TYPE'
+    assert 'dwa' in err['message']
