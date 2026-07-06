@@ -3,6 +3,7 @@
 Serwis wycen - tworzenie, ladowanie i aktualizacja wycen.
 """
 
+import json as _json
 import logging
 from decimal import Decimal, ROUND_HALF_UP
 from datetime import datetime
@@ -458,6 +459,105 @@ def _get_counter_model():
     return QuoteCounter
 
 
+def _payload_to_calc_request(data):
+    """Mapuje payload z save_quote/update_quote na request calculate_quote.
+    Ceny z frontu celowo NIE przechodzą — backend liczy od zera.
+
+    Obsluguje oba formaty produktu:
+    - Format B (save_quote/frontend): finishing_type/finishing_variant/...,
+      edges = lista krawedzi, edges_mode osobno.
+    - Format A (edycja/load_quote_for_edit): finishing = dict
+      {type, variant, color, gloss, priceNetto, priceBrutto},
+      edges = dict {config, type, mode, netto, brutto, ...}.
+    """
+    products = []
+    for i, product in enumerate(data.get('products', [])):
+        selected = None
+        for v in product.get('variants', []):
+            if v.get('is_selected'):
+                selected = v.get('variant_code')
+
+        holes = 0
+        sd = product.get('shape_data')
+        if sd:
+            try:
+                sd_obj = _json.loads(sd) if isinstance(sd, str) else sd
+                holes = len(sd_obj.get('holes') or [])
+            except Exception:
+                pass
+
+        # Wykonczenie: Format A (dict) vs Format B (plaskie klucze)
+        finishing_raw = product.get('finishing')
+        if isinstance(finishing_raw, dict):
+            finishing_type = finishing_raw.get('type')
+            finishing_variant = finishing_raw.get('variant')
+            finishing_gloss_level = finishing_raw.get('gloss')
+        else:
+            finishing_type = product.get('finishing_type')
+            finishing_variant = product.get('finishing_variant')
+            finishing_gloss_level = product.get('finishing_gloss_level')
+
+        # Krawedzie: Format A (dict z 'config') vs Format B (lista)
+        edges_raw = product.get('edges')
+        if isinstance(edges_raw, dict):
+            edges_list = edges_raw.get('config')
+            edges_mode = edges_raw.get('mode')
+        else:
+            edges_list = edges_raw
+            edges_mode = product.get('edges_mode')
+
+        products.append({
+            'index': product.get('index', i + 1),
+            'length': product.get('length'),
+            'width': product.get('width'),
+            'thickness': product.get('thickness'),
+            'quantity': product.get('quantity', 1),
+            'shape': product.get('shape', 'rectangular'),
+            'shape_data': product.get('shape_data'),
+            'holes_count': holes,
+            'selected_variant': selected,
+            'finishing_type': finishing_type,
+            'finishing_variant': finishing_variant,
+            'finishing_gloss_level': finishing_gloss_level,
+            'finishing_option_id': product.get('finishing_option_id'),
+            'finishing_full_path': product.get('finishing_full_path'),
+            'edges': edges_list,
+            'edges_mode': edges_mode,
+        })
+    return {
+        'client_type': data.get('quote_client_type'),
+        'multiplier': data.get('quote_multiplier') if data.get('is_partner_fixed') else None,
+        'products': products,
+        'shipping': {'netto': data.get('shipping_cost_netto', 0),
+                     'brutto': data.get('shipping_cost_brutto', 0)},
+    }
+
+
+def _inject_backend_prices(products, calc):
+    """Nadpisuje ceny w liscie produktow (mutuje in-place) wynikami calculate_quote.
+    Payload frontu (finishing_netto/edges_netto/final_price_netto/volume_m3/...)
+    jest ignorowany — jedynym zrodlem prawdy o cenach jest `calc`.
+    """
+    calc_by_index = {p['index']: p for p in calc['products']}
+    for i, product in enumerate(products):
+        cp = calc_by_index.get(product.get('index', i + 1))
+        if not cp:
+            continue
+        product['finishing_netto'] = cp['finishing']['netto']
+        product['finishing_brutto'] = cp['finishing']['brutto']
+        product['edges_netto'] = cp['edges']['netto']
+        product['edges_brutto'] = cp['edges']['brutto']
+        calc_variants = {v['variant_code']: v for v in cp['variants']}
+        for variant in product.get('variants', []):
+            cv = calc_variants.get(variant.get('variant_code'))
+            if cv and cv.get('available'):
+                variant['final_price_netto'] = cv['total_netto']
+                variant['final_price_brutto'] = cv['total_brutto']
+                variant['volume_m3'] = cv['volume_m3']
+                variant['price_per_m3'] = cv['price_per_m3']
+                variant['multiplier'] = cv['multiplier']
+
+
 def create_quote(data, user_email):
     """
     Tworzy kompletną wycenę z produktami, wariantami i szczegółami.
@@ -525,6 +625,24 @@ def create_quote(data, user_email):
 
         if not products:
             return {"success": False, "error": "Brakuje produktow."}, 400
+
+        # === BACKEND LICZY CENY — payload frontu jest tylko parametrami ===
+        from modules.calculator.services.pricing_service import (
+            load_pricing_data, calculate_quote as calc_quote,
+        )
+        pricing_data = load_pricing_data()
+        calc = calc_quote(_payload_to_calc_request(data), pricing_data)
+        if not calc['ok']:
+            return {"success": False, "error": "Błędy walidacji wyceny",
+                    "errors": calc['errors']}, 400
+
+        # Nadpisz ceny w payload wynikami backendu (per produkt / wariant)
+        _inject_backend_prices(products, calc)
+        data['total_price'] = calc['totals']['total_brutto']
+        total_price = data['total_price']
+        # quote_multiplier zapisywany do Quote to wartosc rozstrzygnieta przez
+        # backend (grupa cenowa lub partner fixed), NIE surowy payload frontu.
+        quote_multiplier = calc['multiplier']
 
         now = datetime.utcnow()
         quote_number = generate_quote_number(now.year, now.month)
