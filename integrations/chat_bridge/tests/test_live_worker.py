@@ -35,7 +35,7 @@ def _row():
 
 def test_sukces_oznacza_sent(monkeypatch):
     calls = []
-    monkeypatch.setattr(lw, "run_livechat_turn", lambda *a: calls.append(a))
+    monkeypatch.setattr(lw, "run_livechat_turn", lambda *a, **kw: calls.append(a))
     _enqueue()
 
     assert lw.process_one(0) is True
@@ -48,7 +48,7 @@ def test_pusta_kolejka_zwraca_false():
 
 
 def test_blad_planuje_retry_z_backoffem(monkeypatch):
-    def boom(*a):
+    def boom(*a, **kw):
         raise RuntimeError("llm pad")
     monkeypatch.setattr(lw, "run_livechat_turn", boom)
     _enqueue()
@@ -62,7 +62,7 @@ def test_blad_planuje_retry_z_backoffem(monkeypatch):
 
 
 def test_wyczerpane_proby_failed_i_przeprosiny(monkeypatch):
-    def boom(*a):
+    def boom(*a, **kw):
         raise RuntimeError("llm pad")
     apologies = []
     monkeypatch.setattr(lw, "run_livechat_turn", boom)

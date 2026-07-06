@@ -107,3 +107,20 @@ def test_podsumowanie_bez_pliku_probki_tylko_tekst(monkeypatch):
     lc._wyslij_podsumowanie(77, lc._load_dane(77))
     assert len(calls["reply"]) == 1
     assert calls["reply"][0]["image_path"] is None
+
+
+def test_run_turn_dokleja_obraz_klienta_do_llm(monkeypatch):
+    przechwyt = {}
+    monkeypatch.setattr(lc, "cw_conv_status", lambda cid: "pending")
+    monkeypatch.setattr(lc, "cw_messages", lambda cid, lim: [{"role": "user", "text": "co to?"}])
+    monkeypatch.setattr(lc, "cw_contact", lambda cid: {"name": "", "identifier": ""})
+    monkeypatch.setattr(lc, "retrieve", lambda q: ["wiedza"])
+    monkeypatch.setattr(lc, "cw_agent_reply", lambda cid, t, **kw: True)
+    monkeypatch.setattr(lc, "attach_images",
+                        lambda msgs, urls, limit=2: msgs.append({"role": "user", "content": "OBRAZ:%s" % urls}) or msgs)
+    def fake_chat(messages, **kw):
+        przechwyt["messages"] = messages
+        return json.dumps({"odpowiedz": "To dąb.", "send_image": ""})
+    monkeypatch.setattr(lc, "chat", fake_chat)
+    lc.run_livechat_turn(77, "12", "m1", "co to?", attachments=json.dumps(["http://cw/1.png"]))
+    assert any("OBRAZ:['http://cw/1.png']" in str(m.get("content")) for m in przechwyt["messages"])

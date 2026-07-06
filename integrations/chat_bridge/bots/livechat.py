@@ -15,6 +15,7 @@ from bots.knowledge import retrieve
 from bots.personas import build_system_prompt
 from bots.llm import chat
 from bots import images
+from bots.vision import attach_images
 
 # Komunikaty stale (edytowalne). Bez obietnic czasowych — patrz spec §13.
 CLOSING_MSG = "Dziękuję za informacje! Przekazuję rozmowę do konsultanta WoodPower — odpowiemy w tej rozmowie."
@@ -657,7 +658,7 @@ def _wyslij_podsumowanie(conv_id, dane):
     log("livechat: podsumowanie do potwierdzenia (conv %s)" % conv_id)
 
 
-def run_livechat_turn(conv_id, inbox_id, message_id, content):
+def run_livechat_turn(conv_id, inbox_id, message_id, content, attachments=None):
     """Pelna tura bota. Rzuca RuntimeError przy braku odpowiedzi LLM (retry w workerze)."""
     # Cisza po handoffie: bot prowadzi TYLKO rozmowy w statusie pending.
     status = cw_conv_status(conv_id)
@@ -721,6 +722,15 @@ def run_livechat_turn(conv_id, inbox_id, message_id, content):
     messages += [{"role": m["role"], "content": m["text"]} for m in history]
     if not history and (content or "").strip():
         messages.append({"role": "user", "content": content})
+
+    # Faza 2: obrazy klienta z tej tury -> multimodalna wiadomosc do modelu (vision).
+    if attachments:
+        try:
+            urls = json.loads(attachments) if isinstance(attachments, str) else (attachments or [])
+        except Exception:
+            urls = []
+        if urls:
+            attach_images(messages, urls)
 
     raw = chat(messages)
     if not raw:

@@ -19,7 +19,7 @@ def process_one(now):
     qid, conv_id, inbox_id = row["id"], row["conv_id"], row["inbox_id"]
     mid, content, attempts = row["message_id"], row["content"], row["attempts"]
     try:
-        run_livechat_turn(conv_id, inbox_id, mid, content)
+        run_livechat_turn(conv_id, inbox_id, mid, content, attachments=row["attachments"])
         c = db(); c.execute("UPDATE live_queue SET status='sent' WHERE id=?", (qid,)); c.commit(); c.close()
         log("livechat: tura przetworzona (conv %s)" % conv_id)
     except Exception as e:
