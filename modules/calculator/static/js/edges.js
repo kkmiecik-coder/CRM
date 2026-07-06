@@ -2022,8 +2022,16 @@ const EdgesModule = (function() {
     // ==========================================
 
     /**
-     * Przelicza cenę krawędzi dla formularza po zmianie wymiarów
-     * Wywoływane gdy użytkownik zmienia wymiary produktu
+     * Reset przy zmianie wymiarów + aktualizacja wizualna podsumowania krawędzi.
+     * Wywoływane gdy użytkownik zmienia wymiary produktu.
+     *
+     * UWAGA: Wiążąca cena krawędzi liczona jest w backendzie
+     * (POST /calculator/api/calculate) — ta funkcja NIE liczy cen, tylko czyta
+     * ostatnią znaną wartość z form.dataset.edgesNetto/edgesBrutto (zapisaną przez
+     * applyProductResult w calculator-api.js) i odświeża wiersz podsumowania.
+     * Podgląd cen per-krawędź w modalu (calculatePrice/updateAdvancedPrice w tym
+     * pliku) to tylko podgląd liczony lokalnie z cen `/api/edge-options` —
+     * wiążąca cena i tak przyjdzie z `/calculate` po zapisie modala.
      */
     function recalculateEdgesForForm(form) {
         if (!form) return;
@@ -2035,16 +2043,12 @@ const EdgesModule = (function() {
         const lengthInput = form.querySelector('input[data-field="length"]');
         const widthInput = form.querySelector('input[data-field="width"]');
         const thicknessInput = form.querySelector('input[data-field="thickness"]');
-        const quantityInput = form.querySelector('input[data-field="quantity"]');
 
         const dimensions = {
             length: parseFloat(lengthInput?.value) || 0,
             width: parseFloat(widthInput?.value) || 0,
             thickness: parseFloat(thicknessInput?.value) || 0
         };
-
-        // Pobierz ilość sztuk
-        const quantity = parseInt(quantityInput?.value) || 1;
 
         // Jeśli brak wymiarów, nie przeliczaj
         if (dimensions.length <= 0 || dimensions.width <= 0 || dimensions.thickness <= 0) {
@@ -2061,119 +2065,41 @@ const EdgesModule = (function() {
             return;
         }
 
-        try {
-            const edges = JSON.parse(savedData);
-            const edgeType = form.dataset.edgesType || 'round';
-            const rValue = parseInt(form.dataset.edgesRValue) || 5;
+        form.dataset.edgesDimHash = currentDimHash;
 
-            // Pobierz ceny dla zapisanego typu obróbki
-            const pricePerMb = getPricePerMb(edgeType);
-            const pricePerCorner = getPricePerCorner(edgeType);
+        // Ceny z backendu (ustawione przez applyProductResult po odpowiedzi /calculate)
+        const totalNettoWithQuantity = parseFloat(form.dataset.edgesNetto) || 0;
+        const totalBruttoWithQuantity = parseFloat(form.dataset.edgesBrutto) || 0;
 
-            let totalNetto = 0;
-            const updatedEdgesData = [];
+        // Zaktualizuj wizualne podsumowanie (pokazuje cenę łączną z uwzględnieniem ilości)
+        const optionsSummary = form.querySelector('.edges-options-summary');
+        const edgesRow = optionsSummary?.querySelector('.edges-row');
 
-            edges.forEach(edge => {
-                let lengthCm = 0;
-                let isCorner = false;
-                let isRoundPerimeter = false;
+        if (edgesRow) {
+            const priceEl = edgesRow.querySelector('.edges-summary-price');
+            let priceNettoEl = edgesRow.querySelector('.edges-summary-price-netto');
 
-                if (_isRoundShape(formShape)) {
-                    // Krawędzie obwodowe — przelicz z aktualnych wymiarów
-                    const def = ROUND_EDGES[edge.letter];
-                    if (!def) return;
-                    lengthCm = calculateEllipsePerimeterCm(dimensions.length, dimensions.width);
-                    isRoundPerimeter = true;
-                } else if (EDGES[edge.letter]) {
-                    // Prostokąt — przelicz z aktualnych wymiarów
-                    const def = EDGES[edge.letter];
-                    isCorner = def.group === 'corner';
-                    lengthCm = isCorner ? dimensions.thickness : (dimensions[def.dimension] || 0);
-                } else if (edge.length_cm !== undefined) {
-                    // Kształt nieregularny (G1,D1,P1...) — użyj zapisanej długości
-                    // Krawędzie pionowe (P*) = narożniki, osobny cennik jak N1-N4
-                    if (edge.letter && edge.letter.startsWith('P')) {
-                        lengthCm = dimensions.thickness || edge.length_cm;
-                        isCorner = true;
-                    } else {
-                        // Krawędzie G*/D* — długość zależy od kształtu, zachowaj z danych
-                        lengthCm = edge.length_cm;
-                    }
-                } else {
-                    return; // Nieznana krawędź
-                }
-
-                let priceNetto = 0;
-                if (isCorner && !isRoundPerimeter) {
-                    priceNetto = pricePerCorner;
-                } else {
-                    priceNetto = (lengthCm / 100) * pricePerMb;
-                }
-
-                totalNetto += priceNetto;
-
-                updatedEdgesData.push({
-                    letter: edge.letter,
-                    type: edgeType,
-                    r_value: rValue,
-                    length_mm: Math.round(lengthCm * 10 * 100) / 100,
-                    length_cm: Math.round(lengthCm * 100) / 100,
-                    is_corner: isCorner,
-                    is_round_perimeter: isRoundPerimeter || false,
-                    price_netto: Math.round(priceNetto * 100) / 100,
-                    price_brutto: Math.round(priceNetto * CONFIG.VAT_RATE * 100) / 100
-                });
-            });
-
-            const totalBrutto = totalNetto * CONFIG.VAT_RATE;
-
-            // Pomnóż przez ilość sztuk
-            const totalNettoWithQuantity = Math.round(totalNetto * quantity * 100) / 100;
-            const totalBruttoWithQuantity = Math.round(totalBrutto * quantity * 100) / 100;
-
-            // Zaktualizuj dataset formularza (ceny już pomnożone przez ilość sztuk)
-            form.dataset.edgesData = JSON.stringify(updatedEdgesData);
-            form.dataset.edgesNetto = totalNettoWithQuantity;
-            form.dataset.edgesBrutto = totalBruttoWithQuantity;
-            form.dataset.edgesQuantity = quantity;
-            form.dataset.edgesDimHash = currentDimHash;
-
-            // Zaktualizuj wizualne podsumowanie (pokazuj cenę łączną z uwzględnieniem ilości)
-            const optionsSummary = form.querySelector('.edges-options-summary');
-            const edgesRow = optionsSummary?.querySelector('.edges-row');
-
-            if (edgesRow) {
-                const textEl = edgesRow.querySelector('.edges-summary-text');
-                const priceEl = edgesRow.querySelector('.edges-summary-price');
-                let priceNettoEl = edgesRow.querySelector('.edges-summary-price-netto');
-
-                // Jeśli element netto nie istnieje, utwórz go dynamicznie
-                if (!priceNettoEl) {
-                    const content = edgesRow.querySelector('.options-summary-content');
-                    if (content) {
-                        priceNettoEl = document.createElement('span');
-                        priceNettoEl.className = 'options-summary-price-netto edges-summary-price-netto';
-                        content.appendChild(priceNettoEl);
-                    }
-                }
-
-                // Pokazuj cenę łączną (pomnożoną przez ilość sztuk)
-                if (priceEl) {
-                    priceEl.textContent = formatPLN(totalBruttoWithQuantity) + ' brutto';
-                }
-                if (priceNettoEl) {
-                    priceNettoEl.textContent = formatPLN(totalNettoWithQuantity) + ' netto';
+            // Jeśli element netto nie istnieje, utwórz go dynamicznie
+            if (!priceNettoEl) {
+                const content = edgesRow.querySelector('.options-summary-content');
+                if (content) {
+                    priceNettoEl = document.createElement('span');
+                    priceNettoEl.className = 'options-summary-price-netto edges-summary-price-netto';
+                    content.appendChild(priceNettoEl);
                 }
             }
 
-            // Wywołaj aktualizację globalnego podsumowania
-            if (typeof updateGlobalSummary === 'function') {
-                updateGlobalSummary();
+            if (priceEl) {
+                priceEl.textContent = formatPLN(totalBruttoWithQuantity) + ' brutto';
             }
+            if (priceNettoEl) {
+                priceNettoEl.textContent = formatPLN(totalNettoWithQuantity) + ' netto';
+            }
+        }
 
-
-        } catch (e) {
-            console.error('[EdgesModule] Błąd przeliczania krawędzi:', e);
+        // Wywołaj aktualizację globalnego podsumowania
+        if (typeof updateGlobalSummary === 'function') {
+            updateGlobalSummary();
         }
     }
 

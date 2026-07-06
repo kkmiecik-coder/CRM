@@ -130,24 +130,6 @@ function getCurrentPriceMode() {
 // Eksportuj funkcję globalnie
 window.getCurrentPriceMode = getCurrentPriceMode;
 
-// ========================================
-// USTAWIENIA KALKULATORA (kształt okrągły)
-// ========================================
-
-window._roundShapeSurchargeNetto = 0;
-
-async function loadCalculatorSettings() {
-    try {
-        const response = await fetch('/calculator/api/calculator-settings');
-        if (response.ok) {
-            const data = await response.json();
-            window._roundShapeSurchargeNetto = data.round_shape_surcharge_netto || 0;
-        }
-    } catch (e) {
-        // Ignore fetch errors for calculator settings
-    }
-}
-
 // ------------------------------
 // MAPOWANIE WARIANTÓW I KRAWĘDZI
 // ------------------------------
@@ -177,7 +159,6 @@ let isPartner = false;
 let userMultiplier = 1.0;
 let multiplierMapping = {};
 let pricesFromDatabase = [];
-let priceIndex = {};
 
 let quoteFormsContainer = null;
 let productSummaryContainer = null;
@@ -221,6 +202,10 @@ function formatPLN(value) {
 /**
  * Wylicza globalne limity wymiarów na podstawie cennika.
  * Zwraca obiekt z min/max dla length, width, thickness.
+ *
+ * UWAGA: Cała matematyka cenowa liczona jest w backendzie (POST /calculator/api/calculate).
+ * Ta funkcja zostaje TYLKO dla walidacji wizualnej pól (error-outline) w calculator-events.js
+ * (attachDimensionValidation) — potrzebuje zakresów cennika, nie samych cen.
  */
 function getPricingLimits() {
     if (!pricesFromDatabase || pricesFromDatabase.length === 0) {
@@ -243,58 +228,22 @@ function getPricingLimits() {
 }
 
 /**
- * Wylicza limity wymiarów dla konkretnego wariantu (species + technology + wood_class).
- * Zwraca null jeśli brak danych dla tego wariantu.
- */
-function getPricingLimitsForVariant(variantId) {
-    var config = variantMapping[variantId];
-    if (!config) return null;
-    var key = config.species + '::' + config.technology + '::' + config.wood_class;
-    var arr = priceIndex[key] || [];
-    if (arr.length === 0) return null;
-    var limits = {
-        length_min: Infinity, length_max: -Infinity,
-        width_min: Infinity, width_max: -Infinity,
-        thickness_min: Infinity, thickness_max: -Infinity
-    };
-    arr.forEach(function(entry) {
-        if (entry.length_min < limits.length_min) limits.length_min = entry.length_min;
-        if (entry.length_max > limits.length_max) limits.length_max = entry.length_max;
-        if (entry.width_min < limits.width_min) limits.width_min = entry.width_min;
-        if (entry.width_max > limits.width_max) limits.width_max = entry.width_max;
-        if (entry.thickness_min < limits.thickness_min) limits.thickness_min = entry.thickness_min;
-        if (entry.thickness_max > limits.thickness_max) limits.thickness_max = entry.thickness_max;
-    });
-    return limits;
-}
-
-/**
- * Buduje indeks cenowy (priceIndex) na podstawie pricesFromDatabase
+ * MARTWE (usunięte ciało): liczenie ceny po stronie frontendu.
+ * Cała matematyka żyje w backendzie (POST /calculator/api/calculate).
+ * Zostawione jako eksport rzucający ostrzeżenie na wypadek nieusuniętego wywołania.
  */
 function buildPriceIndex() {
-    priceIndex = {};
-    pricesFromDatabase.forEach(entry => {
-        const key = `${entry.species}::${entry.technology}::${entry.wood_class}`;
-        if (!priceIndex[key]) priceIndex[key] = [];
-        priceIndex[key].push(entry);
-    });
+    console.warn('[CalculatorCore] buildPriceIndex() jest martwe — ceny liczy backend (POST /calculator/api/calculate).');
 }
 
 /**
- * Pobiera cenę z priceIndex zamiast liniowego .find na całej tablicy
+ * MARTWE (usunięte ciało): liczenie ceny po stronie frontendu.
+ * Cała matematyka żyje w backendzie (POST /calculator/api/calculate).
+ * Zostawione jako eksport rzucający ostrzeżenie na wypadek nieusuniętego wywołania.
  */
-function getPrice(species, technology, wood_class, thickness, length, width) {
-    const roundedThickness = Math.ceil(thickness);
-    const key = `${species}::${technology}::${wood_class}`;
-    const arr = priceIndex[key] || [];
-    return arr.find(entry =>
-        roundedThickness >= entry.thickness_min &&
-        roundedThickness <= entry.thickness_max &&
-        length >= entry.length_min &&
-        length <= entry.length_max &&
-        width >= entry.width_min &&
-        width <= entry.width_max
-    );
+function getPrice() {
+    console.warn('[CalculatorCore] getPrice() jest martwe — ceny liczy backend (POST /calculator/api/calculate).');
+    return undefined;
 }
 
 // ------------------------------
@@ -404,59 +353,6 @@ function updatePricesNow() {
     if (window.CalculatorApi) window.CalculatorApi.requestRecalculation(true);
 }
 
-/**
- * Aktualizuje kolor kształtu na canvasie:
- * - czerwony gdy wybrany wariant nie ma ceny (wymiary poza zakresem)
- * - pomarańczowy gdy cena jest ok lub brak wybranego wariantu
- * Dodatkowo koloruje konkretne labele wymiarów bbox na czerwono.
- */
-function _updateCanvasColorForVariant(form, selectedRadio, length, width, thickness) {
-    var editor = form._shapeEditor;
-    if (!editor) return;
-
-    // Brak wybranego wariantu — canvas normalny
-    if (!selectedRadio) {
-        editor.setColorTheme('normal');
-        editor.setOutOfRangeDims({ length: false, width: false });
-        return;
-    }
-
-    var variantId = selectedRadio.value;
-    var variantLimits = getPricingLimitsForVariant(variantId);
-
-    // Brak danych cennikowych — canvas normalny
-    if (!variantLimits || isNaN(length) || isNaN(width) || isNaN(thickness)) {
-        editor.setColorTheme('normal');
-        editor.setOutOfRangeDims({ length: false, width: false });
-        return;
-    }
-
-    var shape = form.dataset.productShape || 'rectangular';
-
-    // Sprawdź które wymiary są poza zakresem dla wybranego wariantu
-    var lengthOut = false;
-    var widthOut = false;
-
-    if (shape === 'circle') {
-        var diamMax = Math.min(variantLimits.length_max, variantLimits.width_max);
-        var diamMin = Math.max(variantLimits.length_min, variantLimits.width_min);
-        if (length < diamMin || length > diamMax) {
-            lengthOut = true;
-            widthOut = true;
-        }
-    } else {
-        if (length < variantLimits.length_min || length > variantLimits.length_max) lengthOut = true;
-        if (width < variantLimits.width_min || width > variantLimits.width_max) widthOut = true;
-    }
-
-    var thicknessOut = thickness < variantLimits.thickness_min || thickness > variantLimits.thickness_max;
-
-    // Kształt na czerwono jeśli KTÓRYKOLWIEK wymiar poza zakresem
-    var anyOutOfRange = lengthOut || widthOut || thicknessOut;
-    editor.setColorTheme(anyOutOfRange ? 'error' : 'normal');
-    editor.setOutOfRangeDims({ length: lengthOut, width: widthOut });
-}
-
 // ========== FUNKCJA TESTOWA ==========
 
 window.testRadioNames = function() {
@@ -502,143 +398,6 @@ function showErrorForAllVariants(errorMsg, variantContainer) {
             if (span) span.textContent = errorMsg;
         });
     });
-}
-
-/**
- * Przelicza ceny we wszystkich produktach oprócz aktywnego
- */
-function updatePricesInOtherProducts() {
-    if (!quoteFormsContainer) return;
-
-    const allForms = quoteFormsContainer.querySelectorAll('.quote-form');
-    const originalActiveForm = activeQuoteForm;
-    const originalActiveFormIndex = Array.from(allForms).indexOf(originalActiveForm);
-
-    allForms.forEach((form, formIndex) => {
-        if (form === originalActiveForm) return; // Pomiń aktywny formularz
-
-        // Sprawdź czy produkt ma wypełnione wymiary
-        const length = form.querySelector('[data-field="length"]')?.value;
-        const width = form.querySelector('[data-field="width"]')?.value;
-        const thickness = form.querySelector('[data-field="thickness"]')?.value;
-
-        if (length && width && thickness) {
-            // Tymczasowo ustaw jako aktywny dla obliczeń
-            activeQuoteForm = form;
-
-            // Wywołaj główną część updatePrices dla tego formularza
-            const lengthEl = form.querySelector('input[data-field="length"]');
-            const widthEl = form.querySelector('input[data-field="width"]');
-            const thicknessEl = form.querySelector('input[data-field="thickness"]');
-            const quantityEl = form.querySelector('input[data-field="quantity"]');
-            const clientTypeEl = form.querySelector('select[data-field="clientType"]');
-            const variantContainer = form.querySelector('.variants');
-
-            if (lengthEl && widthEl && thicknessEl && quantityEl && variantContainer) {
-                const length = parseFloat(lengthEl.value);
-                const width = parseFloat(widthEl.value);
-                const thickness = parseFloat(thicknessEl.value);
-                let quantity = parseInt(quantityEl.value) || 1;
-                const clientType = clientTypeEl ? clientTypeEl.value : "";
-
-                if (!isNaN(length) && !isNaN(width) && !isNaN(thickness) && (isPartner || clientType)) {
-                    const singleVolume = calculateSingleVolume(length, width, Math.ceil(thickness));
-                    let multiplier = isPartner ? userMultiplier : (multiplierMapping[clientType] || 1.0);
-
-                    const variantItems = Array.from(variantContainer.children)
-                        .filter(child => child.querySelector('input[type="radio"]'));
-
-                    // Używaj variantMapping zamiast split
-                    variantItems.forEach(variant => {
-                        const radio = variant.querySelector('input[type="radio"]');
-                        if (!radio) return;
-
-                        const id = radio.value;
-                        const config = variantMapping[id]; // Używaj mapowania!
-                        if (!config) return;
-
-                        const match = getPrice(config.species, config.technology, config.wood_class, thickness, length, width);
-
-                        if (match) {
-                            const basePrice = match.price_per_m3;
-
-                            // Użyj mnożnika z wybranej grupy cenowej (bez automatycznej zmiany na Detal+)
-                            const effectiveMultiplier = multiplier;
-                            let unitNetto = singleVolume * basePrice * effectiveMultiplier;
-
-                            // Dopłata za kształt okrągły/koło
-                            const otherProductShape = form.dataset.productShape || 'rectangular';
-                            if ((otherProductShape === 'round' || otherProductShape === 'circle') && window._roundShapeSurchargeNetto) {
-                                unitNetto += window._roundShapeSurchargeNetto;
-                            }
-
-                            // Wycięcia — flat koszt per dziura
-                            const holesCount2 = parseInt(form.dataset.shapeHolesCount || '0', 10);
-                            const cutoutPrice2 = parseFloat(window.cutoutPriceNetto || '0');
-                            if (holesCount2 > 0 && cutoutPrice2 > 0) {
-                                unitNetto += holesCount2 * cutoutPrice2;
-                            }
-
-                            // Wyczyść kolor tła (usunięto starą regułę Detal+)
-                            variant.style.backgroundColor = "";
-
-                            const unitBrutto = roundToGrosze(unitNetto * 1.23);
-                            const totalNetto = roundToGrosze(unitNetto * quantity);
-                            const totalBrutto = roundToGrosze(unitBrutto * quantity);
-
-                            radio.dataset.totalNetto = totalNetto;
-                            radio.dataset.totalBrutto = totalBrutto;
-                            radio.dataset.volumeM3 = singleVolume;
-                            radio.dataset.pricePerM3 = basePrice;
-
-                            const unitBruttoSpan = variant.querySelector('.unit-brutto');
-                            const unitNettoSpan = variant.querySelector('.unit-netto');
-                            const totalBruttoSpan = variant.querySelector('.total-brutto');
-                            const totalNettoSpan = variant.querySelector('.total-netto');
-
-                            if (unitBruttoSpan) unitBruttoSpan.textContent = formatPLN(unitBrutto);
-                            if (unitNettoSpan) unitNettoSpan.textContent = formatPLN(unitNetto);
-                            if (totalBruttoSpan) totalBruttoSpan.textContent = formatPLN(totalBrutto);
-                            if (totalNettoSpan) totalNettoSpan.textContent = formatPLN(totalNetto);
-                        } else {
-                            // Brak ceny - wyczyść dataset i pokaż błąd
-                            const unitBruttoSpan = variant.querySelector('.unit-brutto');
-                            const unitNettoSpan = variant.querySelector('.unit-netto');
-                            const totalBruttoSpan = variant.querySelector('.total-brutto');
-                            const totalNettoSpan = variant.querySelector('.total-netto');
-
-                            if (unitBruttoSpan) unitBruttoSpan.textContent = 'Brak ceny';
-                            if (unitNettoSpan) unitNettoSpan.textContent = 'Brak ceny';
-                            if (totalBruttoSpan) totalBruttoSpan.textContent = 'Brak ceny';
-                            if (totalNettoSpan) totalNettoSpan.textContent = 'Brak ceny';
-
-                            delete radio.dataset.totalNetto;
-                            delete radio.dataset.totalBrutto;
-                            delete radio.dataset.pricePerM3;
-                            delete radio.dataset.volumeM3;
-                        }
-                    });
-
-                    // Zaktualizuj dataset jeśli jest wybrana opcja
-                    const tabIndex = Array.from(quoteFormsContainer.querySelectorAll('.quote-form')).indexOf(form);
-                    const selectedRadio = form.querySelector(`input[name="variant-product-${tabIndex}-selected"]:checked`);
-                    if (selectedRadio && selectedRadio.dataset.totalBrutto && selectedRadio.dataset.totalNetto) {
-                        form.dataset.orderBrutto = selectedRadio.dataset.totalBrutto;
-                        form.dataset.orderNetto = selectedRadio.dataset.totalNetto;
-                        delete form.dataset.outOfRange;
-                    } else if (selectedRadio) {
-                        form.dataset.orderBrutto = "";
-                        form.dataset.orderNetto = "";
-                        form.dataset.outOfRange = "true";
-                    }
-                }
-            }
-        }
-    });
-
-    // Przywróć oryginalny aktywny formularz
-    activeQuoteForm = originalActiveForm;
-
 }
 
 // ------------------------------
@@ -817,7 +576,6 @@ window.CalculatorCore = {
     set multiplierMapping(val) { multiplierMapping = val; },
     get pricesFromDatabase() { return pricesFromDatabase; },
     set pricesFromDatabase(val) { pricesFromDatabase = val; },
-    get priceIndex() { return priceIndex; },
     get quoteFormsContainer() { return quoteFormsContainer; },
     set quoteFormsContainer(val) { quoteFormsContainer = val; },
     get productSummaryContainer() { return productSummaryContainer; },
@@ -845,7 +603,6 @@ window.CalculatorCore = {
     dbg,
     initPriceModeToggle,
     getCurrentPriceMode,
-    loadCalculatorSettings,
     calculateSingleVolume,
     roundToGrosze,
     formatPLN,
@@ -856,7 +613,6 @@ window.CalculatorCore = {
     updatePrices,
     updatePricesNow,
     showErrorForAllVariants,
-    updatePricesInOtherProducts,
     resetVariantPrices,
     computeAggregatedData,
     calculateProductVolume,

@@ -164,6 +164,27 @@
         }
     }
 
+    /**
+     * Ustawia komunikat błędu (np. "Sesja wygasła") we wszystkich miejscach cen —
+     * te same miejsca co showCalculatingState/błąd sieci.
+     */
+    function showErrorState(core, message) {
+        const forms = Array.from(core.quoteFormsContainer.querySelectorAll('.quote-form'));
+        forms.forEach(form => {
+            form.querySelectorAll('.unit-brutto, .unit-netto, .total-brutto, .total-netto').forEach(span => {
+                span.textContent = message;
+            });
+            form.querySelectorAll('.finishing-brutto, .finishing-netto').forEach(span => {
+                span.textContent = '0.00 PLN';
+            });
+        });
+        [core.orderSummaryEls, core.finishingSummaryEls, core.finalSummaryEls].forEach(els => {
+            if (!els) return;
+            if (els.brutto) els.brutto.textContent = '0.00 PLN';
+            if (els.netto) els.netto.textContent = '0.00 PLN';
+        });
+    }
+
     async function doRequest() {
         const core = window.CalculatorCore;
         const seq = ++requestSeq;
@@ -179,6 +200,17 @@
                 signal: abortController.signal,
             });
             if (seq !== requestSeq) return;   // przyszła starsza odpowiedź — ignoruj
+
+            // Sesja wygasła → serwer przekierowuje na /login (response.redirected)
+            // albo zwraca HTML zamiast JSON — w obu wypadkach response.json() by się
+            // wysypało z niejasnym błędem. Rozpoznaj to wcześniej i pokaż jasny komunikat.
+            const contentType = response.headers.get('content-type') || '';
+            if (response.redirected || !contentType.includes('application/json')) {
+                console.error('[CalculatorApi] Sesja wygasła lub odpowiedź nie jest JSON-em (redirected=' + response.redirected + ', content-type=' + contentType + ')');
+                showErrorState(core, 'Sesja wygasła — odśwież stronę');
+                return;
+            }
+
             const result = await response.json();
             const forms = Array.from(core.quoteFormsContainer.querySelectorAll('.quote-form'));
             (result.products || []).forEach(p => {
@@ -191,20 +223,7 @@
             if (e.name !== 'AbortError') {
                 console.error('[CalculatorApi] Błąd przeliczania:', e);
                 // Nie zostawiaj wiszącego "Obliczam..." — przywróć stan zerowy/komunikat błędu
-                const forms = Array.from(core.quoteFormsContainer.querySelectorAll('.quote-form'));
-                forms.forEach(form => {
-                    form.querySelectorAll('.unit-brutto, .unit-netto, .total-brutto, .total-netto').forEach(span => {
-                        span.textContent = 'Błąd obliczeń';
-                    });
-                    form.querySelectorAll('.finishing-brutto, .finishing-netto').forEach(span => {
-                        span.textContent = '0.00 PLN';
-                    });
-                });
-                [core.orderSummaryEls, core.finishingSummaryEls, core.finalSummaryEls].forEach(els => {
-                    if (!els) return;
-                    if (els.brutto) els.brutto.textContent = '0.00 PLN';
-                    if (els.netto) els.netto.textContent = '0.00 PLN';
-                });
+                showErrorState(core, 'Błąd obliczeń');
             }
         } finally {
             if (seq === requestSeq) document.body.classList.remove('prices-loading');

@@ -159,11 +159,13 @@ function syncClientTypeAcrossProducts(selectedType, sourceForm) {
 
     allForms.forEach(form => {
         activeQuoteForm = form;
-        // Zmiana grupy cenowej ma przeliczyć od razu, bez debounce 1 s
-        updatePricesNow();
     });
 
     activeQuoteForm = originalActiveForm;
+
+    // Backend liczy wszystkie produkty w jednym request — jedno wywołanie
+    // po pętli wystarczy (zamiast N wywołań, po jednym na formularz).
+    updatePricesNow();
 
     // ✅ PRZYWRÓĆ stany po przeliczeniu - POPRAWIONE
     preservedStates.forEach(state => {

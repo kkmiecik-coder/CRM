@@ -64,18 +64,14 @@ async function loadFinishingPrices() {
             throw new Error(`HTTP ${response.status}`);
         }
     } catch (error) {
-        console.error('[CALCULATOR] Błąd pobierania cen wykończeń z bazy, używam domyślnych:', error);
+        console.error('[CALCULATOR] Błąd pobierania cen wykończeń z bazy:', error);
 
-        // Fallback - domyślne ceny
-        window.finishingPrices = {
-            'Surowe': 0,
-            'Lakierowane bezbarwne': 200,
-            'Lakierowane barwne': 250,
-            'Olejowanie': 250
-        };
+        // Bez embedded cennika: drzewko wykończeń zostanie puste, a ceny i tak
+        // liczy backend (POST /calculator/api/calculate) — brak listy opcji
+        // uniemożliwia tylko wybór wykończenia w UI, nie liczenie cen.
+        window.finishingPrices = {};
         window.finishingOptionsFlat = [];
         window.cutoutPriceNetto = 0;
-
     }
 }
 
@@ -300,9 +296,15 @@ function setupFinishingTreeHandlers(form, optionsByParent) {
         // Zaktualizuj wybrane wykończenie w formularzu
         updateSelectedFinishing(form);
 
-        // Przelicz koszt wykończenia
+        // Odśwież UI z ostatnią znaną wartością (0 dla "Surowe" lub poprzednia cena
+        // do czasu odpowiedzi backendu)
         if (typeof calculateFinishingCost === 'function') {
             calculateFinishingCost(form);
+        }
+
+        // Realne przeliczenie ceny wykończenia robi backend (POST /calculator/api/calculate)
+        if (typeof updatePrices === 'function') {
+            updatePrices();
         }
 
         // Odśwież karty produktów (walidacja kompletności wykończenia)
@@ -320,9 +322,14 @@ function setupFinishingTreeHandlers(form, optionsByParent) {
         glossBtn.classList.add('active');
         form.dataset.finishingGloss = glossBtn.dataset.glossValue;
 
-        // Przelicz koszt wykończenia (mógł być zablokowany przez brak wyboru połysku)
+        // Odśwież UI z ostatnią znaną wartością (mogła być zablokowana brakiem wyboru połysku)
         if (typeof calculateFinishingCost === 'function') {
             calculateFinishingCost(form);
+        }
+
+        // Realne przeliczenie ceny wykończenia robi backend (POST /calculator/api/calculate)
+        if (typeof updatePrices === 'function') {
+            updatePrices();
         }
 
         if (typeof generateProductsSummary === 'function') {
@@ -489,163 +496,55 @@ function attachFinishingUIListeners(form) {
     updateVisibility();
 }
 
-// Obliczanie kosztu wykończenia dla formularza
+// Aktualizacja wiersza podsumowania kosztu wykończenia dla formularza.
+// UWAGA: Cała matematyka (powierzchnia, cena/m²) liczona jest w backendzie
+// (POST /calculator/api/calculate) — calculator-api.js po odpowiedzi zapisuje
+// wynik w form.dataset.finishingNetto/finishingBrutto. Ta funkcja tylko
+// odczytuje te wartości i odświeża UI (wiersz podsumowania + globalne sumy).
+// Wywoływana też od razu po kliknięciu w drzewku wykończeń — zanim backend
+// odpowie, pokazuje 0 dla "Surowe" lub trzyma poprzednią wartość do czasu
+// przeliczenia (odpowiedź /calculate nadpisze dataset i UI ponownie).
 function calculateFinishingCost(form) {
     dbg("🧪 calculateFinishingCost start:", form?.id || 'brak ID');
 
     if (!form) return { netto: null, brutto: null };
 
-    // Pobierz wybrane wykończenie z dynamicznego drzewka
-    // Dane są zapisywane w form.dataset przez updateSelectedFinishing()
     const finishingType = form.dataset.finishingType || 'Surowe';
     const finishingVariant = form.dataset.finishingVariant || null;
-    const finishingFullPath = form.dataset.finishingFullPath || finishingType;
-    const finishingOptionId = form.dataset.finishingOptionId ? parseInt(form.dataset.finishingOptionId) : null;
-
-    // Pobierz elementy input
-    const lengthInput = form.querySelector('input[data-field="length"]');
-    const widthInput = form.querySelector('input[data-field="width"]');
-    const thicknessInput = form.querySelector('input[data-field="thickness"]');
-    const quantityInput = form.querySelector('input[data-field="quantity"]');
 
     // Znajdź elementy do wyświetlania kosztów
     let finishingBruttoEl = form.querySelector('.finishing-brutto') || document.getElementById('finishing-brutto');
     let finishingNettoEl = form.querySelector('.finishing-netto') || document.getElementById('finishing-netto');
 
-    // Jeśli surowe - zwróć 0 i ukryj wiersz wykończenia
+    // Surowe — zeruj od razu (backend i tak potwierdzi zerem)
     if (finishingType === 'Surowe') {
         form.dataset.finishingBrutto = 0;
         form.dataset.finishingNetto = 0;
         if (finishingBruttoEl) finishingBruttoEl.textContent = '0.00 PLN';
         if (finishingNettoEl) finishingNettoEl.textContent = '0.00 PLN';
-        // Ukryj wiersz wykończenia w options-summary
         updateFinishingSummaryRow(form, 'Surowe', null, 0, 0);
         updateGlobalSummary();
         dbg("🧪 calculateFinishingCost end: surowe");
         return { netto: 0, brutto: 0 };
     }
 
-    // Walidacja wymiarów
-    if (!lengthInput?.value || !widthInput?.value || !thicknessInput?.value) {
-        dbg("🧪 calculateFinishingCost end: brak wymiarów");
-        return { netto: null, brutto: null };
-    }
+    // Odczytaj ostatnią znaną wartość z backendu (ustawioną przez applyProductResult
+    // w calculator-api.js). Może być pusta do czasu pierwszej odpowiedzi /calculate —
+    // wtedy tylko odświeżamy UI z tym, co już mamy, a właściwe przeliczenie
+    // (debounce 1 s w updatePrices()) nadpisze dataset i wywoła tę funkcję ponownie
+    // pośrednio przez applyProductResult.
+    const finishingPriceNetto = parseFloat(form.dataset.finishingNetto) || 0;
+    const finishingPriceBrutto = parseFloat(form.dataset.finishingBrutto) || 0;
 
-    // Walidacja połysku — jeśli sekcja widoczna, ale nic nie wybrano → nie licz ceny
-    const glossSection = form.querySelector('.finishing-level-gloss');
-    if (glossSection && glossSection.style.display !== 'none') {
-        const glossSelected = glossSection.querySelector('.finishing-gloss-btn.active');
-        if (!glossSelected) {
-            form.dataset.finishingBrutto = 0;
-            form.dataset.finishingNetto = 0;
-            if (finishingBruttoEl) finishingBruttoEl.textContent = '0.00 PLN';
-            if (finishingNettoEl) finishingNettoEl.textContent = '0.00 PLN';
-            updateFinishingSummaryRow(form, finishingType, null, 0, 0);
-            updateGlobalSummary();
-            dbg("🧪 calculateFinishingCost end: brak wyboru połysku");
-            return { netto: 0, brutto: 0 };
-        }
-    }
-
-    const lengthVal = parseFloat(lengthInput.value);
-    const widthVal = parseFloat(widthInput.value);
-    const thicknessVal = parseFloat(thicknessInput.value);
-    const quantityVal = parseInt(quantityInput.value) || 1;
-
-    // POPRAWIONE OBLICZENIE POWIERZCHNI:
-    // Wymiary są już w cm, konwertujemy na metry
-    const lengthM = lengthVal / 100;     // cm → m
-    const widthM = widthVal / 100;       // cm → m
-    const thicknessM = thicknessVal / 100; // cm → m
-
-    // Powierzchnia w m² - zależna od kształtu produktu
-    const formShape = form.dataset.productShape || 'rectangular';
-    let surfaceAreaPerPieceM2;
-
-    if (formShape === 'round') {
-        // Koło: Góra + Dół = 2 * π * r²
-        // Pasek boczny: obwód * grubość
-        // Obwód: π * d
-        const a = lengthM / 2, b = widthM / 2;
-        const topBottom = 2 * Math.PI * a * b;
-        const perimeter = Math.PI * (3 * (a + b) - Math.sqrt((3 * a + b) * (a + 3 * b)));
-        const sideBand = perimeter * thicknessM;
-        surfaceAreaPerPieceM2 = topBottom + sideBand;
-    } else {
-        // Prostokąt: 6 ścian
-        surfaceAreaPerPieceM2 = 2 * (lengthM * widthM + lengthM * thicknessM + widthM * thicknessM);
-    }
-
-    const totalSurfaceAreaM2 = surfaceAreaPerPieceM2 * quantityVal;
-
-    dbg("🧪 Obliczenia powierzchni:", {
-        "Wymiary [cm]": `${lengthVal}×${widthVal}×${thicknessVal}`,
-        "Wymiary [m]": `${lengthM.toFixed(3)}×${widthM.toFixed(3)}×${thicknessM.toFixed(3)}`,
-        "Powierzchnia 1 szt [m²]": surfaceAreaPerPieceM2.toFixed(4),
-        "Ilość": quantityVal,
-        "Całkowita powierzchnia [m²]": totalSurfaceAreaM2.toFixed(4)
-    });
-
-    // Pobierz cenę z bazy danych (dynamicznie z drzewka wykończeń)
-    let pricePerM2 = 0;
-
-    // Próbuj pobrać cenę z wybranej opcji (używa ID opcji)
-    if (finishingOptionId && window.finishingOptionsById) {
-        const selectedOption = window.finishingOptionsById[finishingOptionId];
-        if (selectedOption && selectedOption.price_netto) {
-            pricePerM2 = parseFloat(selectedOption.price_netto);
-        }
-    }
-
-    // Fallback: spróbuj po pełnej ścieżce
-    if (pricePerM2 === 0 && finishingFullPath && window.finishingPrices) {
-        pricePerM2 = window.finishingPrices[finishingFullPath] || 0;
-    }
-
-    // Legacy fallback dla kompatybilności wstecznej
-    if (pricePerM2 === 0) {
-        if (finishingType === 'Lakierowanie' && finishingVariant === 'Bezbarwne') {
-            pricePerM2 = window.finishingPrices?.['Lakierowane bezbarwne'] || 200;
-        } else if (finishingType === 'Lakierowanie' && finishingVariant === 'Barwne') {
-            pricePerM2 = window.finishingPrices?.['Lakierowane barwne'] || 250;
-        } else if (finishingType === 'Olejowanie') {
-            pricePerM2 = window.finishingPrices?.['Olejowanie'] || 250;
-        }
-    }
-
-    dbg("🧪 Cena wykończenia:", {
-        "Typ": finishingType,
-        "Wariant": finishingVariant,
-        "Pełna ścieżka": finishingFullPath,
-        "ID opcji": finishingOptionId,
-        "Cena za m² [PLN netto]": pricePerM2
-    });
-
-    // Oblicz końcowe koszty
-    const finishingPriceNetto = Math.round(totalSurfaceAreaM2 * pricePerM2 * 100) / 100;
-    const finishingPriceBrutto = Math.round(finishingPriceNetto * 1.23 * 100) / 100;
-
-    // Zapisz w dataset formularza
-    form.dataset.finishingBrutto = finishingPriceBrutto;
-    form.dataset.finishingNetto = finishingPriceNetto;
-
-    // Aktualizuj wyświetlanie
     if (finishingBruttoEl) finishingBruttoEl.textContent = finishingPriceBrutto.toFixed(2) + ' PLN';
     if (finishingNettoEl) finishingNettoEl.textContent = finishingPriceNetto.toFixed(2) + ' PLN';
 
-    // Aktualizuj wiersz wykończenia w sekcji options-summary
     updateFinishingSummaryRow(form, finishingType, finishingVariant, finishingPriceNetto, finishingPriceBrutto);
 
-    // Odśwież globalne podsumowanie
     updateGlobalSummary();
     generateProductsSummary();
 
-    dbg("🧪 calculateFinishingCost end:", {
-        finishingPriceNetto,
-        finishingPriceBrutto,
-        "powierzchnia_m2": totalSurfaceAreaM2.toFixed(4),
-        "cena_za_m2": pricePerM2
-    });
+    dbg("🧪 calculateFinishingCost end:", { finishingPriceNetto, finishingPriceBrutto });
 
     return { netto: finishingPriceNetto, brutto: finishingPriceBrutto };
 }

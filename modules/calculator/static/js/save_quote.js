@@ -835,6 +835,18 @@ document.addEventListener('DOMContentLoaded', function () {
     // ===== ZAPISYWANIE WYCENY =====
     saveQuoteBtn?.addEventListener('click', async () => {
 
+        // Backend i tak przelicza ceny przy zapisie (payload z cenami jest ignorowany),
+        // ale nie pokazujmy userowi starych cen w UI w momencie zapisu:
+        // - jeśli trwa już przeliczanie (debounce/fetch w locie) — każ poczekać,
+        // - w przeciwnym razie wymuś natychmiastowe przeliczenie przed zebraniem danych.
+        if (document.body.classList.contains('prices-loading')) {
+            showGlobalError('Trwa przeliczanie cen — spróbuj ponownie za chwilę.');
+            return;
+        }
+        if (window.CalculatorCore && typeof window.CalculatorCore.updatePricesNow === 'function') {
+            window.CalculatorCore.updatePricesNow();
+        }
+
         // Walidacja
         if (!validateForm()) {
             return;

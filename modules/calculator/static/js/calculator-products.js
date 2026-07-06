@@ -685,6 +685,11 @@ function removeProduct(index) {
     generateProductsSummary();
     updateGlobalSummary();
 
+    // Backend liczy wszystkie produkty w jednym request wg ich aktualnego
+    // indeksu (index+1) — po usunięciu produktu indeksowanie się przesuwa,
+    // więc unieważnij "w locie" odpowiedź z poprzednim indeksowaniem.
+    window.CalculatorCore?.updatePricesNow?.();
+
     // Powiadom detekcje zmian (tryb edycji wyceny)
     document.dispatchEvent(new CustomEvent('products-changed'));
 }

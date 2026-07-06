@@ -8,9 +8,10 @@ function init() {
         mainContainer = document.querySelector('.products-summary-main');
     }
 
-    // Załaduj ceny wykończeń z bazy danych i ustawienia kalkulatora
+    // Załaduj ceny wykończeń z bazy danych
+    // (ustawienia kalkulatora typu dopłata za kształt okrągły liczy teraz
+    // wyłącznie backend — POST /calculator/api/calculate)
     loadFinishingPrices();
-    loadCalculatorSettings();
 
     const overlay = document.getElementById('loadingOverlay');
     if (overlay) overlay.style.display = 'none';
