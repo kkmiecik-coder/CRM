@@ -918,6 +918,8 @@ def api_update_calculator_settings():
             except (InvalidOperation, ValueError):
                 return jsonify({'success': False, 'error': 'Nieprawidłowa wartość dopłaty'}), 400
 
+        # UWAGA: CalculatorSetting.set_value() commituje wewnętrznie (models.py),
+        # więc invalidacja poniżej jest już PO zapisie do bazy — nie przenosić jej wyżej.
         from modules.calculator.services.pricing_service import invalidate_pricing_cache
         invalidate_pricing_cache()
 

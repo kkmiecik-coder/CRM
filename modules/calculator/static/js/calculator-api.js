@@ -1,6 +1,6 @@
 // calculator-api.js
 // Komunikacja z backendowym silnikiem wycen (POST /calculator/api/calculate).
-// Frontend NIE liczy cen — zbiera parametry, wysyła (debounce 1 s), renderuje wynik.
+// Frontend NIE liczy cen — zbiera parametry, wysyła (debounce 700 ms), renderuje wynik.
 
 (function () {
     // Opóźnienie przed wysłaniem żądania (nie czas odpowiedzi serwera);

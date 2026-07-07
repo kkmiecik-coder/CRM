@@ -91,7 +91,7 @@ def test_cache_wygasa_po_ttl(monkeypatch):
     first = load_pricing_data()
     assert calls['n'] == 1
 
-    # W oknie TTL (120s) - wciąż cache
+    # W oknie TTL (PRICING_CACHE_TTL=3600s) - wciąż cache
     fake_time['t'] += 10
     second = load_pricing_data()
     assert second is first
