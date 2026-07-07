@@ -165,7 +165,10 @@ function syncClientTypeAcrossProducts(selectedType, sourceForm) {
 
     // Backend liczy wszystkie produkty w jednym request — jedno wywołanie
     // po pętli wystarczy (zamiast N wywołań, po jednym na formularz).
-    updatePricesNow();
+    // Ścieżka debounce (jak przy zmianie wymiarów): najpierw przygaśnięcie na
+    // 700 ms na starych cenach, potem wskok nowych i rozjaśnienie — właściwa
+    // kolejność (updatePricesNow/immediate dawał: cena zmienia się, potem dim).
+    updatePrices();
 
     // ✅ PRZYWRÓĆ stany po przeliczeniu - POPRAWIONE
     preservedStates.forEach(state => {

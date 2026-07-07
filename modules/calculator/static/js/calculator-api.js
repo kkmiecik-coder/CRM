@@ -7,16 +7,9 @@
     // 700 ms zwija wpisywanie w jeden request, żwawsze niż 1 s, koszt
     // serwera i tak zbity cachem cenników.
     const DEBOUNCE_MS = 700;
-    // Minimalny czas widocznego przygaśnięcia. Przy zmianach omijających debounce
-    // (grupa cenowa — immediate) request leci od razu, a po cache odpowiedź wraca
-    // w kilkadziesiąt ms; bez tego progu transition (1s) nie zdąży się rozwinąć i
-    // mignięcie bywa niewidoczne ("raz tak raz tak"). Gwarantujemy min. 250 ms dimu.
-    const MIN_DIM_MS = 250;
     let debounceTimer = null;
     let requestSeq = 0;          // guard: odrzucamy odpowiedzi starsze niż ostatnie żądanie
     let abortController = null;
-    let dimActive = false;       // czy przygaśnięcie jest aktualnie włączone
-    let dimStartedAt = 0;        // performance.now() momentu włączenia dimu
 
     function buildProductPayload(form, index) {
         const val = sel => parseFloat(form.querySelector(`input[data-field="${sel}"]`)?.value);
@@ -72,13 +65,6 @@
         const core = window.CalculatorCore;
         if (!core || !core.quoteFormsContainer) return;
 
-        // Zapamiętaj moment włączenia dimu tylko przy świeżym starcie (nie przy
-        // kolejnych wywołaniach w oknie debounce), żeby mierzyć realny czas widoczności.
-        if (!dimActive) {
-            dimActive = true;
-            dimStartedAt = performance.now();
-        }
-
         core.quoteFormsContainer.querySelectorAll('.variants').forEach(el => {
             el.classList.add('prices-recalculating');
         });
@@ -96,31 +82,12 @@
         const core = window.CalculatorCore;
         if (!core || !core.quoteFormsContainer) return;
 
-        dimActive = false;
-
         core.quoteFormsContainer.querySelectorAll('.variants').forEach(el => {
             el.classList.remove('prices-recalculating');
         });
 
         const quoteSummaryEl = document.querySelector('.quote-summary');
         if (quoteSummaryEl) quoteSummaryEl.classList.remove('prices-recalculating');
-    }
-
-    /**
-     * Zdejmuje dim z zachowaniem minimalnego czasu widoczności (MIN_DIM_MS) —
-     * przy błyskawicznej odpowiedzi (cache) i tak zobaczymy mignięcie. Zwleka tylko
-     * gdy dim trwał krócej niż próg. seq chroni przed zdjęciem dimu należącego już
-     * do nowszego żądania.
-     */
-    function clearCalculatingStateAfterMinDim(seq) {
-        const elapsed = performance.now() - dimStartedAt;
-        if (elapsed >= MIN_DIM_MS) {
-            clearCalculatingState();
-        } else {
-            setTimeout(() => {
-                if (seq === requestSeq) clearCalculatingState();
-            }, MIN_DIM_MS - elapsed);
-        }
     }
 
     /**
@@ -351,7 +318,7 @@
         } finally {
             if (seq === requestSeq) {
                 document.body.classList.remove('prices-loading');
-                clearCalculatingStateAfterMinDim(seq);
+                clearCalculatingState();
             }
         }
     }
