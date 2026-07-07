@@ -6,6 +6,7 @@ Odpowiedzi projektowane pod LLM: zawsze {ok, ...}, błędy z {code, message PL, 
 """
 
 import hmac
+import re
 from functools import wraps
 from flask import Blueprint, request, jsonify, current_app
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
@@ -30,6 +31,14 @@ def require_bot_api_key(f):
             ]}), 401
         return f(*args, **kwargs)
     return wrapper
+
+
+_POSTCODE_RE = re.compile(r"^\d{2}-\d{3}$")
+
+
+def _valid_receiver_postcode(v):
+    """Kod pocztowy odbiorcy w formacie 00-000 (GlobKurier wymaga kodu, nie samej nazwy miasta)."""
+    return bool(_POSTCODE_RE.match(str(v or "").strip()))
 
 
 @bot_api_bp.route('/options', methods=['GET'])
@@ -333,3 +342,54 @@ def bot_update_quote(edit_uuid):
     return jsonify({'ok': True, 'quote_number': result['quote_number'],
                     'quote_id': result['quote_id'], 'edit_uuid': quote.edit_uuid,
                     'public_url': base_url + quote.get_public_url()}), 200
+
+
+@bot_api_bp.route('/shipping-quote', methods=['POST'])
+@require_bot_api_key
+def bot_shipping_quote():
+    """Szacuje koszt wysylki (najtanszy kurier +30%) dla podanych produktow i kodu pocztowego
+    odbiorcy. Wymiary/wage paczki liczy serwer (aggregate_package), przewoznikow pobiera GlobKurier.
+    Kod nadawcy z GLOB_KURIER.sender_post_code (fallback 01-001)."""
+    from modules.calculator.services.shipping_service import (
+        aggregate_package, cheapest_with_packing, get_shipping_quotes,
+    )
+    payload = request.get_json(silent=True) or {}
+    products = payload.get('products') or []
+    receiver = (payload.get('receiver_postcode') or '').strip()
+
+    if not products:
+        return jsonify({'ok': False, 'errors': [
+            {'field': 'products', 'code': 'MISSING', 'message': 'Brak produktów do wyceny wysyłki.'}
+        ]}), 200
+    if not _valid_receiver_postcode(receiver):
+        return jsonify({'ok': False, 'errors': [
+            {'field': 'receiver_postcode', 'code': 'BAD_POSTCODE',
+             'message': 'Podaj kod pocztowy odbiorcy w formacie 00-000.'}
+        ]}), 200
+
+    glob_config = current_app.config.get('GLOB_KURIER')
+    if not glob_config:
+        return jsonify({'ok': False, 'errors': [
+            {'field': None, 'code': 'NO_CONFIG',
+             'message': 'Brak konfiguracji serwisu kurierskiego.'}
+        ]}), 200
+
+    params = aggregate_package(products)
+    params['senderPostCode'] = glob_config.get('sender_post_code', '01-001')
+    params['receiverPostCode'] = receiver
+
+    result, status = get_shipping_quotes(params, glob_config)
+    # get_shipping_quotes zwraca (list, 200) przy sukcesie albo (dict bledu, kod) przy problemie.
+    if status != 200 or not isinstance(result, list):
+        return jsonify({'ok': False, 'errors': [
+            {'field': None, 'code': 'CARRIER_UNAVAILABLE',
+             'message': 'Nie udało się teraz oszacować wysyłki.'}
+        ]}), 200
+    if not result:
+        # Pusta lista = brak kuriera dla gabarytu (np. blat 450 cm powyzej limitu paczki).
+        return jsonify({'ok': True, 'carriers': 0}), 200
+
+    cheapest = cheapest_with_packing(result)
+    if not cheapest:
+        return jsonify({'ok': True, 'carriers': 0}), 200
+    return jsonify({'ok': True, 'carriers': len(result), **cheapest}), 200

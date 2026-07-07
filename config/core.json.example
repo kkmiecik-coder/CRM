@@ -18,7 +18,8 @@
     "GLOB_KURIER": {
         "login": "login@example.com",
         "password": "HASLO_KURIER",
-        "endpoint": "https://api.globkurier.pl/v1"
+        "endpoint": "https://api.globkurier.pl/v1",
+        "sender_post_code": "36-068"
     },
     "gus_bir_api_key": "",
     "PRODUCTION_CRON_SECRET": "LOSOWY_CIAG_ZNAKOW",
