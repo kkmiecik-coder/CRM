@@ -329,3 +329,30 @@ def test_obsluz_porownania_dedup_nie_powtarza(monkeypatch):
     replies.clear()
     assert qb._obsluz_porownania(920, dane, por) is False    # echo -> nic nowego (fall-through)
     assert replies == []
+
+
+# --- Runda 8: nieudana wycena dopytuje (nie handoff) + lakier wymaga finishing_id ---
+
+def test_wycena_nieudana_dopytuje_nie_handoff(monkeypatch):
+    replies = []
+    called = {}
+    monkeypatch.setattr(qb, "cw_agent_reply", lambda c, t, **kw: replies.append(t) or True)
+    monkeypatch.setattr(qb, "cw_bot_handoff", lambda c, **kw: called.update(handoff=True) or True)
+    monkeypatch.setattr(qb.crm_calc, "get_options", lambda: {"finishing_options": []})
+    monkeypatch.setattr(qb.crm_calc, "calculate",
+                        lambda p, o: {"ok": False, "braki_mapowania": [{"powod": "lakier bez polysku"}]})
+    qb._set_awaiting(950, True)
+    qb._wyslij_cene_i_kontakt(950, {"pozycje": [_poz(wykonczenie="lakierowane")], "wspolne": {}}, {})
+    txt = " ".join(replies)
+    assert "połysku" in txt or "doprecyzowania" in txt   # prosba o doprecyzowanie wykonczenia
+    assert "konsultanta" not in txt                       # BEZ przekazania do konsultanta
+    assert "handoff" not in called                        # cw_bot_handoff NIE wolany
+
+
+def test_brakujace_lakier_wymaga_finishing_id():
+    poz = _poz(wykonczenie="lakierowane", finishing_id="")
+    brak = [k for _, k in qb._brakujace({"pozycje": [poz], "wspolne": {}})]
+    assert "finishing_id" in brak
+    poz2 = _poz(wykonczenie="surowe", finishing_id="")   # surowe -> finishing_id niewymagany
+    brak2 = [k for _, k in qb._brakujace({"pozycje": [poz2], "wspolne": {}})]
+    assert "finishing_id" not in brak2

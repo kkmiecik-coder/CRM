@@ -24,6 +24,11 @@ from bots import crm_calc
 CLOSING_MSG = "Dziękuję za informacje! Przekazuję rozmowę do konsultanta WoodPower — odpowiemy w tej rozmowie."
 APOLOGY_MSG = ("Przepraszam, mam chwilowy problem techniczny z odpowiedzią. "
                "Przekazuję rozmowę do konsultanta WoodPower.")
+# Wycena nie policzyla sie automatycznie (najczesciej lakier/olej bez koloru i polysku) —
+# dopytujemy zamiast przekazywac do konsultanta.
+_PROSBA_DOPRECYZ = ("Żeby dokończyć wycenę, potrzebuję jeszcze doprecyzowania wykończenia — przy "
+                    "lakierze lub oleju proszę o kolor i poziom połysku (mat / półmat / połysk). "
+                    "Które wybieramy?")
 
 _MAX_PROBEK = 3   # limit probek wg konfiguracji doklejanych do jednego podsumowania
 _PROBKA_PODPIS = "Poniżej próbka wybranego wykończenia 👇"
@@ -866,6 +871,8 @@ _ETYKIETY_PYTAN = {
     "klasa": "klasę drewna (A/B, a dla dębu również B/B)",
     "ilosc": "ilość (liczba sztuk)",
     "wykonczenie": "wykończenie (surowe, olejowane czy lakierowane)",
+    "finishing_id": "dokładny rodzaj wykończenia — przy oleju lub lakierze proszę o kolor i poziom "
+                    "połysku (mat / półmat / połysk)",
     "schody": "szczegóły schodów (liczba stopni, wymiar stopnia, podstopnice)",
 }
 
@@ -888,6 +895,11 @@ def _brakujace_pozycji(poz):
     for k in _KRYT_WSPOLNE:
         if pusto(k):
             brak.append(k)
+    # Dla oleju/lakieru wymagamy konkretnego wariantu (finishing_id z kolorem/polyskiem) — bez tego
+    # wycena nie policzy sie i bot spadlby do dopytania po podsumowaniu. Surowe = brak finishing_id OK.
+    wyk = str(poz.get("wykonczenie") or "").lower()
+    if wyk and "surow" not in wyk and pusto("finishing_id"):
+        brak.append("finishing_id")
     return brak
 
 
@@ -1017,8 +1029,13 @@ def _wyslij_cene_i_kontakt(conv_id, dane, identity):
     options = crm_calc.get_options()
     wynik = crm_calc.calculate(dane.get("pozycje") or [], options)
     if not wynik.get("ok") or not wynik.get("totals"):
-        # Nie da sie policzyc (braki mapowania / blad API) -> handoff z podsumowaniem.
-        _do_handoff(conv_id, "nie udało się policzyć wyceny automatycznie", dane)
+        # Nie da sie policzyc automatycznie (najczesciej: brak konkretnego wariantu wykonczenia dla
+        # lakieru/oleju — kolor/polysk). NIE przekazujemy do konsultanta — prosimy o doprecyzowanie
+        # i wracamy do zbierania (bez awaiting_confirm), zeby dokonczyc wycene.
+        cw_agent_reply(conv_id, _PROSBA_DOPRECYZ, token=BOT_QUOTE_CW_AGENT_TOKEN)
+        _set_awaiting(conv_id, False)
+        _bump_turns(conv_id)
+        log("quotebot: wycena nieudana (braki mapowania) -> prosba o doprecyzowanie (conv %s)" % conv_id)
         return
     if not cw_agent_reply(conv_id, _cena_msg(dane, wynik), token=BOT_QUOTE_CW_AGENT_TOKEN):
         raise RuntimeError("quotebot: wysylka ceny nieudana (conv %s)" % conv_id)
