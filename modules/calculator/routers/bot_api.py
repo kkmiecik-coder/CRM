@@ -250,15 +250,21 @@ def bot_create_quote():
         ]}), 200
 
     # Przekształć payload bota (products jak w /calculate) na format create_quote:
-    # bot podaje tylko selected_variant — create_quote i tak przeliczy wszystko (Task 10),
-    # ale potrzebuje struktury variants z is_selected.
-    # Budujemy NOWY dict zamiast mutować payload in-place (setdefault+pop) — czytelniej
-    # i odporne na to, że payload mógłby być użyty ponownie przez wołający kod.
+    # bot podaje tylko selected_variant — zapisujemy WSZYSTKIE warianty drewna (jak
+    # z kalkulatora), z wybranym oznaczonym is_selected. create_quote/calculate_quote
+    # policzą cenę każdego wariantu; klient widzi pełną tabelę do porównania.
+    # Budujemy NOWY dict zamiast mutować payload in-place — czytelniej i odporne na to,
+    # że payload mógłby być użyty ponownie przez wołający kod.
+    from modules.calculator.services.pricing_service import VARIANT_MAPPING
     products = []
     for p in payload.get('products', []):
         p = dict(p)
         if 'variants' not in p:
-            p['variants'] = [{'variant_code': p.get('selected_variant'), 'is_selected': True}]
+            selected = p.get('selected_variant')
+            p['variants'] = [
+                {'variant_code': code, 'is_selected': (code == selected)}
+                for code in VARIANT_MAPPING
+            ]
         products.append(p)
 
     quote_payload = dict(payload)
