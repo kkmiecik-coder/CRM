@@ -73,6 +73,8 @@ _FORMAT = (
     "N1–N4; kształt okrągły: KG (górny obwód)/KD (dolny obwód). Gdy klient chce „wszystkie/każdą "
     'krawędź” danego typu — użyj litery "WSZYSTKIE" (system rozwinie na A,B,C,D). Obsługujesz mieszane '
     "obróbki (różne krawędzie różnie). Gdy klient nie prosi o obróbkę krawędzi — zostaw edges puste []. "
+    "Gdy klient chce krawędź OSTRĄ (bez obróbki) albo USUNĄĆ wcześniej ustawione zaokrąglenie/fazę — "
+    'ustaw dla niej "typ": "sharp" (system ją wtedy usunie z obróbki). '
     "Nie wstrzymuj wyceny z powodu krawędzi — są opcjonalne.\n"
     "WYSYŁKA: kosztów dostawy NIE liczysz. Gdy klient pyta o wysyłkę — napisz krótko, że koszt dostawy "
     "potwierdzi konsultant przy finalizacji zamówienia. NIE obiecuj, że sam sprawdzisz i wrócisz z ceną.\n"
@@ -286,12 +288,12 @@ def _cena_msg(dane, wynik):
     totals = wynik.get("totals") or {}
     linie = []
     for i, poz in enumerate(pozycje):
-        linie.append(_linia_pozycji(poz))
+        linie.append("**%s**" % _linia_pozycji(poz))   # nazwa+parametry pogrubione (markdown Chatwoota)
         if i < len(products):
             n, b = _cena_pozycji(poz, products[i])
             linie.append("    %s (%s netto)" % (_fmt_pln(b), _fmt_pln(n)))
     linie.append("")
-    linie.append("Cena za całość:")
+    linie.append("**Cena za całość:**")
     linie.append("%s (%s netto)" % (_fmt_pln(totals.get("total_brutto")), _fmt_pln(totals.get("total_netto"))))
     return "\n".join(linie)
 
@@ -569,11 +571,15 @@ def _merge_dane(conv_id, out):
         else:
             target = istn
             _merge_pola(istn, p)
-        # Krawedzie (lista {litera,typ}) — poza _merge_pola: niepusta lista z LLM zastepuje
-        # krawedzie pozycji; pusta/brak NIE kasuje istniejacych (klient nie musi ich powtarzac).
-        ed = crm_calc.normalize_edges(p.get("edges"))
+        # Krawedzie — poza _merge_pola. Znormalizowana niepusta lista (round/chamfer) zastepuje.
+        # Jawne 'sharp'/ostre (raw_ma_sharp) = usun obrobke -> czysc. Puste bez sharp (LLM domyslnie
+        # []) NIE kasuje istniejacych — klient nie musi powtarzac krawedzi co ture.
+        raw_edges = p.get("edges")
+        ed = crm_calc.normalize_edges(raw_edges)
         if ed:
             target["edges"] = ed
+        elif crm_calc.raw_ma_sharp(raw_edges):
+            target["edges"] = []   # klient wybral ostre / usunięcie obróbki
     _merge_pola(stan["wspolne"], out.get("wspolne") or {})
     _zapisz_dane(conv_id, stan)
     return stan

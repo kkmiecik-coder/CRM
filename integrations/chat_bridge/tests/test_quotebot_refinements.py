@@ -35,10 +35,10 @@ def test_cena_msg_per_pozycja_i_calosc():
              "totals": {"total_netto": 480.48, "total_brutto": 590.99}}
     msg = qb._cena_msg(dane, wynik)
     assert "Wstępna wycena" not in msg
-    assert msg.splitlines()[0].startswith("Blat")
+    assert msg.splitlines()[0].startswith("**Blat")   # nazwa pogrubiona (markdown)
     assert "140×80×3 cm" in msg
     assert "590,99 zł (480,48 zł netto)" in msg     # cena per pozycja
-    assert "Cena za całość:" in msg
+    assert "**Cena za całość:**" in msg              # nagłówek pogrubiony
 
 
 def test_linia_pozycji_fallback_klejonka():
@@ -201,3 +201,30 @@ def test_obrazy_kontekstowe_trigger(monkeypatch):
                            {"pozycje": [_poz(dlugosc="", szerokosc="", grubosc="")], "wspolne": {}})
     assert any("krawedzi" in str(s) for s in sent)   # obraz oznaczenia krawedzi
     assert any("wymiar" in str(s) for s in sent)     # obraz oznaczenia wymiarow
+
+
+# --- Runda 5: sharp = brak obrobki (nie 'sharp Rnull') + czyszczenie przy zmianie na ostre ---
+
+def test_normalize_edges_odrzuca_sharp():
+    out = qb.crm_calc.normalize_edges([{"litera": "A", "typ": "sharp"},
+                                       {"litera": "B", "typ": "round", "r": 3}])
+    assert out == [{"litera": "B", "typ": "round", "r_value": 3, "angle_value": None}]  # sharp wypada
+
+
+def test_merge_ostre_czysci_krawedzie():
+    # Pozycja ma zaokraglenia -> klient zmienia na ostre (LLM: sharp) -> krawedzie wyczyszczone.
+    qb._zapisz_dane(740, {"pozycje": [_poz(id="1", edges=[
+        {"litera": "A", "typ": "round", "r_value": 3, "angle_value": None}])], "wspolne": {}})
+    out = {"pozycje": [{"id": "1", "edges": [{"litera": "A", "typ": "sharp"},
+                                             {"litera": "B", "typ": "sharp"}]}], "wspolne": {}}
+    dane = qb._merge_dane(740, out)
+    assert dane["pozycje"][0].get("edges") == []          # obrobka usunieta
+
+
+def test_merge_puste_edges_bez_sharp_nie_kasuje():
+    # LLM domyslnie []-> NIE kasuje wczesniejszych krawedzi (klient nie wspomnial o nich).
+    qb._zapisz_dane(741, {"pozycje": [_poz(id="1", edges=[
+        {"litera": "A", "typ": "round", "r_value": 3, "angle_value": None}])], "wspolne": {}})
+    out = {"pozycje": [{"id": "1", "edges": []}], "wspolne": {}}
+    dane = qb._merge_dane(741, out)
+    assert [e["litera"] for e in dane["pozycje"][0]["edges"]] == ["A"]   # zachowane

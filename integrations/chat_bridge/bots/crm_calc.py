@@ -186,14 +186,16 @@ def normalize_edges(raw):
         typ = _norm_edge_type(e.get("typ") or e.get("type"))
         if not typ:
             continue
+        if typ == "sharp":
+            # Ostra = BRAK obrobki: nie dodajemy jej do listy (inaczej w wycenie 'sharp Rnull').
+            # Intencje 'ostre'/usun obrobke wykrywa osobno raw_ma_sharp() -> czysci krawedzie.
+            continue
         r_raw = e.get("r") if e.get("r") is not None else e.get("r_value")
         kat_raw = e.get("kat") if e.get("kat") is not None else e.get("angle_value")
         if typ == "round":
             r_value, angle_value = _num_int(r_raw, _R_DEFAULT), None
-        elif typ == "chamfer":
+        else:  # chamfer
             r_value, angle_value = None, _num_int(kat_raw, _KAT_DEFAULT)
-        else:  # sharp — bez obrobki
-            r_value, angle_value = None, None
         litery = _ALL_TOP if lit in _WSZYSTKIE else [lit]
         for L in litery:
             klucz = (L, typ, r_value, angle_value)
@@ -201,6 +203,15 @@ def normalize_edges(raw):
                 seen.add(klucz)
                 out.append({"litera": L, "typ": typ, "r_value": r_value, "angle_value": angle_value})
     return out
+
+
+def raw_ma_sharp(raw):
+    """True gdy LLM podal w krawedziach JAWNIE typ 'sharp' (ostra) — sygnal, ze klient chce
+    krawedzie bez obrobki / usunac wczesniejsze zaokraglenia (a nie tylko ich nie zmienia)."""
+    for e in (raw or []):
+        if isinstance(e, dict) and _norm_edge_type(e.get("typ") or e.get("type")) == "sharp":
+            return True
+    return False
 
 
 def build_products(pozycje, options):
