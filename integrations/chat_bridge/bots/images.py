@@ -42,6 +42,10 @@ CONTEXT_IMAGES = {
         "podpis": ("Tak oznaczamy krawędzie (A–D góra, E–H dół, N1–N4 narożniki) — proszę wskazać, "
                    "które mają być zaokrąglone lub fazowane 👇"),
     },
+    "kolory": {
+        "plik": "wzornik_kolorow.png", "mime": "image/png", "nazwa": "wzornik-kolorow.png",
+        "podpis": "Nasz wzornik kolorów lakieru — proszę wskazać odcień, który się podoba 👇",
+    },
 }
 
 

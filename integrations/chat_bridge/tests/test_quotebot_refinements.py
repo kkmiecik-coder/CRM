@@ -356,3 +356,14 @@ def test_brakujace_lakier_wymaga_finishing_id():
     poz2 = _poz(wykonczenie="surowe", finishing_id="")   # surowe -> finishing_id niewymagany
     brak2 = [k for _, k in qb._brakujace({"pozycje": [poz2], "wspolne": {}})]
     assert "finishing_id" not in brak2
+
+
+def test_obrazy_kontekstowe_wzornik_kolorow(monkeypatch):
+    sent = []
+    monkeypatch.setattr(qb.images, "resolve_context", lambda key: "/fake/%s.png" % key)
+    monkeypatch.setattr(qb, "cw_agent_reply",
+                        lambda c, t, **kw: sent.append(kw.get("image_name") or t) or True)
+    # klient wybiera "barwne" -> wzornik kolorow (pozycja z kompletem wymiarow, wiec bez obrazu wymiarow)
+    qb._obrazy_kontekstowe(760, "poproszę lakierowane barwne",
+                           {"pozycje": [_poz(wykonczenie="lakierowane")], "wspolne": {}})
+    assert any("kolor" in str(s) for s in sent)   # wzornik-kolorow.png

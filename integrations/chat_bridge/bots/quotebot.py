@@ -1114,6 +1114,8 @@ def _wyslij_probki(conv_id, dane):
 
 # Klient pisze o obrobce krawedzi -> pokazujemy obraz z oznaczeniem krawedzi.
 _KRAWEDZIE_RE = re.compile(r"(kraw[eę]d|zaokr[aą]gl|fazow|zfazuj|sfazuj|\bR\d)", re.IGNORECASE)
+# Klient wybiera barwe/odcien lakieru -> pokazujemy wzornik kolorow.
+_KOLOR_RE = re.compile(r"(barwn|odcie[nń]|wzornik|palet[aę]|jaki[ei]? kolor|kt[oó]ry kolor)", re.IGNORECASE)
 
 
 def _wyslij_obraz_kontekstowy(conv_id, key):
@@ -1134,10 +1136,12 @@ def _wyslij_obraz_kontekstowy(conv_id, key):
 
 def _obrazy_kontekstowe(conv_id, content, dane):
     """Deterministyczne obrazy pomocnicze (raz na rozmowe): krawedzie — gdy klient pisze o
-    obrobce krawedzi; wymiary — gdy pierwsza pozycja (nie-schody) nie ma kompletu wymiarow,
-    czyli bot bedzie o nie pytal."""
+    obrobce krawedzi; kolory — gdy klient wybiera barwe/odcien lakieru (wzornik); wymiary — gdy
+    pierwsza pozycja (nie-schody) nie ma kompletu wymiarow, czyli bot bedzie o nie pytal."""
     if _KRAWEDZIE_RE.search(content or ""):
         _wyslij_obraz_kontekstowy(conv_id, "krawedzie")
+    if _KOLOR_RE.search(content or ""):
+        _wyslij_obraz_kontekstowy(conv_id, "kolory")
     pozycje = dane.get("pozycje") or []
     if pozycje:
         poz = pozycje[0]
