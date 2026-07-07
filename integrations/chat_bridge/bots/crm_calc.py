@@ -6,7 +6,7 @@ import time
 import unicodedata
 import re
 import requests
-from config import CRM_API_BASE, CRM_BOT_API_KEY
+from config import CRM_API_BASE, CRM_BOT_API_KEY, BOT_QUOTE_CLIENT_TYPE
 from core.log import log
 
 _OPTIONS_TTL = 600.0
@@ -106,3 +106,99 @@ def valid_finishing_id(fid, options):
             # Zepsuty wpis w katalogu — pomijamy i kontynuujemy
             continue
     return False
+
+
+# Mapowanie wykonczenia PL -> finishing_type API (root drzewa). Surowe = brak kosztu.
+_FINISH_TYPE = {"surowe": "Surowe", "olejowane": "Olejowane", "lakierowane": "Lakierowane"}
+
+
+def _finish_type(wykonczenie):
+    a = _ascii_low(wykonczenie)
+    for klucz, val in (("surow", "Surowe"), ("olej", "Olejowane"), ("lakier", "Lakierowane")):
+        if klucz in a:
+            return val
+    return None
+
+
+def _num(v):
+    """String/float z LLM -> float; None gdy nie liczba."""
+    try:
+        return float(str(v).replace(",", ".").strip())
+    except (TypeError, ValueError):
+        return None
+
+
+def build_products(pozycje, options):
+    """Mapuje pozycje bota (PL) na produkty API /calculate. Zwraca (products, braki),
+    gdzie braki = [(pozycja, powod_pl)] dla pozycji, ktorych nie da sie zmapowac."""
+    products = []
+    braki = []
+    for i, poz in enumerate(pozycje or [], 1):
+        code = variant_code(poz.get("gatunek"), poz.get("technologia"), poz.get("klasa"))
+        if not code:
+            braki.append((poz, "nie rozpoznano wariantu drewna (gatunek/technologia/klasa)"))
+            continue
+        ftype = _finish_type(poz.get("wykonczenie"))
+        if ftype is None:
+            braki.append((poz, "nie rozpoznano wykończenia"))
+            continue
+        prod = {
+            "index": i,
+            "length": _num(poz.get("dlugosc")),
+            "width": _num(poz.get("szerokosc")),
+            "thickness": _num(poz.get("grubosc")),
+            "quantity": int(_num(poz.get("ilosc")) or 1),
+            "selected_variant": code,
+            "shape": "rectangular",
+            "finishing_type": ftype,
+        }
+        if ftype != "Surowe":
+            fid = poz.get("finishing_id")
+            if not valid_finishing_id(fid, options):
+                braki.append((poz, "nie rozpoznano wykończenia (finishing_id spoza katalogu)"))
+                continue
+            prod["finishing_option_id"] = int(fid)
+        products.append(prod)
+    return products, braki
+
+
+def _post(path, body):
+    """POST JSON do CRM API; zwraca JSON albo {ok:False} przy bledzie transportu."""
+    try:
+        r = requests.post(CRM_API_BASE + path, headers=_headers(), json=body, timeout=30)
+        if r.status_code != 200:
+            log("crm_calc %s kod:" % path, r.status_code, r.text[:200])
+            return {"ok": False, "errors": [{"field": None, "code": "HTTP_%s" % r.status_code,
+                                             "message": "Błąd połączenia z wyceną."}]}
+        return r.json() or {"ok": False, "errors": []}
+    except Exception as e:
+        log("crm_calc %s blad:" % path, repr(e))
+        return {"ok": False, "errors": [{"field": None, "code": "TRANSPORT",
+                                         "message": "Błąd połączenia z wyceną."}]}
+
+
+def calculate(pozycje, options):
+    """POST /api/bot/calculate — cena bez zapisu. Zwraca surowy JSON kontraktu bota."""
+    products, braki = build_products(pozycje, options)
+    if braki:
+        return {"ok": False, "missing_fields": [], "errors": [],
+                "braki_mapowania": [{"powod": powod} for _, powod in braki]}
+    body = {"products": products, "client_type": BOT_QUOTE_CLIENT_TYPE}
+    return _post("/api/bot/calculate", body)
+
+
+def find_or_create_client(email, phone, name):
+    """POST /api/bot/clients/find-or-create."""
+    return _post("/api/bot/clients/find-or-create",
+                 {"email": email or None, "phone": phone or None, "name": name or None})
+
+
+def create_quote(pozycje, options, client_id, notes=""):
+    """POST /api/bot/quotes — pelna wycena + publiczny link."""
+    products, braki = build_products(pozycje, options)
+    if braki:
+        return {"ok": False, "errors": [{"field": None, "code": "MAP",
+                                         "message": powod} for _, powod in braki]}
+    body = {"products": products, "client_id": client_id,
+            "quote_client_type": BOT_QUOTE_CLIENT_TYPE, "notes": notes}
+    return _post("/api/bot/quotes", body)
