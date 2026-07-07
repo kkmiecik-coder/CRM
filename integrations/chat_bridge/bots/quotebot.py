@@ -90,7 +90,11 @@ _FORMAT = (
     "PIERWSZĄ wycenę produktu ZAWSZE prowadź normalnie przez 'pozycje' (zbierz dane → system wyśle "
     "podsumowanie → cena) — NIE używaj wtedy 'porownania'. 'porownania' NIE służy do wyceny nowego "
     "produktu ani pierwszej wyceny. Gdy klient chce FAKTYCZNIE zmienić zamówienie na inny wariant — "
-    "zmień pozycję normalnie (nie używaj 'porownania')."
+    "zmień pozycję normalnie (nie używaj 'porownania'). "
+    "Wypełniaj 'porownania' TYLKO dla porównania, o które klient prosi W TEJ wiadomości — NIGDY nie "
+    "powtarzaj porównania z wcześniejszych tur. Gdy klient komentuje lub decyduje (np. „zostajemy "
+    "przy dębie”, „ok”, „dziękuję”) — zostaw 'porownania' PUSTE i odpowiedz krótko i naturalnie w polu "
+    "'odpowiedz' (np. potwierdź wybór i zapytaj, czy pomóc w czymś jeszcze)."
 )
 
 # Instrukcja stanu potwierdzenia — doklejana do promptu, gdy klient dostal podsumowanie od systemu.
@@ -366,6 +370,7 @@ def _obsluz_porownania(conv_id, dane, porownania):
     if not wynik.get("ok") or not wynik.get("products"):
         return False   # nie policzymy (braki/blad) — niech LLM odpowie normalnie
     products, pozycje, totals = wynik["products"], dane.get("pozycje") or [], wynik.get("totals") or {}
+    wyslane = _sent_images(conv_id)   # dedup (te same klucze co obrazy) — nie powtarzaj porownania
     wyslano = False
     for por in porownania:
         if not isinstance(por, dict):
@@ -379,6 +384,10 @@ def _obsluz_porownania(conv_id, dane, porownania):
             if str(por.get(k) or "").strip():
                 alt[k] = por[k]
         code = crm_calc.variant_code(alt.get("gatunek"), alt.get("technologia"), alt.get("klasa"))
+        # Dedup: to samo porownanie (pozycja+wariant) juz pokazane -> pomijamy (LLM lubi echowac).
+        dkey = "cmp:%s:%s" % (pid, code or "%s|%s|%s" % (alt.get("gatunek"), alt.get("technologia"), alt.get("klasa")))
+        if dkey in wyslane:
+            continue
         var = next((v for v in (products[idx].get("variants") or [])
                     if v.get("variant_code") == code and v.get("available")), None)
         if not var:
@@ -386,11 +395,13 @@ def _obsluz_porownania(conv_id, dane, porownania):
         else:
             cw_agent_reply(conv_id, _porownanie_msg(alt, products[idx], totals),
                            token=BOT_QUOTE_CW_AGENT_TOKEN)
+        _mark_image_sent(conv_id, dkey)
+        wyslane.add(dkey)
         wyslano = True
     if wyslano:
         _bump_turns(conv_id)
-        log("quotebot: porownanie wariantu (conv %s, %d)" % (conv_id, len(porownania)))
-    return wyslano
+        log("quotebot: porownanie wariantu (conv %s)" % conv_id)
+    return wyslano   # False gdy nic nowego -> run_quote_turn schodzi do normalnej odpowiedzi
 
 
 _PROSBA_KONTAKT = ("Jeśli poda Pan/Pani adres e-mail (lub telefon), zapiszę tę wycenę i wyślę "
@@ -1038,8 +1049,7 @@ def _zapisz_wycene(conv_id, dane, options, email, phone, name):
         return
     # Grupa 3: klient juz w bazie (dopasowany, nie utworzony) -> raz na rozmowe mila wzmianka.
     if kl.get("matched") and not _returning_greeted(conv_id):
-        cw_agent_reply(conv_id, "Miło, że znów Państwo do nas zaglądają 😊 — widzę wcześniejsze "
-                       "wyceny w naszym systemie.", token=BOT_QUOTE_CW_AGENT_TOKEN)
+        cw_agent_reply(conv_id, "Widzę wcześniejsze wyceny w naszym systemie. Miło nam, że znów Państwo do nas zaglądają 😊", token=BOT_QUOTE_CW_AGENT_TOKEN)
         _set_returning_greeted(conv_id, True)
 
     edit_uuid = _stored_edit_uuid(conv_id)
@@ -1319,6 +1329,12 @@ def run_quote_turn(conv_id, inbox_id, message_id, content, attachments=None):
 
     reply = out["odpowiedz"]
     if not reply:
+        if _priced(conv_id):
+            # Po wycenie klient napisal cos konwersacyjnego (np. „zostajemy przy dębie”), a model
+            # nie dal tresci (czasem echuje samo 'porownania' zdjete przez dedup) — nie rzucamy ani
+            # nie petlimy; cicho konczymy ture.
+            _bump_turns(conv_id)
+            return
         raise RuntimeError("quotebot: pusta odpowiedz modelu")
     # 1a: obraz semantyczny wybrany przez model (whitelist), raz na rozmowe.
     tag = out.get("send_image") or ""

@@ -312,3 +312,20 @@ def test_czy_porownanie_bez_kompletu_falsz():
     qb._set_priced(911, True)
     dane = {"pozycje": [_poz(gatunek="")], "wspolne": {}}   # brak gatunku -> braki
     assert qb._czy_porownanie(911, {"porownania": [{"id": "1"}]}, dane) is False
+
+
+def test_obsluz_porownania_dedup_nie_powtarza(monkeypatch):
+    replies = []
+    monkeypatch.setattr(qb, "cw_agent_reply", lambda c, t, **kw: replies.append(t) or True)
+    monkeypatch.setattr(qb.crm_calc, "get_options", lambda: {"finishing_options": []})
+    monkeypatch.setattr(qb.crm_calc, "calculate", lambda p, o: {
+        "ok": True, "products": [{"variants": [
+            {"variant_code": "jes-micro-ab", "available": True, "total_netto": 700.0, "total_brutto": 861.0}],
+            "finishing": {"netto": 0, "brutto": 0}, "edges": {"netto": 0, "brutto": 0}}],
+        "totals": {"total_brutto": 984.0, "total_netto": 800.0}})
+    dane = {"pozycje": [_poz()], "wspolne": {}}
+    por = [{"id": "1", "gatunek": "jesion"}]
+    assert qb._obsluz_porownania(920, dane, por) is True     # 1. raz -> pokazane
+    replies.clear()
+    assert qb._obsluz_porownania(920, dane, por) is False    # echo -> nic nowego (fall-through)
+    assert replies == []
