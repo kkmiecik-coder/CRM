@@ -46,7 +46,11 @@ _FORMAT = (
     "NIE ustawiaj handoff na samo pytanie o cenę — wtedy zbieraj brakujące dane do wyceny. "
     "Pole 'send_image' ustaw na DOKŁADNY tag obrazu z listy DOSTĘPNE OBRAZY tylko wtedy, gdy "
     "obraz realnie pomoże klientowi (np. pyta o różnice gatunków). W innym razie zostaw pusty "
-    "string. NIGDY nie wymyślaj tagów spoza listy i nie obiecuj zdjęć, których nie ma."
+    "string. NIGDY nie wymyślaj tagów spoza listy i nie obiecuj zdjęć, których nie ma. "
+    "Pola 'wspolne' (termin, kontakt) wypełniaj WYŁĄCZNIE danymi, które klient sam podał w "
+    "rozmowie (np. telefon lub e-mail, który napisał). NIGDY nie wstawiaj tam nazwy ani "
+    "identyfikatora kontaktu z systemu, ani własnej prośby o dane — jeśli klient nic nie podał, "
+    "zostaw te pola puste."
 )
 
 # Instrukcja stanu potwierdzenia — doklejana do promptu, gdy klient dostal podsumowanie od systemu.
@@ -464,10 +468,15 @@ _KRYT_WSPOLNE = ("gatunek", "technologia", "klasa", "ilosc", "wykonczenie")
 # Powody handoffu, ktore straznik PRZEPUSZCZA (A: czlowiek, C: poza wiedza, sprawy
 # indywidualne) — to nie sa roszczenia o "komplet danych", brak pol nie moze ich blokowac.
 # Uwaga: 'zwrot' z koncowka fleksyjna, zeby 'kontakt zwrotny' nie pasowal.
+# 'zmiana/zmienic ... (adres/dostawa/zamowienie)' = modyfikacja ISTNIEJACEGO zamowienia (nie
+# korekta wyceny) — dopuszcza dowolne slowa miedzy "zmiana" a przedmiotem (np. "zmiana adresu
+# dostawy w zamowieniu"); regresja S17 (E2E 2026-07-06), gdzie waski 'zmian\w* zam' nie lapal.
+# Celowo BEZ golego 'dane' (zeby "zmiana danych do wyceny" nie przeszla jako sprawa indywidualna).
 _POWOD_PRZEPUSC = re.compile(
     r"(człowiek|czlowiek|konsultant|doradc|pracownik|poza (wiedz|zakres)|"
-    r"nie wiem|nie potrafi|reklamacj|status zam|zmian\w* zam|faktur|"
-    r"zwrot(u|em|ów|ow|y)?\b|indywidualn)", re.IGNORECASE)
+    r"nie wiem|nie potrafi|reklamacj|status zam|faktur|"
+    r"zwrot(u|em|ów|ow|y)?\b|indywidualn|"
+    r"zmi[ae]ń?\w*.{0,40}(adres|dostaw|zam(ó|o)wien))", re.IGNORECASE)
 
 # Etykiety pol do backstopowego pytania o braki (gdy LLM ustawil handoff mimo brakow).
 _ETYKIETY_PYTAN = {
@@ -739,7 +748,10 @@ def run_livechat_turn(conv_id, inbox_id, message_id, content, attachments=None):
         raise RuntimeError("livechat: brak odpowiedzi modelu")
     out = _parse_llm(raw)
     dane = _merge_dane(conv_id, out)   # akumulacja per pozycja: raz zebrane pole zostaje
-    zmienione = dane != dane_przed   # porownanie wartosci (dict ==), nie tozsamosci — oba swieze obiekty z _load_dane
+    # 'zmienione' liczymy TYLKO po POZYCJACH (spec wyceny). Zmiana pol wspolnych
+    # (kontakt/termin) — np. gdy LLM sam dopisze kontakt z tozsamosci klienta — NIE ponawia
+    # podsumowania i nie tlumi odpowiedzi na pytanie w stanie awaiting (regresja S54 E2E 2026-07-06).
+    zmienione = dane.get("pozycje") != dane_przed.get("pozycje")
 
     # Straznik wymiarow (deterministyczny) + loop-breaker: 2. to samo odrzucenie -> podpowiedz cm,
     # 3. -> handoff (koniec nieskonczonej petli, np. mm mylone z cm).

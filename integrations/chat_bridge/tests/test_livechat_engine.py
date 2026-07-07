@@ -836,3 +836,59 @@ def test_loop_breaker_trzecie_odrzucenie_handoff(monkeypatch):
     lc.run_livechat_turn(77, "12", "m2", "860")
     lc.run_livechat_turn(77, "12", "m3", "860")   # 3. -> handoff
     assert len(calls["handoff"]) == 1
+
+
+# ---------- S17: zmiana istniejacego zamowienia -> handoff (regresja E2E 2026-07-06) ----------
+
+def test_zmiana_zamowienia_przepuszczana_przez_strażnika():
+    """Zmiana istniejacego zamowienia (adres/dane/dostawa) = sprawa indywidualna ->
+    NIE roszczenie o komplet danych (strażnik przepuszcza handoff)."""
+    assert lc._czy_powod_kompletu("zmiana adresu dostawy w zamówieniu") is False
+    assert lc._czy_powod_kompletu("klient chce zmienić dane w zamówieniu") is False
+    assert lc._czy_powod_kompletu("zmiana zamówienia") is False
+    assert lc._czy_powod_kompletu("prośba o zmianę adresu wysyłki zamówienia") is False
+
+
+def test_zmiana_zamowienia_nie_psuje_gatingu_wyceny():
+    """Regresja: normalny 'komplet danych' i 'kontakt zwrotny' NADAL gated (True)."""
+    assert lc._czy_powod_kompletu("komplet danych do wyceny") is True
+    assert lc._czy_powod_kompletu("klient podał kontakt zwrotny") is True
+    assert lc._czy_powod_kompletu("wszystkie dane zebrane") is True
+
+
+def test_zmiana_adresu_w_zamowieniu_handoff_mimo_braku_danych(monkeypatch):
+    """Integracja S17: 'zmień adres w zamówieniu' -> handoff, a NIE dopytywanie o produkt."""
+    calls = _mock_env(monkeypatch, llm_json=_odp(
+        handoff=True, powod="klient chce zmienić adres dostawy w zamówieniu"))
+    lc.run_livechat_turn(77, "12", "m1", "chcę zmienić adres dostawy w moim zamówieniu")
+    assert len(calls["handoff"]) == 1, "zmiana zamowienia musi trafic do konsultanta"
+    assert calls["reply"] == [lc.CLOSING_MSG]
+    assert "wycenę" not in "".join(calls["reply"]).lower(), "bot nie moze pytac o produkt do wyceny"
+
+
+# ---------- Artefakt 'Kontakt': auto-uzupelnienie wspolnych nie ponawia podsumowania ----------
+
+def test_artefakt_kontakt_nie_ponawia_podsumowania(monkeypatch):
+    """Awaiting + pytanie klienta; LLM dokleja wspolne.kontakt (artefakt tozsamosci) bez zmiany
+    pozycji -> bot ODPOWIADA na pytanie, NIE ponawia podsumowania (regresja S54 E2E 2026-07-06)."""
+    calls = _mock_env(monkeypatch, llm_json=_odp(
+        "Tak, krawędzie zaokrąglamy standardowo.", wspolne={"kontakt": "Jan"}))
+    lc._merge_dane(77, _odp(pozycje=[_poz()]))
+    lc._set_awaiting(77, True)
+    lc.run_livechat_turn(77, "12", "m2", "tak, ale czy zaokrąglicie krawędzie?")
+    assert calls["reply"] == ["Tak, krawędzie zaokrąglamy standardowo."]
+    assert "Podsumowuję" not in "".join(calls["reply"]), "sama zmiana kontaktu nie ponawia podsumowania"
+    assert calls["handoff"] == []
+    assert lc._awaiting_confirm(77) is True
+
+
+def test_zmiana_pozycji_nadal_ponawia_podsumowanie(monkeypatch):
+    """Kontrola: realna korekta POZYCJI w awaiting nadal wysyla nowe podsumowanie."""
+    calls = _mock_env(monkeypatch, llm_json=_odp(
+        "Poprawiam.", pozycje=[{"id": "1", "grubosc": "4"}], wspolne={"kontakt": "Jan"}))
+    lc._merge_dane(77, _odp(pozycje=[_poz()]))
+    lc._set_awaiting(77, True)
+    lc.run_livechat_turn(77, "12", "m2", "grubość na 4")
+    assert len(calls["reply"]) == 1
+    assert "Podsumowuję dane do wyceny" in calls["reply"][0]
+    assert "4 cm" in calls["reply"][0]
