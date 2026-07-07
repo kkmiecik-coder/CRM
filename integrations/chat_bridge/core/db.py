@@ -53,7 +53,8 @@ def init_db():
       reject_sig TEXT, reject_count INTEGER DEFAULT 0, complaint_sent INTEGER DEFAULT 0,
       sent_images TEXT, priced INTEGER DEFAULT 0, awaiting_contact INTEGER DEFAULT 0,
       quote_saved INTEGER DEFAULT 0, contact_email TEXT, contact_phone TEXT,
-      contact_name TEXT, quote_edit_uuid TEXT, returning_greeted INTEGER DEFAULT 0);
+      contact_name TEXT, quote_edit_uuid TEXT, returning_greeted INTEGER DEFAULT 0,
+      awaiting_postcode INTEGER DEFAULT 0);
     CREATE TABLE IF NOT EXISTS quote_dane(
       conv_id INTEGER PRIMARY KEY, dane_json TEXT);
     """)
@@ -77,6 +78,7 @@ def init_db():
                  "ALTER TABLE quote_state ADD COLUMN contact_name TEXT",
                  "ALTER TABLE quote_state ADD COLUMN quote_edit_uuid TEXT",
                  "ALTER TABLE quote_state ADD COLUMN returning_greeted INTEGER DEFAULT 0",
+                 "ALTER TABLE quote_state ADD COLUMN awaiting_postcode INTEGER DEFAULT 0",
                  "ALTER TABLE quote_queue ADD COLUMN attachments TEXT"):
         try:
             c.execute(stmt)

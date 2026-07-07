@@ -244,6 +244,21 @@ def _set_awaiting_contact(conv_id, flag):
     c.commit(); c.close()
 
 
+def _awaiting_postcode(conv_id):
+    c = db()
+    row = c.execute("SELECT awaiting_postcode FROM quote_state WHERE conv_id=?", (conv_id,)).fetchone()
+    c.close()
+    return bool(row["awaiting_postcode"]) if row else False
+
+
+def _set_awaiting_postcode(conv_id, flag):
+    c = db()
+    c.execute("INSERT INTO quote_state(conv_id, bot_turns, awaiting_postcode) VALUES(?,0,?) "
+              "ON CONFLICT(conv_id) DO UPDATE SET awaiting_postcode=excluded.awaiting_postcode",
+              (conv_id, 1 if flag else 0))
+    c.commit(); c.close()
+
+
 def _set_quote_saved(conv_id, flag):
     c = db()
     c.execute("INSERT INTO quote_state(conv_id, bot_turns, quote_saved) VALUES(?,0,?) "
@@ -418,6 +433,31 @@ _EMAIL_RE = re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+")
 # ciag cyfr (np. numer zamowienia) nie zostal pomylony z telefonem.
 _TEL_RE = re.compile(r"\b(?:\+?\d[\s-]?){9,15}\b")
 _ODMOWA_RE = re.compile(r"\b(nie|nie chc\w*|bez|rezygnuj\w*|pomi\w*|p[oó]zniej)\b", re.IGNORECASE)
+
+_KOD_RE = re.compile(r"\b(\d{2}-\d{3})\b")
+
+
+def _wyciagnij_kod(text):
+    """Kod pocztowy 00-000 z tekstu klienta albo None."""
+    m = _KOD_RE.search(str(text or ""))
+    return m.group(1) if m else None
+
+
+_WYSYLKA_OFERTA = ("Mogę od razu oszacować koszt wysyłki 🚚 Proszę o kod pocztowy dostawy "
+                   "(w formacie 00-000), a podam orientacyjną cenę.")
+
+
+def _wysylka_msg(res):
+    """Wiadomosc o wysylce z odpowiedzi /shipping-quote: najtanszy kurier +30%; gabaryt bez
+    kuriera -> konsultant; blad -> konsultant."""
+    if not res or not res.get("ok"):
+        return ("Nie udało się teraz oszacować kosztu wysyłki — ostateczną cenę potwierdzi "
+                "konsultant przy finalizacji zamówienia.")
+    if not res.get("carriers"):
+        return ("Ten gabaryt przekracza standardowe paczki kurierskie — koszt wysyłki wyceni "
+                "indywidualnie konsultant przy finalizacji.")
+    return "Najtańsza wysyłka to **%s** — **%s**." % (
+        res.get("carrier_name") or "kurier", _fmt_pln(res.get("shipping_brutto")))
 
 
 def _wyciagnij_kontakt(text):
