@@ -302,6 +302,18 @@ def _products_with_all_variants(payload):
     return products
 
 
+def _shipping_settings(payload):
+    """Mapuje pola wysylki z payloadu bota na klucze settings zrozumiale przez update_quote
+    (courierName/shippingNetto/shippingBrutto). Pusty dict gdy bot nie przyslal kuriera."""
+    if not payload.get('courier_name'):
+        return {}
+    return {
+        'courierName': payload.get('courier_name'),
+        'shippingNetto': payload.get('shipping_netto', 0),
+        'shippingBrutto': payload.get('shipping_brutto', 0),
+    }
+
+
 @bot_api_bp.route('/quotes/<edit_uuid>', methods=['PUT'])
 @require_bot_api_key
 def bot_update_quote(edit_uuid):
@@ -327,9 +339,11 @@ def bot_update_quote(edit_uuid):
         ]}), 200
 
     # Format update_quote: settings.clientType + products z pełną listą wariantów.
+    # Wysyłka (courier/koszt) — opcjonalnie, gdy bot dopisuje kuriera po oszacowaniu.
     client_type = payload.get('quote_client_type') or payload.get('client_type')
-    data = {'products': _products_with_all_variants(payload),
-            'settings': {'clientType': client_type, 'notes': payload.get('notes', '')}}
+    settings = {'clientType': client_type, 'notes': payload.get('notes', '')}
+    settings.update(_shipping_settings(payload))
+    data = {'products': _products_with_all_variants(payload), 'settings': settings}
 
     result, status = update_quote(edit_uuid, data, bot_user)
     if status != 200 or not result.get('success'):
