@@ -797,8 +797,29 @@ def _naglowek_pozycji(poz):
     return prod
 
 
-def _bloki_pozycji(dane):
-    """Linie podsumowania: blok na pozycje (numerowany przy >1) + pola wspolne na koncu."""
+def _wykonczenie_opis(poz, options):
+    """Opis wykonczenia do podsumowania: pelna sciezka z katalogu (z kolorem/polyskiem) gdy jest
+    finishing_id, np. 'Lakierowane > Barwne > BRUNAT 22-15'; inaczej surowy tekst 'wykonczenie'."""
+    fid = str(poz.get("finishing_id") or "").strip()
+    if fid and options:
+        fp = crm_calc.finishing_full_path(fid, options)
+        if fp:
+            return fp.replace("/", " > ")
+    return str(poz.get("wykonczenie") or "").strip()
+
+
+def _czy_barwny_lakier(poz, options):
+    """True gdy wykonczenie to lakier BARWNY (kolorowy) — dla niego nie mamy trafnej probki
+    (plik pokazuje bezbarwne), wiec probki nie wysylamy. 'bezbarwne' -> False."""
+    fid = str(poz.get("finishing_id") or "").strip()
+    fp = crm_calc.finishing_full_path(fid, options).lower() if (fid and options) else ""
+    tekst = (fp + " " + str(poz.get("wykonczenie") or "")).lower()
+    return "barwn" in tekst and "bezbarwn" not in tekst
+
+
+def _bloki_pozycji(dane, options=None):
+    """Linie podsumowania: blok na pozycje (numerowany przy >1) + pola wspolne na koncu.
+    Wykonczenie pokazujemy z katalogu (z kolorem) gdy podano options + finishing_id."""
     lines = []
     pozycje = dane.get("pozycje") or []
     wiele = len(pozycje) > 1
@@ -806,7 +827,7 @@ def _bloki_pozycji(dane):
         naglowek = _naglowek_pozycji(poz)
         lines.append("%d. %s" % (i, naglowek) if wiele else naglowek)
         for k, label in _POLA_POZYCJI:
-            v = str(poz.get(k) or "").strip()
+            v = _wykonczenie_opis(poz, options) if k == "wykonczenie" else str(poz.get(k) or "").strip()
             if not v:
                 continue
             lines.append("%s: %s" % (label, _fmt_cm(v) if k in _CM_POLA else v))
@@ -823,18 +844,18 @@ def _bloki_pozycji(dane):
     return lines
 
 
-def _podsumowanie_msg(dane):
+def _podsumowanie_msg(dane, options=None):
     """Deterministyczne podsumowanie wyceny do potwierdzenia przez klienta (bez LLM)."""
     lines = ["Podsumowuję dane do wyceny:", ""]
-    lines += _bloki_pozycji(dane)
+    lines += _bloki_pozycji(dane, options)
     lines += ["", "Czy wszystko się zgadza? Jeśli tak, przygotuję wycenę."]
     return "\n".join(lines)
 
 
 def _summary_note(dane, powod):
-    """Prywatna notatka-podsumowanie dla agenta po handoffie."""
+    """Prywatna notatka-podsumowanie dla agenta po handoffie (z kolorem wykonczenia z katalogu)."""
     lines = ["🤖 Asystent AI v1 (wycena) — przekazanie do konsultanta", "Powód: %s" % (powod or "-")]
-    bloki = _bloki_pozycji(dane or _pusty_stan())
+    bloki = _bloki_pozycji(dane or _pusty_stan(), crm_calc.get_options())
     if bloki:
         lines.append("")
         lines += bloki
@@ -1088,14 +1109,17 @@ def _zapisz_wycene(conv_id, dane, options, email, phone, name):
         log("quotebot: zapis/aktualizacja wyceny nieudana (conv %s): %s" % (conv_id, q))
 
 
-def _wyslij_probki(conv_id, dane):
+def _wyslij_probki(conv_id, dane, options=None):
     """Deterministycznie dokleja probki wybranej konfiguracji (lookup po nazwie pliku).
-    Nigdy nie rzuca — obraz nie moze wywrocic tury po wyslanym podsumowaniu. Dedup + cap."""
+    Nigdy nie rzuca — obraz nie moze wywrocic tury po wyslanym podsumowaniu. Dedup + cap.
+    Barwny lakier POMIJAMY — plik probki pokazuje bezbarwne (inny wyglad); klient widzi wzornik."""
     wyslane = _sent_images(conv_id)
     ile = 0
     for poz in (dane.get("pozycje") or []):
         if ile >= _MAX_PROBEK:
             break
+        if _czy_barwny_lakier(poz, options):
+            continue
         key = images.sample_key(poz)
         if not key or key in wyslane:
             continue
@@ -1156,11 +1180,12 @@ def _wyslij_podsumowanie(conv_id, dane):
     po czym dokleja probki wybranej konfiguracji (jesli sa).
     Kolejnosc CELOWO wysylka -> stan: gdy POST padnie, retry ponawia ture bez awaiting i
     podsumowanie dociera; stan-przed-wysylka po nieudanym POST omijalby podsumowanie."""
-    if not cw_agent_reply(conv_id, _podsumowanie_msg(dane), token=BOT_QUOTE_CW_AGENT_TOKEN):
+    options = crm_calc.get_options()   # do pokazania koloru w podsumowaniu + pominiecia probki barwnego lakieru
+    if not cw_agent_reply(conv_id, _podsumowanie_msg(dane, options), token=BOT_QUOTE_CW_AGENT_TOKEN):
         raise RuntimeError("quotebot: wysylka podsumowania nieudana (conv %s)" % conv_id)
     _set_awaiting(conv_id, True)
     _bump_turns(conv_id)
-    _wyslij_probki(conv_id, dane)
+    _wyslij_probki(conv_id, dane, options)
     log("quotebot: podsumowanie do potwierdzenia (conv %s)" % conv_id)
 
 

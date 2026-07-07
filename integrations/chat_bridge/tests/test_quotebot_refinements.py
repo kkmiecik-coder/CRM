@@ -367,3 +367,34 @@ def test_obrazy_kontekstowe_wzornik_kolorow(monkeypatch):
     qb._obrazy_kontekstowe(760, "poproszę lakierowane barwne",
                            {"pozycje": [_poz(wykonczenie="lakierowane")], "wspolne": {}})
     assert any("kolor" in str(s) for s in sent)   # wzornik-kolorow.png
+
+
+# --- Runda 9: kolor lakieru w podsumowaniu + pominiecie probki barwnego lakieru ---
+
+_OPTS_KOLOR = {"finishing_options": [
+    {"id": 5, "full_path": "Lakierowane/Barwne/BRUNAT 22-15", "price_netto": 40.0},
+    {"id": 8, "full_path": "Lakierowane/Bezbarwne", "price_netto": 35.0}]}
+
+
+def test_podsumowanie_pokazuje_kolor_lakieru():
+    poz = _poz(wykonczenie="lakierowane barwne", finishing_id=5)
+    msg = qb._podsumowanie_msg({"pozycje": [poz], "wspolne": {}}, _OPTS_KOLOR)
+    assert "Lakierowane > Barwne > BRUNAT 22-15" in msg
+
+
+def test_czy_barwny_lakier():
+    assert qb._czy_barwny_lakier(_poz(finishing_id=5), _OPTS_KOLOR) is True      # barwne
+    assert qb._czy_barwny_lakier(_poz(finishing_id=8), _OPTS_KOLOR) is False     # bezbarwne
+    assert qb._czy_barwny_lakier(_poz(wykonczenie="surowe"), _OPTS_KOLOR) is False
+
+
+def test_wyslij_probki_pomija_barwny_lakier(monkeypatch):
+    sent = []
+    monkeypatch.setattr(qb, "cw_agent_reply",
+                        lambda c, t, **kw: sent.append(kw.get("image_path") or t) or True)
+    monkeypatch.setattr(qb.images, "sample_key", lambda poz: "sample:x")
+    monkeypatch.setattr(qb.images, "resolve_sample", lambda poz: "/fake/probka.jpg")
+    qb._wyslij_probki(970, {"pozycje": [_poz(wykonczenie="lakierowane barwne", finishing_id=5)]}, _OPTS_KOLOR)
+    assert sent == []                                   # barwny lakier -> probka pominieta
+    qb._wyslij_probki(971, {"pozycje": [_poz(wykonczenie="lakierowane bezbarwne", finishing_id=8)]}, _OPTS_KOLOR)
+    assert sent != []                                   # bezbarwny -> probka wyslana

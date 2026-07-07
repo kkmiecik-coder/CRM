@@ -131,6 +131,13 @@ def _find_finishing_option(fid, options):
     return None
 
 
+def finishing_full_path(fid, options):
+    """Pelna sciezka wykonczenia (np. 'Lakierowane/Barwne/BRUNAT 22-15') dla finishing_id z katalogu,
+    albo '' gdy brak. Sluzy do pokazania wybranego koloru w podsumowaniu."""
+    opt = _find_finishing_option(fid, options)
+    return str((opt or {}).get("full_path") or "")
+
+
 def _num(v):
     """String/float z LLM -> float; None gdy nie liczba."""
     try:
