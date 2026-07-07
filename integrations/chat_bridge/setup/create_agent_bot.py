@@ -32,6 +32,26 @@ def _cfg():
     return base, acc, token, outgoing_url
 
 
+def _cfg_quote():
+    """Konfiguracja dla bota wyceniającego (webhook /agent-bot-quote)."""
+    base  = os.environ.get("CHATWOOT_BASE", "http://rails:3000").rstrip("/")
+    acc   = os.environ.get("CHATWOOT_ACCOUNT_ID", "1")
+    token = os.environ.get("CHATWOOT_API_TOKEN", "")
+    # Token bezpieczeństwa webhooka bota wyceniającego (dodawany do query string URL)
+    bot_token = os.environ.get("BOT_QUOTE_AGENT_WEBHOOK_TOKEN", "")
+    # Bazowy URL webhooka — można nadpisać przez env; domyślny = produkcja
+    webhook_base = os.environ.get(
+        "BOT_QUOTE_AGENT_WEBHOOK_URL",
+        "https://chatbridge.woodpower.pl/agent-bot-quote",
+    )
+    # Outgoing URL: jeśli token ustawiony — dołącz jako ?token=
+    if bot_token:
+        outgoing_url = "%s?token=%s" % (webhook_base, bot_token)
+    else:
+        outgoing_url = webhook_base
+    return base, acc, token, outgoing_url
+
+
 def _headers(token):
     """Buduje nagłówki HTTP z tokenem admina Chatwoota."""
     return {
@@ -69,14 +89,18 @@ def list_agent_bots():
         return []
 
 
-def ensure_agent_bot(name="WoodPower AI"):
+def ensure_agent_bot(name="WoodPower AI", outgoing_url=None):
     """
     Idempotentnie tworzy Agent Bota o podanej nazwie.
     Jeśli bot o tej nazwie już istnieje — zwraca go bez tworzenia duplikatu.
     Zwraca dict bota z polami id, access_token (i innymi).
     Rzuca RuntimeError przy błędzie tworzenia.
+
+    outgoing_url: opcjonalny własny URL webhooka (np. z _cfg_quote()).
+    Gdy nie podany — używany jest domyślny URL z _cfg() (dotychczasowe zachowanie).
     """
-    base, acc, token, outgoing_url = _cfg()
+    base, acc, token, default_url = _cfg()
+    outgoing_url = outgoing_url or default_url
 
     # Sprawdź czy bot już istnieje — idempotencja
     existing = list_agent_bots()
@@ -114,6 +138,26 @@ def ensure_agent_bot(name="WoodPower AI"):
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
+    # Wariant "quote": tworzy osobnego bota "Asystent AI v1" pod webhook /agent-bot-quote
+    if len(sys.argv) > 1 and sys.argv[1] == "quote":
+        _, _, _, q_url = _cfg_quote()
+        print("Tworzenie / weryfikacja Agent Bota 'Asystent AI v1'...")
+        print("outgoing_url:", q_url)
+        print()
+
+        try:
+            bot = ensure_agent_bot("Asystent AI v1", outgoing_url=q_url)
+        except RuntimeError as e:
+            print(str(e), file=sys.stderr)
+            sys.exit(1)
+
+        access_token = bot.get("access_token") or bot.get("agent_bot_access_token", "")
+        print("Asystent AI v1 access_token:", access_token)
+        print("outgoing_url:", q_url)
+        print()
+        print("Wklej do bridge.env: BOT_QUOTE_CW_AGENT_TOKEN=%s" % access_token)
+        raise SystemExit(0)
+
     _, _, _, outgoing_url = _cfg()
 
     print("Tworzenie / weryfikacja Agent Bota 'WoodPower AI'...")

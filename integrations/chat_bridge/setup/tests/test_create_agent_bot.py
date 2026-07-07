@@ -148,3 +148,17 @@ def test_ensure_nie_duplikuje_innego_bota(monkeypatch):
 
     assert wynik["id"] == 9
     m_post.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# _cfg_quote — konfiguracja bota wyceniającego (/agent-bot-quote)
+# ---------------------------------------------------------------------------
+
+def test_quote_outgoing_url(monkeypatch):
+    """_cfg_quote buduje outgoing_url do /agent-bot-quote z tokenem z env."""
+    monkeypatch.setenv("BOT_QUOTE_AGENT_WEBHOOK_TOKEN", "TQW")
+    monkeypatch.setenv("BOT_QUOTE_AGENT_WEBHOOK_URL", "https://chatbridge.woodpower.pl/agent-bot-quote")
+
+    _, _, _, url = cab._cfg_quote()
+
+    assert url == "https://chatbridge.woodpower.pl/agent-bot-quote?token=TQW"
