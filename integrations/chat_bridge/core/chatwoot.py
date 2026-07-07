@@ -8,9 +8,10 @@ from core.db import db
 from core.util import upsert_thread, html_to_text
 
 
-def cw(method, path, payload=None):
+def cw(method, path, payload=None, token=None):
+    """token=None -> domyslny CW_TOKEN (zachowanie dotychczasowe); nadpisanie per-bot additywne."""
     url = "%s/api/v1/accounts/%s%s" % (CW_BASE, CW_ACC, path)
-    h = {"api_access_token": CW_TOKEN, "Content-Type": "application/json"}
+    h = {"api_access_token": token or CW_TOKEN, "Content-Type": "application/json"}
     return requests.request(method, url, headers=h, json=payload, timeout=25)
 
 
@@ -81,19 +82,21 @@ def cw_incoming(conv_id, text, attachments=None):
                          data={"content": text or "", "message_type": "incoming"}, files=files, timeout=90)
 
 
-def cw_note(conv_id, text, image_url=None, image_headers=None):
+def cw_note(conv_id, text, image_url=None, image_headers=None, token=None):
+    """token=None -> domyslny CW_TOKEN (zachowanie dotychczasowe); quote-bot podaje swoj."""
+    tok = token or CW_TOKEN
     if not image_url:
-        return cw("POST", "/conversations/%s/messages" % conv_id, {"content": text, "private": True})
+        return cw("POST", "/conversations/%s/messages" % conv_id, {"content": text, "private": True}, token=tok)
     try:
         resp = requests.get(image_url, headers=image_headers or {}, timeout=40)
         if resp.status_code == 200:
             url = "%s/api/v1/accounts/%s/conversations/%s/messages" % (CW_BASE, CW_ACC, conv_id)
             files = [("attachments[]", ("oferta.jpg", resp.content, resp.headers.get("Content-Type", "image/jpeg")))]
-            return requests.post(url, headers={"api_access_token": CW_TOKEN},
+            return requests.post(url, headers={"api_access_token": tok},
                                  data={"content": text, "private": "true"}, files=files, timeout=90)
     except Exception as e:
         log("card image fail:", repr(e))
-    return cw("POST", "/conversations/%s/messages" % conv_id, {"content": text, "private": True})
+    return cw("POST", "/conversations/%s/messages" % conv_id, {"content": text, "private": True}, token=tok)
 
 
 def conv_exists(conv_id):
@@ -137,6 +140,18 @@ def cw_contact(conv_id):
         return {"name": sender.get("name") or "", "identifier": sender.get("identifier") or ""}
     except Exception:
         return {"name": "", "identifier": ""}
+
+
+def cw_contact_full(conv_id):
+    """Tozsamosc klienta z meta.sender wraz z email/telefonem (do zapisu wyceny).
+    Puste stringi przy braku danych lub bledzie — nigdy nie rzuca."""
+    try:
+        meta = cw("GET", "/conversations/%s" % conv_id).json().get("meta", {})
+        sender = meta.get("sender") or {}
+        return {"name": sender.get("name") or "", "identifier": sender.get("identifier") or "",
+                "email": sender.get("email") or "", "phone": sender.get("phone_number") or ""}
+    except Exception:
+        return {"name": "", "identifier": "", "email": "", "phone": ""}
 
 
 def cw_inboxes():
@@ -194,12 +209,12 @@ def cw_bot_handoff(conv_id, token=None):
         log("bot_handoff blad:", repr(e)); return False
 
 
-def cw_agent_reply(conv_id, text, image_path=None, image_name=None, image_mime="image/jpeg"):
-    """Publiczna odpowiedz live-bota do klienta (message_type=outgoing, token live-bota).
-    Bez image_path -> JSON POST (jak dotychczas). Z image_path -> multipart z lokalnym plikiem;
-    gdy plik nieczytelny, fallback do JSON POST (obraz nie moze zablokowac tekstu).
+def cw_agent_reply(conv_id, text, image_path=None, image_name=None, image_mime="image/jpeg", token=None):
+    """Publiczna odpowiedz bota do klienta (message_type=outgoing).
+    token=None -> domyslny token live-bota (zachowanie dotychczasowe); quote-bot podaje swoj.
+    Bez image_path -> JSON POST. Z image_path -> multipart; gdy plik nieczytelny, fallback do JSON.
     Nigdy nie rzuca — True gdy 200/201, inaczej False + log."""
-    tok = BOT_LIVE_CW_AGENT_TOKEN or CW_TOKEN
+    tok = token or BOT_LIVE_CW_AGENT_TOKEN or CW_TOKEN
     url = "%s/api/v1/accounts/%s/conversations/%s/messages" % (CW_BASE, CW_ACC, conv_id)
     files = None
     if image_path:
