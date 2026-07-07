@@ -297,3 +297,18 @@ def test_obsluz_porownania_wariant_niedostepny(monkeypatch):
                                [{"id": "1", "gatunek": "jesion", "klasa": "B/B"}])
     assert ok is True
     assert any("nie jest dostępny" in r for r in replies)
+
+
+def test_czy_porownanie_tylko_po_pokazanej_wycenie():
+    qb._zapisz_dane(910, {"pozycje": [_poz()], "wspolne": {}})   # komplet danych
+    dane = qb._load_dane(910)
+    out = {"porownania": [{"id": "1", "gatunek": "jesion"}]}
+    assert qb._czy_porownanie(910, out, dane) is False   # brak _priced -> to PIERWSZA wycena, nie porownanie
+    qb._set_priced(910, True)
+    assert qb._czy_porownanie(910, out, dane) is True     # po pokazanej cenie -> porownanie OK
+
+
+def test_czy_porownanie_bez_kompletu_falsz():
+    qb._set_priced(911, True)
+    dane = {"pozycje": [_poz(gatunek="")], "wspolne": {}}   # brak gatunku -> braki
+    assert qb._czy_porownanie(911, {"porownania": [{"id": "1"}]}, dane) is False

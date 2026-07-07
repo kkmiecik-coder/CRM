@@ -81,13 +81,16 @@ _FORMAT = (
     "potwierdzi konsultant przy finalizacji zamówienia. NIE obiecuj, że sam sprawdzisz i wrócisz z ceną.\n"
     "OTWORY/WYCIĘCIA ('otwory'): NIE wyceniasz. Gdy klient je poda — zapisz opis w polu 'otwory' i "
     "wspomnij, że koszt wycięć doliczy konsultant. Nie wstrzymuj z tego powodu wyceny blatów i krawędzi.\n"
-    "PORÓWNANIE WARIANTU ('porownania'): gdy klient chce tylko ZOBACZYĆ/POROWNAĆ cenę tego samego "
-    "produktu w INNYM gatunku, technologii lub klasie (np. „a ile w jesionie?”, „ciekawi mnie ta sama "
-    "w buku litym”) — NIE zmieniaj pozycji ani zamówienia; zamiast tego dodaj wpis do 'porownania': "
+    "PORÓWNANIE WARIANTU ('porownania'): używaj WYŁĄCZNIE gdy klient JUŻ OTRZYMAŁ wcześniej w tej "
+    "rozmowie wycenę/cenę i teraz pyta o cenę TEGO SAMEGO produktu w innym gatunku, technologii lub "
+    "klasie (np. „a ile w jesionie?”, „ciekawi mnie ta sama w buku litym”). Wtedy NIE zmieniaj pozycji "
+    "ani zamówienia; dodaj wpis do 'porownania': "
     '[{"id": "<id pozycji>", "gatunek": "<jesion>", "technologia": "<jeśli inna>", "klasa": "<jeśli inna>"}] '
-    "(podaj tylko pola, które klient zmienia; resztę zostaw pustą), a pole 'odpowiedz' zostaw puste — "
-    "cenę porównania policzy i wyśle system. Gdy klient chce FAKTYCZNIE zmienić zamówienie na inny "
-    "wariant — wtedy normalnie zmień pozycję (nie używaj 'porownania')."
+    "(podaj tylko pola, które klient zmienia; resztę zostaw pustą), a pole 'odpowiedz' zostaw puste. "
+    "PIERWSZĄ wycenę produktu ZAWSZE prowadź normalnie przez 'pozycje' (zbierz dane → system wyśle "
+    "podsumowanie → cena) — NIE używaj wtedy 'porownania'. 'porownania' NIE służy do wyceny nowego "
+    "produktu ani pierwszej wyceny. Gdy klient chce FAKTYCZNIE zmienić zamówienie na inny wariant — "
+    "zmień pozycję normalnie (nie używaj 'porownania')."
 )
 
 # Instrukcja stanu potwierdzenia — doklejana do promptu, gdy klient dostal podsumowanie od systemu.
@@ -345,6 +348,13 @@ def _porownanie_msg(alt_poz, prod, totals):
 
 _ALT_NIEDOSTEPNY = ("Ten wariant nie jest dostępny — pracujemy w dębie (klasa A/B lub B/B), jesionie "
                     "(A/B) i buku (A/B), w technologii litej lub mikrowczep. Proszę wybrać z tych opcji.")
+
+
+def _czy_porownanie(conv_id, out, dane):
+    """Porownanie wariantu obslugujemy TYLKO gdy: (1) model o nie poprosil, (2) jest komplet danych
+    ORAZ (3) w rozmowie POKAZANO juz wycene (_priced). Bez (3) pierwsza wycena poszlaby blednie jako
+    'informacyjnie' (klient jeszcze nie ma zadnej wyceny — 'nadal X' nie mialoby sensu)."""
+    return bool(out.get("porownania")) and _priced(conv_id) and not _brakujace(dane)
 
 
 def _obsluz_porownania(conv_id, dane, porownania):
@@ -1229,8 +1239,7 @@ def run_quote_turn(conv_id, inbox_id, message_id, content, attachments=None):
     _obrazy_kontekstowe(conv_id, content, dane)
 
     # Porownanie wariantu (inny gatunek/technologia/klasa) — TYLKO informacja, bez edycji wyceny.
-    # Warunek: komplet danych (inaczej /calculate nie policzy) i model poprosil o porownanie.
-    if out.get("porownania") and not _brakujace(dane):
+    if _czy_porownanie(conv_id, out, dane):
         if _obsluz_porownania(conv_id, dane, out["porownania"]):
             return
 
