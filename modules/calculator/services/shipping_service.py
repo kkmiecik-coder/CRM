@@ -233,3 +233,60 @@ def get_shipping_quotes(shipping_params, glob_config):
     except Exception as e:
         current_app.logger.error(f">>> shipping: Wyjątek podczas pobierania wyceny: {e}")
         return {"success": False, "error": "Blad podczas pobierania wyceny wysylki"}, 500
+
+
+# Narzut na pakowanie — parytet z UI (calculator-core.js: shippingPackingMultiplier = 1.3).
+PACKING_MULTIPLIER = 1.3
+
+
+def aggregate_package(products):
+    """Wymiary i waga paczki dla listy produktow — odwzorowuje computeAggregatedData
+    (calculator-core.js): length=max(dl)+5, width=max(szer)+5, height=suma(grubosc x szt)+5,
+    weight=suma(dl*szer*gr*szt / 1e6 * 800 kg/m3). Produkty bez poprawnych wymiarow pomijane.
+    get_shipping_quotes dokłada kolejne +5 do kazdego wymiaru (parytet z UI: JS+5, backend+5)."""
+    max_l = max_w = 0.0
+    sum_h = 0.0
+    weight = 0.0
+    for p in products or []:
+        try:
+            length = float(p.get("length") or 0)
+            width = float(p.get("width") or 0)
+            thickness = float(p.get("thickness") or 0)
+            quantity = int(p.get("quantity") or 1)
+        except (TypeError, ValueError):
+            continue
+        if length <= 0 or width <= 0 or thickness <= 0:
+            continue
+        if length > max_l:
+            max_l = length
+        if width > max_w:
+            max_w = width
+        sum_h += thickness * quantity
+        weight += (length * width * thickness / 1_000_000.0) * 800 * quantity
+    return {
+        "length": max_l + 5,
+        "width": max_w + 5,
+        "height": sum_h + 5,
+        "weight": round(weight, 2),
+        "quantity": 1,
+        "senderCountryId": "1",
+        "receiverCountryId": "1",
+    }
+
+
+def cheapest_with_packing(quotes):
+    """Z listy wycen kurierskich (z get_shipping_quotes) wybiera NAJTANSZA po grossPrice i dokłada
+    narzut na pakowanie (x1.3). Zwraca dict z carrier_name i cenami albo None gdy brak liczbowych cen."""
+    valid = [q for q in (quotes or []) if isinstance(q.get("grossPrice"), (int, float))]
+    if not valid:
+        return None
+    cheapest = min(valid, key=lambda q: q["grossPrice"])
+    gross = float(cheapest.get("grossPrice") or 0)
+    net = float(cheapest.get("netPrice") or 0)
+    return {
+        "carrier_name": cheapest.get("carrierName") or "Kurier",
+        "shipping_brutto": round(gross * PACKING_MULTIPLIER, 2),
+        "shipping_netto": round(net * PACKING_MULTIPLIER, 2),
+        "raw_brutto": round(gross, 2),
+        "raw_netto": round(net, 2),
+    }
