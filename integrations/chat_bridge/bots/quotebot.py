@@ -273,11 +273,17 @@ _ODMOWA_RE = re.compile(r"\b(nie|nie chc\w*|bez|rezygnuj\w*|pomi\w*|p[oó]zniej)
 
 
 def _wyciagnij_kontakt(text):
-    """(email, telefon) z tekstu klienta; '' gdy brak."""
+    """(email, telefon) z tekstu klienta; '' gdy brak. Telefon akceptujemy tylko gdy po odsianiu
+    separatorow ma 9-15 cyfr — chroni przed utrwaleniem ciagu cyfr (nr zamowienia/wymiary) jako tel."""
     t = text or ""
     email = _EMAIL_RE.search(t)
-    tel = _TEL_RE.search(t)
-    return (email.group(0) if email else ""), (tel.group(0).strip() if tel else "")
+    tel = ""
+    m = _TEL_RE.search(t)
+    if m:
+        cyfry = re.sub(r"\D", "", m.group(0))
+        if 9 <= len(cyfry) <= 15:
+            tel = m.group(0).strip()
+    return (email.group(0) if email else ""), tel
 
 
 # --- Trwaly kontakt klienta (zapamietany na cala rozmowe) + edit_uuid zapisanej wyceny ---

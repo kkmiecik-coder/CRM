@@ -232,7 +232,9 @@ def create_quote(pozycje, options, client_id, notes=""):
 
 def update_quote(edit_uuid, pozycje, options, notes=""):
     """PUT /api/bot/quotes/<edit_uuid> — aktualizuje istniejaca wycene (dodanie/zmiana pozycji)
-    zamiast tworzyc nowa. Zwraca ten sam numer wyceny + publiczny link."""
+    zamiast tworzyc nowa. Zwraca ten sam numer wyceny + publiczny link.
+    INWARIANT: BOT_QUOTE_CLIENT_TYPE MUSI byc poprawna grupa z /options — inaczej update
+    (jak i create/calculate) zwroci {ok:False} (walidacja client_type po stronie CRM)."""
     products, braki = build_products(pozycje, options)
     if braki:
         return {"ok": False, "errors": [{"field": None, "code": "MAP",

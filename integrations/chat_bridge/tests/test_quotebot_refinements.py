@@ -111,3 +111,10 @@ def test_update_gdy_zapamietany_edit_uuid(monkeypatch):
                       "jan@x.pl", "", "Jan")
     assert called.get("update") == "UU-123"
     assert "create" not in called
+
+
+def test_wyciagnij_kontakt_odrzuca_krotki_ciag_cyfr():
+    # 6-cyfrowy nr zamowienia -> NIE telefon; email nadal lapany.
+    assert qb._wyciagnij_kontakt("zamówienie 123456")[1] == ""
+    assert qb._wyciagnij_kontakt("tel 501 234 567")[1] != ""      # 9 cyfr -> ok
+    assert qb._wyciagnij_kontakt("mail: a@b.pl")[0] == "a@b.pl"
