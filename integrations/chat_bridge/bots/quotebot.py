@@ -88,6 +88,10 @@ _FORMAT = (
     "potwierdza konsultant przy finalizacji.\n"
     "OTWORY/WYCIĘCIA ('otwory'): NIE wyceniasz. Gdy klient je poda — zapisz opis w polu 'otwory' i "
     "wspomnij, że koszt wycięć doliczy konsultant. Nie wstrzymuj z tego powodu wyceny blatów i krawędzi.\n"
+    "KLASA DREWNA ('klasa'): klasy to zawsze A/B albo B/B (NIGDY „A” ani „B” osobno). A/B = jedna "
+    "strona produktu w klasie A, druga w klasie B; B/B = obie strony w klasie B. Dostępność: dąb — A/B "
+    "lub B/B; jesion — tylko A/B; buk — tylko A/B. Pytając o klasę podawaj dostępne opcje (np. dla "
+    "jesionu „klasa A/B”, dla dębu „A/B czy B/B”) — nie pytaj „A czy B”.\n"
     "PORÓWNANIE WARIANTU ('porownania'): używaj WYŁĄCZNIE gdy klient JUŻ OTRZYMAŁ wcześniej w tej "
     "rozmowie wycenę/cenę i teraz pyta o cenę TEGO SAMEGO produktu w innym gatunku, technologii lub "
     "klasie (np. „a ile w jesionie?”, „ciekawi mnie ta sama w buku litym”). Wtedy NIE zmieniaj pozycji "
@@ -96,7 +100,11 @@ _FORMAT = (
     "(podaj tylko pola, które klient zmienia; resztę zostaw pustą), a pole 'odpowiedz' zostaw puste. "
     "PIERWSZĄ wycenę produktu ZAWSZE prowadź normalnie przez 'pozycje' (zbierz dane → system wyśle "
     "podsumowanie → cena) — NIE używaj wtedy 'porownania'. 'porownania' NIE służy do wyceny nowego "
-    "produktu ani pierwszej wyceny. Gdy klient chce FAKTYCZNIE zmienić zamówienie na inny wariant — "
+    "produktu ani pierwszej wyceny. DODANIE PRODUKTU: gdy klient prosi o KOLEJNY produkt (np. „dodaj "
+    "jeszcze blat”, „drugi blat”, podaje nowe wymiary) — także gdy mówi „te same parametry” — utwórz "
+    "NOWĄ pozycję w 'pozycje' z NOWYM id (skopiuj gatunek/technologię/klasę/wykończenie z poprzedniej "
+    "pozycji, gdy klient mówi „te same”), a NIE wpis w 'porownania'. 'porownania' NIGDY nie dotyczy "
+    "dodania produktu ani nowych wymiarów. Gdy klient chce FAKTYCZNIE zmienić zamówienie na inny wariant — "
     "zmień pozycję normalnie (nie używaj 'porownania'). "
     "Wypełniaj 'porownania' TYLKO dla porównania, o które klient prosi W TEJ wiadomości — NIGDY nie "
     "powtarzaj porównania z wcześniejszych tur. Gdy klient komentuje lub decyduje (np. „zostajemy "
@@ -376,11 +384,14 @@ _ALT_NIEDOSTEPNY = ("Ten wariant nie jest dostępny — pracujemy w dębie (klas
                     "(A/B) i buku (A/B), w technologii litej lub mikrowczep. Proszę wybrać z tych opcji.")
 
 
-def _czy_porownanie(conv_id, out, dane):
-    """Porownanie wariantu obslugujemy TYLKO gdy: (1) model o nie poprosil, (2) jest komplet danych
-    ORAZ (3) w rozmowie POKAZANO juz wycene (_priced). Bez (3) pierwsza wycena poszlaby blednie jako
-    'informacyjnie' (klient jeszcze nie ma zadnej wyceny — 'nadal X' nie mialoby sensu)."""
-    return bool(out.get("porownania")) and _priced(conv_id) and not _brakujace(dane)
+def _czy_porownanie(conv_id, out, dane, zmienione=False):
+    """Porownanie wariantu obslugujemy TYLKO gdy: (1) model o nie poprosil, (2) jest komplet danych,
+    (3) w rozmowie POKAZANO juz wycene (_priced) ORAZ (4) w tej turze NIE zmienily sie pozycje
+    (zmienione=False). Bez (3) pierwsza wycena poszlaby blednie jako 'informacyjnie'. Bez (4) klient
+    dodajacy/zmieniajacy produkt (np. 'dodaj jeszcze blat ... te same parametry') zostalby blednie
+    potraktowany jako porownanie — dodanie/zmiana pozycji ma pierwszenstwo."""
+    return (bool(out.get("porownania")) and _priced(conv_id)
+            and not _brakujace(dane) and not zmienione)
 
 
 def _obsluz_porownania(conv_id, dane, porownania):
@@ -1378,15 +1389,17 @@ def run_quote_turn(conv_id, inbox_id, message_id, content, attachments=None):
     # Obrazy pomocnicze (wymiary/krawedzie) — raz na rozmowe, wg tresci klienta i kompletu wymiarow.
     _obrazy_kontekstowe(conv_id, content, dane)
 
-    # Porownanie wariantu (inny gatunek/technologia/klasa) — TYLKO informacja, bez edycji wyceny.
-    if _czy_porownanie(conv_id, out, dane):
-        if _obsluz_porownania(conv_id, dane, out["porownania"]):
-            return
-
     # 'zmienione' liczymy TYLKO po POZYCJACH (spec wyceny). Zmiana pol wspolnych
     # (kontakt/termin) — np. gdy LLM sam dopisze kontakt z tozsamosci klienta — NIE ponawia
     # podsumowania i nie tlumi odpowiedzi na pytanie w stanie awaiting (regresja S54 E2E 2026-07-06).
     zmienione = dane.get("pozycje") != dane_przed.get("pozycje")
+
+    # Porownanie wariantu (inny gatunek/technologia/klasa) — TYLKO informacja, bez edycji wyceny.
+    # Gdy klient w tej turze dodal/zmienil pozycje (zmienione) — to NIE porownanie: dodanie produktu
+    # ma pierwszenstwo (fix kolizji 'dodaj jeszcze blat ... te same parametry' -> bledne porownanie).
+    if _czy_porownanie(conv_id, out, dane, zmienione):
+        if _obsluz_porownania(conv_id, dane, out["porownania"]):
+            return
 
     # Straznik wymiarow (deterministyczny) + loop-breaker: 2. to samo odrzucenie -> podpowiedz cm,
     # 3. -> handoff (koniec nieskonczonej petli, np. mm mylone z cm).

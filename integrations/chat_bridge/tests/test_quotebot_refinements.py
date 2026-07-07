@@ -314,6 +314,19 @@ def test_czy_porownanie_bez_kompletu_falsz():
     assert qb._czy_porownanie(911, {"porownania": [{"id": "1"}]}, dane) is False
 
 
+def test_czy_porownanie_falsz_gdy_dodano_pozycje():
+    # Klient dodal nowa pozycje w tej turze (zmienione=True) — mimo 'porownania' i _priced NIE
+    # traktujemy tego jako porownania: dodanie/zmiana produktu ma pierwszenstwo (fix kolizji
+    # 'dodaj jeszcze blat ... te same parametry' -> bledne porownanie zamiast nowej pozycji).
+    qb._set_priced(912, True)
+    dane = {"pozycje": [_poz(), _poz(id="2", dlugosc="100", szerokosc="50", grubosc="4")],
+            "wspolne": {}}
+    out = {"porownania": [{"id": "1", "gatunek": "jesion"}]}
+    assert qb._czy_porownanie(912, out, dane, zmienione=True) is False
+    # Bez zmiany pozycji ta sama sytuacja to prawidlowe porownanie.
+    assert qb._czy_porownanie(912, out, dane, zmienione=False) is True
+
+
 def test_obsluz_porownania_dedup_nie_powtarza(monkeypatch):
     replies = []
     monkeypatch.setattr(qb, "cw_agent_reply", lambda c, t, **kw: replies.append(t) or True)
