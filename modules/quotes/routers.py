@@ -702,29 +702,6 @@ def get_quote_details(quote_id):
             quote.accepted_by_email.startswith('internal_user_')):
             accepted_by_user = quote.accepted_by_user
 
-        # KOŃCOWY PRZEGLĄD JSON
-        final_json_items = [item.to_dict() for item in quote_items]
-        
-        # Analiza końcowego JSON
-        final_show_values = [item.get('show_on_client_page') for item in final_json_items]
-        final_selected_values = [item.get('is_selected') for item in final_json_items]
-        
-        # Test pojedynczej pozycji
-        test_item = quote_items[5]  # jes-micro-ab (show_on_client_page=False)
-        test_dict = test_item.to_dict()
-        
-        # Test serializacji przez Flask jsonify
-        import json
-        json_string = json.dumps(test_dict)
-        
-        # Test deserializacji
-        parsed_back = json.loads(json_string)
-        
-        # Test całej listy
-        all_items_dict = [item.to_dict() for item in quote_items]
-        all_json = json.dumps(all_items_dict)
-        all_parsed = json.loads(all_json)
-        
         return jsonify({
             "id": quote.id,
             "edit_uuid": quote.edit_uuid,
