@@ -60,3 +60,11 @@ def test_get_options_blad_zwraca_puste(monkeypatch):
     monkeypatch.setattr(crm.requests, "get", fake_get)
     crm._reset_cache()
     assert crm.get_options() == {}
+
+
+def test_valid_finishing_id_zly_wpis_nie_rzuca():
+    # Test: malformed catalog entries (id="abc", id=None) nie powinny rzucic wyjatku
+    # Funkcja powinna przeskakiwac bledne wpisy i szukac pasujacych
+    opts = {"finishing_options": [{"id": "abc"}, {"id": None}, {"id": 7, "full_path": "X"}]}
+    assert crm.valid_finishing_id(7, opts) is True    # dobry wpis znaleziony mimo zepsutych
+    assert crm.valid_finishing_id(9, opts) is False   # brak dopasowania, bez wyjatku

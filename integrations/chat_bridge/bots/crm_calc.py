@@ -92,10 +92,17 @@ def variant_code(gatunek, technologia, klasa):
 
 
 def valid_finishing_id(fid, options):
-    """Czy finishing_id istnieje w katalogu /options."""
+    """Czy finishing_id istnieje w katalogu /options. Bledne wpisy katalogu sa omijane."""
     try:
         fid = int(fid)
     except (TypeError, ValueError):
         return False
-    return any(int(o.get("id")) == fid for o in (options.get("finishing_options") or [])
-               if o.get("id") is not None)
+    # Iterujemy po wpisach, przeskakujac te z niepoprawnym id (bledy API nie rzucaja do klienta)
+    for o in (options.get("finishing_options") or []):
+        try:
+            if int(o.get("id")) == fid:
+                return True
+        except (TypeError, ValueError):
+            # Zepsuty wpis w katalogu — pomijamy i kontynuujemy
+            continue
+    return False
