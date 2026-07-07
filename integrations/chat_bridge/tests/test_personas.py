@@ -158,3 +158,13 @@ def test_livechat_bez_samodzielnej_wyceny_i_bez_adnotacji():
 def test_livechat_tryb_info_bez_pozycji():
     s = p.build_system_prompt("livechat", "", {}).lower()
     assert "pozostaw" in s and "pozycje" in s
+
+
+def test_regula_gatunkow_w_prompcie():
+    # Twarda regula oferty (dab/jesion/buk, brak akacji) musi trafiac do promptu kazdego kanalu.
+    from bots.personas import build_system_prompt
+    for kanal in ("livechat", "mail", "olx", "allegro"):
+        p = build_system_prompt(kanal, "", {})
+        low = p.lower()
+        assert "dąb" in low and "jesion" in low and "buk" in low
+        assert "akacja" in low   # przyklad gatunku spoza oferty w regule
