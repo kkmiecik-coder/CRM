@@ -11,6 +11,7 @@ from channels import REGISTRY
 from worker import worker
 from suggest_worker import suggest_worker
 from live_worker import live_worker
+from quote_worker import quote_worker
 from sweeper import sweeper
 from bots.knowledge import index_loop
 from panels.base_orders import bp as base_orders_bp
@@ -32,6 +33,8 @@ if __name__ == "__main__":
     threading.Thread(target=index_loop, daemon=True).start()
     # Worker kolejki tur konwersacyjnego live-bota.
     threading.Thread(target=live_worker, daemon=True).start()
+    # Worker kolejki tur quote-bota (wyceniajacy, live chat testowy).
+    threading.Thread(target=quote_worker, daemon=True).start()
     # Sweeper pending: samonaprawa rozmow, ktore utknely bez odpowiedzi bota.
     threading.Thread(target=sweeper, daemon=True).start()
     app.run(host="0.0.0.0", port=5005, threaded=True)
