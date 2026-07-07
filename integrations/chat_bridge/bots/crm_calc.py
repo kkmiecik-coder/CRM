@@ -319,9 +319,25 @@ def create_quote(pozycje, options, client_id, notes=""):
     return _post("/api/bot/quotes", body)
 
 
-def update_quote(edit_uuid, pozycje, options, notes=""):
+def shipping_quote(pozycje, postcode, options=None):
+    """POST /api/bot/shipping-quote — szacuje wysylke (najtanszy kurier +30%) dla pozycji i kodu
+    pocztowego odbiorcy. Zwraca surowy JSON kontraktu ({ok, carriers, carrier_name, ...}).
+    Braki mapowania -> {ok:False} bez wolania API."""
+    if options is None:
+        options = get_options()
+    products, braki = build_products(pozycje, options)
+    if braki:
+        return {"ok": False, "errors": [{"field": None, "code": "MAP",
+                                         "message": powod} for _, powod in braki]}
+    return _post("/api/bot/shipping-quote",
+                 {"products": products, "receiver_postcode": postcode})
+
+
+def update_quote(edit_uuid, pozycje, options, notes="",
+                 courier_name=None, shipping_netto=None, shipping_brutto=None):
     """PUT /api/bot/quotes/<edit_uuid> — aktualizuje istniejaca wycene (dodanie/zmiana pozycji)
-    zamiast tworzyc nowa. Zwraca ten sam numer wyceny + publiczny link.
+    zamiast tworzyc nowa. Opcjonalnie dopisuje kuriera + koszt wysylki (courier_name podany).
+    Zwraca ten sam numer wyceny + publiczny link.
     INWARIANT: BOT_QUOTE_CLIENT_TYPE MUSI byc poprawna grupa z /options — inaczej update
     (jak i create/calculate) zwroci {ok:False} (walidacja client_type po stronie CRM)."""
     products, braki = build_products(pozycje, options)
@@ -329,4 +345,8 @@ def update_quote(edit_uuid, pozycje, options, notes=""):
         return {"ok": False, "errors": [{"field": None, "code": "MAP",
                                          "message": powod} for _, powod in braki]}
     body = {"products": products, "quote_client_type": BOT_QUOTE_CLIENT_TYPE, "notes": notes}
+    if courier_name:
+        body["courier_name"] = courier_name
+        body["shipping_netto"] = shipping_netto
+        body["shipping_brutto"] = shipping_brutto
     return _send("PUT", "/api/bot/quotes/" + str(edit_uuid), body)

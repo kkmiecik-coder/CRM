@@ -129,3 +129,51 @@ def test_update_quote_braki_mapowania_bez_putu(monkeypatch):
                         lambda *a, **k: (_ for _ in ()).throw(AssertionError("PUT nie powinien byc wolany")))
     out = crm.update_quote("UU", [_poz(gatunek="")], _OPTS)
     assert out["ok"] is False
+
+
+# --- shipping_quote: wysylka products + kod pocztowy do /api/bot/shipping-quote ---
+
+def test_shipping_quote_wysyla_products_i_kod(monkeypatch):
+    captured = {}
+    def fake_post(url, headers=None, json=None, timeout=None):
+        captured["url"] = url; captured["body"] = json
+        return _Resp(200, {"ok": True, "carriers": 3, "carrier_name": "InPost",
+                           "shipping_brutto": 104.0, "shipping_netto": 84.55})
+    monkeypatch.setattr(crm.requests, "post", fake_post)
+    out = crm.shipping_quote([_poz()], "36-068", _OPTS)
+    assert out["ok"] is True and out["carrier_name"] == "InPost"
+    assert captured["url"].endswith("/api/bot/shipping-quote")
+    assert captured["body"]["receiver_postcode"] == "36-068"
+    assert captured["body"]["products"][0]["length"] == 200.0
+
+
+def test_shipping_quote_braki_mapowania_bez_wywolania(monkeypatch):
+    monkeypatch.setattr(crm.requests, "post",
+                        lambda *a, **k: (_ for _ in ()).throw(AssertionError("POST nie powinien byc wolany")))
+    out = crm.shipping_quote([_poz(gatunek="")], "36-068", _OPTS)   # brak wariantu -> braki
+    assert out["ok"] is False
+
+
+def test_update_quote_z_kurierem_dosyla_shipping(monkeypatch):
+    captured = {}
+    def fake_put(url, headers=None, json=None, timeout=None):
+        captured["body"] = json
+        return _Resp(200, {"ok": True, "quote_number": "W/1",
+                           "public_url": "https://crm/q/a", "edit_uuid": "UU"})
+    monkeypatch.setattr(crm.requests, "put", fake_put)
+    out = crm.update_quote("UU", [_poz()], _OPTS, courier_name="InPost",
+                           shipping_netto=84.55, shipping_brutto=104.0)
+    assert out["ok"] is True
+    assert captured["body"]["courier_name"] == "InPost"
+    assert captured["body"]["shipping_brutto"] == 104.0
+    assert captured["body"]["shipping_netto"] == 84.55
+
+
+def test_update_quote_bez_kuriera_nie_dosyla_shipping(monkeypatch):
+    captured = {}
+    def fake_put(url, headers=None, json=None, timeout=None):
+        captured["body"] = json
+        return _Resp(200, {"ok": True, "quote_number": "W/1", "public_url": "https://crm/q/a"})
+    monkeypatch.setattr(crm.requests, "put", fake_put)
+    crm.update_quote("UU", [_poz()], _OPTS)
+    assert "courier_name" not in captured["body"]   # brak kuriera -> body bez pol wysylki
