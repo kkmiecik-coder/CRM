@@ -36,7 +36,7 @@ _FORMAT = (
     '"pozycje": [{"id": "1", "produkt": "", "dlugosc": "", "szerokosc": "", "grubosc": "", '
     '"gatunek": "", "technologia": "", "klasa": "", "ilosc": "", "wykonczenie": "", '
     '"finishing_id": "", '
-    '"otwory": "", "krawedzie": "", "schody": ""}], '
+    '"otwory": "", "edges": [], "schody": ""}], '
     '"wspolne": {"termin": "", "kontakt": ""}}\n'
     "Każdy produkt klienta to OSOBNA pozycja listy 'pozycje' ze stałym id (\"1\", \"2\", ...). "
     "Utrzymuj id z bloku DOTYCHCZAS ZEBRANE DANE WYCENY i NIGDY nie nadpisuj jednej pozycji "
@@ -62,7 +62,19 @@ _FORMAT = (
     "Gdy do wyceny brakuje kilku parametrów, poproś o WSZYSTKIE naraz krótką listą — każdy punkt "
     "od myślnika „- ” w nowej linii — zamiast pytać po jednym. "
     "NIE proś klienta o e-mail ani telefon w trakcie zbierania parametrów produktu — o kontakt "
-    "system zapyta sam już PO przygotowaniu wyceny."
+    "system zapyta sam już PO przygotowaniu wyceny.\n"
+    "KRAWĘDZIE ('edges'): lista obróbek krawędzi tej pozycji, każdy element "
+    '{"litera": "A", "typ": "round"}. Typy: "sharp" (ostra, bez obróbki), "chamfer" (fazowanie), '
+    '"round" (zaokrąglenie, np. gdy klient mówi „R4”). Litery blatu/parapetu: A=góra przód (długość), '
+    "B=góra tył (długość), C=góra lewa (szerokość), D=góra prawa (szerokość); dół: E/F/G/H; narożniki: "
+    "N1–N4; kształt okrągły: KG (górny obwód)/KD (dolny obwód). Gdy klient chce „wszystkie/każdą "
+    'krawędź” danego typu — użyj litery "WSZYSTKIE" (system rozwinie na A,B,C,D). Obsługujesz mieszane '
+    "obróbki (różne krawędzie różnie). Gdy klient nie prosi o obróbkę krawędzi — zostaw edges puste []. "
+    "Nie wstrzymuj wyceny z powodu krawędzi — są opcjonalne.\n"
+    "WYSYŁKA: kosztów dostawy NIE liczysz. Gdy klient pyta o wysyłkę — napisz krótko, że koszt dostawy "
+    "potwierdzi konsultant przy finalizacji zamówienia. NIE obiecuj, że sam sprawdzisz i wrócisz z ceną.\n"
+    "OTWORY/WYCIĘCIA ('otwory'): NIE wyceniasz. Gdy klient je poda — zapisz opis w polu 'otwory' i "
+    "wspomnij, że koszt wycięć doliczy konsultant. Nie wstrzymuj z tego powodu wyceny blatów i krawędzi."
 )
 
 # Instrukcja stanu potwierdzenia — doklejana do promptu, gdy klient dostal podsumowanie od systemu.
@@ -246,18 +258,38 @@ def _linia_pozycji(poz):
     return " ".join(czesci)
 
 
-def _cena_msg(dane, totals):
-    """Deterministyczna wiadomosc z cena: linia parametrow per pozycja + kwoty netto/brutto.
-    Bez preambuly ('Wstepna wycena...') i bez zdania o szacunku — sama wycena."""
-    linie = [_linia_pozycji(p) for p in (dane.get("pozycje") or [])]
-    if linie:
-        linie.append("")
-    netto = totals.get("total_netto")
-    brutto = totals.get("total_brutto")
-    if netto is not None:
-        linie.append("Netto: %s" % _fmt_pln(netto))
-    if brutto is not None:
-        linie.append("Brutto: %s" % _fmt_pln(brutto))
+def _cena_pozycji(poz, prod):
+    """(netto, brutto) jednej pozycji z odpowiedzi /calculate: wybrany wariant + wykonczenie +
+    krawedzie. Odporne na braki pol (zwraca 0)."""
+    code = crm_calc.variant_code(poz.get("gatunek"), poz.get("technologia"), poz.get("klasa"))
+    var = next((v for v in (prod.get("variants") or [])
+                if v.get("variant_code") == code and v.get("available")), None)
+
+    def _n(d, k):
+        try:
+            return float((d or {}).get(k) or 0)
+        except (TypeError, ValueError):
+            return 0.0
+    netto = _n(var, "total_netto") + _n(prod.get("finishing"), "netto") + _n(prod.get("edges"), "netto")
+    brutto = _n(var, "total_brutto") + _n(prod.get("finishing"), "brutto") + _n(prod.get("edges"), "brutto")
+    return netto, brutto
+
+
+def _cena_msg(dane, wynik):
+    """Deterministyczna wiadomosc z cena: per pozycja 'opis' + 'brutto (netto)', na koncu
+    'Cena za calosc'. Bez preambuly/szacunku. Ceny per pozycja z odpowiedzi /calculate."""
+    pozycje = dane.get("pozycje") or []
+    products = wynik.get("products") or []
+    totals = wynik.get("totals") or {}
+    linie = []
+    for i, poz in enumerate(pozycje):
+        linie.append(_linia_pozycji(poz))
+        if i < len(products):
+            n, b = _cena_pozycji(poz, products[i])
+            linie.append("    %s (%s netto)" % (_fmt_pln(b), _fmt_pln(n)))
+    linie.append("")
+    linie.append("Cena za całość:")
+    linie.append("%s (%s netto)" % (_fmt_pln(totals.get("total_brutto")), _fmt_pln(totals.get("total_netto"))))
     return "\n".join(linie)
 
 
@@ -438,8 +470,9 @@ def _mark_image_sent(conv_id, key):
 
 # --- Warstwa danych wyceny: pozycje (wiele produktow) + pola wspolne ---
 
+# Pola tekstowe pozycji. Krawedzie NIE sa tu — trzymamy je jako liste 'edges' (patrz _merge_dane).
 _POZ_POLA = ("produkt", "dlugosc", "szerokosc", "grubosc", "gatunek", "technologia",
-             "klasa", "ilosc", "wykonczenie", "finishing_id", "otwory", "krawedzie", "schody")
+             "klasa", "ilosc", "wykonczenie", "finishing_id", "otwory", "schody")
 _WSPOLNE_POLA = ("termin", "kontakt")
 
 
@@ -493,9 +526,10 @@ def _nowe_id(pozycje):
 
 
 def _merge_pola(stare, nowe):
-    """Scala pola pozycji/wspolnych: niepusta nowa wartosc nadpisuje, pusta NIE kasuje."""
+    """Scala pola tekstowe pozycji/wspolnych: niepusta nowa wartosc nadpisuje, pusta NIE kasuje.
+    'edges' (lista) obslugujemy osobno w _merge_dane — tu pomijamy."""
     for k, v in (nowe or {}).items():
-        if k in ("id", "usun"):
+        if k in ("id", "usun", "edges"):
             continue
         if str(v or "").strip():
             stare[k] = v
@@ -527,10 +561,16 @@ def _merge_dane(conv_id, out):
         if istn is None:
             if not any(str(p.get(k) or "").strip() for k in _POZ_POLA):
                 continue  # pusta pozycja bez tresci - ignoruj
-            nowa = {"id": pid or _nowe_id(stan["pozycje"])}
-            stan["pozycje"].append(_merge_pola(nowa, p))
+            target = {"id": pid or _nowe_id(stan["pozycje"])}
+            stan["pozycje"].append(_merge_pola(target, p))
         else:
+            target = istn
             _merge_pola(istn, p)
+        # Krawedzie (lista {litera,typ}) — poza _merge_pola: niepusta lista z LLM zastepuje
+        # krawedzie pozycji; pusta/brak NIE kasuje istniejacych (klient nie musi ich powtarzac).
+        ed = crm_calc.normalize_edges(p.get("edges"))
+        if ed:
+            target["edges"] = ed
     _merge_pola(stan["wspolne"], out.get("wspolne") or {})
     _zapisz_dane(conv_id, stan)
     return stan
@@ -594,9 +634,20 @@ def _parse_llm(raw):
 _POLA_POZYCJI = [("dlugosc", "Długość"), ("szerokosc", "Szerokość"), ("grubosc", "Grubość"),
                  ("gatunek", "Gatunek"), ("technologia", "Technologia"), ("klasa", "Klasa"),
                  ("wykonczenie", "Wykończenie"), ("otwory", "Otwory/wycięcia"),
-                 ("krawedzie", "Krawędzie"), ("schody", "Schody")]
+                 ("schody", "Schody")]
 _POLA_WSPOLNE = [("termin", "Termin"), ("kontakt", "Kontakt")]
 _CM_POLA = ("dlugosc", "szerokosc", "grubosc")
+_TYP_EDGE_PL = {"sharp": "ostre", "chamfer": "fazowane", "round": "zaokrąglone"}
+
+
+def _opis_edges(edges):
+    """Czytelny opis krawedzi do podsumowania: 'A, B, C, D — zaokrąglone' (grupowane wg typu)."""
+    grupy = {}
+    for e in edges or []:
+        if isinstance(e, dict) and e.get("litera") and e.get("typ"):
+            grupy.setdefault(e["typ"], []).append(e["litera"])
+    return "; ".join("%s — %s" % (", ".join(lit), _TYP_EDGE_PL.get(typ, typ))
+                     for typ, lit in grupy.items())
 
 
 def _fmt_cm(v):
@@ -629,6 +680,9 @@ def _bloki_pozycji(dane):
             if not v:
                 continue
             lines.append("%s: %s" % (label, _fmt_cm(v) if k in _CM_POLA else v))
+        opis_kraw = _opis_edges(poz.get("edges"))
+        if opis_kraw:
+            lines.append("Krawędzie: %s" % opis_kraw)
         lines.append("")
     for k, label in _POLA_WSPOLNE:
         v = str((dane.get("wspolne") or {}).get(k) or "").strip()
@@ -841,8 +895,7 @@ def _wyslij_cene_i_kontakt(conv_id, dane, identity):
         # Nie da sie policzyc (braki mapowania / blad API) -> handoff z podsumowaniem.
         _do_handoff(conv_id, "nie udało się policzyć wyceny automatycznie", dane)
         return
-    totals = wynik["totals"]
-    if not cw_agent_reply(conv_id, _cena_msg(dane, totals), token=BOT_QUOTE_CW_AGENT_TOKEN):
+    if not cw_agent_reply(conv_id, _cena_msg(dane, wynik), token=BOT_QUOTE_CW_AGENT_TOKEN):
         raise RuntimeError("quotebot: wysylka ceny nieudana (conv %s)" % conv_id)
     _set_priced(conv_id, True)
     _set_awaiting(conv_id, False)
@@ -871,8 +924,8 @@ def _zapisz_wycene(conv_id, dane, options, email, phone, name):
         return
     # Grupa 3: klient juz w bazie (dopasowany, nie utworzony) -> raz na rozmowe mila wzmianka.
     if kl.get("matched") and not _returning_greeted(conv_id):
-        cw_agent_reply(conv_id, "Widzę Pana/Pani wyceny w naszym systemie — miło, że Pan/Pani do "
-                       "nas wraca 😊", token=BOT_QUOTE_CW_AGENT_TOKEN)
+        cw_agent_reply(conv_id, "Miło, że znów Państwo do nas zaglądają 😊 — widzę wcześniejsze "
+                       "wyceny w naszym systemie.", token=BOT_QUOTE_CW_AGENT_TOKEN)
         _set_returning_greeted(conv_id, True)
 
     edit_uuid = _stored_edit_uuid(conv_id)
@@ -916,6 +969,40 @@ def _wyslij_probki(conv_id, dane):
             ile += 1
         else:
             log("quotebot: wysylka probki nieudana (conv %s, %s)" % (conv_id, key))
+
+
+# Klient pisze o obrobce krawedzi -> pokazujemy obraz z oznaczeniem krawedzi.
+_KRAWEDZIE_RE = re.compile(r"(kraw[eę]d|zaokr[aą]gl|fazow|zfazuj|sfazuj|\bR\d)", re.IGNORECASE)
+
+
+def _wyslij_obraz_kontekstowy(conv_id, key):
+    """Wysyla obraz kontekstowy (wymiary/krawedzie) RAZ na rozmowe (dedup jak probki).
+    Nigdy nie rzuca — obraz pomocniczy nie moze wywrocic tury."""
+    dedup = "ctx:" + key
+    if dedup in _sent_images(conv_id):
+        return
+    sciezka = images.resolve_context(key)
+    if not sciezka:
+        return
+    meta = images.CONTEXT_IMAGES.get(key) or {}
+    if cw_agent_reply(conv_id, meta.get("podpis") or "", image_path=sciezka,
+                      image_name=meta.get("nazwa"), image_mime=meta.get("mime") or "image/jpeg",
+                      token=BOT_QUOTE_CW_AGENT_TOKEN):
+        _mark_image_sent(conv_id, dedup)
+
+
+def _obrazy_kontekstowe(conv_id, content, dane):
+    """Deterministyczne obrazy pomocnicze (raz na rozmowe): krawedzie — gdy klient pisze o
+    obrobce krawedzi; wymiary — gdy pierwsza pozycja (nie-schody) nie ma kompletu wymiarow,
+    czyli bot bedzie o nie pytal."""
+    if _KRAWEDZIE_RE.search(content or ""):
+        _wyslij_obraz_kontekstowy(conv_id, "krawedzie")
+    pozycje = dane.get("pozycje") or []
+    if pozycje:
+        poz = pozycje[0]
+        if "schod" not in str(poz.get("produkt") or "").lower() and any(
+                not str(poz.get(k) or "").strip() for k in ("dlugosc", "szerokosc", "grubosc")):
+            _wyslij_obraz_kontekstowy(conv_id, "wymiary")
 
 
 def _wyslij_podsumowanie(conv_id, dane):
@@ -1034,6 +1121,8 @@ def run_quote_turn(conv_id, inbox_id, message_id, content, attachments=None):
         raise RuntimeError("quotebot: brak odpowiedzi modelu")
     out = _parse_llm(raw)
     dane = _merge_dane(conv_id, out)   # akumulacja per pozycja: raz zebrane pole zostaje
+    # Obrazy pomocnicze (wymiary/krawedzie) — raz na rozmowe, wg tresci klienta i kompletu wymiarow.
+    _obrazy_kontekstowe(conv_id, content, dane)
     # 'zmienione' liczymy TYLKO po POZYCJACH (spec wyceny). Zmiana pol wspolnych
     # (kontakt/termin) — np. gdy LLM sam dopisze kontakt z tozsamosci klienta — NIE ponawia
     # podsumowania i nie tlumi odpowiedzi na pytanie w stanie awaiting (regresja S54 E2E 2026-07-06).

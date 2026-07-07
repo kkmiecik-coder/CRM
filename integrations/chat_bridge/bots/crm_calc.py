@@ -139,6 +139,50 @@ def _num(v):
         return None
 
 
+# --- Krawedzie (tryb advanced): walidacja + rozwiniecie "wszystkie" ---
+# Litery wg EDGE_DEFINITIONS kalkulatora: A-D gora, E-H dol, N1-N4 narozniki, KG/KD obwod (okragly).
+EDGE_LETTERS = {"A", "B", "C", "D", "E", "F", "G", "H", "N1", "N2", "N3", "N4", "KG", "KD"}
+# Typy krawedzi z /options: sharp (ostra), chamfer (fazowanie), round (zaokraglenie, np. R4).
+_EDGE_TYPE_ALIAS = {
+    "sharp": "sharp", "ostra": "sharp", "ostre": "sharp", "prosta": "sharp",
+    "chamfer": "chamfer", "faza": "chamfer", "fazowanie": "chamfer", "fazowane": "chamfer", "fazowana": "chamfer",
+    "round": "round", "zaokraglenie": "round", "zaokraglone": "round", "zaokraglona": "round", "r": "round",
+}
+_ALL_TOP = ["A", "B", "C", "D"]   # "wszystkie/kazda krawedz" prostokata = 4 krawedzie gorne
+_WSZYSTKIE = {"WSZYSTKIE", "ALL", "*", "KAZDA", "KAŻDA", "OBWOD", "OBWÓD"}
+
+
+def _norm_edge_type(v):
+    """PL/EN opis typu krawedzi -> 'sharp'|'chamfer'|'round' albo None."""
+    a = _ascii_low(v)
+    if a in _EDGE_TYPE_ALIAS:
+        return _EDGE_TYPE_ALIAS[a]
+    for k, val in _EDGE_TYPE_ALIAS.items():
+        if k in a:
+            return val
+    return None
+
+
+def normalize_edges(raw):
+    """Lista {litera,typ} z LLM -> znormalizowana lista {litera,typ}: waliduje litery/typy i
+    rozwija 'wszystkie/kazda' -> A,B,C,D. Odrzuca nieznane. Zwraca [] gdy nic sensownego
+    (nigdy nie rzuca — dane z LLM sa niepewne)."""
+    out, seen = [], set()
+    for e in (raw or []):
+        if not isinstance(e, dict):
+            continue
+        lit = str(e.get("litera") or e.get("letter") or "").strip().upper()
+        typ = _norm_edge_type(e.get("typ") or e.get("type"))
+        if not typ:
+            continue
+        litery = _ALL_TOP if lit in _WSZYSTKIE else [lit]
+        for L in litery:
+            if L in EDGE_LETTERS and (L, typ) not in seen:
+                seen.add((L, typ))
+                out.append({"litera": L, "typ": typ})
+    return out
+
+
 def build_products(pozycje, options):
     """Mapuje pozycje bota (PL) na produkty API /calculate. Zwraca (products, braki),
     gdzie braki = [(pozycja, powod_pl)] dla pozycji, ktorych nie da sie zmapowac."""
@@ -178,6 +222,11 @@ def build_products(pozycje, options):
                                        "wariantu (połysk) z ceną"))
                     continue
                 prod["finishing_gloss_level"] = str(opt.get("full_path") or "z katalogu")
+        # Krawedzie (tryb advanced): litera->letter, typ->type. Pozycja bez krawedzi -> brak edges.
+        edges = normalize_edges(poz.get("edges"))
+        if edges:
+            prod["edges"] = [{"letter": e["litera"], "type": e["typ"]} for e in edges]
+            prod["edges_mode"] = "advanced"
         products.append(prod)
     return products, braki
 

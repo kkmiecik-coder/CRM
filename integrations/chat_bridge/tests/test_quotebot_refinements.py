@@ -25,13 +25,20 @@ def _poz(**kw):
 
 # --- Grupa 1: wiadomosc z cena ---
 
-def test_cena_msg_bez_preambuly_z_linia_parametrow():
+def test_cena_msg_per_pozycja_i_calosc():
     dane = {"pozycje": [_poz()], "wspolne": {}}
-    msg = qb._cena_msg(dane, {"total_netto": 480.48, "total_brutto": 590.99})
-    assert "Wstępna wycena" not in msg and "wstępny szacunek" not in msg
-    assert msg.splitlines()[0].startswith("Blat")          # produkt podany -> "Blat", nie "Klejonka"
+    wynik = {"products": [{"index": 1,
+                           "variants": [{"variant_code": "dab-micro-ab", "available": True,
+                                         "total_netto": 480.48, "total_brutto": 590.99}],
+                           "finishing": {"netto": 0, "brutto": 0},
+                           "edges": {"netto": 0, "brutto": 0}}],
+             "totals": {"total_netto": 480.48, "total_brutto": 590.99}}
+    msg = qb._cena_msg(dane, wynik)
+    assert "Wstępna wycena" not in msg
+    assert msg.splitlines()[0].startswith("Blat")
     assert "140×80×3 cm" in msg
-    assert "Netto: 480,48 zł" in msg and "Brutto: 590,99 zł" in msg
+    assert "590,99 zł (480,48 zł netto)" in msg     # cena per pozycja
+    assert "Cena za całość:" in msg
 
 
 def test_linia_pozycji_fallback_klejonka():
@@ -91,7 +98,7 @@ def test_powracajacy_klient_powitanie_raz(monkeypatch):
                                                      "public_url": "https://crm/q/a"})
     qb._zapisz_wycene(702, {"pozycje": [_poz()], "wspolne": {}}, {"finishing_options": []},
                       "jan@x.pl", "", "Jan")
-    assert any("wraca" in r for r in replies)
+    assert any("zaglądają" in r or "wcześniejsze wyceny" in r for r in replies)
 
 
 # --- Grupa 4: aktualizacja zamiast nowej wyceny ---
@@ -118,3 +125,67 @@ def test_wyciagnij_kontakt_odrzuca_krotki_ciag_cyfr():
     assert qb._wyciagnij_kontakt("zamówienie 123456")[1] == ""
     assert qb._wyciagnij_kontakt("tel 501 234 567")[1] != ""      # 9 cyfr -> ok
     assert qb._wyciagnij_kontakt("mail: a@b.pl")[0] == "a@b.pl"
+
+
+# --- Runda 3: krawedzie (tryb advanced) ---
+
+def test_normalize_edges_rozwija_wszystkie():
+    out = qb.crm_calc.normalize_edges([{"litera": "WSZYSTKIE", "typ": "round"}])
+    assert [e["litera"] for e in out] == ["A", "B", "C", "D"]
+    assert all(e["typ"] == "round" for e in out)
+
+
+def test_normalize_edges_waliduje_i_odrzuca():
+    out = qb.crm_calc.normalize_edges([
+        {"litera": "A", "typ": "zaokrąglenie"},   # alias PL -> round
+        {"litera": "X", "typ": "round"},           # zla litera -> odrzucona
+        {"litera": "B", "typ": "cokolwiek"},       # zly typ -> odrzucony
+    ])
+    assert out == [{"litera": "A", "typ": "round"}]
+
+
+def test_build_products_dodaje_edges_advanced():
+    poz = _poz(edges=[{"litera": "A", "typ": "round"}, {"litera": "B", "typ": "chamfer"}])
+    products, braki = qb.crm_calc.build_products([poz], {"finishing_options": []})
+    assert braki == []
+    p = products[0]
+    assert p["edges_mode"] == "advanced"
+    assert {"letter": "A", "type": "round"} in p["edges"]
+    assert {"letter": "B", "type": "chamfer"} in p["edges"]
+
+
+def test_podsumowanie_renderuje_krawedzie():
+    dane = {"pozycje": [_poz(edges=[{"litera": "A", "typ": "round"},
+                                    {"litera": "B", "typ": "round"}])], "wspolne": {}}
+    msg = qb._podsumowanie_msg(dane)
+    assert "Krawędzie: A, B — zaokrąglone" in msg
+
+
+def test_merge_zapamietuje_edges():
+    qb._zapisz_dane(720, {"pozycje": [_poz(id="1")], "wspolne": {}})
+    out = {"pozycje": [{"id": "1", "edges": [{"litera": "WSZYSTKIE", "typ": "round"}]}], "wspolne": {}}
+    dane = qb._merge_dane(720, out)
+    ed = dane["pozycje"][0].get("edges")
+    assert [e["litera"] for e in ed] == ["A", "B", "C", "D"]
+
+
+def test_cena_pozycji_sumuje_wariant_finishing_edges():
+    poz = _poz()
+    prod = {"variants": [{"variant_code": "dab-micro-ab", "available": True,
+                          "total_netto": 100.0, "total_brutto": 123.0}],
+            "finishing": {"netto": 10.0, "brutto": 12.3}, "edges": {"netto": 5.0, "brutto": 6.15}}
+    n, b = qb._cena_pozycji(poz, prod)
+    assert round(n, 2) == 115.0 and round(b, 2) == 141.45
+
+
+def test_obrazy_kontekstowe_trigger(monkeypatch):
+    sent = []
+    # resolve_context zamockowany — BOT_IMAGES_DIR jest globalny w procesie (inne testy go zmieniaja),
+    # tu sprawdzamy LOGIKE triggera, nie rozwiazanie pliku.
+    monkeypatch.setattr(qb.images, "resolve_context", lambda key: "/fake/%s.jpg" % key)
+    monkeypatch.setattr(qb, "cw_agent_reply",
+                        lambda c, t, **kw: sent.append(kw.get("image_name") or t) or True)
+    qb._obrazy_kontekstowe(730, "czy możemy zaokrąglić krawędzie?",
+                           {"pozycje": [_poz(dlugosc="", szerokosc="", grubosc="")], "wspolne": {}})
+    assert any("krawedzi" in str(s) for s in sent)   # obraz oznaczenia krawedzi
+    assert any("wymiar" in str(s) for s in sent)     # obraz oznaczenia wymiarow

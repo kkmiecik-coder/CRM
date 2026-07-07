@@ -31,6 +31,29 @@ def whitelist_prompt():
     return "\n".join("- %s — %s" % (tag, m["opis"]) for tag, m in IMAGES.items())
 
 
+# --- Obrazy kontekstowe: wysylane DETERMINISTYCZNIE przez kod wg sytuacji (nie przez LLM) ---
+CONTEXT_IMAGES = {
+    "wymiary": {
+        "plik": "oznaczenie_wymiarow.jpg", "mime": "image/jpeg", "nazwa": "oznaczenie-wymiarow.jpg",
+        "podpis": "Tak liczymy wymiary blatu — długość × szerokość × grubość 👇",
+    },
+    "krawedzie": {
+        "plik": "oznaczenie_krawedzi.jpg", "mime": "image/jpeg", "nazwa": "oznaczenie-krawedzi.jpg",
+        "podpis": ("Tak oznaczamy krawędzie (A–D góra, E–H dół, N1–N4 narożniki) — proszę wskazać, "
+                   "które mają być zaokrąglone lub fazowane 👇"),
+    },
+}
+
+
+def resolve_context(key):
+    """Sciezka obrazu kontekstowego z CONTEXT_IMAGES albo None (nieznany klucz / brak pliku)."""
+    m = CONTEXT_IMAGES.get(key or "")
+    if not m:
+        return None
+    path = os.path.join(_dir(), m["plik"])
+    return path if os.path.isfile(path) else None
+
+
 def resolve(tag):
     """Sciezka pliku obrazu semantycznego z IMAGES albo None (nieznany tag / brak pliku)."""
     m = IMAGES.get(tag or "")
