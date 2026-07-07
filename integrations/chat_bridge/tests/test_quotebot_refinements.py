@@ -259,3 +259,41 @@ def test_merge_puste_edges_bez_sharp_nie_kasuje():
     out = {"pozycje": [{"id": "1", "edges": []}], "wspolne": {}}
     dane = qb._merge_dane(741, out)
     assert [e["litera"] for e in dane["pozycje"][0]["edges"]] == ["A"]   # zachowane
+
+
+# --- Runda 7: porownanie wariantu (bez edycji wyceny) ---
+
+def test_obsluz_porownania_pokazuje_wariant_bez_edycji(monkeypatch):
+    replies = []
+    monkeypatch.setattr(qb, "cw_agent_reply", lambda c, t, **kw: replies.append(t) or True)
+    monkeypatch.setattr(qb.crm_calc, "get_options", lambda: {"finishing_options": []})
+    monkeypatch.setattr(qb.crm_calc, "calculate", lambda p, o: {
+        "ok": True,
+        "products": [{"variants": [
+            {"variant_code": "dab-micro-ab", "available": True, "total_netto": 800.0, "total_brutto": 984.0},
+            {"variant_code": "jes-micro-ab", "available": True, "total_netto": 700.0, "total_brutto": 861.0}],
+            "finishing": {"netto": 0, "brutto": 0}, "edges": {"netto": 0, "brutto": 0}}],
+        "totals": {"total_netto": 800.0, "total_brutto": 984.0}})
+    ok = qb._obsluz_porownania(900, {"pozycje": [_poz()], "wspolne": {}}, [{"id": "1", "gatunek": "jesion"}])
+    assert ok is True
+    txt = " ".join(replies)
+    assert "861,00 zł" in txt                      # cena wariantu jesion
+    assert "jesion" in txt.lower()                 # opis pozycji w jesionie
+    assert "nie zmieniam Twojej wyceny" in txt
+    assert "984,00 zł" in txt                       # aktualna cena calosci (dab) w uwadze
+
+
+def test_obsluz_porownania_wariant_niedostepny(monkeypatch):
+    replies = []
+    monkeypatch.setattr(qb, "cw_agent_reply", lambda c, t, **kw: replies.append(t) or True)
+    monkeypatch.setattr(qb.crm_calc, "get_options", lambda: {"finishing_options": []})
+    monkeypatch.setattr(qb.crm_calc, "calculate", lambda p, o: {
+        "ok": True, "products": [{"variants": [
+            {"variant_code": "dab-micro-ab", "available": True, "total_netto": 800.0, "total_brutto": 984.0}],
+            "finishing": {"netto": 0, "brutto": 0}, "edges": {"netto": 0, "brutto": 0}}],
+        "totals": {"total_brutto": 984.0, "total_netto": 800.0}})
+    # jesion B/B nie istnieje -> variant_code None -> niedostepny
+    ok = qb._obsluz_porownania(901, {"pozycje": [_poz()], "wspolne": {}},
+                               [{"id": "1", "gatunek": "jesion", "klasa": "B/B"}])
+    assert ok is True
+    assert any("nie jest dostępny" in r for r in replies)

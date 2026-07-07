@@ -37,7 +37,8 @@ _FORMAT = (
     '"gatunek": "", "technologia": "", "klasa": "", "ilosc": "", "wykonczenie": "", '
     '"finishing_id": "", '
     '"otwory": "", "edges": [], "schody": ""}], '
-    '"wspolne": {"termin": "", "kontakt": ""}}\n'
+    '"wspolne": {"termin": "", "kontakt": ""}, '
+    '"porownania": [{"id": "1", "gatunek": "", "technologia": "", "klasa": ""}]}\n'
     "Każdy produkt klienta to OSOBNA pozycja listy 'pozycje' ze stałym id (\"1\", \"2\", ...). "
     "Utrzymuj id z bloku DOTYCHCZAS ZEBRANE DANE WYCENY i NIGDY nie nadpisuj jednej pozycji "
     "danymi innego produktu. Gdy klient rezygnuje z pozycji, zwróć ją z polem \"usun\": true. "
@@ -79,7 +80,14 @@ _FORMAT = (
     "WYSYŁKA: kosztów dostawy NIE liczysz. Gdy klient pyta o wysyłkę — napisz krótko, że koszt dostawy "
     "potwierdzi konsultant przy finalizacji zamówienia. NIE obiecuj, że sam sprawdzisz i wrócisz z ceną.\n"
     "OTWORY/WYCIĘCIA ('otwory'): NIE wyceniasz. Gdy klient je poda — zapisz opis w polu 'otwory' i "
-    "wspomnij, że koszt wycięć doliczy konsultant. Nie wstrzymuj z tego powodu wyceny blatów i krawędzi."
+    "wspomnij, że koszt wycięć doliczy konsultant. Nie wstrzymuj z tego powodu wyceny blatów i krawędzi.\n"
+    "PORÓWNANIE WARIANTU ('porownania'): gdy klient chce tylko ZOBACZYĆ/POROWNAĆ cenę tego samego "
+    "produktu w INNYM gatunku, technologii lub klasie (np. „a ile w jesionie?”, „ciekawi mnie ta sama "
+    "w buku litym”) — NIE zmieniaj pozycji ani zamówienia; zamiast tego dodaj wpis do 'porownania': "
+    '[{"id": "<id pozycji>", "gatunek": "<jesion>", "technologia": "<jeśli inna>", "klasa": "<jeśli inna>"}] '
+    "(podaj tylko pola, które klient zmienia; resztę zostaw pustą), a pole 'odpowiedz' zostaw puste — "
+    "cenę porównania policzy i wyśle system. Gdy klient chce FAKTYCZNIE zmienić zamówienie na inny "
+    "wariant — wtedy normalnie zmień pozycję (nie używaj 'porownania')."
 )
 
 # Instrukcja stanu potwierdzenia — doklejana do promptu, gdy klient dostal podsumowanie od systemu.
@@ -309,6 +317,70 @@ def _cena_msg(dane, wynik):
     linie.append("**Cena za całość:**")
     linie.append("%s (%s netto)" % (_fmt_pln(totals.get("total_brutto")), _fmt_pln(totals.get("total_netto"))))
     return "\n".join(linie)
+
+
+def _rozbicie_linie(b):
+    """Linie rozbicia ceny (Produkt surowy/Wykończenie/Krawędzie [+Razem]) ze slownika _cena_pozycji."""
+    skladowe = [("Produkt surowy", b["material"])]
+    if b["wykonczenie"][1] > 0:
+        skladowe.append(("Wykończenie", b["wykonczenie"]))
+    if b["krawedzie"][1] > 0:
+        skladowe.append(("Krawędzie", b["krawedzie"]))
+    linie = ["    %s: %s (%s netto)" % (lab, _fmt_pln(nb[1]), _fmt_pln(nb[0])) for lab, nb in skladowe]
+    if len(skladowe) > 1:
+        linie.append("    Razem: %s (%s netto)" % (_fmt_pln(b["razem"][1]), _fmt_pln(b["razem"][0])))
+    return linie
+
+
+def _porownanie_msg(alt_poz, prod, totals):
+    """Wiadomosc informacyjna: cena pozycji w innym wariancie (z rozbiciem) + uwaga, ze wycena
+    sie NIE zmienia (nadal aktualna cena calosci)."""
+    linie = ["**%s** (informacyjnie)" % _linia_pozycji(alt_poz)]
+    linie += _rozbicie_linie(_cena_pozycji(alt_poz, prod))
+    linie.append("")
+    linie.append("To tylko informacja — nie zmieniam Twojej wyceny (nadal %s / %s netto)."
+                 % (_fmt_pln(totals.get("total_brutto")), _fmt_pln(totals.get("total_netto"))))
+    return "\n".join(linie)
+
+
+_ALT_NIEDOSTEPNY = ("Ten wariant nie jest dostępny — pracujemy w dębie (klasa A/B lub B/B), jesionie "
+                    "(A/B) i buku (A/B), w technologii litej lub mikrowczep. Proszę wybrać z tych opcji.")
+
+
+def _obsluz_porownania(conv_id, dane, porownania):
+    """Odpowiada na prośbę o cenę tego samego produktu w innym wariancie (gatunek/technologia/klasa)
+    BEZ edycji wyceny. Warianty i tak są policzone w /calculate; wykończenie/krawędzie niezależne od
+    gatunku. Zwraca True gdy coś wysłano (tura obsłużona). Nigdy nie edytuje danych/wyceny."""
+    options = crm_calc.get_options()
+    wynik = crm_calc.calculate(dane.get("pozycje") or [], options)
+    if not wynik.get("ok") or not wynik.get("products"):
+        return False   # nie policzymy (braki/blad) — niech LLM odpowie normalnie
+    products, pozycje, totals = wynik["products"], dane.get("pozycje") or [], wynik.get("totals") or {}
+    wyslano = False
+    for por in porownania:
+        if not isinstance(por, dict):
+            continue
+        pid = str(por.get("id") or "").strip()
+        idx = next((i for i, p in enumerate(pozycje) if str(p.get("id")) == pid), None)
+        if idx is None or idx >= len(products):
+            continue
+        alt = dict(pozycje[idx])
+        for k in ("gatunek", "technologia", "klasa"):
+            if str(por.get(k) or "").strip():
+                alt[k] = por[k]
+        code = crm_calc.variant_code(alt.get("gatunek"), alt.get("technologia"), alt.get("klasa"))
+        var = next((v for v in (products[idx].get("variants") or [])
+                    if v.get("variant_code") == code and v.get("available")), None)
+        if not var:
+            cw_agent_reply(conv_id, _ALT_NIEDOSTEPNY, token=BOT_QUOTE_CW_AGENT_TOKEN)
+        else:
+            cw_agent_reply(conv_id, _porownanie_msg(alt, products[idx], totals),
+                           token=BOT_QUOTE_CW_AGENT_TOKEN)
+        wyslano = True
+    if wyslano:
+        _bump_turns(conv_id)
+        log("quotebot: porownanie wariantu (conv %s, %d)" % (conv_id, len(porownania)))
+    return wyslano
 
 
 _PROSBA_KONTAKT = ("Jeśli poda Pan/Pani adres e-mail (lub telefon), zapiszę tę wycenę i wyślę "
@@ -605,7 +677,8 @@ def _z_dict(d):
             "powod": (d.get("powod") or "").strip(),
             "send_image": (d.get("send_image") or "").strip(),
             "pozycje": d.get("pozycje") if isinstance(d.get("pozycje"), list) else [],
-            "wspolne": d.get("wspolne") if isinstance(d.get("wspolne"), dict) else {}}
+            "wspolne": d.get("wspolne") if isinstance(d.get("wspolne"), dict) else {},
+            "porownania": d.get("porownania") if isinstance(d.get("porownania"), list) else []}
 
 
 def _znajdz_json(txt):
@@ -648,7 +721,7 @@ def _parse_llm(raw):
         return _z_dict(emb)
     # Fallback: model zignorowal format — traktujemy calosc jako tekst do klienta.
     return {"odpowiedz": txt, "handoff": False, "powod": "", "send_image": "",
-            "pozycje": [], "wspolne": {}}
+            "pozycje": [], "wspolne": {}, "porownania": []}
 
 
 # --- Podsumowanie do potwierdzenia + notatka dla agenta ---
@@ -1154,6 +1227,13 @@ def run_quote_turn(conv_id, inbox_id, message_id, content, attachments=None):
     dane = _merge_dane(conv_id, out)   # akumulacja per pozycja: raz zebrane pole zostaje
     # Obrazy pomocnicze (wymiary/krawedzie) — raz na rozmowe, wg tresci klienta i kompletu wymiarow.
     _obrazy_kontekstowe(conv_id, content, dane)
+
+    # Porownanie wariantu (inny gatunek/technologia/klasa) — TYLKO informacja, bez edycji wyceny.
+    # Warunek: komplet danych (inaczej /calculate nie policzy) i model poprosil o porownanie.
+    if out.get("porownania") and not _brakujace(dane):
+        if _obsluz_porownania(conv_id, dane, out["porownania"]):
+            return
+
     # 'zmienione' liczymy TYLKO po POZYCJACH (spec wyceny). Zmiana pol wspolnych
     # (kontakt/termin) — np. gdy LLM sam dopisze kontakt z tozsamosci klienta — NIE ponawia
     # podsumowania i nie tlumi odpowiedzi na pytanie w stanie awaiting (regresja S54 E2E 2026-07-06).
