@@ -66,3 +66,14 @@ BOT_IMAGES_DIR = os.environ.get(
 # ----- Sweeper pending (samonaprawa rozmow bez odpowiedzi bota) -----
 SWEEP_INTERVAL    = int(os.environ.get("SWEEP_INTERVAL", "120"))    # sekundy miedzy przejsciami; <=0 = wylaczony
 SWEEP_PENDING_AGE = int(os.environ.get("SWEEP_PENDING_AGE", "600")) # min. wiek ostatniej wiadomosci klienta (s)
+
+# ----- Bot wyceniajacy „Asystent AI v1" (live chat, osobna encja od live-bota) -----
+# Klient CRM API kalkulatora (te same endpointy co UI, auth naglowkiem X-Bot-Api-Key).
+CRM_API_BASE   = os.environ.get("CRM_API_BASE", "https://crm.woodpower.pl").rstrip("/")
+CRM_BOT_API_KEY = os.environ.get("CRM_BOT_API_KEY")   # = BOT_API_KEY z config/core.json CRM
+# Grupa cenowa na sztywno (NIE z LLM) — musi pasowac do client_types z /api/bot/options.
+BOT_QUOTE_CLIENT_TYPE = os.environ.get("BOT_QUOTE_CLIENT_TYPE")
+# Tokeny Agent Bota „Asystent AI v1".
+BOT_QUOTE_CW_AGENT_TOKEN      = os.environ.get("BOT_QUOTE_CW_AGENT_TOKEN")       # access_token (odpowiedzi + handoff)
+BOT_QUOTE_AGENT_WEBHOOK_TOKEN = os.environ.get("BOT_QUOTE_AGENT_WEBHOOK_TOKEN")  # token w URL webhooka /agent-bot-quote
+BOT_QUOTE_MAX_TURNS           = int(os.environ.get("BOT_QUOTE_MAX_TURNS", "30")) # bezpiecznik D

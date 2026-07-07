@@ -41,6 +41,20 @@ def init_db():
       reject_sig TEXT, reject_count INTEGER DEFAULT 0, complaint_sent INTEGER DEFAULT 0);
     CREATE TABLE IF NOT EXISTS live_dane(
       conv_id INTEGER PRIMARY KEY, dane_json TEXT);
+    CREATE TABLE IF NOT EXISTS quote_queue(
+      id INTEGER PRIMARY KEY AUTOINCREMENT, conv_id INTEGER, inbox_id TEXT,
+      message_id TEXT, content TEXT, attempts INTEGER DEFAULT 0,
+      status TEXT DEFAULT 'pending', next_at REAL DEFAULT 0, last_error TEXT,
+      attachments TEXT);
+    CREATE TABLE IF NOT EXISTS quote_seen(mid TEXT PRIMARY KEY);
+    CREATE TABLE IF NOT EXISTS quote_state(
+      conv_id INTEGER PRIMARY KEY, bot_turns INTEGER DEFAULT 0,
+      awaiting_confirm INTEGER DEFAULT 0, human_deflected INTEGER DEFAULT 0,
+      reject_sig TEXT, reject_count INTEGER DEFAULT 0, complaint_sent INTEGER DEFAULT 0,
+      sent_images TEXT, priced INTEGER DEFAULT 0, awaiting_contact INTEGER DEFAULT 0,
+      quote_saved INTEGER DEFAULT 0);
+    CREATE TABLE IF NOT EXISTS quote_dane(
+      conv_id INTEGER PRIMARY KEY, dane_json TEXT);
     """)
     for stmt in ("ALTER TABLE queue ADD COLUMN attachments TEXT",
                  "ALTER TABLE threads ADD COLUMN channel TEXT",
@@ -52,7 +66,12 @@ def init_db():
                  "ALTER TABLE live_state ADD COLUMN reject_count INTEGER DEFAULT 0",
                  "ALTER TABLE live_state ADD COLUMN complaint_sent INTEGER DEFAULT 0",
                  "ALTER TABLE live_state ADD COLUMN sent_images TEXT",
-                 "ALTER TABLE live_queue ADD COLUMN attachments TEXT"):
+                 "ALTER TABLE live_queue ADD COLUMN attachments TEXT",
+                 "ALTER TABLE quote_state ADD COLUMN sent_images TEXT",
+                 "ALTER TABLE quote_state ADD COLUMN priced INTEGER DEFAULT 0",
+                 "ALTER TABLE quote_state ADD COLUMN awaiting_contact INTEGER DEFAULT 0",
+                 "ALTER TABLE quote_state ADD COLUMN quote_saved INTEGER DEFAULT 0",
+                 "ALTER TABLE quote_queue ADD COLUMN attachments TEXT"):
         try:
             c.execute(stmt)
         except Exception:
