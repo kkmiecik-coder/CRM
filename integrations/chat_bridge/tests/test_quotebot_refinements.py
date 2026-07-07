@@ -181,13 +181,44 @@ def test_merge_zapamietuje_edges():
     assert [e["litera"] for e in ed] == ["A", "B", "C", "D"]
 
 
-def test_cena_pozycji_sumuje_wariant_finishing_edges():
+def test_cena_pozycji_rozbicie_na_skladowe():
     poz = _poz()
     prod = {"variants": [{"variant_code": "dab-micro-ab", "available": True,
                           "total_netto": 100.0, "total_brutto": 123.0}],
             "finishing": {"netto": 10.0, "brutto": 12.3}, "edges": {"netto": 5.0, "brutto": 6.15}}
-    n, b = qb._cena_pozycji(poz, prod)
-    assert round(n, 2) == 115.0 and round(b, 2) == 141.45
+    b = qb._cena_pozycji(poz, prod)
+    assert b["material"] == (100.0, 123.0)
+    assert b["wykonczenie"] == (10.0, 12.3)
+    assert b["krawedzie"] == (5.0, 6.15)
+    assert round(b["razem"][0], 2) == 115.0 and round(b["razem"][1], 2) == 141.45
+
+
+def test_cena_msg_pokazuje_skladowe_gdy_niezerowe():
+    dane = {"pozycje": [_poz()], "wspolne": {}}
+    wynik = {"products": [{"index": 1,
+                           "variants": [{"variant_code": "dab-micro-ab", "available": True,
+                                         "total_netto": 100.0, "total_brutto": 123.0}],
+                           "finishing": {"netto": 10.0, "brutto": 12.3},
+                           "edges": {"netto": 5.0, "brutto": 6.15}}],
+             "totals": {"total_netto": 115.0, "total_brutto": 141.45}}
+    msg = qb._cena_msg(dane, wynik)
+    assert "Produkt surowy: 123,00 zł" in msg
+    assert "Wykończenie: 12,30 zł" in msg
+    assert "Krawędzie: 6,15 zł" in msg
+    assert "Razem: 141,45 zł" in msg
+
+
+def test_cena_msg_surowe_bez_krawedzi_tylko_produkt():
+    # Surowe bez krawedzi -> jedna skladowa (Produkt surowy), bez linii Wykonczenie/Krawedzie/Razem.
+    dane = {"pozycje": [_poz()], "wspolne": {}}
+    wynik = {"products": [{"index": 1,
+                           "variants": [{"variant_code": "dab-micro-ab", "available": True,
+                                         "total_netto": 480.48, "total_brutto": 590.99}],
+                           "finishing": {"netto": 0, "brutto": 0}, "edges": {"netto": 0, "brutto": 0}}],
+             "totals": {"total_netto": 480.48, "total_brutto": 590.99}}
+    msg = qb._cena_msg(dane, wynik)
+    assert "Produkt surowy: 590,99 zł" in msg
+    assert "Wykończenie" not in msg and "Krawędzie" not in msg and "Razem" not in msg
 
 
 def test_obrazy_kontekstowe_trigger(monkeypatch):

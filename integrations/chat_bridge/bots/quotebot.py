@@ -264,8 +264,8 @@ def _linia_pozycji(poz):
 
 
 def _cena_pozycji(poz, prod):
-    """(netto, brutto) jednej pozycji z odpowiedzi /calculate: wybrany wariant + wykonczenie +
-    krawedzie. Odporne na braki pol (zwraca 0)."""
+    """Skladowe ceny pozycji z /calculate jako dict: 'material' (wybrany wariant), 'wykonczenie',
+    'krawedzie', 'razem' — kazde (netto, brutto). Odporne na braki pol (zwraca 0)."""
     code = crm_calc.variant_code(poz.get("gatunek"), poz.get("technologia"), poz.get("klasa"))
     var = next((v for v in (prod.get("variants") or [])
                 if v.get("variant_code") == code and v.get("available")), None)
@@ -275,14 +275,17 @@ def _cena_pozycji(poz, prod):
             return float((d or {}).get(k) or 0)
         except (TypeError, ValueError):
             return 0.0
-    netto = _n(var, "total_netto") + _n(prod.get("finishing"), "netto") + _n(prod.get("edges"), "netto")
-    brutto = _n(var, "total_brutto") + _n(prod.get("finishing"), "brutto") + _n(prod.get("edges"), "brutto")
-    return netto, brutto
+    mat = (_n(var, "total_netto"), _n(var, "total_brutto"))
+    wyk = (_n(prod.get("finishing"), "netto"), _n(prod.get("finishing"), "brutto"))
+    kra = (_n(prod.get("edges"), "netto"), _n(prod.get("edges"), "brutto"))
+    razem = (mat[0] + wyk[0] + kra[0], mat[1] + wyk[1] + kra[1])
+    return {"material": mat, "wykonczenie": wyk, "krawedzie": kra, "razem": razem}
 
 
 def _cena_msg(dane, wynik):
-    """Deterministyczna wiadomosc z cena: per pozycja 'opis' + 'brutto (netto)', na koncu
-    'Cena za calosc'. Bez preambuly/szacunku. Ceny per pozycja z odpowiedzi /calculate."""
+    """Deterministyczna wiadomosc z cena: per pozycja opis pogrubiony + rozbicie na skladowe
+    (Produkt surowy / Wykończenie / Krawędzie) i Razem, na koncu 'Cena za całość'. Skladowe
+    zerowe (np. brak wykończenia/krawędzi) pomijamy. Ceny z odpowiedzi /calculate."""
     pozycje = dane.get("pozycje") or []
     products = wynik.get("products") or []
     totals = wynik.get("totals") or {}
@@ -290,9 +293,19 @@ def _cena_msg(dane, wynik):
     for i, poz in enumerate(pozycje):
         linie.append("**%s**" % _linia_pozycji(poz))   # nazwa+parametry pogrubione (markdown Chatwoota)
         if i < len(products):
-            n, b = _cena_pozycji(poz, products[i])
-            linie.append("    %s (%s netto)" % (_fmt_pln(b), _fmt_pln(n)))
-    linie.append("")
+            b = _cena_pozycji(poz, products[i])
+            # Produkt surowy zawsze; wykończenie/krawędzie tylko gdy niezerowe.
+            skladowe = [("Produkt surowy", b["material"])]
+            if b["wykonczenie"][1] > 0:
+                skladowe.append(("Wykończenie", b["wykonczenie"]))
+            if b["krawedzie"][1] > 0:
+                skladowe.append(("Krawędzie", b["krawedzie"]))
+            for lab, (n, bru) in skladowe:
+                linie.append("    %s: %s (%s netto)" % (lab, _fmt_pln(bru), _fmt_pln(n)))
+            if len(skladowe) > 1:   # rozbicie ma sens tylko przy >1 skladowej
+                rn, rb = b["razem"]
+                linie.append("    Razem: %s (%s netto)" % (_fmt_pln(rb), _fmt_pln(rn)))
+        linie.append("")
     linie.append("**Cena za całość:**")
     linie.append("%s (%s netto)" % (_fmt_pln(totals.get("total_brutto")), _fmt_pln(totals.get("total_netto"))))
     return "\n".join(linie)
