@@ -5,7 +5,8 @@
 import time
 import json
 from flask import Blueprint, request, jsonify
-from config import WEBHOOK_TOKEN, BOT_AGENT_WEBHOOK_TOKEN, BOT_LIVE_AGENT_WEBHOOK_TOKEN
+from config import (WEBHOOK_TOKEN, BOT_AGENT_WEBHOOK_TOKEN, BOT_LIVE_AGENT_WEBHOOK_TOKEN,
+                     BOT_QUOTE_AGENT_WEBHOOK_TOKEN)
 from core.log import log
 from core.db import db
 from core.chatwoot import cw_bot_handoff
@@ -102,6 +103,47 @@ def agent_bot_live():
         return jsonify(ok=False, error="unauthorized"), 401
     d = request.get_json(force=True, silent=True) or {}
     _process_livechat_bot(d)
+    return jsonify(ok=True)
+
+
+# ---------- AGENT BOT QUOTE (wyceniajacy, live chat testowy) ----------
+def _process_quotebot(d):
+    # Webhook quote-bota: kolejkuje ture do quote_queue. Guard: tylko inboxy WebWidget
+    # (persona livechat), zeby omylkowe przypiecie do OLX/Allegro nic nie robilo.
+    if d.get("event") != "message_created":
+        return
+    mtype = str(d.get("message_type"))
+    if mtype not in ("incoming", "0") or d.get("private"):
+        return
+    conv = d.get("conversation") or {}
+    conv_id = conv.get("id") or d.get("conversation_id")
+    inbox_id = str(d.get("inbox_id") or conv.get("inbox_id") or (d.get("inbox") or {}).get("id") or "")
+    content = (d.get("content") or "").strip()
+    mid = str(d.get("id") or "")
+    att = [a.get("data_url") for a in (d.get("attachments") or [])
+           if a.get("data_url") and str(a.get("file_type") or "").lower() == "image"]
+    if not conv_id or not mid or (not content and not att):
+        return
+    if persona_for(inbox_id) != "livechat":
+        log("agent-bot-quote: inbox %s bez persony livechat - pomijam" % inbox_id)
+        return
+    c = db()
+    try:
+        c.execute("INSERT INTO quote_seen(mid) VALUES(?)", (mid,))
+    except Exception:
+        c.close(); return  # duplikat
+    c.execute("INSERT INTO quote_queue(conv_id, inbox_id, message_id, content, attachments, next_at) "
+              "VALUES(?,?,?,?,?,0)", (conv_id, inbox_id, mid, content, json.dumps(att)))
+    c.commit(); c.close()
+    log("agent-bot-quote: zakolejkowano ture (inbox %s, conv %s)" % (inbox_id, conv_id))
+
+
+@bp.post("/agent-bot-quote")
+def agent_bot_quote():
+    if BOT_QUOTE_AGENT_WEBHOOK_TOKEN and request.args.get("token") != BOT_QUOTE_AGENT_WEBHOOK_TOKEN:
+        return jsonify(ok=False, error="unauthorized"), 401
+    d = request.get_json(force=True, silent=True) or {}
+    _process_quotebot(d)
     return jsonify(ok=True)
 
 
