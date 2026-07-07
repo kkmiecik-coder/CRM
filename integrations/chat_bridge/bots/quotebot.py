@@ -64,8 +64,11 @@ _FORMAT = (
     "NIE proś klienta o e-mail ani telefon w trakcie zbierania parametrów produktu — o kontakt "
     "system zapyta sam już PO przygotowaniu wyceny.\n"
     "KRAWĘDZIE ('edges'): lista obróbek krawędzi tej pozycji, każdy element "
-    '{"litera": "A", "typ": "round"}. Typy: "sharp" (ostra, bez obróbki), "chamfer" (fazowanie), '
-    '"round" (zaokrąglenie, np. gdy klient mówi „R4”). Litery blatu/parapetu: A=góra przód (długość), '
+    '{"litera": "A", "typ": "round", "r": 3}. Typy: "sharp" (ostra, bez obróbki), "chamfer" '
+    '(fazowanie — podaj kąt w polu "kat", np. 45), "round" (zaokrąglenie — podaj promień w mm w polu '
+    '"r", np. gdy klient mówi „R3” użyj "r": 3; domyślnie 5). Klient może podać różne promienie dla '
+    "różnych krawędzi (np. „C, A, D R3, E R5”) — każdą krawędź zapisz osobnym elementem z jej promieniem. "
+    'Litery blatu/parapetu: A=góra przód (długość), '
     "B=góra tył (długość), C=góra lewa (szerokość), D=góra prawa (szerokość); dół: E/F/G/H; narożniki: "
     "N1–N4; kształt okrągły: KG (górny obwód)/KD (dolny obwód). Gdy klient chce „wszystkie/każdą "
     'krawędź” danego typu — użyj litery "WSZYSTKIE" (system rozwinie na A,B,C,D). Obsługujesz mieszane '
@@ -641,13 +644,22 @@ _TYP_EDGE_PL = {"sharp": "ostre", "chamfer": "fazowane", "round": "zaokrąglone"
 
 
 def _opis_edges(edges):
-    """Czytelny opis krawedzi do podsumowania: 'A, B, C, D — zaokrąglone' (grupowane wg typu)."""
-    grupy = {}
+    """Czytelny opis krawedzi do podsumowania, grupowany po (typ, promien/kat):
+    'R3 (C, A, D); R5 (E)' dla zaokrąglen, 'Fazowanie 45° (E)' dla faz, 'Ostre (A)' dla sharp."""
+    grupy = {}   # klucz -> [etykieta, [litery]]
     for e in edges or []:
-        if isinstance(e, dict) and e.get("litera") and e.get("typ"):
-            grupy.setdefault(e["typ"], []).append(e["litera"])
-    return "; ".join("%s — %s" % (", ".join(lit), _TYP_EDGE_PL.get(typ, typ))
-                     for typ, lit in grupy.items())
+        if not (isinstance(e, dict) and e.get("litera") and e.get("typ")):
+            continue
+        typ = e["typ"]
+        r_value, angle = e.get("r_value"), e.get("angle_value")
+        if typ == "round":
+            etyk = "R%s" % r_value if r_value is not None else "Zaokrąglone"
+        elif typ == "chamfer":
+            etyk = "Fazowanie %s°" % angle if angle is not None else "Fazowanie"
+        else:
+            etyk = _TYP_EDGE_PL.get(typ, typ).capitalize()
+        grupy.setdefault((typ, r_value, angle), [etyk, []])[1].append(e["litera"])
+    return "; ".join("%s (%s)" % (etyk, ", ".join(lit)) for etyk, lit in grupy.values())
 
 
 def _fmt_cm(v):

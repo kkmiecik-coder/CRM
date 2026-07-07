@@ -163,10 +163,21 @@ def _norm_edge_type(v):
     return None
 
 
+_R_DEFAULT = 5     # domyslny promien zaokraglenia (mm) — jak w UI kalkulatora
+_KAT_DEFAULT = 45  # domyslny kat fazowania (stopnie)
+
+
+def _num_int(v, default=None):
+    """Liczba calkowita z 'R3'/'3 mm'/3 albo default; None gdy brak i default=None."""
+    m = re.search(r"\d+", str(v if v is not None else ""))
+    return int(m.group(0)) if m else default
+
+
 def normalize_edges(raw):
-    """Lista {litera,typ} z LLM -> znormalizowana lista {litera,typ}: waliduje litery/typy i
-    rozwija 'wszystkie/kazda' -> A,B,C,D. Odrzuca nieznane. Zwraca [] gdy nic sensownego
-    (nigdy nie rzuca — dane z LLM sa niepewne)."""
+    """Lista {litera,typ,[r,kat]} z LLM -> znormalizowana lista {litera,typ,r_value,angle_value}:
+    waliduje litery/typy, rozwija 'wszystkie/kazda' -> A,B,C,D, dolacza promien (round) lub kat
+    (chamfer). Odrzuca nieznane. Dedup po (litera,typ,r_value,angle_value). Zwraca [] gdy nic
+    sensownego (nigdy nie rzuca — dane z LLM sa niepewne)."""
     out, seen = [], set()
     for e in (raw or []):
         if not isinstance(e, dict):
@@ -175,11 +186,20 @@ def normalize_edges(raw):
         typ = _norm_edge_type(e.get("typ") or e.get("type"))
         if not typ:
             continue
+        r_raw = e.get("r") if e.get("r") is not None else e.get("r_value")
+        kat_raw = e.get("kat") if e.get("kat") is not None else e.get("angle_value")
+        if typ == "round":
+            r_value, angle_value = _num_int(r_raw, _R_DEFAULT), None
+        elif typ == "chamfer":
+            r_value, angle_value = None, _num_int(kat_raw, _KAT_DEFAULT)
+        else:  # sharp — bez obrobki
+            r_value, angle_value = None, None
         litery = _ALL_TOP if lit in _WSZYSTKIE else [lit]
         for L in litery:
-            if L in EDGE_LETTERS and (L, typ) not in seen:
-                seen.add((L, typ))
-                out.append({"litera": L, "typ": typ})
+            klucz = (L, typ, r_value, angle_value)
+            if L in EDGE_LETTERS and klucz not in seen:
+                seen.add(klucz)
+                out.append({"litera": L, "typ": typ, "r_value": r_value, "angle_value": angle_value})
     return out
 
 
@@ -225,7 +245,9 @@ def build_products(pozycje, options):
         # Krawedzie (tryb advanced): litera->letter, typ->type. Pozycja bez krawedzi -> brak edges.
         edges = normalize_edges(poz.get("edges"))
         if edges:
-            prod["edges"] = [{"letter": e["litera"], "type": e["typ"]} for e in edges]
+            prod["edges"] = [{"letter": e["litera"], "type": e["typ"],
+                              "r_value": e["r_value"], "angle_value": e["angle_value"]}
+                             for e in edges]
             prod["edges_mode"] = "advanced"
         products.append(prod)
     return products, braki

@@ -137,28 +137,40 @@ def test_normalize_edges_rozwija_wszystkie():
 
 def test_normalize_edges_waliduje_i_odrzuca():
     out = qb.crm_calc.normalize_edges([
-        {"litera": "A", "typ": "zaokrąglenie"},   # alias PL -> round
+        {"litera": "A", "typ": "zaokrąglenie"},   # alias PL -> round, promien domyslny 5
         {"litera": "X", "typ": "round"},           # zla litera -> odrzucona
         {"litera": "B", "typ": "cokolwiek"},       # zly typ -> odrzucony
     ])
-    assert out == [{"litera": "A", "typ": "round"}]
+    assert out == [{"litera": "A", "typ": "round", "r_value": 5, "angle_value": None}]
+
+
+def test_normalize_edges_promienie_i_kat():
+    out = qb.crm_calc.normalize_edges([
+        {"litera": "C", "typ": "round", "r": 3}, {"litera": "E", "typ": "round", "r": "R5"},
+        {"litera": "F", "typ": "chamfer", "kat": 45}])
+    assert {"litera": "C", "typ": "round", "r_value": 3, "angle_value": None} in out
+    assert {"litera": "E", "typ": "round", "r_value": 5, "angle_value": None} in out
+    assert {"litera": "F", "typ": "chamfer", "r_value": None, "angle_value": 45} in out
 
 
 def test_build_products_dodaje_edges_advanced():
-    poz = _poz(edges=[{"litera": "A", "typ": "round"}, {"litera": "B", "typ": "chamfer"}])
+    poz = _poz(edges=[{"litera": "A", "typ": "round", "r": 3},
+                      {"litera": "B", "typ": "chamfer", "kat": 45}])
     products, braki = qb.crm_calc.build_products([poz], {"finishing_options": []})
     assert braki == []
     p = products[0]
     assert p["edges_mode"] == "advanced"
-    assert {"letter": "A", "type": "round"} in p["edges"]
-    assert {"letter": "B", "type": "chamfer"} in p["edges"]
+    assert {"letter": "A", "type": "round", "r_value": 3, "angle_value": None} in p["edges"]
+    assert {"letter": "B", "type": "chamfer", "r_value": None, "angle_value": 45} in p["edges"]
 
 
-def test_podsumowanie_renderuje_krawedzie():
-    dane = {"pozycje": [_poz(edges=[{"litera": "A", "typ": "round"},
-                                    {"litera": "B", "typ": "round"}])], "wspolne": {}}
+def test_podsumowanie_grupuje_krawedzie_po_promieniu():
+    edges = qb.crm_calc.normalize_edges([
+        {"litera": "C", "typ": "round", "r": 3}, {"litera": "A", "typ": "round", "r": 3},
+        {"litera": "D", "typ": "round", "r": 3}, {"litera": "E", "typ": "round", "r": 5}])
+    dane = {"pozycje": [_poz(edges=edges)], "wspolne": {}}
     msg = qb._podsumowanie_msg(dane)
-    assert "Krawędzie: A, B — zaokrąglone" in msg
+    assert "Krawędzie: R3 (C, A, D); R5 (E)" in msg
 
 
 def test_merge_zapamietuje_edges():
