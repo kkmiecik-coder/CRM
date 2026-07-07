@@ -239,7 +239,9 @@ _PROSBA_KONTAKT = ("Jeśli poda Pan/Pani adres e-mail (lub telefon), zapiszę t�
                    "podawać, nie ma problemu — wycena wyżej pozostaje aktualna.")
 
 _EMAIL_RE = re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+")
-_TEL_RE = re.compile(r"(?:\+?\d[\s-]?){9,}")
+# Ograniczone do 9-15 cyfr (typowy numer PL z separatorami) + granice slowa, zeby dlugi
+# ciag cyfr (np. numer zamowienia) nie zostal pomylony z telefonem.
+_TEL_RE = re.compile(r"\b(?:\+?\d[\s-]?){9,15}\b")
 _ODMOWA_RE = re.compile(r"\b(nie|nie chc\w*|bez|rezygnuj\w*|pomi\w*|p[oó]zniej)\b", re.IGNORECASE)
 
 
@@ -538,7 +540,7 @@ def _podsumowanie_msg(dane):
 
 def _summary_note(dane, powod):
     """Prywatna notatka-podsumowanie dla agenta po handoffie."""
-    lines = ["🤖 Bot live-chat — przekazanie do konsultanta", "Powód: %s" % (powod or "-")]
+    lines = ["🤖 Asystent AI v1 (wycena) — przekazanie do konsultanta", "Powód: %s" % (powod or "-")]
     bloki = _bloki_pozycji(dane or _pusty_stan())
     if bloki:
         lines.append("")
@@ -958,7 +960,12 @@ def run_quote_turn(conv_id, inbox_id, message_id, content, attachments=None):
         return
 
     # Bez handoffu: komplet wymaganych -> podsumowanie (pierwsze lub po korekcie danych).
-    if not brak:
+    if not brak and _priced(conv_id) and not zmienione:
+        # Cena juz wyslana, dane bez zmian -> NIE ponawiamy podsumowania/potwierdzenia (petla
+        # podsumowanie->potwierdzenie->cena). Niejednoznaczna wiadomosc leci do zwyklej
+        # odpowiedzi LLM nizej, bez ponownego uzbrajania awaiting_confirm.
+        pass
+    elif not brak:
         if not awaiting or zmienione:
             _wyslij_podsumowanie(conv_id, dane)
             return
@@ -996,6 +1003,7 @@ def run_quote_turn(conv_id, inbox_id, message_id, content, attachments=None):
 
 
 def handoff_with_apology(conv_id):
-    """Sciezka awaryjna (po wyczerpaniu retry): przeprosiny + przekazanie do agenta."""
-    _do_handoff(conv_id, "błąd techniczny bota (wyczerpane próby)", _pusty_stan(),
+    """Sciezka awaryjna (po wyczerpaniu retry): przeprosiny + przekazanie do agenta.
+    Notatka dla konsultanta dziedziczy juz zebrane dane (nie zaczynamy od pustego stanu)."""
+    _do_handoff(conv_id, "błąd techniczny bota (wyczerpane próby)", _load_dane(conv_id),
                 closing=APOLOGY_MSG)

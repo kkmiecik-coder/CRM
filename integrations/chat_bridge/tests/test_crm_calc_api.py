@@ -53,6 +53,30 @@ def test_build_products_zle_finishing_id_daje_brak():
     assert any("wykończ" in powod.lower() or "finishing" in powod.lower() for _, powod in braki)
 
 
+_OPTS_LAKIER = {"finishing_options": [
+    {"id": 7, "full_path": "Olejowanie/Bezbarwne"},
+    {"id": 21, "full_path": "Lakierowanie/Połysk", "price_netto": 81.30},
+    {"id": 22, "full_path": "Lakierowanie/Bez ceny"},  # brak price_netto -> nie moze wycenic
+], "client_types": ["Klient indywidualny"]}
+
+
+def test_build_products_lakier_z_wyceniona_opcja_ustawia_gloss_level():
+    products, braki = crm.build_products(
+        [_poz(wykonczenie="lakierowane", finishing_id=21)], _OPTS_LAKIER)
+    assert braki == []
+    p = products[0]
+    assert p["finishing_type"] == "Lakierowane"
+    assert p["finishing_option_id"] == 21
+    assert str(p.get("finishing_gloss_level") or "").strip()   # truthy -> guard w calculate_finishing przejdzie
+
+
+def test_build_products_lakier_bez_ceny_daje_brak_i_brak_produktu():
+    products, braki = crm.build_products(
+        [_poz(wykonczenie="lakierowane", finishing_id=22)], _OPTS_LAKIER)
+    assert products == []
+    assert any("lakier" in powod.lower() for _, powod in braki)
+
+
 def test_calculate_wysyla_client_type_i_zwraca_json(monkeypatch):
     captured = {}
     def fake_post(url, headers=None, json=None, timeout=None):

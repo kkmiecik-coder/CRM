@@ -94,3 +94,27 @@ def test_odpowiedzi_ida_tokenem_quote_bota(monkeypatch):
     qb.run_quote_turn(99, 12, "m3", "tak")
     assert replies, "bot powinien coś wysłać"
     assert all(kw.get("token") == "TQ" for _, kw in replies), "każda odpowiedź tokenem quote-bota"
+
+
+def test_po_wycenie_niejednoznaczne_pytanie_nie_ponawia_podsumowania(monkeypatch):
+    """Regresja: po wyslanej cenie (priced=1) i przy oczekiwaniu na kontakt (awaiting_contact=1,
+    awaiting_confirm=0) niejednoznaczna wiadomosc klienta NIE moze ponownie odpalic podsumowania
+    (co uzbrajaloby awaiting_confirm od nowa i pozwolilo poznieszemu "tak" przeliczyc cene jeszcze
+    raz) — powinna dostac zwykla odpowiedz LLM."""
+    replies = []
+    _patch_common(monkeypatch, replies)
+    monkeypatch.setattr(qb, "chat", lambda messages, **kw: json.dumps(
+        {"odpowiedz": "Czas realizacji to zwykle 2-3 tygodnie.", "handoff": False,
+         "pozycje": [], "wspolne": {}}))
+    c = db_mod.db()
+    c.execute("DELETE FROM quote_state WHERE conv_id=?", (111,))
+    c.execute("DELETE FROM quote_dane WHERE conv_id=?", (111,))
+    c.execute("INSERT INTO quote_dane(conv_id, dane_json) VALUES(?,?)",
+              (111, json.dumps(_KOMPLET)))
+    c.execute("INSERT INTO quote_state(conv_id, bot_turns, priced, awaiting_contact, awaiting_confirm) "
+              "VALUES(?,1,1,1,0)", (111,))
+    c.commit(); c.close()
+    qb.run_quote_turn(111, 12, "m4", "a jaki macie czas realizacji?")
+    teksty = [t for t, _ in replies]
+    assert not any("Podsumowuję dane" in t for t in teksty), "nie wolno ponawiac podsumowania po cenie"
+    assert any("2-3 tygodnie" in t for t in teksty), "normalna odpowiedz LLM powinna zostac wyslana"

@@ -108,15 +108,26 @@ def valid_finishing_id(fid, options):
     return False
 
 
-# Mapowanie wykonczenia PL -> finishing_type API (root drzewa). Surowe = brak kosztu.
-_FINISH_TYPE = {"surowe": "Surowe", "olejowane": "Olejowane", "lakierowane": "Lakierowane"}
-
-
 def _finish_type(wykonczenie):
     a = _ascii_low(wykonczenie)
     for klucz, val in (("surow", "Surowe"), ("olej", "Olejowane"), ("lakier", "Lakierowane")):
         if klucz in a:
             return val
+    return None
+
+
+def _find_finishing_option(fid, options):
+    """Wpis finishing_options po id (bledny wpis katalogu -> pomijamy, nie rzucamy)."""
+    try:
+        fid = int(fid)
+    except (TypeError, ValueError):
+        return None
+    for o in (options.get("finishing_options") or []):
+        try:
+            if int(o.get("id")) == fid:
+                return o
+        except (TypeError, ValueError):
+            continue
     return None
 
 
@@ -158,6 +169,15 @@ def build_products(pozycje, options):
                 braki.append((poz, "nie rozpoznano wykończenia (finishing_id spoza katalogu)"))
                 continue
             prod["finishing_option_id"] = int(fid)
+            if ftype == "Lakierowane":
+                # calculate_finishing (CRM) liczy 0 dla Lakierowane bez finishing_gloss_level —
+                # bez konkretnego wariantu (polysku) z cena wycena wyszlaby zerowa.
+                opt = _find_finishing_option(fid, options)
+                if not opt or not opt.get("price_netto"):
+                    braki.append((poz, "wykończenie lakierowane wymaga wyboru konkretnego "
+                                       "wariantu (połysk) z ceną"))
+                    continue
+                prod["finishing_gloss_level"] = str(opt.get("full_path") or "z katalogu")
         products.append(prod)
     return products, braki
 
