@@ -56,7 +56,13 @@ _FORMAT = (
     "identyfikatora kontaktu z systemu, ani własnej prośby o dane — jeśli klient nic nie podał, "
     "zostaw te pola puste. "
     "Pole 'finishing_id' ustaw na id wykończenia z listy DOSTĘPNE WYKOŃCZENIA odpowiadające "
-    "wyborowi klienta (np. olejowanie bezbarwne). Dla wykończenia 'surowe' zostaw puste."
+    "wyborowi klienta (np. olejowanie bezbarwne). Dla wykończenia 'surowe' zostaw puste. "
+    "SAM przygotowujesz wstępną wycenę — NIE mów, że przekażesz dane konsultantowi „do wyceny” "
+    "(cenę policzysz automatycznie). "
+    "Gdy do wyceny brakuje kilku parametrów, poproś o WSZYSTKIE naraz krótką listą — każdy punkt "
+    "od myślnika „- ” w nowej linii — zamiast pytać po jednym. "
+    "NIE proś klienta o e-mail ani telefon w trakcie zbierania parametrów produktu — o kontakt "
+    "system zapyta sam już PO przygotowaniu wyceny."
 )
 
 # Instrukcja stanu potwierdzenia — doklejana do promptu, gdy klient dostal podsumowanie od systemu.
@@ -220,17 +226,38 @@ def _fmt_pln(v):
     return "%s,%s zł" % (calosc, ulamek)
 
 
-def _cena_msg(totals):
-    """Deterministyczna wiadomosc z cena (netto/brutto) do klienta."""
-    brutto = totals.get("total_brutto")
+def _linia_pozycji(poz):
+    """Jedna linia parametrow pozycji do echa przy cenie, np.
+    'Klejonka dąb mikrowczep A/B 140×80×3 cm surowe'. Nazwa produktu = to co podal klient
+    (blat/parapet/schody), a gdy nie podal konkretu — fallback 'Klejonka'."""
+    nazwa = (str(poz.get("produkt") or "").strip() or "Klejonka").capitalize()
+    czesci = [nazwa]
+    for k in ("gatunek", "technologia", "klasa"):
+        v = str(poz.get(k) or "").strip()
+        if v:
+            czesci.append(v)
+    wym = [str(poz.get(k) or "").strip() for k in ("dlugosc", "szerokosc", "grubosc")]
+    wym = [w for w in wym if w]
+    if wym:
+        czesci.append("×".join(wym) + " cm")
+    wyk = str(poz.get("wykonczenie") or "").strip()
+    if wyk:
+        czesci.append(wyk)
+    return " ".join(czesci)
+
+
+def _cena_msg(dane, totals):
+    """Deterministyczna wiadomosc z cena: linia parametrow per pozycja + kwoty netto/brutto.
+    Bez preambuly ('Wstepna wycena...') i bez zdania o szacunku — sama wycena."""
+    linie = [_linia_pozycji(p) for p in (dane.get("pozycje") or [])]
+    if linie:
+        linie.append("")
     netto = totals.get("total_netto")
-    linie = ["Wstępna wycena Twojego zamówienia:"]
+    brutto = totals.get("total_brutto")
     if netto is not None:
         linie.append("Netto: %s" % _fmt_pln(netto))
     if brutto is not None:
         linie.append("Brutto: %s" % _fmt_pln(brutto))
-    linie.append("")
-    linie.append("To wstępny szacunek na podstawie podanych parametrów.")
     return "\n".join(linie)
 
 
@@ -251,6 +278,82 @@ def _wyciagnij_kontakt(text):
     email = _EMAIL_RE.search(t)
     tel = _TEL_RE.search(t)
     return (email.group(0) if email else ""), (tel.group(0).strip() if tel else "")
+
+
+# --- Trwaly kontakt klienta (zapamietany na cala rozmowe) + edit_uuid zapisanej wyceny ---
+
+def _stored_contact(conv_id):
+    """(email, telefon, nazwa) zapamietane w stanie rozmowy; '' gdy brak."""
+    c = db()
+    row = c.execute("SELECT contact_email, contact_phone, contact_name FROM quote_state WHERE conv_id=?",
+                    (conv_id,)).fetchone()
+    c.close()
+    if not row:
+        return "", "", ""
+    return (row["contact_email"] or ""), (row["contact_phone"] or ""), (row["contact_name"] or "")
+
+
+def _set_contact(conv_id, email, phone, name):
+    """Zapisuje kontakt do stanu (niepusta wartosc nadpisuje, pusta NIE kasuje istniejacej)."""
+    e0, p0, n0 = _stored_contact(conv_id)
+    email = (email or "").strip() or e0
+    phone = (phone or "").strip() or p0
+    name = (name or "").strip() or n0
+    c = db()
+    c.execute("INSERT INTO quote_state(conv_id, bot_turns, contact_email, contact_phone, contact_name) "
+              "VALUES(?,0,?,?,?) ON CONFLICT(conv_id) DO UPDATE SET "
+              "contact_email=excluded.contact_email, contact_phone=excluded.contact_phone, "
+              "contact_name=excluded.contact_name", (conv_id, email, phone, name))
+    c.commit(); c.close()
+
+
+def _effective_contact(conv_id, dane, identity=None):
+    """Ustala (email, telefon, nazwa) klienta z 3 zrodel wg priorytetu i ZAPAMIETUJE na rozmowe:
+    1) kontakt juz zapamietany w stanie, 2) kontakt podany przez klienta W CZACIE
+    (dane.wspolne.kontakt — LLM go tam zapisuje), 3) rekord kontaktu Chatwoota (identity).
+    Dzieki temu maila podanego raz nie pytamy ponownie przy kolejnych wycenach."""
+    email, phone, name = _stored_contact(conv_id)
+    if not (email or phone):
+        e2, p2 = _wyciagnij_kontakt(str((dane.get("wspolne") or {}).get("kontakt") or ""))
+        email, phone = email or e2, phone or p2
+    ident = identity or {}
+    if not (email or phone):
+        email, phone = email or (ident.get("email") or ""), phone or (ident.get("phone") or "")
+    name = name or (ident.get("name") or "")
+    if email or phone or name:
+        _set_contact(conv_id, email, phone, name)
+    return email, phone, name
+
+
+def _stored_edit_uuid(conv_id):
+    """edit_uuid zapisanej wczesniej wyceny (do aktualizacji zamiast tworzenia nowej); '' gdy brak."""
+    c = db()
+    row = c.execute("SELECT quote_edit_uuid FROM quote_state WHERE conv_id=?", (conv_id,)).fetchone()
+    c.close()
+    return (row["quote_edit_uuid"] or "") if row else ""
+
+
+def _set_edit_uuid(conv_id, edit_uuid):
+    c = db()
+    c.execute("INSERT INTO quote_state(conv_id, bot_turns, quote_edit_uuid) VALUES(?,0,?) "
+              "ON CONFLICT(conv_id) DO UPDATE SET quote_edit_uuid=excluded.quote_edit_uuid",
+              (conv_id, edit_uuid or ""))
+    c.commit(); c.close()
+
+
+def _returning_greeted(conv_id):
+    c = db()
+    row = c.execute("SELECT returning_greeted FROM quote_state WHERE conv_id=?", (conv_id,)).fetchone()
+    c.close()
+    return bool(row["returning_greeted"]) if row else False
+
+
+def _set_returning_greeted(conv_id, flag):
+    c = db()
+    c.execute("INSERT INTO quote_state(conv_id, bot_turns, returning_greeted) VALUES(?,0,?) "
+              "ON CONFLICT(conv_id) DO UPDATE SET returning_greeted=excluded.returning_greeted",
+              (conv_id, 1 if flag else 0))
+    c.commit(); c.close()
 
 
 def _human_deflected(conv_id):
@@ -534,7 +637,7 @@ def _podsumowanie_msg(dane):
     """Deterministyczne podsumowanie wyceny do potwierdzenia przez klienta (bez LLM)."""
     lines = ["Podsumowuję dane do wyceny:", ""]
     lines += _bloki_pozycji(dane)
-    lines += ["", "Czy wszystko się zgadza? Jeśli tak, przekażę specyfikację konsultantowi do wyceny."]
+    lines += ["", "Czy wszystko się zgadza? Jeśli tak, przygotuję wycenę."]
     return "\n".join(lines)
 
 
@@ -623,10 +726,10 @@ def _czy_powod_kompletu(powod):
 
 
 def _pytanie_o_braki(brak, wiele_pozycji):
-    """Backstop: krotkie pytanie o max 2 pierwsze braki PIERWSZEJ niekompletnej pozycji.
-    Przy wielu pozycjach wskazuje, o ktory produkt pytamy."""
+    """Backstop: pyta o WSZYSTKIE braki PIERWSZEJ niekompletnej pozycji naraz — listą, każdy
+    punkt od myślnika. Przy wielu pozycjach wskazuje, o który produkt pytamy."""
     poz = brak[0][0]
-    pola = [k for p, k in brak if p is poz][:2]
+    pola = [k for p, k in brak if p is poz]
     etyk = [_ETYKIETY_PYTAN.get(k, k) for k in pola]
     prefiks = ""
     nazwa = str(poz.get("produkt") or "").strip()
@@ -634,7 +737,8 @@ def _pytanie_o_braki(brak, wiele_pozycji):
         prefiks = " (%s)" % nazwa
     if len(etyk) == 1:
         return "Żeby przygotować wycenę, potrzebuję jeszcze%s: %s." % (prefiks, etyk[0])
-    return "Żeby przygotować wycenę, potrzebuję jeszcze%s: %s oraz %s." % (prefiks, etyk[0], etyk[1])
+    naglowek = "Żeby przygotować wycenę%s, potrzebuję jeszcze:" % prefiks
+    return naglowek + "\n" + "\n".join("- %s" % e for e in etyk)
 
 
 # --- Koperta maksimow (cm) — egzekwowana w kodzie niezaleznie od LLM/persony ---
@@ -732,16 +836,16 @@ def _wyslij_cene_i_kontakt(conv_id, dane, identity):
         _do_handoff(conv_id, "nie udało się policzyć wyceny automatycznie", dane)
         return
     totals = wynik["totals"]
-    if not cw_agent_reply(conv_id, _cena_msg(totals), token=BOT_QUOTE_CW_AGENT_TOKEN):
+    if not cw_agent_reply(conv_id, _cena_msg(dane, totals), token=BOT_QUOTE_CW_AGENT_TOKEN):
         raise RuntimeError("quotebot: wysylka ceny nieudana (conv %s)" % conv_id)
     _set_priced(conv_id, True)
     _set_awaiting(conv_id, False)
     _bump_turns(conv_id)
 
-    email = (identity or {}).get("email") or ""
-    phone = (identity or {}).get("phone") or ""
+    # Kontakt z dowolnego zrodla (stan / czat / rekord Chatwoota) — jak mamy, zapisujemy od razu.
+    email, phone, name = _effective_contact(conv_id, dane, identity)
     if email or phone:
-        _zapisz_wycene(conv_id, dane, options, email, phone, (identity or {}).get("name") or "")
+        _zapisz_wycene(conv_id, dane, options, email, phone, name)
     else:
         if not cw_agent_reply(conv_id, _PROSBA_KONTAKT, token=BOT_QUOTE_CW_AGENT_TOKEN):
             raise RuntimeError("quotebot: wysylka prosby o kontakt nieudana (conv %s)" % conv_id)
@@ -750,22 +854,38 @@ def _wyslij_cene_i_kontakt(conv_id, dane, identity):
 
 
 def _zapisz_wycene(conv_id, dane, options, email, phone, name):
-    """find-or-create klienta + zapis wyceny + wyslanie linku. Niepowodzenie zapisu nie
-    wywraca tury — cena juz poszla; logujemy i zostawiamy bez linku."""
+    """find-or-create klienta + zapis LUB aktualizacja wyceny + wyslanie linku.
+    Gdy w stanie jest edit_uuid wczesniejszej wyceny -> AKTUALIZUJE ja (bez tworzenia sieroty).
+    Powracajacy klient (dopasowany po email/tel) -> krotka wzmianka raz. Niepowodzenie zapisu
+    nie wywraca tury — cena juz poszla; logujemy i zostawiamy bez linku."""
     kl = crm_calc.find_or_create_client(email, phone, name)
     client = (kl or {}).get("client") or {}
     if not kl.get("ok") or not client.get("id"):
         log("quotebot: find_or_create nieudane (conv %s): %s" % (conv_id, kl))
         return
-    q = crm_calc.create_quote(dane.get("pozycje") or [], options, client["id"])
+    # Grupa 3: klient juz w bazie (dopasowany, nie utworzony) -> raz na rozmowe mila wzmianka.
+    if kl.get("matched") and not _returning_greeted(conv_id):
+        cw_agent_reply(conv_id, "Widzę Pana/Pani wyceny w naszym systemie — miło, że Pan/Pani do "
+                       "nas wraca 😊", token=BOT_QUOTE_CW_AGENT_TOKEN)
+        _set_returning_greeted(conv_id, True)
+
+    edit_uuid = _stored_edit_uuid(conv_id)
+    if edit_uuid:
+        q = crm_calc.update_quote(edit_uuid, dane.get("pozycje") or [], options)
+    else:
+        q = crm_calc.create_quote(dane.get("pozycje") or [], options, client["id"])
     if q.get("ok") and q.get("public_url"):
-        link = "Zapisałem wycenę %s. Link: %s" % (q.get("quote_number") or "", q["public_url"])
+        if q.get("edit_uuid"):
+            _set_edit_uuid(conv_id, q["edit_uuid"])   # zapamietaj do kolejnych aktualizacji
+        czasownik = "Zaktualizowałem" if edit_uuid else "Zapisałem"
+        link = "%s wycenę %s. Link: %s" % (czasownik, q.get("quote_number") or "", q["public_url"])
         cw_agent_reply(conv_id, link, token=BOT_QUOTE_CW_AGENT_TOKEN)
         _set_quote_saved(conv_id, True)
         _set_awaiting_contact(conv_id, False)
-        log("quotebot: wycena zapisana (conv %s, %s)" % (conv_id, q.get("quote_number")))
+        log("quotebot: wycena %s (conv %s, %s)"
+            % ("zaktualizowana" if edit_uuid else "zapisana", conv_id, q.get("quote_number")))
     else:
-        log("quotebot: create_quote nieudane (conv %s): %s" % (conv_id, q))
+        log("quotebot: zapis/aktualizacja wyceny nieudana (conv %s): %s" % (conv_id, q))
 
 
 def _wyslij_probki(conv_id, dane):
@@ -827,8 +947,9 @@ def run_quote_turn(conv_id, inbox_id, message_id, content, attachments=None):
         email, phone = _wyciagnij_kontakt(content)
         if email or phone:
             _set_awaiting_contact(conv_id, False)
-            _zapisz_wycene(conv_id, _load_dane(conv_id), crm_calc.get_options(),
-                           email, phone, (cw_contact_full(conv_id) or {}).get("name") or "")
+            nazwa = (cw_contact_full(conv_id) or {}).get("name") or ""
+            _set_contact(conv_id, email, phone, nazwa)   # zapamietaj na kolejne wyceny
+            _zapisz_wycene(conv_id, _load_dane(conv_id), crm_calc.get_options(), email, phone, nazwa)
             return
         if _ODMOWA_RE.search(content or ""):
             # Klient nie chce podawać kontaktu — respektujemy, koniec bez zapisu.

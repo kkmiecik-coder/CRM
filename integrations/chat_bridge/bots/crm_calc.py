@@ -182,19 +182,25 @@ def build_products(pozycje, options):
     return products, braki
 
 
-def _post(path, body):
-    """POST JSON do CRM API; zwraca JSON albo {ok:False} przy bledzie transportu."""
+def _send(method, path, body):
+    """Zadanie JSON (POST/PUT) do CRM API; zwraca JSON albo {ok:False} przy bledzie transportu.
+    Uzywa requests.post/requests.put (przez getattr), zeby testy mogly je mockowac."""
     try:
-        r = requests.post(CRM_API_BASE + path, headers=_headers(), json=body, timeout=30)
+        r = getattr(requests, method.lower())(CRM_API_BASE + path, headers=_headers(),
+                                               json=body, timeout=30)
         if r.status_code != 200:
-            log("crm_calc %s kod:" % path, r.status_code, r.text[:200])
+            log("crm_calc %s %s kod:" % (method, path), r.status_code, r.text[:200])
             return {"ok": False, "errors": [{"field": None, "code": "HTTP_%s" % r.status_code,
                                              "message": "Błąd połączenia z wyceną."}]}
         return r.json() or {"ok": False, "errors": []}
     except Exception as e:
-        log("crm_calc %s blad:" % path, repr(e))
+        log("crm_calc %s %s blad:" % (method, path), repr(e))
         return {"ok": False, "errors": [{"field": None, "code": "TRANSPORT",
                                          "message": "Błąd połączenia z wyceną."}]}
+
+
+def _post(path, body):
+    return _send("POST", path, body)
 
 
 def calculate(pozycje, options):
@@ -214,7 +220,7 @@ def find_or_create_client(email, phone, name):
 
 
 def create_quote(pozycje, options, client_id, notes=""):
-    """POST /api/bot/quotes — pelna wycena + publiczny link."""
+    """POST /api/bot/quotes — pelna wycena + publiczny link. Zwraca m.in. edit_uuid do aktualizacji."""
     products, braki = build_products(pozycje, options)
     if braki:
         return {"ok": False, "errors": [{"field": None, "code": "MAP",
@@ -222,3 +228,14 @@ def create_quote(pozycje, options, client_id, notes=""):
     body = {"products": products, "client_id": client_id,
             "quote_client_type": BOT_QUOTE_CLIENT_TYPE, "notes": notes}
     return _post("/api/bot/quotes", body)
+
+
+def update_quote(edit_uuid, pozycje, options, notes=""):
+    """PUT /api/bot/quotes/<edit_uuid> — aktualizuje istniejaca wycene (dodanie/zmiana pozycji)
+    zamiast tworzyc nowa. Zwraca ten sam numer wyceny + publiczny link."""
+    products, braki = build_products(pozycje, options)
+    if braki:
+        return {"ok": False, "errors": [{"field": None, "code": "MAP",
+                                         "message": powod} for _, powod in braki]}
+    body = {"products": products, "quote_client_type": BOT_QUOTE_CLIENT_TYPE, "notes": notes}
+    return _send("PUT", "/api/bot/quotes/" + str(edit_uuid), body)

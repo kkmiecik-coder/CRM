@@ -255,20 +255,8 @@ def bot_create_quote():
     # policzą cenę każdego wariantu; klient widzi pełną tabelę do porównania.
     # Budujemy NOWY dict zamiast mutować payload in-place — czytelniej i odporne na to,
     # że payload mógłby być użyty ponownie przez wołający kod.
-    from modules.calculator.services.pricing_service import VARIANT_MAPPING
-    products = []
-    for p in payload.get('products', []):
-        p = dict(p)
-        if 'variants' not in p:
-            selected = p.get('selected_variant')
-            p['variants'] = [
-                {'variant_code': code, 'is_selected': (code == selected)}
-                for code in VARIANT_MAPPING
-            ]
-        products.append(p)
-
     quote_payload = dict(payload)
-    quote_payload['products'] = products
+    quote_payload['products'] = _products_with_all_variants(payload)
     quote_payload.setdefault('quote_client_type', payload.get('client_type'))
     quote_payload.pop('client_type', None)
     quote_payload.setdefault('quote_note', payload.get('notes', ''))
@@ -283,6 +271,65 @@ def bot_create_quote():
 
     quote = Quote.query.get(result['quote_id'])
     base_url = current_app.config.get('APP_BASE_URL', 'https://crm.woodpower.pl')
+    # edit_uuid zwracamy, żeby bot mógł potem AKTUALIZOWAĆ tę wycenę (PUT /quotes/<edit_uuid>)
+    # zamiast tworzyć nową przy dodaniu kolejnej pozycji.
     return jsonify({'ok': True, 'quote_number': result['quote_number'],
-                    'quote_id': result['quote_id'],
+                    'quote_id': result['quote_id'], 'edit_uuid': quote.edit_uuid,
+                    'public_url': base_url + quote.get_public_url()}), 200
+
+
+def _products_with_all_variants(payload):
+    """Rozwija każdy produkt bota (tylko selected_variant) na PEŁNĄ listę wariantów drewna
+    z zaznaczonym wybranym — format wymagany przez create_quote/update_quote (jak z UI)."""
+    from modules.calculator.services.pricing_service import VARIANT_MAPPING
+    products = []
+    for p in payload.get('products', []):
+        p = dict(p)
+        if 'variants' not in p:
+            selected = p.get('selected_variant')
+            p['variants'] = [{'variant_code': code, 'is_selected': (code == selected)}
+                             for code in VARIANT_MAPPING]
+        products.append(p)
+    return products
+
+
+@bot_api_bp.route('/quotes/<edit_uuid>', methods=['PUT'])
+@require_bot_api_key
+def bot_update_quote(edit_uuid):
+    """Aktualizuje istniejącą wycenę (dodanie/zmiana pozycji) zamiast tworzyć nową.
+    Body jak /quotes (products + quote_client_type/client_type), bez client_id."""
+    from modules.users.models import User
+    from modules.calculator.models import Quote
+    from modules.calculator.services.quote_service import update_quote
+
+    payload = request.get_json(silent=True) or {}
+    quote = Quote.query.filter_by(edit_uuid=edit_uuid).first()
+    if not quote:
+        return jsonify({'ok': False, 'errors': [
+            {'field': 'edit_uuid', 'code': 'QUOTE_NOT_FOUND',
+             'message': f'Nie znaleziono wyceny {edit_uuid}.'}
+        ]}), 200
+
+    bot_user = User.query.get(current_app.config.get('BOT_USER_ID') or 0)
+    if not bot_user:
+        return jsonify({'ok': False, 'errors': [
+            {'field': None, 'code': 'BOT_USER_NOT_CONFIGURED',
+             'message': 'Konto bota nie jest skonfigurowane (BOT_USER_ID).'}
+        ]}), 200
+
+    # Format update_quote: settings.clientType + products z pełną listą wariantów.
+    client_type = payload.get('quote_client_type') or payload.get('client_type')
+    data = {'products': _products_with_all_variants(payload),
+            'settings': {'clientType': client_type, 'notes': payload.get('notes', '')}}
+
+    result, status = update_quote(edit_uuid, data, bot_user)
+    if status != 200 or not result.get('success'):
+        errors = result.get('errors') or [{'field': None, 'code': 'UPDATE_FAILED',
+                                           'message': result.get('error', 'Błąd aktualizacji wyceny.')}]
+        return jsonify({'ok': False, 'errors': errors}), 200
+
+    quote = Quote.query.get(result['quote_id'])
+    base_url = current_app.config.get('APP_BASE_URL', 'https://crm.woodpower.pl')
+    return jsonify({'ok': True, 'quote_number': result['quote_number'],
+                    'quote_id': result['quote_id'], 'edit_uuid': quote.edit_uuid,
                     'public_url': base_url + quote.get_public_url()}), 200

@@ -107,3 +107,25 @@ def test_create_quote(monkeypatch):
     monkeypatch.setattr(crm.requests, "post", fake_post)
     out = crm.create_quote([_poz()], _OPTS, client_id=42)
     assert out["public_url"].endswith("/q/abc")
+
+
+def test_update_quote_wysyla_put_na_edit_uuid(monkeypatch):
+    captured = {}
+    def fake_put(url, headers=None, json=None, timeout=None):
+        captured["url"] = url; captured["body"] = json
+        return _Resp(200, {"ok": True, "quote_number": "W/2026/1",
+                           "public_url": "https://crm/q/abc", "edit_uuid": "UU"})
+    monkeypatch.setattr(crm.requests, "put", fake_put)
+    out = crm.update_quote("UU", [_poz()], _OPTS)
+    assert out["ok"] is True
+    assert captured["url"].endswith("/api/bot/quotes/UU")
+    assert captured["body"]["quote_client_type"] == "Klient indywidualny"
+    assert "client_id" not in captured["body"]      # update nie wymaga client_id
+
+
+def test_update_quote_braki_mapowania_bez_putu(monkeypatch):
+    # Zla pozycja (brak wariantu) -> nie wolamy PUT, zwracamy blad mapowania.
+    monkeypatch.setattr(crm.requests, "put",
+                        lambda *a, **k: (_ for _ in ()).throw(AssertionError("PUT nie powinien byc wolany")))
+    out = crm.update_quote("UU", [_poz(gatunek="")], _OPTS)
+    assert out["ok"] is False

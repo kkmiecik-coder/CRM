@@ -40,3 +40,23 @@ def test_quote_client_type_wystarcza_jako_alt_field():
 def test_client_type_wystarcza_nawet_z_alt_field():
     assert _quote_level_missing({'client_type': 'Bazowy'},
                                  alt_field='quote_client_type') == []
+
+
+# --- _products_with_all_variants: rozwija selected_variant na pelna liste wariantow ---
+
+def test_products_with_all_variants_rozwija_i_zaznacza():
+    from modules.calculator.routers.bot_api import _products_with_all_variants
+    out = _products_with_all_variants({'products': [
+        {'index': 1, 'length': 140, 'selected_variant': 'dab-micro-ab'}]})
+    p = out[0]
+    assert p['index'] == 1 and p['length'] == 140
+    assert len(p['variants']) == 8                       # wszystkie warianty drewna
+    selected = [v for v in p['variants'] if v['is_selected']]
+    assert len(selected) == 1 and selected[0]['variant_code'] == 'dab-micro-ab'
+
+
+def test_products_with_all_variants_zachowuje_istniejace_variants():
+    from modules.calculator.routers.bot_api import _products_with_all_variants
+    prod = {'index': 1, 'variants': [{'variant_code': 'x', 'is_selected': True}]}
+    out = _products_with_all_variants({'products': [prod]})
+    assert out[0]['variants'] == [{'variant_code': 'x', 'is_selected': True}]
