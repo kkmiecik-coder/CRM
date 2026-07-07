@@ -82,8 +82,10 @@ _FORMAT = (
     "Gdy klient chce krawędź OSTRĄ (bez obróbki) albo USUNĄĆ wcześniej ustawione zaokrąglenie/fazę — "
     'ustaw dla niej "typ": "sharp" (system ją wtedy usunie z obróbki). '
     "Nie wstrzymuj wyceny z powodu krawędzi — są opcjonalne.\n"
-    "WYSYŁKA: kosztów dostawy NIE liczysz. Gdy klient pyta o wysyłkę — napisz krótko, że koszt dostawy "
-    "potwierdzi konsultant przy finalizacji zamówienia. NIE obiecuj, że sam sprawdzisz i wrócisz z ceną.\n"
+    "WYSYŁKA: po podaniu ceny system SAM proponuje oszacowanie wysyłki i prosi o kod pocztowy — "
+    "Ty NIE licz kosztu wysyłki samodzielnie i nie podawaj żadnej ceny wysyłki. Gdy klient poda samo "
+    "miasto bez kodu, poproś krótko o kod pocztowy w formacie 00-000. Ostateczny koszt i tak "
+    "potwierdza konsultant przy finalizacji.\n"
     "OTWORY/WYCIĘCIA ('otwory'): NIE wyceniasz. Gdy klient je poda — zapisz opis w polu 'otwory' i "
     "wspomnij, że koszt wycięć doliczy konsultant. Nie wstrzymuj z tego powodu wyceny blatów i krawędzi.\n"
     "PORÓWNANIE WARIANTU ('porownania'): używaj WYŁĄCZNIE gdy klient JUŻ OTRZYMAŁ wcześniej w tej "
@@ -1145,8 +1147,33 @@ def _zapisz_wycene(conv_id, dane, options, email, phone, name):
         _set_awaiting_contact(conv_id, False)
         log("quotebot: wycena %s (conv %s, %s)"
             % ("zaktualizowana" if edit_uuid else "zapisana", conv_id, q.get("quote_number")))
+        if not edit_uuid:
+            # Pierwszy zapis wyceny -> RAZ zaproponuj oszacowanie wysylki (kolejne aktualizacje nie).
+            if cw_agent_reply(conv_id, _WYSYLKA_OFERTA, token=BOT_QUOTE_CW_AGENT_TOKEN):
+                _set_awaiting_postcode(conv_id, True)
     else:
         log("quotebot: zapis/aktualizacja wyceny nieudana (conv %s): %s" % (conv_id, q))
+
+
+def _obsluz_wysylke(conv_id, kod):
+    """Liczy wysylke przez API dla zebranych pozycji + kodu pocztowego, wysyla najtansza opcje i
+    (gdy jest zapisana wycena) dopisuje kuriera+koszt do wyceny. Nie rzuca — blad = komunikat o
+    konsultancie (obraz/zapis wysylki nie moze wywrocic tury)."""
+    dane = _load_dane(conv_id)
+    options = crm_calc.get_options()
+    res = crm_calc.shipping_quote(dane.get("pozycje") or [], kod, options)
+    cw_agent_reply(conv_id, _wysylka_msg(res), token=BOT_QUOTE_CW_AGENT_TOKEN)
+    edit_uuid = _stored_edit_uuid(conv_id)
+    if res.get("ok") and res.get("carriers") and edit_uuid:
+        q = crm_calc.update_quote(edit_uuid, dane.get("pozycje") or [], options,
+                                  courier_name=res.get("carrier_name"),
+                                  shipping_netto=res.get("shipping_netto"),
+                                  shipping_brutto=res.get("shipping_brutto"))
+        if q.get("ok"):
+            log("quotebot: wysylka dopisana do wyceny (conv %s, %s)" % (conv_id, res.get("carrier_name")))
+        else:
+            log("quotebot: nieudane dopisanie wysylki do wyceny (conv %s): %s" % (conv_id, q))
+    _bump_turns(conv_id)
 
 
 def _wyslij_probki(conv_id, dane, options=None):
@@ -1262,6 +1289,23 @@ def run_quote_turn(conv_id, inbox_id, message_id, content, attachments=None):
             _bump_turns(conv_id)
             return
         # Ani kontakt, ani odmowa -> normalna tura (klient pyta o coś innego) — leci dalej.
+
+    # Po zapisaniu wyceny proponujemy wysylke — czekamy na kod pocztowy dostawy.
+    if _awaiting_postcode(conv_id):
+        kod = _wyciagnij_kod(content)
+        if kod:
+            _set_awaiting_postcode(conv_id, False)
+            _obsluz_wysylke(conv_id, kod)
+            return
+        if _ODMOWA_RE.search(content or ""):
+            # Klient nie chce podawac kodu — respektujemy, koszt ustali konsultant.
+            _set_awaiting_postcode(conv_id, False)
+            cw_agent_reply(conv_id, "Jasne. Koszt wysyłki potwierdzi konsultant przy finalizacji "
+                           "zamówienia.", token=BOT_QUOTE_CW_AGENT_TOKEN)
+            _bump_turns(conv_id)
+            return
+        # Ani kod, ani odmowa (np. samo miasto lub inne pytanie) -> normalna tura;
+        # flaga zostaje, LLM (wg reguly promptu) dopyta o kod, kolejny kod znow przechwycimy.
 
     # Reklamacja — twardy wyzwalacz RAZ: instrukcja mailowa, BEZ handoffu (bot zostaje w rozmowie).
     # Kolejne wiadomosci reklamacyjne (klient echuje adres/temat) ida do LLM, zeby odpowiedziec
