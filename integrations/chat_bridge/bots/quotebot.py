@@ -1637,8 +1637,10 @@ def run_quote_turn(conv_id, inbox_id, message_id, content, attachments=None):
         system += ("\n\nSTAN: wysłano już wycenę w tej rozmowie — 'porownania' możesz teraz użyć dla "
                    "TEGO SAMEGO produktu w innym wariancie.")
     else:
-        system += ("\n\nSTAN: nie wysłano jeszcze żadnej ceny — NIE używaj 'porownania'; pierwszą "
-                   "wycenę prowadź normalnie przez 'pozycje'.")
+        system += ("\n\nSTAN: nie wysłano jeszcze żadnej ceny — NIE używaj pola 'porownania' ANI "
+                   "nie wspominaj w odpowiedzi o porównaniach cen / innych wariantach; prowadź "
+                   "wycenę pierwszego produktu (zbieranie danych → podsumowanie → cena). O "
+                   "porównania pytaj/proponuj DOPIERO po wysłaniu ceny.")
 
     messages = [{"role": "system", "content": system}]
     messages += [{"role": m["role"], "content": m["text"]} for m in history]
@@ -1672,26 +1674,19 @@ def run_quote_turn(conv_id, inbox_id, message_id, content, attachments=None):
     # ma pierwszenstwo (fix kolizji 'dodaj jeszcze blat ... te same parametry' -> bledne porownanie).
     # Bez zmiany pozycji porownanie NIGDY nie konczy sie cisza/RuntimeError (MS-02, SB-04): albo je
     # pokazujemy, albo deterministycznie tlumaczymy, kiedy je pokazemy.
-    if out.get("porownania") and not zmienione:
-        if _czy_porownanie(conv_id, out, dane, zmienione):
-            if _obsluz_porownania(conv_id, dane, out["porownania"]):
-                return
-            # Wszystkie porownania juz pokazane (dedup) -> krotka info zamiast ciszy.
-            cw_agent_reply(conv_id, "To porównanie pokazałem już wyżej — Twoja wycena pozostaje "
-                           "aktualna. Chętnie policzę inny wariant albo pomogę w czymś jeszcze.",
-                           token=BOT_QUOTE_CW_AGENT_TOKEN)
-            _bump_turns(conv_id)
+    # Porownanie wariantu obslugujemy TYLKO gdy jest naprawde zasadne: po cenie (_priced), komplet
+    # danych i bez zmiany pozycji (to wszystko sprawdza _czy_porownanie). Dzieki temu bezpodstawne
+    # 'porownania' od slabego modelu NIE wyprzedza podsumowania/potwierdzenia/wyceny (fix: bot po
+    # zebraniu danych / na "tak" uciekal w komunikat o porownaniu zamiast wyceniac). Przypadek
+    # "porownanie zgloszone, ale nie do pokazania" (brak ceny / niekompletna pozycja) obslugujemy
+    # dopiero na koncu, przy pustej odpowiedzi — bez przejmowania rdzenia przeplywu.
+    if _czy_porownanie(conv_id, out, dane, zmienione):
+        if _obsluz_porownania(conv_id, dane, out["porownania"]):
             return
-        # Nie mozemy policzyc porownania teraz -> nie milcz, wytlumacz kiedy.
-        if not _priced(conv_id):
-            msg = ("Porównanie z innym wariantem policzę zaraz po przygotowaniu pierwszej wyceny — "
-                   "najpierw dokończmy dane tego produktu.")
-        else:
-            braki_cmp = _brakujace(dane)
-            msg = (_pytanie_o_braki(braki_cmp, len(dane["pozycje"]) > 1) if braki_cmp
-                   else "Już liczę to porównanie — chwilę proszę.")
-        if not cw_agent_reply(conv_id, msg, token=BOT_QUOTE_CW_AGENT_TOKEN):
-            raise RuntimeError("quotebot: wysylka info o porownaniu nieudana (conv %s)" % conv_id)
+        # Wszystkie porownania juz pokazane (dedup) -> krotka info zamiast ciszy.
+        cw_agent_reply(conv_id, "To porównanie pokazałem już wyżej — Twoja wycena pozostaje "
+                       "aktualna. Chętnie policzę inny wariant albo pomogę w czymś jeszcze.",
+                       token=BOT_QUOTE_CW_AGENT_TOKEN)
         _bump_turns(conv_id)
         return
 
@@ -1802,6 +1797,21 @@ def run_quote_turn(conv_id, inbox_id, message_id, content, attachments=None):
 
     reply = out["odpowiedz"]
     if not reply:
+        # Model zglosil 'porownania', ale nie dalo sie go pokazac (brak ceny albo niekompletna
+        # pozycja) i zostawil pusta odpowiedz -> nie milcz/nie rzucaj (MS-02, SB-04): wytlumacz kiedy.
+        if out.get("porownania"):
+            braki_now = _brakujace(dane)
+            if not _priced(conv_id):
+                nudge = ("Porównanie z innym wariantem policzę zaraz po przygotowaniu pierwszej "
+                         "wyceny — najpierw dokończmy dane.")
+            elif braki_now:
+                nudge = _pytanie_o_braki(braki_now, len(dane["pozycje"]) > 1)
+            else:
+                nudge = None
+            if nudge:
+                cw_agent_reply(conv_id, nudge, token=BOT_QUOTE_CW_AGENT_TOKEN)
+                _bump_turns(conv_id)
+                return
         if _priced(conv_id):
             # Po wycenie klient napisal cos konwersacyjnego (np. „zostajemy przy dębie”), a model
             # nie dal tresci (czasem echuje samo 'porownania' zdjete przez dedup) — nie rzucamy ani

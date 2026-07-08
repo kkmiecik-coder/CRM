@@ -58,6 +58,41 @@ def test_porownanie_przed_pierwsza_cena_nie_handoff(monkeypatch):
     assert any("wycen" in t.lower() for t in replies), "deterministyczna info o porownaniu po wycenie"
 
 
+_KOMPLET_CMP = {"pozycje": [{"id": "1", "produkt": "blat", "dlugosc": "200", "szerokosc": "60",
+                             "grubosc": "4", "gatunek": "dąb", "technologia": "lita", "klasa": "A/B",
+                             "ilosc": "1", "wykonczenie": "surowe"}], "wspolne": {}}
+
+
+def test_potwierdzenie_z_bledna_porownania_liczy_cene(monkeypatch):
+    """REGRESJA (prod 08.07): na 'tak' model bezpodstawnie wrzucił 'porownania' -> bot uciekał w
+    komunikat o porównaniu zamiast policzyć cenę. Teraz potwierdzenie wygrywa, cena leci."""
+    replies = []
+    _patch(monkeypatch, replies,
+           '{"odpowiedz":"","handoff":false,"pozycje":[],"wspolne":{},"porownania":[{"id":"1","gatunek":"jesion"}]}')
+    monkeypatch.setattr(qb.crm_calc, "calculate",
+                        lambda poz, opts: {"ok": True, "totals": {"total_brutto": 1230.0, "total_netto": 1000.0}})
+    _reset(1005, _KOMPLET_CMP, awaiting_confirm=1)   # komplet, przed ceną (NIE priced)
+    qb.run_quote_turn(1005, 12, "m1", "tak, wszystko się zgadza")
+    tekst = " ".join(replies)
+    assert "1230" in tekst or "1 230" in tekst, "na 'tak' bot MUSI policzyć cenę"
+    assert "dokończmy dane" not in tekst and "policzę zaraz po" not in tekst, "żadnej ucieczki w porównanie"
+
+
+def test_po_zebraniu_danych_bledna_porownania_daje_podsumowanie(monkeypatch):
+    """REGRESJA: po skompletowaniu danych model wrzuca 'porownania' -> bot ma wysłać PODSUMOWANIE,
+    nie komunikat 'najpierw dokończmy dane' (dane są komplet)."""
+    replies = []
+    _patch(monkeypatch, replies,
+           '{"odpowiedz":"Pokażę porównanie z innymi wariantami.","handoff":false,'
+           '"pozycje":[{"id":"1","produkt":"blat","dlugosc":"200","szerokosc":"60","grubosc":"4",'
+           '"gatunek":"dąb","technologia":"lita","klasa":"A/B","ilosc":"1","wykonczenie":"surowe"}],'
+           '"wspolne":{},"porownania":[{"id":"1","gatunek":"jesion"}]}')
+    _reset(1006, {"pozycje": [], "wspolne": {}})   # pusto -> ta tura kompletuje dane
+    qb.run_quote_turn(1006, 12, "m1", "blat dąb lity A/B surowy 200x60x4, 1 szt")
+    assert any("Podsumowuję dane" in t for t in replies), "komplet -> podsumowanie, nie ucieczka w porównanie"
+    assert not any("dokończmy dane" in t for t in replies)
+
+
 def test_porownanie_po_cenie_ale_druga_pozycja_niekompletna(monkeypatch):
     """SB-04: cena wyslana (priced), ale inna pozycja niekompletna -> _czy_porownanie False.
     Bot NIE moze zamilknac — dopytuje o braki zamiast cichego return."""
