@@ -126,18 +126,5 @@ def _patch(monkeypatch, replies):
     monkeypatch.setattr(qb.crm_calc, "get_options", lambda: _OPTS)
 
 
-def test_schody_komplet_handoff(monkeypatch):
-    replies = []
-    _patch(monkeypatch, replies)
-    dane = {"pozycje": [{"id": "1", "produkt": "schody", "schody": "12 stopni 90x30, z podstopnicami",
-                         "gatunek": "dąb", "technologia": "lita", "klasa": "A/B", "ilosc": "1",
-                         "wykonczenie": "olejowane", "finishing_id": 7}], "wspolne": {}}
-    c = db_mod.db()
-    c.execute("DELETE FROM quote_state WHERE conv_id=?", (2003,))
-    c.execute("DELETE FROM quote_dane WHERE conv_id=?", (2003,))
-    c.execute("INSERT INTO quote_dane(conv_id, dane_json) VALUES(?,?)", (2003, json.dumps(dane)))
-    c.execute("INSERT INTO quote_state(conv_id, bot_turns, awaiting_confirm) VALUES(?,1,1)", (2003,))
-    c.commit(); c.close()
-    qb.run_quote_turn(2003, 12, "m1", "tak")
-    assert "__HANDOFF__" in replies, "schody po komplecie -> handoff, nie petla wyceny"
-    assert any(r.startswith("__NOTE__") and "schod" in r.lower() for r in replies)
+# (schody: zachowanie zmienione — wycena jak N desek + handoff tylko dla nietypowych;
+#  pokrycie w test_quote_schody.py)

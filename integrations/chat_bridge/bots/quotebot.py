@@ -47,6 +47,12 @@ def _pytanie_z_missing(missing):
     return "Żeby policzyć wycenę, potrzebuję jeszcze:\n" + "\n".join("- %s" % h for h in uniq)
 
 
+# Odpowiedz przy pytaniu o tozsamosc ("czy jestes botem?") — bot odpowiada uczciwie, NIE oddaje
+# rozmowy czlowiekowi (persona: przyznaj, ze jestes AI + zaproponuj konsultanta, jesli klient woli).
+_BOT_IDENTITY_MSG = ("Tak — jestem Dębuś, asystent AI wspierający zespół WoodPower. Pomagam wycenić "
+                     "blaty, parapety i schody. Jeśli woli Pan/Pani rozmowę z konsultantem, chętnie "
+                     "przełączę — a w czym mogę pomóc?")
+
 _MAX_PROBEK = 3   # limit probek wg konfiguracji doklejanych do jednego podsumowania
 _PROBKA_PODPIS = "Poniżej próbka wybranego wykończenia 👇"
 
@@ -67,8 +73,14 @@ _FORMAT = (
     "Gdy klient rezygnuje z pojedynczego szczegółu (np. otworów, terminu), wpisz w to pole "
     "wartość \"brak\" — system je wtedy wyczyści (puste pole niczego nie kasuje). "
     "Uzupełniaj wszystko, co klient dotąd podał (całość rozmowy, nie tylko ostatnia wiadomość). "
-    "Wymiary zapisuj w centymetrach. Pole 'schody' wypełniaj tylko dla produktu schody "
-    "(liczba stopni, wymiar stopnia, podstopnice). "
+    "Wymiary zapisuj w centymetrach. SCHODY wyceniamy jak deski: dla produktu 'schody' wpisz "
+    "wymiary POJEDYNCZEGO stopnia (długość × szerokość × grubość) w pola dlugosc/szerokosc/grubosc, "
+    "a w 'ilosc' podaj ŁĄCZNĄ liczbę stopni (liczba stopni × liczba kompletów). PODSTOPNICE, jeśli "
+    "klient je zamawia, dodaj jako OSOBNĄ pozycję (produkt 'podstopnice') z jej wymiarami i liczbą — "
+    "jeśli nie znasz wymiarów podstopnicy, dopytaj. Gdy klient podaje wymiary schodów ZDJĘCIEM/"
+    "rysunkiem albo stopnie NIE są prostokątne (schody kręcone, zabiegowe, trapezowe, z łukiem, "
+    "policzki/konstrukcja) — NIE wyceniaj: ustaw handoff=true, powod='schody nietypowe — wycena "
+    "konsultanta'. Pole 'schody' może zawierać dodatkowe uwagi. "
     "Ustaw handoff=true gdy: klient prosi o człowieka/konsultanta, pytanie wykracza poza podaną "
     "wiedzę, sprawa indywidualna (reklamacja, status lub zmiana zamówienia, faktura, zwrot), "
     "albo klient POTWIERDZIŁ wysłane wcześniej podsumowanie danych do wyceny. "
@@ -1099,15 +1111,12 @@ def _brakujace_pozycji(poz):
         return not str(poz.get(k) or "").strip()
     if pusto("produkt"):
         return ["produkt"]
-    produkt = str(poz.get("produkt")).strip().lower()
     brak = []
-    if "schod" in produkt or "stopni" in produkt or "stopie" in produkt:
-        if pusto("schody"):
-            brak.append("schody")
-    else:
-        for k in ("dlugosc", "szerokosc", "grubosc"):
-            if pusto(k):
-                brak.append(k)
+    # Schody wyceniamy jak deski: wymiary POJEDYNCZEGO stopnia (dl/szer/grub) + 'ilosc' = laczna
+    # liczba stopni. Podstopnice = osobna pozycja. Wiec wymiary wymagane jak dla blatu/parapetu.
+    for k in ("dlugosc", "szerokosc", "grubosc"):
+        if pusto(k):
+            brak.append(k)
     for k in _KRYT_WSPOLNE:
         if pusto(k):
             brak.append(k)
@@ -1221,9 +1230,11 @@ def _walidacja_wymiarow(dane):
 
 # --- Walidacja domenowa po merge (MD-01, MD-02/API-02, MD-03, MD-07; schody = API-01) ---
 
-def _ma_schody(dane):
-    """True gdy ktoras pozycja to schody (produkt zawiera 'schod') — /calculate ich nie liczy."""
-    return any("schod" in str(p.get("produkt") or "").lower() for p in (dane.get("pozycje") or []))
+# Schody/stopnie NIE-prostokatne (kalkulator liczy tylko prostokatne deski) -> handoff. Prostokatne
+# stopnie i podstopnice wyceniamy normalnie jak N desek. Wymiary podane zdjeciem obsluguje prompt LLM.
+_SCHODY_NIETYPOWE_RE = re.compile(
+    r"(kr[eę]con\w*|zabiegow\w*|trapez\w*|\b[łl]uk\w*|zaokr[aą]glon\w*\s+stop|policzk\w*|"
+    r"nietypow\w*\s+(ksztalt|kształt)|wach\w*)", re.IGNORECASE)
 
 
 def _wyczysc_niespojny_finishing(dane, options):
@@ -1247,13 +1258,11 @@ def _wyczysc_niespojny_finishing(dane, options):
 def _walidacja_domenowa(dane, options):
     """Walidacja domenowa pozycji PO merge (poza koperta maksimow). Zwraca konkretne pytanie/
     odrzucenie (PL) albo None. Kolejnosc: pojedyncza liczba + minimum wymiaru, ilosc calkowita,
-    dostepnosc wariantu drewna. Schody pomijamy (osobny handoff API-01)."""
+    dostepnosc wariantu drewna. Schody walidujemy jak deski (wymiary stopnia)."""
     pozycje = dane.get("pozycje") or []
     wiele = len(pozycje) > 1
     for poz in pozycje:
         nazwa = str(poz.get("produkt") or "").strip()
-        if "schod" in nazwa.lower():
-            continue
         pref = (" (%s)" % nazwa) if (wiele and nazwa) else ""
         # Wymiary: pojedyncza liczba w cm + minimum (MD-07).
         for k, label in (("dlugosc", "długość"), ("szerokosc", "szerokość"), ("grubosc", "grubość")):
@@ -1660,6 +1669,12 @@ def run_quote_turn(conv_id, inbox_id, message_id, content, attachments=None):
     if not raw:
         raise RuntimeError("quotebot: brak odpowiedzi modelu")
     out = _parse_llm(raw)
+    # Pytanie o tozsamosc ("czy jestes botem/czlowiekiem?") NIE moze konczyc sie handoffem — bot
+    # odpowiada uczciwie (persona). Bez jawnej prosby o czlowieka kasujemy handoff od LLM.
+    if _PYTANIE_O_BOTA_RE.search(content or "") and not _czy_prosi_o_czlowieka(content):
+        out["handoff"] = False
+        if not out["odpowiedz"]:
+            out["odpowiedz"] = _BOT_IDENTITY_MSG
     dane = _merge_dane(conv_id, out)   # akumulacja per pozycja: raz zebrane pole zostaje
     # Obrazy pomocnicze (wymiary/krawedzie) — raz na rozmowe, wg tresci klienta i kompletu wymiarow.
     _obrazy_kontekstowe(conv_id, content, dane)
@@ -1728,10 +1743,10 @@ def run_quote_turn(conv_id, inbox_id, message_id, content, attachments=None):
 
     brak = _brakujace(dane)
 
-    # Schody nie sa wyceniane automatycznie przez /calculate (API-01) -> po komplecie danych
-    # deterministyczny handoff z notatka zamiast petli mylnego _PROSBA_DOPRECYZ.
-    if _ma_schody(dane) and not brak:
-        _do_handoff(conv_id, "schody — wycena indywidualna konsultanta", dane)
+    # Schody/stopnie NIE-prostokatne (krecone/zabiegowe/trapez/luk/policzki) -> handoff: kalkulator
+    # liczy tylko prostokatne deski. Prostokatne stopnie i podstopnice wyceniamy normalnie jak N desek.
+    if _SCHODY_NIETYPOWE_RE.search(content or ""):
+        _do_handoff(conv_id, "schody nietypowe (nie-prostokąt) — wycena konsultanta", dane)
         return
 
     # Bramka potwierdzenia (PL-02, RX-09): w stanie awaiting potwierdzenie ma PIERWSZENSTWO przed
