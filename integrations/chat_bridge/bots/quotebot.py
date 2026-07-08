@@ -47,6 +47,8 @@ _FORMAT = (
     "Każdy produkt klienta to OSOBNA pozycja listy 'pozycje' ze stałym id (\"1\", \"2\", ...). "
     "Utrzymuj id z bloku DOTYCHCZAS ZEBRANE DANE WYCENY i NIGDY nie nadpisuj jednej pozycji "
     "danymi innego produktu. Gdy klient rezygnuje z pozycji, zwróć ją z polem \"usun\": true. "
+    "Gdy klient rezygnuje z pojedynczego szczegółu (np. otworów, terminu), wpisz w to pole "
+    "wartość \"brak\" — system je wtedy wyczyści (puste pole niczego nie kasuje). "
     "Uzupełniaj wszystko, co klient dotąd podał (całość rozmowy, nie tylko ostatnia wiadomość). "
     "Wymiary zapisuj w centymetrach. Pole 'schody' wypełniaj tylko dla produktu schody "
     "(liczba stopni, wymiar stopnia, podstopnice). "
@@ -63,6 +65,8 @@ _FORMAT = (
     "zostaw te pola puste. "
     "Pole 'finishing_id' ustaw na id wykończenia z listy DOSTĘPNE WYKOŃCZENIA odpowiadające "
     "wyborowi klienta (np. olejowanie bezbarwne). Dla wykończenia 'surowe' zostaw puste. "
+    "Przy KAŻDEJ zmianie wykończenia (np. z lakieru na olej) ustaw NOWY finishing_id pasujący do "
+    "nowego wyboru — nie zostawiaj starego. "
     "SAM przygotowujesz wstępną wycenę — NIE mów, że przekażesz dane konsultantowi „do wyceny” "
     "(cenę policzysz automatycznie). "
     "Gdy do wyceny brakuje kilku parametrów, poproś o WSZYSTKIE naraz krótką listą — każdy punkt "
@@ -782,14 +786,24 @@ def _nowe_id(pozycje):
     return str(n)
 
 
+# Wartosci-sentinele kasujace pole (MD-04): klient rezygnuje z otworow/terminu/szczegolow.
+_KASUJ_POLE = {"brak", "-", "—", "nie dotyczy", "rezygnuję", "rezygnuje"}
+
+
 def _merge_pola(stare, nowe):
     """Scala pola tekstowe pozycji/wspolnych: niepusta nowa wartosc nadpisuje, pusta NIE kasuje.
-    'edges' (lista) obslugujemy osobno w _merge_dane — tu pomijamy."""
+    Wartosc-sentinel ('brak'/'-') KASUJE pole (rezygnacja klienta — MD-04). 'edges' (lista)
+    obslugujemy osobno w _merge_dane — tu pomijamy."""
     for k, v in (nowe or {}).items():
         if k in ("id", "usun", "edges"):
             continue
-        if str(v or "").strip():
-            stare[k] = v
+        vs = str(v or "").strip()
+        if not vs:
+            continue
+        if vs.lower() in _KASUJ_POLE:
+            stare.pop(k, None)   # jawne kasowanie pola
+            continue
+        stare[k] = v
     return stare
 
 
@@ -805,7 +819,9 @@ def _merge_dane(conv_id, out):
         istn = None
         if pid:
             istn = next((x for x in stan["pozycje"] if str(x.get("id")) == pid), None)
-        else:
+            if istn is None:
+                pid = ""   # id spoza stanu (LLM je wymyslil) -> traktuj jak brak id, nie tworz duplikatu (MD-05b)
+        if istn is None and not pid:
             prod = str(p.get("produkt") or "").strip().lower()
             kandydaci = [x for x in stan["pozycje"]
                          if prod and str(x.get("produkt") or "").strip().lower() == prod]
@@ -1167,6 +1183,67 @@ def _walidacja_wymiarow(dane):
             if wiele and nazwa:
                 return "%s Dotyczy pozycji: %s." % (msg, nazwa)
             return msg
+    return None
+
+
+# --- Walidacja domenowa po merge (MD-01, MD-02/API-02, MD-03, MD-07; schody = API-01) ---
+
+def _ma_schody(dane):
+    """True gdy ktoras pozycja to schody (produkt zawiera 'schod') — /calculate ich nie liczy."""
+    return any("schod" in str(p.get("produkt") or "").lower() for p in (dane.get("pozycje") or []))
+
+
+def _wyczysc_niespojny_finishing(dane, options):
+    """MD-01: gdy finishing_id wskazuje inny typ wykonczenia niz pole 'wykonczenie' (np. olej vs
+    lakier z katalogu), kasuje finishing_id — straznik naturalnie dopyta o wlasciwy wariant.
+    Zwraca True gdy cos wyczyszczono."""
+    zmiana = False
+    for poz in (dane.get("pozycje") or []):
+        fid = str(poz.get("finishing_id") or "").strip()
+        wyk = str(poz.get("wykonczenie") or "").strip()
+        if not (fid and wyk and options):
+            continue
+        typ_wyk = crm_calc._finish_type(wyk)                    # Surowe/Olejowane/Lakierowane
+        typ_fid = crm_calc._finish_type(crm_calc.finishing_full_path(fid, options))
+        if typ_wyk and typ_fid and typ_wyk != typ_fid:
+            poz.pop("finishing_id", None)
+            zmiana = True
+    return zmiana
+
+
+def _walidacja_domenowa(dane, options):
+    """Walidacja domenowa pozycji PO merge (poza koperta maksimow). Zwraca konkretne pytanie/
+    odrzucenie (PL) albo None. Kolejnosc: pojedyncza liczba + minimum wymiaru, ilosc calkowita,
+    dostepnosc wariantu drewna. Schody pomijamy (osobny handoff API-01)."""
+    pozycje = dane.get("pozycje") or []
+    wiele = len(pozycje) > 1
+    for poz in pozycje:
+        nazwa = str(poz.get("produkt") or "").strip()
+        if "schod" in nazwa.lower():
+            continue
+        pref = (" (%s)" % nazwa) if (wiele and nazwa) else ""
+        # Wymiary: pojedyncza liczba w cm + minimum (MD-07).
+        for k, label in (("dlugosc", "długość"), ("szerokosc", "szerokość"), ("grubosc", "grubość")):
+            v = str(poz.get(k) or "").strip()
+            if not v:
+                continue
+            num = crm_calc._num(v)
+            if num is None:
+                return ("Proszę o pojedynczą liczbę w centymetrach — %s%s (np. 200, nie zakres)."
+                        % (label, pref))
+            if k in ("dlugosc", "szerokosc") and num < 10:
+                return ("Podana %s%s to %s cm — to bardzo mało jak na blat. Jeśli chodziło o "
+                        "milimetry, proszę o wartość w centymetrach (np. 60 zamiast 600)."
+                        % (label, pref, _fmt(num)))
+        # Ilosc: dodatnia liczba calkowita (koniec cichego quantity=1 — API-02/MD-02).
+        il = str(poz.get("ilosc") or "").strip()
+        if il and not (re.fullmatch(r"\d+", il) and int(il) > 0):
+            return "Ile dokładnie sztuk%s? Proszę o liczbę (np. 2)." % pref
+        # Wariant drewna: komplet 3 pol, ale brak kodu -> niedostepny (MD-03).
+        g, t, kl = poz.get("gatunek"), poz.get("technologia"), poz.get("klasa")
+        if str(g or "").strip() and str(t or "").strip() and str(kl or "").strip():
+            if not crm_calc.variant_code(g, t, kl):
+                return _ALT_NIEDOSTEPNY
     return None
 
 
@@ -1566,7 +1643,27 @@ def run_quote_turn(conv_id, inbox_id, message_id, content, attachments=None):
     if _reject_state(conv_id)[1]:
         _set_reject(conv_id, "", 0)   # walidacja OK -> reset licznika odrzucen
 
+    # Spojnosc wykonczenie<->finishing_id (MD-01): niespojne id kasujemy PRZED strażnikiem braku,
+    # zeby dopytal o wlasciwy wariant zamiast liczyc cene starego wykonczenia.
+    if _wyczysc_niespojny_finishing(dane, opts):
+        _zapisz_dane(conv_id, dane)
+    # Walidacja domenowa (ilosc/wariant/minima wymiarow) -> konkretne pytanie zamiast cichego
+    # quantity=1 albo mylnego _PROSBA_DOPRECYZ (API-02/MD-02, MD-03, MD-07).
+    problem = _walidacja_domenowa(dane, opts)
+    if problem:
+        if not cw_agent_reply(conv_id, problem, token=BOT_QUOTE_CW_AGENT_TOKEN):
+            raise RuntimeError("quotebot: wysylka walidacji domenowej nieudana (conv %s)" % conv_id)
+        _bump_turns(conv_id)
+        log("quotebot: walidacja domenowa - dopytanie (conv %s)" % conv_id)
+        return
+
     brak = _brakujace(dane)
+
+    # Schody nie sa wyceniane automatycznie przez /calculate (API-01) -> po komplecie danych
+    # deterministyczny handoff z notatka zamiast petli mylnego _PROSBA_DOPRECYZ.
+    if _ma_schody(dane) and not brak:
+        _do_handoff(conv_id, "schody — wycena indywidualna konsultanta", dane)
+        return
 
     # Bramka potwierdzenia (PL-02, RX-09): w stanie awaiting potwierdzenie ma PIERWSZENSTWO przed
     # handoffem. Sygnal potwierdzenia = pole 'potwierdzono' od LLM, deterministyczne _POTW_RE dla
