@@ -1480,6 +1480,14 @@ def run_quote_turn(conv_id, inbox_id, message_id, content, attachments=None):
                    "tylko to, co klient zmienia):\n" + json.dumps(dane_przed, ensure_ascii=False))
     if awaiting:
         system += "\n\n" + _CONFIRM_INSTR
+    # Stan 'priced' w promptcie (PL-10/MD-06): LLM ma wiedziec, czy cena juz padla — bez tego
+    # uzywa 'porownania' przed pierwsza wycena (slepy zaulek).
+    if _priced(conv_id):
+        system += ("\n\nSTAN: wysłano już wycenę w tej rozmowie — 'porownania' możesz teraz użyć dla "
+                   "TEGO SAMEGO produktu w innym wariancie.")
+    else:
+        system += ("\n\nSTAN: nie wysłano jeszcze żadnej ceny — NIE używaj 'porownania'; pierwszą "
+                   "wycenę prowadź normalnie przez 'pozycje'.")
 
     messages = [{"role": "system", "content": system}]
     messages += [{"role": m["role"], "content": m["text"]} for m in history]
@@ -1511,9 +1519,30 @@ def run_quote_turn(conv_id, inbox_id, message_id, content, attachments=None):
     # Porownanie wariantu (inny gatunek/technologia/klasa) — TYLKO informacja, bez edycji wyceny.
     # Gdy klient w tej turze dodal/zmienil pozycje (zmienione) — to NIE porownanie: dodanie produktu
     # ma pierwszenstwo (fix kolizji 'dodaj jeszcze blat ... te same parametry' -> bledne porownanie).
-    if _czy_porownanie(conv_id, out, dane, zmienione):
-        if _obsluz_porownania(conv_id, dane, out["porownania"]):
+    # Bez zmiany pozycji porownanie NIGDY nie konczy sie cisza/RuntimeError (MS-02, SB-04): albo je
+    # pokazujemy, albo deterministycznie tlumaczymy, kiedy je pokazemy.
+    if out.get("porownania") and not zmienione:
+        if _czy_porownanie(conv_id, out, dane, zmienione):
+            if _obsluz_porownania(conv_id, dane, out["porownania"]):
+                return
+            # Wszystkie porownania juz pokazane (dedup) -> krotka info zamiast ciszy.
+            cw_agent_reply(conv_id, "To porównanie pokazałem już wyżej — Twoja wycena pozostaje "
+                           "aktualna. Chętnie policzę inny wariant albo pomogę w czymś jeszcze.",
+                           token=BOT_QUOTE_CW_AGENT_TOKEN)
+            _bump_turns(conv_id)
             return
+        # Nie mozemy policzyc porownania teraz -> nie milcz, wytlumacz kiedy.
+        if not _priced(conv_id):
+            msg = ("Porównanie z innym wariantem policzę zaraz po przygotowaniu pierwszej wyceny — "
+                   "najpierw dokończmy dane tego produktu.")
+        else:
+            braki_cmp = _brakujace(dane)
+            msg = (_pytanie_o_braki(braki_cmp, len(dane["pozycje"]) > 1) if braki_cmp
+                   else "Już liczę to porównanie — chwilę proszę.")
+        if not cw_agent_reply(conv_id, msg, token=BOT_QUOTE_CW_AGENT_TOKEN):
+            raise RuntimeError("quotebot: wysylka info o porownaniu nieudana (conv %s)" % conv_id)
+        _bump_turns(conv_id)
+        return
 
     # Straznik wymiarow (deterministyczny) + loop-breaker: 2. to samo odrzucenie -> podpowiedz cm,
     # 3. -> handoff (koniec nieskonczonej petli, np. mm mylone z cm).
