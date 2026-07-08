@@ -309,10 +309,27 @@ def calculate(pozycje, options):
     return _post("/api/bot/calculate", body)
 
 
+def normalize_email(email):
+    """E-mail do postaci kanonicznej (lower, trim) — dedup klienta po dokladnym stringu (API-13)."""
+    return (str(email or "").strip().lower() or None)
+
+
+def normalize_phone(phone):
+    """Telefon do 9 cyfr krajowych (usuwa separatory i prefiks +48/0048) — dedup klienta (API-13)."""
+    cyfry = re.sub(r"\D", "", str(phone or ""))
+    if cyfry.startswith("0048") and len(cyfry) == 13:
+        cyfry = cyfry[4:]
+    elif cyfry.startswith("48") and len(cyfry) == 11:
+        cyfry = cyfry[2:]
+    return cyfry or None
+
+
 def find_or_create_client(email, phone, name):
-    """POST /api/bot/clients/find-or-create."""
+    """POST /api/bot/clients/find-or-create. E-mail/telefon normalizujemy (API-13), zeby ten sam
+    klient zapisany raz 'Jan@X.pl', raz 'jan@x.pl' nie tworzyl duplikatow i wykrywanie powracajacych dzialalo."""
     return _post("/api/bot/clients/find-or-create",
-                 {"email": email or None, "phone": phone or None, "name": name or None})
+                 {"email": normalize_email(email), "phone": normalize_phone(phone),
+                  "name": (str(name).strip() if name else None) or None})
 
 
 def create_quote(pozycje, options, client_id, notes=""):

@@ -560,6 +560,19 @@ def _wysylka_msg(res):
         res.get("carrier_name") or "kurier", _fmt_pln(res.get("shipping_brutto")))
 
 
+# Sygnaly zmiany zamowienia w wiadomosci z kontaktem — kontaktu wtedy nie konsumujemy natychmiastowym
+# zapisem, tylko puszczamy ture do LLM (SB-01). Tylko JAWNA intencja zmiany (nie samo 'jednak'/'ale',
+# ktore wystepuja tez w 'a jednak zapiszcie').
+_KOREKTA_RE = re.compile(r"(zmie[ńn]\w*|zamiast|popraw\w*|\bzmian\w*|dodaj\w*|dorzu[ćc]\w*|"
+                         r"usu[ńn]\w*|zmie\w*)", re.IGNORECASE)
+
+
+def _wiadomosc_ma_korekte(text):
+    """True gdy wiadomosc z kontaktem zawiera tez korekte/pytanie (nie sam e-mail/telefon)."""
+    t = text or ""
+    return ("?" in t) or bool(_KOREKTA_RE.search(t))
+
+
 def _waliduj_tel(cand):
     """Czy kandydat to realny numer PL: 9 cyfr krajowych (opcjonalny prefiks +48/0048), pierwsza
     cyfra 4-8 (odsiewa nr zamowienia '250...' i NIP 10-cyfrowy)."""
@@ -1528,19 +1541,25 @@ def run_quote_turn(conv_id, inbox_id, message_id, content, attachments=None):
     if _awaiting_contact(conv_id):
         email, phone = _wyciagnij_kontakt(content)
         if email or phone:
-            _set_awaiting_contact(conv_id, False)
             nazwa = (cw_contact_full(conv_id) or {}).get("name") or ""
-            _set_contact(conv_id, email, phone, nazwa)   # zapamietaj na kolejne wyceny
-            _zapisz_wycene(conv_id, _load_dane(conv_id), crm_calc.get_options(), email, phone, nazwa)
-            return
-        if _czy_odmowa(content):
+            _set_contact(conv_id, email, phone, nazwa)   # zapamietaj kontakt ZAWSZE (na kolejne wyceny)
+            if _wiadomosc_ma_korekte(content):
+                # SB-01: kontakt + korekta/pytanie w jednej wiadomosci -> NIE zapisuj starej wyceny.
+                # Kontakt zapamietany; tura leci do LLM (korekta -> nowe podsumowanie), zapis po
+                # potwierdzeniu przez _wyslij_cene_i_kontakt (czyta zapamietany kontakt).
+                pass
+            else:
+                _set_awaiting_contact(conv_id, False)
+                _zapisz_wycene(conv_id, _load_dane(conv_id), crm_calc.get_options(), email, phone, nazwa)
+                return
+        elif _czy_odmowa(content):
             # Klient nie chce podawać kontaktu — respektujemy, koniec bez zapisu.
             _set_awaiting_contact(conv_id, False)
             cw_agent_reply(conv_id, "Jasne, nie ma problemu. Gdyby chciał Pan/Pani zapisać wycenę "
                            "lub coś doprecyzować — jestem do dyspozycji.", token=BOT_QUOTE_CW_AGENT_TOKEN)
             _bump_turns(conv_id)
             return
-        if _POZNIEJ_RE.search(content or ""):
+        elif _POZNIEJ_RE.search(content or ""):
             # Odroczenie ('podam pozniej') — flaga ZOSTAJE, tylko potwierdzamy (nie gasimy lejka).
             cw_agent_reply(conv_id, "Jasne, będę czekać — proszę podać e-mail lub telefon, gdy "
                            "będzie wygodnie.", token=BOT_QUOTE_CW_AGENT_TOKEN)
@@ -1570,6 +1589,17 @@ def run_quote_turn(conv_id, inbox_id, message_id, content, attachments=None):
             return
         # Ani kod, ani odmowa (np. samo miasto lub inne pytanie) -> normalna tura;
         # flaga zostaje, LLM (wg reguly promptu) dopyta o kod, kolejny kod znow przechwycimy.
+
+    # Globalny przechwyt kontaktu PO cenie (LS-02): klient podaje mail spontanicznie albo po
+    # wczesniejszej odmowie (awaiting_contact juz zgaszone) -> i tak zapisujemy wycene. Przy
+    # kontakcie+korekcie (SB-01) puszczamy do LLM — korekta ma pierwszenstwo, zapis po niej.
+    if _priced(conv_id) and not _awaiting_contact(conv_id):
+        g_email, g_phone = _wyciagnij_kontakt(content)
+        if (g_email or g_phone) and not _wiadomosc_ma_korekte(content):
+            nazwa = (cw_contact_full(conv_id) or {}).get("name") or ""
+            _set_contact(conv_id, g_email, g_phone, nazwa)   # kontakt z biezacej wiadomosci nadpisuje (API-10)
+            _zapisz_wycene(conv_id, _load_dane(conv_id), crm_calc.get_options(), g_email, g_phone, nazwa)
+            return
 
     # Bezpiecznik D: limit tur bota — PO bramkach kontaktu/kodu (MS-11: e-mail/kod z ostatniej
     # tury zostaje skonsumowany, nie przepada w handoffie z limitu). Dedykowany komunikat (LS-11).
