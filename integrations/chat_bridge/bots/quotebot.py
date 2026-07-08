@@ -1349,7 +1349,7 @@ def run_quote_turn(conv_id, inbox_id, message_id, content, attachments=None):
     dane_przed = _load_dane(conv_id)
     awaiting = _awaiting_confirm(conv_id)
 
-    system = build_system_prompt("livechat", knowledge, identity) + "\n\n" + _FORMAT
+    system = build_system_prompt("quote", knowledge, identity) + "\n\n" + _FORMAT
     wl = images.whitelist_prompt()
     if wl:
         system += ("\n\nDOSTĘPNE OBRAZY (możesz dołączyć maks. jeden przez pole send_image, "
