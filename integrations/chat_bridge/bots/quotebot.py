@@ -490,6 +490,9 @@ def _obsluz_porownania(conv_id, dane, porownania):
 _PROSBA_KONTAKT = ("Jeśli poda Pan/Pani adres e-mail (lub telefon), zapiszę tę wycenę i wyślę "
                    "link — wróci Pan/Pani do niej w każdej chwili. Jeśli woli Pan/Pani nie "
                    "podawać, nie ma problemu — wycena wyżej pozostaje aktualna.")
+# Komunikat przy nieudanym zapisie wyceny (MS-05) — koniec ciszy po podanym mailu.
+_SAVE_FAIL_MSG = ("Dziękuję za kontakt! Mam chwilowy problem techniczny z zapisem wyceny — "
+                  "przekazuję rozmowę do konsultanta WoodPower, który dośle link w tej rozmowie.")
 
 _EMAIL_RE = re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+")
 # Wlasne domeny firmowe — adres w nich (np. reklamacje@woodpower.pl, ktory bot sam wysyla)
@@ -1337,7 +1340,11 @@ def _zapisz_wycene(conv_id, dane, options, email, phone, name):
     kl = crm_calc.find_or_create_client(email, phone, name)
     client = (kl or {}).get("client") or {}
     if not kl.get("ok") or not client.get("id"):
+        # MS-05: koniec ciszy po podanym mailu — informujemy klienta i przekazujemy do konsultanta
+        # (lead z kontaktem nie moze zginac bez sladu).
         log("quotebot: find_or_create nieudane (conv %s): %s" % (conv_id, kl))
+        _do_handoff(conv_id, "błąd zapisu wyceny — link do dosłania przez konsultanta", dane,
+                    closing=_SAVE_FAIL_MSG)
         return
     # Grupa 3: klient juz w bazie (dopasowany, nie utworzony) -> raz na rozmowe mila wzmianka.
     if kl.get("matched") and not _returning_greeted(conv_id):
@@ -1364,17 +1371,22 @@ def _zapisz_wycene(conv_id, dane, options, email, phone, name):
             if cw_agent_reply(conv_id, _WYSYLKA_OFERTA, token=BOT_QUOTE_CW_AGENT_TOKEN):
                 _set_awaiting_postcode(conv_id, True)
     else:
+        # MS-05: zapis/aktualizacja padla -> nie milcz; informuj klienta + przekaz konsultantowi.
         log("quotebot: zapis/aktualizacja wyceny nieudana (conv %s): %s" % (conv_id, q))
+        _do_handoff(conv_id, "błąd zapisu wyceny — link do dosłania przez konsultanta", dane,
+                    closing=_SAVE_FAIL_MSG)
 
 
 def _obsluz_wysylke(conv_id, kod):
     """Liczy wysylke przez API dla zebranych pozycji + kodu pocztowego, wysyla najtansza opcje i
-    (gdy jest zapisana wycena) dopisuje kuriera+koszt do wyceny. Nie rzuca — blad = komunikat o
-    konsultancie (obraz/zapis wysylki nie moze wywrocic tury)."""
+    (gdy jest zapisana wycena) dopisuje kuriera+koszt do wyceny. MS-12: sprawdza wynik wysylki i
+    przy niepowodzeniu RZUCA PRZED zgaszeniem flagi awaiting_postcode (retry ponowi z tym kodem)."""
     dane = _load_dane(conv_id)
     options = crm_calc.get_options()
     res = crm_calc.shipping_quote(dane.get("pozycje") or [], kod, options)
-    cw_agent_reply(conv_id, _wysylka_msg(res), token=BOT_QUOTE_CW_AGENT_TOKEN)
+    if not cw_agent_reply(conv_id, _wysylka_msg(res), token=BOT_QUOTE_CW_AGENT_TOKEN):
+        raise RuntimeError("quotebot: wysylka kosztu wysylki nieudana (conv %s)" % conv_id)
+    _set_awaiting_postcode(conv_id, False)   # dopiero po udanej wysylce (retry nie zgubi kodu)
     edit_uuid = _stored_edit_uuid(conv_id)
     if res.get("ok") and res.get("carriers") and edit_uuid:
         q = crm_calc.update_quote(edit_uuid, dane.get("pozycje") or [], options,
@@ -1540,7 +1552,8 @@ def run_quote_turn(conv_id, inbox_id, message_id, content, attachments=None):
     if _awaiting_postcode(conv_id):
         kod = _wyciagnij_kod(content)
         if kod:
-            _set_awaiting_postcode(conv_id, False)
+            # Flage gasi _obsluz_wysylke DOPIERO po udanej wysylce (MS-12) — przy padzie POST
+            # flaga zostaje i retry ponawia z tym samym kodem.
             _obsluz_wysylke(conv_id, kod)
             return
         if _czy_odmowa(content):
@@ -1709,25 +1722,31 @@ def run_quote_turn(conv_id, inbox_id, message_id, content, attachments=None):
     # Wyzwalacze B/C (decyzja LLM) + straznik kompletnosci + bramka potwierdzenia.
     if out["handoff"]:
         powod = out["powod"] or "decyzja bota"
-        if _czy_powod_kompletu(powod):
-            if brak:
-                # Braki -> nie oddajemy rozmowy, dopytujemy (backstop).
-                reply = _pytanie_o_braki(brak, len(dane["pozycje"]) > 1)
-                if not cw_agent_reply(conv_id, reply, token=BOT_QUOTE_CW_AGENT_TOKEN):
-                    raise RuntimeError("quotebot: wysylka pytania o braki nieudana (conv %s)" % conv_id)
-                _bump_turns(conv_id)
-                log("quotebot: straznik wstrzymal handoff, braki: %s (conv %s)"
-                    % (",".join(k for _, k in brak), conv_id))
-                return
-            if not awaiting:
-                # Bramka: podsumowanie dopiero PO nim wycena, gdy klient potwierdzi.
-                _wyslij_podsumowanie(conv_id, dane)
-                return
+        if not _czy_powod_kompletu(powod):
+            _do_handoff(conv_id, powod, dane)
+            return
+        if brak:
+            # Braki -> nie oddajemy rozmowy, dopytujemy (backstop).
+            reply = _pytanie_o_braki(brak, len(dane["pozycje"]) > 1)
+            if not cw_agent_reply(conv_id, reply, token=BOT_QUOTE_CW_AGENT_TOKEN):
+                raise RuntimeError("quotebot: wysylka pytania o braki nieudana (conv %s)" % conv_id)
+            _bump_turns(conv_id)
+            log("quotebot: straznik wstrzymal handoff, braki: %s (conv %s)"
+                % (",".join(k for _, k in brak), conv_id))
+            return
+        if _priced(conv_id):
+            # MS-04: cena JUZ wyslana -> nie ponawiaj podsumowania ani ceny (retry po awarii
+            # prosby o kontakt nie moze zdublowac podsumowania/ceny). Niejednoznaczny handoff-
+            # komplet po cenie obsluzy zwykla odpowiedz LLM nizej.
+            pass
+        elif not awaiting:
+            # Bramka: podsumowanie dopiero PO nim wycena, gdy klient potwierdzi.
+            _wyslij_podsumowanie(conv_id, dane)
+            return
+        else:
             # Komplet + awaiting + LLM zgłosił potwierdzenie -> licz cenę zamiast handoffu.
             _wyslij_cene_i_kontakt(conv_id, dane, cw_contact_full(conv_id))
             return
-        _do_handoff(conv_id, powod, dane)
-        return
 
     # Bez handoffu: komplet wymaganych -> podsumowanie (pierwsze lub po korekcie danych).
     if not brak and _priced(conv_id) and not zmienione:

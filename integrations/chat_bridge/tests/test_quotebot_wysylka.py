@@ -121,11 +121,12 @@ def test_aktualizacja_nie_proponuje_wysylki_ponownie(monkeypatch):
 def test_run_quote_turn_lapie_kod_i_woła_wysylke(monkeypatch):
     monkeypatch.setattr(qb, "cw_conv_status", lambda c: "pending")
     called = {}
+    # MS-12: flage awaiting_postcode gasi teraz _obsluz_wysylke (dopiero po udanej wysylce),
+    # nie bramka — tu _obsluz_wysylke jest zamockowane, wiec sprawdzamy tylko, ze zostalo wolane.
     monkeypatch.setattr(qb, "_obsluz_wysylke", lambda c, kod: called.update(conv=c, kod=kod))
     qb._set_awaiting_postcode(940, True)
     qb.run_quote_turn(940, 5, "m1", "mój kod to 36-068")
     assert called == {"conv": 940, "kod": "36-068"}
-    assert qb._awaiting_postcode(940) is False
 
 
 def test_run_quote_turn_odmowa_kodu_respektuje(monkeypatch):
