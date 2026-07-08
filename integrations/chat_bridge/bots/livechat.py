@@ -62,37 +62,50 @@ _CONFIRM_INSTR = (
     "normalnie, handoff=false."
 )
 
-# Twardy wyzwalacz: prosba o czlowieka. Bierne wzmianki ('od/przez konsultanta') NIE licza sie.
-_HUMAN_RE = re.compile(r"\b(konsultant\w*|człowiek\w*|czlowiek\w*|doradc\w*|pracownik\w*|"
-                       r"agent\w*|zadzwoń\w*|zadzwon\w*|oddzwon\w*)\b", re.IGNORECASE)
-_HUMAN_PASYWNE_RE = re.compile(r"\b(od|przez|do)\s+(konsultant\w*|doradc\w*|pracownik\w*|agent\w*)",
-                               re.IGNORECASE)
+# Prosba o czlowieka wymaga INTENCJI (czasownik prosby przy rzeczowniku-osobie), zeby wzmianka
+# 'nasz pracownik odbierze' / 'jestem pracownikiem' nie wyzwalala handoffu (RX-04, MS-09).
+# Kopia z bots/quotebot.py — trzymac zgodna az do ekstrakcji do bots/common w FAZIE 2.
+_OSOBA = r"(?:konsultant\w*|człowiek\w*|czlowiek\w*|doradc\w*|pracownik\w*|agent\w*)"
+_HUMAN_INTENCJA_RE = re.compile(
+    r"(?:(?:popro\w*|prosz\w*|prosi\w*|chc[ęe]|chcia[łl]\w*|wol[ęe]|wola[łl]\w*|po[łl][aą]cz\w*|"
+    r"prze[łl][aą]cz\w*|przeka[żz]\w*|daj\w*|dawa\w*|rozmawia\w*|porozmawia\w*|potrzebuj\w*)"
+    r"[\s\S]{0,40}" + _OSOBA + r"|\bz\s+" + _OSOBA + r")", re.IGNORECASE)
+_CALLBACK_RE = re.compile(
+    r"(oddzwo[nń]cie|zadzwo[nń]cie|prosz[ęe][\s\S]{0,25}(telefon|oddzwo|zadzwo)|"
+    r"telefon\s+zwrotn|numer\s+zwrotn)", re.IGNORECASE)
 
 # Pytanie o tozsamosc rozmowcy — NIE traktujemy jako prosby o czlowieka; niech LLM odpowie uczciwie.
 _PYTANIE_O_BOTA_RE = re.compile(
     r"(czy (jesteś|jestes) (botem|człowiekiem|czlowiekiem|robotem|prawdziw|maszyn)|"
+    r"(jesteś|jestes) (botem|robotem|sztuczn|prawdziw|człowiek\w*|czlowiek\w*)|"
     r"czy rozmawiam z (botem|człowiekiem|czlowiekiem|robotem|maszyn|prawdziw|ai|sztuczn)|"
     r"z kim (rozmawiam|mam przyjemność|mam przyjemnosc)|"
-    r"(jesteś|jestes) (botem|robotem|sztuczn|prawdziw)|"
     r"czy to (jest )?(bot|robot|ai|sztuczna)|"
-    r"bot\w* czy (człowiek|czlowiek)|człowiek\w* czy bot|czlowiek\w* czy bot)", re.IGNORECASE)
+    r"(bot|robot)\w* czy (z )?(człowiek|czlowiek)|(człowiek|czlowiek)\w* czy (z )?(bot|robot))",
+    re.IGNORECASE)
 
-# Reklamacja — twardy wyzwalacz. Sam rzeczownik uszkodzenia (wadliwy/pekl) NIE wystarcza:
-# musi byc intencja reklamacji ("reklamacj/reklamowa") ALBO uszkodzenie + kontekst posiadania
-# (moj/kupilem/zamowilem/dostalem/mi), zeby pytania przedsprzedazowe o trwalosc nie wyzwalaly handoffu.
+# Reklamacja — twardy wyzwalacz. Uszkodzenie-DOKONANE (pekl/pekniety/uszkodzony — nie hipotetyczne
+# 'pęknie') + posiadanie (moj/zamowilem/dostalem) i BRAK intencji zakupu, albo jawne 'reklamacj'.
 _REKLAMACJA_RE = re.compile(r"(reklamacj\w*|reklamowa\w*)", re.IGNORECASE)
-_USZKODZENIE_RE = re.compile(r"(pęk\w*|pek\w*|uszkodz\w*|wadliw\w*|zepsu\w*|wypacz\w*|odklei\w*)",
-                             re.IGNORECASE)
-_POSIADANIE_RE = re.compile(r"\b(mój|moje|moja|moim|kupi\w*|zamówi\w*|zamowi\w*|dostał\w*|dostal\w*|"
-                            r"otrzymał\w*|otrzymal\w*|zamówieni\w*|zamowieni\w*|mi)\b", re.IGNORECASE)
+_USZKODZENIE_RE = re.compile(
+    r"(pęk[łl]\w*|pek[łl]\w*|pękni[ę]\w*|pekniet\w*|popęka\w*|popek\w*|uszkodzon\w*|uszkodzi[łl]\w*|"
+    r"wadliw\w*|zepsu[łt]\w*|wypaczy[łl]\w*|wypaczo\w*|odklei[łl]\w*|odpad[łl]\w*)", re.IGNORECASE)
+_POSIADANIE_RE = re.compile(r"\b(mój|moje|moja|moim|kupił\w*|kupil\w*|kupion\w*|zamówi\w*|zamowi\w*|"
+                            r"dostał\w*|dostal\w*|otrzymał\w*|otrzymal\w*|zamówieni\w*|zamowieni\w*)\b",
+                            re.IGNORECASE)
+_ZAKUP_RE = re.compile(r"(chc[ęe]\s+(kupi|za?m[oó]wi)|kupi[ćc]|zam[oó]wi[ćc]|szuka\w*|"
+                       r"zainteresowan\w*|\bpoleca\w*)", re.IGNORECASE)
 
 
 def _czy_reklamacja(text):
-    """True gdy tresc to reklamacja: jawne 'reklamacj/reklamowa' albo uszkodzenie + posiadanie."""
+    """True gdy tresc to reklamacja: jawne 'reklamacj/reklamowa' ALBO uszkodzenie-dokonane +
+    posiadanie, ale NIE gdy widac intencje zakupu (klient pyta o nowy produkt)."""
     t = text or ""
     if _REKLAMACJA_RE.search(t):
         return True
-    return bool(_USZKODZENIE_RE.search(t) and _POSIADANIE_RE.search(t))
+    if _USZKODZENIE_RE.search(t) and _POSIADANIE_RE.search(t):
+        return not bool(_ZAKUP_RE.search(t))
+    return False
 
 
 COMPLAINT_MSG = ("Przykro nam z powodu problemu. Reklamacje przyjmujemy mailowo — prosimy o "
@@ -105,26 +118,33 @@ DEFLECT_MSG = ("Jasne, mogę połączyć Pana/Panią z konsultantem. Zanim to zr
 
 
 def _czy_prosi_o_czlowieka(text):
-    """True gdy tresc to prosba o czlowieka. Bierna wzmianka 'od/przez konsultanta' -> False."""
+    """True gdy tresc to prosba o czlowieka: intencja (prosba/rozmowa) przy rzeczowniku-osobie
+    albo prosba o oddzwonienie. Sama wzmianka ('nasz pracownik', 'od konsultanta') -> False."""
     t = text or ""
-    if _HUMAN_PASYWNE_RE.search(t):
-        return False
-    return bool(_HUMAN_RE.search(t))
+    if _CALLBACK_RE.search(t):
+        return True
+    return bool(_HUMAN_INTENCJA_RE.search(t))
 
 
-# Deterministyczne wykrycie potwierdzenia podsumowania (obok decyzji LLM).
-_POTW_RE = re.compile(r"\b(tak|zgadza|zgadzam|potwierdzam|potwierdzone|ok|okej|okay|zgoda|"
-                      r"pasuje|dokładnie|dokladnie|wysyłam|wysylam|super|świetnie|swietnie)\b",
+# Deterministyczne wykrycie potwierdzenia podsumowania (obok decyzji LLM). Lista rozszerzona o
+# najczestsze polskie potwierdzenia (RX-12); _NEG lapie tez odmiany 'zmienic/zamiast/jednak' (RX-02).
+_POTW_RE = re.compile(r"\b(tak|zgadza|zgadzam|potwierdzam|potwierdzone|ok|okej|okay|okey|zgoda|"
+                      r"pasuje|dokładnie|dokladnie|wysyłam|wysylam|super|świetnie|swietnie|"
+                      r"dobrze|dobra|jasne|git|spoko|zatwierdzam|działam\w*|dzialam\w*|bierzemy|"
+                      r"zamawiam|w porządku|w porzadku|może być|moze byc|niech będzie|niech bedzie)\b",
                       re.IGNORECASE)
-_NEG_RE = re.compile(r"\b(nie|źle|zle|błąd|blad|popraw\w*|zmień|zmien|inaczej|niepopr\w*)\b",
+_NEG_RE = re.compile(r"\b(nie|źle|zle|błąd|blad|popraw\w*|zmie[ńn]\w*|zamiast|jednak|inaczej|niepopr\w*)\b",
                      re.IGNORECASE)
 
 
 def _jest_potwierdzenie(text):
-    """True gdy tresc to czyste potwierdzenie (bez negacji/korekty/pytania). 'nie zgadza sie' -> False;
-    'tak, ale zaokraglicie krawedzie?' -> False (pytanie -> LLM ma na nie odpowiedziec, nie handoff)."""
-    t = text or ""
+    """True tylko dla KROTKICH, jednoznacznych potwierdzen (bez negacji/korekty/pytania). Dluzsze
+    wypowiedzi oddajemy LLM-owi ('ok, a co z transportem' -> nie potwierdzenie); 'nie zgadza sie'
+    -> False; 'tak, ale zaokraglicie krawedzie?' -> False (pytanie -> LLM ma odpowiedziec)."""
+    t = (text or "").strip()
     if "?" in t:
+        return False
+    if len(t.split()) > 4:
         return False
     return bool(_POTW_RE.search(t)) and not _NEG_RE.search(t)
 

@@ -122,37 +122,53 @@ _CONFIRM_INSTR = (
     "normalnie, potwierdzono=false i handoff=false."
 )
 
-# Twardy wyzwalacz: prosba o czlowieka. Bierne wzmianki ('od/przez konsultanta') NIE licza sie.
-_HUMAN_RE = re.compile(r"\b(konsultant\w*|człowiek\w*|czlowiek\w*|doradc\w*|pracownik\w*|"
-                       r"agent\w*|zadzwoń\w*|zadzwon\w*|oddzwon\w*)\b", re.IGNORECASE)
-_HUMAN_PASYWNE_RE = re.compile(r"\b(od|przez|do)\s+(konsultant\w*|doradc\w*|pracownik\w*|agent\w*)",
-                               re.IGNORECASE)
+# Prosba o czlowieka wymaga INTENCJI (czasownik prosby przy rzeczowniku-osobie), zeby wzmianka
+# 'nasz pracownik odbierze' / 'jestem pracownikiem' nie wyzwalala handoffu (RX-04, MS-09).
+_OSOBA = r"(?:konsultant\w*|człowiek\w*|czlowiek\w*|doradc\w*|pracownik\w*|agent\w*)"
+_HUMAN_INTENCJA_RE = re.compile(
+    r"(?:(?:popro\w*|prosz\w*|prosi\w*|chc[ęe]|chcia[łl]\w*|wol[ęe]|wola[łl]\w*|po[łl][aą]cz\w*|"
+    r"prze[łl][aą]cz\w*|przeka[żz]\w*|daj\w*|dawa\w*|rozmawia\w*|porozmawia\w*|potrzebuj\w*)"
+    r"[\s\S]{0,40}" + _OSOBA + r"|\bz\s+" + _OSOBA + r")", re.IGNORECASE)
+# Prosba o oddzwonienie/telefon zwrotny = osobna intencja kontaktu z czlowiekiem (tryb rozkazujacy
+# lub 'prosze o telefon' — 'maz zadzwoni' to NIE prosba).
+_CALLBACK_RE = re.compile(
+    r"(oddzwo[nń]cie|zadzwo[nń]cie|prosz[ęe][\s\S]{0,25}(telefon|oddzwo|zadzwo)|"
+    r"telefon\s+zwrotn|numer\s+zwrotn)", re.IGNORECASE)
 
 # Pytanie o tozsamosc rozmowcy — NIE traktujemy jako prosby o czlowieka; niech LLM odpowie uczciwie.
 _PYTANIE_O_BOTA_RE = re.compile(
     r"(czy (jesteś|jestes) (botem|człowiekiem|czlowiekiem|robotem|prawdziw|maszyn)|"
+    r"(jesteś|jestes) (botem|robotem|sztuczn|prawdziw|człowiek\w*|czlowiek\w*)|"
     r"czy rozmawiam z (botem|człowiekiem|czlowiekiem|robotem|maszyn|prawdziw|ai|sztuczn)|"
     r"z kim (rozmawiam|mam przyjemność|mam przyjemnosc)|"
-    r"(jesteś|jestes) (botem|robotem|sztuczn|prawdziw)|"
     r"czy to (jest )?(bot|robot|ai|sztuczna)|"
-    r"bot\w* czy (człowiek|czlowiek)|człowiek\w* czy bot|czlowiek\w* czy bot)", re.IGNORECASE)
+    r"(bot|robot)\w* czy (z )?(człowiek|czlowiek)|(człowiek|czlowiek)\w* czy (z )?(bot|robot))",
+    re.IGNORECASE)
 
-# Reklamacja — twardy wyzwalacz. Sam rzeczownik uszkodzenia (wadliwy/pekl) NIE wystarcza:
-# musi byc intencja reklamacji ("reklamacj/reklamowa") ALBO uszkodzenie + kontekst posiadania
-# (moj/kupilem/zamowilem/dostalem/mi), zeby pytania przedsprzedazowe o trwalosc nie wyzwalaly handoffu.
+# Reklamacja — twardy wyzwalacz. Sam rzeczownik uszkodzenia NIE wystarcza: musi byc intencja
+# reklamacji ("reklamacj/reklamowa") ALBO uszkodzenie-DOKONANE (pekl/pekniety/uszkodzony — nie
+# hipotetyczne 'pęknie') + kontekst posiadania (moj/zamowilem/dostalem), a przy tym BRAK intencji
+# zakupu — zeby pytania przedsprzedazowe o trwalosc i motywacja zakupowa nie wyzwalaly handoffu.
 _REKLAMACJA_RE = re.compile(r"(reklamacj\w*|reklamowa\w*)", re.IGNORECASE)
-_USZKODZENIE_RE = re.compile(r"(pęk\w*|pek\w*|uszkodz\w*|wadliw\w*|zepsu\w*|wypacz\w*|odklei\w*)",
-                             re.IGNORECASE)
-_POSIADANIE_RE = re.compile(r"\b(mój|moje|moja|moim|kupi\w*|zamówi\w*|zamowi\w*|dostał\w*|dostal\w*|"
-                            r"otrzymał\w*|otrzymal\w*|zamówieni\w*|zamowieni\w*|mi)\b", re.IGNORECASE)
+_USZKODZENIE_RE = re.compile(
+    r"(pęk[łl]\w*|pek[łl]\w*|pękni[ę]\w*|pekniet\w*|popęka\w*|popek\w*|uszkodzon\w*|uszkodzi[łl]\w*|"
+    r"wadliw\w*|zepsu[łt]\w*|wypaczy[łl]\w*|wypaczo\w*|odklei[łl]\w*|odpad[łl]\w*)", re.IGNORECASE)
+_POSIADANIE_RE = re.compile(r"\b(mój|moje|moja|moim|kupił\w*|kupil\w*|kupion\w*|zamówi\w*|zamowi\w*|"
+                            r"dostał\w*|dostal\w*|otrzymał\w*|otrzymal\w*|zamówieni\w*|zamowieni\w*)\b",
+                            re.IGNORECASE)
+_ZAKUP_RE = re.compile(r"(chc[ęe]\s+(kupi|za?m[oó]wi)|kupi[ćc]|zam[oó]wi[ćc]|szuka\w*|"
+                       r"zainteresowan\w*|\bpoleca\w*)", re.IGNORECASE)
 
 
 def _czy_reklamacja(text):
-    """True gdy tresc to reklamacja: jawne 'reklamacj/reklamowa' albo uszkodzenie + posiadanie."""
+    """True gdy tresc to reklamacja: jawne 'reklamacj/reklamowa' ALBO uszkodzenie-dokonane +
+    posiadanie, ale NIE gdy widac intencje zakupu (klient pyta o nowy produkt)."""
     t = text or ""
     if _REKLAMACJA_RE.search(t):
         return True
-    return bool(_USZKODZENIE_RE.search(t) and _POSIADANIE_RE.search(t))
+    if _USZKODZENIE_RE.search(t) and _POSIADANIE_RE.search(t):
+        return not bool(_ZAKUP_RE.search(t))
+    return False
 
 
 COMPLAINT_MSG = ("Przykro nam z powodu problemu. Reklamacje przyjmujemy mailowo — prosimy o "
@@ -165,28 +181,40 @@ DEFLECT_MSG = ("Jasne, mogę połączyć Pana/Panią z konsultantem. Zanim to zr
 
 
 def _czy_prosi_o_czlowieka(text):
-    """True gdy tresc to prosba o czlowieka. Bierna wzmianka 'od/przez konsultanta' -> False."""
+    """True gdy tresc to prosba o czlowieka: intencja (prosba/rozmowa) przy rzeczowniku-osobie
+    albo prosba o oddzwonienie. Sama wzmianka ('nasz pracownik', 'od konsultanta') -> False."""
     t = text or ""
-    if _HUMAN_PASYWNE_RE.search(t):
-        return False
-    return bool(_HUMAN_RE.search(t))
+    if _CALLBACK_RE.search(t):
+        return True
+    return bool(_HUMAN_INTENCJA_RE.search(t))
 
 
-# Deterministyczne wykrycie potwierdzenia podsumowania (obok decyzji LLM).
-_POTW_RE = re.compile(r"\b(tak|zgadza|zgadzam|potwierdzam|potwierdzone|ok|okej|okay|zgoda|"
-                      r"pasuje|dokładnie|dokladnie|wysyłam|wysylam|super|świetnie|swietnie)\b",
+# Deterministyczne wykrycie potwierdzenia podsumowania (obok decyzji LLM). Lista rozszerzona o
+# najczestsze polskie potwierdzenia (RX-12); _NEG lapie tez odmiany 'zmienic/zamiast/jednak' (RX-02).
+_POTW_RE = re.compile(r"\b(tak|zgadza|zgadzam|potwierdzam|potwierdzone|ok|okej|okay|okey|zgoda|"
+                      r"pasuje|dokładnie|dokladnie|wysyłam|wysylam|super|świetnie|swietnie|"
+                      r"dobrze|dobra|jasne|git|spoko|zatwierdzam|działam\w*|dzialam\w*|bierzemy|"
+                      r"zamawiam|w porządku|w porzadku|może być|moze byc|niech będzie|niech bedzie)\b",
                       re.IGNORECASE)
-_NEG_RE = re.compile(r"\b(nie|źle|zle|błąd|blad|popraw\w*|zmień|zmien|inaczej|niepopr\w*)\b",
+_NEG_RE = re.compile(r"\b(nie|źle|zle|błąd|blad|popraw\w*|zmie[ńn]\w*|zamiast|jednak|inaczej|niepopr\w*)\b",
                      re.IGNORECASE)
 
 
 def _jest_potwierdzenie(text):
-    """True gdy tresc to czyste potwierdzenie (bez negacji/korekty/pytania). 'nie zgadza sie' -> False;
-    'tak, ale zaokraglicie krawedzie?' -> False (pytanie -> LLM ma na nie odpowiedziec, nie handoff)."""
-    t = text or ""
+    """True tylko dla KROTKICH, jednoznacznych potwierdzen (bez negacji/korekty/pytania). Dluzsze
+    wypowiedzi oddajemy LLM-owi ('ok, a co z transportem' -> nie potwierdzenie); 'nie zgadza sie'
+    -> False; 'tak, ale zaokraglicie krawedzie?' -> False (pytanie -> LLM ma odpowiedziec)."""
+    t = (text or "").strip()
     if "?" in t:
         return False
+    if len(t.split()) > 4:
+        return False
     return bool(_POTW_RE.search(t)) and not _NEG_RE.search(t)
+
+
+# Powod handoffu wskazujacy potwierdzenie podsumowania (LLM czesto parafrazuje _CONFIRM_INSTR i
+# dorzuca 'konsultanta') — w stanie awaiting traktujemy taki handoff jako potwierdzenie, nie oddanie.
+_POTWIERDZ_POWOD_RE = re.compile(r"potwierdz", re.IGNORECASE)
 
 
 # --- Stan rozmowy: licznik tur + flaga oczekiwania na potwierdzenie podsumowania ---
@@ -443,18 +471,52 @@ _PROSBA_KONTAKT = ("Jeśli poda Pan/Pani adres e-mail (lub telefon), zapiszę t�
                    "podawać, nie ma problemu — wycena wyżej pozostaje aktualna.")
 
 _EMAIL_RE = re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+")
-# Ograniczone do 9-15 cyfr (typowy numer PL z separatorami) + granice slowa, zeby dlugi
-# ciag cyfr (np. numer zamowienia) nie zostal pomylony z telefonem.
-_TEL_RE = re.compile(r"\b(?:\+?\d[\s-]?){9,15}\b")
-_ODMOWA_RE = re.compile(r"\b(nie|nie chc\w*|bez|rezygnuj\w*|pomi\w*|p[oó]zniej)\b", re.IGNORECASE)
+# Wlasne domeny firmowe — adres w nich (np. reklamacje@woodpower.pl, ktory bot sam wysyla)
+# NIE jest kontaktem klienta (RX-07).
+_WLASNE_DOMENY = ("woodpower.pl",)
+# Kandydat na telefon: ciag cyfr z separatorami; realnosc numeru waliduje _waliduj_tel (RX-06,
+# MS-10, SB-02 — odsiewa wymiary, NIP-y i numery zamowien).
+_TEL_CAND_RE = re.compile(r"\+?\d[\d \-]{7,}\d")
+_TEL_KONTEKST_ODRZUC = re.compile(r"(nip|zam[oó]wieni|faktur|\bnr\b|konto|iban|oferta|oferty|"
+                                  r"mm|cm|×|\bx\b)", re.IGNORECASE)
 
-_KOD_RE = re.compile(r"\b(\d{2}-\d{3})\b")
+# Jednoznaczna odmowa podania kontaktu/kodu — fraza intencji, nie gole 'nie'/'bez' (RX-05, LS-03,
+# SB-03, MS-01). Odroczenie ('podam pozniej') NIE jest odmowa (flaga zostaje) — patrz _POZNIEJ_RE.
+_ODMOWA_RE = re.compile(r"(nie\s*,?\s*dzięk\w*|nie\s*,?\s*dziek\w*|nie\s+chc\w*|nie\s+podam|"
+                        r"nie\s+teraz|nie\s+trzeba|nie\s+musz\w*|rezygnuj\w*|pomi[nń]\w*|"
+                        r"wol[ęe]\s+nie|obejdzie\s+si[eę]|bez\s+zapis\w*|bez\s+kontakt\w*)",
+                        re.IGNORECASE)
+_POZNIEJ_RE = re.compile(r"\b(p[oó][zź]niej|potem|za\s+chwil\w*|jutro|wr[oó]c[ęe]|"
+                         r"odezw\w*|dam\s+zna[ćc])\b", re.IGNORECASE)
+
+# Kod pocztowy: NN-NNN / 'NN NNN' / 'NNNNN'; z odsiewem zakresow wymiarow (40-120 cm) — RX-11,
+# SB-07, MS-06.
+_KOD_RE = re.compile(r"(?<!\d)(\d{2})[ -]?(\d{3})(?!\d)")
+_KOD_KONTEKST_ODRZUC = re.compile(r"(cm|mm|\bmiędzy\b|\bmiedzy\b|\bod\b|\bdo\b|szerok|"
+                                  r"długoś|dlugos|grubo|zakres|\bx\b|×)", re.IGNORECASE)
+
+
+def _czy_odmowa(text):
+    """True gdy tresc to jednoznaczna odmowa podania kontaktu/kodu. Pytanie (?) -> nie odmowa
+    (oddajemy LLM). Gole 'nie'/'bez'/'pomiary' NIE gasi juz lejka."""
+    t = text or ""
+    if "?" in t:
+        return False
+    return bool(_ODMOWA_RE.search(t))
 
 
 def _wyciagnij_kod(text):
-    """Kod pocztowy 00-000 z tekstu klienta albo None."""
-    m = _KOD_RE.search(str(text or ""))
-    return m.group(1) if m else None
+    """Kod pocztowy z tekstu klienta (NN-NNN znormalizowany) albo None. Odrzuca zakresy wymiarow
+    (kontekst cm/mm/miedzy/od/do/x) oraz pytania bez slow o wysylce."""
+    t = str(text or "")
+    if "?" in t and not re.search(r"(wysył|wysyl|dostaw|kod|paczk|kurier)", t, re.IGNORECASE):
+        return None
+    for m in _KOD_RE.finditer(t):
+        okno = t[max(0, m.start() - 12):min(len(t), m.end() + 6)]
+        if _KOD_KONTEKST_ODRZUC.search(okno):
+            continue
+        return "%s-%s" % (m.group(1), m.group(2))
+    return None
 
 
 _WYSYLKA_OFERTA = ("Mogę od razu oszacować koszt wysyłki 🚚 Proszę o kod pocztowy dostawy "
@@ -474,18 +536,43 @@ def _wysylka_msg(res):
         res.get("carrier_name") or "kurier", _fmt_pln(res.get("shipping_brutto")))
 
 
+def _waliduj_tel(cand):
+    """Czy kandydat to realny numer PL: 9 cyfr krajowych (opcjonalny prefiks +48/0048), pierwsza
+    cyfra 4-8 (odsiewa nr zamowienia '250...' i NIP 10-cyfrowy)."""
+    cyfry = re.sub(r"\D", "", cand)
+    if cyfry.startswith("0048") and len(cyfry) == 13:
+        cyfry = cyfry[4:]
+    elif cyfry.startswith("48") and len(cyfry) == 11:
+        cyfry = cyfry[2:]
+    if len(cyfry) != 9:
+        return False
+    return cyfry[0] in "45678"
+
+
 def _wyciagnij_kontakt(text):
-    """(email, telefon) z tekstu klienta; '' gdy brak. Telefon akceptujemy tylko gdy po odsianiu
-    separatorow ma 9-15 cyfr — chroni przed utrwaleniem ciagu cyfr (nr zamowienia/wymiary) jako tel."""
+    """(email, telefon) z tekstu klienta; '' gdy brak. E-mail w domenie firmowej (woodpower.pl)
+    odrzucany (RX-07). Telefon tylko realny numer PL, nie wymiary/NIP/nr zamowienia (RX-06/MS-10/SB-02)."""
     t = text or ""
-    email = _EMAIL_RE.search(t)
+    email = ""
+    for m in _EMAIL_RE.finditer(t):
+        adres = m.group(0)
+        low = adres.lower()
+        if any(low.endswith("@" + d) or ("@" + d) in low or low.endswith("." + d)
+               for d in _WLASNE_DOMENY):
+            continue
+        email = adres
+        break
     tel = ""
-    m = _TEL_RE.search(t)
-    if m:
-        cyfry = re.sub(r"\D", "", m.group(0))
-        if 9 <= len(cyfry) <= 15:
-            tel = m.group(0).strip()
-    return (email.group(0) if email else ""), tel
+    for m in _TEL_CAND_RE.finditer(t):
+        cand = m.group(0)
+        if not _waliduj_tel(cand):
+            continue
+        okno = t[max(0, m.start() - 16):min(len(t), m.end() + 4)]
+        if _TEL_KONTEKST_ODRZUC.search(okno):
+            continue
+        tel = cand.strip()
+        break
+    return email, tel
 
 
 # --- Trwaly kontakt klienta (zapamietany na cala rozmowe) + edit_uuid zapisanej wyceny ---
@@ -1280,9 +1367,37 @@ def run_quote_turn(conv_id, inbox_id, message_id, content, attachments=None):
         log("quotebot: conv %s status=%s - bot milczy" % (conv_id, status))
         return
 
-    # Bezpiecznik D: limit tur bota.
-    if _bot_turns(conv_id) >= BOT_QUOTE_MAX_TURNS:
-        _do_handoff(conv_id, "limit tur bota (bezpiecznik)", _load_dane(conv_id))
+    # --- Twarde wyzwalacze intencji PRZED bramkami kontaktu/kodu (RX-05/LS-03/MS-01: gole 'nie'/
+    # 'bez' w awaiting_* nie moze polykac reklamacji ani prosby o czlowieka) ---
+    rekl = _czy_reklamacja(content)
+    prosi = _czy_prosi_o_czlowieka(content) and not _PYTANIE_O_BOTA_RE.search(content or "")
+
+    # Reklamacja + jednoczesna prosba o czlowieka -> od razu handoff (SB-05: nie kaz prosic 3 razy).
+    if rekl and prosi:
+        _do_handoff(conv_id, "reklamacja + prośba o konsultanta", _load_dane(conv_id))
+        return
+
+    # Reklamacja — twardy wyzwalacz RAZ: instrukcja mailowa, BEZ handoffu (bot zostaje w rozmowie).
+    # Kolejne wiadomosci reklamacyjne (klient echuje adres/temat) ida do LLM (fix petli z E2E tura 3).
+    if rekl and not _complaint_sent(conv_id):
+        if not cw_agent_reply(conv_id, COMPLAINT_MSG, token=BOT_QUOTE_CW_AGENT_TOKEN):
+            raise RuntimeError("quotebot: wysylka instrukcji reklamacji nieudana (conv %s)" % conv_id)
+        _set_complaint_sent(conv_id, True)
+        _bump_turns(conv_id)
+        log("quotebot: reklamacja - instrukcja mailowa, bez handoffu (conv %s)" % conv_id)
+        return
+
+    # Prosba o czlowieka. W stanie potwierdzenia LUB po wczesniejszym odbiciu LUB po reklamacji
+    # (SB-05) -> przekaz od razu, bez deflect. Inaczej miekkie odbicie (raz).
+    if prosi:
+        if _awaiting_confirm(conv_id) or _human_deflected(conv_id) or _complaint_sent(conv_id):
+            _do_handoff(conv_id, "klient prosi o konsultanta", _load_dane(conv_id))
+            return
+        if not cw_agent_reply(conv_id, DEFLECT_MSG, token=BOT_QUOTE_CW_AGENT_TOKEN):
+            raise RuntimeError("quotebot: wysylka odbicia nieudana (conv %s)" % conv_id)
+        _set_human_deflected(conv_id, True)
+        _bump_turns(conv_id)
+        log("quotebot: miekkie odbicie prosby o czlowieka (conv %s)" % conv_id)
         return
 
     # Po wysłanej cenie czekamy na kontakt (miękko). Klient podał e-mail/telefon -> zapis.
@@ -1294,14 +1409,20 @@ def run_quote_turn(conv_id, inbox_id, message_id, content, attachments=None):
             _set_contact(conv_id, email, phone, nazwa)   # zapamietaj na kolejne wyceny
             _zapisz_wycene(conv_id, _load_dane(conv_id), crm_calc.get_options(), email, phone, nazwa)
             return
-        if _ODMOWA_RE.search(content or ""):
+        if _czy_odmowa(content):
             # Klient nie chce podawać kontaktu — respektujemy, koniec bez zapisu.
             _set_awaiting_contact(conv_id, False)
             cw_agent_reply(conv_id, "Jasne, nie ma problemu. Gdyby chciał Pan/Pani zapisać wycenę "
                            "lub coś doprecyzować — jestem do dyspozycji.", token=BOT_QUOTE_CW_AGENT_TOKEN)
             _bump_turns(conv_id)
             return
-        # Ani kontakt, ani odmowa -> normalna tura (klient pyta o coś innego) — leci dalej.
+        if _POZNIEJ_RE.search(content or ""):
+            # Odroczenie ('podam pozniej') — flaga ZOSTAJE, tylko potwierdzamy (nie gasimy lejka).
+            cw_agent_reply(conv_id, "Jasne, będę czekać — proszę podać e-mail lub telefon, gdy "
+                           "będzie wygodnie.", token=BOT_QUOTE_CW_AGENT_TOKEN)
+            _bump_turns(conv_id)
+            return
+        # Ani kontakt, ani odmowa/odroczenie -> normalna tura (klient pyta o coś innego) — leci dalej.
 
     # Po zapisaniu wyceny proponujemy wysylke — czekamy na kod pocztowy dostawy.
     if _awaiting_postcode(conv_id):
@@ -1310,38 +1431,25 @@ def run_quote_turn(conv_id, inbox_id, message_id, content, attachments=None):
             _set_awaiting_postcode(conv_id, False)
             _obsluz_wysylke(conv_id, kod)
             return
-        if _ODMOWA_RE.search(content or ""):
+        if _czy_odmowa(content):
             # Klient nie chce podawac kodu — respektujemy, koszt ustali konsultant.
             _set_awaiting_postcode(conv_id, False)
             cw_agent_reply(conv_id, "Jasne. Koszt wysyłki potwierdzi konsultant przy finalizacji "
                            "zamówienia.", token=BOT_QUOTE_CW_AGENT_TOKEN)
             _bump_turns(conv_id)
             return
+        if _POZNIEJ_RE.search(content or ""):
+            cw_agent_reply(conv_id, "Jasne, proszę podać kod pocztowy, gdy będzie wygodnie — "
+                           "oszacuję wtedy koszt wysyłki.", token=BOT_QUOTE_CW_AGENT_TOKEN)
+            _bump_turns(conv_id)
+            return
         # Ani kod, ani odmowa (np. samo miasto lub inne pytanie) -> normalna tura;
         # flaga zostaje, LLM (wg reguly promptu) dopyta o kod, kolejny kod znow przechwycimy.
 
-    # Reklamacja — twardy wyzwalacz RAZ: instrukcja mailowa, BEZ handoffu (bot zostaje w rozmowie).
-    # Kolejne wiadomosci reklamacyjne (klient echuje adres/temat) ida do LLM, zeby odpowiedziec
-    # na follow-up zamiast powtarzac canned (fix petli reklamacji z E2E tura 3).
-    if _czy_reklamacja(content) and not _complaint_sent(conv_id):
-        if not cw_agent_reply(conv_id, COMPLAINT_MSG, token=BOT_QUOTE_CW_AGENT_TOKEN):
-            raise RuntimeError("quotebot: wysylka instrukcji reklamacji nieudana (conv %s)" % conv_id)
-        _set_complaint_sent(conv_id, True)
-        _bump_turns(conv_id)
-        log("quotebot: reklamacja - instrukcja mailowa, bez handoffu (conv %s)" % conv_id)
-        return
-
-    # Prosba o czlowieka. Guard: pytanie o tozsamosc -> pomijamy (niech LLM odpowie uczciwie).
-    # W stanie potwierdzenia (komplet zebrany) prosba o konsultanta = przekaz od razu, bez deflect.
-    if _czy_prosi_o_czlowieka(content) and not _PYTANIE_O_BOTA_RE.search(content or ""):
-        if _awaiting_confirm(conv_id) or _human_deflected(conv_id):
-            _do_handoff(conv_id, "klient prosi o konsultanta", _load_dane(conv_id))
-            return
-        if not cw_agent_reply(conv_id, DEFLECT_MSG, token=BOT_QUOTE_CW_AGENT_TOKEN):
-            raise RuntimeError("quotebot: wysylka odbicia nieudana (conv %s)" % conv_id)
-        _set_human_deflected(conv_id, True)
-        _bump_turns(conv_id)
-        log("quotebot: miekkie odbicie prosby o czlowieka (conv %s)" % conv_id)
+    # Bezpiecznik D: limit tur bota — PO bramkach kontaktu/kodu (MS-11: e-mail/kod z ostatniej
+    # tury zostaje skonsumowany, nie przepada w handoffie z limitu).
+    if _bot_turns(conv_id) >= BOT_QUOTE_MAX_TURNS:
+        _do_handoff(conv_id, "limit tur bota (bezpiecznik)", _load_dane(conv_id))
         return
 
     history = cw_messages(conv_id, BOT_HISTORY_LIMIT)
@@ -1427,11 +1535,13 @@ def run_quote_turn(conv_id, inbox_id, message_id, content, attachments=None):
 
     brak = _brakujace(dane)
 
-    # Bramka potwierdzenia (PL-02): w stanie awaiting potwierdzenie ma PIERWSZENSTWO przed handoffem.
-    # Klient potwierdzil wyslane podsumowanie (LLM: potwierdzono=true LUB deterministyczne _POTW_RE)
-    # -> licz cene, NIE oddawaj rozmowy czlowiekowi — nawet gdy LLM (parafrazujac 'konsultanta')
-    # ustawil handoff=true z mylnym powodem, ktory _POWOD_PRZEPUSC blednie by przepuscil.
-    if awaiting and not brak and not zmienione and (out.get("potwierdzono") or _jest_potwierdzenie(content)):
+    # Bramka potwierdzenia (PL-02, RX-09): w stanie awaiting potwierdzenie ma PIERWSZENSTWO przed
+    # handoffem. Sygnal potwierdzenia = pole 'potwierdzono' od LLM, deterministyczne _POTW_RE dla
+    # krotkich wypowiedzi, ALBO handoff z powodem zawierajacym 'potwierdz' (LLM parafrazujacy
+    # 'konsultanta' — _POWOD_PRZEPUSC blednie by go przepuscil do czlowieka). Wtedy licz cene.
+    if awaiting and not brak and not zmienione and (
+            out.get("potwierdzono") or _jest_potwierdzenie(content)
+            or (out["handoff"] and _POTWIERDZ_POWOD_RE.search(out.get("powod") or ""))):
         _wyslij_cene_i_kontakt(conv_id, dane, cw_contact_full(conv_id))
         return
 
