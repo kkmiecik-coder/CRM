@@ -10,6 +10,7 @@ from config import CRM_API_BASE, CRM_BOT_API_KEY, BOT_QUOTE_CLIENT_TYPE
 from core.log import log
 
 _OPTIONS_TTL = 600.0
+_OPTIONS_NEG_TTL = 30.0   # krotki cache negatywny — awaria CRM nie blokuje workera wieloma wywolaniami (API-08)
 _opt_cache = {"data": None, "ts": 0.0}
 
 # Lokalna kopia mapy wariantow (zsynchronizowana z modules/calculator/services/pricing_service.py).
@@ -36,17 +37,23 @@ def _reset_cache():
 
 
 def get_options(force=False):
-    """Katalog z /api/bot/options z cache TTL. {} przy bledzie (bot wtedy dopyta/handoff)."""
+    """Katalog z /api/bot/options z cache TTL. {} przy bledzie (bot wtedy dopyta/handoff).
+    Pusty wynik (awaria) cache'owany krotko (_OPTIONS_NEG_TTL), zeby jedna tura nie robila kilku
+    blokujacych wywolan po timeout i nie zamrazala jednowatkowego workera (API-08)."""
     now = time.time()
-    if not force and _opt_cache["data"] is not None and (now - _opt_cache["ts"]) < _OPTIONS_TTL:
-        return _opt_cache["data"]
+    if not force and _opt_cache["data"] is not None:
+        ttl = _OPTIONS_TTL if _opt_cache["data"] else _OPTIONS_NEG_TTL
+        if (now - _opt_cache["ts"]) < ttl:
+            return _opt_cache["data"]
     try:
-        r = requests.get(CRM_API_BASE + "/api/bot/options", headers=_headers(), timeout=25)
+        r = requests.get(CRM_API_BASE + "/api/bot/options", headers=_headers(), timeout=10)
         if r.status_code != 200:
-            log("crm_calc /options kod:", r.status_code, r.text[:200]); return {}
+            log("crm_calc /options kod:", r.status_code, r.text[:200])
+            _opt_cache["data"] = {}; _opt_cache["ts"] = now; return {}
         data = r.json() or {}
     except Exception as e:
-        log("crm_calc /options blad:", repr(e)); return {}
+        log("crm_calc /options blad:", repr(e))
+        _opt_cache["data"] = {}; _opt_cache["ts"] = now; return {}
     _opt_cache["data"] = data
     _opt_cache["ts"] = now
     return data

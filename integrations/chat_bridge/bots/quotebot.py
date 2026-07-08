@@ -30,6 +30,20 @@ _PROSBA_DOPRECYZ = ("Żeby dokończyć wycenę, potrzebuję jeszcze doprecyzowan
                     "lakierze lub oleju proszę o kolor i poziom połysku (mat / półmat / połysk). "
                     "Które wybieramy?")
 
+def _pytanie_z_missing(missing):
+    """Buduje pytanie z pol 'missing_fields' /calculate (hinty sa juz po polsku). Pomija braki
+    poziomu wyceny (client_type = konfiguracja bota, nie pytanie do klienta). None gdy brak pytania."""
+    hinty = [str(m.get("hint") or "").strip() for m in (missing or [])
+             if m.get("field") not in (None, "client_type", "products")]
+    hinty = [h for h in hinty if h]
+    if not hinty:
+        return None
+    uniq = list(dict.fromkeys(hinty))   # zachowaj kolejnosc, usun duplikaty
+    if len(uniq) == 1:
+        return "Żeby policzyć wycenę, potrzebuję jeszcze: %s." % uniq[0]
+    return "Żeby policzyć wycenę, potrzebuję jeszcze:\n" + "\n".join("- %s" % h for h in uniq)
+
+
 _MAX_PROBEK = 3   # limit probek wg konfiguracji doklejanych do jednego podsumowania
 _PROBKA_PODPIS = "Poniżej próbka wybranego wykończenia 👇"
 
@@ -1273,13 +1287,23 @@ def _wyslij_cene_i_kontakt(conv_id, dane, identity):
     options = crm_calc.get_options()
     wynik = crm_calc.calculate(dane.get("pozycje") or [], options)
     if not wynik.get("ok") or not wynik.get("totals"):
-        # Nie da sie policzyc automatycznie (najczesciej: brak konkretnego wariantu wykonczenia dla
-        # lakieru/oleju — kolor/polysk). NIE przekazujemy do konsultanta — prosimy o doprecyzowanie
-        # i wracamy do zbierania (bez awaiting_confirm), zeby dokonczyc wycene.
-        cw_agent_reply(conv_id, _PROSBA_DOPRECYZ, token=BOT_QUOTE_CW_AGENT_TOKEN)
+        # Rozgałęzienie po przyczynie (API-03), zamiast zlewac wszystko w komunikat o lakierze:
+        errors = wynik.get("errors") or []
+        kody = {str(e.get("code") or "") for e in errors}
+        if any(k == "TRANSPORT" or k.startswith("HTTP_") for k in kody):
+            # Awaria CRM -> RuntimeError: worker ponawia z backoffem, po wyczerpaniu uczciwe
+            # przeprosiny + handoff (handoff_with_apology). Bez tego surowy blat slyszy o lakierze.
+            raise RuntimeError("quotebot: /calculate awaria transportu (conv %s)" % conv_id)
+        pytanie = _pytanie_z_missing(wynik.get("missing_fields") or [])
+        if pytanie:
+            # bot_api zwrocil konkretne braki pol z polskimi hintami -> pytamy o nie wprost.
+            cw_agent_reply(conv_id, pytanie, token=BOT_QUOTE_CW_AGENT_TOKEN)
+        else:
+            # Dopiero braki_mapowania (najczesciej lakier/olej bez koloru i polysku) -> doprecyzowanie.
+            cw_agent_reply(conv_id, _PROSBA_DOPRECYZ, token=BOT_QUOTE_CW_AGENT_TOKEN)
         _set_awaiting(conv_id, False)
         _bump_turns(conv_id)
-        log("quotebot: wycena nieudana (braki mapowania) -> prosba o doprecyzowanie (conv %s)" % conv_id)
+        log("quotebot: wycena nieudana -> dopytanie (conv %s)" % conv_id)
         return
     if not cw_agent_reply(conv_id, _cena_msg(dane, wynik), token=BOT_QUOTE_CW_AGENT_TOKEN):
         raise RuntimeError("quotebot: wysylka ceny nieudana (conv %s)" % conv_id)
