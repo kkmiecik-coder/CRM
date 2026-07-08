@@ -22,6 +22,9 @@ from bots import crm_calc
 
 # Komunikaty stale (edytowalne). Bez obietnic czasowych — patrz spec §13.
 CLOSING_MSG = "Dziękuję za informacje! Przekazuję rozmowę do konsultanta WoodPower — odpowiemy w tej rozmowie."
+# Komunikat dedykowany dla handoffu z limitu tur (LS-11) — nie zaklada, ze klient wlasnie cos podal.
+LIMIT_MSG = ("Sporo już ustaliliśmy — przekazuję rozmowę do konsultanta WoodPower, który poprowadzi "
+             "ją dalej (ma komplet naszych ustaleń).")
 APOLOGY_MSG = ("Przepraszam, mam chwilowy problem techniczny z odpowiedzią. "
                "Przekazuję rozmowę do konsultanta WoodPower.")
 # Wycena nie policzyla sie automatycznie (najczesciej lakier/olej bez koloru i polysku) —
@@ -1264,19 +1267,23 @@ def _walidacja_domenowa(dane, options):
 # --- Handoff + podsumowanie ---
 
 def _do_handoff(conv_id, powod, dane, closing=CLOSING_MSG):
-    """Przekazanie rozmowy agentom: NAJPIERW toggle statusu (open), potem notatka i domkniecie.
-    Kolejnosc celowa: gdy toggle padnie, rzucamy PRZED wyslaniem czegokolwiek do klienta —
-    retry w workerze przebiega czysto, bez zdublowanych wiadomosci."""
+    """Przekazanie rozmowy agentom. Kolejnosc (API-05): notatka + komunikat zamkniecia PRZED
+    toggle statusu, toggle jako OSTATNI krok — gdy notatka/closing padnie, status wciaz 'pending'
+    i worker ponawia ture czysto (bez cichej rozmowy w 'open'). Reset stanu jest MIEKKI (MS-03/
+    SB-10): zerujemy tylko flagi konwersacyjne, a quote_dane/quote_edit_uuid/contact_*/sent_images
+    ZOSTAJA — powrot rozmowy do bota nie zaczyna od zera i nie tworzy wyceny-sieroty."""
+    cw_note(conv_id, _summary_note(dane, powod), token=BOT_QUOTE_CW_AGENT_TOKEN)   # rzuca przy awarii -> retry
+    if not cw_agent_reply(conv_id, closing, token=BOT_QUOTE_CW_AGENT_TOKEN):
+        raise RuntimeError("quotebot: wysylka zamkniecia handoffu nieudana (conv %s)" % conv_id)
     if not cw_bot_handoff(conv_id, token=BOT_QUOTE_CW_AGENT_TOKEN):
         raise RuntimeError("quotebot: handoff nieudany (conv %s)" % conv_id)
-    # Reset stanu (licznik tur + awaiting_confirm + dane): gdy agent odda rozmowe botowi
-    # (open->pending), bot startuje od zera.
+    # Miekki reset: zeruj bot_turns/awaiting_*/human_deflected/reject_* (inaczej powrot do pending
+    # od razu znow trafilby w limit tur), ZACHOWAJ quote_dane, edit_uuid, kontakt, sent_images.
     c = db()
-    c.execute("DELETE FROM quote_state WHERE conv_id=?", (conv_id,))
-    c.execute("DELETE FROM quote_dane WHERE conv_id=?", (conv_id,))
+    c.execute("UPDATE quote_state SET bot_turns=0, awaiting_confirm=0, awaiting_contact=0, "
+              "awaiting_postcode=0, human_deflected=0, reject_sig='', reject_count=0 WHERE conv_id=?",
+              (conv_id,))
     c.commit(); c.close()
-    cw_note(conv_id, _summary_note(dane, powod), token=BOT_QUOTE_CW_AGENT_TOKEN)
-    cw_agent_reply(conv_id, closing, token=BOT_QUOTE_CW_AGENT_TOKEN)
     log("quotebot: handoff conv %s (%s)" % (conv_id, powod))
 
 
@@ -1552,9 +1559,9 @@ def run_quote_turn(conv_id, inbox_id, message_id, content, attachments=None):
         # flaga zostaje, LLM (wg reguly promptu) dopyta o kod, kolejny kod znow przechwycimy.
 
     # Bezpiecznik D: limit tur bota — PO bramkach kontaktu/kodu (MS-11: e-mail/kod z ostatniej
-    # tury zostaje skonsumowany, nie przepada w handoffie z limitu).
+    # tury zostaje skonsumowany, nie przepada w handoffie z limitu). Dedykowany komunikat (LS-11).
     if _bot_turns(conv_id) >= BOT_QUOTE_MAX_TURNS:
-        _do_handoff(conv_id, "limit tur bota (bezpiecznik)", _load_dane(conv_id))
+        _do_handoff(conv_id, "limit tur bota (bezpiecznik)", _load_dane(conv_id), closing=LIMIT_MSG)
         return
 
     history = cw_messages(conv_id, BOT_HISTORY_LIMIT)
