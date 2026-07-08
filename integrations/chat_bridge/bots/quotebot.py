@@ -115,10 +115,11 @@ _FORMAT = (
 # Instrukcja stanu potwierdzenia — doklejana do promptu, gdy klient dostal podsumowanie od systemu.
 _CONFIRM_INSTR = (
     "STAN ROZMOWY: klient właśnie otrzymał od systemu podsumowanie danych do wyceny i ma je "
-    "potwierdzić. Jeśli potwierdza (np. 'tak', 'zgadza się', 'ok') — ustaw handoff=true z powodem "
-    "'klient potwierdził dane do wyceny'. Jeśli coś koryguje lub dodaje — zaktualizuj pozycje "
-    "(system wyśle nowe podsumowanie), handoff=false. Jeśli pyta o coś innego — odpowiedz "
-    "normalnie, handoff=false."
+    "potwierdzić. Jeśli potwierdza (np. 'tak', 'zgadza się', 'ok', 'działajmy') — ustaw pole "
+    "\"potwierdzono\": true i NIE ustawiaj handoff (cenę policzy i wyśle system, rozmowa NIE idzie "
+    "do konsultanta). Jeśli coś koryguje lub dodaje — zaktualizuj pozycje (system wyśle nowe "
+    "podsumowanie), potwierdzono=false i handoff=false. Jeśli pyta o coś innego — odpowiedz "
+    "normalnie, potwierdzono=false i handoff=false."
 )
 
 # Twardy wyzwalacz: prosba o czlowieka. Bierne wzmianki ('od/przez konsultanta') NIE licza sie.
@@ -753,6 +754,7 @@ def _z_dict(d):
     """Buduje znormalizowany wynik tury z dict-a LLM."""
     return {"odpowiedz": (d.get("odpowiedz") or "").strip(),
             "handoff": bool(d.get("handoff")),
+            "potwierdzono": bool(d.get("potwierdzono")),
             "powod": (d.get("powod") or "").strip(),
             "send_image": (d.get("send_image") or "").strip(),
             "pozycje": d.get("pozycje") if isinstance(d.get("pozycje"), list) else [],
@@ -799,8 +801,8 @@ def _parse_llm(raw):
     if emb is not None:
         return _z_dict(emb)
     # Fallback: model zignorowal format — traktujemy calosc jako tekst do klienta.
-    return {"odpowiedz": txt, "handoff": False, "powod": "", "send_image": "",
-            "pozycje": [], "wspolne": {}, "porownania": []}
+    return {"odpowiedz": txt, "handoff": False, "potwierdzono": False, "powod": "",
+            "send_image": "", "pozycje": [], "wspolne": {}, "porownania": []}
 
 
 # --- Podsumowanie do potwierdzenia + notatka dla agenta ---
@@ -1424,6 +1426,14 @@ def run_quote_turn(conv_id, inbox_id, message_id, content, attachments=None):
         _set_reject(conv_id, "", 0)   # walidacja OK -> reset licznika odrzucen
 
     brak = _brakujace(dane)
+
+    # Bramka potwierdzenia (PL-02): w stanie awaiting potwierdzenie ma PIERWSZENSTWO przed handoffem.
+    # Klient potwierdzil wyslane podsumowanie (LLM: potwierdzono=true LUB deterministyczne _POTW_RE)
+    # -> licz cene, NIE oddawaj rozmowy czlowiekowi — nawet gdy LLM (parafrazujac 'konsultanta')
+    # ustawil handoff=true z mylnym powodem, ktory _POWOD_PRZEPUSC blednie by przepuscil.
+    if awaiting and not brak and not zmienione and (out.get("potwierdzono") or _jest_potwierdzenie(content)):
+        _wyslij_cene_i_kontakt(conv_id, dane, cw_contact_full(conv_id))
+        return
 
     # Wyzwalacze B/C (decyzja LLM) + straznik kompletnosci + bramka potwierdzenia.
     if out["handoff"]:
