@@ -22,11 +22,15 @@ def _is_gpt5(model):
     return (model or "").lower().startswith("gpt-5")
 
 
-def chat(messages, model=None, temperature=0.3, timeout=40):
+def chat(messages, model=None, temperature=0.3, timeout=40, response_format=None):
     # Zwraca tresc odpowiedzi modelu albo None przy bledzie.
+    # response_format (np. {"type":"json_object"}) wymusza JSON u botow wyceniajacych — przekazywany
+    # tylko przez nie; suggester (proza) go nie ustawia.
     mdl = model or BOT_CHAT_MODEL
     # max_completion_tokens dziala dla nowych i starych modeli; max_tokens jest deprecated i odrzucany przez GPT-5.
     payload = {"model": mdl, "messages": messages, "max_completion_tokens": BOT_MAX_TOKENS}
+    if response_format:
+        payload["response_format"] = response_format
     if _is_reasoning_model(mdl):
         # GPT-5: sterujemy glebokoscia myslenia i dlugoscia odpowiedzi (temperature pomijamy — nieobslugiwane).
         if _is_gpt5(mdl):
@@ -39,7 +43,14 @@ def chat(messages, model=None, temperature=0.3, timeout=40):
                           json=payload, timeout=timeout)
         if r.status_code != 200:
             log("OpenAI chat kod:", r.status_code, r.text[:200]); return None
-        return (r.json()["choices"][0]["message"]["content"] or "").strip() or None
+        data = r.json() or {}
+        choice = (data.get("choices") or [{}])[0]
+        finish = choice.get("finish_reason")
+        # finish_reason != 'stop' (np. 'length' = ucicie limitem tokenow, w tym reasoningu GPT-5)
+        # logujemy, zeby ucicia byly widoczne zamiast objawiac sie jako 'brak odpowiedzi' (PL-04).
+        if finish and finish != "stop":
+            log("OpenAI chat finish_reason=%s usage=%s" % (finish, data.get("usage") or {}))
+        return ((choice.get("message") or {}).get("content") or "").strip() or None
     except Exception as e:
         log("OpenAI chat blad:", repr(e)); return None
 

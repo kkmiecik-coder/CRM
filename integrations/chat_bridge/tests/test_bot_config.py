@@ -15,7 +15,7 @@ def test_domyslne_wartosci_botow():
     assert cfg.BOT_RETRIEVAL_K == 5
     assert cfg.BOT_HISTORY_LIMIT == 12
     assert cfg.BOT_MAX_ATTEMPTS == 3
-    assert cfg.BOT_MAX_TOKENS == 2000
+    assert cfg.BOT_MAX_TOKENS == 4000   # podniesione w FAZIE 0 zad.4 (PL-04)
     assert cfg.BOT_REASONING_EFFORT == "low"
     assert cfg.OPENAI_API_BASE == "https://api.openai.com/v1"
     assert cfg.BOT_LIVE_MAX_TURNS == 30

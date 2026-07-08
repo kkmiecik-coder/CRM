@@ -887,7 +887,11 @@ def _parse_llm(raw):
     emb = _znajdz_json(txt)   # proza + JSON -> uzyj osadzonego obiektu (bez wycieku JSON do klienta)
     if emb is not None:
         return _z_dict(emb)
-    # Fallback: model zignorowal format — traktujemy calosc jako tekst do klienta.
+    # Zaostrzenie (PL-03): tekst wygladajacy na JSON (ucięty limitem tokenow / uszkodzony) NIE moze
+    # trafic do klienta jako 'odpowiedz'. Rzucamy -> worker ponawia ture (retry zwykle naprawia).
+    if txt.startswith("{") or '"odpowiedz"' in txt or '"pozycje"' in txt:
+        raise RuntimeError("quotebot: odpowiedz LLM wyglada na uszkodzony/ucięty JSON")
+    # Fallback: czysta proza (bez markerow JSON) — traktujemy calosc jako tekst do klienta.
     return {"odpowiedz": txt, "handoff": False, "potwierdzono": False, "powod": "",
             "send_image": "", "pozycje": [], "wspolne": {}, "porownania": []}
 
@@ -1491,7 +1495,7 @@ def run_quote_turn(conv_id, inbox_id, message_id, content, attachments=None):
         if urls:
             attach_images(messages, urls)
 
-    raw = chat(messages)
+    raw = chat(messages, response_format={"type": "json_object"})
     if not raw:
         raise RuntimeError("quotebot: brak odpowiedzi modelu")
     out = _parse_llm(raw)
