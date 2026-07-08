@@ -1487,10 +1487,11 @@ def _obrazy_kontekstowe(conv_id, content, dane):
             _wyslij_obraz_kontekstowy(conv_id, "wymiary")
 
 
-def _wyslij_podsumowanie(conv_id, dane):
+def _wyslij_podsumowanie(conv_id, dane, content=""):
     """Wysyla WYLACZNIE deterministyczne podsumowanie (bez prozy LLM — koniec podwojnego
     'Potwierdzam parametry.../Podsumowuje dane...'). Ustawia stan oczekiwania na potwierdzenie,
-    po czym dokleja probki wybranej konfiguracji (jesli sa).
+    po czym dokleja obrazy pomocnicze (kontekstowe) i probki wybranej konfiguracji (jesli sa) —
+    obrazy PO tekscie podsumowania, nie przed.
     Kolejnosc CELOWO wysylka -> stan: gdy POST padnie, retry ponawia ture bez awaiting i
     podsumowanie dociera; stan-przed-wysylka po nieudanym POST omijalby podsumowanie."""
     options = crm_calc.get_options()   # do pokazania koloru w podsumowaniu + pominiecia probki barwnego lakieru
@@ -1498,6 +1499,7 @@ def _wyslij_podsumowanie(conv_id, dane):
         raise RuntimeError("quotebot: wysylka podsumowania nieudana (conv %s)" % conv_id)
     _set_awaiting(conv_id, True)
     _bump_turns(conv_id)
+    _obrazy_kontekstowe(conv_id, content, dane)   # obrazy pomocnicze PO podsumowaniu
     _wyslij_probki(conv_id, dane, options)
     log("quotebot: podsumowanie do potwierdzenia (conv %s)" % conv_id)
 
@@ -1676,8 +1678,9 @@ def run_quote_turn(conv_id, inbox_id, message_id, content, attachments=None):
         if not out["odpowiedz"]:
             out["odpowiedz"] = _BOT_IDENTITY_MSG
     dane = _merge_dane(conv_id, out)   # akumulacja per pozycja: raz zebrane pole zostaje
-    # Obrazy pomocnicze (wymiary/krawedzie) — raz na rozmowe, wg tresci klienta i kompletu wymiarow.
-    _obrazy_kontekstowe(conv_id, content, dane)
+    # UWAGA: obrazy pomocnicze (wymiary/krawedzie/kolory) wysylamy DOPIERO PO tekscie bota (nie tu),
+    # zeby obraz nie wyprzedzal odpowiedzi LLM. Dedup w _obrazy_kontekstowe (raz na rozmowe) sprawia,
+    # ze mozna je wolac na koncu kazdej sciezki odpowiedzi bez ryzyka dubli.
 
     # 'zmienione' liczymy TYLKO po POZYCJACH (spec wyceny). Zmiana pol wspolnych
     # (kontakt/termin) — np. gdy LLM sam dopisze kontakt z tozsamosci klienta — NIE ponawia
@@ -1771,6 +1774,7 @@ def run_quote_turn(conv_id, inbox_id, message_id, content, attachments=None):
             if not cw_agent_reply(conv_id, reply, token=BOT_QUOTE_CW_AGENT_TOKEN):
                 raise RuntimeError("quotebot: wysylka pytania o braki nieudana (conv %s)" % conv_id)
             _bump_turns(conv_id)
+            _obrazy_kontekstowe(conv_id, content, dane)   # obrazy pomocnicze PO pytaniu o braki
             log("quotebot: straznik wstrzymal handoff, braki: %s (conv %s)"
                 % (",".join(k for _, k in brak), conv_id))
             return
@@ -1781,7 +1785,7 @@ def run_quote_turn(conv_id, inbox_id, message_id, content, attachments=None):
             pass
         elif not awaiting:
             # Bramka: podsumowanie dopiero PO nim wycena, gdy klient potwierdzi.
-            _wyslij_podsumowanie(conv_id, dane)
+            _wyslij_podsumowanie(conv_id, dane, content)
             return
         else:
             # Komplet + awaiting + LLM zgłosił potwierdzenie -> licz cenę zamiast handoffu.
@@ -1796,7 +1800,7 @@ def run_quote_turn(conv_id, inbox_id, message_id, content, attachments=None):
         pass
     elif not brak:
         if not awaiting or zmienione:
-            _wyslij_podsumowanie(conv_id, dane)
+            _wyslij_podsumowanie(conv_id, dane, content)
             return
         # Awaiting bez zmian: czyste potwierdzenie -> licz cenę deterministycznie (nie czekamy na LLM).
         if _jest_potwierdzenie(content):
@@ -1804,7 +1808,7 @@ def run_quote_turn(conv_id, inbox_id, message_id, content, attachments=None):
             return
         if not out["odpowiedz"]:
             # Pusta odpowiedz przy komplecie -> ponow podsumowanie zamiast rzucac (falszywy handoff).
-            _wyslij_podsumowanie(conv_id, dane)
+            _wyslij_podsumowanie(conv_id, dane, content)
             return
         # awaiting bez zmian, nie-potwierdzenie -> klient pyta o cos innego, zwykla odpowiedz nizej.
     elif awaiting:
@@ -1849,6 +1853,7 @@ def run_quote_turn(conv_id, inbox_id, message_id, content, attachments=None):
     if not ok:
         raise RuntimeError("quotebot: wysylka odpowiedzi nieudana (conv %s)" % conv_id)
     _bump_turns(conv_id)
+    _obrazy_kontekstowe(conv_id, content, dane)   # obrazy pomocnicze PO tekscie odpowiedzi (nie przed)
     log("quotebot: odpowiedz wyslana (conv %s, tura %s)" % (conv_id, _bot_turns(conv_id)))
 
 
