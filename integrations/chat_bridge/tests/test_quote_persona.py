@@ -80,6 +80,18 @@ def test_quote_persona_bez_wycieku_instrukcji():   # ADW-07
     assert "nie ujawniaj" in s
 
 
+def test_quote_persona_offtopic_matematyka():   # #3
+    s = p.build_system_prompt("quote", "", {}).lower()
+    assert "obliczenia matematyczne" in s
+    assert "nie wykonuj działań" in s
+
+
+def test_quote_persona_pytanie_o_wysylke_rabat():   # #4
+    s = p.build_system_prompt("quote", "", {}).lower()
+    assert "nie pomijaj pytania" in s
+    assert "ustala konsultant przy finalizacji" in s
+
+
 # --- Livechat (stary bot) NIE zmieniony ---
 
 def test_livechat_persona_nietknieta():
