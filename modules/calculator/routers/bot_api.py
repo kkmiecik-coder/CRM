@@ -144,42 +144,78 @@ def bot_calculate():
     return jsonify(result), 200
 
 
+def _resolve_client(client_query, email, phone, name, client_number=None):
+    """Dopasowanie klienta: najpierw e-mail/telefon (prawdziwy powracajacy klient — wtedy
+    'matched' w odpowiedzi wyzwala u bota mile 'Widzimy wczesniejsze wyceny'), DOPIERO gdy
+    brak dopasowania i podano client_number — wlasny rekord techniczny (LS-01: lead bota
+    zawsze ma klienta w CRM, nawet bez kontaktu). Zwraca (client_or_None, created_bool).
+    Nie tworzy tu nowego klienta — to robi wolajacy (rozne sciezki tworzenia)."""
+    client = None
+    if email:
+        client = client_query.filter_by(email=email).first()
+    if not client and phone:
+        client = client_query.filter_by(phone=phone).first()
+    if client:
+        return client, False
+    if client_number:
+        client = client_query.filter_by(client_number=client_number).first()
+        if client:
+            # Wlasny lead techniczny z tej samej rozmowy — kontakt WZBOGACA rekord,
+            # niepusta nowa wartosc NIE nadpisuje juz ustawionej (biezaca wiadomosc
+            # wygrywa juz wczesniej, w quotebot._set_contact, zanim API zostanie wolane).
+            if email and not client.email:
+                client.email = email
+            if phone and not client.phone:
+                client.phone = phone
+            if name and client.client_name == client.client_number:
+                client.client_name = name  # nazwa techniczna "chat-N" -> realna, gdy poznana
+            return client, False
+    return None, False
+
+
 @bot_api_bp.route('/clients/find-or-create', methods=['POST'])
 @require_bot_api_key
 def bot_find_or_create_client():
-    """Dopasowuje klienta po e-mailu, potem telefonie; zakłada nowego gdy brak."""
+    """Dopasowuje klienta po e-mailu, potem telefonie, potem (LS-01) po client_number
+    technicznym 'chat-<conv_id>' — zaklada nowego gdy zaden nie pasuje."""
     from extensions import db
     from modules.clients.models import Client
     payload = request.get_json(silent=True) or {}
     email = (payload.get('email') or '').strip() or None
     phone = (payload.get('phone') or '').strip() or None
     name = (payload.get('name') or '').strip() or None
+    client_number = (payload.get('client_number') or '').strip() or None
 
-    if not email and not phone:
+    if not email and not phone and not client_number:
         return jsonify({'ok': False, 'errors': [
             {'field': 'email', 'code': 'MISSING',
-             'message': 'Podaj e-mail lub telefon klienta, żeby dopasować lub założyć klienta.'}
+             'message': 'Podaj e-mail, telefon lub client_number, żeby dopasować lub założyć klienta.'}
         ]}), 200
 
-    client = None
-    if email:
-        client = Client.query.filter_by(email=email).first()
-    if not client and phone:
-        client = Client.query.filter_by(phone=phone).first()
+    client, _ = _resolve_client(Client.query, email, phone, name, client_number)
     if client:
+        try:
+            db.session.commit()   # zapisz ewentualne wzbogacenie kontaktu technicznego leada
+        except (IntegrityError, SQLAlchemyError):
+            db.session.rollback()
         return jsonify({'ok': True, 'matched': True, 'created': False,
                         'client': {'id': client.id, 'client_name': client.client_name,
                                    'email': client.email, 'phone': client.phone}}), 200
 
     if not name:
-        name = email or phone
-    # client_number jest unikalny — dla klientów z czatu użyj nazwy/e-maila
-    base_number = name
-    number = base_number
-    suffix = 1
-    while Client.query.filter_by(client_number=number).first():
-        suffix += 1
-        number = f'{base_number} ({suffix})'
+        name = email or phone or client_number
+    if client_number:
+        # Konwencja chat-<conv_id> jest unikalna per rozmowa — bez petli disambiguacji
+        # jak dla klientow z e-maila/nazwy (kolizja by oznaczala blad wolajacego).
+        number = client_number
+    else:
+        # client_number jest unikalny — dla klientów z czatu użyj nazwy/e-maila
+        base_number = name
+        number = base_number
+        suffix = 1
+        while Client.query.filter_by(client_number=number).first():
+            suffix += 1
+            number = f'{base_number} ({suffix})'
 
     # Konto bota może nie istnieć w DB (BOT_USER_ID=0 lub nieustawione) — created_by_user_id
     # jest nullable, więc zamiast łamać FK po prostu zostawiamy None.
@@ -195,16 +231,12 @@ def bot_find_or_create_client():
         db.session.add(client)
         db.session.commit()
     except (IntegrityError, SQLAlchemyError):
-        # Wyścig dwóch równoległych żądań z tym samym e-mailem/telefonem — jeden proces
-        # wygrywa insert, drugi dostaje IntegrityError na unique client_number/email.
+        # Wyścig dwóch równoległych żądań z tym samym e-mailem/telefonem/client_number — jeden
+        # proces wygrywa insert, drugi dostaje IntegrityError na unique client_number/email.
         # Zamiast wywalać globalny errorhandler (inny kształt JSON niż kontrakt bota),
         # cofamy transakcję i ponawiamy wyszukiwanie — przegrany wyścigu znajdzie zwycięzcę.
         db.session.rollback()
-        client = None
-        if email:
-            client = Client.query.filter_by(email=email).first()
-        if not client and phone:
-            client = Client.query.filter_by(phone=phone).first()
+        client, _ = _resolve_client(Client.query, email, phone, name, client_number)
         if client:
             return jsonify({'ok': True, 'matched': True, 'created': False,
                             'client': {'id': client.id, 'client_name': client.client_name,
