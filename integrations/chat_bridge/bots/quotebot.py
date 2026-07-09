@@ -41,6 +41,14 @@ def _w_godzinach_pracy(now=None):
     return (sh * 60 + sm) <= minuty < (eh * 60 + em)
 
 
+class _LLMHttpError(RuntimeError):
+    """Blad wywolania LLM z klasyfikacja retryable (TO-04) — quote_worker rozroznia po niej
+    4xx (fail od razu, bez backoffu) od 429/5xx/transport (retry z backoffem)."""
+    def __init__(self, message, retryable=True):
+        super().__init__(message)
+        self.retryable = retryable
+
+
 # Komunikaty stale (edytowalne). Bez obietnic czasowych — patrz spec §13.
 CLOSING_MSG = "Dziękuję za informacje! Przekazuję rozmowę do konsultanta WoodPower — odpowiemy w tej rozmowie."
 # Wariant poza godzinami pracy (LS-10) — uzywany zamiast CLOSING_MSG, gdy wolajacy nie podal
@@ -1849,9 +1857,10 @@ def _run_quote_turn_inner(conv_id, inbox_id, message_id, content, attachments=No
 
     raw, llm_meta = chat(messages, response_format={"type": "json_object"}, return_meta=True)
     if not raw:
-        # TO-04 (Task 7) rozroznia dalej klase bledu (llm_meta["error_class"]) na potrzeby
-        # backoffu/circuit-breakera w quote_worker.
-        raise RuntimeError("quotebot: brak odpowiedzi modelu (%s)" % llm_meta.get("error_class"))
+        # TO-04: 4xx (np. zly klucz API/zla konfiguracja) nie jest przejsciowa awaria — worker
+        # konczy od razu bez backoffu; 429/5xx/transport sa retryable.
+        raise _LLMHttpError("quotebot: brak odpowiedzi modelu (%s)" % llm_meta.get("error_class"),
+                            retryable=llm_meta.get("error_class") != "4xx")
     out = _parse_llm(raw)
     # Pytanie o tozsamosc ("czy jestes botem/czlowiekiem?") NIE moze konczyc sie handoffem — bot
     # odpowiada uczciwie (persona). Bez jawnej prosby o czlowieka kasujemy handoff od LLM.
