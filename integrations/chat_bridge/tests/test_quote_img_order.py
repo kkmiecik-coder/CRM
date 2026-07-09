@@ -24,8 +24,9 @@ def test_obraz_kontekstowy_po_tekscie(monkeypatch):
     monkeypatch.setattr(qb, "retrieve", lambda q: [])
     # LLM: normalna odpowiedz proszaca o wymiary (dane niekompletne -> sciezka zwyklej odpowiedzi)
     monkeypatch.setattr(qb, "chat", lambda messages, **kw:
-                        '{"odpowiedz":"Dzień dobry! Proszę podać wymiary blatu.","handoff":false,'
-                        '"pozycje":[{"id":"1","produkt":"blat","gatunek":"dąb"}],"wspolne":{}}')
+                        ('{"odpowiedz":"Dzień dobry! Proszę podać wymiary blatu.","handoff":false,'
+                        '"pozycje":[{"id":"1","produkt":"blat","gatunek":"dąb"}],"wspolne":{}}',
+                         {"error_class": None}))
     monkeypatch.setattr(qb, "cw_agent_reply", lambda conv_id, text, **kw: events.append(("TEXT", text)) or True)
     # obraz kontekstowy zamockowany na marker — sprawdzamy TYLKO kolejnosc
     monkeypatch.setattr(qb, "_obrazy_kontekstowe", lambda c, content, dane: events.append(("IMG", None)))

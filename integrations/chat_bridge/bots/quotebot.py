@@ -8,6 +8,7 @@
 import os
 import json
 import re
+import time
 from datetime import datetime
 from zoneinfo import ZoneInfo
 from config import BOT_HISTORY_LIMIT, BOT_QUOTE_MAX_TURNS, BOT_QUOTE_CW_AGENT_TOKEN, BOT_BUSINESS_HOURS
@@ -1646,6 +1647,23 @@ def _wyslij_podsumowanie(conv_id, dane, content=""):
 
 
 def run_quote_turn(conv_id, inbox_id, message_id, content, attachments=None):
+    """Wrapper telemetryczny (TO-06/TO-09): jedna linia JSON logu na KAZDA ture (diff pozycji,
+    czas trwania), niezaleznie od tego, ktora galaz _run_quote_turn_inner zwrocila albo rzucila.
+    Cala logika tury jest w _run_quote_turn_inner (bez zmian zachowania)."""
+    t0 = time.monotonic()
+    dane_przed = _load_dane(conv_id)
+    try:
+        return _run_quote_turn_inner(conv_id, inbox_id, message_id, content, attachments=attachments)
+    finally:
+        dane_po = _load_dane(conv_id)
+        log("quotebot_turn " + json.dumps({
+            "conv_id": conv_id,
+            "diff_pozycje": dane_po.get("pozycje") != dane_przed.get("pozycje"),
+            "ms": int((time.monotonic() - t0) * 1000),
+        }, ensure_ascii=False))
+
+
+def _run_quote_turn_inner(conv_id, inbox_id, message_id, content, attachments=None):
     """Pelna tura bota. Rzuca RuntimeError przy braku odpowiedzi LLM (retry w workerze)."""
     # Cisza po handoffie: bot prowadzi TYLKO rozmowy w statusie pending.
     status = cw_conv_status(conv_id)
@@ -1812,9 +1830,11 @@ def run_quote_turn(conv_id, inbox_id, message_id, content, attachments=None):
         if urls:
             attach_images(messages, urls)
 
-    raw = chat(messages, response_format={"type": "json_object"})
+    raw, llm_meta = chat(messages, response_format={"type": "json_object"}, return_meta=True)
     if not raw:
-        raise RuntimeError("quotebot: brak odpowiedzi modelu")
+        # TO-04 (Task 7) rozroznia dalej klase bledu (llm_meta["error_class"]) na potrzeby
+        # backoffu/circuit-breakera w quote_worker.
+        raise RuntimeError("quotebot: brak odpowiedzi modelu (%s)" % llm_meta.get("error_class"))
     out = _parse_llm(raw)
     # Pytanie o tozsamosc ("czy jestes botem/czlowiekiem?") NIE moze konczyc sie handoffem — bot
     # odpowiada uczciwie (persona). Bez jawnej prosby o czlowieka kasujemy handoff od LLM.

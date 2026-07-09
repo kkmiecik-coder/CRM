@@ -63,6 +63,51 @@ def test_chat_stary_model_payload(monkeypatch):
     assert "verbosity" not in captured
 
 
+def test_chat_return_meta_zwraca_tresc_i_metadane(monkeypatch):
+    def fake_post(url, **kw):
+        return FakeResp(200, {"choices": [{"message": {"content": "hej"}, "finish_reason": "stop"}],
+                              "usage": {"total_tokens": 42}})
+    monkeypatch.setattr(llm.requests, "post", fake_post)
+    content, meta = llm.chat([{"role": "user", "content": "x"}], model="gpt-5.4-nano",
+                             return_meta=True)
+    assert content == "hej"
+    assert meta["model"] == "gpt-5.4-nano"
+    assert meta["usage"]["total_tokens"] == 42
+    assert meta["finish_reason"] == "stop"
+    assert meta["error_class"] is None
+    assert isinstance(meta["ms"], int)
+
+
+def test_chat_return_meta_429_zwraca_none_i_klase_bledu(monkeypatch):
+    monkeypatch.setattr(llm.requests, "post", lambda url, **kw: FakeResp(429, {}))
+    content, meta = llm.chat([{"role": "user", "content": "x"}], return_meta=True)
+    assert content is None
+    assert meta["error_class"] == "429"
+
+
+def test_chat_return_meta_4xx_zwraca_klase_4xx(monkeypatch):
+    monkeypatch.setattr(llm.requests, "post", lambda url, **kw: FakeResp(400, {}))
+    content, meta = llm.chat([{"role": "user", "content": "x"}], return_meta=True)
+    assert content is None
+    assert meta["error_class"] == "4xx"
+
+
+def test_chat_return_meta_5xx_zwraca_klase_5xx(monkeypatch):
+    monkeypatch.setattr(llm.requests, "post", lambda url, **kw: FakeResp(503, {}))
+    content, meta = llm.chat([{"role": "user", "content": "x"}], return_meta=True)
+    assert content is None
+    assert meta["error_class"] == "5xx"
+
+
+def test_chat_return_meta_transport_blad(monkeypatch):
+    def fake_post(url, **kw):
+        raise RuntimeError("network")
+    monkeypatch.setattr(llm.requests, "post", fake_post)
+    content, meta = llm.chat([{"role": "user", "content": "x"}], return_meta=True)
+    assert content is None
+    assert meta["error_class"] == "transport"
+
+
 def test_embed_zwraca_wektory(monkeypatch):
     def fake_post(url, **kw):
         assert "embeddings" in url

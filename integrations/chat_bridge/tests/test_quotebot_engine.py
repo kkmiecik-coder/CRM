@@ -41,7 +41,8 @@ def _patch_common(monkeypatch, replies):
     monkeypatch.setattr(qb, "retrieve", lambda q: [])
     # LLM: brak zmian pozycji + handoff=false -> deterministyczne potwierdzenie („tak") wygrywa.
     monkeypatch.setattr(qb, "chat",
-                        lambda messages, **kw: '{"odpowiedz":"","handoff":false,"pozycje":[],"wspolne":{}}')
+                        lambda messages, **kw: ('{"odpowiedz":"","handoff":false,"pozycje":[],"wspolne":{}}',
+                                                {"error_class": None}))
     monkeypatch.setattr(qb, "cw_agent_reply",
                         lambda conv_id, text, **kw: replies.append((text, kw)) or True)
     monkeypatch.setattr(qb, "cw_note", lambda conv_id, text, **kw: True)
@@ -113,9 +114,9 @@ def test_po_wycenie_niejednoznaczne_pytanie_nie_ponawia_podsumowania(monkeypatch
     raz) — powinna dostac zwykla odpowiedz LLM."""
     replies = []
     _patch_common(monkeypatch, replies)
-    monkeypatch.setattr(qb, "chat", lambda messages, **kw: json.dumps(
+    monkeypatch.setattr(qb, "chat", lambda messages, **kw: (json.dumps(
         {"odpowiedz": "Czas realizacji to zwykle 2-3 tygodnie.", "handoff": False,
-         "pozycje": [], "wspolne": {}}))
+         "pozycje": [], "wspolne": {}}), {"error_class": None}))
     c = db_mod.db()
     c.execute("DELETE FROM quote_state WHERE conv_id=?", (111,))
     c.execute("DELETE FROM quote_dane WHERE conv_id=?", (111,))

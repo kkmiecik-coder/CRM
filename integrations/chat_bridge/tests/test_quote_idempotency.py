@@ -28,7 +28,8 @@ def _patch(monkeypatch, replies):
     monkeypatch.setattr(qb, "cw_contact", lambda c: {"name": "", "identifier": ""})
     monkeypatch.setattr(qb, "cw_contact_full", lambda c: {"name": "", "identifier": "", "email": "", "phone": ""})
     monkeypatch.setattr(qb, "retrieve", lambda q: [])
-    monkeypatch.setattr(qb, "chat", lambda messages, **kw: '{"odpowiedz":"","handoff":false,"pozycje":[],"wspolne":{}}')
+    monkeypatch.setattr(qb, "chat", lambda messages, **kw:
+                        ('{"odpowiedz":"","handoff":false,"pozycje":[],"wspolne":{}}', {"error_class": None}))
     monkeypatch.setattr(qb, "cw_agent_reply", lambda conv_id, text, **kw: replies.append(text) or True)
     monkeypatch.setattr(qb, "cw_bot_handoff", lambda conv_id, **kw: replies.append("__HANDOFF__") or True)
     monkeypatch.setattr(qb, "cw_note", lambda conv_id, text, **kw: True)
@@ -79,7 +80,8 @@ def test_ms04_po_cenie_brak_drugiej_ceny(monkeypatch):
     replies = []
     _patch(monkeypatch, replies)
     monkeypatch.setattr(qb, "chat", lambda messages, **kw:
-                        '{"odpowiedz":"Proszę bardzo.","handoff":true,"powod":"klient potwierdził dane do wyceny","pozycje":[],"wspolne":{}}')
+                        ('{"odpowiedz":"Proszę bardzo.","handoff":true,"powod":"klient potwierdził dane do wyceny","pozycje":[],"wspolne":{}}',
+                         {"error_class": None}))
     calc = {"n": 0}
     def _calc(poz, opts):
         calc["n"] += 1

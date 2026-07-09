@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 # Wrapper OpenAI przez requests (bez SDK): chat() i embed().
 # Zasada: nigdy nie rzucamy wyjatkiem na zewnatrz — blad -> None + log.
+import time
 import requests
 from config import (OPENAI_API_KEY, OPENAI_API_BASE, BOT_CHAT_MODEL, BOT_EMBEDDING_MODEL,
                     BOT_MAX_TOKENS, BOT_REASONING_EFFORT, BOT_VERBOSITY)
@@ -22,8 +23,21 @@ def _is_gpt5(model):
     return (model or "").lower().startswith("gpt-5")
 
 
-def chat(messages, model=None, temperature=0.3, timeout=40, response_format=None):
-    # Zwraca tresc odpowiedzi modelu albo None przy bledzie.
+def _error_class(status_code):
+    """Klasyfikacja bledu HTTP dla circuit-breakera/backoffu (TO-04): '4xx' nie-retryable
+    (poza 429), '429'/'5xx' i 'transport' (blad polaczenia) retryable."""
+    if status_code == 429:
+        return "429"
+    if status_code is not None and 400 <= status_code < 500:
+        return "4xx"
+    if status_code is not None and status_code >= 500:
+        return "5xx"
+    return "transport"
+
+
+def chat(messages, model=None, temperature=0.3, timeout=40, response_format=None, return_meta=False):
+    # Zwraca tresc odpowiedzi modelu albo None przy bledzie. return_meta=True zwraca zamiast tego
+    # (tresc_albo_None, meta) — meta = {model, ms, usage, finish_reason, error_class} (TO-05/TO-06).
     # response_format (np. {"type":"json_object"}) wymusza JSON u botow wyceniajacych — przekazywany
     # tylko przez nie; suggester (proza) go nie ustawia.
     mdl = model or BOT_CHAT_MODEL
@@ -38,21 +52,31 @@ def chat(messages, model=None, temperature=0.3, timeout=40, response_format=None
             payload["verbosity"] = BOT_VERBOSITY
     else:
         payload["temperature"] = temperature
+    t0 = time.monotonic()
     try:
         r = requests.post(OPENAI_API_BASE + "/chat/completions", headers=_headers(),
                           json=payload, timeout=timeout)
+        ms = int((time.monotonic() - t0) * 1000)
         if r.status_code != 200:
-            log("OpenAI chat kod:", r.status_code, r.text[:200]); return None
+            log("OpenAI chat kod:", r.status_code, r.text[:200])
+            meta = {"model": mdl, "ms": ms, "usage": {}, "finish_reason": None,
+                    "error_class": _error_class(r.status_code)}
+            return (None, meta) if return_meta else None
         data = r.json() or {}
         choice = (data.get("choices") or [{}])[0]
         finish = choice.get("finish_reason")
-        # finish_reason != 'stop' (np. 'length' = ucicie limitem tokenow, w tym reasoningu GPT-5)
-        # logujemy, zeby ucicia byly widoczne zamiast objawiac sie jako 'brak odpowiedzi' (PL-04).
-        if finish and finish != "stop":
-            log("OpenAI chat finish_reason=%s usage=%s" % (finish, data.get("usage") or {}))
-        return ((choice.get("message") or {}).get("content") or "").strip() or None
+        usage = data.get("usage") or {}
+        # Log BEZWARUNKOWY (TO-06/TO-09): model/czas/usage widoczne za kazdym wywolaniem, nie
+        # tylko przy uciety finish_reason (PL-04) — koszt i wydajnosc bota widoczne w docker logs.
+        log("OpenAI chat model=%s ms=%s finish=%s usage=%s" % (mdl, ms, finish, usage))
+        content = ((choice.get("message") or {}).get("content") or "").strip() or None
+        meta = {"model": mdl, "ms": ms, "usage": usage, "finish_reason": finish, "error_class": None}
+        return (content, meta) if return_meta else content
     except Exception as e:
-        log("OpenAI chat blad:", repr(e)); return None
+        ms = int((time.monotonic() - t0) * 1000)
+        log("OpenAI chat blad:", repr(e))
+        meta = {"model": mdl, "ms": ms, "usage": {}, "finish_reason": None, "error_class": "transport"}
+        return (None, meta) if return_meta else None
 
 
 def embed(texts, model=None, timeout=40):

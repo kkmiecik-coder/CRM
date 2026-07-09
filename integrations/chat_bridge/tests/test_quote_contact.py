@@ -27,7 +27,8 @@ def _patch(monkeypatch, replies, saved):
     monkeypatch.setattr(qb, "cw_contact", lambda c: {"name": "", "identifier": ""})
     monkeypatch.setattr(qb, "cw_contact_full", lambda c: {"name": "Jan", "identifier": "", "email": "", "phone": ""})
     monkeypatch.setattr(qb, "retrieve", lambda q: [])
-    monkeypatch.setattr(qb, "chat", lambda messages, **kw: '{"odpowiedz":"Jasne.","handoff":false,"pozycje":[],"wspolne":{}}')
+    monkeypatch.setattr(qb, "chat", lambda messages, **kw:
+                        ('{"odpowiedz":"Jasne.","handoff":false,"pozycje":[],"wspolne":{}}', {"error_class": None}))
     monkeypatch.setattr(qb, "cw_agent_reply", lambda conv_id, text, **kw: replies.append(text) or True)
     monkeypatch.setattr(qb, "cw_bot_handoff", lambda conv_id, **kw: True)
     monkeypatch.setattr(qb, "cw_note", lambda conv_id, text, **kw: True)
