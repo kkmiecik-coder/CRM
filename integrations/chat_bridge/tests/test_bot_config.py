@@ -19,3 +19,4 @@ def test_domyslne_wartosci_botow():
     assert cfg.BOT_REASONING_EFFORT == "low"
     assert cfg.OPENAI_API_BASE == "https://api.openai.com/v1"
     assert cfg.BOT_LIVE_MAX_TURNS == 30
+    assert cfg.BOT_BUSINESS_HOURS == "08:00-16:00"

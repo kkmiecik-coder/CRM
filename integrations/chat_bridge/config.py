@@ -81,3 +81,7 @@ BOT_QUOTE_MAX_TURNS           = int(os.environ.get("BOT_QUOTE_MAX_TURNS", "30"))
 # ----- Sweeper "goracy lead" (rozmowa oddana po cenie bota, klient milczy — LS-04) -----
 HOT_LEAD_SWEEP_INTERVAL = int(os.environ.get("HOT_LEAD_SWEEP_INTERVAL", "1800"))  # sekundy; <=0 = wylaczony
 HOT_LEAD_SILENCE_HOURS  = float(os.environ.get("HOT_LEAD_SILENCE_HOURS", "24"))
+
+# Godziny pracy konsultantow (Europe/Warsaw) — poza nimi handoff dostaje inny komunikat
+# (z prosba o telefon zamiast obietnicy natychmiastowej odpowiedzi) — LS-10.
+BOT_BUSINESS_HOURS = os.environ.get("BOT_BUSINESS_HOURS", "08:00-16:00")

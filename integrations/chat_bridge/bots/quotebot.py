@@ -8,7 +8,9 @@
 import os
 import json
 import re
-from config import BOT_HISTORY_LIMIT, BOT_QUOTE_MAX_TURNS, BOT_QUOTE_CW_AGENT_TOKEN
+from datetime import datetime
+from zoneinfo import ZoneInfo
+from config import BOT_HISTORY_LIMIT, BOT_QUOTE_MAX_TURNS, BOT_QUOTE_CW_AGENT_TOKEN, BOT_BUSINESS_HOURS
 from core.log import log
 from core.db import db
 from core.chatwoot import (cw_messages, cw_contact, cw_note, cw_agent_reply,
@@ -20,8 +22,31 @@ from bots import images
 from bots.vision import attach_images
 from bots import crm_calc
 
+_TZ_WARSAW = ZoneInfo("Europe/Warsaw")
+
+
+def _w_godzinach_pracy(now=None):
+    """True gdy aktualny czas (Europe/Warsaw) miesci sie w BOT_BUSINESS_HOURS ('HH:MM-HH:MM').
+    Bledny format konfiguracji -> zawsze True (literowka w env nie ma blokowac normalnej obslugi)."""
+    try:
+        start_s, end_s = BOT_BUSINESS_HOURS.split("-")
+        sh, sm = (int(x) for x in start_s.split(":"))
+        eh, em = (int(x) for x in end_s.split(":"))
+    except Exception:
+        return True
+    dt = now or datetime.now(_TZ_WARSAW)
+    minuty = dt.hour * 60 + dt.minute
+    return (sh * 60 + sm) <= minuty < (eh * 60 + em)
+
+
 # Komunikaty stale (edytowalne). Bez obietnic czasowych — patrz spec §13.
 CLOSING_MSG = "Dziękuję za informacje! Przekazuję rozmowę do konsultanta WoodPower — odpowiemy w tej rozmowie."
+# Wariant poza godzinami pracy (LS-10) — uzywany zamiast CLOSING_MSG, gdy wolajacy nie podal
+# wlasnego 'closing' (patrz _do_handoff).
+CLOSING_MSG_POZA_GODZINAMI = ("Dziękuję za informacje! Nasi konsultanci pracują w godzinach %s "
+                              "(dzień roboczy) — odpiszemy najszybciej jak to możliwe. Jeśli sprawa "
+                              "jest pilna, można też zostawić numer telefonu, oddzwonimy."
+                              % BOT_BUSINESS_HOURS)
 # Komunikat dedykowany dla handoffu z limitu tur (LS-11) — nie zaklada, ze klient wlasnie cos podal.
 LIMIT_MSG = ("Sporo już ustaliliśmy — przekazuję rozmowę do konsultanta WoodPower, który poprowadzi "
              "ją dalej (ma komplet naszych ustaleń).")
@@ -1333,7 +1358,11 @@ def _do_handoff(conv_id, powod, dane, closing=CLOSING_MSG):
     toggle statusu, toggle jako OSTATNI krok — gdy notatka/closing padnie, status wciaz 'pending'
     i worker ponawia ture czysto (bez cichej rozmowy w 'open'). Reset stanu jest MIEKKI (MS-03/
     SB-10): zerujemy tylko flagi konwersacyjne, a quote_dane/quote_edit_uuid/contact_*/sent_images
-    ZOSTAJA — powrot rozmowy do bota nie zaczyna od zera i nie tworzy wyceny-sieroty."""
+    ZOSTAJA — powrot rozmowy do bota nie zaczyna od zera i nie tworzy wyceny-sieroty. LS-10:
+    poza godzinami pracy domyslny 'closing' (CLOSING_MSG) zmienia sie na wariant z informacja
+    o godzinach — wlasny 'closing' podany przez wolajacego (np. LIMIT_MSG) NIE jest nadpisywany."""
+    if closing is CLOSING_MSG and not _w_godzinach_pracy():
+        closing = CLOSING_MSG_POZA_GODZINAMI
     cw_note(conv_id, _summary_note(dane, powod), token=BOT_QUOTE_CW_AGENT_TOKEN)   # rzuca przy awarii -> retry
     if not cw_agent_reply(conv_id, closing, token=BOT_QUOTE_CW_AGENT_TOKEN):
         raise RuntimeError("quotebot: wysylka zamkniecia handoffu nieudana (conv %s)" % conv_id)
