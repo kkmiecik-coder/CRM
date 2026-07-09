@@ -324,12 +324,15 @@ def normalize_phone(phone):
     return cyfry or None
 
 
-def find_or_create_client(email, phone, name):
+def find_or_create_client(email, phone, name, client_number=None):
     """POST /api/bot/clients/find-or-create. E-mail/telefon normalizujemy (API-13), zeby ten sam
-    klient zapisany raz 'Jan@X.pl', raz 'jan@x.pl' nie tworzyl duplikatow i wykrywanie powracajacych dzialalo."""
+    klient zapisany raz 'Jan@X.pl', raz 'jan@x.pl' nie tworzyl duplikatow i wykrywanie powracajacych
+    dzialalo. client_number (LS-01): identyfikator klienta technicznego 'chat-<conv_id>' — pozwala
+    zapisac lead ZANIM klient poda kontakt, a pozniejszy kontakt wzbogaca ten sam rekord."""
     return _post("/api/bot/clients/find-or-create",
                  {"email": normalize_email(email), "phone": normalize_phone(phone),
-                  "name": (str(name).strip() if name else None) or None})
+                  "name": (str(name).strip() if name else None) or None,
+                  "client_number": client_number})
 
 
 def create_quote(pozycje, options, client_id, notes=""):
