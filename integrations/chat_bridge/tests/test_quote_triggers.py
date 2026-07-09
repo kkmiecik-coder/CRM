@@ -215,3 +215,16 @@ def test_limit_tur_po_bramkach_awaiting(monkeypatch):
     qb.run_quote_turn(803, 12, "m1", "jan@kowalski.pl")
     assert any("crm/q/z" in t for t in replies), "e-mail w turze limitu ma zapisac wycene, nie handoff"
     assert "__HANDOFF__" not in replies
+
+
+def test_odmowa_kontaktu_proponuje_konsultanta(monkeypatch):
+    """LS-04: odmowa kontaktu po cenie ma deterministyczne CTA konsultanta zamiast konczyc
+    watek w ciszy (dawny tekst nie wspominal konsultanta wcale)."""
+    replies = []
+    _patch(monkeypatch, replies)
+    _reset(960)
+    c = db_mod.db()
+    c.execute("INSERT INTO quote_state(conv_id, bot_turns, awaiting_contact) VALUES(?,1,1)", (960,))
+    c.commit(); c.close()
+    qb.run_quote_turn(960, 12, "m1", "nie, dziękuję")
+    assert any("konsultant" in r.lower() for r in replies)

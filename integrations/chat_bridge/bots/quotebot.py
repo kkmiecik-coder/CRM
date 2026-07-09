@@ -1618,10 +1618,12 @@ def run_quote_turn(conv_id, inbox_id, message_id, content, attachments=None):
                 _zapisz_wycene(conv_id, _load_dane(conv_id), crm_calc.get_options(), email, phone, nazwa)
                 return
         elif _czy_odmowa(content):
-            # Klient nie chce podawać kontaktu — respektujemy, koniec bez zapisu.
+            # Klient nie chce podawać kontaktu — respektujemy, ale deterministyczne CTA (LS-04):
+            # zamiast konczyc watek w ciszy, proponujemy przekazanie konsultantowi.
             _set_awaiting_contact(conv_id, False)
-            cw_agent_reply(conv_id, "Jasne, nie ma problemu. Gdyby chciał Pan/Pani zapisać wycenę "
-                           "lub coś doprecyzować — jestem do dyspozycji.", token=BOT_QUOTE_CW_AGENT_TOKEN)
+            cw_agent_reply(conv_id, "Jasne, nie ma problemu — wycena wyżej pozostaje aktualna. "
+                           "Jeśli w dowolnym momencie zechce Pan/Pani porozmawiać z konsultantem "
+                           "o szczegółach, wystarczy napisać.", token=BOT_QUOTE_CW_AGENT_TOKEN)
             _bump_turns(conv_id)
             return
         elif _POZNIEJ_RE.search(content or ""):
