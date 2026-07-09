@@ -52,6 +52,9 @@ CLOSING_MSG_POZA_GODZINAMI = ("Dziękuję za informacje! Nasi konsultanci pracuj
 # Komunikat dedykowany dla handoffu z limitu tur (LS-11) — nie zaklada, ze klient wlasnie cos podal.
 LIMIT_MSG = ("Sporo już ustaliliśmy — przekazuję rozmowę do konsultanta WoodPower, który poprowadzi "
              "ją dalej (ma komplet naszych ustaleń).")
+# 'powod' dedykowanego bezpiecznika limitu tur — stala uzywana i przy wywolaniu _do_handoff, i przy
+# rozpoznaniu zdarzenia 'turn_limit' w telemetrii (LS-08), zeby nie dublowac literalu w dwoch miejscach.
+_POWOD_LIMIT_TUR = "limit tur bota (bezpiecznik)"
 APOLOGY_MSG = ("Przepraszam, mam chwilowy problem techniczny z odpowiedzią. "
                "Przekazuję rozmowę do konsultanta WoodPower.")
 # Wycena nie policzyla sie automatycznie (najczesciej lakier/olej bez koloru i polysku) —
@@ -1366,7 +1369,9 @@ def _do_handoff(conv_id, powod, dane, closing=CLOSING_MSG):
     # LS-08: zdarzenie handoff logowane PRZED czyszczeniem stanu (i przed jakakolwiek wysylka,
     # ktora moglaby rzucic) — telemetria ma zostac nawet gdy sama wysylka zamkniecia padnie.
     log_event(conv_id, "handoff", {"powod": powod})
-    if "limit tur" in (powod or ""):
+    if powod == _POWOD_LIMIT_TUR:
+        # Dopasowanie DOKLADNE (nie substring) — 'powod' bywa dowolnym wolnym tekstem od LLM
+        # (np. B/C wyzwalacze), przypadkowy fragment nie moze falszywie oznaczyc turn_limit.
         log_event(conv_id, "turn_limit")
     if closing is CLOSING_MSG and not _w_godzinach_pracy():
         closing = CLOSING_MSG_POZA_GODZINAMI
@@ -1649,18 +1654,30 @@ def _wyslij_podsumowanie(conv_id, dane, content=""):
 def run_quote_turn(conv_id, inbox_id, message_id, content, attachments=None):
     """Wrapper telemetryczny (TO-06/TO-09): jedna linia JSON logu na KAZDA ture (diff pozycji,
     czas trwania), niezaleznie od tego, ktora galaz _run_quote_turn_inner zwrocila albo rzucila.
-    Cala logika tury jest w _run_quote_turn_inner (bez zmian zachowania)."""
+    Cala logika tury jest w _run_quote_turn_inner (bez zmian zachowania). Telemetria NIGDY nie
+    moze zaklocic prawdziwej tury: odczyty do diff_pozycje sa osloniete try/except, zeby
+    przejsciowy blad odczytu (np. zablokowana baza) ani nie zamaskowal prawdziwego wyjatku z
+    _run_quote_turn_inner (Python podmienilby go wyjatkiem z finally), ani nie zablokowal samej
+    tury (przed jej wywolaniem)."""
     t0 = time.monotonic()
-    dane_przed = _load_dane(conv_id)
+    try:
+        dane_przed = _load_dane(conv_id)
+    except Exception:
+        dane_przed = None
     try:
         return _run_quote_turn_inner(conv_id, inbox_id, message_id, content, attachments=attachments)
     finally:
-        dane_po = _load_dane(conv_id)
-        log("quotebot_turn " + json.dumps({
-            "conv_id": conv_id,
-            "diff_pozycje": dane_po.get("pozycje") != dane_przed.get("pozycje"),
-            "ms": int((time.monotonic() - t0) * 1000),
-        }, ensure_ascii=False))
+        try:
+            dane_po = _load_dane(conv_id) if dane_przed is not None else None
+            diff_pozycje = (dane_po.get("pozycje") != dane_przed.get("pozycje")
+                            if dane_przed is not None and dane_po is not None else None)
+            log("quotebot_turn " + json.dumps({
+                "conv_id": conv_id,
+                "diff_pozycje": diff_pozycje,
+                "ms": int((time.monotonic() - t0) * 1000),
+            }, ensure_ascii=False))
+        except Exception:
+            pass
 
 
 def _run_quote_turn_inner(conv_id, inbox_id, message_id, content, attachments=None):
@@ -1778,7 +1795,7 @@ def _run_quote_turn_inner(conv_id, inbox_id, message_id, content, attachments=No
     # Bezpiecznik D: limit tur bota — PO bramkach kontaktu/kodu (MS-11: e-mail/kod z ostatniej
     # tury zostaje skonsumowany, nie przepada w handoffie z limitu). Dedykowany komunikat (LS-11).
     if _bot_turns(conv_id) >= BOT_QUOTE_MAX_TURNS:
-        _do_handoff(conv_id, "limit tur bota (bezpiecznik)", _load_dane(conv_id), closing=LIMIT_MSG)
+        _do_handoff(conv_id, _POWOD_LIMIT_TUR, _load_dane(conv_id), closing=LIMIT_MSG)
         return
 
     history = cw_messages(conv_id, BOT_HISTORY_LIMIT)

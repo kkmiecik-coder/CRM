@@ -45,7 +45,7 @@ def test_chat_nadal_zwraca_tresc(monkeypatch):
     monkeypatch.setattr(llm.requests, "post",
                         lambda url, **kw: FakeResp(200, {"choices": [{"message": {"content": "Dzień dobry"},
                                                                       "finish_reason": "length"}], "usage": {}}))
-    # finish_reason != stop tylko logujemy; tresc nadal wraca
+    # finish_reason != stop logujemy (bezwarunkowo, jak kazde wywolanie — TO-06); tresc nadal wraca
     assert llm.chat([{"role": "user", "content": "hej"}]) == "Dzień dobry"
 
 

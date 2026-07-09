@@ -88,6 +88,26 @@ def test_handoff_loguje_event_z_powodem(monkeypatch):
     assert json.loads(row["meta"])["powod"] == "test powod"
 
 
+def test_turn_limit_loguje_sie_tylko_dla_prawdziwego_limitu(monkeypatch):
+    """Regresja code review Task 6: 'turn_limit' ma sie logowac TYLKO dla dedykowanego
+    bezpiecznika limitu tur, nie dla dowolnego powodu LLM zawierajacego przypadkiem substring
+    'limit tur' (powod bywa dowolnym tekstem od modelu)."""
+    monkeypatch.setattr(qb, "cw_agent_reply", lambda c, t, **kw: True)
+    monkeypatch.setattr(qb, "cw_note", lambda c, t, **kw: True)
+    monkeypatch.setattr(qb, "cw_bot_handoff", lambda c, **kw: True)
+    qb._do_handoff(1008, "klient pyta o limit turnusu urlopowego", {"pozycje": [], "wspolne": {}})
+    c = db_mod.db()
+    row = c.execute("SELECT * FROM quote_events WHERE conv_id=1008 AND event='turn_limit'").fetchone()
+    c.close()
+    assert row is None, "przypadkowy substring w wolnym tekscie LLM NIE jest prawdziwym limitem tur"
+
+    qb._do_handoff(1009, "limit tur bota (bezpiecznik)", {"pozycje": [], "wspolne": {}})
+    c = db_mod.db()
+    row = c.execute("SELECT * FROM quote_events WHERE conv_id=1009 AND event='turn_limit'").fetchone()
+    c.close()
+    assert row is not None, "prawdziwy bezpiecznik limitu tur MA zalogowac turn_limit"
+
+
 def test_contact_given_i_refused_loguja_eventy(monkeypatch):
     monkeypatch.setattr(qb, "cw_conv_status", lambda c: "pending")
     monkeypatch.setattr(qb, "cw_agent_reply", lambda c, t, **kw: True)
@@ -114,3 +134,47 @@ def test_contact_given_i_refused_loguja_eventy(monkeypatch):
     row = c.execute("SELECT * FROM quote_events WHERE conv_id=1005 AND event='contact_refused'").fetchone()
     c.close()
     assert row is not None
+
+
+def test_wrapper_telemetrii_nie_maskuje_prawdziwego_wyjatku(monkeypatch):
+    """Regresja code review Task 6: gdy sama tura rzuca (np. brak odpowiedzi LLM), a odczyt
+    danych do telemetrii (diff pozycji) W FINALLY TEZ by sie wywalil (np. zablokowana baza),
+    na zewnatrz ma wyjsc PRAWDZIWY wyjatek tury, nie przypadkowy blad telemetrii."""
+    import sqlite3
+    def _boom_inner(*a, **kw):
+        raise RuntimeError("quotebot: prawdziwy blad tury")
+    monkeypatch.setattr(qb, "_run_quote_turn_inner", _boom_inner)
+    real_load_dane = qb._load_dane
+    calls = {"n": 0}
+    def _load_dane_pierwszy_ok_potem_wywala(conv_id):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return real_load_dane(conv_id)
+        raise sqlite3.OperationalError("database is locked")
+    monkeypatch.setattr(qb, "_load_dane", _load_dane_pierwszy_ok_potem_wywala)
+    try:
+        qb.run_quote_turn(1006, 5, "m1", "cokolwiek")
+        assert False, "powinno rzucic"
+    except RuntimeError as e:
+        assert "prawdziwy blad tury" in str(e)
+
+
+def test_wrapper_telemetrii_dziala_gdy_load_dane_przed_tura_pada(monkeypatch):
+    """Regresja: nieudany odczyt danych PRZED tura (do telemetrii) nie moze zablokowac
+    samej tury — tura ma sie wykonac normalnie, telemetria ma po prostu nic nie zalogowac."""
+    monkeypatch.setattr(qb, "cw_conv_status", lambda c: "pending")
+    monkeypatch.setattr(qb, "cw_messages", lambda c, n: [{"role": "user", "text": "..."}])
+    monkeypatch.setattr(qb, "cw_contact", lambda c: {"name": "", "identifier": ""})
+    monkeypatch.setattr(qb, "cw_contact_full", lambda c: {"name": "", "identifier": "", "email": "", "phone": ""})
+    monkeypatch.setattr(qb, "retrieve", lambda q: [])
+    monkeypatch.setattr(qb, "chat", lambda messages, **kw: ('{"odpowiedz":"cześć","handoff":false,"pozycje":[],"wspolne":{}}', {"error_class": None}))
+    monkeypatch.setattr(qb, "cw_agent_reply", lambda c, t, **kw: True)
+    real_load_dane = qb._load_dane
+    calls = {"n": 0}
+    def _load_dane_pierwszy_pada(conv_id):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise RuntimeError("baza zablokowana")
+        return real_load_dane(conv_id)
+    monkeypatch.setattr(qb, "_load_dane", _load_dane_pierwszy_pada)
+    qb.run_quote_turn(1007, 5, "m1", "cześć")   # nie rzuca mimo nieudanego odczytu telemetrii

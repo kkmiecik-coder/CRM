@@ -24,13 +24,14 @@ def _is_gpt5(model):
 
 
 def _error_class(status_code):
-    """Klasyfikacja bledu HTTP dla circuit-breakera/backoffu (TO-04): '4xx' nie-retryable
-    (poza 429), '429'/'5xx' i 'transport' (blad polaczenia) retryable."""
+    """Klasyfikacja kodu HTTP (zawsze int — wolane tylko z odpowiedzia serwera) dla circuit-
+    breakera/backoffu (TO-04): '4xx' nie-retryable (poza 429), '429'/'5xx' retryable.
+    Brak polaczenia w ogole (wyjatek, nie odpowiedz HTTP) klasyfikuje wolajacy jako 'transport'."""
     if status_code == 429:
         return "429"
-    if status_code is not None and 400 <= status_code < 500:
+    if 400 <= status_code < 500:
         return "4xx"
-    if status_code is not None and status_code >= 500:
+    if status_code >= 500:
         return "5xx"
     return "transport"
 
