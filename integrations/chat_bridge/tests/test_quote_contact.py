@@ -273,6 +273,8 @@ def test_wzmianka_powracajacego_dopiero_po_udanym_zapisie(monkeypatch):
 
 
 def test_wzmianka_powracajacego_idzie_po_udanym_zapisie(monkeypatch):
+    """LS-09/LS-12: wzmianka o powracajacym kliencie idzie W TEJ SAMEJ wiadomosci co link (nie
+    osobnym dymkiem) — jedna udana wysylka, wzmianka PRZED linkiem w tresci."""
     order = []
     monkeypatch.setattr(qb, "cw_agent_reply", lambda c, t, **kw: order.append(t) or True)
     monkeypatch.setattr(qb, "cw_note", lambda c, t, **kw: True)
@@ -284,6 +286,54 @@ def test_wzmianka_powracajacego_idzie_po_udanym_zapisie(monkeypatch):
                                                      "public_url": "https://crm/q/a"})
     qb._zapisz_wycene(996, {"pozycje": [_poz()], "wspolne": {}}, {"finishing_options": []},
                       "jan@x.pl", None, "Jan")
-    wzmianka_idx = next(i for i, t in enumerate(order) if "wcześniejsze wyceny" in t)
-    link_idx = next(i for i, t in enumerate(order) if "Zapisałem" in t)
-    assert wzmianka_idx < link_idx, "wzmianka idzie PRZED linkiem, w tej samej udanej turze"
+    assert len(order) == 1, "wzmianka i link ida JEDNYM dymkiem, nie osobnymi"
+    tresc = order[0]
+    assert tresc.index("wcześniejsze wyceny") < tresc.index("Zapisałem"), (
+        "wzmianka idzie PRZED linkiem w tresci sklejonej wiadomosci")
+
+
+def test_wzmianka_i_wysylka_maks_dwa_dymki_dla_powracajacego(monkeypatch):
+    """Regresja code review Task 4: powracajacy klient z kontaktem juz znanym w momencie ceny +
+    oferta wysylki jeszcze niewyslana -> WCIAZ maks. 2 dymki po cenie (nie 3: powitanie osobno)."""
+    replies = []
+    monkeypatch.setattr(qb, "cw_agent_reply", lambda c, t, **kw: replies.append(t) or True)
+    monkeypatch.setattr(qb, "cw_note", lambda c, t, **kw: True)
+    monkeypatch.setattr(qb.crm_calc, "get_options", lambda: {"finishing_options": []})
+    monkeypatch.setattr(qb.crm_calc, "calculate",
+                        lambda p, o: {"ok": True, "products": [{}],
+                                      "totals": {"total_brutto": 1.0, "total_netto": 1.0}})
+    monkeypatch.setattr(qb.crm_calc, "find_or_create_client",
+                        lambda e, p, n, client_number=None: {"ok": True, "matched": True,
+                                                             "created": False, "client": {"id": 5}})
+    monkeypatch.setattr(qb.crm_calc, "create_quote",
+                        lambda p, o, cid, notes="": {"ok": True, "quote_number": "W/1",
+                                                     "public_url": "https://crm/q/a", "edit_uuid": "UU"})
+    qb._wyslij_cene_i_kontakt(998, {"pozycje": [_poz()], "wspolne": {}},
+                              {"name": "Jan", "email": "jan@x.pl", "phone": ""})
+    assert len(replies) == 2, "cena + JEDEN sklejony dopisek (powitanie+link+wysylka), nie 3"
+    assert "wcześniejsze wyceny" in replies[1] and "kod pocztowy" in replies[1]
+
+
+def test_oferta_wysylki_nie_oznaczona_gdy_wysylka_wiadomosci_pada(monkeypatch):
+    """Regresja code review Task 4: gdy sklejona wiadomosc (link+oferta wysylki) NIE dojdzie do
+    klienta, oferta wysylki NIE moze byc oznaczona jako wyslana — inaczej ginie bezpowrotnie
+    (dedug klucz 'shipping_offer' zablokowalby ponowna probe w kolejnej turze)."""
+    # Cena idzie normalnie; pada TYLKO sklejona wiadomosc linku+oferty wysylki.
+    monkeypatch.setattr(qb, "cw_agent_reply",
+                        lambda c, t, **kw: "Link:" not in t)
+    monkeypatch.setattr(qb, "cw_note", lambda c, t, **kw: True)
+    monkeypatch.setattr(qb.crm_calc, "get_options", lambda: {"finishing_options": []})
+    monkeypatch.setattr(qb.crm_calc, "calculate",
+                        lambda p, o: {"ok": True, "products": [{}],
+                                      "totals": {"total_brutto": 1.0, "total_netto": 1.0}})
+    monkeypatch.setattr(qb.crm_calc, "find_or_create_client",
+                        lambda e, p, n, client_number=None: {"ok": True, "matched": False,
+                                                             "created": True, "client": {"id": 1}})
+    monkeypatch.setattr(qb.crm_calc, "create_quote",
+                        lambda p, o, cid, notes="": {"ok": True, "quote_number": "W/1",
+                                                     "public_url": "https://crm/q/a", "edit_uuid": "UU"})
+    qb._wyslij_cene_i_kontakt(999, {"pozycje": [_poz()], "wspolne": {}},
+                              {"name": "Jan", "email": "jan@x.pl", "phone": ""})
+    assert qb._awaiting_postcode(999) is False, "wysylka nie dotarla -> nie oznaczaj jako oferowanej"
+    assert "shipping_offer" not in qb._sent_images(999)
+    assert qb._quote_saved(999) is False, "link tez nie dotarl -> nie oznaczaj wyceny jako 'widzianej'"
