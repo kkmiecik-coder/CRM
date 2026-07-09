@@ -13,6 +13,7 @@ from zoneinfo import ZoneInfo
 from config import BOT_HISTORY_LIMIT, BOT_QUOTE_MAX_TURNS, BOT_QUOTE_CW_AGENT_TOKEN, BOT_BUSINESS_HOURS
 from core.log import log
 from core.db import db
+from core.events import log_event
 from core.chatwoot import (cw_messages, cw_contact, cw_note, cw_agent_reply,
                            cw_conv_status, cw_bot_handoff, cw_contact_full)
 from bots.knowledge import retrieve
@@ -1361,6 +1362,11 @@ def _do_handoff(conv_id, powod, dane, closing=CLOSING_MSG):
     ZOSTAJA — powrot rozmowy do bota nie zaczyna od zera i nie tworzy wyceny-sieroty. LS-10:
     poza godzinami pracy domyslny 'closing' (CLOSING_MSG) zmienia sie na wariant z informacja
     o godzinach — wlasny 'closing' podany przez wolajacego (np. LIMIT_MSG) NIE jest nadpisywany."""
+    # LS-08: zdarzenie handoff logowane PRZED czyszczeniem stanu (i przed jakakolwiek wysylka,
+    # ktora moglaby rzucic) — telemetria ma zostac nawet gdy sama wysylka zamkniecia padnie.
+    log_event(conv_id, "handoff", {"powod": powod})
+    if "limit tur" in (powod or ""):
+        log_event(conv_id, "turn_limit")
     if closing is CLOSING_MSG and not _w_godzinach_pracy():
         closing = CLOSING_MSG_POZA_GODZINAMI
     cw_note(conv_id, _summary_note(dane, powod), token=BOT_QUOTE_CW_AGENT_TOKEN)   # rzuca przy awarii -> retry
@@ -1406,6 +1412,7 @@ def _wyslij_cene_i_kontakt(conv_id, dane, identity):
     if not cw_agent_reply(conv_id, _cena_msg(dane, wynik), token=BOT_QUOTE_CW_AGENT_TOKEN):
         raise RuntimeError("quotebot: wysylka ceny nieudana (conv %s)" % conv_id)
     _set_priced(conv_id, True)
+    log_event(conv_id, "priced", {"kwota": (wynik.get("totals") or {}).get("total_brutto")})
     _set_awaiting(conv_id, False)
     _bump_turns(conv_id)
 
@@ -1509,6 +1516,7 @@ def _zapisz_wycene(conv_id, dane, options, email, phone, name, wynik=None, extra
                     _set_returning_greeted(conv_id, True)
                 _set_quote_saved(conv_id, True)
                 _set_awaiting_contact(conv_id, False)
+                log_event(conv_id, "quote_saved", {"nr": q.get("quote_number")})
                 if extra_msgs:
                     _set_awaiting_postcode(conv_id, True)
                     _mark_image_sent(conv_id, "shipping_offer")
@@ -1540,6 +1548,7 @@ def _obsluz_wysylke(conv_id, kod):
         # przeliczy wysylke ponownie zamiast zostawic nieaktualny koszt.
         dane["wspolne"]["kod_pocztowy"] = kod
         _zapisz_dane(conv_id, dane)
+        log_event(conv_id, "shipping_quoted", {"carrier": res.get("carrier_name")})
     edit_uuid = _stored_edit_uuid(conv_id)
     if res.get("ok") and res.get("carriers") and edit_uuid:
         q = crm_calc.update_quote(edit_uuid, dane.get("pozycje") or [], options,
@@ -1630,6 +1639,7 @@ def _wyslij_podsumowanie(conv_id, dane, content=""):
         raise RuntimeError("quotebot: wysylka podsumowania nieudana (conv %s)" % conv_id)
     _set_awaiting(conv_id, True)
     _bump_turns(conv_id)
+    log_event(conv_id, "summary_sent")
     _obrazy_kontekstowe(conv_id, content, dane)   # obrazy pomocnicze PO podsumowaniu
     _wyslij_probki(conv_id, dane, options)
     log("quotebot: podsumowanie do potwierdzenia (conv %s)" % conv_id)
@@ -1685,6 +1695,7 @@ def run_quote_turn(conv_id, inbox_id, message_id, content, attachments=None):
         if email or phone:
             nazwa = (cw_contact_full(conv_id) or {}).get("name") or ""
             _set_contact(conv_id, email, phone, nazwa)   # zapamietaj kontakt ZAWSZE (na kolejne wyceny)
+            log_event(conv_id, "contact_given")
             if _wiadomosc_ma_korekte(content):
                 # SB-01: kontakt + korekta/pytanie w jednej wiadomosci -> NIE zapisuj starej wyceny.
                 # Kontakt zapamietany; tura leci do LLM (korekta -> nowe podsumowanie), zapis po
@@ -1697,6 +1708,7 @@ def run_quote_turn(conv_id, inbox_id, message_id, content, attachments=None):
         elif _czy_odmowa(content):
             # Klient nie chce podawać kontaktu — respektujemy, ale deterministyczne CTA (LS-04):
             # zamiast konczyc watek w ciszy, proponujemy przekazanie konsultantowi.
+            log_event(conv_id, "contact_refused")
             _set_awaiting_contact(conv_id, False)
             cw_agent_reply(conv_id, "Jasne, nie ma problemu — wycena wyżej pozostaje aktualna. "
                            "Jeśli w dowolnym momencie zechce Pan/Pani porozmawiać z konsultantem "
@@ -1892,6 +1904,7 @@ def run_quote_turn(conv_id, inbox_id, message_id, content, attachments=None):
     if awaiting and not brak and not zmienione and (
             out.get("potwierdzono") or _jest_potwierdzenie(content)
             or (out["handoff"] and _POTWIERDZ_POWOD_RE.search(out.get("powod") or ""))):
+        log_event(conv_id, "confirmed")
         _wyslij_cene_i_kontakt(conv_id, dane, cw_contact_full(conv_id))
         return
 
@@ -1922,6 +1935,7 @@ def run_quote_turn(conv_id, inbox_id, message_id, content, attachments=None):
             return
         else:
             # Komplet + awaiting + LLM zgłosił potwierdzenie -> licz cenę zamiast handoffu.
+            log_event(conv_id, "confirmed")
             _wyslij_cene_i_kontakt(conv_id, dane, cw_contact_full(conv_id))
             return
 
@@ -1937,6 +1951,7 @@ def run_quote_turn(conv_id, inbox_id, message_id, content, attachments=None):
             return
         # Awaiting bez zmian: czyste potwierdzenie -> licz cenę deterministycznie (nie czekamy na LLM).
         if _jest_potwierdzenie(content):
+            log_event(conv_id, "confirmed")
             _wyslij_cene_i_kontakt(conv_id, dane, cw_contact_full(conv_id))
             return
         if not out["odpowiedz"]:

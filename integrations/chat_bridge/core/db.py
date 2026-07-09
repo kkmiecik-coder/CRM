@@ -57,6 +57,9 @@ def init_db():
       awaiting_postcode INTEGER DEFAULT 0);
     CREATE TABLE IF NOT EXISTS quote_dane(
       conv_id INTEGER PRIMARY KEY, dane_json TEXT);
+    CREATE TABLE IF NOT EXISTS quote_events(
+      id INTEGER PRIMARY KEY AUTOINCREMENT, conv_id INTEGER, event TEXT,
+      ts REAL, meta TEXT);
     """)
     for stmt in ("ALTER TABLE queue ADD COLUMN attachments TEXT",
                  "ALTER TABLE threads ADD COLUMN channel TEXT",
