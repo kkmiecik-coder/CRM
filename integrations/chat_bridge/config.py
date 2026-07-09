@@ -87,6 +87,9 @@ HOT_LEAD_SILENCE_HOURS  = float(os.environ.get("HOT_LEAD_SILENCE_HOURS", "24"))
 BOT_BUSINESS_HOURS = os.environ.get("BOT_BUSINESS_HOURS", "08:00-16:00")
 
 # ----- Odpornosc quote_workera na awarie LLM/CRM (TO-04) -----
-BOT_BACKOFF_TIERS = [int(x) for x in os.environ.get("BOT_BACKOFF_TIERS", "30,120,300").split(",")]
+# Filtr pustych fragmentow + fallback na wartosc domyslna — pusty BOT_BACKOFF_TIERS="" (np. zla
+# zmienna srodowiskowa w deployu) nie moze wywalic calego mostka juz przy imporcie configu.
+BOT_BACKOFF_TIERS = ([int(x) for x in os.environ.get("BOT_BACKOFF_TIERS", "30,120,300").split(",") if x.strip()]
+                     or [30, 120, 300])
 BOT_CIRCUIT_THRESHOLD = int(os.environ.get("BOT_CIRCUIT_THRESHOLD", "5"))   # kolejnych bledow -> pauza
 BOT_CIRCUIT_COOLDOWN  = int(os.environ.get("BOT_CIRCUIT_COOLDOWN", "120"))  # sekundy pauzy kolejki

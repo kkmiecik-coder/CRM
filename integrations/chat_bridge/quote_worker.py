@@ -31,28 +31,62 @@ def _circuit_record_success():
 
 def _circuit_record_failure(now):
     """Zwraca True gdy ten blad WLASNIE otworzyl obwod (pierwszy raz po progu) — wtedy
-    wolajacy wysyla klientowi lagodny komunikat zamiast pelnego handoffu z kasowaniem danych."""
-    fails = int(meta_get(_META_CIRCUIT_FAILS, 0) or 0) + 1
-    meta_set(_META_CIRCUIT_FAILS, fails)
-    if fails >= BOT_CIRCUIT_THRESHOLD:
-        meta_set(_META_CIRCUIT_UNTIL, now + BOT_CIRCUIT_COOLDOWN)
-        meta_set(_META_CIRCUIT_FAILS, 0)
-        return True
-    return False
+    wolajacy wysyla klientowi lagodny komunikat zamiast pelnego handoffu z kasowaniem danych.
+    Inkrementacja w jednym atomowym SQL UPSERT (nie get-potem-set na dwoch polaczeniach) —
+    kilka nakladajacych sie kontenerow workera (deploy) nie zgubi wtedy przyrostu licznika.
+    Wlasne polaczenie (nie meta_get/meta_set) NIE dziedziczy ich ochrony przed przejsciowymi
+    bledami sqlite — wlasny try/except jest wiec konieczny (bezpieczny fallback: obwod NIE
+    otworzyl sie wlasnie), zeby awaria bazy w trakcie prawdziwej awarii LLM nie wypadla z
+    process_one poza jego wlasny except i nie zostawila rekordu kolejki utknietego."""
+    try:
+        c = db()
+        c.execute("INSERT INTO meta(k, v) VALUES(?, '1') "
+                  "ON CONFLICT(k) DO UPDATE SET v = CAST(CAST(v AS INTEGER) + 1 AS TEXT)",
+                  (_META_CIRCUIT_FAILS,))
+        fails = int(c.execute("SELECT v FROM meta WHERE k=?", (_META_CIRCUIT_FAILS,)).fetchone()["v"])
+        opened = fails >= BOT_CIRCUIT_THRESHOLD
+        if opened:
+            c.execute("INSERT OR REPLACE INTO meta(k,v) VALUES(?,?)", (_META_CIRCUIT_UNTIL, str(now + BOT_CIRCUIT_COOLDOWN)))
+            c.execute("INSERT OR REPLACE INTO meta(k,v) VALUES(?,?)", (_META_CIRCUIT_FAILS, "0"))
+        c.commit(); c.close()
+        return opened
+    except Exception:
+        return False
 
 
 def _backoff_for(attempts):
     idx = min(attempts, len(BOT_BACKOFF_TIERS)) - 1
-    return BOT_BACKOFF_TIERS[max(0, idx)]
+    return BOT_BACKOFF_TIERS[idx]
+
+
+def _fail_permanently(qid, conv_id, attempts, err, retryable):
+    """Koniec probowania (4xx od razu, albo retryable po wyczerpaniu BOT_MAX_ATTEMPTS) —
+    kolejka 'failed', telemetria i przeprosiny+handoff z powodem opisujacym FAKTYCZNA
+    przyczyne (dla 4xx to trwaly blad po 1 probie, nie "wyczerpane proby")."""
+    c = db(); c.execute("UPDATE quote_queue SET status='failed', attempts=?, last_error=? WHERE id=?",
+                        (attempts, err, qid)); c.commit(); c.close()
+    log("quotebot: tura NIEUDANA%s (conv %s): %s" %
+        ("" if retryable else " (4xx, bez retry)", conv_id, err))
+    log_event(conv_id, "failed", {"powod": err, "retryable": retryable})
+    reason = ("błąd techniczny bota (wyczerpane próby)" if retryable
+              else "błąd techniczny bota (trwały błąd, bez ponawiania)")
+    try:
+        handoff_with_apology(conv_id, reason=reason)
+    except Exception:
+        pass
 
 
 def process_one(now):
-    if _circuit_open(now):
-        return False   # kolejka wstrzymana — awaria LLM w trakcie, nie mnozymy identycznych bledow
     c = db()
     # Stale-recovery (AR-04): rekord utknal w 'processing' (crash/restart w trakcie tury) -> pending.
+    # Dziala NIEZALEZNIE od stanu obwodu — inaczej rekord utkniety podczas awarii LLM czekalby
+    # az do konca _STALE_PROCESSING zamiast odzyskac sie od razu.
     c.execute("UPDATE quote_queue SET status='pending' WHERE status='processing' AND next_at<=?",
               (now - _STALE_PROCESSING,))
+    c.commit()
+    if _circuit_open(now):
+        c.close()
+        return False   # kolejka wstrzymana — awaria LLM w trakcie, nie mnozymy identycznych bledow
     # Szeregowanie per conv_id (API-06): nie bierzemy nowszego rekordu rozmowy, gdy starszy tej samej
     # rozmowy jeszcze czeka (pending/processing) — zachowujemy kolejnosc wiadomosci.
     row = c.execute(
@@ -84,14 +118,7 @@ def process_one(now):
         if not retryable:
             # TO-04: 4xx (zla konfiguracja/klucz) -> fail od razu, bez backoffu ani wliczania
             # w prog circuit-breakera (to nie przejsciowa niedostepnosc LLM, tylko trwaly blad).
-            c = db(); c.execute("UPDATE quote_queue SET status='failed', attempts=?, last_error=? WHERE id=?",
-                                (attempts, err, qid)); c.commit(); c.close()
-            log("quotebot: tura NIEUDANA (4xx, bez retry) (conv %s): %s" % (conv_id, err))
-            log_event(conv_id, "failed", {"powod": err, "retryable": False})
-            try:
-                handoff_with_apology(conv_id)
-            except Exception:
-                pass
+            _fail_permanently(qid, conv_id, attempts, err, retryable=False)
             return True
         if _circuit_record_failure(now):
             # Obwod WLASNIE sie otworzyl — jeden lagodny komunikat zamiast lawiny handoffow
@@ -103,14 +130,7 @@ def process_one(now):
                 pass
             log("quote_worker: circuit-breaker OTWARTY na %ss (conv %s)" % (BOT_CIRCUIT_COOLDOWN, conv_id))
         if attempts >= BOT_MAX_ATTEMPTS:
-            c = db(); c.execute("UPDATE quote_queue SET status='failed', attempts=?, last_error=? WHERE id=?",
-                                (attempts, err, qid)); c.commit(); c.close()
-            log("quotebot: tura NIEUDANA (conv %s): %s" % (conv_id, err))
-            log_event(conv_id, "failed", {"powod": err, "retryable": True})
-            try:
-                handoff_with_apology(conv_id)
-            except Exception:
-                pass
+            _fail_permanently(qid, conv_id, attempts, err, retryable=True)
         else:
             backoff = _backoff_for(attempts)
             # Wracamy do 'pending' (claim ustawil 'processing') z opoznieniem backoff.

@@ -22,6 +22,20 @@ _KOMPLET = {"pozycje": [{"id": "1", "produkt": "blat", "dlugosc": "200", "szerok
                          "ilosc": "1", "wykonczenie": "surowe"}], "wspolne": {}}
 
 
+@pytest.fixture(autouse=True)
+def _circuit_state_isolation():
+    """Stan circuit-breakera (TO-04) zyje w tabeli meta GLOBALNEJ dla calego (dzielonego
+    miedzy plikami testow) bridge.db — bez resetu lezaly obwod z innego pliku testow
+    zablokowalby tu process_one niezaleznie od intencji tego testu (code review Task 7,
+    angle C)."""
+    from core.db import meta_set
+    meta_set(qw._META_CIRCUIT_UNTIL, 0)
+    meta_set(qw._META_CIRCUIT_FAILS, 0)
+    yield
+    meta_set(qw._META_CIRCUIT_UNTIL, 0)
+    meta_set(qw._META_CIRCUIT_FAILS, 0)
+
+
 def _patch(monkeypatch, replies):
     monkeypatch.setattr(qb, "cw_conv_status", lambda c: "pending")
     monkeypatch.setattr(qb, "cw_messages", lambda c, n: [{"role": "user", "text": "tak"}])

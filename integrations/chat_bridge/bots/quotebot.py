@@ -2051,8 +2051,10 @@ def _run_quote_turn_inner(conv_id, inbox_id, message_id, content, attachments=No
     log("quotebot: odpowiedz wyslana (conv %s, tura %s)" % (conv_id, _bot_turns(conv_id)))
 
 
-def handoff_with_apology(conv_id):
-    """Sciezka awaryjna (po wyczerpaniu retry): przeprosiny + przekazanie do agenta.
-    Notatka dla konsultanta dziedziczy juz zebrane dane (nie zaczynamy od pustego stanu)."""
-    _do_handoff(conv_id, "błąd techniczny bota (wyczerpane próby)", _load_dane(conv_id),
-                closing=APOLOGY_MSG)
+def handoff_with_apology(conv_id, reason="błąd techniczny bota (wyczerpane próby)"):
+    """Sciezka awaryjna (po wyczerpaniu retry albo trwalym bledzie 4xx): przeprosiny +
+    przekazanie do agenta. Notatka dla konsultanta dziedziczy juz zebrane dane (nie
+    zaczynamy od pustego stanu). `reason` opisuje faktyczna przyczyne (patrz
+    quote_worker._fail_permanently) — domyslny tekst zaklada wyczerpane proby retry, co
+    nie jest prawda dla 4xx-fail-fast (konczy sie po 1 probie)."""
+    _do_handoff(conv_id, reason, _load_dane(conv_id), closing=APOLOGY_MSG)

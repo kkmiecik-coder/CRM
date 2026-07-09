@@ -125,7 +125,7 @@ def test_backoff_wielopoziomowy_30_120_300(monkeypatch):
 
 def test_4xx_konczy_sie_od_razu_bez_backoffu(monkeypatch):
     handed = []
-    monkeypatch.setattr(qw, "handoff_with_apology", lambda c: handed.append(c))
+    monkeypatch.setattr(qw, "handoff_with_apology", lambda c, reason=None: handed.append(c))
     monkeypatch.setattr(qw, "run_quote_turn",
                         lambda *a, **k: (_ for _ in ()).throw(qb._LLMHttpError("boom", retryable=False)))
     _enqueue(1111)
@@ -169,3 +169,61 @@ def test_obwod_zamyka_sie_po_cooldownie(monkeypatch):
     monkeypatch.setattr(qw, "run_quote_turn", lambda *a, **k: None)
     _enqueue(1115)
     assert qw.process_one(1_000_001) is True   # po cooldownie kolejka znow dziala
+
+
+def test_meta_get_meta_set_przezywaja_awarie_bazy(monkeypatch):
+    """Regresja code review Task 7 (angle C): meta_get/meta_set byly jedynymi helperami w
+    core/db.py bez try/except (w odroznieniu od init_db i reszty kodu, gdzie przejsciowe
+    bledy sqlite nigdy nie maja crashowac logiki bota). Uwaga: to NIE pokrywa
+    _circuit_record_failure — ta funkcja ma WLASNE polaczenie db(), patrz test ponizej."""
+    def _boom():
+        raise db_mod.sqlite3.OperationalError("database is locked")
+    monkeypatch.setattr(db_mod, "db", _boom)
+    assert db_mod.meta_get("brak-takiego-klucza", "domyslna") == "domyslna"
+    db_mod.meta_set("cokolwiek", "1")   # nie rzuca mimo niedostepnej bazy
+
+
+def test_circuit_record_failure_przezywa_awarie_bazy(monkeypatch):
+    """Regresja code review Task 7 (runda 2): _circuit_record_failure robi wlasny atomowy
+    UPSERT przez `db()` zaimportowane bezposrednio do quote_worker (nie przez meta_get/meta_set),
+    wiec fix powyzej jej NIE obejmuje. Przejsciowy 'database is locked' (najbardziej
+    prawdopodobny WLASNIE podczas prawdziwej awarii LLM, gdy nakladajace sie kontenery
+    workera rywalizuja o zapis do tego samego wiersza meta) rzucalby sie w gore z process_one
+    poza jego wlasny except, zostawiajac zaklamany rekord kolejki utkniety w 'processing'
+    i NIE inkrementujac licznika obwodu wlasnie wtedy, gdy jest to najbardziej potrzebne."""
+    def _boom():
+        raise db_mod.sqlite3.OperationalError("database is locked")
+    monkeypatch.setattr(qw, "db", _boom)
+    assert qw._circuit_record_failure(1_000_000) is False   # bezpieczny fallback, nie rzuca
+
+
+def test_stale_recovery_dziala_mimo_otwartego_obwodu(monkeypatch):
+    """Regresja: circuit-open MA wstrzymac branie NOWEJ pracy, ale odzyskiwanie rekordow
+    utknietych w 'processing' (crash/restart workera w trakcie tury) ma dzialac zawsze —
+    inaczej rekord czeka utkniety az do konca pauzy obwodu zamiast wrocic do 'pending' od razu."""
+    from core.db import meta_set
+    now = 3_000_000
+    meta_set(qw._META_CIRCUIT_UNTIL, now + 999999)   # obwod otwarty daleko w przyszlosc
+    c = db_mod.db()
+    c.execute("DELETE FROM quote_queue")
+    c.execute("INSERT INTO quote_queue(conv_id, inbox_id, message_id, content, attempts, status, next_at) "
+              "VALUES(?,?,?,?,?,?,?)", (1116, 18, "m1", "tak", 0, "processing", now - qw._STALE_PROCESSING - 10))
+    c.commit(); c.close()
+    assert qw.process_one(now) is False   # obwod otwarty -> nie bierze nowej pracy
+    c = db_mod.db(); row = c.execute("SELECT status FROM quote_queue WHERE conv_id=1116").fetchone(); c.close()
+    assert row["status"] == "pending"   # ale utkniety rekord ODZYSKANY mimo pauzy
+
+
+def test_4xx_ma_inny_powod_handoffu_niz_wyczerpane_proby(monkeypatch):
+    """Regresja: sciezka 4xx-fail-fast konczy sie po JEDNEJ probie, wiec powod przekazany
+    do _do_handoff/notatki dla konsultanta nie moze brzmiec 'wyczerpane proby' (mylace —
+    sugerowaloby wielokrotne, przejsciowe niepowodzenia zamiast trwalego bledu konfiguracji)."""
+    powody = []
+    monkeypatch.setattr(qb, "_do_handoff", lambda conv_id, powod, dane, closing=None: powody.append(powod))
+    monkeypatch.setattr(qb, "_load_dane", lambda conv_id: {"pozycje": [], "wspolne": {}})
+    monkeypatch.setattr(qw, "run_quote_turn",
+                        lambda *a, **k: (_ for _ in ()).throw(qb._LLMHttpError("boom", retryable=False)))
+    _enqueue(1117)
+    qw.process_one(1_000_000)
+    assert len(powody) == 1
+    assert "wyczerpane" not in powody[0]
