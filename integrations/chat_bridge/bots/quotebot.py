@@ -101,7 +101,7 @@ _FORMAT = (
     '{"odpowiedz": "tekst do klienta", "handoff": false, "powod": "", "send_image": "", '
     '"pozycje": [{"id": "1", "produkt": "", "dlugosc": "", "szerokosc": "", "grubosc": "", '
     '"gatunek": "", "technologia": "", "klasa": "", "ilosc": "", "wykonczenie": "", '
-    '"finishing_id": "", '
+    '"finishing_id": "", "gatunki_do_porownania": [], '
     '"otwory": "", "edges": [], "schody": ""}], '
     '"wspolne": {"termin": "", "kontakt": ""}, '
     '"porownania": [{"id": "1", "gatunek": "", "technologia": "", "klasa": ""}]}\n'
@@ -180,7 +180,17 @@ _FORMAT = (
     "Wypełniaj 'porownania' TYLKO dla porównania, o które klient prosi W TEJ wiadomości — NIGDY nie "
     "powtarzaj porównania z wcześniejszych tur. Gdy klient komentuje lub decyduje (np. „zostajemy "
     "przy dębie”, „ok”, „dziękuję”) — zostaw 'porownania' PUSTE i odpowiedz krótko i naturalnie w polu "
-    "'odpowiedz' (np. potwierdź wybór i zapytaj, czy pomóc w czymś jeszcze)."
+    "'odpowiedz' (np. potwierdź wybór i zapytaj, czy pomóc w czymś jeszcze).\n"
+    "WYCENA WARIANTOWA (wielu gatunków naraz, 'gatunki_do_porownania'): gdy klient PRZED "
+    "otrzymaniem jakiejkolwiek ceny w tej rozmowie prosi o wycenę TEGO SAMEGO nowego produktu w "
+    "KILKU gatunkach naraz (np. „wycenę blatu 200x90 w trzech opcjach drewna”, „ile w dębie i "
+    "jesionie”) — NIE pytaj „który gatunek”. Wpisz w polu 'gatunek' JEDEN z wymienionych gatunków "
+    "(dowolny, system policzy WSZYSTKIE), a w 'gatunki_do_porownania' pełną listę żądanych gatunków "
+    "(np. [\"dąb\", \"jesion\", \"buk\"]). Nadal dopytaj o WSZYSTKO pozostałe potrzebne do dokładnej "
+    "wyceny (wymiary, grubość, technologię, klasę, wykończenie, ilość) — wycena wariantowa liczy "
+    "dokładną cenę każdego gatunku, nie szacunek \"od X zł\". Gdy klient pyta o JEDEN konkretny "
+    "gatunek (nawet gdy waha się między dwoma w rozmowie), zostaw 'gatunki_do_porownania' puste — "
+    "to nie jest wycena wariantowa."
 )
 
 # Instrukcja stanu potwierdzenia — doklejana do promptu, gdy klient dostal podsumowanie od systemu.
@@ -544,6 +554,132 @@ def _obsluz_porownania(conv_id, dane, porownania):
         _bump_turns(conv_id)
         log("quotebot: porownanie wariantu (conv %s)" % conv_id)
     return wyslano   # False gdy nic nowego -> run_quote_turn schodzi do normalnej odpowiedzi
+
+
+def _gatunki_z_listy(lista):
+    """Normalizuje liste gatunkow od LLM (np. ['dąb','Jesion','dab']) do unikalnej listy
+    kanonicznych nazw (Dąb/Jesion/Buk), z zachowaniem kolejnosci pierwszego wystapienia."""
+    out = []
+    for g in (lista or []):
+        norm = crm_calc._norm_species(g)
+        if norm and norm not in out:
+            out.append(norm)
+    return out
+
+
+def _pozycje_z_oczekujacym_wyborem(dane):
+    """Pozycje z 2+ gatunkami do porownania wciaz nierozstrzygnietymi (klient jeszcze nie
+    wybral, po pokazanej tabeli cen). Stan wyboru jest CELOWO wyliczany z danych (nie osobna
+    flaga) — jedno zrodlo prawdy, ktore samo znika, gdy LLM rozstrzygnie pozycje (patrz
+    _merge_dane: 'gatunki_do_porownania' czyszczone jawnie, jak 'edges')."""
+    return [p for p in (dane.get("pozycje") or []) if len(_gatunki_z_listy(p.get("gatunki_do_porownania"))) >= 2]
+
+
+def _przypomnij_o_wyborze_gatunku(conv_id, oczekujace):
+    """Twardy gate (kod, nie tylko miekka instrukcja promptu _WARIANT_WYBOR_INSTR): dopoki
+    klient nie wybral gatunku z pokazanej tabeli, podsumowanie/cena NIE MOGA przejsc dalej z
+    dowolnym gatunkiem-kotwica (LLM czasem nie rozstrzyga wyboru na niejednoznacznej wiadomosci
+    klienta — code review Task 8) — to zaprzeczaloby idei "bez zapisu w CRM przed wyborem"."""
+    nazwy = ", ".join(dict.fromkeys(str(p.get("produkt") or "").strip() or "pozycja" for p in oczekujace))
+    if not cw_agent_reply(conv_id, "Zanim przygotuję podsumowanie, proszę wskazać, który z "
+                          "pokazanych gatunków wybiera Pan/Pani dla: %s." % nazwy,
+                          token=BOT_QUOTE_CW_AGENT_TOKEN):
+        raise RuntimeError("quotebot: wysylka przypomnienia o wyborze gatunku nieudana (conv %s)" % conv_id)
+    _bump_turns(conv_id)
+
+
+# Instrukcja dla LLM, gdy klient ma nierozstrzygniety wybor miedzy pokazanymi gatunkami (kod
+# doklada ja do promptu TYLKO gdy _pozycje_z_oczekujacym_wyborem(dane_przed) nie jest puste) —
+# rozpoznanie wyboru zostawiamy LLM (odmiana, "w dębie", "ten dębowy"), NIE regexowi na
+# surowym tekscie (byl kruchy: mylil sie na odmianie i przypadkowych podciagach jak "Dąbrowski").
+_WARIANT_WYBOR_INSTR = (
+    "STAN: klient zobaczyl tabele cen w kilku gatunkach dla poniższych pozycji (patrz "
+    "'gatunki_do_porownania' w DOTYCHCZAS ZEBRANYCH DANYCH WYCENY) i ma wskazac, ktory zapisac. "
+    "Gdy z wiadomosci klienta jasno wynika WYBRANY gatunek (w dowolnej formie, np. odmienionej: "
+    "„w dębie”, „ten dębowy”, „biorę jesion”) — dla WŁAŚCIWEJ pozycji ustaw pole 'gatunek' na "
+    "wybrany gatunek i 'gatunki_do_porownania' na pusta liste []. NIE zmieniaj gatunku ANI "
+    "'gatunki_do_porownania' innych pozycji, ktorych to nie dotyczy. Jesli nie wiadomo, ktora "
+    "pozycja lub ktory z pokazanych gatunkow klient wybral (np. pyta o cos innego) — zostaw "
+    "'gatunki_do_porownania' bez zmian i odpowiedz normalnie."
+)
+
+
+def _wycena_wariantowa_msg(poz, prod, gatunki):
+    """Tabela cen (informacyjnie) dla kazdego zadanego gatunku tej samej pozycji — bez
+    wskazania 'nie zmieniam wyceny' (bo zadna wycena jeszcze nie powstala, w odroznieniu
+    od _porownanie_msg uzywanego PO cenie)."""
+    linie = ["Oto wycena **%s** w porównywanych gatunkach:" % _linia_pozycji(dict(poz, gatunek="")), ""]
+    for g in gatunki:
+        alt = dict(poz); alt["gatunek"] = g
+        code = crm_calc.variant_code(g, poz.get("technologia"), poz.get("klasa"))
+        var = next((v for v in (prod.get("variants") or [])
+                    if v.get("variant_code") == code and v.get("available")), None)
+        linie.append("**%s**" % g)
+        if not var:
+            linie.append("    niedostępny w tej konfiguracji")
+        else:
+            b = _cena_pozycji(alt, prod)
+            linie += _rozbicie_linie(b)
+        linie.append("")
+    while linie and not linie[-1]:
+        linie.pop()
+    return "\n".join(linie)
+
+
+def _czy_wycena_wariantowa(conv_id, poz):
+    """True gdy ta pozycja kwalifikuje sie do trybu wyceny wariantowej: 2+ gatunki do
+    porownania, kompletna poza wyborem gatunku (ktory juz mamy - system uzyl 'anchor' z out),
+    i zadna cena jeszcze nie padla w tej rozmowie (inaczej to zwykle porownanie po cenie)."""
+    gatunki = _gatunki_z_listy(poz.get("gatunki_do_porownania"))
+    if len(gatunki) < 2 or _priced(conv_id):
+        return False
+    return not _brakujace_pozycji(poz)   # kompletna poza gatunkiem (ktory juz ma wartosc-kotwice)
+
+
+def _obsluz_wyceny_wariantowej(conv_id, dane):
+    """Znajduje WSZYSTKIE pozycje kwalifikujace sie do wyceny wariantowej w tej turze (2+
+    gatunki do porownania, kompletne, sprzed pierwszej ceny, jeszcze nie pokazane) i pokazuje
+    ich tabele cen JEDNA wiadomoscia (bundling — kilka pozycji naraz nie ginie, w odroznieniu
+    od pokazywania tylko pierwszej i cichego gubienia reszty). Liczy /calculate co najwyzej RAZ
+    na ture, informacyjnie — BEZ zapisu w CRM (zadnego find_or_create_client/create_quote).
+    Wybor gatunku rozstrzyga LLM w kolejnej turze (_WARIANT_WYBOR_INSTR), nie regex na surowym
+    tekscie — 'gatunki_do_porownania' samo znika z pozycji, gdy LLM je rozstrzygnie (_merge_dane)."""
+    sent = _sent_images(conv_id)
+    kandydaci = []
+    for poz in (dane.get("pozycje") or []):
+        if not _czy_wycena_wariantowa(conv_id, poz):
+            continue
+        gatunki = _gatunki_z_listy(poz.get("gatunki_do_porownania"))
+        dedup_key = "var:%s:%s" % (poz.get("id"), ",".join(sorted(gatunki)))
+        if dedup_key in sent:
+            continue   # ta sama tabela juz pokazana — nie powtarzaj (dedup jak porownania)
+        kandydaci.append((poz, gatunki, dedup_key))
+    if not kandydaci:
+        return False
+    options = crm_calc.get_options()
+    wynik = crm_calc.calculate(dane.get("pozycje") or [], options)
+    if not wynik.get("ok") or not wynik.get("products"):
+        return False   # nie policzylo sie (braki/blad gdzie indziej w zamowieniu) — niech normalna sciezka dopyta
+    pozycje = dane.get("pozycje") or []
+    fragmenty, wyslane_klucze = [], []
+    for poz, gatunki, dedup_key in kandydaci:
+        idx = next((i for i, p in enumerate(pozycje) if str(p.get("id")) == str(poz.get("id"))), None)
+        if idx is None or idx >= len(wynik["products"]):
+            continue
+        fragmenty.append(_wycena_wariantowa_msg(poz, wynik["products"][idx], gatunki))
+        wyslane_klucze.append(dedup_key)
+    if not fragmenty:
+        return False
+    fragmenty.append("Którą opcję zapisać? Proszę wskazać gatunek (i pozycję, jeśli porównań "
+                     "jest kilka), a poda Pan/Pani e-mail — wyślę link do wyceny, do której "
+                     "będzie można wracać.")
+    if not cw_agent_reply(conv_id, "\n\n".join(fragmenty), token=BOT_QUOTE_CW_AGENT_TOKEN):
+        raise RuntimeError("quotebot: wysylka wyceny wariantowej nieudana (conv %s)" % conv_id)
+    for k in wyslane_klucze:
+        _mark_image_sent(conv_id, k)
+    _bump_turns(conv_id)
+    log("quotebot: wycena wariantowa (conv %s, pozycje=%s)" % (conv_id, [p.get("id") for p, _, _ in kandydaci]))
+    return True
 
 
 _PROSBA_KONTAKT = ("Jeśli poda Pan/Pani adres e-mail (lub telefon), zapiszę wycenę pod tym "
@@ -912,10 +1048,10 @@ _KASUJ_POLE = {"brak", "-", "—", "nie dotyczy", "rezygnuję", "rezygnuje"}
 
 def _merge_pola(stare, nowe):
     """Scala pola tekstowe pozycji/wspolnych: niepusta nowa wartosc nadpisuje, pusta NIE kasuje.
-    Wartosc-sentinel ('brak'/'-') KASUJE pole (rezygnacja klienta — MD-04). 'edges' (lista)
-    obslugujemy osobno w _merge_dane — tu pomijamy."""
+    Wartosc-sentinel ('brak'/'-') KASUJE pole (rezygnacja klienta — MD-04). 'edges' i
+    'gatunki_do_porownania' (listy) obslugujemy osobno w _merge_dane — tu pomijamy."""
     for k, v in (nowe or {}).items():
-        if k in ("id", "usun", "edges"):
+        if k in ("id", "usun", "edges", "gatunki_do_porownania"):
             continue
         vs = str(v or "").strip()
         if not vs:
@@ -968,6 +1104,12 @@ def _merge_dane(conv_id, out):
             target["edges"] = ed
         elif crm_calc.raw_ma_sharp(raw_edges):
             target["edges"] = []   # klient wybral ostre / usunięcie obróbki
+        # gatunki_do_porownania — jak edges, poza _merge_pola (pusta lista tam NIE kasuje).
+        # W odroznieniu od zwyklych pol tekstowych, wartosc od LLM jest AUTORYTATYWNA (nadpisuje
+        # zawsze, takze pusta) — to jednorazowa decyzja tury (klient rozstrzygnal wybor
+        # gatunku, patrz _WARIANT_WYBOR_INSTR), nie akumulowany szczegol produktu jak wymiary.
+        if "gatunki_do_porownania" in p:
+            target["gatunki_do_porownania"] = _gatunki_z_listy(p.get("gatunki_do_porownania"))
     _merge_pola(stan["wspolne"], out.get("wspolne") or {})
     _zapisz_dane(conv_id, stan)
     return stan
@@ -1402,6 +1544,10 @@ def _wyslij_cene_i_kontakt(conv_id, dane, identity):
     """Liczy cene przez API, wysyla ja klientowi. Gdy jest email/telefon (z tozsamosci) —
     zapisuje wycene i dosyla link; inaczej ustawia awaiting_contact i miekko prosi o kontakt.
     Rzuca RuntimeError gdy wysylka do Chatwoota padnie (retry w worker)."""
+    oczekujace = _pozycje_z_oczekujacym_wyborem(dane)
+    if oczekujace:
+        _przypomnij_o_wyborze_gatunku(conv_id, oczekujace)
+        return
     options = crm_calc.get_options()
     wynik = crm_calc.calculate(dane.get("pozycje") or [], options)
     if not wynik.get("ok") or not wynik.get("totals"):
@@ -1648,6 +1794,10 @@ def _wyslij_podsumowanie(conv_id, dane, content=""):
     obrazy PO tekscie podsumowania, nie przed.
     Kolejnosc CELOWO wysylka -> stan: gdy POST padnie, retry ponawia ture bez awaiting i
     podsumowanie dociera; stan-przed-wysylka po nieudanym POST omijalby podsumowanie."""
+    oczekujace = _pozycje_z_oczekujacym_wyborem(dane)
+    if oczekujace:
+        _przypomnij_o_wyborze_gatunku(conv_id, oczekujace)
+        return
     options = crm_calc.get_options()   # do pokazania koloru w podsumowaniu + pominiecia probki barwnego lakieru
     if not cw_agent_reply(conv_id, _podsumowanie_msg(dane, options), token=BOT_QUOTE_CW_AGENT_TOKEN):
         raise RuntimeError("quotebot: wysylka podsumowania nieudana (conv %s)" % conv_id)
@@ -1830,6 +1980,8 @@ def _run_quote_turn_inner(conv_id, inbox_id, message_id, content, attachments=No
                    "tylko to, co klient zmienia):\n" + json.dumps(dane_przed, ensure_ascii=False))
     if awaiting:
         system += "\n\n" + _CONFIRM_INSTR
+    if _pozycje_z_oczekujacym_wyborem(dane_przed):
+        system += "\n\n" + _WARIANT_WYBOR_INSTR
     # Stan 'priced' w promptcie (PL-10/MD-06): LLM ma wiedziec, czy cena juz padla — bez tego
     # uzywa 'porownania' przed pierwsza wycena (slepy zaulek).
     if _priced(conv_id):
@@ -1984,6 +2136,12 @@ def _run_quote_turn_inner(conv_id, inbox_id, message_id, content, attachments=No
             log_event(conv_id, "confirmed")
             _wyslij_cene_i_kontakt(conv_id, dane, cw_contact_full(conv_id))
             return
+
+    # Wycena wariantowa (FAZA 1, wielu gatunkow naraz) — TYLKO przed pierwsza cena. Umieszczona
+    # PO schody-nietypowe i decyzji handoff LLM (te maja pierwszenstwo — reklamacja/prosba o
+    # czlowieka/ksztalt niewyceniany kalkulatorem nie moze zostac przykryta tabela cen).
+    if _obsluz_wyceny_wariantowej(conv_id, dane):
+        return
 
     # Bez handoffu: komplet wymaganych -> podsumowanie (pierwsze lub po korekcie danych).
     if not brak and _priced(conv_id) and not zmienione:
