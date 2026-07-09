@@ -199,7 +199,8 @@ def test_limit_tur_po_bramkach_awaiting(monkeypatch):
     replies = []
     _patch(monkeypatch, replies)
     monkeypatch.setattr(qb.crm_calc, "get_options", lambda: {"finishing_options": [{"id": 7, "full_path": "Olej"}]})
-    monkeypatch.setattr(qb.crm_calc, "find_or_create_client", lambda e, p, n: {"ok": True, "client": {"id": 5}})
+    monkeypatch.setattr(qb.crm_calc, "find_or_create_client",
+                        lambda e, p, n, client_number=None: {"ok": True, "client": {"id": 5}})
     monkeypatch.setattr(qb.crm_calc, "create_quote",
                         lambda poz, o, cid, notes="": {"ok": True, "quote_number": "W/9", "public_url": "https://crm/q/z"})
     _reset(803)

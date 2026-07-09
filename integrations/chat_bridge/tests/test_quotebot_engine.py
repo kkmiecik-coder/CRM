@@ -44,7 +44,17 @@ def _patch_common(monkeypatch, replies):
                         lambda messages, **kw: '{"odpowiedz":"","handoff":false,"pozycje":[],"wspolne":{}}')
     monkeypatch.setattr(qb, "cw_agent_reply",
                         lambda conv_id, text, **kw: replies.append((text, kw)) or True)
+    monkeypatch.setattr(qb, "cw_note", lambda conv_id, text, **kw: True)
+    monkeypatch.setattr(qb, "cw_bot_handoff", lambda conv_id, **kw: True)
     monkeypatch.setattr(qb.crm_calc, "get_options", lambda: {"finishing_options": [{"id": 7, "full_path": "Olejowanie"}]})
+    # LS-01: lead zawsze zapisany, nawet bez kontaktu — find_or_create_client/create_quote
+    # sa teraz wolane w kazdej turze z cena.
+    monkeypatch.setattr(qb.crm_calc, "find_or_create_client",
+                        lambda e, p, n, client_number=None: {"ok": True, "matched": False,
+                                                             "created": True, "client": {"id": 1}})
+    monkeypatch.setattr(qb.crm_calc, "create_quote",
+                        lambda poz, o, cid, notes="": {"ok": True, "quote_number": "W/1",
+                                                       "public_url": "https://crm/q/z"})
 
 
 def test_potwierdzenie_bez_kontaktu_wysyla_cene_i_prosi_o_kontakt(monkeypatch):
@@ -71,7 +81,7 @@ def test_kontakt_ze_startu_zapisuje_wycene_i_link(monkeypatch):
     monkeypatch.setattr(qb.crm_calc, "calculate",
                         lambda pozycje, opts: {"ok": True, "totals": {"total_brutto": 1230.0, "total_netto": 1000.0}})
     monkeypatch.setattr(qb.crm_calc, "find_or_create_client",
-                        lambda email, phone, name: {"ok": True, "client": {"id": 42}})
+                        lambda email, phone, name, client_number=None: {"ok": True, "client": {"id": 42}})
     monkeypatch.setattr(qb.crm_calc, "create_quote",
                         lambda pozycje, opts, client_id, notes="": {"ok": True, "quote_number": "W/1",
                                                                     "public_url": "https://crm/q/abc"})

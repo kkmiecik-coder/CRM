@@ -43,6 +43,14 @@ def _patch(monkeypatch, replies, chat_json):
     monkeypatch.setattr(qb, "cw_bot_handoff", lambda conv_id, **kw: replies.append("__HANDOFF__") or True)
     monkeypatch.setattr(qb, "cw_note", lambda conv_id, text, **kw: replies.append("__NOTE__:" + text) or True)
     monkeypatch.setattr(qb.crm_calc, "get_options", lambda: {"finishing_options": []})
+    # LS-01: lead zawsze zapisany, nawet bez kontaktu — find_or_create_client/create_quote
+    # sa teraz wolane w kazdej turze z cena.
+    monkeypatch.setattr(qb.crm_calc, "find_or_create_client",
+                        lambda e, p, n, client_number=None: {"ok": True, "matched": False,
+                                                             "created": True, "client": {"id": 1}})
+    monkeypatch.setattr(qb.crm_calc, "create_quote",
+                        lambda poz, o, cid, notes="": {"ok": True, "quote_number": "W/1",
+                                                       "public_url": "https://crm/q/z"})
 
 
 def _seed(conv_id, dane, **flags):

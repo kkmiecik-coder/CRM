@@ -39,7 +39,8 @@ def test_ms05_zapis_padl_komunikat_i_handoff(monkeypatch):
     """MS-05: klient podaje mail, find_or_create pada -> klient dostaje komunikat + handoff (nie cisza)."""
     replies = []
     _patch(monkeypatch, replies)
-    monkeypatch.setattr(qb.crm_calc, "find_or_create_client", lambda e, p, n: {"ok": False, "client": {}})
+    monkeypatch.setattr(qb.crm_calc, "find_or_create_client",
+                        lambda e, p, n, client_number=None: {"ok": False, "client": {}})
     c = db_mod.db()
     c.execute("DELETE FROM quote_state WHERE conv_id=?", (5001,))
     c.execute("DELETE FROM quote_dane WHERE conv_id=?", (5001,))

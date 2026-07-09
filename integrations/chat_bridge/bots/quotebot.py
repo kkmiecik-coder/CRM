@@ -506,6 +506,34 @@ _PROSBA_KONTAKT = ("Jeśli poda Pan/Pani adres e-mail (lub telefon), zapiszę t�
 _SAVE_FAIL_MSG = ("Dziękuję za kontakt! Mam chwilowy problem techniczny z zapisem wyceny — "
                   "przekazuję rozmowę do konsultanta WoodPower, który dośle link w tej rozmowie.")
 
+
+def _lead_number(conv_id):
+    """Identyfikator klienta technicznego leada (LS-01) — konwencja jak 'olx-<id>'
+    (integrations/chat_bridge/channels/olx.py), ale per rozmowa quote-bota."""
+    return "chat-%s" % conv_id
+
+
+def _lead_note(conv_id, dane, options, wynik=None):
+    """Prywatna notatka dla agenta z parametrami i cena PO KAZDYM zapisie/aktualizacji wyceny
+    (LS-01) — lead widoczny w CRM nawet bez kontaktu klienta. Nigdy nie rzuca (notatka
+    pomocnicza nie moze wywrocic juz udanego zapisu wyceny)."""
+    try:
+        if wynik is None:
+            wynik = crm_calc.calculate(dane.get("pozycje") or [], options)
+        lines = ["🤖 Asystent AI v1 (wycena) — lead zapisany w CRM"]
+        bloki = _bloki_pozycji(dane, options)
+        if bloki:
+            lines.append(""); lines += bloki
+        totals = (wynik or {}).get("totals") or {}
+        if totals:
+            lines.append("")
+            lines.append("Cena: %s (%s netto)" % (_fmt_pln(totals.get("total_brutto")),
+                                                   _fmt_pln(totals.get("total_netto"))))
+        cw_note(conv_id, "\n".join(lines), token=BOT_QUOTE_CW_AGENT_TOKEN)
+    except Exception as e:
+        log("quotebot: lead note nieudana (conv %s): %s" % (conv_id, repr(e)))
+
+
 _EMAIL_RE = re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+")
 # Wlasne domeny firmowe — adres w nich (np. reklamacje@woodpower.pl, ktory bot sam wysyla)
 # NIE jest kontaktem klienta (RX-07).
@@ -1343,33 +1371,34 @@ def _wyslij_cene_i_kontakt(conv_id, dane, identity):
     _set_awaiting(conv_id, False)
     _bump_turns(conv_id)
 
-    # Kontakt z dowolnego zrodla (stan / czat / rekord Chatwoota) — jak mamy, zapisujemy od razu.
+    # LS-01: lead ZAWSZE trafia do CRM od razu po policzeniu ceny, niezaleznie od kontaktu.
     email, phone, name = _effective_contact(conv_id, dane, identity)
-    if email or phone:
-        _zapisz_wycene(conv_id, dane, options, email, phone, name)
-    else:
+    _zapisz_wycene(conv_id, dane, options, email, phone, name, wynik=wynik)
+    if not (email or phone):
         if not cw_agent_reply(conv_id, _PROSBA_KONTAKT, token=BOT_QUOTE_CW_AGENT_TOKEN):
             raise RuntimeError("quotebot: wysylka prosby o kontakt nieudana (conv %s)" % conv_id)
         _set_awaiting_contact(conv_id, True)
     log("quotebot: cena wyslana (conv %s)" % conv_id)
 
 
-def _zapisz_wycene(conv_id, dane, options, email, phone, name):
-    """find-or-create klienta + zapis LUB aktualizacja wyceny + wyslanie linku.
-    Gdy w stanie jest edit_uuid wczesniejszej wyceny -> AKTUALIZUJE ja (bez tworzenia sieroty).
-    Powracajacy klient (dopasowany po email/tel) -> krotka wzmianka raz. Niepowodzenie zapisu
-    nie wywraca tury — cena juz poszla; logujemy i zostawiamy bez linku."""
-    kl = crm_calc.find_or_create_client(email, phone, name)
+def _zapisz_wycene(conv_id, dane, options, email, phone, name, wynik=None):
+    """find-or-create klienta (LS-01: zawsze przez client_number techniczny — kontakt tylko
+    wzbogaca ten sam rekord) + zapis LUB aktualizacja wyceny + wyslanie linku (gdy jest kontakt)
+    + prywatna notatka z parametrami i cena po kazdym zapisie. Gdy w stanie jest edit_uuid
+    wczesniejszej wyceny -> AKTUALIZUJE ja (bez tworzenia sieroty). Powracajacy klient
+    (dopasowany po email/tel — NIE po client_number technicznym wlasnego leada) -> krotka
+    wzmianka raz. Niepowodzenie zapisu nie wywraca tury — cena juz poszla."""
+    kl = crm_calc.find_or_create_client(email, phone, name, client_number=_lead_number(conv_id))
     client = (kl or {}).get("client") or {}
     if not kl.get("ok") or not client.get("id"):
-        # MS-05: koniec ciszy po podanym mailu — informujemy klienta i przekazujemy do konsultanta
-        # (lead z kontaktem nie moze zginac bez sladu).
         log("quotebot: find_or_create nieudane (conv %s): %s" % (conv_id, kl))
         _do_handoff(conv_id, "błąd zapisu wyceny — link do dosłania przez konsultanta", dane,
                     closing=_SAVE_FAIL_MSG)
         return
-    # Grupa 3: klient juz w bazie (dopasowany, nie utworzony) -> raz na rozmowe mila wzmianka.
-    if kl.get("matched") and not _returning_greeted(conv_id):
+    # Grupa 3: klient juz w bazie PO KONTAKCIE (dopasowany po email/tel, nie po client_number
+    # technicznym wlasnego leada) -> raz na rozmowe mila wzmianka. Bez kontaktu w tym wywolaniu
+    # 'matched' NIGDY nie jest True dla wlasnego leada (patrz bot_api._resolve_client).
+    if kl.get("matched") and (email or phone) and not _returning_greeted(conv_id):
         cw_agent_reply(conv_id, "Widzę wcześniejsze wyceny w naszym systemie. Miło nam, że znów Państwo do nas zaglądają 😊", token=BOT_QUOTE_CW_AGENT_TOKEN)
         _set_returning_greeted(conv_id, True)
 
@@ -1381,15 +1410,18 @@ def _zapisz_wycene(conv_id, dane, options, email, phone, name):
     if q.get("ok") and q.get("public_url"):
         if q.get("edit_uuid"):
             _set_edit_uuid(conv_id, q["edit_uuid"])   # zapamietaj do kolejnych aktualizacji
-        czasownik = "Zaktualizowałem" if edit_uuid else "Zapisałem"
-        link = "%s wycenę %s. Link: %s" % (czasownik, q.get("quote_number") or "", q["public_url"])
-        cw_agent_reply(conv_id, link, token=BOT_QUOTE_CW_AGENT_TOKEN)
-        _set_quote_saved(conv_id, True)
-        _set_awaiting_contact(conv_id, False)
+        _lead_note(conv_id, dane, options, wynik=wynik)   # LS-01: notatka po kazdym zapisie
+        if email or phone:
+            czasownik = "Zaktualizowałem" if edit_uuid else "Zapisałem"
+            link = "%s wycenę %s. Link: %s" % (czasownik, q.get("quote_number") or "", q["public_url"])
+            cw_agent_reply(conv_id, link, token=BOT_QUOTE_CW_AGENT_TOKEN)
+            _set_quote_saved(conv_id, True)
+            _set_awaiting_contact(conv_id, False)
         log("quotebot: wycena %s (conv %s, %s)"
             % ("zaktualizowana" if edit_uuid else "zapisana", conv_id, q.get("quote_number")))
-        if not edit_uuid:
-            # Pierwszy zapis wyceny -> RAZ zaproponuj oszacowanie wysylki (kolejne aktualizacje nie).
+        if not edit_uuid and (email or phone):
+            # Pierwszy zapis Z KONTAKTEM -> RAZ zaproponuj oszacowanie wysylki. Zapis BEZ kontaktu
+            # (lead techniczny) nie proponuje jeszcze wysylki — Task 3 przenosi ta oferte zaraz po cenie.
             if cw_agent_reply(conv_id, _WYSYLKA_OFERTA, token=BOT_QUOTE_CW_AGENT_TOKEN):
                 _set_awaiting_postcode(conv_id, True)
     else:

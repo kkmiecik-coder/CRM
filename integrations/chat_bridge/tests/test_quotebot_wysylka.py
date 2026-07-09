@@ -91,7 +91,7 @@ def test_pierwszy_zapis_proponuje_wysylke(monkeypatch):
     replies = []
     monkeypatch.setattr(qb, "cw_agent_reply", lambda c, t, **kw: replies.append(t) or True)
     monkeypatch.setattr(qb.crm_calc, "find_or_create_client",
-                        lambda e, p, n: {"ok": True, "client": {"id": 42}})
+                        lambda e, p, n, client_number=None: {"ok": True, "client": {"id": 42}})
     monkeypatch.setattr(qb.crm_calc, "create_quote",
                         lambda p, o, cid, notes="": {"ok": True, "quote_number": "W/1",
                                                      "public_url": "https://crm/q/a", "edit_uuid": "UU"})
@@ -105,7 +105,7 @@ def test_aktualizacja_nie_proponuje_wysylki_ponownie(monkeypatch):
     replies = []
     monkeypatch.setattr(qb, "cw_agent_reply", lambda c, t, **kw: replies.append(t) or True)
     monkeypatch.setattr(qb.crm_calc, "find_or_create_client",
-                        lambda e, p, n: {"ok": True, "client": {"id": 42}})
+                        lambda e, p, n, client_number=None: {"ok": True, "client": {"id": 42}})
     monkeypatch.setattr(qb.crm_calc, "update_quote",
                         lambda uid, p, o, **kw: {"ok": True, "quote_number": "W/1",
                                                  "public_url": "https://crm/q/a", "edit_uuid": "UU"})

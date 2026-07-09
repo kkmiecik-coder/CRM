@@ -33,7 +33,8 @@ def _patch(monkeypatch, replies, saved):
     monkeypatch.setattr(qb, "cw_note", lambda conv_id, text, **kw: True)
     monkeypatch.setattr(qb.crm_calc, "get_options", lambda: {"finishing_options": []})
     monkeypatch.setattr(qb.crm_calc, "find_or_create_client",
-                        lambda e, p, n: saved.update(email=e, phone=p) or {"ok": True, "client": {"id": 1}})
+                        lambda e, p, n, client_number=None: saved.update(email=e, phone=p) or
+                        {"ok": True, "client": {"id": 1}})
     monkeypatch.setattr(qb.crm_calc, "create_quote",
                         lambda p, o, cid, notes="": {"ok": True, "quote_number": "W/1", "public_url": "https://crm/q/z"})
 
@@ -86,3 +87,52 @@ def test_api13_normalizacja_email_i_tel(monkeypatch):
     crm.find_or_create_client("Jan.Kowalski@GMAIL.com", "+48 501 234 567", "Jan")
     assert captured["email"] == "jan.kowalski@gmail.com"
     assert captured["phone"] == "501234567"
+
+
+# --- LS-01: lead zawsze zapisany w CRM, niezaleznie od kontaktu ---
+
+def _poz(**kw):
+    base = {"id": "1", "produkt": "blat", "dlugosc": "200", "szerokosc": "60", "grubosc": "4",
+            "gatunek": "dąb", "technologia": "lity", "klasa": "A/B", "ilosc": "1",
+            "wykonczenie": "surowe", "finishing_id": ""}
+    base.update(kw); return base
+
+
+def test_cena_zapisuje_lead_bez_kontaktu(monkeypatch):
+    replies, notes = [], []
+    monkeypatch.setattr(qb, "cw_agent_reply", lambda c, t, **kw: replies.append(t) or True)
+    monkeypatch.setattr(qb, "cw_note", lambda c, t, **kw: notes.append(t) or True)
+    monkeypatch.setattr(qb.crm_calc, "get_options", lambda: {"finishing_options": []})
+    monkeypatch.setattr(qb.crm_calc, "calculate",
+                        lambda p, o: {"ok": True, "products": [{}],
+                                      "totals": {"total_brutto": 1000.0, "total_netto": 813.0}})
+    captured = {}
+    monkeypatch.setattr(qb.crm_calc, "find_or_create_client",
+                        lambda e, p, n, client_number=None: captured.update(
+                            email=e, phone=p, client_number=client_number) or
+                            {"ok": True, "matched": False, "created": True, "client": {"id": 99}})
+    monkeypatch.setattr(qb.crm_calc, "create_quote",
+                        lambda p, o, cid, notes="": {"ok": True, "quote_number": "W/1",
+                                                     "public_url": "https://crm/q/a", "edit_uuid": "UU"})
+    qb._wyslij_cene_i_kontakt(950, {"pozycje": [_poz()], "wspolne": {}}, {})
+    assert captured["client_number"] == "chat-950"
+    assert not captured["email"] and not captured["phone"]
+    assert qb._stored_edit_uuid(950) == "UU"     # wycena JUZ zapisana, mimo braku kontaktu
+    assert any("e-mail" in r.lower() or "telefon" in r.lower() for r in replies)
+    assert any(n for n in notes)   # prywatna notatka z parametrami+cena poszla
+
+
+def test_lead_note_nie_wywraca_tury_gdy_cw_note_pada(monkeypatch):
+    monkeypatch.setattr(qb, "cw_agent_reply", lambda c, t, **kw: True)
+    monkeypatch.setattr(qb, "cw_note", lambda c, t, **kw: (_ for _ in ()).throw(RuntimeError("boom")))
+    monkeypatch.setattr(qb.crm_calc, "get_options", lambda: {"finishing_options": []})
+    monkeypatch.setattr(qb.crm_calc, "calculate",
+                        lambda p, o: {"ok": True, "products": [{}],
+                                      "totals": {"total_brutto": 1.0, "total_netto": 1.0}})
+    monkeypatch.setattr(qb.crm_calc, "find_or_create_client",
+                        lambda e, p, n, client_number=None: {"ok": True, "matched": False,
+                                                             "created": True, "client": {"id": 1}})
+    monkeypatch.setattr(qb.crm_calc, "create_quote",
+                        lambda p, o, cid, notes="": {"ok": True, "quote_number": "W/1",
+                                                     "public_url": "https://crm/q/a", "edit_uuid": "UU"})
+    qb._wyslij_cene_i_kontakt(951, {"pozycje": [_poz()], "wspolne": {}}, {})   # nie rzuca
