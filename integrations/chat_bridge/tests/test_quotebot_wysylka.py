@@ -90,6 +90,7 @@ def test_obsluz_wysylke_gabaryt_bez_kuriera_nie_dopisuje(monkeypatch):
 def test_pierwszy_zapis_proponuje_wysylke(monkeypatch):
     replies = []
     monkeypatch.setattr(qb, "cw_agent_reply", lambda c, t, **kw: replies.append(t) or True)
+    monkeypatch.setattr(qb, "cw_note", lambda c, t, **kw: True)
     monkeypatch.setattr(qb.crm_calc, "find_or_create_client",
                         lambda e, p, n, client_number=None: {"ok": True, "client": {"id": 42}})
     monkeypatch.setattr(qb.crm_calc, "create_quote",
@@ -104,12 +105,14 @@ def test_pierwszy_zapis_proponuje_wysylke(monkeypatch):
 def test_aktualizacja_nie_proponuje_wysylki_ponownie(monkeypatch):
     replies = []
     monkeypatch.setattr(qb, "cw_agent_reply", lambda c, t, **kw: replies.append(t) or True)
+    monkeypatch.setattr(qb, "cw_note", lambda c, t, **kw: True)
     monkeypatch.setattr(qb.crm_calc, "find_or_create_client",
                         lambda e, p, n, client_number=None: {"ok": True, "client": {"id": 42}})
     monkeypatch.setattr(qb.crm_calc, "update_quote",
                         lambda uid, p, o, **kw: {"ok": True, "quote_number": "W/1",
                                                  "public_url": "https://crm/q/a", "edit_uuid": "UU"})
-    qb._set_edit_uuid(930, "UU")   # wycena juz istnieje -> to aktualizacja, nie pierwszy zapis
+    qb._set_edit_uuid(930, "UU")      # wycena juz istnieje w CRM
+    qb._set_quote_saved(930, True)    # ...I klient JUZ raz widzial do niej link -> prawdziwa aktualizacja
     qb._zapisz_wycene(930, {"pozycje": [_poz()], "wspolne": {}}, {"finishing_options": []},
                       "jan@x.pl", None, "Jan")
     assert not any("kod pocztowy" in r for r in replies)

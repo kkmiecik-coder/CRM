@@ -145,10 +145,12 @@ def bot_calculate():
 
 
 def _resolve_client(client_query, email, phone, name, client_number=None):
-    """Dopasowanie klienta: najpierw e-mail/telefon (prawdziwy powracajacy klient — wtedy
-    'matched' w odpowiedzi wyzwala u bota mile 'Widzimy wczesniejsze wyceny'), DOPIERO gdy
+    """Dopasowanie klienta: najpierw e-mail/telefon (PRAWDZIWY powracajacy klient), DOPIERO gdy
     brak dopasowania i podano client_number — wlasny rekord techniczny (LS-01: lead bota
-    zawsze ma klienta w CRM, nawet bez kontaktu). Zwraca (client_or_None, created_bool).
+    zawsze ma klienta w CRM, nawet bez kontaktu). Zwraca (client_or_None, created_bool,
+    matched_via) — matched_via = 'contact' TYLKO dla dopasowania po e-mailu/telefonie (to jedyny
+    przypadek, w ktorym wolno pokazac klientowi 'widzimy wczesniejsze wyceny'; dopasowanie
+    wlasnego leada po client_number to NIE powrot klienta — to pierwszy raz, gdy podaje kontakt).
     Nie tworzy tu nowego klienta — to robi wolajacy (rozne sciezki tworzenia)."""
     client = None
     if email:
@@ -156,7 +158,7 @@ def _resolve_client(client_query, email, phone, name, client_number=None):
     if not client and phone:
         client = client_query.filter_by(phone=phone).first()
     if client:
-        return client, False
+        return client, False, "contact"
     if client_number:
         client = client_query.filter_by(client_number=client_number).first()
         if client:
@@ -169,8 +171,8 @@ def _resolve_client(client_query, email, phone, name, client_number=None):
                 client.phone = phone
             if name and client.client_name == client.client_number:
                 client.client_name = name  # nazwa techniczna "chat-N" -> realna, gdy poznana
-            return client, False
-    return None, False
+            return client, False, "client_number"
+    return None, False, None
 
 
 @bot_api_bp.route('/clients/find-or-create', methods=['POST'])
@@ -192,13 +194,16 @@ def bot_find_or_create_client():
              'message': 'Podaj e-mail, telefon lub client_number, żeby dopasować lub założyć klienta.'}
         ]}), 200
 
-    client, _ = _resolve_client(Client.query, email, phone, name, client_number)
+    client, _, matched_via = _resolve_client(Client.query, email, phone, name, client_number)
     if client:
         try:
             db.session.commit()   # zapisz ewentualne wzbogacenie kontaktu technicznego leada
         except (IntegrityError, SQLAlchemyError):
             db.session.rollback()
-        return jsonify({'ok': True, 'matched': True, 'created': False,
+        # 'matched' TYLKO dla prawdziwego powracajacego klienta (dopasowanie po e-mailu/
+        # telefonie) — wlasny lead techniczny wzbogacony PIERWSZYM kontaktem klienta (matched_via
+        # == 'client_number') to NIE powrot, bot nie moze pokazac "widzimy wczesniejsze wyceny".
+        return jsonify({'ok': True, 'matched': matched_via == 'contact', 'created': False,
                         'client': {'id': client.id, 'client_name': client.client_name,
                                    'email': client.email, 'phone': client.phone}}), 200
 
@@ -236,9 +241,13 @@ def bot_find_or_create_client():
         # Zamiast wywalać globalny errorhandler (inny kształt JSON niż kontrakt bota),
         # cofamy transakcję i ponawiamy wyszukiwanie — przegrany wyścigu znajdzie zwycięzcę.
         db.session.rollback()
-        client, _ = _resolve_client(Client.query, email, phone, name, client_number)
+        client, _, matched_via = _resolve_client(Client.query, email, phone, name, client_number)
         if client:
-            return jsonify({'ok': True, 'matched': True, 'created': False,
+            try:
+                db.session.commit()   # zapisz ewentualne wzbogacenie kontaktu (przegrany wyscigu)
+            except (IntegrityError, SQLAlchemyError):
+                db.session.rollback()
+            return jsonify({'ok': True, 'matched': matched_via == 'contact', 'created': False,
                             'client': {'id': client.id, 'client_name': client.client_name,
                                        'email': client.email, 'phone': client.phone}}), 200
         return jsonify({'ok': False, 'errors': [

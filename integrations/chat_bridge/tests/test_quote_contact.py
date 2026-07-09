@@ -136,3 +136,54 @@ def test_lead_note_nie_wywraca_tury_gdy_cw_note_pada(monkeypatch):
                         lambda p, o, cid, notes="": {"ok": True, "quote_number": "W/1",
                                                      "public_url": "https://crm/q/a", "edit_uuid": "UU"})
     qb._wyslij_cene_i_kontakt(951, {"pozycje": [_poz()], "wspolne": {}}, {})   # nie rzuca
+
+
+def test_zapis_leada_bez_kontaktu_pada_nie_robi_handoffu(monkeypatch):
+    """Bez podanego kontaktu nieudany zapis leada technicznego to CICHY blad (log + kontynuacja) —
+    NIE handoff z komunikatem 'Dziękuję za kontakt!', bo klient zadnego kontaktu nie podal."""
+    replies = []
+    monkeypatch.setattr(qb, "cw_agent_reply", lambda c, t, **kw: replies.append(t) or True)
+    monkeypatch.setattr(qb, "cw_note", lambda c, t, **kw: True)
+    monkeypatch.setattr(qb, "cw_bot_handoff", lambda c, **kw: True)
+    monkeypatch.setattr(qb.crm_calc, "get_options", lambda: {"finishing_options": []})
+    monkeypatch.setattr(qb.crm_calc, "calculate",
+                        lambda p, o: {"ok": True, "products": [{}],
+                                      "totals": {"total_brutto": 1000.0, "total_netto": 813.0}})
+    monkeypatch.setattr(qb.crm_calc, "find_or_create_client",
+                        lambda e, p, n, client_number=None: {"ok": False, "client": {}})
+    qb._wyslij_cene_i_kontakt(952, {"pozycje": [_poz()], "wspolne": {}}, {})
+    assert not any("Dziękuję za kontakt" in r for r in replies), "klient nie podal kontaktu"
+    assert any("e-mail" in r.lower() or "telefon" in r.lower() for r in replies), (
+        "mimo nieudanego zapisu leada bot normalnie prosi o kontakt")
+
+
+def test_zapis_leada_z_kontaktem_pada_robi_handoff(monkeypatch):
+    """Regresja MS-05: gdy klient JUZ podal kontakt, a zapis pada, koniec ciszy — handoff."""
+    replies = []
+    monkeypatch.setattr(qb, "cw_agent_reply", lambda c, t, **kw: replies.append(t) or True)
+    monkeypatch.setattr(qb, "cw_note", lambda c, t, **kw: True)
+    monkeypatch.setattr(qb, "cw_bot_handoff", lambda c, **kw: True)
+    monkeypatch.setattr(qb.crm_calc, "find_or_create_client",
+                        lambda e, p, n, client_number=None: {"ok": False, "client": {}})
+    qb._zapisz_wycene(953, {"pozycje": [_poz()], "wspolne": {}}, {"finishing_options": []},
+                      "jan@x.pl", None, "Jan")
+    assert any("Dziękuję za kontakt" in r for r in replies)
+
+
+def test_pierwszy_zapis_z_kontaktem_po_wczesniejszym_leadzie_mowi_zapisalem(monkeypatch):
+    """Klient dostal cene bez kontaktu (lead techniczny juz ma edit_uuid), potem podaje e-mail —
+    z JEGO perspektywy to PIERWSZY zapis, wiec komunikat ma mowic 'Zapisałem', nie 'Zaktualizowałem'."""
+    replies = []
+    monkeypatch.setattr(qb, "cw_agent_reply", lambda c, t, **kw: replies.append(t) or True)
+    monkeypatch.setattr(qb, "cw_note", lambda c, t, **kw: True)
+    monkeypatch.setattr(qb.crm_calc, "find_or_create_client",
+                        lambda e, p, n, client_number=None: {"ok": True, "matched": False,
+                                                             "created": False, "client": {"id": 42}})
+    monkeypatch.setattr(qb.crm_calc, "update_quote",
+                        lambda uid, p, o, **kw: {"ok": True, "quote_number": "W/1",
+                                                 "public_url": "https://crm/q/a", "edit_uuid": "UU"})
+    qb._set_edit_uuid(954, "UU")   # lead techniczny juz zapisany bez kontaktu wczesniej
+    qb._zapisz_wycene(954, {"pozycje": [_poz()], "wspolne": {}}, {"finishing_options": []},
+                      "jan@x.pl", None, "Jan")
+    assert any("Zapisałem" in r for r in replies)
+    assert not any("Zaktualizowałem" in r for r in replies)

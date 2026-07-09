@@ -1,4 +1,10 @@
-"""Logika wyboru/wzbogacania klienta technicznego chat-<conv_id> w /clients/find-or-create (LS-01)."""
+"""Logika wyboru/wzbogacania klienta technicznego chat-<conv_id> w /clients/find-or-create (LS-01).
+
+_resolve_client zwraca (client, created, matched_via) — matched_via odroznia PRAWDZIWEGO
+powracajacego klienta (dopasowanego po e-mailu/telefonie -> bot pokazuje "widze wczesniejsze
+wyceny") od wlasnego leada technicznego znalezionego po client_number (nowy klient, ktory
+WLASNIE pierwszy raz podal kontakt -> NIE jest to powrot, bot nie moze tego pokazac jako
+"matched")."""
 from unittest.mock import MagicMock
 from modules.calculator.routers.bot_api import _resolve_client
 
@@ -14,30 +20,33 @@ def test_client_number_matches_istniejacy_technical_lead_bez_kontaktu():
     existing = MagicMock(id=7, client_name="chat-501", client_number="chat-501",
                          email=None, phone=None)
     query = _query_matching(existing, "chat-501")
-    client, created = _resolve_client(query, email=None, phone=None, name=None,
-                                      client_number="chat-501")
+    client, created, matched_via = _resolve_client(query, email=None, phone=None, name=None,
+                                                   client_number="chat-501")
     assert client is existing and created is False
     assert existing.email is None and existing.phone is None
+    assert matched_via == "client_number"
 
 
 def test_client_number_wzbogaca_puste_pola_kontaktu():
     existing = MagicMock(id=7, client_name="chat-501", client_number="chat-501",
                          email=None, phone=None)
     query = _query_matching(existing, "chat-501")
-    client, created = _resolve_client(query, email="jan@x.pl", phone="500600700",
-                                      name="Jan", client_number="chat-501")
+    client, created, matched_via = _resolve_client(query, email="jan@x.pl", phone="500600700",
+                                                   name="Jan", client_number="chat-501")
     assert client is existing and created is False
     assert existing.email == "jan@x.pl"
     assert existing.phone == "500600700"
     assert existing.client_name == "Jan"  # nazwa techniczna zastapiona realna, gdy klient ja poda
+    assert matched_via == "client_number", (
+        "wlasny lead techniczny wzbogacony PIERWSZYM kontaktem klienta to NIE powrot klienta")
 
 
 def test_client_number_nie_nadpisuje_juz_wypelnionego_kontaktu():
     existing = MagicMock(id=7, client_name="Jan", client_number="chat-501",
                          email="jan@x.pl", phone="500600700")
     query = _query_matching(existing, "chat-501")
-    client, created = _resolve_client(query, email="inny@x.pl", phone=None, name=None,
-                                      client_number="chat-501")
+    client, created, matched_via = _resolve_client(query, email="inny@x.pl", phone=None, name=None,
+                                                   client_number="chat-501")
     assert existing.email == "jan@x.pl"  # kontakt z biezacej wiadomosci NIE nadpisuje juz zapisanego
 
 
@@ -56,14 +65,15 @@ def test_email_dopasowanie_ma_pierwszenstwo_przed_client_number():
             return MagicMock(first=lambda: technical_lead)
         return MagicMock(first=lambda: None)
     query.filter_by.side_effect = filter_by
-    client, created = _resolve_client(query, email="jan@x.pl", phone=None, name="Jan",
-                                      client_number="chat-501")
+    client, created, matched_via = _resolve_client(query, email="jan@x.pl", phone=None, name="Jan",
+                                                   client_number="chat-501")
     assert client is real_customer and created is False
+    assert matched_via == "contact"
 
 
-def test_brak_dopasowania_zwraca_none_none():
+def test_brak_dopasowania_zwraca_none_none_none():
     query = MagicMock()
     query.filter_by.side_effect = lambda **kw: MagicMock(first=lambda: None)
-    client, created = _resolve_client(query, email=None, phone=None, name=None,
-                                      client_number="chat-999")
-    assert client is None and created is False
+    client, created, matched_via = _resolve_client(query, email=None, phone=None, name=None,
+                                                   client_number="chat-999")
+    assert client is None and created is False and matched_via is None
