@@ -1382,7 +1382,10 @@ def _wyslij_cene_i_kontakt(conv_id, dane, identity):
 
     # LS-01: lead ZAWSZE trafia do CRM od razu po policzeniu ceny, niezaleznie od kontaktu.
     email, phone, name = _effective_contact(conv_id, dane, identity)
-    _zapisz_wycene(conv_id, dane, options, email, phone, name, wynik=wynik)
+    if not _zapisz_wycene(conv_id, dane, options, email, phone, name, wynik=wynik):
+        # Zapis skonczyl sie handoffem (klient PODAL kontakt, ale zapis padl — MS-05) — dalsze
+        # follow-upy (prosba o kontakt/oferta wysylki) zaprzeczylyby wlasnie wykonanemu handoffowi.
+        return
     if not (email or phone):
         if not cw_agent_reply(conv_id, _PROSBA_KONTAKT, token=BOT_QUOTE_CW_AGENT_TOKEN):
             raise RuntimeError("quotebot: wysylka prosby o kontakt nieudana (conv %s)" % conv_id)
@@ -1402,7 +1405,10 @@ def _zapisz_wycene(conv_id, dane, options, email, phone, name, wynik=None):
     + prywatna notatka z parametrami i cena po kazdym zapisie. Gdy w stanie jest edit_uuid
     wczesniejszej wyceny -> AKTUALIZUJE ja (bez tworzenia sieroty). Powracajacy klient
     (dopasowany po email/tel — NIE po client_number technicznym wlasnego leada) -> krotka
-    wzmianka raz. Niepowodzenie zapisu nie wywraca tury — cena juz poszla."""
+    wzmianka raz. Niepowodzenie zapisu nie wywraca tury — cena juz poszla. Zwraca False gdy
+    zapis skonczyl sie handoffem (wolajacy NIE powinien kontynuowac normalnymi follow-upami —
+    prosba o kontakt/oferta wysylki zaprzeczylyby wlasnie wykonanemu handoffowi), True w kazdym
+    innym przypadku (w tym cichy blad zapisu leada technicznego bez kontaktu)."""
     kl = crm_calc.find_or_create_client(email, phone, name, client_number=_lead_number(conv_id))
     client = (kl or {}).get("client") or {}
     if not kl.get("ok") or not client.get("id"):
@@ -1411,10 +1417,11 @@ def _zapisz_wycene(conv_id, dane, options, email, phone, name, wynik=None):
             # MS-05: klient JUZ podal kontakt — nie moze zniknac bez sladu, koniec ciszy.
             _do_handoff(conv_id, "błąd zapisu wyceny — link do dosłania przez konsultanta", dane,
                         closing=_SAVE_FAIL_MSG)
+            return False
         # Bez kontaktu to tylko proba zapisu leada technicznego (LS-01) — cichy blad, bot
         # kontynuuje normalnie (poprosi o kontakt jak zwykle w _wyslij_cene_i_kontakt);
         # handoff z "Dziękuję za kontakt!" byłby tu myslacy, bo klient nic jeszcze nie podal.
-        return
+        return True
     # Grupa 3: klient juz w bazie PO KONTAKCIE (dopasowany po email/tel, nie po client_number
     # technicznym wlasnego leada) -> raz na rozmowe mila wzmianka. Bez kontaktu w tym wywolaniu
     # 'matched' NIGDY nie jest True dla wlasnego leada (patrz bot_api._resolve_client).
@@ -1455,13 +1462,15 @@ def _zapisz_wycene(conv_id, dane, options, email, phone, name, wynik=None):
             _set_awaiting_contact(conv_id, False)
         log("quotebot: wycena %s (conv %s, %s)"
             % ("zaktualizowana" if edit_uuid else "zapisana", conv_id, q.get("quote_number")))
-    else:
-        # MS-05: zapis/aktualizacja padla -> gdy klient JUZ podal kontakt, nie milcz — informuj
-        # go + przekaz konsultantowi. Bez kontaktu to tylko nieudana proba zapisu leada technicznego.
-        log("quotebot: zapis/aktualizacja wyceny nieudana (conv %s): %s" % (conv_id, q))
-        if email or phone:
-            _do_handoff(conv_id, "błąd zapisu wyceny — link do dosłania przez konsultanta", dane,
-                        closing=_SAVE_FAIL_MSG)
+        return True
+    # MS-05: zapis/aktualizacja padla -> gdy klient JUZ podal kontakt, nie milcz — informuj
+    # go + przekaz konsultantowi. Bez kontaktu to tylko nieudana proba zapisu leada technicznego.
+    log("quotebot: zapis/aktualizacja wyceny nieudana (conv %s): %s" % (conv_id, q))
+    if email or phone:
+        _do_handoff(conv_id, "błąd zapisu wyceny — link do dosłania przez konsultanta", dane,
+                    closing=_SAVE_FAIL_MSG)
+        return False
+    return True
 
 
 def _obsluz_wysylke(conv_id, kod):

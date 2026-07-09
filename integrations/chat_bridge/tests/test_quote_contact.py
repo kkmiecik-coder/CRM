@@ -170,6 +170,26 @@ def test_zapis_leada_z_kontaktem_pada_robi_handoff(monkeypatch):
     assert any("Dziękuję za kontakt" in r for r in replies)
 
 
+def test_handoff_z_kontaktem_nie_kontynuuje_oferta_wysylki(monkeypatch):
+    """Gdy zapis wyceny Z KONTAKTEM pada (_do_handoff), _wyslij_cene_i_kontakt NIE moze kontynuowac
+    normalnymi follow-upami (oferta wysylki) — to zaprzeczaloby wlasnie wykonanemu handoffowi."""
+    replies = []
+    monkeypatch.setattr(qb, "cw_agent_reply", lambda c, t, **kw: replies.append(t) or True)
+    monkeypatch.setattr(qb, "cw_note", lambda c, t, **kw: True)
+    monkeypatch.setattr(qb, "cw_bot_handoff", lambda c, **kw: True)
+    monkeypatch.setattr(qb.crm_calc, "get_options", lambda: {"finishing_options": []})
+    monkeypatch.setattr(qb.crm_calc, "calculate",
+                        lambda p, o: {"ok": True, "products": [{}],
+                                      "totals": {"total_brutto": 1000.0, "total_netto": 813.0}})
+    monkeypatch.setattr(qb.crm_calc, "find_or_create_client",
+                        lambda e, p, n, client_number=None: {"ok": False, "client": {}})
+    qb._wyslij_cene_i_kontakt(955, {"pozycje": [_poz()], "wspolne": {"kontakt": "jan@x.pl"}},
+                              {"name": "Jan", "email": "jan@x.pl", "phone": ""})
+    assert any("Dziękuję za kontakt" in r for r in replies)
+    assert not any("kod pocztowy" in r for r in replies), "handoff juz sie stal, bot nie dopytuje dalej"
+    assert qb._awaiting_postcode(955) is False
+
+
 def test_pierwszy_zapis_z_kontaktem_po_wczesniejszym_leadzie_mowi_zapisalem(monkeypatch):
     """Klient dostal cene bez kontaktu (lead techniczny juz ma edit_uuid), potem podaje e-mail —
     z JEGO perspektywy to PIERWSZY zapis, wiec komunikat ma mowic 'Zapisałem', nie 'Zaktualizowałem'."""
