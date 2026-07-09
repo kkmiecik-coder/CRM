@@ -1387,6 +1387,12 @@ def _wyslij_cene_i_kontakt(conv_id, dane, identity):
         if not cw_agent_reply(conv_id, _PROSBA_KONTAKT, token=BOT_QUOTE_CW_AGENT_TOKEN):
             raise RuntimeError("quotebot: wysylka prosby o kontakt nieudana (conv %s)" % conv_id)
         _set_awaiting_contact(conv_id, True)
+    # LS-05/API-14: oferta wysylki ZARAZ po cenie, RAZ na rozmowe (dedup jak obrazy/probki —
+    # bez nowej kolumny schematu), niezaleznie od tego, czy klient juz podal kontakt.
+    if "shipping_offer" not in _sent_images(conv_id):
+        if cw_agent_reply(conv_id, _WYSYLKA_OFERTA, token=BOT_QUOTE_CW_AGENT_TOKEN):
+            _set_awaiting_postcode(conv_id, True)
+            _mark_image_sent(conv_id, "shipping_offer")
     log("quotebot: cena wyslana (conv %s)" % conv_id)
 
 
@@ -1419,8 +1425,8 @@ def _zapisz_wycene(conv_id, dane, options, email, phone, name, wynik=None):
     edit_uuid = _stored_edit_uuid(conv_id)
     # Czy KLIENT juz kiedys widzial link do tej wyceny — NIE to samo, co "czy w CRM istnieje
     # juz obiekt wyceny" (edit_uuid): lead techniczny (bez kontaktu) tworzy edit_uuid od razu,
-    # zanim klient cokolwiek zobaczyl, wiec "Zapisałem"/"Zaktualizowałem" i oferta wysylki musza
-    # patrzec na quote_saved (ustawiane TYLKO gdy link poszedl do klienta), nie na edit_uuid.
+    # zanim klient cokolwiek zobaczyl, wiec "Zapisałem"/"Zaktualizowałem" musi patrzec na
+    # quote_saved (ustawiane TYLKO gdy link poszedl do klienta), nie na edit_uuid.
     juz_widzial_link = _quote_saved(conv_id)
     if edit_uuid:
         q = crm_calc.update_quote(edit_uuid, dane.get("pozycje") or [], options)
@@ -1429,6 +1435,17 @@ def _zapisz_wycene(conv_id, dane, options, email, phone, name, wynik=None):
     if q.get("ok") and q.get("public_url"):
         if q.get("edit_uuid"):
             _set_edit_uuid(conv_id, q["edit_uuid"])   # zapamietaj do kolejnych aktualizacji
+        kod_pocztowy = (dane.get("wspolne") or {}).get("kod_pocztowy")
+        if edit_uuid and kod_pocztowy:
+            # API-14: wysylka byla juz policzona wczesniej — pozycje moglo sie zmienic (ten sam
+            # 'update_quote' wyzej ich NIE przekazal), wiec przeliczamy koszt ponownie zamiast
+            # zostawic nieaktualny.
+            res = crm_calc.shipping_quote(dane.get("pozycje") or [], kod_pocztowy, options)
+            if res.get("ok") and res.get("carriers"):
+                crm_calc.update_quote(edit_uuid, dane.get("pozycje") or [], options,
+                                      courier_name=res.get("carrier_name"),
+                                      shipping_netto=res.get("shipping_netto"),
+                                      shipping_brutto=res.get("shipping_brutto"))
         _lead_note(conv_id, dane, options, wynik=wynik)   # LS-01: notatka po kazdym zapisie
         if email or phone:
             czasownik = "Zaktualizowałem" if juz_widzial_link else "Zapisałem"
@@ -1438,12 +1455,6 @@ def _zapisz_wycene(conv_id, dane, options, email, phone, name, wynik=None):
             _set_awaiting_contact(conv_id, False)
         log("quotebot: wycena %s (conv %s, %s)"
             % ("zaktualizowana" if edit_uuid else "zapisana", conv_id, q.get("quote_number")))
-        if not juz_widzial_link and (email or phone):
-            # Pierwszy link, ktory KLIENT faktycznie widzi -> RAZ zaproponuj oszacowanie wysylki.
-            # Zapis BEZ kontaktu (lead techniczny) nie proponuje jeszcze wysylki — Task 3 przenosi
-            # ta oferte zaraz po cenie, niezaleznie od kontaktu.
-            if cw_agent_reply(conv_id, _WYSYLKA_OFERTA, token=BOT_QUOTE_CW_AGENT_TOKEN):
-                _set_awaiting_postcode(conv_id, True)
     else:
         # MS-05: zapis/aktualizacja padla -> gdy klient JUZ podal kontakt, nie milcz — informuj
         # go + przekaz konsultantowi. Bez kontaktu to tylko nieudana proba zapisu leada technicznego.
@@ -1463,6 +1474,11 @@ def _obsluz_wysylke(conv_id, kod):
     if not cw_agent_reply(conv_id, _wysylka_msg(res), token=BOT_QUOTE_CW_AGENT_TOKEN):
         raise RuntimeError("quotebot: wysylka kosztu wysylki nieudana (conv %s)" % conv_id)
     _set_awaiting_postcode(conv_id, False)   # dopiero po udanej wysylce (retry nie zgubi kodu)
+    if res.get("ok") and res.get("carriers"):
+        # API-14: zapamietaj kod pocztowy — przy zmianie pozycji po tej turze _zapisz_wycene
+        # przeliczy wysylke ponownie zamiast zostawic nieaktualny koszt.
+        dane["wspolne"]["kod_pocztowy"] = kod
+        _zapisz_dane(conv_id, dane)
     edit_uuid = _stored_edit_uuid(conv_id)
     if res.get("ok") and res.get("carriers") and edit_uuid:
         q = crm_calc.update_quote(edit_uuid, dane.get("pozycje") or [], options,
