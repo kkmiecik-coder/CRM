@@ -122,6 +122,52 @@ def test_cena_zapisuje_lead_bez_kontaktu(monkeypatch):
     assert any(n for n in notes)   # prywatna notatka z parametrami+cena poszla
 
 
+def test_maks_dwa_dymki_po_cenie_bez_kontaktu(monkeypatch):
+    """LS-12: prosba o kontakt + oferta wysylki sklejone w JEDNA wiadomosc — maks. 2 dymki
+    publiczne po cenie (cena + sklejony dopisek), nie 3 osobne."""
+    replies = []
+    monkeypatch.setattr(qb, "cw_agent_reply", lambda c, t, **kw: replies.append(t) or True)
+    monkeypatch.setattr(qb, "cw_note", lambda c, t, **kw: True)
+    monkeypatch.setattr(qb.crm_calc, "get_options", lambda: {"finishing_options": []})
+    monkeypatch.setattr(qb.crm_calc, "calculate",
+                        lambda p, o: {"ok": True, "products": [{}],
+                                      "totals": {"total_brutto": 1.0, "total_netto": 1.0}})
+    monkeypatch.setattr(qb.crm_calc, "find_or_create_client",
+                        lambda e, p, n, client_number=None: {"ok": True, "matched": False,
+                                                             "created": True, "client": {"id": 1}})
+    monkeypatch.setattr(qb.crm_calc, "create_quote",
+                        lambda p, o, cid, notes="": {"ok": True, "quote_number": "W/1",
+                                                     "public_url": "https://crm/q/a", "edit_uuid": "UU"})
+    qb._wyslij_cene_i_kontakt(956, {"pozycje": [_poz()], "wspolne": {}}, {})
+    assert len(replies) == 2   # cena + (prosba o kontakt sklejona z oferta wysylki)
+    assert "kod pocztowy" in replies[1] and ("e-mail" in replies[1].lower() or "telefon" in replies[1].lower())
+    assert qb._awaiting_contact(956) is True
+    assert qb._awaiting_postcode(956) is True
+
+
+def test_maks_dwa_dymki_po_cenie_z_kontaktem(monkeypatch):
+    """Gdy kontakt jest juz znany w momencie liczenia ceny, link zapisu i oferta wysylki takze
+    ida sklejone w JEDNEJ wiadomosci (maks. 2 dymki: cena + sklejony link+wysylka)."""
+    replies = []
+    monkeypatch.setattr(qb, "cw_agent_reply", lambda c, t, **kw: replies.append(t) or True)
+    monkeypatch.setattr(qb, "cw_note", lambda c, t, **kw: True)
+    monkeypatch.setattr(qb.crm_calc, "get_options", lambda: {"finishing_options": []})
+    monkeypatch.setattr(qb.crm_calc, "calculate",
+                        lambda p, o: {"ok": True, "products": [{}],
+                                      "totals": {"total_brutto": 1.0, "total_netto": 1.0}})
+    monkeypatch.setattr(qb.crm_calc, "find_or_create_client",
+                        lambda e, p, n, client_number=None: {"ok": True, "matched": False,
+                                                             "created": True, "client": {"id": 1}})
+    monkeypatch.setattr(qb.crm_calc, "create_quote",
+                        lambda p, o, cid, notes="": {"ok": True, "quote_number": "W/1",
+                                                     "public_url": "https://crm/q/a", "edit_uuid": "UU"})
+    qb._wyslij_cene_i_kontakt(957, {"pozycje": [_poz()], "wspolne": {}},
+                              {"name": "Jan", "email": "jan@x.pl", "phone": ""})
+    assert len(replies) == 2   # cena + (link zapisu sklejony z oferta wysylki)
+    assert "Zapisałem" in replies[1] and "kod pocztowy" in replies[1]
+    assert qb._awaiting_postcode(957) is True
+
+
 def test_lead_note_nie_wywraca_tury_gdy_cw_note_pada(monkeypatch):
     monkeypatch.setattr(qb, "cw_agent_reply", lambda c, t, **kw: True)
     monkeypatch.setattr(qb, "cw_note", lambda c, t, **kw: (_ for _ in ()).throw(RuntimeError("boom")))
@@ -207,3 +253,37 @@ def test_pierwszy_zapis_z_kontaktem_po_wczesniejszym_leadzie_mowi_zapisalem(monk
                       "jan@x.pl", None, "Jan")
     assert any("Zapisałem" in r for r in replies)
     assert not any("Zaktualizowałem" in r for r in replies)
+
+
+def test_wzmianka_powracajacego_dopiero_po_udanym_zapisie(monkeypatch):
+    """LS-09: wzmianka o powracajacym kliencie idzie DOPIERO po udanym zapisie wyceny, nie przed —
+    gdy sam zapis pada, klient nie moze uslyszec 'widzimy wczesniejsze wyceny' bez linku do nich."""
+    order = []
+    monkeypatch.setattr(qb, "cw_agent_reply", lambda c, t, **kw: order.append(t) or True)
+    monkeypatch.setattr(qb, "cw_note", lambda c, t, **kw: True)
+    monkeypatch.setattr(qb, "cw_bot_handoff", lambda c, **kw: True)
+    monkeypatch.setattr(qb.crm_calc, "find_or_create_client",
+                        lambda e, p, n, client_number=None: {"ok": True, "matched": True,
+                                                             "created": False, "client": {"id": 5}})
+    monkeypatch.setattr(qb.crm_calc, "create_quote",
+                        lambda p, o, cid, notes="": {"ok": False, "errors": []})  # ZAPIS PADA
+    qb._zapisz_wycene(995, {"pozycje": [_poz()], "wspolne": {}}, {"finishing_options": []},
+                      "jan@x.pl", None, "Jan")
+    assert not any("wcześniejsze wyceny" in t for t in order)  # zapis padl -> BEZ wzmianki
+
+
+def test_wzmianka_powracajacego_idzie_po_udanym_zapisie(monkeypatch):
+    order = []
+    monkeypatch.setattr(qb, "cw_agent_reply", lambda c, t, **kw: order.append(t) or True)
+    monkeypatch.setattr(qb, "cw_note", lambda c, t, **kw: True)
+    monkeypatch.setattr(qb.crm_calc, "find_or_create_client",
+                        lambda e, p, n, client_number=None: {"ok": True, "matched": True,
+                                                             "created": False, "client": {"id": 5}})
+    monkeypatch.setattr(qb.crm_calc, "create_quote",
+                        lambda p, o, cid, notes="": {"ok": True, "quote_number": "W/1",
+                                                     "public_url": "https://crm/q/a"})
+    qb._zapisz_wycene(996, {"pozycje": [_poz()], "wspolne": {}}, {"finishing_options": []},
+                      "jan@x.pl", None, "Jan")
+    wzmianka_idx = next(i for i, t in enumerate(order) if "wcześniejsze wyceny" in t)
+    link_idx = next(i for i, t in enumerate(order) if "Zapisałem" in t)
+    assert wzmianka_idx < link_idx, "wzmianka idzie PRZED linkiem, w tej samej udanej turze"

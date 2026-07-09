@@ -508,9 +508,9 @@ def _obsluz_porownania(conv_id, dane, porownania):
     return wyslano   # False gdy nic nowego -> run_quote_turn schodzi do normalnej odpowiedzi
 
 
-_PROSBA_KONTAKT = ("Jeśli poda Pan/Pani adres e-mail (lub telefon), zapiszę tę wycenę i wyślę "
-                   "link — wróci Pan/Pani do niej w każdej chwili. Jeśli woli Pan/Pani nie "
-                   "podawać, nie ma problemu — wycena wyżej pozostaje aktualna.")
+_PROSBA_KONTAKT = ("Jeśli poda Pan/Pani adres e-mail (lub telefon), zapiszę wycenę pod tym "
+                   "kontaktem i wyślę bezpośredni link — będzie Pan/Pani mógł/mogła do niej "
+                   "wracać i udostępnić ją, komu trzeba, bez pisania do nas ponownie.")
 # Komunikat przy nieudanym zapisie wyceny (MS-05) — koniec ciszy po podanym mailu.
 _SAVE_FAIL_MSG = ("Dziękuję za kontakt! Mam chwilowy problem techniczny z zapisem wyceny — "
                   "przekazuję rozmowę do konsultanta WoodPower, który dośle link w tej rozmowie.")
@@ -1381,34 +1381,44 @@ def _wyslij_cene_i_kontakt(conv_id, dane, identity):
     _bump_turns(conv_id)
 
     # LS-01: lead ZAWSZE trafia do CRM od razu po policzeniu ceny, niezaleznie od kontaktu.
+    # LS-12: prosba o kontakt/link zapisu + oferta wysylki ida SKLEJONE w JEDNA wiadomosc —
+    # maks. 2 dymki publiczne po cenie (cena + ten sklejony dopisek), nie 3 osobne.
     email, phone, name = _effective_contact(conv_id, dane, identity)
-    if not _zapisz_wycene(conv_id, dane, options, email, phone, name, wynik=wynik):
+    oferta_wysylki = "shipping_offer" not in _sent_images(conv_id)
+    extra = [_WYSYLKA_OFERTA] if (oferta_wysylki and (email or phone)) else None
+    if not _zapisz_wycene(conv_id, dane, options, email, phone, name, wynik=wynik, extra_msgs=extra):
         # Zapis skonczyl sie handoffem (klient PODAL kontakt, ale zapis padl — MS-05) — dalsze
         # follow-upy (prosba o kontakt/oferta wysylki) zaprzeczylyby wlasnie wykonanemu handoffowi.
         return
     if not (email or phone):
-        if not cw_agent_reply(conv_id, _PROSBA_KONTAKT, token=BOT_QUOTE_CW_AGENT_TOKEN):
-            raise RuntimeError("quotebot: wysylka prosby o kontakt nieudana (conv %s)" % conv_id)
+        dopiski = [_PROSBA_KONTAKT]
+        if oferta_wysylki:
+            dopiski.append(_WYSYLKA_OFERTA)
+        if not cw_agent_reply(conv_id, "\n\n".join(dopiski), token=BOT_QUOTE_CW_AGENT_TOKEN):
+            raise RuntimeError("quotebot: wysylka dopiskow po cenie nieudana (conv %s)" % conv_id)
         _set_awaiting_contact(conv_id, True)
-    # LS-05/API-14: oferta wysylki ZARAZ po cenie, RAZ na rozmowe (dedup jak obrazy/probki —
-    # bez nowej kolumny schematu), niezaleznie od tego, czy klient juz podal kontakt.
-    if "shipping_offer" not in _sent_images(conv_id):
-        if cw_agent_reply(conv_id, _WYSYLKA_OFERTA, token=BOT_QUOTE_CW_AGENT_TOKEN):
+        if oferta_wysylki:
             _set_awaiting_postcode(conv_id, True)
             _mark_image_sent(conv_id, "shipping_offer")
+    elif oferta_wysylki:
+        # Kontakt juz byl -> oferta wysylki juz sklejona z linkiem zapisu wewnatrz _zapisz_wycene.
+        _set_awaiting_postcode(conv_id, True)
+        _mark_image_sent(conv_id, "shipping_offer")
     log("quotebot: cena wyslana (conv %s)" % conv_id)
 
 
-def _zapisz_wycene(conv_id, dane, options, email, phone, name, wynik=None):
+def _zapisz_wycene(conv_id, dane, options, email, phone, name, wynik=None, extra_msgs=None):
     """find-or-create klienta (LS-01: zawsze przez client_number techniczny — kontakt tylko
     wzbogaca ten sam rekord) + zapis LUB aktualizacja wyceny + wyslanie linku (gdy jest kontakt)
     + prywatna notatka z parametrami i cena po kazdym zapisie. Gdy w stanie jest edit_uuid
     wczesniejszej wyceny -> AKTUALIZUJE ja (bez tworzenia sieroty). Powracajacy klient
     (dopasowany po email/tel — NIE po client_number technicznym wlasnego leada) -> krotka
-    wzmianka raz. Niepowodzenie zapisu nie wywraca tury — cena juz poszla. Zwraca False gdy
-    zapis skonczyl sie handoffem (wolajacy NIE powinien kontynuowac normalnymi follow-upami —
-    prosba o kontakt/oferta wysylki zaprzeczylyby wlasnie wykonanemu handoffowi), True w kazdym
-    innym przypadku (w tym cichy blad zapisu leada technicznego bez kontaktu)."""
+    wzmianka raz. Niepowodzenie zapisu nie wywraca tury — cena juz poszla. extra_msgs (LS-12):
+    dodatkowe akapity sklejane z linkiem zapisu w JEDNA wiadomosc (np. oferta wysylki, gdy
+    kontakt byl juz znany w momencie liczenia ceny — maks. 2 dymki po cenie, nie 3 osobne).
+    Zwraca False gdy zapis skonczyl sie handoffem (wolajacy NIE powinien kontynuowac normalnymi
+    follow-upami — prosba o kontakt/oferta wysylki zaprzeczylyby wlasnie wykonanemu handoffowi),
+    True w kazdym innym przypadku (w tym cichy blad zapisu leada technicznego bez kontaktu)."""
     kl = crm_calc.find_or_create_client(email, phone, name, client_number=_lead_number(conv_id))
     client = (kl or {}).get("client") or {}
     if not kl.get("ok") or not client.get("id"):
@@ -1422,13 +1432,6 @@ def _zapisz_wycene(conv_id, dane, options, email, phone, name, wynik=None):
         # kontynuuje normalnie (poprosi o kontakt jak zwykle w _wyslij_cene_i_kontakt);
         # handoff z "Dziękuję za kontakt!" byłby tu myslacy, bo klient nic jeszcze nie podal.
         return True
-    # Grupa 3: klient juz w bazie PO KONTAKCIE (dopasowany po email/tel, nie po client_number
-    # technicznym wlasnego leada) -> raz na rozmowe mila wzmianka. Bez kontaktu w tym wywolaniu
-    # 'matched' NIGDY nie jest True dla wlasnego leada (patrz bot_api._resolve_client).
-    if kl.get("matched") and (email or phone) and not _returning_greeted(conv_id):
-        cw_agent_reply(conv_id, "Widzę wcześniejsze wyceny w naszym systemie. Miło nam, że znów Państwo do nas zaglądają 😊", token=BOT_QUOTE_CW_AGENT_TOKEN)
-        _set_returning_greeted(conv_id, True)
-
     edit_uuid = _stored_edit_uuid(conv_id)
     # Czy KLIENT juz kiedys widzial link do tej wyceny — NIE to samo, co "czy w CRM istnieje
     # juz obiekt wyceny" (edit_uuid): lead techniczny (bez kontaktu) tworzy edit_uuid od razu,
@@ -1454,10 +1457,18 @@ def _zapisz_wycene(conv_id, dane, options, email, phone, name, wynik=None):
                                       shipping_netto=res.get("shipping_netto"),
                                       shipping_brutto=res.get("shipping_brutto"))
         _lead_note(conv_id, dane, options, wynik=wynik)   # LS-01: notatka po kazdym zapisie
+        # Grupa 3 (LS-09): klient juz w bazie PO KONTAKCIE (dopasowany po email/tel, nie po
+        # client_number technicznym wlasnego leada) -> raz na rozmowe mila wzmianka, DOPIERO
+        # PO udanym zapisie (nie przed — zapis mogl jeszcze paść). 'matched' NIGDY nie jest True
+        # dla wlasnego leada (patrz bot_api._resolve_client).
+        if kl.get("matched") and (email or phone) and not _returning_greeted(conv_id):
+            cw_agent_reply(conv_id, "Widzę wcześniejsze wyceny w naszym systemie. Miło nam, że znów Państwo do nas zaglądają 😊", token=BOT_QUOTE_CW_AGENT_TOKEN)
+            _set_returning_greeted(conv_id, True)
         if email or phone:
             czasownik = "Zaktualizowałem" if juz_widzial_link else "Zapisałem"
             link = "%s wycenę %s. Link: %s" % (czasownik, q.get("quote_number") or "", q["public_url"])
-            cw_agent_reply(conv_id, link, token=BOT_QUOTE_CW_AGENT_TOKEN)
+            tresc = "\n\n".join([link] + list(extra_msgs or []))
+            cw_agent_reply(conv_id, tresc, token=BOT_QUOTE_CW_AGENT_TOKEN)
             _set_quote_saved(conv_id, True)
             _set_awaiting_contact(conv_id, False)
         log("quotebot: wycena %s (conv %s, %s)"
