@@ -9,6 +9,20 @@ _STOP = {"jak", "dla", "czy", "the", "i", "w", "na", "o", "do", "z", "po", "co",
 # usuwa diakrytyki i tnie slowo do 4 znakow, zeby "blat"~"blaty" i "debowy"~"debowe" sie pokrywaly.
 _DIAKRYTYKI = str.maketrans("ąćęłńóśźż", "acelnoszz")
 
+# Kanonizacja rdzeni gatunkow drewna: rzeczownik i przymiotnik do jednego rdzenia
+# (dąb/dębu/dębowy/dębowe -> DAB; buk/bukowy -> BUK; jesion/jesionowy -> JES). Rozwiazuje obocznosc
+# a/e (dab vs debowy), ktorej samo obciecie prefiksu nie laczy. Reszta slow: rdzen = 4 znaki bez diakrytykow.
+_GATUNKI = (("dab", "DAB"), ("deb", "DAB"), ("buk", "BUK"), ("jesi", "JES"), ("jeso", "JES"))
+
+
+def _stem(w):
+    # Rdzen pojedynczego slowa: bez diakrytykow; gatunki drewna kanonizowane, reszta obcieta do 4 znakow.
+    s = w.translate(_DIAKRYTYKI)
+    for pref, canon in _GATUNKI:
+        if s.startswith(pref):
+            return canon
+    return s[:4]
+
 
 def render_link(anchor, url):
     return '<a href="%s" class="%s">%s</a>' % (url, LINK_CLASS, anchor)
@@ -19,8 +33,8 @@ def _words(text):
 
 
 def _stems(words):
-    # Rdzenie slow (do porownan rankingu) — bez diakrytykow, obciete do 4 znakow.
-    return {w.translate(_DIAKRYTYKI)[:4] for w in words}
+    # Zbior rdzeni slow (do porownan rankingu).
+    return {_stem(w) for w in words}
 
 
 def topic_keywords(title):

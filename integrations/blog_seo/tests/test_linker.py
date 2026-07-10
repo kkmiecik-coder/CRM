@@ -52,3 +52,18 @@ def test_render_category_block_pomija_bez_obrazu():
 
 def test_render_link():
     assert 'class="kontakt-link-descr"' in linker.render_link("kat", "https://woodpower.pl/71-x")
+
+
+def test_ranking_rzeczownik_dab_wybiera_debowe():
+    # temat rzeczownikowy "z dębu" (nie przymiotnik) tez ma wskazac kategorie debowa, nie bukowa.
+    # "blat" wspolny dla obu kategorii (blaty-*), zeby obie trafily do rankingu i porownanie mialo sens.
+    out = linker.candidates("Jak dbać o blat z dębu w kuchni", CATS)
+    urls = [c["url"] for c in out]
+    # debowa przed bukowa
+    assert urls.index("https://woodpower.pl/71-blaty-debowe") < urls.index("https://woodpower.pl/73-blaty-bukowe")
+
+
+def test_ranking_rzeczownik_buk():
+    # "z buku" -> kategoria bukowa trafiona (rdzen buk == bukowe)
+    out = linker.select_categories("Stół z buku do kuchni", CATS, k=1)
+    assert out[0]["url"] == "https://woodpower.pl/73-blaty-bukowe"
