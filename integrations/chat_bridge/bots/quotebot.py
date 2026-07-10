@@ -784,11 +784,16 @@ def _olx_buyer_prefix(identifier):
 
 
 def _lead_number(conv_id, identifier=None):
-    """Identyfikator klienta technicznego leada (LS-01). Dla OLX uzywamy STALEGO prefiksu
-    kupujacego 'olx-<id>' (bez id watku) — spojnie z modules/quotes/chatwoot_match.py, zeby
-    panel "Wyceny CRM" zebral wszystkie wyceny kupujacego pod jednym klientem niezaleznie od
-    watku. Dla livechatu i pozostalych kanalow: 'chat-<conv_id>' per rozmowa."""
-    return _olx_buyer_prefix(identifier) or ("chat-%s" % conv_id)
+    """Identyfikator klienta technicznego leada (LS-01). Dla OLX uzywamy PELNEGO identyfikatora
+    kontaktu z Chatwoota ('olx-<id_kupujacego>-<id_watku>') — dokladnie tego, co widac w rozmowie.
+    Panel "Wyceny CRM" i tak dopasuje (wyluskuje prefiks 'olx-<id>' z identyfikatora kontaktu i
+    szuka go w numerze klienta; pelny numer ten prefiks zawiera). UWAGA: pelny identyfikator ma id
+    watku, wiec kazda nowa rozmowa tego samego kupujacego = osobny klient w CRM (prefiks grupowal
+    je pod jednym). Dla livechatu i pozostalych kanalow: 'chat-<conv_id>' per rozmowa.
+    _olx_buyer_prefix uzywamy tu tylko jako DETEKTOR identyfikatora OLX."""
+    if identifier and _olx_buyer_prefix(identifier):
+        return identifier.strip()
+    return "chat-%s" % conv_id
 
 
 def _lead_note(conv_id, dane, options, wynik=None):
