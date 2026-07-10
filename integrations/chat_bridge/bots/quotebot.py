@@ -805,9 +805,11 @@ def _wyciagnij_kod(text):
 
 # Temat wysylki/dostawy w wiadomosci (fix wysylki #2): pytanie typu „wycenisz wysylke?" kierujemy
 # do deterministycznego przeplywu wysylki, NIE do porownan (LLM na to pytanie wypelnial 'porownania'
-# -> off-topic „informacyjnie").
+# -> off-topic „informacyjnie"). Trigger tematyczny (slowa wysylkowe) — swiadomy trade-off: odpala sie
+# TYLKO po cenie (_priced) i tylko gdy nie ma jawnej korekty; rzadkie nie-cenowe pytanie o wysylke
+# dostanie prosbe o kod (odzyskiwalne). „transport" celowo POMINIETY (za czesto nie-o-koszt).
 _PYTANIE_WYSYLKA_RE = re.compile(r"(wysył\w*|wysyl\w*|dostaw\w*|kurier\w*|przesył\w*|przesyl\w*|"
-                                 r"transport\w*|paczk\w*)", re.IGNORECASE)
+                                 r"paczk\w*)", re.IGNORECASE)
 
 
 def _pyta_o_wysylke(text):
