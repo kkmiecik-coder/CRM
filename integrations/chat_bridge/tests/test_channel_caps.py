@@ -42,6 +42,18 @@ def test_markdown_off_link_zamienia_na_gole_url():
     assert "[" not in out and "](" not in out
 
 
+def test_markdown_off_nie_psuje_url_z_podkresleniami():
+    # URL moze zawierac __ lub ** — sanitizer usuwajac emfaze NIE moze ich zjesc (defekt #1 z review).
+    tekst = "Zobacz https://woodpower.pl/a__b__c?utm=1 — szczegóły"
+    out = to_channel_text(tekst, OLX_CAPS)
+    assert "https://woodpower.pl/a__b__c?utm=1" in out
+
+
+def test_markdown_off_link_z_podkresleniem_w_url_zostaje_caly():
+    out = to_channel_text("[oferta](https://woodpower.pl/x__y)", OLX_CAPS)
+    assert out.strip() == "https://woodpower.pl/x__y"
+
+
 def test_markdown_off_usuwa_naglowki_i_cytaty():
     out = to_channel_text("# Podsumowanie\n> uwaga do klienta", OLX_CAPS)
     lines = [l.strip() for l in out.splitlines() if l.strip()]

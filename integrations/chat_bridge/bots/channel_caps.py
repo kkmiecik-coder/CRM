@@ -35,12 +35,29 @@ _EMOJI_RE = re.compile(
 )
 
 _MD_LINK_RE = re.compile(r"\[([^\]]*)\]\(([^)\s]+)\)")   # [label](url) -> gole url
+_URL_RE = re.compile(r"https?://\S+")                    # goly URL (chroniony przy usuwaniu ** __)
 _HEADING_RE = re.compile(r"(?m)^[ \t]*#{1,6}[ \t]+")     # naglowki markdown na poczatku linii
 _QUOTE_RE = re.compile(r"(?m)^[ \t]*>[ \t]?")            # cytaty blokowe na poczatku linii
 _BULLET_RE = re.compile(r"(?m)^([ \t]*)[\*\+][ \t]+")    # wypunktowanie * / + -> - (spojne)
 _TRAIL_WS_RE = re.compile(r"(?m)[ \t]+$")                # spacje/taby na koncu linii
 _MULTISPACE_RE = re.compile(r"[ \t]{2,}")                # zwielokrotnione spacje w srodku linii
 _SENT_SPLIT_RE = re.compile(r"(?<=[.!?])\s+")            # granica zdania (po . ! ?)
+
+
+def _strip_md_emphasis(text):
+    """Usuwa markdownowe ** i __ (pogrubienie/podkreslenie), CHRONIAC URL-e — mogą one
+    zawierac te znaki (np. parametry trackingowe), a nie sa emfaza."""
+    stash = []
+
+    def _protect(m):
+        stash.append(m.group(0))
+        return "\x00%d\x00" % (len(stash) - 1)
+
+    tmp = _URL_RE.sub(_protect, text)
+    tmp = tmp.replace("**", "").replace("__", "")
+    if stash:
+        tmp = re.sub(r"\x00(\d+)\x00", lambda m: stash[int(m.group(1))], tmp)
+    return tmp
 
 
 def caps_for(persona_key):
@@ -64,7 +81,7 @@ def to_channel_text(text, caps):
     out = text
     if md_off:
         out = _MD_LINK_RE.sub(r"\2", out)             # linki -> gole URL
-        out = out.replace("**", "").replace("__", "")  # pogrubienie / podkreslenie
+        out = _strip_md_emphasis(out)                  # pogrubienie / podkreslenie (chroni URL-e)
         out = _HEADING_RE.sub("", out)                 # naglowki
         out = _QUOTE_RE.sub("", out)                   # cytaty blokowe
         out = _BULLET_RE.sub(r"\1- ", out)             # * / + -> - (spojne wypunktowanie)
