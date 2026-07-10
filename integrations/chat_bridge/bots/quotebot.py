@@ -1094,6 +1094,32 @@ def _merge_pola(stare, nowe):
     return stare
 
 
+# Pola-sygnatura tozsamosci pozycji (MD-05c): rozstrzygaja "nowy produkt vs korekta" przy
+# delcie bez pasujacego id. Wymiary + gatunek/klasa/technologia — jesli NIEPUSTE po obu stronach
+# i sie roznia, to inny produkt.
+_WYMIARY = ("dlugosc", "szerokosc", "grubosc")
+_SYGNATURA_POZYCJI = ("dlugosc", "szerokosc", "grubosc", "gatunek", "klasa", "technologia")
+
+
+def _ma_komplet_wymiarow(poz):
+    """True gdy pozycja/delta niesie WLASNY komplet wymiarow (dlugosc + szerokosc + grubosc)."""
+    return all(str((poz or {}).get(k) or "").strip() for k in _WYMIARY)
+
+
+def _delta_to_nowa_pozycja(delta, kandydat):
+    """MD-05c: czy delta bez pasujacego id to NOWY produkt (a nie korekta) wzgledem kandydata
+    tej samej nazwy. Warunek: obie strony maja WLASNY komplet wymiarow ORAZ ktores niepuste pole
+    sygnatury sie rozni. Delta czesciowa (korekta pojedynczego pola) -> False (scalamy jak dotad)."""
+    if not (_ma_komplet_wymiarow(delta) and _ma_komplet_wymiarow(kandydat)):
+        return False
+    for k in _SYGNATURA_POZYCJI:
+        dv = str(delta.get(k) or "").strip().lower()
+        kv = str(kandydat.get(k) or "").strip().lower()
+        if dv and kv and dv != kv:
+            return True
+    return False
+
+
 def _merge_dane(conv_id, out):
     """Scala pozycje i wspolne z tury LLM ze stanem. Dopasowanie po id (fallback: po nazwie
     produktu, gdy LLM zgubi id i pasuje dokladnie jedna pozycja). Pozycja nieobecna
@@ -1112,7 +1138,10 @@ def _merge_dane(conv_id, out):
             prod = str(p.get("produkt") or "").strip().lower()
             kandydaci = [x for x in stan["pozycje"]
                          if prod and str(x.get("produkt") or "").strip().lower() == prod]
-            if len(kandydaci) == 1:
+            # Scalamy w istniejaca pozycje TYLKO gdy to korekta (delta bez wlasnego, roznego
+            # kompletu wymiarow). Delta z wlasnym kompletem wymiarow o innej sygnaturze = nowy
+            # produkt tej samej nazwy -> istn zostaje None -> ponizej powstaje nowa pozycja (MD-05c).
+            if len(kandydaci) == 1 and not _delta_to_nowa_pozycja(p, kandydaci[0]):
                 istn = kandydaci[0]
         if p.get("usun"):
             if istn is not None:
