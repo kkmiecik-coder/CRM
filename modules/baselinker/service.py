@@ -711,7 +711,10 @@ class BaselinkerService:
                             want_invoice=form_data.get('want_invoice'))
 
             client_data = {
-                'name': form_data.get('delivery_name', ''),
+                # 'name' zasila wyłącznie user_login (BaseLinker "Klient (login)" / buyer_nick).
+                # Bierzemy client_number (błędnie nazwana kolumna = NAZWA klienta), który front
+                # dosyła w client_data; fallback na delivery_name dla zamówień bez zapisanego klienta.
+                'name': form_data.get('client_number') or form_data.get('delivery_name', ''),
                 'delivery_name': form_data.get('delivery_name', ''),
                 'email': form_data.get('email', ''),
                 'phone': form_data.get('phone', ''),
