@@ -252,3 +252,6 @@ tools/production-monitor/backups/
 
 # Sekrety mostka Chatwoot — nigdy w repo
 integrations/chat_bridge/bridge.env
+
+# Sekrety automatu blogowego — nigdy w repo
+integrations/blog_seo/.env
