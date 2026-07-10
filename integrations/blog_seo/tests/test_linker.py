@@ -47,3 +47,10 @@ def test_select_links_links_nie_slowniki_nie_rzuca(monkeypatch):
     out = linker.select_links("Jak olejować blat dębowy", PRODS, CATS, k=2)
     assert isinstance(out, list)
     assert all(isinstance(x, dict) and "url" in x and "anchor" in x for x in out)
+
+
+def test_select_links_links_nie_lista_nie_rzuca(monkeypatch):
+    # links jako nie-lista (poprawny JSON, zly kontener) -> brak wyjatku, fallback
+    monkeypatch.setattr(linker.llm, "chat", lambda *a, **k: '{"links": 5}')
+    out = linker.select_links("Jak olejować blat dębowy", PRODS, CATS, k=2)
+    assert isinstance(out, list) and len(out) >= 1

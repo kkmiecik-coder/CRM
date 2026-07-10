@@ -36,3 +36,9 @@ def test_pick_zwraca_najwyzszy_priorytet(tmp_path, monkeypatch):
     store.add_topic("Wazny", priority=9)
     monkeypatch.setattr(topics.llm, "chat", lambda *a, **k: '{"topics":[]}')
     assert topics.pick_topic("x")["title"] == "Wazny"
+
+
+def test_replenish_topics_nie_lista_nie_rzuca(tmp_path, monkeypatch):
+    topics, store = _fresh(tmp_path, monkeypatch)
+    monkeypatch.setattr(topics.llm, "chat", lambda *a, **k: '{"topics": 5}')
+    assert topics.replenish("kategorie: Blaty", count=5) == 0  # brak wyjatku, nic nie dodano

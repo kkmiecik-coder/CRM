@@ -19,6 +19,17 @@ def _list(name, default):
     return [s.strip() for s in raw.split(",") if s.strip()]
 
 
+def _int_list(name, default):
+    # Lista intow z env; nienumeryczne elementy pomijamy, pusta -> default. Import nie moze rzucac.
+    out = []
+    for x in _list(name, []):
+        try:
+            out.append(int(x))
+        except (TypeError, ValueError):
+            pass
+    return out or list(default)
+
+
 # ----- Wybor dostawcy LLM (tekst) -----
 LLM_PROVIDER = os.environ.get("BLOG_LLM_PROVIDER", "openai")  # openai | anthropic
 
@@ -48,7 +59,7 @@ PS_DB_USER = os.environ.get("BLOG_PS_DB_USER")
 PS_DB_PASS = os.environ.get("BLOG_PS_DB_PASS")
 PS_PREFIX  = os.environ.get("BLOG_PS_PREFIX", "ps_")
 PS_SHOP_ID = _int("BLOG_PS_SHOP_ID", 1)
-PS_LANG_IDS = [int(x) for x in _list("BLOG_PS_LANG_IDS", ["1", "2"])]  # 1=PL (aktywny), 2=EN
+PS_LANG_IDS = _int_list("BLOG_PS_LANG_IDS", [1, 2])   # 1=PL (aktywny), 2=EN
 PS_AUTHOR_ID = _int("BLOG_PS_AUTHOR_ID", 23)                # id_employee autora szkicu
 PS_DEFAULT_CATEGORY_ID = _int("BLOG_PS_DEFAULT_CATEGORY_ID", 4)  # 4=Edukacja (fallback)
 

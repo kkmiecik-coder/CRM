@@ -53,7 +53,8 @@ def select_links(topic_title, products, categories, k=3):
                    want_json=True)
     data = llm.parse_json(raw) or {}
     out = []
-    for l in (data.get("links") or []):
+    raw_links = data.get("links")
+    for l in (raw_links if isinstance(raw_links, list) else []):
         if not isinstance(l, dict):
             continue
         url = l.get("url"); anchor = l.get("anchor")

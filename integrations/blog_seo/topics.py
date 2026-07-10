@@ -20,7 +20,8 @@ def replenish(catalog_summary, count=6):
                     {"role": "user", "content": user}], want_json=True)
     data = llm.parse_json(raw) or {}
     added = 0
-    for title in (data.get("topics") or []):
+    raw_topics = data.get("topics")
+    for title in (raw_topics if isinstance(raw_topics, list) else []):
         if isinstance(title, str) and store.add_topic(title, priority=0, source="llm"):
             added += 1
     log("topics.replenish dodano:", added)
