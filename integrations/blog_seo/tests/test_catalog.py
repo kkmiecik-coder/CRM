@@ -20,6 +20,7 @@ def test_get_categories_mapuje(monkeypatch):
     assert out[0]["image_url"] == "https://woodpower.pl/img/c/71.jpg"
     assert out[0]["link_rewrite"] == "blaty-debowe"
     assert out[0]["name"] == "Dębowe"
+    assert out[0]["display_name"] == "Blaty debowe"  # rozroznialna etykieta z link_rewrite
 
 
 def test_search_categories_pyta_po_slowach(monkeypatch):

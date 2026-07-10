@@ -16,8 +16,16 @@ def category_image_url(id_category):
     return "%s/img/c/%s.jpg" % (SHOP_BASE_URL, id_category)
 
 
+def _display_name(link_rewrite, name):
+    # Etykieta rozroznialna z link_rewrite (myslniki->spacje, kapitalizacja) — bo sama nazwa-lisc
+    # bywa niejednoznaczna (kilka podkategorii "Bukowe"): blaty-bukowe -> "Blaty bukowe". Fallback: name.
+    lr = (link_rewrite or "").replace("-", " ").strip()
+    return lr.capitalize() if lr else (name or "")
+
+
 def _map_categories(rows):
     return [{"id": r["id_category"], "name": r["name"], "link_rewrite": r["link_rewrite"],
+             "display_name": _display_name(r["link_rewrite"], r["name"]),
              "url": category_url(r["id_category"], r["link_rewrite"]),
              "image_url": category_image_url(r["id_category"])} for r in rows]
 

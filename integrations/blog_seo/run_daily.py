@@ -33,7 +33,7 @@ def run(dry_run=False):
     kws = linker.topic_keywords(topic["title"])
     cats_rel = catalog.search_categories(kws) or categories
     selected = linker.select_categories(topic["title"], cats_rel, k=3)
-    links = [{"anchor": c["name"], "url": c["url"]} for c in selected]
+    links = [{"anchor": c.get("display_name") or c["name"], "url": c["url"]} for c in selected]
 
     blog_cats = _blog_category_names()
     article = writer.write_article(topic["title"], links, blog_cats)

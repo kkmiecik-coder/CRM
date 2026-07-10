@@ -73,7 +73,7 @@ def render_category_block(categories):
     for c in categories:
         if not c.get("image_url") or not c.get("url"):
             continue
-        name = c.get("name") or ""
+        name = c.get("display_name") or c.get("name") or ""
         cards.append(
             '<div class="blog-kategoria-karta">'
             '<a href="%s" class="%s"><img src="%s" alt="%s" loading="lazy"><span>%s</span></a></div>'

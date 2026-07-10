@@ -12,7 +12,7 @@ def _prep(tmp_path, monkeypatch):
     import store; store.init_db()
 
     PRODS = [{"name": "Blat dębowy 100x100", "category": "Blaty"}]
-    CATS = [{"id": 71, "name": "Dębowe", "link_rewrite": "blaty-debowe",
+    CATS = [{"id": 71, "name": "Dębowe", "link_rewrite": "blaty-debowe", "display_name": "Blaty debowe",
              "url": "https://woodpower.pl/71-blaty-debowe", "image_url": "https://woodpower.pl/img/c/71.jpg"}]
     monkeypatch.setattr(rd.catalog, "get_products", lambda limit=200: PRODS)
     monkeypatch.setattr(rd.catalog, "get_categories", lambda: CATS)
@@ -40,11 +40,13 @@ def test_linki_to_kategorie_i_blok_doklejony(tmp_path, monkeypatch):
     monkeypatch.setattr(rd.publisher, "insert_draft", lambda art, img, thumb: saved.update(art) or 777)
     out = rd.run(dry_run=False)
     assert out["ok"] is True and out["id_post"] == 777
-    # linki pochodza z kategorii (url kategorii)
+    # linki pochodza z kategorii (url kategorii), anchor = rozroznialna etykieta (display_name)
     assert captured["links"][0]["url"] == "https://woodpower.pl/71-blaty-debowe"
+    assert captured["links"][0]["anchor"] == "Blaty debowe"
     # blok "Polecane kategorie" doklejony do tresci
     assert "Polecane kategorie" in saved["body_html"]
     assert "71-blaty-debowe" in saved["body_html"]
+    assert "Blaty debowe" in saved["body_html"]
 
 
 def test_podpis_atrybucji_doklejony(tmp_path, monkeypatch):

@@ -4,11 +4,11 @@ import importlib
 linker = importlib.import_module("linker")
 
 CATS = [
-    {"id": 73, "name": "Bukowe", "link_rewrite": "blaty-bukowe",
+    {"id": 73, "name": "Bukowe", "link_rewrite": "blaty-bukowe", "display_name": "Blaty bukowe",
      "url": "https://woodpower.pl/73-blaty-bukowe", "image_url": "https://woodpower.pl/img/c/73.jpg"},
-    {"id": 71, "name": "Dębowe", "link_rewrite": "blaty-debowe",
+    {"id": 71, "name": "Dębowe", "link_rewrite": "blaty-debowe", "display_name": "Blaty debowe",
      "url": "https://woodpower.pl/71-blaty-debowe", "image_url": "https://woodpower.pl/img/c/71.jpg"},
-    {"id": 66, "name": "Schody", "link_rewrite": "schody",
+    {"id": 66, "name": "Schody", "link_rewrite": "schody", "display_name": "Schody",
      "url": "https://woodpower.pl/66-schody", "image_url": "https://woodpower.pl/img/c/66.jpg"},
 ]
 
@@ -43,6 +43,8 @@ def test_render_category_block():
     assert '<img src="https://woodpower.pl/img/c/73.jpg"' in html
     assert 'href="https://woodpower.pl/71-blaty-debowe"' in html
     assert 'class="kontakt-link-descr"' in html
+    # etykieta rozroznialna z display_name, nie gola nazwa-lisc "Bukowe"
+    assert "<span>Blaty bukowe</span>" in html
 
 
 def test_render_category_block_pomija_bez_obrazu():
