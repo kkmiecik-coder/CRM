@@ -120,3 +120,22 @@ def test_korekta_przy_jednej_pozycji_nie_pyta():
              "szerokosc": "35", "grubosc": "3"}], "wspolne": {}}
     out = {"pozycje": [{"produkt": "parapet", "grubosc": "4"}], "wspolne": {}}
     assert qb._niejednoznaczna_korekta(jeden, out) is None
+
+
+def test_te_same_wymiary_inne_wykonczenie_to_dwie_pozycje():
+    """Review finalny (I1): dwa blaty tej samej nazwy/wymiarow/gatunku, roznaice sie WYLACZNIE
+    wykonczeniem (surowe vs lakierowane) -> DWIE pozycje, nie zwiniecie w jedna. Delta ma WLASNY
+    komplet wymiarow (peleny re-spec), wiec _ma_komplet_wymiarow nie zablokuje jej wczesniej —
+    o rozdzieleniu decyduje sygnatura, ktora musi objac 'wykonczenie'."""
+    conv = 3106
+    _reset(conv)
+    qb._merge_dane(conv, {"pozycje": [{"id": "1", "produkt": "blat", "dlugosc": "120",
+                          "szerokosc": "35", "grubosc": "3", "gatunek": "dąb", "klasa": "A/B",
+                          "technologia": "lita", "wykonczenie": "surowe"}], "wspolne": {}})
+    qb._merge_dane(conv, {"pozycje": [{"produkt": "blat", "dlugosc": "120", "szerokosc": "35",
+                          "grubosc": "3", "gatunek": "dąb", "klasa": "A/B", "technologia": "lita",
+                          "wykonczenie": "lakierowane"}], "wspolne": {}})
+    stan = qb._load_dane(conv)
+    assert len(stan["pozycje"]) == 2, "roznica TYLKO w wykonczeniu ma tworzyc druga pozycje"
+    wykonczenia = {p["wykonczenie"] for p in stan["pozycje"]}
+    assert wykonczenia == {"surowe", "lakierowane"}

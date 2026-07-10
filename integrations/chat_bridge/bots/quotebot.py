@@ -1101,10 +1101,13 @@ def _merge_pola(stare, nowe):
 
 
 # Pola-sygnatura tozsamosci pozycji (MD-05c): rozstrzygaja "nowy produkt vs korekta" przy
-# delcie bez pasujacego id. Wymiary + gatunek/klasa/technologia — jesli NIEPUSTE po obu stronach
-# i sie roznia, to inny produkt.
+# delcie bez pasujacego id. Wymiary + gatunek/klasa/technologia/wykonczenie — jesli NIEPUSTE po
+# obu stronach i sie roznia, to inny produkt. Wykonczenie+finishing_id dopisane w review finalnym
+# (I1): bez nich dwie pozycje o tych samych wymiarach roznace sie tylko wykonczeniem (np. surowy
+# vs lakierowany) mialy identyczna sygnature i zwijaly sie w jedna (cicha utrata danych).
 _WYMIARY = ("dlugosc", "szerokosc", "grubosc")
-_SYGNATURA_POZYCJI = ("dlugosc", "szerokosc", "grubosc", "gatunek", "klasa", "technologia")
+_SYGNATURA_POZYCJI = ("dlugosc", "szerokosc", "grubosc", "gatunek", "klasa", "technologia",
+                      "wykonczenie", "finishing_id")
 
 
 def _ma_komplet_wymiarow(poz):
@@ -2139,6 +2142,9 @@ def _run_quote_turn_inner(conv_id, inbox_id, message_id, content, attachments=No
     # jest niejednoznaczna — pytamy, ktorej pozycji dotyczy, zanim merge cokolwiek nadpisze. Tylko
     # przed pierwsza cena (po cenie zwykly przeplyw / LLM). Nowy produkt (wlasny komplet wymiarow)
     # tu nie wpada — obsluguje go _merge_dane jako nowa pozycje.
+    # Bramka celowo tylko PRZED pierwsza cena i tylko dla KOREKT — nie obejmuje niejednoznacznego
+    # usun=true ani korekt PO cenie (oba pomijane swiadomie na razie); to follow-up MD-08 do
+    # weryfikacji na /cand/.
     if not _priced(conv_id):
         pyt_pozycja = _niejednoznaczna_korekta(dane_przed, out)
         if pyt_pozycja:
