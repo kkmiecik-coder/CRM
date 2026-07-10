@@ -305,6 +305,23 @@ SCENARIUSZE = [
      "oczekuj": {"min_odp": 1, "status": "pending"},
      "human": "Trzy pozycje; poprawne przypisanie wymiarów."},
 
+    # FAZA 1a — TA SAMA nazwa produktu wielokrotnie (transkrypt 2026-07-10: bot zwijal 4 parapety
+    # w 1 pozycje). MD-05c: kazdy parapet musi zostac osobna pozycja.
+    {"id": "MP04", "kat": "Wiele pozycji", "tytul": "Cztery parapety tej samej nazwy (różne wymiary + ilości)",
+     "tury": ["potrzebuję czterech parapetów: 120x35x3 w 4 szt, 120x30x3 w 1 szt, "
+              "120x30x2 w 2 szt i 150x35x2 w 4 szt",
+              "wszystkie jesion lity, surowe, klasa A/B"],
+     "oczekuj": {"min_odp": 2, "status": "pending", "zawiera": ["parapet", "150", "35", "30"]},
+     "human": "CZTERY osobne pozycje parapetów (120×35×3, 120×30×3, 120×30×2, 150×35×2) z ilościami "
+              "4/1/2/4 — ŻADNA się nie zwija; podsumowanie numeruje 1–4, żadne wymiary nie nadpisane."},
+
+    {"id": "MP05", "kat": "Wiele pozycji", "tytul": "Niejednoznaczna korekta przy 2 pozycjach tej samej nazwy",
+     "tury": ["dwa parapety dąb lity A/B surowe, po 1 szt: 120x35x3 i 150x35x2",
+              "w tym parapecie zmień grubość na 4"],
+     "oczekuj": {"min_odp": 2, "status": "pending", "zawiera": ["której pozycji"]},
+     "human": "Przy korekcie bez wskazania, którego z dwóch parapetów dotyczy, bot PYTA o numer "
+              "pozycji (nie zgaduje, nie tworzy pozycji-widma) — MP-02/MD-08."},
+
     # ================= K. KOPERTA WYMIAROW / WALIDACJA =================
     {"id": "KW01", "kat": "Walidacja", "tytul": "Szerokość 150 > 120",
      "tury": ["blat dąb lity A/B surowy, długość 200, szerokość 150, grubość 4, 1 szt"],
