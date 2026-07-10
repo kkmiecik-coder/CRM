@@ -49,3 +49,20 @@ def test_write_article_uzupelnia_braki(monkeypatch):
     assert art["meta_description"]
     assert art["meta_keywords"]
     assert art["category"] == "Poradniki"  # fallback = pierwsza kategoria
+
+
+def test_write_article_body_nie_string_zwraca_none(monkeypatch):
+    # body_html jako lista (poprawny JSON, zly typ) -> None, bez wyjatku
+    monkeypatch.setattr(writer.llm, "chat", lambda *a, **k: '{"title":"T","body_html":["<p>x</p>"]}')
+    assert writer.write_article("temat", LINKS, ["Poradniki"]) is None
+
+
+def test_write_article_pola_nie_string_nie_rzuca(monkeypatch):
+    # title/meta jako nie-stringi przy poprawnym body -> brak wyjatku, pola sensowne
+    monkeypatch.setattr(writer.llm, "chat", lambda *a, **k:
+        '{"title":12345,"meta_title":["a","b"],"body_html":"<section><p>67-blat-debowy</p></section>"}')
+    art = writer.write_article("Olejowanie blatu", LINKS, ["Poradniki"])
+    assert art is not None
+    assert isinstance(art["title"], str) and art["title"]
+    assert isinstance(art["meta_title"], str)
+    assert isinstance(art["slug"], str) and art["slug"]

@@ -9,6 +9,11 @@ from core.log import log
 # Mapa polskich znakow na ascii dla slugow (PrestaShop url_alias).
 _PL = str.maketrans("ąćęłńóśźżĄĆĘŁŃÓŚŹŻ", "acelnoszzACELNOSZZ")
 
+
+def _s(v, fallback=""):
+    # Zwraca oczyszczony string, gdy v to niepusty string; inaczej fallback (koercja odpowiedzi LLM).
+    return v.strip() if isinstance(v, str) and v.strip() else fallback
+
 _SYSTEM = (
     "Jesteś redaktorem bloga firmy WoodPower (drewniane blaty i schody). Piszesz artykuły pod SEO "
     "i marketing produktów. Zasady: głos firmy w liczbie mnogiej (\"doradzimy\", \"polecamy\"), "
@@ -41,11 +46,10 @@ def write_article(topic_title, links, category_names):
     if raw is None:
         log("writer: LLM nie zwrocil odpowiedzi"); return None
     data = llm.parse_json(raw)
-    if not data or not data.get("body_html"):
+    body = data.get("body_html") if isinstance(data, dict) else None
+    if not isinstance(body, str) or not body.strip():
         log("writer: brak poprawnego JSON/tresci"); return None
-
-    title = (data.get("title") or topic_title).strip()
-    body = data.get("body_html") or ""
+    title = _s(data.get("title"), topic_title)
     # Gwarancja obecnosci linkow: jesli model nie wplotl zadnego URL, dokladamy blok CTA.
     if links and not any(l["url"] in body for l in links):
         body += '\n<div class="blog-cta"><p>Zobacz też: %s</p></div>' % _links_html(links)
@@ -54,10 +58,10 @@ def write_article(topic_title, links, category_names):
     if category not in category_names:
         category = category_names[0] if category_names else "Poradniki"
 
-    meta_title = (data.get("meta_title") or (title + " | WoodPower")).strip()[:255]
-    meta_desc = (data.get("meta_description") or ("Poradnik: " + title))[:255]
-    meta_kw = (data.get("meta_keywords") or title)[:255]
-    short = (data.get("short_description") or "").strip()
+    meta_title = _s(data.get("meta_title"), title + " | WoodPower")[:255]
+    meta_desc = _s(data.get("meta_description"), "Poradnik: " + title)[:255]
+    meta_kw = _s(data.get("meta_keywords"), title)[:255]
+    short = _s(data.get("short_description"), "")
 
     return {
         "title": title,
