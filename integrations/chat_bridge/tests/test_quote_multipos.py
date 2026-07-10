@@ -84,3 +84,39 @@ def test_dryf_separatora_dziesietnego_nie_tworzy_nowej_pozycji():
                           "szerokosc": "35", "grubosc": "1.5"}], "wspolne": {}})
     stan = qb._load_dane(conv)
     assert len(stan["pozycje"]) == 1, "dryf separatora dziesietnego (',' vs '.') to ta sama pozycja"
+
+
+_DWA_PARAPETY = {"pozycje": [
+    {"id": "1", "produkt": "parapet", "dlugosc": "120", "szerokosc": "35", "grubosc": "3"},
+    {"id": "2", "produkt": "parapet", "dlugosc": "150", "szerokosc": "35", "grubosc": "2"}],
+    "wspolne": {}}
+
+
+def test_niejednoznaczna_korekta_pyta_ktora_pozycja():
+    """Korekta czesciowa bez id + 2 produkty tej samej nazwy -> pytanie o pozycje."""
+    out = {"pozycje": [{"produkt": "parapet", "grubosc": "4"}], "wspolne": {}}
+    q = qb._niejednoznaczna_korekta(_DWA_PARAPETY, out)
+    assert q is not None
+    assert "pozycj" in q.lower()
+    assert "120" in q and "150" in q   # obie pozycje wypisane z wymiarami
+
+
+def test_dodanie_pelnego_produktu_nie_jest_niejednoznaczne():
+    """Delta z wlasnym kompletem wymiarow = nowy produkt, nie korekta -> brak pytania."""
+    out = {"pozycje": [{"produkt": "parapet", "dlugosc": "200", "szerokosc": "40", "grubosc": "3"}],
+           "wspolne": {}}
+    assert qb._niejednoznaczna_korekta(_DWA_PARAPETY, out) is None
+
+
+def test_korekta_z_id_nie_jest_niejednoznaczna():
+    """Delta z id pasujacym do stanu — id rozstrzyga, brak pytania."""
+    out = {"pozycje": [{"id": "2", "produkt": "parapet", "grubosc": "4"}], "wspolne": {}}
+    assert qb._niejednoznaczna_korekta(_DWA_PARAPETY, out) is None
+
+
+def test_korekta_przy_jednej_pozycji_nie_pyta():
+    """Jeden produkt danej nazwy — korekta bez id jest jednoznaczna (fallback scala)."""
+    jeden = {"pozycje": [{"id": "1", "produkt": "parapet", "dlugosc": "120",
+             "szerokosc": "35", "grubosc": "3"}], "wspolne": {}}
+    out = {"pozycje": [{"produkt": "parapet", "grubosc": "4"}], "wspolne": {}}
+    assert qb._niejednoznaczna_korekta(jeden, out) is None

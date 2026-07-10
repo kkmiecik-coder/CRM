@@ -1293,6 +1293,43 @@ def _naglowek_pozycji(poz):
     return prod
 
 
+def _krotki_opis_pozycji(poz):
+    """Zwiezly opis pozycji do pytania o wybor: 'Parapet 120×35×3'."""
+    prod = (str(poz.get("produkt") or "").strip() or "Produkt").capitalize()
+    dims = "×".join(str(poz.get(k) or "?").strip() for k in _WYMIARY)
+    return "%s %s" % (prod, dims)
+
+
+def _pytanie_ktora_pozycja(pozycje):
+    """Deterministyczne pytanie 'ktorej pozycji dotyczy zmiana' z numerowana lista pozycji."""
+    linie = ["Której pozycji dotyczy ta zmiana?"]
+    for i, poz in enumerate(pozycje, 1):
+        linie.append("%d. %s" % (i, _krotki_opis_pozycji(poz)))
+    linie.append("Proszę podać numer pozycji.")
+    return "\n".join(linie)
+
+
+def _niejednoznaczna_korekta(dane_przed, out):
+    """MP-02/MD-08: korekta czesciowa bez id trafiajaca w JEDEN z kilku produktow tej samej nazwy
+    jest niejednoznaczna. Zwraca deterministyczne pytanie o pozycje albo None. Nowy produkt
+    (wlasny komplet wymiarow) i korekta z id/jednym kandydatem — NIE sa niejednoznaczne."""
+    pozycje = dane_przed.get("pozycje") or []
+    ids = {str(p.get("id")) for p in pozycje}
+    for p in (out.get("pozycje") or []):
+        if not isinstance(p, dict) or p.get("usun"):
+            continue
+        pid = str(p.get("id") or "").strip()
+        if pid and pid in ids:
+            continue                      # id rozstrzyga cel korekty
+        if _ma_komplet_wymiarow(p):
+            continue                      # wlasny komplet wymiarow = nowy produkt, nie korekta
+        prod = str(p.get("produkt") or "").strip().lower()
+        kand = [x for x in pozycje if prod and str(x.get("produkt") or "").strip().lower() == prod]
+        if len(kand) >= 2:
+            return _pytanie_ktora_pozycja(kand)
+    return None
+
+
 def _wykonczenie_opis(poz, options):
     """Opis wykonczenia do podsumowania: pelna sciezka z katalogu (z kolorem/polyskiem) gdy jest
     finishing_id, np. 'Lakierowane > Barwne > BRUNAT 22-15'; inaczej surowy tekst 'wykonczenie'."""
@@ -2092,6 +2129,18 @@ def _run_quote_turn_inner(conv_id, inbox_id, message_id, content, attachments=No
         out["handoff"] = False
         if not out["odpowiedz"]:
             out["odpowiedz"] = _BOT_IDENTITY_MSG
+    # MP-02/MD-08: korekta czesciowa bez id trafiajaca w jeden z KILKU produktow tej samej nazwy
+    # jest niejednoznaczna — pytamy, ktorej pozycji dotyczy, zanim merge cokolwiek nadpisze. Tylko
+    # przed pierwsza cena (po cenie zwykly przeplyw / LLM). Nowy produkt (wlasny komplet wymiarow)
+    # tu nie wpada — obsluguje go _merge_dane jako nowa pozycje.
+    if not _priced(conv_id):
+        pyt_pozycja = _niejednoznaczna_korekta(dane_przed, out)
+        if pyt_pozycja:
+            if not cw_agent_reply(conv_id, pyt_pozycja, token=BOT_QUOTE_CW_AGENT_TOKEN):
+                raise RuntimeError("quotebot: wysylka pytania o pozycje nieudana (conv %s)" % conv_id)
+            _bump_turns(conv_id)
+            log("quotebot: niejednoznaczna korekta — pytam o pozycje (conv %s)" % conv_id)
+            return
     dane = _merge_dane(conv_id, out)   # akumulacja per pozycja: raz zebrane pole zostaje
     # UWAGA: obrazy pomocnicze (wymiary/krawedzie/kolory) wysylamy DOPIERO PO tekscie bota (nie tu),
     # zeby obraz nie wyprzedzal odpowiedzi LLM. Dedup w _obrazy_kontekstowe (raz na rozmowe) sprawia,
