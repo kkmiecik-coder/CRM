@@ -77,6 +77,10 @@ BOT_QUOTE_CLIENT_TYPE = os.environ.get("BOT_QUOTE_CLIENT_TYPE")
 BOT_QUOTE_CW_AGENT_TOKEN      = os.environ.get("BOT_QUOTE_CW_AGENT_TOKEN")       # access_token (odpowiedzi + handoff)
 BOT_QUOTE_AGENT_WEBHOOK_TOKEN = os.environ.get("BOT_QUOTE_AGENT_WEBHOOK_TOKEN")  # token w URL webhooka /agent-bot-quote
 BOT_QUOTE_MAX_TURNS           = int(os.environ.get("BOT_QUOTE_MAX_TURNS", "30")) # bezpiecznik D
+# Okno ciszy (debounce) quote-bota: sekundy oczekiwania na kolejne wiadomosci klienta zanim bot
+# odpowie. Kazda nowa wiadomosc tej samej rozmowy przesuwa termin (sliding) i doklejana jest do
+# jednej tury -> jedna odpowiedz na serie wiadomosci zamiast wielu. 0 = bez opoznienia.
+BOT_DEBOUNCE_SECONDS          = int(os.environ.get("BOT_DEBOUNCE_SECONDS", "10"))
 # Kanaly WYZWALANE Z MOSTU, dla ktorych quote-bot prowadzi rozmowe (kill-switch bez zmiany kodu;
 # zmiana wymaga recreate kontenera mostu przez bridge-deploy.sh — nie pushu kodu). Dzis znaczenie
 # ma TYLKO obecnosc "olx" (dodanie wlacza obsluge OLX). UWAGA: livechat/Messenger NIE sa sterowane

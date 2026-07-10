@@ -6,6 +6,8 @@ CRM_BOT_API_KEY=<= BOT_API_KEY z config/core.json CRM>
 BOT_QUOTE_AGENT_WEBHOOK_TOKEN=<losowy token webhooka>
 BOT_QUOTE_CLIENT_TYPE=<dokładny client_type z /api/bot/options, np. „Klient indywidualny">
 BOT_QUOTE_MAX_TURNS=30
+BOT_DEBOUNCE_SECONDS=10   # okno ciszy: bot czeka N s na kolejne wiadomości klienta i odpowiada RAZ
+                         # na całą serię (0 = bez opóźnienia). Dotyczy wszystkich kanałów Dębusia.
 # BOT_QUOTE_CW_AGENT_TOKEN uzupełnisz po kroku 3.
 
 ## 2. CRM

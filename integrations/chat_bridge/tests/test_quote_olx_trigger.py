@@ -78,6 +78,18 @@ def test_pusta_tresc_bez_zalacznika_nie_enqueue(monkeypatch):
 
 # --- FAZA 3a: tylko swieze rozmowy (utworzone po go-live) ---
 
+def test_coalesce_dwie_wiadomosci_olx_jedna_tura(monkeypatch):
+    # Okno ciszy dziala tez dla OLX: dwie wiadomosci tej samej rozmowy -> jeden rekord.
+    monkeypatch.setattr(olx, "BOT_QUOTE_PERSONAS", {"olx"})
+    olx._mark_quote_olx_eligible(55)
+    olx._enqueue_quote_olx(55, 8001, "poproszę wycenę", [])
+    olx._enqueue_quote_olx(55, 8002, "blat dębowy", [])
+    rows = _rows()
+    assert len(rows) == 1
+    assert rows[0]["content"] == "poproszę wycenę\nblat dębowy"
+    assert rows[0]["persona"] == "quote_olx"
+
+
 def test_nieoznaczona_rozmowa_nie_enqueue(monkeypatch):
     # Rozmowa sprzed go-live (nieoznaczona) -> bot NIE wchodzi, nawet przy nowej wiadomosci.
     monkeypatch.setattr(olx, "BOT_QUOTE_PERSONAS", {"olx"})

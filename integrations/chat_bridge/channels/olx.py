@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 # Kanal OLX: token (refresh), GET z retry, wysylka, mark-read, poller odbioru.
 import time
-import json
 import threading
 import traceback
 import requests
@@ -13,6 +12,7 @@ from core.db import db, init_db, meta_get, meta_set
 from core.util import parse_ts, upsert_thread, deliver_in_order
 from core.chatwoot import ensure_conversation, cw_incoming, conv_exists, clear_thread_conv
 from core.http import get_with_retry
+from bots.quote_intake import enqueue_quote_turn
 
 name = "olx"
 _token = {"access": None, "exp": 0}
@@ -119,13 +119,13 @@ def _enqueue_quote_olx(conv_id, olx_msg_id, content, att_urls=None):
         seen_key = "olx-%s" % olx_msg_id  # prefiks kanalu -> brak kolizji z mid Chatwoota
         c = db()
         try:
-            c.execute("INSERT INTO quote_seen(mid) VALUES(?)", (seen_key,))
+            c.execute("INSERT INTO quote_seen(mid) VALUES(?)", (seen_key,)); c.commit()
         except Exception:
             c.close(); return  # duplikat -> tura juz zakolejkowana
-        c.execute("INSERT INTO quote_queue(conv_id, inbox_id, message_id, content, attachments, persona, next_at) "
-                  "VALUES(?,?,?,?,?,?,0)",
-                  (conv_id, CW_OLX_INBOX, seen_key, content, json.dumps(att_urls or []), "quote_olx"))
-        c.commit(); c.close()
+        c.close()
+        # Okno ciszy: scal z ewentualna czekajaca tura tej rozmowy (jedna odpowiedz na serie).
+        enqueue_quote_turn(conv_id, CW_OLX_INBOX, seen_key, content,
+                           attachments=(att_urls or []), persona="quote_olx")
         log("quote-olx: zakolejkowano ture (conv %s, msg %s)" % (conv_id, olx_msg_id))
     except Exception as e:
         log("quote-olx: enqueue blad (pomijam):", repr(e))
