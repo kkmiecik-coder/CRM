@@ -42,7 +42,10 @@ def test_render_category_block():
     assert "Polecane kategorie" in html
     assert '<img src="https://woodpower.pl/img/c/73.jpg"' in html
     assert 'href="https://woodpower.pl/71-blaty-debowe"' in html
-    assert 'class="kontakt-link-descr"' in html
+    # siatka + samowystarczalny CSS + karty
+    assert 'class="blog-kategorie-grid"' in html
+    assert "<style>" in html and ".blog-kategoria-karta" in html
+    assert 'class="blog-kategoria-karta"' in html
     # etykieta rozroznialna z display_name, nie gola nazwa-lisc "Bukowe"
     assert "<span>Blaty bukowe</span>" in html
 

@@ -67,17 +67,35 @@ def select_categories(topic_title, categories, k=3):
     return candidates(topic_title, categories)[:k]
 
 
+# Samowystarczalny CSS bloku (jedzie w tresci posta — niezalezny od motywu sklepu). Klasy prefiksowane
+# blog-* wiec nie koliduja z reszta strony. Siatka responsywna (auto-fill), obraz 4:3, hover, podpis autora.
+_BLOK_CSS = (
+    "<style>"
+    ".blog-kategorie{margin:2.5rem 0}"
+    ".blog-kategorie>h2{margin:0 0 1rem}"
+    ".blog-kategorie-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:1rem}"
+    ".blog-kategoria-karta{display:block;text-decoration:none;color:inherit;border:1px solid #e6e6e6;"
+    "border-radius:12px;overflow:hidden;background:#fff;transition:box-shadow .2s,transform .2s}"
+    ".blog-kategoria-karta:hover{box-shadow:0 6px 18px rgba(0,0,0,.10);transform:translateY(-2px)}"
+    ".blog-kategoria-karta img{width:100%;aspect-ratio:4/3;object-fit:cover;display:block}"
+    ".blog-kategoria-karta span{display:block;padding:.7rem .9rem;font-weight:600}"
+    ".blog-foto-autor{font-size:.85rem;color:#888;margin:.6rem 0 0}"
+    ".blog-foto-autor a{color:#888}"
+    "</style>")
+
+
 def render_category_block(categories):
-    # Deterministyczny blok "Polecane kategorie": karty obraz+nazwa+link. Pomija bez image_url/url. "" gdy brak.
+    # Deterministyczny blok "Polecane kategorie": siatka kart (obraz+nazwa+link) + samowystarczalny CSS.
+    # Pomija kategorie bez image_url/url. "" gdy brak kart.
     cards = []
     for c in categories:
         if not c.get("image_url") or not c.get("url"):
             continue
         name = c.get("display_name") or c.get("name") or ""
         cards.append(
-            '<div class="blog-kategoria-karta">'
-            '<a href="%s" class="%s"><img src="%s" alt="%s" loading="lazy"><span>%s</span></a></div>'
-            % (c["url"], LINK_CLASS, c["image_url"], name, name))
+            '<a class="blog-kategoria-karta" href="%s"><img src="%s" alt="%s" loading="lazy">'
+            '<span>%s</span></a>' % (c["url"], c["image_url"], name, name))
     if not cards:
         return ""
-    return ('\n<section class="blog-kategorie"><h2>Polecane kategorie</h2>%s</section>' % "".join(cards))
+    return ('\n<section class="blog-kategorie">%s<h2>Polecane kategorie</h2>'
+            '<div class="blog-kategorie-grid">%s</div></section>' % (_BLOK_CSS, "".join(cards)))

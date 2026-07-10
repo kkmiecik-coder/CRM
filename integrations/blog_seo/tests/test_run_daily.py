@@ -62,7 +62,7 @@ def test_podpis_atrybucji_doklejony(tmp_path, monkeypatch):
     assert out["ok"] is True
     assert "Jan Kowalski" in saved["body_html"]
     assert "Pexels" in saved["body_html"]
-    assert "blog-foto-autor" in saved["body_html"]
+    assert '<p class="blog-foto-autor">' in saved["body_html"]  # akapit podpisu, nie tylko regula CSS
 
 
 def test_hero_none_bez_podpisu(tmp_path, monkeypatch):
@@ -71,7 +71,10 @@ def test_hero_none_bez_podpisu(tmp_path, monkeypatch):
     saved = {}
     monkeypatch.setattr(rd.publisher, "insert_draft", lambda art, img, thumb: saved.update(art) or 779)
     rd.run(dry_run=False)
-    assert "blog-foto-autor" not in saved["body_html"]
+    # brak podpisu = brak akapitu "Zdjęcie:" (nazwa klasy .blog-foto-autor jest w CSS bloku, wiec
+    # sprawdzamy sam podpis, nie nazwe klasy)
+    assert "Zdjęcie:" not in saved["body_html"]
+    assert '<p class="blog-foto-autor">' not in saved["body_html"]
 
 
 def test_dry_run_nie_zapisuje(tmp_path, monkeypatch):
