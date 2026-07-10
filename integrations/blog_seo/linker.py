@@ -54,7 +54,9 @@ def select_links(topic_title, products, categories, k=3):
     data = llm.parse_json(raw) or {}
     out = []
     for l in (data.get("links") or []):
-        url = (l or {}).get("url"); anchor = (l or {}).get("anchor")
+        if not isinstance(l, dict):
+            continue
+        url = l.get("url"); anchor = l.get("anchor")
         if url in allowed and anchor:
             out.append({"anchor": anchor, "url": url})
     if not out:
