@@ -803,6 +803,18 @@ def _wyciagnij_kod(text):
     return None
 
 
+# Temat wysylki/dostawy w wiadomosci (fix wysylki #2): pytanie typu „wycenisz wysylke?" kierujemy
+# do deterministycznego przeplywu wysylki, NIE do porownan (LLM na to pytanie wypelnial 'porownania'
+# -> off-topic „informacyjnie").
+_PYTANIE_WYSYLKA_RE = re.compile(r"(wysył\w*|wysyl\w*|dostaw\w*|kurier\w*|przesył\w*|przesyl\w*|"
+                                 r"transport\w*|paczk\w*)", re.IGNORECASE)
+
+
+def _pyta_o_wysylke(text):
+    """True gdy wiadomosc dotyczy wysylki/dostawy/kuriera (temat wysylki, nie porownanie wariantu)."""
+    return bool(_PYTANIE_WYSYLKA_RE.search(text or ""))
+
+
 _WYSYLKA_OFERTA = ("Mogę od razu oszacować koszt wysyłki 🚚 Proszę o kod pocztowy dostawy "
                    "(w formacie 00-000), a podam orientacyjną cenę.")
 
@@ -1811,6 +1823,17 @@ def _zapisz_wycene(conv_id, dane, options, email, phone, name, wynik=None, extra
     return True
 
 
+def _wysylka_z_tej_samej_wiadomosci(conv_id, content):
+    """Fix wysylki #1: gdy klient w wiadomosci z kontaktem podal TEZ kod pocztowy, a czekamy na
+    kod (awaiting_postcode) — policz wysylke od razu. Bez tego kod przepadal, bo bramka kontaktu
+    zapisuje wycene i robi return PRZED bramka kodu pocztowego."""
+    if not _awaiting_postcode(conv_id):
+        return
+    kod = _wyciagnij_kod(content)
+    if kod:
+        _obsluz_wysylke(conv_id, kod)
+
+
 def _obsluz_wysylke(conv_id, kod):
     """Liczy wysylke przez API dla zebranych pozycji + kodu pocztowego, wysyla najtansza opcje i
     (gdy jest zapisana wycena) dopisuje kuriera+koszt do wyceny. MS-12: sprawdza wynik wysylki i
@@ -2015,6 +2038,7 @@ def _run_quote_turn_inner(conv_id, inbox_id, message_id, content, attachments=No
             else:
                 _set_awaiting_contact(conv_id, False)
                 _zapisz_wycene(conv_id, _load_dane(conv_id), crm_calc.get_options(), email, phone, nazwa)
+                _wysylka_z_tej_samej_wiadomosci(conv_id, content)   # kod pocztowy w tej samej wiadomosci (#1)
                 return
         elif _czy_odmowa(content):
             # Klient nie chce podawać kontaktu — respektujemy, ale deterministyczne CTA (LS-04):
@@ -2066,7 +2090,24 @@ def _run_quote_turn_inner(conv_id, inbox_id, message_id, content, attachments=No
             nazwa = (cw_contact_full(conv_id) or {}).get("name") or ""
             _set_contact(conv_id, g_email, g_phone, nazwa)   # kontakt z biezacej wiadomosci nadpisuje (API-10)
             _zapisz_wycene(conv_id, _load_dane(conv_id), crm_calc.get_options(), g_email, g_phone, nazwa)
+            _wysylka_z_tej_samej_wiadomosci(conv_id, content)   # kod pocztowy w tej samej wiadomosci (#1)
             return
+
+    # Fix wysylki #2: pytanie o wysylke po cenie (np. „wycenisz wysylke?") -> deterministycznie do
+    # przeplywu wysylki, NIE do porownan (LLM na to pytanie wypelnial 'porownania' -> off-topic
+    # „informacyjnie"). Kod w wiadomosci -> policz od razu; brak kodu -> (po)pros o kod pocztowy.
+    # Pomijamy przy JAWNEJ korekcie pozycji (wtedy LLM ma ja obsluzyc — korekta ma pierwszenstwo).
+    if _priced(conv_id) and _pyta_o_wysylke(content) and not _KOREKTA_RE.search(content or ""):
+        kod = _wyciagnij_kod(content)
+        if kod:
+            _obsluz_wysylke(conv_id, kod)
+            return
+        if not cw_agent_reply(conv_id, _WYSYLKA_OFERTA, token=BOT_QUOTE_CW_AGENT_TOKEN):
+            raise RuntimeError("quotebot: prosba o kod (pytanie o wysylke) nieudana (conv %s)" % conv_id)
+        _set_awaiting_postcode(conv_id, True)
+        _bump_turns(conv_id)
+        log("quotebot: pytanie o wysylke -> prosba o kod pocztowy (conv %s)" % conv_id)
+        return
 
     # Bezpiecznik D: limit tur bota — PO bramkach kontaktu/kodu (MS-11: e-mail/kod z ostatniej
     # tury zostaje skonsumowany, nie przepada w handoffie z limitu). Dedykowany komunikat (LS-11).
