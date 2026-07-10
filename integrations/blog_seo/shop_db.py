@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 # Polaczenie z baza PrestaShop (PyMySQL, DictCursor). Odczyt katalogu + zapis szkicu bloga.
 # Nowe polaczenie per operacja (job krotki, jednowatkowy) — prosto i bez puli.
+import contextlib
 import pymysql
 from config import PS_DB_HOST, PS_DB_NAME, PS_DB_USER, PS_DB_PASS
 from core.log import log
@@ -48,3 +49,22 @@ def execute(sql, params=()):
     finally:
         if c:
             c.close()
+
+
+@contextlib.contextmanager
+def transaction():
+    # Kontekst transakcji: jedno polaczenie, jeden commit na wyjsciu, rollback przy wyjatku.
+    # Uzywany do atomowego zapisu szkicu (post + wiersze lang + kategoria) — bez osieroconych wierszy.
+    c = conn()
+    try:
+        with c.cursor() as cur:
+            yield cur
+        c.commit()
+    except Exception:
+        try:
+            c.rollback()
+        except Exception:
+            pass
+        raise
+    finally:
+        c.close()

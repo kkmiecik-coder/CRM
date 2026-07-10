@@ -40,6 +40,8 @@ def resolve_category_id(name):
 
 def insert_draft(article, image_name, thumb_name):
     # Zwraca id_post nowego szkicu (0 przy bledzie). enabled=0 => niewidoczny na froncie do akceptacji.
+    # Cala trojka INSERT-ow (post + lang per jezyk + kategoria) atomowo w jednej transakcji: brak
+    # osieroconych czesciowych szkicow gdy ktorys insert zawiedzie (rollback).
     p = PS_PREFIX
     cat_id = resolve_category_id(article.get("category"))
     so = next_sort_order()
@@ -48,25 +50,25 @@ def insert_draft(article, image_name, thumb_name):
                 "(id_shop, id_category_default, added_by, is_customer, modified_by, enabled, "
                 " date_add, date_upd, sort_order) "
                 "VALUES (%%s,%%s,%%s,%%s,%%s,%%s, NOW(), NOW(), %%s)" % p)
-    id_post = shop_db.execute(post_sql,
-                              (PS_SHOP_ID, cat_id, PS_AUTHOR_ID, 0, PS_AUTHOR_ID, 0, so))
-    if not id_post:
-        log("insert_draft: nie udalo sie utworzyc posta"); return 0
-
     lang_sql = ("INSERT INTO %sets_blog_post_lang "
                 "(id_post, id_lang, title, url_alias, meta_title, description, short_description, "
                 " meta_keywords, meta_description, thumb, image) "
                 "VALUES (%%s,%%s,%%s,%%s,%%s,%%s,%%s,%%s,%%s,%%s,%%s)" % p)
-    for lang in PS_LANG_IDS:
-        shop_db.execute(lang_sql, (
-            id_post, lang, article["title"], article["slug"], article["meta_title"],
-            article["body_html"], article.get("short_description") or "",
-            article["meta_keywords"], article["meta_description"],
-            thumb_name or "", image_name or ""))
-
     cat_sql = ("INSERT INTO %sets_blog_post_category (id_post, id_category, position) "
                "VALUES (%%s,%%s,%%s)" % p)
-    shop_db.execute(cat_sql, (id_post, cat_id, 1))
 
-    log("insert_draft: utworzono szkic id_post=%s (enabled=0, kategoria=%s)" % (id_post, cat_id))
-    return id_post
+    try:
+        with shop_db.transaction() as cur:
+            cur.execute(post_sql, (PS_SHOP_ID, cat_id, PS_AUTHOR_ID, 0, PS_AUTHOR_ID, 0, so))
+            id_post = cur.lastrowid
+            for lang in PS_LANG_IDS:
+                cur.execute(lang_sql, (
+                    id_post, lang, article["title"], article["slug"], article["meta_title"],
+                    article["body_html"], article.get("short_description") or "",
+                    article["meta_keywords"], article["meta_description"],
+                    thumb_name or "", image_name or ""))
+            cur.execute(cat_sql, (id_post, cat_id, 1))
+        log("insert_draft: utworzono szkic id_post=%s (enabled=0, kategoria=%s)" % (id_post, cat_id))
+        return id_post
+    except Exception as e:
+        log("insert_draft blad (rollback):", repr(e)); return 0
