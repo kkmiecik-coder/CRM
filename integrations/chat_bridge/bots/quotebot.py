@@ -567,6 +567,22 @@ def _gatunki_z_listy(lista):
     return out
 
 
+# Deterministyczne wykrycie gatunkow wymienionych w tresci klienta (odmiana: dąb/dębie/dębowy).
+# Wsparcie dla slabego LLM (nano), ktory przy 2 gatunkach miekko sformulowanych („w dębie i
+# jesionie") czesto NIE ustawia gatunki_do_porownania (regresja E2E 2026-07-09, V01/V04).
+_GATUNEK_TEKST_RE = [
+    ("Dąb", re.compile(r"\bd[ąę]b\w*", re.IGNORECASE)),
+    ("Jesion", re.compile(r"\bjesion\w*", re.IGNORECASE)),
+    ("Buk", re.compile(r"\bbuk\w*", re.IGNORECASE)),
+]
+
+
+def _gatunki_w_tekscie(txt):
+    """Kanoniczne gatunki wymienione w tekscie (po granicy slowa), w kolejnosci Dąb/Jesion/Buk."""
+    t = txt or ""
+    return [g for g, rx in _GATUNEK_TEKST_RE if rx.search(t)]
+
+
 def _pozycje_z_oczekujacym_wyborem(dane):
     """Pozycje z 2+ gatunkami do porownania wciaz nierozstrzygnietymi (klient jeszcze nie
     wybral, po pokazanej tabeli cen). Stan wyboru jest CELOWO wyliczany z danych (nie osobna
@@ -2024,6 +2040,24 @@ def _run_quote_turn_inner(conv_id, inbox_id, message_id, content, attachments=No
     # UWAGA: obrazy pomocnicze (wymiary/krawedzie/kolory) wysylamy DOPIERO PO tekscie bota (nie tu),
     # zeby obraz nie wyprzedzal odpowiedzi LLM. Dedup w _obrazy_kontekstowe (raz na rozmowe) sprawia,
     # ze mozna je wolac na koncu kazdej sciezki odpowiedzi bez ryzyka dubli.
+
+    # Deterministyczne dokrycie wyceny wariantowej (regresja E2E 2026-07-09 V01/V04): gdy klient w
+    # TEJ wiadomosci wymienil 2+ gatunki dla kompletnej pozycji, a slaby LLM (nano) nie ustawil
+    # gatunki_do_porownania — dokladamy je w kodzie, by odpalila tabela zamiast podsumowania
+    # pojedynczego gatunku. Tylko przed pierwsza cena i tylko dla pozycji z gatunkiem z tej listy.
+    if not _priced(conv_id):
+        wykryte = _gatunki_w_tekscie(content)
+        if len(wykryte) >= 2:
+            zmiana = False
+            for poz in (dane.get("pozycje") or []):
+                if _gatunki_z_listy(poz.get("gatunki_do_porownania")) or _brakujace_pozycji(poz):
+                    continue   # LLM juz ustawil, albo pozycja niekompletna (nie tryb wariantowy)
+                gsp = crm_calc._norm_species(poz.get("gatunek"))
+                if gsp and gsp in wykryte:
+                    poz["gatunki_do_porownania"] = wykryte
+                    zmiana = True
+            if zmiana:
+                _zapisz_dane(conv_id, dane)
 
     # 'zmienione' liczymy TYLKO po POZYCJACH (spec wyceny). Zmiana pol wspolnych
     # (kontakt/termin) — np. gdy LLM sam dopisze kontakt z tozsamosci klienta — NIE ponawia

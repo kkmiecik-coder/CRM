@@ -183,6 +183,76 @@ def test_wycena_wariantowa_pokazuje_tabele_bez_zapisu(monkeypatch):
     assert qb._pozycje_z_oczekujacym_wyborem(qb._load_dane(1150))
 
 
+def test_gatunki_w_tekscie_wykrywa_enumeracje_po_granicy_slowa():
+    """Deterministyczny detektor gatunkow w tresci: lapie odmiane (dębie/jesionie), pomija
+    falszywe podciagi po granicy slowa nie jest idealna, ale wymaga 2+ do trybu wariantowego."""
+    assert qb._gatunki_w_tekscie("wycenę blatu w dębie i jesionie") == ["Dąb", "Jesion"]
+    assert qb._gatunki_w_tekscie("dąb, jesion lub buk") == ["Dąb", "Jesion", "Buk"]
+    assert qb._gatunki_w_tekscie("tylko dąb") == ["Dąb"]
+    assert qb._gatunki_w_tekscie("bez gatunku") == []
+
+
+def test_wycena_wariantowa_odpala_gdy_LLM_nie_ustawil_pola(monkeypatch):
+    """Regresja E2E 2026-07-09 (V01/V04): przy „w dębie i jesionie” model nano czesto NIE
+    ustawia gatunki_do_porownania — traktuje jak pojedynczy dąb i idzie w podsumowanie.
+    Deterministyczny detektor gatunkow w tresci MA dokryc pole i uruchomic tabele wariantowa."""
+    replies = []
+    monkeypatch.setattr(qb, "cw_conv_status", lambda c: "pending")
+    monkeypatch.setattr(qb, "cw_agent_reply", lambda c, t, **kw: replies.append(t) or True)
+    monkeypatch.setattr(qb, "cw_messages", lambda c, n: [])
+    monkeypatch.setattr(qb, "cw_contact", lambda c: {})
+    monkeypatch.setattr(qb, "cw_contact_full", lambda c: {"name": "", "identifier": "", "email": "", "phone": ""})
+    monkeypatch.setattr(qb, "retrieve", lambda q: [])
+    monkeypatch.setattr(qb.crm_calc, "get_options", lambda: {"finishing_options": []})
+    monkeypatch.setattr(qb.crm_calc, "calculate", _fake_calculate_2gatunki())
+    find_or_create_called = {"n": 0}
+    monkeypatch.setattr(qb.crm_calc, "find_or_create_client",
+                        lambda *a, **k: find_or_create_called.update(n=find_or_create_called["n"] + 1))
+
+    def fake_chat(messages, **kw):
+        # LLM (jak nano w E2E) NIE ustawia gatunki_do_porownania — kompletny pojedynczy dąb.
+        out = {"odpowiedz": "", "handoff": False, "potwierdzono": False, "powod": "", "send_image": "",
+               "pozycje": [{"id": "1", "produkt": "blat", "dlugosc": "200", "szerokosc": "90",
+                           "grubosc": "4", "gatunek": "dąb", "technologia": "lity", "klasa": "A/B",
+                           "ilosc": "1", "wykonczenie": "surowe", "gatunki_do_porownania": []}],
+               "wspolne": {}, "porownania": []}
+        return json.dumps(out), {"error_class": None}
+    monkeypatch.setattr(qb, "chat", fake_chat)
+    _reset(1155, {"pozycje": [], "wspolne": {}})
+
+    qb.run_quote_turn(1155, 5, "m1", "poproszę wycenę blatu 200x90x4 w dębie i jesionie, lity, A/B, surowy, 1 szt")
+
+    tekst = " ".join(replies)
+    assert "Jesion" in tekst and qb._fmt_pln(1107.0) in tekst, "detektor MA uruchomic tabele wariantowa"
+    assert "podsumowuję dane" not in tekst.lower(), "NIE podsumowanie pojedynczego gatunku"
+    assert find_or_create_called["n"] == 0, "bez zapisu w CRM"
+    assert qb._priced(1155) is False
+
+
+def test_detektor_nie_odpala_gdy_pozycja_niekompletna(monkeypatch):
+    """Detektor NIE moze uruchamiac trybu wariantowego dla niekompletnej pozycji (np. pytanie
+    techniczne „różnica między dębem a jesionem” — brak wymiarow) — tam ma isc normalna sciezka."""
+    replies = []
+    monkeypatch.setattr(qb, "cw_conv_status", lambda c: "pending")
+    monkeypatch.setattr(qb, "cw_agent_reply", lambda c, t, **kw: replies.append(t) or True)
+    monkeypatch.setattr(qb, "cw_messages", lambda c, n: [])
+    monkeypatch.setattr(qb, "cw_contact", lambda c: {})
+    monkeypatch.setattr(qb, "cw_contact_full", lambda c: {"name": "", "identifier": "", "email": "", "phone": ""})
+    monkeypatch.setattr(qb, "retrieve", lambda q: [])
+    monkeypatch.setattr(qb.crm_calc, "get_options", lambda: {"finishing_options": []})
+    calc_called = {"n": 0}
+    monkeypatch.setattr(qb.crm_calc, "calculate",
+                        lambda p, o: calc_called.update(n=calc_called["n"] + 1) or {"ok": True, "products": []})
+    monkeypatch.setattr(qb, "chat", lambda messages, **kw: (
+        '{"odpowiedz":"Dąb jest twardszy, jesion bardziej sprężysty.","handoff":false,'
+        '"potwierdzono":false,"powod":"","send_image":"","pozycje":[],"wspolne":{},"porownania":[]}',
+        {"error_class": None}))
+    _reset(1156, {"pozycje": [], "wspolne": {}})
+    qb.run_quote_turn(1156, 5, "m1", "jaka jest różnica między dębem a jesionem?")
+    assert calc_called["n"] == 0, "pytanie techniczne bez pozycji NIE uruchamia wyceny wariantowej"
+    assert replies, "bot ma odpowiedziec merytorycznie"
+
+
 def test_wycena_wariantowa_dwie_pozycje_naraz_obie_pokazane(monkeypatch):
     """Regresja code review Task 8: gdy DWIE pozycje kwalifikuja sie do wyceny wariantowej w
     jednej turze, OBIE maja dostac pokazana tabele (bundlowana jedna wiadomoscia) — wczesniejsza
