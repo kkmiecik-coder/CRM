@@ -9,22 +9,58 @@ import os
 import json
 import re
 import time
+import contextvars
 from datetime import datetime
 from zoneinfo import ZoneInfo
 from config import BOT_HISTORY_LIMIT, BOT_QUOTE_MAX_TURNS, BOT_QUOTE_CW_AGENT_TOKEN, BOT_BUSINESS_HOURS
 from core.log import log
 from core.db import db
 from core.events import log_event
-from core.chatwoot import (cw_messages, cw_contact, cw_note, cw_agent_reply,
+from core.chatwoot import (cw_messages, cw_contact, cw_note,
+                           cw_agent_reply as _cw_agent_reply_raw,
                            cw_conv_status, cw_bot_handoff, cw_contact_full)
 from bots.knowledge import retrieve
 from bots.personas import build_system_prompt
+from bots.channel_caps import to_channel_text, split_message, DEFAULT_CAPS
 from bots.llm import chat
 from bots import images
 from bots.vision import attach_images
 from bots import crm_calc
 
 _TZ_WARSAW = ZoneInfo("Europe/Warsaw")
+
+# Zdolnosci kanalu (caps) biezacej tury — ustawiane w run_quote_turn, czytane przez wrapper
+# cw_agent_reply. Domyslnie DEFAULT_CAPS (livechat/Messenger) -> wrapper jest przezroczysty.
+_reply_caps = contextvars.ContextVar("quotebot_reply_caps", default=DEFAULT_CAPS)
+
+
+def cw_agent_reply(conv_id, text, image_path=None, image_name=None, image_mime="image/jpeg", token=None):
+    """Wrapper wysylki bota nakladajacy zdolnosci kanalu (caps) z kontekstu tury na KAZDE
+    wywolanie w quotebot (30+ miejsc korzysta z tej nazwy). Sanitizuje tekst do formatu kanalu,
+    rozbija w limicie max_len i pomija obraz, gdy kanal go nie przyjmuje. Przy DEFAULT_CAPS
+    (livechat/Messenger) zachowuje sie IDENTYCZNIE jak surowa wysylka (zero regresji).
+    Zwraca True tylko gdy WSZYSTKIE czesci poszly (kontrakt bool jak dotad)."""
+    caps = _reply_caps.get()
+    # Obraz: gdy kanal go nie przyjmuje (np. OLX) — wysylamy sam tekst, zalacznik pomijamy.
+    if image_path is not None and not caps.get("images", True):
+        image_path = None
+        image_name = None
+    tekst = to_channel_text(text or "", caps)
+    czesci = split_message(tekst, caps)
+    if not czesci:
+        # Brak tresci po sanitizacji. Gdy zostal obraz — wyslij go z (pustym) tekstem; inaczej
+        # zachowaj dotychczasowy kontrakt (pojedyncze wywolanie, np. pusty podpis bez obrazu).
+        return _cw_agent_reply_raw(conv_id, tekst, image_path=image_path, image_name=image_name,
+                                   image_mime=image_mime, token=token)
+    ok = True
+    for i, msg in enumerate(czesci):
+        if i == 0 and image_path is not None:
+            wynik = _cw_agent_reply_raw(conv_id, msg, image_path=image_path, image_name=image_name,
+                                        image_mime=image_mime, token=token)
+        else:
+            wynik = _cw_agent_reply_raw(conv_id, msg, token=token)
+        ok = ok and bool(wynik)
+    return ok
 
 
 def _w_godzinach_pracy(now=None):
