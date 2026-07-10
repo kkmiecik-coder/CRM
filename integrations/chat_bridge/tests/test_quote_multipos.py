@@ -2,7 +2,7 @@
 # Test FAZA 1a: wielopozycyjnosc — kilka produktow o TEJ SAMEJ nazwie w jednej wycenie.
 # Root cause MD-05c: _merge_dane zwijal kolejny produkt tej samej nazwy w istniejacy
 # (nowe id resetowane jako "zmyslone" -> fallback-po-nazwie nadpisywal wymiary).
-import os, tempfile, json
+import os, tempfile
 os.environ.setdefault("OLX_CLIENT_ID", "x")
 os.environ.setdefault("OLX_CLIENT_SECRET", "x")
 os.environ.setdefault("OLX_REFRESH_TOKEN", "x")
@@ -70,3 +70,17 @@ def test_nowy_produkt_z_wymyslonym_id_i_wlasnymi_wymiarami():
                           "szerokosc": "30", "grubosc": "2"}], "wspolne": {}})
     stan = qb._load_dane(conv)
     assert len(stan["pozycje"]) == 2
+
+
+def test_dryf_separatora_dziesietnego_nie_tworzy_nowej_pozycji():
+    """Review Task 1 (IMPORTANT): grubosc '1,5' (stan) vs '1.5' (delta) to ta sama wartosc
+    fizyczna (przecinek vs kropka) - porownanie stringow bledne uznawaloby to za inny produkt
+    i tworzylo falszywy duplikat. Oczekiwane: scalenie w jedna pozycje (korekta), nie dwie."""
+    conv = 3105
+    _reset(conv)
+    qb._merge_dane(conv, {"pozycje": [{"id": "1", "produkt": "parapet", "dlugosc": "120",
+                          "szerokosc": "35", "grubosc": "1,5"}], "wspolne": {}})
+    qb._merge_dane(conv, {"pozycje": [{"produkt": "parapet", "dlugosc": "120",
+                          "szerokosc": "35", "grubosc": "1.5"}], "wspolne": {}})
+    stan = qb._load_dane(conv)
+    assert len(stan["pozycje"]) == 1, "dryf separatora dziesietnego (',' vs '.') to ta sama pozycja"

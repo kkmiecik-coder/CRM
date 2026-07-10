@@ -1109,13 +1109,25 @@ def _ma_komplet_wymiarow(poz):
 def _delta_to_nowa_pozycja(delta, kandydat):
     """MD-05c: czy delta bez pasujacego id to NOWY produkt (a nie korekta) wzgledem kandydata
     tej samej nazwy. Warunek: obie strony maja WLASNY komplet wymiarow ORAZ ktores niepuste pole
-    sygnatury sie rozni. Delta czesciowa (korekta pojedynczego pola) -> False (scalamy jak dotad)."""
+    sygnatury sie rozni. Delta czesciowa (korekta pojedynczego pola) -> False (scalamy jak dotad).
+    Wymiary (review Task 1): porownanie liczbowe przez crm_calc._num, zeby dryf separatora
+    dziesietnego ('1,5' vs '1.5' - ta sama wartosc) nie tworzyl falszywego duplikatu pozycji.
+    Gdy ktoras strona nie parsuje sie do liczby (np. zakres '120-140') -> porownanie tekstowe."""
     if not (_ma_komplet_wymiarow(delta) and _ma_komplet_wymiarow(kandydat)):
         return False
     for k in _SYGNATURA_POZYCJI:
         dv = str(delta.get(k) or "").strip().lower()
         kv = str(kandydat.get(k) or "").strip().lower()
-        if dv and kv and dv != kv:
+        if not (dv and kv):
+            continue
+        if k in _WYMIARY:
+            dn, kn = crm_calc._num(dv), crm_calc._num(kv)
+            if dn is not None and kn is not None:
+                if dn != kn:
+                    return True
+                continue   # liczby rowne -> to samo pole, sprawdzaj dalej
+            # nieliczbowe (np. zakres) -> porownanie tekstowe ponizej
+        if dv != kv:
             return True
     return False
 
