@@ -1918,7 +1918,7 @@ def _wyslij_podsumowanie(conv_id, dane, content=""):
         raise RuntimeError("quotebot: wysylka podsumowania nieudana (conv %s)" % conv_id)
     _set_awaiting(conv_id, True)
     _bump_turns(conv_id)
-    log_event(conv_id, "summary_sent")
+    log_event(conv_id, "summary_sent", {"positions": len(dane.get("pozycje") or [])})
     _obrazy_kontekstowe(conv_id, content, dane)   # obrazy pomocnicze PO podsumowaniu
     _wyslij_probki(conv_id, dane, options)
     log("quotebot: podsumowanie do potwierdzenia (conv %s)" % conv_id)

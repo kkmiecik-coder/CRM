@@ -159,6 +159,22 @@ def test_wrapper_telemetrii_nie_maskuje_prawdziwego_wyjatku(monkeypatch):
         assert "prawdziwy blad tury" in str(e)
 
 
+def test_summary_sent_loguje_liczbe_pozycji(monkeypatch):
+    """MP-03a: zdarzenie summary_sent niesie liczbe pozycji wyceny (widocznosc regresji
+    zwijania pozycji w podsumowaniu)."""
+    monkeypatch.setattr(qb, "cw_agent_reply", lambda c, t, **kw: True)
+    monkeypatch.setattr(qb, "_obrazy_kontekstowe", lambda *a, **kw: None)
+    monkeypatch.setattr(qb.crm_calc, "get_options", lambda: {})
+    dane = {"pozycje": [_poz(id="1"), _poz(id="2", dlugosc="150")], "wspolne": {}}
+    qb._wyslij_podsumowanie(4201, dane, "tak")
+    c = db_mod.db()
+    row = c.execute("SELECT meta FROM quote_events WHERE conv_id=4201 AND event='summary_sent'"
+                    " ORDER BY id DESC LIMIT 1").fetchone()
+    c.close()
+    assert row is not None
+    assert json.loads(row["meta"])["positions"] == 2
+
+
 def test_wrapper_telemetrii_dziala_gdy_load_dane_przed_tura_pada(monkeypatch):
     """Regresja: nieudany odczyt danych PRZED tura (do telemetrii) nie moze zablokowac
     samej tury — tura ma sie wykonac normalnie, telemetria ma po prostu nic nie zalogowac."""
