@@ -4,6 +4,26 @@
 **Model bota:** gpt-5.4-nano · **Metoda:** publiczne API widgetu (ścieżka realnej przeglądarki klienta) + odczyt przez Application API. Zestaw: `integrations/chat_bridge/e2e/` (89 scenariuszy).
 **Zakres tego biegu:** 83 scenariusze bez-leadowe (NIE piszą do CRM). 6 scenariuszy leadowych (L01–L03, WY01–03) uruchamianych osobno.
 
+## Aktualizacja po naprawach (2026-07-10)
+
+Znalezisko z pierwszego biegu (wycena wariantowa nie odpalała niezawodnie) **naprawione** i
+re-przetestowane na kandydacie. Trzy poprawki w kodzie:
+
+1. **Detektor gatunków w treści** (`_gatunki_w_tekscie`) — dokrywa `gatunki_do_porownania`, gdy
+   słaby model (nano) nie ustawi pola przy „w dębie i jesionie".
+2. **Kolejność** — wycena wariantowa ma pierwszeństwo przed podsumowaniem kompletności (nano
+   często zgłasza `handoff=komplet` dla gotowej pozycji), ale wciąż PO genuine-handoffie i schodach.
+3. **Gatunek-kotwica** (`_gatunki_pozycji`) — zbiór do porównania = `gatunek` ∪ `gatunki_do_porownania`
+   (LLM wpisywał do listy tylko drugi gatunek, kotwicę zostawiając w polu `gatunek`).
+
+**Re-test wariantowych: V01–V05 wszystkie OK** — tabela cen pokazuje się teraz dla 2 gatunków
+(„w dębie i jesionie"), 3 gatunków, po wyborze, przy niejednoznacznej odpowiedzi i dla dwóch pozycji naraz.
+
+**Weryfikacja 6 scenariuszy leadowych (piszą do realnego CRM):** wszystkie OK — cena, sklejone
+CTA+wysyłka (max 2 dymki, LS-12), zapis wyceny z linkiem (`183/07/26/W`), notatka leada, oraz
+oszacowanie wysyłki GlobKurier („AmbroExpress 255,88 zł"). Utworzone leady testowe w CRM:
+`chat-1096` … `chat-1101` (do usunięcia).
+
 ## Podsumowanie
 
 | Werdykt | Liczba | Znaczenie |
