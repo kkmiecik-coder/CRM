@@ -20,12 +20,15 @@ import re
 import time
 import json
 import html
+import base64
 import requests
 
 CW_BASE = os.environ.get("CHATWOOT_BASE", "http://rails:3000").rstrip("/")
 CW_ACC = os.environ.get("CHATWOOT_ACCOUNT_ID", "2")
 CW_TOKEN = os.environ["CHATWOOT_API_TOKEN"]
 INBOX_ID = int(os.environ.get("E2E_INBOX_ID", "18"))
+# Publiczny identyfikator widgetu (website_token) inboxu WebWidget. Gdy pusty — pobieramy z API.
+INBOX_IDENTIFIER = os.environ.get("E2E_INBOX_IDENTIFIER", "")
 WEBHOOK_URL = os.environ.get("E2E_WEBHOOK_URL", "http://quotebot-candidate:5006/agent-bot-quote")
 WEBHOOK_TOKEN = os.environ.get("BOT_QUOTE_AGENT_WEBHOOK_TOKEN", "")
 POLL_TIMEOUT = float(os.environ.get("E2E_POLL_TIMEOUT", "60"))
@@ -40,12 +43,58 @@ class HarnessError(RuntimeError):
 
 
 def _api(method, path, **kw):
+    """Application API (token agenta) — do ODCZYTU wiadomosci/statusu i toggle_status."""
     url = "%s/api/v1/accounts/%s%s" % (CW_BASE, CW_ACC, path)
     h = {"api_access_token": CW_TOKEN, "Content-Type": "application/json"}
     r = requests.request(method, url, headers=h, timeout=30, **kw)
     if r.status_code >= 400:
         raise HarnessError("API %s %s -> %s: %s" % (method, path, r.status_code, r.text[:300]))
     return r.json() if r.text.strip() else {}
+
+
+def _identifier():
+    """website_token inboxu WebWidget (publiczny identyfikator widgetu). Pobierany raz z API,
+    o ile nie podano E2E_INBOX_IDENTIFIER."""
+    global INBOX_IDENTIFIER
+    if not INBOX_IDENTIFIER:
+        d = _api("GET", "/inboxes/%s" % INBOX_ID)
+        INBOX_IDENTIFIER = d.get("website_token") or d.get("inbox_identifier") or ""
+        if not INBOX_IDENTIFIER:
+            raise HarnessError("brak website_token dla inboxu %s (nie-WebWidget?)" % INBOX_ID)
+    return INBOX_IDENTIFIER
+
+
+def _jwt_source(token):
+    """Wyciaga source_id z payloadu JWT authToken widgetu (bez weryfikacji podpisu — tylko odczyt)."""
+    try:
+        p = token.split(".")[1]
+        p += "=" * (-len(p) % 4)
+        return json.loads(base64.urlsafe_b64decode(p.encode())).get("source_id")
+    except Exception:
+        return None
+
+
+def nowa_sesja_widgetu(nazwa=None):
+    """Bootstrap widgetu jak realna przegladarka: GET /widget?website_token -> swiezy kontakt
+    (window.authToken = JWT) + cookie sesji. Rozmowa powstaje przy pierwszej wiadomosci
+    (wyslij_ture ustawia conv_id z odpowiedzi). Zwraca dict sesji {sess, auth, wt, source_id, conv_id}."""
+    wt = _identifier()
+    sess = requests.Session()
+    r = sess.get("%s/widget?website_token=%s" % (CW_BASE, wt), timeout=20)
+    if r.status_code >= 400:
+        raise HarnessError("GET /widget -> %s" % r.status_code)
+    m = re.search(r"window\.authToken\s*=\s*'([^']+)'", r.text)
+    if not m:
+        raise HarnessError("nie znaleziono window.authToken w HTML widgetu")
+    auth = m.group(1)
+    hdr = {"X-Auth-Token": auth, "Content-Type": "application/json"}
+    if nazwa:
+        try:
+            sess.patch("%s/api/v1/widget/contact?website_token=%s" % (CW_BASE, wt),
+                       headers=hdr, json={"name": nazwa}, timeout=20)
+        except Exception:
+            pass
+    return {"sess": sess, "auth": auth, "wt": wt, "source_id": _jwt_source(auth), "conv_id": None}
 
 
 def _txt(s):
@@ -58,40 +107,6 @@ def _txt(s):
 
 # ---------- tworzenie rozmowy ----------
 
-def utworz_rozmowe(nazwa, email=None):
-    """Tworzy kontakt (z source_id w inboxie 18) i rozmowe w statusie 'pending'.
-    Zwraca (conv_id, contact_id, source_id)."""
-    payload = {"inbox_id": INBOX_ID, "name": nazwa}
-    if email:
-        payload["email"] = email
-    d = _api("POST", "/contacts", json=payload)
-    p = d.get("payload") or d
-    contact = p.get("contact") or p
-    contact_id = contact.get("id")
-    ci = p.get("contact_inbox") or {}
-    source_id = ci.get("source_id")
-    if not source_id:
-        # niektore wersje zwracaja contact_inboxes na kontakcie
-        for x in (contact.get("contact_inboxes") or []):
-            if x.get("source_id"):
-                source_id = x["source_id"]
-                break
-    if not contact_id or not source_id:
-        raise HarnessError("brak contact_id/source_id w odpowiedzi POST /contacts: %s" % json.dumps(d)[:400])
-    conv = _api("POST", "/conversations",
-                json={"source_id": source_id, "inbox_id": INBOX_ID,
-                      "contact_id": contact_id, "status": "pending"})
-    conv_id = conv.get("id") or (conv.get("payload") or {}).get("id")
-    if not conv_id:
-        raise HarnessError("brak id rozmowy w odpowiedzi POST /conversations: %s" % json.dumps(conv)[:400])
-    # upewnij sie, ze pending (bot dziala tylko na pending)
-    try:
-        _api("POST", "/conversations/%s/toggle_status" % conv_id, json={"status": "pending"})
-    except Exception:
-        pass
-    return conv_id, contact_id, source_id
-
-
 def status_rozmowy(conv_id):
     d = _api("GET", "/conversations/%s" % conv_id)
     return d.get("status") or (d.get("meta") or {}).get("status") or (d.get("payload") or {}).get("status")
@@ -102,13 +117,20 @@ def _wiadomosci(conv_id):
     return d.get("payload") or d.get("data") or []
 
 
-def wyslij_ture(conv_id, tekst):
-    """Wstrzykuje wiadomosc KLIENTA (incoming). Zwraca message_id."""
-    d = _api("POST", "/conversations/%s/messages" % conv_id,
-             json={"content": tekst, "message_type": "incoming"})
+def wyslij_ture(sesja, tekst):
+    """Wysyla wiadomosc KLIENTA przez API widgetu (X-Auth-Token) — incoming, widoczna w UI,
+    natywnie wyzwala webhook bota. Zwraca message_id."""
+    hdr = {"X-Auth-Token": sesja["auth"], "Content-Type": "application/json"}
+    url = "%s/api/v1/widget/messages?website_token=%s" % (CW_BASE, sesja["wt"])
+    r = sesja["sess"].post(url, headers=hdr, json={"message": {"content": tekst}}, timeout=20)
+    if r.status_code >= 400:
+        raise HarnessError("POST /api/v1/widget/messages -> %s: %s" % (r.status_code, r.text[:200]))
+    d = r.json() or {}
     mid = d.get("id") or (d.get("payload") or {}).get("id")
     if not mid:
-        raise HarnessError("brak id wiadomosci po wstrzyknieciu: %s" % json.dumps(d)[:300])
+        raise HarnessError("brak id wiadomosci widgetu: %s" % json.dumps(d)[:300])
+    if not sesja.get("conv_id"):
+        sesja["conv_id"] = d.get("conversation_id")   # rozmowa powstaje przy 1. wiadomosci
     return mid
 
 
@@ -151,18 +173,21 @@ def czekaj_na_odpowiedz(conv_id, znane_ids):
             widziane.add(mid)
             mtype = m.get("message_type")
             priv = bool(m.get("private"))
+            ctype = m.get("content_type")
+            snd = (m.get("sender") or {}).get("type")
             tresc = _txt(m.get("content"))
-            # incoming (klient) = 0/"incoming" -> pomijamy; interesuja nas outgoing bota
-            if mtype in (0, "incoming"):
+            # Realna wiadomosc bota = outgoing(1) + sender agent_bot. Pomijamy: incoming klienta (0),
+            # template/automat widgetu (3: powitanie „Dębuś", email-collect — sender None) i activity (2).
+            if mtype not in (1, "outgoing"):
                 continue
-            if mtype in (2, "activity"):
+            if snd != "agent_bot":
                 continue
             if not tresc.strip():
                 continue
             if priv:
-                notatki.append(tresc)
-            else:
-                pub.append(tresc)
+                notatki.append(tresc)             # prywatna notatka (handoff)
+            elif ctype in (None, "", "text"):
+                pub.append(tresc)                 # publiczna odpowiedz do klienta
             cos_nowego = True
         if cos_nowego:
             ostatnia_zmiana = time.monotonic()
@@ -223,15 +248,16 @@ def uruchom_scenariusz(sc, idx=None, total=None):
     naglowek = "[%s/%s] " % (idx, total) if idx else ""
     print("%s%s %s — %s" % (naglowek, sc["id"], sc.get("kat", ""), sc.get("tytul", "")))
     nazwa = "%s %s %s" % (MSG_PREFIX, sc["id"], int(time.time()))
-    email = None
-    # scenariusze z jawnym mailem w tresci nie wymagaja maila kontaktu; kontakt tworzymy bez maila
-    conv_id, contact_id, _ = utworz_rozmowe(nazwa, email)
+    sesja = nowa_sesja_widgetu(nazwa)
+    conv_id = None
     transkrypt = []
     pub_all, notatki_all = [], []
     widziane = set()
     status_koniec = None
     for i, tura in enumerate(sc["tury"], 1):
-        mid = wyslij_ture(conv_id, tura)
+        mid = wyslij_ture(sesja, tura)
+        if conv_id is None:
+            conv_id = sesja["conv_id"]   # rozmowa powstala przy 1. wiadomosci
         if FIRE_WEBHOOK:
             wyzwol_webhook(conv_id, mid, tura)
         pub, notatki, status_koniec, widziane = czekaj_na_odpowiedz(conv_id, widziane)
@@ -248,7 +274,7 @@ def uruchom_scenariusz(sc, idx=None, total=None):
     print("   => %s%s" % (werdykt, ("  (" + "; ".join(powody) + ")") if powody else ""))
     print()
     return {"id": sc["id"], "kat": sc.get("kat"), "tytul": sc.get("tytul"),
-            "conv_id": conv_id, "contact_id": contact_id,
+            "conv_id": conv_id, "source_id": sesja.get("source_id"),
             "tworzy_lead": bool(sc.get("tworzy_lead")),
             "werdykt": werdykt, "powody": powody,
             "status_koniec": status_koniec, "transkrypt": transkrypt}

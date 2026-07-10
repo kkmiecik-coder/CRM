@@ -243,13 +243,13 @@ SCENARIUSZE = [
 
     # ================= H. WYCENA WARIANTOWA (Task 8) =================
     {"id": "V01", "kat": "Wariantowa", "tytul": "Dwa gatunki naraz → tabela BEZ zapisu",
-     "tury": ["poproszę wycenę blatu 200x90 w dębie i jesionie, lity, A/B, surowy, 1 sztuka"],
+     "tury": ["poproszę wycenę blatu 200x90x4 w dębie i jesionie, lity, A/B, surowy, 1 sztuka"],
      "oczekuj": {"min_odp": 1, "zawiera": ["zł", "dąb", "jesion"], "status": "pending",
                  "nie_zawiera": ["podsumowuję dane"]},
      "human": "Tabela cen dąb vs jesion w JEDNEJ wiadomości + pytanie który zapisać; ŻADNEGO zapisu w CRM."},
 
     {"id": "V02", "kat": "Wariantowa", "tytul": "Tabela → wybór gatunku → podsumowanie",
-     "tury": ["blat 200x90 w dębie i jesionie, lity, A/B, surowy, 1 sztuka", "biorę dąb"],
+     "tury": ["blat 200x90x4 w dębie i jesionie, lity, A/B, surowy, 1 sztuka", "biorę dąb"],
      "oczekuj": {"min_odp": 2, "status": "pending"},
      "human": "Po 'biorę dąb': przechodzi do podsumowania dębu (bez tabeli ponownie), jeszcze bez zapisu."},
 
@@ -259,12 +259,12 @@ SCENARIUSZE = [
      "human": "Tabela 3 gatunków (dąb/jesion/buk) w jednej wiadomości; buk tylko A/B ok."},
 
     {"id": "V04", "kat": "Wariantowa", "tytul": "Niejednoznaczna odpowiedź NIE przemyca ceny",
-     "tury": ["blat 200x90 w dębie i jesionie, lity, A/B, surowy, 1 szt", "a jak długo trwa realizacja?"],
+     "tury": ["blat 200x90x4 w dębie i jesionie, lity, A/B, surowy, 1 szt", "a jak długo trwa realizacja?"],
      "oczekuj": {"min_odp": 2, "status": "pending", "nie_zawiera": ["podsumowuję dane"]},
      "human": "Po pytaniu o realizację bot odpowiada, ale NIE robi podsumowania/ceny — przypomina o wyborze gatunku."},
 
     {"id": "V05", "kat": "Wariantowa", "tytul": "Dwie pozycje wariantowe naraz",
-     "tury": ["blat 200x90 dąb/jesion i parapet 100x30 dąb/buk, oba lite A/B surowe, po 1 szt"],
+     "tury": ["blat 200x90x4 dąb/jesion i parapet 100x30x3 dąb/buk, oba lite A/B surowe, po 1 szt"],
      "oczekuj": {"min_odp": 1, "zawiera": ["jesion", "buk"], "status": "pending"},
      "human": "Obie pozycje dostają swoją tabelę (żadna nie ginie), w jednej wiadomości."},
 
