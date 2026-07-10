@@ -33,22 +33,25 @@ def init_db():
 
 def add_topic(title, priority=0, source="seed"):
     # Zwraca True gdy dodano, False gdy duplikat (po znormalizowanym tytule) lub blad.
-    # Polaczenie zawsze domykane w finally — inaczej wyjatek (np. duplikat) zostawia otwarte
-    # polaczenie, ktore blokuje plik bazy (Windows/SQLite) i psuje kolejne wywolania.
+    # Polaczenie otwierane WEWNATRZ try — awaria samego db() (zablokowany plik na
+    # Windows, brak katalogu, uprawnienia) tez ma zwracac False, nie wywalac wyjatek.
     norm = _norm(title)
     if not norm:
         return False
-    c = db()
+    c = None
     try:
+        c = db()
         c.execute("INSERT INTO topics(title,norm,priority,source) VALUES(?,?,?,?)",
                   (title.strip(), norm, priority, source))
-        c.commit(); return True
+        c.commit()
+        return True
     except sqlite3.IntegrityError:
         return False
     except Exception:
         return False
     finally:
-        c.close()
+        if c is not None:
+            c.close()
 
 
 def topic_exists(title):

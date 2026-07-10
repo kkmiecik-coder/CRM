@@ -35,3 +35,12 @@ def test_historia_publikacji(tmp_path, monkeypatch):
     assert store.slug_seen("jak-dbac-o-blat") is True
     assert store.slug_seen("inny") is False
     assert "Jak dbać o blat" in store.published_titles()
+
+
+def test_add_topic_db_awaria_zwraca_false(tmp_path, monkeypatch):
+    # Awaria polaczenia (db()) nie moze wywrocic add_topic — kontrakt: blad -> False
+    store = _fresh_store(tmp_path, monkeypatch)
+    def boom():
+        raise RuntimeError("db locked")
+    monkeypatch.setattr(store, "db", boom)
+    assert store.add_topic("Cokolwiek") is False
