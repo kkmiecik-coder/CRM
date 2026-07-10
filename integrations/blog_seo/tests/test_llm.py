@@ -64,6 +64,11 @@ def test_anthropic_blad_zwraca_none(monkeypatch):
     assert ant.chat_anthropic([{"role": "user", "content": "x"}], False, None) is None
 
 
+def test_anthropic_malformed_messages_zwraca_none():
+    # messages nie-lista-slownikow nie moze wywrocic funkcji (kontrakt: blad -> None)
+    assert ant.chat_anthropic("to nie lista slownikow", False, None) is None
+
+
 def test_dispatch_openai(monkeypatch):
     monkeypatch.setattr(llm, "LLM_PROVIDER", "openai")
     monkeypatch.setattr(llm, "chat_openai", lambda m, j, mt: "OAI")

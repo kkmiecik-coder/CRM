@@ -13,15 +13,15 @@ def chat_anthropic(messages, want_json, max_tokens):
     # Zwraca tresc odpowiedzi albo None. want_json obslugujemy promptowo (parsowanie po stronie
     # wolajacego przez llm.parse_json) — bez parametrow specyficznych dla dostawcy, by interfejs
     # byl identyczny jak OpenAI.
-    system, rest = pull_system(messages)
-    payload = {
-        "model": ANTHROPIC_MODEL,
-        "max_tokens": max_tokens or MAX_TOKENS,
-        "messages": rest,
-    }
-    if system:
-        payload["system"] = system
     try:
+        system, rest = pull_system(messages)
+        payload = {
+            "model": ANTHROPIC_MODEL,
+            "max_tokens": max_tokens or MAX_TOKENS,
+            "messages": rest,
+        }
+        if system:
+            payload["system"] = system
         r = requests.post(ANTHROPIC_API_BASE + "/messages",
                           headers={"x-api-key": ANTHROPIC_API_KEY or "",
                                    "anthropic-version": ANTHROPIC_VERSION,
