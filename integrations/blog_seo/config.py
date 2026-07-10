@@ -79,7 +79,7 @@ MIN_BACKLOG = _int("BLOG_MIN_BACKLOG", 5)  # ponizej tego progu auto-uzupelniamy
 
 # Tematy startowe (seed) — uzywane, gdy backlog pusty, zanim LLM dopisze wlasne.
 TOPIC_SEEDS = _list("BLOG_TOPIC_SEEDS", [
-    "Jak dbac o blat debowy w kuchni",
-    "Blat lity a mikrowczep — ktory wybrac",
-    "Drewniane blaty w lazience — na co uwazac",
+    "Jak dbać o blat dębowy w kuchni",
+    "Czym różni się blat lity od mikrowczepu",
+    "Na co uważać przy drewnianym blacie w łazience",
 ])

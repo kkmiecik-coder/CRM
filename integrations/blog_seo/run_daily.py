@@ -29,28 +29,42 @@ def run(dry_run=False):
         log("run: brak tematu"); return {"ok": False, "id_post": 0, "slug": "", "reason": "brak_tematu"}
     log("run: temat =", topic["title"])
 
-    links = linker.select_links(topic["title"], products, categories, k=3)
+    # Trafne kategorie do linkowania (cale drzewo + ranking); fallback: pula ogolna.
+    kws = linker.topic_keywords(topic["title"])
+    cats_rel = catalog.search_categories(kws) or categories
+    selected = linker.select_categories(topic["title"], cats_rel, k=3)
+    links = [{"anchor": c["name"], "url": c["url"]} for c in selected]
 
-    # Kategorie bloga do wyboru przez writera — pobrane z modulu (fallback: nazwa kategorii sklepu).
     blog_cats = _blog_category_names()
     article = writer.write_article(topic["title"], links, blog_cats)
     if not article:
         log("run: writer nie zwrocil artykulu"); return {"ok": False, "id_post": 0, "slug": "", "reason": "brak_artykulu"}
 
-    # Dedup: jesli slug juz publikowany, oznacz temat uzyty i wyjdz (unikamy nadpisania).
+    # Blok "Polecane kategorie" (deterministycznie, karty z obrazami kategorii).
+    article["body_html"] += linker.render_category_block(selected)
+
+    # Dedup: jesli slug juz publikowany, oznacz temat uzyty i wyjdz.
     if store.slug_seen(article["slug"]):
         store.mark_topic_used(topic["id"])
         log("run: slug juz istnieje, pomijam:", article["slug"])
         return {"ok": False, "id_post": 0, "slug": article["slug"], "reason": "duplikat_slug"}
 
-    # Obrazy: hero (stock->AI) + miniatura. Brak obrazu nie blokuje szkicu (pola pojda puste).
+    # Obrazy: hero (stock->AI) + miniatura + podpis atrybucji. Brak obrazu nie blokuje szkicu.
     image_name = thumb_name = ""
     hero = images.acquire_hero(topic["title"])
     if hero:
-        data, ext = hero
+        data, ext, attribution = hero
         image_name = "%s.%s" % (article["slug"], ext)
         thumb_bytes = images.make_thumb(data) or data
         thumb_name = "%s-thumb.jpg" % article["slug"]
+        # Podpis atrybucji (Pexels/Unsplash wymagaja przy publicznym wyswietleniu).
+        if attribution and attribution.get("photographer"):
+            article["body_html"] += (
+                '\n<p class="blog-foto-autor">Zdjęcie: '
+                '<a href="%s" rel="nofollow">%s</a> / '
+                '<a href="%s" rel="nofollow">%s</a></p>'
+                % (attribution.get("photographer_url") or "#", attribution["photographer"],
+                   attribution.get("photo_url") or "#", attribution.get("source") or "stock"))
         if not dry_run:
             publisher.save_image(data, image_name)
             publisher.save_image(thumb_bytes, thumb_name)

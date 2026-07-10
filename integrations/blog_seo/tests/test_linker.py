@@ -1,56 +1,69 @@
 # -*- coding: utf-8 -*-
-# Test linkera: render HTML linku, filtr kandydatow po slowach, walidacja wyboru LLM wzgledem URL-i.
+# Test linkera: slowa tematu, ranking kategorii (deb > buk po name+link_rewrite), top-k, blok kart.
 import importlib
 linker = importlib.import_module("linker")
 
-PRODS = [{"id": 67, "name": "Blat dębowy lity", "category": "Blaty",
-          "url": "https://woodpower.pl/67-blat-debowy", "image_url": None, "price": 1200.0},
-         {"id": 80, "name": "Schody jesionowe", "category": "Schody",
-          "url": "https://woodpower.pl/80-schody", "image_url": None, "price": 5000.0}]
-CATS = [{"id": 11, "name": "Blaty", "url": "https://woodpower.pl/11-blaty"}]
+CATS = [
+    {"id": 73, "name": "Bukowe", "link_rewrite": "blaty-bukowe",
+     "url": "https://woodpower.pl/73-blaty-bukowe", "image_url": "https://woodpower.pl/img/c/73.jpg"},
+    {"id": 71, "name": "Dębowe", "link_rewrite": "blaty-debowe",
+     "url": "https://woodpower.pl/71-blaty-debowe", "image_url": "https://woodpower.pl/img/c/71.jpg"},
+    {"id": 66, "name": "Schody", "link_rewrite": "schody",
+     "url": "https://woodpower.pl/66-schody", "image_url": "https://woodpower.pl/img/c/66.jpg"},
+]
+
+
+def test_topic_keywords():
+    kws = linker.topic_keywords("Jak dbać o blat dębowy")
+    assert "blat" in kws and "dębowy" in kws
+    assert "jak" not in kws  # stopword
+
+
+def test_candidates_ranking_deb_bije_buk():
+    # temat o blacie debowym: "blaty-debowe" trafia blat+debowy (2) > "blaty-bukowe" trafia blat (1)
+    out = linker.candidates("Jak dbać o blat dębowy w kuchni", CATS)
+    assert out[0]["url"] == "https://woodpower.pl/71-blaty-debowe"
+
+
+def test_select_categories_topk():
+    out = linker.select_categories("blat dębowy", CATS, k=2)
+    assert len(out) == 2
+    assert out[0]["url"] == "https://woodpower.pl/71-blaty-debowe"
+
+
+def test_select_categories_fallback_bez_trafien():
+    # temat bez wspolnych slow -> fallback do pierwszych kategorii, nie wywraca sie
+    out = linker.select_categories("xyz abc", CATS, k=2)
+    assert len(out) >= 1
+
+
+def test_render_category_block():
+    html = linker.render_category_block(CATS[:2])
+    assert "Polecane kategorie" in html
+    assert '<img src="https://woodpower.pl/img/c/73.jpg"' in html
+    assert 'href="https://woodpower.pl/71-blaty-debowe"' in html
+    assert 'class="kontakt-link-descr"' in html
+
+
+def test_render_category_block_pomija_bez_obrazu():
+    cats = [{"id": 9, "name": "X", "url": "https://woodpower.pl/9-x", "image_url": ""}]
+    assert linker.render_category_block(cats) == ""
 
 
 def test_render_link():
-    html = linker.render_link("blat dębowy", "https://woodpower.pl/67-blat-debowy")
-    assert 'href="https://woodpower.pl/67-blat-debowy"' in html
-    assert 'class="kontakt-link-descr"' in html
-    assert ">blat dębowy<" in html
+    assert 'class="kontakt-link-descr"' in linker.render_link("kat", "https://woodpower.pl/71-x")
 
 
-def test_candidates_dopasowuje_slowa():
-    c = linker.candidates("Jak olejować blat dębowy", PRODS, CATS)
-    urls = [x["url"] for x in c]
-    assert "https://woodpower.pl/67-blat-debowy" in urls
-    assert "https://woodpower.pl/80-schody" not in urls  # schody nietrafione
+def test_ranking_rzeczownik_dab_wybiera_debowe():
+    # temat rzeczownikowy "z dębu" (nie przymiotnik) tez ma wskazac kategorie debowa, nie bukowa.
+    # "blat" wspolny dla obu kategorii (blaty-*), zeby obie trafily do rankingu i porownanie mialo sens.
+    out = linker.candidates("Jak dbać o blat z dębu w kuchni", CATS)
+    urls = [c["url"] for c in out]
+    # debowa przed bukowa
+    assert urls.index("https://woodpower.pl/71-blaty-debowe") < urls.index("https://woodpower.pl/73-blaty-bukowe")
 
 
-def test_select_links_waliduje_url(monkeypatch):
-    # LLM podaje jeden poprawny URL i jeden zmyslony — zmyslony ma zostac odrzucony.
-    monkeypatch.setattr(linker.llm, "chat", lambda *a, **k:
-        '{"links":[{"anchor":"blat dębowy","url":"https://woodpower.pl/67-blat-debowy"},'
-        '{"anchor":"fejk","url":"https://woodpower.pl/999-fejk"}]}')
-    out = linker.select_links("Jak olejować blat dębowy", PRODS, CATS, k=3)
-    assert {"anchor": "blat dębowy", "url": "https://woodpower.pl/67-blat-debowy"} in out
-    assert all(l["url"] != "https://woodpower.pl/999-fejk" for l in out)
-
-
-def test_select_links_fallback_bez_llm(monkeypatch):
-    monkeypatch.setattr(linker.llm, "chat", lambda *a, **k: None)  # LLM padł
-    out = linker.select_links("Jak olejować blat dębowy", PRODS, CATS, k=2)
-    assert len(out) >= 1
-    assert all("url" in l and "anchor" in l for l in out)
-
-
-def test_select_links_links_nie_slowniki_nie_rzuca(monkeypatch):
-    # LLM zwraca poprawny JSON, ale elementy links to stringi, nie slowniki -> brak wyjatku, fallback
-    monkeypatch.setattr(linker.llm, "chat", lambda *a, **k: '{"links":["https://woodpower.pl/67-blat-debowy"]}')
-    out = linker.select_links("Jak olejować blat dębowy", PRODS, CATS, k=2)
-    assert isinstance(out, list)
-    assert all(isinstance(x, dict) and "url" in x and "anchor" in x for x in out)
-
-
-def test_select_links_links_nie_lista_nie_rzuca(monkeypatch):
-    # links jako nie-lista (poprawny JSON, zly kontener) -> brak wyjatku, fallback
-    monkeypatch.setattr(linker.llm, "chat", lambda *a, **k: '{"links": 5}')
-    out = linker.select_links("Jak olejować blat dębowy", PRODS, CATS, k=2)
-    assert isinstance(out, list) and len(out) >= 1
+def test_ranking_rzeczownik_buk():
+    # "z buku" -> kategoria bukowa trafiona (rdzen buk == bukowe)
+    out = linker.select_categories("Stół z buku do kuchni", CATS, k=1)
+    assert out[0]["url"] == "https://woodpower.pl/73-blaty-bukowe"
