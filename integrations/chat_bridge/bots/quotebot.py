@@ -41,10 +41,14 @@ def cw_agent_reply(conv_id, text, image_path=None, image_name=None, image_mime="
     (livechat/Messenger) zachowuje sie IDENTYCZNIE jak surowa wysylka (zero regresji).
     Zwraca True tylko gdy WSZYSTKIE czesci poszly (kontrakt bool jak dotad)."""
     caps = _reply_caps.get()
-    # Obraz: gdy kanal go nie przyjmuje (np. OLX) — wysylamy sam tekst, zalacznik pomijamy.
-    if image_path is not None and not caps.get("images", True):
-        image_path = None
-        image_name = None
+    # Obraz: pomijamy, gdy kanal obrazow nie przyjmuje, albo gdy format spoza dozwolonych
+    # (OLX = tylko jpg/png). Wtedy idzie sam tekst.
+    if image_path is not None:
+        fmts = caps.get("image_formats")
+        ext = os.path.splitext(image_path)[1].lower().lstrip(".")
+        if not caps.get("images", True) or (fmts and ext not in fmts):
+            image_path = None
+            image_name = None
     tekst = to_channel_text(text or "", caps)
     czesci = split_message(tekst, caps)
     if not czesci:
@@ -2196,10 +2200,13 @@ def _run_quote_turn_inner(conv_id, inbox_id, message_id, content, attachments=No
     awaiting = _awaiting_confirm(conv_id)
 
     system = build_system_prompt(persona, knowledge, identity) + "\n\n" + _FORMAT
-    wl = images.whitelist_prompt()
-    if wl:
-        system += ("\n\nDOSTĘPNE OBRAZY (możesz dołączyć maks. jeden przez pole send_image, "
-                   "tylko gdy realnie pomaga):\n" + wl)
+    # Sekcje DOSTEPNE OBRAZY dokladamy tylko, gdy kanal przyjmuje obrazy (OLX = bez obrazow) —
+    # inaczej LLM zapowiadalby zdjecia, ktore i tak zostana wyciete przy wysylce (review #4).
+    if caps_for(persona).get("images", True):
+        wl = images.whitelist_prompt()
+        if wl:
+            system += ("\n\nDOSTĘPNE OBRAZY (możesz dołączyć maks. jeden przez pole send_image, "
+                       "tylko gdy realnie pomaga):\n" + wl)
     opts = crm_calc.get_options()
     fin = opts.get("finishing_options") or []
     if fin:
@@ -2237,7 +2244,8 @@ def _run_quote_turn_inner(conv_id, inbox_id, message_id, content, attachments=No
         except Exception:
             urls = []
         if urls:
-            attach_images(messages, urls)
+            # Odczyt obrazow ograniczony do formatow kanalu (OLX = jpg/png; livechat = bez limitu).
+            attach_images(messages, urls, formats=caps_for(persona).get("image_formats"))
 
     raw, llm_meta = chat(messages, response_format={"type": "json_object"}, return_meta=True)
     if not raw:

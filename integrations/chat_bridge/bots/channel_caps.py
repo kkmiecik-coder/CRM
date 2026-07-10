@@ -6,15 +6,18 @@
 import re
 
 # Zdolnosci kanalu — co wolno wyslac:
-#   markdown: czy klient renderuje markdown (False -> usuwamy ** __ naglowki > ; linki -> gole URL)
-#   images:   czy wolno dolaczac obrazy (False -> pomijamy image_path w wysylce bota)
-#   emoji:    czy zostawiamy emoji (False -> usuwamy)
-#   max_len:  maks. dlugosc jednej wiadomosci (None -> bez limitu; inaczej rozbijamy)
-DEFAULT_CAPS = {"markdown": True, "images": True, "emoji": True, "max_len": None}
+#   markdown:      czy klient renderuje markdown (False -> usuwamy ** __ naglowki > ; linki -> gole URL)
+#   images:        czy wolno dolaczac obrazy (False -> pomijamy image_path w wysylce bota)
+#   image_formats: dozwolone formaty obrazu (rozszerzenia) albo None = bez ograniczenia
+#   emoji:         czy zostawiamy emoji (False -> usuwamy)
+#   max_len:       maks. dlugosc jednej wiadomosci (None -> bez limitu; inaczej rozbijamy)
+DEFAULT_CAPS = {"markdown": True, "images": True, "image_formats": None, "emoji": True, "max_len": None}
 
-# OLX: czat tekstowy, markdown NIE jest renderowany, obrazy swiadomie off, limit konserwatywny.
-# max_len tunowalny (D2 nie da sie ustalic z kodu) — 2000 to bezpieczny domysl.
-OLX_CAPS = {"markdown": False, "images": False, "emoji": False, "max_len": 2000}
+# OLX: czat tekstowy, markdown NIE jest renderowany, emoji off, limit konserwatywny. Obrazy
+# WLACZONE (odczyt + wysylka), ale tylko jpg/png (OLX obsluguje te formaty; assety bota i tak
+# sa jpg/png). max_len tunowalny (D2 nie da sie ustalic z kodu) — 2000 to bezpieczny domysl.
+OLX_CAPS = {"markdown": False, "images": True, "image_formats": ("jpg", "jpeg", "png"),
+            "emoji": False, "max_len": 2000}
 
 # Klucze person/kanalow bota, ktore mowia "po OLX-owemu".
 _OLX_PERSONAS = ("quote_olx", "olx")

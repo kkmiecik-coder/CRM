@@ -9,12 +9,14 @@ from bots.channel_caps import (
 
 # --- caps_for: mapowanie persony/kanalu -> zdolnosci ---
 
-def test_caps_for_olx_wylacza_markdown_obrazy_emoji():
+def test_caps_for_olx_plain_text_ale_obrazy_wlaczone_jpg_png():
     caps = caps_for("quote_olx")
     assert caps["markdown"] is False
-    assert caps["images"] is False
     assert caps["emoji"] is False
     assert caps["max_len"] and caps["max_len"] > 0
+    # Obrazy WLACZONE na OLX (odczyt+wysylka), ale tylko jpg/png.
+    assert caps["images"] is True
+    assert set(caps["image_formats"]) == {"jpg", "jpeg", "png"}
 
 
 def test_caps_for_livechat_to_default_wszystko_dozwolone():
@@ -22,6 +24,7 @@ def test_caps_for_livechat_to_default_wszystko_dozwolone():
     assert caps == DEFAULT_CAPS
     assert caps["markdown"] is True and caps["images"] is True
     assert caps["emoji"] is True and caps["max_len"] is None
+    assert caps["image_formats"] is None   # brak ograniczenia formatu na livechacie
 
 
 def test_caps_for_nieznany_klucz_to_default():

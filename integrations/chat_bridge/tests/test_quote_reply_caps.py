@@ -46,7 +46,7 @@ def test_default_caps_przekazuje_tekst_i_obraz_bez_zmian(zebrane):
     assert zebrane[0]["token"] == "T"
 
 
-def test_olx_caps_sanitizuje_tekst_i_pomija_obraz(zebrane):
+def test_olx_caps_sanitizuje_tekst_ale_wysyla_jpg(zebrane):
     _z_caps(OLX_CAPS, lambda: quotebot.cw_agent_reply(
         7, "Twoja wycena: **1200 zł** 😊\n[link](https://woodpower.pl/q/x)",
         image_path="probka.jpg", token="T"))
@@ -54,7 +54,22 @@ def test_olx_caps_sanitizuje_tekst_i_pomija_obraz(zebrane):
     assert "**" not in laczny and "😊" not in laczny
     assert "1200 zł" in laczny
     assert "https://woodpower.pl/q/x" in laczny
-    assert all(c["image_path"] is None for c in zebrane)  # obraz pominiety na OLX
+    # Obraz jpg WYSLANY na OLX (obrazy wlaczone, tylko jpg/png).
+    assert any(c["image_path"] == "probka.jpg" for c in zebrane)
+
+
+def test_olx_caps_pomija_obraz_o_zlym_formacie(zebrane):
+    _z_caps(OLX_CAPS, lambda: quotebot.cw_agent_reply(
+        7, "Zobacz wzornik", image_path="animacja.gif", token="T"))
+    # gif niedozwolony na OLX -> obraz pominiety, sam tekst idzie.
+    assert all(c["image_path"] is None for c in zebrane)
+    assert any("Zobacz wzornik" in c["text"] for c in zebrane)
+
+
+def test_olx_caps_wysyla_png(zebrane):
+    _z_caps(OLX_CAPS, lambda: quotebot.cw_agent_reply(
+        7, "Wzornik kolorów", image_path="wzornik_kolorow.png", token="T"))
+    assert any(c["image_path"] == "wzornik_kolorow.png" for c in zebrane)
 
 
 def test_olx_caps_rozbija_dlugi_tekst_w_limicie(zebrane):

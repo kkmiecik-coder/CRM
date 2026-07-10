@@ -40,6 +40,33 @@ def test_to_data_uri_za_duzy_obraz_none(monkeypatch):
     assert vision.to_data_uri("http://cw/big.png") is None
 
 
+def test_to_data_uri_filtruje_format_gdy_podano(monkeypatch):
+    # OLX: tylko jpg/png. gif odrzucony (None), jpeg przepuszczony.
+    monkeypatch.setattr(vision.requests, "get",
+                        lambda u, headers=None, timeout=None: FakeResp(b"ABC", ctype="image/gif"))
+    assert vision.to_data_uri("http://cw/x.gif", formats=("jpg", "jpeg", "png")) is None
+    monkeypatch.setattr(vision.requests, "get",
+                        lambda u, headers=None, timeout=None: FakeResp(b"ABC", ctype="image/jpeg"))
+    assert vision.to_data_uri("http://cw/x.jpg", formats=("jpg", "jpeg", "png")) is not None
+
+
+def test_to_data_uri_bez_formats_akceptuje_kazdy_obraz(monkeypatch):
+    monkeypatch.setattr(vision.requests, "get",
+                        lambda u, headers=None, timeout=None: FakeResp(b"ABC", ctype="image/gif"))
+    assert vision.to_data_uri("http://cw/x.gif") is not None  # brak filtra -> livechat bez zmian
+
+
+def test_attach_images_przekazuje_formats(monkeypatch):
+    zebrane = {}
+    def _fake(u, formats=None):
+        zebrane["formats"] = formats
+        return "data:image/jpeg;base64,QUJD"
+    monkeypatch.setattr(vision, "to_data_uri", _fake)
+    vision.attach_images([{"role": "user", "content": "x"}], ["http://cw/1.jpg"],
+                         formats=("jpg", "jpeg", "png"))
+    assert zebrane["formats"] == ("jpg", "jpeg", "png")
+
+
 def test_attach_images_dokleja_wiadomosc_user(monkeypatch):
     monkeypatch.setattr(vision, "to_data_uri", lambda u: "data:image/png;base64,QUJD")
     msgs = [{"role": "system", "content": "S"}, {"role": "user", "content": "co to?"}]

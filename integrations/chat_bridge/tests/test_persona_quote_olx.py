@@ -20,9 +20,10 @@ def test_quote_olx_ma_regule_czystego_tekstu_i_kanal_olx():
     assert "emoji" in p.lower() or "pogrub" in p.lower()
 
 
-def test_quote_olx_nie_obiecuje_zdjec():
+def test_quote_olx_moze_wysylac_jpg_png():
     p = build_system_prompt("quote_olx", "", {})
-    assert "zdj" in p.lower()  # wzmianka: nie wysylamy zdjec, opisujemy slownie
+    assert "zdj" in p.lower()          # persona wspomina o zdjeciach
+    assert "jpg" in p.lower() or "png" in p.lower()   # dozwolone formaty na OLX
 
 
 def test_quote_olx_w_default_safeguard():

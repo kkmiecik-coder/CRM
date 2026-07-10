@@ -50,7 +50,7 @@ _DEFAULT = {
             "opis": "Kanał: OLX (czat tekstowy marketplace'u). Krótkie, konkretne wiadomości.",
             "zasady": [
                 "Pisz WYŁĄCZNIE czystym tekstem — bez pogrubień, gwiazdek, nagłówków ani emoji (OLX ich nie wyświetla).",
-                "Nie wysyłamy zdjęć ani próbek przez OLX — gdy trzeba pokazać wybór, opisz go słownie zamiast obiecywać zdjęcie.",
+                "Możesz wysłać pomocnicze zdjęcie (jpg/png) przez send_image, gdy realnie pomaga; nie obiecuj zdjęć spoza dostępnych obrazów.",
                 "Gdy przygotujemy wycenę, podaj klientowi publiczny link do niej jako zwykły adres URL; na OLX klient rzadko zostawia e-mail, więc link jest głównym sposobem przekazania szczegółów. O e-mail/telefon poproś raz i uszanuj odmowę.",
             ],
         },
@@ -80,8 +80,10 @@ def _bullets(items):
 def _resolve_channel(dane, persona_key):
     """Zwraca konfiguracje kanalu z obsluga dziedziczenia przez 'extends'.
     Gdy kanal ma 'extends': <rodzic>, laczy zasady rodzic->dziecko (rodzic pierwszy),
-    a 'opis' bierze z dziecka (fallback rodzic). Nieznany/zapetlony rodzic -> tylko wlasne
-    (defensywnie: brak wyjatku, zeby zepsuta konfiguracja nie wywalila bota)."""
+    a 'opis' bierze z dziecka (fallback rodzic). Dziedziczenie JEDNOPOZIOMOWE — jesli rodzic
+    ma wlasne 'extends', nie jest ono dalej rozwijane (dzis wystarcza: quote_olx->quote).
+    Nieznany/zapetlony rodzic -> tylko wlasne (defensywnie: brak wyjatku, zeby zepsuta
+    konfiguracja nie wywalila bota)."""
     channels = dane.get("channels", {})
     ch = channels.get(persona_key, {})
     parent_key = ch.get("extends")
