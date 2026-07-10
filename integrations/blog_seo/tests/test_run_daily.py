@@ -70,3 +70,27 @@ def test_hero_none_bez_podpisu(tmp_path, monkeypatch):
     monkeypatch.setattr(rd.publisher, "insert_draft", lambda art, img, thumb: saved.update(art) or 779)
     rd.run(dry_run=False)
     assert "blog-foto-autor" not in saved["body_html"]
+
+
+def test_dry_run_nie_zapisuje(tmp_path, monkeypatch):
+    # dry-run NIE moze dotykac sklepu: brak save_image/insert_draft/record_published
+    rd, store = _prep(tmp_path, monkeypatch)
+    called = {"save": 0, "insert": 0}
+    monkeypatch.setattr(rd.images, "acquire_hero",
+                        lambda q: (b"IMG", "jpg", {"photographer": "X", "source": "Pexels"}))
+    monkeypatch.setattr(rd.publisher, "save_image",
+                        lambda b, name: called.__setitem__("save", called["save"] + 1) or True)
+    monkeypatch.setattr(rd.publisher, "insert_draft",
+                        lambda *a: called.__setitem__("insert", called["insert"] + 1) or 1)
+    out = rd.run(dry_run=True)
+    assert out["ok"] is True and out["reason"] == "dry_run"
+    assert called["save"] == 0 and called["insert"] == 0
+    assert store.slug_seen("jak-dbac-o-blat-debowy") is False  # historia tez nie zapisana
+
+
+def test_run_brak_tematu(tmp_path, monkeypatch):
+    # gdy pick_topic zwroci None -> ok=False, reason=brak_tematu, bez wyjatku
+    rd, store = _prep(tmp_path, monkeypatch)
+    monkeypatch.setattr(rd.topics, "pick_topic", lambda s: None)
+    out = rd.run(dry_run=False)
+    assert out["ok"] is False and out["reason"] == "brak_tematu"
