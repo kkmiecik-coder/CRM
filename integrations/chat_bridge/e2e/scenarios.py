@@ -318,9 +318,14 @@ SCENARIUSZE = [
     {"id": "MP05", "kat": "Wiele pozycji", "tytul": "Niejednoznaczna korekta przy 2 pozycjach tej samej nazwy",
      "tury": ["dwa parapety dąb lity A/B surowe, po 1 szt: 120x35x3 i 150x35x2",
               "w tym parapecie zmień grubość na 4"],
-     "oczekuj": {"min_odp": 2, "status": "pending", "zawiera": ["której pozycji"]},
-     "human": "Przy korekcie bez wskazania, którego z dwóch parapetów dotyczy, bot PYTA o numer "
-              "pozycji (nie zgaduje, nie tworzy pozycji-widma) — MP-02/MD-08."},
+     # Bot MA dopytać, której pozycji dotyczy zmiana — behawioralnie: ostatnia odpowiedź OFERUJE
+     # wybór między obiema pozycjami (odwołuje się do „120" i „150"). Działa dla obu ścieżek:
+     # deterministycznej bramki `_niejednoznaczna_korekta` (LLM zgubił id) ORAZ prozy samego LLM
+     # (gdy sam dopyta, nie ustawiając delty). NIE asertujemy dosłownego tekstu bramki.
+     "oczekuj": {"min_odp": 2, "status": "pending", "zawiera_ost": ["120", "150"]},
+     "human": "Przy korekcie bez wskazania, którego z dwóch parapetów dotyczy, bot PYTA (oferuje "
+              "wybór między pozycjami) — nie zgaduje, nie tworzy pozycji-widma, nie nadpisuje "
+              "grubości po cichu (MP-02/MD-08)."},
 
     # ================= K. KOPERTA WYMIAROW / WALIDACJA =================
     {"id": "KW01", "kat": "Walidacja", "tytul": "Szerokość 150 > 120",
