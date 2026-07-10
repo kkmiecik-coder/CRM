@@ -1,11 +1,13 @@
 # -*- coding: utf-8 -*-
 # Kanal OLX: token (refresh), GET z retry, wysylka, mark-read, poller odbioru.
 import time
+import json
 import threading
 import traceback
 import requests
 from config import (OLX_CLIENT_ID, OLX_CLIENT_SECRET, OLX_REFRESH_TOKEN,
-                    OLX_TOKEN_URL, OLX_API_BASE, POLL_INTERVAL, CW_OLX_INBOX)
+                    OLX_TOKEN_URL, OLX_API_BASE, POLL_INTERVAL, CW_OLX_INBOX,
+                    BOT_QUOTE_PERSONAS)
 from core.log import log
 from core.db import db, init_db, meta_get, meta_set
 from core.util import parse_ts, upsert_thread, deliver_in_order
@@ -68,6 +70,42 @@ def olx_mark_read(thread_id):
                       json={"command": "mark-as-read"}, timeout=15)
     except Exception as e:
         log("OLX mark-read fail:", repr(e))
+
+
+def _quote_olx_conv_eligible(conv_id):
+    """Czy quote-bot ma obsluzyc te rozmowe OLX. FAZA 3a wypelni: TYLKO swieze rozmowy
+    (utworzone po go-live), zeby bot nie wchodzil w watki juz prowadzone. W FAZIE 2b
+    przepuszcza wszystkie — samym wlacznikiem jest BOT_QUOTE_PERSONAS."""
+    return True
+
+
+def _enqueue_quote_olx(conv_id, olx_msg_id, content, att_urls=None):
+    """Wyzwala ture quote-bota dla PRZYCHODZACEJ wiadomosci OLX — Z MOSTU (nie z webhooka
+    Chatwoota; odpornosc na D1: most i tak widzi kazda wiadomosc OLX). Gate wlaczenia:
+    'olx' in BOT_QUOTE_PERSONAS (kill-switch bez zmiany kodu). Dedup po OLX msg id (jedno
+    zrodlo -> dokladnie raz). Tag persona=quote_olx -> worker dobierze caps i prompt OLX.
+    NIGDY nie rzuca — blad kolejkowania nie moze zaklocic dostawy wiadomosci do Chatwoota."""
+    try:
+        if "olx" not in BOT_QUOTE_PERSONAS:
+            return
+        content = (content or "").strip()
+        if not conv_id or olx_msg_id is None or (not content and not att_urls):
+            return
+        if not _quote_olx_conv_eligible(conv_id):
+            return
+        seen_key = "olx-%s" % olx_msg_id  # prefiks kanalu -> brak kolizji z mid Chatwoota
+        c = db()
+        try:
+            c.execute("INSERT INTO quote_seen(mid) VALUES(?)", (seen_key,))
+        except Exception:
+            c.close(); return  # duplikat -> tura juz zakolejkowana
+        c.execute("INSERT INTO quote_queue(conv_id, inbox_id, message_id, content, attachments, persona, next_at) "
+                  "VALUES(?,?,?,?,?,?,0)",
+                  (conv_id, CW_OLX_INBOX, seen_key, content, json.dumps(att_urls or []), "quote_olx"))
+        c.commit(); c.close()
+        log("quote-olx: zakolejkowano ture (conv %s, msg %s)" % (conv_id, olx_msg_id))
+    except Exception as e:
+        log("quote-olx: enqueue blad (pomijam):", repr(e))
 
 
 def olx_poller():
@@ -137,7 +175,15 @@ def olx_poller():
                                 atts = m.get("attachments") or []
                                 if not txt and not atts:
                                     txt = "(wiadomosc bez tresci)"
-                                return cw_incoming(conv_id, txt, atts)
+                                ok = cw_incoming(conv_id, txt, atts)
+                                if ok:
+                                    # Po dostarczeniu do Chatwoota wyzwol ture quote-bota (gate,
+                                    # dedup i eligibility rozstrzygaja sie w _enqueue_quote_olx).
+                                    att_urls = [a.get("url") for a in atts
+                                                if isinstance(a, dict) and a.get("url")]
+                                    _enqueue_quote_olx(conv_id, m.get("id"),
+                                                       m.get("text") or "", att_urls)
+                                return ok
                             delivered_id, all_ok = deliver_in_order(new, lambda m: m["id"], _send)
                             if delivered_id is not None:
                                 log("OLX watek %s -> dostarczono do msg %s (conv %s)" % (tid, delivered_id, conv_id))

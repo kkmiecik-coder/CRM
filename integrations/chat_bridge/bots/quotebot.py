@@ -21,7 +21,7 @@ from core.chatwoot import (cw_messages, cw_contact, cw_note,
                            cw_conv_status, cw_bot_handoff, cw_contact_full)
 from bots.knowledge import retrieve
 from bots.personas import build_system_prompt
-from bots.channel_caps import to_channel_text, split_message, DEFAULT_CAPS
+from bots.channel_caps import to_channel_text, split_message, caps_for, DEFAULT_CAPS
 from bots.llm import chat
 from bots import images
 from bots.vision import attach_images
@@ -1988,36 +1988,45 @@ def _wyslij_podsumowanie(conv_id, dane, content=""):
     log("quotebot: podsumowanie do potwierdzenia (conv %s)" % conv_id)
 
 
-def run_quote_turn(conv_id, inbox_id, message_id, content, attachments=None):
+def run_quote_turn(conv_id, inbox_id, message_id, content, attachments=None, persona="quote"):
     """Wrapper telemetryczny (TO-06/TO-09): jedna linia JSON logu na KAZDA ture (diff pozycji,
     czas trwania), niezaleznie od tego, ktora galaz _run_quote_turn_inner zwrocila albo rzucila.
     Cala logika tury jest w _run_quote_turn_inner (bez zmian zachowania). Telemetria NIGDY nie
     moze zaklocic prawdziwej tury: odczyty do diff_pozycje sa osloniete try/except, zeby
     przejsciowy blad odczytu (np. zablokowana baza) ani nie zamaskowal prawdziwego wyjatku z
     _run_quote_turn_inner (Python podmienilby go wyjatkiem z finally), ani nie zablokowal samej
-    tury (przed jej wywolaniem)."""
+    tury (przed jej wywolaniem).
+    persona: klucz persony/kanalu ('quote' dla livechat/Messenger, 'quote_olx' dla OLX) —
+    steruje caps wysylki (contextvar _reply_caps) i wyborem promptu. Caps ustawiamy na czas
+    CALEJ tury i ZAWSZE przywracamy w finally (inaczej caps OLX wyciekly by na kolejna ture
+    przy wspoldzielonym watku workera)."""
     t0 = time.monotonic()
+    caps_token = _reply_caps.set(caps_for(persona))
     try:
-        dane_przed = _load_dane(conv_id)
-    except Exception:
-        dane_przed = None
-    try:
-        return _run_quote_turn_inner(conv_id, inbox_id, message_id, content, attachments=attachments)
-    finally:
         try:
-            dane_po = _load_dane(conv_id) if dane_przed is not None else None
-            diff_pozycje = (dane_po.get("pozycje") != dane_przed.get("pozycje")
-                            if dane_przed is not None and dane_po is not None else None)
-            log("quotebot_turn " + json.dumps({
-                "conv_id": conv_id,
-                "diff_pozycje": diff_pozycje,
-                "ms": int((time.monotonic() - t0) * 1000),
-            }, ensure_ascii=False))
+            dane_przed = _load_dane(conv_id)
         except Exception:
-            pass
+            dane_przed = None
+        try:
+            return _run_quote_turn_inner(conv_id, inbox_id, message_id, content,
+                                         attachments=attachments, persona=persona)
+        finally:
+            try:
+                dane_po = _load_dane(conv_id) if dane_przed is not None else None
+                diff_pozycje = (dane_po.get("pozycje") != dane_przed.get("pozycje")
+                                if dane_przed is not None and dane_po is not None else None)
+                log("quotebot_turn " + json.dumps({
+                    "conv_id": conv_id,
+                    "diff_pozycje": diff_pozycje,
+                    "ms": int((time.monotonic() - t0) * 1000),
+                }, ensure_ascii=False))
+            except Exception:
+                pass
+    finally:
+        _reply_caps.reset(caps_token)
 
 
-def _run_quote_turn_inner(conv_id, inbox_id, message_id, content, attachments=None):
+def _run_quote_turn_inner(conv_id, inbox_id, message_id, content, attachments=None, persona="quote"):
     """Pelna tura bota. Rzuca RuntimeError przy braku odpowiedzi LLM (retry w workerze)."""
     # Cisza po handoffie: bot prowadzi TYLKO rozmowy w statusie pending.
     status = cw_conv_status(conv_id)
@@ -2160,7 +2169,7 @@ def _run_quote_turn_inner(conv_id, inbox_id, message_id, content, attachments=No
     dane_przed = _load_dane(conv_id)
     awaiting = _awaiting_confirm(conv_id)
 
-    system = build_system_prompt("quote", knowledge, identity) + "\n\n" + _FORMAT
+    system = build_system_prompt(persona, knowledge, identity) + "\n\n" + _FORMAT
     wl = images.whitelist_prompt()
     if wl:
         system += ("\n\nDOSTĘPNE OBRAZY (możesz dołączyć maks. jeden przez pole send_image, "

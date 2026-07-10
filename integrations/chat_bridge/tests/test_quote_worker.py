@@ -37,10 +37,12 @@ def _enqueue(conv_id=5):
 def test_process_one_wola_run_i_oznacza_sent(monkeypatch):
     wolane = {}
     monkeypatch.setattr(qw, "run_quote_turn",
-                        lambda conv_id, inbox_id, mid, content, attachments=None: wolane.update(conv=conv_id))
+                        lambda conv_id, inbox_id, mid, content, attachments=None, persona="quote":
+                        wolane.update(conv=conv_id, persona=persona))
     _enqueue(5)
     assert qw.process_one(9_999_999_999) is True
     assert wolane["conv"] == 5
+    assert wolane["persona"] == "quote"   # rekord bez kolumny persona -> domyslnie quote (livechat)
     c = db_mod.db()
     st = c.execute("SELECT status FROM quote_queue WHERE conv_id=5").fetchone()["status"]
     c.close()

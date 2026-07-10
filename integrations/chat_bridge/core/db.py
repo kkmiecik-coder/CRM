@@ -82,7 +82,8 @@ def init_db():
                  "ALTER TABLE quote_state ADD COLUMN quote_edit_uuid TEXT",
                  "ALTER TABLE quote_state ADD COLUMN returning_greeted INTEGER DEFAULT 0",
                  "ALTER TABLE quote_state ADD COLUMN awaiting_postcode INTEGER DEFAULT 0",
-                 "ALTER TABLE quote_queue ADD COLUMN attachments TEXT"):
+                 "ALTER TABLE quote_queue ADD COLUMN attachments TEXT",
+                 "ALTER TABLE quote_queue ADD COLUMN persona TEXT"):
         try:
             c.execute(stmt)
         except Exception:
