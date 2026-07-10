@@ -9,22 +9,62 @@ import os
 import json
 import re
 import time
+import contextvars
 from datetime import datetime
 from zoneinfo import ZoneInfo
 from config import BOT_HISTORY_LIMIT, BOT_QUOTE_MAX_TURNS, BOT_QUOTE_CW_AGENT_TOKEN, BOT_BUSINESS_HOURS
 from core.log import log
 from core.db import db
 from core.events import log_event
-from core.chatwoot import (cw_messages, cw_contact, cw_note, cw_agent_reply,
+from core.chatwoot import (cw_messages, cw_contact, cw_note,
+                           cw_agent_reply as _cw_agent_reply_raw,
                            cw_conv_status, cw_bot_handoff, cw_contact_full)
 from bots.knowledge import retrieve
 from bots.personas import build_system_prompt
+from bots.channel_caps import to_channel_text, split_message, caps_for, DEFAULT_CAPS
 from bots.llm import chat
 from bots import images
 from bots.vision import attach_images
 from bots import crm_calc
 
 _TZ_WARSAW = ZoneInfo("Europe/Warsaw")
+
+# Zdolnosci kanalu (caps) biezacej tury — ustawiane w run_quote_turn, czytane przez wrapper
+# cw_agent_reply. Domyslnie DEFAULT_CAPS (livechat/Messenger) -> wrapper jest przezroczysty.
+_reply_caps = contextvars.ContextVar("quotebot_reply_caps", default=DEFAULT_CAPS)
+
+
+def cw_agent_reply(conv_id, text, image_path=None, image_name=None, image_mime="image/jpeg", token=None):
+    """Wrapper wysylki bota nakladajacy zdolnosci kanalu (caps) z kontekstu tury na KAZDE
+    wywolanie w quotebot (30+ miejsc korzysta z tej nazwy). Sanitizuje tekst do formatu kanalu,
+    rozbija w limicie max_len i pomija obraz, gdy kanal go nie przyjmuje. Przy DEFAULT_CAPS
+    (livechat/Messenger) zachowuje sie IDENTYCZNIE jak surowa wysylka (zero regresji).
+    Zwraca True tylko gdy WSZYSTKIE czesci poszly (kontrakt bool jak dotad)."""
+    caps = _reply_caps.get()
+    # Obraz: pomijamy, gdy kanal obrazow nie przyjmuje, albo gdy format spoza dozwolonych
+    # (OLX = tylko jpg/png). Wtedy idzie sam tekst.
+    if image_path is not None:
+        fmts = caps.get("image_formats")
+        ext = os.path.splitext(image_path)[1].lower().lstrip(".")
+        if not caps.get("images", True) or (fmts and ext not in fmts):
+            image_path = None
+            image_name = None
+    tekst = to_channel_text(text or "", caps)
+    czesci = split_message(tekst, caps)
+    if not czesci:
+        # Brak tresci po sanitizacji. Gdy zostal obraz — wyslij go z (pustym) tekstem; inaczej
+        # zachowaj dotychczasowy kontrakt (pojedyncze wywolanie, np. pusty podpis bez obrazu).
+        return _cw_agent_reply_raw(conv_id, tekst, image_path=image_path, image_name=image_name,
+                                   image_mime=image_mime, token=token)
+    ok = True
+    for i, msg in enumerate(czesci):
+        if i == 0 and image_path is not None:
+            wynik = _cw_agent_reply_raw(conv_id, msg, image_path=image_path, image_name=image_name,
+                                        image_mime=image_mime, token=token)
+        else:
+            wynik = _cw_agent_reply_raw(conv_id, msg, token=token)
+        ok = ok and bool(wynik)
+    return ok
 
 
 def _w_godzinach_pracy(now=None):
@@ -727,10 +767,28 @@ _SAVE_FAIL_MSG = ("Dziękuję za kontakt! Mam chwilowy problem techniczny z zapi
                   "przekazuję rozmowę do konsultanta WoodPower, który dośle link w tej rozmowie.")
 
 
-def _lead_number(conv_id):
-    """Identyfikator klienta technicznego leada (LS-01) — konwencja jak 'olx-<id>'
-    (integrations/chat_bridge/channels/olx.py), ale per rozmowa quote-bota."""
-    return "chat-%s" % conv_id
+# Staly prefiks kupujacego OLX z identyfikatora kontaktu. MUSI byc zgodny z
+# modules/quotes/chatwoot_match.py (panel "Wyceny CRM") — most jest osobnym kontenerem,
+# wiec nie importujemy stamtad; regex zreplikowany. Format identyfikatora tworzy
+# channels/olx.py: "olx-<id_kupujacego>-<id_watku>".
+_OLX_BUYER_RE = re.compile(r"^\s*(olx-\d+)(?:-\d+)?\s*$", re.IGNORECASE)
+
+
+def _olx_buyer_prefix(identifier):
+    """'olx-5028153-25066393520' -> 'olx-5028153'; 'olx-5028153' -> 'olx-5028153'.
+    None dla wszystkiego, co nie jest identyfikatorem OLX (allegro-, e-mail, puste, 'olx-')."""
+    if not identifier:
+        return None
+    m = _OLX_BUYER_RE.match(identifier)
+    return m.group(1).lower() if m else None
+
+
+def _lead_number(conv_id, identifier=None):
+    """Identyfikator klienta technicznego leada (LS-01). Dla OLX uzywamy STALEGO prefiksu
+    kupujacego 'olx-<id>' (bez id watku) — spojnie z modules/quotes/chatwoot_match.py, zeby
+    panel "Wyceny CRM" zebral wszystkie wyceny kupujacego pod jednym klientem niezaleznie od
+    watku. Dla livechatu i pozostalych kanalow: 'chat-<conv_id>' per rozmowa."""
+    return _olx_buyer_prefix(identifier) or ("chat-%s" % conv_id)
 
 
 def _lead_note(conv_id, dane, options, wynik=None):
@@ -1714,7 +1772,8 @@ def _wyslij_cene_i_kontakt(conv_id, dane, identity):
     email, phone, name = _effective_contact(conv_id, dane, identity)
     oferta_wysylki = "shipping_offer" not in _sent_images(conv_id)
     extra = [_WYSYLKA_OFERTA] if (oferta_wysylki and (email or phone)) else None
-    if not _zapisz_wycene(conv_id, dane, options, email, phone, name, wynik=wynik, extra_msgs=extra):
+    if not _zapisz_wycene(conv_id, dane, options, email, phone, name, wynik=wynik, extra_msgs=extra,
+                          identifier=(identity or {}).get("identifier")):
         # Zapis skonczyl sie handoffem (klient PODAL kontakt, ale zapis padl — MS-05) — dalsze
         # follow-upy (prosba o kontakt/oferta wysylki) zaprzeczylyby wlasnie wykonanemu handoffowi.
         return
@@ -1734,7 +1793,7 @@ def _wyslij_cene_i_kontakt(conv_id, dane, identity):
     log("quotebot: cena wyslana (conv %s)" % conv_id)
 
 
-def _zapisz_wycene(conv_id, dane, options, email, phone, name, wynik=None, extra_msgs=None):
+def _zapisz_wycene(conv_id, dane, options, email, phone, name, wynik=None, extra_msgs=None, identifier=None):
     """find-or-create klienta (LS-01: zawsze przez client_number techniczny — kontakt tylko
     wzbogaca ten sam rekord) + zapis LUB aktualizacja wyceny + wyslanie linku (gdy jest kontakt)
     + prywatna notatka z parametrami i cena po kazdym zapisie. Gdy w stanie jest edit_uuid
@@ -1748,7 +1807,10 @@ def _zapisz_wycene(conv_id, dane, options, email, phone, name, wynik=None, extra
     zapisu nie wywraca tury — cena juz poszla. Zwraca False gdy zapis skonczyl sie handoffem
     (wolajacy NIE powinien kontynuowac normalnymi follow-upami), True w kazdym innym przypadku
     (w tym cichy blad zapisu leada technicznego bez kontaktu)."""
-    kl = crm_calc.find_or_create_client(email, phone, name, client_number=_lead_number(conv_id))
+    # Numer klienta technicznego zalezy od kanalu: dla OLX = staly prefiks kupujacego 'olx-<id>'
+    # (grupuje wyceny pod jednym klientem, panel je dopasuje), inaczej 'chat-<conv_id>'. identifier
+    # przekazuje wolajacy (z kontaktu, ktory i tak pobiera) — bez dodatkowego zapytania do Chatwoota.
+    kl = crm_calc.find_or_create_client(email, phone, name, client_number=_lead_number(conv_id, identifier))
     client = (kl or {}).get("client") or {}
     if not kl.get("ok") or not client.get("id"):
         log("quotebot: find_or_create nieudane (conv %s): %s" % (conv_id, kl))
@@ -1952,36 +2014,45 @@ def _wyslij_podsumowanie(conv_id, dane, content=""):
     log("quotebot: podsumowanie do potwierdzenia (conv %s)" % conv_id)
 
 
-def run_quote_turn(conv_id, inbox_id, message_id, content, attachments=None):
+def run_quote_turn(conv_id, inbox_id, message_id, content, attachments=None, persona="quote"):
     """Wrapper telemetryczny (TO-06/TO-09): jedna linia JSON logu na KAZDA ture (diff pozycji,
     czas trwania), niezaleznie od tego, ktora galaz _run_quote_turn_inner zwrocila albo rzucila.
     Cala logika tury jest w _run_quote_turn_inner (bez zmian zachowania). Telemetria NIGDY nie
     moze zaklocic prawdziwej tury: odczyty do diff_pozycje sa osloniete try/except, zeby
     przejsciowy blad odczytu (np. zablokowana baza) ani nie zamaskowal prawdziwego wyjatku z
     _run_quote_turn_inner (Python podmienilby go wyjatkiem z finally), ani nie zablokowal samej
-    tury (przed jej wywolaniem)."""
+    tury (przed jej wywolaniem).
+    persona: klucz persony/kanalu ('quote' dla livechat/Messenger, 'quote_olx' dla OLX) —
+    steruje caps wysylki (contextvar _reply_caps) i wyborem promptu. Caps ustawiamy na czas
+    CALEJ tury i ZAWSZE przywracamy w finally (inaczej caps OLX wyciekly by na kolejna ture
+    przy wspoldzielonym watku workera)."""
     t0 = time.monotonic()
+    caps_token = _reply_caps.set(caps_for(persona))
     try:
-        dane_przed = _load_dane(conv_id)
-    except Exception:
-        dane_przed = None
-    try:
-        return _run_quote_turn_inner(conv_id, inbox_id, message_id, content, attachments=attachments)
-    finally:
         try:
-            dane_po = _load_dane(conv_id) if dane_przed is not None else None
-            diff_pozycje = (dane_po.get("pozycje") != dane_przed.get("pozycje")
-                            if dane_przed is not None and dane_po is not None else None)
-            log("quotebot_turn " + json.dumps({
-                "conv_id": conv_id,
-                "diff_pozycje": diff_pozycje,
-                "ms": int((time.monotonic() - t0) * 1000),
-            }, ensure_ascii=False))
+            dane_przed = _load_dane(conv_id)
         except Exception:
-            pass
+            dane_przed = None
+        try:
+            return _run_quote_turn_inner(conv_id, inbox_id, message_id, content,
+                                         attachments=attachments, persona=persona)
+        finally:
+            try:
+                dane_po = _load_dane(conv_id) if dane_przed is not None else None
+                diff_pozycje = (dane_po.get("pozycje") != dane_przed.get("pozycje")
+                                if dane_przed is not None and dane_po is not None else None)
+                log("quotebot_turn " + json.dumps({
+                    "conv_id": conv_id,
+                    "diff_pozycje": diff_pozycje,
+                    "ms": int((time.monotonic() - t0) * 1000),
+                }, ensure_ascii=False))
+            except Exception:
+                pass
+    finally:
+        _reply_caps.reset(caps_token)
 
 
-def _run_quote_turn_inner(conv_id, inbox_id, message_id, content, attachments=None):
+def _run_quote_turn_inner(conv_id, inbox_id, message_id, content, attachments=None, persona="quote"):
     """Pelna tura bota. Rzuca RuntimeError przy braku odpowiedzi LLM (retry w workerze)."""
     # Cisza po handoffie: bot prowadzi TYLKO rozmowy w statusie pending.
     status = cw_conv_status(conv_id)
@@ -2029,7 +2100,8 @@ def _run_quote_turn_inner(conv_id, inbox_id, message_id, content, attachments=No
     if _awaiting_contact(conv_id):
         email, phone = _wyciagnij_kontakt(content)
         if email or phone:
-            nazwa = (cw_contact_full(conv_id) or {}).get("name") or ""
+            _kontakt = cw_contact_full(conv_id) or {}
+            nazwa = _kontakt.get("name") or ""
             _set_contact(conv_id, email, phone, nazwa)   # zapamietaj kontakt ZAWSZE (na kolejne wyceny)
             log_event(conv_id, "contact_given")
             if _wiadomosc_ma_korekte(content):
@@ -2039,7 +2111,8 @@ def _run_quote_turn_inner(conv_id, inbox_id, message_id, content, attachments=No
                 pass
             else:
                 _set_awaiting_contact(conv_id, False)
-                _zapisz_wycene(conv_id, _load_dane(conv_id), crm_calc.get_options(), email, phone, nazwa)
+                _zapisz_wycene(conv_id, _load_dane(conv_id), crm_calc.get_options(), email, phone, nazwa,
+                               identifier=_kontakt.get("identifier"))
                 _wysylka_z_tej_samej_wiadomosci(conv_id, content)   # kod pocztowy w tej samej wiadomosci (#1)
                 return
         elif _czy_odmowa(content):
@@ -2089,9 +2162,11 @@ def _run_quote_turn_inner(conv_id, inbox_id, message_id, content, attachments=No
     if _priced(conv_id) and not _awaiting_contact(conv_id):
         g_email, g_phone = _wyciagnij_kontakt(content)
         if (g_email or g_phone) and not _wiadomosc_ma_korekte(content):
-            nazwa = (cw_contact_full(conv_id) or {}).get("name") or ""
+            _kontakt = cw_contact_full(conv_id) or {}
+            nazwa = _kontakt.get("name") or ""
             _set_contact(conv_id, g_email, g_phone, nazwa)   # kontakt z biezacej wiadomosci nadpisuje (API-10)
-            _zapisz_wycene(conv_id, _load_dane(conv_id), crm_calc.get_options(), g_email, g_phone, nazwa)
+            _zapisz_wycene(conv_id, _load_dane(conv_id), crm_calc.get_options(), g_email, g_phone, nazwa,
+                           identifier=_kontakt.get("identifier"))
             _wysylka_z_tej_samej_wiadomosci(conv_id, content)   # kod pocztowy w tej samej wiadomosci (#1)
             return
 
@@ -2124,11 +2199,14 @@ def _run_quote_turn_inner(conv_id, inbox_id, message_id, content, attachments=No
     dane_przed = _load_dane(conv_id)
     awaiting = _awaiting_confirm(conv_id)
 
-    system = build_system_prompt("quote", knowledge, identity) + "\n\n" + _FORMAT
-    wl = images.whitelist_prompt()
-    if wl:
-        system += ("\n\nDOSTĘPNE OBRAZY (możesz dołączyć maks. jeden przez pole send_image, "
-                   "tylko gdy realnie pomaga):\n" + wl)
+    system = build_system_prompt(persona, knowledge, identity) + "\n\n" + _FORMAT
+    # Sekcje DOSTEPNE OBRAZY dokladamy tylko, gdy kanal przyjmuje obrazy (OLX = bez obrazow) —
+    # inaczej LLM zapowiadalby zdjecia, ktore i tak zostana wyciete przy wysylce (review #4).
+    if caps_for(persona).get("images", True):
+        wl = images.whitelist_prompt()
+        if wl:
+            system += ("\n\nDOSTĘPNE OBRAZY (możesz dołączyć maks. jeden przez pole send_image, "
+                       "tylko gdy realnie pomaga):\n" + wl)
     opts = crm_calc.get_options()
     fin = opts.get("finishing_options") or []
     if fin:
@@ -2166,7 +2244,8 @@ def _run_quote_turn_inner(conv_id, inbox_id, message_id, content, attachments=No
         except Exception:
             urls = []
         if urls:
-            attach_images(messages, urls)
+            # Odczyt obrazow ograniczony do formatow kanalu (OLX = jpg/png; livechat = bez limitu).
+            attach_images(messages, urls, formats=caps_for(persona).get("image_formats"))
 
     raw, llm_meta = chat(messages, response_format={"type": "json_object"}, return_meta=True)
     if not raw:

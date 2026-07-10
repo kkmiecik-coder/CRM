@@ -5,12 +5,14 @@ import threading
 import traceback
 import requests
 from config import (OLX_CLIENT_ID, OLX_CLIENT_SECRET, OLX_REFRESH_TOKEN,
-                    OLX_TOKEN_URL, OLX_API_BASE, POLL_INTERVAL, CW_OLX_INBOX)
+                    OLX_TOKEN_URL, OLX_API_BASE, POLL_INTERVAL, CW_OLX_INBOX,
+                    BOT_QUOTE_PERSONAS)
 from core.log import log
 from core.db import db, init_db, meta_get, meta_set
 from core.util import parse_ts, upsert_thread, deliver_in_order
 from core.chatwoot import ensure_conversation, cw_incoming, conv_exists, clear_thread_conv
 from core.http import get_with_retry
+from bots.quote_intake import enqueue_quote_turn
 
 name = "olx"
 _token = {"access": None, "exp": 0}
@@ -68,6 +70,68 @@ def olx_mark_read(thread_id):
                       json={"command": "mark-as-read"}, timeout=15)
     except Exception as e:
         log("OLX mark-read fail:", repr(e))
+
+
+def _mark_quote_olx_eligible(conv_id):
+    """Oznacza rozmowe OLX jako SWIEZA (utworzona po go-live) — tylko takie obsluguje quote-bot.
+    Wolane przez poller w chwili UTWORZENIA rozmowy, gdy bot jest wlaczony. Nigdy nie rzuca."""
+    if not conv_id:
+        return
+    try:
+        c = db()
+        c.execute("INSERT OR IGNORE INTO quote_olx_conv(conv_id, created_at) VALUES(?, ?)",
+                  (conv_id, time.time()))
+        c.commit(); c.close()
+    except Exception as e:
+        log("quote-olx: mark eligible blad (pomijam):", repr(e))
+
+
+def _quote_olx_conv_eligible(conv_id):
+    """True tylko dla rozmow OLX oznaczonych jako swieze (utworzone po go-live). Rozmowy
+    sprzed go-live nie sa oznaczone -> bot ich nie rusza nawet przy nowej wiadomosci; watki
+    przejete przez czlowieka chroni osobno status-gate pending (run_quote_turn). Blad odczytu
+    -> False (bezpieczniej zamilczec niz wskoczyc w cudza rozmowe)."""
+    if not conv_id:
+        return False
+    try:
+        c = db()
+        row = c.execute("SELECT 1 FROM quote_olx_conv WHERE conv_id=?", (conv_id,)).fetchone()
+        c.close()
+        return row is not None
+    except Exception:
+        return False
+
+
+def _enqueue_quote_olx(conv_id, olx_msg_id, content, att_urls=None):
+    """Wyzwala ture quote-bota dla PRZYCHODZACEJ wiadomosci OLX — Z MOSTU (nie z webhooka
+    Chatwoota; odpornosc na D1: most i tak widzi kazda wiadomosc OLX). Gate wlaczenia:
+    'olx' in BOT_QUOTE_PERSONAS (kill-switch bez zmiany kodu). Dedup po OLX msg id (jedno
+    zrodlo -> dokladnie raz). Tag persona=quote_olx -> worker dobierze caps i prompt OLX.
+    NIGDY nie rzuca — blad kolejkowania nie moze zaklocic dostawy wiadomosci do Chatwoota."""
+    try:
+        if "olx" not in BOT_QUOTE_PERSONAS:
+            return
+        content = (content or "").strip()
+        if not conv_id or olx_msg_id is None or (not content and not att_urls):
+            return
+        if not _quote_olx_conv_eligible(conv_id):
+            return
+        seen_key = "olx-%s" % olx_msg_id  # prefiks kanalu: brak kolizji z mid Chatwoota + klucz dedupu
+        # Dedup + okno ciszy (scalanie serii w jedna ture) — atomowo w enqueue_quote_turn.
+        if enqueue_quote_turn(conv_id, CW_OLX_INBOX, seen_key, content,
+                              attachments=(att_urls or []), persona="quote_olx") == "duplicate":
+            return
+        log("quote-olx: zakolejkowano ture (conv %s, msg %s)" % (conv_id, olx_msg_id))
+    except Exception as e:
+        log("quote-olx: enqueue blad (pomijam):", repr(e))
+
+
+def _should_mark_eligible(st):
+    """Czy oznaczyc rozmowe jako swieza (obslugiwana przez quote-bota). TYLKO gdy watek jest
+    NIGDY wczesniej niewidziany przez most (st is None) i bot OLX wlaczony. Self-heal
+    (odtworzenie conv ZNANEGO watku, np. po usunieciu rozmowy w Chatwoocie) NIE oznacza —
+    inaczej watek sprzed go-live wskoczylby do bota (review FAZY 2/3, #1)."""
+    return st is None and "olx" in BOT_QUOTE_PERSONAS
 
 
 def olx_poller():
@@ -131,13 +195,26 @@ def olx_poller():
                             ident = "olx-%s-%s" % (th.get("interlocutor_id"), tid)
                             card = ("Oferta: %s\nLink: %s" % (title, url)) if (title and url) else ("Ogloszenie OLX #%s" % th.get("advert_id"))
                             conv_id = ensure_conversation("olx", tid, CW_OLX_INBOX, name, ident, card, img)
+                            # Swieza rozmowa (watek nigdy niewidziany, st is None) i bot OLX
+                            # wlaczony -> oznacz jako obslugiwana (FAZA 3a: tylko po go-live).
+                            # NIE oznaczamy przy self-heal recreate znanego watku (review #1).
+                            if conv_id and _should_mark_eligible(st):
+                                _mark_quote_olx_eligible(conv_id)
                         if conv_id:
                             def _send(m):
                                 txt = (m.get("text") or "").strip()
                                 atts = m.get("attachments") or []
                                 if not txt and not atts:
                                     txt = "(wiadomosc bez tresci)"
-                                return cw_incoming(conv_id, txt, atts)
+                                ok = cw_incoming(conv_id, txt, atts)
+                                if ok:
+                                    # Po dostarczeniu do Chatwoota wyzwol ture quote-bota (gate,
+                                    # dedup i eligibility rozstrzygaja sie w _enqueue_quote_olx).
+                                    att_urls = [a.get("url") for a in atts
+                                                if isinstance(a, dict) and a.get("url")]
+                                    _enqueue_quote_olx(conv_id, m.get("id"),
+                                                       m.get("text") or "", att_urls)
+                                return ok
                             delivered_id, all_ok = deliver_in_order(new, lambda m: m["id"], _send)
                             if delivered_id is not None:
                                 log("OLX watek %s -> dostarczono do msg %s (conv %s)" % (tid, delivered_id, conv_id))

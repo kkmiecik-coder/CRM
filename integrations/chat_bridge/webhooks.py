@@ -11,6 +11,7 @@ from core.log import log
 from core.db import db
 from core.chatwoot import cw_bot_handoff
 from bots.channel_resolver import persona_for
+from bots.quote_intake import enqueue_quote_turn
 from footer import build_footer
 from channels.allegro_auth import exchange_authorization_code
 
@@ -127,14 +128,9 @@ def _process_quotebot(d):
     if persona_for(inbox_id) != "livechat":
         log("agent-bot-quote: inbox %s bez persony livechat - pomijam" % inbox_id)
         return
-    c = db()
-    try:
-        c.execute("INSERT INTO quote_seen(mid) VALUES(?)", (mid,))
-    except Exception:
-        c.close(); return  # duplikat
-    c.execute("INSERT INTO quote_queue(conv_id, inbox_id, message_id, content, attachments, next_at) "
-              "VALUES(?,?,?,?,?,0)", (conv_id, inbox_id, mid, content, json.dumps(att)))
-    c.commit(); c.close()
+    # Dedup + okno ciszy (scalanie serii wiadomosci w jedna ture) — atomowo w enqueue_quote_turn.
+    if enqueue_quote_turn(conv_id, inbox_id, mid, content, attachments=att) == "duplicate":
+        return
     log("agent-bot-quote: zakolejkowano ture (inbox %s, conv %s)" % (inbox_id, conv_id))
 
 

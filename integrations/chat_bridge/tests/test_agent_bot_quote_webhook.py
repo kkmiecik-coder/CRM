@@ -43,6 +43,16 @@ def test_dedup(monkeypatch):
     assert _count() == 1
 
 
+def test_coalesce_dwie_wiadomosci_jedna_tura(monkeypatch):
+    # Okno ciszy: dwie wiadomosci tej samej rozmowy (rozne mid) -> jeden rekord, tresc polaczona.
+    monkeypatch.setattr(wh, "persona_for", lambda inbox_id: "livechat")
+    wh._process_quotebot(_payload(mid="c1", content="poproszę wycenę"))
+    wh._process_quotebot(_payload(mid="c2", content="blat dębowy"))
+    assert _count() == 1
+    c = db_mod.db(); row = c.execute("SELECT content FROM quote_queue").fetchone(); c.close()
+    assert row["content"] == "poproszę wycenę\nblat dębowy"
+
+
 def test_guard_persony(monkeypatch):
     monkeypatch.setattr(wh, "persona_for", lambda inbox_id: "olx")
     wh._process_quotebot(_payload())

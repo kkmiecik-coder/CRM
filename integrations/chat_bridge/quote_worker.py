@@ -98,6 +98,11 @@ def process_one(now):
         return False
     qid, conv_id, inbox_id = row["id"], row["conv_id"], row["inbox_id"]
     mid, content, attempts = row["message_id"], row["content"], row["attempts"]
+    # Persona/kanal tury (kolumna dodana dla OLX) — NULL/brak => domyslnie 'quote' (livechat).
+    try:
+        persona = row["persona"] or "quote"
+    except Exception:
+        persona = "quote"
     # Atomowy claim (API-09/AR-04): tylko jeden worker przetworzy rekord — deploy/overlap kontenerow
     # nie zdubluje tury. next_at = deadline claimu (stale-recovery po _STALE_PROCESSING).
     cur = c.execute("UPDATE quote_queue SET status='processing', next_at=? WHERE id=? AND status='pending'",
@@ -106,8 +111,18 @@ def process_one(now):
     c.commit(); c.close()
     if not claimed:
         return True   # ktos inny zajal rekord w miedzyczasie — sprobuj kolejny obieg
+    # Po claimie rekord jest 'processing' -> enqueue nie moze go juz scalic. Odczytujemy FINALNA
+    # tresc/zalaczniki/mid (scalenie w oknie ciszy moglo dojsc miedzy pierwszym SELECT a claimem) —
+    # inaczej przetworzylibysmy nieaktualna wiadomosc i zgubili dopiski klienta z okna ciszy.
+    c = db()
+    fresh = c.execute("SELECT message_id, content, attachments FROM quote_queue WHERE id=?", (qid,)).fetchone()
+    c.close()
+    if fresh is not None:
+        mid, content, attachments = fresh["message_id"], fresh["content"], fresh["attachments"]
+    else:
+        attachments = row["attachments"]
     try:
-        run_quote_turn(conv_id, inbox_id, mid, content, attachments=row["attachments"])
+        run_quote_turn(conv_id, inbox_id, mid, content, attachments=attachments, persona=persona)
         c = db(); c.execute("UPDATE quote_queue SET status='sent' WHERE id=?", (qid,)); c.commit(); c.close()
         _circuit_record_success()
         log("quotebot: tura przetworzona (conv %s)" % conv_id)
