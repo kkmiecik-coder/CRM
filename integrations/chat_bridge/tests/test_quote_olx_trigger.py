@@ -97,6 +97,20 @@ def test_mark_idempotentny():
     assert olx._quote_olx_conv_eligible(556) is True
 
 
+def test_should_mark_eligible_tylko_nowy_watek(monkeypatch):
+    # Review #1: oznaczamy jako swieza TYLKO rozmowe z watku nigdy niewidzianego (st is None).
+    # Self-heal (odtworzenie conv ZNANEGO watku sprzed go-live) NIE moze oznaczyc -> bot nie
+    # wskoczy w stara rozmowe.
+    monkeypatch.setattr(olx, "BOT_QUOTE_PERSONAS", {"olx"})
+    assert olx._should_mark_eligible(None) is True
+    assert olx._should_mark_eligible({"conv_id": 5, "total_count": 3}) is False
+
+
+def test_should_mark_eligible_gdy_olx_wylaczony(monkeypatch):
+    monkeypatch.setattr(olx, "BOT_QUOTE_PERSONAS", {"livechat"})
+    assert olx._should_mark_eligible(None) is False
+
+
 # --- caps-context tury: OLX na czas tury, przywracane po (rekomendacja z review) ---
 
 def test_run_quote_turn_ustawia_caps_olx_i_przywraca(monkeypatch):

@@ -131,6 +131,14 @@ def _enqueue_quote_olx(conv_id, olx_msg_id, content, att_urls=None):
         log("quote-olx: enqueue blad (pomijam):", repr(e))
 
 
+def _should_mark_eligible(st):
+    """Czy oznaczyc rozmowe jako swieza (obslugiwana przez quote-bota). TYLKO gdy watek jest
+    NIGDY wczesniej niewidziany przez most (st is None) i bot OLX wlaczony. Self-heal
+    (odtworzenie conv ZNANEGO watku, np. po usunieciu rozmowy w Chatwoocie) NIE oznacza —
+    inaczej watek sprzed go-live wskoczylby do bota (review FAZY 2/3, #1)."""
+    return st is None and "olx" in BOT_QUOTE_PERSONAS
+
+
 def olx_poller():
     init_db()
     if meta_get("olx_start_ts") is None:
@@ -192,9 +200,10 @@ def olx_poller():
                             ident = "olx-%s-%s" % (th.get("interlocutor_id"), tid)
                             card = ("Oferta: %s\nLink: %s" % (title, url)) if (title and url) else ("Ogloszenie OLX #%s" % th.get("advert_id"))
                             conv_id = ensure_conversation("olx", tid, CW_OLX_INBOX, name, ident, card, img)
-                            # Swieza rozmowa (utworzona teraz) -> jesli bot OLX wlaczony,
-                            # oznacz ja jako obslugiwana (FAZA 3a: tylko po go-live).
-                            if conv_id and "olx" in BOT_QUOTE_PERSONAS:
+                            # Swieza rozmowa (watek nigdy niewidziany, st is None) i bot OLX
+                            # wlaczony -> oznacz jako obslugiwana (FAZA 3a: tylko po go-live).
+                            # NIE oznaczamy przy self-heal recreate znanego watku (review #1).
+                            if conv_id and _should_mark_eligible(st):
                                 _mark_quote_olx_eligible(conv_id)
                         if conv_id:
                             def _send(m):
