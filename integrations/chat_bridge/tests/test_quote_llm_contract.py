@@ -69,3 +69,10 @@ def test_parse_llm_czysta_proza_dozwolona(bot):
 def test_parse_llm_poprawny_json_dziala(bot):
     out = bot._parse_llm('{"odpowiedz":"ok","handoff":false,"pozycje":[],"wspolne":{}}')
     assert out["odpowiedz"] == "ok" and out["handoff"] is False
+
+
+def test_format_wymaga_osobnych_pozycji_dla_listy_produktow():
+    """MP-01: kontrakt jawnie zakazuje scalania listy produktow w jedna pozycje."""
+    f = qb._FORMAT
+    assert "OSOBNĄ pozycję" in f
+    assert "nie scalaj" in f.lower()
