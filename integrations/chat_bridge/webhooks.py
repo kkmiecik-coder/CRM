@@ -128,14 +128,9 @@ def _process_quotebot(d):
     if persona_for(inbox_id) != "livechat":
         log("agent-bot-quote: inbox %s bez persony livechat - pomijam" % inbox_id)
         return
-    c = db()
-    try:
-        c.execute("INSERT INTO quote_seen(mid) VALUES(?)", (mid,)); c.commit()
-    except Exception:
-        c.close(); return  # duplikat
-    c.close()
-    # Okno ciszy: scal z ewentualna czekajaca tura tej rozmowy (jedna odpowiedz na serie wiadomosci).
-    enqueue_quote_turn(conv_id, inbox_id, mid, content, attachments=att)
+    # Dedup + okno ciszy (scalanie serii wiadomosci w jedna ture) — atomowo w enqueue_quote_turn.
+    if enqueue_quote_turn(conv_id, inbox_id, mid, content, attachments=att) == "duplicate":
+        return
     log("agent-bot-quote: zakolejkowano ture (inbox %s, conv %s)" % (inbox_id, conv_id))
 
 

@@ -80,3 +80,12 @@ def test_attachments_lączone_unia():
 def test_zwraca_inserted_potem_coalesced():
     assert qi.enqueue_quote_turn(5, 18, "m1", "a", now=1000.0) == "inserted"
     assert qi.enqueue_quote_turn(5, 18, "m2", "b", now=1001.0) == "coalesced"
+
+
+def test_dedup_ten_sam_message_id_atomowo():
+    # Dedup jest w helperze (atomowy z enqueue): ten sam message_id -> 'duplicate', bez zmian.
+    assert qi.enqueue_quote_turn(5, 18, "m1", "a", now=1000.0) == "inserted"
+    assert qi.enqueue_quote_turn(5, 18, "m1", "znowu", now=1001.0) == "duplicate"
+    rows = _rows(5)
+    assert len(rows) == 1
+    assert rows[0]["content"] == "a"   # duplikat nic nie dokleil

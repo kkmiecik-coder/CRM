@@ -90,6 +90,21 @@ def test_coalesce_dwie_wiadomosci_olx_jedna_tura(monkeypatch):
     assert rows[0]["persona"] == "quote_olx"
 
 
+def test_worker_dostaje_scalona_tresc(monkeypatch):
+    # Fix #2: po scaleniu serii worker przetwarza POLACZONA tresc (re-odczyt po claimie), nie 1. wiadomosc.
+    monkeypatch.setattr(olx, "BOT_QUOTE_PERSONAS", {"olx"})
+    olx._mark_quote_olx_eligible(70)
+    olx._enqueue_quote_olx(70, 7001, "poproszę wycenę", [])
+    olx._enqueue_quote_olx(70, 7002, "blat dębowy 200x60", [])
+    zebrane = {}
+    monkeypatch.setattr(qw, "run_quote_turn",
+                        lambda conv_id, inbox_id, mid, content, attachments=None, persona="quote":
+                        zebrane.update(content=content, persona=persona))
+    assert qw.process_one(9_999_999_999) is True
+    assert zebrane["content"] == "poproszę wycenę\nblat dębowy 200x60"
+    assert zebrane["persona"] == "quote_olx"
+
+
 def test_nieoznaczona_rozmowa_nie_enqueue(monkeypatch):
     # Rozmowa sprzed go-live (nieoznaczona) -> bot NIE wchodzi, nawet przy nowej wiadomosci.
     monkeypatch.setattr(olx, "BOT_QUOTE_PERSONAS", {"olx"})

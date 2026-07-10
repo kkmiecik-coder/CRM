@@ -116,16 +116,11 @@ def _enqueue_quote_olx(conv_id, olx_msg_id, content, att_urls=None):
             return
         if not _quote_olx_conv_eligible(conv_id):
             return
-        seen_key = "olx-%s" % olx_msg_id  # prefiks kanalu -> brak kolizji z mid Chatwoota
-        c = db()
-        try:
-            c.execute("INSERT INTO quote_seen(mid) VALUES(?)", (seen_key,)); c.commit()
-        except Exception:
-            c.close(); return  # duplikat -> tura juz zakolejkowana
-        c.close()
-        # Okno ciszy: scal z ewentualna czekajaca tura tej rozmowy (jedna odpowiedz na serie).
-        enqueue_quote_turn(conv_id, CW_OLX_INBOX, seen_key, content,
-                           attachments=(att_urls or []), persona="quote_olx")
+        seen_key = "olx-%s" % olx_msg_id  # prefiks kanalu: brak kolizji z mid Chatwoota + klucz dedupu
+        # Dedup + okno ciszy (scalanie serii w jedna ture) — atomowo w enqueue_quote_turn.
+        if enqueue_quote_turn(conv_id, CW_OLX_INBOX, seen_key, content,
+                              attachments=(att_urls or []), persona="quote_olx") == "duplicate":
+            return
         log("quote-olx: zakolejkowano ture (conv %s, msg %s)" % (conv_id, olx_msg_id))
     except Exception as e:
         log("quote-olx: enqueue blad (pomijam):", repr(e))
