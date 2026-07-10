@@ -583,12 +583,27 @@ def _gatunki_w_tekscie(txt):
     return [g for g, rx in _GATUNEK_TEKST_RE if rx.search(t)]
 
 
+def _gatunki_pozycji(poz):
+    """Pelny zbior gatunkow do porownania pozycji: gatunek-KOTWICA (z pola 'gatunek') + lista
+    'gatunki_do_porownania', unikalnie i kanonicznie. LLM czesto wpisuje do gatunki_do_porownania
+    tylko DRUGI gatunek, kotwice zostawiajac w 'gatunek' (E2E V05: gatunek=dąb, gdp=['jesion'])
+    — bez wliczenia kotwicy tryb wariantowy by nie odpalil."""
+    out = []
+    g = crm_calc._norm_species(poz.get("gatunek"))
+    if g:
+        out.append(g)
+    for x in _gatunki_z_listy(poz.get("gatunki_do_porownania")):
+        if x not in out:
+            out.append(x)
+    return out
+
+
 def _pozycje_z_oczekujacym_wyborem(dane):
     """Pozycje z 2+ gatunkami do porownania wciaz nierozstrzygnietymi (klient jeszcze nie
     wybral, po pokazanej tabeli cen). Stan wyboru jest CELOWO wyliczany z danych (nie osobna
     flaga) — jedno zrodlo prawdy, ktore samo znika, gdy LLM rozstrzygnie pozycje (patrz
     _merge_dane: 'gatunki_do_porownania' czyszczone jawnie, jak 'edges')."""
-    return [p for p in (dane.get("pozycje") or []) if len(_gatunki_z_listy(p.get("gatunki_do_porownania"))) >= 2]
+    return [p for p in (dane.get("pozycje") or []) if len(_gatunki_pozycji(p)) >= 2]
 
 
 def _przypomnij_o_wyborze_gatunku(conv_id, oczekujace):
@@ -646,10 +661,10 @@ def _czy_wycena_wariantowa(conv_id, poz):
     """True gdy ta pozycja kwalifikuje sie do trybu wyceny wariantowej: 2+ gatunki do
     porownania, kompletna poza wyborem gatunku (ktory juz mamy - system uzyl 'anchor' z out),
     i zadna cena jeszcze nie padla w tej rozmowie (inaczej to zwykle porownanie po cenie)."""
-    gatunki = _gatunki_z_listy(poz.get("gatunki_do_porownania"))
+    gatunki = _gatunki_pozycji(poz)   # gatunek-kotwica + gatunki_do_porownania
     if len(gatunki) < 2 or _priced(conv_id):
         return False
-    return not _brakujace_pozycji(poz)   # kompletna poza gatunkiem (ktory juz ma wartosc-kotwice)
+    return not _brakujace_pozycji(poz)   # kompletna poza wyborem gatunku
 
 
 def _obsluz_wyceny_wariantowej(conv_id, dane):
@@ -665,7 +680,7 @@ def _obsluz_wyceny_wariantowej(conv_id, dane):
     for poz in (dane.get("pozycje") or []):
         if not _czy_wycena_wariantowa(conv_id, poz):
             continue
-        gatunki = _gatunki_z_listy(poz.get("gatunki_do_porownania"))
+        gatunki = _gatunki_pozycji(poz)   # gatunek-kotwica + gatunki_do_porownania
         dedup_key = "var:%s:%s" % (poz.get("id"), ",".join(sorted(gatunki)))
         if dedup_key in sent:
             continue   # ta sama tabela juz pokazana — nie powtarzaj (dedup jak porownania)
@@ -2145,6 +2160,11 @@ def _run_quote_turn_inner(conv_id, inbox_id, message_id, content, attachments=No
         powod = out["powod"] or "decyzja bota"
         if not _czy_powod_kompletu(powod):
             _do_handoff(conv_id, powod, dane)
+            return
+        # Wycena wariantowa MA pierwszenstwo przed podsumowaniem kompletnosci (E2E V01): dla gotowej
+        # pozycji nano czesto zglasza handoff=„komplet”, co bez tego robiloby podsumowanie 1 gatunku
+        # zamiast tabeli. Genuine-handoff (wyzej) i schody-nietypowe nadal wygrywaja.
+        if _obsluz_wyceny_wariantowej(conv_id, dane):
             return
         if brak:
             # Braki -> nie oddajemy rozmowy, dopytujemy (backstop).

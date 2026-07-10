@@ -229,6 +229,51 @@ def test_wycena_wariantowa_odpala_gdy_LLM_nie_ustawil_pola(monkeypatch):
     assert qb._priced(1155) is False
 
 
+def test_czy_wariantowa_liczy_kotwice_plus_gatunki_do_porownania():
+    """Regresja E2E V05: LLM czesto wpisuje w gatunki_do_porownania tylko DRUGI gatunek,
+    kotwice zostawiajac w 'gatunek' (blat: gatunek=dąb, gdp=['jesion']). Zbior do porownania
+    = gatunek ∪ gdp — wtedy len>=2 i tryb wariantowy odpala."""
+    poz = {"id": "1", "produkt": "blat", "dlugosc": "200", "szerokosc": "90", "grubosc": "4",
+           "gatunek": "dąb", "technologia": "lity", "klasa": "A/B", "ilosc": "1",
+           "wykonczenie": "surowe", "gatunki_do_porownania": ["jesion"]}
+    assert qb._gatunki_pozycji(poz) == ["Dąb", "Jesion"]
+    assert qb._czy_wycena_wariantowa(9401, poz) is True
+    # pojedynczy gatunek bez gdp -> NIE wariantowa
+    poz1 = dict(poz, gatunki_do_porownania=[])
+    assert qb._gatunki_pozycji(poz1) == ["Dąb"]
+    assert qb._czy_wycena_wariantowa(9402, poz1) is False
+
+
+def test_wariantowa_ma_pierwszenstwo_przed_podsumowaniem_gdy_handoff_komplet(monkeypatch):
+    """Regresja E2E V01: przy komplecie danych LLM czesto zglasza handoff=true (powod „komplet”)
+    — straznik robil PODSUMOWANIE pojedynczego gatunku, przykrywajac tabele wariantowa. Tabela
+    ma miec pierwszenstwo przed podsumowaniem kompletnosci (ale wciaz PO genuine-handoffie)."""
+    replies = []
+    monkeypatch.setattr(qb, "cw_conv_status", lambda c: "pending")
+    monkeypatch.setattr(qb, "cw_agent_reply", lambda c, t, **kw: replies.append(t) or True)
+    monkeypatch.setattr(qb, "cw_messages", lambda c, n: [])
+    monkeypatch.setattr(qb, "cw_contact", lambda c: {})
+    monkeypatch.setattr(qb, "cw_contact_full", lambda c: {"name": "", "identifier": "", "email": "", "phone": ""})
+    monkeypatch.setattr(qb, "retrieve", lambda q: [])
+    monkeypatch.setattr(qb.crm_calc, "get_options", lambda: {"finishing_options": []})
+    monkeypatch.setattr(qb.crm_calc, "calculate", _fake_calculate_2gatunki())
+
+    def fake_chat(messages, **kw):
+        # komplet + handoff=true (jak nano dla gotowej pozycji) + gatunki_do_porownania ustawione
+        out = {"odpowiedz": "", "handoff": True, "potwierdzono": False, "powod": "komplet danych do wyceny",
+               "send_image": "", "pozycje": [{"id": "1", "produkt": "blat", "dlugosc": "200",
+                   "szerokosc": "90", "grubosc": "4", "gatunek": "dąb", "technologia": "lity",
+                   "klasa": "A/B", "ilosc": "1", "wykonczenie": "surowe",
+                   "gatunki_do_porownania": ["dąb", "jesion"]}], "wspolne": {}, "porownania": []}
+        return json.dumps(out), {"error_class": None}
+    monkeypatch.setattr(qb, "chat", fake_chat)
+    _reset(1158, {"pozycje": [], "wspolne": {}})
+    qb.run_quote_turn(1158, 5, "m1", "wycena blatu 200x90x4 w dębie i jesionie, lity A/B surowy 1 szt")
+    tekst = " ".join(replies)
+    assert "Jesion" in tekst and qb._fmt_pln(1107.0) in tekst, "tabela wariantowa MA odpalic mimo handoff=komplet"
+    assert "podsumowuję dane" not in tekst.lower(), "NIE podsumowanie pojedynczego gatunku"
+
+
 def test_detektor_nie_odpala_gdy_pozycja_niekompletna(monkeypatch):
     """Detektor NIE moze uruchamiac trybu wariantowego dla niekompletnej pozycji (np. pytanie
     techniczne „różnica między dębem a jesionem” — brak wymiarow) — tam ma isc normalna sciezka."""
