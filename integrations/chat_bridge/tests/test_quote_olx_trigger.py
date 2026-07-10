@@ -21,6 +21,7 @@ def setup_function(_):
     db_mod.init_db()
     c = db_mod.db()
     c.execute("DELETE FROM quote_queue"); c.execute("DELETE FROM quote_seen")
+    c.execute("DELETE FROM quote_olx_conv")
     c.commit(); c.close()
 
 
@@ -43,6 +44,7 @@ def _rows():
 
 def test_enqueue_gdy_olx_wlaczony(monkeypatch):
     monkeypatch.setattr(olx, "BOT_QUOTE_PERSONAS", {"livechat", "olx"})
+    olx._mark_quote_olx_eligible(55)   # swieza rozmowa (utworzona po go-live)
     olx._enqueue_quote_olx(55, 9001, "Wycena blatu dąb 200x60", [])
     rows = _rows()
     assert len(rows) == 1
@@ -54,12 +56,14 @@ def test_enqueue_gdy_olx_wlaczony(monkeypatch):
 
 def test_nie_enqueue_gdy_olx_wylaczony(monkeypatch):
     monkeypatch.setattr(olx, "BOT_QUOTE_PERSONAS", {"livechat"})
+    olx._mark_quote_olx_eligible(55)
     olx._enqueue_quote_olx(55, 9002, "Wycena blatu", [])
     assert _rows() == []
 
 
 def test_dedup_po_olx_msg_id(monkeypatch):
     monkeypatch.setattr(olx, "BOT_QUOTE_PERSONAS", {"olx"})
+    olx._mark_quote_olx_eligible(55)
     olx._enqueue_quote_olx(55, 9003, "Wycena", [])
     olx._enqueue_quote_olx(55, 9003, "Wycena (powtorka)", [])
     assert len(_rows()) == 1
@@ -67,8 +71,30 @@ def test_dedup_po_olx_msg_id(monkeypatch):
 
 def test_pusta_tresc_bez_zalacznika_nie_enqueue(monkeypatch):
     monkeypatch.setattr(olx, "BOT_QUOTE_PERSONAS", {"olx"})
+    olx._mark_quote_olx_eligible(55)
     olx._enqueue_quote_olx(55, 9004, "   ", [])
     assert _rows() == []
+
+
+# --- FAZA 3a: tylko swieze rozmowy (utworzone po go-live) ---
+
+def test_nieoznaczona_rozmowa_nie_enqueue(monkeypatch):
+    # Rozmowa sprzed go-live (nieoznaczona) -> bot NIE wchodzi, nawet przy nowej wiadomosci.
+    monkeypatch.setattr(olx, "BOT_QUOTE_PERSONAS", {"olx"})
+    olx._enqueue_quote_olx(999, 9100, "Nowa wiadomosc w starym watku", [])
+    assert _rows() == []
+
+
+def test_oznaczona_rozmowa_jest_eligible():
+    assert olx._quote_olx_conv_eligible(555) is False
+    olx._mark_quote_olx_eligible(555)
+    assert olx._quote_olx_conv_eligible(555) is True
+
+
+def test_mark_idempotentny():
+    olx._mark_quote_olx_eligible(556)
+    olx._mark_quote_olx_eligible(556)   # brak wyjatku przy powtorce
+    assert olx._quote_olx_conv_eligible(556) is True
 
 
 # --- caps-context tury: OLX na czas tury, przywracane po (rekomendacja z review) ---

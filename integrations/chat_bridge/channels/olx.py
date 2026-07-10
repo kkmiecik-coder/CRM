@@ -72,11 +72,34 @@ def olx_mark_read(thread_id):
         log("OLX mark-read fail:", repr(e))
 
 
+def _mark_quote_olx_eligible(conv_id):
+    """Oznacza rozmowe OLX jako SWIEZA (utworzona po go-live) — tylko takie obsluguje quote-bot.
+    Wolane przez poller w chwili UTWORZENIA rozmowy, gdy bot jest wlaczony. Nigdy nie rzuca."""
+    if not conv_id:
+        return
+    try:
+        c = db()
+        c.execute("INSERT OR IGNORE INTO quote_olx_conv(conv_id, created_at) VALUES(?, ?)",
+                  (conv_id, time.time()))
+        c.commit(); c.close()
+    except Exception as e:
+        log("quote-olx: mark eligible blad (pomijam):", repr(e))
+
+
 def _quote_olx_conv_eligible(conv_id):
-    """Czy quote-bot ma obsluzyc te rozmowe OLX. FAZA 3a wypelni: TYLKO swieze rozmowy
-    (utworzone po go-live), zeby bot nie wchodzil w watki juz prowadzone. W FAZIE 2b
-    przepuszcza wszystkie — samym wlacznikiem jest BOT_QUOTE_PERSONAS."""
-    return True
+    """True tylko dla rozmow OLX oznaczonych jako swieze (utworzone po go-live). Rozmowy
+    sprzed go-live nie sa oznaczone -> bot ich nie rusza nawet przy nowej wiadomosci; watki
+    przejete przez czlowieka chroni osobno status-gate pending (run_quote_turn). Blad odczytu
+    -> False (bezpieczniej zamilczec niz wskoczyc w cudza rozmowe)."""
+    if not conv_id:
+        return False
+    try:
+        c = db()
+        row = c.execute("SELECT 1 FROM quote_olx_conv WHERE conv_id=?", (conv_id,)).fetchone()
+        c.close()
+        return row is not None
+    except Exception:
+        return False
 
 
 def _enqueue_quote_olx(conv_id, olx_msg_id, content, att_urls=None):
@@ -169,6 +192,10 @@ def olx_poller():
                             ident = "olx-%s-%s" % (th.get("interlocutor_id"), tid)
                             card = ("Oferta: %s\nLink: %s" % (title, url)) if (title and url) else ("Ogloszenie OLX #%s" % th.get("advert_id"))
                             conv_id = ensure_conversation("olx", tid, CW_OLX_INBOX, name, ident, card, img)
+                            # Swieza rozmowa (utworzona teraz) -> jesli bot OLX wlaczony,
+                            # oznacz ja jako obslugiwana (FAZA 3a: tylko po go-live).
+                            if conv_id and "olx" in BOT_QUOTE_PERSONAS:
+                                _mark_quote_olx_eligible(conv_id)
                         if conv_id:
                             def _send(m):
                                 txt = (m.get("text") or "").strip()

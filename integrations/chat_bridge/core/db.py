@@ -60,6 +60,8 @@ def init_db():
     CREATE TABLE IF NOT EXISTS quote_events(
       id INTEGER PRIMARY KEY AUTOINCREMENT, conv_id INTEGER, event TEXT,
       ts REAL, meta TEXT);
+    CREATE TABLE IF NOT EXISTS quote_olx_conv(
+      conv_id INTEGER PRIMARY KEY, created_at REAL);
     """)
     for stmt in ("ALTER TABLE queue ADD COLUMN attachments TEXT",
                  "ALTER TABLE threads ADD COLUMN channel TEXT",
