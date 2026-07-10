@@ -398,6 +398,21 @@ SCENARIUSZE = [
      "oczekuj": {"min_odp": 3, "zawiera": ["zł"], "status": "pending"},
      "human": "Respektuje odmowę; koszt/odbiór potwierdzi konsultant."},
 
+    # Fix przeplywu wysylki (branch fix/quotebot-wysylka-kontakt, 2026-07-10):
+    {"id": "WY04", "kat": "Wysyłka", "tytul": "Pytanie o wysyłkę po cenie → prośba o kod (nie porównanie)",
+     "tury": ["blat dąb lity A/B surowy 200x60x4, 1 szt", "tak", "a wycenisz wysyłkę?"],
+     "tworzy_lead": True,
+     "oczekuj": {"min_odp": 3, "status": "pending", "zawiera_ost": ["kod"], "nie_zawiera": ["informacyjnie"]},
+     "human": "Fix #2: na 'wycenisz wysyłkę?' bot PROSI o kod pocztowy — NIE wypisuje off-topic "
+              "'informacyjnie' porównania pozycji."},
+
+    {"id": "WY05", "kat": "Wysyłka", "tytul": "E-mail + kod pocztowy w JEDNEJ wiadomości → link i wysyłka",
+     "tury": ["blat dąb lity A/B surowy 200x60x4, 1 szt", "tak", "kontakt.debus@example.com 35-330"],
+     "tworzy_lead": True,
+     "oczekuj": {"min_odp": 3, "status": "pending", "zawiera": ["zł"]},
+     "human": "Fix #1: kod pocztowy podany RAZEM z e-mailem NIE ginie — przychodzi link do zapisanej "
+              "wyceny ORAZ oszacowanie/obsługa wysyłki dla 35-330 (nie tylko sam link)."},
+
     # ================= N. PROSBA O CZLOWIEKA =================
     {"id": "H01", "kat": "Człowiek", "tytul": "Chcę konsultanta (deflect)",
      "tury": ["chcę porozmawiać z konsultantem"],
