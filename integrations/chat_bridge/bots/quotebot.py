@@ -763,10 +763,28 @@ _SAVE_FAIL_MSG = ("Dziękuję za kontakt! Mam chwilowy problem techniczny z zapi
                   "przekazuję rozmowę do konsultanta WoodPower, który dośle link w tej rozmowie.")
 
 
-def _lead_number(conv_id):
-    """Identyfikator klienta technicznego leada (LS-01) — konwencja jak 'olx-<id>'
-    (integrations/chat_bridge/channels/olx.py), ale per rozmowa quote-bota."""
-    return "chat-%s" % conv_id
+# Staly prefiks kupujacego OLX z identyfikatora kontaktu. MUSI byc zgodny z
+# modules/quotes/chatwoot_match.py (panel "Wyceny CRM") — most jest osobnym kontenerem,
+# wiec nie importujemy stamtad; regex zreplikowany. Format identyfikatora tworzy
+# channels/olx.py: "olx-<id_kupujacego>-<id_watku>".
+_OLX_BUYER_RE = re.compile(r"^\s*(olx-\d+)(?:-\d+)?\s*$", re.IGNORECASE)
+
+
+def _olx_buyer_prefix(identifier):
+    """'olx-5028153-25066393520' -> 'olx-5028153'; 'olx-5028153' -> 'olx-5028153'.
+    None dla wszystkiego, co nie jest identyfikatorem OLX (allegro-, e-mail, puste, 'olx-')."""
+    if not identifier:
+        return None
+    m = _OLX_BUYER_RE.match(identifier)
+    return m.group(1).lower() if m else None
+
+
+def _lead_number(conv_id, identifier=None):
+    """Identyfikator klienta technicznego leada (LS-01). Dla OLX uzywamy STALEGO prefiksu
+    kupujacego 'olx-<id>' (bez id watku) — spojnie z modules/quotes/chatwoot_match.py, zeby
+    panel "Wyceny CRM" zebral wszystkie wyceny kupujacego pod jednym klientem niezaleznie od
+    watku. Dla livechatu i pozostalych kanalow: 'chat-<conv_id>' per rozmowa."""
+    return _olx_buyer_prefix(identifier) or ("chat-%s" % conv_id)
 
 
 def _lead_note(conv_id, dane, options, wynik=None):
@@ -1750,7 +1768,8 @@ def _wyslij_cene_i_kontakt(conv_id, dane, identity):
     email, phone, name = _effective_contact(conv_id, dane, identity)
     oferta_wysylki = "shipping_offer" not in _sent_images(conv_id)
     extra = [_WYSYLKA_OFERTA] if (oferta_wysylki and (email or phone)) else None
-    if not _zapisz_wycene(conv_id, dane, options, email, phone, name, wynik=wynik, extra_msgs=extra):
+    if not _zapisz_wycene(conv_id, dane, options, email, phone, name, wynik=wynik, extra_msgs=extra,
+                          identifier=(identity or {}).get("identifier")):
         # Zapis skonczyl sie handoffem (klient PODAL kontakt, ale zapis padl — MS-05) — dalsze
         # follow-upy (prosba o kontakt/oferta wysylki) zaprzeczylyby wlasnie wykonanemu handoffowi.
         return
@@ -1770,7 +1789,7 @@ def _wyslij_cene_i_kontakt(conv_id, dane, identity):
     log("quotebot: cena wyslana (conv %s)" % conv_id)
 
 
-def _zapisz_wycene(conv_id, dane, options, email, phone, name, wynik=None, extra_msgs=None):
+def _zapisz_wycene(conv_id, dane, options, email, phone, name, wynik=None, extra_msgs=None, identifier=None):
     """find-or-create klienta (LS-01: zawsze przez client_number techniczny — kontakt tylko
     wzbogaca ten sam rekord) + zapis LUB aktualizacja wyceny + wyslanie linku (gdy jest kontakt)
     + prywatna notatka z parametrami i cena po kazdym zapisie. Gdy w stanie jest edit_uuid
@@ -1784,7 +1803,10 @@ def _zapisz_wycene(conv_id, dane, options, email, phone, name, wynik=None, extra
     zapisu nie wywraca tury — cena juz poszla. Zwraca False gdy zapis skonczyl sie handoffem
     (wolajacy NIE powinien kontynuowac normalnymi follow-upami), True w kazdym innym przypadku
     (w tym cichy blad zapisu leada technicznego bez kontaktu)."""
-    kl = crm_calc.find_or_create_client(email, phone, name, client_number=_lead_number(conv_id))
+    # Numer klienta technicznego zalezy od kanalu: dla OLX = staly prefiks kupujacego 'olx-<id>'
+    # (grupuje wyceny pod jednym klientem, panel je dopasuje), inaczej 'chat-<conv_id>'. identifier
+    # przekazuje wolajacy (z kontaktu, ktory i tak pobiera) — bez dodatkowego zapytania do Chatwoota.
+    kl = crm_calc.find_or_create_client(email, phone, name, client_number=_lead_number(conv_id, identifier))
     client = (kl or {}).get("client") or {}
     if not kl.get("ok") or not client.get("id"):
         log("quotebot: find_or_create nieudane (conv %s): %s" % (conv_id, kl))
@@ -2074,7 +2096,8 @@ def _run_quote_turn_inner(conv_id, inbox_id, message_id, content, attachments=No
     if _awaiting_contact(conv_id):
         email, phone = _wyciagnij_kontakt(content)
         if email or phone:
-            nazwa = (cw_contact_full(conv_id) or {}).get("name") or ""
+            _kontakt = cw_contact_full(conv_id) or {}
+            nazwa = _kontakt.get("name") or ""
             _set_contact(conv_id, email, phone, nazwa)   # zapamietaj kontakt ZAWSZE (na kolejne wyceny)
             log_event(conv_id, "contact_given")
             if _wiadomosc_ma_korekte(content):
@@ -2084,7 +2107,8 @@ def _run_quote_turn_inner(conv_id, inbox_id, message_id, content, attachments=No
                 pass
             else:
                 _set_awaiting_contact(conv_id, False)
-                _zapisz_wycene(conv_id, _load_dane(conv_id), crm_calc.get_options(), email, phone, nazwa)
+                _zapisz_wycene(conv_id, _load_dane(conv_id), crm_calc.get_options(), email, phone, nazwa,
+                               identifier=_kontakt.get("identifier"))
                 _wysylka_z_tej_samej_wiadomosci(conv_id, content)   # kod pocztowy w tej samej wiadomosci (#1)
                 return
         elif _czy_odmowa(content):
@@ -2134,9 +2158,11 @@ def _run_quote_turn_inner(conv_id, inbox_id, message_id, content, attachments=No
     if _priced(conv_id) and not _awaiting_contact(conv_id):
         g_email, g_phone = _wyciagnij_kontakt(content)
         if (g_email or g_phone) and not _wiadomosc_ma_korekte(content):
-            nazwa = (cw_contact_full(conv_id) or {}).get("name") or ""
+            _kontakt = cw_contact_full(conv_id) or {}
+            nazwa = _kontakt.get("name") or ""
             _set_contact(conv_id, g_email, g_phone, nazwa)   # kontakt z biezacej wiadomosci nadpisuje (API-10)
-            _zapisz_wycene(conv_id, _load_dane(conv_id), crm_calc.get_options(), g_email, g_phone, nazwa)
+            _zapisz_wycene(conv_id, _load_dane(conv_id), crm_calc.get_options(), g_email, g_phone, nazwa,
+                           identifier=_kontakt.get("identifier"))
             _wysylka_z_tej_samej_wiadomosci(conv_id, content)   # kod pocztowy w tej samej wiadomosci (#1)
             return
 
