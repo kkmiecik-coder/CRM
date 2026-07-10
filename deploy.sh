@@ -42,6 +42,16 @@ fi
 echo "$LOG_PREFIX Restarting application..."
 # Zwolnij lock PRZED restartem (dodatkowe zabezpieczenie, gdyby proces jednak nie dożył trap-a).
 rm -f "$LOCK_FILE"
+
+# Defensywnie: przywróć właściciela katalogu logów na woodpower-crm PRZED restartem.
+# Jeśli inny proces (np. ręczna komenda admina jako root) utworzył dzienny plik
+# logu jako root, gunicorn jako woodpower-crm nie miałby prawa zapisu i nie wstałby
+# (skutek: nginx 502). Wołamy root-owy wrapper przez sudo (NOPASSWD) — patrz
+# /etc/sudoers.d/crm-deploy-logs oraz /usr/local/sbin/crm-fix-logs-perms.sh.
+# Wrapper MUSI być własnością roota i niezapisywalny dla woodpower-crm.
+# Best-effort — logger ma też własny fallback, więc brak wrappera nie blokuje deployu.
+sudo /usr/local/sbin/crm-fix-logs-perms.sh 2>&1 || echo "$LOG_PREFIX [perms-warn] chown logow nieudany (wrapper/sudoers?)"
+
 sudo /usr/bin/supervisorctl restart crm_woodpower 2>&1
 
 echo "$LOG_PREFIX Deploy complete!"

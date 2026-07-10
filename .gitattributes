@@ -1,2 +1,7 @@
 # Auto detect text files and perform LF normalization
 * text=auto
+
+# Skrypty powłoki ZAWSZE z LF — wykonywane na Linuksie (VPS). CRLF w shebangu
+# powoduje "bad interpreter". Wymusza LF w repo i w working tree niezależnie
+# od core.autocrlf.
+*.sh text eol=lf

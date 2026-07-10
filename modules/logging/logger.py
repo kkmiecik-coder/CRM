@@ -8,6 +8,7 @@ import logging.handlers
 import os
 import glob
 import sys
+import tempfile
 from datetime import datetime, timedelta
 from flask import request, session, has_request_context
 from .config import LogConfig
@@ -160,33 +161,64 @@ class AppLogger:
         for handler in root_logger.handlers[:]:
             root_logger.removeHandler(handler)
         
-        # Utwórz handler z rotacją dzienną - Z BEZPIECZNYM ENCODING
-        log_file = LogConfig.get_log_filepath()
-        try:
-            handler = TimedRotatingFileHandlerWithCleanup(
-                filename=log_file,
+        # Utwórz handler z rotacją dzienną - Z BEZPIECZNYM ENCODING.
+        # WAŻNE: logowanie NIE może wywalić startu aplikacji. Jeśli docelowy
+        # dzienny plik logu jest niezapisywalny (np. utworzył go inny proces
+        # jako root → gunicorn jako woodpower-crm nie ma prawa zapisu), spadamy
+        # na zapisywalny plik w katalogu tymczasowym, a w ostateczności zostaje
+        # samo console — zamiast rzucać PermissionError i kłaść cały serwer.
+        def _make_handler(path):
+            """Zwraca TimedRotatingFileHandler dla `path`, albo None gdy pliku
+            nie da się otworzyć (brak uprawnień / katalogu). Nigdy nie rzuca."""
+            base_kwargs = dict(
+                filename=path,
                 when=LogConfig.ROTATION_TIME,
                 interval=LogConfig.ROTATION_INTERVAL,
                 backupCount=LogConfig.RETENTION_DAYS,
-                encoding='utf-8',
-                errors='replace'  # POPRAWKA: Dodane errors='replace'
             )
-        except Exception as e:
-            # Fallback - handler bez encoding
-            print(f"[Logger] Nie można utworzyć file handler z UTF-8: {e}")
-            handler = TimedRotatingFileHandlerWithCleanup(
-                filename=log_file,
-                when=LogConfig.ROTATION_TIME,
-                interval=LogConfig.ROTATION_INTERVAL,
-                backupCount=LogConfig.RETENTION_DAYS
-            )
-        
-        # Ustaw formatter
+            try:
+                return TimedRotatingFileHandlerWithCleanup(
+                    encoding='utf-8', errors='replace', **base_kwargs
+                )
+            except OSError as exc:
+                # PermissionError / brak katalogu itp. — plik niezapisywalny
+                print(f"[Logger] Nie można otworzyć pliku logu {path}: {exc}", file=sys.stderr)
+                return None
+            except Exception as exc:
+                # Problem z enkodowaniem — ostatnia próba bez UTF-8
+                print(f"[Logger] Handler z UTF-8 nieudany dla {path}: {exc}", file=sys.stderr)
+                try:
+                    return TimedRotatingFileHandlerWithCleanup(**base_kwargs)
+                except Exception as exc2:
+                    print(f"[Logger] Nie udało się utworzyć file handlera dla {path}: {exc2}", file=sys.stderr)
+                    return None
+
+        # Formatter definiujemy zawsze — używa go też console handler poniżej.
         formatter = CustomFormatter()
-        handler.setFormatter(formatter)
-        
-        # Dodaj handler do root loggera
-        root_logger.addHandler(handler)
+
+        primary_log_file = LogConfig.get_log_filepath()
+        handler = _make_handler(primary_log_file)
+        if handler is None:
+            # Docelowy plik niezapisywalny — fallback do katalogu tymczasowego
+            # (per-user, praktycznie zawsze zapisywalny), by aplikacja wstała.
+            fallback_log_file = os.path.join(
+                tempfile.gettempdir(), 'crm_woodpower_logs',
+                os.path.basename(primary_log_file)
+            )
+            try:
+                os.makedirs(os.path.dirname(fallback_log_file), exist_ok=True)
+            except OSError:
+                pass
+            handler = _make_handler(fallback_log_file)
+            if handler is not None:
+                print(f"[Logger] UWAGA: brak zapisu do {primary_log_file} — loguję do fallbacku {fallback_log_file}", file=sys.stderr)
+
+        if handler is not None:
+            # Ustaw formatter i dodaj handler do root loggera
+            handler.setFormatter(formatter)
+            root_logger.addHandler(handler)
+        else:
+            print("[Logger] UWAGA: brak file handlera (docelowy i fallback niedostepne) — logowanie tylko do console.", file=sys.stderr)
         
         # POPRAWKA: Console handler z bezpiecznym encoding + fallback
         try:
