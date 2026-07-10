@@ -57,6 +57,9 @@ def init_db():
       awaiting_postcode INTEGER DEFAULT 0);
     CREATE TABLE IF NOT EXISTS quote_dane(
       conv_id INTEGER PRIMARY KEY, dane_json TEXT);
+    CREATE TABLE IF NOT EXISTS quote_events(
+      id INTEGER PRIMARY KEY AUTOINCREMENT, conv_id INTEGER, event TEXT,
+      ts REAL, meta TEXT);
     """)
     for stmt in ("ALTER TABLE queue ADD COLUMN attachments TEXT",
                  "ALTER TABLE threads ADD COLUMN channel TEXT",
@@ -93,9 +96,18 @@ def init_db():
 
 
 def meta_get(k, default=None):
-    c = db(); r = c.execute("SELECT v FROM meta WHERE k=?", (k,)).fetchone(); c.close()
-    return r["v"] if r else default
+    # Przejsciowy blad sqlite (np. "database is locked") nie moze crashowac logiki bota
+    # (jak wszedzie indziej w tym pliku) — inaczej propaguje sie z circuit-breakera
+    # (quote_worker._circuit_record_*) prosto do except przeznaczonego na bledy run_quote_turn.
+    try:
+        c = db(); r = c.execute("SELECT v FROM meta WHERE k=?", (k,)).fetchone(); c.close()
+        return r["v"] if r else default
+    except Exception:
+        return default
 
 
 def meta_set(k, v):
-    c = db(); c.execute("INSERT OR REPLACE INTO meta(k,v) VALUES(?,?)", (k, str(v))); c.commit(); c.close()
+    try:
+        c = db(); c.execute("INSERT OR REPLACE INTO meta(k,v) VALUES(?,?)", (k, str(v))); c.commit(); c.close()
+    except Exception:
+        pass

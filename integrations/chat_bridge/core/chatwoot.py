@@ -247,13 +247,13 @@ def cw_conv_status(conv_id):
         return None
 
 
-def cw_pending_conversations(max_pages=5):
-    """Rozmowy w statusie pending: [{id, inbox_id, last_msg_type, last_msg_ts}].
+def _cw_conversations_by_status(status, max_pages=5):
+    """Rozmowy w podanym statusie: [{id, inbox_id, last_msg_type, last_msg_ts}].
     Czyta liste stronami (Application API); przerywa na pustej/niepelnej stronie; [] przy bledzie."""
     out = []
     for page in range(1, max_pages + 1):
         try:
-            data = cw("GET", "/conversations?status=pending&assignee_type=all&page=%s" % page).json().get("data", {})
+            data = cw("GET", "/conversations?status=%s&assignee_type=all&page=%s" % (status, page)).json().get("data", {})
         except Exception:
             break
         payload = data.get("payload") or []
@@ -268,3 +268,14 @@ def cw_pending_conversations(max_pages=5):
         if len(payload) < 25:  # Chatwoot stronicuje po 25 — niepelna strona = ostatnia
             break
     return out
+
+
+def cw_pending_conversations(max_pages=5):
+    """Rozmowy w statusie pending (bot jeszcze nie odpowiedzial — patrz sweeper.py)."""
+    return _cw_conversations_by_status("pending", max_pages)
+
+
+def cw_open_conversations(max_pages=5):
+    """Rozmowy w statusie open — juz oddane agentowi (np. po cenie bota, LS-04 — patrz
+    hot_lead_sweeper.py)."""
+    return _cw_conversations_by_status("open", max_pages)

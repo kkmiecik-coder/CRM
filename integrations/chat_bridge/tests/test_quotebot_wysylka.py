@@ -85,31 +85,116 @@ def test_obsluz_wysylke_gabaryt_bez_kuriera_nie_dopisuje(monkeypatch):
     assert any("konsultant" in r for r in replies)
 
 
-# --- oferta wysylki po pierwszym zapisie, brak przy aktualizacji ---
+def test_obsluz_wysylke_zapamietuje_kod_pocztowy(monkeypatch):
+    """API-14: kod pocztowy zapamietany w danych wyceny — do przeliczenia po zmianie pozycji."""
+    monkeypatch.setattr(qb, "cw_agent_reply", lambda c, t, **kw: True)
+    monkeypatch.setattr(qb.crm_calc, "get_options", lambda: {"finishing_options": []})
+    monkeypatch.setattr(qb.crm_calc, "shipping_quote",
+                        lambda p, kod, o=None: {"ok": True, "carriers": 3, "carrier_name": "InPost",
+                                                "shipping_netto": 84.55, "shipping_brutto": 104.0})
+    monkeypatch.setattr(qb.crm_calc, "update_quote", lambda uid, p, o, **kw: {"ok": True})
+    qb._zapisz_dane(912, {"pozycje": [_poz()], "wspolne": {}})
+    qb._set_edit_uuid(912, "UU")
+    qb._obsluz_wysylke(912, "36-068")
+    assert qb._load_dane(912)["wspolne"].get("kod_pocztowy") == "36-068"
 
-def test_pierwszy_zapis_proponuje_wysylke(monkeypatch):
+
+def test_zmiana_pozycji_po_wysylce_przelicza_koszt(monkeypatch):
+    """API-14: gdy wysylka juz byla policzona (kod zapamietany), aktualizacja wyceny po zmianie
+    pozycji przelicza koszt wysylki ponownie zamiast zostawic stary."""
+    qb._zapisz_dane(913, {"pozycje": [_poz()], "wspolne": {"kod_pocztowy": "36-068"}})
+    qb._set_edit_uuid(913, "UU")
+    qb._set_quote_saved(913, True)
+    monkeypatch.setattr(qb, "cw_agent_reply", lambda c, t, **kw: True)
+    monkeypatch.setattr(qb, "cw_note", lambda c, t, **kw: True)
+    monkeypatch.setattr(qb.crm_calc, "find_or_create_client",
+                        lambda e, p, n, client_number=None: {"ok": True, "matched": False,
+                                                             "created": True, "client": {"id": 1}})
+    monkeypatch.setattr(qb.crm_calc, "shipping_quote",
+                        lambda p, kod, o=None: {"ok": True, "carriers": 1, "carrier_name": "InPost",
+                                                "shipping_netto": 90.0, "shipping_brutto": 110.7})
+    captured = {}
+    monkeypatch.setattr(qb.crm_calc, "update_quote",
+                        lambda uid, p, o, **kw: captured.update(kw) or {"ok": True, "quote_number": "W/1",
+                                                                        "public_url": "https://crm/q/a",
+                                                                        "edit_uuid": "UU"})
+    qb._zapisz_wycene(913, {"pozycje": [_poz(dlugosc="250")], "wspolne": {"kod_pocztowy": "36-068"}},
+                      {"finishing_options": []}, "jan@x.pl", None, "Jan")
+    assert captured.get("courier_name") == "InPost"
+    assert captured.get("shipping_brutto") == 110.7
+
+
+# --- LS-05/API-14: oferta wysylki ZARAZ po cenie, niezaleznie od kontaktu, raz na rozmowe ---
+
+def test_oferta_wysylki_zaraz_po_cenie_bez_kontaktu(monkeypatch):
     replies = []
     monkeypatch.setattr(qb, "cw_agent_reply", lambda c, t, **kw: replies.append(t) or True)
+    monkeypatch.setattr(qb, "cw_note", lambda c, t, **kw: True)
+    monkeypatch.setattr(qb.crm_calc, "get_options", lambda: {"finishing_options": []})
+    monkeypatch.setattr(qb.crm_calc, "calculate",
+                        lambda p, o: {"ok": True, "products": [{}],
+                                      "totals": {"total_brutto": 1000.0, "total_netto": 813.0}})
     monkeypatch.setattr(qb.crm_calc, "find_or_create_client",
-                        lambda e, p, n: {"ok": True, "client": {"id": 42}})
+                        lambda e, p, n, client_number=None: {"ok": True, "matched": False,
+                                                             "created": True, "client": {"id": 1}})
+    monkeypatch.setattr(qb.crm_calc, "create_quote",
+                        lambda p, o, cid, notes="": {"ok": True, "quote_number": "W/1",
+                                                     "public_url": "https://crm/q/a", "edit_uuid": "UU"})
+    qb._wyslij_cene_i_kontakt(970, {"pozycje": [_poz()], "wspolne": {}}, {})
+    assert any("kod pocztowy" in r for r in replies)
+    assert qb._awaiting_postcode(970) is True
+
+
+def test_oferta_wysylki_tylko_raz_na_rozmowe(monkeypatch):
+    """Druga tura z cena (np. po korekcie i ponownym potwierdzeniu) NIE powtarza oferty wysylki."""
+    replies = []
+    monkeypatch.setattr(qb, "cw_agent_reply", lambda c, t, **kw: replies.append(t) or True)
+    monkeypatch.setattr(qb, "cw_note", lambda c, t, **kw: True)
+    monkeypatch.setattr(qb.crm_calc, "get_options", lambda: {"finishing_options": []})
+    monkeypatch.setattr(qb.crm_calc, "calculate",
+                        lambda p, o: {"ok": True, "products": [{}],
+                                      "totals": {"total_brutto": 1000.0, "total_netto": 813.0}})
+    monkeypatch.setattr(qb.crm_calc, "find_or_create_client",
+                        lambda e, p, n, client_number=None: {"ok": True, "matched": False,
+                                                             "created": True, "client": {"id": 1}})
+    monkeypatch.setattr(qb.crm_calc, "create_quote",
+                        lambda p, o, cid, notes="": {"ok": True, "quote_number": "W/1",
+                                                     "public_url": "https://crm/q/a", "edit_uuid": "UU"})
+    qb._wyslij_cene_i_kontakt(971, {"pozycje": [_poz()], "wspolne": {}}, {})
+    replies.clear()
+    monkeypatch.setattr(qb.crm_calc, "update_quote",
+                        lambda uid, p, o, **kw: {"ok": True, "quote_number": "W/1",
+                                                 "public_url": "https://crm/q/a", "edit_uuid": "UU"})
+    qb._wyslij_cene_i_kontakt(971, {"pozycje": [_poz()], "wspolne": {}}, {})
+    assert not any("kod pocztowy" in r for r in replies)
+
+
+def test_pierwszy_zapis_z_kontaktem_proponuje_wysylke(monkeypatch):
+    replies = []
+    monkeypatch.setattr(qb, "cw_agent_reply", lambda c, t, **kw: replies.append(t) or True)
+    monkeypatch.setattr(qb, "cw_note", lambda c, t, **kw: True)
+    monkeypatch.setattr(qb.crm_calc, "find_or_create_client",
+                        lambda e, p, n, client_number=None: {"ok": True, "client": {"id": 42}})
     monkeypatch.setattr(qb.crm_calc, "create_quote",
                         lambda p, o, cid, notes="": {"ok": True, "quote_number": "W/1",
                                                      "public_url": "https://crm/q/a", "edit_uuid": "UU"})
     qb._zapisz_wycene(920, {"pozycje": [_poz()], "wspolne": {}}, {"finishing_options": []},
                       "jan@x.pl", None, "Jan")
-    assert any("kod pocztowy" in r for r in replies)   # oferta wysylki poszla
-    assert qb._awaiting_postcode(920) is True
+    assert not any("kod pocztowy" in r for r in replies)   # Task 3: oferta wysylki juz NIE stad
+    assert any("Zapisałem" in r for r in replies)
 
 
 def test_aktualizacja_nie_proponuje_wysylki_ponownie(monkeypatch):
     replies = []
     monkeypatch.setattr(qb, "cw_agent_reply", lambda c, t, **kw: replies.append(t) or True)
+    monkeypatch.setattr(qb, "cw_note", lambda c, t, **kw: True)
     monkeypatch.setattr(qb.crm_calc, "find_or_create_client",
-                        lambda e, p, n: {"ok": True, "client": {"id": 42}})
+                        lambda e, p, n, client_number=None: {"ok": True, "client": {"id": 42}})
     monkeypatch.setattr(qb.crm_calc, "update_quote",
                         lambda uid, p, o, **kw: {"ok": True, "quote_number": "W/1",
                                                  "public_url": "https://crm/q/a", "edit_uuid": "UU"})
-    qb._set_edit_uuid(930, "UU")   # wycena juz istnieje -> to aktualizacja, nie pierwszy zapis
+    qb._set_edit_uuid(930, "UU")      # wycena juz istnieje w CRM
+    qb._set_quote_saved(930, True)    # ...I klient JUZ raz widzial do niej link -> prawdziwa aktualizacja
     qb._zapisz_wycene(930, {"pozycje": [_poz()], "wspolne": {}}, {"finishing_options": []},
                       "jan@x.pl", None, "Jan")
     assert not any("kod pocztowy" in r for r in replies)
@@ -139,3 +224,15 @@ def test_run_quote_turn_odmowa_kodu_respektuje(monkeypatch):
     qb.run_quote_turn(941, 5, "m1", "nie, dziękuję")
     assert qb._awaiting_postcode(941) is False
     assert any("konsultant" in r for r in replies)
+
+
+def test_kod_przechwycony_mimo_oczekiwania_na_kontakt(monkeypatch):
+    """LS-05/API-14: przechwyt kodu dziala przy priced=1 niezaleznie od flagi awaiting_contact —
+    obie bramki (kontakt/kod) dzialaja niezaleznie od siebie."""
+    monkeypatch.setattr(qb, "cw_conv_status", lambda c: "pending")
+    called = {}
+    monkeypatch.setattr(qb, "_obsluz_wysylke", lambda c, kod: called.update(conv=c, kod=kod))
+    qb._set_awaiting_contact(980, True)
+    qb._set_awaiting_postcode(980, True)
+    qb.run_quote_turn(980, 5, "m1", "kod to 36-068")
+    assert called == {"conv": 980, "kod": "36-068"}

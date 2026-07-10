@@ -8,9 +8,13 @@
 import os
 import json
 import re
-from config import BOT_HISTORY_LIMIT, BOT_QUOTE_MAX_TURNS, BOT_QUOTE_CW_AGENT_TOKEN
+import time
+from datetime import datetime
+from zoneinfo import ZoneInfo
+from config import BOT_HISTORY_LIMIT, BOT_QUOTE_MAX_TURNS, BOT_QUOTE_CW_AGENT_TOKEN, BOT_BUSINESS_HOURS
 from core.log import log
 from core.db import db
+from core.events import log_event
 from core.chatwoot import (cw_messages, cw_contact, cw_note, cw_agent_reply,
                            cw_conv_status, cw_bot_handoff, cw_contact_full)
 from bots.knowledge import retrieve
@@ -20,11 +24,45 @@ from bots import images
 from bots.vision import attach_images
 from bots import crm_calc
 
+_TZ_WARSAW = ZoneInfo("Europe/Warsaw")
+
+
+def _w_godzinach_pracy(now=None):
+    """True gdy aktualny czas (Europe/Warsaw) miesci sie w BOT_BUSINESS_HOURS ('HH:MM-HH:MM').
+    Bledny format konfiguracji -> zawsze True (literowka w env nie ma blokowac normalnej obslugi)."""
+    try:
+        start_s, end_s = BOT_BUSINESS_HOURS.split("-")
+        sh, sm = (int(x) for x in start_s.split(":"))
+        eh, em = (int(x) for x in end_s.split(":"))
+    except Exception:
+        return True
+    dt = now or datetime.now(_TZ_WARSAW)
+    minuty = dt.hour * 60 + dt.minute
+    return (sh * 60 + sm) <= minuty < (eh * 60 + em)
+
+
+class _LLMHttpError(RuntimeError):
+    """Blad wywolania LLM z klasyfikacja retryable (TO-04) — quote_worker rozroznia po niej
+    4xx (fail od razu, bez backoffu) od 429/5xx/transport (retry z backoffem)."""
+    def __init__(self, message, retryable=True):
+        super().__init__(message)
+        self.retryable = retryable
+
+
 # Komunikaty stale (edytowalne). Bez obietnic czasowych — patrz spec §13.
 CLOSING_MSG = "Dziękuję za informacje! Przekazuję rozmowę do konsultanta WoodPower — odpowiemy w tej rozmowie."
+# Wariant poza godzinami pracy (LS-10) — uzywany zamiast CLOSING_MSG, gdy wolajacy nie podal
+# wlasnego 'closing' (patrz _do_handoff).
+CLOSING_MSG_POZA_GODZINAMI = ("Dziękuję za informacje! Nasi konsultanci pracują w godzinach %s "
+                              "(dzień roboczy) — odpiszemy najszybciej jak to możliwe. Jeśli sprawa "
+                              "jest pilna, można też zostawić numer telefonu, oddzwonimy."
+                              % BOT_BUSINESS_HOURS)
 # Komunikat dedykowany dla handoffu z limitu tur (LS-11) — nie zaklada, ze klient wlasnie cos podal.
 LIMIT_MSG = ("Sporo już ustaliliśmy — przekazuję rozmowę do konsultanta WoodPower, który poprowadzi "
              "ją dalej (ma komplet naszych ustaleń).")
+# 'powod' dedykowanego bezpiecznika limitu tur — stala uzywana i przy wywolaniu _do_handoff, i przy
+# rozpoznaniu zdarzenia 'turn_limit' w telemetrii (LS-08), zeby nie dublowac literalu w dwoch miejscach.
+_POWOD_LIMIT_TUR = "limit tur bota (bezpiecznik)"
 APOLOGY_MSG = ("Przepraszam, mam chwilowy problem techniczny z odpowiedzią. "
                "Przekazuję rozmowę do konsultanta WoodPower.")
 # Wycena nie policzyla sie automatycznie (najczesciej lakier/olej bez koloru i polysku) —
@@ -63,13 +101,19 @@ _FORMAT = (
     '{"odpowiedz": "tekst do klienta", "handoff": false, "powod": "", "send_image": "", '
     '"pozycje": [{"id": "1", "produkt": "", "dlugosc": "", "szerokosc": "", "grubosc": "", '
     '"gatunek": "", "technologia": "", "klasa": "", "ilosc": "", "wykonczenie": "", '
-    '"finishing_id": "", '
+    '"finishing_id": "", "gatunki_do_porownania": [], '
     '"otwory": "", "edges": [], "schody": ""}], '
     '"wspolne": {"termin": "", "kontakt": ""}, '
     '"porownania": [{"id": "1", "gatunek": "", "technologia": "", "klasa": ""}]}\n'
     "Każdy produkt klienta to OSOBNA pozycja listy 'pozycje' ze stałym id (\"1\", \"2\", ...). "
     "Utrzymuj id z bloku DOTYCHCZAS ZEBRANE DANE WYCENY i NIGDY nie nadpisuj jednej pozycji "
-    "danymi innego produktu. Gdy klient rezygnuje z pozycji, zwróć ją z polem \"usun\": true. "
+    "danymi innego produktu. "
+    "Gdy klient wymienia KILKA produktów naraz (np. listę wymiarów \"120x35x3, 120x30x3, "
+    "150x35x2\" albo \"cztery parapety w różnych wymiarach\") — zwróć KAŻDY jako OSOBNĄ pozycję z "
+    "kolejnym id (1, 2, 3, …), także gdy nazwa produktu się powtarza; NIGDY nie scalaj różnych "
+    "wymiarów w jedną pozycję i nie pomijaj żadnego produktu. Korektę istniejącej pozycji rób pod "
+    "JEJ dotychczasowym id z bloku DOTYCHCZAS ZEBRANE DANE. "
+    "Gdy klient rezygnuje z pozycji, zwróć ją z polem \"usun\": true. "
     "Gdy klient rezygnuje z pojedynczego szczegółu (np. otworów, terminu), wpisz w to pole "
     "wartość \"brak\" — system je wtedy wyczyści (puste pole niczego nie kasuje). "
     "Uzupełniaj wszystko, co klient dotąd podał (całość rozmowy, nie tylko ostatnia wiadomość). "
@@ -142,7 +186,17 @@ _FORMAT = (
     "Wypełniaj 'porownania' TYLKO dla porównania, o które klient prosi W TEJ wiadomości — NIGDY nie "
     "powtarzaj porównania z wcześniejszych tur. Gdy klient komentuje lub decyduje (np. „zostajemy "
     "przy dębie”, „ok”, „dziękuję”) — zostaw 'porownania' PUSTE i odpowiedz krótko i naturalnie w polu "
-    "'odpowiedz' (np. potwierdź wybór i zapytaj, czy pomóc w czymś jeszcze)."
+    "'odpowiedz' (np. potwierdź wybór i zapytaj, czy pomóc w czymś jeszcze).\n"
+    "WYCENA WARIANTOWA (wielu gatunków naraz, 'gatunki_do_porownania'): gdy klient PRZED "
+    "otrzymaniem jakiejkolwiek ceny w tej rozmowie prosi o wycenę TEGO SAMEGO nowego produktu w "
+    "KILKU gatunkach naraz (np. „wycenę blatu 200x90 w trzech opcjach drewna”, „ile w dębie i "
+    "jesionie”) — NIE pytaj „który gatunek”. Wpisz w polu 'gatunek' JEDEN z wymienionych gatunków "
+    "(dowolny, system policzy WSZYSTKIE), a w 'gatunki_do_porownania' pełną listę żądanych gatunków "
+    "(np. [\"dąb\", \"jesion\", \"buk\"]). Nadal dopytaj o WSZYSTKO pozostałe potrzebne do dokładnej "
+    "wyceny (wymiary, grubość, technologię, klasę, wykończenie, ilość) — wycena wariantowa liczy "
+    "dokładną cenę każdego gatunku, nie szacunek \"od X zł\". Gdy klient pyta o JEDEN konkretny "
+    "gatunek (nawet gdy waha się między dwoma w rozmowie), zostaw 'gatunki_do_porownania' puste — "
+    "to nie jest wycena wariantowa."
 )
 
 # Instrukcja stanu potwierdzenia — doklejana do promptu, gdy klient dostal podsumowanie od systemu.
@@ -331,6 +385,15 @@ def _set_awaiting_postcode(conv_id, flag):
     c.commit(); c.close()
 
 
+def _quote_saved(conv_id):
+    """Czy klient JUZ widzial link do zapisanej wyceny (rozne od 'czy w CRM istnieje juz obiekt
+    wyceny' — lead techniczny bez kontaktu tworzy edit_uuid, zanim klient cokolwiek zobaczy)."""
+    c = db()
+    row = c.execute("SELECT quote_saved FROM quote_state WHERE conv_id=?", (conv_id,)).fetchone()
+    c.close()
+    return bool(row["quote_saved"]) if row else False
+
+
 def _set_quote_saved(conv_id, flag):
     c = db()
     c.execute("INSERT INTO quote_state(conv_id, bot_turns, quote_saved) VALUES(?,0,?) "
@@ -499,12 +562,197 @@ def _obsluz_porownania(conv_id, dane, porownania):
     return wyslano   # False gdy nic nowego -> run_quote_turn schodzi do normalnej odpowiedzi
 
 
-_PROSBA_KONTAKT = ("Jeśli poda Pan/Pani adres e-mail (lub telefon), zapiszę tę wycenę i wyślę "
-                   "link — wróci Pan/Pani do niej w każdej chwili. Jeśli woli Pan/Pani nie "
-                   "podawać, nie ma problemu — wycena wyżej pozostaje aktualna.")
+def _gatunki_z_listy(lista):
+    """Normalizuje liste gatunkow od LLM (np. ['dąb','Jesion','dab']) do unikalnej listy
+    kanonicznych nazw (Dąb/Jesion/Buk), z zachowaniem kolejnosci pierwszego wystapienia."""
+    out = []
+    for g in (lista or []):
+        norm = crm_calc._norm_species(g)
+        if norm and norm not in out:
+            out.append(norm)
+    return out
+
+
+# Deterministyczne wykrycie gatunkow wymienionych w tresci klienta (odmiana: dąb/dębie/dębowy).
+# Wsparcie dla slabego LLM (nano), ktory przy 2 gatunkach miekko sformulowanych („w dębie i
+# jesionie") czesto NIE ustawia gatunki_do_porownania (regresja E2E 2026-07-09, V01/V04).
+_GATUNEK_TEKST_RE = [
+    ("Dąb", re.compile(r"\bd[ąę]b\w*", re.IGNORECASE)),
+    ("Jesion", re.compile(r"\bjesion\w*", re.IGNORECASE)),
+    ("Buk", re.compile(r"\bbuk\w*", re.IGNORECASE)),
+]
+
+
+def _gatunki_w_tekscie(txt):
+    """Kanoniczne gatunki wymienione w tekscie (po granicy slowa), w kolejnosci Dąb/Jesion/Buk."""
+    t = txt or ""
+    return [g for g, rx in _GATUNEK_TEKST_RE if rx.search(t)]
+
+
+def _gatunki_pozycji(poz):
+    """Pelny zbior gatunkow do porownania pozycji: gatunek-KOTWICA (z pola 'gatunek') + lista
+    'gatunki_do_porownania', unikalnie i kanonicznie. LLM czesto wpisuje do gatunki_do_porownania
+    tylko DRUGI gatunek, kotwice zostawiajac w 'gatunek' (E2E V05: gatunek=dąb, gdp=['jesion'])
+    — bez wliczenia kotwicy tryb wariantowy by nie odpalil."""
+    out = []
+    g = crm_calc._norm_species(poz.get("gatunek"))
+    if g:
+        out.append(g)
+    for x in _gatunki_z_listy(poz.get("gatunki_do_porownania")):
+        if x not in out:
+            out.append(x)
+    return out
+
+
+def _pozycje_z_oczekujacym_wyborem(dane):
+    """Pozycje z 2+ gatunkami do porownania wciaz nierozstrzygnietymi (klient jeszcze nie
+    wybral, po pokazanej tabeli cen). Stan wyboru jest CELOWO wyliczany z danych (nie osobna
+    flaga) — jedno zrodlo prawdy, ktore samo znika, gdy LLM rozstrzygnie pozycje (patrz
+    _merge_dane: 'gatunki_do_porownania' czyszczone jawnie, jak 'edges')."""
+    return [p for p in (dane.get("pozycje") or []) if len(_gatunki_pozycji(p)) >= 2]
+
+
+def _przypomnij_o_wyborze_gatunku(conv_id, oczekujace):
+    """Twardy gate (kod, nie tylko miekka instrukcja promptu _WARIANT_WYBOR_INSTR): dopoki
+    klient nie wybral gatunku z pokazanej tabeli, podsumowanie/cena NIE MOGA przejsc dalej z
+    dowolnym gatunkiem-kotwica (LLM czasem nie rozstrzyga wyboru na niejednoznacznej wiadomosci
+    klienta — code review Task 8) — to zaprzeczaloby idei "bez zapisu w CRM przed wyborem"."""
+    nazwy = ", ".join(dict.fromkeys(str(p.get("produkt") or "").strip() or "pozycja" for p in oczekujace))
+    if not cw_agent_reply(conv_id, "Zanim przygotuję podsumowanie, proszę wskazać, który z "
+                          "pokazanych gatunków wybiera Pan/Pani dla: %s." % nazwy,
+                          token=BOT_QUOTE_CW_AGENT_TOKEN):
+        raise RuntimeError("quotebot: wysylka przypomnienia o wyborze gatunku nieudana (conv %s)" % conv_id)
+    _bump_turns(conv_id)
+
+
+# Instrukcja dla LLM, gdy klient ma nierozstrzygniety wybor miedzy pokazanymi gatunkami (kod
+# doklada ja do promptu TYLKO gdy _pozycje_z_oczekujacym_wyborem(dane_przed) nie jest puste) —
+# rozpoznanie wyboru zostawiamy LLM (odmiana, "w dębie", "ten dębowy"), NIE regexowi na
+# surowym tekscie (byl kruchy: mylil sie na odmianie i przypadkowych podciagach jak "Dąbrowski").
+_WARIANT_WYBOR_INSTR = (
+    "STAN: klient zobaczyl tabele cen w kilku gatunkach dla poniższych pozycji (patrz "
+    "'gatunki_do_porownania' w DOTYCHCZAS ZEBRANYCH DANYCH WYCENY) i ma wskazac, ktory zapisac. "
+    "Gdy z wiadomosci klienta jasno wynika WYBRANY gatunek (w dowolnej formie, np. odmienionej: "
+    "„w dębie”, „ten dębowy”, „biorę jesion”) — dla WŁAŚCIWEJ pozycji ustaw pole 'gatunek' na "
+    "wybrany gatunek i 'gatunki_do_porownania' na pusta liste []. NIE zmieniaj gatunku ANI "
+    "'gatunki_do_porownania' innych pozycji, ktorych to nie dotyczy. Jesli nie wiadomo, ktora "
+    "pozycja lub ktory z pokazanych gatunkow klient wybral (np. pyta o cos innego) — zostaw "
+    "'gatunki_do_porownania' bez zmian i odpowiedz normalnie."
+)
+
+
+def _wycena_wariantowa_msg(poz, prod, gatunki):
+    """Tabela cen (informacyjnie) dla kazdego zadanego gatunku tej samej pozycji — bez
+    wskazania 'nie zmieniam wyceny' (bo zadna wycena jeszcze nie powstala, w odroznieniu
+    od _porownanie_msg uzywanego PO cenie)."""
+    linie = ["Oto wycena **%s** w porównywanych gatunkach:" % _linia_pozycji(dict(poz, gatunek="")), ""]
+    for g in gatunki:
+        alt = dict(poz); alt["gatunek"] = g
+        code = crm_calc.variant_code(g, poz.get("technologia"), poz.get("klasa"))
+        var = next((v for v in (prod.get("variants") or [])
+                    if v.get("variant_code") == code and v.get("available")), None)
+        linie.append("**%s**" % g)
+        if not var:
+            linie.append("    niedostępny w tej konfiguracji")
+        else:
+            b = _cena_pozycji(alt, prod)
+            linie += _rozbicie_linie(b)
+        linie.append("")
+    while linie and not linie[-1]:
+        linie.pop()
+    return "\n".join(linie)
+
+
+def _czy_wycena_wariantowa(conv_id, poz):
+    """True gdy ta pozycja kwalifikuje sie do trybu wyceny wariantowej: 2+ gatunki do
+    porownania, kompletna poza wyborem gatunku (ktory juz mamy - system uzyl 'anchor' z out),
+    i zadna cena jeszcze nie padla w tej rozmowie (inaczej to zwykle porownanie po cenie)."""
+    gatunki = _gatunki_pozycji(poz)   # gatunek-kotwica + gatunki_do_porownania
+    if len(gatunki) < 2 or _priced(conv_id):
+        return False
+    return not _brakujace_pozycji(poz)   # kompletna poza wyborem gatunku
+
+
+def _obsluz_wyceny_wariantowej(conv_id, dane):
+    """Znajduje WSZYSTKIE pozycje kwalifikujace sie do wyceny wariantowej w tej turze (2+
+    gatunki do porownania, kompletne, sprzed pierwszej ceny, jeszcze nie pokazane) i pokazuje
+    ich tabele cen JEDNA wiadomoscia (bundling — kilka pozycji naraz nie ginie, w odroznieniu
+    od pokazywania tylko pierwszej i cichego gubienia reszty). Liczy /calculate co najwyzej RAZ
+    na ture, informacyjnie — BEZ zapisu w CRM (zadnego find_or_create_client/create_quote).
+    Wybor gatunku rozstrzyga LLM w kolejnej turze (_WARIANT_WYBOR_INSTR), nie regex na surowym
+    tekscie — 'gatunki_do_porownania' samo znika z pozycji, gdy LLM je rozstrzygnie (_merge_dane)."""
+    sent = _sent_images(conv_id)
+    kandydaci = []
+    for poz in (dane.get("pozycje") or []):
+        if not _czy_wycena_wariantowa(conv_id, poz):
+            continue
+        gatunki = _gatunki_pozycji(poz)   # gatunek-kotwica + gatunki_do_porownania
+        dedup_key = "var:%s:%s" % (poz.get("id"), ",".join(sorted(gatunki)))
+        if dedup_key in sent:
+            continue   # ta sama tabela juz pokazana — nie powtarzaj (dedup jak porownania)
+        kandydaci.append((poz, gatunki, dedup_key))
+    if not kandydaci:
+        return False
+    options = crm_calc.get_options()
+    wynik = crm_calc.calculate(dane.get("pozycje") or [], options)
+    if not wynik.get("ok") or not wynik.get("products"):
+        return False   # nie policzylo sie (braki/blad gdzie indziej w zamowieniu) — niech normalna sciezka dopyta
+    pozycje = dane.get("pozycje") or []
+    fragmenty, wyslane_klucze = [], []
+    for poz, gatunki, dedup_key in kandydaci:
+        idx = next((i for i, p in enumerate(pozycje) if str(p.get("id")) == str(poz.get("id"))), None)
+        if idx is None or idx >= len(wynik["products"]):
+            continue
+        fragmenty.append(_wycena_wariantowa_msg(poz, wynik["products"][idx], gatunki))
+        wyslane_klucze.append(dedup_key)
+    if not fragmenty:
+        return False
+    fragmenty.append("Którą opcję zapisać? Proszę wskazać gatunek (i pozycję, jeśli porównań "
+                     "jest kilka), a poda Pan/Pani e-mail — wyślę link do wyceny, do której "
+                     "będzie można wracać.")
+    if not cw_agent_reply(conv_id, "\n\n".join(fragmenty), token=BOT_QUOTE_CW_AGENT_TOKEN):
+        raise RuntimeError("quotebot: wysylka wyceny wariantowej nieudana (conv %s)" % conv_id)
+    for k in wyslane_klucze:
+        _mark_image_sent(conv_id, k)
+    _bump_turns(conv_id)
+    log("quotebot: wycena wariantowa (conv %s, pozycje=%s)" % (conv_id, [p.get("id") for p, _, _ in kandydaci]))
+    return True
+
+
+_PROSBA_KONTAKT = ("Jeśli poda Pan/Pani adres e-mail (lub telefon), zapiszę wycenę pod tym "
+                   "kontaktem i wyślę bezpośredni link — będzie Pan/Pani mógł/mogła do niej "
+                   "wracać i udostępnić ją, komu trzeba, bez pisania do nas ponownie.")
 # Komunikat przy nieudanym zapisie wyceny (MS-05) — koniec ciszy po podanym mailu.
 _SAVE_FAIL_MSG = ("Dziękuję za kontakt! Mam chwilowy problem techniczny z zapisem wyceny — "
                   "przekazuję rozmowę do konsultanta WoodPower, który dośle link w tej rozmowie.")
+
+
+def _lead_number(conv_id):
+    """Identyfikator klienta technicznego leada (LS-01) — konwencja jak 'olx-<id>'
+    (integrations/chat_bridge/channels/olx.py), ale per rozmowa quote-bota."""
+    return "chat-%s" % conv_id
+
+
+def _lead_note(conv_id, dane, options, wynik=None):
+    """Prywatna notatka dla agenta z parametrami i cena PO KAZDYM zapisie/aktualizacji wyceny
+    (LS-01) — lead widoczny w CRM nawet bez kontaktu klienta. Gdy wynik nie jest przekazany
+    (kontakt podany w innej turze niz ta z policzona cena) — notatka pomija linie ceny zamiast
+    wolac /calculate ponownie (drugie zbedne zapytanie do CRM tylko dla wewnetrznej notatki).
+    Nigdy nie rzuca (notatka pomocnicza nie moze wywrocic juz udanego zapisu wyceny)."""
+    try:
+        lines = ["🤖 Asystent AI v1 (wycena) — lead zapisany w CRM"]
+        bloki = _bloki_pozycji(dane, options)
+        if bloki:
+            lines.append(""); lines += bloki
+        totals = (wynik or {}).get("totals") or {}
+        if totals:
+            lines.append("")
+            lines.append("Cena: %s (%s netto)" % (_fmt_pln(totals.get("total_brutto")),
+                                                   _fmt_pln(totals.get("total_netto"))))
+        cw_note(conv_id, "\n".join(lines), token=BOT_QUOTE_CW_AGENT_TOKEN)
+    except Exception as e:
+        log("quotebot: lead note nieudana (conv %s): %s" % (conv_id, repr(e)))
+
 
 _EMAIL_RE = re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+")
 # Wlasne domeny firmowe — adres w nich (np. reklamacje@woodpower.pl, ktory bot sam wysyla)
@@ -837,10 +1085,10 @@ _KASUJ_POLE = {"brak", "-", "—", "nie dotyczy", "rezygnuję", "rezygnuje"}
 
 def _merge_pola(stare, nowe):
     """Scala pola tekstowe pozycji/wspolnych: niepusta nowa wartosc nadpisuje, pusta NIE kasuje.
-    Wartosc-sentinel ('brak'/'-') KASUJE pole (rezygnacja klienta — MD-04). 'edges' (lista)
-    obslugujemy osobno w _merge_dane — tu pomijamy."""
+    Wartosc-sentinel ('brak'/'-') KASUJE pole (rezygnacja klienta — MD-04). 'edges' i
+    'gatunki_do_porownania' (listy) obslugujemy osobno w _merge_dane — tu pomijamy."""
     for k, v in (nowe or {}).items():
-        if k in ("id", "usun", "edges"):
+        if k in ("id", "usun", "edges", "gatunki_do_porownania"):
             continue
         vs = str(v or "").strip()
         if not vs:
@@ -850,6 +1098,47 @@ def _merge_pola(stare, nowe):
             continue
         stare[k] = v
     return stare
+
+
+# Pola-sygnatura tozsamosci pozycji (MD-05c): rozstrzygaja "nowy produkt vs korekta" przy
+# delcie bez pasujacego id. Wymiary + gatunek/klasa/technologia/wykonczenie — jesli NIEPUSTE po
+# obu stronach i sie roznia, to inny produkt. Wykonczenie+finishing_id dopisane w review finalnym
+# (I1): bez nich dwie pozycje o tych samych wymiarach roznace sie tylko wykonczeniem (np. surowy
+# vs lakierowany) mialy identyczna sygnature i zwijaly sie w jedna (cicha utrata danych).
+_WYMIARY = ("dlugosc", "szerokosc", "grubosc")
+_SYGNATURA_POZYCJI = ("dlugosc", "szerokosc", "grubosc", "gatunek", "klasa", "technologia",
+                      "wykonczenie", "finishing_id")
+
+
+def _ma_komplet_wymiarow(poz):
+    """True gdy pozycja/delta niesie WLASNY komplet wymiarow (dlugosc + szerokosc + grubosc)."""
+    return all(str((poz or {}).get(k) or "").strip() for k in _WYMIARY)
+
+
+def _delta_to_nowa_pozycja(delta, kandydat):
+    """MD-05c: czy delta bez pasujacego id to NOWY produkt (a nie korekta) wzgledem kandydata
+    tej samej nazwy. Warunek: obie strony maja WLASNY komplet wymiarow ORAZ ktores niepuste pole
+    sygnatury sie rozni. Delta czesciowa (korekta pojedynczego pola) -> False (scalamy jak dotad).
+    Wymiary (review Task 1): porownanie liczbowe przez crm_calc._num, zeby dryf separatora
+    dziesietnego ('1,5' vs '1.5' - ta sama wartosc) nie tworzyl falszywego duplikatu pozycji.
+    Gdy ktoras strona nie parsuje sie do liczby (np. zakres '120-140') -> porownanie tekstowe."""
+    if not (_ma_komplet_wymiarow(delta) and _ma_komplet_wymiarow(kandydat)):
+        return False
+    for k in _SYGNATURA_POZYCJI:
+        dv = str(delta.get(k) or "").strip().lower()
+        kv = str(kandydat.get(k) or "").strip().lower()
+        if not (dv and kv):
+            continue
+        if k in _WYMIARY:
+            dn, kn = crm_calc._num(dv), crm_calc._num(kv)
+            if dn is not None and kn is not None:
+                if dn != kn:
+                    return True
+                continue   # liczby rowne -> to samo pole, sprawdzaj dalej
+            # nieliczbowe (np. zakres) -> porownanie tekstowe ponizej
+        if dv != kv:
+            return True
+    return False
 
 
 def _merge_dane(conv_id, out):
@@ -870,7 +1159,10 @@ def _merge_dane(conv_id, out):
             prod = str(p.get("produkt") or "").strip().lower()
             kandydaci = [x for x in stan["pozycje"]
                          if prod and str(x.get("produkt") or "").strip().lower() == prod]
-            if len(kandydaci) == 1:
+            # Scalamy w istniejaca pozycje TYLKO gdy to korekta (delta bez wlasnego, roznego
+            # kompletu wymiarow). Delta z wlasnym kompletem wymiarow o innej sygnaturze = nowy
+            # produkt tej samej nazwy -> istn zostaje None -> ponizej powstaje nowa pozycja (MD-05c).
+            if len(kandydaci) == 1 and not _delta_to_nowa_pozycja(p, kandydaci[0]):
                 istn = kandydaci[0]
         if p.get("usun"):
             if istn is not None:
@@ -893,6 +1185,12 @@ def _merge_dane(conv_id, out):
             target["edges"] = ed
         elif crm_calc.raw_ma_sharp(raw_edges):
             target["edges"] = []   # klient wybral ostre / usunięcie obróbki
+        # gatunki_do_porownania — jak edges, poza _merge_pola (pusta lista tam NIE kasuje).
+        # W odroznieniu od zwyklych pol tekstowych, wartosc od LLM jest AUTORYTATYWNA (nadpisuje
+        # zawsze, takze pusta) — to jednorazowa decyzja tury (klient rozstrzygnal wybor
+        # gatunku, patrz _WARIANT_WYBOR_INSTR), nie akumulowany szczegol produktu jak wymiary.
+        if "gatunki_do_porownania" in p:
+            target["gatunki_do_porownania"] = _gatunki_z_listy(p.get("gatunki_do_porownania"))
     _merge_pola(stan["wspolne"], out.get("wspolne") or {})
     _zapisz_dane(conv_id, stan)
     return stan
@@ -1002,6 +1300,43 @@ def _naglowek_pozycji(poz):
     if il:
         return "%s — %s" % (prod, il)
     return prod
+
+
+def _krotki_opis_pozycji(poz):
+    """Zwiezly opis pozycji do pytania o wybor: 'Parapet 120×35×3'."""
+    prod = (str(poz.get("produkt") or "").strip() or "Produkt").capitalize()
+    dims = "×".join(str(poz.get(k) or "?").strip() for k in _WYMIARY)
+    return "%s %s" % (prod, dims)
+
+
+def _pytanie_ktora_pozycja(pozycje):
+    """Deterministyczne pytanie 'ktorej pozycji dotyczy zmiana' z numerowana lista pozycji."""
+    linie = ["Której pozycji dotyczy ta zmiana?"]
+    for i, poz in enumerate(pozycje, 1):
+        linie.append("%d. %s" % (i, _krotki_opis_pozycji(poz)))
+    linie.append("Proszę podać numer pozycji.")
+    return "\n".join(linie)
+
+
+def _niejednoznaczna_korekta(dane_przed, out):
+    """MP-02/MD-08: korekta czesciowa bez id trafiajaca w JEDEN z kilku produktow tej samej nazwy
+    jest niejednoznaczna. Zwraca deterministyczne pytanie o pozycje albo None. Nowy produkt
+    (wlasny komplet wymiarow) i korekta z id/jednym kandydatem — NIE sa niejednoznaczne."""
+    pozycje = dane_przed.get("pozycje") or []
+    ids = {str(p.get("id")) for p in pozycje}
+    for p in (out.get("pozycje") or []):
+        if not isinstance(p, dict) or p.get("usun"):
+            continue
+        pid = str(p.get("id") or "").strip()
+        if pid and pid in ids:
+            continue                      # id rozstrzyga cel korekty
+        if _ma_komplet_wymiarow(p):
+            continue                      # wlasny komplet wymiarow = nowy produkt, nie korekta
+        prod = str(p.get("produkt") or "").strip().lower()
+        kand = [x for x in pozycje if prod and str(x.get("produkt") or "").strip().lower() == prod]
+        if len(kand) >= 2:
+            return _pytanie_ktora_pozycja(kand)
+    return None
 
 
 def _wykonczenie_opis(poz, options):
@@ -1296,7 +1631,18 @@ def _do_handoff(conv_id, powod, dane, closing=CLOSING_MSG):
     toggle statusu, toggle jako OSTATNI krok — gdy notatka/closing padnie, status wciaz 'pending'
     i worker ponawia ture czysto (bez cichej rozmowy w 'open'). Reset stanu jest MIEKKI (MS-03/
     SB-10): zerujemy tylko flagi konwersacyjne, a quote_dane/quote_edit_uuid/contact_*/sent_images
-    ZOSTAJA — powrot rozmowy do bota nie zaczyna od zera i nie tworzy wyceny-sieroty."""
+    ZOSTAJA — powrot rozmowy do bota nie zaczyna od zera i nie tworzy wyceny-sieroty. LS-10:
+    poza godzinami pracy domyslny 'closing' (CLOSING_MSG) zmienia sie na wariant z informacja
+    o godzinach — wlasny 'closing' podany przez wolajacego (np. LIMIT_MSG) NIE jest nadpisywany."""
+    # LS-08: zdarzenie handoff logowane PRZED czyszczeniem stanu (i przed jakakolwiek wysylka,
+    # ktora moglaby rzucic) — telemetria ma zostac nawet gdy sama wysylka zamkniecia padnie.
+    log_event(conv_id, "handoff", {"powod": powod})
+    if powod == _POWOD_LIMIT_TUR:
+        # Dopasowanie DOKLADNE (nie substring) — 'powod' bywa dowolnym wolnym tekstem od LLM
+        # (np. B/C wyzwalacze), przypadkowy fragment nie moze falszywie oznaczyc turn_limit.
+        log_event(conv_id, "turn_limit")
+    if closing is CLOSING_MSG and not _w_godzinach_pracy():
+        closing = CLOSING_MSG_POZA_GODZINAMI
     cw_note(conv_id, _summary_note(dane, powod), token=BOT_QUOTE_CW_AGENT_TOKEN)   # rzuca przy awarii -> retry
     if not cw_agent_reply(conv_id, closing, token=BOT_QUOTE_CW_AGENT_TOKEN):
         raise RuntimeError("quotebot: wysylka zamkniecia handoffu nieudana (conv %s)" % conv_id)
@@ -1316,6 +1662,10 @@ def _wyslij_cene_i_kontakt(conv_id, dane, identity):
     """Liczy cene przez API, wysyla ja klientowi. Gdy jest email/telefon (z tozsamosci) —
     zapisuje wycene i dosyla link; inaczej ustawia awaiting_contact i miekko prosi o kontakt.
     Rzuca RuntimeError gdy wysylka do Chatwoota padnie (retry w worker)."""
+    oczekujace = _pozycje_z_oczekujacym_wyborem(dane)
+    if oczekujace:
+        _przypomnij_o_wyborze_gatunku(conv_id, oczekujace)
+        return
     options = crm_calc.get_options()
     wynik = crm_calc.calculate(dane.get("pozycje") or [], options)
     if not wynik.get("ok") or not wynik.get("totals"):
@@ -1340,40 +1690,69 @@ def _wyslij_cene_i_kontakt(conv_id, dane, identity):
     if not cw_agent_reply(conv_id, _cena_msg(dane, wynik), token=BOT_QUOTE_CW_AGENT_TOKEN):
         raise RuntimeError("quotebot: wysylka ceny nieudana (conv %s)" % conv_id)
     _set_priced(conv_id, True)
+    log_event(conv_id, "priced", {"kwota": (wynik.get("totals") or {}).get("total_brutto")})
     _set_awaiting(conv_id, False)
     _bump_turns(conv_id)
 
-    # Kontakt z dowolnego zrodla (stan / czat / rekord Chatwoota) — jak mamy, zapisujemy od razu.
+    # LS-01: lead ZAWSZE trafia do CRM od razu po policzeniu ceny, niezaleznie od kontaktu.
+    # LS-12: prosba o kontakt/link zapisu + wzmianka o powrocie + oferta wysylki ida SKLEJONE
+    # w JEDNA wiadomosc — maks. 2 dymki publiczne po cenie (cena + ten sklejony dopisek), nigdy 3.
     email, phone, name = _effective_contact(conv_id, dane, identity)
-    if email or phone:
-        _zapisz_wycene(conv_id, dane, options, email, phone, name)
-    else:
-        if not cw_agent_reply(conv_id, _PROSBA_KONTAKT, token=BOT_QUOTE_CW_AGENT_TOKEN):
-            raise RuntimeError("quotebot: wysylka prosby o kontakt nieudana (conv %s)" % conv_id)
+    oferta_wysylki = "shipping_offer" not in _sent_images(conv_id)
+    extra = [_WYSYLKA_OFERTA] if (oferta_wysylki and (email or phone)) else None
+    if not _zapisz_wycene(conv_id, dane, options, email, phone, name, wynik=wynik, extra_msgs=extra):
+        # Zapis skonczyl sie handoffem (klient PODAL kontakt, ale zapis padl — MS-05) — dalsze
+        # follow-upy (prosba o kontakt/oferta wysylki) zaprzeczylyby wlasnie wykonanemu handoffowi.
+        return
+    if not (email or phone):
+        dopiski = [_PROSBA_KONTAKT]
+        if oferta_wysylki:
+            dopiski.append(_WYSYLKA_OFERTA)
+        if not cw_agent_reply(conv_id, "\n\n".join(dopiski), token=BOT_QUOTE_CW_AGENT_TOKEN):
+            raise RuntimeError("quotebot: wysylka dopiskow po cenie nieudana (conv %s)" % conv_id)
         _set_awaiting_contact(conv_id, True)
+        if oferta_wysylki:
+            _set_awaiting_postcode(conv_id, True)
+            _mark_image_sent(conv_id, "shipping_offer")
+    # Gdy kontakt juz byl: oferta wysylki (jesli nalezala sie) zostala sklejona z linkiem zapisu
+    # WEWNATRZ _zapisz_wycene i oznaczona jako wyslana TYLKO gdy ta wspolna wiadomosc naprawde
+    # dotarla do klienta (patrz _zapisz_wycene) — tu nic wiecej nie robimy.
     log("quotebot: cena wyslana (conv %s)" % conv_id)
 
 
-def _zapisz_wycene(conv_id, dane, options, email, phone, name):
-    """find-or-create klienta + zapis LUB aktualizacja wyceny + wyslanie linku.
-    Gdy w stanie jest edit_uuid wczesniejszej wyceny -> AKTUALIZUJE ja (bez tworzenia sieroty).
-    Powracajacy klient (dopasowany po email/tel) -> krotka wzmianka raz. Niepowodzenie zapisu
-    nie wywraca tury — cena juz poszla; logujemy i zostawiamy bez linku."""
-    kl = crm_calc.find_or_create_client(email, phone, name)
+def _zapisz_wycene(conv_id, dane, options, email, phone, name, wynik=None, extra_msgs=None):
+    """find-or-create klienta (LS-01: zawsze przez client_number techniczny — kontakt tylko
+    wzbogaca ten sam rekord) + zapis LUB aktualizacja wyceny + wyslanie linku (gdy jest kontakt)
+    + prywatna notatka z parametrami i cena po kazdym zapisie. Gdy w stanie jest edit_uuid
+    wczesniejszej wyceny -> AKTUALIZUJE ja (bez tworzenia sieroty). extra_msgs (LS-12): dodatkowe
+    akapity sklejane z linkiem zapisu (i ewentualna wzmianka o powrocie) w JEDNA wiadomosc — max.
+    2 dymki po cenie w KAZDYM przypadku (nie tylko gdy klient jest nowy), bo cala tresc idzie
+    JEDNYM wywolaniem cw_agent_reply, ktorego wynik warunkuje WSZYSTKIE zwiazane z nim flagi stanu
+    (quote_saved/awaiting_contact/returning_greeted, a przy extra_msgs tez awaiting_postcode i
+    dedup 'shipping_offer') — nieudana wysylka nie oznacza niczego jako zrobione, zeby oferta
+    wysylki/wzmianka nie zginely bezpowrotnie po przejsciowym bledzie Chatwoota. Niepowodzenie
+    zapisu nie wywraca tury — cena juz poszla. Zwraca False gdy zapis skonczyl sie handoffem
+    (wolajacy NIE powinien kontynuowac normalnymi follow-upami), True w kazdym innym przypadku
+    (w tym cichy blad zapisu leada technicznego bez kontaktu)."""
+    kl = crm_calc.find_or_create_client(email, phone, name, client_number=_lead_number(conv_id))
     client = (kl or {}).get("client") or {}
     if not kl.get("ok") or not client.get("id"):
-        # MS-05: koniec ciszy po podanym mailu — informujemy klienta i przekazujemy do konsultanta
-        # (lead z kontaktem nie moze zginac bez sladu).
         log("quotebot: find_or_create nieudane (conv %s): %s" % (conv_id, kl))
-        _do_handoff(conv_id, "błąd zapisu wyceny — link do dosłania przez konsultanta", dane,
-                    closing=_SAVE_FAIL_MSG)
-        return
-    # Grupa 3: klient juz w bazie (dopasowany, nie utworzony) -> raz na rozmowe mila wzmianka.
-    if kl.get("matched") and not _returning_greeted(conv_id):
-        cw_agent_reply(conv_id, "Widzę wcześniejsze wyceny w naszym systemie. Miło nam, że znów Państwo do nas zaglądają 😊", token=BOT_QUOTE_CW_AGENT_TOKEN)
-        _set_returning_greeted(conv_id, True)
-
+        if email or phone:
+            # MS-05: klient JUZ podal kontakt — nie moze zniknac bez sladu, koniec ciszy.
+            _do_handoff(conv_id, "błąd zapisu wyceny — link do dosłania przez konsultanta", dane,
+                        closing=_SAVE_FAIL_MSG)
+            return False
+        # Bez kontaktu to tylko proba zapisu leada technicznego (LS-01) — cichy blad, bot
+        # kontynuuje normalnie (poprosi o kontakt jak zwykle w _wyslij_cene_i_kontakt);
+        # handoff z "Dziękuję za kontakt!" byłby tu myslacy, bo klient nic jeszcze nie podal.
+        return True
     edit_uuid = _stored_edit_uuid(conv_id)
+    # Czy KLIENT juz kiedys widzial link do tej wyceny — NIE to samo, co "czy w CRM istnieje
+    # juz obiekt wyceny" (edit_uuid): lead techniczny (bez kontaktu) tworzy edit_uuid od razu,
+    # zanim klient cokolwiek zobaczyl, wiec "Zapisałem"/"Zaktualizowałem" musi patrzec na
+    # quote_saved (ustawiane TYLKO gdy link poszedl do klienta), nie na edit_uuid.
+    juz_widzial_link = _quote_saved(conv_id)
     if edit_uuid:
         q = crm_calc.update_quote(edit_uuid, dane.get("pozycje") or [], options)
     else:
@@ -1381,22 +1760,55 @@ def _zapisz_wycene(conv_id, dane, options, email, phone, name):
     if q.get("ok") and q.get("public_url"):
         if q.get("edit_uuid"):
             _set_edit_uuid(conv_id, q["edit_uuid"])   # zapamietaj do kolejnych aktualizacji
-        czasownik = "Zaktualizowałem" if edit_uuid else "Zapisałem"
-        link = "%s wycenę %s. Link: %s" % (czasownik, q.get("quote_number") or "", q["public_url"])
-        cw_agent_reply(conv_id, link, token=BOT_QUOTE_CW_AGENT_TOKEN)
-        _set_quote_saved(conv_id, True)
-        _set_awaiting_contact(conv_id, False)
+        kod_pocztowy = (dane.get("wspolne") or {}).get("kod_pocztowy")
+        if edit_uuid and kod_pocztowy:
+            # API-14: wysylka byla juz policzona wczesniej — pozycje moglo sie zmienic (ten sam
+            # 'update_quote' wyzej ich NIE przekazal), wiec przeliczamy koszt ponownie zamiast
+            # zostawic nieaktualny.
+            res = crm_calc.shipping_quote(dane.get("pozycje") or [], kod_pocztowy, options)
+            if res.get("ok") and res.get("carriers"):
+                crm_calc.update_quote(edit_uuid, dane.get("pozycje") or [], options,
+                                      courier_name=res.get("carrier_name"),
+                                      shipping_netto=res.get("shipping_netto"),
+                                      shipping_brutto=res.get("shipping_brutto"))
+        _lead_note(conv_id, dane, options, wynik=wynik)   # LS-01: notatka po kazdym zapisie
+        if email or phone:
+            # Grupa 3 (LS-09): klient juz w bazie PO KONTAKCIE (dopasowany po email/tel, nie po
+            # client_number technicznym wlasnego leada) -> raz na rozmowe mila wzmianka, w TEJ
+            # SAMEJ wiadomosci co link (LS-12: max 2 dymki po cenie, nie osobny 3. dymek dla
+            # powracajacych klientow). 'matched' NIGDY nie jest True dla wlasnego leada.
+            powitanie = kl.get("matched") and not _returning_greeted(conv_id)
+            czasownik = "Zaktualizowałem" if juz_widzial_link else "Zapisałem"
+            link = "%s wycenę %s. Link: %s" % (czasownik, q.get("quote_number") or "", q["public_url"])
+            fragmenty = []
+            if powitanie:
+                fragmenty.append("Widzę wcześniejsze wyceny w naszym systemie. Miło nam, że znów "
+                                 "Państwo do nas zaglądają 😊")
+            fragmenty.append(link)
+            fragmenty += list(extra_msgs or [])
+            # Jedna wysylka, jeden wynik — WSZYSTKIE zwiazane flagi ustawiamy TYLKO gdy ta
+            # sklejona wiadomosc naprawde dotarla (inaczej wzmianka/oferta wysylki ginelyby
+            # bezpowrotnie po przejsciowym bledzie Chatwoota, patrz code review Task 4).
+            if cw_agent_reply(conv_id, "\n\n".join(fragmenty), token=BOT_QUOTE_CW_AGENT_TOKEN):
+                if powitanie:
+                    _set_returning_greeted(conv_id, True)
+                _set_quote_saved(conv_id, True)
+                _set_awaiting_contact(conv_id, False)
+                log_event(conv_id, "quote_saved", {"nr": q.get("quote_number")})
+                if extra_msgs:
+                    _set_awaiting_postcode(conv_id, True)
+                    _mark_image_sent(conv_id, "shipping_offer")
         log("quotebot: wycena %s (conv %s, %s)"
             % ("zaktualizowana" if edit_uuid else "zapisana", conv_id, q.get("quote_number")))
-        if not edit_uuid:
-            # Pierwszy zapis wyceny -> RAZ zaproponuj oszacowanie wysylki (kolejne aktualizacje nie).
-            if cw_agent_reply(conv_id, _WYSYLKA_OFERTA, token=BOT_QUOTE_CW_AGENT_TOKEN):
-                _set_awaiting_postcode(conv_id, True)
-    else:
-        # MS-05: zapis/aktualizacja padla -> nie milcz; informuj klienta + przekaz konsultantowi.
-        log("quotebot: zapis/aktualizacja wyceny nieudana (conv %s): %s" % (conv_id, q))
+        return True
+    # MS-05: zapis/aktualizacja padla -> gdy klient JUZ podal kontakt, nie milcz — informuj
+    # go + przekaz konsultantowi. Bez kontaktu to tylko nieudana proba zapisu leada technicznego.
+    log("quotebot: zapis/aktualizacja wyceny nieudana (conv %s): %s" % (conv_id, q))
+    if email or phone:
         _do_handoff(conv_id, "błąd zapisu wyceny — link do dosłania przez konsultanta", dane,
                     closing=_SAVE_FAIL_MSG)
+        return False
+    return True
 
 
 def _obsluz_wysylke(conv_id, kod):
@@ -1409,6 +1821,12 @@ def _obsluz_wysylke(conv_id, kod):
     if not cw_agent_reply(conv_id, _wysylka_msg(res), token=BOT_QUOTE_CW_AGENT_TOKEN):
         raise RuntimeError("quotebot: wysylka kosztu wysylki nieudana (conv %s)" % conv_id)
     _set_awaiting_postcode(conv_id, False)   # dopiero po udanej wysylce (retry nie zgubi kodu)
+    if res.get("ok") and res.get("carriers"):
+        # API-14: zapamietaj kod pocztowy — przy zmianie pozycji po tej turze _zapisz_wycene
+        # przeliczy wysylke ponownie zamiast zostawic nieaktualny koszt.
+        dane["wspolne"]["kod_pocztowy"] = kod
+        _zapisz_dane(conv_id, dane)
+        log_event(conv_id, "shipping_quoted", {"carrier": res.get("carrier_name")})
     edit_uuid = _stored_edit_uuid(conv_id)
     if res.get("ok") and res.get("carriers") and edit_uuid:
         q = crm_calc.update_quote(edit_uuid, dane.get("pozycje") or [], options,
@@ -1487,22 +1905,58 @@ def _obrazy_kontekstowe(conv_id, content, dane):
             _wyslij_obraz_kontekstowy(conv_id, "wymiary")
 
 
-def _wyslij_podsumowanie(conv_id, dane):
+def _wyslij_podsumowanie(conv_id, dane, content=""):
     """Wysyla WYLACZNIE deterministyczne podsumowanie (bez prozy LLM — koniec podwojnego
     'Potwierdzam parametry.../Podsumowuje dane...'). Ustawia stan oczekiwania na potwierdzenie,
-    po czym dokleja probki wybranej konfiguracji (jesli sa).
+    po czym dokleja obrazy pomocnicze (kontekstowe) i probki wybranej konfiguracji (jesli sa) —
+    obrazy PO tekscie podsumowania, nie przed.
     Kolejnosc CELOWO wysylka -> stan: gdy POST padnie, retry ponawia ture bez awaiting i
     podsumowanie dociera; stan-przed-wysylka po nieudanym POST omijalby podsumowanie."""
+    oczekujace = _pozycje_z_oczekujacym_wyborem(dane)
+    if oczekujace:
+        _przypomnij_o_wyborze_gatunku(conv_id, oczekujace)
+        return
     options = crm_calc.get_options()   # do pokazania koloru w podsumowaniu + pominiecia probki barwnego lakieru
     if not cw_agent_reply(conv_id, _podsumowanie_msg(dane, options), token=BOT_QUOTE_CW_AGENT_TOKEN):
         raise RuntimeError("quotebot: wysylka podsumowania nieudana (conv %s)" % conv_id)
     _set_awaiting(conv_id, True)
     _bump_turns(conv_id)
+    log_event(conv_id, "summary_sent", {"positions": len(dane.get("pozycje") or [])})
+    _obrazy_kontekstowe(conv_id, content, dane)   # obrazy pomocnicze PO podsumowaniu
     _wyslij_probki(conv_id, dane, options)
     log("quotebot: podsumowanie do potwierdzenia (conv %s)" % conv_id)
 
 
 def run_quote_turn(conv_id, inbox_id, message_id, content, attachments=None):
+    """Wrapper telemetryczny (TO-06/TO-09): jedna linia JSON logu na KAZDA ture (diff pozycji,
+    czas trwania), niezaleznie od tego, ktora galaz _run_quote_turn_inner zwrocila albo rzucila.
+    Cala logika tury jest w _run_quote_turn_inner (bez zmian zachowania). Telemetria NIGDY nie
+    moze zaklocic prawdziwej tury: odczyty do diff_pozycje sa osloniete try/except, zeby
+    przejsciowy blad odczytu (np. zablokowana baza) ani nie zamaskowal prawdziwego wyjatku z
+    _run_quote_turn_inner (Python podmienilby go wyjatkiem z finally), ani nie zablokowal samej
+    tury (przed jej wywolaniem)."""
+    t0 = time.monotonic()
+    try:
+        dane_przed = _load_dane(conv_id)
+    except Exception:
+        dane_przed = None
+    try:
+        return _run_quote_turn_inner(conv_id, inbox_id, message_id, content, attachments=attachments)
+    finally:
+        try:
+            dane_po = _load_dane(conv_id) if dane_przed is not None else None
+            diff_pozycje = (dane_po.get("pozycje") != dane_przed.get("pozycje")
+                            if dane_przed is not None and dane_po is not None else None)
+            log("quotebot_turn " + json.dumps({
+                "conv_id": conv_id,
+                "diff_pozycje": diff_pozycje,
+                "ms": int((time.monotonic() - t0) * 1000),
+            }, ensure_ascii=False))
+        except Exception:
+            pass
+
+
+def _run_quote_turn_inner(conv_id, inbox_id, message_id, content, attachments=None):
     """Pelna tura bota. Rzuca RuntimeError przy braku odpowiedzi LLM (retry w workerze)."""
     # Cisza po handoffie: bot prowadzi TYLKO rozmowy w statusie pending.
     status = cw_conv_status(conv_id)
@@ -1552,6 +2006,7 @@ def run_quote_turn(conv_id, inbox_id, message_id, content, attachments=None):
         if email or phone:
             nazwa = (cw_contact_full(conv_id) or {}).get("name") or ""
             _set_contact(conv_id, email, phone, nazwa)   # zapamietaj kontakt ZAWSZE (na kolejne wyceny)
+            log_event(conv_id, "contact_given")
             if _wiadomosc_ma_korekte(content):
                 # SB-01: kontakt + korekta/pytanie w jednej wiadomosci -> NIE zapisuj starej wyceny.
                 # Kontakt zapamietany; tura leci do LLM (korekta -> nowe podsumowanie), zapis po
@@ -1562,10 +2017,13 @@ def run_quote_turn(conv_id, inbox_id, message_id, content, attachments=None):
                 _zapisz_wycene(conv_id, _load_dane(conv_id), crm_calc.get_options(), email, phone, nazwa)
                 return
         elif _czy_odmowa(content):
-            # Klient nie chce podawać kontaktu — respektujemy, koniec bez zapisu.
+            # Klient nie chce podawać kontaktu — respektujemy, ale deterministyczne CTA (LS-04):
+            # zamiast konczyc watek w ciszy, proponujemy przekazanie konsultantowi.
+            log_event(conv_id, "contact_refused")
             _set_awaiting_contact(conv_id, False)
-            cw_agent_reply(conv_id, "Jasne, nie ma problemu. Gdyby chciał Pan/Pani zapisać wycenę "
-                           "lub coś doprecyzować — jestem do dyspozycji.", token=BOT_QUOTE_CW_AGENT_TOKEN)
+            cw_agent_reply(conv_id, "Jasne, nie ma problemu — wycena wyżej pozostaje aktualna. "
+                           "Jeśli w dowolnym momencie zechce Pan/Pani porozmawiać z konsultantem "
+                           "o szczegółach, wystarczy napisać.", token=BOT_QUOTE_CW_AGENT_TOKEN)
             _bump_turns(conv_id)
             return
         elif _POZNIEJ_RE.search(content or ""):
@@ -1613,7 +2071,7 @@ def run_quote_turn(conv_id, inbox_id, message_id, content, attachments=None):
     # Bezpiecznik D: limit tur bota — PO bramkach kontaktu/kodu (MS-11: e-mail/kod z ostatniej
     # tury zostaje skonsumowany, nie przepada w handoffie z limitu). Dedykowany komunikat (LS-11).
     if _bot_turns(conv_id) >= BOT_QUOTE_MAX_TURNS:
-        _do_handoff(conv_id, "limit tur bota (bezpiecznik)", _load_dane(conv_id), closing=LIMIT_MSG)
+        _do_handoff(conv_id, _POWOD_LIMIT_TUR, _load_dane(conv_id), closing=LIMIT_MSG)
         return
 
     history = cw_messages(conv_id, BOT_HISTORY_LIMIT)
@@ -1640,6 +2098,8 @@ def run_quote_turn(conv_id, inbox_id, message_id, content, attachments=None):
                    "tylko to, co klient zmienia):\n" + json.dumps(dane_przed, ensure_ascii=False))
     if awaiting:
         system += "\n\n" + _CONFIRM_INSTR
+    if _pozycje_z_oczekujacym_wyborem(dane_przed):
+        system += "\n\n" + _WARIANT_WYBOR_INSTR
     # Stan 'priced' w promptcie (PL-10/MD-06): LLM ma wiedziec, czy cena juz padla — bez tego
     # uzywa 'porownania' przed pierwsza wycena (slepy zaulek).
     if _priced(conv_id):
@@ -1665,9 +2125,12 @@ def run_quote_turn(conv_id, inbox_id, message_id, content, attachments=None):
         if urls:
             attach_images(messages, urls)
 
-    raw = chat(messages, response_format={"type": "json_object"})
+    raw, llm_meta = chat(messages, response_format={"type": "json_object"}, return_meta=True)
     if not raw:
-        raise RuntimeError("quotebot: brak odpowiedzi modelu")
+        # TO-04: 4xx (np. zly klucz API/zla konfiguracja) nie jest przejsciowa awaria — worker
+        # konczy od razu bez backoffu; 429/5xx/transport sa retryable.
+        raise _LLMHttpError("quotebot: brak odpowiedzi modelu (%s)" % llm_meta.get("error_class"),
+                            retryable=llm_meta.get("error_class") != "4xx")
     out = _parse_llm(raw)
     # Pytanie o tozsamosc ("czy jestes botem/czlowiekiem?") NIE moze konczyc sie handoffem — bot
     # odpowiada uczciwie (persona). Bez jawnej prosby o czlowieka kasujemy handoff od LLM.
@@ -1675,9 +2138,43 @@ def run_quote_turn(conv_id, inbox_id, message_id, content, attachments=None):
         out["handoff"] = False
         if not out["odpowiedz"]:
             out["odpowiedz"] = _BOT_IDENTITY_MSG
+    # MP-02/MD-08: korekta czesciowa bez id trafiajaca w jeden z KILKU produktow tej samej nazwy
+    # jest niejednoznaczna — pytamy, ktorej pozycji dotyczy, zanim merge cokolwiek nadpisze. Tylko
+    # przed pierwsza cena (po cenie zwykly przeplyw / LLM). Nowy produkt (wlasny komplet wymiarow)
+    # tu nie wpada — obsluguje go _merge_dane jako nowa pozycje.
+    # Bramka celowo tylko PRZED pierwsza cena i tylko dla KOREKT — nie obejmuje niejednoznacznego
+    # usun=true ani korekt PO cenie (oba pomijane swiadomie na razie); to follow-up MD-08 do
+    # weryfikacji na /cand/.
+    if not _priced(conv_id):
+        pyt_pozycja = _niejednoznaczna_korekta(dane_przed, out)
+        if pyt_pozycja:
+            if not cw_agent_reply(conv_id, pyt_pozycja, token=BOT_QUOTE_CW_AGENT_TOKEN):
+                raise RuntimeError("quotebot: wysylka pytania o pozycje nieudana (conv %s)" % conv_id)
+            _bump_turns(conv_id)
+            log("quotebot: niejednoznaczna korekta — pytam o pozycje (conv %s)" % conv_id)
+            return
     dane = _merge_dane(conv_id, out)   # akumulacja per pozycja: raz zebrane pole zostaje
-    # Obrazy pomocnicze (wymiary/krawedzie) — raz na rozmowe, wg tresci klienta i kompletu wymiarow.
-    _obrazy_kontekstowe(conv_id, content, dane)
+    # UWAGA: obrazy pomocnicze (wymiary/krawedzie/kolory) wysylamy DOPIERO PO tekscie bota (nie tu),
+    # zeby obraz nie wyprzedzal odpowiedzi LLM. Dedup w _obrazy_kontekstowe (raz na rozmowe) sprawia,
+    # ze mozna je wolac na koncu kazdej sciezki odpowiedzi bez ryzyka dubli.
+
+    # Deterministyczne dokrycie wyceny wariantowej (regresja E2E 2026-07-09 V01/V04): gdy klient w
+    # TEJ wiadomosci wymienil 2+ gatunki dla kompletnej pozycji, a slaby LLM (nano) nie ustawil
+    # gatunki_do_porownania — dokladamy je w kodzie, by odpalila tabela zamiast podsumowania
+    # pojedynczego gatunku. Tylko przed pierwsza cena i tylko dla pozycji z gatunkiem z tej listy.
+    if not _priced(conv_id):
+        wykryte = _gatunki_w_tekscie(content)
+        if len(wykryte) >= 2:
+            zmiana = False
+            for poz in (dane.get("pozycje") or []):
+                if _gatunki_z_listy(poz.get("gatunki_do_porownania")) or _brakujace_pozycji(poz):
+                    continue   # LLM juz ustawil, albo pozycja niekompletna (nie tryb wariantowy)
+                gsp = crm_calc._norm_species(poz.get("gatunek"))
+                if gsp and gsp in wykryte:
+                    poz["gatunki_do_porownania"] = wykryte
+                    zmiana = True
+            if zmiana:
+                _zapisz_dane(conv_id, dane)
 
     # 'zmienione' liczymy TYLKO po POZYCJACH (spec wyceny). Zmiana pol wspolnych
     # (kontakt/termin) — np. gdy LLM sam dopisze kontakt z tozsamosci klienta — NIE ponawia
@@ -1756,6 +2253,7 @@ def run_quote_turn(conv_id, inbox_id, message_id, content, attachments=None):
     if awaiting and not brak and not zmienione and (
             out.get("potwierdzono") or _jest_potwierdzenie(content)
             or (out["handoff"] and _POTWIERDZ_POWOD_RE.search(out.get("powod") or ""))):
+        log_event(conv_id, "confirmed")
         _wyslij_cene_i_kontakt(conv_id, dane, cw_contact_full(conv_id))
         return
 
@@ -1765,12 +2263,18 @@ def run_quote_turn(conv_id, inbox_id, message_id, content, attachments=None):
         if not _czy_powod_kompletu(powod):
             _do_handoff(conv_id, powod, dane)
             return
+        # Wycena wariantowa MA pierwszenstwo przed podsumowaniem kompletnosci (E2E V01): dla gotowej
+        # pozycji nano czesto zglasza handoff=„komplet”, co bez tego robiloby podsumowanie 1 gatunku
+        # zamiast tabeli. Genuine-handoff (wyzej) i schody-nietypowe nadal wygrywaja.
+        if _obsluz_wyceny_wariantowej(conv_id, dane):
+            return
         if brak:
             # Braki -> nie oddajemy rozmowy, dopytujemy (backstop).
             reply = _pytanie_o_braki(brak, len(dane["pozycje"]) > 1)
             if not cw_agent_reply(conv_id, reply, token=BOT_QUOTE_CW_AGENT_TOKEN):
                 raise RuntimeError("quotebot: wysylka pytania o braki nieudana (conv %s)" % conv_id)
             _bump_turns(conv_id)
+            _obrazy_kontekstowe(conv_id, content, dane)   # obrazy pomocnicze PO pytaniu o braki
             log("quotebot: straznik wstrzymal handoff, braki: %s (conv %s)"
                 % (",".join(k for _, k in brak), conv_id))
             return
@@ -1781,12 +2285,19 @@ def run_quote_turn(conv_id, inbox_id, message_id, content, attachments=None):
             pass
         elif not awaiting:
             # Bramka: podsumowanie dopiero PO nim wycena, gdy klient potwierdzi.
-            _wyslij_podsumowanie(conv_id, dane)
+            _wyslij_podsumowanie(conv_id, dane, content)
             return
         else:
             # Komplet + awaiting + LLM zgłosił potwierdzenie -> licz cenę zamiast handoffu.
+            log_event(conv_id, "confirmed")
             _wyslij_cene_i_kontakt(conv_id, dane, cw_contact_full(conv_id))
             return
+
+    # Wycena wariantowa (FAZA 1, wielu gatunkow naraz) — TYLKO przed pierwsza cena. Umieszczona
+    # PO schody-nietypowe i decyzji handoff LLM (te maja pierwszenstwo — reklamacja/prosba o
+    # czlowieka/ksztalt niewyceniany kalkulatorem nie moze zostac przykryta tabela cen).
+    if _obsluz_wyceny_wariantowej(conv_id, dane):
+        return
 
     # Bez handoffu: komplet wymaganych -> podsumowanie (pierwsze lub po korekcie danych).
     if not brak and _priced(conv_id) and not zmienione:
@@ -1796,15 +2307,16 @@ def run_quote_turn(conv_id, inbox_id, message_id, content, attachments=None):
         pass
     elif not brak:
         if not awaiting or zmienione:
-            _wyslij_podsumowanie(conv_id, dane)
+            _wyslij_podsumowanie(conv_id, dane, content)
             return
         # Awaiting bez zmian: czyste potwierdzenie -> licz cenę deterministycznie (nie czekamy na LLM).
         if _jest_potwierdzenie(content):
+            log_event(conv_id, "confirmed")
             _wyslij_cene_i_kontakt(conv_id, dane, cw_contact_full(conv_id))
             return
         if not out["odpowiedz"]:
             # Pusta odpowiedz przy komplecie -> ponow podsumowanie zamiast rzucac (falszywy handoff).
-            _wyslij_podsumowanie(conv_id, dane)
+            _wyslij_podsumowanie(conv_id, dane, content)
             return
         # awaiting bez zmian, nie-potwierdzenie -> klient pyta o cos innego, zwykla odpowiedz nizej.
     elif awaiting:
@@ -1849,11 +2361,14 @@ def run_quote_turn(conv_id, inbox_id, message_id, content, attachments=None):
     if not ok:
         raise RuntimeError("quotebot: wysylka odpowiedzi nieudana (conv %s)" % conv_id)
     _bump_turns(conv_id)
+    _obrazy_kontekstowe(conv_id, content, dane)   # obrazy pomocnicze PO tekscie odpowiedzi (nie przed)
     log("quotebot: odpowiedz wyslana (conv %s, tura %s)" % (conv_id, _bot_turns(conv_id)))
 
 
-def handoff_with_apology(conv_id):
-    """Sciezka awaryjna (po wyczerpaniu retry): przeprosiny + przekazanie do agenta.
-    Notatka dla konsultanta dziedziczy juz zebrane dane (nie zaczynamy od pustego stanu)."""
-    _do_handoff(conv_id, "błąd techniczny bota (wyczerpane próby)", _load_dane(conv_id),
-                closing=APOLOGY_MSG)
+def handoff_with_apology(conv_id, reason="błąd techniczny bota (wyczerpane próby)"):
+    """Sciezka awaryjna (po wyczerpaniu retry albo trwalym bledzie 4xx): przeprosiny +
+    przekazanie do agenta. Notatka dla konsultanta dziedziczy juz zebrane dane (nie
+    zaczynamy od pustego stanu). `reason` opisuje faktyczna przyczyne (patrz
+    quote_worker._fail_permanently) — domyslny tekst zaklada wyczerpane proby retry, co
+    nie jest prawda dla 4xx-fail-fast (konczy sie po 1 probie)."""
+    _do_handoff(conv_id, reason, _load_dane(conv_id), closing=APOLOGY_MSG)

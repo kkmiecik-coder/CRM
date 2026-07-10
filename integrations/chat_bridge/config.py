@@ -77,3 +77,19 @@ BOT_QUOTE_CLIENT_TYPE = os.environ.get("BOT_QUOTE_CLIENT_TYPE")
 BOT_QUOTE_CW_AGENT_TOKEN      = os.environ.get("BOT_QUOTE_CW_AGENT_TOKEN")       # access_token (odpowiedzi + handoff)
 BOT_QUOTE_AGENT_WEBHOOK_TOKEN = os.environ.get("BOT_QUOTE_AGENT_WEBHOOK_TOKEN")  # token w URL webhooka /agent-bot-quote
 BOT_QUOTE_MAX_TURNS           = int(os.environ.get("BOT_QUOTE_MAX_TURNS", "30")) # bezpiecznik D
+
+# ----- Sweeper "goracy lead" (rozmowa oddana po cenie bota, klient milczy — LS-04) -----
+HOT_LEAD_SWEEP_INTERVAL = int(os.environ.get("HOT_LEAD_SWEEP_INTERVAL", "1800"))  # sekundy; <=0 = wylaczony
+HOT_LEAD_SILENCE_HOURS  = float(os.environ.get("HOT_LEAD_SILENCE_HOURS", "24"))
+
+# Godziny pracy konsultantow (Europe/Warsaw) — poza nimi handoff dostaje inny komunikat
+# (z prosba o telefon zamiast obietnicy natychmiastowej odpowiedzi) — LS-10.
+BOT_BUSINESS_HOURS = os.environ.get("BOT_BUSINESS_HOURS", "08:00-16:00")
+
+# ----- Odpornosc quote_workera na awarie LLM/CRM (TO-04) -----
+# Filtr pustych fragmentow + fallback na wartosc domyslna — pusty BOT_BACKOFF_TIERS="" (np. zla
+# zmienna srodowiskowa w deployu) nie moze wywalic calego mostka juz przy imporcie configu.
+BOT_BACKOFF_TIERS = ([int(x) for x in os.environ.get("BOT_BACKOFF_TIERS", "30,120,300").split(",") if x.strip()]
+                     or [30, 120, 300])
+BOT_CIRCUIT_THRESHOLD = int(os.environ.get("BOT_CIRCUIT_THRESHOLD", "5"))   # kolejnych bledow -> pauza
+BOT_CIRCUIT_COOLDOWN  = int(os.environ.get("BOT_CIRCUIT_COOLDOWN", "120"))  # sekundy pauzy kolejki

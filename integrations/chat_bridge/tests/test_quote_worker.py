@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 # Test: quote_worker.process_one bierze rekord z quote_queue i wola run_quote_turn.
 import os, tempfile
+import pytest
 os.environ.setdefault("OLX_CLIENT_ID", "x")
 os.environ.setdefault("OLX_CLIENT_SECRET", "x")
 os.environ.setdefault("OLX_REFRESH_TOKEN", "x")
@@ -9,6 +10,20 @@ import importlib
 import config; importlib.reload(config)
 db_mod = importlib.import_module("core.db"); db_mod.init_db()
 qw = importlib.import_module("quote_worker"); importlib.reload(qw)
+
+
+@pytest.fixture(autouse=True)
+def _circuit_state_isolation():
+    """Stan circuit-breakera (TO-04) zyje w tabeli meta GLOBALNEJ dla calego (dzielonego
+    miedzy plikami testow) bridge.db — bez resetu lezaly obwod z innego pliku testow
+    zablokowalby tu process_one niezaleznie od intencji tego testu (code review Task 7,
+    angle C)."""
+    from core.db import meta_set
+    meta_set(qw._META_CIRCUIT_UNTIL, 0)
+    meta_set(qw._META_CIRCUIT_FAILS, 0)
+    yield
+    meta_set(qw._META_CIRCUIT_UNTIL, 0)
+    meta_set(qw._META_CIRCUIT_FAILS, 0)
 
 
 def _enqueue(conv_id=5):

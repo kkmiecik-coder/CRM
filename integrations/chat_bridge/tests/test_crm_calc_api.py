@@ -98,6 +98,18 @@ def test_find_or_create_client(monkeypatch):
     assert out["client"]["id"] == 42
 
 
+def test_find_or_create_client_wysyla_client_number(monkeypatch):
+    captured = {}
+    def fake_post(url, headers=None, json=None, timeout=None):
+        captured["body"] = json
+        return _Resp(200, {"ok": True, "matched": False, "created": True, "client": {"id": 42}})
+    monkeypatch.setattr(crm.requests, "post", fake_post)
+    out = crm.find_or_create_client(None, None, None, client_number="chat-501")
+    assert out["client"]["id"] == 42
+    assert captured["body"]["client_number"] == "chat-501"
+    assert captured["body"]["email"] is None and captured["body"]["phone"] is None
+
+
 def test_create_quote(monkeypatch):
     def fake_post(url, headers=None, json=None, timeout=None):
         assert url.endswith("/api/bot/quotes")

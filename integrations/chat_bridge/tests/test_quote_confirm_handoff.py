@@ -37,13 +37,21 @@ def _patch(monkeypatch, replies, chat_json):
     monkeypatch.setattr(qb, "cw_contact", lambda c: {"name": "", "identifier": ""})
     monkeypatch.setattr(qb, "cw_contact_full", lambda c: {"name": "", "identifier": "", "email": "", "phone": ""})
     monkeypatch.setattr(qb, "retrieve", lambda q: [])
-    monkeypatch.setattr(qb, "chat", lambda messages, **kw: chat_json)
+    monkeypatch.setattr(qb, "chat", lambda messages, **kw: (chat_json, {"error_class": None}))
     monkeypatch.setattr(qb, "cw_agent_reply", lambda conv_id, text, **kw: replies.append(text) or True)
     monkeypatch.setattr(qb, "cw_bot_handoff", lambda conv_id, **kw: replies.append("__HANDOFF__") or True)
     monkeypatch.setattr(qb, "cw_note", lambda conv_id, text, **kw: True)
     monkeypatch.setattr(qb.crm_calc, "get_options", lambda: {"finishing_options": [{"id": 7, "full_path": "Olejowanie"}]})
     monkeypatch.setattr(qb.crm_calc, "calculate",
                         lambda pozycje, opts: {"ok": True, "totals": {"total_brutto": 1230.0, "total_netto": 1000.0}})
+    # LS-01: lead zawsze zapisany, nawet bez kontaktu (identity w tych testach jest pusta) —
+    # find_or_create_client/create_quote sa teraz wolane w kazdej turze z cena.
+    monkeypatch.setattr(qb.crm_calc, "find_or_create_client",
+                        lambda e, p, n, client_number=None: {"ok": True, "matched": False,
+                                                             "created": True, "client": {"id": 1}})
+    monkeypatch.setattr(qb.crm_calc, "create_quote",
+                        lambda poz, o, cid, notes="": {"ok": True, "quote_number": "W/1",
+                                                       "public_url": "https://crm/q/z"})
 
 
 def test_potwierdzenie_z_blednym_handoff_konsultant_liczy_cene(monkeypatch):

@@ -19,3 +19,17 @@ def test_domyslne_wartosci_botow():
     assert cfg.BOT_REASONING_EFFORT == "low"
     assert cfg.OPENAI_API_BASE == "https://api.openai.com/v1"
     assert cfg.BOT_LIVE_MAX_TURNS == 30
+    assert cfg.BOT_BUSINESS_HOURS == "08:00-16:00"
+    assert cfg.BOT_BACKOFF_TIERS == [30, 120, 300]
+
+
+def test_backoff_tiers_pusty_env_wraca_do_domyslnych(monkeypatch):
+    """Regresja code review Task 7: BOT_BACKOFF_TIERS='' (np. zla zmienna w deployu) nie moze
+    wywalic importu configu (a przez to calego mostka) — pusty env ma dac te sama domyslna liste."""
+    monkeypatch.setenv("BOT_BACKOFF_TIERS", "")
+    importlib.reload(cfg)
+    try:
+        assert cfg.BOT_BACKOFF_TIERS == [30, 120, 300]
+    finally:
+        monkeypatch.delenv("BOT_BACKOFF_TIERS", raising=False)
+        importlib.reload(cfg)

@@ -155,7 +155,7 @@ def _patch(monkeypatch, replies, chat_json='{"odpowiedz":"ok","handoff":false,"p
     monkeypatch.setattr(qb, "cw_contact", lambda c: {"name": "", "identifier": ""})
     monkeypatch.setattr(qb, "cw_contact_full", lambda c: {"name": "", "identifier": "", "email": "", "phone": ""})
     monkeypatch.setattr(qb, "retrieve", lambda q: [])
-    monkeypatch.setattr(qb, "chat", lambda messages, **kw: chat_json)
+    monkeypatch.setattr(qb, "chat", lambda messages, **kw: (chat_json, {"error_class": None}))
     monkeypatch.setattr(qb, "cw_agent_reply", lambda conv_id, text, **kw: replies.append(text) or True)
     monkeypatch.setattr(qb, "cw_bot_handoff", lambda conv_id, **kw: replies.append("__HANDOFF__") or True)
     monkeypatch.setattr(qb, "cw_note", lambda conv_id, text, **kw: True)
@@ -199,7 +199,8 @@ def test_limit_tur_po_bramkach_awaiting(monkeypatch):
     replies = []
     _patch(monkeypatch, replies)
     monkeypatch.setattr(qb.crm_calc, "get_options", lambda: {"finishing_options": [{"id": 7, "full_path": "Olej"}]})
-    monkeypatch.setattr(qb.crm_calc, "find_or_create_client", lambda e, p, n: {"ok": True, "client": {"id": 5}})
+    monkeypatch.setattr(qb.crm_calc, "find_or_create_client",
+                        lambda e, p, n, client_number=None: {"ok": True, "client": {"id": 5}})
     monkeypatch.setattr(qb.crm_calc, "create_quote",
                         lambda poz, o, cid, notes="": {"ok": True, "quote_number": "W/9", "public_url": "https://crm/q/z"})
     _reset(803)
@@ -214,3 +215,16 @@ def test_limit_tur_po_bramkach_awaiting(monkeypatch):
     qb.run_quote_turn(803, 12, "m1", "jan@kowalski.pl")
     assert any("crm/q/z" in t for t in replies), "e-mail w turze limitu ma zapisac wycene, nie handoff"
     assert "__HANDOFF__" not in replies
+
+
+def test_odmowa_kontaktu_proponuje_konsultanta(monkeypatch):
+    """LS-04: odmowa kontaktu po cenie ma deterministyczne CTA konsultanta zamiast konczyc
+    watek w ciszy (dawny tekst nie wspominal konsultanta wcale)."""
+    replies = []
+    _patch(monkeypatch, replies)
+    _reset(960)
+    c = db_mod.db()
+    c.execute("INSERT INTO quote_state(conv_id, bot_turns, awaiting_contact) VALUES(?,1,1)", (960,))
+    c.commit(); c.close()
+    qb.run_quote_turn(960, 12, "m1", "nie, dziękuję")
+    assert any("konsultant" in r.lower() for r in replies)

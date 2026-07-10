@@ -68,7 +68,7 @@ def test_kontakt_zapamietany_drugi_raz_bez_pytania(monkeypatch):
     monkeypatch.setattr(qb.crm_calc, "calculate",
                         lambda p, o: {"ok": True, "totals": {"total_netto": 10.0, "total_brutto": 12.0}})
     monkeypatch.setattr(qb.crm_calc, "find_or_create_client",
-                        lambda e, p, n: {"ok": True, "client": {"id": 42}})
+                        lambda e, p, n, client_number=None: {"ok": True, "client": {"id": 42}})
     monkeypatch.setattr(qb.crm_calc, "create_quote",
                         lambda p, o, cid, notes="": {"ok": True, "quote_number": "W/1",
                                                      "public_url": "https://crm/q/a", "edit_uuid": "UU"})
@@ -92,7 +92,7 @@ def test_powracajacy_klient_powitanie_raz(monkeypatch):
     replies = []
     monkeypatch.setattr(qb, "cw_agent_reply", lambda c, t, **kw: replies.append(t) or True)
     monkeypatch.setattr(qb.crm_calc, "find_or_create_client",
-                        lambda e, p, n: {"ok": True, "matched": True, "client": {"id": 9}})
+                        lambda e, p, n, client_number=None: {"ok": True, "matched": True, "client": {"id": 9}})
     monkeypatch.setattr(qb.crm_calc, "create_quote",
                         lambda p, o, cid, notes="": {"ok": True, "quote_number": "W/1",
                                                      "public_url": "https://crm/q/a"})
@@ -107,7 +107,7 @@ def test_update_gdy_zapamietany_edit_uuid(monkeypatch):
     called = {}
     monkeypatch.setattr(qb, "cw_agent_reply", lambda c, t, **kw: True)
     monkeypatch.setattr(qb.crm_calc, "find_or_create_client",
-                        lambda e, p, n: {"ok": True, "client": {"id": 9}})
+                        lambda e, p, n, client_number=None: {"ok": True, "client": {"id": 9}})
     monkeypatch.setattr(qb.crm_calc, "create_quote",
                         lambda *a, **k: called.update(create=True) or {"ok": False})
     monkeypatch.setattr(qb.crm_calc, "update_quote",

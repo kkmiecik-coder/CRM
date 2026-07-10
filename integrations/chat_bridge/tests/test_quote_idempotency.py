@@ -22,13 +22,28 @@ _KOMPLET = {"pozycje": [{"id": "1", "produkt": "blat", "dlugosc": "200", "szerok
                          "ilosc": "1", "wykonczenie": "surowe"}], "wspolne": {}}
 
 
+@pytest.fixture(autouse=True)
+def _circuit_state_isolation():
+    """Stan circuit-breakera (TO-04) zyje w tabeli meta GLOBALNEJ dla calego (dzielonego
+    miedzy plikami testow) bridge.db — bez resetu lezaly obwod z innego pliku testow
+    zablokowalby tu process_one niezaleznie od intencji tego testu (code review Task 7,
+    angle C)."""
+    from core.db import meta_set
+    meta_set(qw._META_CIRCUIT_UNTIL, 0)
+    meta_set(qw._META_CIRCUIT_FAILS, 0)
+    yield
+    meta_set(qw._META_CIRCUIT_UNTIL, 0)
+    meta_set(qw._META_CIRCUIT_FAILS, 0)
+
+
 def _patch(monkeypatch, replies):
     monkeypatch.setattr(qb, "cw_conv_status", lambda c: "pending")
     monkeypatch.setattr(qb, "cw_messages", lambda c, n: [{"role": "user", "text": "tak"}])
     monkeypatch.setattr(qb, "cw_contact", lambda c: {"name": "", "identifier": ""})
     monkeypatch.setattr(qb, "cw_contact_full", lambda c: {"name": "", "identifier": "", "email": "", "phone": ""})
     monkeypatch.setattr(qb, "retrieve", lambda q: [])
-    monkeypatch.setattr(qb, "chat", lambda messages, **kw: '{"odpowiedz":"","handoff":false,"pozycje":[],"wspolne":{}}')
+    monkeypatch.setattr(qb, "chat", lambda messages, **kw:
+                        ('{"odpowiedz":"","handoff":false,"pozycje":[],"wspolne":{}}', {"error_class": None}))
     monkeypatch.setattr(qb, "cw_agent_reply", lambda conv_id, text, **kw: replies.append(text) or True)
     monkeypatch.setattr(qb, "cw_bot_handoff", lambda conv_id, **kw: replies.append("__HANDOFF__") or True)
     monkeypatch.setattr(qb, "cw_note", lambda conv_id, text, **kw: True)
@@ -39,7 +54,8 @@ def test_ms05_zapis_padl_komunikat_i_handoff(monkeypatch):
     """MS-05: klient podaje mail, find_or_create pada -> klient dostaje komunikat + handoff (nie cisza)."""
     replies = []
     _patch(monkeypatch, replies)
-    monkeypatch.setattr(qb.crm_calc, "find_or_create_client", lambda e, p, n: {"ok": False, "client": {}})
+    monkeypatch.setattr(qb.crm_calc, "find_or_create_client",
+                        lambda e, p, n, client_number=None: {"ok": False, "client": {}})
     c = db_mod.db()
     c.execute("DELETE FROM quote_state WHERE conv_id=?", (5001,))
     c.execute("DELETE FROM quote_dane WHERE conv_id=?", (5001,))
@@ -78,7 +94,8 @@ def test_ms04_po_cenie_brak_drugiej_ceny(monkeypatch):
     replies = []
     _patch(monkeypatch, replies)
     monkeypatch.setattr(qb, "chat", lambda messages, **kw:
-                        '{"odpowiedz":"Proszę bardzo.","handoff":true,"powod":"klient potwierdził dane do wyceny","pozycje":[],"wspolne":{}}')
+                        ('{"odpowiedz":"Proszę bardzo.","handoff":true,"powod":"klient potwierdził dane do wyceny","pozycje":[],"wspolne":{}}',
+                         {"error_class": None}))
     calc = {"n": 0}
     def _calc(poz, opts):
         calc["n"] += 1

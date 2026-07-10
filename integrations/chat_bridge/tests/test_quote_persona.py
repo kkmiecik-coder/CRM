@@ -109,7 +109,7 @@ def _patch_common(monkeypatch, replies, chat_json):
     monkeypatch.setattr(qb, "cw_contact", lambda c: {"name": "", "identifier": ""})
     monkeypatch.setattr(qb, "cw_contact_full", lambda c: {"name": "", "identifier": "", "email": "", "phone": ""})
     monkeypatch.setattr(qb, "retrieve", lambda q: [])
-    monkeypatch.setattr(qb, "chat", lambda messages, **kw: chat_json)
+    monkeypatch.setattr(qb, "chat", lambda messages, **kw: (chat_json, {"error_class": None}))
     monkeypatch.setattr(qb, "cw_agent_reply",
                         lambda conv_id, text, **kw: replies.append((text, kw)) or True)
     monkeypatch.setattr(qb.crm_calc, "get_options", lambda: {"finishing_options": []})

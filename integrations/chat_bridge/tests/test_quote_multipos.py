@@ -1,0 +1,141 @@
+# -*- coding: utf-8 -*-
+# Test FAZA 1a: wielopozycyjnosc — kilka produktow o TEJ SAMEJ nazwie w jednej wycenie.
+# Root cause MD-05c: _merge_dane zwijal kolejny produkt tej samej nazwy w istniejacy
+# (nowe id resetowane jako "zmyslone" -> fallback-po-nazwie nadpisywal wymiary).
+import os, tempfile
+os.environ.setdefault("OLX_CLIENT_ID", "x")
+os.environ.setdefault("OLX_CLIENT_SECRET", "x")
+os.environ.setdefault("OLX_REFRESH_TOKEN", "x")
+os.environ["CRM_API_BASE"] = "https://crm.test"
+os.environ["CRM_BOT_API_KEY"] = "KEY"
+os.environ["BOT_QUOTE_CW_AGENT_TOKEN"] = "TQ"
+os.environ.setdefault("BRIDGE_DB", os.path.join(tempfile.mkdtemp(), "bridge_qmp.db"))
+import importlib
+import config; importlib.reload(config)
+db_mod = importlib.import_module("core.db"); db_mod.init_db()
+qb = importlib.import_module("bots.quotebot"); importlib.reload(qb)
+
+
+def _reset(conv_id):
+    c = db_mod.db()
+    c.execute("DELETE FROM quote_dane WHERE conv_id=?", (conv_id,))
+    c.commit(); c.close()
+
+
+def test_cztery_parapety_tej_samej_nazwy_nie_zwijaja_sie():
+    """Transkrypt 2026-07-10: 4 parapety roznych wymiarow -> 4 osobne pozycje, nie 1.
+    Kazdy przychodzi w osobnej turze z kolejnym id (jak robi LLM tura po turze)."""
+    conv = 3101
+    _reset(conv)
+    wymiary = [("120", "35", "3"), ("120", "30", "3"), ("120", "30", "2"), ("150", "35", "2")]
+    for i, (d, s, g) in enumerate(wymiary, 1):
+        qb._merge_dane(conv, {"pozycje": [{"id": str(i), "produkt": "parapet",
+                              "dlugosc": d, "szerokosc": s, "grubosc": g}], "wspolne": {}})
+    stan = qb._load_dane(conv)
+    assert len(stan["pozycje"]) == 4, "kazdy parapet to osobna pozycja"
+    assert [(p["dlugosc"], p["szerokosc"], p["grubosc"]) for p in stan["pozycje"]] == wymiary
+
+
+def test_dwa_parapety_w_jednej_wiadomosci():
+    """Dwa produkty tej samej nazwy w JEDNEJ turze LLM -> dwie pozycje."""
+    conv = 3103
+    _reset(conv)
+    qb._merge_dane(conv, {"pozycje": [
+        {"id": "1", "produkt": "parapet", "dlugosc": "120", "szerokosc": "35", "grubosc": "3"},
+        {"id": "2", "produkt": "parapet", "dlugosc": "150", "szerokosc": "35", "grubosc": "2"},
+    ], "wspolne": {}})
+    stan = qb._load_dane(conv)
+    assert len(stan["pozycje"]) == 2
+
+
+def test_korekta_pojedynczego_wymiaru_nie_tworzy_nowej_pozycji():
+    """Delta czesciowa bez id (korekta 1 wymiaru) scala sie w istniejaca pozycje, nie duplikuje."""
+    conv = 3102
+    _reset(conv)
+    qb._merge_dane(conv, {"pozycje": [{"id": "1", "produkt": "parapet", "dlugosc": "120",
+                          "szerokosc": "35", "grubosc": "3"}], "wspolne": {}})
+    qb._merge_dane(conv, {"pozycje": [{"produkt": "parapet", "szerokosc": "40"}], "wspolne": {}})
+    stan = qb._load_dane(conv)
+    assert len(stan["pozycje"]) == 1, "korekta pojedynczego wymiaru = ta sama pozycja"
+    assert stan["pozycje"][0]["szerokosc"] == "40"
+
+
+def test_nowy_produkt_z_wymyslonym_id_i_wlasnymi_wymiarami():
+    """LLM nadaje nowe id spoza stanu + wlasny komplet wymiarow -> nowy produkt (nie zwiniecie)."""
+    conv = 3104
+    _reset(conv)
+    qb._merge_dane(conv, {"pozycje": [{"id": "1", "produkt": "parapet", "dlugosc": "120",
+                          "szerokosc": "35", "grubosc": "3"}], "wspolne": {}})
+    qb._merge_dane(conv, {"pozycje": [{"id": "2", "produkt": "parapet", "dlugosc": "120",
+                          "szerokosc": "30", "grubosc": "2"}], "wspolne": {}})
+    stan = qb._load_dane(conv)
+    assert len(stan["pozycje"]) == 2
+
+
+def test_dryf_separatora_dziesietnego_nie_tworzy_nowej_pozycji():
+    """Review Task 1 (IMPORTANT): grubosc '1,5' (stan) vs '1.5' (delta) to ta sama wartosc
+    fizyczna (przecinek vs kropka) - porownanie stringow bledne uznawaloby to za inny produkt
+    i tworzylo falszywy duplikat. Oczekiwane: scalenie w jedna pozycje (korekta), nie dwie."""
+    conv = 3105
+    _reset(conv)
+    qb._merge_dane(conv, {"pozycje": [{"id": "1", "produkt": "parapet", "dlugosc": "120",
+                          "szerokosc": "35", "grubosc": "1,5"}], "wspolne": {}})
+    qb._merge_dane(conv, {"pozycje": [{"produkt": "parapet", "dlugosc": "120",
+                          "szerokosc": "35", "grubosc": "1.5"}], "wspolne": {}})
+    stan = qb._load_dane(conv)
+    assert len(stan["pozycje"]) == 1, "dryf separatora dziesietnego (',' vs '.') to ta sama pozycja"
+
+
+_DWA_PARAPETY = {"pozycje": [
+    {"id": "1", "produkt": "parapet", "dlugosc": "120", "szerokosc": "35", "grubosc": "3"},
+    {"id": "2", "produkt": "parapet", "dlugosc": "150", "szerokosc": "35", "grubosc": "2"}],
+    "wspolne": {}}
+
+
+def test_niejednoznaczna_korekta_pyta_ktora_pozycja():
+    """Korekta czesciowa bez id + 2 produkty tej samej nazwy -> pytanie o pozycje."""
+    out = {"pozycje": [{"produkt": "parapet", "grubosc": "4"}], "wspolne": {}}
+    q = qb._niejednoznaczna_korekta(_DWA_PARAPETY, out)
+    assert q is not None
+    assert "pozycj" in q.lower()
+    assert "120" in q and "150" in q   # obie pozycje wypisane z wymiarami
+
+
+def test_dodanie_pelnego_produktu_nie_jest_niejednoznaczne():
+    """Delta z wlasnym kompletem wymiarow = nowy produkt, nie korekta -> brak pytania."""
+    out = {"pozycje": [{"produkt": "parapet", "dlugosc": "200", "szerokosc": "40", "grubosc": "3"}],
+           "wspolne": {}}
+    assert qb._niejednoznaczna_korekta(_DWA_PARAPETY, out) is None
+
+
+def test_korekta_z_id_nie_jest_niejednoznaczna():
+    """Delta z id pasujacym do stanu — id rozstrzyga, brak pytania."""
+    out = {"pozycje": [{"id": "2", "produkt": "parapet", "grubosc": "4"}], "wspolne": {}}
+    assert qb._niejednoznaczna_korekta(_DWA_PARAPETY, out) is None
+
+
+def test_korekta_przy_jednej_pozycji_nie_pyta():
+    """Jeden produkt danej nazwy — korekta bez id jest jednoznaczna (fallback scala)."""
+    jeden = {"pozycje": [{"id": "1", "produkt": "parapet", "dlugosc": "120",
+             "szerokosc": "35", "grubosc": "3"}], "wspolne": {}}
+    out = {"pozycje": [{"produkt": "parapet", "grubosc": "4"}], "wspolne": {}}
+    assert qb._niejednoznaczna_korekta(jeden, out) is None
+
+
+def test_te_same_wymiary_inne_wykonczenie_to_dwie_pozycje():
+    """Review finalny (I1): dwa blaty tej samej nazwy/wymiarow/gatunku, roznaice sie WYLACZNIE
+    wykonczeniem (surowe vs lakierowane) -> DWIE pozycje, nie zwiniecie w jedna. Delta ma WLASNY
+    komplet wymiarow (peleny re-spec), wiec _ma_komplet_wymiarow nie zablokuje jej wczesniej —
+    o rozdzieleniu decyduje sygnatura, ktora musi objac 'wykonczenie'."""
+    conv = 3106
+    _reset(conv)
+    qb._merge_dane(conv, {"pozycje": [{"id": "1", "produkt": "blat", "dlugosc": "120",
+                          "szerokosc": "35", "grubosc": "3", "gatunek": "dąb", "klasa": "A/B",
+                          "technologia": "lita", "wykonczenie": "surowe"}], "wspolne": {}})
+    qb._merge_dane(conv, {"pozycje": [{"produkt": "blat", "dlugosc": "120", "szerokosc": "35",
+                          "grubosc": "3", "gatunek": "dąb", "klasa": "A/B", "technologia": "lita",
+                          "wykonczenie": "lakierowane"}], "wspolne": {}})
+    stan = qb._load_dane(conv)
+    assert len(stan["pozycje"]) == 2, "roznica TYLKO w wykonczeniu ma tworzyc druga pozycje"
+    wykonczenia = {p["wykonczenie"] for p in stan["pozycje"]}
+    assert wykonczenia == {"surowe", "lakierowane"}
