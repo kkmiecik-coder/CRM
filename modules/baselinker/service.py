@@ -740,7 +740,10 @@ class BaselinkerService:
                             client_name=client.client_name)
 
             client_data = {
-                'name': client.client_name,
+                # 'name' zasila wyłącznie user_login (BaseLinker "Klient (login)" / buyer_nick).
+                # UWAGA: kolumna client_number jest błędnie nazwana — trzyma NAZWĘ klienta
+                # (patrz clients/models.py). To ją wysyłamy jako login kupującego do BaseLinkera.
+                'name': client.client_number,
                 'delivery_name': client.delivery_name or client.client_name,
                 'email': client.email,
                 'phone': client.phone,
