@@ -26,7 +26,7 @@ def _openai_image(query):
         if not b64:
             return None
         data = base64.b64decode(b64)
-        return (data, "png") if len(data) <= _MAX_IMG_BYTES else None
+        return (data, "png", None) if len(data) <= _MAX_IMG_BYTES else None
     except Exception as e:
         log("openai image blad:", repr(e)); return None
 
