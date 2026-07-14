@@ -24,7 +24,7 @@ def run(dry_run=False):
     categories = catalog.get_categories()
     summary = catalog_summary(products, categories)
 
-    topic = topics.pick_topic(summary)
+    topic = topics.pick_topic(summary, categories)
     if not topic:
         log("run: brak tematu"); return {"ok": False, "id_post": 0, "slug": "", "reason": "brak_tematu"}
     log("run: temat =", topic["title"])
@@ -36,7 +36,8 @@ def run(dry_run=False):
     links = [{"anchor": c.get("display_name") or c["name"], "url": c["url"]} for c in selected]
 
     blog_cats = _blog_category_names()
-    article = writer.write_article(topic["title"], links, blog_cats)
+    ctype = topic.get("content_type")
+    article = writer.write_article(topic["title"], links, blog_cats, content_type=ctype)
     if not article:
         log("run: writer nie zwrocil artykulu"); return {"ok": False, "id_post": 0, "slug": "", "reason": "brak_artykulu"}
 
@@ -79,7 +80,7 @@ def run(dry_run=False):
         return {"ok": False, "id_post": 0, "slug": article["slug"], "reason": "blad_zapisu"}
 
     store.mark_topic_used(topic["id"])
-    store.record_published(article["slug"], article["title"])
+    store.record_published(article["slug"], article["title"], content_type=ctype)
     log("run: gotowe. szkic id_post=%s slug=%s" % (id_post, article["slug"]))
     return {"ok": True, "id_post": id_post, "slug": article["slug"], "reason": "ok"}
 

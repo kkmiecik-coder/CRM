@@ -36,13 +36,18 @@ def _links_html(links):
     return " • ".join(render_link(l["anchor"], l["url"]) for l in links)
 
 
-def write_article(topic_title, links, category_names):
+def write_article(topic_title, links, category_names, content_type=None):
     links_listing = "\n".join("- %s → %s" % (l["anchor"], l["url"]) for l in links) or "(brak)"
     cats = ", ".join(category_names) or "Poradniki"
+    angle = ""
+    if content_type:
+        import content_type as ct   # alias — parametr 'content_type' przeslania nazwe modulu
+        angle = "\nTyp treści: %s. Napisz artykuł dokładnie w tej konwencji." % \
+                ct.TYPE_ANGLE.get(content_type, content_type)
     user = ("Temat: %s\n\nWpleć te linki wewnętrzne (użyj dokładnych URL, klasa CSS kontakt-link-descr, "
             "składnia <a href=... class=\"kontakt-link-descr\">tekst</a>):\n%s\n\n"
-            "Wybierz kategorię bloga (pole category) z: %s.\n"
-            "Napisz kompletny artykuł." % (topic_title, links_listing, cats))
+            "Wybierz kategorię bloga (pole category) z: %s.%s\n"
+            "Napisz kompletny artykuł." % (topic_title, links_listing, cats, angle))
     raw = llm.chat([{"role": "system", "content": _SYSTEM},
                     {"role": "user", "content": user}], want_json=True, max_tokens=6000)
     if raw is None:
@@ -56,9 +61,13 @@ def write_article(topic_title, links, category_names):
     if links and not any(l["url"] in body for l in links):
         body += '\n<div class="blog-cta"><p>Zobacz też: %s</p></div>' % _links_html(links)
 
-    category = data.get("category")
-    if category not in category_names:
-        category = category_names[0] if category_names else "Poradniki"
+    if content_type:
+        import content_type as ct   # alias jw.
+        category = ct.category_for_type(content_type, category_names)
+    else:
+        category = data.get("category")
+        if category not in category_names:
+            category = category_names[0] if category_names else "Poradniki"
 
     meta_title = _s(data.get("meta_title"), title + " | WoodPower")[:255]
     meta_desc = _s(data.get("meta_description"), "Poradnik: " + title)[:255]

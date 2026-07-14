@@ -29,9 +29,26 @@ def init_db():
       created_at REAL DEFAULT (strftime('%s','now')));
     """)
     c.commit(); c.close()
+    _ensure_columns()
 
 
-def add_topic(title, priority=0, source="seed"):
+def _ensure_columns():
+    # Idempotentne dodanie kolumny content_type (starsze bazy nie maja jej z CREATE TABLE IF NOT EXISTS).
+    # Blad "duplicate column" lub dowolny inny nie moze przerwac startu.
+    for table in ("topics", "published"):
+        c = None
+        try:
+            c = db()
+            c.execute("ALTER TABLE %s ADD COLUMN content_type TEXT" % table)
+            c.commit()
+        except Exception:
+            pass
+        finally:
+            if c is not None:
+                c.close()
+
+
+def add_topic(title, priority=0, source="seed", content_type=None):
     # Zwraca True gdy dodano, False gdy duplikat (po znormalizowanym tytule) lub blad.
     # Polaczenie otwierane WEWNATRZ try — awaria samego db() (zablokowany plik na
     # Windows, brak katalogu, uprawnienia) tez ma zwracac False, nie wywalac wyjatek.
@@ -41,8 +58,8 @@ def add_topic(title, priority=0, source="seed"):
     c = None
     try:
         c = db()
-        c.execute("INSERT INTO topics(title,norm,priority,source) VALUES(?,?,?,?)",
-                  (title.strip(), norm, priority, source))
+        c.execute("INSERT INTO topics(title,norm,priority,source,content_type) VALUES(?,?,?,?,?)",
+                  (title.strip(), norm, priority, source, content_type))
         c.commit()
         return True
     except sqlite3.IntegrityError:
@@ -65,10 +82,10 @@ def topic_exists(title):
 def next_topic():
     try:
         c = db()
-        r = c.execute("SELECT id,title FROM topics WHERE status='pending' "
+        r = c.execute("SELECT id,title,content_type FROM topics WHERE status='pending' "
                       "ORDER BY priority DESC, id ASC LIMIT 1").fetchone()
         c.close()
-        return {"id": r["id"], "title": r["title"]} if r else None
+        return {"id": r["id"], "title": r["title"], "content_type": r["content_type"]} if r else None
     except Exception:
         return None
 
@@ -89,11 +106,11 @@ def backlog_count():
         return 0
 
 
-def record_published(slug, title):
+def record_published(slug, title, content_type=None):
     try:
         c = db()
-        c.execute("INSERT OR IGNORE INTO published(slug,title,norm) VALUES(?,?,?)",
-                  (slug, title, _norm(title)))
+        c.execute("INSERT OR IGNORE INTO published(slug,title,norm,content_type) VALUES(?,?,?,?)",
+                  (slug, title, _norm(title), content_type))
         c.commit(); c.close()
     except Exception:
         pass
@@ -111,5 +128,26 @@ def published_titles():
     try:
         c = db(); rows = c.execute("SELECT title FROM published").fetchall(); c.close()
         return [r["title"] for r in rows]
+    except Exception:
+        return []
+
+
+def published_norms():
+    # Zbior znormalizowanych tytulow publikacji — do odsiewu kandydatur sygnalow.
+    try:
+        c = db(); rows = c.execute("SELECT norm FROM published").fetchall(); c.close()
+        return {r["norm"] for r in rows if r["norm"]}
+    except Exception:
+        return set()
+
+
+def recent_published_types(n=8):
+    # Typy tresci ostatnich n publikacji (najnowsze pierwsze) — wejscie do miekkiego limitu.
+    try:
+        c = db()
+        rows = c.execute("SELECT content_type FROM published ORDER BY id DESC LIMIT ?",
+                         (int(n),)).fetchall()
+        c.close()
+        return [r["content_type"] for r in rows if r["content_type"]]
     except Exception:
         return []
