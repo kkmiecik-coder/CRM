@@ -6,6 +6,8 @@ import shop_db
 from config import SHOP_BASE_URL, PS_PREFIX, PS_LANG_IDS
 
 # Rdzenie gatunkow, ktorym link_rewrite gubi polskie znaki (np. "debowe" -> "dębowe", "wiazowe" -> "wiązowe").
+# UWAGA: podmiana po granicy slowa (\b) — gdyby doszla kategoria nie-gatunkowa zaczynajaca sie od "deb"/"wiaz"
+# (np. "debata"), rozszerz warunek. W sklepie z drewnem takie kolizje sa nierealne.
 _PL_RDZENIE = (("deb", "dęb"), ("wiaz", "wiąz"))
 
 _LANG = PS_LANG_IDS[0] if PS_LANG_IDS else 1  # jezyk tresci = pierwszy (PL)
