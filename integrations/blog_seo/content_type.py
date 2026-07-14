@@ -12,12 +12,13 @@ TYPE_TO_CATEGORY = {
     "zrob-to-sam": "Zrób to sam",
 }
 
-# Opis konwencji przekazywany writerowi jako twarde ograniczenie stylu.
+# Opis konwencji przekazywany writerowi jako charakter tekstu (NIE etykieta do wpisania w tresci).
+# Bez slowa "artykul"/"poradnik" w wartosciach — zeby model nie cytowal ich w prozie.
 TYPE_ANGLE = {
-    "poradnik": "praktyczny poradnik krok po kroku (jak zrobić/zadbać)",
-    "trendy": "artykuł o trendach, inspiracjach i aranżacjach",
-    "edukacja": "artykuł edukacyjny wyjaśniający pojęcia i różnice",
-    "zrob-to-sam": "instrukcja DIY zrób to sam dla majsterkowicza",
+    "poradnik": "praktyczne wskazówki krok po kroku (jak wybrać, jak zadbać)",
+    "trendy": "trendy, inspiracje i pomysły na aranżacje",
+    "edukacja": "wyjaśnienie pojęć i różnic między rozwiązaniami",
+    "zrob-to-sam": "instrukcja zrób to sam dla majsterkowicza",
 }
 
 # Kolejnosc ma znaczenie: najmocniejsza intencja (DIY) najpierw, neutralny poradnik na koncu.

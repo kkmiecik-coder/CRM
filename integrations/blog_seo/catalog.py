@@ -1,8 +1,12 @@
 # -*- coding: utf-8 -*-
 # Odczyt katalogu PrestaShop. Linkujemy KATEGORIE (stabilne, /{id}-{link_rewrite} → 200, obrazy /img/c/).
 # Produkty tylko do generowania tematow (nazwy). URL/obraz produktow swiadomie nie budujemy.
+import re
 import shop_db
 from config import SHOP_BASE_URL, PS_PREFIX, PS_LANG_IDS
+
+# Rdzenie gatunkow, ktorym link_rewrite gubi polskie znaki (np. "debowe" -> "dębowe", "wiazowe" -> "wiązowe").
+_PL_RDZENIE = (("deb", "dęb"), ("wiaz", "wiąz"))
 
 _LANG = PS_LANG_IDS[0] if PS_LANG_IDS else 1  # jezyk tresci = pierwszy (PL)
 
@@ -16,11 +20,19 @@ def category_image_url(id_category):
     return "%s/img/c/%s.jpg" % (SHOP_BASE_URL, id_category)
 
 
+def _restore_pl(s):
+    # Przywraca polskie znaki w rdzeniach gatunkow (link_rewrite jest bez diakrytykow): "debowe" -> "dębowe".
+    out = s
+    for bad, good in _PL_RDZENIE:
+        out = re.sub(r"\b" + bad, good, out)
+    return out
+
+
 def _display_name(link_rewrite, name):
-    # Etykieta rozroznialna z link_rewrite (myslniki->spacje, kapitalizacja) — bo sama nazwa-lisc
-    # bywa niejednoznaczna (kilka podkategorii "Bukowe"): blaty-bukowe -> "Blaty bukowe". Fallback: name.
+    # Etykieta rozroznialna z link_rewrite (myslniki->spacje, przywrocone diakrytyki, kapitalizacja) — bo sama
+    # nazwa-lisc bywa niejednoznaczna (kilka podkategorii "Bukowe"): blaty-debowe -> "Blaty dębowe". Fallback: name.
     lr = (link_rewrite or "").replace("-", " ").strip()
-    return lr.capitalize() if lr else (name or "")
+    return _restore_pl(lr).capitalize() if lr else (name or "")
 
 
 def _map_categories(rows):

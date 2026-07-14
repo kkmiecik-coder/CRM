@@ -84,6 +84,11 @@ TOPIC_SEEDS = _list("BLOG_TOPIC_SEEDS", [
     "Na co uważać przy drewnianym blacie w łazience",
 ])
 
+# ----- Fakty o ofercie do wplatania przez writera (TYLKO prawdziwe, kuratorowane przez uzytkownika) -----
+# Pusta lista = writer pisze bez konkretow firmowych (jak dotad). Format w .env:
+# BLOG_BRAND_FACTS="blaty na wymiar, olejowanie i lakierowanie, drewno lite i mikrowczep".
+BRAND_FACTS = _list("BLOG_BRAND_FACTS", [])
+
 # ----- Sygnaly popytu (wybor tematow bloga) -----
 # GSC = glowne zrodlo realnego popytu; domyslnie OFF (wymaga konta uslugowego Google Cloud
 # z dostepem do property w Search Console). Autocomplete + Trends = darmowa warstwa swiezych fraz.

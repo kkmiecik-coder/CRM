@@ -4,6 +4,7 @@
 import re
 import llm
 from linker import render_link
+from config import BRAND_FACTS
 from core.log import log
 
 # Mapa polskich znakow na ascii dla slugow (PrestaShop url_alias).
@@ -18,12 +19,25 @@ _SYSTEM = (
     "Jesteś redaktorem bloga firmy WoodPower (drewniane blaty i schody). Piszesz artykuły pod SEO "
     "i marketing produktów. Zasady: głos firmy w liczbie mnogiej (\"doradzimy\", \"polecamy\"), "
     "BEZ myślników w tekście, po polsku. Nie wymyślaj cen, wymiarów, certyfikatów — opieraj się "
-    "wyłącznie na przekazanych produktach. Treść to bogaty HTML (<section>, <h2>, <p>, <ul>), "
-    "z sekcją FAQ. Zakończ krótkim, naturalnym akapitem zachęcającym do zapoznania się z ofertą — "
+    "wyłącznie na przekazanych produktach i faktach. Treść to bogaty HTML (<section>, <h2>, <p>, <ul>), "
+    "z sekcją FAQ. Sekcję FAQ złóż jednolicie: każde pytanie jako <h3>, odpowiedź jako <p> pod nim. "
+    "NIE nazywaj tekstu w treści — nie pisz \"artykuł edukacyjny\", \"poradnik\", \"w tym wpisie\" "
+    "ani podobnych etykiet; wchodź od razu w temat. Unikaj sztywnego, powtarzalnego szablonu: dobieraj "
+    "sekcje i nagłówki do konkretnego tematu, nie powielaj tego samego układu w każdym artykule. "
+    "Zakończ krótkim, naturalnym akapitem zachęcającym do zapoznania się z ofertą — "
     "NIE pisz słowa \"CTA\" ani żadnej etykiety przed tym akapitem, pisz płynną prozą. "
     "Wplataj podane linki naturalnie w treść. "
     "Zwracasz WYŁĄCZNIE JSON z polami: title, meta_title, meta_description, meta_keywords, "
     "short_description, category, body_html.")
+
+
+def _brand_facts_block():
+    # Blok z prawdziwymi faktami o ofercie (jesli skonfigurowane) — writer ma je wpleść, nic nie dodając poza.
+    if not BRAND_FACTS:
+        return ""
+    facts = "\n".join("- " + f for f in BRAND_FACTS)
+    return ("\n\nWplataj naturalnie, tam gdzie pasują, PRAWDZIWE informacje o naszej ofercie "
+            "(nie wszystkie na siłę, nie dodawaj niczego spoza tej listy):\n" + facts)
 
 
 def slugify(text):
@@ -42,12 +56,12 @@ def write_article(topic_title, links, category_names, content_type=None):
     angle = ""
     if content_type:
         import content_type as ct   # alias — parametr 'content_type' przeslania nazwe modulu
-        angle = "\nTyp treści: %s. Napisz artykuł dokładnie w tej konwencji." % \
+        angle = "\nKonwencja tekstu: %s — trzymaj ten charakter, ale nie nazywaj go wprost w treści." % \
                 ct.TYPE_ANGLE.get(content_type, content_type)
     user = ("Temat: %s\n\nWpleć te linki wewnętrzne (użyj dokładnych URL, klasa CSS kontakt-link-descr, "
             "składnia <a href=... class=\"kontakt-link-descr\">tekst</a>):\n%s\n\n"
-            "Wybierz kategorię bloga (pole category) z: %s.%s\n"
-            "Napisz kompletny artykuł." % (topic_title, links_listing, cats, angle))
+            "Wybierz kategorię bloga (pole category) z: %s.%s%s\n"
+            "Napisz kompletny artykuł." % (topic_title, links_listing, cats, angle, _brand_facts_block()))
     raw = llm.chat([{"role": "system", "content": _SYSTEM},
                     {"role": "user", "content": user}], want_json=True, max_tokens=6000)
     if raw is None:
