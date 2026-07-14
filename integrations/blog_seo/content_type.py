@@ -1,26 +1,11 @@
 # -*- coding: utf-8 -*-
-# Klasyfikacja typu tresci bloga wg intencji frazy + kara za dominacje typu (miekki limit),
-# oraz mapowanie typu na realna kategorie modulu bloga. Bez LLM, bez zaleznosci — czyste regexy.
+# Klasyfikacja typu tresci bloga wg intencji frazy + kara za dominacje typu (miekki limit backlogu).
+# UWAGA: typ NIE wyznacza juz kategorii bloga — kategorie wybiera model (writer) z podanej listy.
+# Ten modul sluzy wylacznie do priorytetyzacji tematow w backlogu (rownowazenie typow zapytan).
+# Bez LLM, bez zaleznosci — czyste regexy.
 import re
 
-TYPES = ("poradnik", "trendy", "edukacja", "zrob-to-sam")
-
-TYPE_TO_CATEGORY = {
-    "poradnik": "Poradniki",
-    "trendy": "Trendy",
-    "edukacja": "Edukacja",
-    "zrob-to-sam": "Zrób to sam",
-}
-
-# Opis konwencji przekazywany writerowi jako charakter tekstu (NIE etykieta do wpisania w tresci).
-# Bez slowa "artykul"/"poradnik" w wartosciach — zeby model nie cytowal ich w prozie.
-TYPE_ANGLE = {
-    "poradnik": "praktyczne wskazówki krok po kroku (jak wybrać, jak zadbać)",
-    "trendy": "trendy, inspiracje i pomysły na aranżacje",
-    "edukacja": "wyjaśnienie pojęć i różnic między rozwiązaniami",
-    "zrob-to-sam": "instrukcja zrób to sam dla majsterkowicza",
-}
-
+# Slugi typow uzywane w priorytetyzacji: poradnik / trendy / edukacja / zrob-to-sam.
 # Kolejnosc ma znaczenie: najmocniejsza intencja (DIY) najpierw, neutralny poradnik na koncu.
 _PATTERNS = [
     ("zrob-to-sam", r"(samemu|własnoręcznie|wlasnorecznie|\bdiy\b|zrób|zrob|krok po kroku|jak zrobić|jak zrobic)"),
@@ -45,12 +30,3 @@ def type_penalty(ctype, recent_types, step=5):
         return list(recent_types or []).count(ctype) * int(step)
     except Exception:
         return 0
-
-
-def category_for_type(ctype, available_names):
-    # Dopasowuje tytul kategorii bloga do typu (casefold-contains). Fallback: pierwsza dostepna / "Poradniki".
-    want = TYPE_TO_CATEGORY.get(ctype, "")
-    for n in (available_names or []):
-        if n and want and want.casefold() in n.casefold():
-            return n
-    return (available_names[0] if available_names else "Poradniki")
