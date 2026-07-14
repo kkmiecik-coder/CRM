@@ -969,7 +969,9 @@ function scrollToLatestProduct() {
 
 // Warianty niedostępne — ustawiane przez kod, nie przez użytkownika.
 // Stan niedostępności definiowany jest w HTML (class="unavailable", disabled na radio).
-const unavailableVariants = [];
+// Jesion (lity i mikrowczep) świadomie zablokowany do wyboru — opcje zostają widoczne,
+// ale wyszarzone i nieklikalne (initializeVariantAvailability ustawia disabled + .unavailable).
+const unavailableVariants = ['jes-lity-ab', 'jes-micro-ab'];
 
 /**
  * Inicjalizuje niedostępność wariantów na podstawie konfiguracji.
