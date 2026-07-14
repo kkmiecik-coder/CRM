@@ -36,8 +36,8 @@ def run(dry_run=False):
     links = [{"anchor": c.get("display_name") or c["name"], "url": c["url"]} for c in selected]
 
     blog_cats = _blog_category_names()
-    ctype = topic.get("content_type")
-    article = writer.write_article(topic["title"], links, blog_cats, content_type=ctype)
+    ctype = topic.get("content_type")   # zachowany tylko do historii (miekki limit backlogu), nie do writera
+    article = writer.write_article(topic["title"], links, blog_cats)
     if not article:
         log("run: writer nie zwrocil artykulu"); return {"ok": False, "id_post": 0, "slug": "", "reason": "brak_artykulu"}
 

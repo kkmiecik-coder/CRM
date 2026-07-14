@@ -18,7 +18,7 @@ def _prep(tmp_path, monkeypatch):
     monkeypatch.setattr(rd.catalog, "get_categories", lambda: CATS)
     monkeypatch.setattr(rd.catalog, "search_categories", lambda kws, limit=30: CATS)
     monkeypatch.setattr(rd.topics, "pick_topic", lambda s, c: {"id": 1, "title": "Jak dbać o blat dębowy", "content_type": "poradnik"})
-    monkeypatch.setattr(rd.writer, "write_article", lambda t, l, cn, content_type=None: {
+    monkeypatch.setattr(rd.writer, "write_article", lambda t, l, cn: {
         "title": "Jak dbać o blat dębowy", "slug": "jak-dbac-o-blat-debowy",
         "meta_title": "T", "meta_description": "D", "meta_keywords": "k",
         "short_description": "s", "body_html": "<section><p>x</p></section>", "category": "Poradniki"})
@@ -29,7 +29,7 @@ def _prep(tmp_path, monkeypatch):
 def test_linki_to_kategorie_i_blok_doklejony(tmp_path, monkeypatch):
     rd, store = _prep(tmp_path, monkeypatch)
     captured = {}
-    def fake_write(t, links, cn, content_type=None):
+    def fake_write(t, links, cn):
         captured["links"] = links
         return {"title": "T", "slug": "jak-dbac-o-blat-debowy", "meta_title": "T", "meta_description": "D",
                 "meta_keywords": "k", "short_description": "s", "body_html": "<section><p>x</p></section>",
@@ -101,15 +101,10 @@ def test_run_brak_tematu(tmp_path, monkeypatch):
     assert out["ok"] is False and out["reason"] == "brak_tematu"
 
 
-def test_content_type_plynie_do_writera_i_historii(tmp_path, monkeypatch):
+def test_content_type_trafia_do_historii(tmp_path, monkeypatch):
+    # Writer NIE dostaje juz content_type (kategorie wybiera sam z listy), ale typ z tematu
+    # nadal trafia do historii publikacji — zasila miekki limit backlogu.
     rd, store = _prep(tmp_path, monkeypatch)
-    seen = {}
-    def fake_write(t, links, cn, content_type=None):
-        seen["ctype"] = content_type
-        return {"title": "T", "slug": "jak-dbac-o-blat-debowy", "meta_title": "T", "meta_description": "D",
-                "meta_keywords": "k", "short_description": "s", "body_html": "<section><p>x</p></section>",
-                "category": "Poradniki"}
-    monkeypatch.setattr(rd.writer, "write_article", fake_write)
     monkeypatch.setattr(rd.images, "acquire_hero", lambda q: None)
     rec = {}
     monkeypatch.setattr(rd.publisher, "insert_draft", lambda art, img, thumb: 900)
@@ -117,5 +112,4 @@ def test_content_type_plynie_do_writera_i_historii(tmp_path, monkeypatch):
                         lambda slug, title, content_type=None: rec.update({"ct": content_type}))
     out = rd.run(dry_run=False)
     assert out["ok"] is True
-    assert seen["ctype"] == "poradnik"      # typ z tematu trafil do writera
-    assert rec["ct"] == "poradnik"          # ... i do historii publikacji
+    assert rec["ct"] == "poradnik"          # typ z tematu -> historia (nie do writera)

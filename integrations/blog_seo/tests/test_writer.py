@@ -68,27 +68,27 @@ def test_write_article_pola_nie_string_nie_rzuca(monkeypatch):
     assert isinstance(art["slug"], str) and art["slug"]
 
 
-def test_content_type_wymusza_kategorie(monkeypatch):
+def test_llm_wybiera_kategorie_z_listy(monkeypatch):
     import importlib, writer
     importlib.reload(writer)
-    # LLM zwraca kategorie "Poradniki", ale narzucony typ 'trendy' ma ja nadpisac na "Trendy".
+    # Kategorie wybiera model — jego trafny wybor z listy jest respektowany (nie nadpisywany).
     monkeypatch.setattr(writer.llm, "chat", lambda *a, **k:
                         '{"title":"T","meta_title":"M","meta_description":"D","meta_keywords":"k",'
-                        '"short_description":"s","category":"Poradniki","body_html":"<section><p>x</p></section>"}')
+                        '"short_description":"s","category":"Trendy","body_html":"<section><p>x</p></section>"}')
     names = ["Poradniki", "Trendy", "Edukacja", "Zrób to sam"]
-    art = writer.write_article("Nowoczesne blaty 2026", [], names, content_type="trendy")
+    art = writer.write_article("Nowoczesne blaty 2026", [], names)
     assert art["category"] == "Trendy"
 
 
-def test_bez_content_type_zachowanie_bez_zmian(monkeypatch):
+def test_kategoria_spoza_listy_fallback_do_pierwszej(monkeypatch):
     import importlib, writer
     importlib.reload(writer)
     monkeypatch.setattr(writer.llm, "chat", lambda *a, **k:
                         '{"title":"T","meta_title":"M","meta_description":"D","meta_keywords":"k",'
-                        '"short_description":"s","category":"Edukacja","body_html":"<section><p>x</p></section>"}')
+                        '"short_description":"s","category":"Zmyślona","body_html":"<section><p>x</p></section>"}')
     names = ["Poradniki", "Trendy", "Edukacja", "Zrób to sam"]
     art = writer.write_article("Co to mikrowczep", [], names)
-    assert art["category"] == "Edukacja"          # wybor LLM respektowany gdy brak narzuconego typu
+    assert art["category"] == "Poradniki"         # kategoria spoza listy -> pierwsza z listy
 
 
 def _cap_chat(captured):
