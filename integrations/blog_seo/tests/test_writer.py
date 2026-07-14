@@ -66,3 +66,26 @@ def test_write_article_pola_nie_string_nie_rzuca(monkeypatch):
     assert isinstance(art["title"], str) and art["title"]
     assert isinstance(art["meta_title"], str)
     assert isinstance(art["slug"], str) and art["slug"]
+
+
+def test_content_type_wymusza_kategorie(monkeypatch):
+    import importlib, writer
+    importlib.reload(writer)
+    # LLM zwraca kategorie "Poradniki", ale narzucony typ 'trendy' ma ja nadpisac na "Trendy".
+    monkeypatch.setattr(writer.llm, "chat", lambda *a, **k:
+                        '{"title":"T","meta_title":"M","meta_description":"D","meta_keywords":"k",'
+                        '"short_description":"s","category":"Poradniki","body_html":"<section><p>x</p></section>"}')
+    names = ["Poradniki", "Trendy", "Edukacja", "Zrób to sam"]
+    art = writer.write_article("Nowoczesne blaty 2026", [], names, content_type="trendy")
+    assert art["category"] == "Trendy"
+
+
+def test_bez_content_type_zachowanie_bez_zmian(monkeypatch):
+    import importlib, writer
+    importlib.reload(writer)
+    monkeypatch.setattr(writer.llm, "chat", lambda *a, **k:
+                        '{"title":"T","meta_title":"M","meta_description":"D","meta_keywords":"k",'
+                        '"short_description":"s","category":"Edukacja","body_html":"<section><p>x</p></section>"}')
+    names = ["Poradniki", "Trendy", "Edukacja", "Zrób to sam"]
+    art = writer.write_article("Co to mikrowczep", [], names)
+    assert art["category"] == "Edukacja"          # wybor LLM respektowany gdy brak narzuconego typu
