@@ -89,3 +89,39 @@ def test_bez_content_type_zachowanie_bez_zmian(monkeypatch):
     names = ["Poradniki", "Trendy", "Edukacja", "Zrób to sam"]
     art = writer.write_article("Co to mikrowczep", [], names)
     assert art["category"] == "Edukacja"          # wybor LLM respektowany gdy brak narzuconego typu
+
+
+def _cap_chat(captured):
+    def fake_chat(messages, **k):
+        captured["messages"] = messages
+        return ('{"title":"T","meta_title":"M","meta_description":"D","meta_keywords":"k",'
+                '"short_description":"s","category":"Edukacja","body_html":"<section><p>x</p></section>"}')
+    return fake_chat
+
+
+def test_brand_facts_wplatane_w_prompt(monkeypatch):
+    import importlib, writer
+    importlib.reload(writer)
+    monkeypatch.setattr(writer, "BRAND_FACTS", ["blaty na wymiar", "olejowanie i lakierowanie"])
+    cap = {}
+    monkeypatch.setattr(writer.llm, "chat", _cap_chat(cap))
+    writer.write_article("Blat dębowy", [], ["Edukacja"])
+    um = cap["messages"][1]["content"]
+    assert "blaty na wymiar" in um and "olejowanie i lakierowanie" in um
+
+
+def test_brak_brand_facts_nie_dodaje_bloku(monkeypatch):
+    import importlib, writer
+    importlib.reload(writer)
+    monkeypatch.setattr(writer, "BRAND_FACTS", [])
+    cap = {}
+    monkeypatch.setattr(writer.llm, "chat", _cap_chat(cap))
+    writer.write_article("Blat dębowy", [], ["Edukacja"])
+    assert "PRAWDZIWE informacje o naszej ofercie" not in cap["messages"][1]["content"]
+
+
+def test_system_ujednolica_faq_i_zabrania_meta():
+    import importlib, writer
+    importlib.reload(writer)
+    assert "<h3>" in writer._SYSTEM                                    # jednolity FAQ (pytania jako h3)
+    assert "nie nazywaj tekstu w treści" in writer._SYSTEM.lower()     # zakaz meta-etykiet

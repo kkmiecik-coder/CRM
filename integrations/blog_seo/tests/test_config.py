@@ -34,3 +34,9 @@ def test_domyslne_sygnaly():
     assert c.GSC_POS_MIN == 6 and c.GSC_POS_MAX == 20
     assert c.TRENDS_ENABLED == 1 and c.SUGGEST_ENABLED == 1
     assert c.SIGNALS_GEO == "PL" and c.SIGNALS_HL == "pl"
+
+
+def test_brand_facts_domyslnie_puste():
+    import importlib, config as c
+    importlib.reload(c)
+    assert c.BRAND_FACTS == []

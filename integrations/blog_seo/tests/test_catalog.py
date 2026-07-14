@@ -20,7 +20,7 @@ def test_get_categories_mapuje(monkeypatch):
     assert out[0]["image_url"] == "https://woodpower.pl/img/c/71.jpg"
     assert out[0]["link_rewrite"] == "blaty-debowe"
     assert out[0]["name"] == "Dębowe"
-    assert out[0]["display_name"] == "Blaty debowe"  # rozroznialna etykieta z link_rewrite
+    assert out[0]["display_name"] == "Blaty dębowe"  # rozroznialna etykieta z link_rewrite + diakrytyki
 
 
 def test_search_categories_pyta_po_slowach(monkeypatch):
@@ -40,6 +40,13 @@ def test_search_categories_pyta_po_slowach(monkeypatch):
 def test_search_categories_puste_slowa_zwraca_puste(monkeypatch):
     monkeypatch.setattr(catalog.shop_db, "query", lambda sql, params=(): [{"x": 1}])
     assert catalog.search_categories([]) == []
+
+
+def test_display_name_przywraca_diakrytyki():
+    assert catalog._display_name("blaty-debowe", "Dębowe") == "Blaty dębowe"
+    assert catalog._display_name("trepy-stopnie-schody-debowe", "") == "Trepy stopnie schody dębowe"
+    assert catalog._display_name("blaty-jesionowe", "") == "Blaty jesionowe"  # brak diakrytykow -> bez zmian
+    assert catalog._display_name("", "Fallback") == "Fallback"                # pusty link_rewrite -> name
 
 
 def test_get_products_uproszczony(monkeypatch):
