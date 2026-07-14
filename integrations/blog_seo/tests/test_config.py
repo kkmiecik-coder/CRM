@@ -23,3 +23,14 @@ def test_ps_lang_ids_nienumeryczne_nie_wywala_importu(monkeypatch):
     assert c.PS_LANG_IDS == [1, 2]
     monkeypatch.delenv("BLOG_PS_LANG_IDS", raising=False)
     importlib.reload(c)
+
+
+def test_domyslne_sygnaly():
+    import importlib, config as c
+    importlib.reload(c)
+    assert c.GSC_ENABLED == 0            # domyslnie wylaczony (setup konta uslugowego)
+    assert c.GSC_SITE_URL == "sc-domain:woodpower.pl"
+    assert c.GSC_DAYS == 28
+    assert c.GSC_POS_MIN == 6 and c.GSC_POS_MAX == 20
+    assert c.TRENDS_ENABLED == 1 and c.SUGGEST_ENABLED == 1
+    assert c.SIGNALS_GEO == "PL" and c.SIGNALS_HL == "pl"

@@ -83,3 +83,18 @@ TOPIC_SEEDS = _list("BLOG_TOPIC_SEEDS", [
     "Czym różni się blat lity od mikrowczepu",
     "Na co uważać przy drewnianym blacie w łazience",
 ])
+
+# ----- Sygnaly popytu (wybor tematow bloga) -----
+# GSC = glowne zrodlo realnego popytu; domyslnie OFF (wymaga konta uslugowego Google Cloud
+# z dostepem do property w Search Console). Autocomplete + Trends = darmowa warstwa swiezych fraz.
+GSC_ENABLED          = _int("BLOG_GSC_ENABLED", 0)
+GSC_SITE_URL         = os.environ.get("BLOG_GSC_SITE_URL", "sc-domain:woodpower.pl")
+GSC_CREDENTIALS_JSON = os.environ.get("BLOG_GSC_CREDENTIALS_JSON")  # sciezka do klucza konta uslugowego
+GSC_DAYS             = _int("BLOG_GSC_DAYS", 28)             # okno danych (dni wstecz)
+GSC_MIN_IMPRESSIONS  = _int("BLOG_GSC_MIN_IMPRESSIONS", 20)  # prog wyswietlen (odsiew szumu)
+GSC_POS_MIN          = _int("BLOG_GSC_POS_MIN", 6)           # striking distance: dolna granica pozycji
+GSC_POS_MAX          = _int("BLOG_GSC_POS_MAX", 20)          # ... i gorna (tam awans na 1. strone jest realny)
+TRENDS_ENABLED       = _int("BLOG_TRENDS_ENABLED", 1)
+SUGGEST_ENABLED      = _int("BLOG_SUGGEST_ENABLED", 1)
+SIGNALS_GEO          = os.environ.get("BLOG_SIGNALS_GEO", "PL")
+SIGNALS_HL           = os.environ.get("BLOG_SIGNALS_HL", "pl")
