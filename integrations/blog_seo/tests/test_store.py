@@ -44,3 +44,26 @@ def test_add_topic_db_awaria_zwraca_false(tmp_path, monkeypatch):
         raise RuntimeError("db locked")
     monkeypatch.setattr(store, "db", boom)
     assert store.add_topic("Cokolwiek") is False
+
+
+def test_content_type_zapamietany(tmp_path, monkeypatch):
+    store = _fresh_store(tmp_path, monkeypatch)
+    assert store.add_topic("Nowoczesne blaty 2026", content_type="trendy") is True
+    t = store.next_topic()
+    assert t["title"] == "Nowoczesne blaty 2026"
+    assert t["content_type"] == "trendy"
+
+
+def test_published_norms_i_recent_types(tmp_path, monkeypatch):
+    store = _fresh_store(tmp_path, monkeypatch)
+    store.record_published("s1", "Jak dbać o blat", content_type="poradnik")
+    store.record_published("s2", "Rodzaje drewna", content_type="edukacja")
+    assert "jak dbać o blat" in store.published_norms()
+    # najnowsze pierwsze (ORDER BY id DESC)
+    assert store.recent_published_types(8) == ["edukacja", "poradnik"]
+
+
+def test_record_published_bez_typu_kompatybilny(tmp_path, monkeypatch):
+    store = _fresh_store(tmp_path, monkeypatch)
+    store.record_published("s3", "Bez typu")   # stara sygnatura nadal dziala
+    assert store.recent_published_types() == []  # None odfiltrowane
