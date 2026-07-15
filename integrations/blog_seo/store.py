@@ -27,6 +27,9 @@ def init_db():
     CREATE TABLE IF NOT EXISTS published(
       id INTEGER PRIMARY KEY AUTOINCREMENT, slug TEXT UNIQUE, title TEXT, norm TEXT,
       created_at REAL DEFAULT (strftime('%s','now')));
+    CREATE TABLE IF NOT EXISTS used_images(
+      id INTEGER PRIMARY KEY AUTOINCREMENT, ikey TEXT UNIQUE,
+      created_at REAL DEFAULT (strftime('%s','now')));
     """)
     c.commit(); c.close()
     _ensure_columns()
@@ -130,6 +133,26 @@ def published_titles():
         return [r["title"] for r in rows]
     except Exception:
         return []
+
+
+def used_image_keys():
+    # Klucze (photo_url) zdjec juz uzytych w artykulach — do pomijania duplikatow przy doborze hero.
+    try:
+        c = db(); rows = c.execute("SELECT ikey FROM used_images").fetchall(); c.close()
+        return {r["ikey"] for r in rows if r["ikey"]}
+    except Exception:
+        return set()
+
+
+def mark_image_used(key):
+    # Zapisuje klucz zdjecia jako uzyty (INSERT OR IGNORE — powtorka nie rzuca). Pusty klucz pomijamy.
+    if not key:
+        return
+    try:
+        c = db(); c.execute("INSERT OR IGNORE INTO used_images(ikey) VALUES(?)", (key,))
+        c.commit(); c.close()
+    except Exception:
+        pass
 
 
 def published_norms():

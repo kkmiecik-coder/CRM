@@ -51,8 +51,9 @@ def run(dry_run=False):
         return {"ok": False, "id_post": 0, "slug": article["slug"], "reason": "duplikat_slug"}
 
     # Obrazy: hero (stock->AI) + miniatura + podpis atrybucji. Brak obrazu nie blokuje szkicu.
+    # Pomijamy zdjecia juz uzyte w innych artykulach (dedup po photo_url).
     image_name = thumb_name = ""
-    hero = images.acquire_hero(topic["title"])
+    hero = images.acquire_hero(topic["title"], store.used_image_keys())
     if hero:
         data, ext, attribution = hero
         image_name = "%s.%s" % (article["slug"], ext)
@@ -69,6 +70,9 @@ def run(dry_run=False):
         if not dry_run:
             publisher.save_image(data, image_name)
             publisher.save_image(thumb_bytes, thumb_name)
+            # Oznacz zdjecie jako uzyte dopiero po realnym zapisie (nie w dry-run).
+            if attribution:
+                store.mark_image_used(attribution.get("photo_url"))
 
     if dry_run:
         log("run: DRY-RUN — nie zapisuje. slug=%s, kategoria=%s, linki=%d"

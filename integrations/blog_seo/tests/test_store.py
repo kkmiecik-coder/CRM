@@ -37,6 +37,17 @@ def test_historia_publikacji(tmp_path, monkeypatch):
     assert "Jak dbać o blat" in store.published_titles()
 
 
+def test_used_images_dedup(tmp_path, monkeypatch):
+    store = _fresh_store(tmp_path, monkeypatch)
+    assert store.used_image_keys() == set()
+    store.mark_image_used("https://pexels.com/photo/1")
+    store.mark_image_used("https://pexels.com/photo/1")   # powtorka nie rzuca (INSERT OR IGNORE)
+    store.mark_image_used("")                             # pusty klucz pomijany
+    store.mark_image_used(None)                           # None pomijany
+    store.mark_image_used("https://pexels.com/photo/2")
+    assert store.used_image_keys() == {"https://pexels.com/photo/1", "https://pexels.com/photo/2"}
+
+
 def test_add_topic_db_awaria_zwraca_false(tmp_path, monkeypatch):
     # Awaria polaczenia (db()) nie moze wywrocic add_topic — kontrakt: blad -> False
     store = _fresh_store(tmp_path, monkeypatch)
